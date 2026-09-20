@@ -439,7 +439,7 @@ time.sleep(30)
                 if not screen[y][:27].startswith(' '+icon+' '):continue
                 if directory is not None and directory not in screen[y][4:27]:continue
                 if screen[y+1][1:4].strip()!=activity:continue
-                if screen[y+1][4:27].strip()==provider:return screen
+                if screen[y+1][4:27].strip()==provider or screen[y+1][4:27].strip().startswith(provider+' · '):return screen
         self.fail('missing two-line agent entry '+provider)
     def tabs_are(self,labels):
         for _ in range(100):
@@ -1041,7 +1041,7 @@ while True:
         self.assertNotIn('Alpha','\n'.join(row[:27] for row in screen))
         hook('UserPromptSubmit');self.agent_frame('codex','●',activity='🧠',color='249;226;175')
         hook('PreToolUse',tool_name='Bash');screen=self.agent_frame('codex','●',activity='🔧')
-        self.assertNotIn('Bash','\n'.join(row[:27] for row in screen))
+        self.assertIn('Bash','\n'.join(row[:27] for row in screen))
         hook('PermissionRequest');screen=self.agent_frame('codex','●',activity='🔧',color='243;139;168')
         self.assertEqual(self.panes()[0]['attention'],'needs_input')
         self.click_text([row[:27] for row in screen],'codex')

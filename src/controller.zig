@@ -30,7 +30,10 @@ const TabDrag = struct {
 };
 pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = null };
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
+const ReadReceipt = struct { pane: u32, through: u64, attention_at: i64 };
 pub const Client = struct {
+    presented: [layout.max_panes]ReadReceipt = undefined,
+    presented_count: usize = 0,
     viewer_id: u32 = 0,
     can_relaunch: bool = false,
     next_control: u64 = 1,
@@ -212,13 +215,13 @@ pub fn Controller(comptime remote: bool) type {
             for (s.model().tabs[0..s.model().count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
                     if (p.agent.provider == .other or s.model().tabForPane(p.id) != tab_index) continue;
-                    entries[count] = .{ .target = .{ .pane = p.id }, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active };
+                    entries[count] = .{ .target = .{ .pane = p.id }, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .unread = p.agent.observation.unread(), .activity = if (p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
                     count += 1;
                 }
             }
             for (s.runtime.sessions.items) |*session| {
                 if (session.workspace_id != s.runtime.workspaces.current().id) continue;
-                entries[count] = .{ .target = .{ .native = session.id }, .provider = session.provider, .state = session.state, .attention = session.attention, .focused = s.native_notice == session.id, .cwd = session.cwd, .tool_active = session.toolActive() };
+                entries[count] = .{ .target = .{ .native = session.id }, .provider = session.provider, .state = session.state, .attention = session.attention, .focused = s.native_notice == session.id, .cwd = session.cwd, .tool_active = session.toolActive(), .unread = session.observation.unread() };
                 count += 1;
             }
             return entries[0..count];
@@ -258,9 +261,7 @@ pub fn Controller(comptime remote: bool) type {
             s.dirty = true;
         }
         fn acknowledge(s: *Server) void {
-            if (remote) {
-                if (s.focused()) |p| s.connection.send(.{ .op = "pane.acknowledge", .protocol = 1, .pane = p.id }) catch {};
-            }
+            if (remote) return;
             if (s.focused()) |p| p.agent.acknowledge();
         }
         pub fn menu(s: *Server) ?commands.View {
@@ -1210,7 +1211,7 @@ pub fn Controller(comptime remote: bool) type {
         }
 
         fn paneWatched(s: *Server, id: u32) bool {
-            for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id) return true;
+            for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
             return s.isWatched() and s.model().count > 0 and s.model().tab().focus == id and s.hasClient();
         }
         pub fn refresh(s: *Server) !void {
@@ -1414,10 +1415,10 @@ pub fn Controller(comptime remote: bool) type {
                 s.dirty = true;
                 try cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
             } else if (eq(op, "native.list")) {
-                const Info = struct { id: u32, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, pending_requests: usize, active_tools: usize, next_seq: u64 };
+                const Info = struct { id: u32, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
                 var info: std.ArrayList(Info) = .empty;
                 defer info.deinit(a);
-                for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.state, .attention = session.attention, .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
+                for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.state, .attention = session.attention, .observation = session.observation, .unread = session.observation.unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
                 try cl.queue(.{ .ok = true, .sessions = info.items });
             } else if (std.mem.startsWith(u8, op, "native.")) {
                 const id = std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession;
@@ -1440,6 +1441,7 @@ pub fn Controller(comptime remote: bool) type {
                         defer events.deinit(a);
                         for (session.events.items) |event| if (event.seq > after) try events.append(a, event);
                         try cl.queue(.{ .ok = true, .events = events.items, .pending_requests = session.approvals.items, .next_seq = session.next_seq, .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq });
+                        session.observation.acknowledge(session.observation.completed);
                         session.attention = .none;
                     } else return error.UnknownOperation;
                     return;
@@ -1497,14 +1499,14 @@ pub fn Controller(comptime remote: bool) type {
                 const id = try s.create(if (eq(op, "new")) null else if (eq(agents.str(v, "axis"), "down")) .vertical else .horizontal, if (cwd.len == 0) s.runtime.workspaces.current().cwd else cwd, if (cmd.len == 0) null else cmd, agents.str(v, "title"));
                 try cl.queue(.{ .ok = true, .pane = id });
             } else if (eq(op, "list")) {
-                const Info = struct { id: u32, workspace: u32, tab: u32, focused: bool, provider: agents.Provider, state: agents.State, attention: agents.Attention, session: []const u8, activity: []const u8, cwd: []const u8, exited: bool };
+                const Info = struct { id: u32, workspace: u32, tab: u32, focused: bool, provider: agents.Provider, state: agents.State, attention: agents.Attention, session: []const u8, activity: []const u8, recent_activity: []const u8, unread: bool, completed: u64, read: u64, pending_stop: bool, source: agents.observation.Source, cwd: []const u8, exited: bool };
                 var items: std.ArrayList(Info) = .empty;
                 defer items.deinit(a);
                 for (s.runtime.panes.items) |p| {
                     const owner = s.runtime.workspaces.owner(p.id) orelse continue;
                     var copy = owner.model;
                     try copy.focus(p.id);
-                    try items.append(a, .{ .id = p.id, .workspace = owner.id, .tab = copy.tab().id, .focused = s.model().count > 0 and s.model().tab().focus == p.id, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .session = p.agent.sessionId(), .activity = p.agent.label(), .cwd = p.cwd, .exited = p.terminal.exited });
+                    try items.append(a, .{ .id = p.id, .workspace = owner.id, .tab = copy.tab().id, .focused = s.model().count > 0 and s.model().tab().focus == p.id, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .session = p.agent.sessionId(), .activity = p.agent.label(), .recent_activity = p.agent.recentLabel(), .unread = p.agent.observation.unread(), .completed = p.agent.observation.completed, .read = p.agent.observation.read, .pending_stop = p.agent.observation.pending_stop, .source = p.agent.observation.source, .cwd = p.cwd, .exited = p.terminal.exited });
                 }
                 try cl.queue(.{ .ok = true, .panes = items.items, .tabs = s.model().count, .closed_panes = s.runtime.closed.items.len, .muted = s.muted });
             } else if (eq(op, "focus") or eq(op, "close") or eq(op, "read") or eq(op, "send") or eq(op, "hook")) {
@@ -1828,9 +1830,26 @@ pub fn Controller(comptime remote: bool) type {
                     defer a.free(bytes);
                     for (s.clients.items) |*cl| if (cl.attached and !cl.dead and cl.needs_frame and cl.output.items.len == 0) {
                         try cl.queue(.{ .type = "frame", .data = bytes });
+                        cl.presented_count = 0;
+                        if (cl.watched) {
+                            var places: [layout.max_panes]layout.Placement = undefined;
+                            for (s.model().placements(s.area(), &places)) |place| if (s.pane(place.id)) |p| {
+                                cl.presented[cl.presented_count] = .{ .pane = p.id, .through = p.agent.observation.completed, .attention_at = if (s.model().tab().focus == p.id) p.agent.changed_at else -1 };
+                                cl.presented_count += 1;
+                            };
+                        }
                         cl.needs_frame = false;
                     };
                     s.last_frame = std.time.milliTimestamp();
+                }
+                if (s.bell and s.bell_kind == .finished) {
+                    var unread = false;
+                    for (s.runtime.panes.items) |p| unread = unread or p.agent.observation.unread();
+                    for (s.runtime.sessions.items) |session| unread = unread or session.attention == .finished;
+                    if (!unread) {
+                        s.bell = false;
+                        s.bell_kind = .none;
+                    }
                 }
                 if (s.bell and std.time.milliTimestamp() - s.last_bell > 1500) {
                     for (s.clients.items) |*cl| if (cl.attached and !s.muted) try cl.queue(.{ .type = "bell", .kind = @tagName(s.bell_kind) });
@@ -1855,6 +1874,15 @@ pub fn Controller(comptime remote: bool) type {
                         if (cl.sent == cl.output.items.len) {
                             cl.output.clearRetainingCapacity();
                             cl.sent = 0;
+                            if (cl.watched) for (cl.presented[0..cl.presented_count]) |receipt| {
+                                if (s.pane(receipt.pane)) |p| {
+                                    const before = p.agent;
+                                    if (p.agent.changed_at == receipt.attention_at) p.agent.attention = .none;
+                                    p.agent.readThrough(receipt.through);
+                                    if (!std.meta.eql(before, p.agent)) s.dirty = true;
+                                }
+                            };
+                            cl.presented_count = 0;
                         }
                     }
                 }

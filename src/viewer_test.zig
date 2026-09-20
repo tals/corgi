@@ -38,6 +38,7 @@ pub fn run(path: []const u8) !void {
         // second exchange captures the newly reconciled selection immediately.
         if (active) active = try viewer.sync(&view, &bell, false);
         const frame = try view.frame();
+        try viewer.presented(&view);
         defer a.free(frame);
         const model = &view.runtime.workspaces.current().model;
         try os.sendJson(1, .{ .data = frame, .workspace = view.runtime.workspaces.current().id, .tab = if (model.count > 0) model.tab().id else 0, .pane = if (view.focused()) |p| p.id else 0, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.clients.items[0].output.items });

@@ -105,7 +105,11 @@ The optional launcher and native App Server sessions find Codex automatically: w
 
 Optional explicit `CORGI_CODEX_BIN` / `CORGI_CLAUDE_BIN` overrides remain available for development, set before starting the runtime.
 
-Hook evidence drives working, waiting, idle, and done. Session IDs and event timestamps reject late updates from a previous session; child-agent hooks cannot overwrite the parent's lifecycle. Permissions and explicit user questions are waiting states. Tool names provide bounded activity labels. No transcript scraping or background summarization inference.
+Hooks describe working, waiting, tools, and session identity. `Stop` is provisional: the pane stays working with “checking completion” until the observer confirms the end of that turn. A shared worker checks only pending-stop transcripts, reads bounded appended chunks, backs off when completion is delayed, and never treats silence as completion. Codex requires matching session metadata and turn IDs in `task_complete`/`turn_complete`; Claude uses a fresh, matching-session `system/turn_duration` record after the Stop hook. Assistant messages and stop-hook summaries alone are not confirmation. These transcript formats are provider internals: missing paths, unsupported records, or missing Codex turn IDs leave completion unverified. Native sessions use protocol completion events. Screen-only idle remains an estimate and does not create unread results or completion sounds.
+
+Unread results are independent of working/idle status. Each confirmed end of turn has a monotonic receipt number; a new turn does not erase unread results. A separate sidebar dot remains visible even while the agent works again. Active viewers automatically acknowledge the receipt they displayed when visiting a tab or pane (visible splits count; zoom-hidden panes do not). Background viewers do not acknowledge; terminal focus reporting depends on the host terminal. Receipts are shared across viewers and survive live reload and recovery. Delayed receipts cannot clear newer completions. Reading native events acknowledges that native session. Interrupted/failed turns retain their outcome without playing a successful-completion sound.
+
+The sidebar shows bounded tool/thinking activity, provider-supplied tool descriptions when present, and the most recent completed tool. Generated semantic summaries and background inference are not enabled.
 
 Provider contracts: [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude hooks](https://code.claude.com/docs/en/hooks).
 
@@ -115,7 +119,7 @@ Provider contracts: [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude
 - **Turn finished:** Herdr's completion sound; sticky `+ done` marker.
 - `prefix a` visits waiting panes first, oldest first, then completed panes. Visiting acknowledges the marker without changing the agent's actual state.
 - Completion sounds stay quiet for a pane focused in any watching viewer. Input requests still ding. Focus reporting depends on the outer terminal supporting it.
-- Duplicate hooks don't ring twice. Bursts are coalesced, with at least 1.5 seconds between sounds and waiting taking precedence.
+- Completion receipts are deduplicated by turn. Duplicate hooks don't ring twice. Bursts are coalesced, with at least 1.5 seconds between sounds and waiting taking precedence.
 - Muting suppresses sounds while retaining the attention queue. `CORGI_BELL=terminal` selects BEL; `CORGI_BELL=off` disables client sounds.
 
 The two MP3s are embedded in the binary. Playback runs in a background thread using `afplay` on macOS, or the first successful MP3-capable player on Linux (`paplay`, `pw-play`, `ffplay`, `mpg123`, `mpv`). Temporary audio files are removed after playback; failed playback falls back to BEL. Plain SSH attachments use BEL so the notification reaches the local terminal rather than the remote host's audio device; its audibility depends on your terminal's bell settings.

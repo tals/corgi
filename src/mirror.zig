@@ -115,6 +115,7 @@ pub const Terminal = struct {
 };
 pub const Pane = struct { id: u32, terminal: *Terminal, agent: agents.Agent = .{}, cwd: []const u8 };
 pub const Native = struct {
+    observation: agents.observation.State = .{},
     id: u32,
     workspace_id: u32,
     provider: agents.Provider,
@@ -190,6 +191,8 @@ pub const Runtime = struct {
             p.agent.provider = info.agent.provider;
             p.agent.state = info.agent.state;
             p.agent.attention = info.agent.attention;
+            p.agent.observation = info.agent.observation;
+            p.agent.recent_len = agents.clean(&p.agent.recent, info.agent.recent_activity);
             p.agent.tool_active = info.agent.tool_active;
             p.agent.session_len = agents.clean(&p.agent.session, info.agent.session);
             p.agent.activity_len = agents.clean(&p.agent.activity, info.agent.activity);
@@ -204,6 +207,7 @@ pub const Runtime = struct {
             .cwd = try a.dupe(u8, s.cwd),
             .state = s.state,
             .attention = s.attention,
+            .observation = s.observation,
             .tool_active = s.tool_active,
         });
         r.revision = snapshot.revision;

@@ -14,6 +14,8 @@ pub const Entry = struct {
     focused: bool = false,
     cwd: []const u8 = "",
     tool_active: bool = false,
+    unread: bool = false,
+    activity: []const u8 = "",
 
     // Herdr's dot style and Catppuccin colors; finished attention is its
     // unseen-idle state. Corgi also retains ended native sessions.
@@ -132,8 +134,12 @@ pub const View = struct {
             const directory = directoryLabel(&path, e.cwd, os.env("HOME"));
             const room = v.width - 6;
             try writeDirectory(w, directory, room);
+            if (e.unread) try w.print("\x1b[{d};{d}H\x1b[38;2;148;226;213m•", .{ y + 1, v.width - 2 });
             const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) "🧠" else "";
-            try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H{s}", .{ y + 2, activity, y + 2, @tagName(e.provider) });
+            try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H", .{ y + 2, activity, y + 2 });
+            var label: [220]u8 = undefined;
+            const detail = if (e.activity.len > 0) std.fmt.bufPrint(&label, "{s} · {s}", .{ @tagName(e.provider), e.activity }) catch @tagName(e.provider) else @tagName(e.provider);
+            try writeClipped(w, detail, v.width - 6);
         }
         if (v.count > v.capacity) {
             var text: [64]u8 = undefined;

@@ -92,6 +92,20 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     return !reply.detach and view.clients.items[0].attached;
 }
 
+// Called only after the frame has been written. Receipts refer to the
+// snapshot displayed, never whatever completion happens to be latest remotely.
+pub fn presented(view: *View) !void {
+    if (!view.clients.items[0].watched) return;
+    var places: [layout.max_panes]layout.Placement = undefined;
+    for (view.runtime.workspaces.current().model.placements(view.area(), &places)) |place| {
+        const p = view.runtime.pane(place.id) orelse continue;
+        const focused = if (view.focused()) |selected| selected.id == p.id else false;
+        if (!p.agent.observation.unread() and (p.agent.attention == .none or !focused)) continue;
+        try view.connection.send(.{ .op = "pane.acknowledge", .protocol = 1, .pane = p.id, .session = p.agent.sessionId(), .through = p.agent.observation.completed, .attention_at = if (focused) p.agent.changed_at else @as(i64, -1) });
+        if (focused) p.agent.acknowledge() else p.agent.readThrough(p.agent.observation.completed);
+    }
+}
+
 pub fn run(fd: c_int, path: []const u8, probe: *@import("theme.zig").Probe, input: *std.ArrayList(u8)) !?[]const u8 {
     var connection: Connection = .{ .fd = fd };
     var view: View = .{ .connection = &connection, .socket = path, .executable = "" };
@@ -131,6 +145,7 @@ pub fn run(fd: c_int, path: []const u8, probe: *@import("theme.zig").Probe, inpu
             if (!std.mem.eql(u8, previous, frame)) try os.writeAll(1, frame);
             if (previous.len > 0) a.free(previous);
             previous = frame;
+            try presented(&view);
             view.dirty = false;
         }
         // Clipboard and detach effects from the shared controller are local.

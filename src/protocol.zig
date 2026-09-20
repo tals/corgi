@@ -36,6 +36,8 @@ pub const Node = union(enum) {
 pub const Tab = struct { id: u32, title: []const u8, layout: *const Node };
 pub const Workspace = struct { token: u64 = 0, id: u32, name: []const u8, cwd: []const u8, custom_name: ?[]const u8 = null, tabs: []const Tab };
 pub const Agent = struct {
+    observation: agents.observation.State = .{},
+    recent_activity: []const u8 = "",
     changed_at: i64 = 0,
     provider: agents.Provider,
     state: agents.State,
@@ -57,6 +59,7 @@ pub const Pane = struct {
     agent: Agent,
 };
 pub const Native = struct {
+    observation: agents.observation.State = .{},
     id: u32,
     workspace: u32,
     provider: agents.Provider,
@@ -108,6 +111,8 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
                 .provider = p.agent.provider,
                 .state = p.agent.state,
                 .attention = p.agent.attention,
+                .observation = p.agent.observation,
+                .recent_activity = p.agent.recentLabel(),
                 .session = p.agent.sessionId(),
                 .activity = p.agent.label(),
                 .cwd = p.agent.directory(),
@@ -125,6 +130,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         .exited = session.exited,
         .state = session.state,
         .attention = session.attention,
+        .observation = session.observation,
         .tool_active = session.toolActive(),
     };
     return .{

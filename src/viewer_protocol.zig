@@ -134,8 +134,13 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         try cl.queue(.{ .ok = true });
     } else if (eq(u8, op, "pane.acknowledge")) {
         const p = s.runtime.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
-        if (p.agent.attention != .none) {
-            p.agent.acknowledge();
+        const through = if (v.object.get("through")) |value| if (value == .integer and value.integer >= 0) @as(u64, @intCast(value.integer)) else return error.InvalidAcknowledgement else 0;
+        if (!eq(u8, agents.str(v, "session"), p.agent.sessionId())) return error.StaleAcknowledgement;
+        if (p.agent.attention != .none or p.agent.observation.unread()) {
+            if (v.object.get("attention_at")) |stamp| {
+                if (stamp == .integer and stamp.integer == p.agent.changed_at) p.agent.attention = .none;
+            }
+            p.agent.readThrough(through);
             s.runtime.changed();
             s.dirty = true;
         }
