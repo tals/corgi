@@ -245,7 +245,7 @@ pub fn Controller(comptime remote: bool) type {
         }
         pub fn workspaceEntries(s: *Server, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
             s.followWorkspaceDirectories();
-            for (s.runtime.workspaces.items.items, 0..) |*ws, i| out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active };
+            for (s.runtime.workspaces.items.items, 0..) |*ws, i| out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead };
             return out[0..s.runtime.workspaces.items.items.len];
         }
         pub fn agentEntries(s: *Server, entries: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
@@ -1798,11 +1798,13 @@ pub fn Controller(comptime remote: bool) type {
                         s.native_notice = session.id;
                     }
                 }
-                // Reap closed panes too. A HUP can take effect after the pane was removed.
+                // Reap closed panes too, forwarding Git exits to its worker.
+                @import("git_status.zig").child_mutex.lock();
                 while (true) {
                     var status: c_int = 0;
                     const pid = c.waitpid(-1, &status, c.WNOHANG);
                     if (pid <= 0) break;
+                    @import("git_status.zig").recordExit(pid, status);
                     for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                         p.terminal.exited = true;
                         p.terminal.exit_status = status;
@@ -1813,6 +1815,7 @@ pub fn Controller(comptime remote: bool) type {
                         s.dirty = true;
                     };
                 }
+                @import("git_status.zig").child_mutex.unlock();
                 // Both Terminal.read and the general child reaper can detect exit.
                 // Remove in a separate pass so adjacent exits aren't skipped.
                 var pi: usize = 0;
@@ -1865,6 +1868,8 @@ pub fn Controller(comptime remote: bool) type {
                 // release incomplete prefixes (e.g. a legacy terminal's Alt-[).
                 // A lone ESC and literal paste fragments keep the short timeout.
                 try s.expireInput();
+                s.followWorkspaceDirectories();
+                if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
                 if (s.dirty) {
                     s.runtime.changed();
                     for (s.clients.items) |*cl| if (cl.attached) {

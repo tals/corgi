@@ -10,6 +10,7 @@ pub const Workspace = struct {
     name_len: usize = 0,
     cwd: []const u8,
     model: layout.Model = .{},
+    git_ahead: ?u64 = null,
     pub fn customName(w: *const Workspace) []const u8 {
         return w.name_buf[0..w.name_len];
     }
@@ -23,6 +24,7 @@ pub const Workspace = struct {
         const next = try a.dupe(u8, cwd);
         a.free(w.cwd);
         w.cwd = next;
+        w.git_ahead = null;
         return true;
     }
     fn rename(w: *Workspace, value: []const u8) void {
@@ -129,6 +131,7 @@ pub const Store = struct {
         const path = try directory(cwd);
         a.free(s.items.items[i].cwd);
         s.items.items[i].cwd = path;
+        s.items.items[i].git_ahead = null;
         s.items.items[i].rename(name);
     }
 };

@@ -44,12 +44,14 @@ pub const Runtime = struct {
     sessions: std.ArrayList(native.Session) = .empty,
     next_session: u32 = 1,
     revision: u64 = 1,
+    git_status: @import("git_status.zig").Tracker = .{},
 
     pub fn changed(r: *Runtime) void {
         r.revision +%= 1;
     }
 
     pub fn deinit(r: *Runtime) void {
+        r.git_status.deinit();
         for (r.panes.items) |p| {
             p.terminal.destroy();
             a.free(p.cwd);

@@ -30,7 +30,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { id: u32, name: []const u8, cwd: []const u8, active: bool };
+pub const WorkspaceEntry = struct { git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool };
 pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     cols: u16,
@@ -105,7 +105,12 @@ pub const View = struct {
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
             var label: [std.fs.max_path_bytes + 1]u8 = undefined;
-            try v.line(w, y, directoryLabel(&label, ws.name, null), style);
+            var badge_buf: [32]u8 = undefined;
+            const badge = if (ws.git_ahead) |n| if (n > 0) try std.fmt.bufPrint(&badge_buf, "↑{d}", .{n}) else "" else "";
+            const badge_width = displayWidth(badge);
+            try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
+            try writeClipped(w, directoryLabel(&label, ws.name, null), v.width - 3 - (if (badge_width > 0) badge_width + 1 else 0));
+            if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m{s}", .{ y + 1, v.width - 1 - badge_width, badge });
             var path: [std.fs.max_path_bytes + 1]u8 = undefined;
             try w.print("\x1b[{d};2H{s}", .{ y + 2, panel });
             try writeDirectory(w, directoryLabel(&path, ws.cwd, os.env("HOME")), v.width - 3);
@@ -251,4 +256,15 @@ test "workspace directory row selects the workspace across its width" {
     try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(23, 3));
     try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 2));
     try std.testing.expectEqual(Hit.none, view.hit(24, 7));
+}
+
+test "unpushed badge retains its columns beside a long workspace name" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+    const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "abcdefghijklmnopqrstuvwxyz", .cwd = "/tmp", .active = true, .git_ahead = 123 }};
+    try view.draw(&output.writer, &.{}, &entries);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
 }
