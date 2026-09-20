@@ -38,6 +38,23 @@ corgi workspace edit 1 Personal ~/dev/personal
 corgi workspace close 2  # only when empty
 ```
 
+Agents can discover the command interface with `corgi --help` and load the bundled
+Markdown guide with `corgi --skill`. Explicit targets avoid changing another
+viewer's focus; layout moves preserve running processes and pane IDs.
+
+```sh
+corgi list
+corgi tab rename current Backend
+corgi tab move 12 --before 8
+corgi pane split current --right
+corgi pane move 31 --new-tab --name Logs
+corgi tab merge 12 --right-of 42
+```
+
+IDs above are examples: use IDs from `corgi list`. `current` resolves the calling
+pane's live location. Commands return JSON; `--text` makes discovery readable or
+prints terminal text directly. Run `corgi tab` or `corgi pane` for usage.
+
 Run agents normally inside a pane:
 
 ```sh

@@ -58,7 +58,16 @@ fn run() !void {
         }
         return @import("client.zig").attach(path);
     }
-    if (eq(cmd, "--help") or eq(cmd, "help")) return os.writeAll(1, help);
+    if (@import("cli.zig").handles(args)) {
+        @import("cli.zig").run(path, args) catch |err| {
+            @import("cli.zig").failure(@errorName(err), if (err == error.Usage or err == error.InvalidCharacter or err == error.Overflow or err == error.InvalidKey or err == error.NoCallerPane or err == error.MissingWorkspace) 2 else 1) catch {};
+        };
+        return;
+    }
+    if (eq(cmd, "--help") or eq(cmd, "help")) {
+        try os.writeAll(1, help);
+        return os.writeAll(1, @import("cli.zig").help);
+    }
     if (eq(cmd, "--version")) return os.writeAll(1, "corgi 0.1.0 (Ghostty VT; Zig 0.15.2)\n");
     if (eq(cmd, "which")) {
         if (args.len != 3) return error.Usage;
@@ -99,7 +108,7 @@ fn run() !void {
         try integration.launch(args[2], args[3..], exe);
     }
     if (eq(cmd, "workspace")) {
-        if (args.len < 3) return error.Usage;
+        if (args.len < 3 or eq(args[2], "--help") or eq(args[2], "help")) return os.writeAll(1, "corgi workspace list|new NAME [DIR]|switch ID|edit ID NAME DIR|close ID (empty only)\n");
         try ensureServer(path, exe);
         if (eq(args[2], "list")) return request(path, .{ .op = "workspace.list" }, false);
         if (eq(args[2], "new")) {
@@ -270,8 +279,7 @@ const help =
     \\  corgi start                   start detached runtime
     \\  corgi new [shell-command]     create tab
     \\  corgi split right|down [cmd]  split focused pane
-    \\  corgi list                    JSON pane and agent inventory
-    \\  corgi focus|close|read ID      manage / capture pane
+    \\  corgi close|read ID            legacy close / capture pane
     \\  corgi send ID TEXT [--enter]   literal input
     \\  corgi workspace list|new NAME [DIR]|switch ID
     \\  corgi workspace edit ID NAME DIR|close ID (empty only)

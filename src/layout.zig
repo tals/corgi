@@ -41,7 +41,7 @@ pub const Model = struct {
     active: usize = 0,
     next_id: Id = 1,
 
-    fn alloc(m: *Model, node: Node) !u8 {
+    pub fn alloc(m: *Model, node: Node) !u8 {
         for (&m.nodes, 0..) |*slot, i| if (slot.* == null) {
             slot.* = node;
             return @intCast(i);
@@ -62,7 +62,7 @@ pub const Model = struct {
         m.count += 1;
         return id;
     }
-    fn findNode(m: *const Model, id: Id) ?u8 {
+    pub fn findNode(m: *const Model, id: Id) ?u8 {
         for (m.nodes, 0..) |maybe, i| if (maybe) |n| {
             if (n == .pane and n.pane == id) return @intCast(i);
         };
@@ -80,13 +80,13 @@ pub const Model = struct {
         m.tab().zoom = false;
         return id;
     }
-    fn firstPane(m: *const Model, index: u8) Id {
+    pub fn firstPane(m: *const Model, index: u8) Id {
         return switch (m.nodes[index].?) {
             .pane => |id| id,
             .split => |s| m.firstPane(s.first),
         };
     }
-    fn contains(m: *const Model, index: u8, id: Id) bool {
+    pub fn contains(m: *const Model, index: u8, id: Id) bool {
         return switch (m.nodes[index].?) {
             .pane => |p| p == id,
             .split => |s| m.contains(s.first, id) or m.contains(s.second, id),
@@ -282,6 +282,46 @@ pub const Model = struct {
         const temporary = try m.split(.horizontal);
         m.nodes[m.findNode(temporary).?] = .{ .pane = id };
         m.tab().focus = id;
+    }
+    /// Copy a subtree between detached model snapshots. Callers commit only on success.
+    pub fn copyTree(m: *Model, source: *const Model, root: u8) anyerror!u8 {
+        return m.alloc(switch (source.nodes[root].?) {
+            .pane => |id| .{ .pane = id },
+            .split => |s| .{ .split = .{ .axis = s.axis, .ratio = s.ratio, .first = try m.copyTree(source, s.first), .second = try m.copyTree(source, s.second) } },
+        });
+    }
+    pub fn removeTab(m: *Model, index: usize) void {
+        m.freeTree(m.tabs[index].root);
+        std.mem.copyForwards(Tab, m.tabs[index .. m.count - 1], m.tabs[index + 1 .. m.count]);
+        m.count -= 1;
+        if (m.active > index) m.active -= 1 else if (m.active >= m.count) m.active = m.count -| 1;
+    }
+    fn freeTree(m: *Model, root: u8) void {
+        if (m.nodes[root].? == .split) {
+            const s = m.nodes[root].?.split;
+            m.freeTree(s.first);
+            m.freeTree(s.second);
+        }
+        m.nodes[root] = null;
+    }
+    pub fn insertTree(m: *Model, root: u8, target: Id, direction: Direction) !void {
+        const node = m.findNode(target) orelse return error.NoPane;
+        const old = try m.alloc(m.nodes[node].?);
+        const before = direction == .left or direction == .up;
+        m.nodes[node] = .{ .split = .{ .axis = if (direction == .left or direction == .right) .horizontal else .vertical, .first = if (before) root else old, .second = if (before) old else root } };
+    }
+    pub fn setShare(m: *Model, id: Id, axis: Axis, ratio: u16) !void {
+        const tab_index = m.tabForPane(id) orelse return error.NoPane;
+        if (!m.shareNode(m.tabs[tab_index].root, id, axis, ratio)) return error.NoSplit;
+    }
+    fn shareNode(m: *Model, root: u8, id: Id, axis: Axis, ratio: u16) bool {
+        const n = &m.nodes[root].?;
+        if (n.* != .split) return false;
+        const first = m.contains(n.split.first, id);
+        if (m.shareNode(if (first) n.split.first else n.split.second, id, axis, ratio)) return true;
+        if (n.split.axis != axis) return false;
+        n.split.ratio = if (first) ratio else 1000 - ratio;
+        return true;
     }
     pub const Divider = struct { node: u8, rect: Rect };
     pub fn dividerAt(m: *const Model, area: Rect, x: u16, y: u16) ?Divider {

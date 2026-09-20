@@ -1446,6 +1446,16 @@ pub fn Controller(comptime remote: bool) type {
                 try cl.queue(.{ .ok = true, .path = path });
                 return;
             }
+            const before_control = s.runtime.revision;
+            if (try @import("control.zig").handle(s, cl, v)) {
+                if (s.runtime.revision != before_control) {
+                    s.divider = null;
+                    s.reconcile();
+                    try s.resizePanes();
+                    try @import("viewer_protocol.zig").resize(s);
+                }
+                return;
+            }
             if (try @import("viewer_protocol.zig").handle(s, cl, v)) return;
             if (try @import("viewer_protocol.zig").routeControl(s, cl, v)) return;
             if (try s.runtimeRequest(cl, v)) return;

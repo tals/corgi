@@ -32,6 +32,56 @@ Multiple viewers can attach at once. They share workspace/tab order, split ratio
 
 Normal attachments compose their UI locally from session snapshots and terminal surfaces. The old socket `attach` operation remains available as a compatibility adapter, with its original shared-view semantics. New viewers check daemon capabilities and report when an older daemon needs an update; they never restart it automatically.
 
+## Agent CLI
+
+`corgi --skill` prints the [bundled agent guide](../src/corgi-skill.md); the main
+help includes the instruction to load it only when it is not already in context.
+`corgi tab`, `corgi pane`, and command `--help` show usage without connecting.
+
+`corgi list` returns a versioned session snapshot in `result`, plus `viewers`.
+Workspace entries contain ordered tabs and split trees; pane entries contain
+stable IDs, live location, cwd, PID, and agent observations. `corgi current`
+resolves `CORGI_PANE` through the runtime, so its tab/workspace remain accurate
+after moves. `--text` pretty-prints JSON; `pane read --text` emits plain text.
+The legacy `rpc {"op":"list"}` response remains available unchanged.
+
+```sh
+corgi tab new --name Tests --workspace 1 --cwd /absolute/project/path
+corgi tab rename 12 Backend
+corgi tab rename 12 --clear
+corgi tab move 12 --before 8
+corgi tab move 12 --workspace 2
+corgi pane split current --right
+corgi pane move 31 --below 42
+corgi pane move 31 --new-tab --name Logs
+corgi tab merge 12 --right-of 42
+corgi pane swap 31 42
+corgi pane resize 31 --width 60%
+corgi pane read 31 --lines 100 --text
+corgi pane send 31 --stdin --enter < /path/to/prompt.txt
+corgi pane keys 31 ctrl+c
+corgi focus 31 --viewer 1
+```
+
+Move/merge support `--left-of`, `--right-of`, `--above`, and `--below`; split
+supports `--left`, `--right`, `--up`, and `--down`. Tab merge preserves the entire
+source split tree. Empty source tabs disappear; processes, output, and pane IDs
+survive, including across workspaces. Resize sets the target side's percentage
+of the nearest matching-axis split (10%-90%), including other panes on that side.
+
+Creation and layout mutations return affected `pane`, `tab`, and `workspace` IDs
+in `result`. Layout mutations validate on copies before committing and do not
+select a viewer. Explicit focus requires a viewer ID from `list`.
+`pane close ID` and `tab close ID` terminate the targeted processes without a
+prompt; successful responses list `result.closed_panes`.
+
+The new commands never implicitly start or restart a server. They return JSON
+errors on stderr, exit 2 for invalid usage and 1 for runtime failures. Existing
+legacy controls remain available, but focus now requires `--viewer` in the CLI.
+The server exposes these operations through protocol-1 `cli.control`.
+
+Regression suite: `python3 tests/cli.py` uses isolated sockets and provider settings.
+
 ## Tabs and panes
 
 `prefix` means press Ctrl-B, release, then the next key. **Ctrl-B immediately opens a compact command menu**: press a displayed shortcut or click its row. Escape, the menu's `x`, or a click outside dismisses it. Resize has its own clickable direction menu. In short terminals, use the menu's previous/next buttons, the wheel, or PageUp/PageDown to see more commands.
