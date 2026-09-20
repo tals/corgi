@@ -1,5 +1,5 @@
 //! Versioned runtime state shared by live handoff and disk recovery. Live state
-//! uses exact event replay; cold state contains display-only history and hints.
+//! prefers exact replay, falling back to a VT snapshot and application redraw.
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
@@ -45,17 +45,27 @@ pub const Screen = struct {
     exited: bool = true,
     exit_status: i32 = 0,
     synchronized_since: ?i64 = null,
+    approximate: bool = false,
+    redraw_pending: bool = false,
     pub fn capture(alloc: std.mem.Allocator, t: *Terminal, live: bool) !Screen {
-        if (live and (!t.journal.enabled or t.journal.failed)) return error.TerminalCheckpointUnavailable;
-        const history = if (live) t.journal.bytes.items else try t.snapshot();
-        defer if (!live) a.free(history);
-        return .{ .cols = if (live) t.journal.cols else t.vt.cols, .rows = if (live) t.journal.rows else t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = t.synchronized_since };
+        const exact = live and t.journal.enabled and !t.journal.failed;
+        const history = if (exact) t.journal.bytes.items else if (live) try t.liveSnapshot() else try t.snapshot();
+        defer if (!exact) a.free(history);
+        return .{ .cols = if (exact) t.journal.cols else t.vt.cols, .rows = if (exact) t.journal.rows else t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = if (exact) t.synchronized_since else null, .approximate = live and !exact, .redraw_pending = live and (!exact or t.redraw_pending or t.redraw_restore_at != null) };
     }
     pub fn restore(screen: Screen, live: bool) !*Terminal {
         if (screen.cols == 0 or screen.cols > 500 or screen.rows == 0 or screen.rows > 200) return error.InvalidCheckpoint;
         const bytes = try binary.decode(a, screen.data);
         defer a.free(bytes);
-        const t = if (live) try Terminal.replay(screen.cols, screen.rows, bytes) else try Terminal.create(screen.cols, screen.rows);
+        const t = if (live and !screen.approximate) try Terminal.replay(screen.cols, screen.rows, bytes) else try Terminal.create(screen.cols, screen.rows);
+        if (!live or screen.approximate) {
+            t.record();
+            // A snapshot can contain terminal queries. Never send replies to
+            // the still-owned PTY during the handoff's preparation phase.
+            t.replaying = true;
+            t.feed(bytes);
+            t.replaying = false;
+        }
         if (live) {
             t.fd = screen.fd;
             t.pid = screen.pid;
@@ -63,10 +73,8 @@ pub const Screen = struct {
             t.exit_status = screen.exit_status;
             t.synchronized_since = screen.synchronized_since;
             t.imported = true;
+            t.redraw_pending = screen.redraw_pending or screen.approximate;
             if (t.fd >= 0) os.cloexec(t.fd);
-        } else {
-            t.record();
-            t.feed(bytes);
         }
         return t;
     }

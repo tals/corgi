@@ -1752,6 +1752,7 @@ pub fn Controller(comptime remote: bool) type {
                 _ = c.poll(&polls, @intCast(count), 16);
                 // Read every live PTY, even when its tab is hidden. Only visible output dirties the frame.
                 for (s.runtime.panes.items, 0..) |*p, i| {
+                    p.terminal.refreshRedraw(std.time.milliTimestamp());
                     if (polls[i + 1].revents != 0) p.refreshCwd();
                     p.terminal.flush();
                     const journal_size = p.terminal.journal.bytes.items.len;

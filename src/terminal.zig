@@ -18,6 +18,8 @@ pub const Terminal = struct {
     replaying: bool = false,
     render_dirty: bool = true,
     imported: bool = false,
+    redraw_pending: bool = false,
+    redraw_restore_at: ?i64 = null,
 
     pub fn record(t: *Terminal) void {
         t.journal = .{ .enabled = true, .cols = t.vt.cols, .rows = t.vt.rows };
@@ -207,6 +209,56 @@ pub const Terminal = struct {
         const formatter: vt.formatter.ScreenFormatter = .init(t.vt.screens.active, .{ .emit = .vt, .unwrap = true });
         try formatter.format(&out.writer);
         return out.toOwnedSlice();
+    }
+    /// Best-effort live state when exact replay has exhausted its budget.
+    /// Preserve modes and both screens; parser fragments and some saved state
+    /// cannot be reconstructed by VT formatting and require a fresh repaint.
+    pub fn liveSnapshot(t: *Terminal) ![]u8 {
+        var out: std.Io.Writer.Allocating = .init(a);
+        defer out.deinit();
+        if (t.vt.screens.active_key == .alternate) {
+            var primary: vt.formatter.ScreenFormatter = .init(t.vt.screens.get(.primary).?, .{ .emit = .vt });
+            primary.extra = .all;
+            try primary.format(&out.writer);
+        }
+        var formatter: vt.formatter.TerminalFormatter = .init(&t.vt, .{ .emit = .vt });
+        formatter.extra = .all;
+        try formatter.format(&out.writer);
+        // Tabstop and margin restoration can move the cursor after content.
+        var cursor: vt.formatter.ScreenFormatter = .init(t.vt.screens.active, .{ .emit = .vt });
+        cursor.content = .none;
+        cursor.extra = .none;
+        cursor.extra.cursor = true;
+        try cursor.format(&out.writer);
+        // Never leave the reconstructed display stuck awaiting an old sync end.
+        try out.writer.writeAll("\x1b[?2026l");
+        if (t.vt.getTitle()) |title| {
+            try out.writer.writeAll("\x1b]2;");
+            for (title) |ch| if (ch >= 32 and ch != 127) try out.writer.writeByte(ch);
+            try out.writer.writeAll("\x1b\\");
+        }
+        return out.toOwnedSlice();
+    }
+    /// Called only by the owning runtime, after handoff commits. Give the app
+    /// time to observe a changed size before restoring the real dimensions.
+    pub fn refreshRedraw(t: *Terminal, now: i64) void {
+        if (t.fd < 0 or t.exited) {
+            t.redraw_pending = false;
+            t.redraw_restore_at = null;
+            return;
+        }
+        var ws = std.mem.zeroes(c.struct_winsize);
+        ws.ws_col = t.vt.cols;
+        ws.ws_row = t.vt.rows;
+        if (t.redraw_pending) {
+            ws.ws_col = if (ws.ws_col > 1) ws.ws_col - 1 else 2;
+            if (c.ioctl(t.fd, c.TIOCSWINSZ, &ws) != 0) return;
+            t.redraw_pending = false;
+            t.redraw_restore_at = now + 250;
+        } else if (t.redraw_restore_at) |deadline| {
+            if (now < deadline) return;
+            if (c.ioctl(t.fd, c.TIOCSWINSZ, &ws) == 0) t.redraw_restore_at = null;
+        }
     }
     pub fn resize(t: *Terminal, cols: u16, rows: u16) !void {
         const w = @max(1, cols);

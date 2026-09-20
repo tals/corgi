@@ -57,7 +57,7 @@ test "live checkpoint preserves fragments at every byte including UTF8 CSI OSC a
         try std.testing.expectEqualStrings(old.pending.items, fresh.pending.items);
     }
 }
-test "live checkpoint retains completed synchronized frame and refuses truncated journal" {
+test "live checkpoint retains completed synchronized frame and falls back after journal failure" {
     const old = try Terminal.create(30, 5);
     defer old.destroy();
     old.record();
@@ -76,10 +76,67 @@ test "live checkpoint retains completed synchronized frame and refuses truncated
     fresh.feed("\x1b[?2026l");
     try equal(old, fresh);
     old.journal.fail();
-    try std.testing.expectError(error.TerminalCheckpointUnavailable, cp.Screen.capture(a, old, true));
+    const fallback = try cp.Screen.capture(a, old, true);
+    defer a.free(fallback.data);
+    try std.testing.expect(fallback.approximate);
+    const recovered = try fallback.restore(true);
+    defer recovered.destroy();
+    try std.testing.expect(recovered.redraw_pending);
+    try std.testing.expect(recovered.journal.enabled and !recovered.journal.failed);
     const cold = try cp.Screen.capture(a, old, false);
     defer a.free(cold.data);
     try std.testing.expect(cold.data.len > 0);
+}
+test "fallback preserves screens input modes cursor and title without replaying replies" {
+    const old = try Terminal.create(40, 6);
+    defer old.destroy();
+    old.record();
+    old.feed("primary history\x1b[?1049h\x1b[2Jalternate\x1b[?2004h\x1b[?1003h\x1b[?1006h\x1b[>3u\x1b]2;agent title\x1b\\\x1b[3;5H");
+    old.journal.fail();
+    const fresh = try restored(old);
+    defer fresh.destroy();
+    try std.testing.expectEqual(old.vt.screens.active_key, fresh.vt.screens.active_key);
+    try std.testing.expect(fresh.vt.modes.get(.bracketed_paste));
+    try std.testing.expectEqual(old.vt.flags.mouse_event, fresh.vt.flags.mouse_event);
+    try std.testing.expectEqual(old.vt.flags.mouse_format, fresh.vt.flags.mouse_format);
+    try std.testing.expectEqual(old.vt.screens.active.kitty_keyboard.current(), fresh.vt.screens.active.kitty_keyboard.current());
+    try std.testing.expectEqual(old.vt.screens.active.cursor.x, fresh.vt.screens.active.cursor.x);
+    try std.testing.expectEqual(old.vt.screens.active.cursor.y, fresh.vt.screens.active.cursor.y);
+    try std.testing.expectEqualStrings("agent title", fresh.vt.getTitle().?);
+    try std.testing.expectEqual(@as(usize, 0), fresh.pending.items.len);
+    const visible = try fresh.text();
+    defer a.free(visible);
+    try std.testing.expect(std.mem.indexOf(u8, visible, "alternate") != null);
+    fresh.feed("\x1b[?1049l");
+    const primary = try fresh.text();
+    defer a.free(primary);
+    try std.testing.expect(std.mem.indexOf(u8, primary, "primary history") != null);
+}
+test "redraw cycle changes PTY dimensions only after activation and restores them" {
+    const os = @import("os.zig");
+    const c = os.c;
+    var master: c_int = -1;
+    var slave: c_int = -1;
+    var ws = std.mem.zeroes(c.struct_winsize);
+    ws.ws_col = 40;
+    ws.ws_row = 6;
+    try std.testing.expectEqual(@as(c_int, 0), c.openpty(&master, &slave, null, null, &ws));
+    defer _ = c.close(slave);
+    const t = try Terminal.create(40, 6);
+    defer t.destroy();
+    t.fd = master;
+    t.redraw_pending = true;
+    _ = c.ioctl(slave, c.TIOCGWINSZ, &ws);
+    try std.testing.expectEqual(@as(u16, 40), ws.ws_col);
+    t.refreshRedraw(1000);
+    _ = c.ioctl(slave, c.TIOCGWINSZ, &ws);
+    try std.testing.expectEqual(@as(u16, 39), ws.ws_col);
+    t.refreshRedraw(1100);
+    try std.testing.expect(t.redraw_restore_at != null);
+    t.refreshRedraw(1250);
+    _ = c.ioctl(slave, c.TIOCGWINSZ, &ws);
+    try std.testing.expectEqual(@as(u16, 40), ws.ws_col);
+    try std.testing.expect(t.redraw_restore_at == null);
 }
 test "resume command quotes session text as one shell argument" {
     var hint: cp.Resume = .{ .provider = .codex };
