@@ -2,7 +2,7 @@
 """Exercise real viewer controllers against isolated daemons.
 Build first: ./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true
 """
-import base64, json, os, pathlib, select, shlex, socket, subprocess, sys, threading, time, unittest
+import base64, datetime, json, os, pathlib, select, shlex, socket, subprocess, sys, threading, time, unittest
 import smoke as legacy
 from smoke import EXE
 
@@ -47,16 +47,81 @@ class Viewers(unittest.TestCase):
         ws=self.session()['workspaces'][0]['id']
         return self.rpc(op='pane.create',protocol=1,workspace=ws,cwd=self.temp.name,command=command,title=title)['pane']
     def geometry(self):return {p['id']:(p['cols'],p['rows']) for p in self.session()['panes']}
+    def test_workspace_away_usage_resets_on_visit_and_respects_other_viewers(self):
+        pane=self.new()
+        home=self.session()['workspaces'][0]['id']
+        other=self.rpc(op='workspace.create',protocol=1,name='Other',cwd=self.temp.name)['workspace']
+        path=pathlib.Path(self.temp.name,'usage.jsonl')
+        def token_line(i,o):
+            return {'type':'event_msg','payload':{'type':'token_count','info':{'total_token_usage':{'input_tokens':i,'output_tokens':o}}}}
+        path.write_text(json.dumps({'type':'session_meta','payload':{'id':'usage','instructions':'x'*(24*1024)}})+'\n'+json.dumps(token_line(100,10))+'\n')
+        self.rpc(op='hook',pane=pane,provider='codex',seq=1,event={'hook_event_name':'SessionStart','session_id':'usage','transcript_path':str(path)})
+        a=Viewer(self)
+        a.request(op='workspace',workspace=other)
+        time.sleep(.8) # Let the worker establish the existing-file baseline.
+        def append(n,i,o):
+            stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
+            with path.open('a') as f:
+                f.write(json.dumps({'type':'response_item','timestamp':stamp,'payload':{'type':'function_call','call_id':str(n)}})+'\n')
+                f.write(json.dumps({**token_line(i,o),'timestamp':stamp})+'\n')
+        def counts():
+            return next(w['stats'] for w in self.session()['workspaces'] if w['id']==home)
+        append(1,150,20)
+        self.until(lambda:counts()['tools']==1)
+        self.assertEqual((counts()['input'],counts()['output']),(50,10))
+        self.rpc(op='hook',pane=pane,provider='codex',seq=2,event={'hook_event_name':'PermissionRequest','session_id':'usage'})
+        self.assertIn('\x1b[1;38;2;243;139;168m1●',a.poll()['data'])
+        self.assertIn('↓50↑10',a.state['data'])
+        self.assertIn('0 unread',legacy.screen_text(a.state['data'],100,30)[3][:27])
+        a.request(op='workspace',workspace=home)
+        self.assertEqual(counts()['tools'],0)
+        append(2,200,30)
+        for _ in range(5):
+            a.poll();time.sleep(.15)
+        self.assertEqual(counts()['tools'],0)
+        a.request(op='workspace',workspace=other)
+        append(3,230,35)
+        self.until(lambda:counts()['tools']==1)
+        self.assertEqual((counts()['input'],counts()['output']),(30,5))
+        b=Viewer(self)
+        b.request(op='workspace',workspace=home)
+        self.assertEqual(counts()['tools'],0)
+        append(4,240,36)
+        for _ in range(5):
+            a.poll();b.poll();time.sleep(.15)
+        self.assertEqual(counts()['tools'],0)
+
+    def test_native_usage_and_attention_are_visible_and_survive_reload(self):
+        self.new()
+        home=self.session()['workspaces'][0]['id']
+        ident=self.rpc(op='native.start',provider='codex',cwd=self.temp.name)['session']
+        def send(method,params):
+            self.rpc(op='native.send',session=ident,message={'id':1,'method':'test/event','params':{'method':method,'params':params}})
+        def counts():return self.session()['workspaces'][0]['stats']
+        send('turn/started',{'threadId':'t','turn':{'id':'turn'}})
+        send('item/started',{'threadId':'t','turnId':'turn','item':{'id':'tool1','type':'commandExecution'}})
+        usage={'total':{'inputTokens':100,'outputTokens':10},'last':{'inputTokens':100,'outputTokens':10}}
+        send('thread/tokenUsage/updated',{'threadId':'t','tokenUsage':usage})
+        self.until(lambda:counts()['input']==100)
+        self.assertEqual(counts()['tools'],1)
+        self.rpc(op='server.reload',protocol=1,executable=EXE)
+        self.assertEqual((counts()['tools'],counts()['input'],counts()['output']),(1,100,10))
+        send('thread/tokenUsage/updated',{'threadId':'t','tokenUsage':usage})
+        time.sleep(.15)
+        self.assertEqual(counts()['input'],100)
+        v=Viewer(self);v.request(op='workspace',workspace=home)
+        self.assertEqual(counts()['tools'],0)
+
     def test_workspace_context_menu_targets_background_workspace(self):
         first=self.new(title='Keep')
         ws=self.rpc(op='workspace.create',protocol=1,name='Target',cwd=self.temp.name)['workspace']
         a=Viewer(self);b=Viewer(self)
         a.focus(first);b.request(op='workspace',workspace=ws)
-        a.input('\x1b[<2;5;5M\x1b[<2;5;5m')
+        a.input('\x1b[<2;5;6M\x1b[<2;5;6m')
         self.assertIn('Rename',a.state['data'])
         a.input('\r');a.input('Renamed\r')
         self.assertEqual(next(w['custom_name'] for w in self.session()['workspaces'] if w['id']==ws),'Renamed')
-        a.input('\x1b[<2;5;5M\x1b[<2;5;5m')
+        a.input('\x1b[<2;5;6M\x1b[<2;5;6m')
         a.input('\x1b[B\r')
         self.assertEqual(len(self.session()['workspaces']),1)
         self.assertEqual(a.poll()['pane'],first)
@@ -69,18 +134,18 @@ class Viewers(unittest.TestCase):
         second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
         a=Viewer(self);b=Viewer(self)
         a.focus(first);b.focus(second)
-        self.assertIn('/one',a.poll()['data'])
-        self.assertIn('/one',b.poll()['data'])
+        self.assertEqual(legacy.screen_text(a.poll()['data'],100,30)[2][1:27].strip(),'one')
+        self.assertEqual(legacy.screen_text(b.poll()['data'],100,30)[2][1:27].strip(),'one')
         self.assertNotIn('📌',a.state['data'])
         b.action('move-tab','left')
-        self.assertIn('/two',a.poll()['data'])
-        self.assertIn('/two',b.poll()['data'])
+        self.assertEqual(legacy.screen_text(a.poll()['data'],100,30)[2][1:27].strip(),'two')
+        self.assertEqual(legacy.screen_text(b.poll()['data'],100,30)[2][1:27].strip(),'two')
         b.input('\x02W');b.input('Custom\r')
         self.assertIn('Custom',a.poll()['data'])
         self.assertIn('Custom',b.poll()['data'])
         b.input('\x02W');b.input('\x03\r')
         self.assertEqual(self.session()['workspaces'][0]['custom_name'],'')
-        self.assertIn('/two',a.poll()['data'])
+        self.assertEqual(legacy.screen_text(a.poll()['data'],100,30)[2][1:27].strip(),'two')
         a.action('new')
         self.assertEqual(next(p['cwd'] for p in self.session()['panes'] if p['id']==a.state['pane']),str(one.resolve()))
 

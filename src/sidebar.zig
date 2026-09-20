@@ -118,16 +118,48 @@ pub const View = struct {
             try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
             try writeClipped(w, directoryLabel(&label, ws.name, null), v.width - 3 - (if (badge_width > 0) badge_width + 1 else 0));
             if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m{s}", .{ y + 1, v.width - 1 - badge_width, badge });
-            var status: [80]u8 = undefined;
-            const working = try std.fmt.bufPrint(&status, "{d} ●", .{ws.working});
-            try v.line(w, y + 1, working, panel);
-            if (ws.working > 0) {
-                try w.print("\x1b[{d};2H\x1b[38;2;249;226;175m{s}{s}", .{ y + 2, working, panel });
+            try w.print("\x1b[{d};2H{s}", .{ y + 2, panel });
+            var metadata_buf: [96]u8 = undefined;
+            var tools_buf: [24]u8 = undefined;
+            var input_buf: [24]u8 = undefined;
+            var output_buf: [24]u8 = undefined;
+            const tools = compactCount(&tools_buf, ws.stats.tools);
+            var unread_buf: [40]u8 = undefined;
+            var attention_buf: [24]u8 = undefined;
+            var number_buf: [24]u8 = undefined;
+            const unread = try std.fmt.bufPrint(&unread_buf, "{s} unread", .{compactCount(&number_buf, ws.unread)});
+            const attention = if (ws.attention > 0) try std.fmt.bufPrint(&attention_buf, "{s}●", .{compactCount(&number_buf, ws.attention)}) else "";
+            const unread_width = displayWidth(unread);
+            const attention_width = displayWidth(attention);
+            const required_left = unread_width + if (attention_width > 0) attention_width + 1 else @as(usize, 0);
+            var metadata = if (ws.stats.tokens_known)
+                try std.fmt.bufPrint(&metadata_buf, "{s}⚒ ↓{s}↑{s}", .{ tools, compactCount(&input_buf, ws.stats.input), compactCount(&output_buf, ws.stats.output) })
+            else
+                try std.fmt.bufPrint(&metadata_buf, "{s}⚒", .{tools});
+            // Preserve the full unread label and any needs-input indicator.
+            // Omit the token pair if even compact totals cannot fit beside them.
+            if (displayWidth(metadata) + required_left + 1 > v.width - 3)
+                metadata = try std.fmt.bufPrint(&metadata_buf, "{s}⚒", .{tools});
+            const metadata_width = displayWidth(metadata);
+            const left_room = (v.width - 3) -| (metadata_width + 1);
+            var room: usize = left_room -| (unread_width + 1);
+            var text_buf: [96]u8 = undefined;
+            var has_status = false;
+            if (ws.working > 0 or !ws.stats.any()) {
+                const text = try std.fmt.bufPrint(&text_buf, "{s}●", .{compactCount(&number_buf, ws.working)});
+                if (displayWidth(text) + attention_width <= room) {
+                    try statusPart(w, text, if (ws.working > 0) "\x1b[38;2;249;226;175m" else panel, &room);
+                    has_status = true;
+                }
             }
-            const working_width = displayWidth(working);
-            const unread = try std.fmt.bufPrint(&status, " · {d} unread", .{ws.unread});
-            if (ws.unread > 0) try w.writeAll("\x1b[1;38;2;148;226;213m");
-            try writeClipped(w, unread, (v.width - 3) -| working_width);
+            if (attention_width > 0) {
+                try statusPart(w, attention, "\x1b[1;38;2;243;139;168m", &room);
+                has_status = true;
+            }
+            if (has_status) try w.writeByte(' ');
+            var unread_room = unread_width;
+            try statusPart(w, unread, if (ws.unread > 0) "\x1b[1;38;2;148;226;213m" else panel, &unread_room);
+            try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, panel, metadata });
             try w.writeAll(panel);
         }
         if (v.workspace_count > v.workspaceCapacity()) {
@@ -174,6 +206,20 @@ pub const View = struct {
         try writeClipped(w, text, v.width - 3);
     }
 };
+
+fn statusPart(w: *std.Io.Writer, text: []const u8, style: []const u8, room: *usize) !void {
+    try w.writeAll("\x1b[22m");
+    try w.writeAll(style);
+    try writeClipped(w, text, room.*);
+    room.* -|= displayWidth(text);
+}
+fn compactCount(buf: []u8, value: u64) []const u8 {
+    if (value < 1000) return std.fmt.bufPrint(buf, "{d}", .{value}) catch unreachable;
+    for ([_]u64{ 1_000_000_000_000_000_000, 1_000_000_000_000_000, 1_000_000_000_000, 1_000_000_000, 1_000_000, 1_000 }, "EPTGMk") |scale, suffix| {
+        if (value >= scale) return std.fmt.bufPrint(buf, "{d}{c}", .{ value / scale, suffix }) catch unreachable;
+    }
+    unreachable;
+}
 
 fn displayWidth(text: []const u8) usize {
     var it = (std.unicode.Utf8View.init(text) catch unreachable).iterator();
@@ -302,4 +348,37 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
+}
+
+test "workspace status uses agent colors and keeps usage on its second row" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+    const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "Project", .cwd = "/tmp", .active = false, .working = 1, .attention = 2, .unread = 3, .stats = .{ .tools = 12, .input = 1200, .output = 300, .tokens_known = true } }};
+    try view.draw(&output.writer, &.{}, &entries);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;249;226;175m1●") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;243;139;168m2●") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;148;226;213m3 unread") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "12⚒") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;16H\x1b[0;38;2;155;163;175;48;2;24;27;32m12⚒ ↓1k↑300") != null);
+    output.clearRetainingCapacity();
+    const empty = [_]WorkspaceEntry{.{ .id = 1, .name = "Project", .cwd = "/tmp", .active = true }};
+    try view.draw(&output.writer, &.{}, &empty);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0 unread") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0⚒") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "—") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;25H\x1b[0;38;2;155;163;175;48;2;24;27;32m0⚒") != null);
+    output.clearRetainingCapacity();
+    var away = empty;
+    away[0].active = false;
+    away[0].stats = .{ .tools = 1, .input = 100, .output = 20, .tokens_known = true };
+    try view.draw(&output.writer, &.{}, &away);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0 unread") != null);
+    output.clearRetainingCapacity();
+    away[0].working = 1;
+    away[0].attention = 1;
+    away[0].stats = .{ .tools = 999_000, .input = 999_000, .output = 999_000, .tokens_known = true };
+    try view.draw(&output.writer, &.{}, &away);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0 unread") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;243;139;168m1●") != null);
 }
