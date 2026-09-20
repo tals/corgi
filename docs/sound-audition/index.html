@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Corgi · Sound audition</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="data.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header>
+    <span class="eyebrow">CORGI / SOUND STUDY</span>
+    <h1>A little less ding. A little more dog.</h1>
+    <p>Choose a cut, click to place the playhead, or drag to select a range.</p>
+    <p class="help">One source view per sound. A/B/C selects a range; Full clip selects the whole recording. Clicking keeps the selection and plays from that position to the next marked end, or the recording’s end. Spectrograms show 20 Hz–12 kHz on a log scale; brighter means stronger. Waveform heights are scaled individually. Arrow keys move a selection by 50 ms.</p>
+    <button id="stop">Stop all</button>
+    <p id="status" role="status"></p>
+  </header>
+  <main id="samples"></main>
+  <footer>Playback uses the source recordings, with explicitly labeled pitch alternatives where available. Pitch alternatives preserve duration; “Original” keeps the unedited source. Earlier cut files are retained locally. Dog recordings are CC0; Herdr cues retain Apache-2.0. <a href="sources.json">Sources and edit history</a>.</footer>
+</body>
+</html>

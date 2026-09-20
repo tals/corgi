@@ -1,0 +1,640 @@
+[
+  {
+    "slug": "lola-breathing",
+    "author": "keweldog",
+    "id": 181767,
+    "source": "https://freesound.org/people/keweldog/sounds/181767/",
+    "preview": "https://cdn.freesound.org/previews/181/181767_3153523-hq.mp3",
+    "license": "CC0 1.0",
+    "title": "Lola, ready for a walk",
+    "excerpt_start": 0.7,
+    "excerpt_duration": 0.34,
+    "processing": "Cut from unedited MP3 preview at 0.700s for 0.340s; 65 Hz high-pass; 5 ms attack fade; 45 ms finish fade; gain 21.0 dB (up to 24 dB boost, aiming for -6 dBFS peak); MP3 re-encode.",
+    "silence_trim": {
+      "leading_seconds": 0.64,
+      "trailing_seconds": 0.0
+    },
+    "source_preview_trim": {
+      "leading_seconds": 0.64,
+      "trailing_seconds": 0.581,
+      "duration": 22.17
+    },
+    "gap_trim": {
+      "input_duration": 0.96,
+      "output_duration": 0.26,
+      "threshold_db_below_peak_rms": 20,
+      "kept_spans_seconds": [
+        [
+          0.075,
+          0.335
+        ]
+      ]
+    },
+    "source_preview_gap_trim": {
+      "input_duration": 22.17,
+      "output_duration": 12.61,
+      "threshold_db_below_peak_rms": 20,
+      "kept_spans_seconds": [
+        [
+          0.075,
+          1.785
+        ],
+        [
+          1.8550000000000002,
+          2.7350000000000003
+        ],
+        [
+          2.815,
+          3.705
+        ],
+        [
+          3.785,
+          4.0249999999999995
+        ],
+        [
+          4.105,
+          4.335
+        ],
+        [
+          4.445,
+          4.555
+        ],
+        [
+          4.765000000000001,
+          4.885
+        ],
+        [
+          5.085000000000001,
+          5.194999999999999
+        ],
+        [
+          5.265000000000001,
+          5.5249999999999995
+        ],
+        [
+          5.735,
+          5.8549999999999995
+        ],
+        [
+          5.9350000000000005,
+          5.984999999999999
+        ],
+        [
+          6.075,
+          6.295
+        ],
+        [
+          6.3950000000000005,
+          6.835
+        ],
+        [
+          6.905,
+          6.944999999999999
+        ],
+        [
+          7.045000000000001,
+          7.155
+        ],
+        [
+          7.2250000000000005,
+          7.305
+        ],
+        [
+          7.375000000000001,
+          7.484999999999999
+        ],
+        [
+          7.715000000000001,
+          7.865
+        ],
+        [
+          8.035,
+          8.225000000000001
+        ],
+        [
+          8.385,
+          8.495000000000001
+        ],
+        [
+          8.725,
+          8.935
+        ],
+        [
+          9.055,
+          9.165000000000001
+        ],
+        [
+          9.235,
+          9.285
+        ],
+        [
+          9.375,
+          9.495000000000001
+        ],
+        [
+          9.705,
+          9.815000000000001
+        ],
+        [
+          10.025,
+          10.135000000000002
+        ],
+        [
+          10.275,
+          10.465000000000002
+        ],
+        [
+          10.695,
+          10.805000000000001
+        ],
+        [
+          11.025,
+          11.125
+        ],
+        [
+          11.355,
+          11.455
+        ],
+        [
+          11.685,
+          11.785
+        ],
+        [
+          12.015,
+          12.115
+        ],
+        [
+          12.344999999999999,
+          12.445
+        ],
+        [
+          12.674999999999999,
+          12.795000000000002
+        ],
+        [
+          13.015,
+          13.125
+        ],
+        [
+          13.344999999999999,
+          13.445
+        ],
+        [
+          13.674999999999999,
+          13.785
+        ],
+        [
+          14.015,
+          14.115
+        ],
+        [
+          14.355,
+          14.465000000000002
+        ],
+        [
+          14.695,
+          14.795000000000002
+        ],
+        [
+          15.025,
+          15.135000000000002
+        ],
+        [
+          15.365,
+          15.465000000000002
+        ],
+        [
+          15.695,
+          15.795000000000002
+        ],
+        [
+          16.025,
+          16.125
+        ],
+        [
+          16.235,
+          16.275000000000002
+        ],
+        [
+          16.345,
+          16.455000000000002
+        ],
+        [
+          16.685,
+          16.785
+        ],
+        [
+          17.005,
+          17.095000000000002
+        ],
+        [
+          17.315,
+          17.415000000000003
+        ],
+        [
+          17.645,
+          17.755000000000003
+        ],
+        [
+          17.975,
+          18.095000000000002
+        ],
+        [
+          18.235,
+          18.795
+        ],
+        [
+          18.865,
+          19.105
+        ],
+        [
+          19.175,
+          19.425
+        ],
+        [
+          19.495,
+          21.545
+        ]
+      ]
+    },
+    "status": "proposal",
+    "description": "Short breath; boosted from a very quiet recording.",
+    "quality_check": {
+      "decoded_output_peak_dbfs": -6.03,
+      "duration_within_300_to_1000_ms": true,
+      "note": "Numerical overload and endpoint screening; not a guarantee against pre-existing audible distortion."
+    },
+    "added_order": 1
+  },
+  {
+    "slug": "panting-foley",
+    "author": "onehugeeye",
+    "id": 511319,
+    "source": "https://freesound.org/people/onehugeeye/sounds/511319/",
+    "preview": "https://cdn.freesound.org/previews/511/511319_562829-hq.mp3",
+    "license": "CC0 1.0",
+    "title": "Soft panting \u00b7 performed",
+    "excerpt_start": 0,
+    "excerpt_duration": 0.65,
+    "processing": "Cut from unedited MP3 preview at 0.000s for 0.650s; 65 Hz high-pass; 5 ms attack fade; 45 ms finish fade; gain 12.0 dB (up to 24 dB boost, aiming for -6 dBFS peak); MP3 re-encode.",
+    "silence_trim": {
+      "leading_seconds": 0,
+      "trailing_seconds": 0.0
+    },
+    "source_preview_trim": {
+      "leading_seconds": 0,
+      "trailing_seconds": 0.0,
+      "duration": 3.744312
+    },
+    "gap_trim": {
+      "input_duration": 1.4,
+      "output_duration": 1.375,
+      "threshold_db_below_peak_rms": 20,
+      "kept_spans_seconds": [
+        [
+          0,
+          1.375
+        ]
+      ]
+    },
+    "source_preview_gap_trim": {
+      "input_duration": 3.7443125,
+      "output_duration": 3.744312,
+      "threshold_db_below_peak_rms": 20,
+      "kept_spans_seconds": [
+        [
+          0,
+          3.7443125
+        ]
+      ]
+    },
+    "status": "proposal",
+    "description": "Human-made dog panting, shortened to a compact cue.",
+    "quality_check": {
+      "decoded_output_peak_dbfs": -6.14,
+      "duration_within_300_to_1000_ms": true,
+      "note": "Numerical overload and endpoint screening; not a guarantee against pre-existing audible distortion."
+    },
+    "added_order": 2
+  },
+  {
+    "slug": "happy-terrier",
+    "author": "MisterTood",
+    "id": 9032,
+    "source": "https://freesound.org/people/MisterTood/sounds/9032/",
+    "preview": "https://cdn.freesound.org/previews/9/9032_22734-hq.mp3",
+    "license": "CC0 1.0",
+    "title": "Happy terrier",
+    "excerpt_start": 0,
+    "excerpt_duration": 0.85,
+    "processing": "25 ms fade in; 80 ms fade out; MP3 re-encode. No loudness normalization. Edge silence trimmed using 10 ms RMS windows at 30 dB below each clip peak RMS, retaining 10 ms padding; trims below 40 ms ignored. Trimmed edges receive 5 ms in / 10 ms out fades. Quiet gaps of at least 100 ms removed; 15 ms boundary padding and 3 ms fades. See gap_trim for retained spans relative to the previous audition.",
+    "silence_trim": {
+      "leading_seconds": 0,
+      "trailing_seconds": 0.0
+    },
+    "source_preview_trim": {
+      "leading_seconds": 0,
+      "trailing_seconds": 0.0,
+      "duration": 2.831375
+    },
+    "gap_trim": {
+      "input_duration": 2.831,
+      "output_duration": 0.85,
+      "threshold_db_below_peak_rms": 16,
+      "kept_spans_seconds": [
+        [
+          0.035,
+          0.20500000000000002
+        ],
+        [
+          0.795,
+          0.935
+        ],
+        [
+          1.145,
+          1.275
+        ],
+        [
+          1.8150000000000002,
+          1.9549999999999998
+        ],
+        [
+          2.1149999999999998,
+          2.2750000000000004
+        ],
+        [
+          2.505,
+          2.615
+        ]
+      ]
+    },
+    "source_preview_gap_trim": {
+      "input_duration": 2.831375,
+      "output_duration": 0.82,
+      "threshold_db_below_peak_rms": 16,
+      "kept_spans_seconds": [
+        [
+          0.045,
+          0.20500000000000002
+        ],
+        [
+          0.795,
+          0.935
+        ],
+        [
+          1.145,
+          1.265
+        ],
+        [
+          1.8150000000000002,
+          1.9549999999999998
+        ],
+        [
+          2.1149999999999998,
+          2.265
+        ],
+        [
+          2.505,
+          2.615
+        ]
+      ]
+    },
+    "status": "proposal",
+    "added_order": 3,
+    "pitch_variants": [
+      {
+        "label": "-3 semitones",
+        "file": "happy-terrier-minus3.wav",
+        "semitones": -3,
+        "processing": "Rubber Band 4.0 R3 offline; time ratio 1; formants shift with pitch; gain -2.99 dB; 24-bit WAV. Exact decoded sample count preserved."
+      },
+      {
+        "label": "-5 semitones",
+        "file": "happy-terrier-minus5.wav",
+        "semitones": -5,
+        "processing": "Rubber Band 4.0 R3 offline; time ratio 1; formants shift with pitch; gain -2.99 dB; 24-bit WAV. Exact decoded sample count preserved."
+      },
+      {
+        "label": "-7 semitones",
+        "file": "happy-terrier-minus7.wav",
+        "semitones": -7,
+        "processing": "Rubber Band 4.0 R3 offline; time ratio 1; formants shift with pitch; gain -2.78 dB; 24-bit WAV. Exact decoded sample count preserved."
+      }
+    ],
+    "default_pitch_variant": 1,
+    "description": "Original rejected as too high-pitched. Audition lower-pitched alternatives; timing is unchanged."
+  },
+  {
+    "slug": "happy-howl",
+    "author": "schots",
+    "id": 382736,
+    "source": "https://freesound.org/people/schots/sounds/382736/",
+    "preview": "https://cdn.freesound.org/previews/382/382736_954919-hq.mp3",
+    "license": "CC0 1.0",
+    "title": "Happy howl",
+    "excerpt_start": 0,
+    "excerpt_duration": 2.11,
+    "processing": "25 ms fade in; 80 ms fade out; MP3 re-encode. No loudness normalization. Edge silence trimmed using 10 ms RMS windows at 30 dB below each clip peak RMS, retaining 10 ms padding; trims below 40 ms ignored. Trimmed edges receive 5 ms in / 10 ms out fades.",
+    "silence_trim": {
+      "leading_seconds": 0,
+      "trailing_seconds": 0.13
+    },
+    "source_preview_trim": {
+      "leading_seconds": 0,
+      "trailing_seconds": 0.13,
+      "duration": 2.11
+    },
+    "status": "rejected",
+    "rejection_reason": "Rejected by listener: unpleasant howl; source author also reports distortion.",
+    "added_order": 4
+  },
+  {
+    "slug": "single-woof",
+    "author": "kwahmah_02",
+    "id": 277058,
+    "source": "https://freesound.org/people/kwahmah_02/sounds/277058/",
+    "preview": "https://cdn.freesound.org/previews/277/277058_4486188-hq.mp3",
+    "license": "CC0 1.0",
+    "title": "Single woof",
+    "status": "rejected",
+    "rejection_reason": "Rejected by listener: single woof is a no.",
+    "added_order": 5
+  },
+  {
+    "slug": "curious-sniff",
+    "author": "esperri",
+    "id": 118965,
+    "source": "https://freesound.org/people/esperri/sounds/118965/",
+    "preview": "https://cdn.freesound.org/previews/118/118965_1990695-hq.mp3",
+    "license": "CC0 1.0",
+    "title": "Curious sniff",
+    "status": "proposal",
+    "added_order": 6,
+    "description": "Cute sniffs \u2014 approved by listener.",
+    "previous_screening_note": "Auto-rejected: decoded preview exceeds full scale. Excluded conservatively rather than trying to conceal possible overload."
+  },
+  {
+    "slug": "little-huff",
+    "author": "mhtaylor67",
+    "id": 126037,
+    "source": "https://freesound.org/people/mhtaylor67/sounds/126037/",
+    "preview": "https://cdn.freesound.org/previews/126/126037_2258946-hq.mp3",
+    "license": "CC0 1.0",
+    "status": "rejected",
+    "title": "Little huff",
+    "description": "Three earlier huffs from the recording. Compare the cuts with their original context.",
+    "excerpt_start": 0.76,
+    "excerpt_duration": 0.42,
+    "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 7.9 dB gain.",
+    "rejected_variants": [
+      {
+        "file": "little-huff-rejected.mp3",
+        "start": 4.83,
+        "end": 5.19,
+        "reason": "Listener rejected: does not sound like a dog.",
+        "added_order": 12
+      }
+    ],
+    "candidates": [
+      {
+        "file": "little-huff.mp3",
+        "start": 0.76,
+        "end": 1.18,
+        "duration": 0.42,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 7.9 dB gain."
+      },
+      {
+        "file": "little-huff-b.mp3",
+        "start": 1.82,
+        "end": 2.24,
+        "duration": 0.42,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; -2.4 dB gain."
+      },
+      {
+        "file": "little-huff-c.mp3",
+        "start": 2.83,
+        "end": 3.23,
+        "duration": 0.4,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 13.9 dB gain."
+      }
+    ],
+    "added_order": 7,
+    "rejection_reason": "The huff idea could work, but this recording is rejected."
+  },
+  {
+    "slug": "puppy-bark",
+    "author": "AntumDeluge",
+    "id": 583142,
+    "source": "https://freesound.org/people/AntumDeluge/sounds/583142/",
+    "preview": "https://cdn.freesound.org/previews/583/583142_3403708-hq.mp3",
+    "license": "CC0 1.0",
+    "status": "proposal",
+    "title": "Tiny puppy bark",
+    "description": "A pitch-modified small-dog bark.",
+    "excerpt_start": 0.075,
+    "excerpt_duration": 0.33,
+    "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 0.2 dB gain.",
+    "candidates": [
+      {
+        "file": "puppy-bark.mp3",
+        "start": 0.075,
+        "end": 0.405,
+        "duration": 0.33,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 0.2 dB gain."
+      },
+      {
+        "file": "puppy-bark-b.mp3",
+        "start": 0.575,
+        "end": 0.905,
+        "duration": 0.33,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 0.6 dB gain."
+      },
+      {
+        "file": "puppy-bark-c.mp3",
+        "start": 1.03,
+        "end": 1.36,
+        "duration": 0.33,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 0.5 dB gain."
+      }
+    ],
+    "added_order": 8
+  },
+  {
+    "slug": "soft-whine",
+    "author": "DaniloSFX",
+    "id": 672737,
+    "source": "https://freesound.org/people/DaniloSFX/sounds/672737/",
+    "preview": "https://cdn.freesound.org/previews/672/672737_1357949-hq.mp3",
+    "license": "CC0 1.0",
+    "status": "proposal",
+    "title": "Soft questioning whine",
+    "description": "One short vocalization; a gentler attention candidate.",
+    "excerpt_start": 3.105,
+    "excerpt_duration": 0.49,
+    "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 8.8 dB gain.",
+    "candidates": [
+      {
+        "file": "soft-whine.mp3",
+        "start": 3.105,
+        "end": 3.595,
+        "duration": 0.49,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 8.8 dB gain."
+      },
+      {
+        "file": "soft-whine-b.mp3",
+        "start": 3.67,
+        "end": 4.3,
+        "duration": 0.63,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 14.4 dB gain."
+      },
+      {
+        "file": "soft-whine-c.mp3",
+        "start": 2.24,
+        "end": 2.63,
+        "duration": 0.39,
+        "processing": "Raw excerpt; 65 Hz high-pass; 5 ms attack / 25 ms release; 13.5 dB gain."
+      }
+    ],
+    "added_order": 9
+  },
+  {
+    "slug": "trufo-whine",
+    "author": "5ro4",
+    "id": 701268,
+    "source": "https://freesound.org/people/5ro4/sounds/701268/",
+    "preview": "https://cdn.freesound.org/previews/701/701268_1629501-hq.mp3",
+    "license": "CC0 1.0",
+    "status": "proposal",
+    "title": "Trufo \u00b7 little chirp",
+    "description": "A short rising dog vocalization.",
+    "excerpt_start": 6.48,
+    "excerpt_duration": 0.59,
+    "processing": "Cut from unedited MP3 preview at 6.480s for 0.590s; 65 Hz high-pass; 5 ms attack fade; 45 ms finish fade; gain 6.1 dB (up to 24 dB boost, aiming for -6 dBFS peak); MP3 re-encode.",
+    "quality_check": {
+      "decoded_output_peak_dbfs": -6.0,
+      "duration_within_300_to_1000_ms": true,
+      "note": "Numerical overload and endpoint screening; not a guarantee against pre-existing audible distortion."
+    },
+    "added_order": 10
+  },
+  {
+    "slug": "fresh-pant",
+    "author": "Angellu16",
+    "id": 533825,
+    "source": "https://freesound.org/people/Angellu16/sounds/533825/",
+    "preview": "https://cdn.freesound.org/previews/533/533825_11852214-hq.mp3",
+    "license": "CC0 1.0",
+    "status": "proposal",
+    "title": "Quick pant",
+    "description": "One compact breath from a panting recording.",
+    "excerpt_start": 1.375,
+    "excerpt_duration": 0.58,
+    "processing": "Cut from unedited MP3 preview at 1.375s for 0.580s; 65 Hz high-pass; 5 ms attack fade; 45 ms finish fade; gain 24.0 dB (up to 24 dB boost, aiming for -6 dBFS peak); MP3 re-encode.",
+    "quality_check": {
+      "decoded_output_peak_dbfs": -8.01,
+      "duration_within_300_to_1000_ms": true,
+      "note": "Numerical overload and endpoint screening; not a guarantee against pre-existing audible distortion."
+    },
+    "added_order": 11
+  }
+]
