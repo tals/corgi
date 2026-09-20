@@ -54,7 +54,11 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         if (err != error.StaleLayout) return err;
         view.notice(" Layout changed in another viewer; repeat the edit");
     };
-    for (view.runtime.panes.items) |p| try p.terminal.flush();
+    for (view.runtime.panes.items) |p| {
+        if (p.terminal.holding_selection and (view.selection == null or view.selection.?.pane != p.id))
+            try p.terminal.clearSelection();
+        try p.terminal.flush();
+    }
     var places: [layout.max_panes]layout.Placement = undefined;
     var interests: [layout.max_panes]controller.Interest = undefined;
     var count: usize = 0;

@@ -744,7 +744,9 @@ pub fn Controller(comptime remote: bool) type {
             try term.send(bytes);
         }
         fn clipboard(s: *Server, cl: *Client) !void {
-            const p = s.focused() orelse return;
+            try s.copyPane(cl, s.focused() orelse return);
+        }
+        fn copyPane(s: *Server, cl: *Client, p: *Pane) !void {
             const text = try p.terminal.selectedText();
             defer a.free(text);
             const encoded = try a.alloc(u8, std.base64.standard.Encoder.calcSize(text.len));
@@ -1045,6 +1047,16 @@ pub fn Controller(comptime remote: bool) type {
             const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const release = seq[seq.len - 1] == 'm';
+            // Finish the captured selection before hit testing the release location.
+            if (release and button & 3 == 0) if (s.selection) |sel| {
+                s.selection = null;
+                s.dirty = true;
+                if (s.pane(sel.pane)) |p| {
+                    defer p.terminal.clearSelection() catch {};
+                    if (sel.moved) try s.copyPane(cl, p);
+                }
+                return;
+            };
             if (cl.tab_drag) |*drag| {
                 const valid = s.validTabDrag(drag);
                 const drop = if (valid and y == 0 and x >= drag.tabs_x)
@@ -1241,7 +1253,6 @@ pub fn Controller(comptime remote: bool) type {
                     return;
                 }
                 if (release) {
-                    if (s.selection) |sel| if (sel.moved) try s.clipboard(cl);
                     s.selection = null;
                     return;
                 }
@@ -1270,6 +1281,7 @@ pub fn Controller(comptime remote: bool) type {
                 } else if (button & 3 == 0) {
                     s.selection = .{ .pane = p.id, .x = px, .y = py };
                     try term.clearSelection();
+                    if (remote) term.holding_selection = true;
                 }
                 return;
             };

@@ -20,6 +20,7 @@ pub const Terminal = struct {
     offset: ?usize = null,
     bottom: usize = 0,
     selection: ?Selection = null,
+    holding_selection: bool = false,
     pending: std.ArrayList(u8) = .empty,
     pub fn emulator(t: *Terminal) *vt.Terminal {
         return &t.inner.vt;
@@ -40,6 +41,7 @@ pub const Terminal = struct {
     }
     pub fn clearSelection(t: *Terminal) !void {
         t.selection = null;
+        t.holding_selection = false;
         try t.inner.clearSelection();
     }
     pub fn scrollViewport(t: *Terminal, scroll: vt.Terminal.ScrollViewport) void {
@@ -84,6 +86,9 @@ pub const Terminal = struct {
         t.pending.clearRetainingCapacity();
     }
     pub fn receive(t: *Terminal, view: surface.View) !void {
+        // Keep the displayed text stable for the entire mouse gesture. The
+        // runtime continues collecting output; release resumes the live surface.
+        if (t.holding_selection) return;
         const frame = view.surface;
         if (frame.cols == 0 or frame.rows == 0) return;
         try t.inner.resize(frame.cols, frame.rows);
