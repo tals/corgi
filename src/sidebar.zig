@@ -7,6 +7,7 @@ const os = @import("os.zig");
 pub const max_entries = layout.max_panes + 16;
 pub const Target = union(enum) { pane: u32, native: u32 };
 pub const Entry = struct {
+    name: []const u8 = "",
     target: Target,
     provider: agents.Provider,
     state: agents.State,
@@ -190,7 +191,9 @@ pub const View = struct {
             const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) "🧠" else "";
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H", .{ y + 2, activity, y + 2 });
             var label: [220]u8 = undefined;
-            const detail = if (e.activity.len > 0) std.fmt.bufPrint(&label, "{s} · {s}", .{ @tagName(e.provider), e.activity }) catch @tagName(e.provider) else @tagName(e.provider);
+            var name: [160]u8 = undefined;
+            const provider = if (e.provider == .codex and e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
+            const detail = if (e.activity.len > 0) std.fmt.bufPrint(&label, "{s} · {s}", .{ provider, e.activity }) catch provider else provider;
             try writeClipped(w, detail, v.width - 6);
         }
         if (v.count > v.capacity) {

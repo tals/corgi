@@ -187,6 +187,7 @@ pub const Runtime = struct {
             const cwd = try a.dupe(u8, info.cwd);
             a.free(p.cwd);
             p.cwd = cwd;
+            p.agent.setName(info.agent.name);
             p.agent.changed_at = info.agent.changed_at;
             p.agent.provider = info.agent.provider;
             p.agent.state = info.agent.state;

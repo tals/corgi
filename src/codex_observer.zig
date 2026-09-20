@@ -37,6 +37,8 @@ pub fn titlePrefix(title: []const u8) ?Prefix {
 }
 pub const Request = struct { pane: u32, pid: c_int, prefix: Prefix };
 pub const Snapshot = struct {
+    name: [160]u8 = @splat(0),
+    name_len: usize = 0,
     request: Request,
     session: [36]u8,
     state: agents.State,
@@ -75,6 +77,10 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
         if (flag == .string and (eq(u8, flag.string, "waitingOnApproval") or eq(u8, flag.string, "waitingOnUserInput"))) state = .blocked;
     };
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
+    var named: agents.Agent = .{};
+    named.setName(agents.str(thread, "name"));
+    out.name = named.name;
+    out.name_len = named.name_len;
     const path = agents.str(thread, "path");
     if (std.fs.path.isAbsolute(path) and path.len <= out.transcript.len) {
         @memcpy(out.transcript[0..path.len], path);
@@ -110,6 +116,8 @@ pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
         agent.transcript = s.transcript;
         agent.transcript_len = s.transcript_len;
     }
+    agent.name = s.name;
+    agent.name_len = s.name_len;
     const old_state = agent.state;
     agent.state = s.state;
     agent.last_seq = s.observed_at;

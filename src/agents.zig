@@ -4,6 +4,8 @@ pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
 pub const Provider = enum { claude, codex, other };
 pub const Agent = struct {
+    name: [160]u8 = @splat(0),
+    name_len: usize = 0,
     observation: observation.State = .{},
     transcript: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
     transcript_len: usize = 0,
@@ -28,6 +30,15 @@ pub const Agent = struct {
     cwd_len: usize = 0,
     last_seq: i64 = 0,
     changed_at: i64 = 0,
+    pub fn setName(a: *Agent, value: []const u8) void {
+        var n = @min(value.len, a.name.len);
+        while (n > 0 and !std.unicode.utf8ValidateSlice(value[0..n])) n -= 1;
+        @memcpy(a.name[0..n], value[0..n]);
+        a.name_len = n;
+    }
+    pub fn displayName(a: *const Agent) []const u8 {
+        return a.name[0..a.name_len];
+    }
     pub fn sessionId(a: *const Agent) []const u8 {
         return a.session[0..a.session_len];
     }

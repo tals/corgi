@@ -53,6 +53,7 @@ pub const Node = union(enum) {
 pub const Tab = struct { id: u32, title: []const u8, layout: *const Node };
 pub const Workspace = struct { stats: @import("usage.zig").Counts = .{}, git_ahead: ?u64 = null, token: u64 = 0, id: u32, name: []const u8, cwd: []const u8, custom_name: ?[]const u8 = null, tabs: []const Tab };
 pub const Agent = struct {
+    name: []const u8 = "",
     observation: agents.observation.State = .{},
     recent_activity: []const u8 = "",
     changed_at: i64 = 0,
@@ -130,6 +131,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
                 .attention = p.agent.attention,
                 .observation = p.agent.observation,
                 .recent_activity = p.agent.recentLabel(),
+                .name = p.agent.displayName(),
                 .session = p.agent.sessionId(),
                 .activity = p.agent.label(),
                 .cwd = p.agent.directory(),
