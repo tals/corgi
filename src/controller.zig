@@ -116,6 +116,7 @@ pub fn Controller(comptime remote: bool) type {
         message: [512]u8 = .{0} ** 512,
         message_len: usize = 0,
         native_notice: ?u32 = null,
+        copy_feedback_until: i64 = 0,
         bell: bool = false,
         bell_kind: agents.Attention = .none,
         muted: bool = false,
@@ -752,7 +753,8 @@ pub fn Controller(comptime remote: bool) type {
             const osc = try std.fmt.allocPrint(a, "\x1b]52;c;{s}\x07", .{encoded});
             defer a.free(osc);
             try cl.queue(.{ .type = "frame", .data = osc });
-            s.notice(" Viewport copied via OSC 52");
+            s.copy_feedback_until = std.time.milliTimestamp() + 2000;
+            s.dirty = true;
         }
         pub fn key(s: *Server, cl: *Client, byte: u8) !void {
             if (cl.tab_drag) |*drag| {
@@ -1699,6 +1701,10 @@ pub fn Controller(comptime remote: bool) type {
             }
         }
         pub fn expireInput(s: *Server) !void {
+            if (s.copy_feedback_until != 0 and std.time.milliTimestamp() >= s.copy_feedback_until) {
+                s.copy_feedback_until = 0;
+                s.dirty = true;
+            }
             for (s.clients.items) |*cl| if (cl.attached and cl.keybuf.items.len > 0 and std.time.milliTimestamp() - cl.escape_at > @as(i64, if (cl.paste or cl.keybuf.items.len == 1) 40 else 1000)) {
                 if (cl.paste) {
                     if (cl.paste_pane) |id| if (s.pane(id)) |p| try s.sendInput(p.terminal, cl.keybuf.items);
@@ -1721,6 +1727,7 @@ pub fn Controller(comptime remote: bool) type {
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             return render.frame(s.model(), s.runtime.panes.items, s.width, s.height, .{
                 .message = s.message[0..s.message_len],
+                .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
                 .copy_mode = s.copy_mode,
                 .native_blocked = native_blocked,
                 .native_finished = native_finished,

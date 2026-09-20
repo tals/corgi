@@ -10,6 +10,7 @@ pub const Buffer = std.Io.Writer.Allocating;
 pub const Ui = struct {
     message: []const u8,
     copy_mode: bool,
+    copy_feedback: bool = false,
     native_blocked: usize,
     native_finished: usize,
     menu: ?commands.View = null,
@@ -175,6 +176,14 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
             };
         };
     };
+    if (ui.copy_feedback and width >= 27 and height >= 5) {
+        const toast_x = width - 26;
+        try w.writeAll("\x1b7\x1b[0;38;2;166;227;161;48;2;30;30;46m");
+        try w.print("\x1b[2;{d}H╭─────────────────────────╮", .{toast_x});
+        try w.print("\x1b[3;{d}H│ ● \x1b[1mCopied to clipboard\x1b[22m   │", .{toast_x});
+        try w.print("\x1b[4;{d}H╰─────────────────────────╯", .{toast_x});
+        try w.writeAll("\x1b[0m\x1b8");
+    }
     if (ui.menu) |menu| try menu.draw(w);
     if (ui.tab_menu) |menu| try menu.draw(w, width, height);
     if (ui.dialog) |dialog| {
