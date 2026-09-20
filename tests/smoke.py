@@ -1372,7 +1372,19 @@ event('SessionEnd')
         events=self.rpc(op='native.events',session=ident)['events']
         self.assertTrue(any(json.loads(e['line']).get('result',{}).get('version')=='fixture' for e in events))
     def test_real_client_restores_terminal_on_detach(self):
+        self.env.pop('CORGI_CURSOR_BLINK',None)
         self.check_real_client_exit(b'\x02q',1)
+    def test_real_client_can_keep_host_cursor_blink(self):
+        self.env['CORGI_CURSOR_BLINK']='1'
+        self.check_real_client_exit(b'\x02q',1)
+    def test_real_client_steady_cursor_still_honors_hidden_cursor(self):
+        self.env.pop('CORGI_CURSOR_BLINK',None)
+        pane=self.rpc(op='new',command="printf '\\033[?25lCURSOR_HIDDEN'; sleep 30")['pane']
+        self.until(lambda:'CURSOR_HIDDEN' in self.run_cli('read',str(pane)))
+        output=self.check_real_client_exit(b'\x02q',1)
+        frames=re.findall(rb'\x1b\[\?2026h(.*?)\x1b\[\?2026l',output,re.S)
+        self.assertTrue(frames)
+        self.assertTrue(all(b'\x1b[?25h' not in frame for frame in frames))
     def test_real_client_inherits_host_theme_and_answers_child_color_queries(self):
         self.master,slave=os.openpty();fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
         self.proc=subprocess.Popen([EXE],env=self.env,stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
@@ -1454,9 +1466,18 @@ while True:time.sleep(1)
         self.assertIn(b'\x1b[<u',collected)
         self.assertLess(collected.index(b'\x1b[<u'),collected.index(b'\x1b[?1049l'))
         self.assertIn(b'\x1b[?1049l',collected)
+        if self.env.get('CORGI_CURSOR_BLINK')=='1':
+            for mode in (b'\x1b[?12s',b'\x1b[?12l',b'\x1b[?12r'):
+                self.assertNotIn(mode,collected)
+        else:
+            self.assertEqual(collected.count(b'\x1b[?12s\x1b[?12l'),1)
+            self.assertLess(collected.index(b'\x1b[?12l'),collected.index(b'\x1b[?2026h'))
+            self.assertEqual(collected.count(b'\x1b[?12r'),1)
+            self.assertLess(collected.index(b'\x1b[?1049l'),collected.index(b'\x1b[?12r'))
         self.assertEqual(termios.tcgetattr(slave),before)
         os.close(slave)
         self.assertEqual(len(self.panes()),remaining_panes)
+        return collected
 
 class Discovery(unittest.TestCase):
     def setUp(self):

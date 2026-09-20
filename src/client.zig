@@ -4,6 +4,7 @@ const c = os.c;
 const a = os.allocator;
 const keyboard = @import("keyboard.zig");
 var keyboard_enabled = false;
+var cursor_blink_saved = false;
 var restore: ?c.struct_termios = null;
 fn cleanup() void {
     if (restore) |*term| {
@@ -13,6 +14,10 @@ fn cleanup() void {
             keyboard_enabled = false;
         }
         os.writeAll(1, "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[?1049l") catch {};
+        if (cursor_blink_saved) {
+            os.writeAll(1, "\x1b[?12r") catch {};
+            cursor_blink_saved = false;
+        }
         restore = null;
     }
 }
@@ -46,5 +51,11 @@ fn attachOnce(path: []const u8) !?[]const u8 {
     try probe.query(&input);
     try os.writeAll(1, "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?2004h" ++ keyboard.enable);
     keyboard_enabled = true;
+    if (!std.mem.eql(u8, os.env("CORGI_CURSOR_BLINK") orelse "", "1")) {
+        // Save and disable only blinking: retain the host's cursor shape and
+        // let each rendered frame continue to control cursor visibility.
+        try os.writeAll(1, "\x1b[?12s\x1b[?12l");
+        cursor_blink_saved = true;
+    }
     return try @import("viewer.zig").run(fd, path, &probe, &input);
 }
