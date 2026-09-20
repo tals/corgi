@@ -11,6 +11,7 @@ pub const Workspace = struct {
     cwd: []const u8,
     model: layout.Model = .{},
     git_ahead: ?u64 = null,
+    away: @import("usage.zig").Window = .{},
     pub fn customName(w: *const Workspace) []const u8 {
         return w.name_buf[0..w.name_len];
     }

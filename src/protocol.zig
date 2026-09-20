@@ -34,7 +34,7 @@ pub const Node = union(enum) {
     split: struct { axis: layout.Axis, ratio: u16, first: *const Node, second: *const Node },
 };
 pub const Tab = struct { id: u32, title: []const u8, layout: *const Node };
-pub const Workspace = struct { git_ahead: ?u64 = null, token: u64 = 0, id: u32, name: []const u8, cwd: []const u8, custom_name: ?[]const u8 = null, tabs: []const Tab };
+pub const Workspace = struct { stats: @import("usage.zig").Counts = .{}, git_ahead: ?u64 = null, token: u64 = 0, id: u32, name: []const u8, cwd: []const u8, custom_name: ?[]const u8 = null, tabs: []const Tab };
 pub const Agent = struct {
     observation: agents.observation.State = .{},
     recent_activity: []const u8 = "",
@@ -91,7 +91,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         for (ws.model.tabs[0..ws.model.count], tabs) |*tab, *item| {
             item.* = .{ .id = tab.id, .title = tab.title(), .layout = try tree(allocator, &ws.model, tab.root) };
         }
-        out.* = .{ .token = try layoutToken(&ws.model), .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .tabs = tabs };
+        out.* = .{ .token = try layoutToken(&ws.model), .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .stats = ws.away.counts, .tabs = tabs };
     }
     const panes = try allocator.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {

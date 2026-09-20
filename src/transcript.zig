@@ -225,7 +225,7 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     }
     return null;
 }
-fn timestampMs(s: []const u8) ?i64 {
+pub fn timestampMs(s: []const u8) ?i64 {
     if (s.len < 20 or s[4] != '-' or s[7] != '-' or s[10] != 'T' or s[s.len - 1] != 'Z') return null;
     const year = std.fmt.parseInt(u16, s[0..4], 10) catch return null;
     const month = std.fmt.parseInt(u8, s[5..7], 10) catch return null;

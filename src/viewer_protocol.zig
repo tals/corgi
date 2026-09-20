@@ -70,6 +70,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         };
         cl.watched = req.watched;
         if (s.runtime.workspaces.index(req.workspace) != null) cl.view_workspace = req.workspace;
+        if (cl.watched) s.visitWorkspace(cl.view_workspace);
         try resize(s);
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();

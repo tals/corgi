@@ -81,9 +81,10 @@ pub const Screen = struct {
 };
 pub const Pane = struct { id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
 pub const Closed = struct { cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
-pub const Workspace = struct { id: u32, name: []const u8, cwd: []const u8, tabs: []const protocol.Tab, active: usize, custom_name: ?[]const u8 = null, focus: []const u32, zoom: []const bool };
+pub const Workspace = struct { away: @import("usage.zig").Window = .{}, id: u32, name: []const u8, cwd: []const u8, tabs: []const protocol.Tab, active: usize, custom_name: ?[]const u8 = null, focus: []const u32, zoom: []const bool };
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
+    usage_tracker: @import("usage.zig").Tracker = .{},
     observation: agents.observation.State = .{},
     turns: []const NativeTurn = &.{},
     id: u32,
@@ -141,7 +142,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
             f.* = tab.focus;
             z.* = tab.zoom;
         }
-        out.* = .{ .id = w.id, .name = w.name(), .cwd = w.cwd, .tabs = try protocol.encodeTabs(alloc, &w.model), .active = w.model.active, .custom_name = w.customName(), .focus = focus, .zoom = zoom };
+        out.* = .{ .id = w.id, .away = w.away, .name = w.name(), .cwd = w.cwd, .tabs = try protocol.encodeTabs(alloc, &w.model), .active = w.model.active, .custom_name = w.customName(), .focus = focus, .zoom = zoom };
     }
     const panes = try alloc.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {
@@ -161,7 +162,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
             thread.* = entry.key_ptr.*;
             turn.* = .{ .thread = entry.key_ptr.*, .turn = entry.value_ptr.* };
         }
-        out.* = .{ .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .threads = threads, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
+        out.* = .{ .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .threads = threads, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
     }
     return .{ .live = live, .saved_at = std.time.timestamp(), .active = r.workspaces.active, .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
@@ -172,7 +173,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16 or state.active >= state.workspaces.len) return error.InvalidCheckpoint;
     for (state.workspaces) |w| {
         if (w.id == 0 or w.id >= state.next_workspace or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
-        var item: workspace.Workspace = .{ .id = w.id, .cwd = try a.dupe(u8, w.cwd) };
+        var item: workspace.Workspace = .{ .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
         item.name_len = agents.clean(&item.name_buf, w.custom_name orelse w.name);
         item.model = try protocol.modelFromTabs(w.tabs, &.{});
         if (w.focus.len != w.tabs.len or w.zoom.len != w.tabs.len or (w.tabs.len > 0 and w.active >= w.tabs.len)) return error.InvalidCheckpoint;
@@ -201,8 +202,8 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     for (r.workspaces.items.items) |w| for (w.model.nodes) |maybe| if (maybe) |n| if (n == .pane and r.pane(n.pane) == null) return error.InvalidCheckpoint;
     for (state.closed) |p| try r.closed.append(a, .{ .terminal = try p.screen.restore(false), .cwd = try a.dupe(u8, p.cwd), .tab = p.tab, .workspace_id = p.workspace_id });
     for (state.sessions) |n| {
-        if (n.resume_hint.len > 160 or r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
-        var s: native.Session = .{ .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
+        if (n.resume_hint.len > 160 or n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
+        var s: native.Session = .{ .usage_tracker = if (live) n.usage_tracker else .{}, .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
         s.child.id = n.pid;
         if (live and n.stdin >= 0) {
             s.child.stdin = .{ .handle = n.stdin };

@@ -160,6 +160,7 @@ pub fn Controller(comptime remote: bool) type {
             s.dismissName();
             s.closeMenu();
             s.runtime.workspaces.active = index;
+            s.visitWorkspace(id);
             s.revealWorkspace();
             s.sidebar_offset = 0;
             s.copy_mode = false;
@@ -246,15 +247,17 @@ pub fn Controller(comptime remote: bool) type {
         pub fn workspaceEntries(s: *Server, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
             s.followWorkspaceDirectories();
             for (s.runtime.workspaces.items.items, 0..) |*ws, i| {
-                out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead };
+                out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead, .stats = ws.away.counts };
                 for (s.runtime.panes.items) |p| {
                     if (p.agent.provider == .other or ws.model.tabForPane(p.id) == null) continue;
                     if (p.agent.state == .working) out[i].working += 1;
+                    if (p.agent.state == .blocked or p.agent.attention == .needs_input) out[i].attention += 1;
                     if (p.agent.observation.unread()) out[i].unread += 1;
                 }
                 for (s.runtime.sessions.items) |session| {
                     if (session.workspace_id != ws.id) continue;
                     if (session.state == .working) out[i].working += 1;
+                    if (session.state == .blocked or session.attention == .needs_input) out[i].attention += 1;
                     if (session.observation.unread()) out[i].unread += 1;
                 }
             }
@@ -1275,6 +1278,17 @@ pub fn Controller(comptime remote: bool) type {
             if (button == 0) s.divider = s.model().dividerAt(s.area(), x, y);
         }
 
+        pub fn visitWorkspace(s: *Server, id: u32) void {
+            const index = s.runtime.workspaces.index(id) orelse return;
+            if (s.runtime.workspaces.items.items[index].away.visit(std.time.milliTimestamp())) {
+                if (!remote) s.runtime.changed();
+                s.dirty = true;
+            }
+        }
+        fn workspaceWatched(s: *Server, id: u32) bool {
+            for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
+            return s.isWatched() and s.runtime.workspaces.current().id == id;
+        }
         fn paneWatched(s: *Server, id: u32) bool {
             for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
             return s.isWatched() and s.model().count > 0 and s.model().tab().focus == id and s.hasClient();
@@ -1715,6 +1729,9 @@ pub fn Controller(comptime remote: bool) type {
         pub fn run(s: *Server) !void {
             const observer = try @import("transcript.zig").Worker.start();
             defer observer.stop();
+            const usage_worker = @import("usage_worker.zig");
+            const usage = try usage_worker.Worker.start();
+            defer usage.stop();
             const codex_observer = @import("codex_observer.zig");
             const codex = try codex_observer.Worker.start();
             defer codex.stop();
@@ -1797,6 +1814,20 @@ pub fn Controller(comptime remote: bool) type {
                         }
                     };
                     s.followWorkspaceDirectories();
+                    for (s.runtime.workspaces.items.items) |ws| if (s.workspaceWatched(ws.id)) s.visitWorkspace(ws.id);
+                    usage.reconcile(&s.runtime);
+                    var activity: [layout.max_panes]?usage_worker.Result = undefined;
+                    usage.take(&activity);
+                    for (activity) |entry| if (entry) |result| {
+                        const p = s.pane(result.pane) orelse continue;
+                        if (!eq(p.agent.sessionId(), result.session[0..result.session_len])) continue;
+                        const ws = s.runtime.workspaces.owner(p.id) orelse continue;
+                        if (ws.id != result.workspace or s.workspaceWatched(ws.id)) continue;
+                        if (ws.away.record(result.since, result.delta)) {
+                            s.dirty = true;
+                            s.runtime.changed();
+                        }
+                    };
                     observer.reconcile(s.runtime.panes.items);
                     var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;
                     observer.take(&completions);
@@ -1826,6 +1857,14 @@ pub fn Controller(comptime remote: bool) type {
                         _ = c.kill(-session.child.id, c.SIGTERM);
                         break :blk false;
                     };
+                    if (s.runtime.workspaces.index(session.workspace_id)) |index| {
+                        const ws = &s.runtime.workspaces.items.items[index];
+                        if (s.workspaceWatched(ws.id)) s.visitWorkspace(ws.id) else if (ws.away.record(ws.away.since, session.usage_pending)) {
+                            s.dirty = true;
+                            s.runtime.changed();
+                        }
+                    }
+                    session.usage_pending = .{};
                     if (old_seq != session.next_seq) s.runtime.changed();
                     if (session.state != old_state or session.ready != old_ready or session.attention != old_attention or session.toolActive() != old_tool) s.dirty = true;
                     if (ding) {

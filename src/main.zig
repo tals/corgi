@@ -312,6 +312,8 @@ test {
     _ = @import("layout.zig");
     _ = @import("agents.zig");
     _ = @import("transcript.zig");
+    _ = @import("usage.zig");
+    _ = @import("usage_worker.zig");
     _ = @import("codex_observer.zig");
     _ = @import("terminal.zig");
     _ = @import("integration.zig");

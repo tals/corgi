@@ -156,7 +156,7 @@ pub const Runtime = struct {
         for (snapshot.workspaces, 0..) |ws, index| {
             const previous = if (r.workspaces.index(ws.id)) |i| r.workspaces.items.items[i].model else layout.Model{};
             // Do not resolve remote paths or persist the viewer's selection.
-            var item: workspace.Workspace = .{ .id = ws.id, .cwd = try a.dupe(u8, ws.cwd), .git_ahead = ws.git_ahead, .model = try protocol.modelFromTabs(ws.tabs, &previous) };
+            var item: workspace.Workspace = .{ .id = ws.id, .cwd = try a.dupe(u8, ws.cwd), .git_ahead = ws.git_ahead, .away = .{ .counts = ws.stats }, .model = try protocol.modelFromTabs(ws.tabs, &previous) };
             item.name_len = agents.clean(&item.name_buf, ws.custom_name orelse ws.name);
             try next.items.append(a, item);
             if (ws.id == selected) next.active = index;

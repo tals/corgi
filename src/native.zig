@@ -36,6 +36,8 @@ pub const Session = struct {
     approvals: std.ArrayList([]const u8) = .empty,
     active_threads: std.StringHashMapUnmanaged([]const u8) = .empty,
     active_tools: std.ArrayList(Tool) = .empty,
+    usage_pending: @import("usage.zig").Counts = .{},
+    usage_tracker: @import("usage.zig").Tracker = .{},
     journal_bytes: usize = 0,
     next_seq: u64 = 1,
     pub fn start(id: u32, provider: agents.Provider, cwd: []const u8) !Session {
@@ -129,6 +131,7 @@ pub const Session = struct {
         const owned_turn = try a.dupe(u8, turn);
         errdefer a.free(owned_turn);
         try s.active_tools.append(a, .{ .id = owned_id, .thread = owned_thread, .turn = owned_turn });
+        s.usage_pending.tools +|= 1;
         s.state = .working;
         s.attention = if (s.observation.unread()) .finished else .none;
     }
@@ -152,6 +155,10 @@ pub const Session = struct {
     fn observeTools(s: *Session, v: std.json.Value, params: std.json.Value, method: []const u8, kind: []const u8) !void {
         if (s.provider == .codex and params == .object) {
             const thread = agents.str(params, "threadId");
+            if (eq(method, "thread/tokenUsage/updated")) {
+                const usage = @import("usage.zig");
+                s.usage_pending.add(s.usage_tracker.codexNotification(thread, usage.field(params, "tokenUsage"), s.active_threads.contains(thread)));
+            }
             if (eq(method, "item/started") or eq(method, "item/completed")) {
                 const item = params.object.get("item") orelse return;
                 const id = agents.str(item, "id");
@@ -178,6 +185,11 @@ pub const Session = struct {
             if (!eq(kind, "assistant") and !eq(kind, "user")) return;
             const message = v.object.get("message") orelse return;
             if (message != .object) return;
+            if (eq(kind, "assistant")) {
+                var delta = s.usage_tracker.claudeMessage(message);
+                delta.tools = 0; // startTool owns native tool accounting.
+                s.usage_pending.add(delta);
+            }
             const content = message.object.get("content") orelse return;
             if (content != .array) return;
             for (content.array.items) |block| {

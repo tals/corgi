@@ -40,6 +40,8 @@ pub const Snapshot = struct {
     request: Request,
     session: [36]u8,
     state: agents.State,
+    transcript: [std.fs.max_path_bytes]u8 = @splat(0),
+    transcript_len: usize = 0,
     turn: [128]u8 = .{0} ** 128,
     turn_len: usize = 0,
     outcome: ?agents.observation.Outcome = null,
@@ -73,6 +75,11 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
         if (flag == .string and (eq(u8, flag.string, "waitingOnApproval") or eq(u8, flag.string, "waitingOnUserInput"))) state = .blocked;
     };
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
+    const path = agents.str(thread, "path");
+    if (std.fs.path.isAbsolute(path) and path.len <= out.transcript.len) {
+        @memcpy(out.transcript[0..path.len], path);
+        out.transcript_len = path.len;
+    }
     const turns = try client.call("thread/turns/list", .{ .threadId = &session, .limit = 1, .sortDirection = "desc", .itemsView = "summary" });
     defer turns.deinit();
     const data = field(result(turns.value), "data");
@@ -98,6 +105,10 @@ pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
         agent.provider = .codex;
         @memcpy(agent.session[0..36], &s.session);
         agent.session_len = 36;
+    }
+    if (s.transcript_len > 0) {
+        agent.transcript = s.transcript;
+        agent.transcript_len = s.transcript_len;
     }
     const old_state = agent.state;
     agent.state = s.state;
