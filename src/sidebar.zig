@@ -30,7 +30,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool };
+pub const WorkspaceEntry = struct { git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0 };
 pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     cols: u16,
@@ -45,7 +45,7 @@ pub const View = struct {
         return (v.rows -| 1) / 2;
     }
     pub fn workspaceCapacity(v: View) usize {
-        return @max(1, (v.middle() -| 3) / 2);
+        return @max(1, (v.middle() -| 3) / 3);
     }
     pub fn withWorkspaces(v: View, count: usize, offset: usize) View {
         var result = v;
@@ -59,7 +59,7 @@ pub const View = struct {
     }
     pub fn init(cols: u16, rows: u16, open: bool, offset: usize, count: usize) View {
         const capacity = @max(1, (rows -| ((rows -| 1) / 2) -| 4) / 2);
-        return .{ .cols = cols, .rows = rows, .width = if (rows >= 11) widthFor(cols, open) else 0, .count = count, .capacity = capacity, .offset = @min(offset, count -| capacity) };
+        return .{ .cols = cols, .rows = rows, .width = if (rows >= 13) widthFor(cols, open) else 0, .count = count, .capacity = capacity, .offset = @min(offset, count -| capacity) };
     }
     pub fn area(v: View) layout.Rect {
         return .{ .x = v.width, .y = 1, .w = v.cols - v.width, .h = v.rows -| 2 };
@@ -71,12 +71,19 @@ pub const View = struct {
         if (v.width == 0) return if (v.cols >= 64 and x < 3 and y == 0) .toggle else .none;
         if (x >= v.width - 1 or y >= v.rows - 1) return .none;
         if (y == 0 and x >= v.width - 5) return .toggle;
-        if (y == 0 and x >= v.width - 9) return .workspace_new;
+        if (y == 0 and x >= v.width - 11 and x < v.width - 6) return .workspace_new;
         if (y < v.middle()) {
-            if (y == v.middle() - 1 and v.workspace_count > v.workspaceCapacity()) return if (x < v.width / 2) .workspace_previous else .workspace_next;
-            if (y < 2 or y >= v.middle() - 1) return .none;
-            const index = (y - 2) / 2 + v.workspace_offset;
-            return if (index < v.workspace_count and (y - 2) / 2 < v.workspaceCapacity()) .{ .workspace = index } else .none;
+            if (y == v.middle() - 2) {
+                if (v.workspace_count > v.workspaceCapacity()) {
+                    if (x >= v.width - 8 and x < v.width - 5) return .workspace_previous;
+                    if (x >= v.width - 5 and x < v.width - 2) return .workspace_next;
+                }
+                return .none;
+            }
+            if (y < 2 or y >= v.middle() - 2) return .none;
+            if ((y - 2) % 3 == 2) return .none;
+            const index = (y - 2) / 3 + v.workspace_offset;
+            return if (index < v.workspace_count and (y - 2) / 3 < v.workspaceCapacity()) .{ .workspace = index } else .none;
         }
         if (y == v.rows - 2 and v.count > v.capacity) return if (x < v.width / 2) .previous else .next;
         if (y < v.middle() + 2 or y >= v.rows - 2) return .none;
@@ -98,9 +105,9 @@ pub const View = struct {
         try v.line(w, v.middle(), "agents", "\x1b[1;38;2;226;230;233m");
         try w.print("\x1b[1;{d}H{s} < ", .{ v.width - 4, panel });
         try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");
-        try w.print("\x1b[1;{d}H{s} + ", .{ v.width - 8, panel });
+        try w.print("\x1b[1;{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m[ + ]{s}", .{ v.width - 10, panel });
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
-            const y: u16 = @intCast(2 + index * 2);
+            const y: u16 = @intCast(2 + index * 3);
             const style = if (ws.active) "\x1b[1;38;2;161;194;178;48;2;35;40;47m" else panel;
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
@@ -111,15 +118,23 @@ pub const View = struct {
             try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
             try writeClipped(w, directoryLabel(&label, ws.name, null), v.width - 3 - (if (badge_width > 0) badge_width + 1 else 0));
             if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m{s}", .{ y + 1, v.width - 1 - badge_width, badge });
-            var path: [std.fs.max_path_bytes + 1]u8 = undefined;
-            try w.print("\x1b[{d};2H{s}", .{ y + 2, panel });
-            try writeDirectory(w, directoryLabel(&path, ws.cwd, os.env("HOME")), v.width - 3);
+            var status: [80]u8 = undefined;
+            const working = try std.fmt.bufPrint(&status, "{d} ●", .{ws.working});
+            try v.line(w, y + 1, working, panel);
+            if (ws.working > 0) {
+                try w.print("\x1b[{d};2H\x1b[38;2;249;226;175m{s}{s}", .{ y + 2, working, panel });
+            }
+            const working_width = displayWidth(working);
+            const unread = try std.fmt.bufPrint(&status, " · {d} unread", .{ws.unread});
+            if (ws.unread > 0) try w.writeAll("\x1b[1;38;2;148;226;213m");
+            try writeClipped(w, unread, (v.width - 3) -| working_width);
+            try w.writeAll(panel);
         }
         if (v.workspace_count > v.workspaceCapacity()) {
-            var text: [64]u8 = undefined;
-            const footer = try std.fmt.bufPrint(&text, "< {d}-{d}/{d} >", .{ v.workspace_offset + 1, @min(v.workspace_count, v.workspace_offset + v.workspaceCapacity()), v.workspace_count });
-            try v.line(w, v.middle() - 1, footer, panel);
+            try w.print("\x1b[{d};{d}H{s} <  > ", .{ v.middle() - 1, v.width - 7, panel });
         }
+        try w.print("\x1b[{d};2H{s}\x1b[38;2;55;61;70m", .{ v.middle(), panel });
+        for (0..v.width - 3) |_| try w.writeAll("─");
         if (entries.len == 0) {
             try v.line(w, v.middle() + 2, "No agents yet", panel);
             try v.line(w, v.middle() + 4, "Launch inside a pane:", panel);
@@ -250,12 +265,32 @@ test "compact paths preserve root and folder within column budget" {
     try std.testing.expect(std.mem.endsWith(u8, output.written(), "folder"));
 }
 
-test "workspace directory row selects the workspace across its width" {
+test "compact workspace rows, spacers and bottom bar have distinct click targets" {
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(2, 0);
-    try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 3));
-    try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(23, 3));
     try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 2));
+    try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 3));
+    try std.testing.expectEqual(Hit.none, view.hit(24, 4));
+    try std.testing.expectEqual(Hit{ .workspace = 1 }, view.hit(24, 5));
+    try std.testing.expectEqual(Hit{ .workspace = 1 }, view.hit(24, 6));
     try std.testing.expectEqual(Hit.none, view.hit(24, 7));
+    try std.testing.expectEqual(Hit.none, view.hit(2, 12));
+    try std.testing.expectEqual(Hit.none, view.hit(2, 13));
+    try std.testing.expectEqual(Hit.workspace_new, view.hit(17, 0));
+    try std.testing.expectEqual(Hit.workspace_new, view.hit(21, 0));
+    try std.testing.expectEqual(Hit.none, view.hit(22, 0));
+    try std.testing.expectEqual(Hit.toggle, view.hit(23, 0));
+    try std.testing.expectEqual(@as(u16, 0), View.init(100, 12, true, 0, 0).width);
+    const compact = View.init(100, 13, true, 0, 0).withWorkspaces(2, 0);
+    try std.testing.expectEqual(Hit{ .workspace = 0 }, compact.hit(24, 3));
+    try std.testing.expectEqual(Hit.none, compact.hit(2, 4));
+    try std.testing.expectEqual(Hit.workspace_previous, compact.hit(21, 4));
+    try std.testing.expectEqual(Hit.workspace_next, compact.hit(24, 4));
+    try std.testing.expectEqual(Hit.none, compact.hit(24, 5));
+    const paged = view.withWorkspaces(8, 99);
+    try std.testing.expectEqual(@as(usize, 3), paged.workspaceCapacity());
+    try std.testing.expectEqual(@as(usize, 5), paged.workspace_offset);
+    try std.testing.expectEqual(Hit{ .workspace = 7 }, paged.hit(24, 9));
+    try std.testing.expectEqual(Hit.workspace_next, paged.hit(24, 12));
 }
 
 test "unpushed badge retains its columns beside a long workspace name" {

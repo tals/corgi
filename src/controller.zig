@@ -245,7 +245,19 @@ pub fn Controller(comptime remote: bool) type {
         }
         pub fn workspaceEntries(s: *Server, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
             s.followWorkspaceDirectories();
-            for (s.runtime.workspaces.items.items, 0..) |*ws, i| out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead };
+            for (s.runtime.workspaces.items.items, 0..) |*ws, i| {
+                out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead };
+                for (s.runtime.panes.items) |p| {
+                    if (p.agent.provider == .other or ws.model.tabForPane(p.id) == null) continue;
+                    if (p.agent.state == .working) out[i].working += 1;
+                    if (p.agent.observation.unread()) out[i].unread += 1;
+                }
+                for (s.runtime.sessions.items) |session| {
+                    if (session.workspace_id != ws.id) continue;
+                    if (session.state == .working) out[i].working += 1;
+                    if (session.observation.unread()) out[i].unread += 1;
+                }
+            }
             return out[0..s.runtime.workspaces.items.items.len];
         }
         pub fn agentEntries(s: *Server, entries: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
