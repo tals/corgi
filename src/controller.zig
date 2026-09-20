@@ -1646,6 +1646,8 @@ pub fn Controller(comptime remote: bool) type {
             });
         }
         pub fn run(s: *Server) !void {
+            const observer = try @import("transcript.zig").Worker.start();
+            defer observer.stop();
             _ = c.signal(c.SIGPIPE, os.sig_ignore);
             const fd = s.inherited_listener orelse try os.listen(s.socket);
             defer {
@@ -1708,6 +1710,23 @@ pub fn Controller(comptime remote: bool) type {
                     s.last_detection = now;
                     for (s.runtime.panes.items) |*p| if (!p.terminal.exited) s.detectPane(p);
                     s.followWorkspaceDirectories();
+                    observer.reconcile(s.runtime.panes.items);
+                    var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;
+                    observer.take(&completions);
+                    for (completions) |entry| if (entry) |result| {
+                        if (s.pane(result.pane)) |p| {
+                            const was_pending = p.agent.observation.pending_stop;
+                            const ding = p.agent.confirm(result.seq, result.outcome);
+                            if (was_pending and !p.agent.observation.pending_stop) {
+                                s.runtime.changed();
+                                s.dirty = true;
+                            }
+                            if (ding and !s.paneWatched(p.id)) {
+                                s.bell = true;
+                                if (s.bell_kind != .needs_input) s.bell_kind = .finished;
+                            }
+                        }
+                    };
                 }
                 for (s.runtime.sessions.items) |*session| {
                     const old_seq = session.next_seq;

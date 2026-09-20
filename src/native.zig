@@ -28,12 +28,13 @@ pub const Session = struct {
     exited: bool = false,
     state: agents.State = .initializing,
     attention: agents.Attention = .none,
+    observation: agents.observation.State = .{},
     input: std.ArrayList(u8) = .empty,
     output: std.ArrayList(u8) = .empty,
     deferred: std.ArrayList(u8) = .empty,
     events: std.ArrayList(Event) = .empty,
     approvals: std.ArrayList([]const u8) = .empty,
-    active_threads: std.StringHashMapUnmanaged(void) = .empty,
+    active_threads: std.StringHashMapUnmanaged([]const u8) = .empty,
     active_tools: std.ArrayList(Tool) = .empty,
     journal_bytes: usize = 0,
     next_seq: u64 = 1,
@@ -81,8 +82,11 @@ pub const Session = struct {
         if (s.child.stdout) |f| f.close();
         for (s.events.items) |event| a.free(event.line);
         for (s.approvals.items) |line| a.free(line);
-        var threads = s.active_threads.keyIterator();
-        while (threads.next()) |key| a.free(key.*);
+        var threads = s.active_threads.iterator();
+        while (threads.next()) |entry| {
+            a.free(entry.key_ptr.*);
+            a.free(entry.value_ptr.*);
+        }
         s.active_threads.deinit(a);
         s.clearTools(null, null);
         s.active_tools.deinit(a);
@@ -126,7 +130,7 @@ pub const Session = struct {
         errdefer a.free(owned_turn);
         try s.active_tools.append(a, .{ .id = owned_id, .thread = owned_thread, .turn = owned_turn });
         s.state = .working;
-        s.attention = .none;
+        s.attention = if (s.observation.unread()) .finished else .none;
     }
     fn finishTool(s: *Session, id: []const u8, thread: []const u8) void {
         for (s.active_tools.items, 0..) |tool, i| {
@@ -218,7 +222,7 @@ pub const Session = struct {
                 i += 1;
             }
             if (removed and s.approvals.items.len == 0) {
-                s.attention = .none;
+                s.attention = if (s.observation.unread()) .finished else .none;
                 s.state = .working;
             }
         }
@@ -283,19 +287,40 @@ pub const Session = struct {
                     s.state = .blocked;
                     s.attention = .needs_input;
                 } else if (eq(method, "turn/started") or eq(kind, "assistant")) {
-                    if (thread_id.len > 0 and !s.active_threads.contains(thread_id)) try s.active_threads.put(a, try a.dupe(u8, thread_id), {});
+                    if (thread_id.len > 0) {
+                        const turn = agents.str(if (params == .object) params.object.get("turn") orelse .null else .null, "id");
+                        if (s.active_threads.fetchRemove(thread_id)) |entry| {
+                            a.free(entry.key);
+                            a.free(entry.value);
+                        }
+                        try s.active_threads.put(a, try a.dupe(u8, thread_id), try a.dupe(u8, turn));
+                    }
                     s.state = .working;
-                    s.attention = .none;
+                    s.attention = if (s.observation.unread()) .finished else .none;
                 } else if (eq(method, "turn/completed") or eq(kind, "result")) {
-                    if (s.active_threads.fetchRemove(thread_id)) |entry| a.free(entry.key);
-                    s.state = if (s.active_threads.count() > 0) .working else .idle;
-                    if (s.state == .idle) s.attention = .finished;
+                    const turn = if (params == .object) params.object.get("turn") orelse .null else .null;
+                    const turn_id = agents.str(turn, "id");
+                    const active_turn = s.active_threads.get(thread_id);
+                    const matches = if (s.provider == .codex) active_turn != null and (active_turn.?.len == 0 or eq(active_turn.?, turn_id)) else old == .working or old == .blocked;
+                    if (matches) {
+                        if (s.active_threads.fetchRemove(thread_id)) |entry| {
+                            a.free(entry.key);
+                            a.free(entry.value);
+                        }
+                        const status = agents.str(turn, "status");
+                        const failed = if (v.object.get("is_error")) |flag| flag == .bool and flag.bool else false;
+                        const outcome: agents.observation.Outcome = if (eq(status, "interrupted")) .interrupted else if (eq(status, "failed") or failed) .failed else .completed;
+                        s.observation.finish(outcome, .protocol);
+                        s.state = if (s.active_threads.count() > 0) .working else .idle;
+                        s.attention = .finished;
+                        if (outcome == .completed) ding = true;
+                    }
                 }
                 if (s.approvals.items.len > 0) {
                     s.state = .blocked;
                     s.attention = .needs_input;
                 }
-                if (s.state != old and s.attention != .none) ding = true;
+                if (s.state != old and s.attention == .needs_input) ding = true;
                 while (s.events.items.len > 0 and (s.events.items.len >= 128 or s.journal_bytes + line.len > 4 * 1024 * 1024)) {
                     const discarded = s.events.orderedRemove(0);
                     s.journal_bytes -= discarded.line.len;

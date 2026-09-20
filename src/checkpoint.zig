@@ -74,7 +74,10 @@ pub const Screen = struct {
 pub const Pane = struct { id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
 pub const Closed = struct { cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
 pub const Workspace = struct { id: u32, name: []const u8, cwd: []const u8, tabs: []const protocol.Tab, active: usize, custom_name: ?[]const u8 = null, focus: []const u32, zoom: []const bool };
+pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
+    observation: agents.observation.State = .{},
+    turns: []const NativeTurn = &.{},
     id: u32,
     provider: agents.Provider,
     cwd: []const u8,
@@ -111,6 +114,16 @@ pub const State = struct {
     closed: []const Closed,
     sessions: []const Native,
 };
+fn historicalAgent(agent: agents.Agent) agents.Agent {
+    var result = agent;
+    result.state = if (result.observation.unread()) .done else .unknown;
+    if (!result.observation.unread()) result.provider = .other;
+    result.last_seq = 0;
+    result.tool_active = false;
+    result.observation.pending_stop = false;
+    result.transcript_len = 0;
+    return result;
+}
 pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State {
     const workspaces = try alloc.alloc(Workspace, r.workspaces.items.items.len);
     for (r.workspaces.items.items, workspaces) |*w, *out| {
@@ -126,16 +139,21 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     for (r.panes.items, panes) |*p, *out| {
         p.refreshCwd();
         p.resume_hint.observe(&p.agent);
-        out.* = .{ .id = p.id, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, live), .agent = if (live) p.agent else .{}, .detection = if (live) p.detection else .{}, .resume_hint = p.resume_hint };
+        out.* = .{ .id = p.id, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, live), .agent = if (live) p.agent else historicalAgent(p.agent), .detection = if (live) p.detection else .{}, .resume_hint = p.resume_hint };
     }
     const closed = try alloc.alloc(Closed, r.closed.items.len);
     for (r.closed.items, closed) |p, *out| out.* = .{ .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, false), .tab = p.tab, .workspace_id = p.workspace_id };
     const sessions = try alloc.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*s, *out| {
         const threads = try alloc.alloc([]const u8, s.active_threads.count());
-        var it = s.active_threads.keyIterator();
-        for (threads) |*thread| thread.* = (it.next() orelse unreachable).*;
-        out.* = .{ .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .threads = threads, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
+        var it = s.active_threads.iterator();
+        const turns = try alloc.alloc(NativeTurn, s.active_threads.count());
+        for (threads, turns) |*thread, *turn| {
+            const entry = it.next().?;
+            thread.* = entry.key_ptr.*;
+            turn.* = .{ .thread = entry.key_ptr.*, .turn = entry.value_ptr.* };
+        }
+        out.* = .{ .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .threads = threads, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
     }
     return .{ .live = live, .saved_at = std.time.timestamp(), .active = r.workspaces.active, .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
@@ -166,7 +184,9 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.revision = state.revision +% 1;
     for (state.panes) |p| {
         if (p.id == 0 or p.id >= state.next_pane or r.pane(p.id) != null or r.workspaces.owner(p.id) == null or
-            !std.fs.path.isAbsolute(p.cwd) or p.resume_hint.len > p.resume_hint.session.len or p.agent.session_len > 160 or p.agent.cwd_len > p.agent.cwd.len) return error.InvalidCheckpoint;
+            !std.fs.path.isAbsolute(p.cwd) or p.resume_hint.len > p.resume_hint.session.len or p.agent.session_len > 160 or p.agent.cwd_len > p.agent.cwd.len or
+            p.agent.transcript_len > p.agent.transcript.len or p.agent.turn_len > 160 or
+            p.agent.last_finished_turn_len > 160 or p.agent.recent_len > 160 or p.agent.observation.read > p.agent.observation.completed) return error.InvalidCheckpoint;
         const t = try p.screen.restore(live);
         try r.panes.append(a, .{ .id = p.id, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .agent = p.agent, .detection = p.detection, .resume_hint = p.resume_hint });
     }
@@ -174,7 +194,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     for (state.closed) |p| try r.closed.append(a, .{ .terminal = try p.screen.restore(false), .cwd = try a.dupe(u8, p.cwd), .tab = p.tab, .workspace_id = p.workspace_id });
     for (state.sessions) |n| {
         if (n.resume_hint.len > 160 or r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
-        var s: native.Session = .{ .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
+        var s: native.Session = .{ .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
         s.child.id = n.pid;
         if (live and n.stdin >= 0) {
             s.child.stdin = .{ .handle = n.stdin };
@@ -190,7 +210,14 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         for (n.events) |event| try s.events.append(a, .{ .seq = event.seq, .line = try a.dupe(u8, event.line) });
         if (live) {
             for (n.approvals) |line| try s.approvals.append(a, try a.dupe(u8, line));
-            for (n.threads) |thread| try s.active_threads.put(a, try a.dupe(u8, thread), {});
+            for (n.threads) |thread| {
+                var turn_id: []const u8 = "";
+                for (n.turns) |turn| if (std.mem.eql(u8, thread, turn.thread)) {
+                    turn_id = turn.turn;
+                    break;
+                };
+                try s.active_threads.put(a, try a.dupe(u8, thread), try a.dupe(u8, turn_id));
+            }
             for (n.tools) |tool| try s.active_tools.append(a, .{ .id = try a.dupe(u8, tool.id), .thread = try a.dupe(u8, tool.thread), .turn = try a.dupe(u8, tool.turn) });
         }
         try r.sessions.append(a, s);
@@ -208,6 +235,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             const id = try r.create(.{ .workspace = n.workspace_id, .cwd = dir, .title = "Recovered native session", .cols = 100, .rows = 30, .theme = .{}, .socket = socket, .executable = executable });
             const pane = r.pane(id).?;
             pane.resume_hint = n.resume_hint;
+            pane.agent = .{ .provider = n.provider, .state = .done, .observation = n.observation, .session = n.resume_hint.session, .session_len = n.resume_hint.len, .attention = if (n.observation.unread()) .finished else .none };
             const command = try pane.resume_hint.command(a);
             defer a.free(command);
             for (n.events) |event| {

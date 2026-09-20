@@ -310,6 +310,7 @@ test {
     _ = @import("discovery.zig");
     _ = @import("layout.zig");
     _ = @import("agents.zig");
+    _ = @import("transcript.zig");
     _ = @import("terminal.zig");
     _ = @import("integration.zig");
     _ = @import("detection.zig");

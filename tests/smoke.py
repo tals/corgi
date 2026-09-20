@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real PTY/socket regressions. Provider doubles never make inference requests."""
 import fcntl
+import datetime
 import hashlib
 import base64
 import json
@@ -34,10 +35,12 @@ for line in sys.stdin:
     if v.get('method') == 'initialize': emit({'id': v['id'], 'result': {'version':'fixture'}})
     elif v.get('method') == 'initialized': emit({'method':'ready'})
     elif v.get('method') == 'test/approval':
+        if not claude:emit({'method':'turn/started','params':{'threadId':'t','turn':{'id':'turn'}}})
         emit({'type':'control_request','request_id':'permission-1','request':{'subtype':'can_use_tool','tool_name':'Bash'}} if claude else {'id':900,'method':'item/commandExecution/requestApproval','params':{'threadId':'t'}})
     elif v.get('method') == 'test/flood':
         for i in range(150): emit({'type':'fixture','n':i})
     elif v.get('method') == 'test/tool-start':
+        if not claude:emit({'method':'turn/started','params':{'threadId':'t','turn':{'id':'turn'}}})
         ident=v['params']['id']
         emit({'type':'assistant','message':{'content':[{'type':'tool_use','id':ident,'name':'Bash','input':{}}]}} if claude else {'method':'item/started','params':{'threadId':'t','turnId':'turn','item':{'id':ident,'type':'commandExecution'}}})
     elif v.get('method') == 'test/tool-stop':
@@ -46,7 +49,8 @@ for line in sys.stdin:
     elif v.get('method') == 'test/turn-end':
         emit({'type':'result','result':'done'} if claude else {'method':'turn/completed','params':{'threadId':'t','turn':{'id':'turn'}}})
     elif v.get('id') == 900 or v.get('type') == 'control_response':
-        emit({'type':'result','result':'complete'} if claude else {'method':'turn/completed','params':{'threadId':'t'}})
+        emit({'type':'result','result':'complete'} if claude else {'method':'turn/completed','params':{'threadId':'t','turn':{'id':'turn','status':'completed'}}})
+    elif v.get('method') == 'test/event':emit(v['params'])
     elif v.get('method') == 'test/exit': sys.exit(0)
     elif 'id' in v: emit({'id':v['id'],'result':{'echo':v}})
 '''
@@ -1021,9 +1025,17 @@ while True:
         self.rpc(op='new',cwd=self.temp.name,title='Beta',command='sleep 30')
         self.attach();screen=self.frame_with('No agents yet')
         self.assertTrue(screen[0].startswith(' workspaces'))
+        transcript=pathlib.Path(self.temp.name,'sidebar.jsonl')
+        transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':'sidebar'}})+'\n')
+        turn=0
         def hook(event,**extra):
+            nonlocal turn
+            if event=='UserPromptSubmit':turn+=1
+            extra.update(transcript_path=str(transcript),turn_id=str(turn))
             p=subprocess.run([EXE,'hook','codex'],env={**self.env,'CORGI_PANE':str(one)},input=json.dumps({'hook_event_name':event,'session_id':'sidebar',**extra}),text=True,capture_output=True,timeout=3)
             self.assertEqual((p.returncode,p.stdout,p.stderr),(0,'',''))
+            if event=='Stop':
+                with transcript.open('a') as f:f.write(json.dumps({'type':'event_msg','timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),'payload':{'type':'task_complete','turn_id':str(turn)}})+'\n')
         hook('SessionStart');screen=self.agent_frame('codex','○',color='166;227;161')
         self.assertNotIn('SessionStart','\n'.join(screen))
         self.assertNotIn('Alpha','\n'.join(row[:27] for row in screen))
@@ -1136,8 +1148,12 @@ with open({str(played)!r},'a') as log:
         os.close(slave)
         self.until(lambda:self.panes())
         pane=self.panes()[0]['id']
+        transcript=pathlib.Path(self.temp.name,'sounds.jsonl')
+        transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':'sounds'}})+'\n')
         def hook(event,seq):
-            self.rpc(op='hook',pane=pane,provider='codex',seq=seq,event={'hook_event_name':event,'session_id':'sounds'})
+            self.rpc(op='hook',pane=pane,provider='codex',seq=seq,event={'hook_event_name':event,'session_id':'sounds','turn_id':str(seq),'transcript_path':str(transcript)})
+            if event=='Stop':
+                with transcript.open('a') as f:f.write(json.dumps({'type':'event_msg','timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),'payload':{'type':'task_complete','turn_id':str(seq)}})+'\n')
         def records():
             while select.select([self.master],[],[],0)[0]:os.read(self.master,65536)
             return [json.loads(line) for line in played.read_text().splitlines()] if played.exists() else []
@@ -1224,14 +1240,23 @@ with open({str(played)!r},'a') as log:
     def ordinary_agent(self,provider,hooks=False,initializing=False):
         program=pathlib.Path(self.temp.name,provider)
         program.write_text('#!'+sys.executable+'\n'+r'''
-import os,sys,json,pathlib,subprocess
+import os,sys,json,pathlib,subprocess,datetime
 provider=pathlib.Path(sys.argv[0]).name
 path=pathlib.Path(os.environ['CODEX_HOME'],'hooks.json') if provider=='codex' else pathlib.Path(os.environ['CLAUDE_CONFIG_DIR'],'settings.json')
+transcript=pathlib.Path(os.environ['HOME'],'ordinary-'+provider+'.jsonl')
+transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':'ordinary-'+provider}})+'\n')
+turn=0
 def event(name):
+    global turn
     if not path.exists():return
+    if name=='UserPromptSubmit':turn+=1
     for group in json.loads(path.read_text()).get('hooks',{}).get(name,[]):
         for hook in group['hooks']:
-            subprocess.run(['/bin/sh','-c',hook['command']],input=json.dumps({'hook_event_name':name,'session_id':'ordinary-'+provider}),text=True)
+            subprocess.run(['/bin/sh','-c',hook['command']],input=json.dumps({'hook_event_name':name,'session_id':'ordinary-'+provider,'turn_id':str(turn),'transcript_path':str(transcript)}),text=True)
+    if name=='Stop':
+        stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
+        record={'type':'event_msg','timestamp':stamp,'payload':{'type':'task_complete','turn_id':str(turn)}} if provider=='codex' else {'type':'system','subtype':'turn_duration','sessionId':'ordinary-'+provider,'timestamp':stamp}
+        with transcript.open('a') as f:f.write(json.dumps(record)+'\n')
 if '--loading' in sys.argv:
     print('\x1b[2J\x1b[H\x1b]2;⠋ Starting\x07Initializing (esc to interrupt)',flush=True)
     for line in sys.stdin:

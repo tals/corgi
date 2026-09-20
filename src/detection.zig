@@ -181,7 +181,7 @@ pub const Tracker = struct {
             if (t.pid != 0) {
                 t.missing += 1;
                 if (t.missing >= 2) {
-                    agent.* = .{};
+                    agent.reset();
                     t.* = .{};
                 }
             }
@@ -189,7 +189,7 @@ pub const Tracker = struct {
         };
         t.missing = 0;
         if (t.pid != current.pid or agent.provider != current.provider) {
-            if (t.pid != 0 or agent.provider != current.provider) agent.* = .{};
+            if (t.pid != 0 or agent.provider != current.provider) agent.reset();
             t.pid = current.pid;
             t.candidate = null;
             t.confirmations = 0;
@@ -219,17 +219,13 @@ pub const Tracker = struct {
         agent.tool_active = next == .working and screenToolActive(current.provider, screen);
         if (agent.state == next) return false;
         if (next == .idle) t.ready = true;
-        const old = agent.state;
         agent.state = next;
         agent.changed_at = std.time.microTimestamp();
         agent.activity_len = 0;
-        if (next == .working) agent.attention = .none;
+        agent.observation.source = .screen;
+        if (next == .working) agent.attention = if (agent.observation.unread()) .finished else .none;
         if (next == .blocked) {
             if (!watched) agent.attention = .needs_input;
-            return true;
-        }
-        if (!watched and next == .idle and old == .working) {
-            agent.attention = .finished;
             return true;
         }
         return false;
@@ -267,8 +263,8 @@ test "fallback debounces attention, yields to hooks, and clears exited agents" {
     try std.testing.expectEqual(State.working, agent.state);
     try std.testing.expect(!tracker.update(&agent, job, "✳ Task", "", false));
     try std.testing.expect(!tracker.update(&agent, job, "✳ Task", "", false));
-    try std.testing.expect(tracker.update(&agent, job, "✳ Task", "", false));
-    try std.testing.expectEqual(agents.Attention.finished, agent.attention);
+    try std.testing.expect(!tracker.update(&agent, job, "✳ Task", "", false));
+    try std.testing.expectEqual(agents.Attention.none, agent.attention);
     agent.last_seq = 1;
     agent.state = .blocked;
     for (0..4) |_| _ = tracker.update(&agent, job, "⠋ Task", "", false);

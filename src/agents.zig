@@ -1,8 +1,19 @@
 const std = @import("std");
+pub const observation = @import("observation.zig");
 pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
 pub const Provider = enum { claude, codex, other };
 pub const Agent = struct {
+    observation: observation.State = .{},
+    transcript: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
+    transcript_len: usize = 0,
+    turn: [160]u8 = .{0} ** 160,
+    turn_len: usize = 0,
+    last_finished_turn: [160]u8 = .{0} ** 160,
+    last_finished_turn_len: usize = 0,
+    finished_since_activity: bool = false,
+    recent: [160]u8 = .{0} ** 160,
+    recent_len: usize = 0,
     provider: Provider = .other,
     state: State = .unknown,
     attention: Attention = .none,
@@ -29,8 +40,54 @@ pub const Agent = struct {
     pub fn directory(a: *const Agent) []const u8 {
         return a.cwd[0..a.cwd_len];
     }
+    pub fn reset(a: *Agent) void {
+        const receipts = a.observation;
+        const recent = a.recent;
+        const recent_len = a.recent_len;
+        a.* = .{};
+        a.observation.completed = receipts.completed;
+        a.observation.read = receipts.read;
+        a.recent = recent;
+        a.recent_len = recent_len;
+        a.attention = if (a.observation.unread()) .finished else .none;
+    }
     pub fn acknowledge(a: *Agent) void {
         a.attention = .none;
+        a.readThrough(a.observation.completed);
+    }
+    pub fn readThrough(a: *Agent, through: u64) void {
+        a.observation.acknowledge(through);
+        if (a.attention == .needs_input) return;
+        a.attention = if (a.observation.unread()) .finished else .none;
+    }
+    pub fn turnId(a: *const Agent) []const u8 {
+        return a.turn[0..a.turn_len];
+    }
+    pub fn transcriptPath(a: *const Agent) []const u8 {
+        return a.transcript[0..a.transcript_len];
+    }
+    pub fn recentLabel(a: *const Agent) []const u8 {
+        return a.recent[0..a.recent_len];
+    }
+    pub fn confirm(a: *Agent, seq: i64, outcome: observation.Outcome) bool {
+        if (!a.observation.pending_stop or a.last_seq != seq) return false;
+        a.observation.pending_stop = false;
+        if (a.turn_len > 0 and eq(a.turnId(), a.last_finished_turn[0..a.last_finished_turn_len])) {
+            a.state = .idle;
+            a.activity_len = 0;
+            a.tool_active = false;
+            return false;
+        }
+        a.last_finished_turn_len = clean(&a.last_finished_turn, a.turnId());
+        a.finished_since_activity = true;
+        a.observation.finish(outcome, .transcript);
+        a.state = .idle;
+        a.tool_active = false;
+        a.tool_len = 0;
+        a.activity_len = 0;
+        a.changed_at = std.time.microTimestamp();
+        a.attention = .finished;
+        return outcome == .completed;
     }
     pub fn apply(a: *Agent, provider: Provider, value: std.json.Value, seq: i64, watched: bool) bool {
         if (value != .object or seq <= a.last_seq) return false;
@@ -40,6 +97,13 @@ pub const Agent = struct {
         if (std.mem.startsWith(u8, event, "Subagent")) return false;
         const session = str(value, "session_id");
         const start = std.mem.eql(u8, event, "SessionStart");
+        const reported_turn = str(value, "turn_id");
+        // A repeated end signal must not revive a completed turn or replace
+        // a newer turn currently running in the same session.
+        if ((eq(event, "Stop") or eq(event, "Interrupt")) and reported_turn.len > 0 and
+            eq(session, a.sessionId()) and eq(reported_turn, a.last_finished_turn[0..a.last_finished_turn_len])) return false;
+        if ((eq(event, "Stop") or eq(event, "Interrupt")) and reported_turn.len == 0 and
+            eq(session, a.sessionId()) and a.finished_since_activity) return false;
         if (!start and a.session_len > 0 and session.len > 0 and !std.mem.eql(u8, a.sessionId(), session)) return false;
         const asking = eq(event, "PreToolUse") and (eq(str(value, "tool_name"), "AskUserQuestion") or eq(str(value, "tool_name"), "request_user_input"));
         const next: State = if (start) .idle else if (asking) .blocked else if (eq(event, "UserPromptSubmit") or eq(event, "PreToolUse") or eq(event, "PostToolUse") or eq(event, "PostToolUseFailure") or eq(event, "PreCompact") or eq(event, "PostCompact")) .working else if (eq(event, "PermissionRequest")) .blocked else if (eq(event, "Notification")) blk: {
@@ -47,11 +111,28 @@ pub const Agent = struct {
             if (eq(kind, "permission_prompt") or eq(kind, "idle_prompt") or eq(kind, "elicitation_dialog")) break :blk .blocked;
             return false;
         } else if (eq(event, "Stop") or eq(event, "Interrupt")) .idle else if (eq(event, "SessionEnd")) .done else return false;
+        if (start and session.len > 0 and !eq(a.sessionId(), session)) {
+            const receipts = a.observation;
+            a.* = .{};
+            // Receipt numbers remain monotonic across processes in the same pane.
+            a.observation.completed = receipts.completed;
+            a.observation.read = receipts.read;
+        }
+        if (start or next == .working or next == .blocked) a.finished_since_activity = false;
+        const path = str(value, "transcript_path");
+        if (std.fs.path.isAbsolute(path) and path.len <= a.transcript.len) {
+            @memcpy(a.transcript[0..path.len], path);
+            a.transcript_len = path.len;
+        }
+        const turn = str(value, "turn_id");
+        if (turn.len > 0 and turn.len <= a.turn.len) a.turn_len = clean(&a.turn, turn);
         a.last_seq = seq;
         a.provider = provider;
         if (session.len > 0) a.session_len = clean(&a.session, session);
         const old = a.state;
-        a.state = next;
+        a.observation.source = .hook;
+        a.observation.pending_stop = eq(event, "Stop");
+        a.state = if (a.observation.pending_stop) .working else next;
         a.changed_at = seq;
         const tool = str(value, "tool_name");
         const cwd = str(value, "cwd");
@@ -74,16 +155,28 @@ pub const Agent = struct {
             a.tool_len = 0;
             a.tool_active = false;
         }
-        const activity = if (tool.len > 0) tool else event;
-        a.activity_len = clean(&a.activity, activity);
-        if (start or next == .working) a.attention = .none;
+        if (eq(event, "PostToolUse") or eq(event, "PostToolUseFailure")) {
+            var detail: [160]u8 = undefined;
+            a.recent_len = clean(&a.recent, std.fmt.bufPrint(&detail, "{s}: {s}", .{ if (eq(event, "PostToolUseFailure")) "failed" else "used", tool }) catch tool);
+        }
+        const activity = if (a.observation.pending_stop) "checking completion" else if (tool.len > 0 and a.tool_active) tool else if (next == .working) "thinking" else "";
+        const description = str(value.object.get("tool_input") orelse .null, "description");
+        if (a.tool_active and description.len > 0) {
+            var detail: [160]u8 = undefined;
+            a.activity_len = clean(&a.activity, std.fmt.bufPrint(&detail, "{s}: {s}", .{ tool, description[0..@min(description.len, 100)] }) catch activity);
+        } else a.activity_len = clean(&a.activity, activity);
+        if (start or next == .working) a.attention = if (a.observation.unread()) .finished else .none;
+        if (a.observation.pending_stop) return false;
+        if (eq(event, "Interrupt") and (old == .working or old == .blocked)) {
+            a.finished_since_activity = true;
+            a.observation.finish(.interrupted, .hook);
+            a.last_finished_turn_len = clean(&a.last_finished_turn, a.turnId());
+            a.attention = .finished;
+            return false; // Interrupted turns have receipts, never a success chime.
+        }
         if (old == next) return false;
         if (next == .blocked) {
             if (!watched) a.attention = .needs_input;
-            return true;
-        }
-        if (!watched and next == .idle and old == .working and !eq(event, "Interrupt")) {
-            a.attention = .finished;
             return true;
         }
         return false;
@@ -119,7 +212,9 @@ test "attention is edge triggered, sticky, ordered, and separate from activity" 
     a.acknowledge();
     try std.testing.expectEqual(State.blocked, a.state);
     _ = a.apply(.claude, working.value, 4, false);
-    try std.testing.expect(a.apply(.claude, stopped.value, 5, false));
+    try std.testing.expect(!a.apply(.claude, stopped.value, 5, false));
+    try std.testing.expectEqual(State.working, a.state);
+    try std.testing.expect(a.confirm(5, .completed));
     try std.testing.expectEqual(Attention.finished, a.attention);
     _ = a.apply(.claude, working.value, 6, false);
     try std.testing.expect(!a.apply(.claude, stopped.value, 7, true));
