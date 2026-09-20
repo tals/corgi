@@ -66,6 +66,15 @@ const Finder = struct {
         f.seen.deinit(a);
     }
     fn candidate(f: *Finder, path: []const u8) !?[]const u8 {
+        // The pane-local `codex` symlink invokes Corgi's launcher. Probing it
+        // would recurse back into discovery rather than identify a provider.
+        const self = try std.fs.selfExePathAlloc(a);
+        defer a.free(self);
+        const self_real = try std.fs.cwd().realpathAlloc(a, self);
+        defer a.free(self_real);
+        const real = std.fs.cwd().realpathAlloc(a, path) catch return null;
+        defer a.free(real);
+        if (std.mem.eql(u8, self_real, real)) return null;
         // Preserve symlink paths: package-manager shims may dispatch using argv[0].
         if (f.seen.contains(path)) return null;
         const owned = try a.dupe(u8, path);

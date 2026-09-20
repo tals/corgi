@@ -1549,7 +1549,7 @@ pub fn Controller(comptime remote: bool) type {
                 const Info = struct { id: u32, workspace: u32, tab: u32, focused: bool, provider: agents.Provider, state: agents.State, attention: agents.Attention, session: []const u8, activity: []const u8, recent_activity: []const u8, unread: bool, completed: u64, read: u64, pending_stop: bool, source: agents.observation.Source, cwd: []const u8, exited: bool };
                 var items: std.ArrayList(Info) = .empty;
                 defer items.deinit(a);
-                for (s.runtime.panes.items) |p| {
+                for (s.runtime.panes.items) |*p| {
                     const owner = s.runtime.workspaces.owner(p.id) orelse continue;
                     var copy = owner.model;
                     try copy.focus(p.id);
@@ -1636,6 +1636,12 @@ pub fn Controller(comptime remote: bool) type {
             const job = detection.foreground(p.terminal.fd);
             const before = p.agent;
             const previous_pid = p.detection.pid;
+            // A disconnected observer must not permanently suppress the
+            // existing screen fallback with an old authoritative timestamp.
+            if (p.agent.provider == .codex and p.agent.observation.source == .protocol and std.time.microTimestamp() - p.agent.last_seq > 5 * std.time.us_per_s) {
+                p.agent.last_seq = 0;
+                p.agent.observation.source = .unknown;
+            }
             p.resume_hint.observe(&p.agent);
             const live_screen = p.terminal.emulator().*.screens.active.pages.viewport == .active;
             const text = if (job != null and p.agent.last_seq == 0 and live_screen) p.terminal.text() catch null else null;
@@ -1697,6 +1703,9 @@ pub fn Controller(comptime remote: bool) type {
         pub fn run(s: *Server) !void {
             const observer = try @import("transcript.zig").Worker.start();
             defer observer.stop();
+            const codex_observer = @import("codex_observer.zig");
+            const codex = try codex_observer.Worker.start();
+            defer codex.stop();
             _ = c.signal(c.SIGPIPE, os.sig_ignore);
             const fd = s.inherited_listener orelse try os.listen(s.socket);
             defer {
@@ -1758,6 +1767,22 @@ pub fn Controller(comptime remote: bool) type {
                 if (now - s.last_detection >= 250) {
                     s.last_detection = now;
                     for (s.runtime.panes.items) |*p| if (!p.terminal.exited) s.detectPane(p);
+                    codex.reconcile(s.runtime.panes.items);
+                    var snapshots: [layout.max_panes]?codex_observer.Snapshot = undefined;
+                    codex.take(&snapshots);
+                    for (snapshots) |entry| if (entry) |snap| {
+                        if (s.pane(snap.request.pane)) |p| {
+                            const prefix = codex_observer.titlePrefix(p.terminal.vt.getTitle() orelse "") orelse continue;
+                            if (p.terminal.exited or p.agent.provider != .codex or p.detection.missing != 0 or p.detection.pid != snap.request.pid or p.terminal.title_pid != snap.request.pid or !eq(prefix.text(), snap.request.prefix.text())) continue;
+                            if (codex_observer.apply(&p.agent, snap, s.paneWatched(p.id))) {
+                                s.bell = true;
+                                if (s.bell_kind != .needs_input) s.bell_kind = if (p.agent.state == .blocked) .needs_input else .finished;
+                            }
+                            p.resume_hint.observe(&p.agent);
+                            s.dirty = true;
+                            s.runtime.changed();
+                        }
+                    };
                     s.followWorkspaceDirectories();
                     observer.reconcile(s.runtime.panes.items);
                     var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;

@@ -27,11 +27,12 @@ fn run() !void {
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
     const cmd = if (args.len > 1) args[1] else "attach";
-    if (eq(cmd, "attach") and os.env("CORGI_PANE") != null) return error.NestedCorgi;
     const path = try os.socketPath();
     defer a.free(path);
     const exe = try std.fs.selfExePathAlloc(a);
     defer a.free(exe);
+    if (eq(std.fs.path.basename(args[0]), "codex")) try integration.launch("codex", args[1..], exe);
+    if (eq(cmd, "attach") and os.env("CORGI_PANE") != null) return error.NestedCorgi;
     if (eq(cmd, "serve") or eq(cmd, "__handoff") or eq(cmd, "dev")) {
         var file = try std.fs.openFileAbsolute(exe, .{});
         defer file.close();
@@ -311,6 +312,7 @@ test {
     _ = @import("layout.zig");
     _ = @import("agents.zig");
     _ = @import("transcript.zig");
+    _ = @import("codex_observer.zig");
     _ = @import("terminal.zig");
     _ = @import("integration.zig");
     _ = @import("detection.zig");

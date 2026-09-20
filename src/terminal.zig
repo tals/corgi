@@ -9,6 +9,7 @@ pub const Terminal = struct {
     render: vt.RenderState = .empty,
     fd: c_int = -1,
     pid: c_int = -1,
+    title_pid: c_int = 0,
     exited: bool = false,
     exit_status: c_int = 0,
     pending: std.ArrayList(u8) = .empty,
@@ -93,9 +94,16 @@ pub const Terminal = struct {
         t.vt.colors.background = .init(.{ .r = 0, .g = 0, .b = 0 });
         var handler = t.vt.vtHandler();
         handler.effects.write_pty = reply;
+        handler.effects.title_changed = titleChanged;
         handler.effects.device_attributes = attributes;
         t.stream = .initAlloc(a, handler);
         return t;
+    }
+    fn titleChanged(handler: *vt.TerminalStream.Handler) void {
+        const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
+        if (!t.replaying and t.fd >= 0) {
+            t.title_pid = if (@import("detection.zig").foreground(t.fd)) |job| job.pid else 0;
+        }
     }
     fn reply(handler: *vt.TerminalStream.Handler, bytes: [:0]const u8) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
