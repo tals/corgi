@@ -739,13 +739,17 @@ while True:
             if '\x1b[38;2;24;27;32mSplit right' in data:break
         else:self.fail('hover did not highlight command')
         self.assertIn('\x1b[?1003h',data)
+        self.assertNotIn('\x1b[?1002l',data)
+        self.assertNotIn('\x1b[?1003l',data)
         self.assertEqual(len(self.panes()),1)
         self.click(x+1,y+1)
         self.until(lambda:len(self.panes())==2)
         for _ in range(100):
             data=self.get_type('frame')['data']
-            if '\x1b[?1003l\x1b[?1002h' in data:break
+            if '\x1b[?1002h' in data:break
         else:self.fail('menu close did not restore drag tracking')
+        self.assertNotIn('\x1b[?1002l',data)
+        self.assertNotIn('\x1b[?1003l',data)
 
     def test_prefix_menu_keyboard_mouse_and_no_paste_leak(self):
         self.attach();self.get_type('frame')

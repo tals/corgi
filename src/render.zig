@@ -89,7 +89,9 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     defer out.deinit();
     const w = &out.writer;
     const side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
-    try w.writeAll(if (ui.menu != null or ui.tab_menu != null) "\x1b[?1002l\x1b[?1003h" else "\x1b[?1003l\x1b[?1002h");
+    // Mouse tracking modes replace one another. Disabling first makes the host
+    // briefly switch to a text pointer on every redraw.
+    try w.writeAll(if (ui.menu != null or ui.tab_menu != null) "\x1b[?1003h" else "\x1b[?1002h");
     try w.writeAll("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[2J");
     try w.print("\x1b[1;{d}H", .{side.tabX() + 1});
     var x: usize = 0;
