@@ -127,17 +127,7 @@ const Tail = struct {
         errdefer file.close();
         const stat = try file.stat();
         if (stat.kind != .file) return error.NotRegular;
-        // Codex binds via session_meta; Claude binds each accepted record below.
-        if (agent.provider == .codex) {
-            var header: [16 * 1024]u8 = undefined;
-            const n = try file.pread(&header, 0);
-            const end = std.mem.indexOfScalar(u8, header[0..n], '\n') orelse return error.NoIdentity;
-            const parsed = try std.json.parseFromSlice(std.json.Value, a, header[0..end], .{});
-            defer parsed.deinit();
-            const v = parsed.value;
-            const payload = if (v == .object) v.object.get("payload") orelse .null else .null;
-            if (!eq(agents.str(v, "type"), "session_meta") or !eq(agents.str(payload, "id"), agent.sessionId())) return error.WrongSession;
-        }
+        if (agent.provider == .codex) try verifyCodexSession(file, agent.sessionId());
         t.file = file;
         t.inode = stat.inode;
         t.device = @intCast((try std.posix.fstat(file.handle)).dev);
@@ -180,6 +170,31 @@ const Tail = struct {
         return found;
     }
 };
+// Session metadata contains instructions and can exceed 16 KiB. Read through
+// the first newline with a bounded allocation, rather than assuming one chunk
+// contains the whole identity record. Shared by completion and usage readers.
+pub fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
+    const limit = 1024 * 1024;
+    var header: std.ArrayList(u8) = .empty;
+    defer header.deinit(a);
+    var chunk: [4096]u8 = undefined;
+    while (header.items.len < limit) {
+        const n = try file.pread(chunk[0..@min(chunk.len, limit - header.items.len)], header.items.len);
+        if (n == 0) return error.NoIdentity;
+        const end = std.mem.indexOfScalar(u8, chunk[0..n], '\n');
+        try header.appendSlice(a, chunk[0 .. end orelse n]);
+        if (end != null) {
+            const parsed = try std.json.parseFromSlice(std.json.Value, a, header.items, .{});
+            defer parsed.deinit();
+            const v = parsed.value;
+            const payload = if (v == .object) v.object.get("payload") orelse .null else .null;
+            if (!eq(agents.str(v, "type"), "session_meta") or !eq(agents.str(payload, "id"), session)) return error.WrongSession;
+            return;
+        }
+    }
+    return error.NoIdentity;
+}
+
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
