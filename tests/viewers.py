@@ -47,6 +47,21 @@ class Viewers(unittest.TestCase):
         ws=self.session()['workspaces'][0]['id']
         return self.rpc(op='pane.create',protocol=1,workspace=ws,cwd=self.temp.name,command=command,title=title)['pane']
     def geometry(self):return {p['id']:(p['cols'],p['rows']) for p in self.session()['panes']}
+    def test_workspace_context_menu_targets_background_workspace(self):
+        first=self.new(title='Keep')
+        ws=self.rpc(op='workspace.create',protocol=1,name='Target',cwd=self.temp.name)['workspace']
+        a=Viewer(self);b=Viewer(self)
+        a.focus(first);b.request(op='workspace',workspace=ws)
+        a.input('\x1b[<2;5;5M\x1b[<2;5;5m')
+        self.assertIn('Rename',a.state['data'])
+        a.input('\r');a.input('Renamed\r')
+        self.assertEqual(next(w['custom_name'] for w in self.session()['workspaces'] if w['id']==ws),'Renamed')
+        a.input('\x1b[<2;5;5M\x1b[<2;5;5m')
+        a.input('\x1b[B\r')
+        self.assertEqual(len(self.session()['workspaces']),1)
+        self.assertEqual(a.poll()['pane'],first)
+        self.assertEqual(b.poll()['pane'],first)
+
     def test_workspace_name_uses_first_tab_in_both_viewers(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()

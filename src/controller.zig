@@ -175,6 +175,35 @@ pub fn Controller(comptime remote: bool) type {
             s.saveWorkspaces();
             s.dirty = true;
         }
+        fn closeWorkspace(s: *Server, id: u32, close_contents: bool) !void {
+            const index = s.runtime.workspaces.index(id) orelse return error.NoWorkspace;
+            if (s.runtime.workspaces.items.items.len == 1) return error.LastWorkspace;
+            if (remote) {
+                try s.flushLayout();
+                const response = try s.connection.call(.{ .op = "workspace.close", .workspace = id, .close_contents = close_contents });
+                defer response.deinit();
+                try s.refresh();
+                try s.switchWorkspace(s.runtime.workspaces.current().id);
+                return;
+            }
+            const ws = &s.runtime.workspaces.items.items[index];
+            if (!close_contents) {
+                if (ws.model.count > 0) return error.WorkspaceNotEmpty;
+                for (s.runtime.sessions.items) |session| if (session.workspace_id == id) return error.WorkspaceNotEmpty;
+            }
+            while (ws.model.count > 0) try s.close(ws.model.tabs[0].focus);
+            var i: usize = 0;
+            while (i < s.runtime.sessions.items.len) {
+                if (s.runtime.sessions.items[i].workspace_id == id) {
+                    s.runtime.sessions.items[i].destroy();
+                    _ = s.runtime.sessions.orderedRemove(i);
+                } else i += 1;
+            }
+            const removed = s.runtime.workspaces.items.orderedRemove(index);
+            a.free(removed.cwd);
+            if (s.runtime.workspaces.active > index) s.runtime.workspaces.active -= 1 else if (s.runtime.workspaces.active >= s.runtime.workspaces.items.items.len) s.runtime.workspaces.active -= 1;
+            try s.switchWorkspace(s.runtime.workspaces.current().id);
+        }
         fn revealWorkspace(s: *Server) void {
             const capacity = s.sidebarView(0).workspaceCapacity();
             const index = s.runtime.workspaces.active;
@@ -287,6 +316,15 @@ pub fn Controller(comptime remote: bool) type {
         fn tabMenuAction(s: *Server, key_: u8) !void {
             const context = s.tab_menu orelse return;
             s.closeMenu();
+            if (context.workspace) {
+                if (s.runtime.workspaces.index(context.tab) == null) return;
+                switch (key_) {
+                    'T' => s.beginWorkspace(context.tab),
+                    'X' => s.closeWorkspace(context.tab, true) catch |err| s.notice(if (err == error.LastWorkspace) " Cannot close the last workspace" else " Could not close workspace"),
+                    else => {},
+                }
+                return;
+            }
             s.model().active = s.tabIndex(context.tab) orelse return;
             s.copy_mode = false;
             s.acknowledge();
@@ -508,7 +546,7 @@ pub fn Controller(comptime remote: bool) type {
             // A removed split can invalidate a drag even if its pane wasn't focused.
             s.divider = null;
             s.selection = null;
-            if (s.tab_menu) |context| if (s.tabIndex(context.tab) == null) {
+            if (s.tab_menu) |context| if (if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
             };
             if (s.confirm_tab) |target| if (s.tabIndex(target) == null) {
@@ -700,7 +738,7 @@ pub fn Controller(comptime remote: bool) type {
             if (s.tab_menu) |context| {
                 switch (byte) {
                     27 => s.closeMenu(),
-                    13 => try s.tabMenuAction(commands.TabMenu.actions[context.highlighted].key),
+                    13 => try s.tabMenuAction(context.entries()[context.highlighted].key),
                     'j', 9 => s.moveTabMenu(true),
                     'k' => s.moveTabMenu(false),
                     'c' => try s.tabMenuAction('c'),
@@ -1017,7 +1055,7 @@ pub fn Controller(comptime remote: bool) type {
                 if (!release and (button == 64 or button == 65)) s.moveTabMenu(button == 65);
                 if (!release and button == 0) {
                     s.ui_mouse_down = true;
-                    if (context.hit(s.width, s.height, x, y)) |index| try s.tabMenuAction(commands.TabMenu.actions[index].key) else s.closeMenu();
+                    if (context.hit(s.width, s.height, x, y)) |index| try s.tabMenuAction(context.entries()[index].key) else s.closeMenu();
                 } else if (!release and (button == 35 or button == 32)) {
                     if (context.hit(s.width, s.height, x, y)) |index| {
                         s.tab_menu.?.highlighted = index;
@@ -1101,7 +1139,13 @@ pub fn Controller(comptime remote: bool) type {
                         .workspace_new => s.beginWorkspace(null),
                         .workspace_previous => s.workspace_offset = side.workspace_offset -| side.workspaceCapacity(),
                         .workspace_next => s.workspace_offset = @min(side.workspace_offset + side.workspaceCapacity(), s.runtime.workspaces.items.items.len -| side.workspaceCapacity()),
-                        .workspace => |index| if (button == 2) s.beginWorkspace(s.runtime.workspaces.items.items[index].id) else try s.switchWorkspace(s.runtime.workspaces.items.items[index].id),
+                        .workspace => |index| if (button == 2) {
+                            s.closeMenu();
+                            s.search_mode = false;
+                            s.divider = null;
+                            s.selection = null;
+                            s.tab_menu = .{ .tab = s.runtime.workspaces.items.items[index].id, .workspace = true, .anchor_x = x, .anchor_y = y };
+                        } else try s.switchWorkspace(s.runtime.workspaces.items.items[index].id),
                         .none => {},
                     }
                     s.dirty = true;
@@ -1237,7 +1281,7 @@ pub fn Controller(comptime remote: bool) type {
             s.reconcile();
         }
         pub fn reconcile(s: *Server) void {
-            if (s.tab_menu) |context| if (s.tabIndex(context.tab) == null) {
+            if (s.tab_menu) |context| if (if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
             };
             if (s.confirm_tab) |id| if (s.tabIndex(id) == null) {
@@ -1394,13 +1438,7 @@ pub fn Controller(comptime remote: bool) type {
                     s.saveWorkspaces();
                     s.dirty = true;
                 } else {
-                    if (s.runtime.workspaces.items.items.len == 1) return error.LastWorkspace;
-                    if (s.runtime.workspaces.items.items[index].model.count > 0) return error.WorkspaceNotEmpty;
-                    for (s.runtime.sessions.items) |session| if (session.workspace_id == id) return error.WorkspaceNotEmpty;
-                    const removed = s.runtime.workspaces.items.orderedRemove(index);
-                    a.free(removed.cwd);
-                    if (s.runtime.workspaces.active > index) s.runtime.workspaces.active -= 1 else if (s.runtime.workspaces.active >= s.runtime.workspaces.items.items.len) s.runtime.workspaces.active -= 1;
-                    try s.switchWorkspace(s.runtime.workspaces.current().id);
+                    try s.closeWorkspace(id, if (v.object.get("close_contents")) |value| value == .bool and value.bool else false);
                 }
                 try cl.queue(.{ .ok = true });
             } else if (eq(op, "native.start")) {

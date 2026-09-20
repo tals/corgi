@@ -48,36 +48,41 @@ pub const Hit = union(enum) { none, close, previous, next, command: Entry };
 pub const TabMenu = struct {
     tab: u32,
     anchor_x: u16,
+    anchor_y: u16 = 0,
+    workspace: bool = false,
     highlighted: usize = 0,
     pub const actions = [_]Entry{
         .{ .key = 'c', .label = "New tab" },
         .{ .key = 'T', .label = "Rename" },
         .{ .key = 'X', .label = "Close" },
     };
-    const Bounds = struct { x: u16, width: u16, padding: u16 };
+    pub fn entries(m: TabMenu) []const Entry {
+        return if (m.workspace) actions[1..] else &actions;
+    }
+    const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
     fn bounds(m: TabMenu, width: u16, height: u16) Bounds {
         const w = @min(width, 20);
-        return .{ .x = @min(m.anchor_x, width - w), .width = w, .padding = if (height >= 5) 1 else 0 };
+        return .{ .x = @min(m.anchor_x, width - w), .y = @min(m.anchor_y, height -| (m.entries().len + 2)), .width = w, .padding = if (height >= m.entries().len + 2) 1 else 0 };
     }
     pub fn hit(m: TabMenu, width: u16, height: u16, x: u16, y: u16) ?usize {
         const b = m.bounds(width, height);
-        if (x < b.x + 1 or x >= b.x + b.width - 1 or y < b.padding or y >= b.padding + actions.len) return null;
-        return y - b.padding;
+        if (x < b.x + 1 or x >= b.x + b.width - 1 or y < b.y + b.padding or y >= b.y + b.padding + m.entries().len) return null;
+        return y - b.y - b.padding;
     }
     pub fn move(m: *TabMenu, next: bool) void {
-        m.highlighted = if (next) (m.highlighted + 1) % actions.len else (m.highlighted + actions.len - 1) % actions.len;
+        m.highlighted = if (next) (m.highlighted + 1) % m.entries().len else (m.highlighted + m.entries().len - 1) % m.entries().len;
     }
     pub fn draw(m: TabMenu, w: *std.Io.Writer, width: u16, height: u16) !void {
         const b = m.bounds(width, height);
         if (b.padding > 0) {
-            for ([_]u16{ 0, actions.len + 1 }) |row| {
-                try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m+", .{ row + 1, b.x + 1 });
+            for ([_]u16{ 0, @intCast(m.entries().len + 1) }) |row| {
+                try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m+", .{ b.y + row + 1, b.x + 1 });
                 try w.splatByteAll('-', b.width - 2);
                 try w.writeByte('+');
             }
         }
-        for (actions, 0..) |entry, index| {
-            try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m|{s}", .{ index + b.padding + 1, b.x + 1, if (index == m.highlighted) "\x1b[1;38;2;24;27;32;48;2;161;194;178m" else "\x1b[22;38;2;226;230;233m" });
+        for (m.entries(), 0..) |entry, index| {
+            try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m|{s}", .{ b.y + index + b.padding + 1, b.x + 1, if (index == m.highlighted) "\x1b[1;38;2;24;27;32;48;2;161;194;178m" else "\x1b[22;38;2;226;230;233m" });
             const show_key = b.width >= 14;
             const len = @min(entry.label.len, b.width - @as(u16, if (show_key) 6 else 2));
             try w.writeAll(entry.label[0..len]);

@@ -340,7 +340,8 @@ class Runtime(unittest.TestCase):
         self.assertEqual((ws['name'],ws['cwd']),('Project',str(pathlib.Path(self.temp.name).resolve())))
         self.click(4,3);self.agent_frame('claude','○')
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),first)
-        self.input('\x1b[<2;4;5M\x1b[<2;4;5m');self.frame_with('edit workspace: name')
+        self.input('\x1b[<2;4;5M\x1b[<2;4;5m')
+        self.click_text(self.frame_with('|Rename'),'Rename');self.frame_with('edit workspace: name')
         self.input('Edited\r');screen=self.frame_with('Edited')
         self.assertNotIn('workspace: default folder', '\n'.join(screen))
         self.assertNotIn('edit workspace: name', '\n'.join(screen))
@@ -631,6 +632,30 @@ while True:
         self.rpc(op='action',name='rename',value='Latest frame')
         self.tab_frame('Latest frame')
         self.viewer_frame(reader,'Latest frame')
+    def test_workspace_context_menu_rename_close_and_last_workspace(self):
+        first=self.workspaces()[0]['id']
+        self.rpc(op='workspace.edit',workspace=first,name='Keep')
+        pane=self.rpc(op='new',cwd=self.temp.name)['pane']
+        second=self.rpc(op='workspace.new',name='Target',cwd=self.temp.name)['workspace']
+        self.rpc(op='workspace.switch',workspace=first)
+        self.attach();self.frame_with('Target')
+        self.input('\x1b[<2;5;5M\x1b[<2;5;5m')
+        menu=self.frame_with('|Rename')
+        self.assertTrue(any('|Close' in row for row in menu))
+        self.assertFalse(any('|New tab' in row for row in menu))
+        self.assertEqual(next(w['id'] for w in self.workspaces() if w['active']),first)
+        self.click_text(menu,'Rename');self.frame_with('edit workspace: name')
+        self.input('Renamed\r');self.frame_with('Renamed')
+        self.assertEqual(next(w['name'] for w in self.workspaces() if w['id']==second),'Renamed')
+        self.input('\x1b[<2;5;5M\x1b[<2;5;5m')
+        self.click_text(self.frame_with('|Close'),'Close')
+        self.until(lambda:len(self.workspaces())==1)
+        self.assertEqual([p['id'] for p in self.panes()],[pane])
+        self.input('\x1b[<2;5;3M\x1b[<2;5;3m')
+        self.frame_with('|Rename');self.input('\x1b[B\r')
+        self.frame_with('Cannot close the last workspace')
+        self.assertEqual([p['id'] for p in self.panes()],[pane])
+
     def test_tab_context_menu_targets_clicked_tab_for_rename_and_new(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
