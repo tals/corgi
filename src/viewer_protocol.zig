@@ -304,7 +304,7 @@ pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         const ws = if (split) s.runtime.workspaces.owner(pane) orelse return error.NoPane else try s.runtime.getWorkspace(workspace_id);
         const cwd = agents.str(v, "cwd");
         const command = agents.str(v, "command");
-        const id = try s.runtime.create(.{ .workspace = ws.id, .split = if (split) .{ .pane = pane, .axis = if (eq(u8, agents.str(v, "axis"), "down")) .vertical else .horizontal } else null, .cwd = if (cwd.len > 0) cwd else ws.cwd, .command = if (command.len > 0) command else null, .title = agents.str(v, "title"), .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
+        const id = try s.runtime.create(.{ .workspace = ws.id, .split = if (split) .{ .pane = pane, .axis = if (eq(u8, agents.str(v, "axis"), "down")) .vertical else .horizontal } else null, .cwd = if (cwd.len > 0) cwd else s.inheritedCwd(ws, focused), .command = if (command.len > 0) command else null, .title = agents.str(v, "title"), .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
         try enqueue(target, .{ .kind = .focus, .id = id });
         s.dirty = true;
         try cl.queue(.{ .ok = true, .pane = id, .viewer = target.viewer_id });

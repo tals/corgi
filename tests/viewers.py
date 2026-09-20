@@ -82,7 +82,22 @@ class Viewers(unittest.TestCase):
         self.assertEqual(self.session()['workspaces'][0]['custom_name'],'')
         self.assertIn('/two',a.poll()['data'])
         a.action('new')
-        self.assertEqual(next(p['cwd'] for p in self.session()['panes'] if p['id']==a.state['pane']),str(two.resolve()))
+        self.assertEqual(next(p['cwd'] for p in self.session()['panes'] if p['id']==a.state['pane']),str(one.resolve()))
+
+    def test_viewer_creation_inherits_its_own_focused_directory(self):
+        one=pathlib.Path(self.temp.name,'one');one.mkdir()
+        two=pathlib.Path(self.temp.name,'two');two.mkdir()
+        first=self.rpc(op='new',cwd=str(one),command='exec /bin/sh')['pane']
+        second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
+        a=Viewer(self);b=Viewer(self)
+        a.focus(first);b.focus(second)
+        b.action('split','right')
+        self.assertEqual(next(p['cwd'] for p in self.session()['panes'] if p['id']==b.state['pane']),str(two.resolve()))
+        target=self.rpc(op='viewer.list')['viewers'][0]['id']
+        self.rpc(op='focus',pane=second,viewer=target)
+        for op in ('new','split'):
+            created=self.rpc(op=op,viewer=target,command='sleep 60')['pane']
+            self.assertEqual(next(p['cwd'] for p in self.session()['panes'] if p['id']==created),str(two.resolve()))
 
     def test_selection_and_dialogs_are_viewer_specific(self):
         first=self.new(title='First');second=self.new(title='Second')

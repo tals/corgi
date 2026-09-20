@@ -263,6 +263,24 @@ class Runtime(unittest.TestCase):
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==second),str(two.resolve()))
         self.rpc(op='focus',pane=first)
         self.assertEqual(next(w['id'] for w in self.workspaces() if w['active']),default)
+    def test_new_tabs_and_splits_inherit_current_pane_directory(self):
+        one=pathlib.Path(self.temp.name,'one');one.mkdir()
+        two=pathlib.Path(self.temp.name,'two');two.mkdir()
+        three=pathlib.Path(self.temp.name,'three');three.mkdir()
+        first=self.rpc(op='new',cwd=str(one),command='exec /bin/sh')['pane']
+        second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
+        self.rpc(op='send',pane=second,text='cd '+shlex.quote(str(three)),enter=True)
+        self.until(lambda:next(p['cwd'] for p in self.panes() if p['id']==second)==str(three.resolve()))
+        self.rpc(op='action',name='new')
+        self.assertEqual(next(p['cwd'] for p in self.panes() if p['focused']),str(three.resolve()))
+        self.rpc(op='action',name='split',value='right')
+        self.assertEqual(next(p['cwd'] for p in self.panes() if p['focused']),str(three.resolve()))
+        targeted=self.rpc(op='pane.split',protocol=1,pane=first,axis='right')['pane']
+        self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==targeted),str(one.resolve()))
+        inherited=self.rpc(op='new')['pane']
+        self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==inherited),str(three.resolve()))
+        explicit=self.rpc(op='split',cwd=str(two))['pane']
+        self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==explicit),str(two.resolve()))
     def test_workspace_name_follows_first_tab_and_custom_name_can_be_cleared(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()

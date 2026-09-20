@@ -222,6 +222,15 @@ pub fn Controller(comptime remote: bool) type {
         fn sidebarView(s: *Server, count: usize) sidebar.View {
             return sidebar.View.init(s.width, s.height, s.sidebar_open, s.sidebar_offset, count).withWorkspaces(s.runtime.workspaces.items.items.len, s.workspace_offset);
         }
+        pub fn inheritedCwd(s: *Server, ws: *workspace.Workspace, target: ?layout.Id) []const u8 {
+            const id = target orelse if (ws.model.count > 0) ws.model.tab().focus else return ws.cwd;
+            const p = s.pane(id) orelse return ws.cwd;
+            if (!remote) p.refreshCwd();
+            return p.cwd;
+        }
+        fn currentCwd(s: *Server) []const u8 {
+            return s.inheritedCwd(s.runtime.workspaces.current(), null);
+        }
         fn followWorkspaceDirectories(s: *Server) void {
             var changed = false;
             for (s.runtime.workspaces.items.items) |*ws| {
@@ -381,7 +390,7 @@ pub fn Controller(comptime remote: bool) type {
             if (s.runtime.panes.items.len >= layout.max_panes) return error.TooManyPanes;
             const id = try s.runtime.workspaces.add(name, cwd);
             try s.switchWorkspace(id);
-            _ = try s.create(null, s.runtime.workspaces.current().cwd, null, "");
+            _ = try s.create(null, s.currentCwd(), null, "");
             return id;
         }
         fn beginRename(s: *Server) void {
@@ -393,7 +402,7 @@ pub fn Controller(comptime remote: bool) type {
         }
         fn beginNewTab(s: *Server) !void {
             s.followWorkspaceDirectories();
-            const cwd = try a.dupe(u8, s.runtime.workspaces.current().cwd);
+            const cwd = try a.dupe(u8, s.currentCwd());
             s.dismissName();
             s.name_dialog = naming.Dialog.init(.{ .create = cwd }, "");
             s.prepareName();
@@ -424,7 +433,7 @@ pub fn Controller(comptime remote: bool) type {
                         };
                         if (id == null) {
                             defer a.free(name);
-                            _ = s.newWorkspace(name, s.runtime.workspaces.current().cwd) catch {
+                            _ = s.newWorkspace(name, s.currentCwd()) catch {
                                 s.notice(" Could not create workspace");
                             };
                             return;
@@ -659,7 +668,7 @@ pub fn Controller(comptime remote: bool) type {
                 const index = if (eq(name, "workspace-next")) (s.runtime.workspaces.active + 1) % count else (s.runtime.workspaces.active + count - 1) % count;
                 return s.switchWorkspace(s.runtime.workspaces.items.items[index].id);
             } else if (eq(name, "new")) {
-                _ = try s.create(null, s.runtime.workspaces.current().cwd, null, "");
+                _ = try s.create(null, s.currentCwd(), null, "");
                 s.copy_mode = false;
             } else if (eq(name, "sidebar")) {
                 s.sidebar_open = !s.sidebar_open;
@@ -671,7 +680,7 @@ pub fn Controller(comptime remote: bool) type {
                 s.muted = !s.muted;
                 s.notice(if (s.muted) " Dings muted; attention markers remain on" else " Dings enabled");
             } else if (eq(name, "undo-close")) return s.undoClose() else if (eq(name, "attention")) return s.attention() else if (s.model().count == 0) return error.NoPane else if (eq(name, "split")) {
-                _ = try s.create(if (eq(value, "down")) .vertical else .horizontal, s.runtime.workspaces.current().cwd, null, "");
+                _ = try s.create(if (eq(value, "down")) .vertical else .horizontal, s.currentCwd(), null, "");
             } else if (eq(name, "zoom")) s.model().tab().zoom = !s.model().tab().zoom else if (eq(name, "close")) try s.close(s.model().tab().focus) else if (eq(name, "close-tab")) {
                 const tab_id = s.model().tab().id;
                 while (s.model().count > 0 and s.model().tab().id == tab_id) try s.close(s.model().tab().focus);
@@ -1361,7 +1370,7 @@ pub fn Controller(comptime remote: bool) type {
                 const id = try s.runtime.create(.{
                     .workspace = ws.id,
                     .split = if (split) .{ .pane = target, .axis = axis } else null,
-                    .cwd = if (cwd.len > 0) cwd else ws.cwd,
+                    .cwd = if (cwd.len > 0) cwd else s.inheritedCwd(ws, if (split) target else null),
                     .command = if (command.len > 0) command else null,
                     .title = agents.str(v, "title"),
                     .cols = s.area().w,
@@ -1423,7 +1432,7 @@ pub fn Controller(comptime remote: bool) type {
             } else if (eq(op, "workspace.new")) {
                 const cwd = agents.str(v, "cwd");
                 // Store.add resolves the folder before appending to the store.
-                const id = try s.newWorkspace(agents.str(v, "name"), if (cwd.len == 0) s.runtime.workspaces.current().cwd else cwd);
+                const id = try s.newWorkspace(agents.str(v, "name"), if (cwd.len == 0) s.currentCwd() else cwd);
                 try cl.queue(.{ .ok = true, .workspace = id });
             } else if (eq(op, "workspace.switch") or eq(op, "workspace.edit") or eq(op, "workspace.close")) {
                 const id = std.math.cast(u32, number(v, "workspace", 0)) orelse return error.NoWorkspace;
@@ -1446,7 +1455,7 @@ pub fn Controller(comptime remote: bool) type {
                 const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
                 const cwd = agents.str(v, "cwd");
                 try s.runtime.sessions.ensureUnusedCapacity(a, 1);
-                var session = try native.Session.start(s.runtime.next_session, provider, if (cwd.len > 0) cwd else s.runtime.workspaces.current().cwd);
+                var session = try native.Session.start(s.runtime.next_session, provider, if (cwd.len > 0) cwd else s.currentCwd());
                 session.workspace_id = s.runtime.workspaces.current().id;
                 s.runtime.sessions.appendAssumeCapacity(session);
                 s.runtime.next_session += 1;
@@ -1534,7 +1543,7 @@ pub fn Controller(comptime remote: bool) type {
             } else if (eq(op, "new") or eq(op, "split")) {
                 const cwd = agents.str(v, "cwd");
                 const cmd = agents.str(v, "command");
-                const id = try s.create(if (eq(op, "new")) null else if (eq(agents.str(v, "axis"), "down")) .vertical else .horizontal, if (cwd.len == 0) s.runtime.workspaces.current().cwd else cwd, if (cmd.len == 0) null else cmd, agents.str(v, "title"));
+                const id = try s.create(if (eq(op, "new")) null else if (eq(agents.str(v, "axis"), "down")) .vertical else .horizontal, if (cwd.len == 0) s.currentCwd() else cwd, if (cmd.len == 0) null else cmd, agents.str(v, "title"));
                 try cl.queue(.{ .ok = true, .pane = id });
             } else if (eq(op, "list")) {
                 const Info = struct { id: u32, workspace: u32, tab: u32, focused: bool, provider: agents.Provider, state: agents.State, attention: agents.Attention, session: []const u8, activity: []const u8, recent_activity: []const u8, unread: bool, completed: u64, read: u64, pending_stop: bool, source: agents.observation.Source, cwd: []const u8, exited: bool };
