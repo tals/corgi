@@ -1,5 +1,5 @@
 //! Versioned runtime state shared by live handoff and disk recovery. Live state
-//! prefers exact replay, falling back to a VT snapshot and application redraw.
+//! uses compact VT snapshots and application redraw; old replay imports remain supported.
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
@@ -48,10 +48,11 @@ pub const Screen = struct {
     approximate: bool = false,
     redraw_pending: bool = false,
     pub fn capture(alloc: std.mem.Allocator, t: *Terminal, live: bool) !Screen {
-        const exact = live and t.journal.enabled and !t.journal.failed;
-        const history = if (exact) t.journal.bytes.items else if (live) try t.liveSnapshot() else try t.snapshot();
-        defer if (!exact) a.free(history);
-        return .{ .cols = if (exact) t.journal.cols else t.vt.cols, .rows = if (exact) t.journal.rows else t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = if (exact) t.synchronized_since else null, .approximate = live and !exact, .redraw_pending = live and (!exact or t.redraw_pending or t.redraw_restore_at != null) };
+        // Transfer retained terminal state, not every byte ever emitted. Repaint
+        // only after the candidate has committed ownership of the live PTY.
+        const history = if (live) try t.liveSnapshot() else try t.snapshot();
+        defer a.free(history);
+        return .{ .cols = t.vt.cols, .rows = t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = null, .approximate = live, .redraw_pending = live };
     }
     pub fn restore(screen: Screen, live: bool) !*Terminal {
         if (screen.cols == 0 or screen.cols > 500 or screen.rows == 0 or screen.rows > 200) return error.InvalidCheckpoint;

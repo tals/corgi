@@ -210,7 +210,7 @@ pub const Terminal = struct {
         try formatter.format(&out.writer);
         return out.toOwnedSlice();
     }
-    /// Best-effort live state when exact replay has exhausted its budget.
+    /// Compact best-effort live state, independent of accumulated output volume.
     /// Preserve modes and both screens; parser fragments and some saved state
     /// cannot be reconstructed by VT formatting and require a fresh repaint.
     pub fn liveSnapshot(t: *Terminal) ![]u8 {

@@ -194,15 +194,17 @@ sockets, buffered requests/replies, pending controls, and acknowledgements survi
 so viewer instances keep all their local state without reconnecting or retrying
 mutations. Legacy raw attachments must detach first.
 
-Exact terminal restoration uses the output byte stream plus resize, theme,
-completed-render, and synchronization-timeout events. Replaying those events with
-PTY reply effects suppressed preserves both screens, retained history, parser
-fragments, saved cursor, margins/origin, wrapping, colors, and keyboard push/pop
-stacks. A terminal dependency fingerprint rejects incompatible replay engines.
-Journals stop being eligible for live handoff at 64 MiB per pane; manifests are
-limited to 256 MiB. No journal is silently truncated. The old daemon continues
-serving when handoff is unavailable. Replay must finish within the 15-second
-candidate readiness timeout.
+Live terminal export uses compact VT snapshots of retained history, screens,
+cursor, and input modes rather than accumulated output journals. Restoration
+suppresses PTY replies until commit; after commit a temporary width change and
+restore 250 ms later request an application repaint. Parser fragments, keyboard
+stacks, and some saved terminal state are approximate, and applications that do
+not repaint may retain artifacts. Older exact replay checkpoints remain supported
+on import. A terminal dependency fingerprint rejects incompatible engines.
+Manifests remain limited to 256 MiB and restoration must finish within the
+15-second candidate readiness timeout. The old daemon continues serving when
+handoff is unavailable. An already running daemon still uses its original exporter;
+rebuilding alone cannot unblock an old exporter over its manifest limit.
 
 Disk recovery is intentionally different: every two seconds when changed, before
 handoff, and on clean shutdown, save a versioned snapshot atomically (fsync plus
