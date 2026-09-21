@@ -115,6 +115,8 @@ pub const View = struct {
         return x >= range.start and x < range.end;
     }
     pub fn draw(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry) !void {
+        const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+        const thinking_frame: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 80), thinking_frames.len));
         const panel = "\x1b[0;38;2;155;163;175;48;2;24;27;32m";
         if (v.width == 0) {
             if (v.cols >= 64) try w.writeAll("\x1b[1;1H\x1b[1;38;2;161;194;178m > \x1b[0m");
@@ -202,7 +204,7 @@ pub const View = struct {
             try w.print("\x1b[{d};2H\x1b[22m{s}{s}\x1b[{d};5H\x1b[1;38;2;226;230;233m", .{ y + 1, dot.color, dot.icon, y + 1 });
             const room = v.width - 6;
             if (e.unread) try w.print("\x1b[{d};{d}H\x1b[38;2;148;226;213m•", .{ y + 1, v.width - 2 });
-            const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) "🧠" else "";
+            const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H", .{ y + 2, activity, y + 2 });
             var label: [512]u8 = undefined;
             var name: [160]u8 = undefined;
