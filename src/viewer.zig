@@ -22,6 +22,7 @@ const Response = struct {
 };
 
 pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme) !u64 {
+    view.remote_links = @import("ports.zig").sshViewer();
     const hello = try view.connection.call(.{ .op = "hello", .protocol = 1 });
     defer hello.deinit();
     const capabilities = hello.value.object.get("capabilities") orelse return error.ViewerProtocolUnavailable;
@@ -117,10 +118,13 @@ pub fn run(fd: c_int, path: []const u8, probe: *@import("theme.zig").Probe, inpu
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
     var bell_seq = try open(&view, cwd, probe.theme);
+    var openers: @import("url_opener.zig").Openers = .{};
+    defer openers.reap();
     var previous: []const u8 = "";
     defer if (previous.len > 0) a.free(previous);
     var next_sync: i64 = 0;
     while (view.clients.items[0].attached) {
+        openers.reap();
         try probe.expire(input);
         if (probe.changed) {
             try connection.send(.{ .op = "theme", .theme = probe.theme });
@@ -159,6 +163,9 @@ pub fn run(fd: c_int, path: []const u8, probe: *@import("theme.zig").Probe, inpu
             if (line.len == 0) continue;
             const event = try std.json.parseFromSlice(std.json.Value, a, line, .{});
             defer event.deinit();
+            if (std.mem.eql(u8, agents.str(event.value, "type"), "open_url") and !view.remote_links) {
+                openers.open(agents.str(event.value, "url")) catch |err| view.notice(@errorName(err));
+            }
             if (std.mem.eql(u8, agents.str(event.value, "type"), "detach")) return null;
             if (std.mem.eql(u8, agents.str(event.value, "type"), "frame")) try os.writeAll(1, agents.str(event.value, "data"));
         }

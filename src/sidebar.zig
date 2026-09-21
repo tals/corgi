@@ -32,7 +32,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     cols: u16,
@@ -181,8 +181,19 @@ pub const View = struct {
             try w.print("\x1b[{d};{d}H", .{ y + 2, v.unreadRange(ws).start + 1 });
             var unread_room = unread_width;
             try statusPart(w, unread, if (ws.unread > 0) "\x1b[1;38;2;148;226;213m" else panel, &unread_room);
-            try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, panel, metadata });
+            if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, panel, metadata });
             try w.writeAll(panel);
+            if (y + 2 < v.middle() - 2) {
+                try w.print("\x1b[{d};2H{s}", .{ y + 3, panel });
+                const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
+                if (divider) {
+                    try w.writeAll("\x1b[4;58:2::65:70:77m");
+                    try w.splatByteAll(' ', v.width - 3);
+                    try w.print("\x1b[{d};2H", .{y + 3});
+                }
+                try drawPorts(w, ws, v.width - 3, divider);
+                try w.writeAll("\x1b[24;59m");
+            }
         }
         if (v.workspace_count > v.workspaceCapacity()) {
             try w.print("\x1b[{d};{d}H{s} <  > ", .{ v.middle() - 1, v.width - 7, panel });
@@ -451,10 +462,10 @@ test "workspace status uses agent colors and keeps usage on its second row" {
     try view.draw(&output.writer, &.{}, &empty);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "0 unread") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "0●") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0⚒") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0⚒") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "  \x1b[22m\x1b[38;2;166;227;161m○") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "—") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;25H\x1b[0;38;2;155;163;175;48;2;24;27;32m0⚒") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;25H\x1b[0;38;2;155;163;175;48;2;24;27;32m0⚒") == null);
     output.clearRetainingCapacity();
     var away = empty;
     away[0].active = false;
@@ -501,4 +512,108 @@ test "compaction occupies the second agent row ahead of waiting and summaries" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[18;5H\x1b[38;2;226;230;233mCompacting…") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Old summary") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Waiting on agents") == null);
+}
+
+// OSC 8 belongs to the outer terminal: its usual link gesture opens the URL.
+fn drawPorts(w: *std.Io.Writer, ws: WorkspaceEntry, width: usize, divider: bool) !void {
+    var buf: [256]u8 = undefined;
+    _ = try portLine(w, ws, width, null, &buf, divider);
+}
+
+pub fn portLink(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16, buf: []u8) ?[]const u8 {
+    if (v.width == 0 or x < 1 or x >= v.width - 1 or y < 4 or y >= v.middle() - 2 or (y - 2) % 3 != 2) return null;
+    const offset = (y - 2) / 3;
+    const index = v.workspace_offset + offset;
+    if (offset >= v.workspaceCapacity() or index >= workspaces.len) return null;
+    return portLine(null, workspaces[index], v.width - 3, x - 1, buf, false) catch null;
+}
+
+// Drawing and hit testing walk exactly the same clipped labels.
+fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usize, url_buf: []u8, divider: bool) !?[]const u8 {
+    const ports = @import("ports.zig");
+    const work = ws.ports.workspace(ws.id);
+    if (!ws.ports.processes_available) return null;
+    var count_buf: [32]u8 = undefined;
+    const count = try std.fmt.bufPrint(&count_buf, "{d} bg", .{work.background});
+    if (writer) |w| try writeClipped(w, count, width);
+    var room = width -| count.len;
+    if (!ws.ports.ports_available) {
+        if (writer) |w| try writeClipped(w, " · ports ?", room);
+        return null;
+    }
+    for (work.endpoints, 0..) |endpoint, index| {
+        var label_buf: [96]u8 = undefined;
+        const local_only = ws.remote_links and ports.loopback(endpoint.bind_address);
+        const label = try std.fmt.bufPrint(&label_buf, " :{d}{s}{s}", .{ endpoint.port, if (endpoint.transport == .udp) "u" else "", if (local_only) " local" else "" });
+        const reserve: usize = if (index + 1 < work.endpoints.len) 4 else 0;
+        if (label.len + reserve > room) {
+            const more = try std.fmt.bufPrint(&label_buf, " +{d}", .{work.endpoints.len - index});
+            if (writer) |w| try writeClipped(w, more, room);
+            break;
+        }
+        if (ports.url(url_buf, endpoint, ws.remote_links)) |target| {
+            if (hit) |col| if (col >= width - room + 1 and col < width - room + label.len) return target;
+            if (writer) |w| try w.print(" \x1b]8;id=corgi-port-{d}-{d}-{d}-{d};{s}\x1b\\\x1b[4;38;2;137;180;250m{s}\x1b]8;;\x1b\\\x1b[24;38;2;155;163;175m", .{ ws.id, endpoint.pid, endpoint.port, index, target, label[1..] });
+            if (divider) if (writer) |w| try w.writeAll("\x1b[4;58:2::65:70:77m");
+        } else if (writer) |w| try w.writeAll(label);
+        room -= label.len;
+    }
+    return null;
+}
+
+test "workspace port labels contain OSC8 URLs selected per viewer" {
+    const ports = @import("ports.zig");
+    const ifaces = [_]ports.Interface{.{ .name = "tailscale0", .address = "100.80.1.2", .kind = .tailscale }};
+    const endpoints = [_]ports.Endpoint{.{ .pid = 12, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "*", .port = 3000, .scheme = .http, .http_status = 200, .interfaces = &ifaces }};
+    const works = [_]ports.Work{.{ .id = 1, .background = 2, .endpoints = &endpoints }};
+    var ws: WorkspaceEntry = .{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } };
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try drawPorts(&out.writer, ws, 25, false);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), ";http://localhost:3000\x1b\\") != null);
+    out.clearRetainingCapacity();
+    ws.remote_links = true;
+    try drawPorts(&out.writer, ws, 25, false);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "http://100.80.1.2:3000") != null);
+}
+
+test "remote loopback labels do not depend on protocol detection" {
+    const ports = @import("ports.zig");
+    const endpoints = [_]ports.Endpoint{
+        .{ .pid = 12, .pane = 1, .name = "dns", .transport = .udp, .bind_address = "127.0.0.1", .port = 5353 },
+        .{ .pid = 13, .pane = 1, .name = "db", .transport = .tcp, .bind_address = "::1", .port = 5432, .ipv6 = true },
+    };
+    const works = [_]ports.Work{.{ .id = 1, .endpoints = &endpoints }};
+    const ws: WorkspaceEntry = .{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .remote_links = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } };
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try drawPorts(&out.writer, ws, 60, false);
+    try std.testing.expectEqualStrings("0 bg :5353u local :5432 local", out.written());
+}
+
+test "port hit testing matches clipped labels and outer terminal receives link metadata" {
+    const ports = @import("ports.zig");
+    const endpoints = [_]ports.Endpoint{
+        .{ .pid = 12, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
+        .{ .pid = 12, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
+    };
+    const works = [_]ports.Work{.{ .id = 1, .endpoints = &endpoints }};
+    const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } }};
+    const view = View.init(80, 24, true, 0, 0).withWorkspaces(1, 0);
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &entries, 6, 4, &buf).?);
+    try std.testing.expect(portLink(view, &entries, 5, 4, &buf) == null);
+    try std.testing.expect(portLink(view, &entries, 6, 3, &buf) == null);
+    try std.testing.expect(portLink(view, &entries, 20, 4, &buf) == null);
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try view.draw(&out.writer, &.{}, &entries);
+    const host = try @import("terminal.zig").Terminal.create(80, 24);
+    defer host.destroy();
+    host.feed(out.written());
+    try host.updateRender();
+    try std.testing.expectEqual(@as(usize, 2), host.hyperlinks().len);
+    try std.testing.expectEqualStrings("http://localhost:3000", host.hyperlinks()[0].uri);
+    try std.testing.expectEqual(@as(usize, 6), host.hyperlinks()[0].start);
+    try std.testing.expectEqual(@as(usize, 4), host.hyperlinks()[0].row);
 }

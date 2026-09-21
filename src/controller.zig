@@ -57,6 +57,7 @@ pub const Client = struct {
     height: u16 = 30,
     needs_frame: bool = true,
     watched: bool = true,
+    port_click: ?struct { x: u16, y: u16, url: [256]u8, len: usize, cancelled: bool = false } = null,
     paste: bool = false,
     paste_pane: ?layout.Id = null,
     paste_to_name: bool = false,
@@ -108,6 +109,7 @@ pub fn Controller(comptime remote: bool) type {
         sidebar_open: bool = true,
         sidebar_width: u16 = 28,
         sidebar_offset: usize = 0,
+        remote_links: bool = false,
         tab_menu: ?commands.TabMenu = null,
         ui_mouse_down: bool = false,
         sidebar_drag: bool = false,
@@ -252,6 +254,8 @@ pub fn Controller(comptime remote: bool) type {
             s.followWorkspaceDirectories();
             for (s.runtime.workspaces.items.items, 0..) |*ws, i| {
                 out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead, .stats = ws.away.counts };
+                out[i].ports = s.runtime.ports.current;
+                out[i].remote_links = s.remote_links;
                 for (s.runtime.panes.items) |p| {
                     if (p.agent.provider == .other or ws.model.tabForPane(p.id) == null) continue;
                     if (p.agent.state == .working) out[i].working += 1;
@@ -1115,6 +1119,15 @@ pub fn Controller(comptime remote: bool) type {
             const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const release = seq[seq.len - 1] == 'm';
+            if (cl.port_click) |*click| {
+                if (x != click.x or y != click.y) click.cancelled = true;
+                if (release) {
+                    if (!click.cancelled and button == 0) try cl.queue(.{ .type = "open_url", .url = click.url[0..click.len] });
+                    cl.port_click = null;
+                }
+                return;
+            }
+
             if (cl.divider) |*drag| {
                 if (!std.meta.eql(drag.area, s.area())) drag.cancelled = true;
                 if (!drag.cancelled and (release or button & 0xe3 == 32)) {
@@ -1276,6 +1289,16 @@ pub fn Controller(comptime remote: bool) type {
             if (!release and button == 0 and side.width > 0 and x == side.width - 1) {
                 s.sidebar_drag = true;
                 return;
+            }
+            if (remote and !s.remote_links and !release and button == 0) {
+                var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+                var buf: [256]u8 = undefined;
+                if (sidebar.portLink(side, s.workspaceEntries(&workspace_storage), x, y, &buf)) |url| {
+                    var click: @typeInfo(@FieldType(Client, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = url.len };
+                    @memcpy(click.url[0..url.len], url);
+                    cl.port_click = click;
+                    return;
+                }
             }
             if ((side.width > 0 and x < side.width and y < s.height - 1) or (y == 0 and x < tabs_x)) {
                 if (!release and (button == 64 or button == 65)) {
@@ -2079,6 +2102,7 @@ pub fn Controller(comptime remote: bool) type {
                     if (pid <= 0) break;
                     @import("git_status.zig").recordExit(pid, status);
                     @import("summary_backend.zig").recordExit(pid, status);
+                    @import("ports.zig").recordExit(pid, status);
                     for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                         p.terminal.exited = true;
                         p.terminal.exit_status = status;
@@ -2144,6 +2168,7 @@ pub fn Controller(comptime remote: bool) type {
                 try s.expireInput();
                 s.followWorkspaceDirectories();
                 if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
+                if (s.runtime.ports.tick(&s.runtime)) s.dirty = true;
                 if (s.dirty) {
                     s.runtime.changed();
                     for (s.clients.items) |*cl| if (cl.attached) {

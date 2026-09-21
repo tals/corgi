@@ -95,6 +95,7 @@ pub const Native = struct {
     compacting: bool = false,
 };
 pub const Snapshot = struct {
+    ports: @import("ports.zig").Snapshot = .{},
     type: []const u8 = "session",
     protocol: u32 = version,
     server_pid: i32,
@@ -163,6 +164,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     };
     return .{
         .server_pid = @import("os.zig").c.getpid(),
+        .ports = r.ports.current,
         .revision = r.revision,
         .workspaces = workspaces,
         .panes = panes,

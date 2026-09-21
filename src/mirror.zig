@@ -136,6 +136,7 @@ pub const Native = struct {
     }
 };
 pub const Runtime = struct {
+    ports: @import("ports.zig").Tracker = .{},
     workspaces: workspace.Store = .{},
     panes: std.ArrayList(Pane) = .empty,
     sessions: std.ArrayList(Native) = .empty,
@@ -147,6 +148,7 @@ pub const Runtime = struct {
         return null;
     }
     pub fn deinit(r: *Runtime) void {
+        r.ports.deinit();
         for (r.panes.items) |p| {
             p.terminal.destroy();
             a.free(p.cwd);
@@ -158,6 +160,7 @@ pub const Runtime = struct {
     }
     pub fn receive(r: *Runtime, conn: *Connection, snapshot: protocol.Snapshot) !void {
         if (snapshot.workspaces.len == 0 or snapshot.workspaces.len > workspace.max_workspaces) return error.InvalidSnapshot;
+        try r.ports.receive(snapshot.ports);
         var next: workspace.Store = .{};
         errdefer next.deinit();
         const selected = if (r.workspaces.items.items.len > 0) r.workspaces.current().id else 0;

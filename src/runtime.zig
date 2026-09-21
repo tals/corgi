@@ -47,12 +47,14 @@ pub const Runtime = struct {
     next_session: u32 = 1,
     revision: u64 = 1,
     git_status: @import("git_status.zig").Tracker = .{},
+    ports: @import("ports.zig").Tracker = .{},
 
     pub fn changed(r: *Runtime) void {
         r.revision +%= 1;
     }
 
     pub fn deinit(r: *Runtime) void {
+        r.ports.deinit();
         r.git_status.deinit();
         for (r.panes.items) |p| {
             p.terminal.destroy();
