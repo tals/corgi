@@ -36,7 +36,8 @@ read-only sandbox, low reasoning effort, user config and project documents
 excluded, and shell tools/apps/memories disabled. It requires CLI support for
 `--ephemeral`, `--ignore-user-config`, and `--ignore-rules`. It has a 45-second
 deadline and is terminated when Corgi stops. These inference requests consume
-Codex usage. The CLI default model is used unless `CORGI_SUMMARY_MODEL` is set.
+Codex usage. GPT-5.6 Luna (`gpt-5.6-luna`) is used with low reasoning effort unless
+`CORGI_SUMMARY_MODEL` overrides the model.
 
 The inference boundary is independent of the observed provider. To replace the
 backend (for example with a persistent App Server service or Claude worker), set

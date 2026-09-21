@@ -14,11 +14,11 @@ pub fn recordExit(pid: c_int, status: c_int) void {
 pub const Input = struct { provider: []const u8, evidence: []const u8, previous: []const u8 };
 pub const Backend = struct {
     executable: ?[]const u8 = null,
-    model: ?[]const u8 = null,
+    model: ?[]const u8 = "gpt-5.6-luna",
     disabled: bool = false,
     pub fn configured() Backend {
         const command = os.env("CORGI_SUMMARY_COMMAND");
-        return .{ .executable = command, .model = os.env("CORGI_SUMMARY_MODEL"), .disabled = if (command) |v| std.mem.eql(u8, v, "off") else false };
+        return .{ .executable = command, .model = os.env("CORGI_SUMMARY_MODEL") orelse "gpt-5.6-luna", .disabled = if (command) |v| std.mem.eql(u8, v, "off") else false };
     }
     pub fn infer(b: Backend, input: Input, stopping: *const std.atomic.Value(bool)) ?summary.Label {
         if (b.disabled) return null;
