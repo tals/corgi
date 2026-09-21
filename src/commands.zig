@@ -50,18 +50,30 @@ pub const TabMenu = struct {
     anchor_x: u16,
     anchor_y: u16 = 0,
     workspace: bool = false,
+    pane: bool = false,
+    source: ?u32 = null,
     highlighted: usize = 0,
     pub const actions = [_]Entry{
         .{ .key = 'c', .label = "New tab" },
         .{ .key = 'T', .label = "Rename" },
         .{ .key = 'X', .label = "Close" },
     };
+    const pane_actions = [_]Entry{
+        .{ .key = 's', .label = "Swap with focused pane" },
+        .{ .key = 'T', .label = "Rename pane" },
+        .{ .key = 'C', .label = "Clear pane name" },
+        .{ .key = 'v', .label = "Split right" },
+        .{ .key = '-', .label = "Split down" },
+        .{ .key = 'z', .label = "Zoom / unzoom" },
+        .{ .key = 'X', .label = "Close pane" },
+    };
     pub fn entries(m: TabMenu) []const Entry {
+        if (m.pane) return if (m.source != null) &pane_actions else pane_actions[1..];
         return if (m.workspace) actions[1..] else &actions;
     }
     const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
     fn bounds(m: TabMenu, width: u16, height: u16) Bounds {
-        const w = @min(width, 20);
+        const w = @min(width, if (m.pane) @as(u16, 30) else 20);
         return .{ .x = @min(m.anchor_x, width - w), .y = @min(m.anchor_y, height -| (m.entries().len + 2)), .width = w, .padding = if (height >= m.entries().len + 2) 1 else 0 };
     }
     pub fn hit(m: TabMenu, width: u16, height: u16, x: u16, y: u16) ?usize {

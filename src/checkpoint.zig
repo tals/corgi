@@ -80,8 +80,8 @@ pub const Screen = struct {
         return t;
     }
 };
-pub const Pane = struct { id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
-pub const Closed = struct { cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
+pub const Pane = struct { label: @import("pane_label.zig").Label = .{}, id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
+pub const Closed = struct { label: @import("pane_label.zig").Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
 pub const Workspace = struct { away: @import("usage.zig").Window = .{}, id: u32, name: []const u8, cwd: []const u8, tabs: []const protocol.Tab, active: usize, custom_name: ?[]const u8 = null, focus: []const u32, zoom: []const bool };
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
@@ -149,10 +149,10 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     for (r.panes.items, panes) |*p, *out| {
         p.refreshCwd();
         p.resume_hint.observe(&p.agent);
-        out.* = .{ .id = p.id, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, live), .agent = if (live) p.agent else historicalAgent(p.agent), .detection = if (live) p.detection else .{}, .resume_hint = p.resume_hint };
+        out.* = .{ .id = p.id, .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, live), .agent = if (live) p.agent else historicalAgent(p.agent), .detection = if (live) p.detection else .{}, .resume_hint = p.resume_hint };
     }
     const closed = try alloc.alloc(Closed, r.closed.items.len);
-    for (r.closed.items, closed) |p, *out| out.* = .{ .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, false), .tab = p.tab, .workspace_id = p.workspace_id };
+    for (r.closed.items, closed) |p, *out| out.* = .{ .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, false), .tab = p.tab, .workspace_id = p.workspace_id };
     const sessions = try alloc.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*s, *out| {
         const threads = try alloc.alloc([]const u8, s.active_threads.count());
@@ -193,15 +193,18 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.next_session = state.next_session;
     r.revision = state.revision +% 1;
     for (state.panes) |p| {
-        if (p.id == 0 or p.id >= state.next_pane or r.pane(p.id) != null or r.workspaces.owner(p.id) == null or
+        if (p.label.len > p.label.bytes.len or p.id == 0 or p.id >= state.next_pane or r.pane(p.id) != null or r.workspaces.owner(p.id) == null or
             !std.fs.path.isAbsolute(p.cwd) or p.resume_hint.len > p.resume_hint.session.len or p.agent.session_len > 160 or p.agent.cwd_len > p.agent.cwd.len or
             p.agent.transcript_len > p.agent.transcript.len or p.agent.turn_len > 160 or
             p.agent.last_finished_turn_len > 160 or p.agent.recent_len > 160 or p.agent.observation.read > p.agent.observation.completed) return error.InvalidCheckpoint;
         const t = try p.screen.restore(live);
-        try r.panes.append(a, .{ .id = p.id, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .agent = p.agent, .detection = p.detection, .resume_hint = p.resume_hint });
+        try r.panes.append(a, .{ .id = p.id, .label = p.label, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .agent = p.agent, .detection = p.detection, .resume_hint = p.resume_hint });
     }
     for (r.workspaces.items.items) |w| for (w.model.nodes) |maybe| if (maybe) |n| if (n == .pane and r.pane(n.pane) == null) return error.InvalidCheckpoint;
-    for (state.closed) |p| try r.closed.append(a, .{ .terminal = try p.screen.restore(false), .cwd = try a.dupe(u8, p.cwd), .tab = p.tab, .workspace_id = p.workspace_id });
+    for (state.closed) |p| {
+        if (p.label.len > p.label.bytes.len) return error.InvalidCheckpoint;
+        try r.closed.append(a, .{ .label = p.label, .terminal = try p.screen.restore(false), .cwd = try a.dupe(u8, p.cwd), .tab = p.tab, .workspace_id = p.workspace_id });
+    }
     for (state.sessions) |n| {
         if (n.resume_hint.len > 160 or n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
         var s: native.Session = .{ .usage_tracker = if (live) n.usage_tracker else .{}, .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };

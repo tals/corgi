@@ -14,6 +14,8 @@ pub const capabilities = [_][]const u8{
     "layout.apply",
     "pane.transfer",
     "pane.restore",
+    "pane.rename",
+    "workspace.move",
     "pane.acknowledge",
     "workspace.create",
     "session.snapshot",
@@ -66,6 +68,7 @@ pub const Agent = struct {
     tool_active: bool,
 };
 pub const Pane = struct {
+    name: []const u8 = "",
     id: u32,
     workspace: u32,
     tab: u32,
@@ -117,6 +120,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         const tab = owner.model.tabForPane(p.id) orelse return error.NoTab;
         out.* = .{
             .id = p.id,
+            .name = p.label.text(),
             .workspace = owner.id,
             .tab = owner.model.tabs[tab].id,
             .cwd = p.cwd,

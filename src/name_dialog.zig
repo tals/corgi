@@ -1,7 +1,7 @@
 const std = @import("std");
 const unicode = @import("ghostty-vt").unicode;
 
-pub const Target = union(enum) { rename: u32, create: []const u8, workspace_name: ?u32 }; // The server owns create's cwd.
+pub const Target = union(enum) { pane: u32, rename: u32, create: []const u8, workspace_name: ?u32 }; // The server owns create's cwd.
 pub const Result = enum { none, save, cancel };
 pub const Hit = union(enum) { none, save, clear, cancel, field: usize };
 pub const Dialog = struct {
@@ -167,6 +167,7 @@ pub const View = struct {
         const title = switch (d.target) {
             .create => "new tab",
             .rename => "rename tab",
+            .pane => "rename pane",
             .workspace_name => |id| if (id == null) "new workspace: name" else "edit workspace: name",
         };
         try w.print("\x1b[{d};{d}H{s}\x1b[1m{s}", .{ v.title_y + 1, v.x + 2, panel, title[0..@min(title.len, v.width - 2)] });
@@ -177,7 +178,7 @@ pub const View = struct {
         try w.print("\x1b[{d};{d}H\x1b[0;38;2;205;214;244;48;2;49;50;68m", .{ v.field_y + 1, v.x + 2 });
         try w.splatByteAll(' ', v.width - 2);
         try w.print("\x1b[{d};{d}H", .{ v.field_y + 1, v.x + 2 });
-        if (d.len == 0) {
+        if (d.len == 0 and d.target != .pane) {
             // This is a preview of the current position, never an editable/saved name.
             try w.print("\x1b[38;2;125;132;143m{d}", .{number});
         } else {

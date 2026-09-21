@@ -10,6 +10,7 @@ const native = @import("native.zig");
 const Theme = @import("theme.zig").Theme;
 
 pub const Pane = struct {
+    label: @import("pane_label.zig").Label = .{},
     id: layout.Id,
     terminal: *Terminal,
     agent: agents.Agent = .{},
@@ -27,6 +28,7 @@ pub const Pane = struct {
 };
 
 pub const ClosedPane = struct {
+    label: @import("pane_label.zig").Label = .{},
     terminal: *Terminal,
     cwd: []const u8,
     tab: layout.Tab,
@@ -122,7 +124,7 @@ pub const Runtime = struct {
             _ = p.terminal.read();
             p.terminal.stop();
             if (r.closed.items.len == 8) r.closed.orderedRemove(0).deinit();
-            r.closed.appendAssumeCapacity(.{ .terminal = p.terminal, .cwd = p.cwd, .tab = previous.tab().*, .workspace_id = owner.id });
+            r.closed.appendAssumeCapacity(.{ .label = p.label, .terminal = p.terminal, .cwd = p.cwd, .tab = previous.tab().*, .workspace_id = owner.id });
             _ = r.panes.orderedRemove(i);
             break;
         };

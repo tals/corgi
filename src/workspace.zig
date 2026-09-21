@@ -105,6 +105,16 @@ pub const Store = struct {
         for (s.items.items) |*w| if (w.model.tabForPane(pane) != null) return w;
         return null;
     }
+    /// Move before another workspace; before == id moves to the end.
+    pub fn moveBefore(s: *Store, id: u32, before: u32) !void {
+        const from = s.index(id) orelse return error.NoWorkspace;
+        _ = s.index(before) orelse return error.NoWorkspace;
+        const active = s.current().id;
+        const item = s.items.orderedRemove(from);
+        const to = if (before == id) s.items.items.len else s.index(before).?;
+        s.items.insertAssumeCapacity(to, item);
+        s.active = s.index(active).?;
+    }
     pub fn directory(path: []const u8) ![]const u8 {
         const home = @import("os.zig").env("HOME") orelse ".";
         const expanded = if (std.mem.eql(u8, path, "~")) try a.dupe(u8, home) else if (std.mem.startsWith(u8, path, "~/")) try std.fs.path.join(a, &.{ home, path[2..] }) else try a.dupe(u8, if (path.len == 0) "." else path);

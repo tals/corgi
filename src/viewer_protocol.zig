@@ -12,12 +12,26 @@ const eq = std.mem.eql;
 
 pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
     const op = agents.str(v, "op");
-    const known = for ([_][]const u8{ "viewer.open", "viewer.sync", "viewer.search", "layout.apply", "pane.transfer", "pane.restore", "pane.acknowledge", "workspace.create" }) |name| {
+    const known = for ([_][]const u8{ "viewer.open", "viewer.sync", "viewer.search", "layout.apply", "pane.transfer", "pane.restore", "pane.acknowledge", "workspace.create", "pane.rename", "workspace.move" }) |name| {
         if (eq(u8, op, name)) break true;
     } else false;
     if (!known) return false;
     try protocol.require(v, cl.protocol_version);
-    if (eq(u8, op, "viewer.open")) {
+    if (eq(u8, op, "pane.rename")) {
+        const p = s.runtime.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
+        p.label.set(agents.str(v, "name"));
+        s.runtime.changed();
+        s.dirty = true;
+        try cl.queue(.{ .ok = true });
+    } else if (eq(u8, op, "workspace.move")) {
+        const id = try protocol.id(v, "workspace");
+        const before = try protocol.id(v, "before");
+        try s.runtime.workspaces.moveBefore(id, before);
+        s.runtime.changed();
+        s.saveWorkspaces();
+        s.dirty = true;
+        try cl.queue(.{ .ok = true });
+    } else if (eq(u8, op, "viewer.open")) {
         if (cl.attached or cl.subscribed or cl.viewer) return error.AlreadyAttached;
         if (s.runtime.panes.items.len == 0 and s.runtime.workspaces.current().model.count == 0) {
             const cwd = agents.str(v, "cwd");
@@ -179,6 +193,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         const content = try saved.terminal.snapshot();
         defer a.free(content);
         const id = try s.runtime.create(.{ .workspace = ws.id, .cwd = saved.cwd, .title = saved.tab.title(), .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
+        s.runtime.pane(id).?.label = saved.label;
         const term = s.runtime.pane(id).?.terminal;
         term.feed(content);
         term.feed("\x1b[0m\r\n[Corgi: restored output; new shell]\r\n");

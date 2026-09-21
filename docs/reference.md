@@ -115,7 +115,11 @@ Right-click a tab title for Herdr's tab menu: **New tab**, **Rename**, and **Clo
 | Help | `prefix ?` |
 | Send literal Ctrl-B | `prefix Ctrl-B` |
 
-Click tabs and panes to focus. Drag split dividers to resize. Drag terminal text to select and copy through OSC 52. Mouse-aware terminal applications receive translated mouse input through Ghostty; hold Shift to select text instead. Right-click opens the command menu when the terminal application is not handling the mouse. Wheel scrolling enters scroll mode. In scroll mode: `j/k`, Ctrl-U/D, PageUp/Down, `g/G`, `/` literal search, `n/N` repeat, `y` or Enter copies the selection (or viewport), `q` exits. Output keeps running while you scroll.
+Right-click a pane for its own context menu: rename, clear name, swap with the previously focused pane, split right/down, zoom, or close. Opening the menu does not change focus. Pane names are shared, survive reload/recovery and reopening closed panes, and appear in the focused-pane status line and agent sidebar. An empty name restores the default label. Hold Shift while right-clicking to open the menu over a mouse-aware application.
+
+Drag workspace rows to reorder them, using the horizontal destination marker; release outside the workspace list or press Escape to cancel. Order is shared and saved. Drag the sidebar's right border to change its width, clamped to leave at least 20 terminal columns. Width is local to the viewer and resets on reattach; the workspace/agent division remains halfway down.
+
+Click tabs and panes to focus. Drag split dividers to resize. Drag terminal text to select and copy through OSC 52. Mouse-aware terminal applications receive translated mouse input through Ghostty; hold Shift to select text instead. Right-click opens the pane menu when the terminal application is not handling the mouse. Wheel scrolling enters scroll mode. In scroll mode: `j/k`, Ctrl-U/D, PageUp/Down, `g/G`, `/` literal search, `n/N` repeat, `y` or Enter copies the selection (or viewport), `q` exits. Output keeps running while you scroll.
 
 `corgi action move-tab left|right` reorders tabs. `corgi action join N` moves the focused pane into tab N. New tabs and splits use the workspace default directory.
 

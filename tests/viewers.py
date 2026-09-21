@@ -47,6 +47,81 @@ class Viewers(unittest.TestCase):
         ws=self.session()['workspaces'][0]['id']
         return self.rpc(op='pane.create',protocol=1,workspace=ws,cwd=self.temp.name,command=command,title=title)['pane']
     def geometry(self):return {p['id']:(p['cols'],p['rows']) for p in self.session()['panes']}
+    def test_pane_menu_names_target_without_stealing_focus(self):
+        left=self.new()
+        right=self.rpc(op='pane.split',protocol=1,pane=left,axis='right',cwd=self.temp.name,command='sleep 60')['pane']
+        a,b=Viewer(self),Viewer(self)
+        a.focus(left);b.focus(right)
+        a.input('\x1b[<2;85;5M\x1b[<2;85;5m')
+        self.assertEqual(a.state['pane'],left)
+        self.assertIn('Rename pane',a.state['data'])
+        self.assertIn('Swap with focused pane',a.state['data'])
+        a.input('T')
+        a.input('Logs\r')
+        self.assertEqual(a.state['pane'],left)
+        self.assertEqual(next(p for p in self.session()['panes'] if p['id']==right)['name'],'Logs')
+        self.assertIn('Logs',b.poll()['data'])
+        a.input('\x1b[<2;85;5M\x1b[<2;85;5m')
+        a.input('s')
+        self.assertEqual(a.state['pane'],left)
+        tree=self.session()['workspaces'][0]['tabs'][0]['layout']['split']
+        self.assertEqual(tree['first']['pane'],right)
+        self.assertEqual(tree['second']['pane'],left)
+        a.input('\x1b[<2;35;5M\x1b[<2;35;5m')
+        a.input('C')
+        self.assertEqual(next(p for p in self.session()['panes'] if p['id']==right)['name'],'')
+
+    def test_pane_name_survives_reload_and_reopen(self):
+        pane=self.new()
+        a=Viewer(self)
+        self.rpc(op='pane.rename',protocol=1,pane=pane,name='Build')
+        self.run_cli('reload',EXE)
+        self.assertEqual(next(p for p in self.session()['panes'] if p['id']==pane)['name'],'Build')
+        extra=self.new()
+        a.focus(pane)
+        a.input('\x1b[<2;35;5M\x1b[<2;35;5m')
+        a.input('x')
+        self.assertNotIn(pane,[p['id'] for p in self.session()['panes']])
+        a.action('undo-close')
+        self.assertEqual(next(p for p in self.session()['panes'] if p['id']==a.state['pane'])['name'],'Build')
+
+    def test_workspace_drag_order_marker_and_cancellation(self):
+        self.new()
+        first=self.session()['workspaces'][0]['id']
+        second=self.rpc(op='workspace.create',protocol=1,name='Second',cwd=self.temp.name)['workspace']
+        third=self.rpc(op='workspace.create',protocol=1,name='Third',cwd=self.temp.name)['workspace']
+        a,b=Viewer(self),Viewer(self)
+        b.request(op='workspace',workspace=second)
+        a.input('\x1b[<0;5;3M')
+        a.input('\x1b[<32;5;11M')
+        self.assertIn('─'*27,a.state['data'])
+        a.input('\x1b[<0;5;11m')
+        self.assertEqual([w['id'] for w in self.session()['workspaces']],[second,third,first])
+        self.assertEqual(a.state['workspace'],first)
+        self.assertEqual(b.poll()['workspace'],second)
+        a.input('\x1b[<0;5;3M\x1b[<32;5;11M\x1b[<0;50;11m')
+        self.assertEqual([w['id'] for w in self.session()['workspaces']],[second,third,first])
+        a.input('\x1b[<0;5;3M\x1b[<32;5;11M')
+        a.input('\x1b')
+        time.sleep(.1);a.poll()
+        a.input('\x1b[<0;5;11m')
+        self.assertEqual([w['id'] for w in self.session()['workspaces']],[second,third,first])
+        self.run_cli('reload',EXE)
+        self.assertEqual([w['id'] for w in self.session()['workspaces']],[second,third,first])
+
+    def test_sidebar_width_is_local_and_clamped(self):
+        pane=self.new()
+        a,b=Viewer(self),Viewer(self)
+        a.input('\x1b[<0;28;8M\x1b[<32;40;8M\x1b[<0;40;8m')
+        a.poll();b.poll()
+        self.assertEqual(self.geometry()[pane][0],60)
+        self.assertIn('\x1b[1;41H',a.state['data'])
+        self.assertIn('\x1b[1;29H',b.state['data'])
+        a.input('\x1b[<0;40;8M\x1b[<32;99;8M\x1b[<0;99;8m')
+        self.assertEqual(self.geometry()[pane][0],20)
+        a.request(op='size',cols=70,rows=30)
+        self.assertIn('\x1b[1;51H',a.state['data'])
+
     def test_workspace_away_usage_resets_on_visit_and_respects_other_viewers(self):
         pane=self.new()
         home=self.session()['workspaces'][0]['id']
@@ -71,7 +146,7 @@ class Viewers(unittest.TestCase):
         self.assertEqual((counts()['input'],counts()['output']),(50,10))
         self.rpc(op='hook',pane=pane,provider='codex',seq=2,event={'hook_event_name':'PermissionRequest','session_id':'usage'})
         self.assertIn('\x1b[1;38;2;243;139;168m1●',a.poll()['data'])
-        self.assertIn('↓50↑10',a.state['data'])
+        self.assertNotIn('↓50↑10',a.state['data'])
         self.assertIn('0 unread',legacy.screen_text(a.state['data'],100,30)[3][:27])
         a.request(op='workspace',workspace=home)
         self.assertEqual(counts()['tools'],0)

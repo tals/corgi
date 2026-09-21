@@ -118,7 +118,7 @@ pub const Terminal = struct {
         try t.inner.updateRender();
     }
 };
-pub const Pane = struct { id: u32, terminal: *Terminal, agent: agents.Agent = .{}, cwd: []const u8 };
+pub const Pane = struct { label: @import("pane_label.zig").Label = .{}, id: u32, terminal: *Terminal, agent: agents.Agent = .{}, cwd: []const u8 };
 pub const Native = struct {
     observation: agents.observation.State = .{},
     id: u32,
@@ -192,6 +192,7 @@ pub const Runtime = struct {
             const cwd = try a.dupe(u8, info.cwd);
             a.free(p.cwd);
             p.cwd = cwd;
+            p.label.set(info.name);
             p.agent.setName(info.agent.name);
             p.agent.changed_at = info.agent.changed_at;
             p.agent.provider = info.agent.provider;

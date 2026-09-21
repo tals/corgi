@@ -21,6 +21,9 @@ The caret is steady by default while attached, preserving the host terminal's cu
 
 - **Ctrl-B** opens the clickable command menu and shows shortcuts.
 - Click **+** to create a tab; right-click a tab to rename or close it. Unnamed tabs show their current position; clear a name to return to automatic numbering.
+- Right-click a pane for rename, clear name, swap with the focused pane, split, zoom, and close. Opening the menu preserves focus. Hold Shift when a mouse-aware application owns right-click. Pane names appear in the focused-pane status line and override agent names in the sidebar.
+- Drag workspace rows to reorder them; a horizontal line marks the destination. Release outside the workspace list or press Escape to cancel.
+- Drag the sidebar's right edge to resize it. Width belongs to each viewer and resets on reattach.
 - Drag a tab to reorder it; the vertical marker shows where it will land. Release outside the tab bar or press Escape to cancel.
 - **Ctrl-B**, then **v** or **-** splits right or down.
 - **Ctrl-B**, then **q** detaches while keeping your shells running. Run `./go.sh` to return.

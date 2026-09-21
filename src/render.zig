@@ -19,6 +19,8 @@ pub const Ui = struct {
     dialog: ?naming.Dialog = null,
     confirm: bool = false,
     sidebar_open: bool = true,
+    sidebar_width: u16 = 28,
+    workspace_drop_y: ?u16 = null,
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
     workspaces: []const sidebar.WorkspaceEntry = &.{},
@@ -89,7 +91,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     var out: Buffer = .init(a);
     defer out.deinit();
     const w = &out.writer;
-    const side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
+    const side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
     try w.writeAll(if (ui.menu != null or ui.tab_menu != null) "\x1b[?1003h" else "\x1b[?1002h");
@@ -141,6 +143,11 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
         };
     }
     try side.draw(w, ui.agents, ui.workspaces);
+    if (ui.workspace_drop_y) |y| {
+        try w.print("\x1b[{d};1H\x1b[1;38;2;161;194;178m", .{y + 1});
+        for (0..side.width -| 1) |_| try w.writeAll("─");
+        try w.writeAll("\x1b[0m");
+    }
     var blocked: usize = ui.native_blocked;
     var finished: usize = ui.native_finished;
     for (panes) |p| switch (p.agent.attention) {
@@ -157,6 +164,10 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
         var agent_label: [64]u8 = undefined;
         var label: []const u8 = "corgi";
         if (model.count > 0) for (panes) |p| {
+            if (p.id == model.tab().focus and p.label.len > 0) {
+                label = p.label.text();
+                break;
+            }
             if (p.id == model.tab().focus and p.agent.provider != .other) {
                 label = try std.fmt.bufPrint(&agent_label, "{s} {s}", .{ @tagName(p.agent.provider), @tagName(p.agent.state) });
                 break;

@@ -776,9 +776,9 @@ while True:
                 self.input(f'\x1b[<{button | modifiers};40;10M')
                 frame=self.get_type('frame')['data']
                 self.assertNotIn('Commands',frame,(button,modifiers))
-        # A real right-button press still opens the menu.
+        # A real right-button press opens the clicked pane's context menu.
         self.input('\x1b[<2;40;10M\x1b[<2;40;10m')
-        self.frame_with('Commands')
+        self.frame_with('Rename pane')
     def test_menu_hover_highlights_and_click_activates(self):
         self.attach();self.get_type('frame')
         self.input('\x02')

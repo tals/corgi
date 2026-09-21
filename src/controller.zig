@@ -105,9 +105,12 @@ pub fn Controller(comptime remote: bool) type {
         menu_page: usize = 0,
         menu_highlight: ?u8 = null,
         sidebar_open: bool = true,
+        sidebar_width: u16 = 28,
         sidebar_offset: usize = 0,
         tab_menu: ?commands.TabMenu = null,
         ui_mouse_down: bool = false,
+        sidebar_drag: bool = false,
+        workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
         resize_mode: bool = false,
         copy_mode: bool = false,
         name_dialog: ?naming.Dialog = null,
@@ -222,7 +225,7 @@ pub fn Controller(comptime remote: bool) type {
             return s.sidebarView(0).area();
         }
         fn sidebarView(s: *Server, count: usize) sidebar.View {
-            return sidebar.View.init(s.width, s.height, s.sidebar_open, s.sidebar_offset, count).withWorkspaces(s.runtime.workspaces.items.items.len, s.workspace_offset);
+            return sidebar.View.init(s.width, s.height, s.sidebar_open, s.sidebar_offset, count).withWidth(s.sidebar_width).withWorkspaces(s.runtime.workspaces.items.items.len, s.workspace_offset);
         }
         pub fn inheritedCwd(s: *Server, ws: *workspace.Workspace, target: ?layout.Id) []const u8 {
             const id = target orelse if (ws.model.count > 0) ws.model.tab().focus else return ws.cwd;
@@ -269,7 +272,7 @@ pub fn Controller(comptime remote: bool) type {
             for (s.model().tabs[0..s.model().count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
                     if (p.agent.provider == .other or s.model().tabForPane(p.id) != tab_index) continue;
-                    entries[count] = .{ .target = .{ .pane = p.id }, .name = p.agent.displayName(), .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .unread = p.agent.observation.unread(), .activity = if (p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
+                    entries[count] = .{ .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label.text() else p.agent.displayName(), .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .unread = p.agent.observation.unread(), .activity = if (p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
                     count += 1;
                 }
             }
@@ -279,6 +282,19 @@ pub fn Controller(comptime remote: bool) type {
                 count += 1;
             }
             return entries[0..count];
+        }
+        fn firstUnreadAgent(s: *Server, workspace_index: usize) ?sidebar.Target {
+            const ws = &s.runtime.workspaces.items.items[workspace_index];
+            for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
+                for (s.runtime.panes.items) |p| {
+                    if (p.agent.provider != .other and ws.model.tabForPane(p.id) == tab_index and p.agent.observation.unread())
+                        return .{ .pane = p.id };
+                }
+            }
+            for (s.runtime.sessions.items) |session| {
+                if (session.workspace_id == ws.id and session.observation.unread()) return .{ .native = session.id };
+            }
+            return null;
         }
         fn selectAgent(s: *Server, target: sidebar.Target) !void {
             s.copy_mode = false;
@@ -340,7 +356,38 @@ pub fn Controller(comptime remote: bool) type {
         }
         fn tabMenuAction(s: *Server, key_: u8) !void {
             const context = s.tab_menu orelse return;
+            const supported = for (context.entries()) |entry| {
+                if (entry.key == key_) break true;
+            } else false;
+            if (!supported) return;
             s.closeMenu();
+            if (context.pane) {
+                if (s.pane(context.tab) == null) return;
+                if (key_ == 'T') {
+                    s.name_dialog = naming.Dialog.init(.{ .pane = context.tab }, s.pane(context.tab).?.label.text());
+                    s.dirty = true;
+                } else if (key_ == 'C') {
+                    try s.renamePane(context.tab, "");
+                } else if (key_ == 'X') {
+                    try s.close(context.tab);
+                } else if (key_ == 's') {
+                    if (context.source) |source| {
+                        if (s.model().tabForPane(source) != s.model().tabForPane(context.tab)) return;
+                        try s.focusPane(source);
+                        try s.model().swap(context.tab);
+                        try s.resizePanes();
+                    }
+                } else {
+                    try s.focusPane(context.tab);
+                    switch (key_) {
+                        'v' => try s.action("split", "right"),
+                        '-' => try s.action("split", "down"),
+                        'z' => try s.action("zoom", ""),
+                        else => {},
+                    }
+                }
+                return;
+            }
             if (context.workspace) {
                 if (s.runtime.workspaces.index(context.tab) == null) return;
                 switch (key_) {
@@ -438,10 +485,21 @@ pub fn Controller(comptime remote: bool) type {
             };
             s.name_dialog = null;
         }
+        fn renamePane(s: *Server, id: u32, name: []const u8) !void {
+            const p = s.pane(id) orelse return error.NoPane;
+            if (remote) try s.connection.send(.{ .op = "pane.rename", .protocol = 1, .pane = id, .name = name });
+            p.label.set(name);
+            if (!remote) s.runtime.changed();
+            s.dirty = true;
+        }
         fn finishName(s: *Server, save: bool) void {
             s.dirty = true;
             if (save) if (s.name_dialog) |*dialog| {
                 switch (dialog.target) {
+                    .pane => |id| s.renamePane(id, dialog.name()) catch {
+                        dialog.failed = true;
+                        return;
+                    },
                     .workspace_name => |id| {
                         const name = a.dupe(u8, dialog.name()) catch {
                             dialog.failed = true;
@@ -571,7 +629,7 @@ pub fn Controller(comptime remote: bool) type {
             // A removed split can invalidate a drag even if its pane wasn't focused.
             s.divider = null;
             s.selection = null;
-            if (s.tab_menu) |context| if (if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
+            if (s.tab_menu) |context| if (if (context.pane) s.pane(context.tab) == null else if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
             };
             if (s.confirm_tab) |target| if (s.tabIndex(target) == null) {
@@ -579,7 +637,7 @@ pub fn Controller(comptime remote: bool) type {
                 s.confirm_tab = null;
                 s.message_len = 0;
             };
-            if (s.name_dialog) |dialog| if (dialog.target == .rename and s.tabIndex(dialog.target.rename) == null) s.dismissName();
+            if (s.name_dialog) |dialog| if ((dialog.target == .rename and s.tabIndex(dialog.target.rename) == null) or (dialog.target == .pane and s.pane(dialog.target.pane) == null)) s.dismissName();
             if (was_focused) {
                 s.copy_mode = false;
                 s.search_mode = false;
@@ -627,6 +685,7 @@ pub fn Controller(comptime remote: bool) type {
             dir.close();
             if (s.runtime.workspaces.index(saved.workspace_id) != null) try s.switchWorkspace(saved.workspace_id);
             const id = try s.create(null, saved.cwd, null, saved.tab.title());
+            s.pane(id).?.label = saved.label;
             const term = s.pane(id).?.terminal;
             term.feed(content);
             term.feed("\x1b[0m\r\n[Corgi: restored output; new shell]\r\n");
@@ -759,6 +818,8 @@ pub fn Controller(comptime remote: bool) type {
             s.dirty = true;
         }
         pub fn key(s: *Server, cl: *Client, byte: u8) !void {
+            s.sidebar_drag = false;
+            s.workspace_drag = null;
             if (cl.tab_drag) |*drag| {
                 drag.cancelled = true;
                 s.dirty = true;
@@ -769,6 +830,7 @@ pub fn Controller(comptime remote: bool) type {
                     13 => try s.tabMenuAction(context.entries()[context.highlighted].key),
                     'j', 9 => s.moveTabMenu(true),
                     'k' => s.moveTabMenu(false),
+                    's', 'C', 'v', '-', 'z' => try s.tabMenuAction(byte),
                     'c' => try s.tabMenuAction('c'),
                     'T', 'r' => try s.tabMenuAction('T'),
                     'X', 'x' => try s.tabMenuAction('X'),
@@ -1047,6 +1109,50 @@ pub fn Controller(comptime remote: bool) type {
             const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const release = seq[seq.len - 1] == 'm';
+            if (s.sidebar_drag) {
+                if (release) s.sidebar_drag = false else if (button == 32) {
+                    s.sidebar_width = std.math.clamp(x +| 1, 20, @max(20, s.width -| 20));
+                    try s.resizePanes();
+                }
+                s.dirty = true;
+                return;
+            }
+            if (s.workspace_drag) |*drag| {
+                const side = s.sidebarView(0);
+                var valid = drag.width == s.width and drag.height == s.height and drag.offset == side.workspace_offset and drag.count == s.runtime.workspaces.items.items.len;
+                if (valid) for (s.runtime.workspaces.items.items, 0..) |ws, i| {
+                    if (ws.id != drag.ids[i]) valid = false;
+                };
+                if (!valid) {
+                    s.workspace_drag = null;
+                    s.dirty = true;
+                    return;
+                }
+                drag.before = null;
+                drag.drop_y = null;
+                if (valid and x < side.width and y >= 2 and y < side.middle() -| 2 and y != drag.start_y) {
+                    const slot = @min(side.workspace_offset + (y - 2 + 1) / 3, s.runtime.workspaces.items.items.len);
+                    drag.before = if (slot == s.runtime.workspaces.items.items.len) drag.id else if (s.runtime.workspaces.items.items[slot].id == drag.id) null else s.runtime.workspaces.items.items[slot].id;
+                    if (drag.before != null) drag.drop_y = @intCast(2 + (slot - side.workspace_offset) * 3 -| 1);
+                }
+                if (release) {
+                    const saved = drag.*;
+                    s.workspace_drag = null;
+                    if (saved.before) |before| {
+                        if (remote) {
+                            try s.flushLayout();
+                            try s.connection.send(.{ .op = "workspace.move", .protocol = 1, .workspace = saved.id, .before = before });
+                            try s.refresh();
+                        } else {
+                            try s.runtime.workspaces.moveBefore(saved.id, before);
+                            s.runtime.changed();
+                            s.saveWorkspaces();
+                        }
+                    }
+                }
+                s.dirty = true;
+                return;
+            }
             // Finish the captured selection before hit testing the release location.
             if (release and button & 3 == 0) if (s.selection) |sel| {
                 s.selection = null;
@@ -1161,6 +1267,10 @@ pub fn Controller(comptime remote: bool) type {
             var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
             const entries = s.agentEntries(&agent_storage);
             const side = s.sidebarView(entries.len);
+            if (!release and button == 0 and side.width > 0 and x == side.width - 1) {
+                s.sidebar_drag = true;
+                return;
+            }
             if ((side.width > 0 and x < side.width and y < s.height - 1) or (y == 0 and x < tabs_x)) {
                 if (!release and (button == 64 or button == 65)) {
                     if (y < side.middle()) {
@@ -1183,7 +1293,30 @@ pub fn Controller(comptime remote: bool) type {
                             s.divider = null;
                             s.selection = null;
                             s.tab_menu = .{ .tab = s.runtime.workspaces.items.items[index].id, .workspace = true, .anchor_x = x, .anchor_y = y };
-                        } else try s.switchWorkspace(s.runtime.workspaces.items.items[index].id),
+                        } else {
+                            const id = s.runtime.workspaces.items.items[index].id;
+                            var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+                            const ws_entries = s.workspaceEntries(&workspace_storage);
+                            const jump = side.unreadHit(ws_entries[index], x, y);
+                            const target = if (jump) s.firstUnreadAgent(index) else null;
+                            try s.switchWorkspace(id);
+                            if (jump) {
+                                if (target) |agent| {
+                                    try s.selectAgent(agent);
+                                    const updated = s.agentEntries(&agent_storage);
+                                    for (updated, 0..) |entry, i| {
+                                        if (std.meta.eql(entry.target, agent)) {
+                                            s.sidebar_offset = @min(i, updated.len -| side.capacity);
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else {
+                                s.ui_mouse_down = false;
+                                s.workspace_drag = .{ .id = id, .start_y = y, .width = s.width, .height = s.height, .offset = s.workspace_offset, .count = s.runtime.workspaces.items.items.len };
+                                for (s.runtime.workspaces.items.items, 0..) |ws, i| s.workspace_drag.?.ids[i] = ws.id;
+                            }
+                        },
                         .none => {},
                     }
                     s.dirty = true;
@@ -1218,6 +1351,16 @@ pub fn Controller(comptime remote: bool) type {
             if (button & 32 != 0 and button & 3 == 3) return;
             var locations: [layout.max_panes]layout.Placement = undefined;
             for (s.model().placements(s.area(), &locations)) |p| if (p.rect.contains(x, y)) {
+                if (!release and button & 0xe3 == 2 and (s.pane(p.id).?.terminal.emulator().*.flags.mouse_event == .none or button & 4 != 0)) {
+                    const source = s.model().tab().focus;
+                    s.closeMenu();
+                    s.selection = null;
+                    s.divider = null;
+                    s.tab_menu = .{ .pane = true, .tab = p.id, .source = if (source != p.id) source else null, .anchor_x = x, .anchor_y = y };
+                    s.ui_mouse_down = true;
+                    s.dirty = true;
+                    return;
+                }
                 try s.focusPane(p.id);
                 s.acknowledge();
                 s.dirty = true;
@@ -1330,7 +1473,7 @@ pub fn Controller(comptime remote: bool) type {
             s.reconcile();
         }
         pub fn reconcile(s: *Server) void {
-            if (s.tab_menu) |context| if (if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
+            if (s.tab_menu) |context| if (if (context.pane) s.pane(context.tab) == null else if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
             };
             if (s.confirm_tab) |id| if (s.tabIndex(id) == null) {
@@ -1341,7 +1484,7 @@ pub fn Controller(comptime remote: bool) type {
             if (s.selection) |selection| if (s.pane(selection.pane) == null) {
                 s.selection = null;
             };
-            if (s.name_dialog) |dialog| if (dialog.target == .rename and s.tabIndex(dialog.target.rename) == null) s.dismissName();
+            if (s.name_dialog) |dialog| if ((dialog.target == .rename and s.tabIndex(dialog.target.rename) == null) or (dialog.target == .pane and s.pane(dialog.target.pane) == null)) s.dismissName();
             s.dirty = true;
         }
         pub fn flushLayout(s: *Server) !void {
@@ -1749,6 +1892,8 @@ pub fn Controller(comptime remote: bool) type {
                 .dialog = s.name_dialog,
                 .confirm = s.confirm != .none,
                 .sidebar_open = s.sidebar_open,
+                .sidebar_width = s.sidebar_width,
+                .workspace_drop_y = if (s.workspace_drag) |drag| drag.drop_y else null,
                 .sidebar_offset = s.sidebar_offset,
                 .agents = entries,
                 .workspaces = s.workspaceEntries(&workspace_storage),
