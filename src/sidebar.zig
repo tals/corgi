@@ -203,12 +203,17 @@ pub const View = struct {
             const dot = e.indicator();
             try w.print("\x1b[{d};2H\x1b[22m{s}{s}\x1b[{d};5H\x1b[1;38;2;226;230;233m", .{ y + 1, dot.color, dot.icon, y + 1 });
             const room = v.width - 6;
-            if (e.unread) try w.print("\x1b[{d};{d}H\x1b[38;2;148;226;213m•", .{ y + 1, v.width - 2 });
+            const divider = index + 1 < @min(entries.len - v.offset, v.capacity);
+            const underline = if (divider) "\x1b[4;58:2::65:70:77m" else "";
             const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
             var name: [160]u8 = undefined;
             const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
             try w.print("\x1b[{d};5H\x1b[22;38;2;226;230;233m", .{y + 1});
-            try writeEllipsis(w, provider, room - @as(usize, if (e.unread) 1 else 0));
+            try writeEllipsis(w, provider, room);
+            // Underline the existing second row, including its padding, without
+            // consuming another terminal row or changing the entry hit area.
+            try w.print("\x1b[{d};2H{s}", .{ y + 2, underline });
+            try w.splatByteAll(' ', v.width - 3);
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
             const detail = if (e.activity.len > 0) e.activity else switch (e.state) {
@@ -219,6 +224,7 @@ pub const View = struct {
                 else => "Ready",
             };
             try writeEllipsis(w, directoryLabel(&clean, detail, null), room);
+            try w.writeAll("\x1b[24;59m");
         }
         if (v.count > v.capacity) {
             var text: [64]u8 = undefined;
