@@ -1,0 +1,36 @@
+<div id="agent-color-preview" aria-label="Agent list alternating background preview">
+  <style>
+    #agent-color-preview { --agent-alternate: #22262b; --agent-selected: #303b49; max-width: 404px; background: #191c20; color: #dddfe3; font: 24px/34px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 16px 8px 22px; box-sizing: border-box; }
+    #agent-color-preview .agent-heading { font-weight: 500; padding: 0 8px 26px; }
+    #agent-color-preview .agent-row { display: grid; grid-template-columns: 34px minmax(0,1fr); position: relative; padding: 0 8px; }
+    #agent-color-preview .agent-row:nth-of-type(odd) { background: var(--agent-alternate); }
+    #agent-color-preview .agent-row.selected { background: var(--agent-selected); }
+    #agent-color-preview .status { color: #f4dfaa; }
+    #agent-color-preview .idle { color: #b4dba8; }
+    #agent-color-preview .continuation { display: block; color: #b7bcc5; }
+    @media(max-width: 380px) { #agent-color-preview { font-size: 20px; line-height: 30px; } }
+  </style>
+  <div class="agent-heading">agents</div>
+  <div class="agent-row selected"><span class="status" aria-label="Active">●</span><span>Commit pending<span class="continuation">changes in logical</span></span></div>
+  <div class="agent-row"><span class="idle" aria-label="Idle">○</span><span>Show two-line agent<span class="continuation">summaries</span></span></div>
+  <div class="agent-row"><span class="status" aria-label="Active">●</span><span>Fix checkpoint<span class="continuation">reload failure</span></span></div>
+  <div class="agent-row"><span class="idle" aria-label="Idle">○</span><span>Summarize agent<span class="continuation">activity</span></span></div>
+  <script>
+    (() => {
+      const root = document.getElementById('agent-color-preview');
+      const state = { alternate: '#22262b', selected: '#303b49', dimContinuation: true };
+      function render() {
+        root.style.setProperty('--agent-alternate', state.alternate);
+        root.style.setProperty('--agent-selected', state.selected);
+        root.querySelectorAll('.continuation').forEach(el => { el.style.color = state.dimContinuation ? '#b7bcc5' : '#dddfe3'; });
+      }
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({ container: root, onChange: render });
+        tweak.addColorPicker(state, 'alternate', { label: 'Alternating background' });
+        tweak.addColorPicker(state, 'selected', { label: 'Selected background' });
+        tweak.addToggle(state, 'dimContinuation', { label: 'Dim second line' });
+      }
+    })();
+  </script>
+</div>

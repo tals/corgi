@@ -1,0 +1,30 @@
+<div id="agent-alternating-selected" aria-label="Alternating agent backgrounds with the second agent selected">
+  <style>
+    #agent-alternating-selected { max-width: 404px; }
+    #agent-alternating-selected .option-label { margin-bottom: 10px; font: 500 14px/20px system-ui, sans-serif; color: light-dark(#32363d, #d9dde3); }
+    #agent-alternating-selected .terminal { background: #191c20; color: #dddfe3; padding: 16px 8px 22px; font: 20px/30px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    #agent-alternating-selected .heading { padding: 0 8px 24px; font-weight: 500; }
+    #agent-alternating-selected .agent { display: grid; grid-template-columns: 30px minmax(0, 1fr); padding: 0 8px; position: relative; }
+    #agent-alternating-selected .active { color: #f4dfaa; }
+    #agent-alternating-selected .idle { color: #b4dba8; }
+    #agent-alternating-selected .second { display: block; color: #b7bcc5; }
+    #agent-alternating-selected .lines .agent:not(:last-child)::after { content: ''; position: absolute; height: 1px; bottom: 2px; left: 8px; right: 8px; background: #41464d; }
+    #agent-alternating-selected .bands .agent:nth-child(even) { background: #282d33; }
+    #agent-alternating-selected .terminal .agent.selected { background: #35465b; }
+    #agent-alternating-selected .agent.selected .second { color: #dddfe3; }
+    @media(max-width: 640px) { #agent-alternating-selected { grid-template-columns: 1fr; } }
+  </style>
+
+  <section>
+    <div class="option-label">Alternating row backgrounds</div>
+    <div class="terminal bands">
+      <div class="heading">agents</div>
+      <div class="agents">
+        <div class="agent"><span class="active" aria-label="Active">●</span><span>Commit pending<span class="second">changes in logical</span></span></div>
+        <div class="agent selected" aria-label="Selected agent"><span class="idle" aria-label="Idle">○</span><span>Show two-line agent<span class="second">summaries</span></span></div>
+        <div class="agent"><span class="active" aria-label="Active">●</span><span>Fix checkpoint<span class="second">reload failure</span></span></div>
+        <div class="agent"><span class="idle" aria-label="Idle">○</span><span>Summarize agent<span class="second">activity</span></span></div>
+      </div>
+    </div>
+  </section>
+</div>

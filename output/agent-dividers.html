@@ -1,0 +1,34 @@
+<div id="agent-divider-preview" aria-label="Agent list divider preview">
+  <style>
+    #agent-divider-preview { --agent-divider: #3c4148; max-width: 404px; background: #191c20; color: #dddfe3; font: 24px/34px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 16px 8px 22px; box-sizing: border-box; }
+    #agent-divider-preview .agent-heading { font-weight: 500; padding: 0 8px 26px; }
+    #agent-divider-preview .agent-row { display: grid; grid-template-columns: 34px minmax(0,1fr); position: relative; padding: 0 8px; }
+    #agent-divider-preview .agent-row:not(:last-child)::after { content: ''; position: absolute; bottom: 2px; left: 8px; right: 8px; height: 1px; background: var(--agent-divider); pointer-events: none; }
+    #agent-divider-preview .selected { background: #252a30; }
+    #agent-divider-preview .status { color: #f4dfaa; }
+    #agent-divider-preview .idle { color: #b4dba8; }
+    #agent-divider-preview .continuation { display: block; color: #b7bcc5; }
+    @media(max-width: 380px) { #agent-divider-preview { font-size: 20px; line-height: 30px; } }
+  </style>
+  <div class="agent-heading">agents</div>
+  <div class="agent-row selected"><span class="status" aria-label="Active">●</span><span>Commit pending<span class="continuation">changes in logical</span></span></div>
+  <div class="agent-row"><span class="idle" aria-label="Idle">○</span><span>Show two-line agent<span class="continuation">summaries</span></span></div>
+  <div class="agent-row"><span class="status" aria-label="Active">●</span><span>Fix checkpoint<span class="continuation">reload failure</span></span></div>
+  <div class="agent-row"><span class="idle" aria-label="Idle">○</span><span>Summarize agent<span class="continuation">activity</span></span></div>
+  <script>
+    (() => {
+      const root = document.getElementById('agent-divider-preview');
+      const state = { divider: '#3c4148', dimContinuation: true };
+      function render() {
+        root.style.setProperty('--agent-divider', state.divider);
+        root.querySelectorAll('.continuation').forEach(el => { el.style.color = state.dimContinuation ? '#b7bcc5' : '#dddfe3'; });
+      }
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({ container: root, onChange: render });
+        tweak.addColorPicker(state, 'divider', { label: 'Divider color' });
+        tweak.addToggle(state, 'dimContinuation', { label: 'Dim second line' });
+      }
+    })();
+  </script>
+</div>

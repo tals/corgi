@@ -1,0 +1,30 @@
+<div id="agent-dividers-selected" aria-label="Full-width agent dividers with the second agent selected">
+  <style>
+    #agent-dividers-selected { max-width: 404px; }
+    #agent-dividers-selected .option-label { margin-bottom: 10px; font: 500 14px/20px system-ui, sans-serif; color: light-dark(#32363d, #d9dde3); }
+    #agent-dividers-selected .terminal { background: #191c20; color: #dddfe3; padding: 16px 8px 22px; font: 20px/30px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    #agent-dividers-selected .heading { padding: 0 8px 24px; font-weight: 500; }
+    #agent-dividers-selected .agent { display: grid; grid-template-columns: 30px minmax(0, 1fr); padding: 0 8px; position: relative; }
+    #agent-dividers-selected .active { color: #f4dfaa; }
+    #agent-dividers-selected .idle { color: #b4dba8; }
+    #agent-dividers-selected .second { display: block; color: #b7bcc5; }
+    #agent-dividers-selected .lines .agent:not(:last-child)::after { content: ''; position: absolute; height: 1px; bottom: 2px; left: 8px; right: 8px; background: #41464d; }
+    #agent-dividers-selected .bands .agent:nth-child(even) { background: #282d33; }
+    #agent-dividers-selected .terminal .agent.selected { background: #35465b; }
+    #agent-dividers-selected .agent.selected .second { color: #dddfe3; }
+    @media(max-width: 640px) { #agent-dividers-selected { grid-template-columns: 1fr; } }
+  </style>
+  <section>
+    <div class="option-label">Full-width dividers</div>
+    <div class="terminal lines">
+      <div class="heading">agents</div>
+      <div class="agents">
+        <div class="agent"><span class="active" aria-label="Active">●</span><span>Commit pending<span class="second">changes in logical</span></span></div>
+        <div class="agent selected" aria-label="Selected agent"><span class="idle" aria-label="Idle">○</span><span>Show two-line agent<span class="second">summaries</span></span></div>
+        <div class="agent"><span class="active" aria-label="Active">●</span><span>Fix checkpoint<span class="second">reload failure</span></span></div>
+        <div class="agent"><span class="idle" aria-label="Idle">○</span><span>Summarize agent<span class="second">activity</span></span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
