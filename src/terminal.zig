@@ -7,6 +7,7 @@ pub const Terminal = struct {
     vt: vt.Terminal,
     stream: vt.TerminalStream,
     render: vt.RenderState = .empty,
+    links: @import("hyperlinks.zig").Snapshot = .{},
     fd: c_int = -1,
     pid: c_int = -1,
     title_pid: c_int = 0,
@@ -72,6 +73,9 @@ pub const Terminal = struct {
 
     pub fn emulator(t: *Terminal) *vt.Terminal {
         return &t.vt;
+    }
+    pub fn hyperlinks(t: *Terminal) []const @import("hyperlinks.zig").Link {
+        return t.links.links;
     }
     pub fn renderState(t: *Terminal) *vt.RenderState {
         return &t.render;
@@ -192,6 +196,7 @@ pub const Terminal = struct {
         t.pending.deinit(a);
         t.journal.bytes.deinit(a);
         t.stream.deinit();
+        t.links.deinit();
         t.render.deinit(a);
         t.vt.deinit(a);
         a.destroy(t);
@@ -301,6 +306,7 @@ pub const Terminal = struct {
     pub fn updateRender(t: *Terminal) !void {
         if (t.vt.modes.get(.synchronized_output)) return;
         try t.render.update(a, &t.vt);
+        try t.links.capture(&t.render);
         if (t.render_dirty) t.journal.append(.render, "");
         t.render_dirty = false;
     }

@@ -24,7 +24,7 @@ pub fn capture(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal) !Su
     for (lines, 0..) |*line, row| {
         var out: std.Io.Writer.Allocating = .init(allocator);
         defer out.deinit();
-        try writeRow(&out.writer, state, row, state.cols, false);
+        try writeRow(&out.writer, state, t.hyperlinks(), id, row, state.cols, false);
         line.* = try out.toOwnedSlice();
         used += 1;
     }
@@ -37,8 +37,11 @@ pub fn capture(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal) !Su
     };
 }
 
-pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, row: usize, cols: u16, dimmed: bool) !void {
+pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: u32, row: usize, cols: u16, dimmed: bool) !void {
     const cells = state.row_data.items(.cells)[row];
+    var active_link: ?u64 = null;
+    var link_index: usize = 0;
+    while (link_index < links.len and links[link_index].row < row) link_index += 1;
     var last_style: ?vt.Style = null;
     var last_fg: ?vt.color.RGB = null;
     var last_bg: ?vt.color.RGB = null;
@@ -46,6 +49,14 @@ pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, row: usize, col
         if (col >= cols) break;
         if (cell.wide == .spacer_tail or cell.wide == .spacer_head) continue;
         const style: terminal.vt.Style = if (cell.style_id == 0) .{} else cells.items(.style)[col];
+        while (link_index < links.len and links[link_index].row == row and links[link_index].end <= col) link_index += 1;
+        const link: ?@import("hyperlinks.zig").Link = if (!style.flags.invisible and link_index < links.len and links[link_index].row == row and links[link_index].start <= col and col < links[link_index].end) links[link_index] else null;
+        const link_id: ?u64 = if (link) |value| value.id else null;
+        if (active_link != link_id) {
+            if (active_link != null) try w.writeAll("\x1b]8;;\x1b\\");
+            if (link) |value| try w.print("\x1b]8;id=corgi-{d}-{x};{s}\x1b\\", .{ pane, value.id, value.uri });
+            active_link = link_id;
+        }
         var fg = style.fg(.{ .default = state.colors.foreground, .palette = &state.colors.palette });
         var bg = style.bg(&cell, &state.colors.palette) orelse state.colors.background;
         if (dimmed) {
@@ -74,6 +85,7 @@ pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, row: usize, col
             try w.writeAll(bytes[0..n]);
         };
     }
+    if (active_link != null) try w.writeAll("\x1b]8;;\x1b\\");
     try w.writeAll("\x1b[0m");
 }
 
@@ -136,4 +148,45 @@ pub fn captureView(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal,
             .mouse_format = t.vt.flags.mouse_format,
         },
     };
+}
+
+test "named hyperlinks survive capture and a second terminal render without leaking" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(32, 3);
+    defer t.destroy();
+    t.feed("\x1b]8;id=docs;https://example.com/docs\x1b\\\x1b[4mDocs 界\x1b]8;;\x1b\\\x1b[0m plain");
+    const captured = try capture(arena.allocator(), 7, t);
+    try std.testing.expect(std.mem.indexOf(u8, captured.lines[0], ";https://example.com/docs\x1b\\") != null);
+    const mirror = try terminal.Terminal.create(32, 3);
+    defer mirror.destroy();
+    mirror.feed(captured.lines[0]);
+    const again = try capture(arena.allocator(), 7, mirror);
+    const host = try terminal.Terminal.create(32, 3);
+    defer host.destroy();
+    host.feed(again.lines[0]);
+    try host.updateRender();
+    try std.testing.expectEqual(@as(usize, 1), host.hyperlinks().len);
+    const link = host.hyperlinks()[0];
+    try std.testing.expectEqualStrings("https://example.com/docs", link.uri);
+    try std.testing.expectEqual(@as(usize, 0), link.start);
+    try std.testing.expectEqual(@as(usize, 7), link.end);
+    // A redraw of the same source retains the same emitted identity.
+    const repeated = try capture(arena.allocator(), 7, t);
+    try std.testing.expectEqualStrings(captured.lines[0], repeated.lines[0]);
+}
+
+test "hyperlinks retain completed frame during synchronized output and disappear on overwrite" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(20, 2);
+    defer t.destroy();
+    t.feed("\x1b]8;;https://example.com/old\x1b\\OLD\x1b]8;;\x1b\\");
+    const before = try capture(arena.allocator(), 1, t);
+    t.feed("\x1b[?2026h\x1b[2J\x1b[HNEW");
+    const during = try capture(arena.allocator(), 1, t);
+    try std.testing.expectEqualStrings(before.lines[0], during.lines[0]);
+    t.feed("\x1b[?2026l");
+    const after = try capture(arena.allocator(), 1, t);
+    try std.testing.expect(std.mem.indexOf(u8, after.lines[0], "\x1b]8;") == null);
 }

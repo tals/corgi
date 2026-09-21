@@ -136,7 +136,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
             const state = p.terminal.renderState();
             for (0..@min(state.rows, r.h)) |row| {
                 try w.print("\x1b[{d};{d}H", .{ r.y + row + 1, r.x + 1 });
-                try @import("surface.zig").writeRow(w, state, row, r.w, ui.dialog != null);
+                try @import("surface.zig").writeRow(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null);
             }
             try w.writeAll("\x1b[0m");
             break;

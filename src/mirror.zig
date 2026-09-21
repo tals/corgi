@@ -25,6 +25,9 @@ pub const Terminal = struct {
     pub fn emulator(t: *Terminal) *vt.Terminal {
         return &t.inner.vt;
     }
+    pub fn hyperlinks(t: *Terminal) []const @import("hyperlinks.zig").Link {
+        return t.inner.hyperlinks();
+    }
     pub fn renderState(t: *Terminal) *vt.RenderState {
         return &t.inner.render;
     }
