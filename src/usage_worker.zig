@@ -3,13 +3,14 @@
 const std = @import("std");
 const agents = @import("agents.zig");
 const usage = @import("usage.zig");
+const activity_tools = @import("activity_tools.zig");
 const a = std.heap.c_allocator;
 const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
 const Request = struct { pane: u32, workspace: u32, since: i64, agent: agents.Agent };
-pub const Result = struct { pane: u32, workspace: u32, since: i64, session: [160]u8, session_len: usize, delta: usage.Counts };
+pub const Result = struct { pane: u32, workspace: u32, since: i64, session: [160]u8, session_len: usize, delta: usage.Counts, progress: ?activity_tools.View = null };
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
@@ -87,7 +88,7 @@ pub const Worker = struct {
                     t.closeFile();
                     continue;
                 };
-                if (!delta.any() and !delta.tokens_known) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty) continue;
                 w.mutex.lock();
                 const slot = for (&w.results) |*entry| {
                     if (entry.*) |old| {
@@ -101,6 +102,8 @@ pub const Worker = struct {
                         entry.* = .{ .pane = req.pane, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
                     }
                     entry.*.?.delta.add(delta);
+                    if (req.agent.provider == .codex) entry.*.?.progress = t.progress.view();
+                    if (eq(t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
                 }
                 w.mutex.unlock();
             }
@@ -116,6 +119,7 @@ pub const Tail = struct {
     session_len: usize = 0,
     initial_until: u64 = 0,
     tracker: usage.Tracker = .{},
+    progress: activity_tools.Tracker = .{},
     file: ?std.fs.File = null,
     inode: std.fs.File.INode = 0,
     device: u64 = 0,
@@ -147,6 +151,8 @@ pub const Tail = struct {
         t.initial_until = stat.size;
         t.offset = stat.size -| initial_tail;
         t.tracker = .{};
+        t.progress = .{};
+        if (agent.provider == .codex) t.progress.bind(agent.turnId());
         if (t.offset == 0 and agent.provider == .codex) t.tracker.beginCodex("codex");
         t.discard = t.offset > 0;
     }
@@ -180,6 +186,7 @@ pub const Tail = struct {
                 if (!t.discard) {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
+                        if (req.agent.provider == .codex) t.progress.ingest(parsed.value, start_offset + start > t.initial_until);
                         const delta = t.tracker.transcript(req.agent.provider, req.agent.sessionId(), parsed.value);
                         const stamp = @import("transcript.zig").timestampMs(agents.str(parsed.value, "timestamp"));
                         if (start_offset + start > t.initial_until and stamp != null and stamp.? > req.since) found.add(delta);

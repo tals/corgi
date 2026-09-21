@@ -44,7 +44,7 @@ class Titles(unittest.TestCase):
         self.client=None;self.client_file=None;self.proc=None
         smoke.Runtime.setUp(self)
         self.errors=[];self.methods=[];self.stop=False;self.peers=[]
-        self.items={}
+        self.items={};self.paths={}
         self.ids=[A,B];self.states={A:'idle',B:'idle'};self.turns={A:('old','completed'),B:('old-b','completed')};self.waiting=False
         directory=pathlib.Path(self.env['CODEX_HOME'],'app-server-control');directory.mkdir(parents=True)
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(directory/'app-server-control.sock'));self.listener.listen();self.listener.settimeout(.2)
@@ -73,7 +73,7 @@ class Titles(unittest.TestCase):
                     if method=='initialize':result={}
                     elif method=='thread/loaded/list':result={'data':self.ids,'nextCursor':None}
                     elif method=='thread/read':
-                        sid=v['params']['threadId'];result={'thread':{'id':sid,'status':{'type':self.states[sid],'activeFlags':['waitingOnUserInput'] if self.waiting else []}}}
+                        sid=v['params']['threadId'];result={'thread':{'id':sid,'path':self.paths.get(sid,''),'status':{'type':self.states[sid],'activeFlags':['waitingOnUserInput'] if self.waiting else []}}}
                     elif method=='thread/turns/list':
                         sid=v['params']['threadId'];tid,status=self.turns[sid];result={'data':[{'id':tid,'status':status,'items':self.items.get(sid,[])}],'nextCursor':None}
                     else:raise AssertionError('mutating or unexpected RPC '+method)

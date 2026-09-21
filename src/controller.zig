@@ -2007,6 +2007,7 @@ pub fn Controller(comptime remote: bool) type {
                     for (activity) |entry| if (entry) |result| {
                         const p = s.pane(result.pane) orelse continue;
                         if (!eq(p.agent.sessionId(), result.session[0..result.session_len])) continue;
+                        if (!p.terminal.exited) if (result.progress) |progress| summaries.tools(p.id, &p.agent, progress);
                         const ws = s.runtime.workspaces.owner(p.id) orelse continue;
                         if (ws.id != result.workspace or s.workspaceWatched(ws.id)) continue;
                         if (ws.away.record(result.since, result.delta)) {

@@ -324,6 +324,7 @@ test {
     _ = @import("usage_worker.zig");
     _ = @import("codex_observer.zig");
     _ = @import("activity_worker.zig");
+    _ = @import("activity_tools.zig");
     _ = @import("activity_summary.zig");
     _ = @import("terminal.zig");
     _ = @import("integration.zig");

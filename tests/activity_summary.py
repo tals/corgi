@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Read-only Codex observation -> replaceable inference -> dedicated sidebar row."""
-import json, os, pathlib, tempfile, time, unittest
+import json, os, pathlib, tempfile, time, unittest, datetime
 from unittest.mock import patch
 import codex_titles
 import smoke
@@ -27,15 +27,74 @@ time.sleep(control['delay'])
 print(control['label'],flush=True)
 ''')
         program.chmod(0o700)
+        self.transcript=root/'activity.jsonl'
+        self.transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':codex_titles.A}})+'\n')
+        self.tool_index=0
         with patch.dict(os.environ,{'CORGI_SUMMARY_COMMAND':str(program)}):super().setUp()
+        self.paths[codex_titles.A]=str(self.transcript)
+        time.sleep(.8) # Allow the transcript reader to seed its initial baseline.
     def tearDown(self):
         try:super().tearDown()
         finally:self.backend_dir.cleanup()
-    def start_turn(self,tid='active'):
+    def start_turn(self,tid='active',wave=True):
         self.items[codex_titles.A]=[
             {'type':'userMessage','content':[{'type':'text','text':'Fix terminal focus'}]},
             {'type':'agentMessage','text':'I am tracing pane focus changes.'}]
         self.states[codex_titles.A]='active';self.turns[codex_titles.A]=(tid,'inProgress')
+        self.append_record('event_msg',{'type':'task_started','turn_id':tid})
+        self.until(lambda:self.state()['state']=='working')
+        if wave:self.tools(3)
+    def append_record(self,kind,payload):
+        with self.transcript.open('a') as f:
+            f.write(json.dumps({'type':kind,'timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),'payload':payload})+'\n')
+    def tools(self,n,command='rg focus src',complete=True):
+        ids=[]
+        for _ in range(n):
+            self.tool_index+=1;ident=f'call-{self.tool_index}';ids.append(ident)
+            self.append_record('response_item',{'type':'function_call','call_id':ident,'name':'exec_command','arguments':json.dumps({'cmd':command})})
+            if complete:self.finish_tool(ident)
+        return ids
+    def finish_tool(self,ident):
+        self.append_record('response_item',{'type':'function_call_output','call_id':ident,'output':'result'})
+    def calls(self):return self.log.read_text().splitlines() if self.log.exists() else []
+    def test_first_wave_waits_for_completions_and_duplicates_do_not_count(self):
+        self.start_turn(wave=False)
+        time.sleep(.5);self.assertEqual(self.calls(),[])
+        ids=self.tools(3,complete=False)
+        time.sleep(.5);self.assertEqual(self.calls(),[])
+        self.finish_tool(ids[0]);self.finish_tool(ids[0]);self.finish_tool(ids[1])
+        time.sleep(.5);self.assertEqual(self.calls(),[])
+        self.finish_tool(ids[2])
+        self.until(lambda:len(self.calls())==1)
+        self.assertIn('rg focus src',json.loads(self.calls()[0])['evidence'])
+    def test_later_wave_refreshes_under_throttle_even_when_commentary_is_unchanged(self):
+        self.start_turn()
+        self.until(lambda:len(self.calls())==1)
+        first=time.monotonic()
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.control.write_text(json.dumps({'delay':0,'label':'Testing pane focus'}))
+        self.tools(3,command='zig build test')
+        time.sleep(1)
+        self.assertEqual(len(self.calls()),1)
+        self.until(lambda:len(self.calls())==2,timeout=24)
+        self.assertGreater(time.monotonic()-first,18)
+        self.until(lambda:self.state()['activity']=='Testing pane focus')
+        self.assertIn('zig build test',json.loads(self.calls()[1])['evidence'])
+    def test_new_turn_needs_its_own_wave(self):
+        self.start_turn()
+        self.until(lambda:len(self.calls())==1)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.start_turn(tid='second',wave=False)
+        self.until(lambda:self.state()['activity']=='')
+        self.tools(2)
+        time.sleep(1)
+        self.assertEqual(len(self.calls()),1)
+    def test_watched_workspace_still_collects_tools(self):
+        self.attach()
+        self.rpc(op='focus',pane=self.pane)
+        self.start_turn()
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.assertEqual(len(self.calls()),1)
     def test_summary_second_row_and_unchanged_input(self):
         self.rpc(op='pane.rename',protocol=1,pane=self.pane,name='A deliberately long agent name')
         self.start_turn()

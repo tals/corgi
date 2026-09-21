@@ -19,15 +19,26 @@ No setup beyond `./go.sh` is required for an already observed session. To see aw
 
 Agent entries reserve their first line for the name and their second line for
 current activity. Long names clip with an ellipsis instead of occupying the
-activity line. Codex summaries are 2–3 words based on the current turn's latest
-assistant update and original request, read through the existing daemon observer.
-They describe reported activity; this first version does not ingest individual
-tool calls or summarize native sessions. Claude retains its existing hook labels.
+activity line. Codex summaries are 2–3 words based on recent completed tool
+calls, with the latest assistant update and original request as context. The
+existing transcript reader supplies turn-scoped tool progress independently of
+workspace away counters. Claude retains its existing hook labels; native sessions
+are not summarized.
 
-A single background inference worker coalesces updates, runs at most once per
-20 seconds per active turn and once per 5 seconds globally, and skips unchanged
-evidence. Results are checked against the session, turn and evidence before
-being displayed. Completion or a request for input replaces the summary
+The first inference waits for three completed tool calls in the current turn.
+Each refresh waits for three more, with a 20-second per-turn cooldown and a
+5-second global minimum between calls. A queued wave runs when the cooldown
+expires, even if no new commentary appears. Turns that finish before the first
+wave do not query inference. Duplicate call IDs and historical transcript records
+do not count; after a reload or transcript replacement, three new completions
+are needed. Up to 64 pending calls and 256 completed IDs are retained, plus short
+descriptions of the latest three completions; tool outputs are not sent to the
+summarizer. Missing transcripts or missing turn/call IDs cannot advance a wave.
+
+A single background worker coalesces updates. Results are checked against the
+session, turn and commentary generation; more tool completions during inference
+do not discard a still-relevant result. Completion or a request for input replaces
+the summary
 immediately. While awaiting a first result, the activity text stays blank; the
 working indicator remains visible. Idle agents show `◡‿◡`. Failures keep the
 activity text blank or retain the last valid label and retry after 60 seconds.
