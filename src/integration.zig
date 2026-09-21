@@ -52,7 +52,10 @@ fn configCommand(provider: []const u8, command: []const u8) ![]u8 {
     if (std.mem.eql(u8, provider, "claude")) {
         try addHook(&hooks, "Notification", command);
         try addHook(&hooks, "PostToolUseFailure", command);
-    } else if (std.mem.eql(u8, provider, "codex")) try addHook(&hooks, "Interrupt", command) else return error.BadProvider;
+    } else if (std.mem.eql(u8, provider, "codex")) {
+        try addHook(&hooks, "Interrupt", command);
+        try addHook(&hooks, "PostCompact", command);
+    } else return error.BadProvider;
     var root: std.json.ObjectMap = .init(a);
     defer root.deinit();
     try root.put("hooks", .{ .object = hooks });

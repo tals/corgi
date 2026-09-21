@@ -67,6 +67,7 @@ pub const Agent = struct {
     activity: []const u8,
     cwd: []const u8,
     tool_active: bool,
+    compacting: bool = false,
 };
 pub const Pane = struct {
     name: []const u8 = "",
@@ -91,6 +92,7 @@ pub const Native = struct {
     state: agents.State,
     attention: agents.Attention,
     tool_active: bool,
+    compacting: bool = false,
 };
 pub const Snapshot = struct {
     type: []const u8 = "session",
@@ -142,6 +144,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
                 .activity = p.agent.label(),
                 .cwd = p.agent.directory(),
                 .tool_active = p.agent.tool_active,
+                .compacting = p.agent.compacting,
             },
         };
     }

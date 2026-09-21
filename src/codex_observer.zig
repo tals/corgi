@@ -199,7 +199,10 @@ pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
     agent.tool_active = false;
     agent.tool_len = 0;
     const same_turn = eq(u8, agent.turnId(), s.turn[0..s.turn_len]);
-    if (!same_turn or old_state != s.state or s.state != .working) agent.activity_len = 0;
+    if (!same_turn or old_state != s.state or s.state != .working) {
+        agent.activity_len = 0;
+        agent.compacting = false;
+    }
     agent.activity_generation = s.evidence.hash();
     var ding = false;
     if (s.turn_len > 0) {

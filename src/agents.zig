@@ -33,6 +33,7 @@ pub const Agent = struct {
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,
+    compacting: bool = false,
     cwd: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
     cwd_len: usize = 0,
     last_seq: i64 = 0,
@@ -50,6 +51,7 @@ pub const Agent = struct {
         return a.session[0..a.session_len];
     }
     pub fn label(a: *const Agent) []const u8 {
+        if (a.state == .working and a.compacting) return "Compacting…";
         if (a.provider == .codex) switch (a.state) {
             .blocked => return "Needs input",
             .idle => return "◡‿◡",
@@ -98,6 +100,7 @@ pub const Agent = struct {
     pub fn confirm(a: *Agent, seq: i64, outcome: observation.Outcome) bool {
         if (!a.observation.pending_stop or a.last_seq != seq) return false;
         a.observation.pending_stop = false;
+        a.compacting = false;
         if (a.turn_len > 0 and eq(a.turnId(), a.last_finished_turn[0..a.last_finished_turn_len])) {
             a.state = .idle;
             a.activity_len = 0;
@@ -160,6 +163,7 @@ pub const Agent = struct {
         a.observation.pending_stop = eq(event, "Stop");
         a.state = if (a.observation.pending_stop) .working else next;
         a.changed_at = seq;
+        a.compacting = eq(event, "PreCompact");
         const tool = str(value, "tool_name");
         const cwd = str(value, "cwd");
         if (start) a.cwd_len = 0;
@@ -252,4 +256,25 @@ test "subagent and stale-session hooks cannot corrupt parent state" {
     defer v.deinit();
     try std.testing.expect(!a.apply(.codex, v.value, 10, false));
     try std.testing.expectEqual(State.unknown, a.state);
+}
+
+test "compaction overrides summaries and waiting until a subsequent lifecycle hook" {
+    var agent: Agent = .{};
+    const pre = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "{\"hook_event_name\":\"PreCompact\",\"session_id\":\"parent\"}", .{});
+    defer pre.deinit();
+    var seq: i64 = 1;
+    for ([_][]const u8{ "PostCompact", "PreToolUse", "Interrupt", "Stop", "SessionEnd", "SessionStart" }) |event| {
+        _ = agent.apply(.codex, pre.value, seq, false);
+        agent.subagents.waiting = true;
+        agent.activity_len = clean(&agent.activity, "Old summary");
+        try std.testing.expectEqualStrings("Compacting…", agent.label());
+        const json = try std.fmt.allocPrint(std.testing.allocator, "{{\"hook_event_name\":\"{s}\",\"session_id\":\"parent\"}}", .{event});
+        defer std.testing.allocator.free(json);
+        const next = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+        defer next.deinit();
+        _ = agent.apply(.codex, next.value, seq + 1, false);
+        try std.testing.expect(!agent.compacting);
+        try std.testing.expect(!eq(agent.label(), "Compacting…"));
+        seq += 2;
+    }
 }

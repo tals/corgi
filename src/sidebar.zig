@@ -14,6 +14,7 @@ pub const Entry = struct {
     focused: bool = false,
     cwd: []const u8 = "",
     tool_active: bool = false,
+    compacting: bool = false,
     unread: bool = false,
     activity: []const u8 = "",
     subagents: agents.Subagents = .{},
@@ -206,7 +207,8 @@ pub const View = struct {
             const room = v.width - 6;
             const divider = index + 1 < @min(entries.len - v.offset, v.capacity);
             const underline = if (divider) "\x1b[4;58:2::65:70:77m" else "";
-            const waiting = e.state == .working and e.subagents.waiting;
+            const compacting = e.state == .working and e.compacting;
+            const waiting = e.state == .working and e.subagents.waiting and !compacting;
             const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
             var name: [160]u8 = undefined;
             const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
@@ -218,7 +220,7 @@ pub const View = struct {
             try w.splatByteAll(' ', v.width - 3);
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
-            const detail = if (waiting) "Waiting on agents" else if (e.activity.len > 0) e.activity else switch (e.state) {
+            const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else if (e.activity.len > 0) e.activity else switch (e.state) {
                 .working => if (e.provider == .codex) "" else "Working",
                 .blocked => "Needs input",
                 .initializing => "Starting session",
@@ -489,4 +491,14 @@ test "unread label and arrow share their hit area across sidebar widths" {
     ws.unread = 0;
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
     try std.testing.expect(!view.unreadHit(ws, @intCast(view.unreadRange(ws).start), 3));
+}
+
+test "compaction occupies the second agent row ahead of waiting and summaries" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Agent title", .provider = .codex, .state = .working, .attention = .none, .compacting = true, .activity = "Old summary", .subagents = .{ .waiting = true } };
+    try View.init(100, 30, true, 0, 1).draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[18;5H\x1b[38;2;226;230;233mCompacting…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Old summary") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Waiting on agents") == null);
 }

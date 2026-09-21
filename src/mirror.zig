@@ -201,6 +201,7 @@ pub const Runtime = struct {
             p.agent.observation = info.agent.observation;
             p.agent.recent_len = agents.clean(&p.agent.recent, info.agent.recent_activity);
             p.agent.tool_active = info.agent.tool_active;
+            p.agent.compacting = info.agent.compacting;
             p.agent.subagents = info.agent.subagents;
             p.agent.session_len = agents.clean(&p.agent.session, info.agent.session);
             p.agent.activity_len = agents.clean(&p.agent.activity, info.agent.activity);

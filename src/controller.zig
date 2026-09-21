@@ -272,7 +272,7 @@ pub fn Controller(comptime remote: bool) type {
             for (s.model().tabs[0..s.model().count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
                     if (p.agent.provider == .other or s.model().tabForPane(p.id) != tab_index) continue;
-                    entries[count] = .{ .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label.text() else p.agent.displayName(), .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
+                    entries[count] = .{ .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label.text() else p.agent.displayName(), .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
                     count += 1;
                 }
             }
