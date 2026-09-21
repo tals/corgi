@@ -25,7 +25,7 @@ The caret is steady by default while attached, preserving the host terminal's cu
 - Drag workspace rows to reorder them; a horizontal line marks the destination. Release outside the workspace list or press Escape to cancel.
 - Drag the sidebar's right edge to resize it. Width belongs to each viewer and resets on reattach.
 - Drag a tab to reorder it; the vertical marker shows where it will land. Release outside the tab bar or press Escape to cancel.
-- **Ctrl-B**, then **v** or **-** splits right or down.
+- **Ctrl-B**, then **v** or **-** splits right or down. Split layouts reserve a one-cell outer frame and highlight the focused pane’s whole outline, including outer edges. Single-pane and zoomed views use the full terminal area.
 - **Ctrl-B**, then **q** detaches while keeping your shells running. Run `./go.sh` to return.
 - With one workspace, closing the last tab returns to your outer terminal. With multiple workspaces, an empty workspace stays open so you can switch or create a tab. Closed-pane snapshots remain available after reattaching.
 - The left sidebar is split equally: **workspaces** above, **agents in the selected workspace** below. Click the workspace header **+** to create one; leave its name empty for automatic naming, or enter a custom name. Click a workspace to switch, or right-click to rename it. **Ctrl-B w** creates a workspace with just a name, inheriting the current workspace’s folder; **Ctrl-B W** edits it; **Ctrl-B { / }** switches. The workspace name and folder follow the working directory of tab 1 (the first tab in the current order). A custom workspace name overrides the automatic folder name; clear it to restore automatic naming. New tabs and splits use that folder. Existing panes keep their working directories.

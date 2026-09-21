@@ -142,6 +142,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
             break;
         };
     }
+    try drawDividers(w, model, area);
     try side.draw(w, ui.agents, ui.workspaces);
     if (ui.workspace_drop_y) |y| {
         try w.print("\x1b[{d};1H\x1b[1;38;2;161;194;178m", .{y + 1});
@@ -225,4 +226,55 @@ test "tab drop slots follow midpoints and clipped visible tabs" {
     try std.testing.expectEqual(@as(u16, 9), tabDrop(&m, 13, 12).?.x);
     try std.testing.expect(tabDrop(&m, 13, 13) == null);
     try std.testing.expect(tabDrop(&m, 3, 0) == null);
+}
+
+fn drawDividers(w: *std.Io.Writer, model: *const layout.Model, area: layout.Rect) !void {
+    var storage: [layout.max_borders]layout.Model.Border = undefined;
+    const borders = model.borders(area, &storage);
+    var placements: [layout.max_panes]layout.Placement = undefined;
+    var focused: layout.Rect = .{};
+    for (model.placements(area, &placements)) |place| {
+        if (place.id == model.tabs[model.active].focus) focused = place.rect;
+    }
+    for (borders) |border| {
+        const r = border.rect;
+        for (r.y..r.y + r.h) |y| {
+            var highlighted = touchesPane(focused, r.x, y);
+            try dividerStyle(w, highlighted);
+            try w.print("\x1b[{d};{d}H", .{ y + 1, r.x + 1 });
+            for (r.x..r.x + r.w) |x| {
+                const selected = touchesPane(focused, x, y);
+                if (selected != highlighted) {
+                    try dividerStyle(w, selected);
+                    highlighted = selected;
+                }
+                var left = false;
+                var right = false;
+                var up = false;
+                var down = false;
+                for (borders) |other| {
+                    if (x > area.x and other.rect.contains(@intCast(x - 1), @intCast(y))) left = true;
+                    if (x + 1 < area.x + area.w and other.rect.contains(@intCast(x + 1), @intCast(y))) right = true;
+                    if (y > area.y and other.rect.contains(@intCast(x), @intCast(y - 1))) up = true;
+                    if (y + 1 < area.y + area.h and other.rect.contains(@intCast(x), @intCast(y + 1))) down = true;
+                }
+                const glyph: []const u8 = if (up and down)
+                    (if (left and right) "┼" else if (left) "┤" else if (right) "├" else "│")
+                else if (left and right) (if (up) "┴" else if (down) "┬" else "─") else if (up) (if (left) "┘" else if (right) "└" else "│") else if (down) (if (left) "┐" else if (right) "┌" else "│") else if (border.axis == .horizontal) "│" else "─";
+                try w.writeAll(glyph);
+            }
+        }
+    }
+    try w.writeAll("\x1b[0m");
+}
+
+fn dividerStyle(w: *std.Io.Writer, highlighted: bool) !void {
+    try w.writeAll(if (highlighted) "\x1b[1;38;2;161;194;178m" else "\x1b[0;38;2;125;132;143m");
+}
+
+fn touchesPane(r: layout.Rect, x: usize, y: usize) bool {
+    if (r.w == 0 or r.h == 0) return false;
+    // Include the junction cells at the corners of the selected pane.
+    return x + 1 >= r.x and x <= @as(usize, r.x) + r.w and
+        y + 1 >= r.y and y <= @as(usize, r.y) + r.h;
 }

@@ -61,6 +61,7 @@ pub const Client = struct {
     paste_pane: ?layout.Id = null,
     paste_to_name: bool = false,
     tab_drag: ?TabDrag = null,
+    divider: ?struct { hit: layout.Model.Divider, area: layout.Rect, cancelled: bool = false } = null,
     keybuf: std.ArrayList(u8) = .empty,
     escape_at: i64 = 0,
     dead: bool = false,
@@ -123,7 +124,6 @@ pub fn Controller(comptime remote: bool) type {
         bell: bool = false,
         bell_kind: agents.Attention = .none,
         muted: bool = false,
-        divider: ?layout.Model.Divider = null,
         selection: ?struct { pane: u32, x: u16, y: u16, moved: bool = false } = null,
         search_mode: bool = false,
         search_text: [128]u8 = .{0} ** 128,
@@ -170,7 +170,7 @@ pub fn Controller(comptime remote: bool) type {
             s.copy_mode = false;
             s.search_mode = false;
             s.selection = null;
-            s.divider = null;
+            s.cancelDividers();
             s.confirm = .none;
             s.confirm_tab = null;
             s.message_len = 0;
@@ -300,7 +300,7 @@ pub fn Controller(comptime remote: bool) type {
             s.copy_mode = false;
             s.search_mode = false;
             s.selection = null;
-            s.divider = null;
+            s.cancelDividers();
             s.message_len = 0;
             s.native_notice = null;
             switch (target) {
@@ -350,7 +350,7 @@ pub fn Controller(comptime remote: bool) type {
         fn openTabMenu(s: *Server, index: usize, x: u16) void {
             s.closeMenu();
             s.search_mode = false;
-            s.divider = null;
+            s.cancelDividers();
             s.selection = null;
             s.tab_menu = .{ .tab = s.model().tabs[index].id, .anchor_x = x };
         }
@@ -417,7 +417,7 @@ pub fn Controller(comptime remote: bool) type {
             s.prefix = true;
             s.menu_page = 0;
             s.menu_highlight = null;
-            s.divider = null;
+            s.cancelDividers();
             s.selection = null;
             s.dirty = true;
         }
@@ -474,7 +474,7 @@ pub fn Controller(comptime remote: bool) type {
             s.search_mode = false;
             s.copy_mode = false;
             s.closeMenu();
-            s.divider = null;
+            s.cancelDividers();
             s.selection = null;
             s.dirty = true;
         }
@@ -627,7 +627,7 @@ pub fn Controller(comptime remote: bool) type {
                 break;
             };
             // A removed split can invalidate a drag even if its pane wasn't focused.
-            s.divider = null;
+            s.cancelDividers();
             s.selection = null;
             if (s.tab_menu) |context| if (if (context.pane) s.pane(context.tab) == null else if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
@@ -748,7 +748,7 @@ pub fn Controller(comptime remote: bool) type {
             } else if (eq(name, "sidebar")) {
                 s.sidebar_open = !s.sidebar_open;
                 s.selection = null;
-                s.divider = null;
+                s.cancelDividers();
                 try s.resizePanes();
                 s.dirty = true;
             } else if (eq(name, "mute")) {
@@ -820,6 +820,7 @@ pub fn Controller(comptime remote: bool) type {
         pub fn key(s: *Server, cl: *Client, byte: u8) !void {
             s.sidebar_drag = false;
             s.workspace_drag = null;
+            s.cancelDividers();
             if (cl.tab_drag) |*drag| {
                 drag.cancelled = true;
                 s.dirty = true;
@@ -1103,12 +1104,27 @@ pub fn Controller(comptime remote: bool) type {
             }
             return null;
         }
+        fn cancelDividers(s: *Server) void {
+            for (s.clients.items) |*client| if (client.divider) |*drag| {
+                drag.cancelled = true;
+            };
+        }
         fn mouse(s: *Server, cl: *Client, seq: []const u8) !void {
             var fields = std.mem.splitScalar(u8, seq[3 .. seq.len - 1], ';');
             const button = std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return;
             const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const release = seq[seq.len - 1] == 'm';
+            if (cl.divider) |*drag| {
+                if (!std.meta.eql(drag.area, s.area())) drag.cancelled = true;
+                if (!drag.cancelled and (release or button & 0xe3 == 32)) {
+                    s.model().dragDivider(drag.hit, x, y);
+                    try s.resizePanes();
+                    s.dirty = true;
+                }
+                if (release) cl.divider = null;
+                return;
+            }
             if (s.sidebar_drag) {
                 if (release) s.sidebar_drag = false else if (button == 32) {
                     s.sidebar_width = std.math.clamp(x +| 1, 20, @max(20, s.width -| 20));
@@ -1254,16 +1270,6 @@ pub fn Controller(comptime remote: bool) type {
                 }
                 return;
             }
-            if (release and s.divider != null) {
-                s.divider = null;
-                return;
-            }
-            if (button == 32 and s.divider != null) {
-                s.model().dragDivider(s.divider.?, x, y);
-                try s.resizePanes();
-                s.dirty = true;
-                return;
-            }
             var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
             const entries = s.agentEntries(&agent_storage);
             const side = s.sidebarView(entries.len);
@@ -1290,7 +1296,7 @@ pub fn Controller(comptime remote: bool) type {
                         .workspace => |index| if (button == 2) {
                             s.closeMenu();
                             s.search_mode = false;
-                            s.divider = null;
+                            s.cancelDividers();
                             s.selection = null;
                             s.tab_menu = .{ .tab = s.runtime.workspaces.items.items[index].id, .workspace = true, .anchor_x = x, .anchor_y = y };
                         } else {
@@ -1355,7 +1361,7 @@ pub fn Controller(comptime remote: bool) type {
                     const source = s.model().tab().focus;
                     s.closeMenu();
                     s.selection = null;
-                    s.divider = null;
+                    s.cancelDividers();
                     s.tab_menu = .{ .pane = true, .tab = p.id, .source = if (source != p.id) source else null, .anchor_x = x, .anchor_y = y };
                     s.ui_mouse_down = true;
                     s.dirty = true;
@@ -1432,7 +1438,10 @@ pub fn Controller(comptime remote: bool) type {
                 s.selection = null;
                 return;
             }
-            if (button == 0) s.divider = s.model().dividerAt(s.area(), x, y);
+            if (button == 0) if (s.model().dividerAt(s.area(), x, y)) |hit| {
+                cl.divider = .{ .hit = hit, .area = s.area() };
+                s.selection = null;
+            };
         }
 
         pub fn visitWorkspace(s: *Server, id: u32) void {
@@ -1461,7 +1470,7 @@ pub fn Controller(comptime remote: bool) type {
             const previous_focus = if (s.runtime.workspaces.items.items.len > 0) if (s.focused()) |p| p.id else 0 else 0;
             const previous_token = if (s.runtime.workspaces.items.items.len > 0) try protocol.layoutToken(s.model()) else 0;
             try s.runtime.receive(s.connection, snapshot);
-            if (previous_token != try protocol.layoutToken(s.model())) s.divider = null;
+            if (previous_token != try protocol.layoutToken(s.model())) s.cancelDividers();
             if (previous_focus != 0 and s.pane(previous_focus) == null) {
                 s.copy_mode = false;
                 s.search_mode = false;
@@ -1606,7 +1615,7 @@ pub fn Controller(comptime remote: bool) type {
             const before_control = s.runtime.revision;
             if (try @import("control.zig").handle(s, cl, v)) {
                 if (s.runtime.revision != before_control) {
-                    s.divider = null;
+                    s.cancelDividers();
                     s.reconcile();
                     try s.resizePanes();
                     try @import("viewer_protocol.zig").resize(s);

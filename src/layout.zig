@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const max_panes = 64;
+pub const max_borders = max_panes + 3;
 pub const max_tabs = 24;
 const max_nodes = max_panes * 2;
 pub const Id = u32;
@@ -136,8 +137,15 @@ pub const Model = struct {
             return out[0..1];
         }
         var len: usize = 0;
-        m.walk(t.root, area, out, &len);
+        m.walk(t.root, m.contentArea(area), out, &len);
         return out[0..len];
+    }
+    fn hasFrame(m: *const Model, area: Rect) bool {
+        return m.count > 0 and !m.tabs[m.active].zoom and area.w >= 3 and area.h >= 3 and m.nodes[m.tabs[m.active].root].? == .split;
+    }
+    fn contentArea(m: *const Model, area: Rect) Rect {
+        if (!m.hasFrame(area)) return area;
+        return .{ .x = area.x + 1, .y = area.y + 1, .w = area.w - 2, .h = area.h - 2 };
     }
     fn walk(m: *const Model, index: u8, r: Rect, out: *[max_panes]Placement, len: *usize) void {
         switch (m.nodes[index].?) {
@@ -148,22 +156,9 @@ pub const Model = struct {
                 }
             },
             .split => |s| {
-                var a = r;
-                var b = r;
-                const total = if (s.axis == .horizontal) r.w else r.h;
-                const available = total -| 1;
-                const first: u16 = @intCast(@as(u32, available) * s.ratio / 1000);
-                if (s.axis == .horizontal) {
-                    a.w = first;
-                    b.x += @min(total, first + 1);
-                    b.w = available - first;
-                } else {
-                    a.h = first;
-                    b.y += @min(total, first + 1);
-                    b.h = available - first;
-                }
-                m.walk(s.first, a, out, len);
-                m.walk(s.second, b, out, len);
+                const parts = splitRects(s, r);
+                m.walk(s.first, parts[0], out, len);
+                m.walk(s.second, parts[2], out, len);
             },
         }
     }
@@ -326,40 +321,74 @@ pub const Model = struct {
     pub const Divider = struct { node: u8, rect: Rect };
     pub fn dividerAt(m: *const Model, area: Rect, x: u16, y: u16) ?Divider {
         if (m.count == 0 or m.tabs[m.active].zoom) return null;
-        return m.dividerNode(m.tabs[m.active].root, area, x, y);
+        return m.dividerNode(m.tabs[m.active].root, m.contentArea(area), x, y);
     }
     fn dividerNode(m: *const Model, index: u8, r: Rect, x: u16, y: u16) ?Divider {
         if (!r.contains(x, y)) return null;
         const n = m.nodes[index].?;
         if (n != .split) return null;
         const s = n.split;
-        const total = if (s.axis == .horizontal) r.w else r.h;
-        const first: u16 = @intCast(@as(u32, total -| 1) * s.ratio / 1000);
-        const position = if (s.axis == .horizontal) x - r.x else y - r.y;
-        if (position == first) return .{ .node = index, .rect = r };
-        var child = r;
-        if (s.axis == .horizontal) {
-            if (position < first) child.w = first else {
-                child.x += first + 1;
-                child.w = total -| (first + 1);
-            }
-        } else {
-            if (position < first) child.h = first else {
-                child.y += first + 1;
-                child.h = total -| (first + 1);
-            }
-        }
-        return m.dividerNode(if (position < first) s.first else s.second, child, x, y);
+        const parts = splitRects(s, r);
+        if (parts[1].contains(x, y)) return .{ .node = index, .rect = r };
+        if (parts[0].contains(x, y)) return m.dividerNode(s.first, parts[0], x, y);
+        return m.dividerNode(s.second, parts[2], x, y);
     }
+    pub const Border = struct { rect: Rect, axis: Axis, draggable: bool = true };
+    pub fn borders(m: *const Model, area: Rect, out: *[max_borders]Border) []Border {
+        if (m.count == 0 or m.tabs[m.active].zoom) return out[0..0];
+        var len: usize = 0;
+        if (m.hasFrame(area)) {
+            out[0] = .{ .rect = .{ .x = area.x, .y = area.y, .w = area.w, .h = 1 }, .axis = .vertical, .draggable = false };
+            out[1] = .{ .rect = .{ .x = area.x, .y = area.y + area.h - 1, .w = area.w, .h = 1 }, .axis = .vertical, .draggable = false };
+            out[2] = .{ .rect = .{ .x = area.x, .y = area.y + 1, .w = 1, .h = area.h - 2 }, .axis = .horizontal, .draggable = false };
+            out[3] = .{ .rect = .{ .x = area.x + area.w - 1, .y = area.y + 1, .w = 1, .h = area.h - 2 }, .axis = .horizontal, .draggable = false };
+            len = 4;
+        }
+        m.borderNode(m.tabs[m.active].root, m.contentArea(area), out, &len);
+        return out[0..len];
+    }
+    fn borderNode(m: *const Model, index: u8, r: Rect, out: *[max_borders]Border, len: *usize) void {
+        if (r.w == 0 or r.h == 0) return;
+        const n = m.nodes[index].?;
+        if (n != .split) return;
+        const parts = splitRects(n.split, r);
+        out[len.*] = .{ .rect = parts[1], .axis = n.split.axis };
+        len.* += 1;
+        m.borderNode(n.split.first, parts[0], out, len);
+        m.borderNode(n.split.second, parts[2], out, len);
+    }
+
     pub fn dragDivider(m: *Model, divider: Divider, x: u16, y: u16) void {
         const slot = &(m.nodes[divider.node] orelse return);
         if (slot.* != .split) return;
         const axis = slot.split.axis;
         const total = if (axis == .horizontal) divider.rect.w else divider.rect.h;
         const pos = if (axis == .horizontal) x -| divider.rect.x else y -| divider.rect.y;
-        m.nodes[divider.node].?.split.ratio = @intCast(std.math.clamp(@as(u32, pos) * 1000 / @max(1, total -| 1), 100, 900));
+        m.nodes[divider.node].?.split.ratio = @intCast(std.math.clamp((@as(u32, pos) * 1000 + (total -| 2)) / @max(1, total -| 1), 100, 900));
     }
 };
+
+// Pane geometry, visible lines and hit testing share the same reserved cell.
+fn splitRects(s: Split, r: Rect) [3]Rect {
+    const total = if (s.axis == .horizontal) r.w else r.h;
+    const available = total -| 1;
+    const first: u16 = @intCast(@as(u32, available) * s.ratio / 1000);
+    var parts = [3]Rect{ r, r, r };
+    if (s.axis == .horizontal) {
+        parts[0].w = first;
+        parts[1].x += first;
+        parts[1].w = @min(total, 1);
+        parts[2].x += @min(total, first + 1);
+        parts[2].w = available - first;
+    } else {
+        parts[0].h = first;
+        parts[1].y += first;
+        parts[1].h = @min(total, 1);
+        parts[2].y += @min(total, first + 1);
+        parts[2].h = available - first;
+    }
+    return parts;
+}
 
 test "nested split close preserves stable identities and collapses tree" {
     var m: Model = .{};
@@ -423,4 +452,55 @@ test "tab insertion preserves order, names, splits and logical focus" {
     m.moveTab(second.id, 2); // Its own trailing gap is a no-op.
     try std.testing.expectEqualDeep(second, m.tabs[1]);
     try std.testing.expectEqual(third.id, m.tab().id);
+}
+
+test "divider cells match gaps at every size and drag lands on requested cell" {
+    var m: Model = .{};
+    _ = try m.newTab("");
+    _ = try m.split(.horizontal);
+    _ = try m.split(.vertical);
+    for (0..20) |width| {
+        for (0..14) |height| {
+            const area: Rect = .{ .x = 3, .y = 2, .w = @intCast(width), .h = @intCast(height) };
+            var panes: [max_panes]Placement = undefined;
+            var lines: [max_borders]Model.Border = undefined;
+            const placements = m.placements(area, &panes);
+            const borders = m.borders(area, &lines);
+            for (area.y..area.y + area.h) |y| for (area.x..area.x + area.w) |x| {
+                var coverage: usize = 0;
+                for (placements) |p| if (p.rect.contains(@intCast(x), @intCast(y))) {
+                    coverage += 1;
+                };
+                for (borders) |b| if (b.rect.contains(@intCast(x), @intCast(y))) {
+                    coverage += 1;
+                    try std.testing.expectEqual(b.draggable, m.dividerAt(area, @intCast(x), @intCast(y)) != null);
+                };
+                try std.testing.expectEqual(@as(usize, 1), coverage);
+            };
+        }
+    }
+    const area: Rect = .{ .x = 28, .y = 1, .w = 72, .h = 28 };
+    const divider = m.dividerAt(area, 63, 2).?;
+    m.dragDivider(divider, 75, 2);
+    try std.testing.expect(m.dividerAt(area, 75, 2) != null);
+    m.tab().zoom = true;
+    var lines: [max_borders]Model.Border = undefined;
+    try std.testing.expectEqual(@as(usize, 0), m.borders(area, &lines).len);
+    try std.testing.expect(m.dividerAt(area, 75, 2) == null);
+}
+
+test "only split layouts reserve an outer frame and closing restores the area" {
+    var m: Model = .{};
+    _ = try m.newTab("");
+    const area: Rect = .{ .x = 28, .y = 1, .w = 72, .h = 28 };
+    var panes: [max_panes]Placement = undefined;
+    try std.testing.expectEqualDeep(area, m.placements(area, &panes)[0].rect);
+    const second = try m.split(.horizontal);
+    for (m.placements(area, &panes)) |p| {
+        try std.testing.expect(p.rect.x > area.x and p.rect.y > area.y);
+        try std.testing.expect(p.rect.x + p.rect.w < area.x + area.w);
+        try std.testing.expect(p.rect.y + p.rect.h < area.y + area.h);
+    }
+    try m.close(second);
+    try std.testing.expectEqualDeep(area, m.placements(area, &panes)[0].rect);
 }
