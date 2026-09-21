@@ -44,6 +44,7 @@ class Titles(unittest.TestCase):
         self.client=None;self.client_file=None;self.proc=None
         smoke.Runtime.setUp(self)
         self.errors=[];self.methods=[];self.stop=False;self.peers=[]
+        self.items={}
         self.ids=[A,B];self.states={A:'idle',B:'idle'};self.turns={A:('old','completed'),B:('old-b','completed')};self.waiting=False
         directory=pathlib.Path(self.env['CODEX_HOME'],'app-server-control');directory.mkdir(parents=True)
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(directory/'app-server-control.sock'));self.listener.listen();self.listener.settimeout(.2)
@@ -74,7 +75,7 @@ class Titles(unittest.TestCase):
                     elif method=='thread/read':
                         sid=v['params']['threadId'];result={'thread':{'id':sid,'status':{'type':self.states[sid],'activeFlags':['waitingOnUserInput'] if self.waiting else []}}}
                     elif method=='thread/turns/list':
-                        sid=v['params']['threadId'];tid,status=self.turns[sid];result={'data':[{'id':tid,'status':status}],'nextCursor':None}
+                        sid=v['params']['threadId'];tid,status=self.turns[sid];result={'data':[{'id':tid,'status':status,'items':self.items.get(sid,[])}],'nextCursor':None}
                     else:raise AssertionError('mutating or unexpected RPC '+method)
                     # Exercise a frame split across separate socket writes.
                     data=frame({'id':v['id'],'result':result})

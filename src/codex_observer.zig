@@ -37,6 +37,7 @@ pub fn titlePrefix(title: []const u8) ?Prefix {
 }
 pub const Request = struct { pane: u32, pid: c_int, prefix: Prefix };
 pub const Snapshot = struct {
+    evidence: @import("activity_summary.zig").Text = .{},
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
     request: Request,
@@ -91,6 +92,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     const data = field(result(turns.value), "data");
     if (data == .array and data.array.items.len > 0) {
         const turn = data.array.items[0];
+        out.evidence = @import("activity_summary.zig").codex(turn);
         const id = agents.str(turn, "id");
         if (id.len > 0 and id.len <= out.turn.len) {
             @memcpy(out.turn[0..id.len], id);
@@ -125,7 +127,9 @@ pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
     agent.observation.pending_stop = false;
     agent.tool_active = false;
     agent.tool_len = 0;
-    agent.activity_len = 0;
+    const same_turn = eq(u8, agent.turnId(), s.turn[0..s.turn_len]);
+    if (!same_turn or old_state != s.state or s.state != .working) agent.activity_len = 0;
+    agent.activity_generation = s.evidence.hash();
     var ding = false;
     if (s.turn_len > 0) {
         @memcpy(agent.turn[0..s.turn_len], s.turn[0..s.turn_len]);

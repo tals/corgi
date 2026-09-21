@@ -23,6 +23,7 @@ pub const Agent = struct {
     session_len: usize = 0,
     activity: [160]u8 = .{0} ** 160,
     activity_len: usize = 0,
+    activity_generation: u64 = 0,
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,
@@ -43,6 +44,14 @@ pub const Agent = struct {
         return a.session[0..a.session_len];
     }
     pub fn label(a: *const Agent) []const u8 {
+        if (a.provider == .codex) switch (a.state) {
+            .blocked => return "Needs input",
+            .idle => return "Ready",
+            .done => return "Session ended",
+            .initializing => return "Starting session",
+            .working => if (a.activity_len == 0) return "Working on request",
+            else => {},
+        };
         return a.activity[0..a.activity_len];
     }
     pub fn toolLabel(a: *const Agent) []const u8 {

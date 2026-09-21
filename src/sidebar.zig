@@ -205,22 +205,20 @@ pub const View = struct {
             const room = v.width - 6;
             if (e.unread) try w.print("\x1b[{d};{d}H\x1b[38;2;148;226;213m•", .{ y + 1, v.width - 2 });
             const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
-            try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H", .{ y + 2, activity, y + 2 });
-            var label: [512]u8 = undefined;
             var name: [160]u8 = undefined;
             const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
-            const detail = if (e.activity.len > 0) std.fmt.bufPrint(&label, "{s} · {s}", .{ provider, e.activity }) catch provider else provider;
+            try w.print("\x1b[{d};5H\x1b[22;38;2;226;230;233m", .{y + 1});
+            try writeEllipsis(w, provider, room - @as(usize, if (e.unread) 1 else 0));
+            try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
-            const summary = directoryLabel(&clean, detail, null);
-            const split = wrapAt(summary, room - @as(usize, if (e.unread) 1 else 0));
-            try w.print("\x1b[{d};5H\x1b[38;2;226;230;233m", .{y + 1});
-            try w.writeAll(std.mem.trimEnd(u8, summary[0..split], " "));
-            try w.print("\x1b[{d};5H", .{y + 2});
-            const rest = std.mem.trimStart(u8, summary[split..], " ");
-            if (displayWidth(rest) > room) {
-                try writeClipped(w, rest, room - 1);
-                try w.writeAll("…");
-            } else try w.writeAll(rest);
+            const detail = if (e.activity.len > 0) e.activity else switch (e.state) {
+                .working => "Working",
+                .blocked => "Needs input",
+                .initializing => "Starting session",
+                .done => "Session ended",
+                else => "Ready",
+            };
+            try writeEllipsis(w, directoryLabel(&clean, detail, null), room);
         }
         if (v.count > v.capacity) {
             var text: [64]u8 = undefined;
@@ -266,19 +264,11 @@ fn writeClipped(w: *std.Io.Writer, text: []const u8, room: usize) !void {
     }
 }
 
-// Prefer a word boundary, falling back to complete codepoints for long words.
-fn wrapAt(text: []const u8, room: usize) usize {
-    var it = (std.unicode.Utf8View.init(text) catch unreachable).iterator();
-    var used: usize = 0;
-    var end: usize = 0;
-    var space: usize = 0;
-    while (it.nextCodepointSlice()) |bytes| {
-        used += vt.unicode.codepointWidth(std.unicode.utf8Decode(bytes) catch unreachable);
-        if (used > room) return if (space > 0) space else end;
-        end += bytes.len;
-        if (bytes.len == 1 and bytes[0] == ' ') space = end;
-    }
-    return text.len;
+fn writeEllipsis(w: *std.Io.Writer, text: []const u8, room: usize) !void {
+    if (displayWidth(text) <= room) return w.writeAll(text);
+    if (room == 0) return;
+    try writeClipped(w, text, room - 1);
+    try w.writeAll("…");
 }
 // Keep the root and the longest whole-component suffix that fits.
 fn writeDirectory(w: *std.Io.Writer, path: []const u8, room: usize) !void {

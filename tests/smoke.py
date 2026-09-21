@@ -61,7 +61,7 @@ def screen_text(data, cols=80, rows=24):
     x=y=0;i=0
     while i<len(data):
         if data[i]=='\x1b':
-            match=re.match(r'\x1b\[([0-9;?]*)([@-~])',data[i:])
+            match=re.match(r'\x1b\[([0-9;:?]*)([@-~])',data[i:])
             if not match:raise AssertionError('unexpected frame escape')
             args,kind=match.groups()
             if kind in ('H','f'):

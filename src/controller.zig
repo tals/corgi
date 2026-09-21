@@ -1907,6 +1907,8 @@ pub fn Controller(comptime remote: bool) type {
             const usage = try usage_worker.Worker.start();
             defer usage.stop();
             const codex_observer = @import("codex_observer.zig");
+            const summaries = try @import("activity_worker.zig").Worker.start();
+            defer summaries.stop();
             const codex = try codex_observer.Worker.start();
             defer codex.stop();
             _ = c.signal(c.SIGPIPE, os.sig_ignore);
@@ -1982,10 +1984,20 @@ pub fn Controller(comptime remote: bool) type {
                                 s.bell = true;
                                 if (s.bell_kind != .needs_input) s.bell_kind = if (p.agent.state == .blocked) .needs_input else .finished;
                             }
+                            summaries.submit(p.id, &p.agent, snap.evidence);
                             p.resume_hint.observe(&p.agent);
                             s.dirty = true;
                             s.runtime.changed();
                         }
+                    };
+                    summaries.reconcile(s.runtime.panes.items);
+                    var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
+                    summaries.take(&summary_results);
+                    for (summary_results) |entry| if (entry) |result| {
+                        if (s.pane(result.request.pane)) |p| if (!p.terminal.exited and result.apply(&p.agent)) {
+                            s.dirty = true;
+                            s.runtime.changed();
+                        };
                     };
                     s.followWorkspaceDirectories();
                     for (s.runtime.workspaces.items.items) |ws| if (s.workspaceWatched(ws.id)) s.visitWorkspace(ws.id);
@@ -2056,6 +2068,7 @@ pub fn Controller(comptime remote: bool) type {
                     const pid = c.waitpid(-1, &status, c.WNOHANG);
                     if (pid <= 0) break;
                     @import("git_status.zig").recordExit(pid, status);
+                    @import("summary_backend.zig").recordExit(pid, status);
                     for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                         p.terminal.exited = true;
                         p.terminal.exit_status = status;
