@@ -46,10 +46,9 @@ pub const Agent = struct {
     pub fn label(a: *const Agent) []const u8 {
         if (a.provider == .codex) switch (a.state) {
             .blocked => return "Needs input",
-            .idle => return "Ready",
+            .idle => return "◡‿◡",
             .done => return "Session ended",
             .initializing => return "Starting session",
-            .working => if (a.activity_len == 0) return "Working on request",
             else => {},
         };
         return a.activity[0..a.activity_len];

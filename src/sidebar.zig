@@ -217,13 +217,13 @@ pub const View = struct {
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
             const detail = if (e.activity.len > 0) e.activity else switch (e.state) {
-                .working => "Working",
+                .working => if (e.provider == .codex) "" else "Working",
                 .blocked => "Needs input",
                 .initializing => "Starting session",
                 .done => "Session ended",
-                else => "Ready",
+                else => "◡‿◡",
             };
-            try writeEllipsis(w, directoryLabel(&clean, detail, null), room);
+            if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), room);
             try w.writeAll("\x1b[24;59m");
         }
         if (v.count > v.capacity) {

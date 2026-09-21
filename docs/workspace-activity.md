@@ -28,8 +28,9 @@ A single background inference worker coalesces updates, runs at most once per
 20 seconds per active turn and once per 5 seconds globally, and skips unchanged
 evidence. Results are checked against the session, turn and evidence before
 being displayed. Completion or a request for input replaces the summary
-immediately. While awaiting a first result, the label reads `Working on request`.
-Failures keep the fallback or last valid label and retry after a 60-second delay.
+immediately. While awaiting a first result, the activity text stays blank; the
+working indicator remains visible. Idle agents show `◡‿◡`. Failures keep the
+activity text blank or retain the last valid label and retry after 60 seconds.
 
 The default backend runs an ephemeral `codex exec` with existing Codex login,
 read-only sandbox, low reasoning effort, user config and project documents
