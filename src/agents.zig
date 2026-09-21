@@ -3,7 +3,13 @@ pub const observation = @import("observation.zig");
 pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
 pub const Provider = enum { claude, codex, other };
+pub const Subagents = struct {
+    running: u32 = 0,
+    blocked: u32 = 0,
+    waiting: bool = false,
+};
 pub const Agent = struct {
+    subagents: Subagents = .{},
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
     observation: observation.State = .{},
@@ -49,6 +55,7 @@ pub const Agent = struct {
             .idle => return "◡‿◡",
             .done => return "Session ended",
             .initializing => return "Starting session",
+            .working => if (a.subagents.waiting) return "Waiting on agents",
             else => {},
         };
         return a.activity[0..a.activity_len];

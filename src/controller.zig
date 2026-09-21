@@ -272,7 +272,7 @@ pub fn Controller(comptime remote: bool) type {
             for (s.model().tabs[0..s.model().count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
                     if (p.agent.provider == .other or s.model().tabForPane(p.id) != tab_index) continue;
-                    entries[count] = .{ .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label.text() else p.agent.displayName(), .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
+                    entries[count] = .{ .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label.text() else p.agent.displayName(), .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.model().tab().focus == p.id, .cwd = if (p.agent.cwd_len > 0) p.agent.directory() else p.cwd, .tool_active = p.agent.tool_active, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.label().len > 0) p.agent.label() else p.agent.recentLabel() };
                     count += 1;
                 }
             }
@@ -1739,14 +1739,14 @@ pub fn Controller(comptime remote: bool) type {
                 const id = try s.create(if (eq(op, "new")) null else if (eq(agents.str(v, "axis"), "down")) .vertical else .horizontal, if (cwd.len == 0) s.currentCwd() else cwd, if (cmd.len == 0) null else cmd, agents.str(v, "title"));
                 try cl.queue(.{ .ok = true, .pane = id });
             } else if (eq(op, "list")) {
-                const Info = struct { id: u32, workspace: u32, tab: u32, focused: bool, provider: agents.Provider, state: agents.State, attention: agents.Attention, session: []const u8, activity: []const u8, recent_activity: []const u8, unread: bool, completed: u64, read: u64, pending_stop: bool, source: agents.observation.Source, cwd: []const u8, exited: bool };
+                const Info = struct { id: u32, workspace: u32, tab: u32, focused: bool, provider: agents.Provider, state: agents.State, attention: agents.Attention, session: []const u8, activity: []const u8, recent_activity: []const u8, unread: bool, completed: u64, read: u64, pending_stop: bool, source: agents.observation.Source, subagents: agents.Subagents, cwd: []const u8, exited: bool };
                 var items: std.ArrayList(Info) = .empty;
                 defer items.deinit(a);
                 for (s.runtime.panes.items) |*p| {
                     const owner = s.runtime.workspaces.owner(p.id) orelse continue;
                     var copy = owner.model;
                     try copy.focus(p.id);
-                    try items.append(a, .{ .id = p.id, .workspace = owner.id, .tab = copy.tab().id, .focused = s.model().count > 0 and s.model().tab().focus == p.id, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .session = p.agent.sessionId(), .activity = p.agent.label(), .recent_activity = p.agent.recentLabel(), .unread = p.agent.observation.unread(), .completed = p.agent.observation.completed, .read = p.agent.observation.read, .pending_stop = p.agent.observation.pending_stop, .source = p.agent.observation.source, .cwd = p.cwd, .exited = p.terminal.exited });
+                    try items.append(a, .{ .id = p.id, .workspace = owner.id, .tab = copy.tab().id, .focused = s.model().count > 0 and s.model().tab().focus == p.id, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .session = p.agent.sessionId(), .activity = p.agent.label(), .recent_activity = p.agent.recentLabel(), .unread = p.agent.observation.unread(), .completed = p.agent.observation.completed, .read = p.agent.observation.read, .pending_stop = p.agent.observation.pending_stop, .source = p.agent.observation.source, .subagents = p.agent.subagents, .cwd = p.cwd, .exited = p.terminal.exited });
                 }
                 try cl.queue(.{ .ok = true, .panes = items.items, .tabs = s.model().count, .closed_panes = s.runtime.closed.items.len, .muted = s.muted });
             } else if (eq(op, "focus") or eq(op, "close") or eq(op, "read") or eq(op, "send") or eq(op, "hook")) {

@@ -16,6 +16,7 @@ pub const Entry = struct {
     tool_active: bool = false,
     unread: bool = false,
     activity: []const u8 = "",
+    subagents: agents.Subagents = .{},
 
     // Herdr's dot style and Catppuccin colors; finished attention is its
     // unseen-idle state. Corgi also retains ended native sessions.
@@ -205,7 +206,8 @@ pub const View = struct {
             const room = v.width - 6;
             const divider = index + 1 < @min(entries.len - v.offset, v.capacity);
             const underline = if (divider) "\x1b[4;58:2::65:70:77m" else "";
-            const activity = if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
+            const waiting = e.state == .working and e.subagents.waiting;
+            const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
             var name: [160]u8 = undefined;
             const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
             try w.print("\x1b[{d};5H\x1b[22;38;2;226;230;233m", .{y + 1});
@@ -216,14 +218,22 @@ pub const View = struct {
             try w.splatByteAll(' ', v.width - 3);
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
-            const detail = if (e.activity.len > 0) e.activity else switch (e.state) {
+            const detail = if (waiting) "Waiting on agents" else if (e.activity.len > 0) e.activity else switch (e.state) {
                 .working => if (e.provider == .codex) "" else "Working",
                 .blocked => "Needs input",
                 .initializing => "Starting session",
                 .done => "Session ended",
                 else => "◡‿◡",
             };
-            if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), room);
+            var badge_buf: [48]u8 = undefined;
+            const badge = subagentBadge(&badge_buf, e.subagents);
+            const badge_width = displayWidth(badge);
+            const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
+            if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), detail_room);
+            if (badge_width > 0) {
+                const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
+                try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - badge_width, color, badge });
+            }
             try w.writeAll("\x1b[24;59m");
         }
         if (v.count > v.capacity) {
@@ -239,6 +249,19 @@ pub const View = struct {
         try writeClipped(w, text, v.width - 3);
     }
 };
+
+fn subagentBadge(buf: []u8, status: agents.Subagents) []const u8 {
+    var running_buf: [24]u8 = undefined;
+    var blocked_buf: [24]u8 = undefined;
+    const running = compactCount(&running_buf, status.running);
+    const blocked = compactCount(&blocked_buf, status.blocked);
+    if (status.blocked > 0) return if (status.running > 0)
+        std.fmt.bufPrint(buf, "↳{s} !{s}", .{ running, blocked }) catch unreachable
+    else
+        std.fmt.bufPrint(buf, "↳!{s}", .{blocked}) catch unreachable;
+    if (status.running > 0) return std.fmt.bufPrint(buf, "↳{s}", .{running}) catch unreachable;
+    return "";
+}
 
 fn statusPart(w: *std.Io.Writer, text: []const u8, style: []const u8, room: *usize) !void {
     try w.writeAll("\x1b[22m");
@@ -388,6 +411,26 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
+}
+
+test "subagent badge shares the second row without reserving empty space" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Long agent title", .provider = .codex, .state = .working, .attention = .none, .activity = "abcdefghijklmnopqrstuv", .subagents = .{ .running = 2, .waiting = true } };
+    for ([_]u16{ 20, 28, 40 }) |width| {
+        const view = View.init(100, 30, true, 0, 1).withWidth(width);
+        try view.draw(&output.writer, &.{entry}, &.{});
+        var expected: [100]u8 = undefined;
+        const position = try std.fmt.bufPrint(&expected, "\x1b[18;{d}H\x1b[38;2;148;226;213m↳2", .{width - 3});
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), position) != null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "Waiting on") != null);
+        try std.testing.expectEqual(Hit{ .entry = 0 }, view.hit(width - 3, 17));
+        output.clearRetainingCapacity();
+    }
+    entry.subagents = .{};
+    try View.init(100, 30, true, 0, 1).draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↳") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) != null);
 }
 
 test "workspace status uses agent colors and keeps usage on its second row" {

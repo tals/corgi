@@ -130,6 +130,7 @@ fn historicalAgent(agent: agents.Agent) agents.Agent {
     if (!result.observation.unread()) result.provider = .other;
     result.last_seq = 0;
     result.tool_active = false;
+    result.subagents = .{};
     result.observation.pending_stop = false;
     result.transcript_len = 0;
     return result;

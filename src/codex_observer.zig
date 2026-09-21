@@ -37,6 +37,7 @@ pub fn titlePrefix(title: []const u8) ?Prefix {
 }
 pub const Request = struct { pane: u32, pid: c_int, prefix: Prefix };
 pub const Snapshot = struct {
+    subagents: agents.Subagents = .{},
     evidence: @import("activity_summary.zig").Text = .{},
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
@@ -65,6 +66,71 @@ fn unique(ids: []const std.json.Value, prefix: *const Prefix) ?[36]u8 {
     }
     return found;
 }
+fn needsInput(status: std.json.Value) bool {
+    const flags = field(status, "activeFlags");
+    if (flags == .array) for (flags.array.items) |flag| {
+        if (flag == .string and (eq(u8, flag.string, "waitingOnApproval") or eq(u8, flag.string, "waitingOnUserInput"))) return true;
+    };
+    return false;
+}
+const Children = struct { status: agents.Subagents = .{}, any: bool = false };
+fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) void {
+    // Validate the relation even if an older daemon ignores the filter.
+    if (!eq(u8, agents.str(thread, "parentThreadId"), parent)) return;
+    out.any = true;
+    const status = field(thread, "status");
+    if (!eq(u8, agents.str(status, "type"), "active")) return;
+    if (needsInput(status)) out.status.blocked +|= 1 else out.status.running +|= 1;
+}
+fn children(client: *Client, session: []const u8) !Children {
+    var out: Children = .{};
+    var cursor: ?[]const u8 = null;
+    defer if (cursor) |p| a.free(p);
+    const deadline = std.time.milliTimestamp() + 1000;
+    for (0..32) |_| {
+        if (std.time.milliTimestamp() >= deadline) return error.Timeout;
+        const page = try client.call("thread/list", .{ .parentThreadId = session, .sourceKinds = &.{"subAgent"}, .useStateDbOnly = true, .limit = 100, .cursor = cursor });
+        defer page.deinit();
+        const data = field(result(page.value), "data");
+        if (data != .array) return error.BadResponse;
+        for (data.array.items) |thread| countChild(&out, thread, session);
+        const next = field(result(page.value), "nextCursor");
+        if (next == .null) return out;
+        if (next != .string) return error.BadResponse;
+        if (cursor) |p| a.free(p);
+        cursor = null;
+        cursor = try a.dupe(u8, next.string);
+    }
+    return error.TooManyThreads;
+}
+fn isActiveWait(entry: std.json.Value, turn: []const u8, session: []const u8) bool {
+    if (!eq(u8, agents.str(entry, "turnId"), turn)) return false;
+    const item = field(entry, "item");
+    return eq(u8, agents.str(item, "type"), "collabAgentToolCall") and
+        eq(u8, agents.str(item, "tool"), "wait") and
+        eq(u8, agents.str(item, "status"), "inProgress") and
+        eq(u8, agents.str(item, "senderThreadId"), session);
+}
+fn waiting(client: *Client, session: []const u8, turn: []const u8) !bool {
+    var cursor: ?[]const u8 = null;
+    defer if (cursor) |p| a.free(p);
+    const deadline = std.time.milliTimestamp() + 1000;
+    for (0..32) |_| {
+        if (std.time.milliTimestamp() >= deadline) return error.Timeout;
+        const page = try client.call("thread/items/list", .{ .threadId = session, .turnId = turn, .limit = 100, .sortDirection = "desc", .cursor = cursor });
+        defer page.deinit();
+        const data = field(result(page.value), "data");
+        if (data != .array) return error.BadResponse;
+        for (data.array.items) |entry| if (isActiveWait(entry, turn, session)) return true;
+        const next = field(result(page.value), "nextCursor");
+        if (next == .null) return false;
+        if (next != .string) return error.BadResponse;
+        if (cursor) |p| a.free(p);
+        cursor = null;
+        cursor = try a.dupe(u8, next.string);
+    }
+    return error.TooManyItems;
+}
 fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     const meta = try client.call("thread/read", .{ .threadId = &session, .includeTurns = false });
     defer meta.deinit();
@@ -73,10 +139,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     const status = field(thread, "status");
     const kind = agents.str(status, "type");
     var state: agents.State = if (eq(u8, kind, "active")) .working else if (eq(u8, kind, "idle")) .idle else .initializing;
-    const flags = field(status, "activeFlags");
-    if (flags == .array) for (flags.array.items) |flag| {
-        if (flag == .string and (eq(u8, flag.string, "waitingOnApproval") or eq(u8, flag.string, "waitingOnUserInput"))) state = .blocked;
-    };
+    if (needsInput(status)) state = .blocked;
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
     var named: agents.Agent = .{};
     named.setName(agents.str(thread, "name"));
@@ -101,6 +164,13 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
             out.outcome = if (eq(u8, ts, "completed")) .completed else if (eq(u8, ts, "interrupted")) .interrupted else if (eq(u8, ts, "failed")) .failed else null;
         }
     }
+    // These optional reads must not suppress parent status/completion on older
+    // daemons or a failed page. Never publish a partial child count as exact.
+    const child = children(client, &session) catch return out;
+    out.subagents = child.status;
+    if (child.any and state == .working and out.turn_len > 0 and out.outcome == null) {
+        out.subagents.waiting = waiting(client, &session, out.turn[0..out.turn_len]) catch false;
+    }
     return out;
 }
 // Initial attachment establishes a baseline; historic completions never ring.
@@ -122,6 +192,7 @@ pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
     agent.name_len = s.name_len;
     const old_state = agent.state;
     agent.state = s.state;
+    agent.subagents = s.subagents;
     agent.last_seq = s.observed_at;
     agent.observation.source = .protocol;
     agent.observation.pending_stop = false;
