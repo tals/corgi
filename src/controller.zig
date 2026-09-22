@@ -113,6 +113,7 @@ pub fn Controller(comptime remote: bool) type {
         tab_menu: ?commands.TabMenu = null,
         port_menu: ?sidebar.PortMenu = null,
         pointer: ?render.Pointer = null,
+        link_tooltip: @import("link_tooltip.zig").State = .{},
         ui_mouse_down: bool = false,
         sidebar_drag: bool = false,
         workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
@@ -419,6 +420,7 @@ pub fn Controller(comptime remote: bool) type {
             s.dirty = true;
         }
         fn openMenu(s: *Server) void {
+            s.link_tooltip.cancel();
             s.port_menu = null;
             s.tab_menu = null;
             s.prefix = true;
@@ -429,6 +431,7 @@ pub fn Controller(comptime remote: bool) type {
             s.dirty = true;
         }
         fn closeMenu(s: *Server) void {
+            s.link_tooltip.cancel();
             s.port_menu = null;
             s.tab_menu = null;
             s.menu_highlight = null;
@@ -1037,6 +1040,8 @@ pub fn Controller(comptime remote: bool) type {
                 }
                 const rest = cl.keybuf.items[used..];
                 if (rest[0] != 27) {
+                    s.link_tooltip.cancel();
+                    s.dirty = true;
                     if (cl.paste) {
                         if (cl.paste_to_name and s.name_dialog != null) {
                             if (rest[0] >= 32 and rest[0] < 127) try s.key(cl, rest[0]);
@@ -1047,7 +1052,11 @@ pub fn Controller(comptime remote: bool) type {
                     used += 1;
                     continue;
                 }
-                if (rest.len < 2) break;
+                if (rest.len < 2) {
+                    s.link_tooltip.cancel();
+                    s.dirty = true;
+                    break;
+                }
                 if (!cl.paste and rest[1] != '[' and rest[1] != 'O' and (s.hasMenu() or s.name_dialog != null or s.confirm != .none)) {
                     try s.key(cl, 27);
                     used += 1;
@@ -1060,6 +1069,10 @@ pub fn Controller(comptime remote: bool) type {
                     len += 1;
                 }
                 var seq = rest[0..len];
+                if (!std.mem.startsWith(u8, seq, "\x1b[<")) {
+                    s.link_tooltip.cancel();
+                    s.dirty = true;
+                }
                 var encoded: std.Io.Writer.Allocating = .init(a);
                 defer encoded.deinit();
                 if (!cl.paste) {
@@ -1162,7 +1175,14 @@ pub fn Controller(comptime remote: bool) type {
             const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const release = seq[seq.len - 1] == 'm';
-            if (s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y) {
+            const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
+            if (!release and button & 32 != 0 and button & 3 == 3 and button & 64 == 0) {
+                if (moved) s.link_tooltip.move();
+            } else {
+                s.link_tooltip.cancel();
+                s.dirty = true;
+            }
+            if (moved) {
                 s.pointer = .{ .x = x, .y = y };
                 s.dirty = true;
             }
@@ -1999,6 +2019,7 @@ pub fn Controller(comptime remote: bool) type {
             }
         }
         pub fn expireInput(s: *Server) !void {
+            if (s.link_tooltip.due(std.time.milliTimestamp())) s.dirty = true;
             if (s.copy_feedback_until != 0 and std.time.milliTimestamp() >= s.copy_feedback_until) {
                 s.copy_feedback_until = 0;
                 s.dirty = true;
@@ -2011,6 +2032,28 @@ pub fn Controller(comptime remote: bool) type {
                 }
                 cl.keybuf.clearRetainingCapacity();
             };
+        }
+        fn linkTooltipReady(s: *Server) !bool {
+            var target: ?@import("link_tooltip.zig").Target = null;
+            if (s.pointer) |pointer| {
+                if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
+                    var locations: [layout.max_panes]layout.Placement = undefined;
+                    for (s.model().placements(s.area(), &locations)) |place| {
+                        if (!place.rect.contains(pointer.x, pointer.y)) continue;
+                        const p = s.pane(place.id) orelse continue;
+                        try p.terminal.updateRender();
+                        for (p.terminal.hyperlinks()) |link| {
+                            if (link.row == pointer.y - place.rect.y and link.start <= pointer.x - place.rect.x and pointer.x - place.rect.x < link.end and
+                                (std.mem.startsWith(u8, link.uri, "http://") or std.mem.startsWith(u8, link.uri, "https://")))
+                            {
+                                target = .{ .pane = place.id, .link = link.id };
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return s.link_tooltip.ready(target, std.time.milliTimestamp());
         }
         pub fn frame(s: *Server) ![]u8 {
             var native_blocked: usize = 0;
@@ -2025,6 +2068,7 @@ pub fn Controller(comptime remote: bool) type {
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             return render.frame(s.model(), s.runtime.panes.items, s.width, s.height, .{
                 .pointer = s.pointer,
+                .link_tooltip = try s.linkTooltipReady(),
                 .message = s.message[0..s.message_len],
                 .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
                 .copy_mode = s.copy_mode,
