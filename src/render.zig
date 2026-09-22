@@ -15,6 +15,7 @@ pub const Ui = struct {
     native_finished: usize,
     menu: ?commands.View = null,
     tab_menu: ?commands.TabMenu = null,
+    port_menu: ?sidebar.PortMenu = null,
     tab_drop_x: ?u16 = null,
     dialog: ?naming.Dialog = null,
     confirm: bool = false,
@@ -94,7 +95,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     const side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
-    try w.writeAll(if (ui.menu != null or ui.tab_menu != null) "\x1b[?1003h" else "\x1b[?1002h");
+    try w.writeAll(if (ui.menu != null or ui.tab_menu != null or ui.port_menu != null) "\x1b[?1003h" else "\x1b[?1002h");
     try w.writeAll("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[2J");
     try w.print("\x1b[1;{d}H", .{side.tabX() + 1});
     var x: usize = 0;
@@ -178,7 +179,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
         try w.writeAll(text[0..@min(text.len, width)]);
     }
     try w.writeAll("\x1b[0m");
-    if (model.count > 0 and !ui.copy_mode and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) for (model.placements(area, &locations)) |place| {
+    if (model.count > 0 and !ui.copy_mode and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (model.placements(area, &locations)) |place| {
         if (place.id != model.tab().focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
@@ -198,6 +199,12 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     }
     if (ui.menu) |menu| try menu.draw(w);
     if (ui.tab_menu) |menu| try menu.draw(w, width, height);
+    if (ui.port_menu) |menu| for (ui.workspaces) |ws| {
+        if (ws.id == menu.workspace) {
+            try menu.draw(w, ws, width, height);
+            break;
+        }
+    };
     if (ui.dialog) |dialog| {
         var number = model.count + 1;
         if (dialog.target == .rename) for (model.tabs[0..model.count], 0..) |tab, i| {

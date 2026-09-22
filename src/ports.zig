@@ -163,6 +163,10 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
         if (line == null or (line.?.len > 0 and (line.?[0] == 'p' or line.?[0] == 'f'))) {
             if (address.len > 0 and (transport == .udp or (transport == .tcp and listening))) blk: {
                 const root = owner(pid, list, roots) orelse break :blk;
+                const process = for (list) |p| {
+                    if (p.pid == pid) break p;
+                } else break :blk;
+                if (!workload(process, root)) break :blk;
                 const local = address[0 .. std.mem.indexOf(u8, address, "->") orelse address.len];
                 const colon = std.mem.lastIndexOfScalar(u8, local, ':') orelse break :blk;
                 const port = std.fmt.parseInt(u16, local[colon + 1 ..], 10) catch break :blk;
@@ -495,6 +499,17 @@ test "workloads count foreground servers and agent children but not shells or co
         if (workload(p, owned)) count += 1;
     };
     try std.testing.expectEqual(@as(usize, 3), count);
+    // Controller and shell listeners stay hidden, but their workers' ports remain.
+    var socket_text: std.ArrayList(u8) = .empty;
+    for (list) |p| {
+        const entry = try std.fmt.allocPrint(arena.allocator(), "p{d}\ncserver\nf4\ntIPv4\nPTCP\nn127.0.0.1:{d}\nTST=LISTEN\n", .{ p.pid, 8000 + p.pid });
+        try socket_text.appendSlice(arena.allocator(), entry);
+    }
+    const endpoints = try sockets(arena.allocator(), socket_text.items, list, &.{root}, &.{});
+    try std.testing.expectEqual(@as(usize, 3), endpoints.len);
+    for (endpoints, [_]i32{ 20, 21, 32 }) |endpoint, pid| {
+        try std.testing.expectEqual(pid, endpoint.pid);
+    }
     // A pane can exec directly into a server; its root PID still counts.
     try std.testing.expect(workload(.{ .pid = 10, .parent = 1, .group = 10, .name = "bun" }, root));
 }

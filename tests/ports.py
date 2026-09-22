@@ -85,17 +85,29 @@ class Ports(unittest.TestCase):
         # Widen the sidebar to show all endpoint labels.
         local.input('\x1b[<0;28;6M\x1b[<32;100;6M\x1b[<0;100;6m')
         data = local.poll()['data']
-        self.assertIn(f';http://localhost:{info["wild"]}\x1b\\', data)
-        self.assertIn(f'https://localhost:{info["secure"]}', data)
-        # A local plain click queues a viewer-local opener only on release.
+        self.assertIn('Open Link ↗ 3', data)
+        self.assertNotIn('http://localhost:', data)
         def effects(state):
             return [json.loads(line) for line in state['effects'].splitlines() if line]
-        self.assertFalse(effects(local.input('\x1b[<0;7;5M')))
-        opened = effects(local.input('\x1b[<0;7;5m'))
+        self.assertFalse(effects(local.input('\x1b[<0;90;3M')))
+        state = local.input('\x1b[<0;90;3m')
+        self.assertFalse(effects(state))
+        data = state['data']
+        self.assertIn(f';http://localhost:{info["wild"]}\x1b\\', data)
+        self.assertIn(f'https://localhost:{info["secure"]}', data)
+        self.assertIn('Links · Esc to close', data)
+        self.assertFalse(effects(local.input('\x1b[<0;52;16M')))
+        opened = effects(local.input('\x1b[<0;52;16m'))
         self.assertEqual(opened, [{'type':'open_url','url':f'http://localhost:{work["endpoints"][0]["port"]}'}])
-        local.input('\x1b[<0;7;5M')
-        local.input('\x1b[<32;9;5M')
-        self.assertFalse(effects(local.input('\x1b[<0;7;5m')))
+        # A drag cancels both direct launches and opening the chooser.
+        local.input('\x1b[<0;90;3M')
+        local.input('\x1b[<32;95;3M')
+        cancelled = local.input('\x1b[<0;90;3m')
+        self.assertFalse(effects(cancelled))
+        self.assertNotIn('Links · Esc to close', cancelled['data'])
+        local.input('\x1b[<0;90;3M\x1b[<0;90;3m')
+        local.input('\x1b[B')
+        self.assertEqual(len(effects(local.input('\r'))), 1)
         self.env['SSH_CONNECTION'] = '100.80.1.9 12345 100.80.1.2 22'
         remote = Viewer(self)
         remote.request(op='size', cols=160, rows=40)
@@ -104,8 +116,8 @@ class Ports(unittest.TestCase):
         self.assertFalse(effects(remote.input('\x1b[<0;7;5M\x1b[<0;7;5m')))
         self.assertNotIn('http://localhost:', data)
         self.assertNotIn('https://localhost:', data)
-        self.assertIn(f':{info["local"]} local', data)
-        self.assertIn(f':{info["udp"]}u local', data)
+        self.assertNotIn(f'localhost:{info["local"]}', data)
+        self.assertNotIn(f':{info["udp"]}', data)
         choices = [i for i in endpoints[info['wild']]['interfaces'] if i['kind'] != 'loopback' and not i['address'].startswith(('169.254.', 'fe80:'))]
         if choices:
             rank = {'tailscale':0, 'vpn':1, 'network':2}
@@ -118,6 +130,24 @@ class Ports(unittest.TestCase):
         self.assertFalse(next(w for w in self.session()['ports']['workspaces'] if w['id'] == second)['endpoints'])
         self.rpc(op='pane.close', protocol=1, pane=pane)
         self.until(lambda: not any(w['endpoints'] for w in self.session()['ports']['workspaces']), timeout=15)
+
+    def test_single_url_opens_directly(self):
+        root = pathlib.Path(self.temp.name)
+        script = root/'single.py'
+        ready = root/'single-port'
+        script.write_text("import http.server,sys\ns=http.server.HTTPServer(('127.0.0.1',0),http.server.SimpleHTTPRequestHandler)\nopen(sys.argv[1],'w').write(str(s.server_port))\ns.serve_forever()\n")
+        self.new('exec ' + shlex.join([sys.executable, str(script), str(ready)]))
+        self.until(ready.exists)
+        port = int(ready.read_text())
+        self.until(lambda: any(e.get('http_status') == 200 for w in self.session()['ports']['workspaces'] for e in w['endpoints']), timeout=20)
+        viewer = Viewer(self)
+        data = viewer.poll()['data']
+        self.assertIn(f'http://localhost:{port}', data)
+        self.assertNotIn('Open Link ↗ 1', data)
+        state = viewer.input('\x1b[<0;14;3M\x1b[<0;14;3m')
+        effects = [json.loads(line) for line in state['effects'].splitlines() if line]
+        self.assertEqual(effects, [{'type':'open_url', 'url':f'http://localhost:{port}'}])
+        self.assertNotIn('Links · Esc to close', state['data'])
 
     def test_get_probe_filters_http_errors_and_counts_foreground_workload(self):
         root = pathlib.Path(self.temp.name)
@@ -173,11 +203,13 @@ while True: time.sleep(1)
         viewer.request(op='size', cols=160, rows=40)
         viewer.input('\x1b[<0;28;6M\x1b[<32;100;6M\x1b[<0;100;6m')
         data = viewer.poll()['data']
+        self.assertIn('Open Link ↗ 2', data)
+        data = viewer.input('\x1b[<0;90;3M\x1b[<0;90;3m')['data']
         for status in (200, 302):
             self.assertIn(f'http://localhost:{ports[str(status)]}', data)
         for status in ('401', '404', '500', 'raw'):
             self.assertNotIn(f'http://localhost:{ports[status]}', data)
-            self.assertIn(f':{ports[status]}', data)
+            self.assertNotIn(f':{ports[status]}', data)
         # Cached scan results retain the error status, not just the scheme.
         time.sleep(3.2)
         cached = {e['port']: e for e in work()['endpoints']}

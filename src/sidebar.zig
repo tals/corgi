@@ -101,14 +101,14 @@ pub const View = struct {
     pub fn unreadRange(v: View, ws: WorkspaceEntry) struct { start: usize, end: usize } {
         var buf: [40]u8 = undefined;
         const unread_width = displayWidth(compactCount(&buf, ws.unread)) + 7 + @as(usize, if (ws.unread > 0) 2 else 0);
-        const metadata_width = displayWidth(compactCount(&buf, ws.stats.tools)) + 1;
+        const metadata_width = statusMetadataWidth(ws);
         const attention_width = if (ws.attention > 0) displayWidth(compactCount(&buf, ws.attention)) + 1 else 0;
         const working_width = if (ws.working > 0) displayWidth(compactCount(&buf, ws.working)) + 1 else 1;
-        const room = ((v.width -| 3) -| (metadata_width + 1)) -| (unread_width + 1);
+        const room = ((v.width -| 3) -| (metadata_width + 1)) -| (unread_width + 3);
         const slot = @max(3, working_width);
         const working = if (slot + attention_width <= room) slot else 0;
         const status_width = working + @min(attention_width, room - working);
-        const start = 1 + status_width + @as(usize, if (working > 0 or attention_width > 0) 1 else 0);
+        const start = 1 + status_width + @as(usize, if (working > 0 or attention_width > 0) 3 else 0);
         return .{ .start = start, .end = start + unread_width };
     }
     pub fn unreadHit(v: View, ws: WorkspaceEntry, x: u16, y: u16) bool {
@@ -140,10 +140,16 @@ pub const View = struct {
             try w.splatByteAll(' ', v.width - 1);
             var label: [std.fs.max_path_bytes + 1]u8 = undefined;
             var badge_buf: [32]u8 = undefined;
-            const badge = if (ws.git_ahead) |n| if (n > 0) try std.fmt.bufPrint(&badge_buf, "↑{d}", .{n}) else "" else "";
+            var number: [24]u8 = undefined;
+            const badge = if (ws.git_ahead) |n| if (n > 0) try std.fmt.bufPrint(&badge_buf, "↑{s}", .{compactCount(&number, n)}) else "" else "";
             const badge_width = displayWidth(badge);
             try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
-            try writeClipped(w, directoryLabel(&label, ws.name, null), v.width - 3 - (if (badge_width > 0) badge_width + 1 else 0));
+            const link = linkRange(v, ws, workspaces);
+            try writeClipped(w, directoryLabel(&label, ws.name, null), link.start -| 2);
+            if (link.end > link.start) {
+                try w.print("\x1b[{d};{d}H", .{ y + 1, link.start + 1 });
+                try drawPorts(w, ws, link.end - link.start, false);
+            }
             if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m{s}", .{ y + 1, v.width - 1 - badge_width, badge });
             try w.print("\x1b[{d};2H{s}", .{ y + 2, panel });
             var metadata_buf: [96]u8 = undefined;
@@ -158,8 +164,8 @@ pub const View = struct {
             const attention_width = displayWidth(attention);
             const metadata = try std.fmt.bufPrint(&metadata_buf, "{s}⚒", .{tools});
             const metadata_width = displayWidth(metadata);
-            const left_room = (v.width - 3) -| (metadata_width + 1);
-            var room: usize = left_room -| (unread_width + 1);
+            const left_room = (v.width - 3) -| (statusMetadataWidth(ws) + 1);
+            var room: usize = left_room -| (unread_width + 3);
             var text_buf: [96]u8 = undefined;
             var has_status = false;
             {
@@ -177,10 +183,16 @@ pub const View = struct {
                 try statusPart(w, attention, "\x1b[1;38;2;243;139;168m", &room);
                 has_status = true;
             }
-            if (has_status) try w.writeByte(' ');
+            if (has_status) try w.writeAll("\x1b[22;38;2;90;97;108m · ");
             try w.print("\x1b[{d};{d}H", .{ y + 2, v.unreadRange(ws).start + 1 });
             var unread_room = unread_width;
             try statusPart(w, unread, if (ws.unread > 0) "\x1b[1;38;2;148;226;213m" else panel, &unread_room);
+            const background = ws.ports.workspace(ws.id).background;
+            if (ws.ports.processes_available and background > 0) {
+                var bg_buf: [32]u8 = undefined;
+                const bg = try std.fmt.bufPrint(&bg_buf, "{s} bg", .{compactCount(&number, background)});
+                try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 2 - @max(4, metadata_width) - bg.len, panel, bg });
+            }
             if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, panel, metadata });
             try w.writeAll(panel);
             if (y + 2 < v.middle() - 2) {
@@ -191,7 +203,6 @@ pub const View = struct {
                     try w.splatByteAll(' ', v.width - 3);
                     try w.print("\x1b[{d};2H", .{y + 3});
                 }
-                try drawPorts(w, ws, v.width - 3, divider);
                 try w.writeAll("\x1b[24;59m");
             }
         }
@@ -232,7 +243,7 @@ pub const View = struct {
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
             const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else if (e.activity.len > 0) e.activity else switch (e.state) {
-                .working => if (e.provider == .codex) "" else "Working",
+                .working => "Working",
                 .blocked => "Needs input",
                 .initializing => "Starting session",
                 .done => "Session ended",
@@ -242,7 +253,9 @@ pub const View = struct {
             const badge = subagentBadge(&badge_buf, e.subagents);
             const badge_width = displayWidth(badge);
             const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
-            if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), detail_room);
+            if (e.state == .working and !compacting and !waiting and e.activity.len == 0) {
+                try writeWorking(w, detail_room, std.time.milliTimestamp());
+            } else if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), detail_room);
             if (badge_width > 0) {
                 const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
                 try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - badge_width, color, badge });
@@ -262,6 +275,28 @@ pub const View = struct {
         try writeClipped(w, text, v.width - 3);
     }
 };
+
+fn writeWorking(w: *std.Io.Writer, room: usize, now_ms: i64) !void {
+    const label = "Working";
+    // Codex's two-second sweep: ten columns of padding and a cosine band
+    // five columns wide on each side, using the sidebar's own palette.
+    const position = @as(f64, @floatFromInt(@mod(now_ms, 2000))) / 2000.0 * (label.len + 20);
+    const clipped = room < label.len;
+    const letters = if (clipped) room -| 1 else label.len;
+    for (label[0..letters], 0..) |ch, i| {
+        const distance = @abs(@as(f64, @floatFromInt(i + 10)) - position);
+        const intensity = if (distance < 5) 0.5 * (1 + @cos(std.math.pi * distance / 5)) else 0;
+        const base = [_]u8{ 125, 132, 143 };
+        const highlight = [_]u8{ 226, 230, 233 };
+        var color: [3]u8 = undefined;
+        for (&color, base, highlight) |*channel, low, high| {
+            channel.* = low + @as(u8, @intFromFloat(@round(@as(f64, @floatFromInt(high - low)) * intensity)));
+        }
+        try w.print("\x1b[38;2;{d};{d};{d}m{c}", .{ color[0], color[1], color[2], ch });
+    }
+    try w.writeAll("\x1b[38;2;226;230;233m");
+    if (clipped and room > 0) try w.writeAll("…");
+}
 
 fn subagentBadge(buf: []u8, status: agents.Subagents) []const u8 {
     var running_buf: [24]u8 = undefined;
@@ -426,6 +461,21 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
 }
 
+test "workspace background badge is on the status row and zero is hidden" {
+    const ports = @import("ports.zig");
+    const works = [_]ports.Work{ .{ .id = 1, .background = 2 }, .{ .id = 2, .background = 0 } };
+    const snapshot: ports.Snapshot = .{ .processes_available = true, .ports_available = true, .workspaces = &works };
+    const entries = [_]WorkspaceEntry{
+        .{ .id = 1, .name = "Corgi", .cwd = "/tmp", .active = true, .ports = snapshot, .git_ahead = 123 },
+        .{ .id = 2, .name = "fin", .cwd = "/tmp", .active = false, .ports = snapshot },
+    };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try View.init(100, 30, true, 0, 0).withWorkspaces(2, 0).draw(&output.writer, &.{}, &entries);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;18H\x1b[0;38;2;155;163;175;48;2;24;27;32m2 bg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0 bg") == null);
+}
+
 test "subagent badge shares the second row without reserving empty space" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
@@ -520,46 +570,134 @@ fn drawPorts(w: *std.Io.Writer, ws: WorkspaceEntry, width: usize, divider: bool)
     _ = try portLine(w, ws, width, null, &buf, divider);
 }
 
+fn gitColumn(workspaces: []const WorkspaceEntry) usize {
+    var width: usize = 4;
+    for (workspaces) |ws| if (ws.git_ahead) |n| {
+        var buf: [24]u8 = undefined;
+        width = @max(width, 1 + displayWidth(compactCount(&buf, n)));
+    };
+    return width;
+}
+fn linkRange(v: View, ws: WorkspaceEntry, workspaces: []const WorkspaceEntry) struct { start: usize, end: usize } {
+    const count = urlCount(ws);
+    var buf: [32]u8 = undefined;
+    const label = if (count == 1) "Open Link ↗" else std.fmt.bufPrint(&buf, "Open Link ↗ {d}", .{count}) catch unreachable;
+    const end = (v.width -| 2) -| gitColumn(workspaces);
+    const width = if (count > 0) @min(displayWidth(label), end -| 4) else 0;
+    return .{ .start = end - width, .end = end };
+}
+fn statusMetadataWidth(ws: WorkspaceEntry) usize {
+    var buf: [24]u8 = undefined;
+    const tools = displayWidth(compactCount(&buf, ws.stats.tools)) + 1;
+    const background = ws.ports.workspace(ws.id).background;
+    if (!ws.ports.processes_available or background == 0) return tools;
+    return displayWidth(compactCount(&buf, background)) + 3 + 1 + @max(4, tools);
+}
 pub fn portLink(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16, buf: []u8) ?[]const u8 {
-    if (v.width == 0 or x < 1 or x >= v.width - 1 or y < 4 or y >= v.middle() - 2 or (y - 2) % 3 != 2) return null;
-    const offset = (y - 2) / 3;
-    const index = v.workspace_offset + offset;
-    if (offset >= v.workspaceCapacity() or index >= workspaces.len) return null;
-    return portLine(null, workspaces[index], v.width - 3, x - 1, buf, false) catch null;
+    const ws = portWorkspace(v, workspaces, x, y) orelse return null;
+    return if (urlCount(ws) == 1) workspaceUrl(ws, 0, buf) else null;
 }
 
-// Drawing and hit testing walk exactly the same clipped labels.
-fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usize, url_buf: []u8, divider: bool) !?[]const u8 {
+// Only confirmed browser URLs participate; duplicate binds collapse to one link.
+pub fn workspaceUrl(ws: WorkspaceEntry, wanted: usize, buf: []u8) ?[]const u8 {
     const ports = @import("ports.zig");
-    const work = ws.ports.workspace(ws.id);
-    if (!ws.ports.processes_available) return null;
-    var count_buf: [32]u8 = undefined;
-    const count = try std.fmt.bufPrint(&count_buf, "{d} bg", .{work.background});
-    if (writer) |w| try writeClipped(w, count, width);
-    var room = width -| count.len;
-    if (!ws.ports.ports_available) {
-        if (writer) |w| try writeClipped(w, " · ports ?", room);
-        return null;
-    }
-    for (work.endpoints, 0..) |endpoint, index| {
-        var label_buf: [96]u8 = undefined;
-        const local_only = ws.remote_links and ports.loopback(endpoint.bind_address);
-        const label = try std.fmt.bufPrint(&label_buf, " :{d}{s}{s}", .{ endpoint.port, if (endpoint.transport == .udp) "u" else "", if (local_only) " local" else "" });
-        const reserve: usize = if (index + 1 < work.endpoints.len) 4 else 0;
-        if (label.len + reserve > room) {
-            const more = try std.fmt.bufPrint(&label_buf, " +{d}", .{work.endpoints.len - index});
-            if (writer) |w| try writeClipped(w, more, room);
-            break;
+    const endpoints = ws.ports.workspace(ws.id).endpoints;
+    var count: usize = 0;
+    for (endpoints, 0..) |endpoint, i| {
+        const target = ports.url(buf, endpoint, ws.remote_links) orelse continue;
+        var duplicate = false;
+        for (endpoints[0..i]) |previous| {
+            var other_buf: [256]u8 = undefined;
+            if (ports.url(&other_buf, previous, ws.remote_links)) |other| {
+                if (std.mem.eql(u8, target, other)) {
+                    duplicate = true;
+                    break;
+                }
+            }
         }
-        if (ports.url(url_buf, endpoint, ws.remote_links)) |target| {
-            if (hit) |col| if (col >= width - room + 1 and col < width - room + label.len) return target;
-            if (writer) |w| try w.print(" \x1b]8;id=corgi-port-{d}-{d}-{d}-{d};{s}\x1b\\\x1b[4;38;2;137;180;250m{s}\x1b]8;;\x1b\\\x1b[24;38;2;155;163;175m", .{ ws.id, endpoint.pid, endpoint.port, index, target, label[1..] });
-            if (divider) if (writer) |w| try w.writeAll("\x1b[4;58:2::65:70:77m");
-        } else if (writer) |w| try w.writeAll(label);
-        room -= label.len;
+        if (duplicate) continue;
+        if (count == wanted) return target;
+        count += 1;
     }
     return null;
 }
+pub fn urlCount(ws: WorkspaceEntry) usize {
+    var buf: [256]u8 = undefined;
+    var count: usize = 0;
+    while (workspaceUrl(ws, count, &buf) != null) : (count += 1) {}
+    return count;
+}
+pub fn portWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?WorkspaceEntry {
+    if (v.width == 0 or x < 1 or y < 2 or y >= v.middle() - 2 or (y - 2) % 3 != 0) return null;
+    const offset = (y - 2) / 3;
+    const index = v.workspace_offset + offset;
+    if (offset >= v.workspaceCapacity() or index >= workspaces.len) return null;
+    const ws = workspaces[index];
+    const link = linkRange(v, ws, workspaces);
+    if (x < link.start or x >= link.end) return null;
+    return ws;
+}
+fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usize, url_buf: []u8, divider: bool) !?[]const u8 {
+    const count = urlCount(ws);
+    if (count == 0) return null;
+    var label_buf: [32]u8 = undefined;
+    const label = if (count == 1) "Open Link ↗" else try std.fmt.bufPrint(&label_buf, "Open Link ↗ {d}", .{count});
+    if (count == 1) {
+        const target = workspaceUrl(ws, 0, url_buf).?;
+        if (hit) |col| {
+            if (col < @min(displayWidth(label), width)) return target;
+        }
+        if (writer) |w| try w.print("\x1b]8;id=corgi-port-{d};{s}\x1b\\", .{ ws.id, target });
+    }
+    if (writer) |w| {
+        try w.writeAll("\x1b[4;38;2;137;180;250m");
+        try writeClipped(w, label, width);
+        if (count == 1) try w.writeAll("\x1b]8;;\x1b\\");
+        try w.writeAll("\x1b[24;38;2;155;163;175m");
+        if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
+    }
+    return null;
+}
+
+pub const PortMenu = struct {
+    workspace: u32,
+    selected: usize = 0,
+    pub fn bounds(cols: u16, rows: u16) layout.Rect {
+        const width = @min(cols, 64);
+        const height = @min(rows, 14);
+        return .{ .x = (cols - width) / 2, .y = (rows - height) / 2, .w = width, .h = height };
+    }
+    pub fn capacity(rows: u16) usize {
+        return @max(1, @as(usize, @min(rows, 14)) -| 3);
+    }
+    pub fn hit(menu: PortMenu, ws: WorkspaceEntry, cols: u16, rows: u16, x: u16, y: u16) ?usize {
+        const rect = bounds(cols, rows);
+        if (x <= rect.x or x >= rect.x + rect.w -| 1 or y < rect.y + 2 or y >= rect.y + rect.h -| 1) return null;
+        const selected = @min(menu.selected, urlCount(ws) -| 1);
+        const index = selected / capacity(rows) * capacity(rows) + y - rect.y - 2;
+        return if (index < urlCount(ws)) index else null;
+    }
+    pub fn draw(menu: PortMenu, w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u16) !void {
+        const rect = bounds(cols, rows);
+        if (rect.w < 8 or rect.h < 4) return;
+        for (0..rect.h) |row| {
+            try w.print("\x1b[{d};{d}H\x1b[0;38;2;155;163;175;48;2;35;40;47m", .{ rect.y + row + 1, rect.x + 1 });
+            try w.splatByteAll(' ', rect.w);
+        }
+        try w.print("\x1b[{d};{d}H", .{ rect.y + 1, rect.x + 2 });
+        try writeClipped(w, "Links · Esc to close", rect.w - 2);
+        const count = urlCount(ws);
+        const selected = @min(menu.selected, count -| 1);
+        const offset = selected / capacity(rows) * capacity(rows);
+        for (offset..@min(count, offset + capacity(rows))) |index| {
+            var buf: [256]u8 = undefined;
+            const url = workspaceUrl(ws, index, &buf) orelse continue;
+            try w.print("\x1b[{d};{d}H{s} {s} \x1b]8;id=corgi-popup-{d}-{d};{s}\x1b\\", .{ rect.y + 3 + index - offset, rect.x + 1, if (index == selected) "\x1b[38;2;137;180;250;48;2;49;56;68m" else "\x1b[38;2;137;180;250;48;2;35;40;47m", if (index == selected) "›" else " ", ws.id, index, url });
+            try writeClipped(w, url, rect.w - 4);
+            try w.writeAll("\x1b]8;;\x1b\\");
+        }
+    }
+};
 
 test "workspace port labels contain OSC8 URLs selected per viewer" {
     const ports = @import("ports.zig");
@@ -577,7 +715,7 @@ test "workspace port labels contain OSC8 URLs selected per viewer" {
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "http://100.80.1.2:3000") != null);
 }
 
-test "remote loopback labels do not depend on protocol detection" {
+test "non-browser endpoints have no link-out control" {
     const ports = @import("ports.zig");
     const endpoints = [_]ports.Endpoint{
         .{ .pid = 12, .pane = 1, .name = "dns", .transport = .udp, .bind_address = "127.0.0.1", .port = 5353 },
@@ -588,7 +726,7 @@ test "remote loopback labels do not depend on protocol detection" {
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try drawPorts(&out.writer, ws, 60, false);
-    try std.testing.expectEqualStrings("0 bg :5353u local :5432 local", out.written());
+    try std.testing.expectEqualStrings("", out.written());
 }
 
 test "port hit testing matches clipped labels and outer terminal receives link metadata" {
@@ -601,19 +739,27 @@ test "port hit testing matches clipped labels and outer terminal receives link m
     const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } }};
     const view = View.init(80, 24, true, 0, 0).withWorkspaces(1, 0);
     var buf: [256]u8 = undefined;
-    try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &entries, 6, 4, &buf).?);
-    try std.testing.expect(portLink(view, &entries, 5, 4, &buf) == null);
-    try std.testing.expect(portLink(view, &entries, 6, 3, &buf) == null);
-    try std.testing.expect(portLink(view, &entries, 20, 4, &buf) == null);
+    try std.testing.expect(portLink(view, &entries, 1, 4, &buf) == null);
+    try std.testing.expectEqual(@as(u32, 1), portWorkspace(view, &entries, 12, 2).?.id);
+    try std.testing.expect(portWorkspace(view, &entries, 1, 2) == null);
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try view.draw(&out.writer, &.{}, &entries);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open Link ↗ 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "http://") == null);
+    const menu: PortMenu = .{ .workspace = 1 };
+    try menu.draw(&out.writer, entries[0], 80, 24);
     const host = try @import("terminal.zig").Terminal.create(80, 24);
     defer host.destroy();
     host.feed(out.written());
     try host.updateRender();
     try std.testing.expectEqual(@as(usize, 2), host.hyperlinks().len);
     try std.testing.expectEqualStrings("http://localhost:3000", host.hyperlinks()[0].uri);
-    try std.testing.expectEqual(@as(usize, 6), host.hyperlinks()[0].start);
-    try std.testing.expectEqual(@as(usize, 4), host.hyperlinks()[0].row);
+    const rect = PortMenu.bounds(80, 24);
+    try std.testing.expectEqual(@as(usize, 0), menu.hit(entries[0], 80, 24, rect.x + 3, rect.y + 2).?);
+    try std.testing.expect(menu.hit(entries[0], 80, 24, 0, 0) == null);
+    var single = entries[0];
+    const single_works = [_]ports.Work{.{ .id = 1, .endpoints = endpoints[0..1] }};
+    single.ports.workspaces = &single_works;
+    try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &.{single}, 13, 2, &buf).?);
 }

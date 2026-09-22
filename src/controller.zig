@@ -57,7 +57,7 @@ pub const Client = struct {
     height: u16 = 30,
     needs_frame: bool = true,
     watched: bool = true,
-    port_click: ?struct { x: u16, y: u16, url: [256]u8, len: usize, cancelled: bool = false } = null,
+    port_click: ?struct { x: u16, y: u16, url: [256]u8, len: usize, menu: ?u32 = null, cancelled: bool = false } = null,
     paste: bool = false,
     paste_pane: ?layout.Id = null,
     paste_to_name: bool = false,
@@ -111,6 +111,7 @@ pub fn Controller(comptime remote: bool) type {
         sidebar_offset: usize = 0,
         remote_links: bool = false,
         tab_menu: ?commands.TabMenu = null,
+        port_menu: ?sidebar.PortMenu = null,
         ui_mouse_down: bool = false,
         sidebar_drag: bool = false,
         workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
@@ -345,7 +346,7 @@ pub fn Controller(comptime remote: bool) type {
             return view;
         }
         fn hasMenu(s: *Server) bool {
-            return s.prefix or s.resize_mode or s.tab_menu != null;
+            return s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null;
         }
         fn tabIndex(s: *Server, id: layout.Id) ?usize {
             for (s.model().tabs[0..s.model().count], 0..) |tab, i| if (tab.id == id) return i;
@@ -417,6 +418,7 @@ pub fn Controller(comptime remote: bool) type {
             s.dirty = true;
         }
         fn openMenu(s: *Server) void {
+            s.port_menu = null;
             s.tab_menu = null;
             s.prefix = true;
             s.menu_page = 0;
@@ -426,6 +428,7 @@ pub fn Controller(comptime remote: bool) type {
             s.dirty = true;
         }
         fn closeMenu(s: *Server) void {
+            s.port_menu = null;
             s.tab_menu = null;
             s.menu_highlight = null;
             s.prefix = false;
@@ -633,6 +636,12 @@ pub fn Controller(comptime remote: bool) type {
             // A removed split can invalidate a drag even if its pane wasn't focused.
             s.cancelDividers();
             s.selection = null;
+            if (s.port_menu) |*links| {
+                const count = sidebar.urlCount(s.portWorkspaceEntry(links.workspace));
+                if (s.runtime.workspaces.index(links.workspace) == null or count == 0) {
+                    s.port_menu = null;
+                } else links.selected = @min(links.selected, count - 1);
+            }
             if (s.tab_menu) |context| if (if (context.pane) s.pane(context.tab) == null else if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
             };
@@ -821,7 +830,34 @@ pub fn Controller(comptime remote: bool) type {
             s.copy_feedback_until = std.time.milliTimestamp() + 2000;
             s.dirty = true;
         }
+        fn portWorkspaceEntry(s: *Server, id: u32) sidebar.WorkspaceEntry {
+            return .{ .id = id, .name = "", .cwd = "", .active = false, .ports = s.runtime.ports.current, .remote_links = s.remote_links };
+        }
+        fn movePortMenu(s: *Server, next: bool) void {
+            if (s.port_menu) |*links| {
+                const count = sidebar.urlCount(s.portWorkspaceEntry(links.workspace));
+                links.selected = if (next) @min(links.selected + 1, count -| 1) else links.selected -| 1;
+                s.dirty = true;
+            }
+        }
         pub fn key(s: *Server, cl: *Client, byte: u8) !void {
+            if (s.port_menu) |links| {
+                switch (byte) {
+                    27 => s.closeMenu(),
+                    'j', 9 => s.movePortMenu(true),
+                    'k' => s.movePortMenu(false),
+                    13 => {
+                        var buf: [256]u8 = undefined;
+                        if (remote and !s.remote_links) if (sidebar.workspaceUrl(s.portWorkspaceEntry(links.workspace), links.selected, &buf)) |url| {
+                            try cl.queue(.{ .type = "open_url", .url = url });
+                            s.closeMenu();
+                        };
+                    },
+                    else => {},
+                }
+                return;
+            }
+
             s.sidebar_drag = false;
             s.workspace_drag = null;
             s.cancelDividers();
@@ -1066,7 +1102,9 @@ pub fn Controller(comptime remote: bool) type {
                 } else if (eq(seq, "\x1b[I")) {
                     cl.watched = true;
                     s.acknowledge();
-                } else if (eq(seq, "\x1b[O")) cl.watched = false else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(cl, seq) else if (s.tab_menu != null) {
+                } else if (eq(seq, "\x1b[O")) cl.watched = false else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(cl, seq) else if (s.port_menu != null) {
+                    if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.movePortMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.movePortMenu(true);
+                } else if (s.tab_menu != null) {
                     if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveTabMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveTabMenu(true);
                 } else if (s.menu() != null) {
                     if (eq(seq, "\x1b[5~")) s.pageMenu(false) else if (eq(seq, "\x1b[6~")) s.pageMenu(true);
@@ -1122,8 +1160,33 @@ pub fn Controller(comptime remote: bool) type {
             if (cl.port_click) |*click| {
                 if (x != click.x or y != click.y) click.cancelled = true;
                 if (release) {
-                    if (!click.cancelled and button == 0) try cl.queue(.{ .type = "open_url", .url = click.url[0..click.len] });
+                    if (!click.cancelled and button == 0) {
+                        if (click.menu) |id| {
+                            s.port_menu = .{ .workspace = id };
+                            s.dirty = true;
+                        } else {
+                            try cl.queue(.{ .type = "open_url", .url = click.url[0..click.len] });
+                            s.closeMenu();
+                        }
+                    }
                     cl.port_click = null;
+                }
+                return;
+            }
+
+            if (s.port_menu) |links| {
+                const ws = s.portWorkspaceEntry(links.workspace);
+                if (!release and (button == 64 or button == 65)) s.movePortMenu(button == 65);
+                if (!release and button == 0) {
+                    if (links.hit(ws, s.width, s.height, x, y)) |index| {
+                        if (remote and !s.remote_links) {
+                            var click: @typeInfo(@FieldType(Client, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = 0 };
+                            if (sidebar.workspaceUrl(ws, index, &click.url)) |url| {
+                                click.len = url.len;
+                                cl.port_click = click;
+                            }
+                        }
+                    } else s.closeMenu();
                 }
                 return;
             }
@@ -1290,12 +1353,16 @@ pub fn Controller(comptime remote: bool) type {
                 s.sidebar_drag = true;
                 return;
             }
-            if (remote and !s.remote_links and !release and button == 0) {
+            if (remote and !release and button == 0) {
                 var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
-                var buf: [256]u8 = undefined;
-                if (sidebar.portLink(side, s.workspaceEntries(&workspace_storage), x, y, &buf)) |url| {
-                    var click: @typeInfo(@FieldType(Client, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = url.len };
-                    @memcpy(click.url[0..url.len], url);
+                if (sidebar.portWorkspace(side, s.workspaceEntries(&workspace_storage), x, y)) |ws| {
+                    var click: @typeInfo(@FieldType(Client, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = 0 };
+                    if (sidebar.urlCount(ws) > 1) {
+                        click.menu = ws.id;
+                    } else if (!s.remote_links) {
+                        const url = sidebar.workspaceUrl(ws, 0, &click.url) orelse return;
+                        click.len = url.len;
+                    } else return;
                     cl.port_click = click;
                     return;
                 }
@@ -1505,6 +1572,12 @@ pub fn Controller(comptime remote: bool) type {
             s.reconcile();
         }
         pub fn reconcile(s: *Server) void {
+            if (s.port_menu) |*links| {
+                const count = sidebar.urlCount(s.portWorkspaceEntry(links.workspace));
+                if (s.runtime.workspaces.index(links.workspace) == null or count == 0) {
+                    s.port_menu = null;
+                } else links.selected = @min(links.selected, count - 1);
+            }
             if (s.tab_menu) |context| if (if (context.pane) s.pane(context.tab) == null else if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
                 s.tab_menu = null;
             };
@@ -1920,6 +1993,7 @@ pub fn Controller(comptime remote: bool) type {
                 .native_finished = native_finished,
                 .menu = s.menu(),
                 .tab_menu = s.tab_menu,
+                .port_menu = s.port_menu,
                 .tab_drop_x = s.tabDropX(),
                 .dialog = s.name_dialog,
                 .confirm = s.confirm != .none,
