@@ -38,6 +38,10 @@ pub fn capture(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal) !Su
 }
 
 pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: u32, row: usize, cols: u16, dimmed: bool) !void {
+    return writeRowHovered(w, state, links, pane, row, cols, dimmed, null);
+}
+
+pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: u32, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
     const cells = state.row_data.items(.cells)[row];
     var active_link: ?u64 = null;
     var link_index: usize = 0;
@@ -48,10 +52,11 @@ pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const 
     for (cells.items(.raw), 0..) |cell, col| {
         if (col >= cols) break;
         if (cell.wide == .spacer_tail or cell.wide == .spacer_head) continue;
-        const style: terminal.vt.Style = if (cell.style_id == 0) .{} else cells.items(.style)[col];
+        var style: terminal.vt.Style = if (cell.style_id == 0) .{} else cells.items(.style)[col];
         while (link_index < links.len and links[link_index].row == row and links[link_index].end <= col) link_index += 1;
         const link: ?@import("hyperlinks.zig").Link = if (!style.flags.invisible and link_index < links.len and links[link_index].row == row and links[link_index].start <= col and col < links[link_index].end) links[link_index] else null;
         const link_id: ?u64 = if (link) |value| value.id else null;
+        if (hovered != null and link_id == hovered) style.flags.underline = .single;
         if (active_link != link_id) {
             if (active_link != null) try w.writeAll("\x1b]8;;\x1b\\");
             if (link) |value| try w.print("\x1b]8;id=corgi-{d}-{x};{s}\x1b\\", .{ pane, value.id, value.uri });
@@ -189,4 +194,37 @@ test "hyperlinks retain completed frame during synchronized output and disappear
     t.feed("\x1b[?2026l");
     const after = try capture(arena.allocator(), 1, t);
     try std.testing.expect(std.mem.indexOf(u8, after.lines[0], "\x1b]8;") == null);
+}
+
+test "plain web links map Unicode cells, trim punctuation and preserve explicit targets" {
+    const t = try terminal.Terminal.create(100, 4);
+    defer t.destroy();
+    t.feed("界e\xcc\x81 (https://example.com/a_(b)). plain\r\n" ++
+        "\x1b]8;;https://explicit.example/\x1b\\https://printed.example/\x1b]8;;\x1b\\" ++
+        " \x1b[8mhttps://hidden.example/\x1b[0m");
+    try t.updateRender();
+    try std.testing.expectEqual(@as(usize, 2), t.hyperlinks().len);
+    try std.testing.expectEqualStrings("https://example.com/a_(b)", t.hyperlinks()[0].uri);
+    try std.testing.expectEqual(@as(usize, 5), t.hyperlinks()[0].start);
+    try std.testing.expectEqual(@as(usize, 30), t.hyperlinks()[0].end);
+    try std.testing.expectEqualStrings("https://explicit.example/", t.hyperlinks()[1].uri);
+}
+
+test "plain links span soft wraps but not hard newlines and remain snapshot owned" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(20, 5);
+    defer t.destroy();
+    const url = "https://example.com/a-long-path";
+    t.feed(url ++ " ");
+    const before = try capture(arena.allocator(), 9, t);
+    try std.testing.expectEqual(@as(usize, 2), t.hyperlinks().len);
+    for (t.hyperlinks()) |link| try std.testing.expectEqualStrings(url, link.uri);
+    for (before.lines[0..2]) |line| try std.testing.expect(std.mem.indexOf(u8, line, ";" ++ url ++ "\x1b\\") != null);
+    t.feed("\x1b[?2026h\x1b[2J\x1b[Hhttps://new.example/");
+    const during = try capture(arena.allocator(), 9, t);
+    try std.testing.expectEqualStrings(before.lines[0], during.lines[0]);
+    t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
+    _ = try capture(arena.allocator(), 9, t);
+    try std.testing.expectEqual(@as(usize, 0), t.hyperlinks().len);
 }

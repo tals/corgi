@@ -7,7 +7,9 @@ const sidebar = @import("sidebar.zig");
 const a = @import("os.zig").allocator;
 pub const Pane = @import("runtime.zig").Pane;
 pub const Buffer = std.Io.Writer.Allocating;
+pub const Pointer = struct { x: u16, y: u16 };
 pub const Ui = struct {
+    pointer: ?Pointer = null,
     message: []const u8,
     copy_mode: bool,
     copy_feedback: bool = false,
@@ -95,7 +97,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     const side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
-    try w.writeAll(if (ui.menu != null or ui.tab_menu != null or ui.port_menu != null) "\x1b[?1003h" else "\x1b[?1002h");
+    try w.writeAll("\x1b[?1003h");
     try w.writeAll("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[2J");
     try w.print("\x1b[1;{d}H", .{side.tabX() + 1});
     var x: usize = 0;
@@ -135,9 +137,20 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
             const r = place.rect;
             try p.terminal.updateRender();
             const state = p.terminal.renderState();
+            var hovered: ?u64 = null;
+            if (ui.pointer) |pointer| {
+                if (r.contains(pointer.x, pointer.y) and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
+                    for (p.terminal.hyperlinks()) |link| {
+                        if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
+                            hovered = link.id;
+                            break;
+                        }
+                    }
+                }
+            }
             for (0..@min(state.rows, r.h)) |row| {
                 try w.print("\x1b[{d};{d}H", .{ r.y + row + 1, r.x + 1 });
-                try @import("surface.zig").writeRow(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null);
+                try @import("surface.zig").writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
             }
             try w.writeAll("\x1b[0m");
             break;

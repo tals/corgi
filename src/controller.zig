@@ -57,7 +57,7 @@ pub const Client = struct {
     height: u16 = 30,
     needs_frame: bool = true,
     watched: bool = true,
-    port_click: ?struct { x: u16, y: u16, url: [256]u8, len: usize, menu: ?u32 = null, cancelled: bool = false } = null,
+    port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?u32 = null, pane: ?u32 = null, px: u16 = 0, py: u16 = 0, cancelled: bool = false } = null,
     paste: bool = false,
     paste_pane: ?layout.Id = null,
     paste_to_name: bool = false,
@@ -112,6 +112,7 @@ pub fn Controller(comptime remote: bool) type {
         remote_links: bool = false,
         tab_menu: ?commands.TabMenu = null,
         port_menu: ?sidebar.PortMenu = null,
+        pointer: ?render.Pointer = null,
         ui_mouse_down: bool = false,
         sidebar_drag: bool = false,
         workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
@@ -1102,7 +1103,11 @@ pub fn Controller(comptime remote: bool) type {
                 } else if (eq(seq, "\x1b[I")) {
                     cl.watched = true;
                     s.acknowledge();
-                } else if (eq(seq, "\x1b[O")) cl.watched = false else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(cl, seq) else if (s.port_menu != null) {
+                } else if (eq(seq, "\x1b[O")) {
+                    cl.watched = false;
+                    s.pointer = null;
+                    s.dirty = true;
+                } else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(cl, seq) else if (s.port_menu != null) {
                     if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.movePortMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.movePortMenu(true);
                 } else if (s.tab_menu != null) {
                     if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveTabMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveTabMenu(true);
@@ -1157,21 +1162,41 @@ pub fn Controller(comptime remote: bool) type {
             const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
             const release = seq[seq.len - 1] == 'm';
+            if (s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y) {
+                s.pointer = .{ .x = x, .y = y };
+                s.dirty = true;
+            }
             if (cl.port_click) |*click| {
-                if (x != click.x or y != click.y) click.cancelled = true;
-                if (release) {
-                    if (!click.cancelled and button == 0) {
-                        if (click.menu) |id| {
-                            s.port_menu = .{ .workspace = id };
-                            s.dirty = true;
-                        } else {
-                            try cl.queue(.{ .type = "open_url", .url = click.url[0..click.len] });
-                            s.closeMenu();
+                if ((x != click.x or y != click.y) and click.pane != null) {
+                    if (s.pane(click.pane.?)) |p| {
+                        // A consumed Ctrl-press must not leak an unmatched drag
+                        // or release into a mouse-aware child.
+                        if (p.terminal.emulator().*.flags.mouse_event != .none) {
+                            click.cancelled = true;
+                            if (release) cl.port_click = null;
+                            return;
                         }
+                        try p.terminal.clearSelection();
+                        if (remote) p.terminal.holding_selection = true;
+                        s.selection = .{ .pane = click.pane.?, .x = click.px, .y = click.py };
                     }
                     cl.port_click = null;
+                } else {
+                    if (x != click.x or y != click.y) click.cancelled = true;
+                    if (release) {
+                        if (!click.cancelled and (button == 0 or button == 16)) {
+                            if (click.menu) |id| {
+                                s.port_menu = .{ .workspace = id };
+                                s.dirty = true;
+                            } else {
+                                try cl.queue(.{ .type = "open_url", .url = click.url[0..click.len] });
+                                s.closeMenu();
+                            }
+                        }
+                        cl.port_click = null;
+                    }
+                    return;
                 }
-                return;
             }
 
             if (s.port_menu) |links| {
@@ -1461,6 +1486,19 @@ pub fn Controller(comptime remote: bool) type {
                 s.acknowledge();
                 s.dirty = true;
                 const term = s.pane(p.id).?.terminal;
+                // Cmd-click stays with the host's OSC 8 handler. SGR mouse
+                // events expose Ctrl, but do not encode the Command modifier.
+                if (!release and button == 16 and !s.copy_mode) {
+                    for (term.hyperlinks()) |link| {
+                        if (link.row != y - p.rect.y or x - p.rect.x < link.start or x - p.rect.x >= link.end) continue;
+                        if (!std.mem.startsWith(u8, link.uri, "http://") and !std.mem.startsWith(u8, link.uri, "https://")) continue;
+                        var click: @typeInfo(@FieldType(Client, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = link.uri.len, .pane = p.id, .px = x - p.rect.x, .py = y - p.rect.y };
+                        if (link.uri.len > click.url.len) continue;
+                        @memcpy(click.url[0..link.uri.len], link.uri);
+                        cl.port_click = click;
+                        return;
+                    }
+                }
                 if (term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0) {
                     // Translate coordinates through Ghostty's input encoder into the app's chosen protocol.
                     const vt = @import("terminal.zig").vt;
@@ -1986,6 +2024,7 @@ pub fn Controller(comptime remote: bool) type {
             const entries = s.agentEntries(&agent_storage);
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             return render.frame(s.model(), s.runtime.panes.items, s.width, s.height, .{
+                .pointer = s.pointer,
                 .message = s.message[0..s.message_len],
                 .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
                 .copy_mode = s.copy_mode,

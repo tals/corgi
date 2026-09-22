@@ -28,6 +28,66 @@ class Links(unittest.TestCase):
         self.assertIn(';'+url+'\x1b\\', ''.join(surface['lines']))
         viewer = Viewer(self)
         self.assertIn(';'+url+'\x1b\\', viewer.poll()['data'])
+    def test_plain_terminal_link_click_and_drag(self):
+        root=pathlib.Path(self.temp.name)
+        opened=root/'opened'
+        bindir=root/'bin'; bindir.mkdir()
+        executable=bindir/('open' if sys.platform=='darwin' else 'xdg-open')
+        executable.write_text('#!/bin/sh\nprintf "%s" "$1" > '+shlex.quote(str(opened))+'\n')
+        executable.chmod(0o700)
+        self.env['PATH']=str(bindir)+os.pathsep+self.env['PATH']
+        url='https://example.com/plain'
+        pane=self.new('printf %s '+shlex.quote(url+'\r\n')+'; exec /bin/sh')
+        self.until(lambda:url in self.rpc(op='read',pane=pane)['text'])
+        viewer=Viewer(self)
+        other=Viewer(self)
+        frame=viewer.poll()['data']
+        self.assertIn(';'+url+'\x1b\\', frame)
+        # Locate the actual rendered URL after removing OSC metadata.
+        import re
+        frame=re.sub(r'\x1b\]8;[^\x1b]*\x1b\\', '', frame)
+        rows=smoke.screen_text(frame,120,40)
+        y=next(i for i,row in enumerate(rows) if url in row)
+        x=rows[y].index(url)
+        def mouse(code,dx=0,release=False):
+            viewer.input(f'\x1b[<{code};{x+dx+1};{y+1}'+('m' if release else 'M'))
+        self.assertIn('\x1b[?1003h',viewer.state['data'])
+        mouse(35)
+        self.assertIn('\x1b[4m',viewer.state['data'])
+        self.assertNotIn('\x1b[4m',other.poll()['data'])
+        mouse(51)
+        self.assertIn('\x1b[4m',viewer.state['data'])
+        mouse(35,len(url)+2)
+        self.assertNotIn('\x1b[4m',viewer.state['data'])
+        mouse(0);mouse(0,release=True)
+        self.assertNotIn('open_url',viewer.state['effects'])
+        mouse(0);mouse(32,5)
+        # First motion must survive the viewer's following snapshot refresh.
+        self.assertIn('38;2;0;0;0;48;2;255;255;255m',viewer.state['data'])
+        mouse(0,5,True)
+        self.assertNotIn('open_url', viewer.state['effects'])
+        mouse(16);mouse(16,release=True)
+        effects=[json.loads(line) for line in viewer.state['effects'].splitlines()]
+        self.assertIn({'type':'open_url','url':url},effects)
+        viewer.close()
+        other.close()
+        self.master,slave=os.openpty()
+        fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
+        self.proc=subprocess.Popen([smoke.EXE,'attach'],env=self.env,stdin=slave,stdout=slave,stderr=slave,start_new_session=True)
+        os.close(slave)
+        received=b''
+        def frame_ready():
+            nonlocal received
+            if select.select([self.master],[],[],.05)[0]: received += os.read(self.master,65536)
+            return (';'+url+'\x1b\\').encode() in received
+        self.until(frame_ready)
+        os.write(self.master,b'\x1b[<16;30;2M\x1b[<16;30;2m')
+        def opened_and_drain():
+            if select.select([self.master],[],[],.05)[0]: os.read(self.master,65536)
+            return opened.exists()
+        self.until(opened_and_drain)
+        self.assertEqual(opened.read_text(),url)
+
     def test_plain_port_click_invokes_system_opener_in_attached_client(self):
         root=pathlib.Path(self.temp.name)
         ready=root/'port'; opened=root/'opened'
