@@ -232,8 +232,9 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
         };
     };
     if (ui.link_tooltip) if (ui.pointer) |pointer| {
-        // Keep the small overlay off the hovered cell and inside the screen.
-        if (width >= 24 and height >= 5) {
+        if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
+            try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
+        } else if (width >= 24 and height >= 5) {
             const tooltip_x = @min(pointer.x +| 1, width - 24);
             const tooltip_y = if (pointer.y + 4 < height) pointer.y + 1 else pointer.y -| 3;
             try w.writeAll("\x1b7\x1b]8;;\x1b\\\x1b[0;38;2;226;230;233;48;2;48;53;61m");

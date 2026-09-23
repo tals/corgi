@@ -4,6 +4,56 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
+pub const Commit = struct {
+    hash: [12]u8 = @splat(0),
+    hash_len: u8 = 0,
+    subject: [240]u8 = @splat(0),
+    subject_len: u16 = 0,
+    author: [80]u8 = @splat(0),
+    author_len: u8 = 0,
+    timestamp: i64 = 0,
+    date: [16]u8 = @splat(0),
+    date_len: u8 = 0,
+};
+pub const Commits = struct {
+    items: [12]Commit = @splat(.{}),
+    len: u8 = 0,
+};
+// Commit metadata is untrusted terminal text. Keep valid UTF-8 and remove controls.
+pub fn clean(dest: []u8, source: []const u8) usize {
+    var used: usize = 0;
+    var rest = source;
+    while (rest.len > 0) {
+        const n = std.unicode.utf8ByteSequenceLength(rest[0]) catch 1;
+        const cp = if (n <= rest.len) std.unicode.utf8Decode(rest[0..n]) catch 0 else 0;
+        const valid = cp >= 32 and !(cp >= 127 and cp <= 159);
+        const size = if (valid) n else 1;
+        if (used + size > dest.len) break;
+        if (valid) @memcpy(dest[used..][0..size], rest[0..size]) else dest[used] = ' ';
+        used += size;
+        rest = rest[@min(n, rest.len)..];
+    }
+    return used;
+}
+fn parseCommits(raw: []const u8) Commits {
+    var result: Commits = .{};
+    var fields = std.mem.splitScalar(u8, raw, 0);
+    while (result.len < result.items.len) {
+        const hash = fields.next() orelse break;
+        const author = fields.next() orelse break;
+        const date = fields.next() orelse break;
+        const timestamp = fields.next() orelse break;
+        const subject = fields.next() orelse break;
+        const item = &result.items[result.len];
+        item.hash_len = @intCast(clean(&item.hash, std.mem.trim(u8, hash, "\r\n")));
+        item.author_len = @intCast(clean(&item.author, author));
+        item.timestamp = std.fmt.parseInt(i64, timestamp, 10) catch 0;
+        item.date_len = @intCast(clean(&item.date, date));
+        item.subject_len = @intCast(clean(&item.subject, subject));
+        result.len += 1;
+    }
+    return result;
+}
 const workspace = @import("workspace.zig");
 
 // The server's general reaper may collect a Git child before its worker does.
@@ -21,8 +71,8 @@ pub const Tracker = struct {
     next_refresh: i64 = 0,
     jobs: std.ArrayList(Job) = .empty,
     cache: std.StringHashMapUnmanaged(Cache) = .empty,
-    const Job = struct { id: u32, cwd: []const u8, ahead: ?u64 = null };
-    const Cache = struct { refs: []const u8, ahead: ?u64, seen: i64 };
+    const Job = struct { id: u32, cwd: []const u8, ahead: ?u64 = null, commits: Commits = .{} };
+    const Cache = struct { refs: []const u8, ahead: ?u64, seen: i64, commits: Commits = .{} };
 
     pub fn deinit(t: *Tracker) void {
         t.stopping.store(true, .release);
@@ -51,7 +101,9 @@ pub const Tracker = struct {
                 const ws = &store.items.items[i];
                 if (!std.mem.eql(u8, ws.cwd, job.cwd)) continue;
                 changed = changed or ws.git_ahead != job.ahead;
+                changed = changed or !std.meta.eql(ws.git_commits, job.commits);
                 ws.git_ahead = job.ahead;
+                ws.git_commits = job.commits;
             }
             t.clearJobs();
         }
@@ -87,12 +139,21 @@ pub const Tracker = struct {
         }
         for (t.jobs.items) |*job| {
             if (t.stopping.load(.acquire)) break;
-            job.ahead = t.refresh(job.cwd, now) catch null;
+            job.ahead = t.refreshInto(job.cwd, now, &job.commits) catch null;
         }
     }
     fn refresh(t: *Tracker, cwd: []const u8, now: i64) !?u64 {
+        var commits: Commits = .{};
+        return t.refreshInto(cwd, now, &commits);
+    }
+    fn cachedResult(cached: Cache, commits: *Commits) ?u64 {
+        commits.* = cached.commits;
+        return cached.ahead;
+    }
+    fn refreshInto(t: *Tracker, cwd: []const u8, now: i64, commits: *Commits) !?u64 {
+        commits.* = .{};
         if (t.cache.get(cwd)) |cached| {
-            if (cached.refs.len == 0 and now - cached.seen < 30000) return cached.ahead;
+            if (cached.refs.len == 0 and now - cached.seen < 30000) return cachedResult(cached, commits);
         }
         // A filesystem walk is cheap and recognizes linked worktrees (.git files).
         // Let Git resolve the actual refs/config, including includes and reftables.
@@ -106,7 +167,7 @@ pub const Tracker = struct {
         const key = try std.fs.cwd().realpathAlloc(a, root);
         defer a.free(key);
         if (t.cache.get(key)) |cached| {
-            if (cached.seen == now or (cached.refs.len == 0 and now - cached.seen < 30000)) return cached.ahead;
+            if (cached.seen == now or (cached.refs.len == 0 and now - cached.seen < 30000)) return cachedResult(cached, commits);
         }
         const refs = command(root, &.{ "rev-parse", "--verify", "HEAD" }) orelse return t.save(key, "", null, now);
         defer a.free(refs);
@@ -117,12 +178,21 @@ pub const Tracker = struct {
         if (t.cache.getPtr(key)) |cached| {
             if (std.mem.eql(u8, cached.refs, fingerprint) and cached.ahead != null) {
                 cached.seen = now;
-                return cached.ahead;
+                return cachedResult(cached.*, commits);
             }
         }
         const count = command(root, &.{ "rev-list", "--count", fingerprint }) orelse return t.save(key, fingerprint, null, now);
         defer a.free(count);
-        return t.save(key, fingerprint, std.fmt.parseInt(u64, count, 10) catch null, now);
+        const ahead = std.fmt.parseInt(u64, count, 10) catch null;
+        if (ahead != null and ahead.? > 0) {
+            if (command(root, &.{ "log", "--no-show-signature", "--no-decorate", "--encoding=UTF-8", "--date=format:%Y-%m-%d %H:%M", "--format=%h%x00%an%x00%ad%x00%at%x00%s%x00", "-12", fingerprint, "--" })) |log| {
+                defer a.free(log);
+                commits.* = parseCommits(log);
+            }
+        }
+        const saved = try t.save(key, fingerprint, ahead, now);
+        t.cache.getPtr(key).?.commits = commits.*;
+        return saved;
     }
     fn save(t: *Tracker, key: []const u8, refs: []const u8, ahead: ?u64, now: i64) !?u64 {
         const copy = try a.dupe(u8, refs);
@@ -175,7 +245,7 @@ fn command(cwd: []const u8, args: []const []const u8) ?[]const u8 {
     child.waitForSpawn() catch return null;
     const fd = child.stdout.?.handle;
     os.nonblock(fd);
-    var buf: [4096]u8 = undefined;
+    var buf: [65536]u8 = undefined;
     var len: usize = 0;
     var timer = std.time.Timer.start() catch return null;
     while (timer.read() < 2 * std.time.ns_per_s) {
@@ -227,6 +297,10 @@ test "upstream counts follow commits and packed refs, deduplicate subdirectories
     try std.testing.expectEqual(@as(?u64, 1), try tracker.refresh(root, 4000));
     try testGit(root, &.{ "pack-refs", "--all", "--prune" });
     try std.testing.expectEqual(@as(?u64, 1), try tracker.refresh(root, 7000));
+    try std.testing.expectEqual(@as(u8, 1), tracker.cache.get(root).?.commits.len);
+    const commit = tracker.cache.get(root).?.commits.items[0];
+    try std.testing.expectEqualStrings("ahead", commit.subject[0..commit.subject_len]);
+    try std.testing.expectEqualStrings("Corgi Test", commit.author[0..commit.author_len]);
     // A sentinel proves the unchanged-ref path reuses the cached count.
     tracker.cache.getPtr(root).?.ahead = 42;
     try std.testing.expectEqual(@as(?u64, 42), try tracker.refresh(root, 10000));
@@ -264,4 +338,12 @@ test "background result cannot follow a workspace into a different directory" {
     tracker.next_refresh = std.math.maxInt(i64);
     try std.testing.expect(!tracker.tick(&store));
     try std.testing.expectEqual(@as(?u64, null), store.current().git_ahead);
+}
+
+test "commit metadata strips terminal controls and preserves Unicode" {
+    const commits = parseCommits("abc1234\x00Zoë\x00" ++ "2026-09-23 08:30\x001790166600\x00fix 日本語\x1b[31m\x00\n");
+    try std.testing.expectEqual(@as(u8, 1), commits.len);
+    const item = commits.items[0];
+    try std.testing.expectEqualStrings("Zoë", item.author[0..item.author_len]);
+    try std.testing.expectEqualStrings("fix 日本語 [31m", item.subject[0..item.subject_len]);
 }

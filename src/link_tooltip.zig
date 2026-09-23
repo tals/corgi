@@ -1,6 +1,6 @@
 //! Tooltip timing is viewer-local. Interaction suppresses it until a fresh move.
 const std = @import("std");
-pub const Target = struct { pane: u32, link: u64 };
+pub const Target = struct { pane: u32, link: u64, git: bool = false };
 pub const State = struct {
     suppressed: bool = true,
     target: ?Target = null,

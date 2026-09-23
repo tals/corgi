@@ -11,6 +11,7 @@ pub const Workspace = struct {
     cwd: []const u8,
     model: layout.Model = .{},
     git_ahead: ?u64 = null,
+    git_commits: @import("git_status.zig").Commits = .{},
     away: @import("usage.zig").Window = .{},
     pub fn customName(w: *const Workspace) []const u8 {
         return w.name_buf[0..w.name_len];
@@ -26,6 +27,7 @@ pub const Workspace = struct {
         a.free(w.cwd);
         w.cwd = next;
         w.git_ahead = null;
+        w.git_commits = .{};
         return true;
     }
     fn rename(w: *Workspace, value: []const u8) void {
@@ -143,6 +145,7 @@ pub const Store = struct {
         a.free(s.items.items[i].cwd);
         s.items.items[i].cwd = path;
         s.items.items[i].git_ahead = null;
+        s.items.items[i].git_commits = .{};
         s.items.items[i].rename(name);
     }
 };

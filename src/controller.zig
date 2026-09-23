@@ -257,7 +257,7 @@ pub fn Controller(comptime remote: bool) type {
         pub fn workspaceEntries(s: *Server, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
             s.followWorkspaceDirectories();
             for (s.runtime.workspaces.items.items, 0..) |*ws, i| {
-                out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead, .stats = ws.away.counts };
+                out[i] = .{ .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .active = i == s.runtime.workspaces.active, .git_ahead = ws.git_ahead, .git_commits = &ws.git_commits, .stats = ws.away.counts };
                 out[i].ports = s.runtime.ports.current;
                 out[i].remote_links = s.remote_links;
                 for (s.runtime.panes.items) |p| {
@@ -2038,6 +2038,10 @@ pub fn Controller(comptime remote: bool) type {
             var target: ?@import("link_tooltip.zig").Target = null;
             if (s.pointer) |pointer| {
                 if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
+                    var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+                    if (sidebar.gitWorkspace(s.sidebarView(0), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
+                        target = .{ .pane = ws.id, .link = 0, .git = true };
+                    }
                     var locations: [layout.max_panes]layout.Placement = undefined;
                     for (s.model().placements(s.area(), &locations)) |place| {
                         if (!place.rect.contains(pointer.x, pointer.y)) continue;

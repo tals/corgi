@@ -33,7 +33,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: *const @import("git_status.zig").Commits = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     corgi_badge: bool = false,
@@ -791,4 +791,101 @@ test "idle face replaces stale activity while working activity remains useful" {
     }
     try std.testing.expect(has_spinner);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;249;226;175m") != null);
+}
+
+/// Hit only the visible badge, using the exact columns used by draw().
+pub fn gitWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?WorkspaceEntry {
+    if (v.width == 0 or y < 2 or (y - 2) % 3 != 0) return null;
+    const hit = v.hit(x, y);
+    if (hit != .workspace) return null;
+    const ws = workspaces[hit.workspace];
+    const count = ws.git_ahead orelse return null;
+    if (count == 0) return null;
+    var buf: [24]u8 = undefined;
+    const size = 1 + displayWidth(compactCount(&buf, count));
+    const end = v.width - 2;
+    return if (x >= end -| size and x < end) ws else null;
+}
+
+pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u16, px: u16, py: u16) !void {
+    if (cols < 24 or rows < 8) return;
+    const width: usize = @min(76, cols);
+    const count: usize = @min(ws.git_commits.len, (rows - 6) / 2);
+    const remaining = (ws.git_ahead orelse 0) -| count;
+    const has_footer = remaining > 0 or ws.git_commits.len == 0;
+    const height = 3 + count * 2 + @as(usize, if (has_footer) 1 else 0);
+    const x: usize = @min(@as(usize, px) + 2, cols - width);
+    const y: usize = @min(@as(usize, py) + 1, rows - 1 - height);
+    const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
+    try w.writeAll("\x1b7\x1b]8;;\x1b\\");
+    for (0..height) |row| {
+        try w.print("\x1b[{d};{d}H{s}", .{ y + row + 1, x + 1, base });
+        try w.writeAll(if (row == 0) "╭" else if (row == height - 1) "╰" else "│");
+        for (0..width - 2) |_| try w.writeAll(if (row == 0 or row == height - 1) "─" else " ");
+        try w.writeAll(if (row == 0) "╮" else if (row == height - 1) "╯" else "│");
+    }
+    var buf: [160]u8 = undefined;
+    try w.print("\x1b[{d};{d}H\x1b[1;38;2;166;227;161m", .{ y + 2, x + 3 });
+    try writeEllipsis(w, try std.fmt.bufPrint(&buf, "↑ {d} unpushed commit{s}", .{ ws.git_ahead orelse 0, if (ws.git_ahead == 1) "" else "s" }), width - 4);
+    for (ws.git_commits.items[0..count], 0..) |item, i| {
+        try w.print("\x1b[{d};{d}H{s}\x1b[38;2;249;226;175m{s}  \x1b[38;2;205;214;244m", .{ y + 3 + i * 2, x + 3, base, item.hash[0..item.hash_len] });
+        try writeEllipsis(w, item.subject[0..item.subject_len], (width - 6) -| item.hash_len);
+        try w.print("\x1b[{d};{d}H\x1b[38;2;127;132;156m", .{ y + 4 + i * 2, x + 5 });
+        var age_buf: [48]u8 = undefined;
+        const age = relativeTime(&age_buf, item.timestamp, std.time.timestamp());
+        const timing = try std.fmt.bufPrint(&buf, "{s} · {s}", .{ item.date[0..item.date_len], age });
+        const author_room = @min(24, (width - 9) -| displayWidth(timing));
+        if (author_room > 0) {
+            try writeEllipsis(w, item.author[0..item.author_len], author_room);
+            try w.writeAll(" · ");
+        }
+        try writeEllipsis(w, timing, (width - 6) -| (if (author_room > 0) @min(displayWidth(item.author[0..item.author_len]), author_room) + 3 else @as(usize, 0)));
+    }
+    if (has_footer) {
+        try w.print("\x1b[{d};{d}H{s}\x1b[38;2;127;132;156m", .{ y + height - 1, x + 3, base });
+        const footer = if (ws.git_commits.len == 0) "Commit details unavailable" else try std.fmt.bufPrint(&buf, "+{d} more", .{remaining});
+        try writeEllipsis(w, footer, width - 4);
+    }
+    try w.writeAll("\x1b[0m\x1b8");
+}
+
+test "git badge hit area follows sidebar width and workspace scroll" {
+    const entries = [_]WorkspaceEntry{
+        .{ .id = 1, .name = "one", .cwd = "/tmp", .active = false },
+        .{ .id = 2, .name = "two", .cwd = "/tmp", .active = true, .git_ahead = 14 },
+        .{ .id = 3, .name = "three", .cwd = "/tmp", .active = false },
+    };
+    const view = View.init(100, 20, true, 0, 0).withWidth(36).withWorkspaces(3, 1);
+    try std.testing.expectEqual(@as(u32, 2), gitWorkspace(view, &entries, 31, 2).?.id);
+    try std.testing.expect(gitWorkspace(view, &entries, 30, 2) == null);
+    try std.testing.expect(gitWorkspace(view, &entries, 34, 2) == null);
+    try std.testing.expect(gitWorkspace(view, &entries, 32, 3) == null);
+    try std.testing.expect(gitWorkspace(view, &entries, 32, 5) == null);
+    try std.testing.expect(gitWorkspace(View.init(100, 20, false, 0, 0), &entries, 32, 2) == null);
+}
+
+fn relativeTime(buf: []u8, timestamp: i64, now: i64) []const u8 {
+    if (timestamp == 0) return "";
+    const seconds: u64 = @intCast(if (now >= timestamp) now -| timestamp else timestamp -| now);
+    if (seconds < 60) return "just now";
+    const unit: struct { seconds: u64, name: []const u8 } = if (seconds < 3600)
+        .{ .seconds = 60, .name = "minute" }
+    else if (seconds < 86400)
+        .{ .seconds = 3600, .name = "hour" }
+    else if (seconds < 30 * 86400)
+        .{ .seconds = 86400, .name = "day" }
+    else if (seconds < 365 * 86400)
+        .{ .seconds = 30 * 86400, .name = "month" }
+    else
+        .{ .seconds = 365 * 86400, .name = "year" };
+    const n = seconds / unit.seconds;
+    return std.fmt.bufPrint(buf, "{s}{d} {s}{s}{s}", .{ if (timestamp > now) "in " else "", n, unit.name, if (n == 1) "" else "s", if (timestamp > now) "" else " ago" }) catch "";
+}
+
+test "commit relative time humanizes elapsed and future timestamps" {
+    var buf: [48]u8 = undefined;
+    try std.testing.expectEqualStrings("just now", relativeTime(&buf, 10000, 10010));
+    try std.testing.expectEqualStrings("1 minute ago", relativeTime(&buf, 10000, 10060));
+    try std.testing.expectEqualStrings("2 hours ago", relativeTime(&buf, 10000, 17200));
+    try std.testing.expectEqualStrings("in 2 hours", relativeTime(&buf, 17200, 10000));
 }

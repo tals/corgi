@@ -53,7 +53,8 @@ pub const Node = union(enum) {
     split: struct { axis: layout.Axis, ratio: u16, first: *const Node, second: *const Node },
 };
 pub const Tab = struct { id: u32, title: []const u8, layout: *const Node };
-pub const Workspace = struct { stats: @import("usage.zig").Counts = .{}, git_ahead: ?u64 = null, token: u64 = 0, id: u32, name: []const u8, cwd: []const u8, custom_name: ?[]const u8 = null, tabs: []const Tab };
+pub const GitCommit = struct { timestamp: i64 = 0, hash: []const u8, subject: []const u8, author: []const u8, date: []const u8 };
+pub const Workspace = struct { git_commits: []const GitCommit = &.{}, stats: @import("usage.zig").Counts = .{}, git_ahead: ?u64 = null, token: u64 = 0, id: u32, name: []const u8, cwd: []const u8, custom_name: ?[]const u8 = null, tabs: []const Tab };
 pub const Agent = struct {
     subagents: agents.Subagents = .{},
     name: []const u8 = "",
@@ -116,7 +117,11 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         for (ws.model.tabs[0..ws.model.count], tabs) |*tab, *item| {
             item.* = .{ .id = tab.id, .title = tab.title(), .layout = try tree(allocator, &ws.model, tab.root) };
         }
-        out.* = .{ .token = try layoutToken(&ws.model), .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .stats = ws.away.counts, .tabs = tabs };
+        const commits = try allocator.alloc(GitCommit, ws.git_commits.len);
+        for (ws.git_commits.items[0..ws.git_commits.len], commits) |*commit, *dest| {
+            dest.* = .{ .timestamp = commit.timestamp, .hash = commit.hash[0..commit.hash_len], .subject = commit.subject[0..commit.subject_len], .author = commit.author[0..commit.author_len], .date = commit.date[0..commit.date_len] };
+        }
+        out.* = .{ .git_commits = commits, .token = try layoutToken(&ws.model), .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .stats = ws.away.counts, .tabs = tabs };
     }
     const panes = try allocator.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {

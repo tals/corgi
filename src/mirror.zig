@@ -168,6 +168,16 @@ pub const Runtime = struct {
             const previous = if (r.workspaces.index(ws.id)) |i| r.workspaces.items.items[i].model else layout.Model{};
             // Do not resolve remote paths or persist the viewer's selection.
             var item: workspace.Workspace = .{ .id = ws.id, .cwd = try a.dupe(u8, ws.cwd), .git_ahead = ws.git_ahead, .away = .{ .counts = ws.stats }, .model = try protocol.modelFromTabs(ws.tabs, &previous) };
+            for (ws.git_commits[0..@min(ws.git_commits.len, item.git_commits.items.len)]) |commit| {
+                const dest = &item.git_commits.items[item.git_commits.len];
+                const clean = @import("git_status.zig").clean;
+                dest.hash_len = @intCast(clean(&dest.hash, commit.hash));
+                dest.subject_len = @intCast(clean(&dest.subject, commit.subject));
+                dest.author_len = @intCast(clean(&dest.author, commit.author));
+                dest.timestamp = commit.timestamp;
+                dest.date_len = @intCast(clean(&dest.date, commit.date));
+                item.git_commits.len += 1;
+            }
             item.name_len = agents.clean(&item.name_buf, ws.custom_name orelse ws.name);
             try next.items.append(a, item);
             if (ws.id == selected) next.active = index;
