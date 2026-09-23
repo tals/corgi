@@ -30,10 +30,7 @@ const TabDrag = struct {
 };
 pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = null };
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
-const ReadReceipt = struct { pane: u32, through: u64, attention_at: i64 };
 pub const Client = struct {
-    presented: [layout.max_panes]ReadReceipt = undefined,
-    presented_count: usize = 0,
     viewer_id: u32 = 0,
     can_relaunch: bool = false,
     next_control: u64 = 1,
@@ -53,9 +50,6 @@ pub const Client = struct {
     subscribed: bool = false,
     snapshot_revision: ?u64 = null,
     last_snapshot: i64 = 0,
-    width: u16 = 100,
-    height: u16 = 30,
-    needs_frame: bool = true,
     watched: bool = true,
     port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?u32 = null, pane: ?u32 = null, px: u16 = 0, py: u16 = 0, cancelled: bool = false } = null,
     paste: bool = false,
@@ -135,7 +129,6 @@ pub fn Controller(comptime remote: bool) type {
         search_text: [128]u8 = .{0} ** 128,
         search_len: usize = 0,
         search_skip: usize = 0,
-        last_frame: i64 = 0,
         last_bell: i64 = 0,
         bell_seq: u64 = 0,
         next_viewer: u32 = 1,
@@ -607,9 +600,7 @@ pub fn Controller(comptime remote: bool) type {
             try s.resizeModel(&projection);
         }
         fn resizeModel(s: *Server, projection: *const layout.Model) !void {
-            if (!s.hasClient()) {
-                for (s.clients.items) |cl| if (cl.viewer and !cl.dead) return;
-            }
+            for (s.clients.items) |cl| if (cl.viewer and !cl.dead) return;
             var locations: [layout.max_panes]layout.Placement = undefined;
             for (projection.placements(s.area(), &locations)) |place| if (s.pane(place.id)) |p| {
                 try p.terminal.resize(@max(1, place.rect.w), @max(1, place.rect.h));
@@ -668,13 +659,6 @@ pub fn Controller(comptime remote: bool) type {
             }
             s.dirty = true;
             try s.resizePanes();
-            if (s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1) {
-                s.dismissName();
-                for (s.clients.items) |*cl| if (cl.attached) {
-                    try cl.queue(.{ .type = "detach" });
-                    cl.attached = false;
-                };
-            }
         }
         fn undoClose(s: *Server) !void {
             if (remote) {
@@ -975,7 +959,6 @@ pub fn Controller(comptime remote: bool) type {
                     'q', 'd' => {
                         try cl.queue(.{ .type = "detach" });
                         cl.attached = false;
-                        try s.resizeViewers();
                     },
                     '?' => s.openMenu(),
                     else => {},
@@ -1602,11 +1585,11 @@ pub fn Controller(comptime remote: bool) type {
         }
         fn workspaceWatched(s: *Server, id: u32) bool {
             for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
-            return s.isWatched() and s.runtime.workspaces.current().id == id;
+            return false;
         }
         fn paneWatched(s: *Server, id: u32) bool {
             for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
-            return s.isWatched() and s.model().count > 0 and s.model().tab().focus == id and s.hasClient();
+            return false;
         }
         pub fn refresh(s: *Server) !void {
             const reply = try s.connection.call(.{ .op = "session.snapshot", .protocol = 1 });
@@ -1690,7 +1673,7 @@ pub fn Controller(comptime remote: bool) type {
             if (!known) return false;
             try protocol.require(v, cl.protocol_version);
             if (eq(op, "session.snapshot") or eq(op, "session.subscribe")) {
-                if (eq(op, "session.subscribe") and cl.attached) return error.AlreadyAttached;
+                if (eq(op, "session.subscribe") and cl.viewer) return error.AlreadyAttached;
                 try s.queueSession(cl);
                 if (eq(op, "session.subscribe")) cl.subscribed = true;
             } else if (eq(op, "pane.surface")) {
@@ -1852,48 +1835,12 @@ pub fn Controller(comptime remote: bool) type {
                 };
                 return error.NoNativeSession;
             } else if (eq(op, "theme")) {
-                if (!cl.attached and !cl.viewer) return error.NotAttached;
-                for (s.clients.items) |viewer| if ((viewer.attached or viewer.viewer) and !viewer.dead) {
+                if (!cl.viewer) return error.NotAttached;
+                for (s.clients.items) |viewer| if (viewer.viewer and !viewer.dead) {
                     if (viewer.fd == cl.fd) s.updateTheme(v);
                     break;
                 };
                 if (cl.viewer) try cl.queue(.{ .ok = true });
-            } else if (eq(op, "attach")) {
-                if (cl.subscribed) return error.AlreadySubscribed;
-                const first = !s.hasClient();
-                cl.attached = true;
-                cl.watched = true;
-                cl.width = @intCast(std.math.clamp(number(v, "cols", 100), 10, 500));
-                cl.height = @intCast(std.math.clamp(number(v, "rows", 30), 4, 200));
-                cl.keybuf.clearRetainingCapacity();
-                cl.paste = false;
-                cl.paste_pane = null;
-                cl.paste_to_name = false;
-                if (first) {
-                    s.prefix = false;
-                    s.tab_menu = null;
-                    s.ui_mouse_down = false;
-                    s.copy_mode = false;
-                    s.dismissName();
-                    s.resize_mode = false;
-                    s.confirm = .none;
-                    s.confirm_tab = null;
-                    s.updateTheme(v);
-                }
-                try s.resizeViewers();
-                if (s.model().count == 0) _ = try s.create(null, if (s.default_folder_pending) agents.str(v, "cwd") else s.runtime.workspaces.current().cwd, null, "");
-                s.acknowledge();
-                cl.needs_frame = true;
-                try cl.queue(.{ .type = "attached" });
-            } else if (eq(op, "size")) {
-                if (!cl.attached) return error.NotAttached;
-                cl.width = @intCast(std.math.clamp(number(v, "cols", 100), 10, 500));
-                cl.height = @intCast(std.math.clamp(number(v, "rows", 30), 4, 200));
-                try s.resizeViewers();
-                cl.needs_frame = true;
-            } else if (eq(op, "input")) {
-                if (!cl.attached) return error.NotAttached;
-                try s.input(cl, agents.str(v, "data"));
             } else if (eq(op, "action")) {
                 try s.action(agents.str(v, "name"), agents.str(v, "value"));
                 try cl.queue(.{ .ok = true });
@@ -1954,39 +1901,6 @@ pub fn Controller(comptime remote: bool) type {
             s.theme.merge(Theme.fromJson(value));
             for (s.runtime.panes.items) |p| if (remote) s.theme.apply(p.terminal.emulator()) else p.terminal.applyTheme(s.theme);
             s.dirty = true;
-        }
-        pub fn resizeViewers(s: *Server) !void {
-            if (remote) return;
-            var width: u16 = 500;
-            var height: u16 = 200;
-            var found = false;
-            for (s.clients.items) |cl| if (cl.attached and !cl.dead) {
-                width = @min(width, cl.width);
-                height = @min(height, cl.height);
-                found = true;
-            };
-            if (!found or (width == s.width and height == s.height)) {
-                try @import("viewer_protocol.zig").resize(s);
-                return;
-            }
-            s.width = width;
-            s.height = height;
-            s.revealWorkspace();
-            try s.resizePanes();
-            try @import("viewer_protocol.zig").resize(s);
-            s.dirty = true;
-        }
-        fn isWatched(s: *Server) bool {
-            for (s.clients.items) |cl| if (cl.attached and !cl.dead and cl.watched) return true;
-            return false;
-        }
-        fn framePending(s: *Server) bool {
-            for (s.clients.items) |cl| if (cl.attached and !cl.dead and cl.needs_frame and cl.output.items.len == 0) return true;
-            return false;
-        }
-        fn hasClient(s: *Server) bool {
-            for (s.clients.items) |cl| if (cl.attached and !cl.dead) return true;
-            return false;
         }
         fn detectPane(s: *Server, p: *Pane) void {
             const detection = @import("detection.zig");
@@ -2308,7 +2222,6 @@ pub fn Controller(comptime remote: bool) type {
                             defer parsed.deinit();
                             s.request(cl, parsed.value) catch |err| {
                                 try cl.queue(.{ .ok = false, .err = @errorName(err) });
-                                if (cl.attached) s.notice(@errorName(err));
                             };
                             consumed = newline + 1;
                             if (s.reload_executable != null and s.reload_requester == cl.fd) break;
@@ -2316,45 +2229,21 @@ pub fn Controller(comptime remote: bool) type {
                         std.mem.copyForwards(u8, cl.input.items[0 .. cl.input.items.len - consumed], cl.input.items[consumed..]);
                         cl.input.items.len -= consumed;
                     }
-                    if (!cl.attached and !cl.viewer and !cl.subscribed and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
+                    if (!cl.viewer and !cl.subscribed and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
                     if (cl.dead) {
                         cl.deinit();
                         _ = s.clients.orderedRemove(ci);
-                        try s.resizeViewers();
+                        try @import("viewer_protocol.zig").resize(s);
                         continue;
                     }
                     ci += 1;
                 }
-                // Give fragmented CSI/SS3 keys time to complete, but eventually
-                // release incomplete prefixes (e.g. a legacy terminal's Alt-[).
-                // A lone ESC and literal paste fragments keep the short timeout.
-                try s.expireInput();
                 s.followWorkspaceDirectories();
                 if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
                 if (s.runtime.ports.tick(&s.runtime)) s.dirty = true;
                 if (s.dirty) {
                     s.runtime.changed();
-                    for (s.clients.items) |*cl| if (cl.attached) {
-                        cl.needs_frame = true;
-                    };
                     s.dirty = false;
-                }
-                if (s.framePending() and std.time.milliTimestamp() - s.last_frame >= 30) {
-                    const bytes = try s.frame();
-                    defer a.free(bytes);
-                    for (s.clients.items) |*cl| if (cl.attached and !cl.dead and cl.needs_frame and cl.output.items.len == 0) {
-                        try cl.queue(.{ .type = "frame", .data = bytes });
-                        cl.presented_count = 0;
-                        if (cl.watched) {
-                            var places: [layout.max_panes]layout.Placement = undefined;
-                            for (s.model().placements(s.area(), &places)) |place| if (s.pane(place.id)) |p| {
-                                cl.presented[cl.presented_count] = .{ .pane = p.id, .through = p.agent.observation.completed, .attention_at = if (s.model().tab().focus == p.id) p.agent.changed_at else -1 };
-                                cl.presented_count += 1;
-                            };
-                        }
-                        cl.needs_frame = false;
-                    };
-                    s.last_frame = std.time.milliTimestamp();
                 }
                 if (s.bell and s.bell_kind == .finished) {
                     var unread = false;
@@ -2366,7 +2255,6 @@ pub fn Controller(comptime remote: bool) type {
                     }
                 }
                 if (s.bell and std.time.milliTimestamp() - s.last_bell > 1500) {
-                    for (s.clients.items) |*cl| if (cl.attached and !s.muted) try cl.queue(.{ .type = "bell", .kind = @tagName(s.bell_kind) });
                     s.bell_seq +%= 1;
                     s.last_bell_kind = s.bell_kind;
                     s.bell = false;
@@ -2388,15 +2276,6 @@ pub fn Controller(comptime remote: bool) type {
                         if (cl.sent == cl.output.items.len) {
                             cl.output.clearRetainingCapacity();
                             cl.sent = 0;
-                            if (cl.watched) for (cl.presented[0..cl.presented_count]) |receipt| {
-                                if (s.pane(receipt.pane)) |p| {
-                                    const before = p.agent;
-                                    if (p.agent.changed_at == receipt.attention_at) p.agent.attention = .none;
-                                    p.agent.readThrough(receipt.through);
-                                    if (!std.meta.eql(before, p.agent)) s.dirty = true;
-                                }
-                            };
-                            cl.presented_count = 0;
                         }
                     }
                 }

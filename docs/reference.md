@@ -26,11 +26,11 @@ Recovery snapshots preserve workspace/tab/split arrangement, working directories
 
 After a crash or reboot, starting Corgi loads that snapshot into fresh shells. Saved output includes retained primary history and alternate-screen contents as scrollback, without the old process's input modes. Each pane shows its previous directory and `codex resume 'SESSION_ID'` or `claude --resume 'SESSION_ID'` when a session was recorded. Without a known ID, a recognized provider gets its interactive resume picker command. These commands are displayed, never executed automatically. Native sessions become archived records with a recovery shell tab showing their saved journal and resume command. Missing directories fall back to HOME; the old path remains visible. Shells still manage their own command history files; Corgi cannot recover unsaved shell history or arbitrary application memory.
 
-The handoff manifest is limited to 256 MiB. If retained snapshots and other runtime state exceed that limit, the terminal dependency changes, accepted writes cannot drain, a legacy viewer remains attached, or candidate restoration fails, reload is rejected and the current runtime continues. A successfully committed new daemon can still crash like any other process; disk recovery is the fallback then. Rebuilding does not update the exporter inside an already running daemon: an old daemon blocked by its checkpoint limit cannot acquire this fix merely by retrying reload.
+The handoff manifest is limited to 256 MiB. If retained snapshots and other runtime state exceed that limit, the terminal dependency changes, accepted writes cannot drain, or candidate restoration fails, reload is rejected and the current runtime continues. A successfully committed new daemon can still crash like any other process; disk recovery is the fallback then. Rebuilding does not update the exporter inside an already running daemon: an old daemon blocked by its checkpoint limit cannot acquire this fix merely by retrying reload.
 
 Multiple viewers can attach at once. They share workspace/tab order, split ratios, names, and running processes. Each owns its selected workspace/tab/pane, zoom, menus, dialogs, scroll/copy state, and mute setting. Shared edits appear in every viewer; closing a selected pane chooses a surviving pane locally. Pane sizes use the minimum dimensions among the viewers actually displaying that pane. Hidden panes keep their last size; detaching a smaller viewer allows others to grow. `prefix q` detaches only that viewer. Closing the last pane in the only workspace detaches everyone. The earliest live viewer supplies terminal theme defaults.
 
-Normal attachments compose their UI locally from session snapshots and terminal surfaces. The old socket `attach` operation remains available as a compatibility adapter, with its original shared-view semantics. New viewers check daemon capabilities and report when an older daemon needs an update; they never restart it automatically.
+Attachments compose their UI locally from session snapshots and terminal surfaces. New viewers check daemon capabilities and report when an older daemon needs an update; they never restart it automatically.
 
 ## Agent CLI
 
@@ -129,7 +129,8 @@ This is an initial implementation of Herdr's core tab/pane operations. Copy mode
 
 The additive [runtime protocol](development-reloads.md#protocol-1) exposes shared
 session snapshots, pane surfaces, and operations with explicit targets for the
-viewer-owned UI. The legacy socket attachment path remains supported.
+viewer-owned UI. The former `attach`/`input`/`size` socket operations have been removed;
+`corgi attach` uses `viewer.open` and `viewer.sync`.
 
 ## Agent integration
 
@@ -239,7 +240,7 @@ corgi rpc '{"op":"focus","viewer":2,"pane":3}'
 corgi rpc '{"op":"action","viewer":2,"name":"next","value":""}'
 ```
 
-`viewer.list` reports each viewer's ID and last reported workspace/pane. When legacy socket viewers are attached, unqualified CLI controls retain their legacy behavior; an explicit `viewer` always selects one normal viewer. `list` and `workspace.list` retain legacy selection fields; use `viewer.list` for actual local-viewer selection. Explicit pane operations such as `send`, `read`, and `close` always address the pane ID.
+`viewer.list` reports each viewer's ID and last reported workspace/pane. Unqualified CLI controls target the oldest live viewer; an explicit `viewer` selects one viewer. `list` and `workspace.list` retain legacy selection fields; use `viewer.list` for actual local-viewer selection. Explicit pane operations such as `send`, `read`, and `close` always address the pane ID.
 
 For remote terminals, run Corgi on the host through SSH (`ssh -t host corgi`); the runtime persists there when the connection drops. Provider remoting can also be enabled through the native CLI/App Server interfaces. Corgi itself does not expose an unauthenticated TCP listener.
 
@@ -247,7 +248,7 @@ For remote terminals, run Corgi on the host through SSH (`ssh -t host corgi`); t
 
 - `layout.zig`: pure split tree, tab and pane identity, geometry, navigation.
 - `terminal.zig`: PTYs, Ghostty parser/render state, selections and search.
-- `server.zig` / `controller.zig`: shared interaction controller and legacy daemon adapter.
+- `server.zig` / `controller.zig`: runtime operations and interaction controller.
 - `viewer.zig` / `client.zig`: viewer event loop and outer-terminal setup/cleanup.
 - `mirror.zig`: local session projection and terminal framebuffers; no PTYs.
 - `viewer_protocol.zig` / `protocol.zig`: runtime operations, snapshots, sizing interests, and conflict-checked shared edits.

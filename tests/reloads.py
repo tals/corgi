@@ -233,12 +233,16 @@ for line in sys.stdin:
         self.assertEqual(pid,self.rpc(op='native.list')['sessions'][0]['pid'])
         self.until(lambda:any(json.loads(e['line']).get('id')==42 for e in self.rpc(op='native.events',session=ident)['events']))
 
-    def test_legacy_attachment_is_rejected_without_detaching_it(self):
-        self.attach();before=self.session()
-        reply=self.raw_rpc(op='server.reload',protocol=1,executable=smoke.EXE)
-        self.assertEqual(reply['err'],'DetachLegacyViewersBeforeReload')
-        self.assertEqual(before['server_pid'],self.session()['server_pid'])
-        self.assertEqual(before['panes'][0]['pid'],self.session()['panes'][0]['pid'])
+    def test_removed_attachment_cannot_create_a_shell_or_block_reload(self):
+        before=self.session()
+        for op in ('attach','input','size'):
+            reply=self.raw_rpc(op=op,cols=80,rows=24,data='echo unsafe\r')
+            self.assertEqual(reply['err'],'UnknownOperation')
+        self.assertEqual(self.session()['panes'],before['panes'])
+        pane=self.new();a=Viewer(self)
+        self.reload()
+        self.assertEqual(a.poll()['pane'],pane)
+        self.assertNotEqual(before['server_pid'],self.session()['server_pid'])
 
 # Exclude inherited smoke cases while reusing its fixture and assertions.
 for name in dir(smoke.Runtime):

@@ -5,8 +5,7 @@ manual restart and user check before continuing.
 
 1. **Runtime interface (complete).** Session resources live in
    `runtime.zig`; protocol 1 exposes session data and terminal surfaces separately
-   from presentation. The existing daemon-rendered UI and legacy commands still
-   work. This milestone does not change viewer focus behavior or enable handoff.
+   from presentation. This initially retained the daemon-rendered UI, which has since been removed. This milestone does not change viewer focus behavior or enable handoff.
 2. **Viewer-owned UI (complete).** Composition, menus, dialogs, and interaction run in
    the viewer. Workspace/tab order and split arrangement remain shared. Selected
    workspace, selected tab, focused pane, and transient presentation state belong
@@ -63,8 +62,7 @@ split trees, pane PIDs and sizes, agent metadata, native sessions, and the numbe
 of retained closed panes. A split tree contains either `{"pane":ID}` or
 `{"split":{"axis":"horizontal"|"vertical","ratio":500,"first":NODE,"second":NODE}}`.
 Ratios are thousandths. No selected workspace/tab/pane or zoom state appears in
-this shared snapshot. The legacy UI still stores its selection in layout models
-internally for legacy socket attachments; normal viewers keep their own models.
+this shared snapshot. Viewers keep their own selection models.
 
 Snapshots carry `server_pid` and a runtime `revision`. Revisions can skip and
 include output/presentation invalidations; clients replace the snapshot rather
@@ -73,7 +71,7 @@ viewer, create a shell, or change sizing/focus. It remains open across idle
 periods. Slow subscribers get coalesced updates after their pending message is
 flushed. Reconnect and obtain a new initial snapshot after connection loss.
 The one-shot `corgi rpc` CLI reads only the first reply; subscriptions require a
-persistent socket client. Do not mix subscriptions with legacy `attach`.
+persistent socket client. Do not mix subscriptions with `viewer.open`.
 
 Surface responses carry the same server/revision fields and a `surface` object:
 `pane`, `cols`, `rows`, `lines`, and a nullable zero-based `{x,y}` cursor. Each line
@@ -81,7 +79,7 @@ contains SGR-styled terminal text, starts with its own style, and ends in SGR
 reset. It contains no cursor movement or surrounding Corgi UI. The viewer places
 these lines and controls cursor visibility. The surface is the latest completed
 Ghostty render (possibly empty before the first completed synchronized redraw).
-This original operation uses the legacy shared scroll viewport. Normal viewers
+This original operation uses the terminal's default scroll viewport. Normal viewers
 use `viewer.sync`, which captures their independently requested viewport. Reading a surface does not select or acknowledge the pane.
 
 ## Terminal restoration findings
@@ -124,8 +122,7 @@ The daemon PID and all existing pane processes stay the same. Viewer-only change
 include menus, dialogs, key bindings, sidebar composition, and presentation. A
 feature needing a new runtime capability uses the live daemon handoff below.
 
-`controller.zig` shares interaction behavior between normal local viewers and the
-legacy socket adapter. The viewer instantiates it with a private `mirror.zig`
+The viewer instantiates `controller.zig` with a private `mirror.zig`
 projection. That projection creates Ghostty framebuffers, never processes or
 PTYs. Session snapshots rebuild shared arrangement while retaining selected IDs
 and zoom locally. A removed selection falls back to a surviving pane/tab or the
@@ -154,8 +151,8 @@ A pane is sized only by viewers showing it; hidden panes retain their last size.
 Views of the same pane use the minimum requested dimensions. Scroll offsets,
 selections, and paste targets are local. Input batching keeps a bracketed paste
 bound to its starting pane even if navigation changes; closing that pane discards
-its remaining input. Renderer captures restore the legacy viewport after sampling.
-The compatibility `attach` path still renders its original shared UI in the daemon.
+its remaining input. Renderer captures restore the terminal viewport after sampling.
+The daemon no longer accepts the former `attach`, `input`, or `size` operations.
 
 ### Manual check
 
@@ -192,7 +189,7 @@ running process-killing destructors or unlinking the listener. The new daemon
 uses PTY/pipe EOF and process checks for children it cannot waitpid. Normal viewer
 sockets, buffered requests/replies, pending controls, and acknowledgements survive,
 so viewer instances keep all their local state without reconnecting or retrying
-mutations. Legacy raw attachments must detach first.
+mutations.
 
 Live terminal export uses compact VT snapshots of retained history, screens,
 cursor, and input modes rather than accumulated output journals. Restoration

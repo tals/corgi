@@ -1,3 +1,2 @@
-//! The legacy socket UI remains a compatibility adapter. Normal viewers use
-//! the same presentation controller locally, over the versioned runtime protocol.
+//! Daemon runtime and socket operations. UI frames are composed by viewers.
 pub const Server = @import("controller.zig").Controller(false);

@@ -53,7 +53,6 @@ fn inherit(fd: c_int) void {
     if (fd >= 0) _ = c.fcntl(fd, c.F_SETFD, @as(c_int, 0));
 }
 pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c_int) !noreturn {
-    for (s.clients.items) |cl| if (cl.attached) return error.DetachLegacyViewersBeforeReload;
     // Keep the saved context current even if the machine fails during reload.
     try @import("recovery.zig").save(&s.runtime, s.socket);
     const deadline = std.time.milliTimestamp() + 1500;

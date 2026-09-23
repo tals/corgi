@@ -92,6 +92,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     for (reply.surfaces) |frame| if (view.runtime.pane(frame.surface.pane)) |p| try p.terminal.receive(frame);
     if (reply.bell_seq != bell_seq.*) {
         bell_seq.* = reply.bell_seq;
+        view.last_bell_kind = reply.bell_kind;
         if (play_sound and !view.muted) try @import("sound.zig").play(@tagName(reply.bell_kind));
     }
     return !reply.detach and view.clients.items[0].attached;

@@ -6,29 +6,7 @@ import base64, datetime, json, os, pathlib, select, shlex, socket, subprocess, s
 import smoke as legacy
 from smoke import EXE
 
-class Viewer:
-    def __init__(self, test):
-        self.test=test
-        self.proc=subprocess.Popen([EXE,'__viewer-test'],env=test.env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-        test.viewers.append(self)
-        self.request(op='poll')
-    def request(self, **request):
-        self.proc.stdin.write(json.dumps(request)+'\n');self.proc.stdin.flush()
-        self.test.assertTrue(select.select([self.proc.stdout],[],[],5)[0], 'viewer response timeout')
-        line=self.proc.stdout.readline()
-        if not line:
-            self.proc.wait(timeout=2)
-            self.test.fail('viewer exited: '+self.proc.stderr.read())
-        self.state=json.loads(line)
-        return self.state
-    def input(self, data):return self.request(op='input',data=data)
-    def action(self,name,value=''):return self.request(op='action',name=name,value=value)
-    def poll(self):return self.request(op='poll')
-    def focus(self,pane):return self.request(op='focus',pane=pane)
-    def close(self):
-        if self.proc.poll() is None:self.proc.terminate()
-        self.proc.wait(timeout=3)
-        for stream in (self.proc.stdin,self.proc.stdout,self.proc.stderr):stream.close()
+from viewer_client import Viewer
 
 class Viewers(unittest.TestCase):
     run_cli=legacy.Runtime.run_cli

@@ -32,7 +32,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         s.dirty = true;
         try cl.queue(.{ .ok = true });
     } else if (eq(u8, op, "viewer.open")) {
-        if (cl.attached or cl.subscribed or cl.viewer) return error.AlreadyAttached;
+        if (cl.subscribed or cl.viewer) return error.AlreadyAttached;
         if (s.runtime.panes.items.len == 0 and s.runtime.workspaces.current().model.count == 0) {
             const cwd = agents.str(v, "cwd");
             if (s.default_folder_pending and cwd.len > 0) {
@@ -43,7 +43,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
             _ = try s.runtime.create(.{ .workspace = s.runtime.workspaces.current().id, .cwd = s.runtime.workspaces.current().cwd, .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
         }
         const first = for (s.clients.items) |other| {
-            if ((other.viewer or other.attached) and !other.dead) break false;
+            if (other.viewer and !other.dead) break false;
         } else true;
         cl.can_relaunch = if (v.object.get("can_relaunch")) |flag| flag == .bool and flag.bool else false;
         cl.viewer = true;
@@ -230,16 +230,6 @@ pub fn resize(s: anytype) !void {
                 found = true;
             };
         };
-        const legacy = for (s.clients.items) |cl| {
-            if (cl.attached and !cl.dead) break true;
-        } else false;
-        if (found and legacy) {
-            var places: [layout.max_panes]layout.Placement = undefined;
-            for (s.runtime.workspaces.current().model.placements(s.area(), &places)) |place| if (place.id == p.id) {
-                cols = @min(cols, @max(1, place.rect.w));
-                rows = @min(rows, @max(1, place.rect.h));
-            };
-        }
         if (found and (p.terminal.vt.cols != cols or p.terminal.vt.rows != rows)) {
             try p.terminal.resize(cols, rows);
             s.runtime.changed();
@@ -273,9 +263,7 @@ fn targetViewer(s: anytype, v: std.json.Value) !?*@import("controller.zig").Clie
         for (s.clients.items) |*cl| if (cl.viewer and !cl.dead and cl.viewer_id == id) return cl;
         return error.NoViewer;
     }
-    // Keep old socket clients' legacy controls. Otherwise a CLI command targets
-    // the oldest live viewer; an explicit ID always selects exactly one viewer.
-    for (s.clients.items) |cl| if (cl.attached and !cl.dead) return null;
+    // An unqualified CLI command targets the oldest live viewer.
     for (s.clients.items) |*cl| if (cl.viewer and !cl.dead) return cl;
     return null;
 }

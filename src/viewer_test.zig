@@ -33,6 +33,7 @@ pub fn run(path: []const u8) !void {
             view.height = @intCast(value.object.get("rows").?.integer);
         }
         try view.expireInput();
+        const previous_bell = bell;
         var active = try viewer.sync(&view, &bell, false);
         // A layout change from another viewer can change the visible set. A
         // second exchange captures the newly reconciled selection immediately.
@@ -41,7 +42,7 @@ pub fn run(path: []const u8) !void {
         try viewer.presented(&view);
         defer a.free(frame);
         const model = &view.runtime.workspaces.current().model;
-        try os.sendJson(1, .{ .data = frame, .workspace = view.runtime.workspaces.current().id, .tab = if (model.count > 0) model.tab().id else 0, .pane = if (view.focused()) |p| p.id else 0, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.clients.items[0].output.items });
+        try os.sendJson(1, .{ .bell_seq = bell, .bell_kind = @tagName(view.last_bell_kind), .rang = bell != previous_bell, .data = frame, .workspace = view.runtime.workspaces.current().id, .tab = if (model.count > 0) model.tab().id else 0, .pane = if (view.focused()) |p| p.id else 0, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.clients.items[0].output.items });
         view.clients.items[0].output.clearRetainingCapacity();
         if (!active) return;
     }
