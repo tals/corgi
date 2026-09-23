@@ -34,9 +34,20 @@ pub const Key = struct {
     }
 };
 
-// Decode the CSI-u form emitted by flag 1. Other terminal sequences remain
-// untouched. Reject extensions we did not request instead of losing fields.
+// Decode ordinary cursor keys as well as CSI-u so the child's application
+// cursor mode, rather than the host's mode, determines their encoding.
+// Reject extensions we did not request instead of losing fields.
 pub fn decode(bytes: []const u8) ?Key {
+    if (bytes.len == 3 and bytes[0] == 27 and (bytes[1] == '[' or bytes[1] == 'O')) {
+        const cp: u21 = switch (bytes[2]) {
+            'A' => 57352,
+            'B' => 57353,
+            'C' => 57351,
+            'D' => 57350,
+            else => return null,
+        };
+        return .{ .codepoint = cp, .mods = .{} };
+    }
     if (bytes.len < 4 or !std.mem.startsWith(u8, bytes, "\x1b[") or bytes[bytes.len - 1] != 'u') return null;
     var fields = std.mem.splitScalar(u8, bytes[2 .. bytes.len - 1], ';');
     const cp = std.fmt.parseInt(u21, fields.next() orelse return null, 10) catch return null;
@@ -172,8 +183,29 @@ test "modified Return uses the pane keyboard protocol" {
 }
 
 test "unsupported and malformed CSI-u remains untouched" {
-    for ([_][]const u8{ "\x1b[A", "\x1b[?1u", "\x1b[13;0u", "\x1b[13;257u", "\x1b[13;2:3u", "\x1b[13:10;2u", "\x1b[55296u", "\x1b[1114112u", "\x1b[13;17u" }) |seq| {
+    for ([_][]const u8{ "\x1b[1;5A", "\x1b[?1u", "\x1b[13;0u", "\x1b[13;257u", "\x1b[13;2:3u", "\x1b[13:10;2u", "\x1b[55296u", "\x1b[1114112u", "\x1b[13;17u" }) |seq| {
         try std.testing.expect(decode(seq) == null);
+    }
+}
+
+test "ordinary arrows follow the pane application cursor mode in both directions" {
+    var terminal = try vt.Terminal.init(std.testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer terminal.deinit(std.testing.allocator);
+    var stream = terminal.vtStream();
+    defer stream.deinit();
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    for ([_]bool{ true, false }) |application| {
+        stream.nextSlice(if (application) "\x1b[?1h" else "\x1b[?1l");
+        for ("ABCD") |suffix| {
+            for ("[O") |prefix| {
+                const incoming = [_]u8{ 27, prefix, suffix };
+                const expected = [_]u8{ 27, if (application) 'O' else '[', suffix };
+                out.clearRetainingCapacity();
+                try decode(&incoming).?.encode(&out.writer, vt.input.KeyEncodeOptions.fromTerminal(&terminal));
+                try std.testing.expectEqualStrings(&expected, out.written());
+            }
+        }
     }
 }
 

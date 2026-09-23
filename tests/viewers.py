@@ -360,6 +360,50 @@ class Viewers(unittest.TestCase):
         a.input('\x1b')
         self.assertEqual(capture.read_bytes(),before)
 
+    def test_arrows_follow_focused_pane_cursor_mode(self):
+        fixture=pathlib.Path(self.temp.name,'arrows.py')
+        fixture.write_text("""import os, sys, tty
+tty.setraw(0)
+def mode(application):
+    os.write(1, b'\\x1b[?1h\\rAPPLICATION' if application else b'\\x1b[?1l\\rNORMAL     ')
+with open(sys.argv[1], 'wb', buffering=0) as capture:
+    mode(sys.argv[2] == 'application')
+    while True:
+        byte = os.read(0, 1)
+        if not byte: break
+        if byte == b'n': mode(False)
+        elif byte == b'a': mode(True)
+        else: capture.write(byte)
+""")
+        captures=[pathlib.Path(self.temp.name,f'arrows-{i}.bin') for i in range(2)]
+        panes=[self.new(shlex.join([sys.executable,str(fixture),str(path),mode]))
+               for path,mode in zip(captures,('application','normal'))]
+        viewer=Viewer(self)
+        expected=[b'',b'']
+        def sync_mode(index,label):
+            viewer.focus(panes[index])
+            # Wait for the actual viewer to consume the mode-changing output,
+            # not just for the daemon's screen to contain the readiness marker.
+            self.until(lambda:label in viewer.poll()['data'])
+        def arrows(index,prefix):
+            for incoming in ('[','O'):
+                viewer.input(''.join('\x1b'+incoming+key for key in 'ABCD'))
+                expected[index]+=b''.join(b'\x1b'+prefix+bytes([key]) for key in b'ABCD')
+                self.until(lambda:captures[index].exists() and len(captures[index].read_bytes())>=len(expected[index]))
+                self.assertEqual(captures[index].read_bytes(),expected[index])
+        sync_mode(0,'APPLICATION')
+        arrows(0,b'O')
+        sync_mode(1,'NORMAL')
+        arrows(1,b'[')
+        sync_mode(0,'APPLICATION')
+        viewer.input('n')
+        sync_mode(0,'NORMAL')
+        arrows(0,b'[')
+        viewer.input('a')
+        sync_mode(0,'APPLICATION')
+        arrows(0,b'O')
+        self.assertEqual(captures[1].read_bytes(),expected[1])
+
     def test_older_daemon_is_rejected_without_restart(self):
         path=self.temp.name+'/older.sock'
         seen=[]
