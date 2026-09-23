@@ -25,7 +25,7 @@ fn fetchKeyframe(width: usize, step: usize) FetchScene {
     var p = step % (3 * width + 11);
     const rest = "ᐯ•ᴥ•ᐯ";
     const alert = "ᐯ•ᴥ•ᐱ";
-    const held = "ᐯ•●•ᐱ";
+    const held = "ᐯ•●•ᐯ";
     const end = width - 1;
     if (stage(&p, 8)) return .{ .dog = if (p == 4) "ᐯ◡ᴥ◡ᐯ" else rest };
     if (stage(&p, 6)) return .{ .dog = rest, .ball = 6 + p, .mark = ([_][]const u8{ "⠄", "⠂", "⠁", "⠂", "⠄", "⡀" })[p] };
@@ -40,7 +40,7 @@ fn fetchKeyframe(width: usize, step: usize) FetchScene {
     if (stage(&p, 2)) return .{ .dog = gait_left_carry[1], .x = width - 9 };
     if (stage(&p, width - 8)) return .{ .dog = gait_left_carry[p % 4], .x = width - 9 - p };
     if (stage(&p, 3)) return .{ .dog = held };
-    if (stage(&p, 3)) return .{ .dog = alert };
+    if (stage(&p, 3)) return .{ .dog = rest };
     return .{ .dog = rest };
 }
 // Insert a right-half dot between adjacent whole-cell ball positions.
@@ -145,8 +145,11 @@ pub fn observe(key: u64, active: bool, now_ms: i64) ?*Playback {
 /// 4C: an eight-frame brightness handoff, alternating high/low every 600 ms.
 pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: bool) !void {
     const face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
-    const travel = width -| 6;
+    const travel = width -| 7;
     const elapsed: u64 = @intCast(@max(now_ms, 0));
+    const tail_phase = (elapsed + (seed % 997) * 600) % 12000;
+    const tail: []const u8 = if (tail_phase >= 11000 and tail_phase < 11800 and
+        ((tail_phase - 11000) / 200) % 2 == 0) "-" else "~";
     // Retain the quiet eight-second pause between traversals.
     const phase = (elapsed + (seed % 997) * 600) % (travel * 600 + 8000);
     const position = phase / 600;
@@ -155,18 +158,20 @@ pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: 
     const background: [3]u8 = if (focused) .{ 35, 40, 47 } else .{ 24, 27, 32 };
     const foreground = [3]u8{ 108, 112, 134 };
     for (0..width) |col| {
-        if (col < face.len) {
-            try out.writeAll(face[col]);
-        } else if (col >= 6 and position < travel and
-            (col - 6 == position or (col - 6 == position + 1 and shift > 0)))
+        if (col == 0) {
+            try out.writeAll(tail);
+        } else if (col <= face.len) {
+            try out.writeAll(face[col - 1]);
+        } else if (col >= 7 and position < travel and
+            (col - 7 == position or (col - 7 == position + 1 and shift > 0)))
         {
-            const amount = if (col - 6 == position) 1 - shift else shift;
+            const amount = if (col - 7 == position) 1 - shift else shift;
             var color: [3]u8 = undefined;
             for (background, foreground, &color) |bg, fg, *channel| {
                 channel.* = @intFromFloat(@round(@as(f64, @floatFromInt(bg)) + @as(f64, @floatFromInt(fg - bg)) * amount));
             }
             try out.print("\x1b[38;2;{d};{d};{d}m{s}\x1b[38;2;108;112;134m", .{
-                color[0], color[1], color[2], if ((col - 6) % 2 == 0) "ᶻ" else "z",
+                color[0], color[1], color[2], if ((col - 7) % 2 == 0) "ᶻ" else "z",
             });
         } else try out.writeByte(' ');
     }
@@ -179,7 +184,7 @@ test "half-cell ball travel keeps the impact before the perk and preserves picku
     const reacted = fetchScene(18, 27);
     try std.testing.expectEqualStrings("ᐯ•ᴥ•ᐱ", reacted.dog);
     try std.testing.expectEqualStrings("⢀", reacted.mark);
-    for (78..88) |step| try std.testing.expectEqualStrings("ᐯ•●•ᐱ", fetchScene(18, step).dog);
+    for (78..88) |step| try std.testing.expectEqualStrings("ᐯ•●•ᐯ", fetchScene(18, step).dog);
     const left = fetchScene(22, 36);
     const right = fetchScene(22, 37);
     const advance = fetchScene(22, 38);
@@ -215,13 +220,13 @@ test "sleeping Z crossfade reaches last column without changing face or overflow
                 if (cp == 'z' or cp == 'ᶻ') letters += 1;
             }
             try std.testing.expect(letters <= 2);
-            if (width >= 5) try std.testing.expect(std.mem.startsWith(u8, text, "ᐯ◡ᴥ◡ᐯ"));
-            if (width > 6) {
+            if (width >= 6) try std.testing.expect(std.mem.startsWith(u8, text[1..], "ᐯ◡ᴥ◡ᐯ"));
+            if (width > 7) {
                 reached_end = reached_end or !std.mem.endsWith(u8, text, " ");
-                rested = rested or std.mem.eql(u8, std.mem.trimEnd(u8, text, " "), "ᐯ◡ᴥ◡ᐯ");
+                rested = rested or std.mem.eql(u8, std.mem.trimEnd(u8, text[1..], " "), "ᐯ◡ᴥ◡ᐯ");
             }
         }
-        if (width > 6) try std.testing.expect(reached_end and rested);
+        if (width > 7) try std.testing.expect(reached_end and rested);
     }
 }
 
