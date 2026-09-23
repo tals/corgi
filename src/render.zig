@@ -23,6 +23,7 @@ pub const Ui = struct {
     dialog: ?naming.Dialog = null,
     confirm: bool = false,
     sidebar_open: bool = true,
+    corgi_badge: bool = false,
     sidebar_width: u16 = 28,
     workspace_drop_y: ?u16 = null,
     sidebar_offset: usize = 0,
@@ -95,11 +96,14 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     var out: Buffer = .init(a);
     defer out.deinit();
     const w = &out.writer;
-    const side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
+    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
+    side.corgi_badge = ui.corgi_badge;
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
     try w.writeAll("\x1b[?1003h");
-    try w.writeAll("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[2J");
+    // Erase from home to the end, preserving Kitty image storage. ED 2
+    // deletes cached images in Ghostty, even those without a placement.
+    try w.writeAll("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[J");
     try w.print("\x1b[1;{d}H", .{side.tabX() + 1});
     var x: usize = 0;
     const tab_space = width - side.tabX() -| 3;
@@ -159,6 +163,11 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     }
     try drawDividers(w, model, area);
     try side.draw(w, ui.agents, ui.workspaces);
+    if (ui.corgi_badge) {
+        try w.writeAll(@import("corgi_badge.zig").hide);
+        if (side.width > 0 and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
+            try @import("corgi_badge.zig").place(w);
+    }
     if (ui.workspace_drop_y) |y| {
         try w.print("\x1b[{d};1H\x1b[1;38;2;161;194;178m", .{y + 1});
         for (0..side.width -| 1) |_| try w.writeAll("─");
@@ -310,4 +319,21 @@ fn touchesPane(r: layout.Rect, x: usize, y: usize) bool {
     // Include the junction cells at the corners of the selected pane.
     return x + 1 >= r.x and x <= @as(usize, r.x) + r.w and
         y + 1 >= r.y and y <= @as(usize, r.y) + r.h;
+}
+
+test "badge redraw preserves cached pixels and shifts only the workspace heading" {
+    var model: layout.Model = .{};
+    var ui: Ui = .{ .message = "", .copy_mode = false, .native_blocked = 0, .native_finished = 0, .corgi_badge = true };
+    const shown = try frame(&model, @as([]const Pane, &.{}), 100, 30, ui);
+    defer a.free(shown);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[2J") == null);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[H\x1b[J") != null);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "a=p,i=730031") != null);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "a=t,") == null);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
+    ui.sidebar_open = false;
+    const hidden = try frame(&model, @as([]const Pane, &.{}), 100, 30, ui);
+    defer a.free(hidden);
+    try std.testing.expect(std.mem.indexOf(u8, hidden, @import("corgi_badge.zig").hide) != null);
+    try std.testing.expect(std.mem.indexOf(u8, hidden, "a=p,i=730031") == null);
 }

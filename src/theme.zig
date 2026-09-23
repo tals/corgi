@@ -60,6 +60,7 @@ pub const Theme = struct {
 /// keystrokes, fragmented replies, and literal OSC sequences in bracketed paste.
 pub const Probe = struct {
     theme: Theme = .{},
+    badge: @import("corgi_badge.zig").State = .{},
     changed: bool = false,
     paste: bool = false,
     pending: [128]u8 = undefined,
@@ -85,6 +86,15 @@ pub const Probe = struct {
             }
             if (std.mem.startsWith(u8, start, sequence) or std.mem.startsWith(u8, end, sequence)) continue;
             if (!p.paste) {
+                const badge_prefix = @import("corgi_badge.zig").reply_prefix;
+                if (std.mem.startsWith(u8, badge_prefix, sequence)) continue;
+                if (std.mem.startsWith(u8, sequence, badge_prefix)) {
+                    if (p.badge.accept(sequence)) {
+                        p.len = 0;
+                        continue;
+                    }
+                    if (!std.mem.endsWith(u8, sequence, "\x1b\\") and p.len < p.pending.len) continue;
+                }
                 var partial = false;
                 var color = false;
                 for ([_][]const u8{ "\x1b]10;", "\x1b]11;", "\x1b]4;" }) |prefix| {
@@ -159,4 +169,18 @@ test "host color probe separates fragmented replies from keys and paste" {
     p.touched -= 101;
     try p.expire(&input);
     try std.testing.expectEqualStrings(unknown ++ "\x1b", input.items);
+}
+
+test "badge replies are consumed across fragments but not inside pasted text" {
+    var p: Probe = .{};
+    var input: std.ArrayList(u8) = .empty;
+    defer input.deinit(a);
+    const reply = @import("corgi_badge.zig").reply_prefix ++ ";OK\x1b\\";
+    for ("x" ++ reply ++ "y") |byte| try p.feed(&.{byte}, &input);
+    try std.testing.expectEqualStrings("xy", input.items);
+    try std.testing.expect(p.badge.status == .supported);
+    input.clearRetainingCapacity();
+    const pasted = "\x1b[200~" ++ reply ++ "\x1b[201~";
+    try p.feed(pasted, &input);
+    try std.testing.expectEqualStrings(pasted, input.items);
 }

@@ -36,6 +36,7 @@ pub const Entry = struct {
 pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
+    corgi_badge: bool = false,
     cols: u16,
     rows: u16,
     width: u16,
@@ -134,7 +135,10 @@ pub const View = struct {
         }
         try v.line(w, v.middle(), "agents", "\x1b[1;38;2;226;230;233m");
         try w.print("\x1b[1;{d}H{s} < ", .{ v.width - 4, panel });
-        try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");
+        if (v.corgi_badge) {
+            try w.writeAll("\x1b[1;6H\x1b[1;38;2;226;230;233m");
+            try writeEllipsis(w, "workspaces", v.width -| 17);
+        } else try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");
         try w.print("\x1b[1;{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m[ + ]{s}", .{ v.width - 10, panel });
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
             const y: u16 = @intCast(2 + index * 3);

@@ -122,10 +122,25 @@ pub fn run(fd: c_int, path: []const u8, probe: *@import("theme.zig").Probe, inpu
     defer openers.reap();
     var previous: []const u8 = "";
     defer if (previous.len > 0) a.free(previous);
+    const badge = @import("corgi_badge.zig");
+    probe.badge = .{};
+    try os.writeAll(1, badge.query);
+    defer if (probe.badge.uploaded) {
+        os.writeAll(1, badge.remove) catch {};
+    };
     var next_sync: i64 = 0;
     while (view.clients.items[0].attached) {
         openers.reap();
         try probe.expire(input);
+        var image_output: std.Io.Writer.Allocating = .init(a);
+        defer image_output.deinit();
+        try probe.badge.upload(&image_output.writer, std.time.milliTimestamp());
+        if (image_output.written().len > 0) try os.writeAll(1, image_output.written());
+        const badge_ready = probe.badge.status == .ready;
+        if (view.corgi_badge != badge_ready) {
+            view.corgi_badge = badge_ready;
+            view.dirty = true;
+        }
         if (probe.changed) {
             try connection.send(.{ .op = "theme", .theme = probe.theme });
             probe.changed = false;
