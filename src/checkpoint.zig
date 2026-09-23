@@ -12,21 +12,55 @@ const native = @import("native.zig");
 const Terminal = @import("terminal.zig").Terminal;
 const binary = @import("replay.zig");
 pub const Resume = struct {
+    name: [160]u8 = @splat(0),
+    name_len: usize = 0,
+    touched_at: i64 = 0,
     provider: agents.Provider = .other,
     session: [160]u8 = .{0} ** 160,
     len: usize = 0,
     pub fn observe(r: *Resume, agent: *const agents.Agent) void {
         if (agent.provider == .other) return;
         if (agent.session_len > 0) {
+            if (r.provider != agent.provider or !std.mem.eql(u8, r.session[0..r.len], agent.sessionId())) {
+                r.name_len = 0;
+                r.touched_at = 0;
+            }
+            if (agent.name_len > 0) {
+                r.name = agent.name;
+                r.name_len = agent.name_len;
+            }
+            r.touched_at = @max(r.touched_at, @max(agent.updated_at, @divTrunc(agent.changed_at, std.time.us_per_s)));
             r.provider = agent.provider;
             r.session = agent.session;
             r.len = agent.session_len;
         } else if (r.provider == .other) r.provider = agent.provider;
     }
+    pub fn banner(r: Resume, alloc: std.mem.Allocator, now: i64) ![]const u8 {
+        var out: std.Io.Writer.Allocating = .init(alloc);
+        errdefer out.deinit();
+        try out.writer.writeAll("\x1b[0m\r\n\r\n");
+        if (r.name_len > 0 and r.name_len <= r.name.len) {
+            try out.writer.writeAll("# ");
+            for (r.name[0..r.name_len]) |ch| try out.writer.writeByte(if (ch < 32 or ch == 127) ' ' else ch);
+            try out.writer.writeAll("\r\n");
+        }
+        if (r.touched_at > 0) {
+            const seconds = @max(0, now - r.touched_at);
+            try out.writer.writeAll("\x1b[2m# Last active ");
+            if (seconds < 60) try out.writer.writeAll("just now") else {
+                const unit: i64 = if (seconds < 3600) 60 else if (seconds < 86400) 3600 else 86400;
+                const label: []const u8 = if (unit == 60) "minute" else if (unit == 3600) "hour" else "day";
+                const count = @divTrunc(seconds, unit);
+                try out.writer.print("{d} {s}{s} ago", .{ count, label, if (count == 1) "" else "s" });
+            }
+            try out.writer.writeAll("\x1b[0m\r\n");
+        }
+        return out.toOwnedSlice();
+    }
     pub fn command(r: Resume, alloc: std.mem.Allocator) ![]const u8 {
-        if (r.provider == .other) return alloc.dupe(u8, "");
+        if (r.provider == .other or r.len == 0 or r.len > r.session.len) return alloc.dupe(u8, "");
+        for (r.session[0..r.len]) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
         const prefix: []const u8 = if (r.provider == .codex) "codex resume" else "claude --resume";
-        if (r.len == 0) return alloc.dupe(u8, prefix);
         var out: std.Io.Writer.Allocating = .init(alloc);
         try out.writer.print("{s} '", .{prefix});
         for (r.session[0..r.len]) |ch| {
@@ -47,12 +81,13 @@ pub const Screen = struct {
     synchronized_since: ?i64 = null,
     approximate: bool = false,
     redraw_pending: bool = false,
+    initial_input: ?[]const u8 = null,
     pub fn capture(alloc: std.mem.Allocator, t: *Terminal, live: bool) !Screen {
         // Transfer retained terminal state, not every byte ever emitted. Repaint
         // only after the candidate has committed ownership of the live PTY.
         const history = if (live) try t.liveSnapshot() else try t.snapshot();
         defer a.free(history);
-        return .{ .cols = t.vt.cols, .rows = t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = null, .approximate = live, .redraw_pending = live };
+        return .{ .cols = t.vt.cols, .rows = t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = null, .approximate = live, .redraw_pending = live, .initial_input = if (live) t.initial_input else null };
     }
     pub fn restore(screen: Screen, live: bool) !*Terminal {
         if (screen.cols == 0 or screen.cols > 500 or screen.rows == 0 or screen.rows > 200) return error.InvalidCheckpoint;
@@ -68,6 +103,7 @@ pub const Screen = struct {
             t.replaying = false;
         }
         if (live) {
+            if (screen.initial_input) |command| try t.prefill(command);
             t.fd = screen.fd;
             t.pid = screen.pid;
             t.exited = screen.exited;
@@ -262,9 +298,10 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
                 pane.terminal.feed(text);
                 pane.terminal.feed("\r\n");
             }
-            const banner = try std.fmt.allocPrint(a, "\r\n[Corgi recovered native session {d}; new shell; previous process not reattached]\r\nResume when ready: {s}\r\n", .{ n.id, command });
+            const banner = try pane.resume_hint.banner(a, std.time.timestamp());
             defer a.free(banner);
             pane.terminal.feed(banner);
+            try pane.terminal.prefill(command);
         }
     }
 }
@@ -274,10 +311,12 @@ fn recoverPane(p: *runtime.Pane, socket: []const u8, executable: []const u8, sav
     // A missing project directory must not discard its saved contents.
     const dir = workspace.Store.directory(p.cwd) catch try workspace.Store.directory(os.env("HOME") orelse "/");
     defer a.free(dir);
-    const banner = try std.fmt.allocPrint(a, "\x1b[0m\r\n\r\n[Corgi recovered saved output from {d}; new shell; previous process not reattached]\r\nSaved directory: {s}\r\n{s}{s}\r\n", .{ saved_at, p.cwd, if (command.len > 0) "Resume when ready: " else "No agent session was recorded.", command });
+    _ = saved_at;
+    const banner = if (command.len > 0) try p.resume_hint.banner(a, std.time.timestamp()) else try a.dupe(u8, "\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
     defer a.free(banner);
     p.terminal.feed(banner);
     try p.terminal.spawn(dir, socket, p.id, executable, null);
+    try p.terminal.prefill(command);
     a.free(p.cwd);
     p.cwd = try a.dupe(u8, dir);
 }

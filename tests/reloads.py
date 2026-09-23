@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Isolated real-process handoff and cold-recovery tests; never use the host runtime."""
-import json, os, pathlib, shlex, signal, socket, subprocess, sys, time, unittest
+import json, os, pathlib, shlex, shutil, signal, socket, subprocess, sys, time, unittest
 import smoke
 from viewers import Viewer
 
@@ -102,13 +102,45 @@ class Reloads(smoke.Runtime):
         self.assertEqual([(w['id'],w['tabs']) for w in before['workspaces']],[(w['id'],w['tabs']) for w in after['workspaces']])
         self.assertEqual(after['panes'][0]['id'],first)
         self.assertNotEqual(after['panes'][0]['pid'],before['panes'][0]['pid'])
+        self.until(lambda: "codex resume 'session-123'" in self.rpc(op='read',pane=first)['text'])
         text=self.rpc(op='read',pane=first)['text']
         self.assertIn('BEFORE_CRASH',text)
         self.assertIn("codex resume 'session-123'",text)
         self.assertEqual(after['panes'][0]['cwd'],str(project))
         self.assertEqual(after['panes'][0]['agent']['provider'],'other')
-        self.rpc(op='send',pane=first,text="printf 'NEW_%s\\n' SHELL",enter=True)
+        self.rpc(op='send',pane=first,text="\x15printf 'NEW_%s\\n' SHELL",enter=True)
         self.until(lambda:'NEW_SHELL' in self.rpc(op='read',pane=first)['text'])
+
+    def test_recovery_prefills_editable_command_until_enter(self):
+        for shell in ['/bin/sh', '/bin/zsh', shutil.which('fish')]:
+            if not shell: continue
+            with self.subTest(shell=shell):
+                self.env['SHELL']=shell
+                self.restart_runtime()
+                first=self.new()
+                marker=pathlib.Path(self.temp.name,'resumed')
+                marker.unlink(missing_ok=True)
+                # An alias/function verifies that normal interactive shell setup
+                # still applies to the prefilled command.
+                body="printf '%s' \"$*\" > "+shlex.quote(str(marker))
+                if shell.endswith('fish'):
+                    config=pathlib.Path(self.temp.name,'.config/fish/config.fish')
+                    config.parent.mkdir(parents=True,exist_ok=True)
+                    config.write_text("set -g fish_greeting; function fish_prompt; printf '❯ '; end; function codex; printf '%s ' $argv > "+shlex.quote(str(marker))+"; end\n")
+                else:
+                    config=pathlib.Path(self.temp.name,'.zshrc' if shell.endswith('zsh') else '.profile')
+                    config.write_text('codex() { '+body+'; }\n')
+                self.rpc(op='hook',provider='codex',pane=first,event={'hook_event_name':'SessionStart','session_id':'session-ready'})
+                self.until(lambda: any(p['id']==first and p['agent']['session']=='session-ready' for p in self.session()['panes']))
+                self.rpc(op='recovery.save',protocol=1)
+                self.restart_runtime()
+                self.until(lambda: "codex resume 'session-ready'" in self.rpc(op='read',pane=first)['text'])
+                self.assertFalse(marker.exists())
+                self.rpc(op='pane.input',protocol=1,pane=first,data='\r')
+                self.until(marker.exists)
+                self.assertEqual(marker.read_text().strip(),'resume session-ready')
+                self.rpc(op='send',pane=first,text='exit',enter=True)
+                self.until(lambda: first not in [p['id'] for p in self.session()['panes']])
 
     def test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes(self):
         first=self.new();self.new();before=self.session()
@@ -147,7 +179,9 @@ class Reloads(smoke.Runtime):
         sessions=self.rpc(op='native.list')['sessions']
         self.assertTrue(sessions[0]['exited']);self.assertEqual(sessions[0]['pid'],-1)
         self.assertEqual(len(self.session()['panes']),1)
-        pane=self.session()['panes'][0]['id'];text=self.rpc(op='read',pane=pane)['text']
+        pane=self.session()['panes'][0]['id']
+        self.until(lambda: "codex resume 't'" in self.rpc(op='read',pane=pane)['text'])
+        text=self.rpc(op='read',pane=pane)['text']
         self.assertIn("codex resume 't'",text)
         self.assertIn('requestApproval',text)
 
@@ -164,7 +198,7 @@ class Reloads(smoke.Runtime):
         self.run_cli('start')
         self.assertEqual(self.session()['panes'][0]['id'],first)
         text=self.rpc(op='read',pane=first)['text']
-        self.assertIn('Saved directory:',text)
+        self.assertIn('# Recovered saved output; new shell.',text)
         self.assertEqual(self.session()['panes'][0]['cwd'],str(pathlib.Path(self.temp.name).resolve()))
 
     def test_pipelined_requests_remain_ordered_across_handoff(self):

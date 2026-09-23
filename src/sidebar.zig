@@ -2,6 +2,7 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const layout = @import("layout.zig");
 const vt = @import("ghostty-vt");
+const corgi_animation = @import("corgi_animation.zig");
 
 pub const max_entries = layout.max_panes + 16;
 pub const Target = union(enum) { pane: u32, native: u32 };
@@ -117,6 +118,8 @@ pub const View = struct {
         return x >= range.start and x < range.end;
     }
     pub fn draw(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry) !void {
+        corgi_animation.beginFrame();
+        defer corgi_animation.endFrame();
         const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
         const thinking_frame: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 80), thinking_frames.len));
         const panel = "\x1b[0;38;2;155;163;175;48;2;24;27;32m";
@@ -253,8 +256,19 @@ pub const View = struct {
             const badge = subagentBadge(&badge_buf, e.subagents);
             const badge_width = displayWidth(badge);
             const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
-            if (e.state == .working and !compacting and !waiting and e.activity.len == 0) {
-                try writeWorking(w, detail_room, std.time.milliTimestamp());
+            const animation_seed: u64 = switch (e.target) {
+                .pane => |id| @as(u64, id) * 17,
+                .native => |id| (@as(u64, id) + 0x100000000) * 17,
+            };
+            const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
+            const now_ms = std.time.milliTimestamp();
+            const playback = corgi_animation.observe(animation_seed, fallback, now_ms);
+            if (fallback) {
+                try w.writeAll("\x1b[38;2;249;226;175m");
+                try playback.?.write(w, detail_room, now_ms);
+            } else if (e.state == .idle) {
+                try w.writeAll("\x1b[38;2;108;112;134m");
+                try corgi_animation.idle(w, detail_room, std.time.milliTimestamp(), animation_seed, e.focused);
             } else if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), detail_room);
             if (badge_width > 0) {
                 const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
@@ -275,28 +289,6 @@ pub const View = struct {
         try writeClipped(w, text, v.width - 3);
     }
 };
-
-fn writeWorking(w: *std.Io.Writer, room: usize, now_ms: i64) !void {
-    const label = "Working";
-    // Codex's two-second sweep: ten columns of padding and a cosine band
-    // five columns wide on each side, using the sidebar's own palette.
-    const position = @as(f64, @floatFromInt(@mod(now_ms, 2000))) / 2000.0 * (label.len + 20);
-    const clipped = room < label.len;
-    const letters = if (clipped) room -| 1 else label.len;
-    for (label[0..letters], 0..) |ch, i| {
-        const distance = @abs(@as(f64, @floatFromInt(i + 10)) - position);
-        const intensity = if (distance < 5) 0.5 * (1 + @cos(std.math.pi * distance / 5)) else 0;
-        const base = [_]u8{ 125, 132, 143 };
-        const highlight = [_]u8{ 226, 230, 233 };
-        var color: [3]u8 = undefined;
-        for (&color, base, highlight) |*channel, low, high| {
-            channel.* = low + @as(u8, @intFromFloat(@round(@as(f64, @floatFromInt(high - low)) * intensity)));
-        }
-        try w.print("\x1b[38;2;{d};{d};{d}m{c}", .{ color[0], color[1], color[2], ch });
-    }
-    try w.writeAll("\x1b[38;2;226;230;233m");
-    if (clipped and room > 0) try w.writeAll("…");
-}
 
 fn subagentBadge(buf: []u8, status: agents.Subagents) []const u8 {
     var running_buf: [24]u8 = undefined;
@@ -762,4 +754,37 @@ test "port hit testing matches clipped labels and outer terminal receives link m
     const single_works = [_]ports.Work{.{ .id = 1, .endpoints = endpoints[0..1] }};
     single.ports.workspaces = &single_works;
     try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &.{single}, 13, 2, &buf).?);
+}
+
+test "corgi frames occupy one column per glyph in the terminal" {
+    const frames = @import("corgi_frames.zig");
+    const routines = [_][]const []const u8{ &frames.wag, &frames.fetch, &frames.sniff };
+    for (routines) |routine| for (routine) |frame| {
+        try std.testing.expectEqual(try std.unicode.utf8CountCodepoints(frame), displayWidth(frame));
+        try std.testing.expect(displayWidth(frame) <= 18);
+    };
+}
+
+test "idle face replaces stale activity while working activity remains useful" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Agent", .provider = .codex, .state = .idle, .attention = .none, .activity = "Reading source files" };
+    const view = View.init(100, 30, true, 0, 1);
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) == null);
+    output.clearRetainingCapacity();
+    entry.state = .working;
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) != null);
+    output.clearRetainingCapacity();
+    entry.activity = "";
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Working") == null);
+    var has_spinner = false;
+    for ([_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }) |glyph| {
+        has_spinner = has_spinner or std.mem.indexOf(u8, output.written(), glyph) != null;
+    }
+    try std.testing.expect(has_spinner);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;249;226;175m") != null);
 }

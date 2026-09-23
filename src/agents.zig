@@ -38,6 +38,7 @@ pub const Agent = struct {
     cwd_len: usize = 0,
     last_seq: i64 = 0,
     changed_at: i64 = 0,
+    updated_at: i64 = 0,
     pub fn setName(a: *Agent, value: []const u8) void {
         var n = @min(value.len, a.name.len);
         while (n > 0 and !std.unicode.utf8ValidateSlice(value[0..n])) n -= 1;

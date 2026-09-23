@@ -173,3 +173,32 @@ test "live checkpoint size depends on retained state not replay volume" {
     defer a.free(text);
     try std.testing.expect(std.mem.indexOf(u8, text, "retained content") != null);
 }
+
+test "recovery metadata survives observation and clears on session switch" {
+    var agent: @import("agents.zig").Agent = .{ .provider = .codex, .updated_at = 1000 };
+    agent.session_len = @import("agents.zig").clean(&agent.session, "first");
+    agent.setName("A session\nwith controls\x1b");
+    var hint: cp.Resume = .{};
+    hint.observe(&agent);
+    const banner = try hint.banner(a, 1120);
+    defer a.free(banner);
+    try std.testing.expect(std.mem.indexOf(u8, banner, "# A session with controls ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, banner, "# Last active 2 minutes ago") != null);
+    agent.session_len = @import("agents.zig").clean(&agent.session, "second");
+    agent.name_len = 0;
+    agent.updated_at = 0;
+    hint.observe(&agent);
+    try std.testing.expectEqual(@as(usize, 0), hint.name_len);
+    try std.testing.expectEqual(@as(i64, 0), hint.touched_at);
+}
+test "recovery never prefills selection or control characters" {
+    var hint: cp.Resume = .{ .provider = .codex };
+    const missing = try hint.command(a);
+    defer a.free(missing);
+    try std.testing.expectEqualStrings("", missing);
+    @memcpy(hint.session[0..4], "a\nbc");
+    hint.len = 4;
+    const unsafe = try hint.command(a);
+    defer a.free(unsafe);
+    try std.testing.expectEqualStrings("", unsafe);
+}

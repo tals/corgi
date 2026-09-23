@@ -50,6 +50,7 @@ pub const Snapshot = struct {
     turn_len: usize = 0,
     outcome: ?agents.observation.Outcome = null,
     observed_at: i64,
+    updated_at: i64 = 0,
 };
 fn field(v: std.json.Value, key: []const u8) std.json.Value {
     return if (v == .object) v.object.get(key) orelse .null else .null;
@@ -141,6 +142,8 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     var state: agents.State = if (eq(u8, kind, "active")) .working else if (eq(u8, kind, "idle")) .idle else .initializing;
     if (needsInput(status)) state = .blocked;
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
+    const updated = field(thread, "updatedAt");
+    if (updated == .integer and updated.integer > 0) out.updated_at = updated.integer;
     var named: agents.Agent = .{};
     named.setName(agents.str(thread, "name"));
     out.name = named.name;
@@ -188,6 +191,7 @@ pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
         agent.transcript = s.transcript;
         agent.transcript_len = s.transcript_len;
     }
+    agent.updated_at = s.updated_at;
     agent.name = s.name;
     agent.name_len = s.name_len;
     const old_state = agent.state;

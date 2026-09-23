@@ -14,6 +14,7 @@ pub const Terminal = struct {
     exited: bool = false,
     exit_status: c_int = 0,
     pending: std.ArrayList(u8) = .empty,
+    initial_input: ?[]const u8 = null,
     synchronized_since: ?i64 = null,
     journal: @import("replay.zig").Journal = .{},
     replaying: bool = false,
@@ -190,6 +191,8 @@ pub const Terminal = struct {
         t.pid = -1;
         t.exited = true;
         t.pending.clearRetainingCapacity();
+        if (t.initial_input) |command| a.free(command);
+        t.initial_input = null;
     }
     pub fn destroy(t: *Terminal) void {
         t.stop();
@@ -310,6 +313,21 @@ pub const Terminal = struct {
         if (t.render_dirty) t.journal.append(.render, "");
         t.render_dirty = false;
     }
+    // Wait until the interactive shell has installed its line editor. No newline
+    // is sent: this is editable input, and only the user can execute it.
+    pub fn prefill(t: *Terminal, command: []const u8) !void {
+        if (t.initial_input) |old| a.free(old);
+        t.initial_input = null;
+        if (command.len > 0) t.initial_input = try a.dupe(u8, command);
+    }
+    fn fillInput(t: *Terminal) void {
+        const command = t.initial_input orelse return;
+        var attrs: c.struct_termios = undefined;
+        if (c.tcgetattr(t.fd, &attrs) != 0 or (attrs.c_lflag & c.ICANON) != 0) return;
+        t.send(command) catch return;
+        a.free(command);
+        t.initial_input = null;
+    }
     pub fn send(t: *Terminal, bytes: []const u8) !void {
         if (t.pending.items.len + bytes.len > 1024 * 1024) return error.InputBackpressure;
         try t.pending.appendSlice(a, bytes);
@@ -347,6 +365,7 @@ pub const Terminal = struct {
                 dirty = true;
             }
         }
+        if (!t.exited) t.fillInput();
         if (t.expireSynchronizedOutput(std.time.milliTimestamp())) dirty = true;
         return dirty and !t.vt.modes.get(.synchronized_output);
     }
