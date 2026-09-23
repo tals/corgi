@@ -7,97 +7,9 @@ fn restored(old: *Terminal) !*Terminal {
     defer arena.deinit();
     return (try cp.Screen.capture(arena.allocator(), old, true)).restore(true);
 }
-// Compatibility with checkpoints exported by older daemons.
-fn restoredReplay(old: *Terminal) !*Terminal {
-    const data = try @import("replay.zig").encode(a, old.journal.bytes.items);
-    defer a.free(data);
-    const screen: cp.Screen = .{ .cols = old.journal.cols, .rows = old.journal.rows, .data = data, .synchronized_since = old.synchronized_since };
-    return screen.restore(true);
-}
-fn equal(old: *Terminal, fresh: *Terminal) !void {
-    const expected = try old.snapshot();
-    defer a.free(expected);
-    const actual = try fresh.snapshot();
-    defer a.free(actual);
-    try std.testing.expectEqualStrings(expected, actual);
-    try std.testing.expectEqual(old.vt.screens.active.cursor.x, fresh.vt.screens.active.cursor.x);
-    try std.testing.expectEqual(old.vt.screens.active.cursor.y, fresh.vt.screens.active.cursor.y);
-    try std.testing.expectEqualDeep(old.vt.screens.active.kitty_keyboard, fresh.vt.screens.active.kitty_keyboard);
-    try std.testing.expectEqualDeep(old.vt.modes, fresh.vt.modes);
-}
-test "legacy replay checkpoint preserves both screens history margins wrap keyboard stack and colors" {
-    const old = try Terminal.create(40, 6);
-    defer old.destroy();
-    old.record();
-    old.applyTheme(.{ .foreground = .{ .r = 20, .g = 40, .b = 60 } });
-    old.feed("FIRST_HISTORY_LINE\r\n");
-    for (0..400) |_| old.feed("a line of retained terminal history\r\n");
-    old.feed("\x1b[3;5H\x1b[31mRED\x1b[>1u\x1b[?1049hALTERNATE\x1b[>3u\x1b[>7u");
-    old.feed("\x1b[2;5r\x1b[?6h\x1b[2;3H\x1b7\x1b[?2004h\x1b[?1002h\x1b[?1006h\x1b]11;#123456\x07");
-    const fresh = try restoredReplay(old);
-    defer fresh.destroy();
-    try equal(old, fresh);
-    for ([_][]const u8{ "\x1b[<u\x1b8HELLO", "\x1b[?1049l", "\x1b8AFTER" }) |bytes| {
-        old.feed(bytes);
-        fresh.feed(bytes);
-        try equal(old, fresh);
-    }
-    try old.resize(25, 8);
-    try fresh.resize(25, 8);
-    try equal(old, fresh);
-    try std.testing.expect((try fresh.search("FIRST_HISTORY_LINE", 0)).offset != null);
-}
-test "legacy replay checkpoint preserves fragments at every byte including UTF8 CSI OSC and DCS" {
-    const sequence = "hello🙂é\x1b[31;1mRED\x1b]2;title✓\x1b\\\x1bP$qm\x1b\\\x1b[3;4H!";
-    for (0..sequence.len) |split| {
-        const old = try Terminal.create(30, 5);
-        defer old.destroy();
-        old.record();
-        old.feed(sequence[0..split]);
-        const fresh = try restoredReplay(old);
-        defer fresh.destroy();
-        try std.testing.expectEqual(@as(usize, 0), fresh.pending.items.len);
-        old.pending.clearRetainingCapacity();
-        old.feed(sequence[split..]);
-        fresh.feed(sequence[split..]);
-        try equal(old, fresh);
-        try std.testing.expectEqualStrings(old.pending.items, fresh.pending.items);
-    }
-}
-test "legacy replay checkpoint retains completed synchronized frame and falls back after journal failure" {
-    const old = try Terminal.create(30, 5);
-    defer old.destroy();
-    old.record();
-    old.feed("COMPLETE\x1b[2;3H");
-    try old.updateRender();
-    old.feed("\x1b[?2026h\x1b[1;1HPARTIAL");
-    const fresh = try restoredReplay(old);
-    defer fresh.destroy();
-    const expected = try old.text();
-    defer a.free(expected);
-    const actual = try fresh.text();
-    defer a.free(actual);
-    try std.testing.expectEqualStrings(expected, actual);
-    try std.testing.expectEqualDeep(old.render.cursor.viewport, fresh.render.cursor.viewport);
-    old.feed("\x1b[?2026l");
-    fresh.feed("\x1b[?2026l");
-    try equal(old, fresh);
-    old.journal.fail();
-    const fallback = try cp.Screen.capture(a, old, true);
-    defer a.free(fallback.data);
-    try std.testing.expect(fallback.approximate);
-    const recovered = try fallback.restore(true);
-    defer recovered.destroy();
-    try std.testing.expect(recovered.redraw_pending);
-    try std.testing.expect(recovered.journal.enabled and !recovered.journal.failed);
-    const cold = try cp.Screen.capture(a, old, false);
-    defer a.free(cold.data);
-    try std.testing.expect(cold.data.len > 0);
-}
 test "compact checkpoint preserves screens input modes cursor and title without replaying replies" {
     const old = try Terminal.create(40, 6);
     defer old.destroy();
-    old.record();
     old.feed("primary history\x1b[?1049h\x1b[2Jalternate\x1b[?2004h\x1b[?1003h\x1b[?1006h\x1b[>3u\x1b]2;agent title\x1b\\\x1b[3;5H");
     const fresh = try restored(old);
     defer fresh.destroy();
@@ -152,20 +64,16 @@ test "resume command quotes session text as one shell argument" {
     try std.testing.expectEqualStrings("codex resume 'session'\\''with quote'", command);
 }
 
-test "live checkpoint size depends on retained state not replay volume" {
+test "live checkpoint size depends on retained state not output volume" {
     const old = try Terminal.create(40, 6);
     defer old.destroy();
-    old.record();
     old.feed("retained content");
     const first = try cp.Screen.capture(a, old, true);
     defer a.free(first.data);
     const noise = [_]u8{'\r'} ** 4096;
     for (0..256) |_| old.feed(&noise);
-    try std.testing.expect(old.journal.bytes.items.len > 1024 * 1024);
-    try std.testing.expect(!old.journal.failed);
     const compact = try cp.Screen.capture(a, old, true);
     defer a.free(compact.data);
-    try std.testing.expect(compact.approximate and compact.redraw_pending);
     try std.testing.expect(compact.data.len < first.data.len + 128);
     const fresh = try compact.restore(true);
     defer fresh.destroy();

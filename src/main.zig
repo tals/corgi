@@ -242,7 +242,7 @@ const help =
 test {
     _ = @import("link_tooltip.zig");
     _ = @import("checkpoint_probe.zig");
-    _ = @import("replay_test.zig");
+    _ = @import("checkpoint_test.zig");
     _ = @import("runtime.zig");
     _ = @import("protocol.zig");
     _ = @import("surface.zig");

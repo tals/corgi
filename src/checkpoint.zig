@@ -1,5 +1,5 @@
 //! Versioned runtime state shared by live handoff and disk recovery. Live state
-//! uses compact VT snapshots and application redraw; old replay imports remain supported.
+//! uses compact VT snapshots and application redraw.
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
@@ -9,7 +9,7 @@ const layout = @import("layout.zig");
 const agents = @import("agents.zig");
 const native = @import("native.zig");
 const Terminal = @import("terminal.zig").Terminal;
-const binary = @import("replay.zig");
+const binary = @import("base64.zig");
 pub const Resume = struct {
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
@@ -77,39 +77,31 @@ pub const Screen = struct {
     fd: i32 = -1,
     exited: bool = true,
     exit_status: i32 = 0,
-    synchronized_since: ?i64 = null,
-    approximate: bool = false,
-    redraw_pending: bool = false,
     initial_input: ?[]const u8 = null,
     pub fn capture(alloc: std.mem.Allocator, t: *Terminal, live: bool) !Screen {
         // Transfer retained terminal state, not every byte ever emitted. Repaint
         // only after the candidate has committed ownership of the live PTY.
         const history = if (live) try t.liveSnapshot() else try t.snapshot();
         defer a.free(history);
-        return .{ .cols = t.vt.cols, .rows = t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .synchronized_since = null, .approximate = live, .redraw_pending = live, .initial_input = if (live) t.initial_input else null };
+        return .{ .cols = t.vt.cols, .rows = t.vt.rows, .data = try binary.encode(alloc, history), .pid = if (live) t.pid else -1, .fd = if (live) t.fd else -1, .exited = t.exited, .exit_status = t.exit_status, .initial_input = if (live) t.initial_input else null };
     }
     pub fn restore(screen: Screen, live: bool) !*Terminal {
         if (screen.cols == 0 or screen.cols > 500 or screen.rows == 0 or screen.rows > 200) return error.InvalidCheckpoint;
         const bytes = try binary.decode(a, screen.data);
         defer a.free(bytes);
-        const t = if (live and !screen.approximate) try Terminal.replay(screen.cols, screen.rows, bytes) else try Terminal.create(screen.cols, screen.rows);
-        if (!live or screen.approximate) {
-            t.record();
-            // A snapshot can contain terminal queries. Never send replies to
-            // the still-owned PTY during the handoff's preparation phase.
-            t.replaying = true;
-            t.feed(bytes);
-            t.replaying = false;
-        }
+        const t = try Terminal.create(screen.cols, screen.rows);
+        // Snapshot queries must not reach the still-owned PTY during preparation.
+        t.restoring = true;
+        t.feed(bytes);
+        t.restoring = false;
         if (live) {
             if (screen.initial_input) |command| try t.prefill(command);
             t.fd = screen.fd;
             t.pid = screen.pid;
             t.exited = screen.exited;
             t.exit_status = screen.exit_status;
-            t.synchronized_since = screen.synchronized_since;
             t.imported = true;
-            t.redraw_pending = screen.redraw_pending or screen.approximate;
+            t.redraw_pending = true;
             if (t.fd >= 0) os.cloexec(t.fd);
         }
         return t;
@@ -145,7 +137,6 @@ pub const Native = struct {
     deferred: []const u8,
     events: []const native.Event,
     approvals: []const []const u8,
-    threads: []const []const u8,
     tools: []const native.Tool,
     next_seq: u64,
     journal_bytes: usize,
@@ -190,15 +181,13 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     for (r.closed.items, closed) |p, *out| out.* = .{ .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, false), .tab = p.tab, .workspace_id = p.workspace_id };
     const sessions = try alloc.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*s, *out| {
-        const threads = try alloc.alloc([]const u8, s.active_threads.count());
         var it = s.active_threads.iterator();
         const turns = try alloc.alloc(NativeTurn, s.active_threads.count());
-        for (threads, turns) |*thread, *turn| {
+        for (turns) |*turn| {
             const entry = it.next().?;
-            thread.* = entry.key_ptr.*;
             turn.* = .{ .thread = entry.key_ptr.*, .turn = entry.value_ptr.* };
         }
-        out.* = .{ .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .threads = threads, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
+        out.* = .{ .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
     }
     return .{ .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
@@ -251,13 +240,8 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         for (n.events) |event| try s.events.append(a, .{ .seq = event.seq, .line = try a.dupe(u8, event.line) });
         if (live) {
             for (n.approvals) |line| try s.approvals.append(a, try a.dupe(u8, line));
-            for (n.threads) |thread| {
-                var turn_id: []const u8 = "";
-                for (n.turns) |turn| if (std.mem.eql(u8, thread, turn.thread)) {
-                    turn_id = turn.turn;
-                    break;
-                };
-                try s.active_threads.put(a, try a.dupe(u8, thread), try a.dupe(u8, turn_id));
+            for (n.turns) |turn| {
+                try s.active_threads.put(a, try a.dupe(u8, turn.thread), try a.dupe(u8, turn.turn));
             }
             for (n.tools) |tool| try s.active_tools.append(a, .{ .id = try a.dupe(u8, tool.id), .thread = try a.dupe(u8, tool.thread), .turn = try a.dupe(u8, tool.turn) });
         }

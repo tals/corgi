@@ -16,59 +16,13 @@ pub const Terminal = struct {
     pending: std.ArrayList(u8) = .empty,
     initial_input: ?[]const u8 = null,
     synchronized_since: ?i64 = null,
-    journal: @import("replay.zig").Journal = .{},
-    replaying: bool = false,
-    render_dirty: bool = true,
+    restoring: bool = false,
     imported: bool = false,
     redraw_pending: bool = false,
     redraw_restore_at: ?i64 = null,
 
-    pub fn record(t: *Terminal) void {
-        t.journal = .{ .enabled = true, .cols = t.vt.cols, .rows = t.vt.rows };
-    }
     pub fn applyTheme(t: *Terminal, theme: @import("theme.zig").Theme) void {
-        if (t.journal.enabled and !t.journal.failed) {
-            if (std.json.Stringify.valueAlloc(a, theme, .{})) |bytes| {
-                defer a.free(bytes);
-                t.journal.append(.theme, bytes);
-            } else |_| t.journal.fail();
-        }
         theme.apply(&t.vt);
-        t.render_dirty = true;
-    }
-    pub fn replay(cols: u16, rows: u16, bytes: []const u8) !*Terminal {
-        if (bytes.len > @import("replay.zig").limit) return error.CheckpointTooLarge;
-        const t = try Terminal.create(cols, rows);
-        errdefer t.destroy();
-        t.replaying = true;
-        var offset: usize = 0;
-        while (offset < bytes.len) {
-            if (bytes.len - offset < 5) return error.InvalidCheckpoint;
-            const tag = std.meta.intToEnum(@import("replay.zig").Tag, bytes[offset]) catch return error.InvalidCheckpoint;
-            const len = std.mem.readInt(u32, bytes[offset + 1 ..][0..4], .little);
-            offset += 5;
-            if (len > bytes.len - offset) return error.InvalidCheckpoint;
-            const data = bytes[offset..][0..len];
-            switch (tag) {
-                .output => t.feed(data),
-                .resize => {
-                    if (len != 4) return error.InvalidCheckpoint;
-                    try t.resize(std.mem.readInt(u16, data[0..2], .little), std.mem.readInt(u16, data[2..4], .little));
-                },
-                .theme => {
-                    const parsed = try std.json.parseFromSlice(@import("theme.zig").Theme, a, data, .{});
-                    defer parsed.deinit();
-                    t.applyTheme(parsed.value);
-                },
-                .render => try t.updateRender(),
-                .sync_end => t.endSynchronizedOutput(),
-            }
-            offset += len;
-        }
-        t.replaying = false;
-        t.journal = .{ .enabled = true, .cols = cols, .rows = rows };
-        try t.journal.bytes.appendSlice(a, bytes);
-        return t;
     }
     const synchronized_timeout_ms = 1000;
 
@@ -99,13 +53,13 @@ pub const Terminal = struct {
     }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
-        if (!t.replaying and t.fd >= 0) {
+        if (!t.restoring and t.fd >= 0) {
             t.title_pid = if (@import("detection.zig").foreground(t.fd)) |job| job.pid else 0;
         }
     }
     fn reply(handler: *vt.TerminalStream.Handler, bytes: [:0]const u8) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
-        if (!t.replaying) t.send(bytes) catch {};
+        if (!t.restoring) t.send(bytes) catch {};
     }
     const AttrCallback = @typeInfo(@FieldType(vt.TerminalStream.Handler.Effects, "device_attributes")).optional.child;
     const Attributes = @typeInfo(@typeInfo(AttrCallback).pointer.child).@"fn".return_type.?;
@@ -196,7 +150,6 @@ pub const Terminal = struct {
     pub fn destroy(t: *Terminal) void {
         t.stop();
         t.pending.deinit(a);
-        t.journal.bytes.deinit(a);
         t.stream.deinit();
         t.links.deinit();
         t.render.deinit(a);
@@ -272,19 +225,12 @@ pub const Terminal = struct {
         const h = @max(1, rows);
         if (t.vt.cols == w and t.vt.rows == h) return;
         try t.vt.resize(a, w, h);
-        var size: [4]u8 = undefined;
-        std.mem.writeInt(u16, size[0..2], w, .little);
-        std.mem.writeInt(u16, size[2..4], h, .little);
-        t.journal.append(.resize, &size);
-        t.render_dirty = true;
         var ws = std.mem.zeroes(c.struct_winsize);
         ws.ws_col = w;
         ws.ws_row = h;
         if (t.fd >= 0) _ = c.ioctl(t.fd, c.TIOCSWINSZ, &ws);
     }
     pub fn feed(t: *Terminal, bytes: []const u8) void {
-        t.journal.append(.output, bytes);
-        t.render_dirty = true;
         t.stream.nextSlice(bytes);
         if (t.vt.modes.get(.synchronized_output)) {
             if (t.synchronized_since == null) t.synchronized_since = std.time.milliTimestamp();
@@ -293,7 +239,6 @@ pub const Terminal = struct {
         }
     }
     fn endSynchronizedOutput(t: *Terminal) void {
-        t.journal.append(.sync_end, "");
         t.vt.modes.set(.synchronized_output, false);
         t.synchronized_since = null;
     }
@@ -309,8 +254,6 @@ pub const Terminal = struct {
         if (t.vt.modes.get(.synchronized_output)) return;
         try t.render.update(a, &t.vt);
         try t.links.capture(&t.render);
-        if (t.render_dirty) t.journal.append(.render, "");
-        t.render_dirty = false;
     }
     // Wait until the interactive shell has installed its line editor. No newline
     // is sent: this is editable input, and only the user can execute it.
@@ -366,7 +309,7 @@ pub const Terminal = struct {
         }
         if (!t.exited) t.fillInput();
         if (t.expireSynchronizedOutput(std.time.milliTimestamp())) dirty = true;
-        return dirty and !t.vt.modes.get(.synchronized_output);
+        return dirty;
     }
     pub fn text(t: *Terminal) ![]u8 {
         try t.updateRender();

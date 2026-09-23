@@ -348,12 +348,10 @@ pub const Server = struct {
                 p.terminal.refreshRedraw(std.time.milliTimestamp());
                 if (polls[i + 1].revents != 0) p.refreshCwd();
                 p.terminal.flush();
-                const journal_size = p.terminal.journal.bytes.items.len;
                 if (p.terminal.read()) {
                     s.runtime.changed();
-                    s.dirty = true;
+                    if (!p.terminal.vt.modes.get(.synchronized_output)) s.dirty = true;
                 }
-                if (journal_size != p.terminal.journal.bytes.items.len) s.runtime.changed();
             }
             const now = std.time.milliTimestamp();
             if (now - s.last_detection >= 250) {

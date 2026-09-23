@@ -103,7 +103,6 @@ pub const Runtime = struct {
         errdefer a.free(dir);
         const t = try Terminal.create(opts.cols, opts.rows);
         errdefer t.destroy();
-        t.record();
         t.applyTheme(opts.theme);
         try r.panes.ensureUnusedCapacity(a, 1);
         try t.spawn(dir, opts.socket, id, opts.executable, opts.command);

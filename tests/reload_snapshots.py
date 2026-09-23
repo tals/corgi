@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Large output journals must not inflate live snapshots or lose PTY children."""
+"""Large output volumes must not inflate live snapshots or lose PTY children."""
 import json, os, pathlib, shlex, sys, unittest
 import smoke
 if os.environ.get('CORGI_TEST_EXE'):smoke.EXE=os.environ['CORGI_TEST_EXE']
 
-class ReloadFallback(unittest.TestCase):
+class ReloadSnapshots(unittest.TestCase):
     setUp=smoke.Runtime.setUp
     tearDown=smoke.Runtime.tearDown
     run_cli=smoke.Runtime.run_cli
@@ -13,11 +13,11 @@ class ReloadFallback(unittest.TestCase):
     open_pane=smoke.Runtime.open_pane
     session=smoke.Runtime.session
     until=smoke.Runtime.until
-    def test_exhausted_journal_preserves_process_input_and_resize_recovery(self):
+    def test_large_output_preserves_process_input_and_resize_recovery(self):
         self.check_reload(1, 1025)
 
-    def test_combined_journals_over_manifest_limit_use_compact_snapshots(self):
-        # Each 50 MiB journal is valid, but four base64 journals exceed 256 MiB.
+    def test_multiple_noisy_panes_use_compact_snapshots(self):
+        # Four panes each emit 50 MiB while retaining a small screen.
         self.check_reload(4, 800)
 
     def check_reload(self, pane_count, chunks):
@@ -29,7 +29,7 @@ def resized(*_):
     size=os.get_terminal_size(0)
     with open(log,'a') as f:f.write(json.dumps([size.columns,size.lines])+'\\n')
 signal.signal(signal.SIGWINCH,resized)
-# Repeated carriage returns exhaust the 64 MiB journal without huge scrollback.
+# Repeated carriage returns produce output without growing scrollback.
 chunk=b'\\r'*65536
 for _ in range(int(sys.argv[2])):
     rest=chunk
@@ -57,7 +57,7 @@ for line in sys.stdin:print('ALIVE',os.getpid(),line.strip(),flush=True)
         self.assertIn('READY',text())
         self.command('pane.input', target=pane, data=('still here') + '\r')
         self.until(lambda:f'ALIVE {pid} still here' in text())
-        # The compact snapshot starts a new valid journal for subsequent reloads.
+        # A restored terminal can be captured and restored again.
         self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
         self.command('pane.input', target=pane, data=('twice') + '\r')
         self.until(lambda:f'ALIVE {pid} twice' in text())
