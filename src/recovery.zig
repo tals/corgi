@@ -34,7 +34,8 @@ pub fn atomicWrite(dest: []const u8, bytes: []const u8) !void {
     try file.writeAll(bytes);
     try file.sync();
     try std.fs.cwd().rename(temp, dest);
-    var dir = try std.fs.cwd().openDir(parent, .{});
+    // Linux O_PATH descriptors cannot be synced; request a readable directory.
+    var dir = try std.fs.cwd().openDir(parent, .{ .iterate = true });
     defer dir.close();
     try std.posix.fsync(dir.fd);
 }
