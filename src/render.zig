@@ -136,6 +136,22 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     }
     var locations: [layout.max_panes]layout.Placement = undefined;
     const area = side.area();
+    var hovered_uri: ?[]const u8 = null;
+    var workspace_uri: [256]u8 = undefined;
+    if (ui.pointer) |pointer| {
+        if (ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
+            if (ui.port_menu) |menu| {
+                for (ui.workspaces) |ws| {
+                    if (ws.id != menu.workspace) continue;
+                    if (menu.hit(ws, width, height, pointer.x, pointer.y)) |index|
+                        hovered_uri = sidebar.workspaceUrl(ws, index, &workspace_uri);
+                    break;
+                }
+            } else {
+                hovered_uri = sidebar.portLink(side, ui.workspaces, pointer.x, pointer.y, &workspace_uri);
+            }
+        }
+    }
     for (model.placements(area, &locations)) |place| {
         if (place.rect.w == 0 or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
@@ -148,6 +164,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
                     for (p.terminal.hyperlinks()) |link| {
                         if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
                             hovered = link.id;
+                            hovered_uri = link.uri;
                             break;
                         }
                     }
@@ -185,6 +202,8 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     if (ui.confirm) {
         const text = try std.fmt.bufPrint(&status, " [ Close ]  [ Cancel ] {s}", .{ui.message});
         try w.writeAll(text[0..@min(text.len, width)]);
+    } else if (hovered_uri) |uri| {
+        try sidebar.writeClipped(w, uri, width);
     } else {
         var agent_label: [64]u8 = undefined;
         var label: []const u8 = "corgi";

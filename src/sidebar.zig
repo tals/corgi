@@ -327,7 +327,7 @@ fn displayWidth(text: []const u8) usize {
     while (it.nextCodepoint()) |cp| width += vt.unicode.codepointWidth(cp);
     return width;
 }
-fn writeClipped(w: *std.Io.Writer, text: []const u8, room: usize) !void {
+pub fn writeClipped(w: *std.Io.Writer, text: []const u8, room: usize) !void {
     var it = (try std.unicode.Utf8View.init(text)).iterator();
     var used: usize = 0;
     while (it.nextCodepointSlice()) |bytes| {
