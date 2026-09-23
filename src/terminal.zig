@@ -78,17 +78,8 @@ pub const Terminal = struct {
     pub fn hyperlinks(t: *Terminal) []const @import("hyperlinks.zig").Link {
         return t.links.links;
     }
-    pub fn renderState(t: *Terminal) *vt.RenderState {
-        return &t.render;
-    }
-    pub fn scrollViewport(t: *Terminal, scroll: vt.Terminal.ScrollViewport) void {
-        t.vt.scrollViewport(scroll);
-    }
     pub fn clearSelection(t: *Terminal) !void {
         try t.vt.screens.active.select(null);
-    }
-    pub fn atBottom(t: *Terminal) bool {
-        return t.vt.screens.active.pages.viewport == .active;
     }
 
     pub fn create(cols: u16, rows: u16) !*Terminal {
@@ -132,25 +123,33 @@ pub const Terminal = struct {
         if (screen.selection) |sel| return screen.selectionString(a, .{ .sel = sel });
         return t.text();
     }
-    pub fn search(t: *Terminal, needle: []const u8, skip: usize) !bool {
-        if (needle.len == 0) return false;
+    pub const SearchResult = struct {
+        offset: ?usize = null,
+        match: ?struct { x: u16, y: u16, end_x: u16, end_y: u16 } = null,
+    };
+    /// Locate a match for a viewer without changing the terminal's viewport or selection.
+    pub fn search(t: *Terminal, needle: []const u8, skip: usize) !SearchResult {
+        if (needle.len == 0) return .{};
         const screen = t.vt.screens.active;
-        var finder = try vt.search.PageList.init(a, needle, &screen.pages, screen.pages.pages.last orelse return false);
+        var finder = try vt.search.PageList.init(a, needle, &screen.pages, screen.pages.pages.last orelse return error.EmptyScreen);
         defer finder.deinit();
         var index: usize = 0;
         while (true) {
             while (finder.next()) |sel| {
                 if (index == skip) {
-                    try screen.select(vt.Selection.init(sel.startPin(), sel.endPin(), false));
-                    const point = screen.pages.pointFromPin(.screen, sel.startPin()) orelse return false;
-                    t.vt.scrollViewport(.{ .row = point.screen.y });
-                    return true;
+                    const point = screen.pages.pointFromPin(.screen, sel.startPin()) orelse return .{};
+                    const offset = @min(point.screen.y, screen.pages.total_rows -| t.vt.rows);
+                    const end = screen.pages.pointFromPin(.screen, sel.endPin()) orelse point;
+                    return .{
+                        .offset = offset,
+                        .match = .{ .x = point.screen.x, .y = @intCast(point.screen.y - offset), .end_x = end.screen.x, .end_y = @intCast(@min(end.screen.y - offset, t.vt.rows - 1)) },
+                    };
                 }
                 index += 1;
             }
             if (!try finder.feed()) break;
         }
-        return false;
+        return .{};
     }
     pub fn spawn(t: *Terminal, cwd: []const u8, socket: []const u8, id: u32, executable: []const u8, command: ?[]const u8) !void {
         var ws = std.mem.zeroes(c.struct_winsize);
@@ -463,9 +462,13 @@ test "snapshot restores primary history and alternate output without input modes
     try std.testing.expectEqual(.primary, fresh.vt.screens.active_key);
     try std.testing.expectEqual(.none, fresh.vt.flags.mouse_event);
     try std.testing.expect(!fresh.vt.modes.get(.bracketed_paste));
-    try std.testing.expect(try fresh.search("EARLY_HISTORY", 0));
-    try std.testing.expect(try fresh.search("ALT_OUTPUT", 0));
-    try std.testing.expect(try fresh.search("NEW_SHELL", 0));
+    const viewport = fresh.vt.screens.active.pages.viewport;
+    const selection = fresh.vt.screens.active.selection;
+    try std.testing.expect((try fresh.search("EARLY_HISTORY", 0)).offset != null);
+    try std.testing.expect((try fresh.search("ALT_OUTPUT", 0)).offset != null);
+    try std.testing.expect((try fresh.search("NEW_SHELL", 0)).offset != null);
+    try std.testing.expectEqualDeep(viewport, fresh.vt.screens.active.pages.viewport);
+    try std.testing.expectEqualDeep(selection, fresh.vt.screens.active.selection);
 }
 
 test "terminal reports host colors and keeps application overrides" {

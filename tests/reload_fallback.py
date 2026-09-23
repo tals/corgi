@@ -9,6 +9,8 @@ class ReloadFallback(unittest.TestCase):
     tearDown=smoke.Runtime.tearDown
     run_cli=smoke.Runtime.run_cli
     rpc=smoke.Runtime.rpc
+    command=smoke.Runtime.command
+    open_pane=smoke.Runtime.open_pane
     session=smoke.Runtime.session
     until=smoke.Runtime.until
     def test_exhausted_journal_preserves_process_input_and_resize_recovery(self):
@@ -37,10 +39,10 @@ for line in sys.stdin:print('ALIVE',os.getpid(),line.strip(),flush=True)
 ''')
         panes=[]
         for _ in range(pane_count):
-            pane=self.rpc(op='new',command=f'exec {shlex.quote(sys.executable)} {shlex.quote(str(program))} {shlex.quote(str(sizes))} {chunks}')['pane']
+            pane=self.open_pane(command=f'exec {shlex.quote(sys.executable)} {shlex.quote(str(program))} {shlex.quote(str(sizes))} {chunks}')['pane']
             panes.append(pane)
-            self.until(lambda:'READY' in self.rpc(op='read',pane=pane)['text'],timeout=30)
-        def text():return self.rpc(op='read',pane=pane)['text']
+            self.until(lambda:'READY' in self.command('pane.read', target=pane, view='screen')['text'],timeout=30)
+        def text():return self.command('pane.read', target=pane, view='screen')['text']
         before=self.session();pid=next(p['pid'] for p in before['panes'] if p['id']==pane)
         geometry=next(p for p in before['panes'] if p['id']==pane)
         self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
@@ -53,11 +55,11 @@ for line in sys.stdin:print('ALIVE',os.getpid(),line.strip(),flush=True)
         if pane_count == 1:
             self.assertEqual(events()[-2:],[[geometry['cols']-1,geometry['rows']],[geometry['cols'],geometry['rows']]])
         self.assertIn('READY',text())
-        self.rpc(op='send',pane=pane,text='still here',enter=True)
+        self.command('pane.input', target=pane, data=('still here') + '\r')
         self.until(lambda:f'ALIVE {pid} still here' in text())
         # The compact snapshot starts a new valid journal for subsequent reloads.
         self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
-        self.rpc(op='send',pane=pane,text='twice',enter=True)
+        self.command('pane.input', target=pane, data=('twice') + '\r')
         self.until(lambda:f'ALIVE {pid} twice' in text())
 
 if __name__=='__main__':unittest.main(verbosity=2)

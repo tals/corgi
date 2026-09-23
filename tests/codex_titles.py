@@ -38,8 +38,11 @@ def frame(v):
 class Titles(unittest.TestCase):
     run_cli=smoke.Runtime.run_cli
     rpc=smoke.Runtime.rpc
+    command=smoke.Runtime.command
     raw_rpc=smoke.Runtime.raw_rpc
     until=smoke.Runtime.until
+    session=smoke.Runtime.session
+    panes=smoke.Runtime.panes
     def setUp(self):
         self.client=None;self.client_file=None;self.proc=None
         smoke.Runtime.setUp(self)
@@ -51,11 +54,11 @@ class Titles(unittest.TestCase):
         self.listener=socket.socket(socket.AF_UNIX);self.listener.bind(str(directory/'app-server-control.sock'));self.listener.listen();self.listener.settimeout(.2)
         self.worker=threading.Thread(target=self.serve,daemon=True);self.worker.start()
         fake=pathlib.Path(self.temp.name,'codex');fake.write_text(CLIENT);fake.chmod(0o700)
-        self.pane=self.rpc(op='new',command=shlex.quote(str(fake))+' --dangerously-bypass-approvals-and-sandbox resume')['pane']
+        self.pane=self.command('pane.create', workspace=1, command=shlex.quote(str(fake))+' --dangerously-bypass-approvals-and-sandbox resume')['pane']
         self.until(lambda:self.state()['session']==A or self.errors)
         self.assertEqual(self.errors,[])
-        self.rpc(op='new',command='sleep 60')
-    def state(self):return next(p for p in self.rpc(op='list')['panes'] if p['id']==self.pane)
+        self.command('pane.create', workspace=1, command='sleep 60')
+    def state(self):return next(p for p in self.panes() if p['id']==self.pane)
     def serve(self):
         while not self.stop:
             try:peer,_=self.listener.accept()
@@ -103,9 +106,9 @@ class Titles(unittest.TestCase):
             except OSError:pass
         self.worker.join(3)
         smoke.Runtime.tearDown(self)
-    def title(self,value):self.rpc(op='send',pane=self.pane,text=value,enter=True)
+    def title(self,value):self.command('pane.input', target=self.pane, data=(value) + '\r')
     def test_resume_passthrough_and_focus_completion(self):
-        text=self.rpc(op='read',pane=self.pane)['text']
+        text=self.command('pane.read', target=self.pane, view='screen')['text']
         self.assertIn('ARGS:["--dangerously-bypass-approvals-and-sandbox", "resume"]',text)
         self.assertNotIn('--remote',text)
         self.assertEqual(self.state()['completed'],0)

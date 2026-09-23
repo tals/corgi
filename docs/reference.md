@@ -14,13 +14,13 @@ Requires **Zig 0.15.2**, pinned to the Ghostty revision in `build.zig.zon`. The 
 python3 tests/smoke.py          # real PTYs + socket tests; mock providers, no inference
 ```
 
-After building, the executable is `zig-out/bin/corgi`. Its directory is added to each pane's PATH. Ordinary `go.sh` preserves the running runtime; UI-only changes load in a newly opened viewer. `./go.sh --reload` builds, transfers the live runtime to that executable, and returns to the current terminal. It works inside a Corgi pane. `corgi reload [ABSOLUTE_EXE]` uses an already built executable. A failed build or handoff leaves the old runtime serving; there is no destructive fallback. An older daemon without export support needs one final ordinary restart after saving work.
+After building, the executable is `zig-out/bin/corgi`. Its directory is added to each pane's PATH. Ordinary `go.sh` preserves the running runtime; UI-only changes load in a newly opened viewer. `./go.sh --reload` builds, transfers the live runtime to that executable, and returns to the current terminal. It works inside a Corgi pane. `corgi reload [ABSOLUTE_EXE]` uses an already built executable. A failed build or handoff leaves the old runtime serving; there is no destructive fallback.
 
 `./go.sh --restart` remains an explicit process restart: it terminates existing processes and starts new shells from saved recovery context. Run it outside Corgi. Put flags first; further arguments are passed through, e.g. `./go.sh --restart start`. It cannot preserve process memory or unsaved application work.
 
 Live handoff transfers compact VT snapshots of retained screens, history, cursor, and input modes instead of accumulated terminal event journals. After the new daemon owns the PTYs, it briefly changes each PTY width and restores it 250 ms later, asking applications to repaint through ordinary resize notifications. Processes and PTYs stay alive; parser fragments and some saved terminal state may be lost, and applications that do not repaint can retain display artifacts. Older daemons' exact replay checkpoints remain importable.
 
-Pane IDs and split arrangement survive live handoff. Connected viewers retain their local selection, menus, scroll positions, and input parser because their sockets and viewer processes remain alive. Native JSONL sessions retain their pipes, partial messages, outstanding approvals, and process IDs. Legacy raw socket `attach` clients must detach before handoff; normal `corgi` viewers can stay connected.
+Pane IDs and split arrangement survive live handoff. Connected viewers retain their local selection, menus, scroll positions, and input parser because their sockets and viewer processes remain alive. Native JSONL sessions retain their pipes, partial messages, outstanding approvals, and process IDs. Normal `corgi` viewers can stay connected. Upgrading from a daemon without `session.command` performs a one-time viewer relaunch while keeping pane processes alive.
 
 Recovery snapshots preserve workspace/tab/split arrangement, working directories, retained terminal output, and recorded agent session IDs. They are written atomically with mode 0600 in a private directory under `$XDG_STATE_HOME/corgi/recovery` (default `~/.local/state/corgi/recovery`), with a separate file per socket path. Changed state is saved every two seconds and before clean shutdown; `corgi checkpoint` saves immediately and prints the path. A crash can lose changes since the last completed save. Snapshots contain terminal contents and should be treated as private session data.
 
@@ -30,7 +30,7 @@ The handoff manifest is limited to 256 MiB. If retained snapshots and other runt
 
 Multiple viewers can attach at once. They share workspace/tab order, split ratios, names, and running processes. Each owns its selected workspace/tab/pane, zoom, menus, dialogs, scroll/copy state, and mute setting. Shared edits appear in every viewer; closing a selected pane chooses a surviving pane locally. Pane sizes use the minimum dimensions among the viewers actually displaying that pane. Hidden panes keep their last size; detaching a smaller viewer allows others to grow. `prefix q` detaches only that viewer. Closing the last pane in the only workspace detaches everyone. The earliest live viewer supplies terminal theme defaults.
 
-Attachments compose their UI locally from session snapshots and terminal surfaces. New viewers check daemon capabilities and report when an older daemon needs an update; they never restart it automatically.
+Attachments compose their UI locally from session snapshots and terminal surfaces. The viewer and daemon use the same current protocol.
 
 ## Agent CLI
 
@@ -43,7 +43,6 @@ Workspace entries contain ordered tabs and split trees; pane entries contain
 stable IDs, live location, cwd, PID, and agent observations. `corgi current`
 resolves `CORGI_PANE` through the runtime, so its tab/workspace remain accurate
 after moves. `--text` pretty-prints JSON; `pane read --text` emits plain text.
-The legacy `rpc {"op":"list"}` response remains available unchanged.
 
 ```sh
 corgi tab new --name Tests --workspace 1 --cwd /absolute/project/path
@@ -76,9 +75,24 @@ select a viewer. Explicit focus requires a viewer ID from `list`.
 prompt; successful responses list `result.closed_panes`.
 
 The new commands never implicitly start or restart a server. They return JSON
-errors on stderr, exit 2 for invalid usage and 1 for runtime failures. Existing
-legacy controls remain available, but focus now requires `--viewer` in the CLI.
-The server exposes these operations through protocol-1 `cli.control`.
+errors on stderr, exit 2 for invalid usage and 1 for runtime failures. Focus requires `--viewer` in the CLI. Commands resolve `current` from the calling
+pane before sending an explicit target. Shared operations use protocol-1
+`session.command`, whose `command` field contains one typed operation, for example:
+
+```json
+{"op":"session.command","protocol":1,"command":{"tab.rename":{"target":42,"name":"Build"}}}
+```
+
+The daemon has no selected pane/tab and does not calculate headless layout geometry.
+`action` and `workspace switch` controls need a live viewer; without one they
+return `NoViewer`. Creation uses `tab new --workspace ID` or `pane split ID|current`.
+All shared operations use `session.command`; named RPC aliases are not supported.
+Tab creation and splitting accept `--command SHELL_COMMAND` to launch a command.
+Pane reads return their text in `result.text`.
+
+Unwatched panes retain their last dimensions; new headless panes start at 80×24.
+Only real viewers supply layout geometry. A saved workspace preference determines
+where a new viewer opens, and is never an implicit command target.
 
 Regression suite: `python3 tests/cli.py` uses isolated sockets and provider settings.
 
@@ -134,7 +148,7 @@ viewer-owned UI. The former `attach`/`input`/`size` socket operations have been 
 
 ## Agent integration
 
-The left sidebar is split 50/50: workspaces above, agents from the selected workspace below, in tab order. Click + beside workspaces to enter just a name (the focused pane’s current directory is inherited), click a workspace to switch, and right-click for **Rename** and **Close**. Menu actions target the clicked workspace. Close ends its panes and native sessions and removes the workspace; the last workspace cannot be closed. `prefix w` creates, `prefix W` edits, and `prefix {` / `prefix }` switch workspaces. Each workspace retains its tabs; each viewer remembers its focused pane within them. Processes keep running while hidden. New tabs and splits inherit the focused pane’s current directory (a targeted split inherits its target pane’s directory), falling back to the workspace’s default folder when empty; explicit RPC `cwd` overrides it. Changing a default folder does not change existing shells. Workspace names, IDs, and default folders are saved automatically across restarts. Each viewer owns its selection; tabs and processes are not restored after a daemon restart. State lives at `$XDG_STATE_HOME/corgi/workspaces.json` (default `~/.local/state/corgi/workspaces.json`), or beside an explicit `CORGI_SOCKET` as `<socket>.workspaces.json`. `corgi workspace list`, `new NAME [DIR]`, `switch ID`, `edit ID NAME DIR`, and `close ID` provide CLI access; close requires an empty workspace with no native sessions. Each entry has two rows: a colored status circle followed by the working directory, then an activity icon beneath the circle and the agent name. The activity icon is blank when idle, 🧠 while thinking, and 🔧 during a known tool call or its approval prompt. Paths under your home use `~`; long paths are shortened from the left so the current directory remains visible. Hook-reported directories take precedence over the foreground process directory; native sessions show their launch directory. Tab names, tool names, and routine lifecycle messages are omitted.
+The left sidebar is split 50/50: workspaces above, agents from the selected workspace below, in tab order. Click + beside workspaces to enter just a name (the focused pane’s current directory is inherited), click a workspace to switch, and right-click for **Rename** and **Close**. Menu actions target the clicked workspace. Close ends its panes and native sessions and removes the workspace; the last workspace cannot be closed. `prefix w` creates, `prefix W` edits, and `prefix {` / `prefix }` switch workspaces. Each workspace retains its tabs; each viewer remembers its focused pane within them. Processes keep running while hidden. New tabs and splits inherit the focused pane’s current directory (a targeted split inherits its target pane’s directory), falling back to the workspace’s default folder when empty; explicit RPC `cwd` overrides it. Changing a default folder does not change existing shells. Workspace names, IDs, and default folders are saved automatically across restarts. Each viewer owns its selection; tabs and processes are not restored after a daemon restart. State lives at `$XDG_STATE_HOME/corgi/workspaces.json` (default `~/.local/state/corgi/workspaces.json`), or beside an explicit `CORGI_SOCKET` as `<socket>.workspaces.json`. `corgi workspace list`, `new NAME [--cwd DIR]`, `switch ID [--viewer ID]`, `edit ID [--name NAME|--clear] [--cwd DIR]`, and `close ID` provide CLI access; close requires an empty workspace with no native sessions. Each entry has two rows: a colored status circle followed by the working directory, then an activity icon beneath the circle and the agent name. The activity icon is blank when idle, 🧠 while thinking, and 🔧 during a known tool call or its approval prompt. Paths under your home use `~`; long paths are shortened from the left so the current directory remains visible. Hook-reported directories take precedence over the foreground process directory; native sessions show their launch directory. Tab names, tool names, and routine lifecycle messages are omitted.
 
 The indicators match Herdr's dot style: yellow filled circle for working, red filled circle for blocked, teal filled circle for an unseen completion, green hollow circle for idle, and a muted dot for unknown. Corgi adds a muted purple circle for initialization, with no activity icon; ended native sessions use a muted hollow circle. Click either row to focus its pane and acknowledge attention. Ordinary shells are omitted. Use the header arrow or `prefix b` to collapse/expand it; it also hides automatically in narrow or short terminals. Scroll with the wheel or the footer arrows when the list fills the screen.
 
@@ -192,7 +206,7 @@ Sounds play on the attached machine. A detached runtime retains attention marker
 For integrations that should not type into a terminal, Corgi can own durable provider processes independently of panes:
 
 ```sh
-corgi native start codex
+corgi native start codex [--workspace ID]
 # => {"ok":true,"session":1,"provider":"codex"}
 corgi native send 1 '{"id":1,"method":"thread/start","params":{}}'
 corgi native events 1
@@ -204,6 +218,8 @@ corgi native stop 1
 ```
 
 This path uses **Codex App Server**, not Exec Server. Corgi performs the initialize/initialized handshake and queues requests until it completes. The provider's JSON-RPC messages remain intact: thread start/resume/fork, turn start/steer/interrupt, models, approvals, and supported remote-control methods are available through the same transport. See the [App Server protocol](https://developers.openai.com/codex/app-server).
+
+With multiple workspaces, pass `--workspace ID` to `native start`; it never uses a hidden daemon selection.
 
 For Claude, `corgi native start claude` launches its bidirectional streaming CLI with the host permission channel. Send SDK-compatible control/user messages with `native send`, inspect stream events with `native events`. For example, initialize with:
 
@@ -219,20 +235,20 @@ Native sessions expose protocol messages, not a custom chat UI. Approval/user-in
 All operations use newline-delimited JSON on a private Unix socket. By default: `/tmp/corgi-UID/control.sock`. Set `CORGI_SOCKET` to select another runtime in its own private directory. Direct `serve` runs the server in the foreground; ordinary startup handles locking and stale socket recovery.
 
 ```sh
-corgi new 'bun run dev'
-corgi split right
+corgi tab new --workspace 1 --command 'bun run dev'
+corgi pane split 3 --right
 corgi list
-corgi send 3 'run the tests' --enter
-corgi read 3
-corgi focus 3
+corgi pane send 3 'run the tests' --enter
+corgi pane read 3 --text
+corgi focus 3 --viewer 1
 corgi action rename api
 corgi action attention
 corgi shutdown              # ends this runtime and all its processes
 ```
 
-`send` writes literal terminal input; `--enter` explicitly submits it. It is not a semantic provider RPC. `rpc JSON` exposes the underlying operations used by the CLI: `new`, `split`, `list`, `focus`, `close`, `send`, `read`, `action`, `hook`, `native.start/list/send/events/stop`, `ping`, `shutdown`. Pane and native-session IDs are separate namespaces.
+`pane send` writes literal terminal input; `--enter` explicitly submits it. It is not a semantic provider RPC. `rpc JSON` exposes the underlying operations used by the CLI. Shared pane and workspace operations use `session.command`; `session.list` lists shared state and `session.locate` resolves a pane's workspace and tab. Viewer navigation uses `focus`, `workspace.switch`, and `action`. Pane and native-session IDs are separate namespaces.
 
-With normal viewers, CLI navigation and actions target the oldest live viewer by default. They are queued and applied on its next update, then acknowledged. A subsequent split honors a queued explicit focus. If a pending local action makes the target uncertain, creation returns `ViewerBusy` until that action is acknowledged. To choose another viewer explicitly:
+With normal viewers, CLI navigation and actions target the oldest live viewer by default. They are queued and applied on its next update, then acknowledged. Queued viewer actions run in order; a focus followed by a split action uses that focus. To choose another viewer explicitly:
 
 ```sh
 corgi rpc '{"op":"viewer.list"}'
@@ -240,7 +256,7 @@ corgi rpc '{"op":"focus","viewer":2,"pane":3}'
 corgi rpc '{"op":"action","viewer":2,"name":"next","value":""}'
 ```
 
-`viewer.list` reports each viewer's ID and last reported workspace/pane. Unqualified CLI controls target the oldest live viewer; an explicit `viewer` selects one viewer. `list` and `workspace.list` retain legacy selection fields; use `viewer.list` for actual local-viewer selection. Explicit pane operations such as `send`, `read`, and `close` always address the pane ID.
+`viewer.list` reports each viewer's ID and last reported workspace/pane. Unqualified CLI controls target the oldest live viewer; an explicit `viewer` selects one viewer. Shared session data contains no viewer selection. `pane send`, `pane read`, and `pane close` always address the pane ID.
 
 For remote terminals, run Corgi on the host through SSH (`ssh -t host corgi`); the runtime persists there when the connection drops. Provider remoting can also be enabled through the native CLI/App Server interfaces. Corgi itself does not expose an unauthenticated TCP listener.
 
@@ -248,7 +264,10 @@ For remote terminals, run Corgi on the host through SSH (`ssh -t host corgi`); t
 
 - `layout.zig`: pure split tree, tab and pane identity, geometry, navigation.
 - `terminal.zig`: PTYs, Ghostty parser/render state, selections and search.
-- `server.zig` / `controller.zig`: runtime operations and interaction controller.
+- `runtime.zig` / `session.zig`: resource ownership and the typed shared command executor.
+- `navigation.zig`: local workspace, tab, pane, and zoom selection.
+- `server.zig` / `peer.zig`: daemon loop, socket dispatch, and viewer controls.
+- `controller.zig`: viewer input, dialogs, and rendering.
 - `viewer.zig` / `client.zig`: viewer event loop and outer-terminal setup/cleanup.
 - `mirror.zig`: local session projection and terminal framebuffers; no PTYs.
 - `viewer_protocol.zig` / `protocol.zig`: runtime operations, snapshots, sizing interests, and conflict-checked shared edits.

@@ -53,7 +53,8 @@ its internal geometry. The source tab disappears. Moving the last pane out also
 removes its empty tab. Moves preserve processes, terminal output, and pane IDs.
 Creating a tab or split returns `.result.pane`, `.result.tab`, `.result.workspace`.
 New terminals inherit the caller/target cwd, falling back to the destination
-workspace folder; `--cwd` overrides it. Existing terminals keep their cwd.
+workspace folder; `--cwd` overrides it. `--command SHELL_COMMAND` launches a command
+in a new tab or split. Existing terminals keep their cwd.
 
 Layout changes do not focus a viewer. If the user asks to switch, discover the
 viewer ID, then use `corgi focus 31 --viewer 1`. Do not guess which viewer belongs
@@ -71,7 +72,7 @@ corgi pane keys 31 ctrl+c
 corgi pane keys 31 esc
 ```
 
-Read returns recent active-screen text, including available scrollback, with
+Read returns `.result.text`, containing recent active-screen text, including available scrollback, with
 soft wraps joined. Alternate-screen application history may not be available.
 Default read output is JSON with `.text`; `--text` emits just that text.
 Send honors bracketed paste and optionally appends encoded Enter. Keys honor the

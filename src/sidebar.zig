@@ -33,7 +33,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: *const @import("git_status.zig").Commits = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     corgi_badge: bool = false,
@@ -827,19 +827,19 @@ pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u1
     var buf: [160]u8 = undefined;
     try w.print("\x1b[{d};{d}H\x1b[1;38;2;166;227;161m", .{ y + 2, x + 3 });
     try writeEllipsis(w, try std.fmt.bufPrint(&buf, "↑ {d} unpushed commit{s}", .{ ws.git_ahead orelse 0, if (ws.git_ahead == 1) "" else "s" }), width - 4);
-    for (ws.git_commits.items[0..count], 0..) |item, i| {
-        try w.print("\x1b[{d};{d}H{s}\x1b[38;2;249;226;175m{s}  \x1b[38;2;205;214;244m", .{ y + 3 + i * 2, x + 3, base, item.hash[0..item.hash_len] });
-        try writeEllipsis(w, item.subject[0..item.subject_len], (width - 6) -| item.hash_len);
+    for (ws.git_commits[0..count], 0..) |item, i| {
+        try w.print("\x1b[{d};{d}H{s}\x1b[38;2;249;226;175m{s}  \x1b[38;2;205;214;244m", .{ y + 3 + i * 2, x + 3, base, item.hash });
+        try writeEllipsis(w, item.subject, (width - 6) -| item.hash.len);
         try w.print("\x1b[{d};{d}H\x1b[38;2;127;132;156m", .{ y + 4 + i * 2, x + 5 });
         var age_buf: [48]u8 = undefined;
         const age = relativeTime(&age_buf, item.timestamp, std.time.timestamp());
-        const timing = try std.fmt.bufPrint(&buf, "{s} · {s}", .{ item.date[0..item.date_len], age });
+        const timing = try std.fmt.bufPrint(&buf, "{s} · {s}", .{ item.date, age });
         const author_room = @min(24, (width - 9) -| displayWidth(timing));
         if (author_room > 0) {
-            try writeEllipsis(w, item.author[0..item.author_len], author_room);
+            try writeEllipsis(w, item.author, author_room);
             try w.writeAll(" · ");
         }
-        try writeEllipsis(w, timing, (width - 6) -| (if (author_room > 0) @min(displayWidth(item.author[0..item.author_len]), author_room) + 3 else @as(usize, 0)));
+        try writeEllipsis(w, timing, (width - 6) -| (if (author_room > 0) @min(displayWidth(item.author), author_room) + 3 else @as(usize, 0)));
     }
     if (has_footer) {
         try w.print("\x1b[{d};{d}H{s}\x1b[38;2;127;132;156m", .{ y + height - 1, x + 3, base });

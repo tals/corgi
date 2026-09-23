@@ -45,7 +45,7 @@ test "legacy replay checkpoint preserves both screens history margins wrap keybo
     try old.resize(25, 8);
     try fresh.resize(25, 8);
     try equal(old, fresh);
-    try std.testing.expect(try fresh.search("FIRST_HISTORY_LINE", 0));
+    try std.testing.expect((try fresh.search("FIRST_HISTORY_LINE", 0)).offset != null);
 }
 test "legacy replay checkpoint preserves fragments at every byte including UTF8 CSI OSC and DCS" {
     const sequence = "hello🙂é\x1b[31;1mRED\x1b]2;title✓\x1b\\\x1bP$qm\x1b\\\x1b[3;4H!";

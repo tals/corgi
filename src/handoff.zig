@@ -7,7 +7,7 @@ const c = os.c;
 const a = os.allocator;
 const cp = @import("checkpoint.zig");
 const binary = @import("replay.zig");
-const controller = @import("controller.zig");
+const peer = @import("peer.zig");
 const Server = @import("server.zig").Server;
 const SavedClient = struct {
     fd: i32,
@@ -15,12 +15,11 @@ const SavedClient = struct {
     output: []const u8,
     viewer: bool,
     viewer_id: u32,
-    can_relaunch: bool = false,
     view_workspace: u32,
     view_focus: ?u32,
-    interests: []const controller.Interest,
+    interests: []const peer.Interest,
     watched: bool,
-    controls: []const controller.Control,
+    controls: []const peer.Control,
     next_control: u64,
     last_control: u64,
     protocol_version: ?u32,
@@ -29,6 +28,7 @@ const SavedClient = struct {
     touched: i64,
 };
 const Manifest = struct {
+    preferred_workspace: u32 = 0,
     version: u32 = 1,
     terminal_abi: u64 = @import("corgi_options").terminal_checkpoint_abi,
     listener: i32,
@@ -36,8 +36,6 @@ const Manifest = struct {
     runtime: cp.State,
     clients: []const SavedClient,
     theme: @import("theme.zig").Theme,
-    width: u16,
-    height: u16,
     default_folder_pending: bool,
     next_viewer: u32,
     bell_seq: u64,
@@ -74,8 +72,8 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     defer arena.deinit();
     const alloc = arena.allocator();
     const clients = try alloc.alloc(SavedClient, s.clients.items.len);
-    for (s.clients.items, clients) |cl, *out| out.* = .{ .fd = cl.fd, .input = try binary.encode(alloc, cl.input.items), .output = try binary.encode(alloc, cl.output.items[cl.sent..]), .viewer = cl.viewer, .viewer_id = cl.viewer_id, .can_relaunch = cl.can_relaunch, .view_workspace = cl.view_workspace, .view_focus = cl.view_focus, .interests = cl.interests[0..cl.interest_count], .watched = cl.watched, .controls = cl.controls.items, .next_control = cl.next_control, .last_control = cl.last_control, .protocol_version = cl.protocol_version, .subscribed = cl.subscribed, .snapshot_revision = cl.snapshot_revision, .touched = cl.touched };
-    const manifest: Manifest = .{ .listener = listener, .requester = requester, .runtime = try cp.capture(alloc, &s.runtime, true), .clients = clients, .theme = s.theme, .width = s.width, .height = s.height, .default_folder_pending = s.default_folder_pending, .next_viewer = s.next_viewer, .bell_seq = s.bell_seq, .last_bell = s.last_bell, .last_bell_kind = s.last_bell_kind };
+    for (s.clients.items, clients) |cl, *out| out.* = .{ .fd = cl.fd, .input = try binary.encode(alloc, cl.input.items), .output = try binary.encode(alloc, cl.output.items[cl.sent..]), .viewer = cl.viewer, .viewer_id = cl.viewer_id, .view_workspace = cl.view_workspace, .view_focus = cl.view_focus, .interests = cl.interests[0..cl.interest_count], .watched = cl.watched, .controls = cl.controls.items, .next_control = cl.next_control, .last_control = cl.last_control, .protocol_version = cl.protocol_version, .subscribed = cl.subscribed, .snapshot_revision = cl.snapshot_revision, .touched = cl.touched };
+    const manifest: Manifest = .{ .preferred_workspace = s.preferred_workspace, .listener = listener, .requester = requester, .runtime = try cp.capture(alloc, &s.runtime, true), .clients = clients, .theme = s.theme, .default_folder_pending = s.default_folder_pending, .next_viewer = s.next_viewer, .bell_seq = s.bell_seq, .last_bell = s.last_bell, .last_bell_kind = s.last_bell_kind };
     const bytes = try std.json.Stringify.valueAlloc(alloc, manifest, .{});
     if (bytes.len > 256 * 1024 * 1024) return error.CheckpointTooLarge;
     const name = try std.fmt.allocPrint(alloc, "{s}.handoff-{d}-{x}", .{ s.socket, c.getpid(), std.crypto.random.int(u64) });
@@ -154,12 +152,12 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         defer parsed.deinit();
         const m = parsed.value;
         if (m.version != 1 or m.terminal_abi != @import("corgi_options").terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
-        s = .{ .socket = socket, .executable = executable, .inherited_listener = m.listener, .theme = m.theme, .width = m.width, .height = m.height, .default_folder_pending = m.default_folder_pending, .next_viewer = m.next_viewer, .bell_seq = m.bell_seq, .last_bell = m.last_bell, .last_bell_kind = m.last_bell_kind };
+        s = .{ .preferred_workspace = m.preferred_workspace, .socket = socket, .executable = executable, .inherited_listener = m.listener, .theme = m.theme, .default_folder_pending = m.default_folder_pending, .next_viewer = m.next_viewer, .bell_seq = m.bell_seq, .last_bell = m.last_bell, .last_bell_kind = m.last_bell_kind };
         os.cloexec(m.listener);
         try cp.restore(&s.runtime, m.runtime, true, socket, executable);
         for (m.clients) |saved| {
             if (saved.interests.len > @import("layout.zig").max_panes) return error.InvalidCheckpoint;
-            var cl: controller.Client = .{ .fd = saved.fd, .viewer = saved.viewer, .viewer_id = saved.viewer_id, .can_relaunch = saved.can_relaunch, .view_workspace = saved.view_workspace, .view_focus = saved.view_focus, .watched = saved.watched, .next_control = saved.next_control, .last_control = saved.last_control, .protocol_version = saved.protocol_version, .subscribed = saved.subscribed, .snapshot_revision = saved.snapshot_revision, .touched = std.time.milliTimestamp() };
+            var cl: peer.Client = .{ .fd = saved.fd, .viewer = saved.viewer, .viewer_id = saved.viewer_id, .view_workspace = saved.view_workspace, .view_focus = saved.view_focus, .watched = saved.watched, .next_control = saved.next_control, .last_control = saved.last_control, .protocol_version = saved.protocol_version, .subscribed = saved.subscribed, .snapshot_revision = saved.snapshot_revision, .touched = std.time.milliTimestamp() };
             cl.input = .fromOwnedSlice(try binary.decode(a, saved.input));
             cl.output = .fromOwnedSlice(try binary.decode(a, saved.output));
             cl.interest_count = saved.interests.len;

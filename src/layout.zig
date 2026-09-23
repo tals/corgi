@@ -21,10 +21,23 @@ pub const Node = union(enum) { pane: Id, split: Split };
 pub const Tab = struct {
     id: Id,
     root: u8,
-    focus: Id,
-    zoom: bool = false,
     name: [80]u8 = .{0} ** 80,
     name_len: usize = 0, // Zero means unnamed; its number is derived from its current position.
+    const Data = struct { id: Id, root: u8, title: []const u8 };
+    pub fn jsonStringify(t: Tab, writer: anytype) !void {
+        try writer.write(Data{ .id = t.id, .root = t.root, .title = t.title() });
+    }
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Tab {
+        return fromData(try std.json.innerParse(Data, allocator, source, options));
+    }
+    pub fn jsonParseFromValue(allocator: std.mem.Allocator, value: std.json.Value, options: std.json.ParseOptions) !Tab {
+        return fromData(try std.json.innerParseFromValue(Data, allocator, value, options));
+    }
+    fn fromData(data: Data) Tab {
+        var tab: Tab = .{ .id = data.id, .root = data.root };
+        tab.rename(data.title);
+        return tab;
+    }
     pub fn title(t: *const Tab) []const u8 {
         return t.name[0..t.name_len];
     }
@@ -39,8 +52,57 @@ pub const Model = struct {
     nodes: [max_nodes]?Node = .{null} ** max_nodes,
     tabs: [max_tabs]Tab = undefined,
     count: usize = 0,
-    active: usize = 0,
     next_id: Id = 1,
+    revision: u64 = 0,
+
+    // The same flat arrangement is used by the runtime, snapshots and viewers.
+    // Only occupied tab slots and the used node prefix cross the wire.
+    const Data = struct { nodes: []const ?Node, tabs: []const Tab, revision: u64 };
+    pub fn jsonStringify(m: Model, writer: anytype) !void {
+        var end = m.nodes.len;
+        while (end > 0 and m.nodes[end - 1] == null) : (end -= 1) {}
+        try writer.write(Data{ .nodes = m.nodes[0..end], .tabs = m.tabs[0..m.count], .revision = m.revision });
+    }
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Model {
+        return fromData(try std.json.innerParse(Data, allocator, source, options));
+    }
+    pub fn jsonParseFromValue(allocator: std.mem.Allocator, value: std.json.Value, options: std.json.ParseOptions) !Model {
+        return fromData(try std.json.innerParseFromValue(Data, allocator, value, options));
+    }
+    fn fromData(data: Data) !Model {
+        if (data.nodes.len > max_nodes or data.tabs.len > max_tabs) return error.UnexpectedToken;
+        var model: Model = .{ .count = data.tabs.len, .revision = data.revision };
+        @memcpy(model.nodes[0..data.nodes.len], data.nodes);
+        @memcpy(model.tabs[0..data.tabs.len], data.tabs);
+        var visited: [max_nodes]bool = @splat(false);
+        for (data.tabs, 0..) |tab, i| {
+            if (tab.id == 0 or tab.name_len > tab.name.len) return error.UnexpectedToken;
+            for (data.tabs[0..i]) |other| if (other.id == tab.id) return error.UnexpectedToken;
+            try model.validateTree(tab.root, &visited);
+        }
+        for (model.nodes, visited, 0..) |slot, seen, i| {
+            if (slot) |node| {
+                if (!seen) return error.UnexpectedToken;
+                if (node == .pane) for (model.nodes[0..i]) |other| {
+                    if (other != null and other.? == .pane and other.?.pane == node.pane) return error.UnexpectedToken;
+                };
+            }
+        }
+        return model;
+    }
+    fn validateTree(m: *const Model, index: u8, visited: *[max_nodes]bool) error{UnexpectedToken}!void {
+        if (index >= max_nodes or visited[index]) return error.UnexpectedToken;
+        const node = m.nodes[index] orelse return error.UnexpectedToken;
+        visited[index] = true;
+        switch (node) {
+            .pane => |id| if (id == 0) return error.UnexpectedToken,
+            .split => |branch| {
+                if (branch.ratio < 100 or branch.ratio > 900) return error.UnexpectedToken;
+                try m.validateTree(branch.first, visited);
+                try m.validateTree(branch.second, visited);
+            },
+        }
+    }
 
     pub fn alloc(m: *Model, node: Node) !u8 {
         for (&m.nodes, 0..) |*slot, i| if (slot.* == null) {
@@ -49,17 +111,14 @@ pub const Model = struct {
         };
         return error.TooManyPanes;
     }
-    pub fn tab(m: *Model) *Tab {
-        return &m.tabs[m.active];
-    }
+
     pub fn newTab(m: *Model, name: []const u8) !Id {
         if (m.count == max_tabs) return error.TooManyTabs;
         const id = m.next_id;
         const root = try m.alloc(.{ .pane = id });
         m.next_id += 2;
-        m.tabs[m.count] = .{ .id = id + 1, .root = root, .focus = id };
+        m.tabs[m.count] = .{ .id = id + 1, .root = root };
         m.tabs[m.count].rename(name);
-        m.active = m.count;
         m.count += 1;
         return id;
     }
@@ -69,16 +128,14 @@ pub const Model = struct {
         };
         return null;
     }
-    pub fn split(m: *Model, axis: Axis) !Id {
-        const old = m.findNode(m.tab().focus) orelse return error.NoPane;
+    pub fn split(m: *Model, target: Id, axis: Axis) !Id {
+        const old = m.findNode(target) orelse return error.NoPane;
         const first = try m.alloc(m.nodes[old].?);
         errdefer m.nodes[first] = null;
         const id = m.next_id;
         const second = try m.alloc(.{ .pane = id });
         m.next_id += 1;
         m.nodes[old] = .{ .split = .{ .axis = axis, .first = first, .second = second } };
-        m.tab().focus = id;
-        m.tab().zoom = false;
         return id;
     }
     pub fn firstPane(m: *const Model, index: u8) Id {
@@ -93,14 +150,7 @@ pub const Model = struct {
             .split => |s| m.contains(s.first, id) or m.contains(s.second, id),
         };
     }
-    pub fn focus(m: *Model, id: Id) !void {
-        for (m.tabs[0..m.count], 0..) |t, i| if (m.contains(t.root, id)) {
-            m.active = i;
-            m.tab().focus = id;
-            return;
-        };
-        return error.NoPane;
-    }
+
     pub fn tabForPane(m: *const Model, id: Id) ?usize {
         for (m.tabs[0..m.count], 0..) |t, i| if (m.contains(t.root, id)) return i;
         return null;
@@ -111,7 +161,6 @@ pub const Model = struct {
             m.nodes[node] = null;
             std.mem.copyForwards(Tab, m.tabs[i .. m.count - 1], m.tabs[i + 1 .. m.count]);
             m.count -= 1;
-            if (m.active > i) m.active -= 1 else if (m.active >= m.count) m.active = m.count -| 1;
             return;
         };
         for (&m.nodes) |*maybe| if (maybe.*) |n| {
@@ -121,94 +170,17 @@ pub const Model = struct {
             maybe.* = m.nodes[sibling];
             m.nodes[sibling] = null;
             m.nodes[node] = null;
-            for (m.tabs[0..m.count]) |*t| if (t.focus == id) {
-                t.focus = m.firstPane(t.root);
-                t.zoom = false;
-            };
             return;
         };
         return error.NoPane;
     }
-    pub fn placements(m: *const Model, area: Rect, out: *[max_panes]Placement) []Placement {
-        if (m.count == 0) return out[0..0];
-        const t = m.tabs[m.active];
-        if (t.zoom) {
-            out[0] = .{ .id = t.focus, .rect = area };
-            return out[0..1];
-        }
-        var len: usize = 0;
-        m.walk(t.root, m.contentArea(area), out, &len);
-        return out[0..len];
-    }
-    fn hasFrame(m: *const Model, area: Rect) bool {
-        return m.count > 0 and !m.tabs[m.active].zoom and area.w >= 3 and area.h >= 3 and m.nodes[m.tabs[m.active].root].? == .split;
-    }
-    fn contentArea(m: *const Model, area: Rect) Rect {
-        if (!m.hasFrame(area)) return area;
-        return .{ .x = area.x + 1, .y = area.y + 1, .w = area.w - 2, .h = area.h - 2 };
-    }
-    fn walk(m: *const Model, index: u8, r: Rect, out: *[max_panes]Placement, len: *usize) void {
-        switch (m.nodes[index].?) {
-            .pane => |id| {
-                if (len.* < max_panes) {
-                    out[len.*] = .{ .id = id, .rect = r };
-                    len.* += 1;
-                }
-            },
-            .split => |s| {
-                const parts = splitRects(s, r);
-                m.walk(s.first, parts[0], out, len);
-                m.walk(s.second, parts[2], out, len);
-            },
-        }
-    }
-    pub fn neighbor(m: *const Model, direction: Direction, area: Rect) ?Id {
-        var items: [max_panes]Placement = undefined;
-        var copy = m.*;
-        copy.tabs[copy.active].zoom = false;
-        const placements_ = copy.placements(area, &items);
-        var current: Rect = .{};
-        for (placements_) |p| if (p.id == m.tabs[m.active].focus) {
-            current = p.rect;
-        };
-        var best: ?Id = null;
-        var score: u64 = std.math.maxInt(u64);
-        const cx = @as(i32, current.x) * 2 + current.w;
-        const cy = @as(i32, current.y) * 2 + current.h;
-        for (placements_) |p| {
-            if (p.id == m.tabs[m.active].focus) continue;
-            const dx = @as(i32, p.rect.x) * 2 + p.rect.w - cx;
-            const dy = @as(i32, p.rect.y) * 2 + p.rect.h - cy;
-            const valid = switch (direction) {
-                .left => dx < 0,
-                .right => dx > 0,
-                .up => dy < 0,
-                .down => dy > 0,
-            };
-            if (!valid) continue;
-            const primary = switch (direction) {
-                .left, .right => @abs(dx),
-                .up, .down => @abs(dy),
-            };
-            const secondary = switch (direction) {
-                .left, .right => @abs(dy),
-                .up, .down => @abs(dx),
-            };
-            const value = @as(u64, primary) + @as(u64, secondary) * 4;
-            if (value < score) {
-                score = value;
-                best = p.id;
-            }
-        }
-        return best;
-    }
-    pub fn swap(m: *Model, other: Id) !void {
-        const a = m.findNode(m.tab().focus) orelse return error.NoPane;
+    pub fn swap(m: *Model, target: Id, other: Id) !void {
+        const a = m.findNode(target) orelse return error.NoPane;
         const b = m.findNode(other) orelse return error.NoPane;
         std.mem.swap(?Node, &m.nodes[a], &m.nodes[b]);
         // Focus follows the process, not its former rectangle.
     }
-    pub fn resize(m: *Model, direction: Direction) void {
+    pub fn resize(m: *Model, id: Id, direction: Direction) void {
         const axis: Axis = switch (direction) {
             .left, .right => .horizontal,
             .up, .down => .vertical,
@@ -217,7 +189,8 @@ pub const Model = struct {
             .left, .up => -40,
             .right, .down => 40,
         };
-        _ = m.resizeNode(m.tab().root, m.tab().focus, axis, delta);
+        const index = m.tabForPane(id) orelse return;
+        _ = m.resizeNode(m.tabs[index].root, id, axis, delta);
     }
     fn resizeNode(m: *Model, index: u8, id: Id, axis: Axis, delta: i32) bool {
         const n = &m.nodes[index].?;
@@ -229,16 +202,9 @@ pub const Model = struct {
         s.ratio = @intCast(std.math.clamp(@as(i32, s.ratio) + delta, 100, 900));
         return true;
     }
-    pub fn reorder(m: *Model, delta: i32) void {
-        if (m.count == 0) return;
-        const dest: usize = @intCast(std.math.clamp(@as(i32, @intCast(m.active)) + delta, 0, @as(i32, @intCast(m.count)) - 1));
-        std.mem.swap(Tab, &m.tabs[m.active], &m.tabs[dest]);
-        m.active = dest;
-    }
-    /// Insert a tab at a gap in the original order, preserving the focused tab.
+
     pub fn moveTab(m: *Model, id: Id, insert: usize) void {
         if (insert > m.count or m.count == 0) return;
-        const focused = m.tabs[m.active].id;
         for (m.tabs[0..m.count], 0..) |tab_value, source| {
             if (tab_value.id != id) continue;
             const dest = insert - @intFromBool(insert > source);
@@ -246,37 +212,8 @@ pub const Model = struct {
             while (i < dest) : (i += 1) m.tabs[i] = m.tabs[i + 1];
             while (i > dest) : (i -= 1) m.tabs[i] = m.tabs[i - 1];
             m.tabs[dest] = tab_value;
-            for (m.tabs[0..m.count], 0..) |t, index| {
-                if (t.id == focused) m.active = index;
-            }
             return;
         }
-    }
-    pub fn breakPane(m: *Model) !void {
-        if (m.count == max_tabs) return error.TooManyTabs;
-        const id = m.tab().focus;
-        if (m.nodes[m.tab().root].? == .pane) return;
-        try m.close(id);
-        const root = try m.alloc(.{ .pane = id });
-        m.tabs[m.count] = .{ .id = m.next_id, .root = root, .focus = id };
-        m.next_id += 1;
-        m.active = m.count;
-        m.count += 1;
-    }
-    pub fn joinPane(m: *Model, dest: usize) !void {
-        if (dest >= m.count or dest == m.active) return error.NoTab;
-        const before = m.*;
-        errdefer m.* = before;
-        const id = m.tab().focus;
-        const target = m.tabs[dest].id;
-        try m.close(id);
-        for (m.tabs[0..m.count], 0..) |t, i| if (t.id == target) {
-            m.active = i;
-            break;
-        };
-        const temporary = try m.split(.horizontal);
-        m.nodes[m.findNode(temporary).?] = .{ .pane = id };
-        m.tab().focus = id;
     }
     /// Copy a subtree between detached model snapshots. Callers commit only on success.
     pub fn copyTree(m: *Model, source: *const Model, root: u8) anyerror!u8 {
@@ -289,7 +226,6 @@ pub const Model = struct {
         m.freeTree(m.tabs[index].root);
         std.mem.copyForwards(Tab, m.tabs[index .. m.count - 1], m.tabs[index + 1 .. m.count]);
         m.count -= 1;
-        if (m.active > index) m.active -= 1 else if (m.active >= m.count) m.active = m.count -| 1;
     }
     fn freeTree(m: *Model, root: u8) void {
         if (m.nodes[root].? == .split) {
@@ -318,14 +254,124 @@ pub const Model = struct {
         n.split.ratio = if (first) ratio else 1000 - ratio;
         return true;
     }
-    pub const Divider = struct { node: u8, rect: Rect };
-    pub fn dividerAt(m: *const Model, area: Rect, x: u16, y: u16) ?Divider {
-        if (m.count == 0 or m.tabs[m.active].zoom) return null;
-        return m.dividerNode(m.tabs[m.active].root, m.contentArea(area), x, y);
+};
+
+/// Viewer-local tab, pane and zoom selection, reconciled once against shared IDs.
+pub const Selection = struct {
+    pub const TabState = struct { id: Id, focus: Id, zoom: bool = false };
+    tabs: [max_tabs]TabState = @splat(.{ .id = 0, .focus = 0 }),
+    count: usize = 0,
+    active: usize = 0,
+    pub fn reconcile(s: *Selection, m: *const Model) void {
+        const old = s.*;
+        const selected = if (old.count > 0) old.tabs[old.active].id else 0;
+        s.count = m.count;
+        s.active = 0;
+        for (m.tabs[0..m.count], 0..) |item, i| {
+            s.tabs[i] = .{ .id = item.id, .focus = m.firstPane(item.root) };
+            for (old.tabs[0..old.count]) |saved| if (saved.id == item.id) {
+                if (m.contains(item.root, saved.focus)) s.tabs[i] = saved;
+                break;
+            };
+            if (item.id == selected) s.active = i;
+        }
     }
-    fn dividerNode(m: *const Model, index: u8, r: Rect, x: u16, y: u16) ?Divider {
+    pub fn focus(s: *Selection, m: *const Model, id: Id) !void {
+        const i = m.tabForPane(id) orelse return error.NoPane;
+        s.active = i;
+        s.tabs[i].focus = id;
+    }
+    pub fn tab(s: *Selection) *TabState {
+        return &s.tabs[s.active];
+    }
+};
+
+/// Read-only geometry of one arrangement as seen by a particular viewer.
+pub const View = struct {
+    model: *const Model,
+    selection: *const Selection,
+    pub fn placements(m: View, area: Rect, out: *[max_panes]Placement) []Placement {
+        if (m.model.count == 0) return out[0..0];
+        const t = m.model.tabs[m.selection.active];
+        const selected = m.selection.tabs[m.selection.active];
+        if (selected.zoom) {
+            out[0] = .{ .id = selected.focus, .rect = area };
+            return out[0..1];
+        }
+        var len: usize = 0;
+        m.walk(t.root, m.contentArea(area), out, &len);
+        return out[0..len];
+    }
+    fn hasFrame(m: View, area: Rect) bool {
+        return m.model.count > 0 and !m.selection.tabs[m.selection.active].zoom and area.w >= 3 and area.h >= 3 and m.model.nodes[m.model.tabs[m.selection.active].root].? == .split;
+    }
+    fn contentArea(m: View, area: Rect) Rect {
+        if (!m.hasFrame(area)) return area;
+        return .{ .x = area.x + 1, .y = area.y + 1, .w = area.w - 2, .h = area.h - 2 };
+    }
+    fn walk(m: View, index: u8, r: Rect, out: *[max_panes]Placement, len: *usize) void {
+        switch (m.model.nodes[index].?) {
+            .pane => |id| {
+                if (len.* < max_panes) {
+                    out[len.*] = .{ .id = id, .rect = r };
+                    len.* += 1;
+                }
+            },
+            .split => |s| {
+                const parts = splitRects(s, r);
+                m.walk(s.first, parts[0], out, len);
+                m.walk(s.second, parts[2], out, len);
+            },
+        }
+    }
+    pub fn neighbor(m: View, direction: Direction, area: Rect) ?Id {
+        var items: [max_panes]Placement = undefined;
+        var selection = m.selection.*;
+        selection.tabs[selection.active].zoom = false;
+        const placements_ = (View{ .model = m.model, .selection = &selection }).placements(area, &items);
+        var current: Rect = .{};
+        for (placements_) |p| if (p.id == m.selection.tabs[m.selection.active].focus) {
+            current = p.rect;
+        };
+        var best: ?Id = null;
+        var score: u64 = std.math.maxInt(u64);
+        const cx = @as(i32, current.x) * 2 + current.w;
+        const cy = @as(i32, current.y) * 2 + current.h;
+        for (placements_) |p| {
+            if (p.id == m.selection.tabs[m.selection.active].focus) continue;
+            const dx = @as(i32, p.rect.x) * 2 + p.rect.w - cx;
+            const dy = @as(i32, p.rect.y) * 2 + p.rect.h - cy;
+            const valid = switch (direction) {
+                .left => dx < 0,
+                .right => dx > 0,
+                .up => dy < 0,
+                .down => dy > 0,
+            };
+            if (!valid) continue;
+            const primary = switch (direction) {
+                .left, .right => @abs(dx),
+                .up, .down => @abs(dy),
+            };
+            const secondary = switch (direction) {
+                .left, .right => @abs(dy),
+                .up, .down => @abs(dx),
+            };
+            const value = @as(u64, primary) + @as(u64, secondary) * 4;
+            if (value < score) {
+                score = value;
+                best = p.id;
+            }
+        }
+        return best;
+    }
+    pub const Divider = struct { node: u8, rect: Rect };
+    pub fn dividerAt(m: View, area: Rect, x: u16, y: u16) ?Divider {
+        if (m.model.count == 0 or m.selection.tabs[m.selection.active].zoom) return null;
+        return m.dividerNode(m.model.tabs[m.selection.active].root, m.contentArea(area), x, y);
+    }
+    fn dividerNode(m: View, index: u8, r: Rect, x: u16, y: u16) ?Divider {
         if (!r.contains(x, y)) return null;
-        const n = m.nodes[index].?;
+        const n = m.model.nodes[index].?;
         if (n != .split) return null;
         const s = n.split;
         const parts = splitRects(s, r);
@@ -334,8 +380,8 @@ pub const Model = struct {
         return m.dividerNode(s.second, parts[2], x, y);
     }
     pub const Border = struct { rect: Rect, axis: Axis, draggable: bool = true };
-    pub fn borders(m: *const Model, area: Rect, out: *[max_borders]Border) []Border {
-        if (m.count == 0 or m.tabs[m.active].zoom) return out[0..0];
+    pub fn borders(m: View, area: Rect, out: *[max_borders]Border) []Border {
+        if (m.model.count == 0 or m.selection.tabs[m.selection.active].zoom) return out[0..0];
         var len: usize = 0;
         if (m.hasFrame(area)) {
             out[0] = .{ .rect = .{ .x = area.x, .y = area.y, .w = area.w, .h = 1 }, .axis = .vertical, .draggable = false };
@@ -344,12 +390,12 @@ pub const Model = struct {
             out[3] = .{ .rect = .{ .x = area.x + area.w - 1, .y = area.y + 1, .w = 1, .h = area.h - 2 }, .axis = .horizontal, .draggable = false };
             len = 4;
         }
-        m.borderNode(m.tabs[m.active].root, m.contentArea(area), out, &len);
+        m.borderNode(m.model.tabs[m.selection.active].root, m.contentArea(area), out, &len);
         return out[0..len];
     }
-    fn borderNode(m: *const Model, index: u8, r: Rect, out: *[max_borders]Border, len: *usize) void {
+    fn borderNode(m: View, index: u8, r: Rect, out: *[max_borders]Border, len: *usize) void {
         if (r.w == 0 or r.h == 0) return;
-        const n = m.nodes[index].?;
+        const n = m.model.nodes[index].?;
         if (n != .split) return;
         const parts = splitRects(n.split, r);
         out[len.*] = .{ .rect = parts[1], .axis = n.split.axis };
@@ -358,13 +404,10 @@ pub const Model = struct {
         m.borderNode(n.split.second, parts[2], out, len);
     }
 
-    pub fn dragDivider(m: *Model, divider: Divider, x: u16, y: u16) void {
-        const slot = &(m.nodes[divider.node] orelse return);
-        if (slot.* != .split) return;
-        const axis = slot.split.axis;
+    pub fn dividerRatio(divider: Divider, axis: Axis, x: u16, y: u16) u16 {
         const total = if (axis == .horizontal) divider.rect.w else divider.rect.h;
         const pos = if (axis == .horizontal) x -| divider.rect.x else y -| divider.rect.y;
-        m.nodes[divider.node].?.split.ratio = @intCast(std.math.clamp((@as(u32, pos) * 1000 + (total -| 2)) / @max(1, total -| 1), 100, 900));
+        return @intCast(std.math.clamp((@as(u32, pos) * 1000 + (total -| 2)) / @max(1, total -| 1), 100, 900));
     }
 };
 
@@ -392,80 +435,105 @@ fn splitRects(s: Split, r: Rect) [3]Rect {
 
 test "nested split close preserves stable identities and collapses tree" {
     var m: Model = .{};
+    var selection: Selection = .{};
+    const view: View = .{ .model = &m, .selection = &selection };
     const a = try m.newTab("one");
-    const b = try m.split(.horizontal);
-    const c = try m.split(.vertical);
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
+    const b = try m.split(selection.tab().focus, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, b);
+    const c = try m.split(selection.tab().focus, .vertical);
+    selection.reconcile(&m);
+    try selection.focus(&m, c);
     try m.close(b);
-    try std.testing.expectEqual(c, m.tab().focus);
+    selection.reconcile(&m);
+    try std.testing.expectEqual(c, selection.tab().focus);
     var out: [max_panes]Placement = undefined;
-    const p = m.placements(.{ .w = 81, .h = 24 }, &out);
+    const p = view.placements(.{ .w = 81, .h = 24 }, &out);
     try std.testing.expectEqual(@as(usize, 2), p.len);
     try std.testing.expectEqual(a, p[0].id);
     try std.testing.expectEqual(c, p[1].id);
     try m.close(a);
-    try std.testing.expectEqual(c, m.nodes[m.tab().root].?.pane);
+    selection.reconcile(&m);
+    try std.testing.expectEqual(c, m.nodes[m.tabs[selection.active].root].?.pane);
     try m.close(c);
+    selection.reconcile(&m);
     try std.testing.expectEqual(@as(usize, 0), m.count);
 }
 test "directional focus, zoom and resize keep geometry inside bounds" {
     var m: Model = .{};
+    var selection: Selection = .{};
+    const view: View = .{ .model = &m, .selection = &selection };
     const a = try m.newTab("one");
-    const b = try m.split(.horizontal);
-    try std.testing.expectEqual(a, m.neighbor(.left, .{ .w = 81, .h = 24 }).?);
-    m.resize(.left);
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
+    const b = try m.split(selection.tab().focus, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, b);
+    try std.testing.expectEqual(a, view.neighbor(.left, .{ .w = 81, .h = 24 }).?);
+    m.resize(selection.tab().focus, .left);
     var out: [max_panes]Placement = undefined;
-    for (m.placements(.{ .w = 1, .h = 1 }, &out)) |p| {
+    for (view.placements(.{ .w = 1, .h = 1 }, &out)) |p| {
         try std.testing.expect(p.rect.x + p.rect.w <= 1);
         try std.testing.expect(p.rect.y + p.rect.h <= 1);
     }
-    m.tab().zoom = true;
-    try std.testing.expectEqual(b, m.placements(.{ .w = 81, .h = 24 }, &out)[0].id);
-}
-test "moving panes across tabs preserves pane identity" {
-    var m: Model = .{};
-    const a = try m.newTab("one");
-    const b = try m.split(.horizontal);
-    try m.breakPane();
-    try std.testing.expectEqual(@as(usize, 2), m.count);
-    try std.testing.expectEqual(b, m.tab().focus);
-    try m.joinPane(0);
-    try std.testing.expectEqual(@as(usize, 1), m.count);
-    try std.testing.expect(m.findNode(a) != null and m.findNode(b) != null);
+    selection.tab().zoom = true;
+    try std.testing.expectEqual(b, view.placements(.{ .w = 81, .h = 24 }, &out)[0].id);
 }
 test "tab insertion preserves order, names, splits and logical focus" {
     var m: Model = .{};
+    var selection: Selection = .{};
     _ = try m.newTab("");
-    const first = m.tab().*;
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
+    const first = m.tabs[selection.active];
     _ = try m.newTab("named");
-    _ = try m.split(.horizontal);
-    const second = m.tab().*;
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
+    const added = try m.split(selection.tab().focus, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, added);
+    const second = m.tabs[selection.active];
     _ = try m.newTab("");
-    const third = m.tab().*;
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
+    const third = m.tabs[selection.active];
     m.moveTab(first.id, 3);
+    selection.reconcile(&m);
     try std.testing.expectEqualDeep(second, m.tabs[0]);
     try std.testing.expectEqualDeep(third, m.tabs[1]);
     try std.testing.expectEqualDeep(first, m.tabs[2]);
-    try std.testing.expectEqual(third.id, m.tab().id);
+    try std.testing.expectEqual(third.id, m.tabs[selection.active].id);
     m.moveTab(first.id, 0);
+    selection.reconcile(&m);
     try std.testing.expectEqualDeep(first, m.tabs[0]);
     try std.testing.expectEqualDeep(second, m.tabs[1]);
-    m.moveTab(second.id, 2); // Its own trailing gap is a no-op.
+    m.moveTab(second.id, 2);
+    selection.reconcile(&m); // Its own trailing gap is a no-op.
     try std.testing.expectEqualDeep(second, m.tabs[1]);
-    try std.testing.expectEqual(third.id, m.tab().id);
+    try std.testing.expectEqual(third.id, m.tabs[selection.active].id);
 }
 
 test "divider cells match gaps at every size and drag lands on requested cell" {
     var m: Model = .{};
+    var selection: Selection = .{};
+    const view: View = .{ .model = &m, .selection = &selection };
     _ = try m.newTab("");
-    _ = try m.split(.horizontal);
-    _ = try m.split(.vertical);
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
+    const split = try m.split(selection.tab().focus, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, split);
+    _ = try m.split(selection.tab().focus, .vertical);
+    selection.reconcile(&m);
     for (0..20) |width| {
         for (0..14) |height| {
             const area: Rect = .{ .x = 3, .y = 2, .w = @intCast(width), .h = @intCast(height) };
             var panes: [max_panes]Placement = undefined;
-            var lines: [max_borders]Model.Border = undefined;
-            const placements = m.placements(area, &panes);
-            const borders = m.borders(area, &lines);
+            var lines: [max_borders]View.Border = undefined;
+            const placements = view.placements(area, &panes);
+            const borders = view.borders(area, &lines);
             for (area.y..area.y + area.h) |y| for (area.x..area.x + area.w) |x| {
                 var coverage: usize = 0;
                 for (placements) |p| if (p.rect.contains(@intCast(x), @intCast(y))) {
@@ -473,34 +541,55 @@ test "divider cells match gaps at every size and drag lands on requested cell" {
                 };
                 for (borders) |b| if (b.rect.contains(@intCast(x), @intCast(y))) {
                     coverage += 1;
-                    try std.testing.expectEqual(b.draggable, m.dividerAt(area, @intCast(x), @intCast(y)) != null);
+                    try std.testing.expectEqual(b.draggable, view.dividerAt(area, @intCast(x), @intCast(y)) != null);
                 };
                 try std.testing.expectEqual(@as(usize, 1), coverage);
             };
         }
     }
     const area: Rect = .{ .x = 28, .y = 1, .w = 72, .h = 28 };
-    const divider = m.dividerAt(area, 63, 2).?;
-    m.dragDivider(divider, 75, 2);
-    try std.testing.expect(m.dividerAt(area, 75, 2) != null);
-    m.tab().zoom = true;
-    var lines: [max_borders]Model.Border = undefined;
-    try std.testing.expectEqual(@as(usize, 0), m.borders(area, &lines).len);
-    try std.testing.expect(m.dividerAt(area, 75, 2) == null);
+    const divider = view.dividerAt(area, 63, 2).?;
+    m.nodes[divider.node].?.split.ratio = View.dividerRatio(divider, .horizontal, 75, 2);
+    try std.testing.expect(view.dividerAt(area, 75, 2) != null);
+    selection.tab().zoom = true;
+    var lines: [max_borders]View.Border = undefined;
+    try std.testing.expectEqual(@as(usize, 0), view.borders(area, &lines).len);
+    try std.testing.expect(view.dividerAt(area, 75, 2) == null);
 }
 
 test "only split layouts reserve an outer frame and closing restores the area" {
     var m: Model = .{};
+    var selection: Selection = .{};
+    const view: View = .{ .model = &m, .selection = &selection };
     _ = try m.newTab("");
+    selection.reconcile(&m);
+    selection.active = m.count - 1;
     const area: Rect = .{ .x = 28, .y = 1, .w = 72, .h = 28 };
     var panes: [max_panes]Placement = undefined;
-    try std.testing.expectEqualDeep(area, m.placements(area, &panes)[0].rect);
-    const second = try m.split(.horizontal);
-    for (m.placements(area, &panes)) |p| {
+    try std.testing.expectEqualDeep(area, view.placements(area, &panes)[0].rect);
+    const second = try m.split(selection.tab().focus, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, second);
+    for (view.placements(area, &panes)) |p| {
         try std.testing.expect(p.rect.x > area.x and p.rect.y > area.y);
         try std.testing.expect(p.rect.x + p.rect.w < area.x + area.w);
         try std.testing.expect(p.rect.y + p.rect.h < area.y + area.h);
     }
     try m.close(second);
-    try std.testing.expectEqualDeep(area, m.placements(area, &panes)[0].rect);
+    selection.reconcile(&m);
+    try std.testing.expectEqualDeep(area, view.placements(area, &panes)[0].rect);
+}
+
+test "shared model decoder rejects cycles orphan nodes and duplicate panes" {
+    const invalid = [_][]const u8{
+        \\{"nodes":[{"split":{"axis":"horizontal","ratio":500,"first":0,"second":1}},{"pane":1}],"tabs":[{"id":2,"root":0,"title":""}],"revision":1}
+        ,
+        \\{"nodes":[{"pane":1},{"pane":3}],"tabs":[{"id":2,"root":0,"title":""}],"revision":1}
+        ,
+        \\{"nodes":[{"pane":1},{"pane":1}],"tabs":[{"id":2,"root":0,"title":""},{"id":3,"root":1,"title":""}],"revision":1}
+        ,
+    };
+    for (invalid) |bytes| {
+        try std.testing.expectError(error.UnexpectedToken, std.json.parseFromSlice(Model, std.testing.allocator, bytes, .{}));
+    }
 }

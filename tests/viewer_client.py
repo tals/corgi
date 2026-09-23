@@ -19,7 +19,9 @@ class Viewer:
             self.test.fail('viewer exited: '+self.proc.stderr.read())
         self.state=json.loads(line)
         self.events=[event for event in self.events if not event.get('_display')]
-        self.events.extend(json.loads(line) for line in self.state['effects'].splitlines() if line)
+        for effect in self.state['effects']:
+            if 'write_terminal' in effect:
+                self.events.append(dict(type='frame', data=effect['write_terminal']))
         if self.state['rang']:self.events.append(dict(type='bell',kind=self.state['bell_kind']))
         self.events.append(dict(type='frame',data=self.state['data'],_display=True))
         if self.state['detached']:self.events.append(dict(type='detach'))

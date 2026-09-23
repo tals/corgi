@@ -39,7 +39,6 @@ pub const Workspace = struct {
 };
 pub const Store = struct {
     items: std.ArrayList(Workspace) = .empty,
-    active: usize = 0,
     next_id: u32 = 1,
     next_pane_id: u32 = 1,
     const SavedWorkspace = struct { id: u32, name: []const u8, cwd: []const u8 };
@@ -51,10 +50,10 @@ pub const Store = struct {
         if (os.env("XDG_STATE_HOME")) |root| return std.fs.path.join(a, &.{ root, "corgi", "workspaces.json" });
         return std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".local", "state", "corgi", "workspaces.json" });
     }
-    pub fn save(s: *Store, path: []const u8) !void {
+    pub fn save(s: *Store, path: []const u8, selected: u32) !void {
         var entries: [max_workspaces]SavedWorkspace = undefined;
         for (s.items.items, 0..) |*w, i| entries[i] = .{ .id = w.id, .name = w.customName(), .cwd = w.cwd };
-        const bytes = try std.json.Stringify.valueAlloc(a, Saved{ .active = s.current().id, .next_id = s.next_id, .workspaces = entries[0..s.items.items.len] }, .{ .whitespace = .indent_2 });
+        const bytes = try std.json.Stringify.valueAlloc(a, Saved{ .active = selected, .next_id = s.next_id, .workspaces = entries[0..s.items.items.len] }, .{ .whitespace = .indent_2 });
         defer a.free(bytes);
         try std.fs.cwd().makePath(std.fs.path.dirname(path) orelse ".");
         const temp = try std.fmt.allocPrint(a, "{s}.tmp", .{path});
@@ -66,9 +65,9 @@ pub const Store = struct {
         try file.sync();
         try std.fs.cwd().rename(temp, path);
     }
-    pub fn load(s: *Store, path: []const u8) !bool {
+    pub fn load(s: *Store, path: []const u8) !?u32 {
         const bytes = std.fs.cwd().readFileAlloc(a, path, 1024 * 1024) catch |err| switch (err) {
-            error.FileNotFound => return false,
+            error.FileNotFound => return null,
             else => return err,
         };
         defer a.free(bytes);
@@ -86,18 +85,15 @@ pub const Store = struct {
             item.rename(w.name);
             try restored.items.append(a, item);
         }
-        restored.active = restored.index(saved.active) orelse return error.InvalidWorkspaceState;
+        _ = restored.index(saved.active) orelse return error.InvalidWorkspaceState;
         restored.next_id = saved.next_id;
         s.deinit();
         s.* = restored;
-        return true;
+        return saved.active;
     }
     pub fn deinit(s: *Store) void {
         for (s.items.items) |w| a.free(w.cwd);
         s.items.deinit(a);
-    }
-    pub fn current(s: *Store) *Workspace {
-        return &s.items.items[s.active];
     }
     pub fn index(s: *const Store, id: u32) ?usize {
         for (s.items.items, 0..) |w, i| if (w.id == id) return i;
@@ -111,11 +107,9 @@ pub const Store = struct {
     pub fn moveBefore(s: *Store, id: u32, before: u32) !void {
         const from = s.index(id) orelse return error.NoWorkspace;
         _ = s.index(before) orelse return error.NoWorkspace;
-        const active = s.current().id;
         const item = s.items.orderedRemove(from);
         const to = if (before == id) s.items.items.len else s.index(before).?;
         s.items.insertAssumeCapacity(to, item);
-        s.active = s.index(active).?;
     }
     pub fn directory(path: []const u8) ![]const u8 {
         const home = @import("os.zig").env("HOME") orelse ".";
@@ -154,30 +148,30 @@ test "automatic workspace names follow folders while overrides survive save and 
     var store: Store = .{};
     defer store.deinit();
     const id = try store.add("", ".");
-    _ = try store.current().follow("/tmp/项目");
-    try std.testing.expectEqualStrings("项目", store.current().name());
+    _ = try store.items.items[0].follow("/tmp/项目");
+    try std.testing.expectEqualStrings("项目", store.items.items[0].name());
     try store.rename(id, "My project");
-    _ = try store.current().follow("/tmp/next");
-    try std.testing.expectEqualStrings("My project", store.current().name());
+    _ = try store.items.items[0].follow("/tmp/next");
+    try std.testing.expectEqualStrings("My project", store.items.items[0].name());
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const root = try tmp.dir.realpathAlloc(a, ".");
     defer a.free(root);
     const path = try std.fs.path.join(a, &.{ root, "workspaces.json" });
     defer a.free(path);
-    try store.save(path);
+    try store.save(path, store.items.items[0].id);
     var restored: Store = .{};
     defer restored.deinit();
-    try std.testing.expect(try restored.load(path));
-    try std.testing.expectEqualStrings("My project", restored.current().name());
+    try std.testing.expect((try restored.load(path)) != null);
+    try std.testing.expectEqualStrings("My project", restored.items.items[0].name());
     try store.rename(id, "");
-    try store.save(path);
-    try std.testing.expect(try restored.load(path));
-    _ = try restored.current().follow("/tmp/new");
-    try std.testing.expectEqualStrings("new", restored.current().name());
-    try std.testing.expectEqualStrings("", restored.current().customName());
-    _ = try restored.current().follow("/");
-    try std.testing.expectEqualStrings("/", restored.current().name());
+    try store.save(path, store.items.items[0].id);
+    try std.testing.expect((try restored.load(path)) != null);
+    _ = try restored.items.items[0].follow("/tmp/new");
+    try std.testing.expectEqualStrings("new", restored.items.items[0].name());
+    try std.testing.expectEqualStrings("", restored.items.items[0].customName());
+    _ = try restored.items.items[0].follow("/");
+    try std.testing.expectEqualStrings("/", restored.items.items[0].name());
 }
 
 test "old workspace state drops pins and preserves all existing names" {
@@ -191,10 +185,10 @@ test "old workspace state drops pins and preserves all existing names" {
     defer a.free(path);
     var store: Store = .{};
     defer store.deinit();
-    try std.testing.expect(try store.load(path));
-    try std.testing.expectEqualStrings("Default", store.current().name());
+    try std.testing.expect((try store.load(path)) != null);
+    try std.testing.expectEqualStrings("Default", store.items.items[0].name());
     try std.testing.expectEqualStrings("Custom", store.items.items[1].name());
-    try store.rename(store.current().id, "");
-    _ = try store.current().follow("/tmp/moved");
-    try std.testing.expectEqualStrings("moved", store.current().name());
+    try store.rename(store.items.items[0].id, "");
+    _ = try store.items.items[0].follow("/tmp/moved");
+    try std.testing.expectEqualStrings("moved", store.items.items[0].name());
 }

@@ -1,6 +1,7 @@
 """Split lines and drag capture through real viewer/daemon exchanges."""
 import re, unittest
 from viewers import Viewers, Viewer
+from smoke import layout_tree
 
 def border_cells(data):
     cells={};x=y=0;highlighted=False;i=0
@@ -24,11 +25,10 @@ def border_cells(data):
 
 class Splits(Viewers):
     def split(self, pane, axis):
-        return self.rpc(op='pane.split', protocol=1, pane=pane, axis=axis,
-                        cwd=self.temp.name, command='sleep 60')['pane']
+        return self.command('pane.split', cwd=self.temp.name, command='sleep 60', target=pane, direction=axis)['pane']
 
     def tree(self):
-        return self.session()['workspaces'][0]['tabs'][0]['layout']['split']
+        return layout_tree(self.session()['workspaces'][0])['split']
 
     def test_lines_and_continuous_drag(self):
         left = self.new()

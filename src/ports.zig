@@ -299,31 +299,6 @@ pub const Tracker = struct {
         t.arena.deinit();
         t.pending_arena.deinit();
     }
-    /// Mirrors own their strings beyond the incoming RPC arena's lifetime.
-    pub fn receive(t: *Tracker, snapshot: Snapshot) !void {
-        var arena: std.heap.ArenaAllocator = .init(a);
-        errdefer arena.deinit();
-        const allocator = arena.allocator();
-        const works = try allocator.dupe(Work, snapshot.workspaces);
-        for (works) |*work| {
-            const endpoints = try allocator.dupe(Endpoint, work.endpoints);
-            work.endpoints = endpoints;
-            for (endpoints) |*e| {
-                e.name = try allocator.dupe(u8, e.name);
-                e.bind_address = try allocator.dupe(u8, e.bind_address);
-                const ifaces = try allocator.dupe(Interface, e.interfaces);
-                e.interfaces = ifaces;
-                for (ifaces) |*iface| {
-                    iface.name = try allocator.dupe(u8, iface.name);
-                    iface.address = try allocator.dupe(u8, iface.address);
-                }
-            }
-        }
-        t.arena.deinit();
-        t.arena = arena;
-        t.current = snapshot;
-        t.current.workspaces = works;
-    }
     pub fn tick(t: *Tracker, runtime: anytype) bool {
         var changed = false;
         if (t.thread) |thread| {

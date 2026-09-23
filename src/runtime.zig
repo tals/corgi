@@ -79,7 +79,7 @@ pub const Runtime = struct {
 
     pub const Create = struct {
         workspace: u32,
-        split: ?struct { pane: layout.Id, axis: layout.Axis } = null,
+        split: ?struct { pane: layout.Id, axis: layout.Axis, before: bool = false } = null,
         cwd: []const u8,
         command: ?[]const u8 = null,
         title: []const u8 = "",
@@ -91,15 +91,14 @@ pub const Runtime = struct {
     };
 
     /// Changes the shared arrangement without selecting the result in a viewer.
-    /// The legacy UI selects the returned ID itself until milestone 2.
     pub fn create(r: *Runtime, opts: Create) !layout.Id {
         if (r.panes.items.len >= layout.max_panes) return error.TooManyPanes;
         const ws = try r.getWorkspace(opts.workspace);
         var next = ws.model;
         next.next_id = r.workspaces.next_pane_id;
-        if (opts.split) |split| try next.focus(split.pane);
-        const id = if (opts.split) |split| try next.split(split.axis) else try next.newTab(opts.title);
-        retainSelection(&next, &ws.model);
+        const id = if (opts.split) |split| try next.split(split.pane, split.axis) else try next.newTab(opts.title);
+        if (opts.split) |split| if (split.before) try next.swap(id, split.pane);
+        next.revision +%= 1;
         const dir = try workspace.Store.directory(opts.cwd);
         errdefer a.free(dir);
         const t = try Terminal.create(opts.cols, opts.rows);
@@ -117,65 +116,70 @@ pub const Runtime = struct {
 
     pub fn close(r: *Runtime, id: layout.Id) !void {
         const owner = r.workspaces.owner(id) orelse return error.NoPane;
-        var previous = owner.model;
-        try previous.focus(id);
+        const previous = owner.model.tabs[owner.model.tabForPane(id).?];
         try r.closed.ensureUnusedCapacity(a, 1);
         try owner.model.close(id);
+        owner.model.revision +%= 1;
         for (r.panes.items, 0..) |*p, i| if (p.id == id) {
             p.refreshCwd();
             _ = p.terminal.read();
             p.terminal.stop();
             if (r.closed.items.len == 8) r.closed.orderedRemove(0).deinit();
-            r.closed.appendAssumeCapacity(.{ .label = p.label, .terminal = p.terminal, .cwd = p.cwd, .tab = previous.tab().*, .workspace_id = owner.id });
+            r.closed.appendAssumeCapacity(.{ .label = p.label, .terminal = p.terminal, .cwd = p.cwd, .tab = previous, .workspace_id = owner.id });
             _ = r.panes.orderedRemove(i);
             break;
         };
         r.changed();
     }
 
-    pub fn resizeSplit(r: *Runtime, id: layout.Id, direction: layout.Direction) !void {
-        const owner = r.workspaces.owner(id) orelse return error.NoPane;
-        var next = owner.model;
-        try next.focus(id);
-        next.resize(direction);
-        retainSelection(&next, &owner.model);
-        owner.model = next;
+    pub fn restore(r: *Runtime, fallback: Create) !layout.Id {
+        if (r.closed.items.len == 0) return error.NoClosedPane;
+        const saved = r.closed.items[r.closed.items.len - 1];
+        const content = try saved.terminal.snapshot();
+        defer a.free(content);
+        var opts = fallback;
+        if (r.workspaces.index(saved.workspace_id) != null) opts.workspace = saved.workspace_id;
+        opts.cwd = saved.cwd;
+        opts.title = saved.tab.title();
+        const id = try r.create(opts);
+        const p = r.pane(id).?;
+        p.label = saved.label;
+        p.terminal.feed(content);
+        p.terminal.feed("\x1b[0m\r\n[Corgi: restored output; new shell]\r\n");
+        _ = r.closed.pop();
+        saved.deinit();
+        return id;
+    }
+    pub fn createWorkspace(r: *Runtime, name: []const u8, opts: Create) !u32 {
+        const id = try r.workspaces.add(name, opts.cwd);
+        errdefer {
+            const removed = r.workspaces.items.pop().?;
+            a.free(removed.cwd);
+        }
+        var shell = opts;
+        shell.workspace = id;
+        _ = try r.create(shell);
+        return id;
+    }
+    pub fn closeWorkspace(r: *Runtime, id: u32, close_contents: bool) !void {
+        const index = r.workspaces.index(id) orelse return error.NoWorkspace;
+        if (r.workspaces.items.items.len == 1) return error.LastWorkspace;
+        const ws = &r.workspaces.items.items[index];
+        if (!close_contents) {
+            if (ws.model.count > 0) return error.WorkspaceNotEmpty;
+            for (r.sessions.items) |session| if (session.workspace_id == id) return error.WorkspaceNotEmpty;
+        }
+        try r.closed.ensureUnusedCapacity(a, @min(r.panes.items.len, 8));
+        while (ws.model.count > 0) try r.close(ws.model.firstPane(ws.model.tabs[0].root));
+        var i: usize = 0;
+        while (i < r.sessions.items.len) {
+            if (r.sessions.items[i].workspace_id == id) {
+                r.sessions.items[i].destroy();
+                _ = r.sessions.orderedRemove(i);
+            } else i += 1;
+        }
+        const removed = r.workspaces.items.orderedRemove(index);
+        a.free(removed.cwd);
         r.changed();
     }
-
-    pub fn renameTab(r: *Runtime, id: layout.Id, title: []const u8) !void {
-        for (r.workspaces.items.items) |*ws| {
-            for (ws.model.tabs[0..ws.model.count]) |*tab| if (tab.id == id) {
-                tab.rename(title);
-                r.changed();
-                return;
-            };
-        }
-        return error.NoTab;
-    }
 };
-
-fn retainSelection(next: *layout.Model, previous: *const layout.Model) void {
-    for (previous.tabs[0..previous.count], 0..) |old, i| {
-        // Create/split/resize preserve the order and IDs of all existing tabs.
-        next.tabs[i].focus = old.focus;
-        next.tabs[i].zoom = old.zoom;
-    }
-    next.active = previous.active;
-}
-
-test "targeted layout edits retain the legacy selection" {
-    var runtime: Runtime = .{};
-    defer runtime.deinit();
-    _ = try runtime.workspaces.add("one", ".");
-    const model = &runtime.workspaces.current().model;
-    const first = try model.newTab("first");
-    _ = try model.split(.horizontal);
-    const second = try model.newTab("second");
-    const before = model.*;
-    try runtime.resizeSplit(first, .right);
-    try std.testing.expectEqual(second, model.tab().focus);
-    try std.testing.expectEqual(before.active, model.active);
-    try std.testing.expectEqual(before.tabs[0].focus, model.tabs[0].focus);
-    try std.testing.expect(!std.meta.eql(before.nodes, model.nodes));
-}

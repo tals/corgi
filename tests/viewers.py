@@ -4,6 +4,7 @@ Build first: ./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=tru
 """
 import base64, datetime, json, os, pathlib, select, shlex, socket, subprocess, sys, threading, time, unittest
 import smoke as legacy
+from smoke import layout_tree
 from smoke import EXE
 
 from viewer_client import Viewer
@@ -11,6 +12,8 @@ from viewer_client import Viewer
 class Viewers(unittest.TestCase):
     run_cli=legacy.Runtime.run_cli
     rpc=legacy.Runtime.rpc
+    command=legacy.Runtime.command
+    open_pane=legacy.Runtime.open_pane
     raw_rpc=legacy.Runtime.raw_rpc
     session=legacy.Runtime.session
     panes=legacy.Runtime.panes
@@ -23,11 +26,11 @@ class Viewers(unittest.TestCase):
         legacy.Runtime.tearDown(self)
     def new(self,command='sleep 60',title=''):
         ws=self.session()['workspaces'][0]['id']
-        return self.rpc(op='pane.create',protocol=1,workspace=ws,cwd=self.temp.name,command=command,title=title)['pane']
+        return self.command('pane.create', workspace=ws, cwd=self.temp.name, command=command, title=title)['pane']
     def geometry(self):return {p['id']:(p['cols'],p['rows']) for p in self.session()['panes']}
     def test_pane_menu_names_target_without_stealing_focus(self):
         left=self.new()
-        right=self.rpc(op='pane.split',protocol=1,pane=left,axis='right',cwd=self.temp.name,command='sleep 60')['pane']
+        right=self.command('pane.split', cwd=self.temp.name, command='sleep 60', target=left, direction='right')['pane']
         a,b=Viewer(self),Viewer(self)
         a.focus(left);b.focus(right)
         a.input('\x1b[<2;85;5M\x1b[<2;85;5m')
@@ -42,7 +45,7 @@ class Viewers(unittest.TestCase):
         a.input('\x1b[<2;85;5M\x1b[<2;85;5m')
         a.input('s')
         self.assertEqual(a.state['pane'],left)
-        tree=self.session()['workspaces'][0]['tabs'][0]['layout']['split']
+        tree=layout_tree(self.session()['workspaces'][0])['split']
         self.assertEqual(tree['first']['pane'],right)
         self.assertEqual(tree['second']['pane'],left)
         a.input('\x1b[<2;35;5M\x1b[<2;35;5m')
@@ -52,7 +55,7 @@ class Viewers(unittest.TestCase):
     def test_pane_name_survives_reload_and_reopen(self):
         pane=self.new()
         a=Viewer(self)
-        self.rpc(op='pane.rename',protocol=1,pane=pane,name='Build')
+        self.command('pane.rename', name='Build', target=pane)
         self.run_cli('reload',EXE)
         self.assertEqual(next(p for p in self.session()['panes'] if p['id']==pane)['name'],'Build')
         extra=self.new()
@@ -66,8 +69,8 @@ class Viewers(unittest.TestCase):
     def test_workspace_drag_order_marker_and_cancellation(self):
         self.new()
         first=self.session()['workspaces'][0]['id']
-        second=self.rpc(op='workspace.create',protocol=1,name='Second',cwd=self.temp.name)['workspace']
-        third=self.rpc(op='workspace.create',protocol=1,name='Third',cwd=self.temp.name)['workspace']
+        second=self.command('workspace.create', name='Second', cwd=self.temp.name)['workspace']
+        third=self.command('workspace.create', name='Third', cwd=self.temp.name)['workspace']
         a,b=Viewer(self),Viewer(self)
         b.request(op='workspace',workspace=second)
         a.input('\x1b[<0;5;3M')
@@ -103,7 +106,7 @@ class Viewers(unittest.TestCase):
     def test_workspace_away_usage_resets_on_visit_and_respects_other_viewers(self):
         pane=self.new()
         home=self.session()['workspaces'][0]['id']
-        other=self.rpc(op='workspace.create',protocol=1,name='Other',cwd=self.temp.name)['workspace']
+        other=self.command('workspace.create', name='Other', cwd=self.temp.name)['workspace']
         path=pathlib.Path(self.temp.name,'usage.jsonl')
         def token_line(i,o):
             return {'type':'event_msg','payload':{'type':'token_count','info':{'total_token_usage':{'input_tokens':i,'output_tokens':o}}}}
@@ -167,7 +170,7 @@ class Viewers(unittest.TestCase):
 
     def test_workspace_context_menu_targets_background_workspace(self):
         first=self.new(title='Keep')
-        ws=self.rpc(op='workspace.create',protocol=1,name='Target',cwd=self.temp.name)['workspace']
+        ws=self.command('workspace.create', name='Target', cwd=self.temp.name)['workspace']
         a=Viewer(self);b=Viewer(self)
         a.focus(first);b.request(op='workspace',workspace=ws)
         a.input('\x1b[<2;5;6M\x1b[<2;5;6m')
@@ -183,8 +186,8 @@ class Viewers(unittest.TestCase):
     def test_workspace_name_uses_first_tab_in_both_viewers(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
-        first=self.rpc(op='new',cwd=str(one),command='exec /bin/sh')['pane']
-        second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
+        first=self.open_pane(cwd=str(one), command='exec /bin/sh')['pane']
+        second=self.open_pane(cwd=str(two), command='exec /bin/sh')['pane']
         a=Viewer(self);b=Viewer(self)
         a.focus(first);b.focus(second)
         self.assertEqual(legacy.screen_text(a.poll()['data'],100,30)[2][1:27].strip(),'one')
@@ -205,8 +208,8 @@ class Viewers(unittest.TestCase):
     def test_viewer_creation_inherits_its_own_focused_directory(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
-        first=self.rpc(op='new',cwd=str(one),command='exec /bin/sh')['pane']
-        second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
+        first=self.open_pane(cwd=str(one), command='exec /bin/sh')['pane']
+        second=self.open_pane(cwd=str(two), command='exec /bin/sh')['pane']
         a=Viewer(self);b=Viewer(self)
         a.focus(first);b.focus(second)
         b.action('split','right')
@@ -214,12 +217,13 @@ class Viewers(unittest.TestCase):
         target=self.rpc(op='viewer.list')['viewers'][0]['id']
         self.rpc(op='focus',pane=second,viewer=target)
         for op in ('new','split'):
-            created=self.rpc(op=op,viewer=target,command='sleep 60')['pane']
+            self.rpc(op='action',name=op,value='right' if op=='split' else '',viewer=target)
+            created=self.client.poll()['pane']
             self.assertEqual(next(p['cwd'] for p in self.session()['panes'] if p['id']==created),str(two.resolve()))
 
     def test_selection_and_dialogs_are_viewer_specific(self):
         first=self.new(title='First');second=self.new(title='Second')
-        ws=self.rpc(op='workspace.create',protocol=1,name='Other',cwd=self.temp.name)['workspace']
+        ws=self.command('workspace.create', name='Other', cwd=self.temp.name)['workspace']
         a=Viewer(self);b=Viewer(self)
         a.focus(first);b.focus(second)
         before=self.session()['workspaces']
@@ -255,14 +259,19 @@ class Viewers(unittest.TestCase):
         b.close();a.poll();self.assertEqual(self.geometry()[first],(92,38))
     def test_scroll_and_copy_are_private_and_preserve_live_screen(self):
         first=self.new("i=0; while [ $i -lt 80 ]; do printf 'ROW_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh")
-        self.until(lambda:'ROW_079' in self.rpc(op='read',pane=first)['text'])
+        self.until(lambda:'ROW_079' in self.command('pane.read', target=first, view='screen')['text'])
         a=Viewer(self);b=Viewer(self);a.focus(first);b.focus(first)
         a.input('\x02[g')
         self.assertIn('ROW_000',a.state['data'])
         self.assertNotIn('ROW_000',b.poll()['data'])
         self.assertIn('ROW_079',b.state['data'])
-        self.assertIn('ROW_079',self.rpc(op='read',pane=first)['text'])
-        a.input('y');self.assertIn('52;c;',a.state['effects'])
+        self.assertIn('ROW_079',self.command('pane.read', target=first, view='screen')['text'])
+        a.input('yy')
+        self.assertEqual(len(a.state['effects']),2)
+        self.assertEqual(a.state['effects'][0],a.state['effects'][1])
+        self.assertIn('52;c;',a.state['effects'][0]['write_terminal'])
+        self.assertEqual(a.poll()['effects'],[])
+        self.assertEqual(b.poll()['effects'],[])
         a.input('q');self.assertIn('ROW_079',a.state['data'])
     def test_targeted_cli_navigation_and_paste_keep_original_target(self):
         first=self.new('exec /bin/sh');second=self.new('exec /bin/sh')
@@ -273,16 +282,38 @@ class Viewers(unittest.TestCase):
         self.assertEqual(a.poll()['pane'],second);self.assertEqual(b.poll()['pane'],first)
         a.input('STAYS_HERE\\n\x1b[201~\r')
         # The paste stays in first; Enter after its end belongs to second.
-        self.rpc(op='send',pane=first,text='\r')
-        self.until(lambda:'PASTE_STAYS_HERE' in self.rpc(op='read',pane=first)['text'])
-        self.assertNotIn('PASTE_STAYS_HERE',self.rpc(op='read',pane=second)['text'])
-    def test_conflicting_layout_edit_is_rejected(self):
-        self.new(title='Before');a=Viewer(self)
+        self.command('pane.input', target=first, data='\r')
+        self.until(lambda:'PASTE_STAYS_HERE' in self.command('pane.read', target=first, view='screen')['text'])
+        self.assertNotIn('PASTE_STAYS_HERE',self.command('pane.read', target=second, view='screen')['text'])
+    def test_independent_edits_from_stale_viewers_compose(self):
+        first=self.new(title='First');second=self.new(title='Second')
+        a,b=Viewer(self),Viewer(self)
+        a.focus(first);b.focus(second)
+        a.action('rename','Changed first')
+        # b has not received a's snapshot: its operation still names only its tab.
+        b.action('rename','Changed second')
+        tabs=self.session()['workspaces'][0]['model']['tabs']
+        self.assertEqual([t['title'] for t in tabs],['Changed first','Changed second'])
+        self.assertEqual(a.poll()['pane'],first)
+        self.assertEqual(b.poll()['pane'],second)
+
+    def test_session_edits_reject_invalid_targets_and_stale_dividers_atomically(self):
+        first=self.new();viewer=Viewer(self)
+        viewer.action('split','right');second=viewer.state['pane']
         old=self.session()['workspaces'][0]
-        a.action('rename','After')
-        reply=self.raw_rpc(op='layout.apply',protocol=1,workspace=old['id'],token=old['token'],tabs=old['tabs'])
-        self.assertEqual(reply['err'],'StaleLayout')
-        self.assertEqual(self.session()['workspaces'][0]['tabs'][0]['title'],'After')
+        viewer.action('rename','New title')
+        before=self.session()['workspaces']
+        invalid=[
+            ({'pane.move':dict(target=first)}, 'MissingField'),
+            ({'pane.swap':dict(target=first,other=99999)}, 'NoPane'),
+            ({'split.ratio':dict(target=first,other=second,ratio=650)}, 'MissingField'),
+            ({'split.ratio':dict(target=first,other=second,ratio=650,expected=old['model']['revision'])}, 'StaleLayout'),
+            ({'tab.move':dict(target=old['model']['tabs'][0]['id'],destination={'beside':second})}, 'UnknownField'),
+        ]
+        for command,error in invalid:
+            self.assertEqual(self.raw_rpc(op='session.command',protocol=1,command=command)['err'],error)
+            self.assertEqual(self.session()['workspaces'],before)
+
     def test_viewer_reopen_preserves_daemon_and_pane_processes(self):
         first=self.new();a=Viewer(self);a.focus(first)
         before=self.session();a.close()
@@ -294,7 +325,7 @@ class Viewers(unittest.TestCase):
         first=self.new();a=Viewer(self);b=Viewer(self)
         a.action('split','right');split=a.state['pane'];b.poll();b.focus(first)
         a.action('break');self.assertEqual(a.state['pane'],split)
-        self.assertEqual(len(self.session()['workspaces'][0]['tabs']),2)
+        self.assertEqual(len(self.session()['workspaces'][0]['model']['tabs']),2)
         self.assertEqual(b.poll()['pane'],first)
         a.action('join','1');self.assertEqual(a.state['pane'],split)
         a.action('close');self.assertEqual(a.state['pane'],first)
@@ -304,12 +335,12 @@ class Viewers(unittest.TestCase):
 
     def test_search_and_selection_copy_do_not_change_other_view(self):
         first=self.new("printf 'SEARCH_MARKER_unique\\n'; i=0; while [ $i -lt 80 ]; do printf 'tail_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh")
-        self.until(lambda:'tail_079' in self.rpc(op='read',pane=first)['text'])
+        self.until(lambda:'tail_079' in self.command('pane.read', target=first, view='screen')['text'])
         a=Viewer(self);b=Viewer(self);a.focus(first);b.focus(first)
         a.input('\x02[/SEARCH_MARKER_unique\r')
         self.assertIn('SEARCH_MARKER_unique',a.state['data'])
         a.input('y')
-        effect=json.loads(a.state['effects'].splitlines()[0])['data']
+        effect=a.state['effects'][0]['write_terminal']
         encoded=effect.split('52;c;',1)[1].split('\x07',1)[0]
         self.assertEqual(base64.b64decode(encoded).decode(),'SEARCH_MARKER_unique')
         self.assertNotIn('SEARCH_MARKER_unique',b.poll()['data'])
@@ -317,16 +348,16 @@ class Viewers(unittest.TestCase):
         first=self.new('exec /bin/sh');second=self.new('exec /bin/sh')
         a=Viewer(self);a.focus(first)
         a.input('\x1b[200~NOT_A_COMMAND')
-        self.rpc(op='pane.close',protocol=1,pane=first)
+        self.command('pane.close', target=first)
         a.input('_SHOULD_DISAPPEAR\x1b[201~')
         self.assertEqual(a.state['pane'],second)
-        self.assertNotIn('SHOULD_DISAPPEAR',self.rpc(op='read',pane=second)['text'])
+        self.assertNotIn('SHOULD_DISAPPEAR',self.command('pane.read', target=second, view='screen')['text'])
     def test_viewer_encodes_keys_and_mouse_for_child_modes(self):
         fixture=pathlib.Path(self.temp.name,'input.py')
         capture=pathlib.Path(self.temp.name,'input.bin')
         fixture.write_text("import os,tty,sys\ntty.setraw(0)\nos.write(1,b'\\x1b[>1u\\x1b[?1002h\\x1b[?1006hREADY')\nwith open(sys.argv[1],'wb',buffering=0) as f:\n while True:f.write(os.read(0,4096))\n")
         first=self.new(shlex.join([sys.executable,str(fixture),str(capture)]))
-        self.until(lambda:'READY' in self.rpc(op='read',pane=first)['text'])
+        self.until(lambda:'READY' in self.command('pane.read', target=first, view='screen')['text'])
         a=Viewer(self);a.focus(first)
         a.input('\x1b[97;5u')
         self.until(lambda:capture.exists() and b'\x1b[97;5u' in capture.read_bytes())
@@ -382,36 +413,18 @@ with open(sys.argv[1], 'wb', buffering=0) as capture:
         arrows(0,b'O')
         self.assertEqual(captures[1].read_bytes(),expected[1])
 
-    def test_older_daemon_is_rejected_without_restart(self):
-        path=self.temp.name+'/older.sock'
-        seen=[]
-        with socket.socket(socket.AF_UNIX) as listener:
-            listener.bind(path);listener.listen(1);listener.settimeout(5)
-            def serve():
-                client,_=listener.accept()
-                with client,client.makefile('rb') as stream:
-                    seen.append(json.loads(stream.readline())['op'])
-                    client.sendall(b'{"type":"hello","protocol":1,"capabilities":["session.snapshot"]}\n')
-                    extra=stream.readline()
-                    if extra:seen.append(json.loads(extra)['op'])
-            thread=threading.Thread(target=serve);thread.start()
-            result=subprocess.run([EXE,'__viewer-test'],env={**self.env,'CORGI_SOCKET':path},capture_output=True,text=True,timeout=5)
-            thread.join(timeout=5)
-        self.assertEqual(result.returncode,1)
-        self.assertIn('daemon needs one update',result.stderr)
-        self.assertEqual(seen,['hello'])
 
-    def test_cli_focus_then_split_uses_queued_target(self):
+    def test_queued_focus_and_split_execute_in_the_viewer(self):
         first=self.new();second=self.new();a=Viewer(self);a.focus(first)
         target=self.rpc(op='viewer.list')['viewers'][0]['id']
-        old=self.session();second_tab=next(p['tab'] for p in old['panes'] if p['id']==second)
+        second_tab=next(p['tab'] for p in self.session()['panes'] if p['id']==second)
         self.rpc(op='focus',pane=second,viewer=target)
-        split=self.rpc(op='split',viewer=target,command='sleep 60')['pane']
-        snap=self.session()
-        self.assertEqual(next(p['tab'] for p in snap['panes'] if p['id']==split),second_tab)
+        self.rpc(op='action',name='split',value='right',viewer=target)
+        split=a.poll()['pane']
+        self.assertEqual(next(p['tab'] for p in self.session()['panes'] if p['id']==split),second_tab)
         self.assertEqual(a.poll()['pane'],split)
-        self.assertEqual(a.poll()['pane'],split) # Acknowledged controls do not repeat.
-    def test_delivered_focus_remains_a_split_target_until_acknowledged(self):
+        self.assertEqual(len(self.session()['panes']),3)
+    def test_delivered_controls_remain_pending_until_acknowledged(self):
         first=self.new();second=self.new()
         with socket.socket(socket.AF_UNIX) as client:
             client.connect(self.path);client.settimeout(3)
@@ -423,18 +436,9 @@ with open(sys.argv[1], 'wb', buffering=0) as capture:
                 call(op='viewer.sync',interests=[dict(pane=first,cols=80,rows=24)],focus=first)
                 target=self.rpc(op='viewer.list')['viewers'][0]['id']
                 self.rpc(op='focus',pane=second,viewer=target)
-                delivered=call(op='viewer.sync',interests=[dict(pane=first,cols=80,rows=24)],focus=first)
-                self.assertEqual(delivered['controls'][0]['id'],second)
-                split=self.rpc(op='split',viewer=target,command='sleep 60')['pane']
-                panes=self.session()['panes']
-                self.assertEqual(next(p['tab'] for p in panes if p['id']==split),next(p['tab'] for p in panes if p['id']==second))
-    def test_split_waits_for_queued_local_navigation(self):
-        first=self.new();self.new();a=Viewer(self);a.focus(first)
-        target=self.rpc(op='viewer.list')['viewers'][0]['id']
-        self.rpc(op='action',name='next',viewer=target)
-        self.assertEqual(self.raw_rpc(op='split',viewer=target)['err'],'ViewerBusy')
-        self.assertEqual(len(self.session()['panes']),2)
-        a.poll()
-        self.assertIn('pane',self.rpc(op='split',viewer=target,command='sleep 60'))
+                delivered=call(op='viewer.sync',interests=[],focus=first)['controls']
+                self.assertEqual(delivered[0]['id'],second)
+                self.assertEqual(call(op='viewer.sync',interests=[],focus=first)['controls'],delivered)
+                self.assertEqual(call(op='viewer.sync',interests=[],focus=second,ack=delivered[0]['seq'])['controls'],[])
 
 if __name__=='__main__':unittest.main(verbosity=2)

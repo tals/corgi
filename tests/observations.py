@@ -8,7 +8,7 @@ class Observations(smoke.Runtime):
     def setUp(self):
         self.viewers=[]
         super().setUp()
-        self.pane=self.rpc(op='new',command='sleep 60')['pane']
+        self.pane=self.command('pane.create', workspace=1, command='sleep 60')['pane']
         self.log=pathlib.Path(self.temp.name,'transcript.jsonl')
         self.log.write_text(json.dumps({'type':'session_meta','payload':{'id':'session'}})+'\n')
         self.seq=time.time_ns()//1000
@@ -82,7 +82,7 @@ class Observations(smoke.Runtime):
         self.rpc(op='pane.acknowledge',protocol=1,pane=self.pane,session='session',through=2)
         self.assertFalse(self.state()['unread'])
     def test_active_viewer_visits_read_background_viewer_does_not(self):
-        other=self.rpc(op='new',command='sleep 60')['pane']
+        other=self.command('pane.create', workspace=1, command='sleep 60')['pane']
         v=Viewer(self);v.focus(other)
         self.finish();v.poll()
         self.assertTrue(self.state()['unread'])

@@ -6,7 +6,6 @@ const a = os.allocator;
 const runtime = @import("runtime.zig");
 const workspace = @import("workspace.zig");
 const layout = @import("layout.zig");
-const protocol = @import("protocol.zig");
 const agents = @import("agents.zig");
 const native = @import("native.zig");
 const Terminal = @import("terminal.zig").Terminal;
@@ -118,7 +117,13 @@ pub const Screen = struct {
 };
 pub const Pane = struct { label: @import("pane_label.zig").Label = .{}, id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
 pub const Closed = struct { label: @import("pane_label.zig").Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
-pub const Workspace = struct { away: @import("usage.zig").Window = .{}, id: u32, name: []const u8, cwd: []const u8, tabs: []const protocol.Tab, active: usize, custom_name: ?[]const u8 = null, focus: []const u32, zoom: []const bool };
+pub const Workspace = struct {
+    away: @import("usage.zig").Window = .{},
+    id: u32,
+    name: []const u8,
+    cwd: []const u8,
+    model: layout.Model,
+};
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
     usage_tracker: @import("usage.zig").Tracker = .{},
@@ -150,7 +155,6 @@ pub const State = struct {
     version: u32 = 1,
     live: bool,
     saved_at: i64,
-    active: usize,
     next_workspace: u32,
     next_pane: u32,
     next_session: u32,
@@ -174,13 +178,7 @@ fn historicalAgent(agent: agents.Agent) agents.Agent {
 pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State {
     const workspaces = try alloc.alloc(Workspace, r.workspaces.items.items.len);
     for (r.workspaces.items.items, workspaces) |*w, *out| {
-        const focus = try alloc.alloc(u32, w.model.count);
-        const zoom = try alloc.alloc(bool, w.model.count);
-        for (w.model.tabs[0..w.model.count], focus, zoom) |tab, *f, *z| {
-            f.* = tab.focus;
-            z.* = tab.zoom;
-        }
-        out.* = .{ .id = w.id, .away = w.away, .name = w.name(), .cwd = w.cwd, .tabs = try protocol.encodeTabs(alloc, &w.model), .active = w.model.active, .custom_name = w.customName(), .focus = focus, .zoom = zoom };
+        out.* = .{ .id = w.id, .away = w.away, .name = w.customName(), .cwd = w.cwd, .model = w.model };
     }
     const panes = try alloc.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {
@@ -202,29 +200,22 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
         }
         out.* = .{ .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .threads = threads, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
     }
-    return .{ .live = live, .saved_at = std.time.timestamp(), .active = r.workspaces.active, .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
+    return .{ .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
 // Callers own a staging runtime. Live import errors exit the candidate without
 // calling destructors: inherited descriptors are still owned by the old daemon.
 pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8, executable: []const u8) !void {
     if (state.version != 1 or state.live != live or state.workspaces.len == 0 or state.workspaces.len > workspace.max_workspaces or
-        state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16 or state.active >= state.workspaces.len) return error.InvalidCheckpoint;
+        state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16) return error.InvalidCheckpoint;
     for (state.workspaces) |w| {
         if (w.id == 0 or w.id >= state.next_workspace or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
         var item: workspace.Workspace = .{ .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
-        item.name_len = agents.clean(&item.name_buf, w.custom_name orelse w.name);
-        item.model = try protocol.modelFromTabs(w.tabs, &.{});
-        if (w.focus.len != w.tabs.len or w.zoom.len != w.tabs.len or (w.tabs.len > 0 and w.active >= w.tabs.len)) return error.InvalidCheckpoint;
-        for (item.model.tabs[0..item.model.count], 0..) |*tab, i| {
-            if (tab.id >= state.next_pane or item.model.tabForPane(w.focus[i]) != i) return error.InvalidCheckpoint;
-            tab.focus = w.focus[i];
-            tab.zoom = w.zoom[i];
-        }
-        item.model.active = w.active;
+        item.name_len = agents.clean(&item.name_buf, w.name);
+        item.model = w.model;
+        for (item.model.tabs[0..item.model.count]) |tab| if (tab.id >= state.next_pane) return error.InvalidCheckpoint;
         item.model.next_id = state.next_pane;
         try r.workspaces.items.append(a, item);
     }
-    r.workspaces.active = state.active;
     r.workspaces.next_id = state.next_workspace;
     r.workspaces.next_pane_id = state.next_pane;
     r.next_session = state.next_session;

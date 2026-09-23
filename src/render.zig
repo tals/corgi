@@ -5,7 +5,7 @@ const commands = @import("commands.zig");
 const naming = @import("name_dialog.zig");
 const sidebar = @import("sidebar.zig");
 const a = @import("os.zig").allocator;
-pub const Pane = @import("runtime.zig").Pane;
+pub const Pane = @import("mirror.zig").Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
 pub const Ui = struct {
@@ -40,9 +40,10 @@ fn tabExtent(tab: layout.Tab, index: usize, first: usize, remaining: usize) usiz
     // Clip only when even the first tab cannot fit; avoid tiny trailing tabs.
     return if (index == first) @min(width, remaining) else if (width <= remaining) width else 0;
 }
-pub fn tabStart(model: *const layout.Model, width: u16) usize {
+pub fn tabStart(view: layout.View, width: u16) usize {
+    const model = view.model;
     if (model.count == 0) return 0;
-    var start = model.active;
+    var start = view.selection.active;
     var used = tabWidth(model.tabs[start], start);
     while (start > 0 and used + tabWidth(model.tabs[start - 1], start - 1) <= width) {
         start -= 1;
@@ -51,10 +52,11 @@ pub fn tabStart(model: *const layout.Model, width: u16) usize {
     return start;
 }
 
-pub fn addTabX(model: *const layout.Model, width: u16) u16 {
+pub fn addTabX(view: layout.View, width: u16) u16 {
+    const model = view.model;
     const available = width -| 3;
     var x: usize = 0;
-    const first = tabStart(model, available);
+    const first = tabStart(view, available);
     for (model.tabs[first..model.count], first..) |tab, i| {
         const len = tabExtent(tab, i, first, available - x);
         if (len == 0) break;
@@ -62,10 +64,11 @@ pub fn addTabX(model: *const layout.Model, width: u16) u16 {
     }
     return @intCast(x);
 }
-pub fn tabAt(model: *const layout.Model, width: u16, x: u16) ?usize {
+pub fn tabAt(view: layout.View, width: u16, x: u16) ?usize {
+    const model = view.model;
     const available = width -| 3;
     var start: usize = 0;
-    const first = tabStart(model, available);
+    const first = tabStart(view, available);
     for (model.tabs[first..model.count], first..) |tab, i| {
         const len = tabExtent(tab, i, first, available - start);
         if (len == 0) break;
@@ -76,10 +79,11 @@ pub fn tabAt(model: *const layout.Model, width: u16, x: u16) ?usize {
 }
 pub const TabDrop = struct { index: usize, x: u16 };
 /// Use the same clipped tab geometry for hit testing and the drop marker.
-pub fn tabDrop(model: *const layout.Model, width: u16, x: u16) ?TabDrop {
+pub fn tabDrop(view: layout.View, width: u16, x: u16) ?TabDrop {
+    const model = view.model;
     if (x >= width or model.count == 0) return null;
     const available = width -| 3;
-    const first = tabStart(model, available);
+    const first = tabStart(view, available);
     var left: usize = 0;
     var last: ?TabDrop = null;
     for (model.tabs[first..model.count], first..) |tab, i| {
@@ -92,7 +96,8 @@ pub fn tabDrop(model: *const layout.Model, width: u16, x: u16) ?TabDrop {
     }
     return last;
 }
-pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: Ui) ![]u8 {
+pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui) ![]u8 {
+    const model = view.model;
     var out: Buffer = .init(a);
     defer out.deinit();
     const w = &out.writer;
@@ -107,11 +112,11 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
     try w.print("\x1b[1;{d}H", .{side.tabX() + 1});
     var x: usize = 0;
     const tab_space = width - side.tabX() -| 3;
-    const start = tabStart(model, tab_space);
+    const start = tabStart(view, tab_space);
     for (model.tabs[start..model.count], start..) |tab, i| {
         const len = tabExtent(tab, i, start, tab_space - x);
         if (len == 0) break;
-        try w.writeAll(if (i == model.active) "\x1b[1;38;2;226;230;233;48;2;48;53;61m" else "\x1b[0;38;2;125;132;143;48;2;24;27;32m");
+        try w.writeAll(if (i == view.selection.active) "\x1b[1;38;2;226;230;233;48;2;48;53;61m" else "\x1b[0;38;2;125;132;143;48;2;24;27;32m");
         var name: [96]u8 = undefined;
         const text = if (tab.name_len == 0)
             try std.fmt.bufPrint(&name, "{d}", .{i + 1})
@@ -152,7 +157,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
             }
         }
     }
-    for (model.placements(area, &locations)) |place| {
+    for (view.placements(area, &locations)) |place| {
         if (place.rect.w == 0 or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             const r = place.rect;
@@ -178,7 +183,7 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
             break;
         };
     }
-    try drawDividers(w, model, area);
+    try drawDividers(w, view, area);
     try side.draw(w, ui.agents, ui.workspaces);
     if (ui.corgi_badge) {
         try w.writeAll(@import("corgi_badge.zig").hide);
@@ -208,11 +213,11 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
         var agent_label: [64]u8 = undefined;
         var label: []const u8 = "corgi";
         if (model.count > 0) for (panes) |p| {
-            if (p.id == model.tab().focus and p.label.len > 0) {
-                label = p.label.text();
+            if (p.id == view.selection.tabs[view.selection.active].focus and p.label.len > 0) {
+                label = p.label;
                 break;
             }
-            if (p.id == model.tab().focus and p.agent.provider != .other) {
+            if (p.id == view.selection.tabs[view.selection.active].focus and p.agent.provider != .other) {
                 label = try std.fmt.bufPrint(&agent_label, "{s} {s}", .{ @tagName(p.agent.provider), @tagName(p.agent.state) });
                 break;
             }
@@ -221,8 +226,8 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
         try w.writeAll(text[0..@min(text.len, width)]);
     }
     try w.writeAll("\x1b[0m");
-    if (model.count > 0 and !ui.copy_mode and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (model.placements(area, &locations)) |place| {
-        if (place.id != model.tab().focus or place.rect.h == 0) continue;
+    if (model.count > 0 and !ui.copy_mode and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
+        if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
                 if (cursor.x < place.rect.w and cursor.y < place.rect.h) {
@@ -276,27 +281,31 @@ pub fn frame(model: *layout.Model, panes: anytype, width: u16, height: u16, ui: 
 
 test "tab drop slots follow midpoints and clipped visible tabs" {
     var m: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &m, .selection = &selection };
     _ = try m.newTab("one");
     _ = try m.newTab("two");
     _ = try m.newTab("three");
-    try std.testing.expectEqual(@as(usize, 0), tabDrop(&m, 40, 4).?.index);
-    try std.testing.expectEqual(@as(usize, 1), tabDrop(&m, 40, 5).?.index);
-    try std.testing.expectEqual(@as(usize, 3), tabDrop(&m, 40, 35).?.index);
+    selection.reconcile(&m);
+    selection.active = 2;
+    try std.testing.expectEqual(@as(usize, 0), tabDrop(view, 40, 4).?.index);
+    try std.testing.expectEqual(@as(usize, 1), tabDrop(view, 40, 5).?.index);
+    try std.testing.expectEqual(@as(usize, 3), tabDrop(view, 40, 35).?.index);
     // Only the focused tab fits: the left gap is before tab three, not tab one.
-    try std.testing.expectEqual(@as(usize, 2), tabDrop(&m, 13, 0).?.index);
-    try std.testing.expectEqual(@as(usize, 3), tabDrop(&m, 13, 12).?.index);
-    try std.testing.expectEqual(@as(u16, 9), tabDrop(&m, 13, 12).?.x);
-    try std.testing.expect(tabDrop(&m, 13, 13) == null);
-    try std.testing.expect(tabDrop(&m, 3, 0) == null);
+    try std.testing.expectEqual(@as(usize, 2), tabDrop(view, 13, 0).?.index);
+    try std.testing.expectEqual(@as(usize, 3), tabDrop(view, 13, 12).?.index);
+    try std.testing.expectEqual(@as(u16, 9), tabDrop(view, 13, 12).?.x);
+    try std.testing.expect(tabDrop(view, 13, 13) == null);
+    try std.testing.expect(tabDrop(view, 3, 0) == null);
 }
 
-fn drawDividers(w: *std.Io.Writer, model: *const layout.Model, area: layout.Rect) !void {
-    var storage: [layout.max_borders]layout.Model.Border = undefined;
-    const borders = model.borders(area, &storage);
+fn drawDividers(w: *std.Io.Writer, view: layout.View, area: layout.Rect) !void {
+    var storage: [layout.max_borders]layout.View.Border = undefined;
+    const borders = view.borders(area, &storage);
     var placements: [layout.max_panes]layout.Placement = undefined;
     var focused: layout.Rect = .{};
-    for (model.placements(area, &placements)) |place| {
-        if (place.id == model.tabs[model.active].focus) focused = place.rect;
+    for (view.placements(area, &placements)) |place| {
+        if (place.id == view.selection.tabs[view.selection.active].focus) focused = place.rect;
     }
     for (borders) |border| {
         const r = border.rect;
@@ -343,8 +352,10 @@ fn touchesPane(r: layout.Rect, x: usize, y: usize) bool {
 
 test "badge redraw preserves cached pixels and shifts only the workspace heading" {
     var model: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &model, .selection = &selection };
     var ui: Ui = .{ .message = "", .copy_mode = false, .native_blocked = 0, .native_finished = 0, .corgi_badge = true };
-    const shown = try frame(&model, @as([]const Pane, &.{}), 100, 30, ui);
+    const shown = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(shown);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[2J") == null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[H\x1b[J") != null);
@@ -352,7 +363,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=t,") == null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
     ui.sidebar_open = false;
-    const hidden = try frame(&model, @as([]const Pane, &.{}), 100, 30, ui);
+    const hidden = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(hidden);
     try std.testing.expect(std.mem.indexOf(u8, hidden, @import("corgi_badge.zig").hide) != null);
     try std.testing.expect(std.mem.indexOf(u8, hidden, "a=p,i=730031") == null);

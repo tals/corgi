@@ -84,6 +84,16 @@ def screen_text(data, cols=80, rows=24):
         i+=1
     return [''.join(row) for row in grid]
 
+def layout_tree(workspace, tab=0):
+    model = workspace['model']
+    def tree(index):
+        node = model['nodes'][index]
+        if 'pane' in node:
+            return node
+        branch = node['split']
+        return {'split': {**branch, 'first': tree(branch['first']), 'second': tree(branch['second'])}}
+    return tree(model['tabs'][tab]['root'])
+
 class Runtime(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='corgi-test-')
@@ -118,6 +128,22 @@ class Runtime(unittest.TestCase):
         result=json.loads(self.run_cli('rpc',json.dumps(v)))
         pump(self)
         return result
+    def command(self, operation, **payload):
+        return self.rpc(op='session.command', protocol=1, command={operation:payload})['result']
+    def open_pane(self, **options):
+        views=self.rpc(op='viewer.list')['viewers']
+        workspace=views[0]['workspace'] if views else self.session()['workspaces'][0]['id']
+        if views and views[0]['pane']:options.setdefault('from',views[0]['pane'])
+        result=self.command('pane.create',workspace=workspace,**options)
+        if not views:self.client=Viewer(self,80,24)
+        if any(p['id']==result['pane'] for p in self.session()['panes']):
+            self.rpc(op='focus',pane=result['pane'])
+        return result
+    def split_pane(self, direction='right', **options):
+        view=self.rpc(op='viewer.list')['viewers'][0]
+        result=self.command('pane.split',target=view['pane'],direction=direction,**options)
+        self.rpc(op='focus',pane=result['pane'],viewer=view['id'])
+        return result
     def raw_rpc(self,**v):
         with socket.socket(socket.AF_UNIX) as client:
             client.settimeout(3);client.connect(self.path)
@@ -131,7 +157,7 @@ class Runtime(unittest.TestCase):
         self.assertNotIn('handoff',hello['capabilities'])
         ws=self.workspaces()[0]['id']
         for protocol in (0,2,-1,'1'):
-            result=self.raw_rpc(op='pane.create',protocol=protocol,workspace=ws)
+            result=self.raw_rpc(op='session.command', command={'pane.create':dict(workspace=ws)}, protocol=protocol)
             self.assertEqual(result['err'],'UnsupportedProtocol')
         self.assertEqual(self.raw_rpc(op='session.snapshot')['err'],'ProtocolRequired')
         self.assertEqual(self.session()['panes'],[])
@@ -143,44 +169,54 @@ class Runtime(unittest.TestCase):
                 client.sendall(b'{"op":"session.snapshot"}\n')
                 self.assertEqual(json.loads(stream.readline())['type'],'session')
     def test_runtime_operations_target_ids_without_changing_selection(self):
-        first=self.rpc(op='new',command='sleep 30')['pane']
-        second=self.rpc(op='new',command='sleep 30')['pane']
+        first=self.open_pane(command='sleep 30')['pane']
+        second=self.open_pane(command='sleep 30')['pane']
         original=self.session()
         ws=original['workspaces'][0]['id']
         before=next(p for p in original['panes'] if p['id']==first)
-        third=self.rpc(op='pane.create',protocol=1,workspace=ws,title='third',command='sleep 30')['pane']
-        split=self.rpc(op='pane.split',protocol=1,pane=first,axis='right',command='sleep 30')['pane']
-        self.rpc(op='tab.rename',protocol=1,tab=before['tab'],title='background')
-        self.rpc(op='split.resize',protocol=1,pane=first,direction='right')
+        third=self.command('pane.create', workspace=ws, title='third', command='sleep 30')['pane']
+        split=self.command('pane.split', command='sleep 30', target=first, direction='right')['pane']
+        self.command('tab.rename', target=before['tab'], name='background')
+        self.command('split.resize', direction='right', target=first)
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),second)
         snap=self.session()
         self.assertEqual({p['id'] for p in snap['panes']},{first,second,third,split})
         self.assertEqual(next(p['pid'] for p in snap['panes'] if p['id']==first),before['pid'])
         split_panes=[p for p in snap['panes'] if p['id'] in (first,split)]
-        self.assertEqual(sum(p['cols'] for p in split_panes)+3,before['cols'])
-        tab=next(t for t in snap['workspaces'][0]['tabs'] if t['id']==before['tab'])
+        # Hidden panes keep their sizes until a real viewer displays the split.
+        self.assertEqual(next(p['cols'] for p in split_panes if p['id']==first),before['cols'])
+        self.client.focus(first)
+        self.client.poll()
+        visible=[p for p in self.session()['panes'] if p['id'] in (first,split)]
+        self.assertEqual(sum(p['cols'] for p in visible)+3,before['cols'])
+        self.client.focus(second)
+        tab=next(t for t in snap['workspaces'][0]['model']['tabs'] if t['id']==before['tab'])
         self.assertEqual(tab['title'],'background')
-        self.assertEqual(tab['layout']['split'],{'axis':'horizontal','ratio':540,'first':{'pane':first},'second':{'pane':split}})
+        self.assertEqual(layout_tree(snap['workspaces'][0])['split'],{'axis':'horizontal','ratio':540,'first':{'pane':first},'second':{'pane':split}})
         # Versioned data describes shared organization, never a viewer's focus.
         self.assertNotIn('active',snap['workspaces'][0])
         self.assertNotIn('focus',tab)
         self.assertNotIn('focused',snap['panes'][0])
-        self.rpc(op='pane.close',protocol=1,pane=split)
+        self.command('pane.close', target=split)
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),second)
+        survivor=next(p for p in self.session()['panes'] if p['id']==first)
+        last=next(p for p in visible if p['id']==first)
+        self.assertEqual((survivor['cols'],survivor['rows']),(last['cols'],last['rows']))
+        self.client.focus(first);self.client.poll()
         survivor=next(p for p in self.session()['panes'] if p['id']==first)
         self.assertEqual((survivor['cols'],survivor['rows']),(before['cols'],before['rows']))
     def test_runtime_target_failure_does_not_change_layout_or_focus(self):
-        pane=self.rpc(op='new',command='sleep 30')['pane']
+        pane=self.open_pane(command='sleep 30')['pane']
         before=self.session()
         ws=before['workspaces'][0]['id']
         invalid=[
-            dict(op='pane.split',pane=pane,axis='bad'),
-            dict(op='pane.split',pane=999,axis='right'),
-            dict(op='pane.create',workspace=ws,cwd=self.temp.name+'/missing'),
-            dict(op='pane.create',workspace=999),
-            dict(op='pane.close',pane=-1),
-            dict(op='pane.input',pane=pane,data=42),
-            dict(op='tab.rename',title='missing target'),
+            dict(op='session.command', command={'pane.split':dict(target=pane, direction='bad')}),
+            dict(op='session.command', command={'pane.split':dict(target=999, direction='right')}),
+            dict(op='session.command', command={'pane.create':dict(workspace=ws, cwd=self.temp.name+'/missing')}),
+            dict(op='session.command', command={'pane.create':dict(workspace=999)}),
+            dict(op='session.command', command={'pane.close':dict(target=-1)}),
+            dict(op='session.command', command={'pane.input':dict(data=42, target=pane)}),
+            dict(op='session.command', command={'tab.rename':dict(name='missing target')}),
         ]
         for request in invalid:
             self.assertIn('err',self.raw_rpc(protocol=1,**request))
@@ -189,11 +225,11 @@ class Runtime(unittest.TestCase):
         self.assertEqual([p['id'] for p in after['panes']],[pane])
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),pane)
     def test_runtime_surface_and_input_do_not_switch_to_the_target(self):
-        first=self.rpc(op='new',command="printf '\\033[31m界é\\033[0m\\n'; exec /bin/sh")['pane']
-        second=self.rpc(op='new',command='sleep 30')['pane']
-        self.until(lambda:'界é' in self.rpc(op='read',pane=first)['text'])
-        self.rpc(op='pane.input',protocol=1,pane=first,data="printf 'DIRECT_INPUT_OK\\n'\r")
-        self.until(lambda:'DIRECT_INPUT_OK' in self.rpc(op='read',pane=first)['text'])
+        first=self.open_pane(command="printf '\\033[31m界é\\033[0m\\n'; exec /bin/sh")['pane']
+        second=self.open_pane(command='sleep 30')['pane']
+        self.until(lambda:'界é' in self.command('pane.read', target=first, view='screen')['text'])
+        self.command('pane.input', data="printf 'DIRECT_INPUT_OK\\n'\r", target=first)
+        self.until(lambda:'DIRECT_INPUT_OK' in self.command('pane.read', target=first, view='screen')['text'])
         response=self.rpc(op='pane.surface',protocol=1,pane=first)
         surface=response['surface']
         self.assertEqual(response['type'],'surface')
@@ -204,7 +240,7 @@ class Runtime(unittest.TestCase):
         self.assertTrue(all(line.endswith('\x1b[0m') for line in surface['lines']))
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),second)
     def test_runtime_subscription_survives_idle_and_receives_changes(self):
-        self.rpc(op='new',command='sleep 30')
+        self.open_pane(command='sleep 30')
         with socket.socket(socket.AF_UNIX) as client:
             client.settimeout(3);client.connect(self.path)
             with client.makefile('rb') as stream:
@@ -212,7 +248,7 @@ class Runtime(unittest.TestCase):
                 initial=json.loads(stream.readline())
                 self.assertEqual(initial['type'],'session')
                 time.sleep(5.2) # Ordinary one-shot RPC connections expire after 5s.
-                new=self.rpc(op='new',command='sleep 30')['pane']
+                new=self.open_pane(command='sleep 30')['pane']
                 for _ in range(20):
                     update=json.loads(stream.readline())
                     if any(p['id']==new for p in update['panes']):break
@@ -228,19 +264,22 @@ class Runtime(unittest.TestCase):
             time.sleep(.03)
         self.fail('condition timed out')
     def panes(self):
-        panes=self.rpc(op='list')['panes']
-        if self.client:
-            for pane in panes:pane['focused']=pane['id']==self.client.state['pane']
-        return panes
+        snapshot=self.session()
+        view=self.client
+        return [{**p['agent'], **p,
+                 'unread':p['agent']['observation']['completed']>p['agent']['observation']['read'],
+                 'completed':p['agent']['observation']['completed'], 'read':p['agent']['observation']['read'],
+                 'pending_stop':p['agent']['observation']['pending_stop'], 'source':p['agent']['observation']['source'],
+                 'focused':view is not None and p['id']==view.state['pane']} for p in snapshot['panes']]
     def tab_count(self):
-        if not self.client:return self.rpc(op='list')['tabs']
-        return len(next(ws['tabs'] for ws in self.session()['workspaces'] if ws['id']==self.client.state['workspace']))
+        snapshot=self.session()
+        if not self.client:return sum(len(ws['model']['tabs']) for ws in snapshot['workspaces'])
+        return len(next(ws['model']['tabs'] for ws in snapshot['workspaces'] if ws['id']==self.client.state['workspace']))
     def attach(self):
-        # Preserve the test fixture's explicitly chosen setup target.
-        panes=self.panes()
-        selected=next((p['id'] for p in panes if p['focused']),None)
-        self.client=Viewer(self,80,24)
-        if selected:self.client.focus(selected)
+        if self.client is None or self.client.closed or self.client.state['detached']:
+            if self.client:self.client.close()
+            self.client=Viewer(self,80,24)
+        else:self.client.request(op='size',cols=80,rows=24)
     def reconnect(self):
         self.client.close();self.client=None
         self.attach();self.get_type('frame')
@@ -257,18 +296,18 @@ class Runtime(unittest.TestCase):
         self.fail('missing message '+kind)
     def input(self,text): self.write(op='input',data=text)
     def workspaces(self):
-        workspaces=self.rpc(op='workspace.list')['workspaces']
-        if self.client:
-            for ws in workspaces:ws['active']=ws['id']==self.client.state['workspace']
+        workspaces=self.session()['workspaces']
+        for ws in workspaces:ws['active']=self.client is not None and ws['id']==self.client.state['workspace']
         return workspaces
     def new_workspace(self,**args):
-        result=self.rpc(op='workspace.new',**args)
+        args.setdefault('cwd',self.temp.name)
+        result=self.command('workspace.create', **args)
         if self.client:self.client.request(op='workspace',workspace=result['workspace'])
         return result
     def test_workspaces_isolate_tabs_preserve_focus_and_default_folders(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
-        first=self.rpc(op='new',cwd=str(one),command='sleep 30')['pane']
+        first=self.open_pane(cwd=str(one), command='sleep 30')['pane']
         default=self.workspaces()[0]['id']
         self.attach();self.frame_with('workspaces')
         second_ws=self.new_workspace(name='Second',cwd=str(two))['workspace']
@@ -287,8 +326,8 @@ class Runtime(unittest.TestCase):
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),first)
         self.rpc(op='workspace.switch',workspace=second_ws)
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),fourth)
-        self.rpc(op='workspace.edit',workspace=second_ws,name='Renamed')
-        self.rpc(op='new',command='sleep 30')
+        self.command('workspace.edit', name='Renamed', target=second_ws)
+        self.open_pane(command='sleep 30')
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['focused']),str(two.resolve()))
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==second),str(two.resolve()))
         self.rpc(op='focus',pane=first)
@@ -297,36 +336,36 @@ class Runtime(unittest.TestCase):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
         three=pathlib.Path(self.temp.name,'three');three.mkdir()
-        first=self.rpc(op='new',cwd=str(one),command='exec /bin/sh')['pane']
-        second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
-        self.rpc(op='send',pane=second,text='cd '+shlex.quote(str(three)),enter=True)
+        first=self.open_pane(cwd=str(one), command='exec /bin/sh')['pane']
+        second=self.open_pane(cwd=str(two), command='exec /bin/sh')['pane']
+        self.command('pane.input', target=second, data=('cd '+shlex.quote(str(three))) + '\r')
         self.until(lambda:next(p['cwd'] for p in self.panes() if p['id']==second)==str(three.resolve()))
         self.rpc(op='action',name='new')
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['focused']),str(three.resolve()))
         self.rpc(op='action',name='split',value='right')
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['focused']),str(three.resolve()))
-        targeted=self.rpc(op='pane.split',protocol=1,pane=first,axis='right')['pane']
+        targeted=self.command('pane.split', target=first, direction='right')['pane']
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==targeted),str(one.resolve()))
-        inherited=self.rpc(op='new')['pane']
+        inherited=self.open_pane()['pane']
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==inherited),str(three.resolve()))
-        explicit=self.rpc(op='split',cwd=str(two))['pane']
+        explicit=self.split_pane(cwd=str(two))['pane']
         self.assertEqual(next(p['cwd'] for p in self.panes() if p['id']==explicit),str(two.resolve()))
     def test_workspace_name_follows_first_tab_and_custom_name_can_be_cleared(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
         three=pathlib.Path(self.temp.name,'three');three.mkdir()
-        first=self.rpc(op='new',cwd=str(one),command='exec /bin/sh')['pane']
+        first=self.open_pane(cwd=str(one), command='exec /bin/sh')['pane']
         self.until(lambda:self.workspaces()[0]['name']=='one')
-        second=self.rpc(op='new',cwd=str(two),command='exec /bin/sh')['pane']
+        second=self.open_pane(cwd=str(two), command='exec /bin/sh')['pane']
         self.assertEqual(self.workspaces()[0]['name'],'one')
-        self.rpc(op='send',pane=first,text='cd '+shlex.quote(str(three)),enter=True)
+        self.command('pane.input', target=first, data=('cd '+shlex.quote(str(three))) + '\r')
         self.until(lambda:self.workspaces()[0]['name']=='three')
         self.assertEqual(self.workspaces()[0]['cwd'],str(three.resolve()))
         self.rpc(op='action',name='move-tab',value='left')
         self.until(lambda:self.workspaces()[0]['name']=='two')
         ws=self.workspaces()[0]['id']
-        self.rpc(op='workspace.edit',workspace=ws,name='Custom')
-        self.rpc(op='send',pane=second,text='cd '+shlex.quote(str(one)),enter=True)
+        self.command('workspace.edit', name='Custom', target=ws)
+        self.command('pane.input', target=second, data=('cd '+shlex.quote(str(one))) + '\r')
         self.until(lambda:self.workspaces()[0]['cwd']==str(one.resolve()))
         self.assertEqual(self.workspaces()[0]['name'],'Custom')
         self.attach();screen=self.frame_with('Custom')
@@ -334,7 +373,7 @@ class Runtime(unittest.TestCase):
         self.input('\x02W');self.frame_with('edit workspace: name')
         self.input('\x03\r');self.frame_with('one')
         self.until(lambda:self.workspaces()[0]['name']=='one')
-        self.rpc(op='close',pane=second)
+        self.command('pane.close', target=second)
         self.until(lambda:self.workspaces()[0]['name']=='three')
         self.restart_runtime()
         self.assertEqual(self.workspaces()[0]['name'],'three')
@@ -345,30 +384,31 @@ class Runtime(unittest.TestCase):
         folder=pathlib.Path(self.temp.name,'项目 café');folder.mkdir()
         default=self.workspaces()[0]['id']
         ws=self.new_workspace(name='Project',cwd=str(folder))['workspace']
-        self.rpc(op='workspace.edit',workspace=ws,name='Renamed')
+        self.attach()
+        self.command('workspace.edit', name='Renamed', target=ws)
         self.rpc(op='workspace.switch',workspace=default)
         before=self.workspaces()
         self.restart_runtime()
+        self.attach()
         self.assertEqual(self.workspaces(),before)
         self.rpc(op='workspace.switch',workspace=ws)
         self.attach();self.frame_with('Renamed')
         self.assertEqual(self.panes()[0]['cwd'],str(folder.resolve()))
-        self.client.close();self.client=None
-        self.rpc(op='workspace.switch',workspace=default)
-        self.rpc(op='workspace.close',workspace=default)
+        self.command('workspace.close', target=default)
         self.restart_runtime()
+        self.attach()
         self.assertEqual([w['id'] for w in self.workspaces()],[ws])
         self.assertTrue(self.workspaces()[0]['active'])
         newer=self.new_workspace(name='New')['workspace']
         self.assertGreater(newer,ws)
 
     def test_hidden_workspace_exit_and_undo_do_not_disturb_active_pane(self):
-        pane=self.rpc(op='new',cwd=self.temp.name,command='exec /bin/sh')['pane']
+        pane=self.open_pane(cwd=self.temp.name, command='exec /bin/sh')['pane']
         default=self.workspaces()[0]['id']
         ws=self.new_workspace(name='Other',cwd=self.temp.name)['workspace']
         active=next(p['id'] for p in self.panes() if p['focused'])
         self.attach();self.frame_with('Other')
-        self.rpc(op='send',pane=pane,text='exit',enter=True)
+        self.command('pane.input', target=pane, data=('exit') + '\r')
         self.until(lambda:all(p['id']!=pane for p in self.panes()))
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),active)
         self.assertEqual(next(w['id'] for w in self.workspaces() if w['active']),ws)
@@ -377,7 +417,7 @@ class Runtime(unittest.TestCase):
         self.frame_with('restored output')
     def test_workspace_sidebar_create_edit_switch_and_agents(self):
         folder=pathlib.Path(self.temp.name,'项目 café');folder.mkdir()
-        first=self.rpc(op='new',cwd=self.temp.name,command='sleep 30')['pane']
+        first=self.open_pane(cwd=self.temp.name, command='sleep 30')['pane']
         self.rpc(op='hook',pane=first,provider='claude',seq=1,event={'hook_event_name':'SessionStart','session_id':'first'})
         self.attach();screen=self.agent_frame('claude','○')
         self.assertTrue(screen[0].startswith(' workspaces'))
@@ -398,10 +438,10 @@ class Runtime(unittest.TestCase):
         self.input('\x02}');self.frame_with('No agents yet')
         self.assertEqual(next(w['id'] for w in self.workspaces() if w['active']),ws['id'])
     def test_workspace_and_agent_lists_scroll_independently(self):
-        self.rpc(op='new',cwd=self.temp.name,command='sleep 30')
+        self.open_pane(cwd=self.temp.name, command='sleep 30')
         for i in range(6): self.new_workspace(name=f'Group-{i}',cwd=self.temp.name)
         for i in range(6):
-            pane=self.rpc(op='new',cwd=self.temp.name,command='sleep 30')['pane']
+            pane=self.open_pane(cwd=self.temp.name, command='sleep 30')['pane']
             self.rpc(op='hook',pane=pane,provider='claude',seq=1,event={'hook_event_name':'SessionStart','session_id':str(i)})
         self.attach();screen=self.frame_with('Group-4')
         self.assertIn('Group-5',screen[5])
@@ -418,7 +458,7 @@ class Runtime(unittest.TestCase):
         self.assertEqual(next(w['name'] for w in self.workspaces() if w['active']),'Group-1')
         self.frame_with('No agents yet')
     def test_native_sessions_belong_to_their_workspace(self):
-        self.rpc(op='new',cwd=self.temp.name,command='sleep 30')
+        self.open_pane(cwd=self.temp.name, command='sleep 30')
         original=self.workspaces()[0]['id']
         self.rpc(op='native.start',provider='codex',cwd=self.temp.name)
         self.attach();self.agent_frame('codex','○')
@@ -427,15 +467,15 @@ class Runtime(unittest.TestCase):
         self.rpc(op='workspace.switch',workspace=original)
         self.agent_frame('codex','○')
     def test_workspace_invalid_folder_and_empty_close(self):
-        first=self.rpc(op='new',cwd=self.temp.name,command='sleep 30')['pane']
+        first=self.open_pane(cwd=self.temp.name, command='sleep 30')['pane']
         before=self.workspaces()
-        result=subprocess.run([EXE,'workspace','new','Bad',self.temp.name+'/missing'],env=self.env,capture_output=True)
+        result=subprocess.run([EXE,'workspace','new','Bad','--cwd',self.temp.name+'/missing'],env=self.env,capture_output=True)
         self.assertNotEqual(result.returncode,0)
         self.assertEqual(self.workspaces(),before)
         ws=self.new_workspace(name='Empty',cwd=self.temp.name)['workspace']
         pane=next(p['id'] for p in self.panes() if p['focused'])
-        self.rpc(op='close',pane=pane)
-        self.rpc(op='workspace.close',workspace=ws)
+        self.command('pane.close', target=pane)
+        self.command('workspace.close', target=ws)
         self.assertEqual(len(self.workspaces()),1)
         self.assertEqual(next(p['id'] for p in self.panes() if p['focused']),first)
     def test_synchronized_redraw_keeps_completed_frame_and_cursor(self):
@@ -455,7 +495,7 @@ wait('finish')
 emit("\\x1b[2;20H        \\x1b[5;5HDONE_SYNC\\x1b[5;5H\\x1b[?2026l")
 time.sleep(30)
 ''')
-        pane=self.rpc(op='new',cwd=self.temp.name,command=shlex.join([sys.executable,str(fixture)]))['pane']
+        pane=self.open_pane(cwd=self.temp.name, command=shlex.join([sys.executable,str(fixture)]))['pane']
         self.attach()
         while True:
             frame=self.get_type('frame')['data']
@@ -465,7 +505,7 @@ time.sleep(30)
         begin.touch();self.until(middle.exists)
         # Force unrelated frames and text captures while the child is mid-batch.
         for _ in range(3):
-            self.assertNotIn('MID_SYNC',self.rpc(op='read',pane=pane)['text'])
+            self.assertNotIn('MID_SYNC',self.command('pane.read', target=pane, view='screen')['text'])
             self.write(op='size',cols=80,rows=24)
             frame=self.get_type('frame')['data']
             self.assertIn('READY',frame)
@@ -511,9 +551,9 @@ time.sleep(30)
         x=screen[0].index(title)+1
         self.input(f'\x1b[<2;{x};1M\x1b[<2;{x};1m')
     def test_mouse_tab_reorder_indicator_and_cancellation(self):
-        first=self.rpc(op='new',cwd=self.temp.name,title='First')['pane']
-        self.rpc(op='new',cwd=self.temp.name,title='Second')
-        self.rpc(op='new',cwd=self.temp.name,title='Third')
+        first=self.open_pane(cwd=self.temp.name, title='First')['pane']
+        self.open_pane(cwd=self.temp.name, title='Second')
+        self.open_pane(cwd=self.temp.name, title='Third')
         self.attach();screen=self.tabs_are('First Second Third')
         def drag_frame():
             for _ in range(100):
@@ -567,7 +607,7 @@ time.sleep(30)
         def check_size(cols,rows):
             result=pathlib.Path(self.temp.name,f'size-check-{len(checks)}')
             checks.append(result)
-            self.rpc(op='send',pane=pane,text=f'stty size > {shlex.quote(str(result))}',enter=True)
+            self.command('pane.input', target=pane, data=(f'stty size > {shlex.quote(str(result))}') + '\r')
             self.until(lambda:result.exists() and result.read_text().strip()==f'{rows} {cols}')
         check_size(80,22)
         other,reader=self.viewer(60,18)
@@ -612,9 +652,9 @@ while True:
     with log.open('ab') as output:output.write(os.read(0,1024))
 """)
         logs=[pathlib.Path(self.temp.name,name) for name in ('legacy-keys','kitty-keys')]
-        panes=[self.rpc(op='new',cwd=self.temp.name,command=shlex.join([sys.executable,str(fixture),str(log),mode]))['pane']
+        panes=[self.open_pane(cwd=self.temp.name, command=shlex.join([sys.executable,str(fixture),str(log),mode]))['pane']
                for log,mode in zip(logs,('', '\x1b[>1u'))]
-        for pane in panes:self.until(lambda:'KEYS_READY' in self.run_cli('read',str(pane)))
+        for pane in panes:self.until(lambda:'KEYS_READY' in self.command('pane.read', target=int(str(pane)), view='screen')['text'])
         self.attach();self.get_type('frame')
         # Fragment the modified Return across messages, below the escape timeout.
         self.input('\x1b[13;');self.input('9u\x1b[13;2u\x1b[106;5u')
@@ -655,8 +695,8 @@ while True:
     with log.open('ab') as output:output.write(os.read(0,1024))
 """)
         logs=[pathlib.Path(self.temp.name,name) for name in ('first-input','second-input')]
-        panes=[self.rpc(op='new',cwd=self.temp.name,command=shlex.join([sys.executable,str(fixture),str(log)]))['pane'] for log in logs]
-        for pane in panes:self.until(lambda:'PASTE_READY' in self.run_cli('read',str(pane)))
+        panes=[self.open_pane(cwd=self.temp.name, command=shlex.join([sys.executable,str(fixture),str(log)]))['pane'] for log in logs]
+        for pane in panes:self.until(lambda:'PASTE_READY' in self.command('pane.read', target=int(str(pane)), view='screen')['text'])
         self.rpc(op='focus',pane=panes[0])
         self.attach();self.get_type('frame')
         other,reader=self.viewer();self.viewer_frame(reader,'PASTE_READY')
@@ -678,8 +718,8 @@ while True:
         self.viewer_frame(other,'Latest frame')
     def test_workspace_context_menu_rename_close_and_last_workspace(self):
         first=self.workspaces()[0]['id']
-        self.rpc(op='workspace.edit',workspace=first,name='Keep')
-        pane=self.rpc(op='new',cwd=self.temp.name)['pane']
+        self.command('workspace.edit', name='Keep', target=first)
+        pane=self.open_pane(cwd=self.temp.name)['pane']
         second=self.new_workspace(name='Target',cwd=self.temp.name)['workspace']
         self.rpc(op='workspace.switch',workspace=first)
         self.attach();self.frame_with('Target')
@@ -703,8 +743,8 @@ while True:
     def test_tab_context_menu_targets_clicked_tab_for_rename_and_new(self):
         one=pathlib.Path(self.temp.name,'one');one.mkdir()
         two=pathlib.Path(self.temp.name,'two');two.mkdir()
-        first=self.rpc(op='new',cwd=str(one),title='One')['pane']
-        second=self.rpc(op='new',cwd=str(two),title='Two')['pane']
+        first=self.open_pane(cwd=str(one), title='One')['pane']
+        second=self.open_pane(cwd=str(two), title='Two')['pane']
         self.attach();screen=self.tab_frame('Two')
         self.right_click_tab(screen,'One');menu=self.frame_with('|New tab')
         self.assertTrue(any('|Rename' in row for row in menu))
@@ -725,20 +765,20 @@ while True:
         self.assertTrue(pathlib.Path(new['cwd']).samefile(one))
         self.assertFalse((one/'CONTEXT_LEAK').exists());self.assertFalse((two/'CONTEXT_LEAK').exists())
     def test_tab_context_close_keeps_target_through_focus_and_reorder(self):
-        first=self.rpc(op='new',cwd=self.temp.name,title='First')['pane']
-        self.rpc(op='split',cwd=self.temp.name,axis='right')
-        second=self.rpc(op='new',cwd=self.temp.name,title='Second')['pane']
+        first=self.open_pane(cwd=self.temp.name, title='First')['pane']
+        self.split_pane(cwd=self.temp.name, direction='right')
+        second=self.open_pane(cwd=self.temp.name, title='Second')['pane']
         self.attach();screen=self.tab_frame('Second')
         self.right_click_tab(screen,'First');menu=self.frame_with('|New tab')
         self.rpc(op='focus',pane=second)
         self.rpc(op='action',name='move-tab',value='left')
         self.click_text(menu,'Close')
         self.until(lambda:[p['id'] for p in self.panes()]==[second])
-        self.assertEqual(self.rpc(op='list')['closed_panes'],2)
-        gone=self.rpc(op='new',cwd=self.temp.name,title='Gone')['pane']
+        self.assertEqual(self.session()['closed_panes'],2)
+        gone=self.open_pane(cwd=self.temp.name, title='Gone')['pane']
         self.rpc(op='focus',pane=second);screen=self.tab_frame('Gone')
         self.right_click_tab(screen,'Gone');self.frame_with('|New tab')
-        self.rpc(op='close',pane=gone)
+        self.command('pane.close', target=gone)
         # Dismiss when its target disappears, never reuse the neighboring tab.
         for _ in range(100):
             screen=screen_text(self.get_type('frame')['data'])
@@ -769,7 +809,7 @@ os.write(1, b''.join(f'HISTORY_{i}\\r\\n'.encode() for i in range(100))+b'LIVE_P
 while True:
     with open('scroll-input', 'ab') as log: log.write(os.read(0, 1024))
 ''')
-        self.rpc(op='new',cwd=self.temp.name,command=f'exec {shlex.quote(sys.executable)} {shlex.quote(str(fixture))}')
+        self.open_pane(cwd=self.temp.name, command=f'exec {shlex.quote(sys.executable)} {shlex.quote(str(fixture))}')
         self.attach();self.frame_with('LIVE_PROMPT')
         log=pathlib.Path(self.temp.name,'scroll-input')
         expected=b''
@@ -850,7 +890,7 @@ while True:
         self.click(1,23);self.frame_with('^B commands')
         self.input("printf '%s%s\\n' MENU_ CLOSED\r")
         pane=next(p for p in self.panes() if p['focused'])['id']
-        self.until(lambda:'MENU_CLOSED' in self.run_cli('read',str(pane)))
+        self.until(lambda:'MENU_CLOSED' in self.command('pane.read', target=int(str(pane)), view='screen')['text'])
     def test_plus_creates_tab_and_previews_automatic_number(self):
         self.attach();initial=self.frame_with(' + ')
         self.assertEqual(initial[0].rindex(' + ')-28,10)
@@ -884,7 +924,7 @@ while True:
         self.agent_frame('codex','○')
         self.rpc(op='action',name='move-tab',value='left');screen=self.tabs_are('1 2 3')
         self.assertEqual(' '.join(screen[0][28:].split()),'1 2 3 +')
-        self.rpc(op='close',pane=first);screen=self.tabs_are('1 2')
+        self.command('pane.close', target=first);screen=self.tabs_are('1 2')
         self.assertEqual(' '.join(screen[0][28:].split()),'1 2 +');self.assertNotIn(' 3 ',screen[0])
         self.input('\x02T');self.frame_with('rename tab')
         self.rpc(op='action',name='move-tab',value='right');self.frame_with('│2')
@@ -899,11 +939,11 @@ while True:
         self.rpc(op='action',name='undo-close');screen=self.frame_with(' 3 ')
         self.assertEqual(' '.join(screen[0][28:].split()),'2 2 3 +')
         second=next(p['id'] for p in self.panes() if p['id']!=third and not p['focused'])
-        self.rpc(op='close',pane=second);screen=self.tabs_are('2 2')
+        self.command('pane.close', target=second);screen=self.tabs_are('2 2')
         self.assertNotIn(' 3 ',screen[0])
-        self.rpc(op='split',cwd=self.temp.name,axis='right')
+        self.split_pane(cwd=self.temp.name, direction='right')
         self.rpc(op='action',name='break');screen=self.tabs_are('2 2 3')
-        self.run_cli('new','sleep 30');screen=self.tabs_are('2 2 3 4')
+        self.open_pane(command='sleep 30');screen=self.tabs_are('2 2 3 4')
         self.assertNotIn('shell',screen[0])
     def test_menu_paging_and_plus_remain_usable_in_narrow_terminal(self):
         self.attach();self.get_type('frame')
@@ -912,7 +952,7 @@ while True:
         self.assertTrue(any('Next >' in row for row in menu))
         self.click_text(menu,'Next >');menu=self.frame_with('Split right',30,8)
         self.click_text(menu,'Split right');self.until(lambda:len(self.panes())==2)
-        for i in range(4):self.rpc(op='new',cwd=self.temp.name,title='Long tab name '+str(i))
+        for i in range(4):self.open_pane(cwd=self.temp.name, title='Long tab name '+str(i))
         screen=self.tab_frame('Long tab name 3',30,8)
         self.click_text(screen[:1],' + ')
         self.frame_with('new tab',30,8);self.input('\r')
@@ -935,15 +975,15 @@ while True:
         self.input('\x02c');dialog=self.frame_with('new tab')
         self.click_text(dialog,'esc cancel');self.tab_frame('newname')
         self.assertEqual(self.tab_count(),1)
-        self.assertEqual(self.rpc(op='list')['closed_panes'],0)
+        self.assertEqual(self.session()['closed_panes'],0)
     def test_name_dialog_retains_target_and_failed_creation_is_cancelable(self):
         self.attach();self.get_type('frame')
         self.input('\x02T');self.frame_with('rename tab')
-        self.rpc(op='new',cwd=self.temp.name,title='Other')
+        self.open_pane(cwd=self.temp.name, title='Other')
         self.input('Original\r');self.tab_frame('Original')
         self.assertEqual(self.tab_count(),2)
         folder=pathlib.Path(self.temp.name,'removed');folder.mkdir()
-        self.rpc(op='new',cwd=str(folder),title='Removed')
+        self.open_pane(cwd=str(folder), title='Removed')
         self.rpc(op='action',name='move-tab',value='left')
         self.rpc(op='action',name='move-tab',value='left')
         self.input('\x02c');self.frame_with('new tab');folder.rmdir()
@@ -952,62 +992,62 @@ while True:
         self.click_text(dialog,'esc cancel');self.tab_frame('Removed')
         self.assertTrue(self.rpc(op='ping')['ok'])
     def test_tab_pane_identity_and_process_survival(self):
-        first=self.rpc(op='new',cwd=self.temp.name,command="printf 'PERSIST\\n'; exec /bin/sh")['pane']
-        second=self.rpc(op='split',cwd=self.temp.name,axis='right',command="printf 'SECOND\\n'; exec /bin/sh")['pane']
-        self.until(lambda:'PERSIST' in self.run_cli('read',str(first)))
+        first=self.open_pane(cwd=self.temp.name, command="printf 'PERSIST\\n'; exec /bin/sh")['pane']
+        second=self.split_pane(cwd=self.temp.name, direction='right', command="printf 'SECOND\\n'; exec /bin/sh")['pane']
+        self.until(lambda:'PERSIST' in self.command('pane.read', target=int(str(first)), view='screen')['text'])
         self.rpc(op='action',name='break');self.assertEqual(self.tab_count(),2)
         self.rpc(op='action',name='join',value='1');self.assertEqual(self.tab_count(),1)
         self.assertEqual([p['id'] for p in self.panes()],[first,second])
-        self.rpc(op='close',pane=second);self.assertIn('PERSIST',self.run_cli('read',str(first)))
+        self.command('pane.close', target=second);self.assertIn('PERSIST',self.command('pane.read', target=int(str(first)), view='screen')['text'])
     def test_shell_exit_removes_split_and_hidden_tab(self):
-        first=self.rpc(op='new',cwd=self.temp.name)['pane']
-        second=self.rpc(op='split',cwd=self.temp.name,axis='right')['pane']
-        self.rpc(op='send',pane=second,text='exit',enter=True)
+        first=self.open_pane(cwd=self.temp.name)['pane']
+        second=self.split_pane(cwd=self.temp.name, direction='right')['pane']
+        self.command('pane.input', target=second, data=('exit') + '\r')
         self.until(lambda:[p['id'] for p in self.panes()]==[first])
         self.assertTrue(self.panes()[0]['focused']);self.assertEqual(self.tab_count(),1)
-        third=self.rpc(op='new',cwd=self.temp.name)['pane']
-        self.rpc(op='send',pane=first,text='exit',enter=True)
+        third=self.open_pane(cwd=self.temp.name)['pane']
+        self.command('pane.input', target=first, data=('exit') + '\r')
         self.until(lambda:[p['id'] for p in self.panes()]==[third])
         self.assertTrue(self.panes()[0]['focused']);self.assertEqual(self.tab_count(),1)
     def test_last_shell_exit_detaches_and_keyboard_undo_preserves_output_and_cwd(self):
         self.attach();self.get_type('frame')
         sub=pathlib.Path(self.temp.name,'nested');sub.mkdir()
         self.input('cd nested; printf "SAVED_OUTPUT\\n"\r')
-        self.until(lambda:'SAVED_OUTPUT' in self.run_cli('read','1'))
+        self.until(lambda:'SAVED_OUTPUT' in self.command('pane.read', target=int('1'), view='screen')['text'])
         self.until(lambda:pathlib.Path(self.panes()[0]['cwd']).samefile(sub))
         self.input('exit\r');self.until(lambda:self.tab_count()==0)
         self.get_type('detach')
-        self.assertEqual(self.rpc(op='list')['closed_panes'],1)
+        self.assertEqual(self.session()['closed_panes'],1)
         self.reconnect()
         self.input('\x02u')
         self.until(lambda:len(self.panes())==2)
         pane=next(p for p in self.panes() if p['focused']);self.assertNotEqual(pane['id'],1)
         self.assertFalse(pane['exited']);self.assertEqual(pane['provider'],'other')
         self.assertTrue(pathlib.Path(pane['cwd']).samefile(sub))
-        self.assertIn('SAVED_OUTPUT',self.run_cli('read',str(pane['id'])))
-        self.assertEqual(self.rpc(op='list')['closed_panes'],0)
+        self.assertIn('SAVED_OUTPUT',self.command('pane.read', target=int(str(pane['id'])), view='screen')['text'])
+        self.assertEqual(self.session()['closed_panes'],0)
         self.input("printf '%s%s\\n' FRESH_ SHELL\r")
-        self.until(lambda:'FRESH_SHELL' in self.run_cli('read',str(pane['id'])))
+        self.until(lambda:'FRESH_SHELL' in self.command('pane.read', target=int(str(pane['id'])), view='screen')['text'])
     def test_closed_history_is_bounded_and_does_not_rerun_commands(self):
         for i in range(10):
-            self.rpc(op='new',cwd=self.temp.name,title=f'saved-{i}',command=f'printf "FINAL_{i}\\n"; echo ran >> runs; exit 7')
+            self.open_pane(cwd=self.temp.name, title=f'saved-{i}', command=f'printf "FINAL_{i}\\n"; echo ran >> runs; exit 7')
             self.until(lambda:self.tab_count()==0)
-            self.assertEqual(self.rpc(op='list')['closed_panes'],min(i+1,8))
+            self.assertEqual(self.session()['closed_panes'],min(i+1,8))
         self.attach();self.get_type('frame')
         for i in range(9,1,-1):
             self.rpc(op='action',name='undo-close')
             pane=next(p for p in self.panes() if p['focused'])
-            self.assertIn(f'FINAL_{i}',self.run_cli('read',str(pane['id'])))
-        self.assertEqual(self.rpc(op='list')['closed_panes'],0)
+            self.assertIn(f'FINAL_{i}',self.command('pane.read', target=int(str(pane['id'])), view='screen')['text'])
+        self.assertEqual(self.session()['closed_panes'],0)
         self.assertEqual(len(pathlib.Path(self.temp.name,'runs').read_text().splitlines()),10)
         self.rpc(op='action',name='undo-close')
         self.assertEqual(len(self.panes()),9)  # The attach shell plus eight restores.
     def test_manual_close_retains_scrollback_and_cancels_stale_modes(self):
         self.attach();self.get_type('frame')
         self.input("printf 'SCROLLBACK_SENTINEL\\n'; i=0; while [ $i -lt 50 ]; do echo line-$i; i=$((i+1)); done\r")
-        self.until(lambda:'line-49' in self.run_cli('read','1'))
+        self.until(lambda:'line-49' in self.command('pane.read', target=int('1'), view='screen')['text'])
         self.input('\x02TStored name\r\x02[/missing')
-        self.rpc(op='close',pane=1)
+        self.command('pane.close', target=1)
         self.get_type('detach');self.reconnect()
         self.input('\x02u')
         self.until(lambda:len(self.panes())==2)
@@ -1017,7 +1057,7 @@ while True:
         while 'Stored name' not in self.get_type('frame')['data']:pass
         self.input('q')
         self.input("printf '%s%s\\n' LIVE_AFTER_ UNDO\r")
-        self.until(lambda:'LIVE_AFTER_UNDO' in self.run_cli('read',str(pane)))
+        self.until(lambda:'LIVE_AFTER_UNDO' in self.command('pane.read', target=int(str(pane)), view='screen')['text'])
     def test_panes_use_full_height_and_translate_first_row_input(self):
         fixture=pathlib.Path(self.temp.name,'screen.py')
         fixture.write_text('''import os, signal, tty
@@ -1031,7 +1071,7 @@ while True:
     with open('mouse-input', 'ab') as log: log.write(os.read(0, 1024))
 ''')
         command=f'exec {shlex.quote(sys.executable)} {shlex.quote(str(fixture))}'
-        first=self.rpc(op='new',cwd=self.temp.name,command=command)['pane']
+        first=self.open_pane(cwd=self.temp.name, command=command)['pane']
         self.attach()
         screen=self.frame_with('BOTTOM_22')
         self.assertTrue(screen[1][28:].startswith('TOP_22x52'))
@@ -1055,7 +1095,7 @@ while True:
         frame=self.get_type('frame')['data']
         while not frame.startswith('\x1b]52;c;'): frame=self.get_type('frame')['data']
         self.assertEqual(base64.b64decode(frame[7:-1]),b'TOP')
-        self.rpc(op='split',cwd=self.temp.name,axis='down',command=command)
+        self.split_pane(cwd=self.temp.name, direction='down', command=command)
         screen=self.frame_with('TOP_10x50')
         self.assertTrue(screen[2][29:].startswith('TOP_9x50'))
         self.assertTrue(screen[10][29:].startswith('BOTTOM_9'))
@@ -1091,8 +1131,8 @@ while True:
         self.input('\x021');self.until(lambda:self.panes()[0]['focused'])
         self.assertEqual(pasted.read_text(),'PASTED')
     def test_sidebar_hook_lifecycle_focus_and_removal(self):
-        one=self.rpc(op='new',cwd=self.temp.name,title='Alpha',command='sleep 30')['pane']
-        self.rpc(op='new',cwd=self.temp.name,title='Beta',command='sleep 30')
+        one=self.open_pane(cwd=self.temp.name, title='Alpha', command='sleep 30')['pane']
+        self.open_pane(cwd=self.temp.name, title='Beta', command='sleep 30')
         self.attach();screen=self.frame_with('No agents yet')
         self.assertTrue(screen[0].startswith(' workspaces'))
         transcript=pathlib.Path(self.temp.name,'sidebar.jsonl')
@@ -1124,7 +1164,7 @@ while True:
         hook('UserPromptSubmit');self.agent_frame('codex','●',activity='thinking',color='249;226;175')
         hook('Stop');self.agent_frame('codex','○',color='166;227;161')
         hook('SessionEnd');self.agent_frame('codex','○',color='108;112;134')
-        self.rpc(op='close',pane=one)
+        self.command('pane.close', target=one)
         screen=self.frame_with('No agents yet')
         self.assertNotIn('Renamed','\n'.join(row[:27] for row in screen))
         self.click(25,1);screen=self.frame_with(' > ')
@@ -1134,8 +1174,8 @@ while True:
         panes=[]
         for index in range(12):
             directory=pathlib.Path(self.temp.name,f'Agent-{index}');directory.mkdir()
-            pane=self.rpc(op='new',cwd=str(directory),title=f'Tab-{index}',command='sleep 30')['pane'];panes.append(pane)
-            self.rpc(op='pane.rename',protocol=1,pane=pane,name=f'Agent-{index}')
+            pane=self.open_pane(cwd=str(directory), title=f'Tab-{index}', command='sleep 30')['pane'];panes.append(pane)
+            self.command('pane.rename', name=f'Agent-{index}', target=pane)
             self.rpc(op='hook',pane=pane,provider='claude',seq=1,event={'hook_event_name':'SessionStart','session_id':str(index)})
         self.attach();screen=self.frame_with('< 1-4/12 >')
         self.assertNotIn('Agent-11','\n'.join(row[:27] for row in screen[12:23]))
@@ -1144,7 +1184,7 @@ while True:
         self.click_text(['' if i < 12 else row[:27] for i,row in enumerate(screen)],'Agent-8')
         self.until(lambda:next(p['id'] for p in self.panes() if p['focused'])==panes[8])
         self.rpc(op='action',name='move-tab',value='left')
-        self.rpc(op='close',pane=panes[11]);screen=self.frame_with('< 6-9/11 >')
+        self.command('pane.close', target=panes[11]);screen=self.frame_with('< 6-9/11 >')
         self.click_text(['' if i < 12 else row[:27] for i,row in enumerate(screen)],'Agent-8')
         self.until(lambda:next(p['id'] for p in self.panes() if p['focused'])==panes[8])
         self.write(op='size',cols=30,rows=8)
@@ -1153,10 +1193,10 @@ while True:
         self.write(op='size',cols=80,rows=24);self.frame_with('< 6-9/11 >')
     def test_sidebar_keeps_provider_and_activity_separate_from_directory_and_tab_title(self):
         project=pathlib.Path(self.temp.name,'frontend');project.mkdir()
-        pane=self.rpc(op='new',cwd=self.temp.name,title='Unrelated tab name')['pane']
+        pane=self.open_pane(cwd=self.temp.name, title='Unrelated tab name')['pane']
         self.rpc(op='hook',pane=pane,provider='claude',seq=1,event={'hook_event_name':'SessionStart','session_id':'directory'})
         self.attach();self.agent_frame('claude','○')
-        self.rpc(op='send',pane=pane,text='cd '+shlex.quote(str(project)),enter=True)
+        self.command('pane.input', target=pane, data=('cd '+shlex.quote(str(project))) + '\r')
         self.until(lambda:pathlib.Path(self.panes()[0]['cwd']).samefile(project))
         screen=self.agent_frame('claude','○')
         self.assertNotIn('Unrelated','\n'.join(row[:27] for row in screen))
@@ -1167,7 +1207,7 @@ while True:
         self.rpc(op='hook',pane=pane,provider='claude',seq=3,event={'hook_event_name':'PostToolUse','session_id':'directory','tool_name':'Read'})
         self.agent_frame('claude','●',activity='thinking')
     def test_sidebar_native_updates_and_selection_keep_approvals_pending(self):
-        self.rpc(op='new',cwd=self.temp.name,command='sleep 30')
+        self.open_pane(cwd=self.temp.name, command='sleep 30')
         self.attach();self.get_type('frame')
         ident=self.rpc(op='native.start',provider='codex',cwd=self.temp.name)['session']
         self.agent_frame('codex','○',color='166;227;161')
@@ -1237,7 +1277,7 @@ with open({str(played)!r},'a') as log:
         hook('PermissionRequest',4);hook('UserPromptSubmit',5);hook('Stop',6)
         time.sleep(1.6);self.assertEqual(len(records()),1)
         # A background completion uses the distinct embedded completion sound.
-        background=self.rpc(op='new',cwd=self.temp.name)['pane']
+        background=self.open_pane(cwd=self.temp.name)['pane']
         def switched():
             records() # Drain the PTY while the queued viewer control is applied.
             return any(v['pane']==background for v in self.rpc(op='viewer.list')['viewers'])
@@ -1264,12 +1304,12 @@ with open({str(played)!r},'a') as log:
     def test_slow_and_malformed_clients_do_not_block_runtime(self):
         bad=socket.socket(socket.AF_UNIX);bad.connect(self.path);bad.sendall(b'{incomplete')
         self.assertTrue(self.rpc(op='ping')['ok']);bad.close()
-        p=self.rpc(op='new',cwd=self.temp.name,command='printf OUT; exec /bin/sh')['pane']
-        self.until(lambda:'OUT' in self.run_cli('read',str(p)))
+        p=self.open_pane(cwd=self.temp.name, command='printf OUT; exec /bin/sh')['pane']
+        self.until(lambda:'OUT' in self.command('pane.read', target=int(str(p)), view='screen')['text'])
         s=socket.socket(socket.AF_UNIX);s.connect(self.path);s.sendall(b'[]\n');self.assertIn(b'UnknownOperation',s.recv(1024));s.close()
         self.assertTrue(self.rpc(op='ping')['ok'])
     def test_hook_binary_silent_and_configuration_valid(self):
-        pane=self.rpc(op='new',cwd=self.temp.name)['pane']
+        pane=self.open_pane(cwd=self.temp.name)['pane']
         payload=json.dumps({'hook_event_name':'UserPromptSubmit','session_id':'session'})
         p=subprocess.run([EXE,'hook','claude'],env={**self.env,'CORGI_PANE':str(pane)},input=payload,text=True,capture_output=True,timeout=3)
         self.assertEqual((p.returncode,p.stdout,p.stderr),(0,'',''))
@@ -1300,7 +1340,7 @@ with open({str(played)!r},'a') as log:
             self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'',''))
         self.restart_runtime()
         # A new pane request waits behind startup installation.
-        self.rpc(op='new',cwd=self.temp.name)
+        self.open_pane(cwd=self.temp.name)
         for path,expected in zip(paths,contents):self.assertEqual((path.read_bytes(),path.stat().st_mtime_ns),expected)
     def test_invalid_or_symlink_settings_are_left_intact(self):
         codex=pathlib.Path(self.env['CODEX_HOME']);codex.mkdir()
@@ -1308,7 +1348,7 @@ with open({str(played)!r},'a') as log:
         bad=codex/'hooks.json';bad.write_text('{broken')
         target=pathlib.Path(self.temp.name,'external.json');target.write_text('{}')
         (claude/'settings.json').symlink_to(target)
-        self.restart_runtime();self.rpc(op='new',cwd=self.temp.name)
+        self.restart_runtime();self.open_pane(cwd=self.temp.name)
         self.assertEqual(bad.read_text(),'{broken');self.assertEqual(target.read_text(),'{}')
         self.assertTrue((claude/'settings.json').is_symlink())
     def ordinary_agent(self,provider,hooks=False,initializing=False):
@@ -1353,8 +1393,8 @@ event('SessionEnd')
         if hooks:
             pathlib.Path(self.env['CODEX_HOME' if provider=='codex' else 'CLAUDE_CONFIG_DIR']).mkdir(exist_ok=True)
             self.restart_runtime()
-        pane=self.rpc(op='new',cwd=self.temp.name)['pane']
-        self.rpc(op='send',pane=pane,text='PATH='+shlex.quote(self.temp.name)+':$PATH '+provider+(' --loading' if initializing else ''),enter=True)
+        pane=self.open_pane(cwd=self.temp.name)['pane']
+        self.command('pane.input', target=pane, data=('PATH='+shlex.quote(self.temp.name)+':$PATH '+provider+(' --loading' if initializing else '')) + '\r')
         self.until(lambda:any(p['id']==pane and p['provider']==provider for p in self.panes()))
         return pane
     def test_plain_commands_gain_hooks_without_wrappers(self):
@@ -1362,9 +1402,9 @@ event('SessionEnd')
             pane=self.ordinary_agent(provider,hooks=True)
             self.until(lambda:next(p for p in self.panes() if p['id']==pane)['session']=='ordinary-'+provider)
             for command,state in [('work','working'),('block','blocked'),('stop','idle')]:
-                self.rpc(op='send',pane=pane,text=command,enter=True)
+                self.command('pane.input', target=pane, data=(command) + '\r')
                 self.until(lambda:next(p for p in self.panes() if p['id']==pane)['state']==state)
-            self.rpc(op='send',pane=pane,text='exit',enter=True)
+            self.command('pane.input', target=pane, data=('exit') + '\r')
             self.until(lambda:next(p for p in self.panes() if p['id']==pane)['provider']=='other')
             self.assertEqual(next(p for p in self.panes() if p['id']==pane)['session'],'')
     def test_plain_agent_detection_and_terminal_attention_without_hooks(self):
@@ -1372,18 +1412,18 @@ event('SessionEnd')
         self.until(lambda:self.panes()[0]['state']=='idle')
         self.assertEqual(self.panes()[0]['session'],'')
         for command,state in [('work','working'),('block','blocked'),('stop','idle')]:
-            self.rpc(op='send',pane=pane,text=command,enter=True)
+            self.command('pane.input', target=pane, data=(command) + '\r')
             self.until(lambda:self.panes()[0]['state']==state)
-        self.rpc(op='send',pane=pane,text='exit',enter=True)
+        self.command('pane.input', target=pane, data=('exit') + '\r')
         self.until(lambda:self.panes()[0]['provider']=='other')
     def test_codex_fallback_tool_icon_without_hooks(self):
         pane=self.ordinary_agent('codex')
         self.until(lambda:self.panes()[0]['state']=='idle')
         self.attach()
         for command,icon in [('work','thinking'),('tool','🔧'),('work','thinking'),('tool','🔧')]:
-            self.rpc(op='send',pane=pane,text=command,enter=True)
+            self.command('pane.input', target=pane, data=(command) + '\r')
             self.agent_frame('codex','●',activity=icon)
-        self.rpc(op='send',pane=pane,text='stop',enter=True)
+        self.command('pane.input', target=pane, data=('stop') + '\r')
         self.agent_frame('codex','○',activity='')
     def test_agent_startup_has_its_own_indicator_and_never_thinks(self):
         pane=self.ordinary_agent('codex',initializing=True)
@@ -1393,19 +1433,19 @@ event('SessionEnd')
         # Longer than the fallback's debounce: loading must remain distinct.
         time.sleep(.8)
         self.assertEqual(self.panes()[0]['state'],'initializing')
-        self.rpc(op='send',pane=pane,text='ready',enter=True)
+        self.command('pane.input', target=pane, data=('ready') + '\r')
         self.agent_frame('codex','○',color='166;227;161')
-        self.rpc(op='send',pane=pane,text='work',enter=True)
+        self.command('pane.input', target=pane, data=('work') + '\r')
         self.agent_frame('codex','●',activity='thinking',color='249;226;175')
     @unittest.skipUnless(shutil.which('bun'),'Bun is not installed')
     def test_bun_agent_detection(self):
         script=pathlib.Path(self.temp.name,'node_modules/@anthropic-ai/claude-code/cli.js')
         script.parent.mkdir(parents=True)
         script.write_text('console.log("\\x1b]2;✳ Bun agent\\x07");setInterval(()=>{},1000);')
-        pane=self.rpc(op='new',cwd=self.temp.name,command=shlex.quote(shutil.which('bun'))+' '+shlex.quote(str(script)))['pane']
+        pane=self.open_pane(cwd=self.temp.name, command=shlex.quote(shutil.which('bun'))+' '+shlex.quote(str(script)))['pane']
         self.until(lambda:self.panes()[0]['provider']=='claude')
         self.until(lambda:self.panes()[0]['state']=='idle')
-        self.rpc(op='close',pane=pane)
+        self.command('pane.close', target=pane)
     def test_native_handshake_retained_approvals_and_event_rotation(self):
         for provider in ('codex','claude'):
             ident=self.rpc(op='native.start',provider=provider,cwd=self.temp.name)['session']
@@ -1421,7 +1461,7 @@ event('SessionEnd')
             self.until(lambda:any(s['id']==ident and s['state']=='idle' and s['pending_requests']==0 for s in self.rpc(op='native.list')['sessions']))
             self.rpc(op='native.stop',session=ident)
     def test_native_acknowledgement_refreshes_attached_frame(self):
-        self.rpc(op='new',cwd=self.temp.name,command='sleep 30')
+        self.open_pane(cwd=self.temp.name, command='sleep 30')
         self.attach();self.get_type('frame')
         ident=self.rpc(op='native.start',provider='codex',cwd=self.temp.name)['session']
         self.rpc(op='native.send',session=ident,message={'id':1,'method':'test/approval'})
@@ -1450,8 +1490,8 @@ event('SessionEnd')
         self.check_real_client_exit(b'\x02q',1)
     def test_real_client_steady_cursor_still_honors_hidden_cursor(self):
         self.env.pop('CORGI_CURSOR_BLINK',None)
-        pane=self.rpc(op='new',command="printf '\\033[?25lCURSOR_HIDDEN'; sleep 30")['pane']
-        self.until(lambda:'CURSOR_HIDDEN' in self.run_cli('read',str(pane)))
+        pane=self.open_pane(command="printf '\\033[?25lCURSOR_HIDDEN'; sleep 30")['pane']
+        self.until(lambda:'CURSOR_HIDDEN' in self.command('pane.read', target=int(str(pane)), view='screen')['text'])
         output=self.check_real_client_exit(b'\x02q',1)
         frames=re.findall(rb'\x1b\[\?2026h(.*?)\x1b\[\?2026l',output,re.S)
         self.assertTrue(frames)
@@ -1472,7 +1512,7 @@ event('SessionEnd')
         os.write(self.master,b'dddd/dddd\x1b\\\x1b]11;rgb:1e/1e/1e\x07')
         for i in range(16):os.write(self.master,f'\x1b]4;{i};rgb:11/cc/33\x1b\\'.encode())
         output_until(b'EARLY_INPUT_OK');output_until(b'48;2;30;30;30m')
-        self.assertNotIn(b'rgb:',self.run_cli('read','1').encode())
+        self.assertNotIn(b'rgb:',self.command('pane.read', target=int('1'), view='screen')['text'].encode())
         probe=pathlib.Path(self.temp.name,'color_probe.py')
         result=pathlib.Path(self.temp.name,'colors.json')
         probe.write_text('''import os,select,time,tty,json,sys
@@ -1485,7 +1525,7 @@ open(sys.argv[1],'w').write(json.dumps(data.decode()))
 os.write(1,b'\\x1b[48;2;57;57;57m COMPOSER \\x1b[0m')
 while True:time.sleep(1)
 ''')
-        ident=self.rpc(op='new',cwd=self.temp.name,command=shlex.join([sys.executable,str(probe),str(result)]))['pane']
+        ident=self.open_pane(cwd=self.temp.name, command=shlex.join([sys.executable,str(probe),str(result)]))['pane']
         self.until(result.exists)
         replies=json.loads(result.read_text())
         self.assertIn('\x1b]10;rgb:dddd/dddd/dddd\x1b\\',replies)
@@ -1495,7 +1535,7 @@ while True:time.sleep(1)
         # A late reply updates existing panes and is not forwarded as input.
         os.write(self.master,b'\x1b]11;rgb:22/22/22\x07')
         output_until(b'48;2;34;34;34m')
-        self.rpc(op='close',pane=ident)
+        self.command('pane.close', target=ident)
         os.write(self.master,b'\x02q')
         end=time.monotonic()+3
         while self.proc.poll() is None and time.monotonic()<end:
@@ -1506,14 +1546,14 @@ while True:time.sleep(1)
         self.assertEqual(self.proc.returncode,0)
     def test_real_client_returns_to_terminal_on_last_shell_exit(self):
         self.check_real_client_exit(b'exit\r',0)
-        self.assertEqual(self.rpc(op='list')['closed_panes'],1)
+        self.assertEqual(self.session()['closed_panes'],1)
     def test_real_client_returns_to_terminal_on_last_tab_close(self):
-        self.rpc(op='new',cwd=self.temp.name)
-        self.rpc(op='split',cwd=self.temp.name,axis='right')
+        self.open_pane(cwd=self.temp.name)
+        self.split_pane(cwd=self.temp.name, direction='right')
         ident=self.rpc(op='native.start',provider='codex',cwd=self.temp.name)['session']
         # Input following close must not recreate tabs after detaching.
         self.check_real_client_exit(b'\x02X\x02c\r',0)
-        self.assertEqual(self.rpc(op='list')['closed_panes'],2)
+        self.assertEqual(self.session()['closed_panes'],2)
         self.assertEqual(self.rpc(op='native.list')['sessions'][0]['id'],ident)
     def check_real_client_exit(self,keys,remaining_panes):
         self.master,slave=os.openpty();fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))

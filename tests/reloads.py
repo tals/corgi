@@ -13,7 +13,7 @@ class Reloads(smoke.Runtime):
         for viewer in self.viewers: viewer.close()
         super().tearDown()
     def new(self, command='exec /bin/sh', title=''):
-        return self.rpc(op='pane.create',protocol=1,workspace=self.session()['workspaces'][0]['id'],cwd=self.temp.name,command=command,title=title)['pane']
+        return self.command('pane.create', workspace=self.session()['workspaces'][0]['id'], cwd=self.temp.name, command=command, title=title)['pane']
     def reload(self, exe=smoke.EXE):
         return self.rpc(op='server.reload',protocol=1,executable=exe)
     def test_workspace_automatic_and_custom_names_survive_handoff(self):
@@ -21,15 +21,15 @@ class Reloads(smoke.Runtime):
         folder=pathlib.Path(self.temp.name,'project');folder.mkdir()
         ws=self.session()['workspaces'][0]['id']
         self.reload()
-        self.rpc(op='send',pane=first,text='cd '+shlex.quote(str(folder)),enter=True)
+        self.command('pane.input', target=first, data=('cd '+shlex.quote(str(folder))) + '\r')
         self.until(lambda:self.session()['workspaces'][0]['name']=='project')
         self.assertEqual(self.session()['workspaces'][0]['custom_name'],'')
-        self.rpc(op='workspace.edit',workspace=ws,name='Override')
+        self.command('workspace.edit', name='Override', target=ws)
         self.reload()
-        self.rpc(op='send',pane=first,text='cd /',enter=True)
+        self.command('pane.input', target=first, data=('cd /') + '\r')
         self.until(lambda:self.session()['panes'][0]['cwd']=='/')
         self.assertEqual(self.session()['workspaces'][0]['name'],'Override')
-        self.rpc(op='workspace.edit',workspace=ws,name='')
+        self.command('workspace.edit', name='', target=ws)
         self.until(lambda:self.session()['workspaces'][0]['name']=='/')
 
     def test_handoff_preserves_processes_viewers_and_queued_controls(self):
@@ -47,8 +47,8 @@ class Reloads(smoke.Runtime):
         self.assertEqual(b.poll()['pane'],second)
         self.assertIn('After handoff',b.state['data'])
         a.input('\x1b');a.input("printf 'AFTER_%s\\n' RELOAD\r")
-        self.until(lambda:'AFTER_RELOAD' in self.rpc(op='read',pane=first)['text'])
-        self.rpc(op='send',pane=first,text='exit',enter=True)
+        self.until(lambda:'AFTER_RELOAD' in self.command('pane.read', target=first, view='screen')['text'])
+        self.command('pane.input', target=first, data=('exit') + '\r')
         self.until(lambda:first not in [p['id'] for p in self.session()['panes']])
     def test_failed_candidate_rolls_back_and_can_retry(self):
         first=self.new();a=Viewer(self);before=self.session()
@@ -60,7 +60,7 @@ class Reloads(smoke.Runtime):
             self.assertEqual(a.poll()['pane'],first)
         self.reload()
         a.input("printf 'STILL_%s\\n' HERE\r")
-        self.until(lambda:'STILL_HERE' in self.rpc(op='read',pane=first)['text'])
+        self.until(lambda:'STILL_HERE' in self.command('pane.read', target=first, view='screen')['text'])
     def test_fragmented_rpc_and_paste_survive(self):
         first=self.new();a=Viewer(self);a.input('\x1b[200~printf PASTE_')
         with socket.socket(socket.AF_UNIX) as client:
@@ -71,7 +71,7 @@ class Reloads(smoke.Runtime):
             client.sendall(b'shot","protocol":1}\n')
             with client.makefile('rb') as stream:self.assertEqual(json.loads(stream.readline())['type'],'session')
         a.input('SURVIVED\\n\x1b[201~\r')
-        self.until(lambda:'PASTE_SURVIVED' in self.rpc(op='read',pane=first)['text'])
+        self.until(lambda:'PASTE_SURVIVED' in self.command('pane.read', target=first, view='screen')['text'])
     def test_native_session_retains_pid_approvals_and_transport(self):
         session=self.rpc(op='native.start',provider='codex',cwd=self.temp.name)['session']
         self.until(lambda:self.rpc(op='native.list')['sessions'][0]['ready'])
@@ -89,7 +89,7 @@ class Reloads(smoke.Runtime):
     def test_cold_recovery_preserves_layout_cwd_history_and_resume_hint(self):
         project=pathlib.Path(self.temp.name,'project');project.mkdir();project=project.resolve()
         first=self.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh",title='Kept title')
-        self.rpc(op='send',pane=first,text='cd '+shlex.quote(str(project)),enter=True)
+        self.command('pane.input', target=first, data=('cd '+shlex.quote(str(project))) + '\r')
         self.until(lambda:self.session()['panes'][0]['cwd']==str(project))
         self.rpc(op='hook',provider='codex',pane=first,event={'hook_event_name':'SessionStart','session_id':'session-123','cwd':str(project)})
         self.until(lambda:self.session()['panes'][0]['agent']['session']=='session-123')
@@ -99,17 +99,17 @@ class Reloads(smoke.Runtime):
         os.kill(before['server_pid'],signal.SIGKILL)
         self.until(lambda:subprocess.run([smoke.EXE,'ping'],env=self.env,capture_output=True,timeout=3).returncode!=0)
         self.run_cli('start');after=self.session()
-        self.assertEqual([(w['id'],w['tabs']) for w in before['workspaces']],[(w['id'],w['tabs']) for w in after['workspaces']])
+        self.assertEqual([(w['id'],w['model']['tabs']) for w in before['workspaces']],[(w['id'],w['model']['tabs']) for w in after['workspaces']])
         self.assertEqual(after['panes'][0]['id'],first)
         self.assertNotEqual(after['panes'][0]['pid'],before['panes'][0]['pid'])
-        self.until(lambda: "codex resume 'session-123'" in self.rpc(op='read',pane=first)['text'])
-        text=self.rpc(op='read',pane=first)['text']
+        self.until(lambda: "codex resume 'session-123'" in self.command('pane.read', target=first, view='screen')['text'])
+        text=self.command('pane.read', target=first, view='screen')['text']
         self.assertIn('BEFORE_CRASH',text)
         self.assertIn("codex resume 'session-123'",text)
         self.assertEqual(after['panes'][0]['cwd'],str(project))
         self.assertEqual(after['panes'][0]['agent']['provider'],'other')
-        self.rpc(op='send',pane=first,text="\x15printf 'NEW_%s\\n' SHELL",enter=True)
-        self.until(lambda:'NEW_SHELL' in self.rpc(op='read',pane=first)['text'])
+        self.command('pane.input', target=first, data=("\x15printf 'NEW_%s\\n' SHELL") + '\r')
+        self.until(lambda:'NEW_SHELL' in self.command('pane.read', target=first, view='screen')['text'])
 
     def test_recovery_prefills_editable_command_until_enter(self):
         for shell in ['/bin/sh', '/bin/zsh', shutil.which('fish')]:
@@ -134,12 +134,12 @@ class Reloads(smoke.Runtime):
                 self.until(lambda: any(p['id']==first and p['agent']['session']=='session-ready' for p in self.session()['panes']))
                 self.rpc(op='recovery.save',protocol=1)
                 self.restart_runtime()
-                self.until(lambda: "codex resume 'session-ready'" in self.rpc(op='read',pane=first)['text'])
+                self.until(lambda: "codex resume 'session-ready'" in self.command('pane.read', target=first, view='screen')['text'])
                 self.assertFalse(marker.exists())
-                self.rpc(op='pane.input',protocol=1,pane=first,data='\r')
+                self.command('pane.input', data='\r', target=first)
                 self.until(marker.exists)
                 self.assertEqual(marker.read_text().strip(),'resume session-ready')
-                self.rpc(op='send',pane=first,text='exit',enter=True)
+                self.command('pane.input', target=first, data=('exit') + '\r')
                 self.until(lambda: first not in [p['id'] for p in self.session()['panes']])
 
     def test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes(self):
@@ -152,21 +152,22 @@ class Reloads(smoke.Runtime):
             self.assertEqual(response['err'],'ReloadCandidateFailed')
             self.assertEqual(before['server_pid'],self.session()['server_pid'])
             self.assertEqual([(p['id'],p['pid']) for p in before['panes']],[(p['id'],p['pid']) for p in self.session()['panes']])
-        self.rpc(op='send',pane=first,text="printf 'ROLLBACK_%s\\n' OK",enter=True)
-        self.until(lambda:'ROLLBACK_OK' in self.rpc(op='read',pane=first)['text'])
+        self.command('pane.input', target=first, data=("printf 'ROLLBACK_%s\\n' OK") + '\r')
+        self.until(lambda:'ROLLBACK_OK' in self.command('pane.read', target=first, view='screen')['text'])
+
 
     def test_backpressure_rejects_reload_without_dropping_accepted_input(self):
         program=pathlib.Path(self.temp.name,'blocked.py');gate=pathlib.Path(self.temp.name,'gate');received=pathlib.Path(self.temp.name,'received')
         program.write_text("import os,tty,time,pathlib,sys\ntty.setraw(0)\nprint('READY',flush=True)\nwhile not pathlib.Path(sys.argv[1]).exists():time.sleep(.01)\nwith open(sys.argv[2],'wb',buffering=0) as f:\n while True:f.write(os.read(0,65536))\n")
         first=self.new(shlex.join([sys.executable,str(program),str(gate),str(received)]))
-        self.until(lambda:'READY' in self.rpc(op='read',pane=first)['text'])
+        self.until(lambda:'READY' in self.command('pane.read', target=first, view='screen')['text'])
         before=self.session()
-        for _ in range(8):self.rpc(op='pane.input',protocol=1,pane=first,data='a'*65536)
+        for _ in range(8):self.command('pane.input', data='a'*65536, target=first)
         response=self.raw_rpc(op='server.reload',protocol=1,executable=smoke.EXE)
         self.assertEqual(response['err'],'ReloadInputBackpressure')
         self.assertEqual(self.session()['server_pid'],before['server_pid'])
         gate.touch();self.until(lambda:received.exists() and received.stat().st_size==8*65536)
-        self.reload();self.rpc(op='pane.input',protocol=1,pane=first,data='END')
+        self.reload();self.command('pane.input', data='END', target=first)
         self.until(lambda:received.read_bytes()==b'a'*(8*65536)+b'END')
 
     def test_native_cold_recovery_displays_resume_without_starting_agent(self):
@@ -180,14 +181,14 @@ class Reloads(smoke.Runtime):
         self.assertTrue(sessions[0]['exited']);self.assertEqual(sessions[0]['pid'],-1)
         self.assertEqual(len(self.session()['panes']),1)
         pane=self.session()['panes'][0]['id']
-        self.until(lambda: "codex resume 't'" in self.rpc(op='read',pane=pane)['text'])
-        text=self.rpc(op='read',pane=pane)['text']
+        self.until(lambda: "codex resume 't'" in self.command('pane.read', target=pane, view='screen')['text'])
+        text=self.command('pane.read', target=pane, view='screen')['text']
         self.assertIn("codex resume 't'",text)
         self.assertIn('requestApproval',text)
 
     def test_missing_directory_and_removed_socket_directory_do_not_lose_recovery(self):
         folder=pathlib.Path(self.temp.name,'gone');folder.mkdir();first=self.new()
-        self.rpc(op='send',pane=first,text='cd '+shlex.quote(str(folder)),enter=True)
+        self.command('pane.input', target=first, data=('cd '+shlex.quote(str(folder))) + '\r')
         self.until(lambda:self.session()['panes'][0]['cwd']==str(folder.resolve()))
         self.rpc(op='recovery.save',protocol=1)
         self.run_cli('shutdown');self.until(lambda:not pathlib.Path(self.path).exists())
@@ -197,7 +198,7 @@ class Reloads(smoke.Runtime):
         if workspace_state.exists():workspace_state.unlink()
         self.run_cli('start')
         self.assertEqual(self.session()['panes'][0]['id'],first)
-        text=self.rpc(op='read',pane=first)['text']
+        text=self.command('pane.read', target=first, view='screen')['text']
         self.assertIn('# Recovered saved output; new shell.',text)
         self.assertEqual(self.session()['panes'][0]['cwd'],str(pathlib.Path(self.temp.name).resolve()))
 

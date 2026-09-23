@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Named-link transport and a real attached client's local URL opener."""
-import fcntl, json, os, pathlib, select, shlex, struct, subprocess, sys, termios, time, unittest
+import fcntl, os, pathlib, re, select, shlex, struct, subprocess, sys, termios, time, unittest
 import smoke, viewers
 from viewers import Viewer
 
 class Links(unittest.TestCase):
     run_cli = smoke.Runtime.run_cli
     rpc = smoke.Runtime.rpc
+    command=smoke.Runtime.command
     raw_rpc = smoke.Runtime.raw_rpc
     session = smoke.Runtime.session
     until = smoke.Runtime.until
@@ -21,9 +22,9 @@ class Links(unittest.TestCase):
         smoke.Runtime.tearDown(self)
     def test_named_link_survives_real_server_and_viewer(self):
         url = 'https://example.com/corgi-link-test'
-        output = f'\x1b]8;id=docs;{url}\x1b\\\x1b[4mNamed docs\x1b]8;;\x1b\\\x1b[0m ordinary'
+        output = f'\x1b]8;id=docs;{url}\x1b\\\x1b[4mNamed docs\x1b]8;;\x1b\\\x1b[0m ordinary\r\n'
         pane = self.new('printf %s '+shlex.quote(output)+'; exec /bin/sh')
-        self.until(lambda:'Named docs' in self.rpc(op='read',pane=pane)['text'])
+        self.until(lambda:'Named docs' in self.command('pane.read', target=pane, view='screen')['text'])
         surface = self.rpc(op='pane.surface',protocol=1,pane=pane)['surface']
         self.assertIn(';'+url+'\x1b\\', ''.join(surface['lines']))
         viewer = Viewer(self)
@@ -38,7 +39,7 @@ class Links(unittest.TestCase):
         self.env['PATH']=str(bindir)+os.pathsep+self.env['PATH']
         url='https://example.com/plain'
         pane=self.new('printf %s '+shlex.quote(url+'\r\n')+'; exec /bin/sh')
-        self.until(lambda:url in self.rpc(op='read',pane=pane)['text'])
+        self.until(lambda:url in self.command('pane.read', target=pane, view='screen')['text'])
         viewer=Viewer(self)
         other=Viewer(self)
         frame=viewer.poll()['data']
@@ -60,15 +61,14 @@ class Links(unittest.TestCase):
         mouse(35,len(url)+2)
         self.assertNotIn('\x1b[4m',viewer.state['data'])
         mouse(0);mouse(0,release=True)
-        self.assertNotIn('open_url',viewer.state['effects'])
+        self.assertFalse(any('open_url' in effect for effect in viewer.state['effects']))
         mouse(0);mouse(32,5)
         # First motion must survive the viewer's following snapshot refresh.
         self.assertIn('38;2;0;0;0;48;2;255;255;255m',viewer.state['data'])
         mouse(0,5,True)
-        self.assertNotIn('open_url', viewer.state['effects'])
+        self.assertFalse(any('open_url' in effect for effect in viewer.state['effects']))
         mouse(16);mouse(16,release=True)
-        effects=[json.loads(line) for line in viewer.state['effects'].splitlines()]
-        self.assertIn({'type':'open_url','url':url},effects)
+        self.assertEqual(viewer.state['effects'], [{'open_url':url}])
         viewer.close()
         other.close()
         self.master,slave=os.openpty()
@@ -97,7 +97,7 @@ class Links(unittest.TestCase):
     def test_tooltip_waits_and_stays_hidden_through_interaction(self):
         url='https://example.com/tooltip'
         pane=self.new('printf %s '+shlex.quote(url+'\r\n')+'; exec /bin/sh')
-        self.until(lambda:url in self.rpc(op='read',pane=pane)['text'])
+        self.until(lambda:url in self.command('pane.read', target=pane, view='screen')['text'])
         viewer=Viewer(self)
         other=Viewer(self)
         hint='Ctrl-click to open'
@@ -164,10 +164,17 @@ class Links(unittest.TestCase):
         def frame():
             nonlocal received
             if select.select([self.master],[],[],.05)[0]: received += os.read(self.master,65536)
-            return f';http://localhost:{port}\x1b\\'.encode() in received
-        self.until(frame,timeout=8)
-        os.write(self.master,b'\x1b[<0;7;5M\x1b[<0;7;5m')
-        self.until(opened.exists)
+            frames=re.findall(rb'\x1b\[\?2026h(.*?)\x1b\[\?2026l',received,re.S)
+            if not frames:return None
+            rows=smoke.screen_text(frames[-1].decode(),80,24)
+            for y,row in enumerate(rows):
+                if 'Open Link' in row:return row.index('Open Link')+2,y+1
+        x,y=self.until(frame,timeout=8)
+        os.write(self.master,f'\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m'.encode())
+        def did_open():
+            if select.select([self.master],[],[],.05)[0]:os.read(self.master,65536)
+            return opened.exists()
+        self.until(did_open)
         self.assertEqual(opened.read_text(),f'http://localhost:{port}')
 
 if __name__=='__main__': unittest.main()

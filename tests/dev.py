@@ -11,6 +11,7 @@ class Dev(unittest.TestCase):
     tearDown = smoke.Runtime.tearDown
     run_cli = smoke.Runtime.run_cli
     rpc = smoke.Runtime.rpc
+    command=smoke.Runtime.command
     raw_rpc = smoke.Runtime.raw_rpc
     session = smoke.Runtime.session
     until = smoke.Runtime.until
@@ -42,7 +43,7 @@ class Dev(unittest.TestCase):
         viewer = self.launch()
         panes = [(p['id'], p['pid']) for p in self.session()['panes']]
         # Run the command in the actual pane shell, so the runtime supplies CORGI_PANE.
-        self.rpc(op='pane.input', protocol=1, pane=viewer['pane'], data=str(smoke.ROOT / 'go.sh')+'\r')
+        self.command('pane.input', data=str(smoke.ROOT / 'go.sh')+'\r', target=viewer['pane'])
         self.wait_viewer(viewer['id'])
         self.assertEqual(self.rpc(op='hello', protocol=1)['server_pid'], before['server_pid'])
         self.assertEqual([(p['id'], p['pid']) for p in self.session()['panes']], panes)
@@ -56,7 +57,7 @@ class Dev(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('CORGI_OLD_EXE'), 'requires another build')
     def test_changed_daemon_reloads_and_keeps_panes(self):
-        self.rpc(op='pane.create', protocol=1, workspace=self.session()['workspaces'][0]['id'], command='sleep 60')
+        self.command('pane.create', workspace=self.session()['workspaces'][0]['id'], command='sleep 60')
         panes = [(p['id'], p['pid']) for p in self.session()['panes']]
         self.rpc(op='server.reload', protocol=1, executable=os.environ['CORGI_OLD_EXE'])
         old = self.rpc(op='hello', protocol=1)
@@ -66,20 +67,5 @@ class Dev(unittest.TestCase):
         self.assertNotEqual(old['server_pid'], new['server_pid'])
         self.assertEqual([(p['id'], p['pid']) for p in self.session()['panes']], panes)
 
-    def test_old_viewer_is_rejected(self):
-        import socket, json
-        with socket.socket(socket.AF_UNIX) as client:
-            client.connect(self.path)
-            stream = client.makefile('rwb', buffering=0)
-            def call(**v):
-                stream.write((json.dumps(v)+'\n').encode())
-                return json.loads(stream.readline())
-            call(op='viewer.open', protocol=1)
-            pane = self.session()['panes'][0]['id']
-            call(op='viewer.sync', protocol=1, interests=[dict(pane=pane,cols=80,rows=24,offset=None)], focus=pane)
-            result = subprocess.run([smoke.EXE,'dev'],env={**self.env,'CORGI_PANE':str(pane)},capture_output=True,text=True)
-            self.assertNotEqual(result.returncode,0)
-            self.assertIn('Detach once',result.stderr)
-            stream.close()
 
 if __name__ == '__main__': unittest.main()

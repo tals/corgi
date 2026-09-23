@@ -1,35 +1,18 @@
 # Developing Corgi inside Corgi
 
-The work is split into three commits/milestones. Stop after each milestone for a
-manual restart and user check before continuing.
-
-1. **Runtime interface (complete).** Session resources live in
-   `runtime.zig`; protocol 1 exposes session data and terminal surfaces separately
-   from presentation. This initially retained the daemon-rendered UI, which has since been removed. This milestone does not change viewer focus behavior or enable handoff.
-2. **Viewer-owned UI (complete).** Composition, menus, dialogs, and interaction run in
-   the viewer. Workspace/tab order and split arrangement remain shared. Selected
-   workspace, selected tab, focused pane, and transient presentation state belong
-   to each viewer. Keep selection by ID and reconcile it when another viewer
-   closes or moves its target. PTY sizing must account for which panes each
-   viewer actually displays; a hidden viewer selection must not steal input or
-   resize unrelated panes.
-3. **Live daemon handoff and cold recovery (this milestone).** Drain accepted writes, pause I/O, transfer PTYs and
-   native-session pipes to a replacement executable, restore state, commit
-   ownership, and preserve connected viewers. Preserve process IDs; rollback before
-   commit on failure. Never turn a failed reload into a destructive restart.
-
-Normal shutdown terminates processes; the next startup now recovers saved context in new shells. An already-running old
-daemon cannot gain export support just because a new executable has been built.
+Session resources live in `runtime.zig`; presentation and navigation belong to
+viewers. Live daemon handoff transfers PTYs and native-session pipes while keeping
+process IDs and viewer state. A failed handoff leaves the original daemon serving.
+Normal shutdown terminates processes; cold recovery restores saved context in new
+shells. Internal interfaces and the wire protocol change together with their callers;
+we do not maintain compatibility adapters for older versions.
 
 ## Protocol 1
 
-The Unix socket still accepts newline-delimited JSON. Existing operations retain
-their behavior. New operations require either `"protocol":1` on each request or
-an earlier `{"op":"hello","protocol":1}` on the same connection. The hello
-reply includes `protocol`, `server_pid`, and a list of supported operation names
-in `capabilities`. Unsupported versions are rejected before performing operations.
-Future viewers must negotiate capabilities, tolerate additional response fields,
-and treat missing capabilities as unavailable rather than restarting the daemon.
+The Unix socket accepts newline-delimited JSON. Session requests require either
+`"protocol":1` or an earlier `{"op":"hello","protocol":1}` on that connection.
+The hello reply reports `protocol`, `server_pid`, and supported operation names.
+Unsupported versions are rejected before performing operations.
 
 Examples (these inspect/control the selected `CORGI_SOCKET`):
 
@@ -44,18 +27,30 @@ corgi rpc '{"op":"pane.surface","protocol":1,"pane":1}'
 | `session.snapshot` | None | A `type: "session"` snapshot |
 | `session.subscribe` | None | Initial session snapshot, then coalesced replacement snapshots |
 | `pane.surface` | `pane` | A `type: "surface"` response |
-| `pane.input` | `pane`, `data` string | Write the supplied terminal bytes to that pane |
-| `pane.create` | `workspace` | Create a tab and return `pane` without selecting it |
-| `pane.split` | `pane`, `axis: "right"` or `"down"` | Split that pane and return the new `pane` without selecting it |
-| `pane.close` | `pane` | Close that pane and retain its closed-output snapshot |
-| `tab.rename` | `tab`, `title` | Rename that tab; empty title restores automatic numbering |
-| `split.resize` | `pane`, `direction: "left"`, `"right"`, `"up"`, or `"down"` | Adjust the enclosing split without changing selection |
+| `session.command` | `command` containing one typed operation | `{ok:true,result:...}` |
+
+Shared commands name their targets explicitly:
+
+```json
+{"op":"session.command","protocol":1,"command":{"pane.create":{"workspace":1,"command":"bun run dev"}}}
+{"op":"session.command","protocol":1,"command":{"pane.split":{"target":3,"direction":"right"}}}
+{"op":"session.command","protocol":1,"command":{"pane.input":{"target":3,"data":"hello"}}}
+```
+
+`session.Command` in `src/session.zig` defines every accepted payload. CLI commands
+and viewers use this same interface, including rename, move, close, restore,
+workspace changes, and terminal reads. Replies place command output in `result`.
 
 Creation accepts optional `cwd`, `command`, and `title`; the workspace directory
 is the default. Pane input is already-encoded terminal input, not UI shortcuts,
 paste wrapping, or automatic keyboard-protocol translation. It requires an
 explicit target on every request. A future viewer must hold the starting pane ID
 for the duration of a bracketed paste.
+
+Workspace `model` values contain flat `nodes`, ordered `tabs` (ID, root index,
+title), and a structural `revision`. The daemon, viewer, and checkpoint use the
+same layout model. Viewers own their decoded snapshot and retain terminal
+surfaces separately.
 
 Session snapshots include stable workspace/tab/pane IDs, names, directories,
 split trees, pane PIDs and sizes, agent metadata, native sessions, and the number
@@ -122,27 +117,32 @@ The daemon PID and all existing pane processes stay the same. Viewer-only change
 include menus, dialogs, key bindings, sidebar composition, and presentation. A
 feature needing a new runtime capability uses the live daemon handoff below.
 
-The viewer instantiates `controller.zig` with a private `mirror.zig`
-projection. That projection creates Ghostty framebuffers, never processes or
+The viewer owns `controller.zig` and a private `mirror.zig` projection.
+The daemon lives in `server.zig`; both resolve shared edits through the same
+`runtime.zig` / `session.zig` operations. `layout.Model` contains only shared
+arrangement, while `navigation.State` and `layout.Selection` own local selection. That projection creates Ghostty framebuffers, never processes or
 PTYs. Session snapshots rebuild shared arrangement while retaining selected IDs
 and zoom locally. A removed selection falls back to a surviving pane/tab or the
 first remaining workspace. Menus targeting removed tabs and stale divider drags
 are cancelled. Shared layout versions exclude focus, zoom, and terminal output.
 
-The additive protocol capabilities are:
+Viewer operations are:
 
 - `viewer.open`: establish a viewer on a persistent negotiated connection.
 - `viewer.sync`: report visible pane IDs, requested sizes, scroll offsets, focus,
   workspace, and watch state; receive session data, pane surfaces/input modes,
   pending sequenced CLI controls, and sound events. Controls remain pending until
-  the viewer acknowledges applying them; back-to-back focus/split commands retain
-  their intended target. Creation returns `ViewerBusy` when a queued local action
-  must resolve the target first. No composed Corgi frame crosses the wire.
-- `layout.apply`: apply shared tab names/order, swaps, and split ratios against an
-  expected structural token. Pane/tab identity sets must remain unchanged.
-  Conflicts refresh the viewer and ask it to repeat the edit.
-- `pane.transfer`, `pane.restore`, `pane.acknowledge`, `workspace.create`: explicit
-  shared operations needed by the UI. These never set another viewer's selection.
+  the viewer acknowledges applying them. Viewer controls execute in order.
+  No composed Corgi frame crosses the wire.
+- `session.command`: one typed command for creation, closing, restoring, workspace
+  changes, rename, move, swap, merge, resize, and terminal input/read operations.
+  CLI and viewer callers execute the same implementation and post-commit work.
+  Independent edits compose even when viewers have older snapshots. Divider
+  coordinates additionally require the workspace structural revision captured
+  by the gesture; stale gestures are rejected. Handoff retains viewer processes
+  and local UI state.
+- `pane.acknowledge`: acknowledge only the output actually shown by a viewer.
+  Creation, restore, and workspace edits use `session.command`.
 - `viewer.search`: locate text in retained terminal history without changing a
   shared viewport. Selection and clipboard formatting remain local.
 - `viewer.list`: inspect IDs and last reported selections for targeting CLI actions.
@@ -236,3 +236,7 @@ Validation: `./scripts/zig build test`, then
 `./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true`,
 `python3 tests/smoke.py`, `python3 tests/viewers.py`, and `python3 tests/reloads.py`.
 All process tests use isolated sockets, HOME/state directories, and provider doubles.
+
+The daemon has no navigation cursor or fallback screen dimensions. Selection is
+viewer-owned; headless commands require explicit IDs or caller context. Viewer
+workspace preference is persisted solely as a hint for the next attachment.

@@ -8,7 +8,6 @@ const vt = terminal.vt;
 const protocol = @import("protocol.zig");
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
-const agents = @import("agents.zig");
 const Connection = @import("rpc.zig").Connection;
 const surface = @import("surface.zig");
 
@@ -83,7 +82,7 @@ pub const Terminal = struct {
     }
     pub fn flush(t: *Terminal) !void {
         if (t.pending.items.len == 0) return;
-        t.conn.send(.{ .op = "pane.input", .protocol = 1, .pane = t.id, .data = t.pending.items }) catch |err| {
+        t.conn.send(.{ .op = "session.command", .protocol = 1, .command = .{ .@"pane.input" = .{ .target = t.id, .data = t.pending.items } } }) catch |err| {
             if (err != error.NoPane) return err;
         };
         t.pending.clearRetainingCapacity();
@@ -121,26 +120,30 @@ pub const Terminal = struct {
         try t.inner.updateRender();
     }
 };
-pub const Pane = struct { label: @import("pane_label.zig").Label = .{}, id: u32, terminal: *Terminal, agent: agents.Agent = .{}, cwd: []const u8 };
-pub const Native = struct {
-    observation: agents.observation.State = .{},
+pub const Pane = struct {
     id: u32,
-    workspace_id: u32,
-    provider: agents.Provider,
+    label: []const u8,
     cwd: []const u8,
-    state: agents.State,
-    attention: agents.Attention,
-    tool_active: bool,
-    pub fn toolActive(s: Native) bool {
-        return s.tool_active;
+    agent: protocol.Agent,
+    terminal: *Terminal,
+};
+pub const Workspaces = struct {
+    items: []protocol.Workspace = &.{},
+    pub fn index(store: *const Workspaces, id: u32) ?usize {
+        for (store.items, 0..) |ws, i| if (ws.id == id) return i;
+        return null;
+    }
+    pub fn owner(store: *Workspaces, pane: u32) ?*protocol.Workspace {
+        for (store.items) |*ws| if (ws.model.tabForPane(pane) != null) return ws;
+        return null;
     }
 };
 pub const Runtime = struct {
-    ports: @import("ports.zig").Tracker = .{},
-    workspaces: workspace.Store = .{},
+    snapshot: ?std.json.Parsed(protocol.Snapshot) = null,
+    workspaces: Workspaces = .{},
     panes: std.ArrayList(Pane) = .empty,
-    sessions: std.ArrayList(Native) = .empty,
-    tokens: [workspace.max_workspaces]u64 = @splat(0),
+    sessions: []const protocol.Native = &.{},
+    ports: @import("ports.zig").Snapshot = .{},
     revision: u64 = 0,
     closed_panes: usize = 0,
     pub fn pane(r: *Runtime, id: u32) ?*Pane {
@@ -148,93 +151,45 @@ pub const Runtime = struct {
         return null;
     }
     pub fn deinit(r: *Runtime) void {
-        r.ports.deinit();
-        for (r.panes.items) |p| {
-            p.terminal.destroy();
-            a.free(p.cwd);
+        for (r.panes.items) |p| p.terminal.destroy();
+        r.panes.deinit(a);
+        if (r.snapshot) |snapshot| snapshot.deinit();
+    }
+    pub fn receive(r: *Runtime, conn: *Connection, value: std.json.Value) !void {
+        // Own the decoded snapshot. Metadata is used directly; only terminal
+        // surfaces and interaction state survive independently between snapshots.
+        const parsed = try std.json.parseFromValue(protocol.Snapshot, a, value, .{ .allocate = .alloc_always });
+        errdefer parsed.deinit();
+        const snapshot = parsed.value;
+        if (snapshot.workspaces.len == 0 or snapshot.workspaces.len > workspace.max_workspaces or snapshot.panes.len > layout.max_panes) return error.InvalidSnapshot;
+        var panes: std.ArrayList(Pane) = .empty;
+        errdefer {
+            for (panes.items) |p| if (r.pane(p.id) == null) p.terminal.destroy();
+            panes.deinit(a);
+        }
+        try panes.ensureTotalCapacity(a, snapshot.panes.len);
+        for (snapshot.panes) |info| {
+            const term = if (r.pane(info.id)) |old| old.terminal else blk: {
+                const created = try a.create(Terminal);
+                errdefer a.destroy(created);
+                created.* = .{ .id = info.id, .conn = conn, .inner = try terminal.Terminal.create(info.cols, info.rows) };
+                break :blk created;
+            };
+            panes.appendAssumeCapacity(.{ .id = info.id, .label = info.name, .cwd = info.cwd, .agent = info.agent, .terminal = term });
+        }
+        for (r.panes.items) |old| {
+            const retained = for (panes.items) |p| {
+                if (p.id == old.id) break true;
+            } else false;
+            if (!retained) old.terminal.destroy();
         }
         r.panes.deinit(a);
-        for (r.sessions.items) |s| a.free(s.cwd);
-        r.sessions.deinit(a);
-        r.workspaces.deinit();
-    }
-    pub fn receive(r: *Runtime, conn: *Connection, snapshot: protocol.Snapshot) !void {
-        if (snapshot.workspaces.len == 0 or snapshot.workspaces.len > workspace.max_workspaces) return error.InvalidSnapshot;
-        try r.ports.receive(snapshot.ports);
-        var next: workspace.Store = .{};
-        errdefer next.deinit();
-        const selected = if (r.workspaces.items.items.len > 0) r.workspaces.current().id else 0;
-        for (snapshot.workspaces, 0..) |ws, index| {
-            const previous = if (r.workspaces.index(ws.id)) |i| r.workspaces.items.items[i].model else layout.Model{};
-            // Do not resolve remote paths or persist the viewer's selection.
-            var item: workspace.Workspace = .{ .id = ws.id, .cwd = try a.dupe(u8, ws.cwd), .git_ahead = ws.git_ahead, .away = .{ .counts = ws.stats }, .model = try protocol.modelFromTabs(ws.tabs, &previous) };
-            for (ws.git_commits[0..@min(ws.git_commits.len, item.git_commits.items.len)]) |commit| {
-                const dest = &item.git_commits.items[item.git_commits.len];
-                const clean = @import("git_status.zig").clean;
-                dest.hash_len = @intCast(clean(&dest.hash, commit.hash));
-                dest.subject_len = @intCast(clean(&dest.subject, commit.subject));
-                dest.author_len = @intCast(clean(&dest.author, commit.author));
-                dest.timestamp = commit.timestamp;
-                dest.date_len = @intCast(clean(&dest.date, commit.date));
-                item.git_commits.len += 1;
-            }
-            item.name_len = agents.clean(&item.name_buf, ws.custom_name orelse ws.name);
-            try next.items.append(a, item);
-            if (ws.id == selected) next.active = index;
-            r.tokens[index] = ws.token;
-        }
-        r.workspaces.deinit();
-        r.workspaces = next;
-        var i: usize = 0;
-        while (i < r.panes.items.len) {
-            const id = r.panes.items[i].id;
-            const found = for (snapshot.panes) |p| {
-                if (p.id == id) break true;
-            } else false;
-            if (!found) {
-                const old = r.panes.orderedRemove(i);
-                old.terminal.destroy();
-                a.free(old.cwd);
-            } else i += 1;
-        }
-        for (snapshot.panes) |info| {
-            if (r.pane(info.id) == null) {
-                const term = try a.create(Terminal);
-                errdefer a.destroy(term);
-                term.* = .{ .id = info.id, .conn = conn, .inner = try terminal.Terminal.create(info.cols, info.rows) };
-                try r.panes.append(a, .{ .id = info.id, .terminal = term, .cwd = try a.dupe(u8, info.cwd) });
-            }
-            const p = r.pane(info.id).?;
-            const cwd = try a.dupe(u8, info.cwd);
-            a.free(p.cwd);
-            p.cwd = cwd;
-            p.label.set(info.name);
-            p.agent.setName(info.agent.name);
-            p.agent.changed_at = info.agent.changed_at;
-            p.agent.provider = info.agent.provider;
-            p.agent.state = info.agent.state;
-            p.agent.attention = info.agent.attention;
-            p.agent.observation = info.agent.observation;
-            p.agent.recent_len = agents.clean(&p.agent.recent, info.agent.recent_activity);
-            p.agent.tool_active = info.agent.tool_active;
-            p.agent.compacting = info.agent.compacting;
-            p.agent.subagents = info.agent.subagents;
-            p.agent.session_len = agents.clean(&p.agent.session, info.agent.session);
-            p.agent.activity_len = agents.clean(&p.agent.activity, info.agent.activity);
-            p.agent.cwd_len = agents.clean(&p.agent.cwd, info.agent.cwd);
-        }
-        for (r.sessions.items) |s| a.free(s.cwd);
-        r.sessions.clearRetainingCapacity();
-        for (snapshot.native_sessions) |s| try r.sessions.append(a, .{
-            .id = s.id,
-            .workspace_id = s.workspace,
-            .provider = s.provider,
-            .cwd = try a.dupe(u8, s.cwd),
-            .state = s.state,
-            .attention = s.attention,
-            .observation = s.observation,
-            .tool_active = s.tool_active,
-        });
+        if (r.snapshot) |previous| previous.deinit();
+        r.snapshot = parsed;
+        r.panes = panes;
+        r.workspaces.items = snapshot.workspaces;
+        r.sessions = snapshot.native_sessions;
+        r.ports = snapshot.ports;
         r.revision = snapshot.revision;
         r.closed_panes = snapshot.closed_panes;
     }

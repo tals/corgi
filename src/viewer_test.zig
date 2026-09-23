@@ -9,7 +9,7 @@ pub fn run(path: []const u8) !void {
     const fd = try os.connect(path);
     defer _ = os.c.close(fd);
     var conn: @import("rpc.zig").Connection = .{ .fd = fd };
-    var view: viewer.View = .{ .connection = &conn, .socket = path, .executable = "" };
+    var view: viewer.View = .{ .connection = &conn, .executable = "" };
     defer viewer.deinit(&view);
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
@@ -24,7 +24,7 @@ pub fn run(path: []const u8) !void {
         defer parsed.deinit();
         const value = parsed.value;
         const op = agents.str(value, "op");
-        if (std.mem.eql(u8, op, "input")) try view.input(&view.clients.items[0], agents.str(value, "data"));
+        if (std.mem.eql(u8, op, "input")) try view.input(agents.str(value, "data"));
         if (std.mem.eql(u8, op, "action")) try view.action(agents.str(value, "name"), agents.str(value, "value"));
         if (std.mem.eql(u8, op, "focus")) try view.focusPane(try @import("protocol.zig").id(value, "pane"));
         if (std.mem.eql(u8, op, "workspace")) try view.switchWorkspace(try @import("protocol.zig").id(value, "workspace"));
@@ -41,9 +41,9 @@ pub fn run(path: []const u8) !void {
         const frame = try view.frame();
         try viewer.presented(&view);
         defer a.free(frame);
-        const model = &view.runtime.workspaces.current().model;
-        try os.sendJson(1, .{ .bell_seq = bell, .bell_kind = @tagName(view.last_bell_kind), .rang = bell != previous_bell, .data = frame, .workspace = view.runtime.workspaces.current().id, .tab = if (model.count > 0) model.tab().id else 0, .pane = if (view.focused()) |p| p.id else 0, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.clients.items[0].output.items });
-        view.clients.items[0].output.clearRetainingCapacity();
+        const model = &view.current().model;
+        try os.sendJson(1, .{ .bell_seq = bell, .bell_kind = @tagName(view.last_bell_kind), .rang = bell != previous_bell, .data = frame, .workspace = view.current().id, .tab = if (model.count > 0) model.tabs[view.layoutView().selection.active].id else 0, .pane = if (view.focused()) |p| p.id else 0, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.effects.items });
+        view.clearEffects();
         if (!active) return;
     }
 }

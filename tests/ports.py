@@ -34,6 +34,7 @@ while True: time.sleep(1)
 class Ports(unittest.TestCase):
     run_cli = smoke.Runtime.run_cli
     rpc = smoke.Runtime.rpc
+    command=smoke.Runtime.command
     raw_rpc = smoke.Runtime.raw_rpc
     session = smoke.Runtime.session
     until = smoke.Runtime.until
@@ -87,33 +88,31 @@ class Ports(unittest.TestCase):
         data = local.poll()['data']
         self.assertIn('Open Link ↗ 3', data)
         self.assertNotIn('http://localhost:', data)
-        def effects(state):
-            return [json.loads(line) for line in state['effects'].splitlines() if line]
-        self.assertFalse(effects(local.input('\x1b[<0;90;3M')))
+        self.assertFalse(local.input('\x1b[<0;90;3M')['effects'])
         state = local.input('\x1b[<0;90;3m')
-        self.assertFalse(effects(state))
+        self.assertFalse(state['effects'])
         data = state['data']
         self.assertIn(f';http://localhost:{info["wild"]}\x1b\\', data)
         self.assertIn(f'https://localhost:{info["secure"]}', data)
         self.assertIn('Links · Esc to close', data)
-        self.assertFalse(effects(local.input('\x1b[<0;52;16M')))
-        opened = effects(local.input('\x1b[<0;52;16m'))
-        self.assertEqual(opened, [{'type':'open_url','url':f'http://localhost:{work["endpoints"][0]["port"]}'}])
+        self.assertFalse(local.input('\x1b[<0;52;16M')['effects'])
+        opened = local.input('\x1b[<0;52;16m')['effects']
+        self.assertEqual(opened, [{'open_url':f'http://localhost:{work["endpoints"][0]["port"]}'}])
         # A drag cancels both direct launches and opening the chooser.
         local.input('\x1b[<0;90;3M')
         local.input('\x1b[<32;95;3M')
         cancelled = local.input('\x1b[<0;90;3m')
-        self.assertFalse(effects(cancelled))
+        self.assertFalse(cancelled['effects'])
         self.assertNotIn('Links · Esc to close', cancelled['data'])
         local.input('\x1b[<0;90;3M\x1b[<0;90;3m')
         local.input('\x1b[B')
-        self.assertEqual(len(effects(local.input('\r'))), 1)
+        self.assertEqual(len(local.input('\r')['effects']), 1)
         self.env['SSH_CONNECTION'] = '100.80.1.9 12345 100.80.1.2 22'
         remote = Viewer(self)
         remote.request(op='size', cols=160, rows=40)
         remote.input('\x1b[<0;28;6M\x1b[<32;100;6M\x1b[<0;100;6m')
         data = remote.poll()['data']
-        self.assertFalse(effects(remote.input('\x1b[<0;7;5M\x1b[<0;7;5m')))
+        self.assertFalse(remote.input('\x1b[<0;7;5M\x1b[<0;7;5m')['effects'])
         self.assertNotIn('http://localhost:', data)
         self.assertNotIn('https://localhost:', data)
         self.assertNotIn(f'localhost:{info["local"]}', data)
@@ -124,11 +123,11 @@ class Ports(unittest.TestCase):
             preferred = min(choices, key=lambda i: (rank[i['kind']], i['ipv6']))
             self.assertIn(f'http://{preferred["address"]}:{info["wild"]}', data)
         # A second workspace must not inherit the first workspace's listeners.
-        second = self.rpc(op='workspace.create', protocol=1, name='Other', cwd=self.temp.name)['workspace']
-        self.rpc(op='pane.create', protocol=1, workspace=second, command='sleep 60')
+        second = self.command('workspace.create', name='Other', cwd=self.temp.name)['workspace']
+        self.command('pane.create', workspace=second, command='sleep 60')
         self.until(lambda: any(w['id'] == second for w in self.session()['ports']['workspaces']), timeout=15)
         self.assertFalse(next(w for w in self.session()['ports']['workspaces'] if w['id'] == second)['endpoints'])
-        self.rpc(op='pane.close', protocol=1, pane=pane)
+        self.command('pane.close', target=pane)
         self.until(lambda: not any(w['endpoints'] for w in self.session()['ports']['workspaces']), timeout=15)
 
     def test_single_url_opens_directly(self):
@@ -145,8 +144,7 @@ class Ports(unittest.TestCase):
         self.assertIn(f'http://localhost:{port}', data)
         self.assertNotIn('Open Link ↗ 1', data)
         state = viewer.input('\x1b[<0;14;3M\x1b[<0;14;3m')
-        effects = [json.loads(line) for line in state['effects'].splitlines() if line]
-        self.assertEqual(effects, [{'type':'open_url', 'url':f'http://localhost:{port}'}])
+        self.assertEqual(state['effects'], [{'open_url':f'http://localhost:{port}'}])
         self.assertNotIn('Links · Esc to close', state['data'])
 
     def test_get_probe_filters_http_errors_and_counts_foreground_workload(self):

@@ -7,6 +7,7 @@ from viewers import Viewer
 class GitTooltip(unittest.TestCase):
     run_cli = smoke.Runtime.run_cli
     rpc = smoke.Runtime.rpc
+    command = smoke.Runtime.command
     raw_rpc = smoke.Runtime.raw_rpc
     session = smoke.Runtime.session
     until = smoke.Runtime.until
