@@ -37,11 +37,13 @@ summarizer. Missing transcripts or missing turn/call IDs cannot advance a wave.
 
 A single background worker coalesces updates. Results are checked against the
 session, turn and commentary generation; more tool completions during inference
-do not discard a still-relevant result. Completion or a request for input replaces
-the summary
-immediately. While awaiting a first result, the activity text stays blank; the
-working indicator remains visible. Idle agents show `◡‿◡`. Failures keep the
-activity text blank or retain the last valid label and retry after 60 seconds.
+do not discard a still-relevant result. The protocol sends stored activity text
+separately from lifecycle state. Hooks update tool indicators without replacing
+summaries with tool names or generic thinking labels. The client chooses status
+labels and animations from that state, including the sleeping corgi
+for idle agents. While awaiting a first result, the activity text stays blank; the
+working indicator remains visible. Failures keep the activity text blank or retain
+the last valid label and retry after 60 seconds.
 
 The default backend runs an ephemeral `codex exec` with existing Codex login,
 read-only sandbox, low reasoning effort, user config and project documents

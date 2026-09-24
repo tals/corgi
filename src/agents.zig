@@ -52,18 +52,6 @@ pub const Agent = struct {
     pub fn sessionId(a: *const Agent) []const u8 {
         return a.session[0..a.session_len];
     }
-    pub fn label(a: *const Agent) []const u8 {
-        if (a.state == .working and a.compacting) return "Compacting…";
-        if (a.provider == .codex) switch (a.state) {
-            .blocked => return "Needs input",
-            .idle => return "◡‿◡",
-            .done => return "Session ended",
-            .initializing => return "Starting session",
-            .working => if (a.subagents.waiting) return "Waiting on agents",
-            else => {},
-        };
-        return a.activity[0..a.activity_len];
-    }
     pub fn toolLabel(a: *const Agent) []const u8 {
         return a.tool[0..a.tool_len];
     }
@@ -208,12 +196,10 @@ pub const Agent = struct {
             var detail: [160]u8 = undefined;
             a.recent_len = clean(&a.recent, std.fmt.bufPrint(&detail, "{s}: {s}", .{ if (event == .tool_failure) "failed" else "used", tool }) catch tool);
         }
-        const activity = if (a.observation.pending_stop) "checking completion" else if (tool.len > 0 and a.tool_active) tool else if (next == .working) "thinking" else "";
-        const description = hook.description;
-        if (a.tool_active and description.len > 0) {
-            var detail: [160]u8 = undefined;
-            a.activity_len = clean(&a.activity, std.fmt.bufPrint(&detail, "{s}: {s}", .{ tool, description[0..@min(description.len, 100)] }) catch activity);
-        } else a.activity_len = clean(&a.activity, activity);
+        // Hooks update lifecycle and tool indicators; only the summary worker
+        // supplies activity text. Keep that summary through tool transitions.
+        if (start or event == .prompt or event == .interrupt or event == .session_end)
+            a.activity_len = 0;
         if (start or next == .working) a.attention = if (a.observation.unread()) .finished else .none;
         if (a.observation.pending_stop) return false;
         if (event == .interrupt and (old == .working or old == .blocked)) {
@@ -267,17 +253,36 @@ test "stale-session hooks cannot corrupt parent state" {
     try std.testing.expectEqual(State.unknown, a.state);
 }
 
-test "compaction overrides summaries and waiting until a subsequent lifecycle hook" {
+test "working hooks leave activity empty for the viewer animation" {
+    var agent: Agent = .{};
+    _ = agent.observeHook(.codex, .{ .kind = .prompt, .session = "parent" }, 1, false, 1);
+    try std.testing.expectEqual(State.working, agent.state);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    _ = agent.observeHook(.codex, .{ .kind = .tool_start, .session = "parent", .tool = "Bash" }, 2, false, 2);
+    try std.testing.expect(agent.tool_active);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    _ = agent.observeHook(.codex, .{ .kind = .tool_finish, .session = "parent", .tool = "Bash" }, 3, false, 3);
+    try std.testing.expectEqual(State.working, agent.state);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    agent.activity_len = clean(&agent.activity, "Tracing pane focus");
+    _ = agent.observeHook(.codex, .{ .kind = .tool_start, .session = "parent", .tool = "Bash", .description = "Run command" }, 4, false, 4);
+    try std.testing.expectEqualStrings("Tracing pane focus", agent.activity[0..agent.activity_len]);
+    _ = agent.observeHook(.codex, .{ .kind = .tool_finish, .session = "parent", .tool = "Bash" }, 5, false, 5);
+    try std.testing.expectEqualStrings("Tracing pane focus", agent.activity[0..agent.activity_len]);
+    _ = agent.observeHook(.codex, .{ .kind = .prompt, .session = "parent" }, 6, false, 6);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+}
+
+test "compaction remains set until a subsequent lifecycle hook" {
     var agent: Agent = .{};
     var seq: i64 = 1;
     for ([_]@FieldType(providers.Hook, "kind"){ .compact_end, .tool_start, .interrupt, .stop, .session_end }) |event| {
         _ = agent.observeHook(.codex, .{ .kind = .compact_start, .session = "parent" }, seq, false, seq);
         agent.subagents.waiting = true;
         agent.activity_len = clean(&agent.activity, "Old summary");
-        try std.testing.expectEqualStrings("Compacting…", agent.label());
+        try std.testing.expect(agent.compacting);
         _ = agent.observeHook(.codex, .{ .kind = event, .session = "parent" }, seq + 1, false, seq + 1);
         try std.testing.expect(!agent.compacting);
-        try std.testing.expect(!eq(agent.label(), "Compacting…"));
         seq += 2;
     }
 }

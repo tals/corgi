@@ -249,12 +249,12 @@ pub const View = struct {
             try w.splatByteAll(' ', v.width - 3);
             try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
-            const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else if (e.activity.len > 0) e.activity else switch (e.state) {
-                .working => "Working",
+            const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
+                .working => e.activity,
                 .blocked => "Needs input",
                 .initializing => "Starting session",
                 .done => "Session ended",
-                else => "◡‿◡",
+                else => "",
             };
             var badge_buf: [48]u8 = undefined;
             const badge = subagentBadge(&badge_buf, e.subagents);
@@ -778,6 +778,13 @@ test "idle face replaces stale activity while working activity remains useful" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) == null);
     output.clearRetainingCapacity();
+    for ([_]agents.State{ .blocked, .initializing, .done }, [_][]const u8{ "Needs input", "Starting session", "Session ended" }) |state, label| {
+        entry.state = state;
+        try view.draw(&output.writer, &.{entry}, &.{});
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), label) != null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) == null);
+        output.clearRetainingCapacity();
+    }
     entry.state = .working;
     try view.draw(&output.writer, &.{entry}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) != null);

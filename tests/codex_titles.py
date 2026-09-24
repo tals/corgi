@@ -110,7 +110,7 @@ class Titles(unittest.TestCase):
         self.wait_items=[wait(turn='old'),wait(sender=B),wait()]
         expected={'running':2,'blocked':1,'waiting':True}
         self.until(lambda:self.state()['subagents']==expected)
-        self.assertEqual(self.state()['activity'],'Waiting on agents')
+        self.assertEqual(self.state()['activity'],'')
         session=self.rpc(op='session.snapshot',protocol=1)
         self.assertEqual(next(p for p in session['panes'] if p['id']==self.pane)['agent']['subagents'],expected)
         self.viewers=[]
