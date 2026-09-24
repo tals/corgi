@@ -13,10 +13,15 @@ pub const Pane = struct {
     label: @import("pane_label.zig").Label = .{},
     id: layout.Id,
     terminal: *Terminal,
-    agent: agents.Agent = .{},
+    attachment: @import("conversations.zig").Attachment = .{},
+
     detection: @import("detection.zig").Tracker = .{},
     cwd: []const u8,
     resume_hint: @import("checkpoint.zig").Resume = .{},
+
+    pub fn agent(p: *const Pane) *agents.Agent {
+        return p.attachment.agent();
+    }
 
     pub fn refreshCwd(p: *Pane) void {
         if (p.terminal.exited) return;
@@ -45,6 +50,7 @@ pub const Runtime = struct {
     closed: std.ArrayList(ClosedPane) = .empty,
     sessions: std.ArrayList(native.Session) = .empty,
     next_session: u32 = 1,
+    conversations: @import("conversations.zig").Registry = .{},
     revision: u64 = 1,
     git_status: @import("git_status.zig").Tracker = .{},
     ports: @import("ports.zig").Tracker = .{},
@@ -66,6 +72,7 @@ pub const Runtime = struct {
         for (r.sessions.items) |*session| session.destroy();
         r.sessions.deinit(a);
         r.workspaces.deinit();
+        r.conversations.deinit();
     }
 
     pub fn pane(r: *Runtime, id: layout.Id) ?*Pane {
@@ -74,7 +81,7 @@ pub const Runtime = struct {
     }
 
     pub fn getWorkspace(r: *Runtime, id: u32) !*workspace.Workspace {
-        return &r.workspaces.items.items[r.workspaces.index(id) orelse return error.NoWorkspace];
+        return r.workspaces.get(id) orelse error.NoWorkspace;
     }
 
     pub const Create = struct {
@@ -137,7 +144,7 @@ pub const Runtime = struct {
         const content = try saved.terminal.snapshot();
         defer a.free(content);
         var opts = fallback;
-        if (r.workspaces.index(saved.workspace_id) != null) opts.workspace = saved.workspace_id;
+        if (r.workspaces.get(saved.workspace_id) != null) opts.workspace = saved.workspace_id;
         opts.cwd = saved.cwd;
         opts.title = saved.tab.title();
         const id = try r.create(opts);

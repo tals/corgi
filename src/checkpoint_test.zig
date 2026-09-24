@@ -2,6 +2,91 @@ const std = @import("std");
 const Terminal = @import("terminal.zig").Terminal;
 const cp = @import("checkpoint.zig");
 const a = @import("os.zig").allocator;
+
+test "conversation checkpoint restores shared bindings and detached unread state" {
+    const Runtime = @import("runtime.zig").Runtime;
+    var original: Runtime = .{};
+    defer original.deinit();
+    const workspace = try original.workspaces.add("actors", "/tmp");
+    const ws = try original.getWorkspace(workspace);
+    const shared = try original.conversations.get(.claude, "shared");
+    shared.workspace = workspace;
+    shared.state.state = .blocked;
+    shared.state.observation.finish(.completed, .hook);
+    const detached = try original.conversations.get(.codex, "detached");
+    detached.parent = shared.id;
+    detached.state.observation.finish(.interrupted, .protocol);
+    for (0..2) |_| {
+        const id = try ws.model.newTab("");
+        const terminal = try Terminal.create(20, 4);
+        terminal.exited = true;
+        var binding: @import("conversations.zig").Attachment = .{};
+        binding.select(detached);
+        binding.select(shared);
+        binding.hook_seq = 50;
+        try original.panes.append(a, .{ .id = id, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .attachment = binding });
+    }
+    original.workspaces.next_pane_id = ws.model.next_id;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const saved = try cp.capture(arena.allocator(), &original, true);
+    // Exercise the durable representation, never serialize actor pointers.
+    const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+    const decoded = try std.json.parseFromSlice(cp.State, arena.allocator(), json, .{});
+    var fresh: Runtime = .{};
+    defer fresh.deinit();
+    try cp.restore(&fresh, decoded.value, true, "/tmp/unused-actor-test.sock", "/tmp/corgi");
+    try std.testing.expectEqual(@as(usize, 2), fresh.conversations.items.items.len);
+    const actor = fresh.conversations.byId(shared.id).?;
+    try std.testing.expect(fresh.panes.items[0].attachment.actor == actor);
+    try std.testing.expect(fresh.panes.items[1].attachment.actor == actor);
+    try std.testing.expect(fresh.panes.items[0].attachment.knows(detached.id));
+    try std.testing.expectEqual(@as(i64, 50), fresh.panes.items[0].attachment.hook_seq);
+    actor.acknowledge(1, null);
+    try std.testing.expect(!fresh.panes.items[1].agent().observation.unread());
+    try std.testing.expect(fresh.conversations.byId(detached.id).?.state.observation.unread());
+    try std.testing.expectEqual(shared.id, fresh.conversations.byId(detached.id).?.parent.?);
+    const next = try fresh.conversations.get(.claude, "next");
+    try std.testing.expect(next.id > detached.id);
+
+    const cold = try cp.capture(arena.allocator(), &original, false);
+    var recovered: Runtime = .{};
+    defer recovered.deinit();
+    try cp.restore(&recovered, cold, false, "/tmp/unused-cold-test.sock", "/tmp/corgi");
+    const historical = recovered.conversations.byId(shared.id).?;
+    try std.testing.expectEqual(@import("agents.zig").State.unknown, historical.state.state);
+    try std.testing.expectEqual(@as(i64, 0), historical.observed_at);
+    try std.testing.expect(historical.state.observation.unread());
+}
+
+test "legacy pane checkpoint migrates identity into an actor" {
+    const Runtime = @import("runtime.zig").Runtime;
+    var original: Runtime = .{};
+    defer original.deinit();
+    const workspace = try original.workspaces.add("legacy", "/tmp");
+    const ws = try original.getWorkspace(workspace);
+    const id = try ws.model.newTab("");
+    original.workspaces.next_pane_id = ws.model.next_id;
+    const terminal = try Terminal.create(20, 4);
+    terminal.exited = true;
+    var provisional: @import("agents.zig").Agent = .{ .provider = .claude, .state = .idle };
+    provisional.session_len = @import("agents.zig").clean(&provisional.session, "legacy-session");
+    provisional.observation.finish(.completed, .hook);
+    try original.panes.append(a, .{ .id = id, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .attachment = .{ .provisional = provisional } });
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var saved = try cp.capture(arena.allocator(), &original, true);
+    saved.version = 1;
+    const panes = try arena.allocator().dupe(cp.Pane, saved.panes);
+    panes[0].binding = null;
+    saved.panes = panes;
+    var fresh: Runtime = .{};
+    defer fresh.deinit();
+    try cp.restore(&fresh, saved, true, "/tmp/unused-legacy-test.sock", "/tmp/corgi");
+    try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
+    try std.testing.expectEqualStrings("legacy-session", fresh.panes.items[0].agent().sessionId());
+    try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
+}
 fn restored(old: *Terminal) !*Terminal {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();

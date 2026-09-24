@@ -121,6 +121,7 @@ pub const Terminal = struct {
     }
 };
 pub const Pane = struct {
+    binding: u64 = 0,
     id: u32,
     label: []const u8,
     cwd: []const u8,
@@ -158,7 +159,7 @@ pub const Runtime = struct {
     pub fn receive(r: *Runtime, conn: *Connection, value: std.json.Value) !void {
         // Own the decoded snapshot. Metadata is used directly; only terminal
         // surfaces and interaction state survive independently between snapshots.
-        const parsed = try std.json.parseFromValue(protocol.Snapshot, a, value, .{ .allocate = .alloc_always });
+        const parsed = try std.json.parseFromValue(protocol.Snapshot, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true });
         errdefer parsed.deinit();
         const snapshot = parsed.value;
         if (snapshot.workspaces.len == 0 or snapshot.workspaces.len > workspace.max_workspaces or snapshot.panes.len > layout.max_panes) return error.InvalidSnapshot;
@@ -175,7 +176,7 @@ pub const Runtime = struct {
                 created.* = .{ .id = info.id, .conn = conn, .inner = try terminal.Terminal.create(info.cols, info.rows) };
                 break :blk created;
             };
-            panes.appendAssumeCapacity(.{ .id = info.id, .label = info.name, .cwd = info.cwd, .agent = info.agent, .terminal = term });
+            panes.appendAssumeCapacity(.{ .id = info.id, .binding = info.binding, .label = info.name, .cwd = info.cwd, .agent = info.agent, .terminal = term });
         }
         for (r.panes.items) |old| {
             const retained = for (panes.items) |p| {

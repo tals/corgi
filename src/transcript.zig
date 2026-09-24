@@ -7,15 +7,15 @@ const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 64 * 1024;
-const Request = struct { pane: u32, agent: agents.Agent };
-pub const Result = struct { pane: u32, seq: i64, outcome: agents.observation.Outcome };
+const Request = struct { actor: u32, agent: agents.Agent };
+pub const Result = struct { actor: u32, seq: i64, outcome: agents.observation.Outcome };
 
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
-    requests: [max_jobs]Request = undefined,
-    count: usize = 0,
+    requests: std.ArrayList(Request) = .empty,
+    cursor: usize = 0,
     results: [max_jobs]?Result = .{null} ** max_jobs,
     thread: ?std.Thread = null,
 
@@ -32,19 +32,25 @@ pub const Worker = struct {
         w.wake.signal();
         w.mutex.unlock();
         w.thread.?.join();
+        w.requests.deinit(a);
         a.destroy(w);
     }
-    pub fn reconcile(w: *Worker, panes: anytype) void {
+    pub fn reconcile(w: *Worker, actors: anytype) void {
         w.mutex.lock();
         defer w.mutex.unlock();
-        w.count = 0;
-        for (panes) |p| {
-            if (!p.agent.observation.pending_stop or p.agent.transcript_len == 0 or p.agent.session_len == 0 or p.terminal.exited) continue;
-            if (w.count == max_jobs) break;
-            w.requests[w.count] = .{ .pane = p.id, .agent = p.agent };
-            w.count += 1;
+        w.requests.clearRetainingCapacity();
+        for (actors) |actor| {
+            const agent = &actor.state;
+            if (!agent.observation.pending_stop or agent.transcript_len == 0 or agent.session_len == 0) continue;
+            w.requests.append(a, .{ .actor = actor.id, .agent = agent.* }) catch break;
         }
         w.wake.signal();
+    }
+    fn batch(w: *Worker, out: *[max_jobs]Request) []Request {
+        const count = @min(out.len, w.requests.items.len);
+        for (0..count) |i| out[i] = w.requests.items[(w.cursor + i) % w.requests.items.len];
+        if (w.requests.items.len > 0) w.cursor = (w.cursor + count) % w.requests.items.len;
+        return out[0..count];
     }
     pub fn take(w: *Worker, out: *[max_jobs]?Result) void {
         w.mutex.lock();
@@ -53,8 +59,15 @@ pub const Worker = struct {
         w.results = .{null} ** max_jobs;
     }
     fn run(w: *Worker) void {
-        var watchers: [max_jobs]Tail = .{Tail{}} ** max_jobs;
-        defer for (&watchers) |*t| t.close();
+        var watchers: std.AutoHashMapUnmanaged(u32, *Tail) = .empty;
+        defer {
+            var values = watchers.valueIterator();
+            while (values.next()) |entry| {
+                entry.*.close();
+                a.destroy(entry.*);
+            }
+            watchers.deinit(a);
+        }
         var requests: [max_jobs]Request = undefined;
         while (true) {
             w.mutex.lock();
@@ -63,33 +76,45 @@ pub const Worker = struct {
                 w.mutex.unlock();
                 return;
             }
-            const count = w.count;
-            @memcpy(requests[0..count], w.requests[0..count]);
+            const batch_requests = w.batch(&requests);
             w.mutex.unlock();
-            for (&watchers, 0..) |*t, i| {
-                if (i >= count) {
-                    t.close();
-                    continue;
+            for (batch_requests) |*req| {
+                const entry = watchers.getOrPut(a, req.actor) catch continue;
+                if (!entry.found_existing) {
+                    const tail = a.create(Tail) catch {
+                        _ = watchers.remove(req.actor);
+                        continue;
+                    };
+                    tail.* = .{};
+                    entry.value_ptr.* = tail;
                 }
-                const req = &requests[i];
-                if (t.pane != req.pane or t.seq != req.agent.last_seq) {
+                const t = entry.value_ptr.*;
+                if (t.seq != req.agent.last_seq) {
                     t.close();
-                    t.pane = req.pane;
+                    t.actor = req.actor;
                     t.seq = req.agent.last_seq;
                 }
                 const now = std.time.milliTimestamp();
                 if (t.finished or now < t.next_check) continue;
-                // Fast confirmation initially, bounded backoff if hooks/files lag.
+                // Reserve result capacity before advancing this actor's reader.
+                w.mutex.lock();
+                const slot = for (&w.results) |*candidate| {
+                    if (candidate.* == null) break candidate;
+                } else null;
+                w.mutex.unlock();
+                if (slot == null) continue;
                 t.attempts +|= 1;
                 t.next_check = now + (if (t.attempts < 20) @as(i64, 250) else 2000);
                 const outcome = t.poll(&req.agent) catch {
                     t.closeFile();
                     continue;
                 };
+                // Keep framing/offsets while bounding open file descriptors.
+                t.releaseFile();
                 if (outcome) |value| {
-                    t.finished = true;
                     w.mutex.lock();
-                    w.results[i] = .{ .pane = req.pane, .seq = req.agent.last_seq, .outcome = value };
+                    slot.?.* = .{ .actor = req.actor, .seq = req.agent.last_seq, .outcome = value };
+                    t.finished = true;
                     w.mutex.unlock();
                 }
             }
@@ -98,7 +123,7 @@ pub const Worker = struct {
 };
 
 const Tail = struct {
-    pane: u32 = 0,
+    actor: u32 = 0,
     seq: i64 = 0,
     file: ?std.fs.File = null,
     inode: std.fs.File.INode = 0,
@@ -109,9 +134,14 @@ const Tail = struct {
     finished: bool = false,
     next_check: i64 = 0,
     attempts: u32 = 0,
-    fn closeFile(t: *Tail) void {
+    fn releaseFile(t: *Tail) void {
         if (t.file) |f| f.close();
         t.file = null;
+    }
+    fn closeFile(t: *Tail) void {
+        t.releaseFile();
+        t.inode = 0;
+        t.device = 0;
         t.offset = 0;
         t.partial.clearRetainingCapacity();
         t.discard = false;
@@ -127,12 +157,17 @@ const Tail = struct {
         errdefer file.close();
         const stat = try file.stat();
         if (stat.kind != .file) return error.NotRegular;
-        if (agent.provider == .codex) try verifyCodexSession(file, agent.sessionId());
+        const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
+        const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
+        if (!resumed) {
+            if (agent.provider == .codex) try verifyCodexSession(file, agent.sessionId());
+            t.partial.clearRetainingCapacity();
+            t.offset = stat.size -| initial_tail;
+            t.discard = t.offset > 0;
+        }
         t.file = file;
         t.inode = stat.inode;
-        t.device = @intCast((try std.posix.fstat(file.handle)).dev);
-        t.offset = stat.size -| initial_tail;
-        t.discard = t.offset > 0;
+        t.device = device;
     }
     fn poll(t: *Tail, agent: *const agents.Agent) !?agents.observation.Outcome {
         if (t.file == null) try t.open(agent);
@@ -260,4 +295,28 @@ test "completion requires matching turn, fresh timestamp and complete JSONL reco
     agent.last_seq = 3000000;
     try std.testing.expectEqual(null, completion(&agent, good));
     try std.testing.expectEqual(@as(?i64, 0), timestampMs("1970-01-01T00:00:00.000Z"));
+}
+
+test "completion scheduling retains detached actors and fairly batches beyond pane capacity" {
+    const conversations = @import("conversations.zig");
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var worker: Worker = .{};
+    defer worker.requests.deinit(a);
+    var attachment: conversations.Attachment = .{};
+    for (0..max_jobs + 1) |i| {
+        var name: [32]u8 = undefined;
+        const actor = try registry.get(.claude, try std.fmt.bufPrint(&name, "session-{d}", .{i}));
+        actor.state.observation.pending_stop = true;
+        actor.state.transcript_len = agents.clean(&actor.state.transcript, "/tmp/transcript.jsonl");
+        attachment.select(actor);
+    }
+    attachment.detach();
+    worker.reconcile(registry.items.items);
+    try std.testing.expectEqual(max_jobs + 1, worker.requests.items.len);
+    var out: [max_jobs]Request = undefined;
+    const first_id = worker.batch(&out)[0].actor;
+    try std.testing.expectEqual(registry.items.items[0].id, first_id);
+    try std.testing.expectEqual(registry.items.items[max_jobs].id, worker.batch(&out)[0].actor);
+    try std.testing.expectEqual(null, attachment.actor);
 }

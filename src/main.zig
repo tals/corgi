@@ -252,6 +252,9 @@ test {
     _ = @import("discovery.zig");
     _ = @import("layout.zig");
     _ = @import("agents.zig");
+    _ = @import("conversations.zig");
+    _ = @import("server.zig");
+    _ = @import("native.zig");
     _ = @import("transcript.zig");
     _ = @import("usage.zig");
     _ = @import("usage_worker.zig");

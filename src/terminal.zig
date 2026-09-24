@@ -11,6 +11,8 @@ pub const Terminal = struct {
     fd: c_int = -1,
     pid: c_int = -1,
     title_pid: c_int = 0,
+    title_prefix: ?@import("codex_observer.zig").Prefix = null,
+    title_revision: u64 = 0,
     exited: bool = false,
     exit_status: c_int = 0,
     pending: std.ArrayList(u8) = .empty,
@@ -53,6 +55,11 @@ pub const Terminal = struct {
     }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
+        const prefix = @import("codex_observer.zig").titlePrefix(t.vt.getTitle() orelse "");
+        if (!std.meta.eql(t.title_prefix, prefix)) {
+            t.title_revision +%= 1;
+            t.title_prefix = prefix;
+        }
         if (!t.restoring and t.fd >= 0) {
             t.title_pid = if (@import("detection.zig").foreground(t.fd)) |job| job.pid else 0;
         }
@@ -310,6 +317,13 @@ pub const Terminal = struct {
         if (!t.exited) t.fillInput();
         if (t.expireSynchronizedOutput(std.time.milliTimestamp())) dirty = true;
         return dirty;
+    }
+    /// Detection reads the active screen independently of viewer scrollback.
+    pub fn liveText(t: *Terminal) ![]u8 {
+        var out: std.Io.Writer.Allocating = .init(a);
+        errdefer out.deinit();
+        try t.vt.screens.active.dumpString(&out.writer, .{ .tl = t.vt.screens.active.pages.getTopLeft(.active), .unwrap = false });
+        return out.toOwnedSlice();
     }
     pub fn text(t: *Terminal) ![]u8 {
         try t.updateRender();

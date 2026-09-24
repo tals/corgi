@@ -35,7 +35,7 @@ pub const Server = struct {
     last_recovery: i64 = 0,
     saved_revision: u64 = 0,
     pub fn initialWorkspace(s: *Server) *workspace.Workspace {
-        return &s.runtime.workspaces.items.items[s.runtime.workspaces.index(s.preferred_workspace) orelse 0];
+        return s.runtime.workspaces.get(s.preferred_workspace) orelse &s.runtime.workspaces.items.items[0];
     }
     pub fn onlyWorkspace(s: *Server) !*workspace.Workspace {
         if (s.runtime.workspaces.items.items.len != 1) return error.MissingWorkspace;
@@ -57,6 +57,24 @@ pub const Server = struct {
             s.dirty = true;
             s.saveWorkspaces();
         }
+    }
+    fn codexActor(s: *Server, snap: @import("codex_observer.zig").Snapshot) !?*@import("conversations.zig").Actor {
+        const codex_observer = @import("codex_observer.zig");
+        return if (snap.request.actor != 0)
+            s.runtime.conversations.byId(snap.request.actor) orelse return null
+        else blk: {
+            const p = s.pane(snap.request.pane) orelse return null;
+            const prefix = codex_observer.titlePrefix(p.terminal.vt.getTitle() orelse "") orelse return null;
+            if (p.terminal.exited or p.detection.missing != 0 or p.detection.pid != snap.request.pid or
+                p.terminal.title_pid != snap.request.pid or p.terminal.title_revision != snap.request.title_revision or
+                p.attachment.generation != snap.request.generation or !eq(prefix.text(), snap.request.prefix.text())) return null;
+            const selected = try s.runtime.conversations.get(.codex, &snap.session);
+            p.attachment.select(selected);
+            if (selected.workspace == 0 or s.runtime.workspaces.index(selected.workspace) == null) {
+                if (s.runtime.workspaces.owner(p.id)) |ws| selected.workspace = ws.id;
+            }
+            break :blk selected;
+        };
     }
     fn pane(s: *Server, id: layout.Id) ?*Pane {
         return s.runtime.pane(id);
@@ -124,6 +142,20 @@ pub const Server = struct {
             if (eq(op, "session.subscribe") and cl.viewer) return error.AlreadyAttached;
             try s.queueSession(cl);
             if (eq(op, "session.subscribe")) cl.subscribed = true;
+        } else if (eq(op, "conversation.list")) {
+            var arena = std.heap.ArenaAllocator.init(a);
+            defer arena.deinit();
+            const snapshot = try protocol.snapshot(arena.allocator(), &s.runtime);
+            try cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
+        } else if (eq(op, "conversation.acknowledge")) {
+            const actor = s.runtime.conversations.byId(try protocol.id(v, "conversation")) orelse return error.NoConversation;
+            const through = v.object.get("through") orelse return error.InvalidAcknowledgement;
+            if (through != .integer or through.integer < 0) return error.InvalidAcknowledgement;
+            const stamp = v.object.get("attention_at");
+            actor.acknowledge(@intCast(through.integer), if (stamp != null and stamp.? == .integer) stamp.?.integer else null);
+            s.runtime.changed();
+            s.dirty = true;
+            try cl.queue(.{ .ok = true });
         } else if (eq(op, "pane.surface")) {
             const id = try protocol.id(v, "pane");
             const p = s.pane(id) orelse return error.NoPane;
@@ -196,7 +228,7 @@ pub const Server = struct {
             const Info = struct { id: u32, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
             var info: std.ArrayList(Info) = .empty;
             defer info.deinit(a);
-            for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.state, .attention = session.attention, .observation = session.observation, .unread = session.observation.unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
+            for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.status(), .attention = session.attention(), .observation = session.observation(), .unread = session.observation().unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
             try cl.queue(.{ .ok = true, .sessions = info.items });
         } else if (std.mem.startsWith(u8, op, "native.")) {
             const id = std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession;
@@ -207,16 +239,17 @@ pub const Server = struct {
                     _ = s.runtime.sessions.orderedRemove(index);
                     try cl.queue(.{ .ok = true });
                 } else if (eq(op, "native.send")) {
-                    try session.send(v.object.get("message") orelse return error.InvalidMessage);
+                    try session.send(&s.runtime.conversations, v.object.get("message") orelse return error.InvalidMessage);
                     try cl.queue(.{ .ok = true });
                 } else if (eq(op, "native.events")) {
                     const after = std.math.cast(u64, number(v, "after", 0)) orelse 0;
                     var events: std.ArrayList(native.Event) = .empty;
                     defer events.deinit(a);
                     for (session.events.items) |event| if (event.seq > after) try events.append(a, event);
-                    try cl.queue(.{ .ok = true, .events = events.items, .pending_requests = session.approvals.items, .next_seq = session.next_seq, .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq });
-                    session.observation.acknowledge(session.observation.completed);
-                    session.attention = .none;
+                    const requests = try session.approvalLines(a);
+                    defer a.free(requests);
+                    try cl.queue(.{ .ok = true, .events = events.items, .pending_requests = requests, .next_seq = session.next_seq, .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq });
+                    session.acknowledge();
                 } else return error.UnknownOperation;
                 return;
             };
@@ -232,16 +265,22 @@ pub const Server = struct {
             const p = s.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
             const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
             const event = v.object.get("event") orelse return error.NoEvent;
+            const hook = agents.providers.Backend.init(provider).hook(event);
             // Bind a newly launched foreground process before applying its
             // first hook, including back-to-back launches in the same pane.
             s.detectPane(p);
-            const viewed = s.paneWatched(p.id);
-            const ding = p.agent.apply(provider, event, number(v, "seq", std.time.microTimestamp()), viewed);
-            if (ding) {
-                s.bell = true;
-                if (s.bell_kind != .needs_input) s.bell_kind = if (p.agent.state == .blocked) .needs_input else .finished;
-            }
-            s.dirty = true;
+            const seq = number(v, "seq", std.time.microTimestamp());
+            if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, provider, hook.?)) |actor| {
+                p.attachment.hook_seq = seq;
+                if (actor.workspace == 0 or s.runtime.workspaces.index(actor.workspace) == null) {
+                    if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
+                }
+                const now = std.time.microTimestamp();
+                const ding = actor.observeHook(hook.?, seq, s.actorWatched(actor.id), now);
+                s.attention(ding, actor.state.state);
+                s.runtime.changed();
+                s.dirty = true;
+            };
             try cl.queue(.{ .ok = true });
         } else if (eq(op, "ping")) try cl.queue(.{ .ok = true, .version = "0.1.0" }) else if (eq(op, "shutdown")) {
             s.quit = true;
@@ -254,36 +293,63 @@ pub const Server = struct {
         for (s.runtime.panes.items) |p| p.terminal.applyTheme(s.theme);
         s.dirty = true;
     }
+    fn actorWatched(s: *Server, actor: u32) bool {
+        for (s.runtime.panes.items) |p| if (p.attachment.actor) |selected| {
+            if (selected.id == actor and !p.terminal.exited and s.paneWatched(p.id)) return true;
+        };
+        return false;
+    }
+    fn attention(s: *Server, ding: bool, state: agents.State) void {
+        if (!ding) return;
+        s.bell = true;
+        if (s.bell_kind != .needs_input) s.bell_kind = if (state == .blocked) .needs_input else .finished;
+    }
     fn detectPane(s: *Server, p: *Pane) void {
         const detection = @import("detection.zig");
         const job = detection.foreground(p.terminal.fd);
-        const before = p.agent;
+        const before = p.agent().*;
+        const old_binding = p.attachment.generation;
         const previous_pid = p.detection.pid;
-        // A disconnected observer must not permanently suppress the
-        // existing screen fallback with an old authoritative timestamp.
-        if (p.agent.provider == .codex and p.agent.observation.source == .protocol and std.time.microTimestamp() - p.agent.last_seq > 5 * std.time.us_per_s) {
-            p.agent.last_seq = 0;
-            p.agent.observation.source = .unknown;
+        p.resume_hint.observe(p.agent());
+        if (job) |current| {
+            if ((previous_pid != 0 and previous_pid != current.pid) or
+                (p.attachment.actor != null and p.agent().provider != current.provider))
+            {
+                p.attachment.detach();
+                p.resume_hint = .{ .provider = current.provider };
+            }
+            // Title selection belongs to the attachment. Losing a known title
+            // makes screen attribution unknown, not the previous actor idle.
+            if (current.provider == .codex) {
+                const prefix = @import("codex_observer.zig").titlePrefix(p.terminal.vt.getTitle() orelse "");
+                const hash = if (prefix) |value| std.hash.Wyhash.hash(0, value.text()) else 0;
+                if (hash != p.attachment.selection_hash) {
+                    if (p.attachment.actor) |actor| {
+                        if (prefix == null or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.?.text())) p.attachment.deselect();
+                    }
+                    p.attachment.generation +%= 1;
+                    p.attachment.selection_hash = hash;
+                }
+            }
         }
-        p.resume_hint.observe(&p.agent);
-        const live_screen = p.terminal.emulator().*.screens.active.pages.viewport == .active;
-        const text = if (job != null and p.agent.last_seq == 0 and live_screen) p.terminal.text() catch null else null;
+        const now = std.time.microTimestamp();
+        // Detection owns only provisional screen state. It cannot reset an
+        // actor when a process exits or another session occupies the pane.
+        const authoritative = if (p.attachment.actor) |actor| actor.authoritative(now) else false;
+        p.attachment.provisional.last_seq = if (authoritative) 1 else 0;
+        const text = if (job != null and !authoritative) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
-        const watched = s.paneWatched(p.id);
-        const ding = p.detection.update(&p.agent, job, p.terminal.emulator().*.getTitle() orelse "", text orelse "", watched);
-        if (job) |foreground| if (foreground.pid != previous_pid and p.agent.session_len == 0) {
-            p.resume_hint = .{ .provider = foreground.provider };
-        };
-        p.resume_hint.observe(&p.agent);
-        // A quiet agent can change directory without writing to the PTY.
+        const ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
+        if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
+        if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
+        p.resume_hint.observe(p.agent());
         const previous_cwd = std.hash.Wyhash.hash(0, p.cwd);
         p.refreshCwd();
-        if (previous_cwd != std.hash.Wyhash.hash(0, p.cwd)) s.dirty = true;
-        if (!std.meta.eql(before, p.agent)) s.dirty = true;
-        if (ding) {
-            s.bell = true;
-            if (s.bell_kind != .needs_input) s.bell_kind = if (p.agent.state == .blocked) .needs_input else .finished;
+        if (previous_cwd != std.hash.Wyhash.hash(0, p.cwd) or !std.meta.eql(before, p.agent().*) or old_binding != p.attachment.generation) {
+            s.dirty = true;
+            s.runtime.changed();
         }
+        s.attention(ding, p.agent().state);
     }
     pub fn run(s: *Server) !void {
         const observer = try @import("transcript.zig").Worker.start();
@@ -357,28 +423,21 @@ pub const Server = struct {
             if (now - s.last_detection >= 250) {
                 s.last_detection = now;
                 for (s.runtime.panes.items) |*p| if (!p.terminal.exited) s.detectPane(p);
-                codex.reconcile(s.runtime.panes.items);
+                codex.reconcile(&s.runtime);
                 var snapshots: [layout.max_panes]?codex_observer.Snapshot = undefined;
                 codex.take(&snapshots);
                 for (snapshots) |entry| if (entry) |snap| {
-                    if (s.pane(snap.request.pane)) |p| {
-                        const prefix = codex_observer.titlePrefix(p.terminal.vt.getTitle() orelse "") orelse continue;
-                        if (p.terminal.exited or p.agent.provider != .codex or p.detection.missing != 0 or p.detection.pid != snap.request.pid or p.terminal.title_pid != snap.request.pid or !eq(prefix.text(), snap.request.prefix.text())) continue;
-                        if (codex_observer.apply(&p.agent, snap, s.paneWatched(p.id))) {
-                            s.bell = true;
-                            if (s.bell_kind != .needs_input) s.bell_kind = if (p.agent.state == .blocked) .needs_input else .finished;
-                        }
-                        summaries.submit(p.id, &p.agent, snap.evidence);
-                        p.resume_hint.observe(&p.agent);
-                        s.dirty = true;
-                        s.runtime.changed();
-                    }
+                    const actor = try s.codexActor(snap) orelse continue;
+                    s.attention(actor.observeSnapshot(snap, s.actorWatched(actor.id)), actor.state.state);
+                    summaries.submit(actor.id, &actor.state, snap.evidence);
+                    s.dirty = true;
+                    s.runtime.changed();
                 };
-                summaries.reconcile(s.runtime.panes.items);
+                summaries.reconcile(s.runtime.conversations.items.items);
                 var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
                 summaries.take(&summary_results);
                 for (summary_results) |entry| if (entry) |result| {
-                    if (s.pane(result.request.pane)) |p| if (!p.terminal.exited and result.apply(&p.agent)) {
+                    if (s.runtime.conversations.byId(result.request.actor)) |actor| if (result.apply(&actor.state)) {
                         s.dirty = true;
                         s.runtime.changed();
                     };
@@ -389,41 +448,38 @@ pub const Server = struct {
                 var activity: [layout.max_panes]?usage_worker.Result = undefined;
                 usage.take(&activity);
                 for (activity) |entry| if (entry) |result| {
-                    const p = s.pane(result.pane) orelse continue;
-                    if (!eq(p.agent.sessionId(), result.session[0..result.session_len])) continue;
-                    if (!p.terminal.exited) if (result.progress) |progress| summaries.tools(p.id, &p.agent, progress);
-                    const ws = s.runtime.workspaces.owner(p.id) orelse continue;
-                    if (ws.id != result.workspace or s.workspaceWatched(ws.id)) continue;
+                    const actor = s.runtime.conversations.byId(result.actor) orelse continue;
+                    if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
+                    if (result.progress) |progress| summaries.tools(actor.id, &actor.state, progress);
+                    const ws = s.runtime.workspaces.get(result.workspace) orelse continue;
+                    if (actor.workspace != ws.id or s.workspaceWatched(ws.id)) continue;
                     if (ws.away.record(result.since, result.delta)) {
                         s.dirty = true;
                         s.runtime.changed();
                     }
                 };
-                observer.reconcile(s.runtime.panes.items);
+                observer.reconcile(s.runtime.conversations.items.items);
                 var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;
                 observer.take(&completions);
                 for (completions) |entry| if (entry) |result| {
-                    if (s.pane(result.pane)) |p| {
-                        const was_pending = p.agent.observation.pending_stop;
-                        const ding = p.agent.confirm(result.seq, result.outcome);
-                        if (was_pending and !p.agent.observation.pending_stop) {
+                    if (s.runtime.conversations.byId(result.actor)) |actor| {
+                        const was_pending = actor.state.observation.pending_stop;
+                        const ding = actor.confirmStop(result.seq, result.outcome, std.time.microTimestamp());
+                        if (was_pending and !actor.state.observation.pending_stop) {
                             s.runtime.changed();
                             s.dirty = true;
                         }
-                        if (ding and !s.paneWatched(p.id)) {
-                            s.bell = true;
-                            if (s.bell_kind != .needs_input) s.bell_kind = .finished;
-                        }
+                        s.attention(ding and !s.actorWatched(actor.id), actor.state.state);
                     }
                 };
             }
             for (s.runtime.sessions.items) |*session| {
                 const old_seq = session.next_seq;
-                const old_state = session.state;
+                const old_state = session.status();
                 const old_ready = session.ready;
-                const old_attention = session.attention;
+                const old_attention = session.attention();
                 const old_tool = session.toolActive();
-                const ding = session.poll() catch |err| blk: {
+                const ding = session.poll(&s.runtime.conversations) catch |err| blk: {
                     s.notice(@errorName(err));
                     _ = c.kill(-session.child.id, c.SIGTERM);
                     break :blk false;
@@ -437,12 +493,12 @@ pub const Server = struct {
                 }
                 session.usage_pending = .{};
                 if (old_seq != session.next_seq) s.runtime.changed();
-                if (session.state != old_state or session.ready != old_ready or session.attention != old_attention or session.toolActive() != old_tool) s.dirty = true;
+                if (session.status() != old_state or session.ready != old_ready or session.attention() != old_attention or session.toolActive() != old_tool) s.dirty = true;
                 if (ding) {
                     s.bell = true;
-                    if (s.bell_kind != .needs_input) s.bell_kind = session.attention;
+                    if (s.bell_kind != .needs_input) s.bell_kind = session.attention();
                     var msg: [160]u8 = undefined;
-                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{ @tagName(session.provider), session.id, @tagName(session.state), session.id }));
+                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{ @tagName(session.provider), session.id, @tagName(session.status()), session.id }));
                 }
             }
             // Reap closed panes too, forwarding Git exits to its worker.
@@ -521,8 +577,8 @@ pub const Server = struct {
             }
             if (s.bell and s.bell_kind == .finished) {
                 var unread = false;
-                for (s.runtime.panes.items) |p| unread = unread or p.agent.observation.unread();
-                for (s.runtime.sessions.items) |session| unread = unread or session.attention == .finished;
+                for (s.runtime.conversations.items.items) |actor| unread = unread or actor.state.observation.unread();
+                for (s.runtime.sessions.items) |session| unread = unread or session.attention() == .finished;
                 if (!unread) {
                     s.bell = false;
                     s.bell_kind = .none;
@@ -585,6 +641,39 @@ pub const Server = struct {
 };
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
+}
+
+test "Codex selection rejects delayed ABA observations while detached actors remain addressable" {
+    const observer = @import("codex_observer.zig");
+    const id = "11111111-1111-4111-8111-111111111111";
+    var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
+    defer s.runtime.deinit();
+    const terminal = try @import("terminal.zig").Terminal.create(40, 4);
+    terminal.feed("\x1b]2;" ++ id ++ "\x07");
+    terminal.title_pid = 42;
+    try s.runtime.panes.append(a, .{ .id = 1, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .detection = .{ .pid = 42 } });
+    const p = &s.runtime.panes.items[0];
+    var snap: observer.Snapshot = .{ .request = .{ .pane = 1, .pid = 42, .prefix = observer.titlePrefix(id).?, .generation = p.attachment.generation, .title_revision = terminal.title_revision }, .session = id.*, .state = .working, .observed_at = 100 };
+    const actor = (try s.codexActor(snap)).?;
+    snap.request.generation = p.attachment.generation;
+    // CLI redraws may repeat or decorate the same conversation title while an
+    // observation is in flight. Only a different identity invalidates it.
+    terminal.feed("\x1b]2;codex | " ++ id ++ " | Working\x07");
+    terminal.title_pid = 42;
+    try std.testing.expectEqual(actor, (try s.codexActor(snap)).?);
+    p.attachment.select(try s.runtime.conversations.get(.codex, "22222222-2222-4222-8222-222222222222"));
+    p.attachment.select(actor);
+    try std.testing.expectEqual(null, try s.codexActor(snap));
+    snap.request.generation = p.attachment.generation;
+    terminal.feed("\x1b]2;other\x07\x1b]2;" ++ id ++ "\x07");
+    terminal.title_pid = 42;
+    try std.testing.expectEqual(null, try s.codexActor(snap));
+    snap.request.title_revision = terminal.title_revision;
+    try std.testing.expectEqual(actor, (try s.codexActor(snap)).?);
+    snap.request.actor = actor.id;
+    p.attachment.detach();
+    terminal.exited = true;
+    try std.testing.expectEqual(actor, (try s.codexActor(snap)).?);
 }
 fn number(v: std.json.Value, key: []const u8, default: i64) i64 {
     if (v != .object) return default;

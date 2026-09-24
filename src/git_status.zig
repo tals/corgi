@@ -97,8 +97,7 @@ pub const Tracker = struct {
             thread.join();
             t.thread = null;
             for (t.jobs.items) |job| {
-                const i = store.index(job.id) orelse continue;
-                const ws = &store.items.items[i];
+                const ws = store.get(job.id) orelse continue;
                 if (!std.mem.eql(u8, ws.cwd, job.cwd)) continue;
                 changed = changed or ws.git_ahead != job.ahead;
                 changed = changed or !std.meta.eql(ws.git_commits, job.commits);
@@ -337,7 +336,7 @@ test "background result cannot follow a workspace into a different directory" {
     while (!tracker.done.load(.acquire)) std.Thread.sleep(std.time.ns_per_ms);
     tracker.next_refresh = std.math.maxInt(i64);
     try std.testing.expect(!tracker.tick(&store));
-    try std.testing.expectEqual(@as(?u64, null), store.current().git_ahead);
+    try std.testing.expect(store.get(id).?.git_ahead == null);
 }
 
 test "commit metadata strips terminal controls and preserves Unicode" {

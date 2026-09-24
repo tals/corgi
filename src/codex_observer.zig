@@ -35,7 +35,7 @@ pub fn titlePrefix(title: []const u8) ?Prefix {
     }
     return found;
 }
-pub const Request = struct { pane: u32, pid: c_int, prefix: Prefix };
+pub const Request = struct { pane: u32 = 0, pid: c_int = 0, prefix: Prefix, actor: u32 = 0, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
     subagents: agents.Subagents = .{},
     evidence: @import("activity_summary.zig").Text = .{},
@@ -176,62 +176,13 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     }
     return out;
 }
-// Initial attachment establishes a baseline; historic completions never ring.
-// Repeated polls and reconnects cannot duplicate a completion for the same turn.
-pub fn apply(agent: *agents.Agent, s: Snapshot, watched: bool) bool {
-    if (s.observed_at <= agent.last_seq) return false;
-    const binding = !eq(u8, agent.sessionId(), &s.session);
-    if (binding) {
-        agent.reset();
-        agent.provider = .codex;
-        @memcpy(agent.session[0..36], &s.session);
-        agent.session_len = 36;
-    }
-    if (s.transcript_len > 0) {
-        agent.transcript = s.transcript;
-        agent.transcript_len = s.transcript_len;
-    }
-    agent.updated_at = s.updated_at;
-    agent.name = s.name;
-    agent.name_len = s.name_len;
-    const old_state = agent.state;
-    agent.state = s.state;
-    agent.subagents = s.subagents;
-    agent.last_seq = s.observed_at;
-    agent.observation.source = .protocol;
-    agent.observation.pending_stop = false;
-    agent.tool_active = false;
-    agent.tool_len = 0;
-    const same_turn = eq(u8, agent.turnId(), s.turn[0..s.turn_len]);
-    if (!same_turn or old_state != s.state or s.state != .working) {
-        agent.activity_len = 0;
-        agent.compacting = false;
-    }
-    agent.activity_generation = s.evidence.hash();
-    var ding = false;
-    if (s.turn_len > 0) {
-        @memcpy(agent.turn[0..s.turn_len], s.turn[0..s.turn_len]);
-        agent.turn_len = s.turn_len;
-        if (s.outcome) |outcome| {
-            if (!eq(u8, s.turn[0..s.turn_len], agent.last_finished_turn[0..agent.last_finished_turn_len])) {
-                @memcpy(agent.last_finished_turn[0..s.turn_len], s.turn[0..s.turn_len]);
-                agent.last_finished_turn_len = s.turn_len;
-                if (!binding) {
-                    agent.observation.finish(outcome, .protocol);
-                    ding = outcome == .completed and !watched;
-                }
-            }
-        }
-    }
-    agent.attention = if (s.state == .blocked and !watched) .needs_input else if (agent.observation.unread()) .finished else .none;
-    return ding or (!binding and s.state == .blocked and old_state != .blocked and !watched);
-}
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
     requests: [max]Request = undefined,
     count: usize = 0,
+    cursor: usize = 0,
     results: [max]?Snapshot = .{null} ** max,
     thread: ?std.Thread = null,
     socket: []const u8,
@@ -256,17 +207,33 @@ pub const Worker = struct {
         a.free(w.socket);
         a.destroy(w);
     }
-    pub fn reconcile(w: *Worker, panes: anytype) void {
+    pub fn reconcile(w: *Worker, runtime: anytype) void {
         w.mutex.lock();
         defer w.mutex.unlock();
         w.count = 0;
-        for (panes) |p| {
-            if (p.terminal.exited or p.agent.provider != .codex or p.detection.pid <= 0 or p.detection.missing != 0 or p.terminal.title_pid != p.detection.pid) continue;
+        for (runtime.panes.items) |p| {
+            if (p.terminal.exited or p.agent().provider != .codex or p.detection.pid <= 0 or p.detection.missing != 0 or p.terminal.title_pid != p.detection.pid) continue;
             const prefix = titlePrefix(p.terminal.vt.getTitle() orelse "") orelse continue;
-            w.requests[w.count] = .{ .pane = p.id, .pid = p.detection.pid, .prefix = prefix };
+            w.requests[w.count] = .{ .pane = p.id, .pid = p.detection.pid, .prefix = prefix, .generation = p.attachment.generation, .title_revision = p.terminal.title_revision };
             w.count += 1;
             if (w.count == max) break;
         }
+        // Explicitly identified background conversations remain observable after
+        // the terminal selects another session. Never infer these from cwd.
+        const actors = runtime.conversations.items.items;
+        for (0..actors.len) |offset| {
+            if (w.count == max) break;
+            const actor = actors[(w.cursor + offset) % actors.len];
+            if (actor.state.provider != .codex or actor.state.session_len != 36 or
+                (actor.state.state != .working and actor.state.state != .blocked)) continue;
+            const selected = for (runtime.panes.items) |p| {
+                if (!p.terminal.exited and p.attachment.actor == actor) break true;
+            } else false;
+            if (selected) continue;
+            w.requests[w.count] = .{ .actor = actor.id, .prefix = .{ .bytes = actor.state.session[0..36].*, .len = 36 } };
+            w.count += 1;
+        }
+        if (actors.len > 0) w.cursor = (w.cursor + 1) % actors.len;
     }
     pub fn take(w: *Worker, out: *[max]?Snapshot) void {
         w.mutex.lock();
@@ -347,15 +314,4 @@ test "title UUID parsing handles truncation and refuses ambiguity" {
     defer parsed.deinit();
     var prefix = titlePrefix("01901234-1234-1234-1234-12345...").?;
     try std.testing.expect(unique(parsed.value.array.items, &prefix) == null);
-}
-test "snapshot baseline and completion receipts are idempotent" {
-    var agent: agents.Agent = .{};
-    var s: Snapshot = .{ .request = .{ .pane = 1, .pid = 1, .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .idle, .turn_len = 1, .outcome = .completed, .observed_at = 1 };
-    s.turn[0] = 'a';
-    try std.testing.expect(!apply(&agent, s, false));
-    s.turn[0] = 'b';
-    s.observed_at = 2;
-    try std.testing.expect(apply(&agent, s, false));
-    try std.testing.expect(!apply(&agent, s, false));
-    try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
 }

@@ -25,36 +25,7 @@ import unicodedata
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXE = str(ROOT / 'zig-out/bin/corgi')
 
-FAKE = r'''#!/usr/bin/env python3
-import sys, json
-if '--version' in sys.argv:
-    print('codex-cli 1.2.3-fixture');sys.exit(0)
-claude = '--print' in sys.argv
-def emit(x): print(json.dumps(x), flush=True)
-for line in sys.stdin:
-    v = json.loads(line)
-    if v.get('method') == 'initialize': emit({'id': v['id'], 'result': {'version':'fixture'}})
-    elif v.get('method') == 'initialized': emit({'method':'ready'})
-    elif v.get('method') == 'test/approval':
-        if not claude:emit({'method':'turn/started','params':{'threadId':'t','turn':{'id':'turn'}}})
-        emit({'type':'control_request','request_id':'permission-1','request':{'subtype':'can_use_tool','tool_name':'Bash'}} if claude else {'id':900,'method':'item/commandExecution/requestApproval','params':{'threadId':'t'}})
-    elif v.get('method') == 'test/flood':
-        for i in range(150): emit({'type':'fixture','n':i})
-    elif v.get('method') == 'test/tool-start':
-        if not claude:emit({'method':'turn/started','params':{'threadId':'t','turn':{'id':'turn'}}})
-        ident=v['params']['id']
-        emit({'type':'assistant','message':{'content':[{'type':'tool_use','id':ident,'name':'Bash','input':{}}]}} if claude else {'method':'item/started','params':{'threadId':'t','turnId':'turn','item':{'id':ident,'type':'commandExecution'}}})
-    elif v.get('method') == 'test/tool-stop':
-        ident=v['params']['id']
-        emit({'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':ident,'content':'done'}]}} if claude else {'method':'item/completed','params':{'threadId':'t','turnId':'turn','item':{'id':ident,'type':'commandExecution'}}})
-    elif v.get('method') == 'test/turn-end':
-        emit({'type':'result','result':'done'} if claude else {'method':'turn/completed','params':{'threadId':'t','turn':{'id':'turn'}}})
-    elif v.get('id') == 900 or v.get('type') == 'control_response':
-        emit({'type':'result','result':'complete'} if claude else {'method':'turn/completed','params':{'threadId':'t','turn':{'id':'turn','status':'completed'}}})
-    elif v.get('method') == 'test/event':emit(v['params'])
-    elif v.get('method') == 'test/exit': sys.exit(0)
-    elif 'id' in v: emit({'id':v['id'],'result':{'echo':v}})
-'''
+from provider_sim import NATIVE_PROVIDER as FAKE, write_ordinary_agent
 
 def screen_text(data, cols=80, rows=24):
     """Decode frame cursor moves so tests click what the user actually sees."""
@@ -1263,10 +1234,13 @@ with open({str(played)!r},'a') as log:
         pane=self.panes()[0]['id']
         transcript=pathlib.Path(self.temp.name,'sounds.jsonl')
         transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':'sounds'}})+'\n')
+        turn = 'initial'
         def hook(event,seq):
-            self.rpc(op='hook',pane=pane,provider='codex',seq=seq,event={'hook_event_name':event,'session_id':'sounds','turn_id':str(seq),'transcript_path':str(transcript)})
+            nonlocal turn
+            if event == 'UserPromptSubmit': turn = str(seq)
+            self.rpc(op='hook',pane=pane,provider='codex',seq=seq,event={'hook_event_name':event,'session_id':'sounds','turn_id':turn,'transcript_path':str(transcript)})
             if event=='Stop':
-                with transcript.open('a') as f:f.write(json.dumps({'type':'event_msg','timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),'payload':{'type':'task_complete','turn_id':str(seq)}})+'\n')
+                with transcript.open('a') as f:f.write(json.dumps({'type':'event_msg','timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),'payload':{'type':'task_complete','turn_id':turn}})+'\n')
         def records():
             while select.select([self.master],[],[],0)[0]:os.read(self.master,65536)
             return [json.loads(line) for line in played.read_text().splitlines()] if played.exists() else []
@@ -1352,44 +1326,7 @@ with open({str(played)!r},'a') as log:
         self.assertEqual(bad.read_text(),'{broken');self.assertEqual(target.read_text(),'{}')
         self.assertTrue((claude/'settings.json').is_symlink())
     def ordinary_agent(self,provider,hooks=False,initializing=False):
-        program=pathlib.Path(self.temp.name,provider)
-        program.write_text('#!'+sys.executable+'\n'+r'''
-import os,sys,json,pathlib,subprocess,datetime
-provider=pathlib.Path(sys.argv[0]).name
-path=pathlib.Path(os.environ['CODEX_HOME'],'hooks.json') if provider=='codex' else pathlib.Path(os.environ['CLAUDE_CONFIG_DIR'],'settings.json')
-transcript=pathlib.Path(os.environ['HOME'],'ordinary-'+provider+'.jsonl')
-transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':'ordinary-'+provider}})+'\n')
-turn=0
-def event(name):
-    global turn
-    if not path.exists():return
-    if name=='UserPromptSubmit':turn+=1
-    for group in json.loads(path.read_text()).get('hooks',{}).get(name,[]):
-        for hook in group['hooks']:
-            subprocess.run(['/bin/sh','-c',hook['command']],input=json.dumps({'hook_event_name':name,'session_id':'ordinary-'+provider,'turn_id':str(turn),'transcript_path':str(transcript)}),text=True)
-    if name=='Stop':
-        stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
-        record={'type':'event_msg','timestamp':stamp,'payload':{'type':'task_complete','turn_id':str(turn)}} if provider=='codex' else {'type':'system','subtype':'turn_duration','sessionId':'ordinary-'+provider,'timestamp':stamp}
-        with transcript.open('a') as f:f.write(json.dumps(record)+'\n')
-if '--loading' in sys.argv:
-    print('\x1b[2J\x1b[H\x1b]2;⠋ Starting\x07Initializing (esc to interrupt)',flush=True)
-    for line in sys.stdin:
-        if line.strip()=='ready':break
-event('SessionStart')
-print('\x1b[2J\x1b[H\x1b]2;✳ Ready\x07› ',flush=True)
-for line in sys.stdin:
-    command=line.strip()
-    if command=='exit':break
-    if command=='work':
-        event('UserPromptSubmit');print('\x1b[2J\x1b[H\x1b]2;⠋ Task\x07Working (esc to interrupt)',flush=True)
-    elif command=='tool':
-        print('\x1b[2J\x1b[H• Working (20s • esc to interrupt) · 1 background t…\n› Ask Codex to do anything',flush=True)
-    elif command=='block':
-        event('PermissionRequest');print('\x1b[2J\x1b[H\x1b]2;Action Required\x07enter to confirm or esc to cancel',flush=True)
-    elif command=='stop':
-        event('Stop');print('\x1b[2J\x1b[H\x1b]2;✳ Ready\x07› ',flush=True)
-event('SessionEnd')
-''');program.chmod(0o700)
+        write_ordinary_agent(pathlib.Path(self.temp.name,provider))
         if hooks:
             pathlib.Path(self.env['CODEX_HOME' if provider=='codex' else 'CLAUDE_CONFIG_DIR']).mkdir(exist_ok=True)
             self.restart_runtime()

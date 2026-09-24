@@ -5,7 +5,10 @@ const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
 const agents = @import("agents.zig");
+const conversations = @import("conversations.zig");
+const providers = @import("providers.zig");
 pub const Event = struct { seq: u64, line: []const u8 };
+pub const PendingRequest = struct { line: []const u8, actor: ?*conversations.Actor };
 pub const Tool = struct {
     id: []const u8,
     thread: []const u8,
@@ -26,20 +29,102 @@ pub const Session = struct {
     resume_hint: @import("checkpoint.zig").Resume = .{},
     workspace_id: u32 = 0,
     exited: bool = false,
-    state: agents.State = .initializing,
-    attention: agents.Attention = .none,
-    observation: agents.observation.State = .{},
+    attachment: conversations.Attachment = .{},
+    members: std.ArrayList(*conversations.Actor) = .empty,
+    requests_released: bool = false,
     input: std.ArrayList(u8) = .empty,
     output: std.ArrayList(u8) = .empty,
     deferred: std.ArrayList(u8) = .empty,
     events: std.ArrayList(Event) = .empty,
-    approvals: std.ArrayList([]const u8) = .empty,
+    approvals: std.ArrayList(PendingRequest) = .empty,
     active_threads: std.StringHashMapUnmanaged([]const u8) = .empty,
     active_tools: std.ArrayList(Tool) = .empty,
     usage_pending: @import("usage.zig").Counts = .{},
     usage_tracker: @import("usage.zig").Tracker = .{},
     journal_bytes: usize = 0,
     next_seq: u64 = 1,
+    pub fn agent(s: *Session) *agents.Agent {
+        return s.attachment.agent();
+    }
+    pub fn status(s: *const Session) agents.State {
+        if (s.exited) return .done;
+        if (!s.ready) return .initializing;
+        var result = s.attachment.provisional.state;
+        for (s.members.items) |owner| {
+            if (owner.state.state == .blocked) return .blocked;
+            if (owner.state.state == .working) result = .working;
+        }
+        if (result == .working or result == .blocked) return result;
+        return if (s.attachment.actor) |owner| owner.state.state else result;
+    }
+    pub fn attention(s: *const Session) agents.Attention {
+        var result = s.attachment.provisional.attention;
+        for (s.members.items) |owner| {
+            if (owner.state.attention == .needs_input) return .needs_input;
+            if (owner.state.attention == .finished) result = .finished;
+        }
+        return result;
+    }
+    pub fn observation(s: *const Session) agents.observation.State {
+        var result = s.attachment.provisional.observation;
+        for (s.members.items) |owner| {
+            result.completed +|= owner.state.observation.completed;
+            result.read +|= owner.state.observation.read;
+            result.pending_stop = result.pending_stop or owner.state.observation.pending_stop;
+            result.source = owner.state.observation.source;
+            result.outcome = owner.state.observation.outcome;
+        }
+        return result;
+    }
+    pub fn acknowledge(s: *Session) void {
+        s.attachment.provisional.acknowledge();
+        for (s.members.items) |owner| owner.state.acknowledge();
+    }
+    fn remember(s: *Session, owner: *conversations.Actor) !void {
+        for (s.members.items) |member| if (member == owner) return;
+        if (s.members.items.len >= 256) return error.TooManyNativeConversations;
+        try s.members.append(a, owner);
+    }
+    pub fn approvalLines(s: *const Session, alloc: std.mem.Allocator) ![]const []const u8 {
+        const lines = try alloc.alloc([]const u8, s.approvals.items.len);
+        for (s.approvals.items, lines) |request, *line| line.* = request.line;
+        return lines;
+    }
+    fn hasApproval(s: *const Session, actor: ?*conversations.Actor) bool {
+        if (actor) |owner| return owner.pending_native_requests > 0;
+        for (s.approvals.items) |request| if (request.actor == actor) return true;
+        return false;
+    }
+    fn releaseRequests(s: *Session) void {
+        if (s.requests_released) return;
+        s.requests_released = true;
+        for (s.approvals.items) |request| if (request.actor) |owner| {
+            owner.pending_native_requests -|= 1;
+            if (owner.pending_native_requests > 0) {
+                owner.state.state = .blocked;
+                owner.state.attention = .needs_input;
+            } else if (owner.state.attention == .needs_input) {
+                owner.state.attention = if (owner.state.observation.unread()) .finished else .none;
+            }
+        };
+    }
+    fn syncTools(s: *const Session, target: *agents.Agent) void {
+        target.tool_active = false;
+        for (s.active_tools.items) |tool| if (eq(tool.thread, target.sessionId())) {
+            target.tool_active = true;
+            return;
+        };
+        for (s.approvals.items) |request| {
+            const request_target = if (request.actor) |actor| &actor.state else &s.attachment.provisional;
+            if (request_target != target) continue;
+            const parsed = std.json.parseFromSlice(std.json.Value, a, request.line, .{}) catch continue;
+            defer parsed.deinit();
+            if (providers.Backend.init(s.provider).nativeEvent(parsed.value).tool_request) {
+                target.tool_active = true;
+                return;
+            }
+        }
+    }
     pub fn start(id: u32, provider: agents.Provider, cwd: []const u8) !Session {
         const directory = try std.fs.cwd().realpathAlloc(a, cwd);
         errdefer a.free(directory);
@@ -47,11 +132,8 @@ pub const Session = struct {
         defer argv.deinit(a);
         const bin = try @import("discovery.zig").resolve(provider, cwd);
         defer a.free(bin);
-        switch (provider) {
-            .codex => try argv.appendSlice(a, &.{ bin, "app-server", "--listen", "stdio://" }),
-            .claude => try argv.appendSlice(a, &.{ bin, "--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio" }),
-            .other => return error.BadProvider,
-        }
+        try argv.append(a, bin);
+        try argv.appendSlice(a, try providers.Backend.init(provider).nativeArgs());
         var child = std.process.Child.init(argv.items, a);
         var env = try std.process.getEnvMap(a);
         defer env.deinit();
@@ -68,22 +150,23 @@ pub const Session = struct {
         os.nonblock(child.stdin.?.handle);
         os.cloexec(child.stdout.?.handle);
         os.cloexec(child.stdin.?.handle);
-        var result: Session = .{ .id = id, .provider = provider, .cwd = directory, .child = child, .ready = provider == .claude, .state = if (provider == .claude) .idle else .initializing };
+        var result: Session = .{ .id = id, .provider = provider, .cwd = directory, .child = child, .ready = provider == .claude, .attachment = .{ .provisional = .{ .provider = provider, .state = if (provider == .claude) .idle else .initializing } } };
         result.resume_hint.provider = provider;
         if (provider == .codex) try result.queue(.{ .id = "__corgi_init", .method = "initialize", .params = .{ .clientInfo = .{ .name = "corgi", .version = "0.1.0" } } });
         return result;
     }
     pub fn destroy(s: *Session) void {
+        s.releaseRequests();
         a.free(s.cwd);
         if (!s.exited) {
             _ = c.kill(-s.child.id, c.SIGKILL);
-            var status: c_int = 0;
-            _ = c.waitpid(s.child.id, &status, 0);
+            var exit_status: c_int = 0;
+            _ = c.waitpid(s.child.id, &exit_status, 0);
         }
         if (s.child.stdin) |f| f.close();
         if (s.child.stdout) |f| f.close();
         for (s.events.items) |event| a.free(event.line);
-        for (s.approvals.items) |line| a.free(line);
+        for (s.approvals.items) |request| a.free(request.line);
         var threads = s.active_threads.iterator();
         while (threads.next()) |entry| {
             a.free(entry.key_ptr.*);
@@ -94,33 +177,29 @@ pub const Session = struct {
         s.active_tools.deinit(a);
         s.events.deinit(a);
         s.approvals.deinit(a);
+        s.members.deinit(a);
         s.input.deinit(a);
         s.output.deinit(a);
         s.deferred.deinit(a);
     }
     pub fn markExited(s: *Session) void {
+        s.releaseRequests();
         s.exited = true;
-        s.state = .done;
+        // Losing one transport does not end a conversation observed elsewhere.
+        s.attachment.provisional.state = .done;
         s.clearTools(null, null);
     }
     pub fn toolActive(s: *const Session) bool {
         if (s.exited) return false;
         if (s.active_tools.items.len > 0) return true;
-        for (s.approvals.items) |line| {
-            const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch continue;
+        for (s.approvals.items) |request| {
+            const parsed = std.json.parseFromSlice(std.json.Value, a, request.line, .{}) catch continue;
             defer parsed.deinit();
-            const v = parsed.value;
-            if (s.provider == .codex) {
-                const method = agents.str(v, "method");
-                if (eq(method, "item/commandExecution/requestApproval") or eq(method, "item/fileChange/requestApproval") or eq(method, "item/tool/call") or eq(method, "item/tool/requestUserInput")) return true;
-            } else if (v == .object) {
-                const request = v.object.get("request") orelse continue;
-                if (eq(agents.str(request, "subtype"), "can_use_tool")) return true;
-            }
+            if (providers.Backend.init(s.provider).nativeEvent(parsed.value).tool_request) return true;
         }
         return false;
     }
-    fn startTool(s: *Session, id: []const u8, thread: []const u8, turn: []const u8) !void {
+    fn startTool(s: *Session, target: *agents.Agent, id: []const u8, thread: []const u8, turn: []const u8) !void {
         if (id.len == 0 or id.len > 256 or thread.len > 256 or turn.len > 256) return;
         for (s.active_tools.items) |tool| if (eq(tool.id, id) and eq(tool.thread, thread)) return;
         if (s.active_tools.items.len >= 128) return error.TooManyNativeTools;
@@ -132,8 +211,8 @@ pub const Session = struct {
         errdefer a.free(owned_turn);
         try s.active_tools.append(a, .{ .id = owned_id, .thread = owned_thread, .turn = owned_turn });
         s.usage_pending.tools +|= 1;
-        s.state = .working;
-        s.attention = if (s.observation.unread()) .finished else .none;
+        target.state = .working;
+        target.attention = if (target.observation.unread()) .finished else .none;
     }
     fn finishTool(s: *Session, id: []const u8, thread: []const u8) void {
         for (s.active_tools.items, 0..) |tool, i| {
@@ -152,7 +231,7 @@ pub const Session = struct {
             } else i += 1;
         }
     }
-    fn observeTools(s: *Session, v: std.json.Value, params: std.json.Value, method: []const u8, kind: []const u8) !void {
+    fn observeTools(s: *Session, target: *agents.Agent, v: std.json.Value, params: std.json.Value, method: []const u8, kind: []const u8) !void {
         if (s.provider == .codex and params == .object) {
             const thread = agents.str(params, "threadId");
             if (eq(method, "thread/tokenUsage/updated")) {
@@ -168,7 +247,7 @@ pub const Session = struct {
                     const item_kind = agents.str(item, "type");
                     for ([_][]const u8{ "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "webSearch", "imageView", "imageGeneration" }) |tool_kind| {
                         if (eq(item_kind, tool_kind)) {
-                            try s.startTool(id, thread, agents.str(params, "turnId"));
+                            try s.startTool(target, id, thread, agents.str(params, "turnId"));
                             break;
                         }
                     }
@@ -179,7 +258,7 @@ pub const Session = struct {
             }
         } else if (s.provider == .claude and v == .object) {
             if (eq(kind, "result")) {
-                s.clearTools(null, null);
+                s.clearTools(target.sessionId(), null);
                 return;
             }
             if (!eq(kind, "assistant") and !eq(kind, "user")) return;
@@ -194,7 +273,7 @@ pub const Session = struct {
             if (content != .array) return;
             for (content.array.items) |block| {
                 const block_kind = agents.str(block, "type");
-                if (eq(block_kind, "tool_use")) try s.startTool(agents.str(block, "id"), "", "") else if (eq(block_kind, "tool_result")) s.finishTool(agents.str(block, "tool_use_id"), "");
+                if (eq(block_kind, "tool_use")) try s.startTool(target, agents.str(block, "id"), target.sessionId(), "") else if (eq(block_kind, "tool_result")) s.finishTool(agents.str(block, "tool_use_id"), target.sessionId());
             }
         }
     }
@@ -205,7 +284,7 @@ pub const Session = struct {
         try s.output.appendSlice(a, line);
         try s.output.append(a, '\n');
     }
-    pub fn send(s: *Session, v: std.json.Value) !void {
+    pub fn send(s: *Session, _: *conversations.Registry, v: std.json.Value) !void {
         if (s.exited) return error.NativeExited;
         if (v != .object) return error.InvalidMessage;
         if (eq(agents.str(v, "id"), "__corgi_init")) return error.ReservedRequestId;
@@ -216,26 +295,32 @@ pub const Session = struct {
             try s.deferred.appendSlice(a, line);
             try s.deferred.append(a, '\n');
         }
-        // Explicit provider responses remove only their matching pending request.
-        const response_id = responseId(s.provider, v);
+        // The pending request supplies its immutable conversation binding. A
+        // response to A must never clear B's attention after a selection change.
+        const response_id = providers.Backend.init(s.provider).responseId(v);
         if (response_id) |id| {
             var i: usize = 0;
-            var removed = false;
             while (i < s.approvals.items.len) {
-                const parsed = try std.json.parseFromSlice(std.json.Value, a, s.approvals.items[i], .{});
+                const parsed = try std.json.parseFromSlice(std.json.Value, a, s.approvals.items[i].line, .{});
                 defer parsed.deinit();
-                if (requestId(s.provider, parsed.value)) |pending_id| {
-                    if (std.meta.activeTag(id) == std.meta.activeTag(pending_id) and ((id == .string and eq(id.string, pending_id.string)) or (id == .integer and id.integer == pending_id.integer))) {
-                        a.free(s.approvals.orderedRemove(i));
-                        removed = true;
+                if (providers.Backend.init(s.provider).requestId(parsed.value)) |pending_id| {
+                    if (sameId(id, pending_id)) {
+                        const actor = s.approvals.items[i].actor;
+                        const target = if (actor) |owner| &owner.state else &s.attachment.provisional;
+                        a.free(s.approvals.orderedRemove(i).line);
+                        if (actor) |owner| owner.pending_native_requests -|= 1;
+                        if (!s.hasApproval(actor)) {
+                            target.attention = if (target.observation.unread()) .finished else .none;
+                            target.state = .working;
+                        } else {
+                            target.state = .blocked;
+                            target.attention = .needs_input;
+                        }
+                        s.syncTools(target);
                         continue;
                     }
                 }
                 i += 1;
-            }
-            if (removed and s.approvals.items.len == 0) {
-                s.attention = if (s.observation.unread()) .finished else .none;
-                s.state = .working;
             }
         }
     }
@@ -249,7 +334,7 @@ pub const Session = struct {
             s.output.items.len -= count;
         }
     }
-    pub fn poll(s: *Session) !bool {
+    pub fn poll(s: *Session, registry: *conversations.Registry) !bool {
         if (s.exited) return false;
         s.flush();
         var ding = false;
@@ -264,83 +349,7 @@ pub const Session = struct {
             if (s.input.items.len > 4 * 1024 * 1024) return error.NativeMessageTooLarge;
             var consumed: usize = 0;
             while (std.mem.indexOfScalarPos(u8, s.input.items, consumed, '\n')) |end| {
-                const line = s.input.items[consumed..end];
-                const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch {
-                    consumed = end + 1;
-                    continue;
-                };
-                defer parsed.deinit();
-                const v = parsed.value;
-                if (s.provider == .codex and eq(agents.str(v, "id"), "__corgi_init")) {
-                    if (v == .object and v.object.contains("error")) return error.NativeInitializeFailed;
-                    try s.queue(.{ .method = "initialized" });
-                    try s.output.appendSlice(a, s.deferred.items);
-                    s.deferred.clearRetainingCapacity();
-                    s.ready = true;
-                    s.state = .idle;
-                }
-                const old = s.state;
-                const method = agents.str(v, "method");
-                const kind = agents.str(v, "type");
-                const params = if (v == .object) v.object.get("params") orelse .null else .null;
-                const thread_id = agents.str(params, "threadId");
-                // Remember concrete provider IDs, never infer a session from cwd.
-                var session_id = if (s.provider == .claude) agents.str(v, "session_id") else thread_id;
-                if (session_id.len == 0 and s.provider == .codex and v == .object) {
-                    const result = v.object.get("result") orelse params;
-                    if (result == .object) session_id = agents.str(result.object.get("thread") orelse .null, "id");
-                }
-                s.resume_hint.provider = s.provider;
-                if (session_id.len > 0 and session_id.len <= s.resume_hint.session.len) s.resume_hint.len = agents.clean(&s.resume_hint.session, session_id);
-                try s.observeTools(v, params, method, kind);
-                if (requestId(s.provider, v) != null) {
-                    if (s.approvals.items.len >= 64) return error.TooManyNativeRequests;
-                    try s.approvals.append(a, try a.dupe(u8, line));
-                    s.state = .blocked;
-                    s.attention = .needs_input;
-                } else if (eq(method, "turn/started") or eq(kind, "assistant")) {
-                    if (thread_id.len > 0) {
-                        const turn = agents.str(if (params == .object) params.object.get("turn") orelse .null else .null, "id");
-                        if (s.active_threads.fetchRemove(thread_id)) |entry| {
-                            a.free(entry.key);
-                            a.free(entry.value);
-                        }
-                        try s.active_threads.put(a, try a.dupe(u8, thread_id), try a.dupe(u8, turn));
-                    }
-                    s.state = .working;
-                    s.attention = if (s.observation.unread()) .finished else .none;
-                } else if (eq(method, "turn/completed") or eq(kind, "result")) {
-                    const turn = if (params == .object) params.object.get("turn") orelse .null else .null;
-                    const turn_id = agents.str(turn, "id");
-                    const active_turn = s.active_threads.get(thread_id);
-                    const matches = if (s.provider == .codex) active_turn != null and (active_turn.?.len == 0 or eq(active_turn.?, turn_id)) else old == .working or old == .blocked;
-                    if (matches) {
-                        if (s.active_threads.fetchRemove(thread_id)) |entry| {
-                            a.free(entry.key);
-                            a.free(entry.value);
-                        }
-                        const status = agents.str(turn, "status");
-                        const failed = if (v.object.get("is_error")) |flag| flag == .bool and flag.bool else false;
-                        const outcome: agents.observation.Outcome = if (eq(status, "interrupted")) .interrupted else if (eq(status, "failed") or failed) .failed else .completed;
-                        s.observation.finish(outcome, .protocol);
-                        s.state = if (s.active_threads.count() > 0) .working else .idle;
-                        s.attention = .finished;
-                        if (outcome == .completed) ding = true;
-                    }
-                }
-                if (s.approvals.items.len > 0) {
-                    s.state = .blocked;
-                    s.attention = .needs_input;
-                }
-                if (s.state != old and s.attention == .needs_input) ding = true;
-                while (s.events.items.len > 0 and (s.events.items.len >= 128 or s.journal_bytes + line.len > 4 * 1024 * 1024)) {
-                    const discarded = s.events.orderedRemove(0);
-                    s.journal_bytes -= discarded.line.len;
-                    a.free(discarded.line);
-                }
-                try s.events.append(a, .{ .seq = s.next_seq, .line = try a.dupe(u8, line) });
-                s.journal_bytes += line.len;
-                s.next_seq += 1;
+                ding = (try s.ingest(registry, s.input.items[consumed..end])) or ding;
                 consumed = end + 1;
             }
             std.mem.copyForwards(u8, s.input.items[0 .. s.input.items.len - consumed], s.input.items[consumed..]);
@@ -348,25 +357,356 @@ pub const Session = struct {
         }
         return ding;
     }
+
+    /// Decode provider facts and apply them to their conversation, independent
+    /// of which thread this transport most recently opened.
+    pub fn ingest(s: *Session, registry: *conversations.Registry, line: []const u8) !bool {
+        if (line.len > 4 * 1024 * 1024) return error.NativeMessageTooLarge;
+        const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch return false;
+        defer parsed.deinit();
+        const v = parsed.value;
+        const event = providers.Backend.init(s.provider).nativeEvent(v);
+        if (event.initialize) {
+            if (event.initialization_failed) return error.NativeInitializeFailed;
+            try s.queue(.{ .method = "initialized" });
+            try s.output.appendSlice(a, s.deferred.items);
+            s.deferred.clearRetainingCapacity();
+            s.ready = true;
+            s.attachment.provisional.state = .idle;
+        }
+        const actor = if (event.session.len > 0) try registry.get(s.provider, event.session) else s.attachment.actor;
+        if (actor) |owner| {
+            try s.remember(owner);
+            owner.observed_at = std.time.microTimestamp();
+            if (owner.workspace == 0) owner.workspace = s.workspace_id;
+            if (s.attachment.actor == null) {
+                if (owner.state.state == .unknown) {
+                    const session = owner.state.session;
+                    const session_len = owner.state.session_len;
+                    owner.state = s.attachment.provisional;
+                    owner.state.provider = s.provider;
+                    owner.state.session = session;
+                    owner.state.session_len = session_len;
+                }
+                s.attachment.provisional = .{ .provider = s.provider, .state = if (s.ready) .idle else .initializing };
+                for (s.approvals.items) |*pending| if (pending.actor == null) {
+                    pending.actor = owner;
+                    owner.pending_native_requests += 1;
+                };
+                for (s.active_tools.items) |*tool| if (tool.thread.len == 0) {
+                    a.free(tool.thread);
+                    tool.thread = try a.dupe(u8, owner.state.sessionId());
+                };
+            }
+            const method = agents.str(v, "method");
+            const explicit_selection = eq(method, "thread/started") or
+                (s.provider == .codex and v == .object and v.object.contains("result") and event.session.len > 0);
+            if (s.attachment.actor == null or explicit_selection) s.attachment.select(owner);
+            if (s.attachment.actor == owner) s.resume_hint.observe(&owner.state);
+        }
+        const target = if (actor) |owner| &owner.state else &s.attachment.provisional;
+        target.provider = s.provider;
+        if (target.state == .unknown and s.ready) target.state = .idle;
+        const old = target.state;
+        var ding = false;
+        const method = agents.str(v, "method");
+        const kind = agents.str(v, "type");
+        const params = if (v == .object) v.object.get("params") orelse .null else .null;
+        const reported_turn = if (event.turn.len > 0) event.turn else agents.str(params, "turnId");
+        const completed_turn = reported_turn.len > 0 and target.finishedTurn(reported_turn);
+        const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !eq(reported_turn, target.turnId()));
+        if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
+        if (event.request_id != null) {
+            // Replayed protocol requests refer to the same pending operation.
+            const duplicate = for (s.approvals.items) |pending| {
+                if (pending.actor != actor) continue;
+                const decoded = try std.json.parseFromSlice(std.json.Value, a, pending.line, .{});
+                defer decoded.deinit();
+                if (providers.Backend.init(s.provider).requestId(decoded.value)) |id| {
+                    if (sameId(event.request_id.?, id)) break true;
+                }
+            } else false;
+            if (!duplicate) {
+                if (s.approvals.items.len >= 64) return error.TooManyNativeRequests;
+                try s.approvals.ensureUnusedCapacity(a, 1);
+                s.approvals.appendAssumeCapacity(.{ .line = try a.dupe(u8, line), .actor = actor });
+                if (actor) |owner| owner.pending_native_requests += 1;
+            }
+            target.beginTurn("");
+            target.state = .blocked;
+            target.attention = .needs_input;
+        } else if (event.phase == .working) {
+            if (!completed_turn) {
+                if (event.thread.len > 0) {
+                    if (s.active_threads.fetchRemove(event.thread)) |entry| {
+                        a.free(entry.key);
+                        a.free(entry.value);
+                    }
+                    try s.active_threads.put(a, try a.dupe(u8, event.thread), try a.dupe(u8, event.turn));
+                }
+                target.beginTurn(event.turn);
+            }
+        } else if (event.phase == .completed) {
+            const active_turn = s.active_threads.get(event.thread);
+            const matches = if (s.provider == .codex)
+                !stale_turn and ((active_turn != null and (active_turn.?.len == 0 or eq(active_turn.?, event.turn))) or target.state == .working or target.state == .blocked)
+            else
+                !target.finished_since_activity and (old == .working or old == .blocked);
+            if (active_turn != null and (event.turn.len == 0 or active_turn.?.len == 0 or eq(active_turn.?, event.turn))) {
+                if (s.active_threads.fetchRemove(event.thread)) |entry| {
+                    a.free(entry.key);
+                    a.free(entry.value);
+                }
+            }
+            if (matches) ding = target.endTurn(event.turn, event.outcome, .protocol, std.time.microTimestamp());
+        }
+        if (!stale_turn and s.hasApproval(actor)) {
+            target.state = .blocked;
+            target.attention = .needs_input;
+        }
+        if (!stale_turn and (event.phase != .none or event.request_id != null or eq(method, "item/started") or eq(method, "item/completed") or eq(kind, "user"))) s.syncTools(target);
+        if (!stale_turn and (target.state != old or event.phase != .none or event.request_id != null)) {
+            target.last_seq = std.time.microTimestamp();
+            target.changed_at = target.last_seq;
+            target.observation.source = .protocol;
+        }
+        if (target.state != old and target.attention == .needs_input) ding = true;
+        while (s.events.items.len > 0 and (s.events.items.len >= 128 or s.journal_bytes + line.len > 4 * 1024 * 1024)) {
+            const discarded = s.events.orderedRemove(0);
+            s.journal_bytes -= discarded.line.len;
+            a.free(discarded.line);
+        }
+        try s.events.append(a, .{ .seq = s.next_seq, .line = try a.dupe(u8, line) });
+        s.journal_bytes += line.len;
+        s.next_seq += 1;
+        return ding;
+    }
 };
-fn requestId(provider: agents.Provider, v: std.json.Value) ?std.json.Value {
-    if (v != .object) return null;
-    if (provider == .codex) {
-        if (agents.str(v, "method").len == 0) return null;
-        return v.object.get("id");
-    }
-    if (eq(agents.str(v, "type"), "control_request")) return v.object.get("request_id");
-    return null;
+fn sameId(x: std.json.Value, y: std.json.Value) bool {
+    return std.meta.activeTag(x) == std.meta.activeTag(y) and
+        ((x == .string and eq(x.string, y.string)) or (x == .integer and x.integer == y.integer));
 }
-fn responseId(provider: agents.Provider, v: std.json.Value) ?std.json.Value {
-    if (provider == .codex) {
-        if (!v.object.contains("result") and !v.object.contains("error")) return null;
-        return v.object.get("id");
-    }
-    if (!eq(agents.str(v, "type"), "control_response")) return null;
-    const response = v.object.get("response") orelse return null;
-    return if (response == .object) response.object.get("request_id") else null;
-}
+
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
+}
+
+fn testSession(provider: agents.Provider) !Session {
+    return .{
+        .id = 1,
+        .provider = provider,
+        .cwd = try a.dupe(u8, "/tmp"),
+        .child = std.process.Child.init(&.{}, a),
+        .ready = true,
+        .attachment = .{ .provisional = .{ .provider = provider, .state = .idle } },
+    };
+}
+
+test "native conversations retain independent turns and receipts across selection" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var transport = try testSession(.codex);
+    defer {
+        transport.exited = true;
+        transport.destroy();
+    }
+    _ = try transport.ingest(&registry,
+        \\{"method":"turn/started","params":{"threadId":"a","turn":{"id":"a1"}}}
+    );
+    _ = try transport.ingest(&registry,
+        \\{"id":2,"result":{"thread":{"id":"b"}}}
+    );
+    _ = try transport.ingest(&registry,
+        \\{"method":"turn/started","params":{"threadId":"b","turn":{"id":"b1"}}}
+    );
+    const first = registry.find(.codex, "a").?;
+    const second = registry.find(.codex, "b").?;
+    try std.testing.expectEqual(second, transport.attachment.actor.?);
+    try std.testing.expect(try transport.ingest(&registry,
+        \\{"method":"turn/completed","params":{"threadId":"a","turn":{"id":"a1","status":"completed"}}}
+    ));
+    try std.testing.expectEqual(second, transport.attachment.actor.?);
+    try std.testing.expectEqual(agents.State.working, second.state.state);
+    try std.testing.expectEqual(@as(u64, 1), first.state.observation.completed);
+    try std.testing.expectEqual(@as(u64, 0), second.state.observation.completed);
+    try std.testing.expectEqual(agents.State.working, transport.status());
+    try std.testing.expect(!try transport.ingest(&registry,
+        \\{"method":"turn/completed","params":{"threadId":"a","turn":{"id":"a1","status":"completed"}}}
+    ));
+    try std.testing.expectEqual(@as(u64, 1), transport.observation().completed);
+    transport.acknowledge();
+    try std.testing.expect(!first.state.observation.unread());
+}
+
+test "native approval replies target their original conversation and duplicates stay singular" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var transport = try testSession(.codex);
+    defer {
+        transport.exited = true;
+        transport.destroy();
+    }
+    const request =
+        \\{"id":9,"method":"item/commandExecution/requestApproval","params":{"threadId":"a"}}
+    ;
+    _ = try transport.ingest(&registry, request);
+    _ = try transport.ingest(&registry, request);
+    try std.testing.expectEqual(@as(usize, 1), transport.approvals.items.len);
+    const lines = try transport.approvalLines(std.testing.allocator);
+    defer std.testing.allocator.free(lines);
+    try std.testing.expectEqualStrings(request, lines[0]);
+    _ = try transport.ingest(&registry,
+        \\{"id":2,"result":{"thread":{"id":"b"}}}
+    );
+    _ = try transport.ingest(&registry,
+        \\{"id":10,"method":"item/tool/requestUserInput","params":{"threadId":"b"}}
+    );
+    const reply = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"id":9,"result":{"decision":"accept"}}
+    , .{});
+    defer reply.deinit();
+    try std.testing.expectEqual(registry.find(.codex, "a").?, transport.approvals.items[0].actor.?);
+    try transport.send(&registry, reply.value);
+    try std.testing.expectEqual(agents.State.working, registry.find(.codex, "a").?.state.state);
+    try std.testing.expectEqual(agents.State.blocked, registry.find(.codex, "b").?.state.state);
+    try std.testing.expectEqual(agents.Attention.needs_input, transport.attention());
+    try std.testing.expectEqual(@as(usize, 1), transport.approvals.items.len);
+    try std.testing.expectEqualStrings("b", transport.agent().sessionId());
+}
+
+test "native duplicate sources share receipts and stale completions preserve the newer turn" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var first = try testSession(.codex);
+    var second = try testSession(.codex);
+    defer {
+        first.exited = true;
+        second.exited = true;
+        first.destroy();
+        second.destroy();
+    }
+    const started =
+        \\{"method":"turn/started","params":{"threadId":"shared","turn":{"id":"old"}}}
+    ;
+    const completed =
+        \\{"method":"turn/completed","params":{"threadId":"shared","turn":{"id":"old"}}}
+    ;
+    _ = try first.ingest(&registry, started);
+    _ = try second.ingest(&registry, started);
+    try std.testing.expect(try first.ingest(&registry, completed));
+    try std.testing.expect(!try second.ingest(&registry, completed));
+    try std.testing.expectEqual(@as(u64, 1), first.agent().observation.completed);
+    _ = try first.ingest(&registry,
+        \\{"method":"turn/started","params":{"threadId":"shared","turn":{"id":"new"}}}
+    );
+    _ = try first.ingest(&registry,
+        \\{"method":"item/started","params":{"threadId":"shared","turnId":"new","item":{"id":"new-tool","type":"commandExecution"}}}
+    );
+    try std.testing.expectEqual(@as(usize, 1), first.active_tools.items.len);
+    try std.testing.expect(first.agent().tool_active);
+    // A genuinely new turn accepts tools; replaying the completed turn does not.
+    _ = try first.ingest(&registry, started);
+    _ = try first.ingest(&registry,
+        \\{"method":"item/started","params":{"threadId":"shared","turnId":"old","item":{"id":"stale-tool","type":"commandExecution"}}}
+    );
+    try std.testing.expectEqual(@as(usize, 1), first.active_tools.items.len);
+    try std.testing.expectEqualStrings("new-tool", first.active_tools.items[0].id);
+    try std.testing.expect(!try first.ingest(&registry, completed));
+    try std.testing.expect(first.agent().tool_active);
+    try std.testing.expectEqualStrings("new", first.active_threads.get("shared").?);
+    try std.testing.expectEqual(agents.State.working, first.agent().state);
+    second.markExited();
+    try std.testing.expectEqual(agents.State.working, first.agent().state);
+}
+
+test "requests on two transports retain actor attention until both are resolved or disconnected" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var first = try testSession(.codex);
+    var second = try testSession(.codex);
+    defer {
+        first.exited = true;
+        second.exited = true;
+        first.destroy();
+        second.destroy();
+    }
+    // Request IDs are local to a transport, even when they coincide.
+    const request =
+        \\{"id":9,"method":"item/commandExecution/requestApproval","params":{"threadId":"shared"}}
+    ;
+    _ = try first.ingest(&registry, request);
+    _ = try second.ingest(&registry, request);
+    const actor = registry.find(.codex, "shared").?;
+    try std.testing.expectEqual(@as(u32, 2), actor.pending_native_requests);
+    const reply = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"id":9,"result":{"decision":"accept"}}
+    , .{});
+    defer reply.deinit();
+    try first.send(&registry, reply.value);
+    try std.testing.expectEqual(@as(u32, 1), actor.pending_native_requests);
+    try std.testing.expectEqual(agents.State.blocked, actor.state.state);
+    try std.testing.expectEqual(agents.Attention.needs_input, actor.state.attention);
+    _ = try first.ingest(&registry, request);
+    first.markExited();
+    try std.testing.expectEqual(@as(u32, 1), actor.pending_native_requests);
+    try std.testing.expectEqual(agents.Attention.needs_input, actor.state.attention);
+    first.markExited();
+    try std.testing.expectEqual(@as(u32, 1), actor.pending_native_requests);
+    second.markExited();
+    try std.testing.expectEqual(@as(u32, 0), actor.pending_native_requests);
+    try std.testing.expectEqual(agents.Attention.none, actor.state.attention);
+}
+
+test "native events snapshots and hooks share exactly one receipt regardless of arrival order" {
+    const session = "01901234-1234-1234-1234-123456789abc";
+    for ([_]agents.observation.Outcome{ .completed, .interrupted, .failed }) |outcome| {
+        for ([_]bool{ false, true }) |native_first| {
+            var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+            defer registry.deinit();
+            var transport = try testSession(.codex);
+            defer {
+                transport.exited = true;
+                transport.destroy();
+            }
+            _ = try transport.ingest(&registry,
+                \\{"method":"turn/started","params":{"threadId":"01901234-1234-1234-1234-123456789abc","turn":{"id":"t"}}}
+            );
+            const actor = transport.attachment.actor.?;
+            const completion = try std.json.Stringify.valueAlloc(std.testing.allocator, .{ .method = "turn/completed", .params = .{ .threadId = session, .turn = .{ .id = "t", .status = @tagName(outcome) } } }, .{});
+            defer std.testing.allocator.free(completion);
+            if (native_first) try std.testing.expectEqual(outcome == .completed, try transport.ingest(&registry, completion));
+            var snapshot: @import("codex_observer.zig").Snapshot = .{ .request = .{ .prefix = .{} }, .session = session.*, .state = .idle, .turn_len = 1, .outcome = outcome, .observed_at = actor.state.last_seq + 1 };
+            snapshot.turn[0] = 't';
+            try std.testing.expectEqual(!native_first and outcome == .completed, actor.observeSnapshot(snapshot, false));
+            try std.testing.expect(!try transport.ingest(&registry, completion));
+            try std.testing.expect(!actor.observeHook(.{ .kind = .stop, .session = session, .turn = "t" }, actor.state.last_seq + 1, false, actor.observed_at + 1));
+            try std.testing.expect(!actor.state.observation.pending_stop);
+            try std.testing.expectEqual(@as(u64, 1), actor.state.observation.completed);
+            try std.testing.expectEqual(outcome, actor.state.observation.outcome);
+            try std.testing.expectEqual(agents.State.idle, actor.state.state);
+            try std.testing.expectEqual(@as(u32, 0), transport.active_threads.count());
+        }
+    }
+}
+
+test "Claude results without turn IDs deduplicate until the next activity" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var transport = try testSession(.claude);
+    defer {
+        transport.exited = true;
+        transport.destroy();
+    }
+    for (1..3) |completed| {
+        _ = try transport.ingest(&registry,
+            \\{"type":"assistant","session_id":"a","message":{"content":[]}}
+        );
+        try std.testing.expect(try transport.ingest(&registry,
+            \\{"type":"result","session_id":"a","subtype":"success"}
+        ));
+        try std.testing.expect(!try transport.ingest(&registry,
+            \\{"type":"result","session_id":"a","subtype":"success"}
+        ));
+        try std.testing.expectEqual(@as(u64, completed), transport.agent().observation.completed);
+    }
 }

@@ -8,6 +8,7 @@ const workspace = @import("workspace.zig");
 const layout = @import("layout.zig");
 const agents = @import("agents.zig");
 const native = @import("native.zig");
+const conversations = @import("conversations.zig");
 const Terminal = @import("terminal.zig").Terminal;
 const binary = @import("base64.zig");
 pub const Resume = struct {
@@ -59,10 +60,11 @@ pub const Resume = struct {
     pub fn command(r: Resume, alloc: std.mem.Allocator) ![]const u8 {
         if (r.provider == .other or r.len == 0 or r.len > r.session.len) return alloc.dupe(u8, "");
         for (r.session[0..r.len]) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
-        const prefix: []const u8 = if (r.provider == .codex) "codex resume" else "claude --resume";
+        const argv = try @import("providers.zig").Backend.init(r.provider).resumeArgs(.{ .id = r.session[0..r.len] });
         var out: std.Io.Writer.Allocating = .init(alloc);
-        try out.writer.print("{s} '", .{prefix});
-        for (r.session[0..r.len]) |ch| {
+        errdefer out.deinit();
+        try out.writer.print("{s} {s} '", .{ argv[0], argv[1] });
+        for (argv[2]) |ch| {
             if (ch == '\'') try out.writer.writeAll("'\\''") else try out.writer.writeByte(ch);
         }
         try out.writer.writeByte('\'');
@@ -107,7 +109,7 @@ pub const Screen = struct {
         return t;
     }
 };
-pub const Pane = struct { label: @import("pane_label.zig").Label = .{}, id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
+pub const Pane = struct { binding: ?Binding = null, label: @import("pane_label.zig").Label = .{}, id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
 pub const Closed = struct { label: @import("pane_label.zig").Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
 pub const Workspace = struct {
     away: @import("usage.zig").Window = .{},
@@ -118,6 +120,9 @@ pub const Workspace = struct {
 };
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
+    binding: ?Binding = null,
+    members: []const u32 = &.{},
+    approval_actors: []const u32 = &.{},
     usage_tracker: @import("usage.zig").Tracker = .{},
     observation: agents.observation.State = .{},
     turns: []const NativeTurn = &.{},
@@ -142,8 +147,25 @@ pub const Native = struct {
     journal_bytes: usize,
     resume_hint: Resume,
 };
+pub const Conversation = struct {
+    id: u32,
+    agent: agents.Agent,
+    parent: ?u32 = null,
+    workspace: u32 = 0,
+    observed_at: i64 = 0,
+};
+pub const Binding = struct {
+    actor: u32 = 0,
+    generation: u64 = 1,
+    selection_hash: u64 = 0,
+    hook_seq: i64 = 0,
+    known: []const u32 = &.{},
+    provisional: agents.Agent = .{},
+};
 pub const State = struct {
-    version: u32 = 1,
+    version: u32 = 2,
+    conversations: []const Conversation = &.{},
+    next_conversation: u32 = 1,
     live: bool,
     saved_at: i64,
     next_workspace: u32,
@@ -157,8 +179,10 @@ pub const State = struct {
 };
 fn historicalAgent(agent: agents.Agent) agents.Agent {
     var result = agent;
-    result.state = if (result.observation.unread()) .done else .unknown;
-    if (!result.observation.unread()) result.provider = .other;
+    // Losing the transport is not evidence that the conversation ended.
+    result.state = if (agent.state == .done) .done else .unknown;
+    result.attention = if (result.observation.unread()) .finished else .none;
+    // Identity survives even when all receipts have been read.
     result.last_seq = 0;
     result.tool_active = false;
     result.subagents = .{};
@@ -174,8 +198,8 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     const panes = try alloc.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {
         p.refreshCwd();
-        p.resume_hint.observe(&p.agent);
-        out.* = .{ .id = p.id, .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, live), .agent = if (live) p.agent else historicalAgent(p.agent), .detection = if (live) p.detection else .{}, .resume_hint = p.resume_hint };
+        p.resume_hint.observe(p.agent());
+        out.* = .{ .id = p.id, .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, live), .binding = try captureBinding(alloc, &p.attachment, live), .agent = if (live) p.agent().* else historicalAgent(p.agent().*), .detection = if (live) p.detection else .{}, .resume_hint = p.resume_hint };
     }
     const closed = try alloc.alloc(Closed, r.closed.items.len);
     for (r.closed.items, closed) |p, *out| out.* = .{ .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, false), .tab = p.tab, .workspace_id = p.workspace_id };
@@ -187,14 +211,20 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
             const entry = it.next().?;
             turn.* = .{ .thread = entry.key_ptr.*, .turn = entry.value_ptr.* };
         }
-        out.* = .{ .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.state, .attention = s.attention, .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = s.approvals.items, .turns = turns, .observation = s.observation, .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
+        const members = try alloc.alloc(u32, s.members.items.len);
+        for (s.members.items, members) |actor, *id| id.* = actor.id;
+        const approval_actors = try alloc.alloc(u32, s.approvals.items.len);
+        for (s.approvals.items, approval_actors) |request, *id| id.* = if (request.actor) |actor| actor.id else 0;
+        out.* = .{ .binding = try captureBinding(alloc, &s.attachment, live), .members = members, .approval_actors = approval_actors, .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.status(), .attention = s.attention(), .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = try s.approvalLines(alloc), .turns = turns, .observation = s.observation(), .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
     }
-    return .{ .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
+    const actors = try alloc.alloc(Conversation, r.conversations.items.items.len);
+    for (r.conversations.items.items, actors) |actor, *out| out.* = .{ .id = actor.id, .agent = if (live) actor.state else historicalAgent(actor.state), .parent = actor.parent, .workspace = actor.workspace, .observed_at = if (live) actor.observed_at else 0 };
+    return .{ .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
 // Callers own a staging runtime. Live import errors exit the candidate without
 // calling destructors: inherited descriptors are still owned by the old daemon.
 pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8, executable: []const u8) !void {
-    if (state.version != 1 or state.live != live or state.workspaces.len == 0 or state.workspaces.len > workspace.max_workspaces or
+    if ((state.version != 1 and state.version != 2) or state.conversations.len > conversations.max_actors or state.live != live or state.workspaces.len == 0 or state.workspaces.len > workspace.max_workspaces or
         state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16) return error.InvalidCheckpoint;
     for (state.workspaces) |w| {
         if (w.id == 0 or w.id >= state.next_workspace or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
@@ -209,13 +239,27 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.workspaces.next_pane_id = state.next_pane;
     r.next_session = state.next_session;
     r.revision = state.revision +% 1;
+    for (state.conversations) |saved| {
+        if (saved.id == 0 or saved.id >= state.next_conversation or r.conversations.byId(saved.id) != null or !validAgent(saved.agent) or saved.agent.provider == .other or saved.agent.session_len == 0 or
+            r.conversations.find(saved.agent.provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;
+        const actor = try r.conversations.get(saved.agent.provider, saved.agent.sessionId());
+        actor.id = saved.id;
+        actor.state = if (live) saved.agent else historicalAgent(saved.agent);
+        actor.parent = saved.parent;
+        actor.workspace = if (r.workspaces.index(saved.workspace) != null) saved.workspace else 0;
+        actor.observed_at = if (live) saved.observed_at else 0;
+    }
+    r.conversations.next_id = state.next_conversation;
+    for (r.conversations.items.items) |actor| if (actor.parent) |parent| {
+        if (parent == actor.id or r.conversations.byId(parent) == null) return error.InvalidCheckpoint;
+    };
     for (state.panes) |p| {
         if (p.label.len > p.label.bytes.len or p.id == 0 or p.id >= state.next_pane or r.pane(p.id) != null or r.workspaces.owner(p.id) == null or
             !std.fs.path.isAbsolute(p.cwd) or p.resume_hint.len > p.resume_hint.session.len or p.agent.session_len > 160 or p.agent.cwd_len > p.agent.cwd.len or
             p.agent.transcript_len > p.agent.transcript.len or p.agent.turn_len > 160 or
             p.agent.last_finished_turn_len > 160 or p.agent.recent_len > 160 or p.agent.observation.read > p.agent.observation.completed) return error.InvalidCheckpoint;
         const t = try p.screen.restore(live);
-        try r.panes.append(a, .{ .id = p.id, .label = p.label, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .agent = p.agent, .detection = p.detection, .resume_hint = p.resume_hint });
+        try r.panes.append(a, .{ .id = p.id, .label = p.label, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .attachment = try restoreBinding(&r.conversations, p.binding, p.agent, live), .detection = p.detection, .resume_hint = p.resume_hint });
     }
     for (r.workspaces.items.items) |w| for (w.model.nodes) |maybe| if (maybe) |n| if (n == .pane and r.pane(n.pane) == null) return error.InvalidCheckpoint;
     for (state.closed) |p| {
@@ -224,7 +268,16 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     }
     for (state.sessions) |n| {
         if (n.resume_hint.len > 160 or n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
-        var s: native.Session = .{ .usage_tracker = if (live) n.usage_tracker else .{}, .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
+        var s: native.Session = .{ .usage_tracker = if (live) n.usage_tracker else .{}, .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .attachment = try restoreBinding(&r.conversations, n.binding, .{ .provider = n.provider, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .session = n.resume_hint.session, .session_len = n.resume_hint.len }, live), .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
+        if (n.members.len > 256 or (n.approval_actors.len != 0 and n.approval_actors.len != n.approvals.len)) return error.InvalidCheckpoint;
+        for (n.members) |id| {
+            const actor = r.conversations.byId(id) orelse return error.InvalidCheckpoint;
+            if (actor.state.provider != n.provider) return error.InvalidCheckpoint;
+            for (s.members.items) |member| if (member == actor) return error.InvalidCheckpoint;
+            try s.members.append(a, actor);
+        }
+        if (n.members.len == 0) if (s.attachment.actor) |actor| try s.members.append(a, actor);
+        s.requests_released = s.exited;
         s.child.id = n.pid;
         if (live and n.stdin >= 0) {
             s.child.stdin = .{ .handle = n.stdin };
@@ -239,7 +292,15 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         s.deferred = .fromOwnedSlice(try binary.decode(a, n.deferred));
         for (n.events) |event| try s.events.append(a, .{ .seq = event.seq, .line = try a.dupe(u8, event.line) });
         if (live) {
-            for (n.approvals) |line| try s.approvals.append(a, try a.dupe(u8, line));
+            // Join legacy wire arrays once; live requests keep their binding.
+            for (n.approvals, 0..) |line, i| {
+                const id = if (n.approval_actors.len > 0) n.approval_actors[i] else if (s.attachment.actor) |actor| actor.id else 0;
+                const actor = if (id != 0) r.conversations.byId(id) orelse return error.InvalidCheckpoint else null;
+                try s.approvals.append(a, .{ .line = try a.dupe(u8, line), .actor = actor });
+                if (!s.exited) if (actor) |owner| {
+                    owner.pending_native_requests += 1;
+                };
+            }
             for (n.turns) |turn| {
                 try s.active_threads.put(a, try a.dupe(u8, turn.thread), try a.dupe(u8, turn.turn));
             }
@@ -260,7 +321,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             const id = try r.create(.{ .workspace = n.workspace_id, .cwd = dir, .title = "Recovered native session", .cols = 100, .rows = 30, .theme = .{}, .socket = socket, .executable = executable });
             const pane = r.pane(id).?;
             pane.resume_hint = n.resume_hint;
-            pane.agent = .{ .provider = n.provider, .state = .done, .observation = n.observation, .session = n.resume_hint.session, .session_len = n.resume_hint.len, .attention = if (n.observation.unread()) .finished else .none };
+            pane.attachment = try restoreBinding(&r.conversations, n.binding, .{ .provider = n.provider, .state = .done, .observation = n.observation, .session = n.resume_hint.session, .session_len = n.resume_hint.len, .attention = if (n.observation.unread()) .finished else .none }, false);
             const command = try pane.resume_hint.command(a);
             defer a.free(command);
             for (n.events) |event| {
@@ -294,4 +355,38 @@ fn recoverPane(p: *runtime.Pane, socket: []const u8, executable: []const u8, sav
     try p.terminal.prefill(command);
     a.free(p.cwd);
     p.cwd = try a.dupe(u8, dir);
+}
+
+fn captureBinding(alloc: std.mem.Allocator, binding: *const conversations.Attachment, live: bool) !Binding {
+    return .{ .actor = if (binding.actor) |actor| actor.id else 0, .generation = binding.generation, .selection_hash = if (live) binding.selection_hash else 0, .hook_seq = if (live) binding.hook_seq else 0, .known = if (live) try alloc.dupe(u32, binding.known[0..binding.known_len]) else &.{}, .provisional = if (live) binding.provisional else historicalAgent(binding.provisional) };
+}
+fn validAgent(agent: agents.Agent) bool {
+    return agent.session_len <= agent.session.len and agent.name_len <= agent.name.len and agent.cwd_len <= agent.cwd.len and
+        agent.transcript_len <= agent.transcript.len and agent.turn_len <= agent.turn.len and agent.last_finished_turn_len <= agent.last_finished_turn.len and
+        agent.activity_len <= agent.activity.len and agent.tool_len <= agent.tool.len and agent.recent_len <= agent.recent.len and agent.observation.read <= agent.observation.completed;
+}
+fn restoreBinding(registry: *conversations.Registry, saved: ?Binding, legacy: agents.Agent, live: bool) !conversations.Attachment {
+    var binding: conversations.Attachment = .{};
+    if (saved) |value| {
+        if (!validAgent(value.provisional) or value.known.len > binding.known.len) return error.InvalidCheckpoint;
+        binding.provisional = value.provisional;
+        binding.generation = value.generation +% @intFromBool(!live);
+        binding.selection_hash = if (live) value.selection_hash else 0;
+        binding.hook_seq = if (live) value.hook_seq else 0;
+        if (value.actor != 0) binding.actor = registry.byId(value.actor) orelse return error.InvalidCheckpoint;
+        if (live) for (value.known) |id| {
+            if (registry.byId(id) == null) return error.InvalidCheckpoint;
+            binding.known[binding.known_len] = id;
+            binding.known_len += 1;
+        };
+    } else {
+        if (!validAgent(legacy)) return error.InvalidCheckpoint;
+        if (legacy.provider != .other and legacy.session_len > 0) {
+            const existing = registry.find(legacy.provider, legacy.sessionId());
+            const actor = existing orelse try registry.get(legacy.provider, legacy.sessionId());
+            if (existing == null) actor.state = legacy;
+            binding.select(actor);
+        } else binding.provisional = legacy;
+    }
+    return binding;
 }

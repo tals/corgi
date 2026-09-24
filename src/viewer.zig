@@ -91,7 +91,7 @@ pub fn presented(view: *View) !void {
         const p = view.runtime.pane(place.id) orelse continue;
         const focused = if (view.focused()) |selected| selected.id == p.id else false;
         if (!p.agent.observation.unread() and (p.agent.attention == .none or !focused)) continue;
-        try view.connection.send(.{ .op = "pane.acknowledge", .protocol = 1, .pane = p.id, .session = p.agent.session, .through = p.agent.observation.completed, .attention_at = if (focused) p.agent.changed_at else @as(i64, -1) });
+        try view.connection.send(.{ .op = "pane.acknowledge", .protocol = 1, .pane = p.id, .binding = p.binding, .conversation = p.agent.conversation, .session = p.agent.session, .through = p.agent.observation.completed, .attention_at = if (focused) p.agent.changed_at else @as(i64, -1) });
         p.agent.observation.acknowledge(p.agent.observation.completed);
         if (focused or p.agent.attention != .needs_input) p.agent.attention = .none;
     }

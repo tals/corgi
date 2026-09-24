@@ -2,7 +2,8 @@ const std = @import("std");
 pub const observation = @import("observation.zig");
 pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
-pub const Provider = enum { claude, codex, other };
+pub const providers = @import("providers.zig");
+pub const Provider = providers.Provider;
 pub const Subagents = struct {
     running: u32 = 0,
     blocked: u32 = 0,
@@ -98,86 +99,103 @@ pub const Agent = struct {
     pub fn recentLabel(a: *const Agent) []const u8 {
         return a.recent[0..a.recent_len];
     }
-    pub fn confirm(a: *Agent, seq: i64, outcome: observation.Outcome) bool {
-        if (!a.observation.pending_stop or a.last_seq != seq) return false;
-        a.observation.pending_stop = false;
-        a.compacting = false;
-        if (a.turn_len > 0 and eq(a.turnId(), a.last_finished_turn[0..a.last_finished_turn_len])) {
-            a.state = .idle;
-            a.activity_len = 0;
-            a.tool_active = false;
-            return false;
-        }
-        a.last_finished_turn_len = clean(&a.last_finished_turn, a.turnId());
-        a.finished_since_activity = true;
-        a.observation.finish(outcome, .transcript);
-        a.state = .idle;
-        a.tool_active = false;
-        a.tool_len = 0;
-        a.activity_len = 0;
-        a.changed_at = std.time.microTimestamp();
-        a.attention = .finished;
-        return outcome == .completed;
+    pub fn finishedTurn(a: *const Agent, turn: []const u8) bool {
+        return if (turn.len > 0) eq(turn, a.last_finished_turn[0..a.last_finished_turn_len]) else a.finished_since_activity;
     }
-    pub fn apply(a: *Agent, provider: Provider, value: std.json.Value, seq: i64, watched: bool) bool {
-        if (value != .object or seq <= a.last_seq) return false;
-        // A child agent must not overwrite its parent's lifecycle or identity.
-        if (str(value, "agent_id").len != 0) return false;
-        const event = str(value, "hook_event_name");
-        if (std.mem.startsWith(u8, event, "Subagent")) return false;
-        const session = str(value, "session_id");
-        const start = std.mem.eql(u8, event, "SessionStart");
-        const reported_turn = str(value, "turn_id");
+    pub fn beginTurn(a: *Agent, turn: []const u8) void {
+        if (turn.len > 0) a.turn_len = clean(&a.turn, turn);
+        a.finished_since_activity = false;
+        a.observation.pending_stop = false;
+        a.state = .working;
+        a.attention = if (a.observation.unread()) .finished else .none;
+    }
+    /// Snapshots can record history without ending the currently active turn.
+    /// A baseline remembers the turn but creates neither a receipt nor a chime.
+    pub fn recordCompletion(a: *Agent, turn: []const u8, outcome: observation.Outcome, source: observation.Source, baseline: bool) bool {
+        if (a.finishedTurn(turn)) return false;
+        a.last_finished_turn_len = clean(&a.last_finished_turn, turn);
+        if (baseline) return false;
+        a.observation.finish(outcome, source);
+        a.attention = .finished;
+        return true;
+    }
+    pub fn endTurn(a: *Agent, turn: []const u8, outcome: observation.Outcome, source: observation.Source, now: i64) bool {
+        if (turn.len > 0 and a.turn_len > 0 and !eq(turn, a.turnId())) return false;
+        const recorded = a.recordCompletion(if (turn.len > 0) turn else a.turnId(), outcome, source, false);
+        a.finished_since_activity = true;
+        a.observation.pending_stop = false;
+        a.state = .idle;
+        a.compacting = false;
+        a.activity_len = 0;
+        a.tool_len = 0;
+        a.tool_active = false;
+        if (recorded) a.changed_at = now;
+        return recorded and outcome == .completed;
+    }
+    pub fn confirmStop(a: *Agent, seq: i64, outcome: observation.Outcome, now: i64) bool {
+        if (!a.observation.pending_stop or a.last_seq != seq) return false;
+        return a.endTurn(a.turnId(), outcome, .transcript, now);
+    }
+    /// Null rejects the observation; an accepted observation returns whether to ring.
+    pub fn observeHook(a: *Agent, provider: Provider, hook: providers.Hook, seq: i64, watched: bool, now: i64) ?bool {
+        if (seq <= a.last_seq) return null;
+        const event = hook.kind;
+        const session = hook.session;
+        const start = event == .session_start;
+        const reported_turn = hook.turn;
+        // A conversation actor never changes identity. The attachment router
+        // finds or creates a different actor when the provider selects a session.
+        if (a.session_len > 0 and session.len > 0 and !eq(a.sessionId(), session)) return null;
+        if (a.provider != .other and a.provider != provider) return null;
         // A repeated end signal must not revive a completed turn or replace
         // a newer turn currently running in the same session.
-        if ((eq(event, "Stop") or eq(event, "Interrupt")) and reported_turn.len > 0 and
-            eq(session, a.sessionId()) and eq(reported_turn, a.last_finished_turn[0..a.last_finished_turn_len])) return false;
-        if ((eq(event, "Stop") or eq(event, "Interrupt")) and reported_turn.len == 0 and
-            eq(session, a.sessionId()) and a.finished_since_activity) return false;
-        if (!start and a.session_len > 0 and session.len > 0 and !std.mem.eql(u8, a.sessionId(), session)) return false;
-        const asking = eq(event, "PreToolUse") and (eq(str(value, "tool_name"), "AskUserQuestion") or eq(str(value, "tool_name"), "request_user_input"));
-        const next: State = if (start) .idle else if (asking) .blocked else if (eq(event, "UserPromptSubmit") or eq(event, "PreToolUse") or eq(event, "PostToolUse") or eq(event, "PostToolUseFailure") or eq(event, "PreCompact") or eq(event, "PostCompact")) .working else if (eq(event, "PermissionRequest")) .blocked else if (eq(event, "Notification")) blk: {
-            const kind = str(value, "notification_type");
-            if (eq(kind, "permission_prompt") or eq(kind, "idle_prompt") or eq(kind, "elicitation_dialog")) break :blk .blocked;
-            return false;
-        } else if (eq(event, "Stop") or eq(event, "Interrupt")) .idle else if (eq(event, "SessionEnd")) .done else return false;
-        if (start and session.len > 0 and !eq(a.sessionId(), session)) {
-            const receipts = a.observation;
-            a.* = .{};
-            // Receipt numbers remain monotonic across processes in the same pane.
-            a.observation.completed = receipts.completed;
-            a.observation.read = receipts.read;
+        if (event == .stop or event == .interrupt) {
+            if (a.finishedTurn(reported_turn)) return null;
+            if (reported_turn.len > 0 and a.turn_len > 0 and !eq(reported_turn, a.turnId())) return null;
         }
-        if (start or next == .working or next == .blocked) a.finished_since_activity = false;
-        const path = str(value, "transcript_path");
+        const path = hook.transcript;
         if (std.fs.path.isAbsolute(path) and path.len <= a.transcript.len) {
             @memcpy(a.transcript[0..path.len], path);
             a.transcript_len = path.len;
         }
-        const turn = str(value, "turn_id");
+        // Another attachment may announce the same conversation. Refresh its
+        // transcript without resetting an active turn or pending confirmation.
+        if (start and a.state != .unknown and a.state != .done) return false;
+        const next: State = switch (event) {
+            .session_start, .stop, .interrupt => .idle,
+            .tool_start => if (hook.asking) .blocked else .working,
+            .prompt, .tool_finish, .tool_failure, .compact_start, .compact_end => .working,
+            .permission, .notification => .blocked,
+            .session_end => .done,
+        };
+        if (start or next == .working or next == .blocked) a.finished_since_activity = false;
+        const turn = hook.turn;
         if (turn.len > 0 and turn.len <= a.turn.len) a.turn_len = clean(&a.turn, turn);
         a.last_seq = seq;
         a.provider = provider;
-        if (session.len > 0) a.session_len = clean(&a.session, session);
+        if (session.len > 0 and session.len <= a.session.len) {
+            @memcpy(a.session[0..session.len], session);
+            a.session_len = session.len;
+        }
         const old = a.state;
         a.observation.source = .hook;
-        a.observation.pending_stop = eq(event, "Stop");
+        a.observation.pending_stop = event == .stop;
         a.state = if (a.observation.pending_stop) .working else next;
-        a.changed_at = seq;
-        a.compacting = eq(event, "PreCompact");
-        const tool = str(value, "tool_name");
-        const cwd = str(value, "cwd");
+        a.changed_at = now;
+        a.compacting = event == .compact_start;
+        const tool = hook.tool;
+        const cwd = hook.cwd;
         if (start) a.cwd_len = 0;
         if (std.fs.path.isAbsolute(cwd) and cwd.len <= a.cwd.len) {
             @memcpy(a.cwd[0..cwd.len], cwd);
             a.cwd_len = cwd.len;
         }
-        if (eq(event, "PreToolUse") or eq(event, "PermissionRequest")) {
+        if (event == .tool_start or event == .permission) {
             a.tool_active = true;
             if (tool.len > 0) a.tool_len = clean(&a.tool, tool);
-        } else if (eq(event, "Notification") and eq(str(value, "notification_type"), "permission_prompt")) {
+        } else if (hook.permission_notification) {
             a.tool_active = true;
-        } else if (eq(event, "PostToolUse") or eq(event, "PostToolUseFailure")) {
+        } else if (event == .tool_finish or event == .tool_failure) {
             if (tool.len == 0 or eq(tool, a.toolLabel())) {
                 a.tool_len = 0;
                 a.tool_active = false;
@@ -186,24 +204,20 @@ pub const Agent = struct {
             a.tool_len = 0;
             a.tool_active = false;
         }
-        if (eq(event, "PostToolUse") or eq(event, "PostToolUseFailure")) {
+        if (event == .tool_finish or event == .tool_failure) {
             var detail: [160]u8 = undefined;
-            a.recent_len = clean(&a.recent, std.fmt.bufPrint(&detail, "{s}: {s}", .{ if (eq(event, "PostToolUseFailure")) "failed" else "used", tool }) catch tool);
+            a.recent_len = clean(&a.recent, std.fmt.bufPrint(&detail, "{s}: {s}", .{ if (event == .tool_failure) "failed" else "used", tool }) catch tool);
         }
         const activity = if (a.observation.pending_stop) "checking completion" else if (tool.len > 0 and a.tool_active) tool else if (next == .working) "thinking" else "";
-        const description = str(value.object.get("tool_input") orelse .null, "description");
+        const description = hook.description;
         if (a.tool_active and description.len > 0) {
             var detail: [160]u8 = undefined;
             a.activity_len = clean(&a.activity, std.fmt.bufPrint(&detail, "{s}: {s}", .{ tool, description[0..@min(description.len, 100)] }) catch activity);
         } else a.activity_len = clean(&a.activity, activity);
         if (start or next == .working) a.attention = if (a.observation.unread()) .finished else .none;
         if (a.observation.pending_stop) return false;
-        if (eq(event, "Interrupt") and (old == .working or old == .blocked)) {
-            a.finished_since_activity = true;
-            a.observation.finish(.interrupted, .hook);
-            a.last_finished_turn_len = clean(&a.last_finished_turn, a.turnId());
-            a.attention = .finished;
-            return false; // Interrupted turns have receipts, never a success chime.
+        if (event == .interrupt and (old == .working or old == .blocked)) {
+            return a.endTurn(a.turnId(), .interrupted, .hook, now);
         }
         if (old == next) return false;
         if (next == .blocked) {
@@ -228,54 +242,62 @@ pub fn clean(out: []u8, input: []const u8) usize {
 }
 test "attention is edge triggered, sticky, ordered, and separate from activity" {
     var a: Agent = .{};
-    const alloc = std.testing.allocator;
-    const working = try std.json.parseFromSlice(std.json.Value, alloc, "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"a\"}", .{});
-    defer working.deinit();
-    const blocked = try std.json.parseFromSlice(std.json.Value, alloc, "{\"hook_event_name\":\"PermissionRequest\",\"session_id\":\"a\"}", .{});
-    defer blocked.deinit();
-    const stopped = try std.json.parseFromSlice(std.json.Value, alloc, "{\"hook_event_name\":\"Stop\",\"session_id\":\"a\"}", .{});
-    defer stopped.deinit();
-    try std.testing.expect(!a.apply(.claude, working.value, 1, false));
-    try std.testing.expect(a.apply(.claude, blocked.value, 2, false));
-    try std.testing.expect(!a.apply(.claude, blocked.value, 3, false));
-    try std.testing.expect(!a.apply(.claude, working.value, 2, false));
+    const working: providers.Hook = .{ .kind = .prompt, .session = "a" };
+    const blocked: providers.Hook = .{ .kind = .permission, .session = "a" };
+    const stopped: providers.Hook = .{ .kind = .stop, .session = "a" };
+    try std.testing.expect(!a.observeHook(.claude, working, 1, false, 1).?);
+    try std.testing.expect(a.observeHook(.claude, blocked, 2, false, 2).?);
+    try std.testing.expect(!a.observeHook(.claude, blocked, 3, false, 3).?);
+    try std.testing.expectEqual(null, a.observeHook(.claude, working, 2, false, 4));
     try std.testing.expectEqual(Attention.needs_input, a.attention);
     a.acknowledge();
     try std.testing.expectEqual(State.blocked, a.state);
-    _ = a.apply(.claude, working.value, 4, false);
-    try std.testing.expect(!a.apply(.claude, stopped.value, 5, false));
+    _ = a.observeHook(.claude, working, 4, false, 5);
+    try std.testing.expect(!a.observeHook(.claude, stopped, 5, false, 6).?);
     try std.testing.expectEqual(State.working, a.state);
-    try std.testing.expect(a.confirm(5, .completed));
+    try std.testing.expect(a.confirmStop(5, .completed, 7));
     try std.testing.expectEqual(Attention.finished, a.attention);
-    _ = a.apply(.claude, working.value, 6, false);
-    try std.testing.expect(!a.apply(.claude, stopped.value, 7, true));
+    _ = a.observeHook(.claude, working, 6, false, 8);
+    try std.testing.expect(!a.observeHook(.claude, stopped, 7, true, 9).?);
 }
-test "subagent and stale-session hooks cannot corrupt parent state" {
+test "stale-session hooks cannot corrupt parent state" {
     var a: Agent = .{};
     a.session_len = clean(&a.session, "parent");
-    const v = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "{\"hook_event_name\":\"Stop\",\"session_id\":\"child\"}", .{});
-    defer v.deinit();
-    try std.testing.expect(!a.apply(.codex, v.value, 10, false));
+    try std.testing.expectEqual(null, a.observeHook(.codex, .{ .kind = .stop, .session = "child" }, 10, false, 10));
     try std.testing.expectEqual(State.unknown, a.state);
 }
 
 test "compaction overrides summaries and waiting until a subsequent lifecycle hook" {
     var agent: Agent = .{};
-    const pre = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "{\"hook_event_name\":\"PreCompact\",\"session_id\":\"parent\"}", .{});
-    defer pre.deinit();
     var seq: i64 = 1;
-    for ([_][]const u8{ "PostCompact", "PreToolUse", "Interrupt", "Stop", "SessionEnd", "SessionStart" }) |event| {
-        _ = agent.apply(.codex, pre.value, seq, false);
+    for ([_]@FieldType(providers.Hook, "kind"){ .compact_end, .tool_start, .interrupt, .stop, .session_end }) |event| {
+        _ = agent.observeHook(.codex, .{ .kind = .compact_start, .session = "parent" }, seq, false, seq);
         agent.subagents.waiting = true;
         agent.activity_len = clean(&agent.activity, "Old summary");
         try std.testing.expectEqualStrings("Compacting…", agent.label());
-        const json = try std.fmt.allocPrint(std.testing.allocator, "{{\"hook_event_name\":\"{s}\",\"session_id\":\"parent\"}}", .{event});
-        defer std.testing.allocator.free(json);
-        const next = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
-        defer next.deinit();
-        _ = agent.apply(.codex, next.value, seq + 1, false);
+        _ = agent.observeHook(.codex, .{ .kind = event, .session = "parent" }, seq + 1, false, seq + 1);
         try std.testing.expect(!agent.compacting);
         try std.testing.expect(!eq(agent.label(), "Compacting…"));
         seq += 2;
     }
+}
+
+test "conversation state rejects identity replacement and uses a controlled clock" {
+    const working: providers.Hook = .{ .kind = .prompt, .session = "a", .turn = "turn-a" };
+    const replacement: providers.Hook = .{ .kind = .session_start, .session = "b" };
+    const stop: providers.Hook = .{ .kind = .stop, .session = "a", .turn = "turn-a" };
+    var agent: Agent = .{};
+    _ = agent.observeHook(.claude, working, 10, false, 500);
+    try std.testing.expectEqual(@as(i64, 500), agent.changed_at);
+    try std.testing.expectEqual(null, agent.observeHook(.claude, replacement, 11, false, 600));
+    try std.testing.expectEqualStrings("a", agent.sessionId());
+    try std.testing.expectEqual(State.working, agent.state);
+    try std.testing.expectEqual(@as(i64, 10), agent.last_seq);
+    try std.testing.expectEqual(null, agent.observeHook(.codex, stop, 12, false, 650));
+    _ = agent.observeHook(.claude, stop, 13, false, 700);
+    try std.testing.expect(agent.confirmStop(13, .completed, 800));
+    try std.testing.expectEqual(@as(i64, 800), agent.changed_at);
+    try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
+    try std.testing.expect(!agent.confirmStop(13, .completed, 900));
+    try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
 }

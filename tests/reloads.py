@@ -107,7 +107,15 @@ class Reloads(smoke.Runtime):
         self.assertIn('BEFORE_CRASH',text)
         self.assertIn("codex resume 'session-123'",text)
         self.assertEqual(after['panes'][0]['cwd'],str(project))
-        self.assertEqual(after['panes'][0]['agent']['provider'],'other')
+        # Cold recovery retains conversation identity without claiming the agent
+        # is running in the replacement shell.
+        restored=after['panes'][0]['agent']
+        self.assertEqual(restored['provider'],'codex')
+        self.assertEqual(restored['session'],'session-123')
+        self.assertEqual(restored['state'],'unknown')
+        self.assertEqual(restored['conversation'],before['panes'][0]['agent']['conversation'])
+        actor=next(actor for actor in after['conversations'] if actor['id']==restored['conversation'])
+        self.assertEqual(actor['observed_at'],0)
         self.command('pane.input', target=first, data=("\x15printf 'NEW_%s\\n' SHELL") + '\r')
         self.until(lambda:'NEW_SHELL' in self.command('pane.read', target=first, view='screen')['text'])
 
@@ -137,7 +145,7 @@ class Reloads(smoke.Runtime):
                 self.until(lambda: "codex resume 'session-ready'" in self.command('pane.read', target=first, view='screen')['text'])
                 self.assertFalse(marker.exists())
                 self.command('pane.input', data='\r', target=first)
-                self.until(marker.exists)
+                self.until(lambda:marker.exists() and marker.read_text().strip()=='resume session-ready')
                 self.assertEqual(marker.read_text().strip(),'resume session-ready')
                 self.command('pane.input', target=first, data=('exit') + '\r')
                 self.until(lambda: first not in [p['id'] for p in self.session()['panes']])

@@ -31,8 +31,7 @@ pub const Workspace = struct {
         return true;
     }
     fn rename(w: *Workspace, value: []const u8) void {
-        const trimmed = std.mem.trim(u8, value, " ");
-        const label = trimmed;
+        const label = std.mem.trim(u8, value, " ");
         w.name_len = @min(label.len, w.name_buf.len);
         for (label[0..w.name_len], 0..) |ch, i| w.name_buf[i] = if (ch >= 32 and ch < 127) ch else '_';
     }
@@ -99,6 +98,9 @@ pub const Store = struct {
         for (s.items.items, 0..) |w, i| if (w.id == id) return i;
         return null;
     }
+    pub fn get(s: *Store, id: u32) ?*Workspace {
+        return &s.items.items[s.index(id) orelse return null];
+    }
     pub fn owner(s: *Store, pane: u32) ?*Workspace {
         for (s.items.items) |*w| if (w.model.tabForPane(pane) != null) return w;
         return null;
@@ -130,17 +132,17 @@ pub const Store = struct {
         return w.id;
     }
     pub fn rename(s: *Store, id: u32, name: []const u8) !void {
-        const i = s.index(id) orelse return error.NoWorkspace;
-        s.items.items[i].rename(name);
+        const w = s.get(id) orelse return error.NoWorkspace;
+        w.rename(name);
     }
     pub fn edit(s: *Store, id: u32, name: []const u8, cwd: []const u8) !void {
-        const i = s.index(id) orelse return error.NoWorkspace;
+        const w = s.get(id) orelse return error.NoWorkspace;
         const path = try directory(cwd);
-        a.free(s.items.items[i].cwd);
-        s.items.items[i].cwd = path;
-        s.items.items[i].git_ahead = null;
-        s.items.items[i].git_commits = .{};
-        s.items.items[i].rename(name);
+        a.free(w.cwd);
+        w.cwd = path;
+        w.git_ahead = null;
+        w.git_commits = .{};
+        w.rename(name);
     }
 };
 

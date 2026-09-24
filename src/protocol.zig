@@ -16,6 +16,8 @@ pub const capabilities = [_][]const u8{
     "viewer.sync",
     "viewer.search",
     "pane.acknowledge",
+    "conversation.list",
+    "conversation.acknowledge",
     "pane.surface",
     "server.reload",
     "recovery.save",
@@ -50,6 +52,7 @@ pub const Workspace = struct {
     stats: @import("usage.zig").Counts = .{},
 };
 pub const Agent = struct {
+    conversation: u32 = 0,
     subagents: agents.Subagents = .{},
     name: []const u8 = "",
     observation: agents.observation.State = .{},
@@ -65,6 +68,7 @@ pub const Agent = struct {
     compacting: bool = false,
 };
 pub const Pane = struct {
+    binding: u64 = 0,
     name: []const u8 = "",
     id: u32,
     workspace: u32,
@@ -89,7 +93,16 @@ pub const Native = struct {
     tool_active: bool,
     compacting: bool = false,
 };
+pub const Conversation = struct {
+    id: u32,
+    parent: ?u32 = null,
+    workspace: u32 = 0,
+    observed_at: i64 = 0,
+    attachments: u32 = 0,
+    agent: Agent,
+};
 pub const Snapshot = struct {
+    conversations: []const Conversation = &.{},
     ports: @import("ports.zig").Snapshot = .{},
     type: []const u8 = "session",
     protocol: u32 = version,
@@ -100,6 +113,25 @@ pub const Snapshot = struct {
     native_sessions: []const Native,
     closed_panes: usize,
 };
+
+fn agentView(state: *const agents.Agent, conversation: u32) Agent {
+    return .{
+        .conversation = conversation,
+        .subagents = state.subagents,
+        .changed_at = state.changed_at,
+        .provider = state.provider,
+        .state = state.state,
+        .attention = state.attention,
+        .observation = state.observation,
+        .recent_activity = state.recentLabel(),
+        .name = state.displayName(),
+        .session = state.sessionId(),
+        .activity = state.label(),
+        .cwd = state.directory(),
+        .tool_active = state.tool_active,
+        .compacting = state.compacting,
+    };
+}
 
 /// Allocate containers in a request arena; strings borrow the runtime until
 /// serialization completes. Process resources remain in the runtime.
@@ -118,6 +150,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         const tab = owner.model.tabForPane(p.id) orelse return error.NoTab;
         out.* = .{
             .id = p.id,
+            .binding = p.attachment.generation,
             .name = p.label.text(),
             .workspace = owner.id,
             .tab = owner.model.tabs[tab].id,
@@ -126,21 +159,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .cols = p.terminal.vt.cols,
             .rows = p.terminal.vt.rows,
             .exited = p.terminal.exited,
-            .agent = .{
-                .subagents = p.agent.subagents,
-                .changed_at = p.agent.changed_at,
-                .provider = p.agent.provider,
-                .state = p.agent.state,
-                .attention = p.agent.attention,
-                .observation = p.agent.observation,
-                .recent_activity = p.agent.recentLabel(),
-                .name = p.agent.displayName(),
-                .session = p.agent.sessionId(),
-                .activity = p.agent.label(),
-                .cwd = p.agent.directory(),
-                .tool_active = p.agent.tool_active,
-                .compacting = p.agent.compacting,
-            },
+            .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else 0),
         };
     }
     const sessions = try allocator.alloc(Native, r.sessions.items.len);
@@ -151,12 +170,34 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         .cwd = session.cwd,
         .ready = session.ready,
         .exited = session.exited,
-        .state = session.state,
-        .attention = session.attention,
-        .observation = session.observation,
+        .state = session.status(),
+        .attention = session.attention(),
+        .observation = session.observation(),
         .tool_active = session.toolActive(),
     };
+    const conversations = try allocator.alloc(Conversation, r.conversations.items.items.len);
+    for (r.conversations.items.items, conversations) |actor, *out| {
+        var attachments: u32 = 0;
+        for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {
+            attachments += 1;
+        };
+        for (r.sessions.items) |native_session| if (!native_session.exited) {
+            for (native_session.members.items) |member| if (member == actor) {
+                attachments += 1;
+                break;
+            };
+        };
+        out.* = .{
+            .id = actor.id,
+            .parent = actor.parent,
+            .workspace = actor.workspace,
+            .observed_at = actor.observed_at,
+            .attachments = attachments,
+            .agent = agentView(&actor.state, actor.id),
+        };
+    }
     return .{
+        .conversations = conversations,
         .server_pid = @import("os.zig").c.getpid(),
         .ports = r.ports.current,
         .revision = r.revision,

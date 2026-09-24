@@ -1,7 +1,7 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
-const common = [_][]const u8{ "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd", "PreCompact" };
+const providers = @import("providers.zig");
 pub fn hook(provider: []const u8, path: []const u8) !void {
     const pane = os.env("CORGI_PANE") orelse return;
     const id = std.fmt.parseInt(u32, pane, 10) catch return;
@@ -48,14 +48,8 @@ fn configCommand(provider: []const u8, command: []const u8) ![]u8 {
         }
         hooks.deinit();
     }
-    for (common) |event| try addHook(&hooks, event, command);
-    if (std.mem.eql(u8, provider, "claude")) {
-        try addHook(&hooks, "Notification", command);
-        try addHook(&hooks, "PostToolUseFailure", command);
-    } else if (std.mem.eql(u8, provider, "codex")) {
-        try addHook(&hooks, "Interrupt", command);
-        try addHook(&hooks, "PostCompact", command);
-    } else return error.BadProvider;
+    const kind = std.meta.stringToEnum(providers.Provider, provider) orelse return error.BadProvider;
+    for (try providers.Backend.init(kind).hookEvents()) |event| try addHook(&hooks, event, command);
     var root: std.json.ObjectMap = .init(a);
     defer root.deinit();
     try root.put("hooks", .{ .object = hooks });

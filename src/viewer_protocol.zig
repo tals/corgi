@@ -97,12 +97,17 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
     } else if (eq(u8, op, "pane.acknowledge")) {
         const p = s.runtime.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
         const through = if (v.object.get("through")) |value| if (value == .integer and value.integer >= 0) @as(u64, @intCast(value.integer)) else return error.InvalidAcknowledgement else 0;
-        if (!eq(u8, agents.str(v, "session"), p.agent.sessionId())) return error.StaleAcknowledgement;
-        if (p.agent.attention != .none or p.agent.observation.unread()) {
-            if (v.object.get("attention_at")) |stamp| {
-                if (stamp == .integer and stamp.integer == p.agent.changed_at) p.agent.attention = .none;
+        if (!eq(u8, agents.str(v, "session"), p.agent().sessionId())) return error.StaleAcknowledgement;
+        if (v.object.get("binding")) |value| if (value != .integer or value.integer != p.attachment.generation) return error.StaleAcknowledgement;
+        if (v.object.get("conversation")) |value| if (value != .integer or value.integer != (if (p.attachment.actor) |actor| actor.id else @as(u32, 0))) return error.StaleAcknowledgement;
+        if (p.agent().attention != .none or p.agent().observation.unread()) {
+            const stamp: ?i64 = if (v.object.get("attention_at")) |value| (if (value == .integer) value.integer else null) else null;
+            if (p.attachment.actor) |actor| {
+                actor.acknowledge(through, stamp);
+            } else {
+                if (stamp == p.agent().changed_at) p.agent().attention = .none;
+                p.agent().readThrough(through);
             }
-            p.agent.readThrough(through);
             s.runtime.changed();
             s.dirty = true;
         }

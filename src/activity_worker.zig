@@ -6,8 +6,9 @@ const summary = @import("activity_summary.zig");
 const backend = @import("summary_backend.zig");
 const a = std.heap.c_allocator;
 const max = @import("layout.zig").max_panes;
+const max_slots = @import("conversations.zig").max_actors;
 pub const Request = struct {
-    pane: u32,
+    actor: u32,
     provider: agents.Provider,
     session: [160]u8,
     session_len: usize,
@@ -17,7 +18,7 @@ pub const Request = struct {
     generation: u64 = 0,
     completed_tools: u64 = 0,
     pub fn sameTurn(r: *const Request, other: *const Request) bool {
-        return r.pane == other.pane and r.provider == other.provider and std.mem.eql(u8, r.session[0..r.session_len], other.session[0..other.session_len]) and std.mem.eql(u8, r.turn[0..r.turn_len], other.turn[0..other.turn_len]);
+        return r.actor == other.actor and r.provider == other.provider and std.mem.eql(u8, r.session[0..r.session_len], other.session[0..other.session_len]) and std.mem.eql(u8, r.turn[0..r.turn_len], other.turn[0..other.turn_len]);
     }
 };
 pub const Result = struct {
@@ -52,7 +53,7 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: std.atomic.Value(bool) = .init(false),
-    slots: [max]?Slot = @splat(null),
+    slots: [max_slots]?Slot = @splat(null),
     thread: ?std.Thread = null,
     implementation: backend.Backend,
     pub fn start() !*Worker {
@@ -70,14 +71,14 @@ pub const Worker = struct {
         w.thread.?.join();
         a.destroy(w);
     }
-    pub fn submit(w: *Worker, pane: u32, agent: *const agents.Agent, evidence: summary.Text) void {
+    pub fn submit(w: *Worker, actor: u32, agent: *const agents.Agent, evidence: summary.Text) void {
         if (w.implementation.disabled or (agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
-        const req: Request = .{ .pane = pane, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation };
+        const req: Request = .{ .actor = actor, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation };
         w.mutex.lock();
         defer w.mutex.unlock();
         const slot = for (&w.slots) |*s| {
             if (s.*) |v| {
-                if (v.request.pane == pane) break s;
+                if (v.request.actor == actor) break s;
             }
         } else for (&w.slots) |*s| {
             if (s.* == null) break s;
@@ -89,12 +90,12 @@ pub const Worker = struct {
         slot.*.?.combine();
         w.wake.signal();
     }
-    pub fn tools(w: *Worker, pane: u32, agent: *const agents.Agent, progress: @import("activity_tools.zig").View) void {
+    pub fn tools(w: *Worker, actor: u32, agent: *const agents.Agent, progress: @import("activity_tools.zig").View) void {
         if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
         w.mutex.lock();
         defer w.mutex.unlock();
         for (&w.slots) |*entry| if (entry.*) |*slot| {
-            if (slot.request.pane != pane or !std.mem.eql(u8, slot.request.session[0..slot.request.session_len], agent.sessionId()) or !std.mem.eql(u8, slot.request.turn[0..slot.request.turn_len], agent.turnId())) continue;
+            if (slot.request.actor != actor or !std.mem.eql(u8, slot.request.session[0..slot.request.session_len], agent.sessionId()) or !std.mem.eql(u8, slot.request.turn[0..slot.request.turn_len], agent.turnId())) continue;
             // Cumulative counts survive watched-workspace counter resets. If a
             // transcript is replaced, seed a fresh wave instead of replaying it.
             if (progress.completed < slot.request.completed_tools) {
@@ -108,13 +109,13 @@ pub const Worker = struct {
             return;
         };
     }
-    pub fn reconcile(w: *Worker, panes: anytype) void {
+    pub fn reconcile(w: *Worker, actors: anytype) void {
         w.mutex.lock();
         defer w.mutex.unlock();
         for (&w.slots) |*slot| if (slot.*) |s| {
-            const found = for (panes) |p| {
-                if (p.id == s.request.pane and !p.terminal.exited and (p.agent.state == .working or p.agent.state == .blocked) and std.mem.eql(u8, p.agent.sessionId(), s.request.session[0..s.request.session_len]) and std.mem.eql(u8, p.agent.turnId(), s.request.turn[0..s.request.turn_len])) {
-                    slot.*.?.active = p.agent.state == .working;
+            const found = for (actors) |actor| {
+                if (actor.id == s.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and std.mem.eql(u8, actor.state.sessionId(), s.request.session[0..s.request.session_len]) and std.mem.eql(u8, actor.state.turnId(), s.request.turn[0..s.request.turn_len])) {
+                    slot.*.?.active = actor.state.state == .working;
                     break true;
                 }
             } else false;
@@ -125,8 +126,12 @@ pub const Worker = struct {
         w.mutex.lock();
         defer w.mutex.unlock();
         out.* = @splat(null);
-        for (&w.slots, 0..) |*s, i| if (s.*) |*slot| {
-            out[i] = slot.result;
+        var count: usize = 0;
+        for (&w.slots) |*s| if (s.*) |*slot| {
+            if (slot.result == null) continue;
+            if (count == out.len) break;
+            out[count] = slot.result;
+            count += 1;
             slot.result = null;
         };
     }
@@ -137,8 +142,8 @@ pub const Worker = struct {
             w.mutex.lock();
             w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
             const now = std.time.milliTimestamp();
-            const selected: ?usize = if (now < next_global) null else for (0..max) |n| {
-                const i = (cursor + n) % max;
+            const selected: ?usize = if (now < next_global) null else for (0..max_slots) |n| {
+                const i = (cursor + n) % max_slots;
                 if (w.slots[i]) |s| if (s.ready(now)) break i;
             } else null;
             if (selected == null) {
@@ -151,7 +156,7 @@ pub const Worker = struct {
             w.slots[index].?.attempted_tools = request.completed_tools;
             w.slots[index].?.retry = false;
             w.slots[index].?.next = now + 20000;
-            cursor = (index + 1) % max;
+            cursor = (index + 1) % max_slots;
             next_global = now + 5000;
             w.mutex.unlock();
             const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text() }, &w.stopping);
@@ -182,7 +187,7 @@ test "late results cannot overwrite another turn or changed evidence" {
     var text: summary.Text = .{};
     text.append("Checking input");
     agent.activity_generation = text.hash();
-    const r: Result = .{ .request = .{ .pane = 1, .provider = .codex, .session = agent.session, .session_len = 1, .turn = agent.turn, .turn_len = 1, .evidence = text, .generation = text.hash() }, .label = summary.Label.parse("Checking input").? };
+    const r: Result = .{ .request = .{ .actor = 1, .provider = .codex, .session = agent.session, .session_len = 1, .turn = agent.turn, .turn_len = 1, .evidence = text, .generation = text.hash() }, .label = summary.Label.parse("Checking input").? };
     try std.testing.expect(r.apply(&agent));
     agent.turn[0] = 'u';
     try std.testing.expect(!r.apply(&agent));
@@ -195,7 +200,7 @@ test "late results cannot overwrite another turn or changed evidence" {
 }
 
 test "tool waves delay first inference and enforce cooldown without losing pending work" {
-    var s: Slot = .{ .request = .{ .pane = 1, .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
+    var s: Slot = .{ .request = .{ .actor = 1, .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
     try std.testing.expect(!s.ready(0));
     s.request.completed_tools = 2;
     try std.testing.expect(!s.ready(100000));
@@ -214,4 +219,35 @@ test "tool waves delay first inference and enforce cooldown without losing pendi
     try std.testing.expect(s.ready(260000));
     s.active = false;
     try std.testing.expect(!s.ready(300000));
+}
+
+test "summary slots belong to conversations shared by multiple or detached attachments" {
+    const conversations = @import("conversations.zig");
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const actor = try registry.get(.codex, "shared");
+    actor.state.state = .working;
+    actor.state.turn_len = agents.clean(&actor.state.turn, "turn-1");
+    var first: conversations.Attachment = .{};
+    var second: conversations.Attachment = .{};
+    first.select(actor);
+    second.select(actor);
+    const worker = try std.testing.allocator.create(Worker);
+    defer std.testing.allocator.destroy(worker);
+    worker.* = .{ .implementation = .{} };
+    worker.submit(first.actor.?.id, first.agent(), .{});
+    worker.submit(second.actor.?.id, second.agent(), .{});
+    var count: usize = 0;
+    for (worker.slots) |slot| if (slot != null) {
+        count += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 1), count);
+    first.detach();
+    second.detach();
+    worker.reconcile(registry.items.items);
+    try std.testing.expect(worker.slots[0] != null);
+    try std.testing.expectEqual(actor.id, worker.slots[0].?.request.actor);
+    actor.state.state = .idle;
+    worker.reconcile(registry.items.items);
+    try std.testing.expect(worker.slots[0] == null);
 }

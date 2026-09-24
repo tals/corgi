@@ -9,14 +9,14 @@ const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
-const Request = struct { pane: u32, workspace: u32, since: i64, agent: agents.Agent };
-pub const Result = struct { pane: u32, workspace: u32, since: i64, session: [160]u8, session_len: usize, delta: usage.Counts, progress: ?activity_tools.View = null };
+const Request = struct { actor: u32, workspace: u32, since: i64, agent: agents.Agent };
+pub const Result = struct { actor: u32, workspace: u32, since: i64, session: [160]u8, session_len: usize, delta: usage.Counts, progress: ?activity_tools.View = null };
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
-    requests: [max_jobs]Request = undefined,
-    count: usize = 0,
+    requests: std.ArrayList(Request) = .empty,
+    cursor: usize = 0,
     results: [max_jobs]?Result = @splat(null),
     thread: ?std.Thread = null,
     pub fn start() !*Worker {
@@ -32,20 +32,26 @@ pub const Worker = struct {
         w.wake.signal();
         w.mutex.unlock();
         w.thread.?.join();
+        w.requests.deinit(a);
         a.destroy(w);
     }
     pub fn reconcile(w: *Worker, runtime: anytype) void {
         w.mutex.lock();
         defer w.mutex.unlock();
-        w.count = 0;
-        for (runtime.panes.items) |p| {
-            if (p.agent.transcript_len == 0 or p.agent.session_len == 0) continue;
-            const ws = runtime.workspaces.owner(p.id) orelse continue;
-            w.requests[w.count] = .{ .pane = p.id, .workspace = ws.id, .since = ws.away.since, .agent = p.agent };
-            w.count += 1;
-            if (w.count == max_jobs) break;
+        w.requests.clearRetainingCapacity();
+        for (runtime.conversations.items.items) |actor| {
+            const agent = &actor.state;
+            if (agent.transcript_len == 0 or agent.session_len == 0) continue;
+            const ws = runtime.workspaces.get(actor.workspace) orelse continue;
+            w.requests.append(a, .{ .actor = actor.id, .workspace = ws.id, .since = ws.away.since, .agent = agent.* }) catch break;
         }
         w.wake.signal();
+    }
+    fn batch(w: *Worker, out: *[max_jobs]Request) []Request {
+        const count = @min(out.len, w.requests.items.len);
+        for (0..count) |i| out[i] = w.requests.items[(w.cursor + i) % w.requests.items.len];
+        if (w.requests.items.len > 0) w.cursor = (w.cursor + count) % w.requests.items.len;
+        return out[0..count];
     }
     pub fn take(w: *Worker, out: *[max_jobs]?Result) void {
         w.mutex.lock();
@@ -54,8 +60,15 @@ pub const Worker = struct {
         w.results = @splat(null);
     }
     fn run(w: *Worker) void {
-        var watchers: [max_jobs]Tail = @splat(.{});
-        defer for (&watchers) |*t| t.close();
+        var watchers: std.AutoHashMapUnmanaged(u32, *Tail) = .empty;
+        defer {
+            var values = watchers.valueIterator();
+            while (values.next()) |entry| {
+                entry.*.close();
+                a.destroy(entry.*);
+            }
+            watchers.deinit(a);
+        }
         var requests: [max_jobs]Request = undefined;
         while (true) {
             w.mutex.lock();
@@ -64,45 +77,43 @@ pub const Worker = struct {
                 w.mutex.unlock();
                 return;
             }
-            const count = w.count;
-            @memcpy(requests[0..count], w.requests[0..count]);
+            const batch_requests = w.batch(&requests);
             w.mutex.unlock();
-            for (&watchers) |*t| {
-                const exists = for (requests[0..count]) |*req| {
-                    if (req.pane == t.pane and eq(req.agent.sessionId(), t.session[0..t.session_len])) break true;
-                } else false;
-                if (!exists) t.close();
-            }
-            for (requests[0..count]) |*req| {
-                const t = for (&watchers) |*candidate| {
-                    if (candidate.pane == req.pane) break candidate;
-                } else for (&watchers) |*candidate| {
-                    if (candidate.pane == 0) break candidate;
-                } else continue;
-                if (t.pane == 0) {
-                    t.pane = req.pane;
-                    t.session = req.agent.session;
-                    t.session_len = req.agent.session_len;
+            for (batch_requests) |*req| {
+                const entry = watchers.getOrPut(a, req.actor) catch continue;
+                if (!entry.found_existing) {
+                    const tail = a.create(Tail) catch {
+                        _ = watchers.remove(req.actor);
+                        continue;
+                    };
+                    tail.* = .{ .actor = req.actor, .session = req.agent.session, .session_len = req.agent.session_len };
+                    entry.value_ptr.* = tail;
                 }
+                const t = entry.value_ptr.*;
+                // A full delivery buffer must not consume and lose usage deltas.
+                w.mutex.lock();
+                const slot = for (&w.results) |*candidate| {
+                    if (candidate.*) |old| {
+                        if (old.actor == req.actor) break candidate;
+                    }
+                } else for (&w.results) |*candidate| {
+                    if (candidate.* == null) break candidate;
+                } else null;
+                w.mutex.unlock();
+                if (slot == null) continue;
                 const delta = t.poll(req) catch {
                     t.closeFile();
                     continue;
                 };
+                t.releaseFile();
                 if (!delta.any() and !delta.tokens_known and !t.progress.dirty) continue;
                 w.mutex.lock();
-                const slot = for (&w.results) |*entry| {
-                    if (entry.*) |old| {
-                        if (old.pane == req.pane) break entry;
+                if (slot) |result| {
+                    if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
+                        result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
                     }
-                } else for (&w.results) |*entry| {
-                    if (entry.* == null) break entry;
-                } else null;
-                if (slot) |entry| {
-                    if (entry.* == null or entry.*.?.since != req.since or entry.*.?.workspace != req.workspace or !eq(entry.*.?.session[0..entry.*.?.session_len], req.agent.sessionId())) {
-                        entry.* = .{ .pane = req.pane, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
-                    }
-                    entry.*.?.delta.add(delta);
-                    if (req.agent.provider == .codex) entry.*.?.progress = t.progress.view();
+                    result.*.?.delta.add(delta);
+                    if (req.agent.provider == .codex) result.*.?.progress = t.progress.view();
                     if (eq(t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
                 }
                 w.mutex.unlock();
@@ -114,7 +125,7 @@ fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
 pub const Tail = struct {
-    pane: u32 = 0,
+    actor: u32 = 0,
     session: [160]u8 = @splat(0),
     session_len: usize = 0,
     initial_until: u64 = 0,
@@ -126,9 +137,14 @@ pub const Tail = struct {
     offset: u64 = 0,
     partial: std.ArrayList(u8) = .empty,
     discard: bool = false,
-    fn closeFile(t: *Tail) void {
+    fn releaseFile(t: *Tail) void {
         if (t.file) |f| f.close();
         t.file = null;
+    }
+    fn closeFile(t: *Tail) void {
+        t.releaseFile();
+        t.inode = 0;
+        t.device = 0;
         t.offset = 0;
         t.partial.clearRetainingCapacity();
         t.discard = false;
@@ -144,17 +160,22 @@ pub const Tail = struct {
         errdefer file.close();
         const stat = try file.stat();
         if (stat.kind != .file) return error.NotRegular;
-        if (agent.provider == .codex) try @import("transcript.zig").verifyCodexSession(file, agent.sessionId());
+        const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
+        const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
+        if (!resumed) {
+            if (agent.provider == .codex) try @import("transcript.zig").verifyCodexSession(file, agent.sessionId());
+            t.initial_until = stat.size;
+            t.offset = stat.size -| initial_tail;
+            t.partial.clearRetainingCapacity();
+            t.tracker = .{};
+            t.progress = .{};
+            if (agent.provider == .codex) t.progress.bind(agent.turnId());
+            if (t.offset == 0 and agent.provider == .codex) t.tracker.beginCodex("codex");
+            t.discard = t.offset > 0;
+        }
         t.file = file;
         t.inode = stat.inode;
-        t.device = @intCast((try std.posix.fstat(file.handle)).dev);
-        t.initial_until = stat.size;
-        t.offset = stat.size -| initial_tail;
-        t.tracker = .{};
-        t.progress = .{};
-        if (agent.provider == .codex) t.progress.bind(agent.turnId());
-        if (t.offset == 0 and agent.provider == .codex) t.tracker.beginCodex("codex");
-        t.discard = t.offset > 0;
+        t.device = device;
     }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(&req.agent);
@@ -203,7 +224,7 @@ pub const Tail = struct {
 test "usage tail frames records, ignores history and advances baselines while watched" {
     var tail: Tail = .{};
     defer tail.close();
-    var req: Request = .{ .pane = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };
+    var req: Request = .{ .actor = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };
     req.agent.session_len = agents.clean(&req.agent.session, "session");
     const baseline = "{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:00.000Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"output_tokens\":10}}}}\n";
     try std.testing.expect(!(try tail.ingest(&req, baseline, 0)).any());
@@ -236,16 +257,22 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     try std.testing.expectError(error.WrongSession, @import("transcript.zig").verifyCodexSession(file, "other-session"));
     const path = try tmp.dir.realpathAlloc(std.testing.allocator, "usage.jsonl");
     defer std.testing.allocator.free(path);
-    var req: Request = .{ .pane = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };
+    var req: Request = .{ .actor = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };
     req.agent.session_len = agents.clean(&req.agent.session, "large-session");
     @memcpy(req.agent.transcript[0..path.len], path);
     req.agent.transcript_len = path.len;
     var tail: Tail = .{};
     defer tail.close();
     try std.testing.expect(!(try tail.poll(&req)).any());
+    // Rotating to other conversations closes the FD but must retain this
+    // actor's baseline and byte offset when the worker comes back to it.
+    const baseline_offset = tail.offset;
+    tail.releaseFile();
+    try std.testing.expectEqual(null, tail.file);
     try file.writeAll("{\"type\":\"response_item\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"function_call\",\"call_id\":\"call1\"}}\n");
     try file.writeAll("{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"output_tokens\":20}}}}\n");
     const delta = try tail.poll(&req);
+    try std.testing.expect(tail.offset > baseline_offset);
     try std.testing.expectEqual(@as(u64, 1), delta.tools);
     try std.testing.expectEqual(@as(u64, 100), delta.input);
     try std.testing.expectEqual(@as(u64, 20), delta.output);
