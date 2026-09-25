@@ -187,6 +187,7 @@ fn historicalAgent(agent: agents.Agent) agents.Agent {
     result.metadata_protocol_at = 0;
     result.tool_active = false;
     result.subagents = .{};
+    result.permission_review = null;
     result.observation.pending_stop = false;
     result.transcript_len = 0;
     return result;

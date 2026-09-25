@@ -125,7 +125,7 @@ class Viewers(unittest.TestCase):
         append(1,150,20)
         self.until(lambda:counts()['tools']==1)
         self.assertEqual((counts()['input'],counts()['output']),(50,10))
-        self.rpc(op='hook',pane=pane,provider='codex',seq=2,event={'hook_event_name':'PermissionRequest','session_id':'usage'})
+        self.rpc(op='hook',pane=pane,provider='codex',seq=2,event={'hook_event_name':'PreToolUse','tool_name':'request_user_input','session_id':'usage'})
         self.assertIn('\x1b[1;38;2;243;139;168m1●',a.poll()['data'])
         self.assertNotIn('↓50↑10',a.state['data'])
         self.assertIn('0 unread',legacy.screen_text(a.state['data'],100,30)[3][:27])

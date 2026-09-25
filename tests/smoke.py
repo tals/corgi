@@ -1123,7 +1123,7 @@ while True:
         hook('UserPromptSubmit');self.agent_frame('codex','●',activity='thinking',color='249;226;175')
         hook('PreToolUse',tool_name='Bash');screen=self.agent_frame('codex','●',activity='🔧')
         self.assertIn('Bash','\n'.join(row[:27] for row in screen))
-        hook('PermissionRequest');screen=self.agent_frame('codex','●',activity='🔧',color='243;139;168')
+        hook('PreToolUse',tool_name='request_user_input');screen=self.agent_frame('codex','●',activity='🔧',color='243;139;168')
         self.assertEqual(self.panes()[0]['attention'],'needs_input')
         self.click_text([row[:27] for row in screen],'codex')
         self.until(lambda:self.panes()[0]['focused'] and self.panes()[0]['attention']=='none')
@@ -1238,17 +1238,20 @@ with open({str(played)!r},'a') as log:
         def hook(event,seq):
             nonlocal turn
             if event == 'UserPromptSubmit': turn = str(seq)
-            self.rpc(op='hook',pane=pane,provider='codex',seq=seq,event={'hook_event_name':event,'session_id':'sounds','turn_id':turn,'transcript_path':str(transcript)})
+            self.rpc(op='hook',pane=pane,provider='codex',seq=seq,event={'hook_event_name':event,'session_id':'sounds','turn_id':turn,'transcript_path':str(transcript),'tool_name':'request_user_input'})
             if event=='Stop':
                 with transcript.open('a') as f:f.write(json.dumps({'type':'event_msg','timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z'),'payload':{'type':'task_complete','turn_id':turn}})+'\n')
         def records():
             while select.select([self.master],[],[],0)[0]:os.read(self.master,65536)
             return [json.loads(line) for line in played.read_text().splitlines()] if played.exists() else []
-        hook('SessionStart',1);hook('UserPromptSubmit',2);hook('PermissionRequest',3)
+        hook('SessionStart',1);hook('UserPromptSubmit',2)
+        hook('PermissionRequest',3)
+        time.sleep(.7);self.assertEqual(records(),[])
+        hook('PreToolUse',4)
         self.until(lambda:len(records())==1)
         self.assertEqual(records()[0]['hash'],hashlib.sha256((ROOT/'src/sounds/request.mp3').read_bytes()).hexdigest())
         # Repeated hooks and completing the currently watched pane stay quiet.
-        hook('PermissionRequest',4);hook('UserPromptSubmit',5);hook('Stop',6)
+        hook('PreToolUse',5);hook('UserPromptSubmit',6);hook('Stop',7)
         time.sleep(1.6);self.assertEqual(len(records()),1)
         # A background completion uses the distinct embedded completion sound.
         background=self.open_pane(cwd=self.temp.name)['pane']
@@ -1256,12 +1259,12 @@ with open({str(played)!r},'a') as log:
             records() # Drain the PTY while the queued viewer control is applied.
             return any(v['pane']==background for v in self.rpc(op='viewer.list')['viewers'])
         self.until(switched)
-        hook('UserPromptSubmit',7);hook('Stop',8)
+        hook('UserPromptSubmit',8);hook('Stop',9)
         self.until(lambda:len(records())==2)
         self.assertEqual(records()[1]['hash'],hashlib.sha256((ROOT/'src/sounds/done.mp3').read_bytes()).hexdigest())
         self.until(lambda:all(not pathlib.Path(record['path']).exists() for record in records()))
         self.rpc(op='action',name='mute')
-        hook('UserPromptSubmit',9);hook('PermissionRequest',10)
+        hook('UserPromptSubmit',10);hook('PreToolUse',11)
         time.sleep(1.6);self.assertEqual(len(records()),2)
     def test_attention_is_deduplicated_and_explicitly_acknowledged(self):
         self.attach();self.get_type('frame');self.input('\x02v');self.until(lambda:len(self.panes())==2)

@@ -357,9 +357,10 @@ pub const Server = struct {
         // actor when a process exits or another session occupies the pane.
         const authoritative = if (p.attachment.actor) |actor| actor.authoritative(now) else false;
         p.attachment.provisional.last_seq = if (authoritative) 1 else 0;
-        const text = if (job != null and !authoritative) p.terminal.liveText() catch null else null;
+        const review = p.agent().permission_review != null;
+        const text = if (job != null and (!authoritative or review)) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
-        const ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
+        var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
         if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
         if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
         p.resume_hint.observe(p.agent());
@@ -377,6 +378,9 @@ pub const Server = struct {
         const usage_worker = @import("usage_worker.zig");
         const usage = try usage_worker.Worker.start();
         defer usage.stop();
+        if (job != null and review and text != null) {
+            ding = p.agent().observePermissionPrompt(detection.screenState(.codex, p.terminal.vt.getTitle() orelse "", text.?) == .blocked, s.paneWatched(p.id), now) or ding;
+        }
         const codex_observer = @import("codex_observer.zig");
         const summaries = try @import("activity_worker.zig").Worker.start();
         defer summaries.stop();

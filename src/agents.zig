@@ -36,6 +36,9 @@ pub const Agent = struct {
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,
+    // Codex runs PermissionRequest hooks before automatic review. Only an
+    // actual prompt (or a protocol waiting flag) establishes human attention.
+    permission_review: ?u8 = null,
     compacting: bool = false,
     cwd: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
     cwd_len: usize = 0,
@@ -93,6 +96,7 @@ pub const Agent = struct {
         return if (turn.len > 0) eq(turn, a.last_finished_turn[0..a.last_finished_turn_len]) else a.finished_since_activity;
     }
     pub fn beginTurn(a: *Agent, turn: []const u8) void {
+        a.permission_review = null;
         if (turn.len > 0) a.turn_len = clean(&a.turn, turn);
         a.finished_since_activity = false;
         a.observation.pending_stop = false;
@@ -113,6 +117,7 @@ pub const Agent = struct {
         if (turn.len > 0 and a.turn_len > 0 and !eq(turn, a.turnId())) return false;
         const recorded = a.recordCompletion(if (turn.len > 0) turn else a.turnId(), outcome, source, false);
         a.finished_since_activity = true;
+        a.permission_review = null;
         a.observation.pending_stop = false;
         a.state = .idle;
         a.compacting = false;
@@ -155,13 +160,15 @@ pub const Agent = struct {
             .session_start, .stop, .interrupt => .idle,
             .tool_start => if (hook.asking) .blocked else .working,
             .prompt, .tool_finish, .tool_failure, .compact_start, .compact_end => .working,
-            .permission, .notification => .blocked,
+            .permission => if (provider == .codex) .working else .blocked,
+            .notification => .blocked,
             .session_end => .done,
         };
         if (start or next == .working or next == .blocked) a.finished_since_activity = false;
         const turn = hook.turn;
         if (turn.len > 0 and turn.len <= a.turn.len) a.turn_len = clean(&a.turn, turn);
         a.last_seq = seq;
+        a.permission_review = if (event == .permission and provider == .codex) 0 else null;
         a.provider = provider;
         if (session.len > 0 and session.len <= a.session.len) {
             @memcpy(a.session[0..session.len], session);
@@ -214,6 +221,25 @@ pub const Agent = struct {
         }
         return false;
     }
+
+    pub fn observePermissionPrompt(a: *Agent, visible: bool, watched: bool, now: i64) bool {
+        const polls = a.permission_review orelse return false;
+        if (!visible) {
+            a.permission_review = 0;
+            if (a.state == .blocked) {
+                a.state = .working;
+                a.attention = if (a.observation.unread()) .finished else .none;
+                a.changed_at = now;
+            }
+            return false;
+        }
+        a.permission_review = polls +| 1;
+        if (a.permission_review.? < 2 or a.state == .blocked) return false;
+        a.state = .blocked;
+        a.changed_at = now;
+        if (!watched) a.attention = .needs_input;
+        return true;
+    }
 };
 fn eq(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
@@ -228,6 +254,31 @@ pub fn clean(out: []u8, input: []const u8) usize {
     for (input[0..n], 0..) |ch, i| out[i] = if (ch >= 32 and ch < 127) ch else ' ';
     return n;
 }
+test "Codex permission review only rings for a confirmed human prompt" {
+    var a: Agent = .{};
+    const review: providers.Hook = .{ .kind = .permission, .session = "a", .tool = "Bash" };
+    try std.testing.expect(!a.observeHook(.codex, review, 1, false, 1).?);
+    try std.testing.expectEqual(State.working, a.state);
+    try std.testing.expectEqual(Attention.none, a.attention);
+    try std.testing.expect(a.tool_active);
+    for (0..4) |_| try std.testing.expect(!a.observePermissionPrompt(false, false, 2));
+    try std.testing.expect(!a.observePermissionPrompt(true, false, 3));
+    try std.testing.expect(a.observePermissionPrompt(true, false, 4));
+    try std.testing.expectEqual(State.blocked, a.state);
+    try std.testing.expectEqual(Attention.needs_input, a.attention);
+    try std.testing.expect(!a.observePermissionPrompt(true, false, 5));
+    // Approval can launch a long-running tool before PostToolUse arrives.
+    try std.testing.expect(!a.observePermissionPrompt(false, false, 6));
+    try std.testing.expectEqual(State.working, a.state);
+    try std.testing.expectEqual(Attention.none, a.attention);
+    try std.testing.expect(!a.observeHook(.codex, .{ .kind = .tool_finish, .session = "a", .tool = "Bash" }, 7, false, 7).?);
+    try std.testing.expectEqual(null, a.permission_review);
+    try std.testing.expect(!a.observePermissionPrompt(true, false, 8));
+    try std.testing.expect(!a.observePermissionPrompt(true, false, 9));
+    try std.testing.expect(a.observeHook(.codex, .{ .kind = .tool_start, .session = "a", .asking = true }, 10, false, 10).?);
+    try std.testing.expectEqual(State.blocked, a.state);
+}
+
 test "attention is edge triggered, sticky, ordered, and separate from activity" {
     var a: Agent = .{};
     const working: providers.Hook = .{ .kind = .prompt, .session = "a" };

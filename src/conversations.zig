@@ -55,6 +55,7 @@ pub const Actor = struct {
         const same_turn = std.mem.eql(u8, agent.turnId(), s.turn[0..s.turn_len]);
         if (!same_turn or old_state != s.state or s.state != .working) {
             agent.activity_len = 0;
+        agent.permission_review = null;
             agent.compacting = false;
         }
         agent.activity_generation = s.evidence.hash();

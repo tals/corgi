@@ -65,9 +65,18 @@ class Observations(smoke.Runtime):
         self.assertEqual(agent['observation']['outcome'],'interrupted')
         self.assertEqual(agent['state'],'idle')
         self.hook('Interrupt');self.assertEqual(self.state()['completed'],1)
+    def test_automatic_permission_review_does_not_request_human_input(self):
+        self.hook('UserPromptSubmit')
+        self.hook('PreToolUse',tool_name='Bash')
+        self.hook('PermissionRequest',tool_name='Bash')
+        time.sleep(.7)
+        self.assertEqual((self.state()['state'],self.state()['attention']),('working','none'))
+        self.hook('PostToolUse',tool_name='Bash')
+        self.assertEqual((self.state()['state'],self.state()['attention']),('working','none'))
+
     def test_read_receipt_does_not_clear_a_newer_permission_prompt(self):
         self.finish();stamp=next(p for p in self.session()['panes'] if p['id']==self.pane)['agent']['changed_at']
-        self.turn=2;self.hook('UserPromptSubmit');self.hook('PermissionRequest')
+        self.turn=2;self.hook('UserPromptSubmit');self.hook('PreToolUse',tool_name='request_user_input')
         self.rpc(op='pane.acknowledge',protocol=1,pane=self.pane,session='session',through=1,attention_at=stamp)
         self.assertFalse(self.state()['unread'])
         self.assertEqual(self.state()['attention'],'needs_input')
