@@ -11,6 +11,7 @@ pub const Pointer = struct { x: u16, y: u16 };
 pub const Ui = struct {
     pointer: ?Pointer = null,
     link_tooltip: bool = false,
+    agent_launcher: ?@import("agent_launcher.zig").Menu = null,
     message: []const u8,
     copy_mode: bool,
     copy_feedback: bool = false,
@@ -19,6 +20,7 @@ pub const Ui = struct {
     menu: ?commands.View = null,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
+    agent_search: ?sidebar.Search = null,
     tab_drop_x: ?u16 = null,
     dialog: ?naming.Dialog = null,
     confirm: bool = false,
@@ -28,6 +30,7 @@ pub const Ui = struct {
     workspace_drop_y: ?u16 = null,
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
+    conversations: []const @import("protocol.zig").Conversation = &.{},
     workspaces: []const sidebar.WorkspaceEntry = &.{},
     workspace_offset: usize = 0,
 };
@@ -101,7 +104,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var out: Buffer = .init(a);
     defer out.deinit();
     const w = &out.writer;
-    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
+    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
     side.corgi_badge = ui.corgi_badge;
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
@@ -145,7 +148,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var link_pointer = false;
     var workspace_uri: [256]u8 = undefined;
     if (ui.pointer) |pointer| {
-        if (ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
+        if (ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
             if (ui.port_menu) |menu| {
                 for (ui.workspaces) |ws| {
                     if (ws.id != menu.workspace) continue;
@@ -156,6 +159,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             } else {
                 link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null;
                 switch (side.hit(pointer.x, pointer.y)) {
+                    .agent_new, .agent_options => link_pointer = true,
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
                     else => {},
                 }
@@ -163,6 +167,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             }
         }
     }
+    if (ui.agent_launcher != null) if (ui.pointer) |pointer| {
+        link_pointer = @import("agent_launcher.zig").Menu.hit(width, height, side, pointer.x, pointer.y) != null or side.hit(pointer.x, pointer.y) == .agent_new or side.hit(pointer.x, pointer.y) == .agent_options;
+    };
     for (view.placements(area, &locations)) |place| {
         if (place.rect.w == 0 or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
@@ -171,7 +178,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             const state = p.terminal.renderState();
             var hovered: ?u64 = null;
             if (ui.pointer) |pointer| {
-                if (r.contains(pointer.x, pointer.y) and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
+                if (r.contains(pointer.x, pointer.y) and ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
                     for (p.terminal.hyperlinks()) |link| {
                         if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
                             hovered = link.id;
@@ -193,7 +200,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     try side.draw(w, ui.agents, ui.workspaces);
     if (ui.corgi_badge) {
         try w.writeAll(@import("corgi_badge.zig").hide);
-        if (side.width > 0 and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
+        if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try @import("corgi_badge.zig").place(w);
     }
     if (ui.workspace_drop_y) |y| {
@@ -232,7 +239,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.writeAll(text[0..@min(text.len, width)]);
     }
     try w.writeAll("\x1b[0m");
-    if (model.count > 0 and !ui.copy_mode and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
+    if (model.count > 0 and !ui.copy_mode and ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
@@ -242,9 +249,11 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             };
         };
     };
-    if (ui.link_tooltip) if (ui.pointer) |pointer| {
+    if (ui.link_tooltip and ui.agent_launcher == null) if (ui.pointer) |pointer| {
         if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
+        } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {
+            try @import("subagent_tooltip.zig").draw(w, ui.conversations, entry.*, width, height, pointer.x, pointer.y);
         } else if (width >= 24 and height >= 5) {
             const tooltip_x = @min(pointer.x +| 1, width - 24);
             const tooltip_y = if (pointer.y + 4 < height) pointer.y + 1 else pointer.y -| 3;
@@ -281,6 +290,8 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
         try naming.View.init(width, height, dialog).draw(dialog, w, number);
     }
+    if (ui.agent_launcher) |*launcher| try launcher.draw(w, width, height, side);
+    try side.searchCursor(w);
     // Include the shape in each complete frame so reconnects and overlay changes
     // cannot leave the host pointer stuck on a previously hovered link.
     try w.writeAll(if (link_pointer or hovered_uri != null) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\");
@@ -405,6 +416,13 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=p,i=730031") != null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=t,") == null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
+    ui.agent_launcher = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    const popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
+    defer a.free(popup);
+    try std.testing.expect(std.mem.indexOf(u8, popup, "New agent") != null);
+    try std.testing.expect(std.mem.indexOf(u8, popup, "a=p,i=730031") != null);
+    try std.testing.expect(std.mem.indexOf(u8, popup, "a=t,") == null);
+    ui.agent_launcher = null;
     ui.sidebar_open = false;
     const hidden = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(hidden);

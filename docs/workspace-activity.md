@@ -11,9 +11,16 @@ Tool counts are right-aligned and stay visible even at zero. Token usage is stil
 
 Ordinary Codex and Claude sessions use incremental, session-validated transcript reads on a background worker. Codex's existing read-only daemon observer supplies its transcript path; Claude hooks supply theirs. Native sessions use their existing provider event stream. Tool calls count once per reported call ID, not once per start/result event. Token reports are deduplicated using cumulative totals or message IDs. Input includes reported cache reads/writes; output includes reasoning where the provider includes it in output totals. These are activity counters, not a billing estimate or context-window measurement.
 
-Counting begins when Corgi binds an observable session. Existing transcript history establishes a baseline and is not counted as new activity. Usage is attributed when the provider reports it, so streaming token totals may arrive in batches. Missing transcripts, records larger than 1 MiB, and provider formats that omit usage cannot supply complete totals. Subagent transcripts are not recursively followed. Reloading preserves displayed totals but seeds a new transcript baseline, so events written during the handoff may be omitted.
+Counting begins when Corgi binds an observable session. Existing transcript history establishes a baseline and is not counted as new activity. Usage is attributed when the provider reports it, so streaming token totals may arrive in batches. Missing transcripts, records larger than 1 MiB, and provider formats that omit usage cannot supply complete totals. Known Codex children are followed recursively; their subsequently reported activity contributes to their workspace. Reloading preserves displayed away totals but seeds a new transcript baseline, so events written during the handoff may be omitted.
 
 No setup beyond `./go.sh` is required for an already observed session. To see away totals accumulate, select another workspace in every viewer watching it, then let its agent do new work. Returning clears those totals.
+
+Hover over an agent's name, activity, or subagent badge to inspect one combined
+card: its own activity and token spend, followed by children grouped by role or
+activity with individual spend and group totals. These live meters keep
+counting while you watch the workspace and reset only when the daemon reloads or
+restarts. A `≥` marks partial coverage. See [Live children and usage](agents.md#live-children-and-usage)
+for discovery, ownership, and catch-up semantics.
 
 ## Agent activity summaries
 

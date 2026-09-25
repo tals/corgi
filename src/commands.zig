@@ -6,6 +6,7 @@ pub const Entry = struct {
     needs_pane: bool = true,
 };
 pub const entries = [_]Entry{
+    .{ .key = 'a', .label = "New agent", .needs_pane = false },
     .{ .key = 'c', .label = "New tab", .needs_pane = false },
     .{ .key = 'T', .label = "Rename tab" },
     .{ .key = 'n', .label = "Next tab" },
@@ -17,7 +18,11 @@ pub const entries = [_]Entry{
     .{ .key = 'z', .label = "Zoom / unzoom" },
     .{ .key = 'x', .label = "Close pane" },
     .{ .key = '!', .label = "Move pane to new tab" },
-    .{ .key = '[', .label = "Scroll / copy" },
+    .{ .key = 's', .label = "Scroll / copy" },
+    .{ .key = 'g', .label = "Find agent", .needs_pane = false },
+    .{ .key = '[', .label = "Previous agent", .needs_pane = false },
+    .{ .key = ']', .label = "Next agent", .needs_pane = false },
+    .{ .key = 9, .label = "Last agent (Tab)", .needs_pane = false },
     .{ .key = 'h', .label = "Focus left" },
     .{ .key = 'j', .label = "Focus down" },
     .{ .key = 'k', .label = "Focus up" },
@@ -27,7 +32,7 @@ pub const entries = [_]Entry{
     .{ .key = 'K', .label = "Swap up" },
     .{ .key = 'L', .label = "Swap right" },
     .{ .key = 'r', .label = "Resize panes..." },
-    .{ .key = 'a', .label = "Jump to attention", .needs_pane = false },
+    .{ .key = 'f', .label = "Jump to attention", .needs_pane = false },
     .{ .key = 'm', .label = "Mute / unmute", .needs_pane = false },
     .{ .key = 'q', .label = "Detach", .needs_pane = false },
     .{ .key = 'w', .label = "New workspace", .needs_pane = false },
@@ -161,7 +166,7 @@ pub const View = struct {
             const selected = enabled and v.highlighted == entry.key;
             try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) "\x1b[48;2;161;194;178m" else "\x1b[48;2;35;40;47m" });
             try w.splatByteAll(' ', col_width);
-            try w.print("\x1b[{d};{d}H{s} {c}  \x1b[22m{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) "\x1b[1;38;2;24;27;32m" else if (enabled) "\x1b[1;38;2;161;194;178m" else "\x1b[38;2;86;94;105m", entry.key, if (selected) "\x1b[38;2;24;27;32m" else if (enabled) "\x1b[38;2;226;230;233m" else "\x1b[38;2;86;94;105m" });
+            try w.print("\x1b[{d};{d}H{s} {s}  \x1b[22m{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) "\x1b[1;38;2;24;27;32m" else if (enabled) "\x1b[1;38;2;161;194;178m" else "\x1b[38;2;86;94;105m", if (entry.key == 9) "⇥" else &.{entry.key}, if (selected) "\x1b[38;2;24;27;32m" else if (enabled) "\x1b[38;2;226;230;233m" else "\x1b[38;2;86;94;105m" });
             try w.writeAll(entry.label[0..@min(entry.label.len, col_width -| 5)]);
         }
         try w.writeAll("\x1b[48;2;35;40;47m");

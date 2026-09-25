@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Real viewer launch controls and read-only model previews."""
+import json, pathlib, unittest, time, shlex, sys
+import smoke
+from viewer_client import Viewer
+
+class Launcher(unittest.TestCase):
+    run_cli=smoke.Runtime.run_cli
+    rpc=smoke.Runtime.rpc
+    command=smoke.Runtime.command
+    raw_rpc=smoke.Runtime.raw_rpc
+    session=smoke.Runtime.session
+    until=smoke.Runtime.until
+    def setUp(self):
+        smoke.Runtime.setUp(self)
+        self.launches=pathlib.Path(self.temp.name)/'launches.jsonl'
+        fixture=pathlib.Path(__file__).with_name('inference_harness.py').resolve()
+        pathlib.Path(self.env['CORGI_CODEX_BIN']).write_text(f'''#!/usr/bin/env python3
+import json,os,sys,time
+if 'app-server' in sys.argv:os.execv(sys.executable,[sys.executable,{str(fixture)!r},*sys.argv[1:]])
+if '--version' in sys.argv:print('codex fixture');sys.exit(0)
+if sys.argv[1:3]==['auth','status']:
+    print(json.dumps({{'loggedIn':True,'authMethod':'claude.ai','email':'claude@example.com'}}));sys.exit(0)
+with open({str(self.launches)!r},'a') as f:f.write(json.dumps({{'cwd':os.getcwd(),'args':sys.argv[1:]}})+'\\n')
+print('LAUNCH FIXTURE READY',flush=True)
+time.sleep(120)
+''')
+        settings=pathlib.Path(self.env['CLAUDE_CONFIG_DIR'])/'settings.json'
+        settings.parent.mkdir(parents=True,exist_ok=True)
+        data=json.loads(settings.read_text()) if settings.exists() else {}
+        data['model']='opus';settings.write_text(json.dumps(data))
+        self.ws=self.session()['workspaces'][0]['id']
+        self.launch_dir=str((pathlib.Path(self.temp.name)/'work').resolve())
+        pathlib.Path(self.launch_dir).mkdir()
+        self.command('workspace.edit',target=self.ws,cwd=self.launch_dir)
+        self.command('pane.create',workspace=self.ws,cwd=self.launch_dir,command='sleep 120')
+    def tearDown(self):smoke.Runtime.tearDown(self)
+    def click(self,viewer,x,y):return viewer.input(f'\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m')
+    def test_preview_launch_last_choice_and_reload(self):
+        view=Viewer(self,100,30)
+        self.assertIn('New',smoke.screen_text(view.poll()['data'],100,30)[14])
+        self.click(view,26,15)
+        self.until(lambda:'fixture-codex' in view.poll()['data'],timeout=12)
+        text='\n'.join(smoke.screen_text(view.poll()['data'],100,30))
+        self.assertIn('Claude Code',text);self.assertIn('opus',text);self.assertNotIn('User settings',text)
+        self.assertIn('codex@example.com',text);self.assertIn('claude@example.com',text)
+        rows=smoke.screen_text(view.poll()['data'],100,30)
+        self.assertTrue(any('Codex' in row and 'fixture-codex' in row and 'codex@example.com' in row for row in rows))
+        self.assertTrue(any('Claude Code' in row and 'opus' in row and 'claude@example.com' in row for row in rows))
+        self.assertFalse(self.launches.exists());self.assertEqual(len(self.session()['panes']),1)
+        self.click(view,22,19)
+        self.until(lambda:self.launches.exists())
+        self.assertEqual(self.session()['last_agent'],'claude')
+        self.assertEqual(len(self.session()['panes']),2)
+        self.assertEqual(json.loads(self.launches.read_text().splitlines()[0])['cwd'],self.launch_dir)
+        other=Viewer(self,100,30)
+        self.click(other,20,15)
+        self.until(lambda:len(self.launches.read_text().splitlines())==2)
+        self.assertEqual(self.session()['last_agent'],'claude')
+        self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+        self.assertEqual(self.session()['last_agent'],'claude')
+        self.click(other,26,15);other.input('k\r')
+        self.until(lambda:len(self.launches.read_text().splitlines())==3)
+        self.assertEqual(self.session()['last_agent'],'codex')
+    def test_hover_and_dismiss_do_not_launch(self):
+        view=Viewer(self,80,24)
+        shown=view.input('\x1b[<35;21;12M')
+        self.assertIn('New agent',shown['data'])
+        self.assertEqual(len(self.session()['panes']),1)
+        view.input('\x1b[<35;75;2M')
+        self.until(lambda:'New agent' not in view.poll()['data'])
+        self.click(view,26,12);self.assertIn('New agent',view.poll()['data'])
+        self.click(view,75,2);self.assertNotIn('New agent',view.poll()['data'])
+        self.assertFalse(self.launches.exists())
+    def test_popup_arrows_tabs_escape_and_enter_own_keyboard(self):
+        root=pathlib.Path(self.temp.name);keys=root/'keys';ready=root/'ready'
+        script="import os,tty,pathlib;tty.setraw(0);pathlib.Path("+repr(str(ready))+").touch();f=open("+repr(str(keys))+",'wb',buffering=0)\nwhile True:f.write(os.read(0,1024))"
+        pane=self.command('pane.create',workspace=self.ws,cwd=self.launch_dir,command=shlex.join([sys.executable,'-u','-c',script]))['pane']
+        self.until(ready.exists)
+        view=Viewer(self,100,30);view.focus(pane)
+        view.input('\x1b[<35;21;15M')
+        self.until(lambda:'New agent' in view.poll()['data'])
+        def selected(provider):
+            rows=smoke.screen_text(view.poll()['data'],100,30)
+            self.assertTrue(any(('› '+provider) in row for row in rows), '\n'.join(rows))
+        view.input('\x1b[B');selected('Claude Code')
+        view.input('\x1b[B');selected('Claude Code')
+        view.input('\x1b[A');selected('Codex')
+        view.input('\x1b[A');selected('Codex')
+        view.input('\x1b[Z');selected('Claude Code')
+        view.input('\t');selected('Codex')
+        view.input('\x1b')
+        self.until(lambda:'New agent' not in view.poll()['data'])
+        time.sleep(.6)
+        self.assertNotIn('New agent',view.poll()['data'])
+        self.assertEqual(keys.read_bytes(),b'')
+        view.input('\x1b[<35;98;2M')
+        view.input('\x1b[<35;21;15M')
+        self.until(lambda:'New agent' in view.poll()['data'])
+        self.click(view,26,15)
+        view.input('\x1bOB');selected('Claude Code')
+        view.input('\r')
+        self.until(lambda:self.launches.exists())
+        self.assertEqual(self.session()['last_agent'],'claude')
+        self.assertEqual(keys.read_bytes(),b'')
+
+    def test_new_agent_shortcut_preview_then_launch(self):
+        view=Viewer(self,100,30)
+        for shortcut, launch in (('\x02a','a'), ('\x02A','A'), ('\x02\x01','\x01'), ('\x1b[98;5u\x1b[97;5u','\x1b[97;5u')):
+            before=len(self.session()['panes'])
+            self.assertIn('New agent',view.input(shortcut)['data'])
+            self.assertEqual(len(self.session()['panes']),before)
+            view.input('\x1b[B')
+            self.assertIn('Press a to launch', view.poll()['data'])
+            view.input(launch)
+            self.until(lambda:len(self.session()['panes'])==before+1)
+            self.assertEqual(self.session()['last_agent'],'claude')
+        view.input('\x1b[<35;21;15M')
+        self.assertIn('New agent',view.poll()['data'])
+        before=len(self.session()['panes'])
+        view.input('\x02A')
+        self.assertEqual(len(self.session()['panes']),before)
+        view.input('A')
+        self.until(lambda:len(self.session()['panes'])==before+1)
+
+    def test_hover_accepts_launch_keys(self):
+        view=Viewer(self,100,30)
+        for launch in ('a', 'A', '\x01', '\x1b[97;5u'):
+            view.input('\x1b[<35;98;2M')
+            self.assertIn('New agent',view.input('\x1b[<35;21;15M')['data'])
+            before=len(self.session()['panes'])
+            view.input(launch)
+            self.until(lambda:len(self.session()['panes'])==before+1)
+            self.assertNotIn('New agent',view.poll()['data'])
+
+    def test_preview_project_model(self):
+        project=pathlib.Path(self.temp.name)/'project';(project/'.claude').mkdir(parents=True)
+        (project/'.claude'/'settings.json').write_text(json.dumps({'model':'haiku'}))
+        (project/'.claude'/'settings.local.json').write_text(json.dumps({'model':'sonnet'}))
+        def preview():return self.rpc(op='agent.preview',protocol=1,workspace=self.ws,cwd=str(project))['preview']
+        self.until(lambda:not preview()['pending'],timeout=12)
+        result=preview()['options'][1]
+        self.assertEqual(result['model']['bytes'][:result['model']['len']],'sonnet')
+        self.assertIn('Local settings',result['source']['bytes'][:result['source']['len']])
+
+if __name__=='__main__':unittest.main()

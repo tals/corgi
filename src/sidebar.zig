@@ -6,7 +6,11 @@ const corgi_animation = @import("corgi_animation.zig");
 
 pub const max_entries = layout.max_panes + 16;
 pub const Target = union(enum) { pane: u32, native: u32 };
+pub const Search = struct { text: []const u8, cursor: usize };
 pub const Entry = struct {
+    conversation: u32 = 0,
+    children: usize = 0,
+    exit: ?struct { frame_ms: i64, progress: f64 } = null,
     name: []const u8 = "",
     target: Target,
     provider: agents.Provider,
@@ -34,8 +38,9 @@ pub const Entry = struct {
 };
 
 pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
-pub const Hit = union(enum) { none, toggle, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
+pub const Hit = union(enum) { none, toggle, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
+    search: ?Search = null,
     corgi_badge: bool = false,
     cols: u16,
     rows: u16,
@@ -70,6 +75,23 @@ pub const View = struct {
         if (result.width > 0) result.width = std.math.clamp(preferred, 20, v.cols - 20);
         return result;
     }
+    pub fn withSearch(v: View, search: ?Search) View {
+        var result = v;
+        result.search = search;
+        // Search opens the same sidebar on compact terminals too, while
+        // preserving at least twenty columns for the terminal pane.
+        if (search != null and v.cols >= 40 and v.rows >= 13) result.width = @min(28, v.cols - 20);
+        return result;
+    }
+    pub fn searchOffset(v: View) usize {
+        const search = v.search orelse return 0;
+        return search.cursor -| (v.width -| 5);
+    }
+    pub fn searchCursor(v: View, w: *std.Io.Writer) !void {
+        const search = v.search orelse return;
+        if (v.width == 0) return;
+        try w.print("\x1b[0m\x1b[{d};{d}H\x1b[?25h", .{ v.middle() + 2, 4 + search.cursor - v.searchOffset() });
+    }
     pub fn area(v: View) layout.Rect {
         return .{ .x = v.width, .y = 1, .w = v.cols - v.width, .h = v.rows -| 2 };
     }
@@ -81,6 +103,7 @@ pub const View = struct {
         if (x >= v.width - 1 or y >= v.rows - 1) return .none;
         if (y == 0 and x >= v.width - 5) return .toggle;
         if (y == 0 and x >= v.width - 11 and x < v.width - 6) return .workspace_new;
+        if (y == v.middle() and x >= v.width - 10 and x < v.width - 2) return if (x >= v.width - 4) .agent_options else .agent_new;
         if (y < v.middle()) {
             if (y == v.middle() - 2) {
                 if (v.workspace_count > v.workspaceCapacity()) {
@@ -125,7 +148,6 @@ pub const View = struct {
         corgi_animation.beginFrame();
         defer corgi_animation.endFrame();
         const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-        const thinking_frame: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
         const panel = "\x1b[0;38;2;155;163;175;48;2;24;27;32m";
         if (v.width == 0) {
             if (v.cols >= 64) try w.writeAll("\x1b[1;1H\x1b[1;38;2;161;194;178m > \x1b[0m");
@@ -137,6 +159,12 @@ pub const View = struct {
             try w.writeAll("\x1b[38;2;55;61;70m│");
         }
         try v.line(w, v.middle(), "agents", "\x1b[1;38;2;226;230;233m");
+        if (v.search) |search| {
+            try v.line(w, v.middle() + 1, "/ ", "\x1b[0;38;2;161;194;178;48;2;35;40;47m");
+            try w.splatByteAll(' ', v.width - 5);
+            try w.print("\x1b[{d};4H", .{v.middle() + 2});
+            if (search.text.len == 0) try writeClipped(w, "type to search", v.width - 5) else try writeClipped(w, search.text[v.searchOffset()..], v.width - 5);
+        } else try w.print("\x1b[{d};{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m New  ▾ {s}", .{ v.middle() + 1, v.width - 9, panel });
         try w.print("\x1b[1;{d}H{s} < ", .{ v.width - 4, panel });
         if (v.corgi_badge) {
             try w.writeAll("\x1b[1;6H\x1b[1;38;2;226;230;233m");
@@ -197,12 +225,6 @@ pub const View = struct {
             try w.print("\x1b[{d};{d}H", .{ y + 2, v.unreadRange(ws).start + 1 });
             var unread_room = unread_width;
             try statusPart(w, unread, if (ws.unread > 0) "\x1b[1;38;2;148;226;213m" else panel, &unread_room);
-            const background = ws.ports.workspace(ws.id).background;
-            if (ws.ports.processes_available and background > 0) {
-                var bg_buf: [32]u8 = undefined;
-                const bg = try std.fmt.bufPrint(&bg_buf, "{s} bg", .{compactCount(&number, background)});
-                try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 2 - @max(4, metadata_width) - bg.len, panel, bg });
-            }
             if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, panel, metadata });
             try w.writeAll(panel);
             if (y + 2 < v.middle() - 2) {
@@ -222,35 +244,42 @@ pub const View = struct {
         try w.print("\x1b[{d};2H{s}\x1b[38;2;55;61;70m", .{ v.middle(), panel });
         for (0..v.width - 3) |_| try w.writeAll("─");
         if (entries.len == 0) {
-            try v.line(w, v.middle() + 2, "No agents yet", panel);
-            try v.line(w, v.middle() + 4, "Launch inside a pane:", panel);
-            try v.line(w, v.middle() + 5, "codex  or  claude", panel);
+            try v.line(w, v.middle() + 2, if (v.search != null) "No matching agents" else "No agents yet", panel);
+            if (v.search == null) {
+                try v.line(w, v.middle() + 4, "Launch inside a pane:", panel);
+                try v.line(w, v.middle() + 5, "codex  or  claude", panel);
+            }
         }
         for (entries[v.offset..@min(entries.len, v.offset + v.capacity)], 0..) |e, index| {
+            var exit_buffer: [16384]u8 = undefined;
+            var exit_writer = std.Io.Writer.fixed(&exit_buffer);
+            const row_writer = if (e.exit != null) &exit_writer else w;
+            const frame_ms = if (e.exit) |closing| closing.frame_ms else now_ms;
+            const frame_index: usize = @intCast(@mod(@divFloor(frame_ms, 80), thinking_frames.len));
             const y: u16 = @intCast(v.middle() + 2 + index * 2);
             const bg = if (e.focused) "\x1b[48;2;35;40;47m" else "\x1b[48;2;24;27;32m";
             for (0..2) |row| {
                 if (y + row >= v.rows - 2) break;
-                try w.print("\x1b[{d};1H\x1b[0m{s}", .{ y + row + 1, bg });
-                try w.splatByteAll(' ', v.width - 1);
+                try row_writer.print("\x1b[{d};1H\x1b[0m{s}", .{ y + row + 1, bg });
+                try row_writer.splatByteAll(' ', v.width - 1);
             }
             const dot = e.indicator();
-            try w.print("\x1b[{d};2H\x1b[22m{s}{s}\x1b[{d};5H\x1b[1;38;2;226;230;233m", .{ y + 1, dot.color, dot.icon, y + 1 });
+            try row_writer.print("\x1b[{d};2H\x1b[22m{s}{s}\x1b[{d};5H\x1b[1;38;2;226;230;233m", .{ y + 1, dot.color, dot.icon, y + 1 });
             const room = v.width - 6;
             const divider = index + 1 < @min(entries.len - v.offset, v.capacity);
             const underline = if (divider) "\x1b[4;58:2::65:70:77m" else "";
             const compacting = e.state == .working and e.compacting;
             const waiting = e.state == .working and e.subagents.waiting and !compacting;
-            const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[thinking_frame] else "";
+            const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
             var name: [160]u8 = undefined;
             const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
-            try w.print("\x1b[{d};5H\x1b[22;38;2;226;230;233m", .{y + 1});
-            try writeEllipsis(w, provider, room);
+            try row_writer.print("\x1b[{d};5H\x1b[22;38;2;226;230;233m", .{y + 1});
+            try writeEllipsis(row_writer, provider, room);
             // Underline the existing second row, including its padding, without
             // consuming another terminal row or changing the entry hit area.
-            try w.print("\x1b[{d};2H{s}", .{ y + 2, underline });
-            try w.splatByteAll(' ', v.width - 3);
-            try w.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
+            try row_writer.print("\x1b[{d};2H{s}", .{ y + 2, underline });
+            try row_writer.splatByteAll(' ', v.width - 3);
+            try row_writer.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
             var clean: [512]u8 = undefined;
             const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
                 .working => e.activity,
@@ -260,7 +289,7 @@ pub const View = struct {
                 else => "",
             };
             var badge_buf: [48]u8 = undefined;
-            const badge = subagentBadge(&badge_buf, e.subagents);
+            const badge = subagentBadge(&badge_buf, e.subagents, e.children);
             const badge_width = displayWidth(badge);
             const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
             const animation_seed: u64 = switch (e.target) {
@@ -269,24 +298,30 @@ pub const View = struct {
             };
             const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
             const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
-            const presentation = corgi_animation.observe(animation_seed, mode, now_ms);
+            const presentation = corgi_animation.observe(animation_seed, mode, frame_ms);
             if (mode != .content) {
-                try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+                try presentation.?.writeCorgi(row_writer, detail_room, animation_seed, e.focused, e.state == .working);
             } else {
+                // Lifecycle signals (blocked/ended/etc.) must be immediate.
+                // Interrupts already switch straight to the sleeping mode.
+                if (e.state != .working) if (presentation) |p| p.skipReveal();
                 const text = directoryLabel(&clean, detail, null);
                 if (presentation != null and presentation.?.reveal_started_ms != null) {
-                    try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
-                    try w.print("\x1b[{d};5H\x1b[38;2;226;230;233m", .{y + 2});
-                    try writeRevealedDetail(w, text, detail_room, presentation.?.revealedColumns(detail_room, now_ms), presentation.?.revealPosition(detail_room, now_ms));
-                } else try writeEllipsis(w, text, detail_room);
+                    try presentation.?.writeCorgi(row_writer, detail_room, animation_seed, e.focused, e.state == .working);
+                    try row_writer.print("\x1b[{d};5H\x1b[38;2;226;230;233m", .{y + 2});
+                    try writeRevealedDetail(row_writer, text, detail_room, presentation.?.revealedColumns(detail_room, frame_ms), presentation.?.revealPosition(detail_room, frame_ms));
+                } else try writeEllipsis(row_writer, text, detail_room);
             }
             if (badge_width > 0) {
                 const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
-                try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - badge_width, color, badge });
+                try row_writer.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - badge_width, color, badge });
             }
-            try w.writeAll("\x1b[24;59m");
+            try row_writer.writeAll("\x1b[24;59m");
+            if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
         }
-        if (v.count > v.capacity) {
+        if (v.search != null) {
+            try v.line(w, v.rows - 2, "↑↓  ↵ jump  Esc back", panel);
+        } else if (v.count > v.capacity) {
             var text: [64]u8 = undefined;
             const footer = try std.fmt.bufPrint(&text, "< {d}-{d}/{d} >", .{ v.offset + 1, @min(v.count, v.offset + v.capacity), v.count });
             try v.line(w, v.rows - 2, footer, panel);
@@ -300,7 +335,7 @@ pub const View = struct {
     }
 };
 
-fn subagentBadge(buf: []u8, status: agents.Subagents) []const u8 {
+fn subagentBadge(buf: []u8, status: agents.Subagents, children: usize) []const u8 {
     var running_buf: [24]u8 = undefined;
     var blocked_buf: [24]u8 = undefined;
     const running = compactCount(&running_buf, status.running);
@@ -310,7 +345,73 @@ fn subagentBadge(buf: []u8, status: agents.Subagents) []const u8 {
     else
         std.fmt.bufPrint(buf, "↳!{s}", .{blocked}) catch unreachable;
     if (status.running > 0) return std.fmt.bufPrint(buf, "↳{s}", .{running}) catch unreachable;
+    if (children > 0) return std.fmt.bufPrint(buf, "↳{s}", .{compactCount(&running_buf, children)}) catch unreachable;
     return "";
+}
+
+pub fn agentAt(v: View, entries: []const Entry, x: u16, y: u16) ?*const Entry {
+    const hit = v.hit(x, y);
+    if (hit != .entry or hit.entry >= entries.len) return null;
+    const entry = &entries[hit.entry];
+    return if (entry.exit == null) entry else null;
+}
+
+// Fade both the card background and its foreground/underline colors into the
+// sidebar panel. All cursor positions and glyphs stay fixed until removal.
+fn writeExit(w: *std.Io.Writer, frame: []const u8, progress: f64) !void {
+    const t = std.math.clamp(progress, 0, 1);
+    const opacity = 1 - t * t * (3 - 2 * t);
+    var i: usize = 0;
+    while (i < frame.len) {
+        if (std.mem.startsWith(u8, frame[i..], "\x1b[")) {
+            var end = i + 2;
+            while (end < frame.len and (frame[end] < 0x40 or frame[end] > 0x7e)) : (end += 1) {}
+            if (end < frame.len and frame[end] == 'm') {
+                try w.writeAll("\x1b[");
+                var p = i + 2;
+                while (p < end) {
+                    const prefix: ?[]const u8 = for ([_][]const u8{ "38;2;", "48;2;", "58:2::" }) |candidate| {
+                        if (std.mem.startsWith(u8, frame[p..end], candidate)) break candidate;
+                    } else null;
+                    if (prefix) |color_prefix| {
+                        const separator: u8 = if (color_prefix[2] == ':') ':' else ';';
+                        var cursor = p + color_prefix.len;
+                        var color: [3]u8 = undefined;
+                        var valid = true;
+                        for (&color, [_]u8{ 24, 27, 32 }, 0..) |*channel, background, n| {
+                            const start = cursor;
+                            while (cursor < end and std.ascii.isDigit(frame[cursor])) : (cursor += 1) {}
+                            const value = std.fmt.parseInt(u8, frame[start..cursor], 10) catch {
+                                valid = false;
+                                break;
+                            };
+                            channel.* = @intFromFloat(@round(@as(f64, @floatFromInt(background)) +
+                                (@as(f64, @floatFromInt(value)) - @as(f64, @floatFromInt(background))) * opacity));
+                            if (n < 2) {
+                                if (cursor >= end or frame[cursor] != separator) {
+                                    valid = false;
+                                    break;
+                                }
+                                cursor += 1;
+                            }
+                        }
+                        if (valid) {
+                            try w.print("{s}{d}{c}{d}{c}{d}", .{ color_prefix, color[0], separator, color[1], separator, color[2] });
+                            p = cursor;
+                            continue;
+                        }
+                    }
+                    try w.writeByte(frame[p]);
+                    p += 1;
+                }
+                try w.writeByte('m');
+                i = end + 1;
+                continue;
+            }
+        }
+        try w.writeByte(frame[i]);
+        i += 1;
+    }
 }
 
 fn statusPart(w: *std.Io.Writer, text: []const u8, style: []const u8, room: *usize) !void {
@@ -327,7 +428,7 @@ fn compactCount(buf: []u8, value: u64) []const u8 {
     unreachable;
 }
 
-fn displayWidth(text: []const u8) usize {
+pub fn displayWidth(text: []const u8) usize {
     var it = (std.unicode.Utf8View.init(text) catch unreachable).iterator();
     var width: usize = 0;
     while (it.nextCodepoint()) |cp| width += vt.unicode.codepointWidth(cp);
@@ -343,7 +444,7 @@ pub fn writeClipped(w: *std.Io.Writer, text: []const u8, room: usize) !void {
     }
 }
 
-fn writeEllipsis(w: *std.Io.Writer, text: []const u8, room: usize) !void {
+pub fn writeEllipsis(w: *std.Io.Writer, text: []const u8, room: usize) !void {
     if (displayWidth(text) <= room) return w.writeAll(text);
     if (room == 0) return;
     try writeClipped(w, text, room - 1);
@@ -403,7 +504,7 @@ fn writeDirectory(w: *std.Io.Writer, path: []const u8, room: usize) !void {
     try w.writeAll("…");
     try w.writeAll(tail);
 }
-fn directoryLabel(out: []u8, cwd: []const u8, home_dir: ?[]const u8) []const u8 {
+pub fn directoryLabel(out: []u8, cwd: []const u8, home_dir: ?[]const u8) []const u8 {
     var source = if (cwd.len == 0) "?" else cwd;
     var len: usize = 0;
     if (home_dir) |home| {
@@ -491,21 +592,6 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
-}
-
-test "workspace background badge is on the status row and zero is hidden" {
-    const ports = @import("ports.zig");
-    const works = [_]ports.Work{ .{ .id = 1, .background = 2 }, .{ .id = 2, .background = 0 } };
-    const snapshot: ports.Snapshot = .{ .processes_available = true, .ports_available = true, .workspaces = &works };
-    const entries = [_]WorkspaceEntry{
-        .{ .id = 1, .name = "Corgi", .cwd = "/tmp", .active = true, .ports = snapshot, .git_ahead = 123 },
-        .{ .id = 2, .name = "fin", .cwd = "/tmp", .active = false, .ports = snapshot },
-    };
-    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer output.deinit();
-    try View.init(100, 30, true, 0, 0).withWorkspaces(2, 0).draw(&output.writer, &.{}, &entries);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;18H\x1b[0;38;2;155;163;175;48;2;24;27;32m2 bg") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "0 bg") == null);
 }
 
 test "subagent badge shares the second row without reserving empty space" {
@@ -629,6 +715,21 @@ pub fn workspaceUrlName(ws: WorkspaceEntry, index: usize) []const u8 {
     }
     return "";
 }
+fn workspaceUrlPending(ws: WorkspaceEntry, index: usize) bool {
+    if (workspaceUrlName(ws, index).len > 0) return false;
+    var target_buf: [256]u8 = undefined;
+    const target = workspaceUrl(ws, index, &target_buf) orelse return false;
+    for (ws.ports.workspace(ws.id).endpoints) |endpoint| {
+        var candidate_buf: [256]u8 = undefined;
+        const candidate = @import("ports.zig").url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
+        if (std.mem.eql(u8, target, candidate) and endpoint.label_pending) return true;
+    }
+    return false;
+}
+fn portPending(ws: WorkspaceEntry) bool {
+    for (0..urlCount(ws)) |i| if (workspaceUrlPending(ws, i)) return true;
+    return false;
+}
 fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
     const count = urlCount(ws);
     var name = workspaceUrlName(ws, 0);
@@ -641,12 +742,22 @@ fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
     if (name.len == 0) name = if (portPending(ws)) "..." else "Link";
     return if (count == 1) std.fmt.bufPrint(buf, "Open {s} ↗", .{name}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "Open {s} ↗ {d}", .{ name, count }) catch "Open Link ↗";
 }
+/// Keep all three dots in place; only their blue intensity travels gently.
+/// Quantized to 80ms so idle viewers do not emit a different frame every poll.
+fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, pending: bool, now_ms: i64) !void {
+    if (!pending or !std.mem.startsWith(u8, label, "Open ...")) return writeClipped(w, label, width);
+    try writeClipped(w, "Open ", width);
+    for (0..@min(3, width -| 5)) |i| {
+        const phase = @mod(@divFloor(now_ms, 80) * 80 - @as(i64, @intCast(i)) * 160, 1800);
+        const glow: u32 = if (phase < 640) @intCast(320 - @abs(phase - 320)) else 0;
+        try w.print("\x1b[38;2;{d};{d};{d}m.", .{ 125 + glow * 45 / 320, 164 + glow * 35 / 320, 220 + glow * 25 / 320 });
+    }
+    try w.writeAll("\x1b[38;2;137;180;250m");
+    if (width > 8) try writeClipped(w, label[8..], width - 8);
+}
 fn statusMetadataWidth(ws: WorkspaceEntry) usize {
     var buf: [24]u8 = undefined;
-    const tools = displayWidth(compactCount(&buf, ws.stats.tools)) + 1;
-    const background = ws.ports.workspace(ws.id).background;
-    if (!ws.ports.processes_available or background == 0) return tools;
-    return displayWidth(compactCount(&buf, background)) + 3 + 1 + @max(4, tools);
+    return displayWidth(compactCount(&buf, ws.stats.tools)) + 1;
 }
 pub fn portLink(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16, buf: []u8) ?[]const u8 {
     const ws = portWorkspace(v, workspaces, x, y) orelse return null;
@@ -715,21 +826,6 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
 }
 
 pub const PortMenu = struct {
-fn workspaceUrlPending(ws: WorkspaceEntry, index: usize) bool {
-    if (workspaceUrlName(ws, index).len > 0) return false;
-    var target_buf: [256]u8 = undefined;
-    const target = workspaceUrl(ws, index, &target_buf) orelse return false;
-    for (ws.ports.workspace(ws.id).endpoints) |endpoint| {
-        var candidate_buf: [256]u8 = undefined;
-        const candidate = @import("ports.zig").url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
-        if (std.mem.eql(u8, target, candidate) and endpoint.label_pending) return true;
-    }
-    return false;
-}
-fn portPending(ws: WorkspaceEntry) bool {
-    for (0..urlCount(ws)) |i| if (workspaceUrlPending(ws, i)) return true;
-    return false;
-}
     workspace: u32,
     selected: usize = 0,
     pub fn bounds(cols: u16, rows: u16) layout.Rect {
@@ -742,19 +838,6 @@ fn portPending(ws: WorkspaceEntry) bool {
     }
     pub fn hit(menu: PortMenu, ws: WorkspaceEntry, cols: u16, rows: u16, x: u16, y: u16) ?usize {
         const rect = bounds(cols, rows);
-/// Keep all three dots in place; only their blue intensity travels gently.
-/// Quantized to 80ms so idle viewers do not emit a different frame every poll.
-fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, pending: bool, now_ms: i64) !void {
-    if (!pending or !std.mem.startsWith(u8, label, "Open ...")) return writeClipped(w, label, width);
-    try writeClipped(w, "Open ", width);
-    for (0..@min(3, width -| 5)) |i| {
-        const phase = @mod(@divFloor(now_ms, 80) * 80 - @as(i64, @intCast(i)) * 160, 1800);
-        const glow: u32 = if (phase < 640) @intCast(320 - @abs(phase - 320)) else 0;
-        try w.print("\x1b[38;2;{d};{d};{d}m.", .{ 125 + glow * 45 / 320, 164 + glow * 35 / 320, 220 + glow * 25 / 320 });
-    }
-    try w.writeAll("\x1b[38;2;137;180;250m");
-    if (width > 8) try writeClipped(w, label[8..], width - 8);
-}
         if (x <= rect.x or x >= rect.x + rect.w -| 1 or y < rect.y + 2 or y >= rect.y + rect.h -| 1) return null;
         const selected = @min(menu.selected, urlCount(ws) -| 1);
         const index = selected / capacity(rows) * capacity(rows) + y - rect.y - 2;
@@ -1022,12 +1105,12 @@ test "content wipes over the old corgi in terminal cells and then clears it" {
     defer output.deinit();
     const host = try @import("terminal.zig").Terminal.create(100, 30);
     defer host.destroy();
-    var entry: Entry = .{ .target = .{ .pane = 10001 }, .name = "Agent", .provider = .codex, .state = .idle, .attention = .none };
+    var entry: Entry = .{ .target = .{ .pane = 10001 }, .name = "Agent", .provider = .codex, .state = .working, .attention = .none };
     const view = View.init(100, 30, true, 0, 1);
     try view.drawAt(&output.writer, &.{entry}, &.{}, 0);
     host.feed(output.written());
     output.clearRetainingCapacity();
-    entry.state = .blocked;
+    entry.activity = "Reading files";
     try view.drawAt(&output.writer, &.{entry}, &.{}, 100);
     host.feed(output.written());
     output.clearRetainingCapacity();
@@ -1035,8 +1118,8 @@ test "content wipes over the old corgi in terminal cells and then clears it" {
     host.feed(output.written());
     const mixed = try host.text();
     defer @import("os.zig").allocator.free(mixed);
-    // Two revealed cells overlay the old tail and ear; closed eyes stay below.
-    try std.testing.expect(std.mem.indexOf(u8, mixed, "Ne◡") != null);
+    // Two revealed cells overlay the old tail and ear; the awake face stays below.
+    try std.testing.expect(std.mem.indexOf(u8, mixed, "Re•") != null);
     output.clearRetainingCapacity();
     entry.state = .working;
     entry.activity = "OK";
@@ -1065,4 +1148,19 @@ test "reveal pads short text and never splits a wide glyph or moves the ellipsis
     output.clearRetainingCapacity();
     try writeRevealedDetail(&output.writer, "界abcdef", 5, 5, null);
     try std.testing.expectEqualStrings("界ab…", output.written());
+}
+
+test "closing card keeps its glyphs and geometry while all colors fade into the panel" {
+    const frame = "\x1b[19;1H\x1b[0;48;2;35;40;47m \x1b[1;38;2;226;230;233mAgent\x1b[4;58:2::65:70:77m corgi";
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try writeExit(&output.writer, frame, 0);
+    try std.testing.expectEqualStrings(frame, output.written());
+    output.clearRetainingCapacity();
+    try writeExit(&output.writer, frame, 0.5);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "38;2;125;129;133mAgent") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[19;1H") != null);
+    output.clearRetainingCapacity();
+    try writeExit(&output.writer, frame, 1);
+    try std.testing.expectEqualStrings("\x1b[19;1H\x1b[0;48;2;24;27;32m \x1b[1;38;2;24;27;32mAgent\x1b[4;58:2::24:27:32m corgi", output.written());
 }

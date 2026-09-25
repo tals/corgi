@@ -144,9 +144,11 @@ pub const Runtime = struct {
     workspaces: Workspaces = .{},
     panes: std.ArrayList(Pane) = .empty,
     sessions: []const protocol.Native = &.{},
+    conversations: []const protocol.Conversation = &.{},
     ports: @import("ports.zig").Snapshot = .{},
     revision: u64 = 0,
     closed_panes: usize = 0,
+    last_agent: @import("agent_launcher.zig").Provider = .codex,
     pub fn pane(r: *Runtime, id: u32) ?*Pane {
         for (r.panes.items) |*p| if (p.id == id) return p;
         return null;
@@ -190,7 +192,9 @@ pub const Runtime = struct {
         r.panes = panes;
         r.workspaces.items = snapshot.workspaces;
         r.sessions = snapshot.native_sessions;
+        r.conversations = snapshot.conversations;
         r.ports = snapshot.ports;
+        r.last_agent = snapshot.last_agent;
         r.revision = snapshot.revision;
         r.closed_panes = snapshot.closed_panes;
     }

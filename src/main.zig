@@ -234,12 +234,14 @@ const help =
     \\Keys: Ctrl-B opens a clickable command menu; then c tab, v/- split,
     \\hjkl focus, HJKL swap, z zoom,
     \\r resize, T rename, n/p tabs, 1–9 jump, x close, X close tab,
-    \\u undo close, [ scroll/copy, a attention, b agent sidebar, m mute, q detach, ? help.
+    \\g find agent, [/] previous/next agent, Tab last agent (current workspace),
+    \\u undo close, s scroll/copy, a attention, b agent sidebar, m mute, q detach, ? help.
     \\
     \\CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees.
     \\
 ;
 test {
+    _ = @import("agent_navigation.zig");
     _ = @import("link_tooltip.zig");
     _ = @import("checkpoint_probe.zig");
     _ = @import("checkpoint_test.zig");
@@ -257,6 +259,8 @@ test {
     _ = @import("native.zig");
     _ = @import("transcript.zig");
     _ = @import("usage.zig");
+    _ = @import("live_usage.zig");
+    _ = @import("subagent_tooltip.zig");
     _ = @import("usage_worker.zig");
     _ = @import("codex_observer.zig");
     _ = @import("activity_worker.zig");

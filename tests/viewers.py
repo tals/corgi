@@ -28,6 +28,148 @@ class Viewers(unittest.TestCase):
         ws=self.session()['workspaces'][0]['id']
         return self.command('pane.create', workspace=ws, cwd=self.temp.name, command=command, title=title)['pane']
     def geometry(self):return {p['id']:(p['cols'],p['rows']) for p in self.session()['panes']}
+    def mark_agent(self,pane,name):
+        self.command('pane.rename',target=pane,name=name)
+        self.rpc(op='hook',pane=pane,provider='claude',seq=1,event={'hook_event_name':'SessionStart','session_id':str(pane)})
+
+    def test_agent_hotkeys_follow_complete_workspace_sidebar(self):
+        shell=self.new()
+        home=self.session()['workspaces'][0]['id']
+        agents=[self.new() for _ in range(5)]
+        agents.append(self.command('pane.split',cwd=self.temp.name,command='sleep 60',target=agents[-1],direction='right')['pane'])
+        for i,pane in enumerate(agents):self.mark_agent(pane,f'Agent-{i}')
+        other=self.command('workspace.create',name='Elsewhere',cwd=self.temp.name)['workspace']
+        outsider=self.command('pane.create',workspace=other,cwd=self.temp.name,command='sleep 60')['pane']
+        self.mark_agent(outsider,'Outside-agent')
+        a,b=Viewer(self,rows=16),Viewer(self)
+        a.focus(shell);b.focus(outsider)
+        for pane in agents:
+            self.assertEqual(a.input('\x02]')['pane'],pane)
+            self.assertEqual(a.state['workspace'],home)
+        screen=legacy.screen_text(a.state['data'],100,16)
+        self.assertTrue(any('Agent-5' in row[:27] for row in screen),screen)
+        self.assertEqual(a.input('\x02]')['pane'],agents[0])
+        self.assertEqual(a.input('\x02[')['pane'],agents[-1])
+        self.assertEqual(b.poll()['pane'],outsider)
+        a.input('\x02b') # Collapsing the sidebar does not change its agent set.
+        self.assertEqual(a.input('\x02]')['pane'],agents[0])
+        a.focus(shell)
+        self.assertEqual(a.input('\x02\t')['pane'],agents[0])
+
+    def test_agent_sidebar_search_input_mouse_and_stale_targets(self):
+        first,second=self.new(),self.new()
+        self.mark_agent(first,'Alpha');self.mark_agent(second,'Beta')
+        other=self.command('workspace.create',name='Other',cwd=self.temp.name)['workspace']
+        outsider=self.command('pane.create',workspace=other,cwd=self.temp.name,command='sleep 60')['pane']
+        self.mark_agent(outsider,'Outside-agent')
+        a=Viewer(self);a.focus(first)
+        a.input('\x02gOutside-agent')
+        self.assertIn('No matching agents',a.state['data'])
+        self.assertEqual(a.input('\r')['pane'],first)
+        # Pasted control bytes cannot accept the search or reach a pane.
+        a.input('\x15\x1b[200~Beta\r\x02\x1b[201~')
+        self.assertIn('↑↓  ↵ jump  Esc back',a.state['data'])
+        self.assertEqual(a.input('\r')['pane'],second)
+        # CSI-u prefix, Tab, and arrows are owned by navigation too.
+        self.assertEqual(a.input('\x1b[98;5u\x1b[9u')['pane'],first)
+        a.input('\x02g\x1b[B')
+        self.assertEqual(a.input('\r')['pane'],second)
+        a.input('\x02gAlpha')
+        screen=legacy.screen_text(a.state['data'],100,30)
+        row=next(i for i,line in enumerate(screen) if 'Alpha' in line[:27] and i >= 16)
+        col=screen[row].index('Alpha')
+        self.assertEqual(a.input(f'\x1b[<0;{col+1};{row+1}M\x1b[<0;{col+1};{row+1}m')['pane'],first)
+        a.input('\x02gBeta')
+        self.command('pane.close',target=second)
+        a.poll()
+        self.assertIn('No matching agents',a.state['data'])
+        self.assertEqual(a.input('\r')['pane'],first)
+        a.input('\x1b');time.sleep(.06);a.poll()
+        self.assertNotIn('type to search',a.state['data'])
+        self.assertEqual(a.input('\x02\t')['pane'],first)
+
+    def test_agent_search_reuses_sidebar_and_restores_it_on_escape(self):
+        first=self.new(command="printf 'PANE_CONTENT_VISIBLE'; sleep 60")
+        self.mark_agent(first,'Alpha')
+        rest=[self.new() for _ in range(5)]
+        for i,pane in enumerate(rest):self.mark_agent(pane,f'Agent-{i}')
+        a=Viewer(self,cols=100,rows=24);a.focus(first)
+        self.until(lambda:'PANE_CONTENT_VISIBLE' in a.poll()['data'])
+        before=legacy.screen_text(a.state['data'],100,24)
+        a.input('\x02gAgent-4')
+        after=legacy.screen_text(a.state['data'],100,24)
+        self.assertEqual([row[28:] for row in before[:-1]],[row[28:] for row in after[:-1]])
+        self.assertEqual(before[:11],after[:11])
+        self.assertIn('/ Agent-4',after[12])
+        self.assertIn('Agent-4',after[13][:27])
+        self.assertNotIn('Alpha','\n'.join(row[:27] for row in after[13:-1]))
+        self.assertEqual(a.state['pane'],first)
+        a.input('\x1b');time.sleep(.06);a.poll()
+        restored=legacy.screen_text(a.state['data'],100,24)
+        self.assertIn('Alpha',restored[13][:27])
+        self.assertNotIn('/ Agent-4','\n'.join(restored))
+        self.assertEqual(a.state['pane'],first)
+        a.input('\x02b\x02g') # Search reveals a collapsed sidebar.
+        for _ in rest:a.input('\x1b[B')
+        self.assertEqual(a.state['pane'],first)
+        screen=legacy.screen_text(a.state['data'],100,24)
+        self.assertTrue(any('Agent-4' in row[:27] for row in screen[13:-1]))
+        self.assertEqual(a.input('\r')['pane'],rest[-1])
+        # Compact terminals use the same sidebar, and resizing must not
+        # silently send search input into the terminal.
+        a.request(op='size',cols=40,rows=18)
+        a.input('\x02gAlpha')
+        self.assertIn('/ ',a.state['data'])
+        a.request(op='size',cols=20,rows=5)
+        a.input('does-not-match\r')
+        self.assertEqual(a.state['pane'],rest[-1])
+        a.request(op='size',cols=40,rows=18)
+        a.input('\x15Alpha')
+        self.assertEqual(a.input('\r')['pane'],first)
+
+    def test_last_agent_history_is_per_workspace_and_per_viewer(self):
+        first,second=self.new(),self.new()
+        home=self.session()['workspaces'][0]['id']
+        self.mark_agent(first,'Home-A');self.mark_agent(second,'Home-B')
+        other=self.command('workspace.create',name='Other',cwd=self.temp.name)['workspace']
+        foreign=[self.command('pane.create',workspace=other,cwd=self.temp.name,command='sleep 60')['pane'] for _ in range(2)]
+        for i,pane in enumerate(foreign):self.mark_agent(pane,f'Other-{i}')
+        a,b=Viewer(self),Viewer(self)
+        a.focus(first);a.focus(second)
+        b.focus(first)
+        a.focus(foreign[0]);a.focus(foreign[1])
+        self.assertEqual(a.input('\x02\t')['pane'],foreign[0])
+        a.request(op='workspace',workspace=home)
+        self.assertEqual(a.input('\x02\t')['pane'],first)
+        self.assertEqual(a.input('\x02\t')['pane'],second)
+        self.assertEqual(b.input('\x02\t')['pane'],first)
+        a.input('\x02g')
+        a.request(op='workspace',workspace=other)
+        self.assertNotIn('type to search',a.state['data'])
+        self.assertEqual(a.input('\x02\t')['pane'],foreign[1])
+
+    def test_agent_navigation_includes_native_sessions_and_handles_empty_lists(self):
+        first=self.new();self.mark_agent(first,'Terminal-agent')
+        native=self.rpc(op='native.start',provider='codex',cwd=self.temp.name)['session']
+        a=Viewer(self);a.focus(first)
+        a.input('\x02]')
+        self.assertIn(f'native session {native}',a.state['data'])
+        a.input('\x02\t')
+        self.assertNotIn(f'native session {native}',a.state['data'])
+        a.input('\x02\t')
+        self.assertIn(f'native session {native}',a.state['data'])
+        self.assertEqual(a.input('\x02]')['pane'],first)
+        empty=self.command('workspace.create',name='Empty',cwd=self.temp.name)['workspace']
+        a.poll()
+        a.request(op='workspace',workspace=empty)
+        a.input('\x02]\x02[\x02\t')
+        self.assertIn('No agents in this workspace',a.state['data'])
+        a.input('\x02g')
+        self.assertIn('No matching agents',a.state['data'])
+        a.request(op='size',cols=20,rows=5)
+        a.input('\x1b[A\x1b[B\r')
+        self.assertEqual(a.state['workspace'],empty)
+
     def test_pane_menu_names_target_without_stealing_focus(self):
         left=self.new()
         right=self.command('pane.split', cwd=self.temp.name, command='sleep 60', target=left, direction='right')['pane']
@@ -261,7 +403,7 @@ class Viewers(unittest.TestCase):
         first=self.new("i=0; while [ $i -lt 80 ]; do printf 'ROW_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh")
         self.until(lambda:'ROW_079' in self.command('pane.read', target=first, view='screen')['text'])
         a=Viewer(self);b=Viewer(self);a.focus(first);b.focus(first)
-        a.input('\x02[g')
+        a.input('\x02sg')
         self.assertIn('ROW_000',a.state['data'])
         self.assertNotIn('ROW_000',b.poll()['data'])
         self.assertIn('ROW_079',b.state['data'])
@@ -337,7 +479,7 @@ class Viewers(unittest.TestCase):
         first=self.new("printf 'SEARCH_MARKER_unique\\n'; i=0; while [ $i -lt 80 ]; do printf 'tail_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh")
         self.until(lambda:'tail_079' in self.command('pane.read', target=first, view='screen')['text'])
         a=Viewer(self);b=Viewer(self);a.focus(first);b.focus(first)
-        a.input('\x02[/SEARCH_MARKER_unique\r')
+        a.input('\x02s/SEARCH_MARKER_unique\r')
         self.assertIn('SEARCH_MARKER_unique',a.state['data'])
         a.input('y')
         effect=a.state['effects'][0]['write_terminal']
@@ -440,5 +582,31 @@ with open(sys.argv[1], 'wb', buffering=0) as capture:
                 self.assertEqual(delivered[0]['id'],second)
                 self.assertEqual(call(op='viewer.sync',interests=[],focus=first)['controls'],delivered)
                 self.assertEqual(call(op='viewer.sync',interests=[],focus=second,ack=delivered[0]['seq'])['controls'],[])
+
+    def test_agent_exit_freezes_row_then_fades_without_stale_clicks(self):
+        self.new() # Keep a shell pane after the last agent closes.
+        first,second=self.new(),self.new()
+        self.mark_agent(first,'Departing-agent');self.mark_agent(second,'Surviving-agent')
+        self.rpc(op='hook',pane=first,provider='claude',seq=2,event={'hook_event_name':'UserPromptSubmit','session_id':str(first)})
+        viewer=Viewer(self);viewer.focus(second)
+        before=legacy.screen_text(viewer.poll()['data'],100,30)
+        self.assertIn('Departing-agent',before[16][:27])
+        self.rpc(op='hook',pane=first,provider='claude',seq=3,event={'hook_event_name':'SessionEnd','session_id':str(first)})
+        closing=legacy.screen_text(viewer.poll()['data'],100,30)
+        self.assertEqual(before[16][:27],closing[16][:27])
+        self.assertNotIn('Session ended','\n'.join(row[:27] for row in closing[16:28]))
+        self.assertEqual(viewer.input('\x1b[<0;6;17M\x1b[<0;6;17m')['pane'],second)
+        self.command('pane.close',target=first)
+        time.sleep(0.3)
+        closed=legacy.screen_text(viewer.poll()['data'],100,30)
+        self.assertIn('Surviving-agent',closed[16][:27])
+        self.assertNotIn('Departing-agent','\n'.join(row[:27] for row in closed[16:28]))
+        # Pane closure without a SessionEnd hook uses the same exit path.
+        self.command('pane.close',target=second)
+        immediate=legacy.screen_text(viewer.poll()['data'],100,30)
+        self.assertIn('Surviving-agent',immediate[16][:27])
+        time.sleep(0.3)
+        completed=legacy.screen_text(viewer.poll()['data'],100,30)
+        self.assertNotIn('Surviving-agent','\n'.join(row[:27] for row in completed[16:28]))
 
 if __name__=='__main__':unittest.main(verbosity=2)

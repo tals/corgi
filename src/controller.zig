@@ -9,6 +9,7 @@ const render = @import("render.zig");
 const commands = @import("commands.zig");
 const naming = @import("name_dialog.zig");
 const sidebar = @import("sidebar.zig");
+const agent_navigation = @import("agent_navigation.zig");
 const workspace = @import("workspace.zig");
 const protocol = @import("protocol.zig");
 const Effect = union(enum) {
@@ -43,6 +44,7 @@ const InputState = struct {
     paste: bool = false,
     paste_pane: ?layout.Id = null,
     paste_to_name: bool = false,
+    paste_to_picker: bool = false,
     tab_drag: ?TabDrag = null,
     divider: ?struct { hit: layout.View.Divider, area: layout.Rect, cancelled: bool = false } = null,
     keybuf: std.ArrayList(u8) = .empty,
@@ -72,9 +74,13 @@ pub const Controller = struct {
     corgi_badge: bool = false,
     sidebar_width: u16 = 28,
     sidebar_offset: usize = 0,
+    sidebar_rows: @import("sidebar_rows.zig").State = .{},
     remote_links: bool = false,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
+    agent_picker: ?agent_navigation.Picker = null,
+    agent_launcher: ?@import("agent_launcher.zig").Menu = null,
+    launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
     link_tooltip: @import("link_tooltip.zig").State = .{},
     ui_mouse_down: bool = false,
@@ -138,6 +144,7 @@ pub const Controller = struct {
 
     pub fn switchWorkspace(s: *Self, id: u32) !void {
         _ = s.runtime.workspaces.index(id) orelse return error.NoWorkspace;
+        s.rememberAgent();
         if (s.input_state.tab_drag) |*drag| {
             drag.cancelled = true;
         }
@@ -155,7 +162,7 @@ pub const Controller = struct {
         s.confirm_tab = null;
         s.message_len = 0;
         s.native_notice = null;
-
+        s.rememberAgent();
         s.dirty = true;
     }
     fn closeWorkspace(s: *Self, id: u32, close_contents: bool) !void {
@@ -173,15 +180,23 @@ pub const Controller = struct {
     }
     pub fn focusPane(s: *Self, id: u32) !void {
         const owner = s.runtime.workspaces.owner(id) orelse return error.NoPane;
+        s.rememberAgent();
         const workspace_id = owner.id;
         if (workspace_id != s.current().id) try s.switchWorkspace(workspace_id);
         try s.nav().focus(s.model(), id);
+        s.native_notice = null;
+        s.rememberAgent();
     }
     pub fn area(s: *Self) layout.Rect {
         return s.sidebarView(0).area();
     }
     fn sidebarView(s: *Self, count: usize) sidebar.View {
-        return sidebar.View.init(s.width, s.height, s.sidebar_open, s.sidebar_offset, count).withWidth(s.sidebar_width).withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset);
+        const offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset;
+        return sidebar.View.init(s.width, s.height, s.sidebar_open, offset, count).withSearch(s.agentSearch()).withWidth(s.sidebar_width).withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset);
+    }
+    fn agentSearch(s: *Self) ?sidebar.Search {
+        if (s.agent_picker) |*picker| return .{ .text = picker.query.text[0..picker.query.len], .cursor = picker.query.cursor };
+        return null;
     }
     pub fn inheritedCwd(s: *Self, ws: *protocol.Workspace, target: ?layout.Id) []const u8 {
         const id = target orelse if (ws.model.count > 0) ws.model.firstPane(ws.model.tabs[0].root) else return ws.cwd;
@@ -216,16 +231,29 @@ pub const Controller = struct {
         for (s.model().tabs[0..s.model().count], 0..) |_, tab_index| {
             for (s.runtime.panes.items) |*p| {
                 if (p.agent.provider == .other or s.model().tabForPane(p.id) != tab_index) continue;
-                entries[count] = .{ .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label else p.agent.name, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.nav().tab().focus == p.id, .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.activity.len > 0) p.agent.activity else p.agent.recent_activity };
+                entries[count] = .{ .conversation = p.agent.conversation, .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label else p.agent.name, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.native_notice == null and s.nav().tab().focus == p.id, .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.activity.len > 0) p.agent.activity else p.agent.recent_activity };
                 count += 1;
             }
         }
         for (s.runtime.sessions) |*session| {
             if (session.workspace != s.current().id) continue;
             entries[count] = .{ .target = .{ .native = session.id }, .provider = session.provider, .state = session.state, .attention = session.attention, .focused = s.native_notice == session.id, .cwd = session.cwd, .tool_active = session.tool_active, .unread = session.observation.unread() };
+            if (session.agent) |agent| {
+                entries[count].conversation = agent.conversation;
+                entries[count].subagents = agent.subagents;
+                entries[count].name = agent.name;
+                entries[count].activity = agent.activity;
+            }
             count += 1;
         }
+        for (entries[0..count]) |*entry| {
+            entry.children = @import("subagent_tooltip.zig").childCount(s.runtime.conversations, entry.conversation);
+        }
         return entries[0..count];
+    }
+    fn sidebarEntries(s: *Self, entries: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
+        var live: [sidebar.max_entries]sidebar.Entry = undefined;
+        return s.sidebar_rows.update(s.current().id, s.agentEntries(&live), entries, std.time.milliTimestamp());
     }
     fn firstUnreadAgent(s: *Self, workspace_index: usize) ?sidebar.Target {
         const ws = &s.runtime.workspaces.items[workspace_index];
@@ -241,12 +269,12 @@ pub const Controller = struct {
         return null;
     }
     fn selectAgent(s: *Self, target: sidebar.Target) !void {
+        s.rememberAgent();
         s.copy_mode = false;
         s.search_mode = false;
         s.selection = null;
         s.cancelDividers();
         s.message_len = 0;
-        s.native_notice = null;
         switch (target) {
             .pane => |id| {
                 try s.focusPane(id);
@@ -261,7 +289,70 @@ pub const Controller = struct {
                 break;
             },
         }
+        s.rememberAgent();
+        var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+        const entries = s.sidebarEntries(&storage);
+        if (agent_navigation.indexOf(entries, target)) |index| {
+            const view = s.sidebarView(entries.len);
+            s.sidebar_offset = view.offset;
+            if (index < s.sidebar_offset) s.sidebar_offset = index else if (index >= s.sidebar_offset + view.capacity) s.sidebar_offset = index + 1 - view.capacity;
+        }
         s.dirty = true;
+    }
+    fn focusedAgent(s: *Self) ?sidebar.Target {
+        if (s.native_notice) |id| {
+            for (s.runtime.sessions) |session| if (session.id == id and session.workspace == s.current().id) return .{ .native = id };
+        }
+        if (s.focused()) |p| if (p.agent.provider != .other) return .{ .pane = p.id };
+        return null;
+    }
+    fn rememberAgent(s: *Self) void {
+        if (s.runtime.workspaces.items.len == 0) return;
+        const target = s.focusedAgent();
+        s.navigation.agentHistory(&s.runtime.workspaces).observe(target);
+    }
+    fn navigateAgent(s: *Self, next: ?bool) !void {
+        s.rememberAgent();
+        var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+        const entries = s.agentEntries(&storage);
+        const target = if (next) |forward| agent_navigation.relative(entries, s.focusedAgent(), forward) else s.navigation.agentHistory(&s.runtime.workspaces).destination(entries, s.focusedAgent());
+        if (target) |value| try s.selectAgent(value) else s.notice(if (entries.len == 0) " No agents in this workspace" else " No previous agent in this workspace");
+    }
+    fn openAgentPicker(s: *Self) void {
+        s.closeMenu();
+        if (s.width < 40 or s.height < 13) {
+            s.notice(" Agent search needs at least 40 columns and 13 rows");
+            return;
+        }
+        s.sidebar_open = true;
+        s.copy_mode = false;
+        s.search_mode = false;
+        s.selection = null;
+        s.cancelDividers();
+        s.agent_picker = .{ .workspace = s.current().id, .selected = s.focusedAgent(), .offset = s.sidebar_offset };
+        s.dirty = true;
+    }
+    fn pickerEntries(s: *Self, out: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
+        var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+        const entries = s.agentEntries(&storage);
+        const picker = &s.agent_picker.?;
+        const filtered = picker.list(entries, out);
+        picker.reconcile(filtered, s.sidebarView(filtered.len).capacity);
+        for (filtered) |*entry| entry.focused = std.meta.eql(picker.selected, @as(?sidebar.Target, entry.target));
+        return filtered;
+    }
+    fn moveAgentPicker(s: *Self, next: bool) void {
+        var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+        const entries = s.pickerEntries(&storage);
+        s.agent_picker.?.move(entries, next, s.sidebarView(entries.len).capacity);
+        s.dirty = true;
+    }
+    fn acceptAgentPicker(s: *Self) !void {
+        var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+        _ = s.pickerEntries(&storage);
+        const target = s.agent_picker.?.selected orelse return;
+        s.closeMenu();
+        try s.selectAgent(target);
     }
     fn pane(s: *Self, id: layout.Id) ?*Pane {
         return s.runtime.pane(id);
@@ -281,7 +372,7 @@ pub const Controller = struct {
         return view;
     }
     fn hasMenu(s: *Self) bool {
-        return s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null;
+        return s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null;
     }
     fn tabIndex(s: *Self, id: layout.Id) ?usize {
         for (s.model().tabs[0..s.model().count], 0..) |tab, i| if (tab.id == id) return i;
@@ -337,7 +428,10 @@ pub const Controller = struct {
             }
             return;
         }
+        s.rememberAgent();
         s.nav().active = s.tabIndex(context.tab) orelse return;
+        s.native_notice = null;
+        s.rememberAgent();
         s.copy_mode = false;
 
         s.dirty = true;
@@ -354,6 +448,9 @@ pub const Controller = struct {
     }
     fn openMenu(s: *Self) void {
         s.link_tooltip.cancel();
+        s.agent_picker = null;
+        s.agent_launcher = null;
+        s.launcher_hover_blocked = true;
         s.port_menu = null;
         s.tab_menu = null;
         s.prefix = true;
@@ -365,6 +462,9 @@ pub const Controller = struct {
     }
     fn closeMenu(s: *Self) void {
         s.link_tooltip.cancel();
+        s.agent_picker = null;
+        s.agent_launcher = null;
+        s.launcher_hover_blocked = true;
         s.port_menu = null;
         s.tab_menu = null;
         s.menu_highlight = null;
@@ -591,6 +691,81 @@ pub const Controller = struct {
         s.copy_feedback_until = std.time.milliTimestamp() + 2000;
         s.dirty = true;
     }
+    fn launchAgent(s: *Self, provider: ?@import("agent_launcher.zig").Provider) !void {
+        var cwd: [std.fs.max_path_bytes]u8 = undefined;
+        const dir = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
+        if (dir.len > cwd.len) return error.NameTooLong;
+        @memcpy(cwd[0..dir.len], dir);
+        const len = dir.len;
+        s.closeMenu();
+        const created = s.execute(.{ .@"agent.create" = .{ .workspace = s.current().id, .cwd = cwd[0..len], .provider = provider } }) catch |err| {
+            s.notice(@errorName(err));
+            return;
+        };
+        try s.focusPane(created.pane);
+        s.dirty = true;
+    }
+    fn openLauncher(s: *Self, pinned: bool) void {
+        s.closeMenu();
+        const cwd = s.currentCwd();
+        if (cwd.len > std.fs.max_path_bytes) return;
+        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = s.runtime.last_agent, .last = s.runtime.last_agent, .pinned = pinned };
+        @memcpy(launch.cwd[0..cwd.len], cwd);
+        s.agent_launcher = launch;
+        s.cancelDividers();
+        s.selection = null;
+        s.dirty = true;
+    }
+    fn newAgentShortcut(s: *Self) !void {
+        if (s.agent_launcher) |launch| {
+            if (launch.pinned) {
+                try s.launchAgent(launch.selected);
+                return;
+            }
+            s.agent_launcher.?.pinned = true;
+            s.dirty = true;
+            return;
+        }
+        s.sidebar_open = true;
+        s.openLauncher(true);
+    }
+    fn moveLauncher(s: *Self, next: bool) void {
+        if (s.agent_launcher) |*launch| {
+            launch.selected = if (next) .claude else .codex;
+            launch.pinned = true;
+        }
+        s.dirty = true;
+    }
+    fn pollLauncher(s: *Self) !void {
+        const now = std.time.milliTimestamp();
+        const side = s.sidebarView(0);
+        const on_button = if (s.pointer) |p| switch (side.hit(p.x, p.y)) {
+            .agent_new, .agent_options => true,
+            else => false,
+        } else false;
+        if (s.agent_launcher) |*launch| {
+            if (launch.workspace != s.current().id or side.width == 0) {
+                s.agent_launcher = null;
+                return;
+            }
+            const inside = if (s.pointer) |p| @import("agent_launcher.zig").Menu.bounds(s.width, s.height, side).contains(p.x, p.y) else false;
+            if (!launch.pinned and !on_button and !inside) {
+                s.closeMenu();
+                return;
+            }
+            launch.last = s.runtime.last_agent;
+            if (now - launch.checked < 1000) return;
+            launch.checked = now;
+            const response = s.connection.call(.{ .op = "agent.preview", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len] }) catch return;
+            defer response.deinit();
+            const parsed = std.json.parseFromValue(@import("agent_launcher.zig").Preview, a, response.value.object.get("preview") orelse return, .{}) catch return;
+            defer parsed.deinit();
+            launch.preview = parsed.value;
+            s.dirty = true;
+        } else if (on_button and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and s.confirm == .none and !s.ui_mouse_down and !s.copy_mode) {
+            s.openLauncher(false);
+        }
+    }
     fn portWorkspaceEntry(s: *Self, id: u32) sidebar.WorkspaceEntry {
         return .{ .id = id, .name = "", .cwd = "", .active = false, .ports = s.runtime.ports, .remote_links = s.remote_links };
     }
@@ -603,6 +778,40 @@ pub const Controller = struct {
     }
     fn key(s: *Self, byte: u8) !void {
         const cl = &s.input_state;
+        if (s.agent_launcher) |launch| {
+            const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1;
+            if (!launch.pinned and !navigation) {
+                s.closeMenu();
+            } else {
+                s.agent_launcher.?.pinned = true;
+                switch (byte) {
+                    27 => s.closeMenu(),
+                    13, 'a', 'A', 1 => try s.launchAgent(launch.selected),
+                    9 => s.moveLauncher(launch.selected == .codex),
+                    'j', 14 => s.moveLauncher(true),
+                    'k', 16 => s.moveLauncher(false),
+                    'c' => try s.launchAgent(.codex),
+                    'l' => try s.launchAgent(.claude),
+                    else => {},
+                }
+                return;
+            }
+        }
+        if (s.agent_picker != null) {
+            switch (byte) {
+                27 => s.closeMenu(),
+                13 => try s.acceptAgentPicker(),
+                9, 14 => s.moveAgentPicker(true),
+                16 => s.moveAgentPicker(false),
+                else => {
+                    _ = s.agent_picker.?.query.key(byte);
+                    var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+                    _ = s.pickerEntries(&storage);
+                },
+            }
+            s.dirty = true;
+            return;
+        }
         if (s.port_menu) |links| {
             switch (byte) {
                 27 => s.closeMenu(),
@@ -704,6 +913,7 @@ pub const Controller = struct {
                 '}' => try s.action("workspace-next", ""),
                 '{' => try s.action("workspace-prev", ""),
                 'c' => try s.beginNewTab(),
+                'a', 'A', 1 => try s.newAgentShortcut(),
                 'u' => try s.action("undo-close", ""),
                 'v', '%' => try s.action("split", "right"),
                 '-', '"' => try s.action("split", "down"),
@@ -713,7 +923,7 @@ pub const Controller = struct {
                 'p' => try s.action("prev", ""),
                 '1'...'9' => try s.action("tab", &.{byte}),
                 'z' => try s.action("zoom", ""),
-                'a' => try s.action("attention", ""),
+                'f' => try s.action("attention", ""),
                 'b' => try s.action("sidebar", ""),
                 '!' => try s.action("break", ""),
                 'm' => try s.action("mute", ""),
@@ -725,7 +935,11 @@ pub const Controller = struct {
                 'T', ',' => s.beginRename(),
                 'x' => try s.action("close", ""),
                 'X' => try s.action("close-tab", ""),
-                '[' => {
+                'g' => s.openAgentPicker(),
+                '[' => try s.navigateAgent(false),
+                ']' => try s.navigateAgent(true),
+                9 => try s.navigateAgent(null),
+                's' => {
                     s.copy_mode = true;
                     s.dirty = true;
                 },
@@ -799,7 +1013,9 @@ pub const Controller = struct {
                 s.link_tooltip.cancel();
                 s.dirty = true;
                 if (cl.paste) {
-                    if (cl.paste_to_name and s.name_dialog != null) {
+                    if (cl.paste_to_picker and s.agent_picker != null) {
+                        if (rest[0] >= 32 and rest[0] < 127) try s.key(rest[0]);
+                    } else if (cl.paste_to_name and s.name_dialog != null) {
                         if (rest[0] >= 32 and rest[0] < 127) try s.key(rest[0]);
                     } else if (cl.paste_pane) |id| {
                         if (s.pane(id)) |p| try s.sendInput(p.terminal, rest[0..1]);
@@ -861,6 +1077,7 @@ pub const Controller = struct {
                 if (cl.paste) {
                     cl.paste_pane = if (!s.hasMenu() and s.name_dialog == null and s.confirm == .none) (if (s.focused()) |p| p.id else null) else null;
                     cl.paste_to_name = s.name_dialog != null;
+                    cl.paste_to_picker = s.agent_picker != null;
                 }
                 if (cl.paste_pane) |id| {
                     if (s.pane(id)) |p| if (p.terminal.emulator().*.modes.get(.bracketed_paste)) try s.sendInput(p.terminal, seq);
@@ -875,7 +1092,14 @@ pub const Controller = struct {
                 cl.watched = false;
                 s.pointer = null;
                 s.dirty = true;
-            } else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(seq) else if (s.port_menu != null) {
+            } else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(seq) else if (s.agent_picker != null) {
+                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) s.moveAgentPicker(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveAgentPicker(true) else s.agent_picker.?.query.sequence(seq);
+            } else if (s.agent_launcher != null) {
+                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.moveLauncher(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB") or eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.moveLauncher(true) else if (eq(seq, "\x1b[Z")) s.moveLauncher(s.agent_launcher.?.selected == .codex) else if (!s.agent_launcher.?.pinned) {
+                    s.closeMenu();
+                    if (s.focused()) |p| try s.sendInput(p.terminal, seq);
+                }
+            } else if (s.port_menu != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.movePortMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.movePortMenu(true);
             } else if (s.tab_menu != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveTabMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveTabMenu(true);
@@ -930,7 +1154,10 @@ pub const Controller = struct {
         const release = seq[seq.len - 1] == 'm';
         const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
         if (!release and button & 32 != 0 and button & 3 == 3 and button & 64 == 0) {
-            if (moved) s.link_tooltip.move();
+            if (moved) {
+                s.link_tooltip.move();
+                s.launcher_hover_blocked = false;
+            }
         } else {
             s.link_tooltip.cancel();
             s.dirty = true;
@@ -1078,6 +1305,45 @@ pub const Controller = struct {
             if (release) s.ui_mouse_down = false;
             return;
         }
+        if (s.agent_launcher != null) {
+            const side = s.sidebarView(0);
+            if (!release and button == 0) {
+                s.ui_mouse_down = true;
+                const hit = side.hit(x, y);
+                if (hit == .agent_new) try s.launchAgent(null) else if (hit == .agent_options) s.agent_launcher.?.pinned = true else if (@import("agent_launcher.zig").Menu.hit(s.width, s.height, side, x, y)) |provider| try s.launchAgent(provider) else s.closeMenu();
+            } else if (!release and (button == 35 or button == 32)) {
+                if (@import("agent_launcher.zig").Menu.hit(s.width, s.height, side, x, y)) |provider| s.agent_launcher.?.selected = provider;
+                s.dirty = true;
+            }
+            return;
+        }
+        if (s.agent_picker != null) {
+            var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+            const entries = s.pickerEntries(&storage);
+            const view = s.sidebarView(entries.len);
+            if (!release and (button == 64 or button == 65)) {
+                if (x < view.width and y >= view.middle()) s.moveAgentPicker(button == 65);
+                return;
+            }
+            if (!release and button == 0) {
+                const hit = view.hit(x, y);
+                if (hit == .entry) {
+                    const index = hit.entry;
+                    s.ui_mouse_down = true;
+                    s.agent_picker.?.selected = entries[index].target;
+                    try s.acceptAgentPicker();
+                    return;
+                } else if (x < view.width and y == view.middle() + 1) {
+                    s.ui_mouse_down = true;
+                    s.agent_picker.?.query.position(view.searchOffset() + (x -| 3));
+                    return;
+                } else if (x < view.width and y >= view.middle()) {
+                    return;
+                }
+                // A click elsewhere leaves search and retains its usual action.
+                s.closeMenu();
+            } else return;
+        }
         if (!release and button == 2 and y == 0 and s.name_dialog == null and s.confirm == .none) {
             if (x >= tabs_x) if (render.tabAt(s.layoutView(), tabs_width, x - tabs_x)) |index| {
                 s.ui_mouse_down = true;
@@ -1145,7 +1411,7 @@ pub const Controller = struct {
             return;
         }
         var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
-        const entries = s.agentEntries(&agent_storage);
+        const entries = s.sidebarEntries(&agent_storage);
         const side = s.sidebarView(entries.len);
         if (!release and button == 0 and side.width > 0 and x == side.width - 1) {
             s.sidebar_drag = true;
@@ -1177,8 +1443,10 @@ pub const Controller = struct {
                     .toggle => try s.action("sidebar", ""),
                     .previous => s.sidebar_offset = side.offset -| side.capacity,
                     .next => s.sidebar_offset = @min(side.offset + side.capacity, entries.len -| side.capacity),
-                    .entry => |index| try s.selectAgent(entries[index].target),
+                    .entry => |index| if (entries[index].exit == null) try s.selectAgent(entries[index].target),
                     .workspace_new => s.beginWorkspace(null),
+                    .agent_new => if (button == 0) try s.launchAgent(null) else s.openLauncher(true),
+                    .agent_options => s.openLauncher(true),
                     .workspace_previous => s.workspace_offset = side.workspace_offset -| side.workspaceCapacity(),
                     .workspace_next => s.workspace_offset = @min(side.workspace_offset + side.workspaceCapacity(), s.runtime.workspaces.items.len -| side.workspaceCapacity()),
                     .workspace => |index| if (button == 2) {
@@ -1197,7 +1465,7 @@ pub const Controller = struct {
                         if (jump) {
                             if (target) |agent| {
                                 try s.selectAgent(agent);
-                                const updated = s.agentEntries(&agent_storage);
+                                const updated = s.sidebarEntries(&agent_storage);
                                 for (updated, 0..) |entry, i| {
                                     if (std.meta.eql(entry.target, agent)) {
                                         s.sidebar_offset = @min(i, updated.len -| side.capacity);
@@ -1225,7 +1493,10 @@ pub const Controller = struct {
                 return;
             }
             if (x >= tabs_x) if (render.tabAt(s.layoutView(), tabs_width, x - tabs_x)) |index| {
+                s.rememberAgent();
                 s.nav().active = index;
+                s.native_notice = null;
+                s.rememberAgent();
                 cl.tab_drag = .{
                     .workspace_id = s.current().id,
                     .tab_id = s.model().tabs[index].id,
@@ -1372,6 +1643,9 @@ pub const Controller = struct {
         s.reconcile();
     }
     pub fn reconcile(s: *Self) void {
+        if (s.agent_picker) |picker| {
+            if (picker.workspace != s.current().id) s.agent_picker = null;
+        }
         if (s.port_menu) |*links| {
             const count = sidebar.urlCount(s.portWorkspaceEntry(links.workspace));
             if (s.runtime.workspaces.index(links.workspace) == null or count == 0) {
@@ -1393,6 +1667,7 @@ pub const Controller = struct {
         s.dirty = true;
     }
     pub fn expireInput(s: *Self) !void {
+        try s.pollLauncher();
         if (s.link_tooltip.due(std.time.milliTimestamp())) s.dirty = true;
         if (s.copy_feedback_until != 0 and std.time.milliTimestamp() >= s.copy_feedback_until) {
             s.copy_feedback_until = 0;
@@ -1416,6 +1691,11 @@ pub const Controller = struct {
                 if (sidebar.gitWorkspace(s.sidebarView(0), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
                     target = .{ .pane = ws.id, .link = 0, .git = true };
                 }
+                var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
+                const entries = s.sidebarEntries(&agent_storage);
+                if (sidebar.agentAt(s.sidebarView(entries.len), entries, pointer.x, pointer.y)) |entry| {
+                    target = .{ .pane = 0, .link = 0, .conversation = entry.conversation, .agent = entry.target };
+                }
                 var locations: [layout.max_panes]layout.Placement = undefined;
                 for (s.layoutView().placements(s.area(), &locations)) |place| {
                     if (!place.rect.contains(pointer.x, pointer.y)) continue;
@@ -1435,6 +1715,7 @@ pub const Controller = struct {
         return s.link_tooltip.ready(target, std.time.milliTimestamp());
     }
     pub fn frame(s: *Self) ![]u8 {
+        s.rememberAgent();
         var native_blocked: usize = 0;
         var native_finished: usize = 0;
         for (s.runtime.sessions) |session| switch (session.attention) {
@@ -1443,12 +1724,12 @@ pub const Controller = struct {
             .none => {},
         };
         var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
-        const entries = s.agentEntries(&agent_storage);
+        const entries = if (s.agent_picker != null) s.pickerEntries(&agent_storage) else s.sidebarEntries(&agent_storage);
         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
         return render.frame(s.layoutView(), s.runtime.panes.items, s.width, s.height, .{
             .pointer = s.pointer,
             .link_tooltip = try s.linkTooltipReady(),
-            .message = s.message[0..s.message_len],
+            .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
             .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
             .copy_mode = s.copy_mode,
             .native_blocked = native_blocked,
@@ -1456,6 +1737,8 @@ pub const Controller = struct {
             .menu = s.menu(),
             .tab_menu = s.tab_menu,
             .port_menu = s.port_menu,
+            .agent_search = s.agentSearch(),
+            .agent_launcher = s.agent_launcher,
             .tab_drop_x = s.tabDropX(),
             .dialog = s.name_dialog,
             .confirm = s.confirm != .none,
@@ -1463,8 +1746,9 @@ pub const Controller = struct {
             .corgi_badge = s.corgi_badge,
             .sidebar_width = s.sidebar_width,
             .workspace_drop_y = if (s.workspace_drag) |drag| drag.drop_y else null,
-            .sidebar_offset = s.sidebar_offset,
+            .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
             .agents = entries,
+            .conversations = s.runtime.conversations,
             .workspaces = s.workspaceEntries(&workspace_storage),
             .workspace_offset = s.workspace_offset,
         });

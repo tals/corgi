@@ -50,6 +50,7 @@ pub const Runtime = struct {
     closed: std.ArrayList(ClosedPane) = .empty,
     sessions: std.ArrayList(native.Session) = .empty,
     next_session: u32 = 1,
+    last_agent: @import("agent_launcher.zig").Provider = .codex,
     conversations: @import("conversations.zig").Registry = .{},
     revision: u64 = 1,
     git_status: @import("git_status.zig").Tracker = .{},

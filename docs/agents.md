@@ -61,8 +61,46 @@ pane-local state migrates on import. Actor IDs survive checkpoint restoration;
 they are not globally unique. The registry currently retains up to 1,024 actors.
 Networking and endpoint qualification belong to a separate remoting layer.
 
-The optional parent field leaves room for individually addressable subagents, but
-this migration does not discover child actors or add a transcript browser.
+## Live children and usage
+
+The Codex observer retains the identities from each known conversation's child
+listing and follows active children recursively. Parent links are verified,
+deduplicated, and cycle checked. A failed listing does not erase known children.
+Finished children remain in the registry for the runtime's lifetime, so their
+activity and usage remain inspectable. Native Codex thread metadata can establish
+the same links without changing the transport's selected parent.
+
+Hovering anywhere over either line of a sidebar agent for 500 ms opens one
+viewer-local details card. The name, activity, and subagent badge all open the
+same card. It starts with the agent's own activity and token usage, including
+agents without children, then groups descendants by reported role or current
+activity. It shows group counts, individual activity/status, token totals, cached
+input, output, and roughly five minutes of recent spend. Group totals sum each child's
+own usage; the overall total adds the parent's own usage once. The existing
+working/blocked badge still describes direct children. When none are active, the
+badge retains the count of known descendants so their details remain accessible.
+The card is capped at 58 columns with padded sections, status colors, and compact
+token counts such as `12.4k` and `2.3M`. Input and output use separate colors;
+cached input and recent usage remain visible beneath the totals.
+
+Live usage is independent of workspace away counters. Watching a workspace does
+not reset it. `conversation.list` and `session.snapshot` expose `role`, `parent`,
+and `usage` on each conversation. Tokens mean input plus output; cached input is
+a subset of input, not an extra charge. These are observed tokens, not prices or
+subscription-quota percentages.
+
+Accounting reads known session files incrementally or uses native notifications,
+with one source per conversation. A newly discovered child's initial file is
+read from the start only up to 2 MiB. Earlier token records count only if the
+session started during the tracked parent runtime and explicitly identifies its
+own history with `subagent_history_start_ordinal`. Inherited records are excluded.
+Otherwise, the initial tail establishes a baseline and subsequent usage counts.
+Missing boundaries, counter resets, source changes, and gaps are marked as partial
+coverage (`≥`), rather than inventing totals. Unknown usage appears as a dash.
+
+Meters and five minute buckets live only in memory and reset on daemon restart or
+reload. There is no historical ledger, pricing database, or archived-session scan.
+Child discovery is Codex-first; recursive Claude child discovery is not included.
 
 ## Tests and simulation
 
@@ -82,6 +120,7 @@ the vendor applications.
 python3 tests/provider_sim_test.py
 python3 tests/conversations.py
 python3 tests/codex_titles.py
+python3 tests/subagents.py
 python3 tests/smoke.py
 python3 tests/reloads.py
 python3 tests/viewers.py

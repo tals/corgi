@@ -163,7 +163,10 @@ pub const Presentation = struct {
         if (mode != .content) {
             self.last_corgi = .{ .mode = mode, .at_ms = now_ms };
             self.reveal_started_ms = null;
-        } else if (self.mode != .content and self.last_corgi != null) {
+        } else if (self.mode == .asleep) {
+            self.last_corgi = null;
+            self.reveal_started_ms = null;
+        } else if (self.mode == .awake and self.last_corgi != null) {
             self.reveal_started_ms = now_ms;
         }
         if (self.reveal_started_ms) |start| {
@@ -173,6 +176,12 @@ pub const Presentation = struct {
             }
         }
         self.mode = mode;
+    }
+
+    pub fn skipReveal(self: *Presentation) void {
+        if (self.mode != .content) return;
+        self.reveal_started_ms = null;
+        self.last_corgi = null;
     }
 
     pub const reveal_feather = 3.0;
@@ -430,7 +439,12 @@ test "4C handoff lasts 600 ms and alternates heights" {
 
 test "content reveal preserves the old pose and cancels when a corgi returns" {
     var presentation: Presentation = .{};
-    presentation.update(.asleep, 100);
+    presentation.update(.asleep, 0);
+    presentation.update(.content, 50);
+    try std.testing.expect(presentation.last_corgi == null);
+    try std.testing.expect(presentation.reveal_started_ms == null);
+    try std.testing.expectEqual(@as(usize, 20), presentation.revealedColumns(20, 50));
+    presentation.update(.awake, 100);
     presentation.update(.content, 200);
     try std.testing.expectEqual(@as(i64, 100), presentation.last_corgi.?.at_ms);
     try std.testing.expectEqual(@as(usize, 0), presentation.revealedColumns(20, 200));
@@ -444,7 +458,16 @@ test "content reveal preserves the old pose and cancels when a corgi returns" {
     presentation.update(.content, 950);
     try std.testing.expect(presentation.last_corgi == null);
     try std.testing.expect(presentation.reveal_started_ms == null);
-    presentation.update(.asleep, 1000);
+    presentation.update(.awake, 1000);
+    presentation.update(.content, 1010);
+    presentation.skipReveal();
+    try std.testing.expect(presentation.last_corgi == null);
+    try std.testing.expect(presentation.reveal_started_ms == null);
+    presentation.update(.awake, 1020);
+    presentation.update(.content, 1030);
+    presentation.update(.asleep, 1040); // An interrupted turn ends immediately.
+    try std.testing.expect(presentation.reveal_started_ms == null);
+    try std.testing.expectEqual(Mode.asleep, presentation.last_corgi.?.mode);
     presentation.hide();
     presentation.update(.content, 1100);
     try std.testing.expect(presentation.reveal_started_ms == null);

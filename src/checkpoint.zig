@@ -163,6 +163,7 @@ pub const Binding = struct {
     provisional: agents.Agent = .{},
 };
 pub const State = struct {
+    last_agent: @import("agent_launcher.zig").Provider = .codex,
     version: u32 = 2,
     conversations: []const Conversation = &.{},
     next_conversation: u32 = 1,
@@ -186,8 +187,8 @@ fn historicalAgent(agent: agents.Agent) agents.Agent {
     result.last_seq = 0;
     result.metadata_protocol_at = 0;
     result.tool_active = false;
-    result.subagents = .{};
     result.permission_review = null;
+    result.subagents = .{};
     result.observation.pending_stop = false;
     result.transcript_len = 0;
     return result;
@@ -221,7 +222,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     }
     const actors = try alloc.alloc(Conversation, r.conversations.items.items.len);
     for (r.conversations.items.items, actors) |actor, *out| out.* = .{ .id = actor.id, .agent = if (live) actor.state else historicalAgent(actor.state), .parent = actor.parent, .workspace = actor.workspace, .observed_at = if (live) actor.observed_at else 0 };
-    return .{ .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
+    return .{ .last_agent = r.last_agent, .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
 // Callers own a staging runtime. Live import errors exit the candidate without
 // calling destructors: inherited descriptors are still owned by the old daemon.
@@ -241,6 +242,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.workspaces.next_pane_id = state.next_pane;
     r.next_session = state.next_session;
     r.revision = state.revision +% 1;
+    r.last_agent = state.last_agent;
     for (state.conversations) |saved| {
         if (saved.id == 0 or saved.id >= state.next_conversation or r.conversations.byId(saved.id) != null or !validAgent(saved.agent) or saved.agent.provider == .other or saved.agent.session_len == 0 or
             r.conversations.find(saved.agent.provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;

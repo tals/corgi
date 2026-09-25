@@ -796,7 +796,7 @@ while True:
             self.until(lambda:log.exists() and log.read_bytes()==expected)
             self.frame_with('LIVE_PROMPT')
         # Explicit copy mode remains modal, including when using the wheel.
-        self.input('\x02[');self.frame_with('SCROLL  j/k')
+        self.input('\x02s');self.frame_with('SCROLL  j/k')
         self.input('\x1b[<64;40;10Mzqx')
         expected+=b'x'
         self.until(lambda:log.read_bytes()==expected)
@@ -1017,13 +1017,13 @@ while True:
         self.attach();self.get_type('frame')
         self.input("printf 'SCROLLBACK_SENTINEL\\n'; i=0; while [ $i -lt 50 ]; do echo line-$i; i=$((i+1)); done\r")
         self.until(lambda:'line-49' in self.command('pane.read', target=int('1'), view='screen')['text'])
-        self.input('\x02TStored name\r\x02[/missing')
+        self.input('\x02TStored name\r\x02s/missing')
         self.command('pane.close', target=1)
         self.get_type('detach');self.reconnect()
         self.input('\x02u')
         self.until(lambda:len(self.panes())==2)
         pane=next(p['id'] for p in self.panes() if p['focused'])
-        self.input('\x02[g')
+        self.input('\x02sg')
         self.frame_with('SCROLLBACK_SENTINEL')
         while 'Stored name' not in self.get_type('frame')['data']:pass
         self.input('q')
@@ -1274,7 +1274,7 @@ with open({str(played)!r},'a') as log:
         self.assertEqual(self.get_type('bell')['kind'],'needs_input')
         hook('PermissionRequest',4);hook('Stop',5,session='child');hook('Stop',6,agent_id='child')
         self.assertEqual(self.panes()[0]['state'],'blocked');self.assertEqual(self.panes()[0]['attention'],'needs_input')
-        self.input('\x02a');self.until(lambda:self.panes()[0]['focused'])
+        self.input('\x02f');self.until(lambda:self.panes()[0]['focused'])
         self.assertEqual(self.panes()[0]['attention'],'none');self.assertEqual(self.panes()[0]['state'],'blocked')
         hook('UserPromptSubmit',7);hook('Stop',8)
         self.assertEqual(self.panes()[0]['attention'],'none')

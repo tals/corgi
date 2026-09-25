@@ -14,6 +14,7 @@ const Client = @import("peer.zig").Client;
 pub const Server = struct {
     const Pane = runtime.Pane;
     runtime: runtime.Runtime = .{},
+    launch_previews: ?*@import("agent_launcher.zig").Worker = null,
     preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
     default_folder_pending: bool = true,
     clients: std.ArrayList(Client) = .empty,
@@ -187,6 +188,16 @@ pub const Server = struct {
             try cl.queue(.{ .ok = true, .path = path });
             return;
         }
+        if (eq(operation, "agent.preview")) {
+            try protocol.require(v, cl.protocol_version);
+            const ws = try s.runtime.getWorkspace(try protocol.id(v, "workspace"));
+            const requested = agents.str(v, "cwd");
+            const cwd = if (requested.len > 0) requested else ws.cwd;
+            if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
+            const preview = if (s.launch_previews) |worker| worker.preview(cwd) else @import("agent_launcher.zig").Preview{};
+            try cl.queue(.{ .ok = true, .preview = preview });
+            return;
+        }
         if (eq(operation, "session.command")) {
             try protocol.require(v, cl.protocol_version);
             var arena = std.heap.ArenaAllocator.init(a);
@@ -272,6 +283,7 @@ pub const Server = struct {
             const seq = number(v, "seq", std.time.microTimestamp());
             if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, provider, hook.?)) |actor| {
                 p.attachment.hook_seq = seq;
+                if (hook.?.kind == .session_start and provider != .other) s.runtime.last_agent = if (provider == .codex) .codex else .claude;
                 if (actor.workspace == 0 or s.runtime.workspaces.index(actor.workspace) == null) {
                     if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
                 }
@@ -329,6 +341,9 @@ pub const Server = struct {
         const before = p.agent().*;
         const old_binding = p.attachment.generation;
         const previous_pid = p.detection.pid;
+        if (before.provider != p.agent().provider or !eq(before.sessionId(), p.agent().sessionId())) {
+            if (p.agent().provider != .other) s.runtime.last_agent = if (p.agent().provider == .codex) .codex else .claude;
+        }
         p.resume_hint.observe(p.agent());
         if (job) |current| {
             if ((previous_pid != 0 and previous_pid != current.pid) or
@@ -363,6 +378,9 @@ pub const Server = struct {
         var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
         if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
         if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
+        if (job != null and review and text != null) {
+            ding = p.agent().observePermissionPrompt(detection.screenState(.codex, p.terminal.vt.getTitle() orelse "", text.?) == .blocked, s.paneWatched(p.id), now) or ding;
+        }
         p.resume_hint.observe(p.agent());
         const previous_cwd = std.hash.Wyhash.hash(0, p.cwd);
         p.refreshCwd();
@@ -373,14 +391,16 @@ pub const Server = struct {
         s.attention(ding, p.agent().state);
     }
     pub fn run(s: *Server) !void {
+        s.launch_previews = try @import("agent_launcher.zig").Worker.start();
+        defer {
+            s.launch_previews.?.stop();
+            s.launch_previews = null;
+        }
         const observer = try @import("transcript.zig").Worker.start();
         defer observer.stop();
         const usage_worker = @import("usage_worker.zig");
         const usage = try usage_worker.Worker.start();
         defer usage.stop();
-        if (job != null and review and text != null) {
-            ding = p.agent().observePermissionPrompt(detection.screenState(.codex, p.terminal.vt.getTitle() orelse "", text.?) == .blocked, s.paneWatched(p.id), now) or ding;
-        }
         const codex_observer = @import("codex_observer.zig");
         const summaries = try @import("activity_worker.zig").Worker.start();
         defer summaries.stop();
@@ -451,6 +471,7 @@ pub const Server = struct {
                 var snapshots: [layout.max_panes]?codex_observer.Snapshot = undefined;
                 codex.take(&snapshots);
                 for (snapshots) |entry| if (entry) |snap| {
+                    defer snap.deinit();
                     const actor = try s.codexActor(snap) orelse continue;
                     const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id));
                     if (actor.parent == null) s.attention(ding, actor.state.state);
@@ -473,7 +494,6 @@ pub const Server = struct {
                     }
                 };
                 var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
-                    defer snap.deinit();
                 summaries.take(&summary_results);
                 for (summary_results) |entry| if (entry) |result| {
                     if (s.runtime.conversations.byId(result.request.actor)) |actor| if (result.apply(actor)) {
@@ -489,6 +509,11 @@ pub const Server = struct {
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
                     if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
+                    if (!actor.native_usage and !std.meta.eql(actor.live_usage, result.live)) {
+                        actor.live_usage = result.live;
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
                     const before = actor.state;
                     if (result.fallback(&actor.state, std.time.microTimestamp())) {
                         summaries.submit(actor, result.progress.?.commentary);
@@ -498,6 +523,7 @@ pub const Server = struct {
                         s.runtime.changed();
                     }
                     if (result.progress) |progress| summaries.tools(actor.id, &actor.state, progress);
+                    if (actor.native_usage) continue;
                     const ws = s.runtime.workspaces.get(result.workspace) orelse continue;
                     if (actor.workspace != ws.id or s.workspaceWatched(ws.id)) continue;
                     if (ws.away.record(result.since, result.delta)) {
@@ -509,11 +535,6 @@ pub const Server = struct {
                 var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;
                 observer.take(&completions);
                 for (completions) |entry| if (entry) |result| {
-                    if (!actor.native_usage and !std.meta.eql(actor.live_usage, result.live)) {
-                        actor.live_usage = result.live;
-                        s.dirty = true;
-                        s.runtime.changed();
-                    }
                     if (s.runtime.conversations.byId(result.actor)) |actor| {
                         const was_pending = actor.state.observation.pending_stop;
                         const ding = actor.confirmStop(result.seq, result.outcome, std.time.microTimestamp());
@@ -523,7 +544,6 @@ pub const Server = struct {
                         }
                         s.attention(ding and !s.actorWatched(actor.id), actor.state.state);
                     }
-                    if (actor.native_usage) continue;
                 };
             }
             for (s.runtime.sessions.items) |*session| {
@@ -562,6 +582,7 @@ pub const Server = struct {
                 if (pid <= 0) break;
                 @import("git_status.zig").recordExit(pid, status);
                 @import("inference.zig").recordExit(pid, status);
+                @import("agent_launcher.zig").recordExit(pid, status);
                 @import("ports.zig").recordExit(pid, status);
                 for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                     p.terminal.exited = true;

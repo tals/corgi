@@ -123,7 +123,7 @@ Right-click a tab title for Herdr's tab menu: **New tab**, **Rename**, and **Clo
 | Reopen last closed pane | `prefix u` |
 | Break pane into its own tab | `prefix !` |
 | Scroll/copy mode | `prefix [` |
-| Jump to attention | `prefix a` |
+| Jump to attention | `prefix f` |
 | Mute / unmute sounds | `prefix m` |
 | Detach, keep processes alive | `prefix q` |
 | Help | `prefix ?` |
@@ -192,14 +192,14 @@ Provider contracts: [Codex hooks](https://learn.chatgpt.com/docs/hooks), [Claude
 
 - **Needs you:** Herdr's request sound, including in the focused pane; unseen requests retain a sticky `! needs you` marker.
 - **Turn finished:** Herdr's completion sound; sticky `+ done` marker.
-- `prefix a` visits waiting panes first, oldest first, then completed panes. Visiting acknowledges the marker without changing the agent's actual state.
+- `prefix f` visits waiting panes first, oldest first, then completed panes. Visiting acknowledges the marker without changing the agent's actual state.
 - Completion sounds stay quiet for a pane focused in any watching viewer. Input requests still ding. Focus reporting depends on the outer terminal supporting it.
 - Completion receipts are deduplicated by turn. Duplicate hooks don't ring twice. Bursts are coalesced, with at least 1.5 seconds between sounds and waiting taking precedence.
 - Muting suppresses sounds while retaining the attention queue. `CORGI_BELL=terminal` selects BEL; `CORGI_BELL=off` disables client sounds.
 
 The two MP3s are embedded in the binary. Playback runs in a background thread using `afplay` on macOS, or the first successful MP3-capable player on Linux (`paplay`, `pw-play`, `ffplay`, `mpg123`, `mpv`). Temporary audio files are removed after playback; failed playback falls back to BEL. Plain SSH attachments use BEL so the notification reaches the local terminal rather than the remote host's audio device; its audibility depends on your terminal's bell settings.
 
-Sounds play on the attached machine. A detached runtime retains attention markers but does not send desktop notifications. Native protocol sessions also contribute to the attention count; `prefix a` identifies the session and command to inspect it.
+Sounds play on the attached machine. A detached runtime retains attention markers but does not send desktop notifications. Native protocol sessions also contribute to the attention count; `prefix f` identifies the session and command to inspect it.
 
 ## Native agent protocols
 

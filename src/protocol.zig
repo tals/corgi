@@ -106,6 +106,7 @@ pub const Conversation = struct {
     agent: Agent,
 };
 pub const Snapshot = struct {
+    last_agent: @import("agent_launcher.zig").Provider = .codex,
     conversations: []const Conversation = &.{},
     ports: @import("ports.zig").Snapshot = .{},
     type: []const u8 = "session",
@@ -168,8 +169,8 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     }
     const sessions = try allocator.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*session, *out| out.* = .{
-        .id = session.id,
         .agent = agentView(session.attachment.agent(), if (session.attachment.actor) |actor| actor.id else 0),
+        .id = session.id,
         .workspace = session.workspace_id,
         .provider = session.provider,
         .cwd = session.cwd,
@@ -198,10 +199,10 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .workspace = actor.workspace,
             .observed_at = actor.observed_at,
             .attachments = attachments,
-            .agent = agentView(&actor.state, actor.id),
             .role = actor.role[0..actor.role_len],
             .usage = if (actor.native_usage) actor.native_meter.meter.view(std.time.milliTimestamp()) else actor.live_usage,
             .children_observed_at = actor.children_observed_at,
+            .agent = agentView(&actor.state, actor.id),
         };
     }
     return .{
@@ -209,6 +210,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         .server_pid = @import("os.zig").c.getpid(),
         .ports = try r.link_labels.snapshot(allocator, r.ports.current),
         .revision = r.revision,
+        .last_agent = r.last_agent,
         .workspaces = workspaces,
         .panes = panes,
         .native_sessions = sessions,

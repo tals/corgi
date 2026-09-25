@@ -27,7 +27,9 @@ def main():
         if method == 'initialize':
             emit({'id': ident, 'result': {}})
         elif method == 'config/read':
-            emit({'id': ident, 'result': {'config': {'mcp_servers': {'fixture': {}}}}})
+            emit({'id': ident, 'result': {'config': {'model': 'fixture-codex', 'mcp_servers': {'fixture': {}}}}})
+        elif method == 'account/read':
+            emit({'id':ident,'result':{'account':{'type':'chatgpt','email':'codex@example.com'}}})
         elif method == 'thread/start':
             assert value['params']['config']['mcp_servers.fixture.enabled'] is False
             counter += 1

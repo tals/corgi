@@ -5,7 +5,7 @@ const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 pub const State = struct {
     workspace_id: u32 = 0,
-    entries: [workspace.max_workspaces]struct { id: u32 = 0, value: layout.Selection = .{} } = @splat(.{}),
+    entries: [workspace.max_workspaces]struct { id: u32 = 0, value: layout.Selection = .{}, agents: @import("agent_navigation.zig").History = .{} } = @splat(.{}),
     pub fn index(n: *State, store: *@import("mirror.zig").Workspaces) usize {
         const i = store.index(n.workspace_id) orelse 0;
         n.workspace_id = store.items[i].id;
@@ -28,6 +28,11 @@ pub const State = struct {
         unreachable;
     }
     pub const Intent = struct { edit: ?session.Command = null, focus: ?u32 = null };
+    pub fn agentHistory(n: *State, store: *@import("mirror.zig").Workspaces) *@import("agent_navigation.zig").History {
+        _ = n.tabs(store);
+        for (&n.entries) |*entry| if (entry.id == n.workspace_id) return &entry.agents;
+        unreachable;
+    }
     /// Resolve command shorthand once, before crossing the session seam.
     pub fn command(n: *State, store: *@import("mirror.zig").Workspaces, name: []const u8, value: []const u8, area: layout.Rect) !Intent {
         const model = &n.current(store).model;

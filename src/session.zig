@@ -10,6 +10,7 @@ const Rename = struct { target: u32, name: []const u8 };
 pub const Beside = struct { other: u32, direction: layout.Direction = .right };
 pub const Destination = union(enum) { before: u32, after: u32, workspace: u32 };
 pub const Command = union(enum) {
+    @"agent.create": struct { workspace: u32, cwd: []const u8 = "", provider: ?@import("agent_launcher.zig").Provider = null },
     @"pane.create": struct {
         workspace: u32,
         from: ?u32 = null,
@@ -113,6 +114,17 @@ fn spawnOptions(r: *Runtime, ctx: Context, workspace: u32, from: ?u32, cwd: []co
 /// prepare copies before committing; process creation owns its rollback in Runtime.
 pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator) !Result {
     switch (cmd) {
+        .@"agent.create" => |q| {
+            const provider = q.provider orelse r.last_agent;
+            var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
+            const executable = try @import("integration.zig").shellQuote(ctx.executable);
+            defer os.allocator.free(executable);
+            const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {s}", .{ executable, @tagName(provider) });
+            opts.command = command;
+            const pane = try r.create(opts);
+            r.last_agent = provider;
+            return location(r, pane);
+        },
         .@"pane.create" => |q| {
             var opts = try spawnOptions(r, ctx, q.workspace, q.from, q.cwd);
             opts.command = q.command;

@@ -15,7 +15,7 @@ const output_limit = 8192;
 
 // The server's general reaper and the worker serialize all child ownership.
 // Store PIDs, never pointers into movable pool slots.
-var children: [capacity]?struct { pid: c_int, exited: bool = false } = @splat(null);
+var children: [capacity + 1]?struct { pid: c_int, exited: bool = false } = @splat(null);
 pub fn recordExit(pid: c_int, _: c_int) void {
     for (&children) |*child| if (child.*) |*entry| {
         if (entry.pid == pid) entry.exited = true;
@@ -215,6 +215,54 @@ pub const Pool = struct {
             parsed.deinit();
         }
         s.turns += 1;
+        return response;
+    }
+    /// Read launch configuration without starting a thread or making an inference.
+    /// Used by a separate serial metadata worker; its one process has a reserved
+    /// child-registration slot alongside the four inference connections.
+    pub fn configuredModel(p: *Pool, cwd: []const u8, stopping: *const std.atomic.Value(bool)) !Response {
+        const slot = &p.slots[0];
+        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        errdefer if (slot.*) |*connection| {
+            connection.close();
+            slot.* = null;
+        };
+        if (slot.* == null) slot.* = try p.open(.{ .instructions = "", .content = "" });
+        const s = &slot.*.?;
+        const settings = try s.rpc("config/read", .{ .includeLayers = false, .cwd = cwd }, stopping, deadline);
+        defer settings.deinit();
+        const model = str(field(field(settings.value, "result"), "config"), "model");
+        var response: Response = .{};
+        if (model.len > 0) {
+            try response.set(model);
+            return response;
+        }
+        const models = try s.rpc("model/list", .{}, stopping, deadline);
+        defer models.deinit();
+        const data = field(field(models.value, "result"), "data");
+        if (data == .array) for (data.array.items) |entry| {
+            const is_default = field(entry, "isDefault");
+            if (is_default == .bool and is_default.bool) {
+                try response.set(str(entry, "model"));
+                if (response.len > 0) return response;
+            }
+        };
+        return error.NoDefaultModel;
+    }
+    pub fn configuredAccount(p: *Pool, stopping: *const std.atomic.Value(bool)) !Response {
+        const slot = &p.slots[0];
+        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        errdefer if (slot.*) |*connection| {
+            connection.close();
+            slot.* = null;
+        };
+        if (slot.* == null) slot.* = try p.open(.{ .instructions = "", .content = "" });
+        const reply = try slot.*.?.rpc("account/read", .{ .refreshToken = false }, stopping, deadline);
+        defer reply.deinit();
+        const account = field(field(reply.value, "result"), "account");
+        const email = str(account, "email");
+        var response: Response = .{};
+        try response.set(if (email.len > 0) email else if (eq(str(account, "type"), "apiKey")) "API key" else if (account == .null) "Not signed in" else "Signed in");
         return response;
     }
     fn select(p: *Pool, request: Request) usize {
