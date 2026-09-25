@@ -1,12 +1,6 @@
 const std = @import("std");
 const frames = @import("corgi_frames.zig");
 
-fn tick(now_ms: i64, seed: u64) usize {
-    return @intCast(@as(u64, @intCast(@divFloor(@max(now_ms, 0), 200))) + seed % 997);
-}
-
-const routines = [_][]const []const u8{ &frames.wag, &frames.fetch, &frames.sniff };
-
 const gait_right = [_][]const u8{ "~[/\\]o>", "~[||]o>", "~[\\/]o>", "~[||]o>" };
 const gait_left_carry = [_][]const u8{ "●‹o[/\\]~", "●‹o[||]~", "●‹o[\\/]~", "●‹o[||]~" };
 const FetchScene = struct {
@@ -23,11 +17,11 @@ fn stage(phase: *usize, duration: usize) bool {
 fn fetchKeyframe(width: usize, step: usize) FetchScene {
     std.debug.assert(width >= 18);
     var p = step % (3 * width + 11);
-    const rest = "ᐯ•ᴥ•ᐯ";
-    const alert = "ᐯ•ᴥ•ᐱ";
-    const held = "ᐯ•●•ᐯ";
+    const rest = "~ᐯ•ᴥ•ᐯ";
+    const alert = "~ᐯ•ᴥ•ᐱ";
+    const held = "~ᐯ•●•ᐯ";
     const end = width - 1;
-    if (stage(&p, 8)) return .{ .dog = if (p == 4) "ᐯ◡ᴥ◡ᐯ" else rest };
+    if (stage(&p, 8)) return .{ .dog = if (p == 4) "~ᐯ◡ᴥ◡ᐯ" else rest };
     if (stage(&p, 6)) return .{ .dog = rest, .ball = 6 + p, .mark = ([_][]const u8{ "⠄", "⠂", "⠁", "⠂", "⠄", "⡀" })[p] };
     if (stage(&p, 4)) return .{ .dog = alert, .ball = 12 + p, .mark = ([_][]const u8{ "⠄", "⠂", "⠄", "⡀" })[p] };
     if (stage(&p, width - 16)) return .{ .dog = alert, .ball = 16 + p, .mark = "⡀" };
@@ -61,7 +55,7 @@ fn fetchScene(width: usize, step: usize) FetchScene {
                     }
                 }
                 // React on the very next (100 ms) frame after floor contact.
-                if (std.mem.eql(u8, current.dog, "ᐯ•ᴥ•ᐯ") and std.mem.eql(u8, next.dog, "ᐯ•ᴥ•ᐱ")) current.dog = next.dog;
+                if (std.mem.eql(u8, current.dog, "~ᐯ•ᴥ•ᐯ") and std.mem.eql(u8, next.dog, "~ᐯ•ᴥ•ᐱ")) current.dog = next.dog;
             }
         }
     }
@@ -74,46 +68,84 @@ fn writeFetch(out: *std.Io.Writer, width: usize, step: usize) !void {
         if (scene.ball == col) {
             try out.writeAll(scene.mark);
         } else if (col >= scene.x) {
-            try out.writeAll(dog.nextCodepointSlice() orelse " ");
+            const glyph = dog.nextCodepointSlice() orelse " ";
+            try out.writeAll(if (std.mem.eql(u8, glyph, "~")) wagTail(step / 4) else glyph);
         } else try out.writeByte(' ');
     }
 }
 
+fn wagTail(step: usize) []const u8 {
+    return ([_][]const u8{ "~", "-", "~", "^" })[step % 4];
+}
+
+pub const Routine = enum { idle, sniff, fetch };
+
 pub const Playback = struct {
+    pub const minimum_idle_ms = 10_000;
+    pub const retry_ms = 2_000;
+    pub const activity_probability_percent = 35;
+    pub const max_activity_ms = 9_600;
+
     active: bool = false,
-    choice: ?usize = null,
+    routine: Routine = .idle,
     started_ms: i64 = 0,
+    deadline_ms: i64 = 0,
+    random: std.Random.DefaultPrng = .init(0),
+
+    fn enter(self: *Playback, routine: Routine, now_ms: i64) void {
+        self.routine = routine;
+        self.started_ms = now_ms;
+        const duration: i64 = switch (routine) {
+            .idle => minimum_idle_ms,
+            .sniff => @as(i64, @intCast(2 + self.random.random().uintLessThan(u32, 3))) * frames.sniff.len * 200,
+            .fetch => max_activity_ms,
+        };
+        self.deadline_ms = now_ms + duration;
+    }
 
     fn update(self: *Playback, active: bool, now_ms: i64) void {
-        if (active and !self.active) {
-            // A fresh fallback period gets a new routine; never switch mid-period.
-            self.choice = if (self.choice) |previous|
-                (previous + 1 + std.crypto.random.uintLessThan(usize, routines.len - 1)) % routines.len
-            else
-                std.crypto.random.uintLessThan(usize, routines.len);
-            self.started_ms = now_ms;
+        defer self.active = active;
+        if (!active) return;
+        if (!self.active) {
+            self.enter(@enumFromInt(self.random.random().uintLessThan(u32, 3)), now_ms);
+            return;
         }
-        self.active = active;
+        if (now_ms < self.deadline_ms) return;
+        if (self.routine != .idle) {
+            // Rest from the observed transition, even after a delayed redraw.
+            self.enter(.idle, now_ms);
+        } else if (self.random.random().uintLessThan(u32, 100) < activity_probability_percent) {
+            self.enter(if (self.random.random().boolean()) .sniff else .fetch, now_ms);
+        } else {
+            // One decision per interval, independent of redraw frequency.
+            self.deadline_ms = now_ms + retry_ms;
+        }
     }
 
     pub fn write(self: Playback, out: *std.Io.Writer, room: usize, now_ms: i64) !void {
-        if (self.choice == 1 and room >= 18) {
-            try writeFetch(out, room, @intCast(@divFloor(@max(now_ms - self.started_ms, 0), 100)));
-            return;
+        const elapsed: usize = @intCast(@max(now_ms - self.started_ms, 0));
+        switch (self.routine) {
+            // This is awake rest. Sleep is owned by the agent lifecycle in the sidebar.
+            .idle => try writeFrame(out, room, frames.wag[(elapsed / 200) % frames.wag.len]),
+            .fetch => if (room >= 18) {
+                // Fit one complete trip into the activity budget at any width.
+                const steps = 2 * (3 * room + 11);
+                try writeFetch(out, room, @min(elapsed, max_activity_ms - 1) * steps / max_activity_ms);
+            } else {
+                // Keep the dog and tail visible when there is no room for a chase.
+                const phase = @min(elapsed, max_activity_ms - 1) * 4 / max_activity_ms;
+                try out.writeAll(if (room > 0) wagTail(elapsed / 300) else "");
+                try writeFrame(out, room -| 1, ([_][]const u8{ "ᐯ•ᴥ•ᐯ", "ᐯ•ᴥ•ᐱ", "ᐯ•●•ᐯ", "ᐯ•ᴥ•ᐯ" })[phase]);
+            },
+            .sniff => try writeFrame(out, room, frames.sniff[(elapsed / 200) % frames.sniff.len]),
         }
-        var glyphs = (std.unicode.Utf8View.init(self.frame(room, now_ms)) catch unreachable).iterator();
-        for (0..room) |_| {
-            try out.writeAll(glyphs.nextCodepointSlice() orelse break);
-        }
-    }
-
-    pub fn frame(self: Playback, room: usize, now_ms: i64) []const u8 {
-        const choice = self.choice orelse 0;
-        const routine = if (choice == 1 and room < 18) &frames.wag else routines[choice];
-        const phase = tick(@max(now_ms - self.started_ms, 0), 0);
-        return routine[phase % routine.len];
     }
 };
+
+fn writeFrame(out: *std.Io.Writer, room: usize, frame: []const u8) !void {
+    var glyphs = (std.unicode.Utf8View.init(frame) catch unreachable).iterator();
+    for (0..room) |_| try out.writeAll(glyphs.nextCodepointSlice() orelse break);
+}
 
 // Viewer-local state: enough slots for more than two full agent sidebars.
 const Slot = struct { key: ?u64 = null, seen: bool = false, playback: Playback = .{} };
@@ -135,7 +167,7 @@ pub fn observe(key: u64, active: bool, now_ms: i64) ?*Playback {
     };
     if (!active) return null;
     for (&slots) |*slot| if (!slot.playback.active and !slot.seen) {
-        slot.* = .{ .key = key, .seen = true };
+        slot.* = .{ .key = key, .seen = true, .playback = .{ .random = .init(std.crypto.random.int(u64)) } };
         slot.playback.update(true, now_ms);
         return &slot.playback;
     };
@@ -144,9 +176,16 @@ pub fn observe(key: u64, active: bool, now_ms: i64) ?*Playback {
 
 /// 4C: an eight-frame brightness handoff, alternating high/low every 600 ms.
 pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: bool) !void {
-    const face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
+    var face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
     const travel = width -| 7;
     const elapsed: u64 = @intCast(@max(now_ms, 0));
+    // A brief nose twitch while still asleep, staggered between agents.
+    const sniff_period = 18_000 + (seed % 9) * 1000;
+    const sniff_phase = (elapsed + (seed % 997) * 600) % sniff_period;
+    if (sniff_phase >= sniff_period - 1200) {
+        const noses = [_][]const u8{ "ω", "ˑ", "ᴥ", "ω", "ˑ", "ᴥ" };
+        face[2] = noses[(sniff_phase - (sniff_period - 1200)) / 200];
+    }
     const tail_phase = (elapsed + (seed % 997) * 600) % 12000;
     const tail: []const u8 = if (tail_phase >= 11000 and tail_phase < 11800 and
         ((tail_phase - 11000) / 200) % 2 == 0) "-" else "~";
@@ -179,12 +218,12 @@ pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: 
 
 test "half-cell ball travel keeps the impact before the perk and preserves pickup pause" {
     const landed = fetchScene(18, 26);
-    try std.testing.expectEqualStrings("ᐯ•ᴥ•ᐯ", landed.dog);
+    try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐯ", landed.dog);
     try std.testing.expectEqualStrings("⡀", landed.mark);
     const reacted = fetchScene(18, 27);
-    try std.testing.expectEqualStrings("ᐯ•ᴥ•ᐱ", reacted.dog);
+    try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐱ", reacted.dog);
     try std.testing.expectEqualStrings("⢀", reacted.mark);
-    for (78..88) |step| try std.testing.expectEqualStrings("ᐯ•●•ᐯ", fetchScene(18, step).dog);
+    for (78..88) |step| try std.testing.expectEqualStrings("~ᐯ•●•ᐯ", fetchScene(18, step).dog);
     const left = fetchScene(22, 36);
     const right = fetchScene(22, 37);
     const advance = fetchScene(22, 38);
@@ -195,7 +234,7 @@ test "half-cell ball travel keeps the impact before the perk and preserves picku
     try std.testing.expectEqualStrings("⡀", advance.mark);
 }
 
-test "sleeping Z crossfade reaches last column without changing face or overflowing" {
+test "sleeping Z crossfade and sleepy sniffs keep closed eyes without overflowing" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     for ([_]usize{ 0, 1, 5, 6, 7, 18, 22, 80, 256, 294, 512 }) |width| {
@@ -220,7 +259,11 @@ test "sleeping Z crossfade reaches last column without changing face or overflow
                 if (cp == 'z' or cp == 'ᶻ') letters += 1;
             }
             try std.testing.expect(letters <= 2);
-            if (width >= 6) try std.testing.expect(std.mem.startsWith(u8, text[1..], "ᐯ◡ᴥ◡ᐯ"));
+            if (width >= 6) {
+                try std.testing.expect(std.mem.startsWith(u8, text[1..], "ᐯ◡ᴥ◡ᐯ") or
+                    std.mem.startsWith(u8, text[1..], "ᐯ◡ω◡ᐯ") or
+                    std.mem.startsWith(u8, text[1..], "ᐯ◡ˑ◡ᐯ"));
+            }
             if (width > 7) {
                 reached_end = reached_end or !std.mem.endsWith(u8, text, " ");
                 rested = rested or std.mem.eql(u8, std.mem.trimEnd(u8, text[1..], " "), "ᐯ◡ᴥ◡ᐯ");
@@ -230,22 +273,56 @@ test "sleeping Z crossfade reaches last column without changing face or overflow
     }
 }
 
-test "one routine loops for the entire fallback period then a different one is picked" {
-    var playback: Playback = .{};
-    for (0..20) |period| {
-        const previous = playback.choice;
-        const start: i64 = @intCast(period * 1000000);
-        playback.update(true, start);
-        const choice = playback.choice.?;
-        if (previous) |old| try std.testing.expect(old != choice);
-        for (0..300) |step| {
-            const now = start + @as(i64, @intCast(step * 200));
-            playback.update(true, now);
-            try std.testing.expectEqual(choice, playback.choice.?);
-            try std.testing.expectEqualStrings(routines[choice][step % routines[choice].len], playback.frame(22, now));
+test "activities finish whole loops within budget and rest for at least ten seconds" {
+    for (0..100) |seed| {
+        var playback: Playback = .{ .random = .init(seed) };
+        for ([_]Routine{ .sniff, .fetch }) |routine| {
+            playback.active = true;
+            playback.enter(routine, 100);
+            const duration = playback.deadline_ms - 100;
+            try std.testing.expect(duration <= Playback.max_activity_ms);
+            if (routine == .sniff) {
+                try std.testing.expect(duration >= 4800);
+                try std.testing.expectEqual(@as(i64, 0), @mod(duration, frames.sniff.len * 200));
+            }
+            playback.update(true, playback.deadline_ms - 1);
+            try std.testing.expectEqual(routine, playback.routine);
+            const end = playback.deadline_ms;
+            playback.update(true, end);
+            try std.testing.expectEqual(Routine.idle, playback.routine);
+            playback.update(true, end + Playback.minimum_idle_ms - 1);
+            try std.testing.expectEqual(Routine.idle, playback.routine);
         }
-        playback.update(false, start + 100000);
     }
+}
+
+test "random starts cover all routines and redraws do not reroll decisions" {
+    var seen = [_]bool{false} ** 3;
+    var resumed = false;
+    var stayed_idle = false;
+    for (0..100) |seed| {
+        var playback: Playback = .{ .random = .init(seed) };
+        playback.update(true, 0);
+        seen[@intFromEnum(playback.routine)] = true;
+        playback.enter(.idle, 0);
+        playback.update(true, Playback.minimum_idle_ms);
+        resumed = resumed or playback.routine != .idle;
+        stayed_idle = stayed_idle or playback.routine == .idle;
+        var sparse = playback;
+        for (1..Playback.retry_ms) |ms| playback.update(true, Playback.minimum_idle_ms + @as(i64, @intCast(ms)));
+        sparse.update(true, Playback.minimum_idle_ms + Playback.retry_ms - 1);
+        try std.testing.expectEqualDeep(sparse, playback);
+    }
+    try std.testing.expect(seen[0] and seen[1] and seen[2]);
+    try std.testing.expect(resumed and stayed_idle);
+}
+
+test "delayed activity transition still gets a full idle rest" {
+    var playback: Playback = .{ .active = true };
+    playback.enter(.fetch, 0);
+    playback.update(true, 100_000);
+    try std.testing.expectEqual(Routine.idle, playback.routine);
+    try std.testing.expectEqual(@as(i64, 110_000), playback.deadline_ms);
 }
 
 test "half-cell fetch spans the full row without overlap or overflow" {
@@ -265,6 +342,7 @@ test "half-cell fetch spans the full row without overlap or overflow" {
             output.clearRetainingCapacity();
             try writeFetch(&output.writer, width, step);
             try std.testing.expectEqual(width, try std.unicode.utf8CountCodepoints(output.written()));
+            try std.testing.expect(std.mem.indexOfAny(u8, output.written(), "~-^") != null);
         }
         try std.testing.expect(reached_edge);
     }

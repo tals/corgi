@@ -272,7 +272,7 @@ pub const View = struct {
                 try playback.?.write(w, detail_room, now_ms);
             } else if (e.state == .idle) {
                 try w.writeAll("\x1b[38;2;108;112;134m");
-                try corgi_animation.idle(w, detail_room, std.time.milliTimestamp(), animation_seed, e.focused);
+                try corgi_animation.idle(w, detail_room, now_ms, animation_seed, e.focused);
             } else if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), detail_room);
             if (badge_width > 0) {
                 const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
@@ -826,7 +826,9 @@ test "idle face replaces stale activity while working activity remains useful" {
     var entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Agent", .provider = .codex, .state = .idle, .attention = .none, .activity = "Reading source files" };
     const view = View.init(100, 30, true, 0, 1);
     try view.draw(&output.writer, &.{entry}, &.{});
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") != null or
+        std.mem.indexOf(u8, output.written(), "ᐯ◡ω◡ᐯ") != null or
+        std.mem.indexOf(u8, output.written(), "ᐯ◡ˑ◡ᐯ") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) == null);
     output.clearRetainingCapacity();
     for ([_]agents.State{ .blocked, .initializing, .done }, [_][]const u8{ "Needs input", "Starting session", "Session ended" }) |state, label| {
