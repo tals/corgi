@@ -90,20 +90,27 @@ pub fn infer(pool: *inference.Pool, request: Request, stopping: *const std.atomi
 const Entry = struct {
     key: Key,
     generation: u64,
-    seen: bool = true,
+    attempted: bool = false,
     pending: bool = false,
     name: Name = .{},
-    next: i64 = 0,
 };
 pub const Cache = struct {
     entries: [capacity]?Entry = @splat(null),
     generation: u64 = 0,
-    /// Called on the server thread; only copies the owning pane's visible text
-    /// when a new/retry request is due. Unchanged successful guesses are free.
-    pub fn reconcile(cache: *Cache, runtime: anytype, worker: anytype, now: i64) bool {
+    /// One naming attempt per endpoint identity for the pane lifetime. Health
+    /// probes, missing scans, and terminal output never renew the inference budget.
+    pub fn reconcile(cache: *Cache, runtime: anytype, worker: anytype, _: i64) bool {
         var changed = false;
-        for (&cache.entries) |*entry| if (entry.*) |*e| {
-            e.seen = false;
+        // Retain even unsuccessful attempts across discovery gaps. Only actual
+        // pane removal/exit or a workspace move releases the bounded cache slot.
+        for (&cache.entries, 0..) |*entry, i| if (entry.*) |e| {
+            const pane = runtime.pane(e.key.pane);
+            const owner = runtime.workspaces.owner(e.key.pane);
+            if (pane == null or pane.?.terminal.exited or owner == null or owner.?.id != e.key.workspace) {
+                worker.cancelLink(i, e.generation);
+                entry.* = null;
+                changed = true;
+            }
         };
         for (runtime.ports.current.workspaces) |work| for (work.endpoints) |endpoint| {
             var url_buffer: [256]u8 = undefined;
@@ -123,12 +130,11 @@ pub const Cache = struct {
                 cache.entries[index] = .{ .key = key, .generation = cache.generation };
             }
             const entry = &cache.entries[index].?;
-            entry.seen = true;
-            if (entry.pending or now < entry.next or entry.name.len > 0) continue;
+            if (entry.attempted) continue;
             if (worker.implementation.pool.config.disabled) continue;
-            // Preparation failures must back off too, not rebuild the same
-            // oversized/unreadable evidence on every server tick.
-            entry.next = now + 60000;
+            // Include preparation failures: noisy or unreadable terminals must
+            // not trigger automatic retries on every scan.
+            entry.attempted = true;
             const terminal = pane.terminal.liveText() catch continue;
             defer a.free(terminal);
             var request: Request = .{ .slot = index, .generation = entry.generation, .key = key };
@@ -145,16 +151,9 @@ pub const Cache = struct {
             entry.pending = true;
             changed = true;
         };
-        for (&cache.entries, 0..) |*entry, i| if (entry.*) |e| {
-            if (!e.seen) {
-                worker.cancelLink(i, e.generation);
-                entry.* = null;
-                changed = true;
-            }
-        };
         return changed;
     }
-    pub fn apply(cache: *Cache, result: Result, now: i64) bool {
+    pub fn apply(cache: *Cache, result: Result, _: i64) bool {
         if (result.slot >= capacity) return false;
         const entry = cache.entries[result.slot] orelse return false;
         if (entry.generation != result.generation or !std.meta.eql(entry.key, result.key)) return false;
@@ -162,9 +161,8 @@ pub const Cache = struct {
         const stored = &cache.entries[result.slot].?;
         const was_pending = stored.pending;
         stored.pending = false;
-        stored.next = now + 60000;
         if (result.name) |label| {
-            // Unknown destinations can be reconsidered after startup output.
+            // An inconclusive answer consumes the attempt too.
             if (std.ascii.eqlIgnoreCase(label.text(), "Link")) return was_pending;
             stored.name = label;
             return true;
@@ -235,4 +233,84 @@ test "JSON escaping cannot overflow link evidence and preserves the latest termi
     const text = parsed.value.object.get("terminal").?.string;
     try std.testing.expect(text.len < terminal.len);
     try std.testing.expect(std.mem.endsWith(u8, text, "Finance"));
+}
+
+const CacheFixture = struct {
+    const Terminal = struct {
+        exited: bool = false,
+        text: []const u8 = "Finance ready",
+        reads: usize = 0,
+        vt: struct {
+            pub fn getTitle(_: @This()) ?[]const u8 {
+                return null;
+            }
+        } = .{},
+        pub fn liveText(t: *@This()) ![]u8 {
+            t.reads += 1;
+            return a.dupe(u8, t.text);
+        }
+    };
+    const Pane = struct { id: u32 = 3, cwd: []const u8 = "/tmp", terminal: Terminal = .{} };
+    const Owner = struct {
+        id: u32 = 1,
+        pub fn name(_: @This()) []const u8 {
+            return "fin";
+        }
+    };
+    ports: struct { current: ports.Snapshot = .{} } = .{},
+    workspaces: struct {
+        pub fn owner(_: @This(), _: u32) ?Owner {
+            return .{};
+        }
+    } = .{},
+    item: Pane = .{},
+    implementation: struct { pool: struct { config: struct { disabled: bool = false } = .{} } = .{} } = .{},
+    submitted: usize = 0,
+    cancelled: usize = 0,
+    request: Request = undefined,
+    pub fn pane(f: *@This(), _: u32) ?*Pane {
+        return &f.item;
+    }
+    pub fn submitLink(f: *@This(), request: Request) void {
+        f.submitted += 1;
+        f.request = request;
+    }
+    pub fn cancelLink(f: *@This(), _: usize, _: u64) void {
+        f.cancelled += 1;
+    }
+};
+
+test "endpoint naming survives failed probes and missing scans without spending another inference" {
+    for ([_]?Name{ Name.parse("Finance"), Name.parse("Link"), null }) |answer| {
+        var cache: Cache = .{};
+        var f: CacheFixture = .{};
+        var endpoints = [_]ports.Endpoint{.{ .pid = 2, .pane = 3, .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 }};
+        const works = [_]ports.Work{.{ .id = 1, .endpoints = &endpoints }};
+        f.ports.current.workspaces = &works;
+        try std.testing.expect(cache.reconcile(&f, &f, 0));
+        const request = f.request;
+        // A discovery gap while queued must not cancel or recreate the request.
+        f.ports.current = .{};
+        try std.testing.expect(!cache.reconcile(&f, &f, 1000));
+        try std.testing.expect(cache.apply(.{ .slot = request.slot, .generation = request.generation, .key = request.key, .name = answer }, 2000));
+        f.ports.current.workspaces = &works;
+        endpoints[0].scheme = .unknown;
+        endpoints[0].http_status = null;
+        try std.testing.expect(!cache.reconcile(&f, &f, 60000));
+        endpoints[0].scheme = .http;
+        endpoints[0].http_status = 200;
+        f.item.terminal.text = "spammy new output every tick";
+        try std.testing.expect(!cache.reconcile(&f, &f, 3600000));
+        try std.testing.expectEqual(@as(usize, 1), f.submitted);
+        try std.testing.expectEqual(@as(usize, 1), f.item.terminal.reads);
+        try std.testing.expectEqual(@as(usize, 0), f.cancelled);
+        try std.testing.expectEqualStrings(if (answer != null and !std.mem.eql(u8, answer.?.text(), "Link")) "Finance" else "", cache.name(1, endpoints[0]));
+        // A different process is a different endpoint and may be named once.
+        endpoints[0].pid = 4;
+        try std.testing.expect(cache.reconcile(&f, &f, 3600001));
+        try std.testing.expectEqual(@as(usize, 2), f.submitted);
+        f.item.terminal.exited = true;
+        try std.testing.expect(cache.reconcile(&f, &f, 3600002));
+        for (cache.entries) |entry| try std.testing.expect(entry == null);
+    }
 }
