@@ -9,5 +9,5 @@
             .hash = "ghostty-1.3.2-dev-5UdBCxTuIAWi1Hry8Kc2k-4LlAj9vpDC8F5d1CvRB6pe",
         },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "src", "README.md", "docs", "scripts", "tests", "go.sh", ".zigversion" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "README.md", "docs", "scripts", "tests", "go.sh", "publish.sh", ".zigversion" },
 }

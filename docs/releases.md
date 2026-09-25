@@ -66,11 +66,11 @@ clients continue to use the same public hostname.
 ## Publish both platforms with one command
 
 ```sh
-./scripts/release --dry-run
-./scripts/release
+./publish.sh --dry-run
+./publish.sh
 ```
 
-The command runs Zig and updater integration tests, builds and signs macOS arm64
+The root script forwards all arguments to `scripts/release`. The command runs Zig and updater integration tests, builds and signs macOS arm64
 (macOS 13+) locally using the SDK selected by `xcrun`, cross-compiles a
 static Linux amd64 musl executable, checks both binary formats, and embeds the
 version, source commit, feed URL, and public key. It signs a manifest, uploads
