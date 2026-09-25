@@ -216,6 +216,30 @@ const Card = struct {
         try card.cell(row, text_width + 1, number_width, tokens, tone, true);
         try card.cell(row, text_width + number_width + 2, number_width, cached, .muted, true);
     }
+    fn childRow(card: Card, row: usize, child: protocol.Conversation) !void {
+        const text_width = card.textWidth();
+        const prefix_width: usize = 11;
+        const available = text_width -| prefix_width;
+        const label = activity(child.agent);
+        const name = if (child.agent.name.len > 0) child.agent.name else child.agent.session[0..@min(8, child.agent.session.len)];
+        // Activity gets the space first; names use only the remainder, capped
+        // so a long identity never displaces the description of the work.
+        const name_width = @min(@as(usize, 18), available -| (sidebar.displayWidth(label) + 1));
+        const label_width = available -| (if (name_width > 0) name_width + 1 else 0);
+        const marker: Status = if (child.agent.attention == .needs_input or child.agent.state == .blocked)
+            .{ .icon = "●", .label = "Needs input", .tone = .recent }
+        else switch (child.agent.state) {
+            .working => .{ .icon = "●", .label = "Working", .tone = .working },
+            .done => .{ .icon = "✓", .label = "Done", .tone = .idle },
+            .idle => .{ .icon = "●", .label = "Idle", .tone = .muted },
+            else => status(child.agent, false),
+        };
+        try card.cell(row, 0, 9, "       ↳", .muted, false);
+        try card.cell(row, 9, 1, marker.icon, marker.tone, false);
+        try card.cell(row, prefix_width, label_width, label, .text, false);
+        if (name_width > 0) try card.cell(row, text_width - name_width, name_width, name, .muted, true);
+        try card.tokenColumns(row, child.usage, child.agent.state == .working, if (child.usage.known) .tokens else .muted);
+    }
     fn overviewRow(card: Card, row: usize, name: []const u8, model: []const u8, value: ?usage.View, tone: Tone) !void {
         const text_width = card.textWidth();
         const model_width = text_width / 2;
@@ -244,7 +268,8 @@ const Card = struct {
         try card.cell(row, 0, card.textWidth(), "Recent activity", .text, false);
         try card.tokenColumns(row, null, false, .muted);
         const completed = nodes - @intFromBool(pending);
-        for (root.timeline.points[root.timeline.points.len - completed ..], 0..) |point, i| {
+        const history_end = root.timeline.points.len - @intFromBool(pending);
+        for (root.timeline.points[history_end - completed .. history_end], 0..) |point, i| {
             const seconds: time_c.time_t = @divFloor(point.at, 1000);
             var local: time_c.struct_tm = undefined;
             var stamp: [16]u8 = undefined;
@@ -258,7 +283,8 @@ const Card = struct {
         if (pending) {
             const active = agent.state == .working;
             const blocked = agent.state == .blocked;
-            try card.drawPoint(row + 2 + completed * 2, if (active or blocked) "  now" else " last", if (active) "In progress" else if (blocked) "Needs input" else "Since last update", root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
+            const latest = root.timeline.points[root.timeline.points.len - 1];
+            try card.drawPoint(row + 2 + completed * 2, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
         }
     }
 };
@@ -387,10 +413,11 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const name = if (entry.name.len > 0) entry.name else if (root_agent.name.len > 0) root_agent.name else @tagName(entry.provider);
     const model = if (children_available) Model.init(all, parent) else Model{ .total = root.usage };
     const width: usize = @min(88, cols);
-    const pending = root_agent.state == .working or root_agent.state == .blocked or root.timeline.pending.tokens.total() > 0;
-    const timeline_nodes: usize = if (root.timeline.points.len == 0) 0 else @min(4, root.timeline.points.len + @intFromBool(pending));
+    const pending = root.timeline.points.len > 0;
+    const timeline_nodes: usize = @min(4, root.timeline.points.len);
     const timeline_height = if (timeline_nodes > 0) timeline_nodes * 2 + 2 else 0;
-    const wanted = (if (model.children == 0) @as(usize, if (timeline_height > 0) 13 else 12) else 14 + model.group_count * 2 + model.children * 3) + timeline_height;
+    const wanted = @as(usize, if (timeline_height > 0) 13 else 12) + timeline_height +
+        (if (model.children > 0) model.children + 2 + @as(usize, if (timeline_height == 0) 3 else 0) else 0);
     const height = @min(wanted, rows - 2);
     const x: usize = @min(@as(usize, px) + 2, cols - width);
     const y: usize = @min(@as(usize, py) + 1, rows - 1 - height);
@@ -419,60 +446,69 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     var row = top + 7;
     const footer_row = y + height - 3;
     const end = footer_row - 1; // Blank separator, coverage footer, bottom padding.
-    // Keep own metrics and group counts visible before spending vertical space
-    // on older checkpoints or individual child details.
-    const reserved_groups: usize = @min(model.group_count, 3);
-    const child_rows = if (model.children > 0) 1 + 2 * reserved_groups else 0;
-    const timeline_room = (end -| row) -| child_rows;
+    // Reserve compact child rows and the combined total, then spend remaining
+    // height on the most recent parent activity intervals.
+    const room = end -| row;
+    const reserved_children = @min(model.children, room -| 6);
+    const total_rows: usize = if (model.children > 0) 2 else 0;
+    const timeline_room = room -| (reserved_children + total_rows);
     const visible_nodes = @min(timeline_nodes, (timeline_room -| 2) / 2);
     if (visible_nodes > 0) {
         try card.timeline(row, root, root_agent, visible_nodes, pending);
-        row += visible_nodes * 2 + 2;
-    }
-    if (model.children > 0 and row < end) {
-        try card.line(row, try std.fmt.bufPrint(&text, "Total · agent + {d} subagent{s}", .{ model.children, if (model.children == 1) "" else "s" }), tokenText(&tokens_buf, model.total), .text, if (model.total.known) .tokens else .muted);
+        row += visible_nodes * 2 + 1;
+    } else if (model.children > 0 and row + 2 < end) {
+        try card.cell(row, 0, card.textWidth(), "Recent activity", .text, false);
+        try card.tokenColumns(row, null, false, .muted);
         row += 2;
     }
     var shown: usize = 0;
-    for (model.groups[0..model.group_count], 0..) |group, group_index| {
-        if (group_index > 0) row += 1;
-        if (row >= end) break;
-        try card.line(row, try std.fmt.bufPrint(&text, "{s} · {d}", .{ group.name, group.count }), tokenText(&tokens_buf, group.usage), .group, if (group.usage.known) .tokens else .muted);
+    if (children_available) for (all) |child| {
+        if (!visibleChild(all, child, parent)) continue;
+        if (row + total_rows >= end) break;
+        var display_child = child;
+        if (!childrenAvailable(all, child.id, std.time.microTimestamp())) display_child.agent.subagents = .{};
+        try card.childRow(row, display_child);
         row += 1;
-        for (all) |child| {
-            if (!visibleChild(all, child, parent) or !std.ascii.eqlIgnoreCase(groupName(child), group.name)) continue;
-            const remaining_headers = (model.group_count - group_index - 1) * 2;
-            if (row + 3 + remaining_headers > end) break;
-            const stale = child.observed_at == 0 or std.time.microTimestamp() - child.observed_at > 10 * std.time.us_per_s;
-            const child_status = status(child.agent, stale);
-            const child_name = if (child.agent.name.len > 0) child.agent.name else child.agent.session[0..@min(8, child.agent.session.len)];
-            const label = try std.fmt.bufPrint(&text, "{s} {s}", .{ child_status.icon, child_name });
-            try card.line(row, label, tokenText(&tokens_buf, child.usage), .text, if (child.usage.known) .tokens else .muted);
-            try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, x + 4, base, child_status.tone.ansi(), child_status.icon });
-            row += 1;
-            var metrics: [128]u8 = undefined;
-            var n1: [32]u8 = undefined;
-            var n2: [32]u8 = undefined;
-            const requests = if (child.usage.known)
-                try std.fmt.bufPrint(&metrics, "{s} in · {s} out", .{ compact(&n1, child.usage.tokens.input), compact(&n2, child.usage.tokens.output) })
-            else
-                "—";
-            var child_agent = child.agent;
-            if (!childrenAvailable(all, child.id, std.time.microTimestamp())) child_agent.subagents = .{};
-            try card.line(row, try std.fmt.bufPrint(&text, "  {s}", .{activity(child_agent)}), requests, .muted, .input);
-            row += 1;
-            if (child.usage.known) {
-                try card.line(row, try std.fmt.bufPrint(&text, "  {s} cached", .{compact(&n1, child.usage.tokens.cached_input)}), try std.fmt.bufPrint(&metrics, "{s} recent", .{compact(&n2, child.usage.recent_tokens)}), .muted, .recent);
-            } else try card.line(row, "  Usage not reported yet", "", .muted, .muted);
-            row += 1;
-            shown += 1;
-        }
+        shown += 1;
+    };
+    if (model.children > 0 and row + 1 < end) {
+        row += 1;
+        try card.line(row, try std.fmt.bufPrint(&text, "Total · agent + {d} subagent{s}", .{ model.children, if (model.children == 1) "" else "s" }), tokenText(&tokens_buf, model.total), .text, if (model.total.known) .tokens else .muted);
     }
     const footer = if (!children_available) (if (root.usage.known and root.usage.partial) "≥ Partial coverage" else "") else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0)) "Updating child details…" else if (shown < model.children)
         try std.fmt.bufPrint(&text, "+{d} more{s}", .{ model.children - shown, if (model.total.partial) " · ≥ partial" else "" })
     else if (model.total.partial and model.total.known) "≥ Partial coverage" else if (model.children == 0) "No subagents" else "Live usage";
     try card.line(footer_row, footer, "", if (model.total.partial and model.total.known) .working else .muted, .muted);
     try w.writeAll("\x1b[0m\x1b8");
+}
+
+test "compact child rows prioritize activity and color only the status and secondary name" {
+    var child: protocol.Conversation = .{ .id = 2, .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .name = "Maxwell with a long name", .activity = "Tracing activity integration", .cwd = "", .tool_active = false }, .usage = .{ .known = true, .tokens = .{ .input = 1000, .cached_input = 800 } } };
+    for ([_]@import("agents.zig").State{ .working, .blocked, .idle, .done }) |state| {
+        child.agent.state = state;
+        var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer output.deinit();
+        const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
+        try card.childRow(0, child);
+        const frame = output.written();
+        try std.testing.expect(std.mem.indexOf(u8, frame, "Tracing activity integration") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "Maxwell with a lo…") != null);
+        const tone: Tone = switch (state) {
+            .working => .working,
+            .blocked => .recent,
+            .done => .idle,
+            else => .muted,
+        };
+        var marker: [64]u8 = undefined;
+        try std.testing.expect(std.mem.indexOf(u8, frame, try std.fmt.bufPrint(&marker, "{s}{s}", .{ tone.ansi(), if (state == .done) "✓" else "●" })) != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "200") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "800") != null);
+    }
+    var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer narrow.deinit();
+    try (Card{ .w = &narrow.writer, .x = 0, .width = 64 }).childRow(0, child);
+    try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "Tracing activity integration") != null);
+    try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "Maxwell") == null);
 }
 
 test "idle children stay hidden while active descendants and usage remain" {
@@ -556,7 +592,7 @@ test "both agent rows open one safe card before a session is bound and exiting r
     try std.testing.expectEqual(null, sidebar.agentAt(view, &entries, 5, top));
 }
 
-test "timeline keeps own breakdown and child group counts in a compact terminal" {
+test "timeline keeps own breakdown and compact child rows in a compact terminal" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
     const own: usage.View = .{ .known = true, .tokens = .{ .input = 11900, .cached_input = 7800, .output = 2800 }, .recent_tokens = 14700 };
     const points = [_]protocol.Conversation.ActivityPoint{
@@ -574,8 +610,36 @@ test "timeline keeps own breakdown and child group counts in a compact terminal"
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try draw(&output.writer, &all, entry, 64, 30, 5, 14);
-    for ([_][]const u8{ "11.9k input", "2.8k output", "7.8k cached", "14.7k recent", "Reading source", "Tracing usage", "Running tests", "500+", "Explorer · 2", "Reviewer · 1" }) |text| {
+    for ([_][]const u8{ "11.9k input", "2.8k output", "7.8k cached", "14.7k recent", "Reading source", "Tracing usage", "Running tests", "500+", "Total · agent + 3 subagents", "↳" }) |text| {
         try std.testing.expect(std.mem.indexOf(u8, output.written(), text) != null);
+    }
+}
+
+test "timeline renders each phase once with its own interval including idle and clipped views" {
+    const points = [_]protocol.Conversation.ActivityPoint{
+        .{ .at = 1000, .activity = "Reviewing pending changes", .usage = .{ .known = true, .tokens = .{ .input = 21500, .cached_input = 12800 } } },
+        .{ .at = 2000, .activity = "Inspecting repository changes", .usage = .{ .known = true } },
+    };
+    var root: protocol.Conversation = .{ .id = 1, .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Inspecting repository changes", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 99600, .cached_input = 78700 } } } };
+    for ([_]@import("agents.zig").State{ .working, .blocked, .idle }) |state| {
+        root.agent.state = state;
+        for (1..3) |nodes| {
+            var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+            defer output.deinit();
+            const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
+            try card.timeline(0, &root, root.agent, nodes, true);
+            const frame = output.written();
+            const latest = std.mem.indexOf(u8, frame, "Inspecting repository changes").?;
+            try std.testing.expect(std.mem.indexOf(u8, frame[latest + 1 ..], "Inspecting repository changes") == null);
+            try std.testing.expect(std.mem.indexOf(u8, frame[latest..], if (state == .working) "20.9k+" else "20.9k") != null);
+            try std.testing.expect(std.mem.indexOf(u8, frame[latest..], "78.7k") != null);
+            try std.testing.expect(std.mem.indexOf(u8, frame, "In progress") == null);
+            if (nodes == 2) {
+                try std.testing.expect(std.mem.indexOf(u8, frame[0..latest], "Reviewing pending changes") != null);
+                try std.testing.expect(std.mem.indexOf(u8, frame[0..latest], "8.7k") != null);
+                try std.testing.expect(std.mem.indexOf(u8, frame[0..latest], "12.8k") != null);
+            } else try std.testing.expect(std.mem.indexOf(u8, frame, "Reviewing pending changes") == null);
+        }
     }
 }
 
