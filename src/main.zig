@@ -191,6 +191,9 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
         return;
     } else |_| {}
     std.fs.cwd().deleteFile(path) catch |err| if (err != error.FileNotFound) return err;
+    const log_path = try std.fmt.allocPrintSentinel(a, "{s}/server.log", .{parent}, 0);
+    defer a.free(log_path);
+    const log_start = if (std.fs.cwd().statFile(log_path)) |st| st.size else |_| 0;
     const pid = c.fork();
     if (pid < 0) return error.ForkFailed;
     if (pid == 0) {
@@ -198,7 +201,6 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
         const grandchild = c.fork();
         if (grandchild < 0) c._exit(127);
         if (grandchild > 0) c._exit(0);
-        const log_path = std.fmt.allocPrintSentinel(a, "{s}/server.log", .{parent}, 0) catch c._exit(127);
         const log = c.open(log_path, c.O_WRONLY | c.O_CREAT | c.O_APPEND, @as(c_uint, 0o600));
         const devnull = c.open("/dev/null", c.O_RDONLY);
         _ = c.dup2(devnull, 0);
@@ -218,7 +220,28 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
         } else |_| {}
         std.Thread.sleep(20 * std.time.ns_per_ms);
     }
+    reportServerLog(log_path, log_start);
     return error.ServerStartFailed;
+}
+/// Show what the detached server wrote during this launch attempt.
+fn reportServerLog(log_path: []const u8, start: u64) void {
+    const file = std.fs.cwd().openFile(log_path, .{}) catch {
+        std.debug.print("corgi: server did not start and wrote no log at {s}\n", .{log_path});
+        return;
+    };
+    defer file.close();
+    const size = (file.stat() catch return).size;
+    const max = 8 * 1024;
+    const from = if (size < start) 0 else @max(start, size -| max);
+    file.seekTo(from) catch return;
+    const bytes = file.readToEndAlloc(a, max) catch return;
+    defer a.free(bytes);
+    const trimmed = std.mem.trim(u8, bytes, " \r\n");
+    if (trimmed.len == 0) {
+        std.debug.print("corgi: server did not start and logged nothing (see {s})\n", .{log_path});
+        return;
+    }
+    std.debug.print("corgi: server did not start; {s}:\n{s}\n", .{ log_path, trimmed });
 }
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);

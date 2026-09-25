@@ -47,8 +47,14 @@ pub fn load(r: *Runtime, socket: []const u8, executable: []const u8) !bool {
         else => return err,
     };
     defer a.free(bytes);
-    const parsed = try std.json.parseFromSlice(checkpoint.State, a, bytes, .{ .ignore_unknown_fields = true });
+    const parsed = std.json.parseFromSlice(checkpoint.State, a, bytes, .{ .ignore_unknown_fields = true }) catch |err| {
+        std.log.err("recovery snapshot {s} is unreadable ({s}); move it aside to start fresh", .{ source, @errorName(err) });
+        return err;
+    };
     defer parsed.deinit();
-    try checkpoint.restore(r, parsed.value, false, socket, executable);
+    checkpoint.restore(r, parsed.value, false, socket, executable) catch |err| {
+        std.log.err("recovery snapshot {s} could not be restored ({s}); move it aside to start fresh", .{ source, @errorName(err) });
+        return err;
+    };
     return true;
 }
