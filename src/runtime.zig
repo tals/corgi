@@ -54,6 +54,7 @@ pub const Runtime = struct {
     revision: u64 = 1,
     git_status: @import("git_status.zig").Tracker = .{},
     ports: @import("ports.zig").Tracker = .{},
+    link_labels: @import("link_labels.zig").Cache = .{},
 
     pub fn changed(r: *Runtime) void {
         r.revision +%= 1;

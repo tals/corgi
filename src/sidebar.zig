@@ -576,11 +576,34 @@ fn gitColumn(workspaces: []const WorkspaceEntry) usize {
 }
 fn linkRange(v: View, ws: WorkspaceEntry, workspaces: []const WorkspaceEntry) struct { start: usize, end: usize } {
     const count = urlCount(ws);
-    var buf: [32]u8 = undefined;
-    const label = if (count == 1) "Open Link ↗" else std.fmt.bufPrint(&buf, "Open Link ↗ {d}", .{count}) catch unreachable;
+    var buf: [96]u8 = undefined;
+    const label = portLabel(ws, &buf);
     const end = (v.width -| 2) -| gitColumn(workspaces);
     const width = if (count > 0) @min(displayWidth(label), end -| 4) else 0;
     return .{ .start = end - width, .end = end };
+}
+/// Resolve names through the same deduplicated URL selection used by clicks.
+pub fn workspaceUrlName(ws: WorkspaceEntry, index: usize) []const u8 {
+    var target_buf: [256]u8 = undefined;
+    const target = workspaceUrl(ws, index, &target_buf) orelse return "";
+    for (ws.ports.workspace(ws.id).endpoints) |endpoint| {
+        var candidate_buf: [256]u8 = undefined;
+        const candidate = @import("ports.zig").url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
+        if (std.mem.eql(u8, target, candidate) and endpoint.label.len > 0) return endpoint.label;
+    }
+    return "";
+}
+fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
+    const count = urlCount(ws);
+    var name = workspaceUrlName(ws, 0);
+    // A common name is useful for duplicate app endpoints; distinct apps keep
+    // the generic chooser label and their individual names inside the menu.
+    for (1..@max(1, count)) |i| if (!std.mem.eql(u8, name, workspaceUrlName(ws, i))) {
+        name = "";
+        break;
+    };
+    if (name.len == 0) name = "Link";
+    return if (count == 1) std.fmt.bufPrint(buf, "Open {s} ↗", .{name}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "Open {s} ↗ {d}", .{ name, count }) catch "Open Link ↗";
 }
 fn statusMetadataWidth(ws: WorkspaceEntry) usize {
     var buf: [24]u8 = undefined;
@@ -636,8 +659,8 @@ pub fn portWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16
 fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usize, url_buf: []u8, divider: bool) !?[]const u8 {
     const count = urlCount(ws);
     if (count == 0) return null;
-    var label_buf: [32]u8 = undefined;
-    const label = if (count == 1) "Open Link ↗" else try std.fmt.bufPrint(&label_buf, "Open Link ↗ {d}", .{count});
+    var label_buf: [96]u8 = undefined;
+    const label = portLabel(ws, &label_buf);
     if (count == 1) {
         const target = workspaceUrl(ws, 0, url_buf).?;
         if (hit) |col| {
@@ -689,7 +712,10 @@ pub const PortMenu = struct {
             var buf: [256]u8 = undefined;
             const url = workspaceUrl(ws, index, &buf) orelse continue;
             try w.print("\x1b[{d};{d}H{s} {s} \x1b]8;id=corgi-popup-{d}-{d};{s}\x1b\\", .{ rect.y + 3 + index - offset, rect.x + 1, if (index == selected) "\x1b[38;2;137;180;250;48;2;49;56;68m" else "\x1b[38;2;137;180;250;48;2;35;40;47m", if (index == selected) "›" else " ", ws.id, index, url });
-            try writeClipped(w, url, rect.w - 4);
+            const name = workspaceUrlName(ws, index);
+            var label_buf: [384]u8 = undefined;
+            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else url;
+            try writeClipped(w, label, rect.w - 4);
             try w.writeAll("\x1b]8;;\x1b\\");
         }
     }
@@ -758,6 +784,31 @@ test "port hit testing matches clipped labels and outer terminal receives link m
     const single_works = [_]ports.Work{.{ .id = 1, .endpoints = endpoints[0..1] }};
     single.ports.workspaces = &single_works;
     try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &.{single}, 13, 2, &buf).?);
+}
+
+test "inferred link names share clipped hit geometry and name chooser destinations" {
+    const ports = @import("ports.zig");
+    var endpoints = [_]ports.Endpoint{
+        .{ .pid = 12, .pane = 1, .name = "web", .label = "Finance Dashboard", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
+        .{ .pid = 13, .pane = 2, .name = "web", .label = "API Docs", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
+    };
+    var works = [_]ports.Work{.{ .id = 1, .endpoints = endpoints[0..1] }};
+    const ws: WorkspaceEntry = .{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .workspaces = &works } };
+    var buf: [256]u8 = undefined;
+    for ([_]u16{ 20, 28, 40 }) |width| {
+        const view = View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0);
+        const range = linkRange(view, ws, &.{ws});
+        try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &.{ws}, @intCast(range.start), 2, &buf).?);
+        try std.testing.expect(portLink(view, &.{ws}, @intCast(range.end), 2, &buf) == null);
+        try std.testing.expect(portLink(view, &.{ws}, @intCast(range.start - 1), 2, &buf) == null);
+    }
+    works[0].endpoints = &endpoints;
+    try std.testing.expectEqualStrings("Open Link ↗ 2", portLabel(ws, &buf));
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try (PortMenu{ .workspace = 1 }).draw(&out.writer, ws, 100, 30);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open Finance Dashboard · http://localhost:3000") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open API Docs · http://localhost:3001") != null);
 }
 
 test "corgi frames occupy one column per glyph in the terminal" {

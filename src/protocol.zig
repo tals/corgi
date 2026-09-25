@@ -199,7 +199,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     return .{
         .conversations = conversations,
         .server_pid = @import("os.zig").c.getpid(),
-        .ports = r.ports.current,
+        .ports = try r.link_labels.snapshot(allocator, r.ports.current),
         .revision = r.revision,
         .workspaces = workspaces,
         .panes = panes,

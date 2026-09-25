@@ -454,6 +454,15 @@ pub const Server = struct {
                     s.runtime.changed();
                 };
                 summaries.reconcile(s.runtime.conversations.items.items);
+                s.runtime.link_labels.reconcile(&s.runtime, summaries, now);
+                var link_results: [@import("link_labels.zig").capacity]?@import("link_labels.zig").Result = undefined;
+                summaries.takeLinks(&link_results);
+                for (link_results) |entry| if (entry) |result| {
+                    if (s.runtime.link_labels.apply(result, now)) {
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
+                };
                 var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
                 summaries.take(&summary_results);
                 for (summary_results) |entry| if (entry) |result| {
@@ -536,7 +545,7 @@ pub const Server = struct {
                 const pid = c.waitpid(-1, &status, c.WNOHANG);
                 if (pid <= 0) break;
                 @import("git_status.zig").recordExit(pid, status);
-                @import("summary_backend.zig").recordExit(pid, status);
+                @import("inference.zig").recordExit(pid, status);
                 @import("ports.zig").recordExit(pid, status);
                 for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                     p.terminal.exited = true;

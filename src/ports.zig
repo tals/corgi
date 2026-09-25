@@ -14,6 +14,7 @@ pub const Kind = enum { loopback, tailscale, vpn, network };
 pub const Interface = struct { name: []const u8, address: []const u8, kind: Kind, ipv6: bool = false };
 pub const Scheme = enum { unknown, http, https };
 pub const Endpoint = struct {
+    label: []const u8 = "",
     pid: i32,
     pane: u32,
     name: []const u8,

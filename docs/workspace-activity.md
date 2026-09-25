@@ -45,21 +45,72 @@ for idle agents. While awaiting a first result, the activity text stays blank; t
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
 
-The default backend runs an ephemeral `codex exec` with existing Codex login,
-read-only sandbox, low reasoning effort, user config and project documents
-excluded, and shell tools/apps/memories disabled. It requires CLI support for
-`--ephemeral`, `--ignore-user-config`, and `--ignore-rules`. It has a 45-second
-deadline and is terminated when Corgi stops. These inference requests consume
-Codex usage. GPT-5.6 Luna (`gpt-5.6-luna`) is used with low reasoning effort unless
-`CORGI_SUMMARY_MODEL` overrides the model.
+The default backend uses a persistent native Codex App Server with the existing
+Codex login. It does not run `codex exec`. Choose Claude Code's persistent JSONL
+transport with `CORGI_INFERENCE_PROVIDER=claude`; its existing login is reused too.
+The observed agent's provider and the inference provider are independent.
+GPT-5.6 Luna (`gpt-5.6-luna`) with low reasoning effort remains the default for
+Codex activity summaries. Claude uses its configured default model.
 
-The inference boundary is independent of the observed provider. To replace the
-backend (for example with a persistent App Server service or Claude worker), set
-`CORGI_SUMMARY_COMMAND=/absolute/path/to/worker` in the server environment. It is
-an executable path, not a shell command. Each invocation receives one JSON object
-on stdin with `provider`, `evidence`, and `previous` strings, and must emit only a
-2–3 word UTF-8 label on stdout and exit successfully. Treat evidence as data, never
-as instructions. No provider credentials or connection code belongs in the UI.
-A built-in Claude inference backend and Claude evidence adapter are future work.
-Set `CORGI_SUMMARY_COMMAND=off` to disable inference. Environment settings take
-effect when the server starts; a reload preserves the existing server environment.
+`CORGI_INFERENCE_MODEL` overrides the model. `CORGI_SUMMARY_MODEL` remains a legacy
+fallback. `CORGI_INFERENCE_BIN` optionally selects the native harness executable;
+otherwise the normal `CORGI_CODEX_BIN` / `CORGI_CLAUDE_BIN` discovery applies.
+Set `CORGI_INFERENCE_PROVIDER=off` to disable inference. Unknown provider values
+also disable it rather than silently sending data to a different provider.
+The old one-shot `CORGI_SUMMARY_COMMAND` executable protocol is removed; its `off`
+value is still honored. Settings take effect when the server starts; a reload
+preserves the existing server environment.
+
+The shared `src/inference.zig` module accepts instructions, bounded content, an
+optional JSON Schema, and an optional conversation key. It returns bounded UTF-8
+text (JSON for schema requests); callers validate task-specific semantics such
+as word counts. Activity summaries key history by actor, provider, session, and
+turn. Each new snapshot explicitly replaces the previous activity snapshot.
+
+The pool retains at most four conversations/processes and evicts the least
+recently used conversation when full. A conversation resets after 32 requests.
+Codex reuses its process when replacing a conversation, including repeated fresh
+requests; after 32 created conversations the process itself is recycled. Claude
+keeps one process per retained conversation; fresh history requires replacing
+that process. History is ephemeral and best-effort: eviction, failure, or server
+restart starts fresh. Callers must provide enough current evidence to recover
+without earlier history. This first version uses a process per retained Codex
+conversation too; multiplexing threads through one process is not required by
+the caller interface and can be added internally later.
+
+Inference reuses the native transport with a private conversation registry, so
+helper agents never become visible agents or produce attention notifications.
+Codex runs read-only with shell, apps, hooks, plugins, code mode, and memories
+disabled; configured MCP servers are disabled before creating a thread. Claude
+uses safe mode with built-in tools and MCP servers disabled, preserving login.
+Pane/hook identity environment variables are removed. Unexpected approval
+requests fail the request. The worker imposes a 45-second deadline; cancellation,
+protocol errors, and failed turns destroy the affected conversation. The next
+scheduled request can recreate it. All retained processes stop with the worker.
+
+Deterministic native-harness fixtures cover reuse, separate histories, fresh
+Codex threads, eviction, crashes, timeouts, output limits, and structured output.
+An optional live check performs two tiny requests and verifies retained context:
+`CORGI_TEST_LIVE_INFERENCE=codex ./scripts/zig build test` (or `claude`). It consumes
+provider usage; regular tests never contact a model.
+
+## Workspace link names
+
+Confirmed browser links start as `Open Link ↗`. The shared inference worker then
+tries to name the destination from the owning pane's visible terminal text,
+terminal title, working directory, workspace name, process name, PID, and URL.
+For example, it can change the shortcut to `Open Finance ↗`. It sends at most
+1,600 bytes of visible terminal text and bounded metadata; it does not ask the
+model to fetch the page or inspect other panes.
+
+Names are cached for the endpoint's workspace, pane, PID, port, scheme, and bind
+address. Successful names stay stable while that endpoint remains present.
+Unknown names and failures retain `Open Link` and retry after a minute. Removed
+endpoints invalidate queued work and late results. Up to 64 endpoints are named;
+others retain the fallback. Link requests and activity summaries alternate on
+the same worker and share its five-second global throttle and inference settings.
+
+Multiple URLs with the same inferred name share that name on the shortcut.
+Different names retain the generic shortcut; the chooser shows each name beside
+its URL. Actual URLs, hover previews, remote-host selection, and click behavior
+are unchanged. Names are guesses, not verified page titles.

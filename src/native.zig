@@ -125,26 +125,46 @@ pub const Session = struct {
             }
         }
     }
+    pub const Options = struct {
+        args: ?[]const []const u8 = null,
+        executable: ?[]const u8 = null,
+        inference: bool = false,
+    };
     pub fn start(id: u32, provider: agents.Provider, cwd: []const u8) !Session {
+        return startWithOptions(id, provider, cwd, .{});
+    }
+    /// The inference worker uses the same native transport with a private
+    /// conversation registry and an explicitly restricted harness invocation.
+    pub fn startWithOptions(id: u32, provider: agents.Provider, cwd: []const u8, options: Options) !Session {
         const directory = try std.fs.cwd().realpathAlloc(a, cwd);
         errdefer a.free(directory);
         var argv: std.ArrayList([]const u8) = .empty;
         defer argv.deinit(a);
-        const bin = try @import("discovery.zig").resolve(provider, cwd);
+        const bin = if (options.executable) |path| try a.dupe(u8, path) else try @import("discovery.zig").resolve(provider, cwd);
         defer a.free(bin);
         try argv.append(a, bin);
-        try argv.appendSlice(a, try providers.Backend.init(provider).nativeArgs());
+        try argv.appendSlice(a, options.args orelse try providers.Backend.init(provider).nativeArgs());
         var child = std.process.Child.init(argv.items, a);
         var env = try std.process.getEnvMap(a);
         defer env.deinit();
         env.remove("CORGI_PANE");
+        if (options.inference) {
+            for ([_][]const u8{ "CORGI_SOCKET", "CORGI_NATIVE_SESSION", "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT" }) |key| env.remove(key);
+            try env.put("CMUX_CODEX_HOOKS_DISABLED", "1");
+        }
         child.env_map = &env;
         child.stdin_behavior = .Pipe;
         child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Inherit;
+        child.stderr_behavior = if (options.inference) .Ignore else .Inherit;
         child.cwd = cwd;
         child.pgid = 0;
         try child.spawn();
+        errdefer {
+            _ = c.kill(-child.id, c.SIGKILL);
+            _ = c.waitpid(child.id, null, 0);
+            if (child.stdin) |file| file.close();
+            if (child.stdout) |file| file.close();
+        }
         try child.waitForSpawn();
         os.nonblock(child.stdout.?.handle);
         os.nonblock(child.stdin.?.handle);

@@ -17,20 +17,11 @@ class Summaries(codex_titles.Titles):
         self.log=root/'calls.jsonl'
         self.control=root/'control.json'
         self.control.write_text(json.dumps({'delay':0,'label':'Tracing pane focus'}))
-        program=root/'worker'
-        program.write_text('''#!/usr/bin/env python3
-import json,sys,time,pathlib
-payload=json.load(sys.stdin)
-with open('''+repr(str(self.log))+''','a') as f:f.write(json.dumps(payload)+'\\n')
-control=json.loads(pathlib.Path('''+repr(str(self.control))+''').read_text())
-time.sleep(control['delay'])
-print(control['label'],flush=True)
-''')
-        program.chmod(0o700)
+        program=pathlib.Path(__file__).with_name('inference_harness.py').resolve()
         self.transcript=root/'activity.jsonl'
         self.transcript.write_text(json.dumps({'type':'session_meta','payload':{'id':codex_titles.A}})+'\n')
         self.tool_index=0
-        with patch.dict(os.environ,{'CORGI_SUMMARY_COMMAND':str(program)}):super().setUp()
+        with patch.dict(os.environ,{'CORGI_INFERENCE_PROVIDER':'codex','CORGI_INFERENCE_BIN':str(program),'CORGI_INFERENCE_TEST_LOG':str(self.log),'CORGI_INFERENCE_TEST_CONTROL':str(self.control)}):super().setUp()
         self.paths[codex_titles.A]=str(self.transcript)
         time.sleep(.8) # Allow the transcript reader to seed its initial baseline.
     def tearDown(self):
@@ -78,6 +69,7 @@ print(control['label'],flush=True)
         self.assertEqual(len(self.calls()),1)
         self.until(lambda:len(self.calls())==2,timeout=24)
         self.assertGreater(time.monotonic()-first,18)
+        self.assertEqual(len(pathlib.Path(str(self.log)+'.processes').read_text().splitlines()),1)
         self.until(lambda:self.state()['activity']=='Testing pane focus')
         self.assertIn('zig build test',json.loads(self.calls()[1])['evidence'])
     def test_new_turn_needs_its_own_wave(self):

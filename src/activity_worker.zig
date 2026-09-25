@@ -4,6 +4,7 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
 const backend = @import("summary_backend.zig");
+const links = @import("link_labels.zig");
 const a = std.heap.c_allocator;
 const max = @import("layout.zig").max_panes;
 const max_slots = @import("conversations.zig").max_actors;
@@ -56,6 +57,30 @@ pub const Worker = struct {
     slots: [max_slots]?Slot = @splat(null),
     thread: ?std.Thread = null,
     implementation: backend.Backend,
+    link_requests: [links.capacity]?links.Request = @splat(null),
+    link_results: [links.capacity]?links.Result = @splat(null),
+    pub fn submitLink(w: *Worker, request: links.Request) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.link_requests[request.slot] = request;
+        w.wake.signal();
+    }
+    pub fn cancelLink(w: *Worker, slot: usize, generation: u64) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        if (w.link_requests[slot]) |request| if (request.generation == generation) {
+            w.link_requests[slot] = null;
+        };
+        if (w.link_results[slot]) |result| if (result.generation == generation) {
+            w.link_results[slot] = null;
+        };
+    }
+    pub fn takeLinks(w: *Worker, out: *[links.capacity]?links.Result) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        out.* = w.link_results;
+        w.link_results = @splat(null);
+    }
     pub fn start() !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
@@ -72,7 +97,7 @@ pub const Worker = struct {
         a.destroy(w);
     }
     pub fn submit(w: *Worker, actor: u32, agent: *const agents.Agent, evidence: summary.Text) void {
-        if (w.implementation.disabled or (agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
+        if (w.implementation.pool.config.disabled or (agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
         const req: Request = .{ .actor = actor, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation };
         w.mutex.lock();
         defer w.mutex.unlock();
@@ -136,7 +161,10 @@ pub const Worker = struct {
         };
     }
     fn run(w: *Worker) void {
+        defer w.implementation.deinit();
         var cursor: usize = 0;
+        var link_cursor: usize = 0;
+        var prefer_links = true;
         var next_global: i64 = 0;
         while (!w.stopping.load(.acquire)) {
             w.mutex.lock();
@@ -146,11 +174,30 @@ pub const Worker = struct {
                 const i = (cursor + n) % max_slots;
                 if (w.slots[i]) |s| if (s.ready(now)) break i;
             } else null;
+            const selected_link: ?usize = if (now < next_global) null else for (0..links.capacity) |n| {
+                const i = (link_cursor + n) % links.capacity;
+                if (w.link_requests[i] != null) break i;
+            } else null;
+            if (selected_link != null and (prefer_links or selected == null)) {
+                const index = selected_link.?;
+                const request = w.link_requests[index].?;
+                w.link_requests[index] = null;
+                link_cursor = (index + 1) % links.capacity;
+                prefer_links = false;
+                next_global = now + 5000;
+                w.mutex.unlock();
+                const result = links.infer(&w.implementation.pool, request, &w.stopping);
+                w.mutex.lock();
+                w.link_results[index] = result;
+                w.mutex.unlock();
+                continue;
+            }
             if (selected == null) {
                 w.mutex.unlock();
                 continue;
             }
             const index = selected.?;
+            prefer_links = true;
             const request = w.slots[index].?.request;
             const previous = w.slots[index].?.previous;
             w.slots[index].?.attempted_tools = request.completed_tools;
@@ -159,7 +206,9 @@ pub const Worker = struct {
             cursor = (index + 1) % max_slots;
             next_global = now + 5000;
             w.mutex.unlock();
-            const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text() }, &w.stopping);
+            var key_buffer: [400]u8 = undefined;
+            const key = std.fmt.bufPrint(&key_buffer, "activity:{d}:{s}:{s}:{s}", .{ request.actor, @tagName(request.provider), request.session[0..request.session_len], request.turn[0..request.turn_len] }) catch unreachable;
+            const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text() }, key, &w.stopping);
             w.mutex.lock();
             if (w.slots[index]) |*s| {
                 if (s.request.sameTurn(&request)) {

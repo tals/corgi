@@ -37,12 +37,10 @@ class Files(unittest.TestCase):
         self.backend_dir = tempfile.TemporaryDirectory(prefix='corgi-files-')
         root = pathlib.Path(self.backend_dir.name)
         self.log = root / 'calls.jsonl'
-        program = root / 'summary'
-        program.write_text('#!/usr/bin/env python3\nimport json,sys\np=json.load(sys.stdin)\n'
-                           f'with open({str(self.log)!r},"a") as f:f.write(json.dumps(p)+"\\n")\n'
-                           'print("Tracing pane focus")\n')
-        program.chmod(0o700)
-        with patch.dict(os.environ, {'CORGI_SUMMARY_COMMAND': str(program)}):
+        program = pathlib.Path(__file__).with_name('inference_harness.py').resolve()
+        control = root / 'control.json'
+        control.write_text(json.dumps({'label': 'Tracing pane focus'}))
+        with patch.dict(os.environ, {'CORGI_INFERENCE_PROVIDER': 'codex', 'CORGI_INFERENCE_BIN': str(program), 'CORGI_INFERENCE_TEST_LOG': str(self.log), 'CORGI_INFERENCE_TEST_CONTROL': str(control)}):
             smoke.Runtime.setUp(self)
         self.sim = None
         self.attachments = []
