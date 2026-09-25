@@ -30,3 +30,39 @@ download manifest.json manifest.json
 chmod 700 "$tmp/corgi"
 "$tmp/corgi" __install "${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}" \
   "${CORGI_INSTALL_BIN:-$HOME/.local/bin/corgi}" "$tmp/manifest.json"
+
+# Offer PATH setup only for the default install location.
+[ "${CORGI_INSTALL_BIN:-$HOME/.local/bin/corgi}" = "$HOME/.local/bin/corgi" ] || exit 0
+case ":$PATH:" in *":$HOME/.local/bin:"*) exit 0 ;; esac
+line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
+login_rc=
+shell=${SHELL:-sh}
+case "${shell##*/}" in
+  zsh) rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
+  bash)
+    rc="$HOME/.bashrc"
+    login_rc="$HOME/.profile"
+    for file in "$HOME/.bash_profile" "$HOME/.bash_login"; do
+      if [ -f "$file" ]; then login_rc=$file; break; fi
+    done ;;
+  fish) rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/corgi.fish"
+    line='fish_add_path "$HOME/.local/bin"' ;;
+  *) echo 'Add ~/.local/bin to your PATH, or run ~/.local/bin/corgi.'; exit 0 ;;
+esac
+setup=${CORGI_UPDATE_PATH:-ask}
+if [ "$setup" = ask ] && ( : </dev/tty ) 2>/dev/null; then
+  printf 'Add ~/.local/bin to PATH in %s %s? [Y/n] ' "$rc" "$login_rc" >/dev/tty
+  read -r answer </dev/tty || answer=n
+  case "$answer" in ''|y|Y|yes) setup=1 ;; esac
+fi
+if [ "$setup" = 1 ]; then
+  for file in "$rc" "$login_rc"; do
+    [ -n "$file" ] || continue
+    mkdir -p "$(dirname "$file")"
+    if ! grep -qxF "$line" "$file" 2>/dev/null; then
+      printf '\n# Corgi\n%s\n' "$line" >>"$file"
+    fi
+  done
+  echo 'PATH configured for new shells.'
+fi
+printf 'To use corgi in this terminal, run:\n  %s\n' "$line"

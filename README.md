@@ -17,7 +17,8 @@ macOS Apple Silicon (13+) or Linux amd64:
 curl -fsSL https://pub-40b3831757234e008ffd5386c2c0572d.r2.dev/install.sh | bash
 ```
 
-Run `~/.local/bin/corgi`, or add `~/.local/bin` to your PATH and run `corgi`.
+Accept the PATH setup prompt, open a new terminal, and run `corgi`.
+You can also run `~/.local/bin/corgi` directly.
 Updates download in the background and apply on the next launch.
 
 ## Development

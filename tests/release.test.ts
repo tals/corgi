@@ -94,3 +94,34 @@ test("publishing only accepts valid timestamp IDs tied to HEAD", () => {
   expect(publishedVersion("20260925T003012Z-aaaaaaaaaaaa", commit)).toBe("20260925T003012Z-aaaaaaaaaaaa");
   for (const v of ["1.2.3", "20260925T003012Z-aaaaaaa", "20260925T003012Z-bbbbbbbbbbbb", "20260230T003012Z-aaaaaaaaaaaa"]) expect(() => publishedVersion(v, commit)).toThrow();
 });
+
+test("PATH setup handles shell configs, spaces, duplicates and opting out", async () => {
+  const base = await mkdtemp(join(tmpdir(), "corgi path test "));
+  const script = installer("https://example.com", "1.2.3", {"macos-aarch64": {sha256:"mac"}, "linux-x86_64": {sha256:"linux"}}).split("# Offer PATH setup")[1];
+  const run = (home: string, shell: string, setup: string, path = "/usr/bin:/bin") => {
+    const p = Bun.spawnSync(["/bin/sh", "-c", "set -eu\n# Offer PATH setup" + script], {env: {...process.env, HOME:home, SHELL:shell, PATH:path, CORGI_INSTALL_BIN:home+"/.local/bin/corgi", CORGI_UPDATE_PATH:setup, ZDOTDIR:home+"/zsh config", XDG_CONFIG_HOME:home+"/config"}});
+    expect(p.exitCode).toBe(0);
+  };
+  try {
+    const bashHome = join(base, "bash");
+    await import("node:fs/promises").then(fs => fs.mkdir(bashHome));
+    await writeFile(join(bashHome, ".bash_profile"), '# existing\n. "$HOME/.bashrc"\n');
+    run(bashHome, "/bin/bash", "1"); run(bashHome, "/bin/bash", "1");
+    const profile = await Bun.file(join(bashHome, ".bash_profile")).text();
+    expect(profile.startsWith("# existing\n")).toBe(true);
+    expect(profile.match(/export PATH/g)?.length).toBe(1);
+    const shell = Bun.spawnSync(["/bin/bash", "--noprofile", "--norc", "-c", '. "$HOME/.bash_profile"; . "$HOME/.bashrc"; printf "%s" "$PATH"'], {env:{HOME:bashHome, PATH:"/usr/bin:/bin"}});
+    expect(shell.exitCode).toBe(0);
+    expect(shell.stdout.toString().split(":").filter(p => p === bashHome+"/.local/bin").length).toBe(1);
+    expect(await Bun.file(join(bashHome, ".bashrc")).text()).toContain('export PATH="$HOME/.local/bin:$PATH"');
+    expect(await Bun.file(join(bashHome, ".profile")).exists()).toBe(false);
+    const zshHome = join(base,"zsh"); run(zshHome,"/bin/zsh","1");
+    expect(await Bun.file(join(zshHome,"zsh config/.zshrc")).text()).toContain("export PATH");
+    const fishHome = join(base,"fish"); run(fishHome,"/usr/bin/fish","1");
+    expect(await Bun.file(join(fishHome,"config/fish/conf.d/corgi.fish")).text()).toContain("fish_add_path");
+    const skipHome = join(base,"skip"); run(skipHome,"/bin/bash","0");
+    expect(await Bun.file(join(skipHome,".bashrc")).exists()).toBe(false);
+    run(skipHome,"/bin/bash","1",skipHome+"/.local/bin:/usr/bin:/bin");
+    expect(await Bun.file(join(skipHome,".bashrc")).exists()).toBe(false);
+  } finally { await rm(base,{recursive:true,force:true}); }
+});

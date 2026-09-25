@@ -107,13 +107,19 @@ dynamic interpreter; executing Linux integration tests still requires Linux.
 
 ```sh
 curl -fsSL https://updates.example.com/corgi/install.sh | bash
-# Add ~/.local/bin to PATH if needed.
+# Accept the PATH setup prompt, then open a new terminal.
 corgi
 ```
 
 The installer is a short, readable shell script generated from
 [`scripts/install.sh.in`](../scripts/install.sh.in). It needs only curl and standard
-macOS/Linux utilities, runs without sudo, and leaves shell startup files alone.
+macOS/Linux utilities and runs without sudo. If `~/.local/bin` is missing from
+PATH, it asks before adding a line to the current shell configuration (bash, zsh,
+or fish). The prompt reads `/dev/tty`, so piping the script to bash still works.
+It leaves existing configuration intact and avoids adding duplicate lines.
+Without a terminal it prints the PATH command instead; `CORGI_UPDATE_PATH=1`
+opts into configuration for unattended installs, and `CORGI_UPDATE_PATH=0` skips
+it. Open a new terminal afterward, or run the printed command in the current one.
 
 The installer pins the initial binary's checksum, then the binary verifies the
 signed release manifest before installing. As with any shell installer, the
