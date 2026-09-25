@@ -140,6 +140,17 @@ pub const Agent = struct {
         if (recorded) a.changed_at = now;
         return recorded and outcome == .completed;
     }
+    /// The turn ended without evidence of its outcome: no receipt is recorded,
+    /// and a late Stop can still begin a normal completion check.
+    pub fn abandonTurn(a: *Agent, now: i64) void {
+        a.permission_review = null;
+        a.state = .idle;
+        a.compacting = false;
+        a.activity_len = 0;
+        a.tool_len = 0;
+        a.tool_active = false;
+        a.changed_at = now;
+    }
     pub fn confirmStop(a: *Agent, seq: i64, outcome: observation.Outcome, now: i64) bool {
         if (!a.observation.pending_stop or a.last_seq != seq) return false;
         return a.endTurn(a.turnId(), outcome, .transcript, now);

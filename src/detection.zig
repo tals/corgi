@@ -284,12 +284,26 @@ fn screenToolActive(provider: Provider, screen: []const u8) bool {
     return false;
 }
 
+const interrupt_delay = 1500 * std.time.us_per_ms;
+
 pub const Tracker = struct {
     pid: c_int = 0,
     missing: u8 = 0,
     candidate: ?State = null,
     confirmations: u8 = 0,
     ready: bool = false,
+    idle_since: i64 = 0,
+
+    /// Claude sends no hook when the user interrupts a turn, so a hook-reported
+    /// turn ends once Claude's own idle screen has stayed visible for a while.
+    pub fn interrupted(t: *Tracker, title: []const u8, screen: []const u8, now: i64) bool {
+        if (screenState(.claude, title, screen) != .idle) {
+            t.idle_since = 0;
+            return false;
+        }
+        if (t.idle_since == 0) t.idle_since = now;
+        return now - t.idle_since >= interrupt_delay;
+    }
 
     pub fn update(t: *Tracker, agent: *agents.Agent, job: ?Job, title: []const u8, screen: []const u8, watched: bool) bool {
         const current = job orelse {
@@ -362,6 +376,17 @@ test "identify actual executables and scripts, not arguments or shell text" {
     try std.testing.expectEqual(Provider.other, identify(&.{ "bun", "-e", "codex" }));
     try std.testing.expectEqual(Provider.other, identify(&.{ "vim", "codex" }));
     try std.testing.expectEqual(Provider.claude, identify(&.{ "/Users/a/.local/share/claude/versions/2.1.282", "--session-id", "x" }));
+}
+
+test "claude interrupts need a stable idle title without an interrupt hint" {
+    var tracker: Tracker = .{};
+    const idle = "> \n  ? for shortcuts";
+    try std.testing.expect(!tracker.interrupted("✳ Task", idle, 100));
+    try std.testing.expect(!tracker.interrupted("⠋ Task", idle, 100 + interrupt_delay));
+    try std.testing.expect(!tracker.interrupted("✳ Task", "✻ Working (esc to interrupt)", 200 + interrupt_delay));
+    try std.testing.expect(!tracker.interrupted("✳ Task", idle, 300 + interrupt_delay));
+    try std.testing.expect(!tracker.interrupted("✳ Task", idle, 299 + 2 * interrupt_delay));
+    try std.testing.expect(tracker.interrupted("✳ Task", idle, 300 + 2 * interrupt_delay));
 }
 
 test "fallback debounces attention, yields to hooks, and clears exited agents" {

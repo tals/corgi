@@ -443,7 +443,9 @@ pub const Server = struct {
         const authoritative = if (p.attachment.actor) |actor| actor.authoritative(now) else false;
         p.attachment.provisional.last_seq = if (authoritative) 1 else 0;
         const review = p.agent().permission_review != null;
-        const text = if (job != null and (!authoritative or review)) p.terminal.liveText() catch null else null;
+        // Claude has no interrupt hook; its screen is the only sign a hook-reported turn was aborted.
+        const settle = if (p.attachment.actor) |actor| authoritative and actor.state.provider == .claude and actor.state.state == .working and !actor.state.observation.pending_stop else false;
+        const text = if (job != null and (!authoritative or review or settle)) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
         var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
         // Each new agent process counts once toward automatic inference selection.
@@ -452,6 +454,13 @@ pub const Server = struct {
         };
         if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
         if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
+        const settling = if (p.attachment.actor) |actor| settle and text != null and actor.state.state == .working else false;
+        if (!settling) {
+            p.detection.idle_since = 0;
+        } else if (p.detection.interrupted(p.terminal.vt.getTitle() orelse "", text.?, now)) {
+            p.attachment.actor.?.state.abandonTurn(now);
+            p.detection.idle_since = 0;
+        }
         if (job != null and review and text != null) {
             ding = p.agent().observePermissionPrompt(detection.screenState(.codex, p.terminal.vt.getTitle() orelse "", text.?) == .blocked, s.paneWatched(p.id), now) or ding;
         }
