@@ -4,13 +4,39 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const usage = @import("usage.zig");
 const activity_tools = @import("activity_tools.zig");
+const codex_files = @import("codex_files.zig");
 const a = std.heap.c_allocator;
 const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
 const Request = struct { actor: u32, workspace: u32, since: i64, agent: agents.Agent };
-pub const Result = struct { actor: u32, workspace: u32, since: i64, session: [160]u8, session_len: usize, delta: usage.Counts, progress: ?activity_tools.View = null };
+pub const Result = struct {
+    actor: u32,
+    workspace: u32,
+    since: i64,
+    session: [160]u8,
+    session_len: usize,
+    delta: usage.Counts,
+    progress: ?activity_tools.View = null,
+    name: codex_files.Name = .{},
+    seq: i64 = 0,
+
+    // Only presentation metadata. Hooks remain the lifecycle authority.
+    pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
+        if (!codex_files.available(agent, now) or !eq(agent.sessionId(), result.session[0..result.session_len])) return false;
+        if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
+        const progress = result.progress orelse return false;
+        if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
+        // A late file read cannot supply a turn after a newer hook arrived.
+        if (agent.turn_len == 0 and agent.last_seq == result.seq) {
+            agent.turn_len = agents.clean(&agent.turn, progress.turn[0..progress.turn_len]);
+        }
+        if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+        agent.activity_generation = progress.commentary.hash();
+        return true;
+    }
+};
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
@@ -41,7 +67,7 @@ pub const Worker = struct {
         w.requests.clearRetainingCapacity();
         for (runtime.conversations.items.items) |actor| {
             const agent = &actor.state;
-            if (agent.transcript_len == 0 or agent.session_len == 0) continue;
+            if (agent.session_len == 0 or (agent.transcript_len == 0 and agent.provider != .codex)) continue;
             const ws = runtime.workspaces.get(actor.workspace) orelse continue;
             w.requests.append(a, .{ .actor = actor.id, .workspace = ws.id, .since = ws.away.since, .agent = agent.* }) catch break;
         }
@@ -60,6 +86,8 @@ pub const Worker = struct {
         w.results = @splat(null);
     }
     fn run(w: *Worker) void {
+        var index: codex_files.Index = .{};
+        defer index.deinit();
         var watchers: std.AutoHashMapUnmanaged(u32, *Tail) = .empty;
         defer {
             var values = watchers.valueIterator();
@@ -79,6 +107,7 @@ pub const Worker = struct {
             }
             const batch_requests = w.batch(&requests);
             w.mutex.unlock();
+            index.refresh();
             for (batch_requests) |*req| {
                 const entry = watchers.getOrPut(a, req.actor) catch continue;
                 if (!entry.found_existing) {
@@ -101,19 +130,24 @@ pub const Worker = struct {
                 } else null;
                 w.mutex.unlock();
                 if (slot == null) continue;
-                const delta = t.poll(req) catch {
+                const delta = t.poll(req) catch blk: {
                     t.closeFile();
-                    continue;
+                    t.progress = .{};
+                    break :blk usage.Counts{};
                 };
                 t.releaseFile();
-                if (!delta.any() and !delta.tokens_known and !t.progress.dirty) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex) continue;
                 w.mutex.lock();
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
                         result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
                     }
                     result.*.?.delta.add(delta);
-                    if (req.agent.provider == .codex) result.*.?.progress = t.progress.view();
+                    if (req.agent.provider == .codex) {
+                        result.*.?.progress = t.progress.view();
+                        result.*.?.name = index.name(req.agent.sessionId());
+                        result.*.?.seq = req.agent.last_seq;
+                    }
                     if (eq(t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
                 }
                 w.mutex.unlock();
@@ -242,6 +276,38 @@ test "usage tail frames records, ignores history and advances baselines while wa
     // Reading an existing file seeds totals without counting historical work.
     tail.initial_until = 10000;
     try std.testing.expect(!(try tail.ingest(&req, later, 0)).any());
+}
+
+test "file metadata prefers fresh protocol and rejects other sessions and turns" {
+    var agent: agents.Agent = .{ .provider = .codex, .state = .working, .last_seq = 10 };
+    agent.session_len = agents.clean(&agent.session, "session");
+    agent.turn_len = agents.clean(&agent.turn, "current");
+    var progress: activity_tools.View = .{};
+    progress.turn_len = agents.clean(&progress.turn, "current");
+    progress.commentary.append("Tracing pane focus");
+    var result: Result = .{ .actor = 1, .workspace = 1, .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .progress = progress, .seq = 10 };
+    result.name.len = agents.clean(&result.name.bytes, "File title");
+    agent.setName("Protocol title");
+    agent.metadata_protocol_at = 100;
+    try std.testing.expect(!result.fallback(&agent, 101));
+    try std.testing.expectEqualStrings("Protocol title", agent.displayName());
+    // Hooks advance last_seq but must not keep protocol metadata fresh.
+    agent.last_seq = 6_000_000;
+    try std.testing.expect(result.fallback(&agent, 6_000_000));
+    try std.testing.expectEqualStrings("File title", agent.displayName());
+    try std.testing.expectEqual(agents.State.working, agent.state);
+    try std.testing.expectEqual(@as(u64, 0), agent.observation.completed);
+    result.progress.?.turn_len = agents.clean(&result.progress.?.turn, "old");
+    try std.testing.expect(!result.fallback(&agent, 6_000_000));
+    agent.turn_len = 0;
+    try std.testing.expect(!result.fallback(&agent, 6_000_000));
+    result.seq = agent.last_seq;
+    result.progress.?.ended = true;
+    try std.testing.expect(!result.fallback(&agent, 6_000_000));
+    result.session[0] = 'X';
+    result.name.len = agents.clean(&result.name.bytes, "Wrong title");
+    try std.testing.expect(!result.fallback(&agent, 6_000_000));
+    try std.testing.expectEqualStrings("File title", agent.displayName());
 }
 
 test "real file usage reader accepts large Codex metadata and counts later activity" {

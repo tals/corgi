@@ -304,6 +304,25 @@ pub const Server = struct {
         s.bell = true;
         if (s.bell_kind != .needs_input) s.bell_kind = if (state == .blocked) .needs_input else .finished;
     }
+    // Resuming a known conversation need not emit a hook before the first
+    // prompt. OSC title identity can restore its attachment without observing
+    // lifecycle, resetting receipts, or waiting for the app-server transport.
+    fn reattachCodex(s: *Server, p: *Pane, pid: c_int) void {
+        if (p.attachment.actor != null or p.terminal.exited or pid <= 0 or p.terminal.title_pid != pid) return;
+        const prefix = @import("codex_observer.zig").titlePrefix(p.terminal.vt.getTitle() orelse "") orelse return;
+        var found: ?*@import("conversations.zig").Actor = null;
+        for (s.runtime.conversations.items.items) |actor| {
+            if (actor.state.provider != .codex or actor.state.session_len != 36 or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.text())) continue;
+            if (found != null) return; // A truncated UUID must resolve uniquely.
+            found = actor;
+        }
+        if (found) |actor| {
+            p.attachment.select(actor);
+            if (actor.workspace == 0 or s.runtime.workspaces.index(actor.workspace) == null) {
+                if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
+            }
+        }
+    }
     fn detectPane(s: *Server, p: *Pane) void {
         const detection = @import("detection.zig");
         const job = detection.foreground(p.terminal.fd);
@@ -330,6 +349,7 @@ pub const Server = struct {
                     p.attachment.generation +%= 1;
                     p.attachment.selection_hash = hash;
                 }
+                s.reattachCodex(p, current.pid);
             }
         }
         const now = std.time.microTimestamp();
@@ -450,6 +470,14 @@ pub const Server = struct {
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
                     if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
+                    const before = actor.state;
+                    if (result.fallback(&actor.state, std.time.microTimestamp())) {
+                        summaries.submit(actor.id, &actor.state, result.progress.?.commentary);
+                    }
+                    if (!std.meta.eql(before, actor.state)) {
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
                     if (result.progress) |progress| summaries.tools(actor.id, &actor.state, progress);
                     const ws = s.runtime.workspaces.get(result.workspace) orelse continue;
                     if (actor.workspace != ws.id or s.workspaceWatched(ws.id)) continue;
@@ -674,6 +702,49 @@ test "Codex selection rejects delayed ABA observations while detached actors rem
     p.attachment.detach();
     terminal.exited = true;
     try std.testing.expectEqual(actor, (try s.codexActor(snap)).?);
+}
+
+test "local Codex reattachment requires current unambiguous identity and preserves observations" {
+    const id = "11111111-1111-4111-8111-111111111111";
+    var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
+    defer s.runtime.deinit();
+    const terminal = try @import("terminal.zig").Terminal.create(40, 4);
+    try s.runtime.panes.append(a, .{ .id = 1, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp") });
+    const p = &s.runtime.panes.items[0];
+    const actor = try s.runtime.conversations.get(.codex, id);
+    actor.state.setName("App server name");
+    actor.state.state = .working;
+    actor.state.metadata_protocol_at = 123;
+    actor.state.observation = .{ .source = .protocol, .completed = 2, .read = 1 };
+    const before = actor.state;
+    terminal.feed("\x1b]2;" ++ id ++ "\x07");
+    terminal.title_pid = 41;
+    s.reattachCodex(p, 42);
+    try std.testing.expect(p.attachment.actor == null);
+    terminal.title_pid = 42;
+    s.reattachCodex(p, 42);
+    try std.testing.expectEqual(actor, p.attachment.actor.?);
+    try std.testing.expectEqualDeep(before, actor.state);
+    try std.testing.expect(p.attachment.knows(actor.id));
+    const generation = p.attachment.generation;
+    s.reattachCodex(p, 42);
+    try std.testing.expectEqual(generation, p.attachment.generation);
+
+    p.attachment.detach();
+    _ = try s.runtime.conversations.get(.codex, "11111111-1111-4111-8111-111111111112");
+    terminal.feed("\x1b]2;11111111-1111-4111-8111-11111...\x07");
+    terminal.title_pid = 42;
+    s.reattachCodex(p, 42);
+    try std.testing.expect(p.attachment.actor == null);
+    terminal.feed("\x1b]2;22222222-2222-4222-8222-222222222222\x07");
+    terminal.title_pid = 42;
+    s.reattachCodex(p, 42);
+    try std.testing.expect(p.attachment.actor == null);
+    terminal.feed("\x1b]2;" ++ id ++ "\x07");
+    terminal.title_pid = 42;
+    terminal.exited = true;
+    s.reattachCodex(p, 42);
+    try std.testing.expect(p.attachment.actor == null);
 }
 fn number(v: std.json.Value, key: []const u8, default: i64) i64 {
     if (v != .object) return default;

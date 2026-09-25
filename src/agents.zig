@@ -31,6 +31,8 @@ pub const Agent = struct {
     activity: [160]u8 = .{0} ** 160,
     activity_len: usize = 0,
     activity_generation: u64 = 0,
+    // Independent of lifecycle hooks, which also advance last_seq.
+    metadata_protocol_at: i64 = 0,
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,

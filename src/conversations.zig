@@ -38,8 +38,11 @@ pub const Actor = struct {
         }
         actor.observed_at = @max(actor.observed_at, s.observed_at);
         agent.updated_at = s.updated_at;
-        agent.name = s.name;
-        agent.name_len = s.name_len;
+        agent.metadata_protocol_at = s.observed_at;
+        if (s.name_len > 0) {
+            agent.name = s.name;
+            agent.name_len = s.name_len;
+        }
         const old_state = agent.state;
         agent.state = s.state;
         agent.subagents = s.subagents;

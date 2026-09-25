@@ -123,6 +123,7 @@ def title(s): print('\\x1b]0;codex | '+s+'\\x07',end='',flush=True)
 title(''' + repr(session[:29] + '...') + ''')
 for line in sys.stdin:
     value=line.strip()
+    if value=='exit': break
     if value.startswith('screen:'):
         screen='Working (esc to interrupt)' if value=='screen:working' else '› '
         print('\\x1b[2J\\x1b[H'+screen,flush=True)
@@ -227,6 +228,7 @@ class CodexObserver:
                       for index, session in enumerate(self.ids)}
         self.items = {}
         self.paths = {}
+        self.names = {}
         self.children = []
         self.wait_items = []
         self.waiting = False
@@ -370,7 +372,7 @@ class CodexObserver:
         elif method == 'thread/read':
             session = params['threadId']
             waiting = self.waiting.get(session, False) if isinstance(self.waiting, dict) else self.waiting
-            result = {'thread': {'id': session, 'path': self.paths.get(session, ''), 'status': {
+            result = {'thread': {'id': session, 'name': self.names.get(session, ''), 'path': self.paths.get(session, ''), 'status': {
                 'type': self.states[session], 'activeFlags': ['waitingOnUserInput'] if waiting else []}}}
         elif method == 'thread/turns/list':
             session = params['threadId']

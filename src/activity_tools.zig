@@ -6,6 +6,8 @@ const summary = @import("activity_summary.zig");
 const field = @import("usage.zig").field;
 const eq = std.mem.eql;
 pub const View = struct {
+    commentary: summary.Text = .{},
+    ended: bool = false,
     turn: [160]u8 = @splat(0),
     turn_len: usize = 0,
     completed: u64 = 0,
@@ -23,6 +25,7 @@ const Call = struct {
     }
 };
 pub const Tracker = struct {
+    commentary: summary.Text = .{},
     turn: [160]u8 = @splat(0),
     turn_len: usize = 0,
     ended: bool = false,
@@ -41,7 +44,7 @@ pub const Tracker = struct {
         t.dirty = true;
     }
     pub fn view(t: *const Tracker) View {
-        var out: View = .{ .turn = t.turn, .turn_len = t.turn_len, .completed = t.completed };
+        var out: View = .{ .turn = t.turn, .turn_len = t.turn_len, .completed = t.completed, .commentary = t.commentary, .ended = t.ended };
         if (t.completed > 0) out.evidence.append("Recent completed tools (oldest to newest):\n");
         for (t.recent) |call| if (call.id != 0) {
             out.evidence.append(call.bytes[0..call.len]);
@@ -63,6 +66,18 @@ pub const Tracker = struct {
             return;
         }
         if (!eq(u8, kind, "response_item") or t.turn_len == 0 or t.ended) return;
+        if (eq(u8, subtype, "message") and eq(u8, agents.str(payload, "role"), "assistant") and eq(u8, agents.str(payload, "phase"), "commentary")) {
+            const content = field(payload, "content");
+            if (content == .array) {
+                t.commentary = .{};
+                t.commentary.append("Latest agent update: ");
+                for (content.array.items) |part| {
+                    if (eq(u8, agents.str(part, "type"), "output_text")) t.commentary.append(agents.str(part, "text"));
+                }
+                t.dirty = true;
+            }
+            return;
+        }
         const raw_id = agents.str(payload, "call_id");
         const id = if (raw_id.len > 0) raw_id else agents.str(payload, "id");
         if (id.len == 0) return;
