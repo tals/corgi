@@ -13,7 +13,7 @@ fn cleanup() void {
             os.writeAll(1, keyboard.disable) catch {};
             keyboard_enabled = false;
         }
-        os.writeAll(1, "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[?1049l") catch {};
+        os.writeAll(1, "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\") catch {};
         if (cursor_blink_saved) {
             os.writeAll(1, "\x1b[?12r") catch {};
             cursor_blink_saved = false;

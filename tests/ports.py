@@ -88,6 +88,7 @@ class Ports(unittest.TestCase):
         data = local.poll()['data']
         self.assertIn('Open Link ↗ 3', data)
         self.assertNotIn('http://localhost:', data)
+        self.assertIn('\x1b]22;pointer\x1b\\', local.input('\x1b[<35;90;3M')['data'])
         self.assertFalse(local.input('\x1b[<0;90;3M')['effects'])
         state = local.input('\x1b[<0;90;3m')
         self.assertFalse(state['effects'])
@@ -95,6 +96,8 @@ class Ports(unittest.TestCase):
         self.assertIn(f';http://localhost:{info["wild"]}\x1b\\', data)
         self.assertIn(f'https://localhost:{info["secure"]}', data)
         self.assertIn('Links · Esc to close', data)
+        self.assertIn('\x1b]22;default\x1b\\', data)
+        self.assertIn('\x1b]22;pointer\x1b\\', local.input('\x1b[<35;52;16M')['data'])
         self.assertFalse(local.input('\x1b[<0;52;16M')['effects'])
         opened = local.input('\x1b[<0;52;16m')['effects']
         self.assertEqual(opened, [{'open_url':f'http://localhost:{work["endpoints"][0]["port"]}'}])
@@ -143,6 +146,8 @@ class Ports(unittest.TestCase):
         data = viewer.poll()['data']
         self.assertIn(f'http://localhost:{port}', data)
         self.assertNotIn('Open Link ↗ 1', data)
+        self.assertIn('\x1b]22;pointer\x1b\\', viewer.input('\x1b[<35;14;3M')['data'])
+        self.assertIn('\x1b]22;default\x1b\\', viewer.input('\x1b[<35;110;30M')['data'])
         state = viewer.input('\x1b[<0;14;3M\x1b[<0;14;3m')
         self.assertEqual(state['effects'], [{'open_url':f'http://localhost:{port}'}])
         self.assertNotIn('Links · Esc to close', state['data'])

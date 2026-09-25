@@ -142,6 +142,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var locations: [layout.max_panes]layout.Placement = undefined;
     const area = side.area();
     var hovered_uri: ?[]const u8 = null;
+    var link_pointer = false;
     var workspace_uri: [256]u8 = undefined;
     if (ui.pointer) |pointer| {
         if (ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
@@ -153,6 +154,11 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                     break;
                 }
             } else {
+                link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null;
+                switch (side.hit(pointer.x, pointer.y)) {
+                    .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
+                    else => {},
+                }
                 hovered_uri = sidebar.portLink(side, ui.workspaces, pointer.x, pointer.y, &workspace_uri);
             }
         }
@@ -275,8 +281,45 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
         try naming.View.init(width, height, dialog).draw(dialog, w, number);
     }
+    // Include the shape in each complete frame so reconnects and overlay changes
+    // cannot leave the host pointer stuck on a previously hovered link.
+    try w.writeAll(if (link_pointer or hovered_uri != null) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\");
     try w.writeAll("\x1b[?2026l");
     return out.toOwnedSlice();
+}
+
+test "unread pointer follows the clickable workspace and respects overlays" {
+    var model: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &model, .selection = &selection };
+    var workspaces = [_]sidebar.WorkspaceEntry{
+        .{ .id = 1, .name = "Read", .cwd = "/tmp", .active = true },
+        .{ .id = 2, .name = "Unread", .cwd = "/tmp", .active = false, .unread = 2 },
+    };
+    const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.len, 0);
+    const range = side.unreadRange(workspaces[1]);
+    const Case = struct { x: u16, y: u16 = 6, confirm: bool = false, open: bool = true, hand: bool = false };
+    for ([_]Case{
+        .{ .x = @intCast(range.start), .hand = true },
+        .{ .x = @intCast(range.end - 1), .hand = true },
+        .{ .x = @intCast(range.end) },
+        .{ .x = @intCast(range.start), .y = 3 },
+        .{ .x = @intCast(range.start), .confirm = true },
+        .{ .x = @intCast(range.start), .open = false },
+    }) |case| {
+        const output = try frame(view, @as([]const Pane, &.{}), 100, 30, .{
+            .pointer = .{ .x = case.x, .y = case.y },
+            .message = "",
+            .copy_mode = false,
+            .native_blocked = 0,
+            .native_finished = 0,
+            .workspaces = &workspaces,
+            .confirm = case.confirm,
+            .sidebar_open = case.open,
+        });
+        defer a.free(output);
+        try std.testing.expect(std.mem.indexOf(u8, output, if (case.hand) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\") != null);
+    }
 }
 
 test "tab drop slots follow midpoints and clipped visible tabs" {
