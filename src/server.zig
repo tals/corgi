@@ -481,6 +481,18 @@ pub const Server = struct {
                     s.runtime.changed();
                 };
                 summaries.reconcile(s.runtime.conversations.items.items);
+                const system_working = summaries.implementation.pool.working.load(.acquire);
+                if (s.runtime.system_working != system_working) {
+                    s.runtime.system_working = system_working;
+                    s.runtime.changed();
+                    s.dirty = true;
+                }
+                const system_usage = summaries.systemUsage(now);
+                if (!std.meta.eql(s.runtime.system_usage, system_usage)) {
+                    s.runtime.system_usage = system_usage;
+                    s.runtime.changed();
+                    s.dirty = true;
+                }
                 if (s.runtime.link_labels.reconcile(&s.runtime, summaries, now)) {
                     s.dirty = true;
                     s.runtime.changed();
@@ -509,6 +521,11 @@ pub const Server = struct {
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
                     if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
+                    if (!std.meta.eql(actor.model, result.model)) {
+                        actor.model = result.model;
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
                     if (!actor.native_usage and !std.meta.eql(actor.live_usage, result.live)) {
                         actor.live_usage = result.live;
                         s.dirty = true;

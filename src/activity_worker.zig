@@ -33,6 +33,8 @@ pub const Result = struct {
         @memcpy(agent.activity[0..r.label.len], r.label.text());
         agent.activity_len = r.label.len;
         actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), r.label);
+        const now = std.time.milliTimestamp();
+        actor.activity_timeline.checkpoint(agent.turnId(), r.label, actor.usageView(now), now);
         return true;
     }
 };
@@ -62,8 +64,14 @@ pub const Worker = struct {
     slots: []?Slot,
     thread: ?std.Thread = null,
     implementation: backend.Backend,
+    system_meter: @import("live_usage.zig").Meter = .{ .value = .{ .known = true } },
     link_requests: [links.capacity]?links.Request = @splat(null),
     link_results: [links.capacity]?links.Result = @splat(null),
+    pub fn systemUsage(w: *Worker, now: i64) @import("live_usage.zig").View {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        return w.system_meter.view(now);
+    }
     pub fn submitLink(w: *Worker, request: links.Request) void {
         w.mutex.lock();
         defer w.mutex.unlock();
@@ -183,7 +191,9 @@ pub const Worker = struct {
         var prefer_links = true;
         var next_global: i64 = 0;
         while (!w.stopping.load(.acquire)) {
+            w.implementation.pool.refreshUsage();
             w.mutex.lock();
+            w.system_meter = w.implementation.pool.system_usage.meter;
             w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
             const now = std.time.milliTimestamp();
             const selected: ?usize = if (now < next_global) null else for (0..max_slots) |n| {
@@ -204,6 +214,7 @@ pub const Worker = struct {
                 w.mutex.unlock();
                 const result = links.infer(&w.implementation.pool, request, &w.stopping);
                 w.mutex.lock();
+                w.system_meter = w.implementation.pool.system_usage.meter;
                 w.link_results[index] = result;
                 w.mutex.unlock();
                 continue;
@@ -229,6 +240,7 @@ pub const Worker = struct {
             for (request.conversation.recent[0..request.conversation.len], 0..) |*entry, i| history[i] = entry.text();
             const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text(), .turn = request.turn[0..request.turn_len], .history = history[0..request.conversation.len] }, key, &w.stopping);
             w.mutex.lock();
+            w.system_meter = w.implementation.pool.system_usage.meter;
             if (w.slots[index]) |*s| {
                 if (s.request.sameTurn(&request)) {
                     if (label) |value| {
@@ -342,6 +354,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     const first = worker.slots[0].?.request;
     const result: Result = .{ .request = first, .label = summary.Label.parse("Tracing pane focus").? };
     try std.testing.expect(result.apply(actor));
+    try std.testing.expectEqual(@as(usize, 1), actor.activity_timeline.len);
     actor.state.state = .idle;
     worker.reconcile(registry.items.items);
     try std.testing.expect(worker.slots[0] == null);
@@ -355,6 +368,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     try std.testing.expectEqual(@as(usize, 1), second.conversation.len);
     try std.testing.expectEqualStrings("Tracing pane focus", second.conversation.previous.text());
     try std.testing.expect(!result.apply(actor));
+    try std.testing.expectEqual(@as(usize, 1), actor.activity_timeline.len);
     try std.testing.expectEqual(@as(usize, 1), actor.status_inference.len);
     const other = try registry.get(.codex, "different");
     try std.testing.expect(!std.mem.eql(u8, second.conversation.key(actor.id, &key1), other.status_inference.key(other.id, &key2)));

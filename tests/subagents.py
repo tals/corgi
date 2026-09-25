@@ -83,7 +83,7 @@ class Children(titles.Titles):
         self.assertNotIn('Total · agent + 3 subagents', b.poll()['data'])
         screen = smoke.screen_text(frame, 120, 40)
         border = next(row for row in screen if '╭' in row and '╮' in row)
-        self.assertEqual(len(border[border.index('╭'):border.index('╮')+1]), 58)
+        self.assertEqual(len(border[border.index('╭'):border.index('╮')+1]), 88)
         self.assertIn('\x1b[1;38;2;148;226;213m', frame)
         pathlib.Path('/tmp/corgi-subagents-screen.txt').write_text('\n'.join(screen))
         pathlib.Path('/tmp/corgi-subagents-frame.json').write_text(json.dumps(dict(cols=120, rows=40, frame=frame)))
@@ -136,10 +136,21 @@ class Children(titles.Titles):
         self.create_child(E, titles.A, 'Reviewer', 'Third child')
         self.until(lambda: self.conversation(E) is not None)
         self.child_error = True
-        time.sleep(1)
+        self.until(lambda:self.conversation(titles.A)['children_observed_at']==0)
         self.assertIsNotNone(self.conversation(C))
         self.assertEqual(self.conversation(C)['usage']['tokens']['input'], 30)
+        viewer=Viewer(self,120,40)
+        rows=smoke.screen_text(viewer.poll()['data'],120,40)
+        y=next(i for i,row in enumerate(rows) if i>20 and 'codex' in row)
+        viewer.input(f'\x1b[<35;6;{y+1}M')
+        time.sleep(.6)
+        frame=viewer.poll()['data']
+        self.assertIn('Own usage',frame)
+        for text in ('No subagents','Updating child details','Total · agent','Explorer','Reviewer','↳'):
+            self.assertNotIn(text,frame)
         self.child_error = False
+        self.until(lambda:self.conversation(titles.A)['children_observed_at']>0)
+        self.assertIn('Explorer',viewer.poll()['data'])
         self.sim.set_turn(C, 'work-' + C, 'completed')
         for child in self.children:
             if child['id'] == C:
@@ -197,7 +208,7 @@ class NativeUsage(unittest.TestCase):
             self.assertIn('14.7k recent', frame)
             self.assertIn('\x1b[38;2;137;180;250m', frame)
             self.assertIn('\x1b[38;2;203;166;247m', frame)
-            self.assertIn('No subagents', frame)
+            self.assertNotIn('No subagents', frame)
             self.assertNotIn('Updating child details', frame)
             self.assertNotIn('Own usage', b.poll()['data'])
         pathlib.Path('/tmp/corgi-agent-hover-screen.txt').write_text('\n'.join(smoke.screen_text(frame, 100, 30)))

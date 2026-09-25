@@ -31,6 +31,8 @@ pub const Ui = struct {
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
     conversations: []const @import("protocol.zig").Conversation = &.{},
+    system_working: bool = false,
+    system_usage: @import("live_usage.zig").View = .{},
     workspaces: []const sidebar.WorkspaceEntry = &.{},
     workspace_offset: usize = 0,
 };
@@ -239,7 +241,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.writeAll(text[0..@min(text.len, width)]);
     }
     try w.writeAll("\x1b[0m");
-    if (model.count > 0 and !ui.copy_mode and ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
+    if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
@@ -250,7 +252,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
     };
     if (ui.link_tooltip and ui.agent_launcher == null) if (ui.pointer) |pointer| {
-        if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
+        if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
+            try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, width, height);
+        } else if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
         } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {
             try @import("subagent_tooltip.zig").draw(w, ui.conversations, entry.*, width, height, pointer.x, pointer.y);
@@ -416,6 +420,14 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=p,i=730031") != null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=t,") == null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
+    ui.pointer = .{ .x = 2, .y = 0 };
+    ui.link_tooltip = true;
+    const usage_popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
+    defer a.free(usage_popup);
+    try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Observed tokens") != null);
+    try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Since Corgi started") == null);
+    try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Usage not reported yet") != null);
+    ui.link_tooltip = false;
     ui.agent_launcher = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     const popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(popup);

@@ -64,12 +64,15 @@ def main():
             if codex:
                 # Deliberately deliver the complete turn before its RPC reply.
                 emit({'method': 'turn/started', 'params': {'threadId': thread, 'turn': {'id': turn}}})
+                usage={'method':'thread/tokenUsage/updated','params':{'threadId':thread,'tokenUsage':{'total':{'inputTokens':1000*turns,'cachedInputTokens':600*turns,'outputTokens':10*turns},'last':{'inputTokens':1000,'cachedInputTokens':600,'outputTokens':10}}}}
+                emit(usage)
+                emit(usage) # A repeated cumulative sample must not charge twice.
                 emit({'method': 'item/completed', 'params': {'threadId': 'wrong-thread', 'turnId': turn, 'item': {'type': 'agentMessage', 'text': 'Wrong stale result'}}})
                 emit({'method': 'item/completed', 'params': {'threadId': thread, 'turnId': turn, 'item': {'type': 'agentMessage', 'phase': 'final_answer', 'text': result}}})
                 emit({'method': 'turn/completed', 'params': {'threadId': thread, 'turn': {'id': turn, 'status': 'failed' if content == 'fail' else 'completed'}}})
                 emit({'id': ident, 'result': {'turn': {'id': turn}}})
             else:
-                emit({'type': 'result', 'session_id': 'fixture-session', 'subtype': 'error' if content == 'fail' else 'success', 'is_error': content == 'fail', 'result': result, 'structured_output': {'label': 'Tracing pane focus'}})
+                emit({'type': 'result', 'session_id': 'fixture-session', 'subtype': 'error' if content == 'fail' else 'success', 'is_error': content == 'fail', 'result': result, 'structured_output': {'label': 'Tracing pane focus'}, 'usage':{'input_tokens':300,'cache_read_input_tokens':600,'cache_creation_input_tokens':100,'output_tokens':10}})
 
 
 if __name__ == '__main__':

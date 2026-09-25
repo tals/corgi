@@ -11,6 +11,7 @@ const eq = common.eq;
 const a = os.allocator;
 const mutex = &@import("git_status.zig").child_mutex;
 const capacity = 4;
+const inference_usage = @import("inference_usage.zig");
 const output_limit = 8192;
 
 // The server's general reaper and the worker serialize all child ownership.
@@ -80,8 +81,12 @@ const Connection = struct {
     turns: usize = 0,
     conversations_created: usize = 0,
     used: u64 = 0,
+    system_usage: *inference_usage.System,
+    usage_tracker: inference_usage.Tracker = .{},
+    usage_cursor: u64 = 0,
 
     fn close(s: *Connection) void {
+        s.usage_tracker.deinit();
         mutex.lock();
         if (children[s.child_slot].?.exited) s.transport.markExited();
         s.transport.destroy();
@@ -102,9 +107,22 @@ const Connection = struct {
     fn poll(s: *Connection, stopping: *const std.atomic.Value(bool), deadline: i64) !void {
         if (stopping.load(.acquire)) return error.Cancelled;
         if (std.time.milliTimestamp() >= deadline) return error.Timeout;
+        defer s.collectUsage() catch {
+            s.system_usage.meter.value.partial = true;
+        };
         _ = try s.transport.poll(&s.registry);
         if (s.transport.approvals.items.len != 0) return error.UnexpectedToolRequest;
         if (s.transport.events.items.len > 0 and s.transport.events.items[0].seq > s.cursor + 1) return error.EventOverflow;
+    }
+    fn collectUsage(s: *Connection) !void {
+        if (s.transport.events.items.len > 0 and s.transport.events.items[0].seq > s.usage_cursor + 1) s.system_usage.meter.value.partial = true;
+        for (s.transport.events.items) |event| {
+            if (event.seq <= s.usage_cursor) continue;
+            s.usage_cursor = event.seq;
+            const parsed = try std.json.parseFromSlice(std.json.Value, a, event.line, .{});
+            defer parsed.deinit();
+            s.usage_tracker.ingest(parsed.value, s.system_usage, std.time.milliTimestamp());
+        }
     }
     fn idle(s: *Connection) !void {
         mutex.lock();
@@ -147,6 +165,20 @@ pub const Pool = struct {
     config: Config,
     slots: [capacity]?Connection = @splat(null),
     clock: u64 = 0,
+    system_usage: inference_usage.System = .{},
+    working: std.atomic.Value(bool) = .init(false),
+    /// Nonblocking drain for token reports that arrive after turn completion.
+    /// Called only by the pool's owning worker, including between requests.
+    pub fn refreshUsage(p: *Pool) void {
+        for (&p.slots) |*slot| if (slot.*) |*s| {
+            _ = s.transport.poll(&s.registry) catch {
+                p.system_usage.meter.value.partial = true;
+            };
+            s.collectUsage() catch {
+                p.system_usage.meter.value.partial = true;
+            };
+        };
+    }
     pub fn deinit(p: *Pool) void {
         for (&p.slots) |*slot| if (slot.*) |*s| {
             s.close();
@@ -167,6 +199,8 @@ pub const Pool = struct {
             if (parsed.value != .object) return error.InvalidSchema;
         }
         if (request.conversation) |key| if (key.len == 0 or key.len > 512) return error.InvalidConversation;
+        p.working.store(true, .release);
+        defer p.working.store(false, .release);
         const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
         const index = p.select(request);
         const slot = &p.slots[index];
@@ -205,6 +239,11 @@ pub const Pool = struct {
         const s = &slot.*.?;
         p.clock += 1;
         s.used = p.clock;
+        const reports = p.system_usage.reports;
+        defer if (p.system_usage.reports == reports) {
+            p.system_usage.meter.value.partial = true;
+        };
+        errdefer p.system_usage.meter.value.partial = true;
         const response = switch (p.config.provider) {
             .codex => try codex(s, p.config, request, stopping, deadline),
             .claude => try claude(s, request, stopping, deadline),
@@ -316,7 +355,7 @@ pub const Pool = struct {
         } else return error.TooManyHarnesses;
         const transport = try native.Session.startWithOptions(0, if (p.config.provider == .codex) .codex else .claude, "/tmp", .{ .args = args.items, .executable = p.config.executable, .inference = true });
         children[child_slot] = .{ .pid = transport.child.id };
-        return .{ .transport = transport, .child_slot = child_slot, .key = key, .instructions = instructions, .schema = schema };
+        return .{ .transport = transport, .child_slot = child_slot, .key = key, .instructions = instructions, .schema = schema, .system_usage = &p.system_usage };
     }
 };
 
@@ -346,6 +385,7 @@ fn codex(s: *Connection, config: Config, request: Request, stopping: *const std.
         if (id.len == 0 or id.len > s.thread.len) return error.InvalidSession;
         @memcpy(s.thread[0..id.len], id);
         s.thread_len = id.len;
+        try s.usage_tracker.begin(id);
         s.conversations_created += 1;
     }
     const schema = if (request.schema) |value| try std.json.parseFromSlice(std.json.Value, a, value, .{}) else null;
@@ -454,6 +494,8 @@ test "native inference reuses each harness conversation and keeps targets separa
         try std.testing.expectEqual(@as(i64, 1), try fixtureValue(&other, "turn"));
         const third = try pool.infer(request, &stopping);
         try std.testing.expectEqual(@as(i64, 3), try fixtureValue(&third, "turn"));
+        try std.testing.expectEqual(@as(u64, 4040), pool.system_usage.meter.value.tokens.total());
+        try std.testing.expectEqual(@as(u64, 2400), pool.system_usage.meter.value.tokens.cached_input);
     }
 }
 
@@ -474,6 +516,7 @@ test "fresh Codex histories reuse the process and rotated histories are bounded"
     }
     const again = try pool.infer(.{ .instructions = "Return JSON", .content = "snapshot", .conversation = "pane-0" }, &stopping);
     try std.testing.expectEqual(@as(i64, 1), try fixtureValue(&again, "turn"));
+    try std.testing.expectEqual(@as(u64, 8080), pool.system_usage.meter.value.tokens.total());
 }
 
 test "native inference failures kill the affected conversation and recover" {

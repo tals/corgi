@@ -247,7 +247,7 @@ pub const Controller = struct {
             count += 1;
         }
         for (entries[0..count]) |*entry| {
-            entry.children = @import("subagent_tooltip.zig").childCount(s.runtime.conversations, entry.conversation);
+            @import("subagent_tooltip.zig").presentChildren(entry, s.runtime.conversations, std.time.microTimestamp());
         }
         return entries[0..count];
     }
@@ -1699,6 +1699,9 @@ pub const Controller = struct {
         if (s.pointer) |pointer| {
             if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
                 var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+                if (@import("corgi_badge.zig").hit(s.corgi_badge, s.sidebarView(0).width, pointer.x, pointer.y)) {
+                    target = .{ .pane = 0, .link = 0, .usage = true };
+                }
                 if (sidebar.gitWorkspace(s.sidebarView(0), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
                     target = .{ .pane = ws.id, .link = 0, .git = true };
                 }
@@ -1760,6 +1763,8 @@ pub const Controller = struct {
             .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
             .agents = entries,
             .conversations = s.runtime.conversations,
+            .system_usage = s.runtime.system_usage,
+            .system_working = s.runtime.system_working,
             .workspaces = s.workspaceEntries(&workspace_storage),
             .workspace_offset = s.workspace_offset,
         });

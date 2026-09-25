@@ -22,6 +22,7 @@ pub const Result = struct {
     progress: ?activity_tools.View = null,
     name: codex_files.Name = .{},
     seq: i64 = 0,
+    model: codex_files.Name = .{},
     live: live_usage.View = .{},
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
@@ -139,13 +140,14 @@ pub const Worker = struct {
                     break :blk usage.Counts{};
                 };
                 t.releaseFile();
-                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex and t.model.len == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
                         result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
                     }
                     result.*.?.delta.add(delta);
+                    result.*.?.model = t.model;
                     result.*.?.live = t.live.meter.view(std.time.milliTimestamp());
                     if (req.agent.provider == .codex) {
                         result.*.?.progress = t.progress.view();
@@ -175,6 +177,7 @@ pub const Tail = struct {
     offset: u64 = 0,
     partial: std.ArrayList(u8) = .empty,
     discard: bool = false,
+    model: codex_files.Name = .{},
     live: live_usage.Codex = .{},
     opened: bool = false,
     fn releaseFile(t: *Tail) void {
@@ -267,6 +270,12 @@ pub const Tail = struct {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
                         if (req.agent.provider == .codex) t.progress.ingest(parsed.value, start_offset + start > t.initial_until);
+                        const model_value = if (req.agent.provider == .codex)
+                            usage.field(parsed.value, "payload")
+                        else
+                            usage.field(parsed.value, "message");
+                        const model_name = agents.str(model_value, "model");
+                        if (model_name.len > 0) t.model.len = agents.clean(&t.model.bytes, model_name);
                         const delta = t.tracker.transcript(req.agent.provider, req.agent.sessionId(), parsed.value);
                         const stamp = @import("transcript.zig").timestampMs(agents.str(parsed.value, "timestamp"));
                         const appended = start_offset + start > t.initial_until;
@@ -376,4 +385,16 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     try std.testing.expectEqual(@as(u64, 100), delta.input);
     try std.testing.expectEqual(@as(u64, 20), delta.output);
     try std.testing.expect(!(try tail.poll(&req)).any());
+}
+
+test "usage tail retains the latest reported model across unrelated records" {
+    var tail: Tail = .{};
+    defer tail.close();
+    var req: Request = .{ .actor = 1, .workspace = 1, .since = 0, .agent = .{ .provider = .codex } };
+    _ = try tail.ingest(&req, "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6\"}}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"event_msg\",\"payload\":{}}\n", 0);
+    try std.testing.expectEqualStrings("gpt-6", tail.model.bytes[0..tail.model.len]);
+    req.agent.provider = .claude;
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-4-6\"}}\n", 0);
+    try std.testing.expectEqualStrings("claude-opus-4-6", tail.model.bytes[0..tail.model.len]);
 }

@@ -12,6 +12,7 @@ pub const Actor = struct {
     parent: ?u32 = null,
     pending_native_requests: u32 = 0,
     status_inference: @import("activity_summary.zig").Conversation = .{},
+    activity_timeline: @import("activity_timeline.zig").Timeline = .{},
     workspace: u32 = 0,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,
@@ -19,9 +20,14 @@ pub const Actor = struct {
     children_observed_at: i64 = 0,
     role: [80]u8 = @splat(0),
     role_len: usize = 0,
+    model: @import("codex_files.zig").Name = .{},
     live_usage: @import("live_usage.zig").View = .{},
     native_usage: bool = false,
     native_meter: @import("live_usage.zig").Codex = .{},
+
+    pub fn usageView(actor: *const Actor, now: i64) @import("live_usage.zig").View {
+        return if (actor.native_usage) actor.native_meter.meter.view(now) else actor.live_usage;
+    }
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
@@ -207,7 +213,13 @@ pub const Registry = struct {
         return true;
     }
     pub fn observeChildren(registry: *Registry, parent: *Actor, snapshot: @import("codex_observer.zig").Snapshot) void {
-        if (!snapshot.children_complete or snapshot.observed_at <= parent.children_observed_at) return;
+        if (snapshot.observed_at <= parent.children_observed_at) return;
+        if (!snapshot.children_complete) {
+            // Retain known identities and usage, but stop claiming a current
+            // child census when any discovery page failed.
+            parent.children_observed_at = 0;
+            return;
+        }
         parent.children_observed_at = snapshot.observed_at;
         for (snapshot.children) |meta| {
             const child = registry.get(.codex, &meta.session) catch continue;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Read-only Codex observation -> replaceable inference -> dedicated sidebar row."""
-import json, os, pathlib, tempfile, time, unittest, datetime
+import json, os, pathlib, tempfile, time, unittest, datetime, re
 from unittest.mock import patch
 import codex_titles
 import smoke
@@ -48,6 +48,80 @@ class Summaries(codex_titles.Titles):
     def finish_tool(self,ident):
         self.append_record('response_item',{'type':'function_call_output','call_id':ident,'output':'result'})
     def calls(self):return self.log.read_text().splitlines() if self.log.exists() else []
+    def test_activity_timeline_tracks_intervals_and_preserves_own_breakdown(self):
+        from viewer_client import Viewer
+        def conversation():
+            return next(c for c in self.session()['conversations'] if c['agent']['session']==codex_titles.A)
+        total=[0,0,0]
+        def spend(values):
+            for i,value in enumerate(values):total[i]+=value
+            def tokens(v):return dict(input_tokens=v[0],cached_input_tokens=v[1],output_tokens=v[2])
+            self.append_record('event_msg',dict(type='token_count',info=dict(total_token_usage=tokens(total),last_token_usage=tokens(values))))
+            self.until(lambda:conversation()['usage']['tokens']['input']==total[0])
+        for i,(label,values) in enumerate([
+            ('Reading source',(1000,600,200)),
+            ('Tracing usage',(4500,3000,900)),
+            ('Running tests',(6000,4000,1600)),
+        ]):
+            spend(values)
+            self.control.write_text(json.dumps({'delay':0,'label':label}))
+            self.start_turn(tid=f'timeline-{i}',wave=False)
+            self.until(lambda:len(conversation()['timeline']['points'])==i+1)
+        spend((400,200,100))
+        self.until(lambda:self.session()['system_usage']['tokens']['input']==3000)
+        self.assertEqual(self.session()['system_usage']['tokens'],dict(input=3000,cached_input=1800,output=30))
+        points=conversation()['timeline']['points']
+        self.assertEqual([p['usage']['tokens']['input']+p['usage']['tokens']['output'] for p in points],[1200,5400,7600])
+        self.assertEqual([p['activity'] for p in points],['Reading source','Tracing usage','Running tests'])
+        self.assertEqual(sorted(p['at'] for p in points),[p['at'] for p in points])
+        self.assertTrue(all(p['usage']['known'] and not p['usage']['partial'] for p in points))
+        self.assertEqual(conversation()['timeline']['pending']['tokens']['input'],400)
+        self.viewers=[]
+        viewer=Viewer(self,100,30)
+        def hover(cols,rows):
+            screen=smoke.screen_text(viewer.poll()['data'],cols,rows)
+            y=next(i for i,row in enumerate(screen) if i>rows//2 and 'codex' in row)
+            viewer.input(f'\x1b[<35;6;{y+1}M')
+            time.sleep(.6)
+            return viewer.poll()['data']
+        try:
+            frame=hover(100,30)
+            for text in ['Own usage','14.7k tokens','11.9k input','2.8k output','7.8k cached','14.7k recent','Recent activity','Reading source','Tracing usage','Running tests','1.2k','5.4k','7.6k','500+','In progress']:
+                self.assertIn(text,frame)
+            pathlib.Path('/tmp/corgi-timeline-frame.json').write_text(json.dumps(dict(cols=100,rows=30,frame=frame)))
+            # The Corgi badge separates background inference from agent spend.
+            viewer.request(op='badge',visible=True)
+            viewer.input('\x1b[<35;3;1M')
+            time.sleep(.6)
+            overview=viewer.poll()['data']
+            for text in ['System','Top agents','Model','Tokens','Cached','8.1k tokens (+9.6k cached)']:
+                self.assertIn(text,overview)
+            # Decode rows after removing Kitty image commands. Cached input is
+            # shown separately from input-minus-cache plus output in this table.
+            rows=smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',overview),100,30)
+            system_row=next(row for row in rows if 'System' in row)
+            agent_row=next(row for row in rows if 'codex ·' in row)
+            self.assertRegex(system_row,r'System\s+—\s+1\.2k\s+1\.8k')
+            self.assertRegex(agent_row,r'codex · \S+\s+—\s+6\.9k\s+7\.8k')
+            self.assertNotIn('tracked sessions',overview)
+            pathlib.Path('/tmp/corgi-overview-frame.json').write_text(json.dumps(dict(cols=100,rows=30,frame=overview)))
+            viewer.request(op='badge',visible=False)
+            frame=hover(100,30)
+            # Viewing repeatedly never consumes the pending interval.
+            viewer.poll();viewer.poll()
+            self.assertEqual(conversation()['timeline']['pending']['tokens']['input'],400)
+            self.states[codex_titles.A]='idle';self.turns[codex_titles.A]=('timeline-2','completed')
+            self.until(lambda:self.state()['state']=='idle')
+            frame=viewer.poll()['data']
+            self.assertIn('Since last update',frame)
+            self.assertNotIn('500+',frame)
+            self.assertEqual(len(conversation()['timeline']['points']),3)
+            viewer.request(op='size',cols=64,rows=13)
+            viewer.input('\x1b[<35;63;1M')
+            small=hover(64,13)
+            for text in ['Own usage','11.9k input','2.8k output','7.8k cached','14.7k recent']:self.assertIn(text,small)
+            self.assertNotIn('Recent activity',small)
+        finally:viewer.close()
     def test_commentary_fires_without_tools_and_one_completion_refreshes(self):
         self.start_turn(wave=False)
         self.until(lambda:len(self.calls())==1)
@@ -122,6 +196,8 @@ class Summaries(codex_titles.Titles):
         self.assertEqual(self.state()['activity'],'')
         time.sleep(1.8)
         self.assertEqual(self.state()['activity'],'')
+        actor=next(c for c in self.session()['conversations'] if c['agent']['session']==codex_titles.A)
+        self.assertEqual(actor['timeline']['points'],[])
     def test_bad_backend_output_falls_back_without_retry_loop(self):
         self.control.write_text(json.dumps({'delay':0,'label':'This is much too many words'}))
         self.start_turn()

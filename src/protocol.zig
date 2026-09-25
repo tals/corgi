@@ -95,7 +95,11 @@ pub const Native = struct {
     compacting: bool = false,
 };
 pub const Conversation = struct {
+    pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: @import("live_usage.zig").View };
+    pub const Timeline = struct { points: []const ActivityPoint = &.{}, pending: @import("live_usage.zig").View = .{} };
     id: u32,
+    timeline: Timeline = .{},
+    model: []const u8 = "",
     parent: ?u32 = null,
     workspace: u32 = 0,
     observed_at: i64 = 0,
@@ -106,6 +110,8 @@ pub const Conversation = struct {
     agent: Agent,
 };
 pub const Snapshot = struct {
+    system_working: bool = false,
+    system_usage: @import("live_usage.zig").View = .{},
     last_agent: @import("agent_launcher.zig").Provider = .codex,
     conversations: []const Conversation = &.{},
     ports: @import("ports.zig").Snapshot = .{},
@@ -183,6 +189,11 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     };
     const conversations = try allocator.alloc(Conversation, r.conversations.items.items.len);
     for (r.conversations.items.items, conversations) |actor, *out| {
+        const current_usage = actor.usageView(std.time.milliTimestamp());
+        const points = try allocator.alloc(Conversation.ActivityPoint, actor.activity_timeline.len);
+        for (actor.activity_timeline.points[0..actor.activity_timeline.len], points) |*point, *dst| {
+            dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage };
+        }
         var attachments: u32 = 0;
         for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {
             attachments += 1;
@@ -200,13 +211,17 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .observed_at = actor.observed_at,
             .attachments = attachments,
             .role = actor.role[0..actor.role_len],
-            .usage = if (actor.native_usage) actor.native_meter.meter.view(std.time.milliTimestamp()) else actor.live_usage,
+            .model = actor.model.bytes[0..actor.model.len],
+            .usage = current_usage,
+            .timeline = .{ .points = points, .pending = actor.activity_timeline.pending(current_usage) },
             .children_observed_at = actor.children_observed_at,
             .agent = agentView(&actor.state, actor.id),
         };
     }
     return .{
         .conversations = conversations,
+        .system_usage = r.system_usage,
+        .system_working = r.system_working,
         .server_pid = @import("os.zig").c.getpid(),
         .ports = try r.link_labels.snapshot(allocator, r.ports.current),
         .revision = r.revision,

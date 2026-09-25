@@ -6,6 +6,10 @@ pub const query = "\x1b_Ga=q,i=730031,t=d,f=24,s=1,v=1;AAAA\x1b\\";
 pub const remove = "\x1b_Ga=d,d=I,i=730031,q=2\x1b\\";
 pub const hide = "\x1b_Ga=d,d=i,i=730031,q=2\x1b\\";
 
+pub fn hit(visible: bool, sidebar_width: u16, x: u16, y: u16) bool {
+    return visible and sidebar_width > 0 and x >= 1 and x < 4 and y < 2;
+}
+
 pub const State = struct {
     status: enum { probing, supported, uploading, ready, unavailable } = .probing,
     uploaded: bool = false,
