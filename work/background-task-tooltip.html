@@ -1,0 +1,72 @@
+<div id="corgi-task-mock" aria-label="Agent tooltip with grouped background tasks">
+  <style>
+    #corgi-task-mock{--ct-bg:light-dark(#eff1f5,#1e1e2e);--ct-text:light-dark(#4c4f69,#cdd6f4);--ct-muted:light-dark(#6c6f85,#9399b2);--ct-line:light-dark(#bcc0cc,#585b70);--ct-active:light-dark(#946d16,#f9e2af);--ct-teal:light-dark(#16766b,#94e2d5);--ct-focus:light-dark(#6b58ba,#b4befe);font:14px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--ct-text);padding:8px 0}
+    #corgi-task-mock .ct-tooltip{background:var(--ct-bg);border:1px solid var(--ct-line);border-radius:6px;padding:18px 20px}
+    #corgi-task-mock .heading{display:flex;gap:16px;justify-content:space-between;align-items:baseline}
+    #corgi-task-mock .title{font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    #corgi-task-mock .status{color:var(--ct-active);white-space:nowrap}
+    #corgi-task-mock .muted{color:var(--ct-muted)}
+    #corgi-task-mock .grid{display:grid;grid-template-columns:minmax(0,1fr) 7ch 7ch;column-gap:14px;align-items:baseline}
+    #corgi-task-mock .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+    #corgi-task-mock .tokens{color:var(--ct-teal);font-weight:600}
+    #corgi-task-mock .columns{margin-top:8px}
+    #corgi-task-mock .divider{display:flex;align-items:center;gap:10px;color:var(--ct-muted);margin:13px 0 8px}
+    #corgi-task-mock .divider:before,#corgi-task-mock .divider:after{content:"";flex:1;height:1px;background:var(--ct-line)}
+    #corgi-task-mock .activity{display:flex;min-width:0;align-items:baseline;gap:9px}
+    #corgi-task-mock .stamp{flex:0 0 5ch;color:var(--ct-muted);font-variant-numeric:tabular-nums}
+    #corgi-task-mock .dot{flex:0 0 1ch;color:var(--ct-muted)}
+    #corgi-task-mock .live{color:var(--ct-active)}
+    #corgi-task-mock .label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex:1}
+    #corgi-task-mock .count{font:inherit;color:var(--ct-focus);background:none;border:0;padding:0;width:10ch;flex:0 0 10ch;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    #corgi-task-mock button{cursor:pointer}
+    #corgi-task-mock button:focus-visible{outline:2px solid var(--ct-focus);outline-offset:3px}
+    #corgi-task-mock .branch{padding-left:calc(5ch + 9px);height:28px}
+    #corgi-task-mock .fork{color:var(--ct-line);white-space:pre;flex:0 0 3ch}
+    #corgi-task-mock .group-count{width:10ch;flex:0 0 10ch;text-align:right;color:var(--ct-muted);font-variant-numeric:tabular-nums}
+    #corgi-task-mock .finished .label{color:var(--ct-muted)}
+    #corgi-task-mock .footer{margin-top:14px;color:var(--ct-muted)}
+    #corgi-task-mock [hidden]{display:none}
+    @media(max-width:580px){#corgi-task-mock{font-size:12px}#corgi-task-mock .ct-tooltip{padding:12px}#corgi-task-mock .grid{grid-template-columns:minmax(0,1fr) 6ch 6ch;column-gap:8px}#corgi-task-mock .activity{gap:5px}#corgi-task-mock .stamp{display:none}#corgi-task-mock .branch{padding-left:calc(1ch + 5px)}#corgi-task-mock .status{font-size:11px}}
+    @media(max-width:390px){#corgi-task-mock .grid{grid-template-columns:minmax(0,1fr) 5ch;column-gap:6px}#corgi-task-mock .cached{display:none}}
+  </style>
+  <section class="ct-tooltip" aria-label="Implement macOS tab shortcuts">
+    <div class="heading"><span class="title">Implement macOS tab shortcuts</span><span class="status">● Working</span></div>
+    <div class="muted">codex</div>
+    <div class="grid columns muted"><span></span><span class="num">Tokens</span><span class="num cached">Cached</span></div>
+    <div class="grid"><span>Total</span><span class="num tokens">16.8k</span><span class="num muted cached">1.2M</span></div>
+    <div class="divider">Recent</div>
+    <div class="grid"><div class="activity"><span class="stamp">15:47</span><span class="dot">○</span><span class="label">Inspecting release workflow</span></div><span class="num tokens">10.7k</span><span class="num muted cached">187.9k</span></div>
+    <div class="grid"><div class="activity"><span class="stamp">15:48</span><span class="dot">○</span><span class="label">Staging release changes</span></div><span class="num tokens">844</span><span class="num muted cached">203.8k</span></div>
+    <div class="grid"><div class="activity"><span class="stamp">15:48</span><span class="dot">○</span><span class="label">Publishing release version</span></div><span class="num tokens">746</span><span class="num muted cached">101.9k</span></div>
+    <div class="grid"><div class="activity"><span class="stamp">  now</span><span class="dot live">●</span><span class="label">Building release artifacts</span><button class="count" type="button" aria-controls="ct-branches" aria-expanded="true" aria-label="Collapse 5 background tasks">↳ 5 tasks</button></div><span class="num tokens">2.6k+</span><span class="num muted cached">514k+</span></div>
+    <div id="ct-branches" aria-label="Background task groups">
+      <div class="grid"><div class="activity branch" id="ct-build"><span class="fork" aria-hidden="true">├─</span><span class="label">Build macOS release</span><span class="group-count">×3</span></div><span></span><span class="cached"></span></div>
+      <div class="grid"><div class="activity branch"><span class="fork" aria-hidden="true">└─</span><span class="label">Verify release packages</span><span class="group-count">×2</span></div><span></span><span class="cached"></span></div>
+    </div>
+    <div class="footer">No subagents</div>
+  </section>
+  <script>
+    (()=>{
+      const root=document.getElementById('corgi-task-mock');
+      const button=root.querySelector('button');
+      const branches=root.querySelector('#ct-branches');
+      const build=root.querySelector('#ct-build');
+      const state={expanded:true,progress:'All running'};
+      const saved=window.openai?.widgetState?.privateContent;
+      if(saved && typeof saved.expanded==='boolean')state.expanded=saved.expanded;
+      function render(){
+        const remaining=state.progress==='Build complete'?0:state.progress==='One finished'?2:3;
+        button.textContent=(state.expanded?'↳ ':'› ')+(remaining+2)+' tasks';
+        button.setAttribute('aria-expanded',String(state.expanded));
+        button.setAttribute('aria-label',(state.expanded?'Collapse ':'Expand ')+(remaining+2)+' background tasks');
+        branches.hidden=!state.expanded;
+        build.classList.toggle('finished',remaining===0);
+        build.querySelector('.group-count').textContent=remaining?'×'+remaining:'✓ Done';
+      }
+      button.addEventListener('click',()=>{state.expanded=!state.expanded;render();window.openai?.setWidgetState?.({privateContent:{expanded:state.expanded}})?.catch(()=>{});});
+      window.addEventListener('openai:set_globals',event=>{const s=event.detail?.globals?.widgetState?.privateContent;if(s&&typeof s.expanded==='boolean'){state.expanded=s.expanded;render();}});
+      render();
+      if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(state,'progress',{label:'Task progress',options:['All running','One finished','Build complete']});tweak.addToggle(state,'expanded',{label:'Show group branches'});}
+    })();
+  </script>
+</div>

@@ -153,8 +153,10 @@ are unchanged. Names are guesses, not verified page titles.
 
 The tooltip groups provider-owned shell tasks under Tests, Builds, Servers, and
 Commands. Each row is one task identity, so shell wrappers and worker processes
-do not inflate the list. Labels use the provider description when available,
-otherwise the command. Categories use only the invocation prefix; unrecognized
+do not inflate the list. Labels use a compact provider description when available
+(at most six words / 48 bytes), otherwise a short action summary such as Running
+tests or Watching output. Raw command lines, flags, and inline programs are not
+used as fallback labels. Categories use only the invocation prefix; unrecognized
 commands stay in Commands.
 
 Codex uses the optional read-only `thread/backgroundTerminals/list` endpoint.
