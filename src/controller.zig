@@ -785,9 +785,30 @@ pub const Controller = struct {
     fn openSetup(s: *Self) void {
         s.closeMenu();
         s.corgi_setup = @import("corgi_setup.zig").Menu.open(s.runtime.inference);
+        s.corgi_setup.?.integration = if (s.remote_links) .unavailable else @import("ghostty_integration.zig").state();
         s.dirty = true;
     }
-    fn applySetup(s: *Self, choice: @import("inference_setup.zig").Choice) void {
+    fn applySetup(s: *Self, choice: @import("corgi_setup.zig").Choice) void {
+        if (choice == .ghostty) {
+            const integration = @import("ghostty_integration.zig");
+            const integration_state = if (s.remote_links) integration.State.unavailable else integration.state();
+            s.closeMenu();
+            if (integration_state == .unavailable) {
+                s.notice(" Ghostty integration requires a local macOS viewer");
+                return;
+            }
+            if (integration_state == .failed) {
+                s.notice(" Could not read Ghostty config; no changes made");
+                return;
+            }
+            integration.setEnabled(integration_state != .enabled) catch |err| {
+                var message: [160]u8 = undefined;
+                s.notice(std.fmt.bufPrint(&message, " Ghostty integration: {s}", .{@errorName(err)}) catch "Ghostty config update failed");
+                return;
+            };
+            s.notice(if (integration_state == .enabled) " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+," else " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,");
+            return;
+        }
         s.closeMenu();
         const response = s.connection.call(.{ .op = "inference.configure", .protocol = 1, .choice = @tagName(choice) }) catch {
             s.notice(" Corgi setup: the runtime did not accept the change");
@@ -797,6 +818,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
+            .ghostty => unreachable,
             .auto => "Auto (follows your agents)",
             .codex => "Codex",
             .claude => "Claude Code",

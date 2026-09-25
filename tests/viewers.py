@@ -32,6 +32,37 @@ class Viewers(unittest.TestCase):
         self.command('pane.rename',target=pane,name=name)
         self.rpc(op='hook',pane=pane,provider='claude',seq=1,event={'hook_event_name':'SessionStart','session_id':str(pane)})
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Ghostty integration is macOS-only')
+    def test_ghostty_setup_toggle_preserves_config_and_routes_tabs(self):
+        self.env.pop('SSH_CONNECTION',None)
+        self.env.pop('SSH_TTY',None)
+        self.env['XDG_CONFIG_HOME']=self.temp.name+'/.config'
+        config=pathlib.Path(self.temp.name,'Library/Application Support/com.mitchellh.ghostty/config.ghostty')
+        config.parent.mkdir(parents=True)
+        original='font-size = 14\nkeybind = cmd+1=goto_tab:1\n'
+        config.write_text(original)
+        config.chmod(0o640)
+        panes=[self.new() for _ in range(9)]
+        viewer=Viewer(self)
+        state=viewer.input('\x02i')
+        self.assertIn('Enable Ghostty integration',state['data'])
+        viewer.input('jjjj\r')
+        enabled=config.read_text()
+        self.assertEqual(config.stat().st_mode & 0o777,0o640)
+        self.assertTrue(enabled.startswith(original))
+        for i,pane in enumerate(panes,1):
+            self.assertIn(f'keybind = cmd+digit_{i}=text:\\x02{i}',enabled)
+            self.assertEqual(viewer.input(f'\x02{i}')['pane'],pane)
+        self.assertEqual(viewer.input('\x02n')['pane'],panes[0])
+        self.assertEqual(viewer.input('\x02p')['pane'],panes[-1])
+        state=viewer.input('\x02i')
+        self.assertIn('Disable Ghostty integration',state['data'])
+        # Click the same toggle row, including its text rather than the border.
+        viewer.input('\x1b[<0;5;13M')
+        viewer.input('\x1b[<0;5;13m')
+        self.assertEqual(config.read_text(),original)
+        self.assertEqual(config.stat().st_mode & 0o777,0o640)
+
     def test_agent_hotkeys_follow_complete_workspace_sidebar(self):
         shell=self.new()
         home=self.session()['workspaces'][0]['id']

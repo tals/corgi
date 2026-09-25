@@ -4,7 +4,8 @@ const std = @import("std");
 const setup = @import("inference_setup.zig");
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
-const Choice = setup.Choice;
+pub const Choice = enum { auto, codex, claude, off, ghostty };
+const ghostty = @import("ghostty_integration.zig");
 
 const options = [_]struct { choice: Choice, label: []const u8 }{
     .{ .choice = .auto, .label = "Auto" },
@@ -16,13 +17,14 @@ const first_option = 3;
 
 pub const Menu = struct {
     selected: Choice,
+    integration: ghostty.State = .unavailable,
 
     pub fn open(status: setup.Status) Menu {
-        return .{ .selected = status.choice };
+        return .{ .selected = @enumFromInt(@intFromEnum(status.choice)) };
     }
     pub fn bounds(cols: u16, rows: u16) Rect {
         const width = @min(cols, 52);
-        const height = @min(rows, 11);
+        const height = @min(rows, 15);
         // Hang below the badge: its image is drawn above text on rows 0–1.
         return .{ .x = @min(1, cols - width), .y = @min(2, rows - height), .w = width, .h = height };
     }
@@ -31,17 +33,18 @@ pub const Menu = struct {
     }
     pub fn hit(cols: u16, rows: u16, x: u16, y: u16) ?Choice {
         const b = bounds(cols, rows);
-        if (b.w < 32 or b.h < 11 or x <= b.x or x >= b.x + b.w - 1) return null;
+        if (b.w < 32 or b.h < 15 or x <= b.x or x >= b.x + b.w - 1) return null;
+        if (y == b.y + 10) return .ghostty;
         if (y < b.y + first_option or y >= b.y + first_option + options.len) return null;
         return options[y - b.y - first_option].choice;
     }
     pub fn move(m: *Menu, next: bool) void {
         const index: usize = @intFromEnum(m.selected);
-        m.selected = @enumFromInt(if (next) @min(index + 1, options.len - 1) else index -| 1);
+        m.selected = @enumFromInt(if (next) @min(index + 1, options.len) else index -| 1);
     }
     pub fn draw(m: *const Menu, w: *std.Io.Writer, status: setup.Status, cols: u16, rows: u16) !void {
         const b = bounds(cols, rows);
-        if (b.w < 32 or b.h < 11) return;
+        if (b.w < 32 or b.h < 15) return;
         const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
         const text = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
         const bright = "\x1b[1;38;2;226;230;233;48;2;35;40;47m";
@@ -63,7 +66,7 @@ pub const Menu = struct {
             const style = if (highlighted) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else text;
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, style });
             try w.splatByteAll(' ', b.w - 2);
-            const current = option.choice == status.choice;
+            const current = @intFromEnum(option.choice) == @intFromEnum(status.choice);
             try w.print("\x1b[{d};{d}H{s} {s} {s}", .{ row, b.x + 2, if (highlighted) "›" else " ", if (current) "●" else "○", option.label });
             try w.print("\x1b[{d};{d}H", .{ row, b.x + 14 });
             var buffer: [96]u8 = undefined;
@@ -72,6 +75,17 @@ pub const Menu = struct {
         var buffer: [96]u8 = undefined;
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + first_option + options.len + 2, b.x + 3, panel });
         try sidebar.writeEllipsis(w, detail(m.selected, status, &buffer), b.w - 5);
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 11, b.x + 3, if (m.selected == .ghostty) bright else text });
+        try sidebar.writeEllipsis(w, switch (m.integration) {
+            .enabled => "Disable Ghostty integration",
+            .disabled => "Enable Ghostty integration",
+            .unavailable => "Ghostty integration: local macOS only",
+            .failed => "Ghostty integration: config unavailable",
+        }, b.w - 5);
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 12, b.x + 3, panel });
+        try sidebar.writeEllipsis(w, "Cmd+1-9, Cmd+T, Ctrl+Tab / Ctrl+Shift+Tab", b.w - 5);
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 13, b.x + 3, panel });
+        try sidebar.writeEllipsis(w, "Applies everywhere in Ghostty; reload to apply", b.w - 5);
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + b.h - 1, b.x + 3, panel });
         try sidebar.writeEllipsis(w, "↑↓ choose · Enter save · Esc close", b.w - 5);
         try w.writeAll("\x1b[0m\x1b[?25l");
@@ -84,6 +98,7 @@ fn modelName(id: []const u8) []const u8 {
 
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
+        .ghostty => "Reload Ghostty with Cmd+Shift+, after changes",
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
         else if (status.provider) |provider|
@@ -103,6 +118,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
+        .ghostty => "Reload Ghostty with Cmd+Shift+, after changes",
         .auto => if (status.codex_launches + status.claude_launches == 0)
             "No agents yet this session; using your last one"
         else
@@ -123,7 +139,7 @@ test "setup popover options are clickable rows inside its frame" {
     menu.move(true);
     try std.testing.expectEqual(Choice.off, menu.selected);
     menu.move(true);
-    try std.testing.expectEqual(Choice.off, menu.selected);
+    try std.testing.expectEqual(Choice.ghostty, menu.selected);
     menu.selected = .auto;
     menu.move(false);
     try std.testing.expectEqual(Choice.auto, menu.selected);
