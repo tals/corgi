@@ -146,6 +146,18 @@ class Summaries(codex_titles.Titles):
         self.assertIn('rg focus src',json.loads(self.calls()[1])['evidence'])
         time.sleep(8.5)
         self.assertEqual(len(self.calls()),2)
+    def test_running_command_refreshes_before_completion_without_repeated_inference(self):
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.control.write_text(json.dumps({'delay':0,'label':'Running smoke tests'}))
+        self.tools(1,command='python3 tests/smoke.py --long-running',complete=False)
+        self.until(lambda:self.state()['activity']=='Running smoke tests',timeout=12)
+        evidence=json.loads(self.calls()[-1])['evidence']
+        self.assertIn('Currently running tools',evidence)
+        self.assertIn('python3 tests/smoke.py',evidence)
+        count=len(self.calls())
+        time.sleep(8.5)
+        self.assertEqual(len(self.calls()),count)
     def test_later_wave_refreshes_under_throttle_even_when_commentary_is_unchanged(self):
         self.start_turn()
         self.until(lambda:len(self.calls())==1)
@@ -279,6 +291,20 @@ class ClaudeSummaries(unittest.TestCase):
         return next(p for p in self.session()['panes'] if p['id']==self.pane)['agent']
     def conversation(self):
         return next(c for c in self.session()['conversations'] if c['agent']['session']=='claude-s')
+    def test_running_command_alone_gets_summary_without_completion_or_commentary(self):
+        self.control.write_text(json.dumps({'delay':0,'label':'Running smoke tests'}))
+        self.hook('SessionStart')
+        time.sleep(.6)
+        self.hook('UserPromptSubmit')
+        self.hook('PreToolUse',tool_name='Bash',tool_input={'command':'python3 tests/smoke.py'})
+        self.record(type='assistant',message={'id':'m1','content':[
+            {'type':'tool_use','id':'smoke','name':'Bash','input':{'command':'python3 tests/smoke.py'}}]})
+        self.until(lambda:self.agent()['activity']=='Running smoke tests')
+        calls=self.log.read_text().splitlines()
+        self.assertEqual(len(calls),1)
+        self.assertIn('Currently running tools',json.loads(calls[0])['evidence'])
+        time.sleep(8.5)
+        self.assertEqual(len(self.log.read_text().splitlines()),1)
     def test_claude_labels_timeline_and_cached_usage_match_codex(self):
         self.hook('SessionStart')
         time.sleep(.6) # Let the reader seed its baseline on the empty transcript.

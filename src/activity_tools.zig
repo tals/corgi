@@ -15,6 +15,7 @@ pub const View = struct {
 };
 const Call = struct {
     id: u64 = 0,
+    live: bool = false,
     bytes: [240]u8 = @splat(0),
     len: usize = 0,
     fn append(call: *Call, text: []const u8) void {
@@ -45,6 +46,17 @@ pub const Tracker = struct {
     }
     pub fn view(t: *const Tracker) View {
         var out: View = .{ .turn = t.turn, .turn_len = t.turn_len, .completed = t.completed, .commentary = t.commentary, .ended = t.ended };
+        var active: usize = 0;
+        if (!t.ended) for (t.pending) |call| {
+            if (call.id == 0 or !call.live) continue;
+            if (active == 0) out.evidence.append("Currently running tools (not yet completed):\n");
+            if (active < 4) {
+                out.evidence.append(call.bytes[0..call.len]);
+                out.evidence.append("\n");
+            }
+            active += 1;
+        };
+        if (active > 4) out.evidence.append("Additional tools are running.\n");
         if (t.completed > 0) out.evidence.append("Recent completed tools (oldest to newest):\n");
         for (t.recent) |call| if (call.id != 0) {
             out.evidence.append(call.bytes[0..call.len]);
@@ -117,6 +129,8 @@ pub const Tracker = struct {
                 t.next_pending = (t.next_pending + 1) % t.pending.len;
                 break :blk pending;
             };
+            call.live = live or (slot.id == key and slot.live);
+            if (!std.meta.eql(slot.*, call) and call.live) t.dirty = true;
             slot.* = call;
         }
     }
@@ -164,6 +178,8 @@ pub const Tracker = struct {
                     t.next_pending = (t.next_pending + 1) % t.pending.len;
                     break :blk pending;
                 };
+                call.live = live or (slot.id == key and slot.live);
+                if (!std.meta.eql(slot.*, call) and call.live) t.dirty = true;
                 slot.* = call;
             } else if (eq(u8, kind, "user") and eq(u8, block_type, "tool_result")) {
                 const id = agents.str(block, "tool_use_id");
@@ -255,4 +271,46 @@ test "Claude text and completed tools become evidence for the bound turn" {
     t.bind("prompt-2");
     try std.testing.expect(!t.view().ended);
     try std.testing.expectEqual(@as(u64, 0), t.completed);
+}
+
+test "running tools publish stable evidence before completion for both providers" {
+    const cases = .{
+        .{
+            \\{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"python3 tests/smoke.py\"}"}}
+            ,
+            \\{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"done"}}
+        },
+        .{
+            \\{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"python3 tests/smoke.py"}}]}}
+            ,
+            \\{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c1","content":"done"}]}}
+        },
+    };
+    inline for (cases, 0..) |example, provider| {
+        const start = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, example[0], .{});
+        defer start.deinit();
+        const done = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, example[1], .{});
+        defer done.deinit();
+        var t: Tracker = .{};
+        t.bind("turn");
+        t.dirty = false;
+        if (provider == 0) t.ingest(start.value, false) else t.ingestClaude(start.value, false);
+        try std.testing.expect(!t.dirty);
+        try std.testing.expectEqual(@as(usize, 0), t.view().evidence.len);
+        if (provider == 0) t.ingest(start.value, true) else t.ingestClaude(start.value, true);
+        try std.testing.expect(t.dirty);
+        const running = t.view();
+        try std.testing.expectEqual(@as(u64, 0), running.completed);
+        try std.testing.expect(std.mem.indexOf(u8, running.evidence.text(), "Currently running tools") != null);
+        try std.testing.expect(std.mem.indexOf(u8, running.evidence.text(), "python3 tests/smoke.py") != null);
+        t.dirty = false;
+        if (provider == 0) t.ingest(start.value, true) else t.ingestClaude(start.value, true);
+        try std.testing.expect(!t.dirty);
+        try std.testing.expectEqual(running.evidence.hash(), t.view().evidence.hash());
+        if (provider == 0) t.ingest(done.value, true) else t.ingestClaude(done.value, true);
+        try std.testing.expect(t.dirty);
+        const finished = t.view();
+        try std.testing.expect(std.mem.indexOf(u8, finished.evidence.text(), "Currently running tools") == null);
+        try std.testing.expect(std.mem.indexOf(u8, finished.evidence.text(), "Recent completed tools") != null);
+    }
 }

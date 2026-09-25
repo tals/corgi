@@ -45,7 +45,7 @@ pub const Result = struct {
             const progress = result.progress orelse return false;
             if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
             if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
-            if (progress.commentary.len == 0 and progress.completed == 0) return false;
+            if (progress.commentary.len == 0 and progress.evidence.len == 0) return false;
             // Claude writes text before most tools, so commentary-keyed labels
             // would arrive stale. A label from this turn's slightly older
             // evidence is still current; only a new turn invalidates it.

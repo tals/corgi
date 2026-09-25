@@ -26,20 +26,23 @@ for discovery, ownership, and catch-up semantics.
 
 Agent entries reserve their first line for the name and their second line for
 current activity. Long names clip with an ellipsis instead of occupying the
-activity line. Codex summaries are 2–3 words based on recent completed tool
-calls, with the latest assistant update and original request as context. The
+activity line. Codex and Claude summaries are 2–3 words prioritizing currently
+running tools, then recent completed calls, with the latest assistant update
+and original request as context. The
 existing transcript reader supplies turn-scoped tool progress independently of
-workspace away counters. Claude retains its existing hook labels; native sessions
-are not summarized.
+workspace away counters. Claude can show provider descriptions before its first
+summary; native sessions are not summarized.
 
 The first inference runs as soon as nonempty evidence is available, including
-commentary without tools. Changed evidence or even one newly completed tool
+commentary without tools or a tool start without commentary. Changed evidence,
+including tool starts and completions,
 queues a refresh, with an eight-second cooldown and a one-second global minimum
 between calls. Updates coalesce to the latest snapshot during the cooldown;
 unchanged polls do not query inference. Duplicate call IDs and historical
 transcript records do not advance tool progress. Up to 64 pending calls and 256
-completed IDs are retained, plus short descriptions of the latest three
-completions; tool outputs are not sent to the summarizer. Missing transcripts
+completed IDs are retained. Evidence includes at most four live pending tools
+and short descriptions of the latest three completions; tool outputs are not
+sent to the summarizer. Missing transcripts
 no longer prevent commentary-based summaries.
 
 A single background worker coalesces updates. Results are checked against the
