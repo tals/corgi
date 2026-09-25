@@ -346,7 +346,7 @@ pub const Menu = struct {
         var content: u16 = 4;
         for (m.columns(cols)) |width| content += width;
         const width = @min(cols, @max(@as(u16, 40), content));
-        const height = @min(rows, 7);
+        const height = @min(rows, 8);
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
     fn columns(m: *const Menu, width: u16) [7]u16 {
@@ -394,7 +394,7 @@ pub const Menu = struct {
     pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 7) return null;
+        if (b.w < 24 or b.h < 8) return null;
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0];
         return if (x >= start and x < start + widths[1] -| 2) provider else null;
@@ -406,7 +406,7 @@ pub const Menu = struct {
     pub fn usageHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 7) return null;
+        if (b.w < 24 or b.h < 8) return null;
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
         return if (x >= start and x < start + widths[5] -| 1) provider else null;
@@ -414,7 +414,7 @@ pub const Menu = struct {
     pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
         const sidebar = @import("sidebar.zig");
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 7) return;
+        if (b.w < 24 or b.h < 8) return;
         const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
         for (0..b.h) |row| {
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, panel });
@@ -442,9 +442,9 @@ pub const Menu = struct {
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, if (selected) "›" else " " });
             if (i == m.preview.options.len) {
                 try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
-                try writeKey(w, "t", style);
-                try w.writeAll(" ");
                 try sidebar.writeEllipsis(w, "New terminal", b.w -| 10);
+                try w.writeAll(" ");
+                try writeKey(w, "t", style);
                 continue;
             }
             var x: u16 = b.x + 4;
@@ -463,21 +463,22 @@ pub const Menu = struct {
                 x += width;
             }
         }
-        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 6, b.x + 3, panel });
-        const directory = std.fs.path.basename(m.cwd[0..m.cwd_len]);
-        var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
-        const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
-        try sidebar.writeEllipsis(w, footer, b.w - 25);
         const Hint = struct { key: []const u8, label: []const u8 };
         const hints: []const Hint = if (m.selected == .terminal)
             &.{.{ .key = "a", .label = "open" }}
         else if (m.trackable(m.selected))
-            &.{.{ .key = "u", .label = "Track usage" }}
+            &.{ .{ .key = "u", .label = "Track usage" }, .{ .key = "a", .label = "launch" }, .{ .key = "y", .label = "YOLO" } }
         else
             &.{ .{ .key = "a", .label = "launch" }, .{ .key = "y", .label = "YOLO" } };
         var hint_width: u16 = 0;
         for (hints, 0..) |hint, i| hint_width += @intCast(3 + 1 + hint.label.len + @as(usize, if (i > 0) 2 else 0));
-        try w.print("\x1b[{d};{d}H", .{ b.y + 6, b.x + b.w - 1 - hint_width });
+        const footer_row = b.y + b.h - 1;
+        try w.print("\x1b[{d};{d}H{s}", .{ footer_row, b.x + 3, panel });
+        const directory = std.fs.path.basename(m.cwd[0..m.cwd_len]);
+        var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
+        const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
+        try sidebar.writeEllipsis(w, footer, b.w -| (hint_width + 6));
+        try w.print("\x1b[{d};{d}H", .{ footer_row, b.x + b.w - 1 - hint_width });
         for (hints, 0..) |hint, i| {
             if (i > 0) try w.writeAll("  ");
             try writeKey(w, hint.key, panel);
