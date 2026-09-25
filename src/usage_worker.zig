@@ -37,11 +37,20 @@ pub const Result = struct {
             if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
             // Hooks stamp activity_at, so an update from before the latest
             // hook (or from an earlier turn) cannot replace a newer label.
-            if (agent.state == .working and result.update.len > 0 and result.update_at > agent.activity_at) {
+            if (agent.state == .working and !agent.activity_inferred and result.update.len > 0 and result.update_at > agent.activity_at) {
                 agent.setActivity(result.update.bytes[0..result.update.len]);
                 agent.activity_at = result.update_at;
             }
-            return false;
+            // Hooks own Claude's turn id; transcript evidence only joins it.
+            const progress = result.progress orelse return false;
+            if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
+            if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+            if (progress.commentary.len == 0 and progress.completed == 0) return false;
+            // Claude writes text before most tools, so commentary-keyed labels
+            // would arrive stale. A label from this turn's slightly older
+            // evidence is still current; only a new turn invalidates it.
+            agent.activity_generation = std.hash.Wyhash.hash(0, agent.turnId());
+            return true;
         }
         if (!codex_files.available(agent, now)) return false;
         if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
@@ -150,7 +159,7 @@ pub const Worker = struct {
                 w.mutex.unlock();
                 if (slot == null) continue;
                 const delta = t.poll(req) catch blk: {
-                    if (t.live.meter.value.known) t.live.meter.value.partial = true;
+                    if (t.live.meter.value.known) t.live.meter.lose();
                     t.closeFile();
                     t.progress = .{};
                     break :blk usage.Counts{};
@@ -170,6 +179,8 @@ pub const Worker = struct {
                         result.*.?.continued = t.continued;
                         result.*.?.update = t.update;
                         result.*.?.update_at = t.update_at;
+                        result.*.?.progress = t.progress.view();
+                        result.*.?.seq = req.agent.last_seq;
                     }
                     if (req.agent.provider == .codex) {
                         result.*.?.progress = t.progress.view();
@@ -243,7 +254,13 @@ pub const Tail = struct {
             if (catch_up) t.offset = 0;
             const retained = t.live.meter;
             t.live = .{ .meter = retained };
-            if (t.opened) t.live.meter.value.partial = true;
+            if (t.opened) t.live.meter.lose();
+            // Claude usage counts from when Corgi opens the transcript. Before
+            // any new message that is zero observed, not unknown coverage.
+            if (agent.provider == .claude and !t.live.meter.value.known) {
+                t.live.meter.value.known = true;
+                t.live.meter.value.since = std.time.milliTimestamp();
+            }
             if (agent.provider == .codex) {
                 var header: [64 * 1024]u8 = undefined;
                 const n = try file.pread(&header, 0);
@@ -251,7 +268,7 @@ pub const Tail = struct {
                     const parsed = try std.json.parseFromSlice(std.json.Value, a, header[0..end], .{});
                     defer parsed.deinit();
                     t.live.header(parsed.value, req.child, req.tracked_since, catch_up);
-                } else if (req.child) t.live.meter.value.partial = true;
+                } else if (req.child) t.live.meter.lose();
             }
             t.opened = true;
             t.partial.clearRetainingCapacity();
@@ -326,6 +343,8 @@ pub const Tail = struct {
         return t.ingest(req, bytes[0..n], start_offset);
     }
     fn ingest(t: *Tail, req: *const Request, bytes: []const u8, start_offset: u64) !usage.Counts {
+        // Claude transcripts carry no turn id; evidence joins the hook's turn.
+        if (req.agent.provider == .claude) t.progress.bind(req.agent.turnId());
         var found: usage.Counts = .{};
         var start: usize = 0;
         while (start < bytes.len) {
@@ -334,7 +353,7 @@ pub const Tail = struct {
             const segment = bytes[start..end];
             start = end + @intFromBool(complete);
             if (!t.discard and t.partial.items.len + segment.len > record_limit) {
-                t.live.meter.value.partial = true;
+                t.live.meter.lose();
                 t.partial.clearRetainingCapacity();
                 t.discard = true;
             }
@@ -344,7 +363,10 @@ pub const Tail = struct {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
                         if (req.agent.provider == .codex) t.progress.ingest(parsed.value, start_offset + start > t.initial_until);
-                        if (req.agent.provider == .claude) t.claudeRecord(req.agent.sessionId(), parsed.value);
+                        if (req.agent.provider == .claude) {
+                            t.claudeRecord(req.agent.sessionId(), parsed.value);
+                            if (eq(agents.str(parsed.value, "sessionId"), req.agent.sessionId())) t.progress.ingestClaude(parsed.value, start_offset + start > t.initial_until);
+                        }
                         const model_value = if (req.agent.provider == .codex)
                             usage.field(parsed.value, "payload")
                         else
@@ -357,11 +379,11 @@ pub const Tail = struct {
                         if (req.agent.provider == .codex) {
                             t.live.ingest(parsed.value, appended, std.time.milliTimestamp());
                         } else if (appended and delta.tokens_known) {
-                            t.live.meter.add(.{ .input = delta.input, .output = delta.output }, stamp orelse std.time.milliTimestamp());
+                            t.live.meter.add(.{ .input = delta.input, .cached_input = delta.cached_input, .output = delta.output }, stamp orelse std.time.milliTimestamp());
                         }
                         if (start_offset + start > t.initial_until and stamp != null and stamp.? > req.since) found.add(delta);
                     } else |_| {
-                        t.live.meter.value.partial = true;
+                        t.live.meter.lose();
                     }
                 }
                 t.partial.clearRetainingCapacity();

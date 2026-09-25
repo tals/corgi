@@ -32,6 +32,7 @@ pub const Result = struct {
         if (agent.state != .working or agent.provider != r.request.provider or !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len]) or !std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len]) or agent.activity_generation != r.request.generation) return false;
         @memcpy(agent.activity[0..r.label.len], r.label.text());
         agent.activity_len = r.label.len;
+        agent.activity_inferred = true;
         actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), r.label);
         const now = std.time.milliTimestamp();
         actor.activity_timeline.checkpoint(agent.turnId(), r.label, actor.usageView(now), now);

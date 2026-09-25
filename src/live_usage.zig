@@ -22,6 +22,9 @@ pub const View = struct {
     tokens: Tokens = .{},
     known: bool = false,
     partial: bool = false,
+    // Loss events since observation began. An interval is partial only if
+    // this changed within it; partial alone records that some loss occurred.
+    losses: u32 = 0,
     since: i64 = 0,
     updated_at: i64 = 0,
     recent_tokens: u64 = 0,
@@ -30,6 +33,10 @@ pub const Meter = struct {
     const Bucket = struct { minute: i64 = -1, tokens: u64 = 0 };
     value: View = .{},
     buckets: [5]Bucket = @splat(.{}),
+    pub fn lose(m: *Meter) void {
+        m.value.partial = true;
+        m.value.losses +|= 1;
+    }
     pub fn add(m: *Meter, tokens: Tokens, timestamp: i64) void {
         m.value.known = true;
         m.value.tokens.add(tokens);
@@ -78,7 +85,7 @@ pub const Codex = struct {
         const created = @import("transcript.zig").timestampMs(agents.str(payload, "timestamp")) orelse
             @import("transcript.zig").timestampMs(agents.str(value, "timestamp"));
         t.catch_up = child and complete_prefix and t.owned_from != null and created != null and tracked_since > 0 and created.? >= tracked_since;
-        if (child and (!t.catch_up or t.owned_from == null)) t.meter.value.partial = true;
+        if (child and (!t.catch_up or t.owned_from == null)) t.meter.lose();
     }
     pub fn ingest(t: *Codex, value: std.json.Value, appended: bool, now: i64) void {
         if (!std.mem.eql(u8, agents.str(value, "type"), "event_msg")) return;
@@ -87,7 +94,7 @@ pub const Codex = struct {
         const ordinal = number(value, "ordinal");
         if (t.owned_from) |boundary| {
             if (ordinal == null) {
-                t.meter.value.partial = true;
+                t.meter.lose();
                 return;
             }
             if (ordinal.? < boundary) return;
@@ -110,7 +117,7 @@ pub const Codex = struct {
         if (!count or t.baseline_next) {
             if (t.previous) |previous| {
                 if (total.input < previous.input or total.output < previous.output or total.cached_input < previous.cached_input) {
-                    t.meter.value.partial = true;
+                    t.meter.lose();
                     return;
                 }
             }
@@ -124,14 +131,14 @@ pub const Codex = struct {
             if (total.input < previous.input or total.output < previous.output or total.cached_input < previous.cached_input) {
                 // Counter restart or reordered telemetry: keep the high-water
                 // mark. Reopening a replaced stream explicitly rebaselines it.
-                t.meter.value.partial = true;
+                t.meter.lose();
                 return;
             }
             delta = .{ .input = total.input - previous.input, .cached_input = total.cached_input - previous.cached_input, .output = total.output - previous.output };
             if (last) |request| {
                 // A jump can include an inherited baseline or unobserved work.
                 // Charge only this request's reported components in that case.
-                if (delta.input > request.input or delta.output > request.output) t.meter.value.partial = true;
+                if (delta.input > request.input or delta.output > request.output) t.meter.lose();
                 delta.input = @min(delta.input, request.input);
                 delta.cached_input = @min(delta.cached_input, request.cached_input);
                 delta.output = @min(delta.output, request.output);
@@ -139,7 +146,7 @@ pub const Codex = struct {
         } else if (last) |request| {
             delta = .{ .input = @min(total.input, request.input), .cached_input = @min(total.cached_input, request.cached_input), .output = @min(total.output, request.output) };
         } else {
-            t.meter.value.partial = true;
+            t.meter.lose();
             t.previous = total;
             return;
         }

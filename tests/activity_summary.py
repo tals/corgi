@@ -210,4 +210,78 @@ class Summaries(codex_titles.Titles):
         self.assertNotIn('This is much too many words','\n'.join(screen))
         self.assertEqual(len(self.log.read_text().splitlines()),1)
 
+
+class ClaudeSummaries(unittest.TestCase):
+    """Claude hooks and transcript evidence feed the same labeller and timeline."""
+    rpc=smoke.Runtime.rpc
+    raw_rpc=smoke.Runtime.raw_rpc
+    command=smoke.Runtime.command
+    until=smoke.Runtime.until
+    session=smoke.Runtime.session
+    run_cli=smoke.Runtime.run_cli
+    def setUp(self):
+        self.backend_dir=tempfile.TemporaryDirectory(prefix='corgi-summary-')
+        root=pathlib.Path(self.backend_dir.name)
+        self.log=root/'calls.jsonl'
+        self.control=root/'control.json'
+        self.control.write_text(json.dumps({'delay':0,'label':'Tracing hook routing'}))
+        program=pathlib.Path(__file__).with_name('inference_harness.py').resolve()
+        with patch.dict(os.environ,{'CORGI_INFERENCE_PROVIDER':'codex','CORGI_INFERENCE_BIN':str(program),'CORGI_INFERENCE_TEST_LOG':str(self.log),'CORGI_INFERENCE_TEST_CONTROL':str(self.control)}):smoke.Runtime.setUp(self)
+        self.pane=self.command('pane.create',workspace=1,command='sleep 60')['pane']
+        self.transcript=root/'claude.jsonl'
+        self.transcript.write_text('')
+        self.seq=time.time_ns()//1000
+    def tearDown(self):
+        try:smoke.Runtime.tearDown(self)
+        finally:self.backend_dir.cleanup()
+    def hook(self,event,**extra):
+        self.seq=max(self.seq+1,time.time_ns()//1000)
+        return self.rpc(op='hook',pane=self.pane,provider='claude',seq=self.seq,event={'hook_event_name':event,'session_id':'claude-s','prompt_id':'prompt-1','transcript_path':str(self.transcript),**extra})
+    def record(self,**fields):
+        stamp=datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
+        with self.transcript.open('a') as f:f.write(json.dumps({'sessionId':'claude-s','timestamp':stamp,**fields})+'\n')
+    def agent(self):
+        return next(p for p in self.session()['panes'] if p['id']==self.pane)['agent']
+    def conversation(self):
+        return next(c for c in self.session()['conversations'] if c['agent']['session']=='claude-s')
+    def test_claude_labels_timeline_and_cached_usage_match_codex(self):
+        self.hook('SessionStart')
+        time.sleep(.6) # Let the reader seed its baseline on the empty transcript.
+        self.hook('UserPromptSubmit')
+        self.hook('PreToolUse',tool_name='Read',tool_input={'file_path':'/repo/src/server.zig'})
+        self.assertEqual(self.agent()['activity'],'Reading server.zig')
+        self.record(type='assistant',message={'id':'m1','usage':{'input_tokens':100,'cache_read_input_tokens':900,'cache_creation_input_tokens':50,'output_tokens':40},'content':[
+            {'type':'text','text':'Tracing how hooks reach panes'},
+            {'type':'tool_use','id':'t1','name':'Bash','input':{'command':'rg routeHook','description':'Find hook routing'}}]})
+        self.until(lambda:self.agent()['activity']=='Tracing hook routing')
+        # Commentary can be summarized before a tool finishes. Complete it only
+        # after the first label, then wait through the worker's 8-second cooldown
+        # for the new evidence instead of assuming the first request included it.
+        self.record(type='user',message={'content':[{'type':'tool_result','tool_use_id':'t1','content':'ok'}]})
+        self.until(lambda:'Find hook routing' in json.loads(self.log.read_text().splitlines()[-1])['evidence'],timeout=12)
+        call=json.loads(self.log.read_text().splitlines()[-1])
+        self.assertIn('Tracing how hooks reach panes',json.dumps(call))
+        self.assertIn('Find hook routing',json.dumps(call))
+        # An inferred label is not replaced by the next direct tool label.
+        self.hook('PreToolUse',tool_name='Read',tool_input={'file_path':'/repo/src/agents.zig'})
+        self.assertEqual(self.agent()['activity'],'Tracing hook routing')
+        conversation=self.conversation()
+        self.assertEqual(conversation['usage']['tokens'],dict(input=1050,cached_input=900,output=40))
+        self.assertEqual([p['activity'] for p in conversation['timeline']['points']],['Tracing hook routing'])
+        self.hook('Stop')
+        self.record(type='system',subtype='turn_duration')
+        self.until(lambda:self.agent()['state']=='idle')
+
+    def test_claude_label_survives_text_written_during_inference(self):
+        self.control.write_text(json.dumps({'delay':1.5,'label':'Tracing hook routing'}))
+        self.hook('SessionStart')
+        time.sleep(.6)
+        self.hook('UserPromptSubmit')
+        self.record(type='assistant',message={'id':'m1','content':[{'type':'text','text':'Tracing how hooks reach panes'}]})
+        self.until(lambda:self.log.exists())
+        # Claude narrates before most tools; newer text must not discard the label.
+        self.record(type='assistant',message={'id':'m2','content':[{'type':'text','text':'Checking the attachment router next'}]})
+        self.until(lambda:self.agent()['activity']=='Tracing hook routing',timeout=6)
+        self.assertEqual([p['activity'] for p in self.conversation()['timeline']['points']],['Tracing hook routing'])
+
 if __name__=='__main__':unittest.main()

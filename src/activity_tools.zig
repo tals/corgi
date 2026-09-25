@@ -120,6 +120,63 @@ pub const Tracker = struct {
             slot.* = call;
         }
     }
+    /// Claude records carry no turn id; the caller binds the hook turn. Text
+    /// is commentary, and a tool completes when its tool_result arrives.
+    pub fn ingestClaude(t: *Tracker, value: std.json.Value, live: bool) void {
+        if (t.turn_len == 0 or t.ended) return;
+        const side = field(value, "isSidechain");
+        if (side == .bool and side.bool) return;
+        const kind = agents.str(value, "type");
+        if (eq(u8, kind, "system") and eq(u8, agents.str(value, "subtype"), "turn_duration")) {
+            if (live) t.ended = true;
+            return;
+        }
+        const content = field(field(value, "message"), "content");
+        if (content != .array) return;
+        for (content.array.items) |block| {
+            const block_type = agents.str(block, "type");
+            if (eq(u8, kind, "assistant") and eq(u8, block_type, "text")) {
+                const text = std.mem.trim(u8, agents.str(block, "text"), " \t\r\n");
+                if (text.len == 0) continue;
+                t.commentary = .{};
+                t.commentary.append("Latest agent update: ");
+                t.commentary.append(text);
+                t.dirty = true;
+            } else if (eq(u8, kind, "assistant") and eq(u8, block_type, "tool_use")) {
+                const id = agents.str(block, "id");
+                if (id.len == 0) continue;
+                const key = std.hash.Wyhash.hash(0, id) | 1;
+                if (std.mem.indexOfScalar(u64, &t.seen, key) != null) continue;
+                var call: Call = .{ .id = key };
+                call.append(agents.str(block, "name"));
+                call.append(": ");
+                const input = field(block, "input");
+                for ([_][]const u8{ "description", "command", "file_path", "pattern", "query", "url", "prompt" }) |name| {
+                    const detail = agents.str(input, name);
+                    if (detail.len == 0) continue;
+                    call.append(detail);
+                    break;
+                }
+                const slot = for (&t.pending) |*pending| {
+                    if (pending.id == key) break pending;
+                } else blk: {
+                    const pending = &t.pending[t.next_pending];
+                    t.next_pending = (t.next_pending + 1) % t.pending.len;
+                    break :blk pending;
+                };
+                slot.* = call;
+            } else if (eq(u8, kind, "user") and eq(u8, block_type, "tool_result")) {
+                const id = agents.str(block, "tool_use_id");
+                if (id.len == 0) continue;
+                const key = std.hash.Wyhash.hash(0, id) | 1;
+                for (&t.pending) |*call| if (call.id == key) {
+                    t.finish(call.*, live);
+                    call.* = .{};
+                    break;
+                };
+            }
+        }
+    }
     fn finish(t: *Tracker, call: Call, live: bool) void {
         t.seen[t.next_seen] = call.id;
         t.next_seen = (t.next_seen + 1) % t.seen.len;
@@ -160,5 +217,42 @@ test "completed tools are deduplicated, historical calls do not advance waves, a
     t.bind("c");
     try std.testing.expectEqual(@as(u64, 0), t.completed);
     t.ingest(output.value, true);
+    try std.testing.expectEqual(@as(u64, 0), t.completed);
+}
+
+test "Claude text and completed tools become evidence for the bound turn" {
+    var t: Tracker = .{};
+    const alloc = std.testing.allocator;
+    const assistant = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"Tracing the hook router"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"rg routeHook","description":"Find hook routing"}}]}}
+    , .{});
+    defer assistant.deinit();
+    const result = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"large output ignored"}]}}
+    , .{});
+    defer result.deinit();
+    const side = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"Subagent chatter"}]}}
+    , .{});
+    defer side.deinit();
+    const done = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"system","subtype":"turn_duration"}
+    , .{});
+    defer done.deinit();
+    // Unbound trackers ignore evidence; hooks supply Claude's turn.
+    t.ingestClaude(assistant.value, true);
+    try std.testing.expectEqual(@as(usize, 0), t.commentary.len);
+    t.bind("prompt-1");
+    t.ingestClaude(assistant.value, true);
+    t.ingestClaude(side.value, true);
+    try std.testing.expectEqualStrings("Latest agent update: Tracing the hook router", t.commentary.text());
+    t.ingestClaude(result.value, true);
+    t.ingestClaude(result.value, true);
+    try std.testing.expectEqual(@as(u64, 1), t.completed);
+    try std.testing.expect(std.mem.indexOf(u8, t.view().evidence.text(), "Bash: Find hook routing") != null);
+    t.ingestClaude(done.value, true);
+    try std.testing.expect(t.view().ended);
+    t.bind("prompt-2");
+    try std.testing.expect(!t.view().ended);
     try std.testing.expectEqual(@as(u64, 0), t.completed);
 }

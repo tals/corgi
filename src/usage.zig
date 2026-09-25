@@ -5,11 +5,14 @@ const agents = @import("agents.zig");
 pub const Counts = struct {
     tools: u64 = 0,
     input: u64 = 0,
+    // Cache reads, included in input as providers report them.
+    cached_input: u64 = 0,
     output: u64 = 0,
     tokens_known: bool = false,
     pub fn add(c: *Counts, other: Counts) void {
         c.tools +|= other.tools;
         c.input +|= other.input;
+        c.cached_input +|= other.cached_input;
         c.output +|= other.output;
         c.tokens_known = c.tokens_known or other.tokens_known;
     }
@@ -47,7 +50,7 @@ fn eq(x: []const u8, y: []const u8) bool {
 // Bounded deduplication for incremental append-only streams. We never replay
 // history into counters when opening/replacing a transcript.
 pub const Tracker = struct {
-    const Sample = struct { id: u64 = 0, input: u64 = 0, output: u64 = 0 };
+    const Sample = struct { id: u64 = 0, input: u64 = 0, cached_input: u64 = 0, output: u64 = 0 };
     samples: [128]Sample = @splat(.{}),
     next_sample: usize = 0,
     tools: [256]u64 = @splat(0),
@@ -64,16 +67,20 @@ pub const Tracker = struct {
         return 1;
     }
     fn tokens(t: *Tracker, id: []const u8, input: u64, output: u64, baseline: bool) Counts {
+        return t.tokensCached(id, input, 0, output, baseline);
+    }
+    fn tokensCached(t: *Tracker, id: []const u8, input: u64, cached: u64, output: u64, baseline: bool) Counts {
         const hash = key(id);
         for (&t.samples) |*sample| if (sample.id == hash) {
-            const delta: Counts = .{ .input = input -| sample.input, .output = output -| sample.output, .tokens_known = true };
+            const delta: Counts = .{ .input = input -| sample.input, .cached_input = cached -| sample.cached_input, .output = output -| sample.output, .tokens_known = true };
             sample.input = @max(sample.input, input);
+            sample.cached_input = @max(sample.cached_input, cached);
             sample.output = @max(sample.output, output);
             return delta;
         };
-        t.samples[t.next_sample] = .{ .id = hash, .input = input, .output = output };
+        t.samples[t.next_sample] = .{ .id = hash, .input = input, .cached_input = cached, .output = output };
         t.next_sample = (t.next_sample + 1) % t.samples.len;
-        return .{ .input = if (baseline) 0 else input, .output = if (baseline) 0 else output, .tokens_known = true };
+        return .{ .input = if (baseline) 0 else input, .cached_input = if (baseline) 0 else cached, .output = if (baseline) 0 else output, .tokens_known = true };
     }
     pub fn hasSample(t: *const Tracker, id: []const u8) bool {
         const hash = key(id);
@@ -104,7 +111,8 @@ pub const Tracker = struct {
         const usage = field(message, "usage");
         if (id.len > 0) if (number(usage, "input_tokens")) |input| {
             if (number(usage, "output_tokens")) |output| {
-                delta = t.tokens(id, input +| (number(usage, "cache_read_input_tokens") orelse 0) +| (number(usage, "cache_creation_input_tokens") orelse 0), output, false);
+                const cached = number(usage, "cache_read_input_tokens") orelse 0;
+                delta = t.tokensCached(id, input +| cached +| (number(usage, "cache_creation_input_tokens") orelse 0), cached, output, false);
             }
         };
         const content = field(message, "content");
@@ -170,6 +178,8 @@ test "Claude repeated message blocks count tools once and include cached input" 
     defer parsed.deinit();
     const delta = t.claudeMessage(parsed.value);
     try std.testing.expectEqual(@as(u64, 35), delta.input);
+    // Only cache reads are cached input; cache creation is a write.
+    try std.testing.expectEqual(@as(u64, 10), delta.cached_input);
     try std.testing.expectEqual(@as(u64, 3), delta.output);
     try std.testing.expectEqual(@as(u64, 1), delta.tools);
     try std.testing.expect(!t.claudeMessage(parsed.value).any());

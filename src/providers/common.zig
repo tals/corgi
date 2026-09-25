@@ -23,6 +23,8 @@ pub const Hook = struct {
     kind: enum { session_start, prompt, tool_start, tool_finish, tool_failure, permission, notification, compact_start, compact_end, stop, interrupt, session_end },
     session: []const u8,
     turn: []const u8 = "",
+    // Claude's per-prompt id. It keys activity labels, never lifecycle.
+    prompt: []const u8 = "",
     transcript: []const u8 = "",
     cwd: []const u8 = "",
     tool: []const u8 = "",
@@ -41,13 +43,16 @@ pub const Hooks = struct {
         const tool = str(value, "tool_name");
         const kind: @FieldType(Hook, "kind") = if (eq(event, "SessionStart")) .session_start else if (eq(event, "UserPromptSubmit")) .prompt else if (eq(event, "PreToolUse")) .tool_start else if (eq(event, "PostToolUse")) .tool_finish else if (eq(event, "PostToolUseFailure")) .tool_failure else if (eq(event, "PermissionRequest")) .permission else if (eq(event, "PreCompact")) .compact_start else if (eq(event, "PostCompact")) .compact_end else if (eq(event, "Stop")) .stop else if (eq(event, "Interrupt")) .interrupt else if (eq(event, "SessionEnd")) .session_end else if (eq(event, "Notification")) blk: {
             const notification = str(value, "notification_type");
-            if (eq(notification, "permission_prompt") or eq(notification, "idle_prompt") or eq(notification, "elicitation_dialog")) break :blk .notification;
+            // idle_prompt follows every finished turn after a minute ("waiting
+            // for your input"); Stop already made the agent idle, not blocked.
+            if (eq(notification, "permission_prompt") or eq(notification, "elicitation_dialog")) break :blk .notification;
             return null;
         } else return null;
         return .{
             .kind = kind,
             .session = str(value, "session_id"),
             .turn = str(value, "turn_id"),
+            .prompt = str(value, "prompt_id"),
             .transcript = str(value, "transcript_path"),
             .cwd = str(value, "cwd"),
             .tool = tool,
@@ -89,4 +94,19 @@ pub fn str(v: std.json.Value, key: []const u8) []const u8 {
 }
 pub fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
+}
+
+test "idle notifications do not mark a finished agent as needing input" {
+    const alloc = std.testing.allocator;
+    const idle = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"hook_event_name":"Notification","session_id":"a","notification_type":"idle_prompt"}
+    , .{});
+    defer idle.deinit();
+    const permission = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"hook_event_name":"Notification","session_id":"a","notification_type":"permission_prompt"}
+    , .{});
+    defer permission.deinit();
+    const hooks: Hooks = .{};
+    try std.testing.expect(hooks.decode(idle.value) == null);
+    try std.testing.expectEqual(.notification, hooks.decode(permission.value).?.kind);
 }

@@ -34,6 +34,8 @@ pub const Agent = struct {
     // Last lifecycle evidence for Claude's direct activity. A delayed
     // transcript update must not replace a label from a newer hook.
     activity_at: i64 = 0,
+    // An inferred label outranks direct labels for the rest of its turn.
+    activity_inferred: bool = false,
     // Independent of lifecycle hooks, which also advance last_seq.
     metadata_protocol_at: i64 = 0,
     tool: [160]u8 = .{0} ** 160,
@@ -222,8 +224,16 @@ pub const Agent = struct {
             a.activity_len = 0;
         // Claude has no commentary protocol; its current tool is the activity.
         if (provider == .claude) {
+            // Claude hooks carry no turn id. The prompt id keys inferred labels
+            // only; Stop matching above deliberately stays turn-agnostic.
+            const prompt = hook.prompt;
+            if (prompt.len > 0 and prompt.len <= a.turn.len and !eq(prompt, a.turnId())) {
+                a.turn_len = clean(&a.turn, prompt);
+                a.activity_inferred = false;
+            }
+            if (start or event == .prompt) a.activity_inferred = false;
             a.activity_at = now;
-            if (event == .tool_start and !hook.asking) {
+            if (event == .tool_start and !hook.asking and !a.activity_inferred) {
                 var label: [160]u8 = undefined;
                 a.setActivity(toolActivity(&label, hook.tool, hook.description, hook.target));
             }
@@ -447,4 +457,24 @@ test "Claude tool hooks label activity from descriptions or main arguments" {
     try std.testing.expectEqual(@as(usize, 0), codex.activity_len);
     a.setActivity("First line\x1b[2J\nsecond");
     try std.testing.expectEqualStrings("First line [2J", a.activity[0..a.activity_len]);
+}
+
+test "Claude prompt ids key inferred labels without gating Stop" {
+    var a: Agent = .{};
+    _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s", .prompt = "p1" }, 1, false, 10);
+    try std.testing.expectEqualStrings("p1", a.turnId());
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .prompt = "p1", .tool = "Read", .target = "/a/b.zig" }, 2, false, 20);
+    try std.testing.expectEqualStrings("Reading b.zig", a.activity[0..a.activity_len]);
+    // Once inferred, direct tool labels stop replacing it for this turn.
+    a.setActivity("Tracing hook routing");
+    a.activity_inferred = true;
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .prompt = "p1", .tool = "Read", .target = "/a/c.zig" }, 3, false, 30);
+    try std.testing.expectEqualStrings("Tracing hook routing", a.activity[0..a.activity_len]);
+    // A mid-turn prompt id change moves the label key and allows direct labels again.
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .prompt = "p2", .tool = "Read", .target = "/a/d.zig" }, 4, false, 40);
+    try std.testing.expectEqualStrings("p2", a.turnId());
+    try std.testing.expectEqualStrings("Reading d.zig", a.activity[0..a.activity_len]);
+    // Stop carries no turn id, so it is never rejected as another turn's.
+    try std.testing.expect(a.observeHook(.claude, .{ .kind = .stop, .session = "s", .prompt = "p1" }, 5, false, 50) != null);
+    try std.testing.expect(a.observation.pending_stop);
 }
