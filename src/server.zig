@@ -273,10 +273,24 @@ pub const Server = struct {
             };
             if (cl.viewer) try cl.queue(.{ .ok = true });
         } else if (eq(op, "hook")) {
-            const p = s.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
             const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
             const event = v.object.get("event") orelse return error.NoEvent;
             const hook = agents.providers.Backend.init(provider).hook(event);
+            const background = if (v.object.get("background")) |value| value == .bool and value.bool else false;
+            if (background) {
+                // A daemon-hosted session only updates a conversation some pane
+                // already follows (see continued-in handling); it never selects.
+                if (hook) |h| if (s.runtime.conversations.find(provider, h.session)) |actor| {
+                    const now = std.time.microTimestamp();
+                    const ding = actor.observeHook(h, number(v, "seq", now), s.actorWatched(actor.id), now);
+                    s.attention(ding, actor.state.state);
+                    s.runtime.changed();
+                    s.dirty = true;
+                };
+                try cl.queue(.{ .ok = true });
+                return;
+            }
+            const p = s.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
             // Bind a newly launched foreground process before applying its
             // first hook, including back-to-back launches in the same pane.
             s.detectPane(p);
@@ -303,6 +317,37 @@ pub const Server = struct {
         const value = v.object.get("theme") orelse return;
         s.theme.merge(Theme.fromJson(value));
         for (s.runtime.panes.items) |p| p.terminal.applyTheme(s.theme);
+        s.dirty = true;
+    }
+    /// Backgrounding a Claude conversation continues it under a new session in
+    /// Claude's daemon while the pane's client keeps showing it. Its hooks
+    /// cannot name that pane, so panes follow the transcript's continued-in.
+    fn followContinuation(s: *Server, old: *@import("conversations.zig").Actor, session: []const u8) void {
+        if (old.state.provider != .claude or eq(session, old.state.sessionId())) return;
+        var followed = false;
+        for (s.runtime.panes.items) |*p| {
+            if (p.attachment.actor != old) continue;
+            const next = s.runtime.conversations.get(.claude, session) catch return;
+            if (next.workspace == 0) next.workspace = old.workspace;
+            if (next.state.last_seq == 0) {
+                // The continuation is usually mid-turn; hooks refine it later.
+                next.state.state = if (old.state.state == .done) .idle else old.state.state;
+                next.state.cwd = old.state.cwd;
+                next.state.cwd_len = old.state.cwd_len;
+                const dir = std.fs.path.dirname(old.state.transcriptPath()) orelse "";
+                var path: [std.fs.max_path_bytes]u8 = undefined;
+                if (dir.len > 0) if (std.fmt.bufPrint(&path, "{s}/{s}.jsonl", .{ dir, session })) |value| {
+                    @memcpy(next.state.transcript[0..value.len], value);
+                    next.state.transcript_len = value.len;
+                } else |_| {};
+            }
+            p.attachment.select(next);
+            followed = true;
+        }
+        if (!followed) return;
+        old.state.state = .done;
+        old.state.tool_active = false;
+        s.runtime.changed();
         s.dirty = true;
     }
     fn actorWatched(s: *Server, actor: u32) bool {
@@ -531,6 +576,7 @@ pub const Server = struct {
                         s.dirty = true;
                         s.runtime.changed();
                     }
+                    if (result.continued.len > 0) s.followContinuation(actor, result.continued.bytes[0..result.continued.len]);
                     const before = actor.state;
                     if (result.fallback(&actor.state, std.time.microTimestamp())) {
                         summaries.submit(actor, result.progress.?.commentary);

@@ -24,10 +24,17 @@ pub const Result = struct {
     seq: i64 = 0,
     model: codex_files.Name = .{},
     live: live_usage.View = .{},
+    // A Claude conversation moved to a background session under this id.
+    continued: codex_files.Name = .{},
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
-        if (!codex_files.available(agent, now) or !eq(agent.sessionId(), result.session[0..result.session_len])) return false;
+        if (!eq(agent.sessionId(), result.session[0..result.session_len])) return false;
+        if (agent.provider == .claude) {
+            if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
+            return false;
+        }
+        if (!codex_files.available(agent, now)) return false;
         if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
         const progress = result.progress orelse return false;
         if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
@@ -140,7 +147,7 @@ pub const Worker = struct {
                     break :blk usage.Counts{};
                 };
                 t.releaseFile();
-                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex and t.model.len == 0) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex and t.model.len == 0 and t.name.len == 0 and t.continued.len == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
@@ -149,6 +156,10 @@ pub const Worker = struct {
                     result.*.?.delta.add(delta);
                     result.*.?.model = t.model;
                     result.*.?.live = t.live.meter.view(std.time.milliTimestamp());
+                    if (req.agent.provider == .claude) {
+                        result.*.?.name = t.name;
+                        result.*.?.continued = t.continued;
+                    }
                     if (req.agent.provider == .codex) {
                         result.*.?.progress = t.progress.view();
                         result.*.?.name = index.name(req.agent.sessionId());
@@ -180,6 +191,9 @@ pub const Tail = struct {
     model: codex_files.Name = .{},
     live: live_usage.Codex = .{},
     opened: bool = false,
+    name: codex_files.Name = .{},
+    name_chosen: bool = false,
+    continued: codex_files.Name = .{},
     fn releaseFile(t: *Tail) void {
         if (t.file) |f| f.close();
         t.file = null;
@@ -238,6 +252,26 @@ pub const Tail = struct {
         t.inode = stat.inode;
         t.device = device;
     }
+    /// Claude re-appends title records, so a bounded tail still finds them.
+    /// A name the user chose outranks the generated title.
+    fn claudeRecord(t: *Tail, session: []const u8, value: std.json.Value) void {
+        if (!eq(agents.str(value, "sessionId"), session)) return;
+        const kind = agents.str(value, "type");
+        const chosen = if (eq(kind, "agent-name")) agents.str(value, "agentName") else if (eq(kind, "custom-title")) agents.str(value, "customTitle") else "";
+        const generated = if (eq(kind, "ai-title")) agents.str(value, "aiTitle") else "";
+        if (chosen.len > 0 and std.unicode.utf8ValidateSlice(chosen)) {
+            t.name.len = agents.clean(&t.name.bytes, chosen);
+            t.name_chosen = true;
+        } else if (generated.len > 0 and !t.name_chosen and std.unicode.utf8ValidateSlice(generated)) {
+            t.name.len = agents.clean(&t.name.bytes, generated);
+        }
+        if (eq(kind, "continued-in")) {
+            t.continued.len = agents.clean(&t.continued.bytes, agents.str(value, "continuedInSessionId"));
+        } else if (eq(kind, "user") or eq(kind, "assistant")) {
+            // Resuming the original conversation later makes it current again.
+            t.continued.len = 0;
+        }
+    }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(req);
         const file = t.file.?;
@@ -270,6 +304,7 @@ pub const Tail = struct {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
                         if (req.agent.provider == .codex) t.progress.ingest(parsed.value, start_offset + start > t.initial_until);
+                        if (req.agent.provider == .claude) t.claudeRecord(req.agent.sessionId(), parsed.value);
                         const model_value = if (req.agent.provider == .codex)
                             usage.field(parsed.value, "payload")
                         else
@@ -397,4 +432,32 @@ test "usage tail retains the latest reported model across unrelated records" {
     req.agent.provider = .claude;
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-4-6\"}}\n", 0);
     try std.testing.expectEqualStrings("claude-opus-4-6", tail.model.bytes[0..tail.model.len]);
+}
+
+test "Claude transcripts supply chosen names over generated titles and report continuations" {
+    var tail: Tail = .{};
+    defer tail.close();
+    var req: Request = .{ .actor = 1, .workspace = 1, .since = 0, .agent = .{ .provider = .claude } };
+    req.agent.session_len = agents.clean(&req.agent.session, "a");
+    _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Other session\",\"sessionId\":\"b\"}\n", 0);
+    try std.testing.expectEqual(@as(usize, 0), tail.name.len);
+    _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Generated\",\"sessionId\":\"a\"}\n", 0);
+    try std.testing.expectEqualStrings("Generated", tail.name.bytes[0..tail.name.len]);
+    _ = try tail.ingest(&req, "{\"type\":\"agent-name\",\"agentName\":\"Chosen\",\"sessionId\":\"a\"}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Regenerated\",\"sessionId\":\"a\"}\n", 0);
+    try std.testing.expectEqualStrings("Chosen", tail.name.bytes[0..tail.name.len]);
+    _ = try tail.ingest(&req, "{\"type\":\"continued-in\",\"sessionId\":\"a\",\"continuedInSessionId\":\"c\"}\n", 0);
+    try std.testing.expectEqualStrings("c", tail.continued.bytes[0..tail.continued.len]);
+    _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"a\",\"message\":{}}\n", 0);
+    try std.testing.expectEqual(@as(usize, 0), tail.continued.len);
+
+    var agent: agents.Agent = .{ .provider = .claude };
+    agent.session_len = agents.clean(&agent.session, "a");
+    var result: Result = .{ .actor = 1, .workspace = 1, .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .name = tail.name };
+    try std.testing.expect(!result.fallback(&agent, 0));
+    try std.testing.expectEqualStrings("Chosen", agent.displayName());
+    result.session[0] = 'x';
+    result.name.len = agents.clean(&result.name.bytes, "Wrong");
+    _ = result.fallback(&agent, 0);
+    try std.testing.expectEqualStrings("Chosen", agent.displayName());
 }

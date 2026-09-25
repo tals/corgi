@@ -168,14 +168,21 @@ class ClaudeConversations(RuntimeAssertions):
 
     tearDown = smoke.Runtime.tearDown
 
-    def hook(self, session, event, *, pane=None, **extra):
+    def log(self, session):
         if session not in self.logs:
             self.logs[session] = pathlib.Path(self.temp.name, session + '.jsonl')
             self.logs[session].write_text('')
+        return self.logs[session]
+
+    def hook(self, session, event, *, pane=None, background=False, **extra):
         self.seq = max(self.seq + 1, time.time_ns() // 1000)
-        return self.rpc(op='hook', pane=self.pane if pane is None else pane, provider='claude', seq=self.seq, event={
+        return self.rpc(op='hook', pane=self.pane if pane is None else pane, provider='claude', seq=self.seq, background=background, event={
             'hook_event_name': event, 'session_id': session,
-            'transcript_path': str(self.logs[session]), **extra})
+            'transcript_path': str(self.log(session)), **extra})
+
+    def record(self, session, **fields):
+        with self.log(session).open('a') as log:
+            log.write(json.dumps({'sessionId': session, **fields}) + '\n')
 
     def finish(self, session):
         self.hook(session, 'Stop')
@@ -197,6 +204,37 @@ class ClaudeConversations(RuntimeAssertions):
         self.assertEqual(selected['attention'], 'needs_input')
         self.assertEqual(selected['observation']['completed'], 0)
         self.assertEqual(self.actor('claude-a', 'claude')['attachments'], 0)
+
+    def test_transcript_titles_name_claude_conversations(self):
+        self.hook('titled', 'SessionStart')
+        self.record('titled', type='ai-title', aiTitle='Generated title')
+        self.until(lambda: self.pane_snapshot(self.pane)['agent']['name'] == 'Generated title')
+        self.record('titled', type='agent-name', agentName='Chosen name')
+        self.record('titled', type='ai-title', aiTitle='Later generated title')
+        self.until(lambda: self.pane_snapshot(self.pane)['agent']['name'] == 'Chosen name')
+
+    def test_background_daemon_hooks_never_select_by_inherited_pane(self):
+        self.hook('foreground', 'SessionStart')
+        self.hook('foreground', 'UserPromptSubmit')
+        # Daemon sessions inherit CORGI_PANE from whichever pane spawned it.
+        self.hook('unrelated', 'SessionStart', background=True)
+        self.hook('unrelated', 'UserPromptSubmit', background=True)
+        selected = self.pane_snapshot(self.pane)['agent']
+        self.assertEqual(selected['session'], 'foreground')
+        self.assertEqual(selected['state'], 'working')
+        self.assertFalse(any(actor['agent']['session'] == 'unrelated' for actor in self.session()['conversations']))
+
+    def test_backgrounded_conversation_follows_its_continuation(self):
+        self.hook('original', 'SessionStart')
+        self.hook('original', 'UserPromptSubmit')
+        self.record('continued', type='ai-title', aiTitle='Backgrounded work')
+        self.record('original', type='continued-in', continuedInSessionId='continued')
+        self.until(lambda: self.pane_snapshot(self.pane)['agent']['session'] == 'continued')
+        self.assertEqual(self.pane_snapshot(self.pane)['agent']['state'], 'working')
+        self.until(lambda: self.pane_snapshot(self.pane)['agent']['name'] == 'Backgrounded work')
+        self.assertEqual(self.actor('original', 'claude')['agent']['state'], 'done')
+        self.hook('continued', 'Notification', background=True, notification_type='permission_prompt')
+        self.assertEqual(self.pane_snapshot(self.pane)['agent']['state'], 'blocked')
 
     def test_second_attachment_does_not_reset_existing_conversation(self):
         self.hook('shared-claude', 'SessionStart')
