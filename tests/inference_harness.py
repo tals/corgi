@@ -51,6 +51,8 @@ def main():
             if log:
                 with open(log, 'a') as f:
                     f.write(content + '\n')
+                with open(log + '.sessions', 'a') as f:
+                    f.write(json.dumps({'pid':os.getpid(),'thread':thread,'turn':turns}) + '\n')
             time.sleep(control.get('delay', 0))
             result = control.get('label', json.dumps({'pid': os.getpid(), 'thread': thread, 'turn': turns}))
             if content == 'oversize':

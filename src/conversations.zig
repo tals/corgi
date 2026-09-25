@@ -11,6 +11,7 @@ pub const Actor = struct {
     state: agents.Agent,
     parent: ?u32 = null,
     pending_native_requests: u32 = 0,
+    status_inference: @import("activity_summary.zig").Conversation = .{},
     workspace: u32 = 0,
     observed_at: i64 = 0,
 

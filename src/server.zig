@@ -449,7 +449,7 @@ pub const Server = struct {
                 for (snapshots) |entry| if (entry) |snap| {
                     const actor = try s.codexActor(snap) orelse continue;
                     s.attention(actor.observeSnapshot(snap, s.actorWatched(actor.id)), actor.state.state);
-                    summaries.submit(actor.id, &actor.state, snap.evidence);
+                    summaries.submit(actor, snap.evidence);
                     s.dirty = true;
                     s.runtime.changed();
                 };
@@ -466,7 +466,7 @@ pub const Server = struct {
                 var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
                 summaries.take(&summary_results);
                 for (summary_results) |entry| if (entry) |result| {
-                    if (s.runtime.conversations.byId(result.request.actor)) |actor| if (result.apply(&actor.state)) {
+                    if (s.runtime.conversations.byId(result.request.actor)) |actor| if (result.apply(actor)) {
                         s.dirty = true;
                         s.runtime.changed();
                     };
@@ -481,7 +481,7 @@ pub const Server = struct {
                     if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
                     const before = actor.state;
                     if (result.fallback(&actor.state, std.time.microTimestamp())) {
-                        summaries.submit(actor.id, &actor.state, result.progress.?.commentary);
+                        summaries.submit(actor, result.progress.?.commentary);
                     }
                     if (!std.meta.eql(before, actor.state)) {
                         s.dirty = true;

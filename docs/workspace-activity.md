@@ -25,15 +25,15 @@ existing transcript reader supplies turn-scoped tool progress independently of
 workspace away counters. Claude retains its existing hook labels; native sessions
 are not summarized.
 
-The first inference waits for three completed tool calls in the current turn.
-Each refresh waits for three more, with a 20-second per-turn cooldown and a
-5-second global minimum between calls. A queued wave runs when the cooldown
-expires, even if no new commentary appears. Turns that finish before the first
-wave do not query inference. Duplicate call IDs and historical transcript records
-do not count; after a reload or transcript replacement, three new completions
-are needed. Up to 64 pending calls and 256 completed IDs are retained, plus short
-descriptions of the latest three completions; tool outputs are not sent to the
-summarizer. Missing transcripts or missing turn/call IDs cannot advance a wave.
+The first inference runs as soon as nonempty evidence is available, including
+commentary without tools. Changed evidence or even one newly completed tool
+queues a refresh, with an eight-second cooldown and a one-second global minimum
+between calls. Updates coalesce to the latest snapshot during the cooldown;
+unchanged polls do not query inference. Duplicate call IDs and historical
+transcript records do not advance tool progress. Up to 64 pending calls and 256
+completed IDs are retained, plus short descriptions of the latest three
+completions; tool outputs are not sent to the summarizer. Missing transcripts
+no longer prevent commentary-based summaries.
 
 A single background worker coalesces updates. Results are checked against the
 session, turn and commentary generation; more tool completions during inference
@@ -64,17 +64,23 @@ preserves the existing server environment.
 The shared `src/inference.zig` module accepts instructions, bounded content, an
 optional JSON Schema, and an optional conversation key. It returns bounded UTF-8
 text (JSON for schema requests); callers validate task-specific semantics such
-as word counts. Activity summaries key history by actor, provider, session, and
-turn. Each new snapshot explicitly replaces the previous activity snapshot.
+as word counts. Each actor owns one status-inference conversation, keyed by its
+stable actor ID rather than its current turn or pane. Accepted results checkpoint
+the last four bounded evidence/label pairs on the actor. This context survives
+turn changes, detachment, and harness eviction, and accompanies current evidence
+when a native conversation must be recreated. New snapshots explicitly replace
+prior activity; history is background context only. The daemon applies results
+to the actor after checking its current session, turn, and evidence generation;
+workers receive value snapshots and never mutate actors.
 
 The pool retains at most four conversations/processes and evicts the least
 recently used conversation when full. A conversation resets after 32 requests.
 Codex reuses its process when replacing a conversation, including repeated fresh
 requests; after 32 created conversations the process itself is recycled. Claude
 keeps one process per retained conversation; fresh history requires replacing
-that process. History is ephemeral and best-effort: eviction, failure, or server
-restart starts fresh. Callers must provide enough current evidence to recover
-without earlier history. This first version uses a process per retained Codex
+that process. Native history is ephemeral and best-effort: eviction or failure recreates the
+conversation with the actor checkpoint. Server restart clears both. Other callers
+must provide enough current evidence to recover without earlier history. This first version uses a process per retained Codex
 conversation too; multiplexing threads through one process is not required by
 the caller interface and can be added internally later.
 

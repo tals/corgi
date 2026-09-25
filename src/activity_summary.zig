@@ -38,6 +38,35 @@ pub const Label = struct {
         return result;
     }
 };
+/// Actor-owned bounded context. Native harnesses are a disposable cache; this
+/// checkpoint survives turn changes, detachment, eviction and harness failures.
+/// It intentionally lives only as long as the actor in this daemon.
+pub const Conversation = struct {
+    recent: [4]Text = @splat(.{}),
+    len: usize = 0,
+    previous: Label = .{},
+
+    pub fn key(_: *const Conversation, actor: u32, buffer: []u8) []const u8 {
+        return std.fmt.bufPrint(buffer, "activity:{d}", .{actor}) catch unreachable;
+    }
+    pub fn remember(c: *Conversation, turn: []const u8, evidence: []const u8, label: Label) void {
+        if (c.len == c.recent.len) {
+            std.mem.copyForwards(Text, c.recent[0 .. c.recent.len - 1], c.recent[1..]);
+            c.len -= 1;
+        }
+        const entry = &c.recent[c.len];
+        entry.* = .{};
+        entry.append("Turn: ");
+        entry.append(turn);
+        entry.append("\nActivity: ");
+        entry.append(label.text());
+        entry.append("\nEvidence: ");
+        entry.append(evidence[0..@min(evidence.len, 512)]);
+        c.len += 1;
+        c.previous = label;
+    }
+};
+
 fn field(v: std.json.Value, key: []const u8) std.json.Value {
     return if (v == .object) v.object.get(key) orelse .null else .null;
 }
