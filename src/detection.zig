@@ -285,6 +285,24 @@ fn screenToolActive(provider: Provider, screen: []const u8) bool {
 }
 
 const interrupt_delay = 1500 * std.time.us_per_ms;
+// After the user presses an interrupt key, a briefly stable idle screen is enough.
+const requested_interrupt_delay = 250 * std.time.us_per_ms;
+const interrupt_key_window = 5 * std.time.us_per_s;
+
+/// Whether terminal input contains Esc or Ctrl-C, in legacy or Kitty encoding.
+fn interruptKey(bytes: []const u8) bool {
+    if (std.mem.eql(u8, bytes, "\x1b") or std.mem.indexOfScalar(u8, bytes, 3) != null) return true;
+    for ([_][]const u8{ "\x1b[27", "\x1b[99;5" }) |prefix| {
+        var rest = bytes;
+        while (std.mem.indexOf(u8, rest, prefix)) |at| {
+            rest = rest[at + prefix.len ..];
+            const end = std.mem.indexOfNone(u8, rest, "0123456789;:") orelse break;
+            // CSI 27;…~ is xterm's modifyOtherKeys wrapper for arbitrary keys.
+            if (rest[end] == 'u' and (end == 0 or rest[0] == ';' or rest[0] == ':')) return true;
+        }
+    }
+    return false;
+}
 
 pub const Tracker = struct {
     pid: c_int = 0,
@@ -293,15 +311,24 @@ pub const Tracker = struct {
     confirmations: u8 = 0,
     ready: bool = false,
     idle_since: i64 = 0,
+    interrupt_key_at: i64 = 0,
+
+    pub fn observeInput(t: *Tracker, bytes: []const u8, now: i64) void {
+        if (interruptKey(bytes)) t.interrupt_key_at = now;
+    }
 
     /// Claude sends no hook when the user interrupts a turn, so a hook-reported
-    /// turn ends once Claude's own idle screen has stayed visible for a while.
+    /// turn ends once Claude's own idle screen has stayed visible for a while,
+    /// or only briefly when it follows a recent Esc or Ctrl-C.
     pub fn interrupted(t: *Tracker, title: []const u8, screen: []const u8, now: i64) bool {
         if (screenState(.claude, title, screen) != .idle) {
             t.idle_since = 0;
             return false;
         }
         if (t.idle_since == 0) t.idle_since = now;
+        if (t.interrupt_key_at != 0 and now - t.interrupt_key_at <= interrupt_key_window) {
+            if (now - @max(t.idle_since, t.interrupt_key_at) >= requested_interrupt_delay) return true;
+        }
         return now - t.idle_since >= interrupt_delay;
     }
 
@@ -387,6 +414,30 @@ test "claude interrupts need a stable idle title without an interrupt hint" {
     try std.testing.expect(!tracker.interrupted("✳ Task", idle, 300 + interrupt_delay));
     try std.testing.expect(!tracker.interrupted("✳ Task", idle, 299 + 2 * interrupt_delay));
     try std.testing.expect(tracker.interrupted("✳ Task", idle, 300 + 2 * interrupt_delay));
+}
+
+test "an interrupt key shortens the stable idle wait" {
+    var tracker: Tracker = .{};
+    const idle = "> \n  ? for shortcuts";
+    tracker.observeInput("\x1b", 1000);
+    try std.testing.expect(!tracker.interrupted("⠋ Task", "✻ Working (esc to interrupt)", 1000 + 100));
+    try std.testing.expect(!tracker.interrupted("✳ Task", idle, 1000 + 200));
+    try std.testing.expect(tracker.interrupted("✳ Task", idle, 1000 + 200 + requested_interrupt_delay));
+    // A stale key falls back to the long wait.
+    tracker = .{};
+    tracker.observeInput("\x03", 1000);
+    const late = 1000 + interrupt_key_window + 1;
+    try std.testing.expect(!tracker.interrupted("✳ Task", idle, late));
+    try std.testing.expect(!tracker.interrupted("✳ Task", idle, late + requested_interrupt_delay));
+}
+
+test "recognize interrupt keys in legacy and Kitty encodings" {
+    for ([_][]const u8{ "\x1b", "\x03", "\x1b[27u", "\x1b[27;1u", "\x1b[27;1:1u", "\x1b[99;5u", "a\x1b[27u" }) |bytes| {
+        try std.testing.expect(interruptKey(bytes));
+    }
+    for ([_][]const u8{ "", "a", "\x1b[A", "\x1bb", "\x1b[27;5;97~", "\x1b[270u", "\x1b[99u" }) |bytes| {
+        try std.testing.expect(!interruptKey(bytes));
+    }
 }
 
 test "fallback debounces attention, yields to hooks, and clears exited agents" {

@@ -460,6 +460,7 @@ pub const Server = struct {
         } else if (p.detection.interrupted(p.terminal.vt.getTitle() orelse "", text.?, now)) {
             p.attachment.actor.?.state.abandonTurn(now);
             p.detection.idle_since = 0;
+            p.detection.interrupt_key_at = 0;
         }
         if (job != null and review and text != null) {
             ding = p.agent().observePermissionPrompt(detection.screenState(.codex, p.terminal.vt.getTitle() orelse "", text.?) == .blocked, s.paneWatched(p.id), now) or ding;

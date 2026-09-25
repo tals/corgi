@@ -226,11 +226,14 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             defer output.deinit();
             var keys = std.mem.tokenizeScalar(u8, q.text, ' ');
             while (keys.next()) |key| try (try logicalKey(key)).encode(&output.writer, @import("terminal.zig").vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
+            p.detection.observeInput(output.written(), std.time.microTimestamp());
             try p.terminal.send(output.written());
             return location(r, q.target);
         },
         .@"pane.input" => |q| {
-            try (r.pane(q.target) orelse return error.NoPane).terminal.send(q.data);
+            const p = r.pane(q.target) orelse return error.NoPane;
+            p.detection.observeInput(q.data, std.time.microTimestamp());
+            try p.terminal.send(q.data);
             return location(r, q.target);
         },
         else => return arrange(r, cmd),
