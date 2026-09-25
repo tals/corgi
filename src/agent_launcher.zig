@@ -311,16 +311,18 @@ pub const Menu = struct {
     cwd: [std.fs.max_path_bytes]u8 = undefined,
     cwd_len: usize,
     selected: Provider,
+    yolo: [2]bool = .{ false, false },
     last: Provider,
     pinned: bool,
     preview: Preview = .{},
     checked: i64 = 0,
-    const headings = [_][]const u8{ "Agent", "Model", "Account", "Plan", "Usage (used)", "Resets in" };
-    fn cells(m: *const Menu, index: usize, reset_text: *Text) [6][]const u8 {
+    const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used)", "Resets in" };
+    fn cells(m: *const Menu, index: usize, reset_text: *Text) [7][]const u8 {
         const option = &m.preview.options[index];
         reset_text.* = option.resets.text(std.time.timestamp());
         return .{
             if (index == 0) "Codex" else "Claude Code",
+            if (m.yolo[index]) "[x]" else "[ ]",
             if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
@@ -335,20 +337,20 @@ pub const Menu = struct {
         const height = @min(rows, 6);
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
-    fn columns(m: *const Menu, width: u16) [6]u16 {
-        var widths: [6]u16 = undefined;
+    fn columns(m: *const Menu, width: u16) [7]u16 {
+        var widths: [7]u16 = undefined;
         var reset_text: [2]Text = undefined;
         const first = m.cells(0, &reset_text[0]);
         const second = m.cells(1, &reset_text[1]);
         for (headings, first, second, &widths, 0..) |heading, one, two, *size, column| {
-            size.* = @intCast(@max(@import("sidebar.zig").displayWidth(heading), @max(@import("sidebar.zig").displayWidth(one), @import("sidebar.zig").displayWidth(two))) + @as(usize, if (column == 5) 1 else 2));
+            size.* = @intCast(@max(@import("sidebar.zig").displayWidth(heading), @max(@import("sidebar.zig").displayWidth(one), @import("sidebar.zig").displayWidth(two))) + @as(usize, if (column == 6) 1 else 2));
         }
         const available = width -| 4;
-        var minimum = [_]u16{ 13, 7, 9, 6, 14, 10 };
-        if (available < 59) {
-            widths[1] = 0;
+        var minimum = [_]u16{ 13, 6, 7, 9, 6, 14, 10 };
+        if (available < 65) {
+            widths[3] = 0;
             widths[2] = 0;
-            minimum[1] = 0;
+            minimum[3] = 0;
             minimum[2] = 0;
         }
         var total: u16 = 0;
@@ -374,6 +376,14 @@ pub const Menu = struct {
         if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2 or y >= b.y + @min(b.h -| 1, 4)) return null;
         return if (y == b.y + 2) .codex else .claude;
     }
+    pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+        const provider = m.hit(cols, rows, side, x, y) orelse return null;
+        const b = m.bounds(cols, rows, side);
+        if (b.w < 24 or b.h < 6) return null;
+        const widths = m.columns(b.w);
+        const start = b.x + 3 + widths[0];
+        return if (x >= start and x < start + widths[1] -| 2) provider else null;
+    }
     pub fn trackable(m: *const Menu, provider: Provider) bool {
         return !m.preview.pending and m.preview.options[@intFromEnum(provider)].usage_needs_consent;
     }
@@ -382,8 +392,8 @@ pub const Menu = struct {
         const b = m.bounds(cols, rows, side);
         if (b.w < 24 or b.h < 6) return null;
         const widths = m.columns(b.w);
-        const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3];
-        return if (x >= start and x < start + widths[4] -| 1) provider else null;
+        const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
+        return if (x >= start and x < start + widths[5] -| 1) provider else null;
     }
     pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
         const sidebar = @import("sidebar.zig");
@@ -404,7 +414,7 @@ pub const Menu = struct {
         for (headings, widths, 0..) |heading, width, column| {
             if (width == 0) continue;
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + 2, heading_x, panel });
-            try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 5) 1 else 2));
+            try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 6) 1 else 2));
             heading_x += width;
         }
         for (0..m.preview.options.len) |i| {
@@ -419,9 +429,9 @@ pub const Menu = struct {
             for (m.cells(i, &reset_text), widths, 0..) |text, width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x });
-                if (column == 4 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
-                const room = width -| @as(u16, if (column == 5) 1 else 2);
-                if (column >= 4) {
+                if (column == 5 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
+                const room = width -| @as(u16, if (column == 6) 1 else 2);
+                if (column >= 5) {
                     try writeWindowCell(w, text, room, style);
                 } else try sidebar.writeEllipsis(w, text, room);
                 try w.writeAll("\x1b[24m");
@@ -433,7 +443,7 @@ pub const Menu = struct {
         var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
         const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
         try sidebar.writeEllipsis(w, footer, b.w - 24);
-        try w.print("\x1b[{d};{d}H{s}\x1b[0m\x1b[?25l", .{ b.y + 5, b.x + b.w - 19, if (m.trackable(m.selected)) "u: Track usage" else "Press a to launch" });
+        try w.print("\x1b[{d};{d}H{s}\x1b[0m\x1b[?25l", .{ b.y + 5, b.x + b.w - 19, if (m.trackable(m.selected)) "u: Track usage" else "a: launch  y: YOLO" });
     }
 };
 
@@ -493,8 +503,8 @@ test "launcher fits long content and keeps usage hit targets aligned" {
     menu.preview.options[1].account.set("person.with.a.long.name@example.com");
     menu.preview.options[1].usage_needs_consent = true;
     const widths = menu.columns(200);
-    try std.testing.expectEqual(@as(u16, 35), widths[1]);
-    try std.testing.expectEqual(@as(u16, 37), widths[2]);
+    try std.testing.expectEqual(@as(u16, 35), widths[2]);
+    try std.testing.expectEqual(@as(u16, 37), widths[3]);
     for ([_]u16{ 24, 40, 64, 80, 120, 200 }) |cols| {
         const side = @import("sidebar.zig").View.init(cols, 24, true, 0, 0);
         const b = menu.bounds(cols, 24, side);
@@ -503,7 +513,7 @@ test "launcher fits long content and keeps usage hit targets aligned" {
         var used: u16 = 4;
         for (fitted) |width| used += width;
         try std.testing.expect(used <= b.w);
-        const usage_x = b.x + 3 + fitted[0] + fitted[1] + fitted[2] + fitted[3];
+        const usage_x = b.x + 3 + fitted[0] + fitted[1] + fitted[2] + fitted[3] + fitted[4];
         try std.testing.expectEqual(Provider.claude, menu.usageHit(cols, 24, side, usage_x, b.y + 3).?);
     }
 }

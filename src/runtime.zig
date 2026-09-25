@@ -51,6 +51,7 @@ pub const Runtime = struct {
     sessions: std.ArrayList(native.Session) = .empty,
     next_session: u32 = 1,
     last_agent: @import("agent_launcher.zig").Provider = .codex,
+    agent_yolo: [2]bool = .{ false, false },
     conversations: @import("conversations.zig").Registry = .{},
     system_model: []const u8 = "",
     inference: @import("inference_setup.zig").Status = .{},

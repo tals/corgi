@@ -27,7 +27,13 @@ configuration displays `Provider default` instead of guessing a specific model.
 
 Previews are cached by directory for ten seconds. Interactive launches use
 Corgi's existing discovered-binary launcher and ordinary provider settings,
-without overriding models, permissions, or adding a prompt. They do not use the
+without overriding models or adding a prompt. Each provider row has an independent
+YOLO checkbox (click it, or press y for the selected row). It defaults off and
+stays set across viewers, live reload, and disk recovery. Toggling keeps the
+menu open and does not launch an agent. New and keyboard launches use that
+provider's remembered setting. When enabled, Codex receives
+`--dangerously-bypass-approvals-and-sandbox` and Claude Code receives
+`--dangerously-skip-permissions`; when off, ordinary provider permissions apply. They do not use the
 small-model status inference settings.
 
 The protocol exposes `agent.preview` (workspace and cwd) and the session command

@@ -708,11 +708,21 @@ pub const Controller = struct {
         try s.focusPane(created.pane);
         s.dirty = true;
     }
+    fn toggleLauncherYolo(s: *Self, provider: @import("agent_launcher.zig").Provider) !void {
+        const enabled = !s.runtime.agent_yolo[@intFromEnum(provider)];
+        _ = try s.execute(.{ .@"agent.yolo" = .{ .provider = provider, .enabled = enabled } });
+        if (s.agent_launcher) |*launch| {
+            launch.yolo[@intFromEnum(provider)] = enabled;
+            launch.selected = provider;
+            launch.pinned = true;
+        }
+        s.dirty = true;
+    }
     fn openLauncher(s: *Self, pinned: bool) void {
         s.closeMenu();
         const cwd = s.currentCwd();
         if (cwd.len > std.fs.max_path_bytes) return;
-        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = s.runtime.last_agent, .last = s.runtime.last_agent, .pinned = pinned };
+        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = s.runtime.last_agent, .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .pinned = pinned };
         @memcpy(launch.cwd[0..cwd.len], cwd);
         s.agent_launcher = launch;
         s.cancelDividers();
@@ -757,6 +767,7 @@ pub const Controller = struct {
             else => false,
         } else false;
         if (s.agent_launcher) |*launch| {
+            launch.yolo = s.runtime.agent_yolo;
             if (launch.workspace != s.current().id or side.width == 0) {
                 s.agent_launcher = null;
                 return;
@@ -847,7 +858,7 @@ pub const Controller = struct {
             return;
         }
         if (s.agent_launcher) |launch| {
-            const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or (byte == 'u' and launch.trackable(launch.selected));
+            const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or byte == 'y' or (byte == 'u' and launch.trackable(launch.selected));
             if (!launch.pinned and !navigation) {
                 s.closeMenu();
             } else {
@@ -860,6 +871,7 @@ pub const Controller = struct {
                     'k', 16 => s.moveLauncher(false),
                     'c' => try s.launchAgent(.codex),
                     'l' => try s.launchAgent(.claude),
+                    'y' => try s.toggleLauncherYolo(launch.selected),
                     'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected),
                     else => {},
                 }
@@ -1394,7 +1406,7 @@ pub const Controller = struct {
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
                 const hit = side.hit(x, y);
-                if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| s.trackLauncherUsage(provider) else if (hit == .agent_new) try s.launchAgent(null) else if (hit == .agent_options) s.agent_launcher.?.pinned = true else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |provider| try s.launchAgent(provider) else s.closeMenu();
+                if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| try s.toggleLauncherYolo(provider) else if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| s.trackLauncherUsage(provider) else if (hit == .agent_new) try s.launchAgent(null) else if (hit == .agent_options) s.agent_launcher.?.pinned = true else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |provider| try s.launchAgent(provider) else s.closeMenu();
             } else if (!release and (button == 35 or button == 32)) {
                 if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |provider| s.agent_launcher.?.selected = provider;
                 s.dirty = true;
