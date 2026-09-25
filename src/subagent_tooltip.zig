@@ -248,15 +248,6 @@ const Card = struct {
         try card.cell(row, name_width + 1, model_width, model, .muted, false);
         try card.tokenColumns(row, value, false, .tokens);
     }
-    fn metrics(card: Card, row: usize, value: usage.View) !void {
-        if (!value.known) return card.line(row, "Usage not reported yet", "", .muted, .muted);
-        var left: [64]u8 = undefined;
-        var right: [64]u8 = undefined;
-        var n1: [32]u8 = undefined;
-        var n2: [32]u8 = undefined;
-        try card.line(row, try std.fmt.bufPrint(&left, "{s} input", .{compact(&n1, value.tokens.input)}), try std.fmt.bufPrint(&right, "{s} output", .{compact(&n2, value.tokens.output)}), .input, .output);
-        try card.line(row + 1, try std.fmt.bufPrint(&left, "{s} cached", .{compact(&n1, value.tokens.cached_input)}), try std.fmt.bufPrint(&right, "{s} recent", .{compact(&n2, value.recent_tokens)}), .muted, .recent);
-    }
     fn drawPoint(card: Card, row: usize, stamp: []const u8, label: []const u8, value: usage.View, live: bool, tone: Tone) !void {
         var text: [512]u8 = undefined;
         const icon = if (live) "●" else "○";
@@ -416,7 +407,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const pending = root.timeline.points.len > 0;
     const timeline_nodes: usize = @min(4, root.timeline.points.len);
     const timeline_height = if (timeline_nodes > 0) timeline_nodes * 2 + 2 else 0;
-    const wanted = @as(usize, if (timeline_height > 0) 13 else 12) + timeline_height +
+    const wanted = @as(usize, if (timeline_height > 0) 12 else 11) + timeline_height +
         (if (model.children > 0) model.children + 2 + @as(usize, if (timeline_height == 0) 3 else 0) else 0);
     const height = @min(wanted, rows - 2);
     const x: usize = @min(@as(usize, px) + 2, cols - width);
@@ -441,11 +432,12 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         activity(root_agent);
     const subtitle = if (std.ascii.eqlIgnoreCase(name, @tagName(root_agent.provider))) root_activity else try std.fmt.bufPrint(&text, "{s} · {s}", .{ @tagName(root_agent.provider), root_activity });
     try card.line(top + 1, subtitle, "", .muted, .muted);
-    try card.line(top + 3, "Own usage", tokenText(&tokens_buf, root.usage), .text, if (root.usage.known) .tokens else .muted);
-    try card.metrics(top + 4, root.usage);
-    var row = top + 7;
+    try card.cell(top + 3, 0, card.textWidth(), "Own usage", .text, false);
+    try card.tokenColumns(top + 3, null, false, .muted);
+    try card.tokenColumns(top + 4, root.usage, false, if (root.usage.known) .tokens else .muted);
+    var row = top + 6;
     const footer_row = y + height - 3;
-    const end = footer_row - 1; // Blank separator, coverage footer, bottom padding.
+    const end = footer_row - 1; // Blank separator, child status footer, bottom padding.
     // Reserve compact child rows and the combined total, then spend remaining
     // height on the most recent parent activity intervals.
     const room = end -| row;
@@ -475,10 +467,10 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         row += 1;
         try card.line(row, try std.fmt.bufPrint(&text, "Total · agent + {d} subagent{s}", .{ model.children, if (model.children == 1) "" else "s" }), tokenText(&tokens_buf, model.total), .text, if (model.total.known) .tokens else .muted);
     }
-    const footer = if (!children_available) (if (root.usage.known and root.usage.partial) "≥ Partial coverage" else "") else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0)) "Updating child details…" else if (shown < model.children)
-        try std.fmt.bufPrint(&text, "+{d} more{s}", .{ model.children - shown, if (model.total.partial) " · ≥ partial" else "" })
-    else if (model.total.partial and model.total.known) "≥ Partial coverage" else if (model.children == 0) "No subagents" else "Live usage";
-    try card.line(footer_row, footer, "", if (model.total.partial and model.total.known) .working else .muted, .muted);
+    const footer = if (!children_available) "" else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0)) "Updating child details…" else if (shown < model.children)
+        try std.fmt.bufPrint(&text, "+{d} more", .{model.children - shown})
+    else if (model.children == 0) "No subagents" else "Live usage";
+    try card.line(footer_row, footer, "", .muted, .muted);
     try w.writeAll("\x1b[0m\x1b8");
 }
 
@@ -585,14 +577,14 @@ test "both agent rows open one safe card before a session is bound and exiting r
     try std.testing.expect(std.mem.indexOf(u8, text, "探索?[2J") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\x1b[2J") == null);
     try std.testing.expect(std.mem.indexOf(u8, text, "Own usage") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "Usage not reported yet") != null);
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, text, "—"));
     try std.testing.expect(std.mem.indexOf(u8, text, "Starting session") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "No subagents") == null);
     entries[0].exit = .{ .frame_ms = 1, .progress = 0.5 };
     try std.testing.expectEqual(null, sidebar.agentAt(view, &entries, 5, top));
 }
 
-test "timeline keeps own breakdown and compact child rows in a compact terminal" {
+test "own usage shares timeline columns with compact child rows" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
     const own: usage.View = .{ .known = true, .tokens = .{ .input = 11900, .cached_input = 7800, .output = 2800 }, .recent_tokens = 14700 };
     const points = [_]protocol.Conversation.ActivityPoint{
@@ -610,7 +602,7 @@ test "timeline keeps own breakdown and compact child rows in a compact terminal"
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try draw(&output.writer, &all, entry, 64, 30, 5, 14);
-    for ([_][]const u8{ "11.9k input", "2.8k output", "7.8k cached", "14.7k recent", "Reading source", "Tracing usage", "Running tests", "500+", "Total · agent + 3 subagents", "↳" }) |text| {
+    for ([_][]const u8{ "Own usage", "Tokens", "Cached", "6.9k", "7.8k", "Reading source", "Tracing usage", "Running tests", "500+", "Total · agent + 3 subagents", "↳" }) |text| {
         try std.testing.expect(std.mem.indexOf(u8, output.written(), text) != null);
     }
 }
