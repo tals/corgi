@@ -15,6 +15,21 @@ From this directory:
 
 This builds Corgi and starts or attaches to its background runtime.
 
+macOS builds sign the Corgi executable with a persistent certificate so Keychain
+“Always Allow” survives rebuilds. The build prefers a **Developer ID Application**
+identity, falling back to **Apple Development** for local use. The certificate and
+its private key must be in your Keychain. With multiple identities, select one
+using `CORGI_SIGN_IDENTITY` or `-Dsigning-identity=SHA1`. The signing identifier is
+`dev.corgi.cli`; keep it stable. Signing stays inside the normal build, including
+`zig build run`, and credential access stays inside Corgi.
+
+Approve access once after switching from an ad-hoc build. Each Mac needs its own
+approval. For distribution to other Macs, use Developer ID Application signing
+and notarize the release before sharing it. Apple Development is for local use;
+switching signing identities can require another approval. CI or cross builds
+without a certificate can use `./scripts/zig build -Dcodesign=false`, but ad-hoc
+builds do not preserve Keychain approval across code changes.
+
 Multiple terminals can attach to the same runtime. They share workspaces, tabs, and split arrangement. Each viewer has its own selected workspace, tab, pane, menus, zoom, and scroll position. A pane fits the smallest viewer currently displaying it; other panes are unaffected. Detaching one viewer leaves the others connected.
 
 The caret is steady by default while attached, preserving the host terminal's cursor shape. Corgi saves the host's blink mode and restores it on detach. Set `CORGI_CURSOR_BLINK=1` when launching a viewer to leave the host's blink behavior unchanged. This uses the terminal's DEC cursor-blink mode, supported by Ghostty; an explicit Ghostty `cursor-style-blink` setting takes precedence.
