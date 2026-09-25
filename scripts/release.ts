@@ -12,9 +12,34 @@ export const targets = [
 ] as const;
 export const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 export function releaseVersion(value: string) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw new Error("Version must be MAJOR.MINOR.PATCH, without a v prefix.");
+  if (/^\d{8}T\d{6}Z-[a-f0-9]{7,40}$/.test(value)) return value;
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw new Error("Version must be UTC datetime + Git hash, or MAJOR.MINOR.PATCH.");
   if (value.split(".").some(n => !Number.isSafeInteger(Number(n)))) throw new Error("Version components are too large.");
   return value;
+}
+export function timestampVersion(commit: string, date = new Date()) {
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("Expected a full Git commit hash.");
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z") + "-" + commit.slice(0, 12);
+}
+export function publishedVersion(value: string, commit: string) {
+  if (!/^\d{8}T\d{6}Z-[a-f0-9]{12}$/.test(value) || value.slice(17) !== commit.slice(0, 12)) throw new Error("Release version must be UTC datetime + the first 12 characters of HEAD.");
+  const iso = `${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6,8)}T${value.slice(9,11)}:${value.slice(11,13)}:${value.slice(13,15)}.000Z`;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime()) || timestampVersion(commit, date) !== value) throw new Error("Invalid release datetime.");
+  return value;
+}
+export function versionParts(value: string) {
+  releaseVersion(value);
+  return value.includes("T") ? [Number(value.slice(0, 8)), Number(value.slice(9, 15)), 0] : value.split(".").map(Number);
+}
+export function cleanCommit(cwd = repo) {
+  const git = (...args: string[]) => {
+    const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    if (p.exitCode) throw new Error("Could not inspect Git checkout.");
+    return p.stdout.toString().trim();
+  };
+  if (git("status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none")) throw new Error("Working directory is dirty. Commit or remove pending changes before releasing.");
+  return git("rev-parse", "HEAD");
 }
 export function validateBinary(name: string, bytes: Uint8Array) {
   const b = Buffer.from(bytes);
@@ -85,8 +110,8 @@ async function command(argv: string[], capture = false) {
 }
 async function main() {
   const argv = process.argv.slice(2);
-  if (argv[0] === "--help" || !argv.length) {
-    console.log("Usage: ./scripts/release VERSION [--dry-run | --build-only | --publish-only]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + static Linux amd64 on an Apple Silicon Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\n--build-only permits a dirty tree and does not upload; such builds cannot be published.\n--publish-only resumes a previously prepared clean release without rebuilding/signing.");
+  if (argv[0] === "--help") {
+    console.log("Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + static Linux amd64 on an Apple Silicon Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nEvery build requires a clean checkout. Omit VERSION for UTC datetime + Git hash. --build-only does not upload.\n--publish-only resumes a previously prepared clean release without rebuilding/signing.");
     return;
   }
   if (argv[0] === "--init-key") {
@@ -99,7 +124,9 @@ async function main() {
     console.log(`Created ${path}\nPublic key: ${Buffer.from(publicKey.export({ type: "spki", format: "der" })).subarray(-32).toString("hex")}`);
     return;
   }
-  const version = releaseVersion(argv[0]);
+  const commit = cleanCommit();
+  if (!argv.length || argv[0].startsWith("--")) argv.unshift(timestampVersion(commit));
+  const version = publishedVersion(argv[0], commit);
   if (argv.length > 2 || (argv[1] && !["--dry-run", "--build-only", "--publish-only"].includes(argv[1]))) throw new Error("Unknown option; run --help.");
   const mode = argv[1] || "";
   if (mode === "--dry-run") {
@@ -113,11 +140,6 @@ async function main() {
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Use credential-free HTTPS URLs without query strings or fragments.");
   }
   if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("Run releases on an Apple Silicon Mac (macOS signing requires it).");
-  const commit = await command(["git", "rev-parse", "HEAD"], true);
-  const statusArgs = ["git", "status", "--porcelain", "--untracked-files=all", "--", "src", "scripts", "tests", "docs", "README.md", "build.zig", "build.zig.zon", ".zigversion"];
-  const initialStatus = await command(statusArgs, true);
-  const dirty = !!initialStatus;
-  if (dirty && mode !== "--build-only") throw new Error("Commit tracked changes before publishing. --build-only is available for local verification.");
   const credentials = mode === "--build-only" ? undefined : await loadCredentials(config);
   const key = createPrivateKey(await readFile(config.signingKey));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("The release signing key must be Ed25519.");
@@ -151,13 +173,13 @@ async function main() {
         binaries[target.name] = { url: `${config.publicBaseUrl}/releases/${version}/corgi-${target.name}`, sha256: sha256(bytes), size: bytes.length };
       }
       const info = JSON.parse(await command([join(out, "corgi-macos-aarch64"), "__update-info"], true));
-      if (info.version !== version || info.test_mode) throw new Error("Release metadata mismatch or unsafe test build.");
-      const payload = JSON.stringify({ schema_version: 1, version, update_abi: info.update_abi, targets: binaries });
+      if (info.version !== version || info.commit !== commit || info.test_mode) throw new Error("Release metadata mismatch or unsafe test build.");
+      const payload = JSON.stringify({ schema_version: 1, version, commit, update_abi: info.update_abi, targets: binaries });
       const envelope = JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), key).toString("hex") });
       await writeFile(join(out, "manifest.json"), envelope);
       await writeFile(join(out, "install.sh"), installer(config.publicBaseUrl, version, binaries));
-      if (await command(["git", "rev-parse", "HEAD"], true) !== commit || await command(statusArgs, true) !== initialStatus) throw new Error("Checkout changed during the build. Choose a new release after finishing edits.");
-      await writeFile(join(out, "prepared.json"), JSON.stringify({ version, commit, publicBaseUrl: config.publicBaseUrl, publicKey, publishable: !dirty && mode !== "--build-only", hashes: { ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])), "manifest.json": sha256(envelope), "install.sh": sha256(installer(config.publicBaseUrl, version, binaries)) } }, null, 2));
+      if (cleanCommit() !== commit) throw new Error("Checkout changed during the build. Choose a new release after finishing edits.");
+      await writeFile(join(out, "prepared.json"), JSON.stringify({ version, commit, publicBaseUrl: config.publicBaseUrl, publicKey, publishable: mode !== "--build-only", hashes: { ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])), "manifest.json": sha256(envelope), "install.sh": sha256(installer(config.publicBaseUrl, version, binaries)) } }, null, 2));
     }
     if (mode === "--build-only") { console.log(`Both platforms built and verified in ${out}. Nothing published.`); return; }
     const prepared = JSON.parse(await readFile(join(out, "prepared.json"), "utf8"));
@@ -167,6 +189,7 @@ async function main() {
     const store: Store = {
       async get(path) { const file = s3.file(path); return await file.exists() ? new Uint8Array(await file.arrayBuffer()) : null; },
       async put(path, bytes, type, cache) {
+        if (cleanCommit() !== commit) throw new Error("HEAD changed during publication.");
         const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
         const response = await fetch(url, { method: "PUT", body: bytes, headers: { "Content-Type": type, "Cache-Control": cache }, signal: AbortSignal.timeout(300_000) });
         if (!response.ok) throw new Error(`Upload failed for ${path}: HTTP ${response.status}`);
@@ -180,7 +203,7 @@ async function main() {
     const previousChannel = await store.get("channels/stable.json");
     if (previousChannel) {
       const current = JSON.parse(JSON.parse(Buffer.from(previousChannel).toString()).payload).version;
-      const compare = (x: string) => releaseVersion(x).split(".").map(Number);
+      const compare = versionParts;
       const old = compare(current), next = compare(version);
       const first = next.findIndex((n, i) => n !== old[i]);
       if (first >= 0 && next[first] < old[first]) throw new Error(`Refusing to move stable backwards from ${current} to ${version}.`);

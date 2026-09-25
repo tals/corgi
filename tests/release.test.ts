@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { publish, releaseVersion, installer, loadCredentials, type Store } from "../scripts/release.ts";
+import { publish, releaseVersion, installer, loadCredentials, cleanCommit, timestampVersion, publishedVersion, versionParts, type Store } from "../scripts/release.ts";
 import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,4 +60,37 @@ test("private file credentials work without exporting secrets into the shell", a
     await writeFile(path, '{"secretAccessKey":"sensitive-malformed-value');
     await expect(loadCredentials({ credentialsFile: path }, {})).rejects.toThrow("must contain valid JSON");
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("timestamp versions include the commit and sort chronologically", () => {
+  const v = timestampVersion("a".repeat(40), new Date("2026-09-25T00:30:12Z"));
+  expect(v).toBe("20260925T003012Z-aaaaaaaaaaaa");
+  expect(versionParts(v)).toEqual([20260925, 3012, 0]);
+  expect(() => releaseVersion("20260925T003012Z-../../foo")).toThrow();
+});
+test("release refuses unstaged, staged and untracked changes anywhere", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "corgi-clean-test-"));
+  const git = (...args: string[]) => {
+    const p = Bun.spawnSync(["git", ...args], {cwd: dir});
+    if (p.exitCode) throw new Error(p.stderr.toString());
+  };
+  try {
+    git("init"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.invalid");
+    await writeFile(join(dir, "tracked"), "original");
+    git("add", "."); git("commit", "-m", "initial");
+    expect(cleanCommit(dir)).toMatch(/^[a-f0-9]{40}$/);
+    await writeFile(join(dir, "outside-source"), "untracked");
+    expect(() => cleanCommit(dir)).toThrow("dirty");
+    await rm(join(dir, "outside-source"));
+    await writeFile(join(dir, "tracked"), "changed");
+    expect(() => cleanCommit(dir)).toThrow("dirty");
+    git("add", "tracked");
+    expect(() => cleanCommit(dir)).toThrow("dirty");
+  } finally { await rm(dir, {recursive: true, force: true}); }
+});
+
+test("publishing only accepts valid timestamp IDs tied to HEAD", () => {
+  const commit = "a".repeat(40);
+  expect(publishedVersion("20260925T003012Z-aaaaaaaaaaaa", commit)).toBe("20260925T003012Z-aaaaaaaaaaaa");
+  for (const v of ["1.2.3", "20260925T003012Z-aaaaaaa", "20260925T003012Z-bbbbbbbbbbbb", "20260230T003012Z-aaaaaaaaaaaa"]) expect(() => publishedVersion(v, commit)).toThrow();
 });

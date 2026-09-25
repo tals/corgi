@@ -18,6 +18,7 @@ const Target = struct { url: []const u8, sha256: []const u8, size: u64 };
 const Manifest = struct {
     schema_version: u32,
     version: []const u8,
+    commit: []const u8,
     update_abi: []const u8,
     targets: struct { @"macos-aarch64": Target, @"linux-x86_64": Target },
     fn target(m: Manifest) Target {
@@ -54,6 +55,12 @@ fn exists(root: []const u8, name: []const u8) bool {
     return true;
 }
 fn version(s: []const u8) !std.SemanticVersion {
+    if (s.len >= 24 and s.len <= 57 and s[8] == 'T' and s[15] == 'Z' and s[16] == '-') {
+        for (s[0..8]) |ch| if (!std.ascii.isDigit(ch)) return error.InvalidReleaseVersion;
+        for (s[9..15]) |ch| if (!std.ascii.isDigit(ch)) return error.InvalidReleaseVersion;
+        for (s[17..]) |ch| if (!std.ascii.isDigit(ch) and !(ch >= 'a' and ch <= 'f')) return error.InvalidReleaseVersion;
+        return .{ .major = try std.fmt.parseInt(usize, s[0..8], 10), .minor = try std.fmt.parseInt(usize, s[9..15], 10), .patch = 0 };
+    }
     for (s) |ch| if ((ch < '0' or ch > '9') and ch != '.') return error.InvalidReleaseVersion;
     const v = std.SemanticVersion.parse(s) catch return error.InvalidReleaseVersion;
     if (v.pre != null or v.build != null) return error.InvalidReleaseVersion;
@@ -497,7 +504,7 @@ pub fn internal(args: []const []const u8) !bool {
         return true;
     }
     if (eq(args[1], "__update-info")) {
-        const bytes = try std.json.Stringify.valueAlloc(a, .{ .version = opts.release_version, .update_abi = abi, .platform = platform, .test_mode = opts.update_test_mode }, .{});
+        const bytes = try std.json.Stringify.valueAlloc(a, .{ .version = opts.release_version, .commit = opts.release_commit, .update_abi = abi, .platform = platform, .test_mode = opts.update_test_mode }, .{});
         defer a.free(bytes);
         try os.writeAll(1, bytes);
         return true;
@@ -518,7 +525,7 @@ fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
     defer a.free(bytes);
     const m = try parse(bytes);
     defer m.deinit();
-    if (!eq(m.value.version, opts.release_version)) return error.WrongReleaseManifest;
+    if (!eq(m.value.version, opts.release_version) or !eq(m.value.commit, opts.release_commit)) return error.WrongReleaseManifest;
     const exe = try std.fs.selfExePathAlloc(a);
     defer a.free(exe);
     try verifyFile(exe, m.value.target());
@@ -536,7 +543,7 @@ fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
         if (ch == '\'') try quoted.appendSlice(a, "'\\''") else try quoted.append(a, ch);
     }
     try quoted.append(a, '\'');
-    const launcher = try std.fmt.allocPrint(a, "#!/bin/sh\nset -eu\nroot={s}\nv=$(cat \"$root/current\")\ncase \"$v\" in ''|*[!0-9.]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec \"$root/releases/$v/corgi\" \"$@\"\n", .{quoted.items});
+    const launcher = try std.fmt.allocPrint(a, "#!/bin/sh\nset -eu\nroot={s}\nv=$(cat \"$root/current\")\ncase \"$v\" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec \"$root/releases/$v/corgi\" \"$@\"\n", .{quoted.items});
     defer a.free(launcher);
     try std.fs.cwd().makePath(std.fs.path.dirname(bin).?);
     const file = try std.fs.cwd().createFile(bin, .{ .exclusive = true, .mode = 0o755 });
@@ -550,4 +557,11 @@ test "release versions cannot escape installation paths" {
     try std.testing.expectError(error.InvalidReleaseVersion, version("../../bin"));
     try std.testing.expectError(error.InvalidReleaseVersion, version("1.0.0-beta"));
     try std.testing.expectEqual(@as(usize, 2), (try version("1.2.3")).minor);
+}
+
+test "timestamp releases sort by UTC date and time" {
+    const first = try version("20260925T003012Z-abcdef012345");
+    const second = try version("20260925T003013Z-123456abcdef");
+    try std.testing.expect(first.order(second) == .lt);
+    try std.testing.expectError(error.InvalidReleaseVersion, version("20260925T003012Z-../../abcdef"));
 }

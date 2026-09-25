@@ -66,8 +66,8 @@ clients continue to use the same public hostname.
 ## Publish both platforms with one command
 
 ```sh
-./scripts/release 0.1.1 --dry-run
-./scripts/release 0.1.1
+./scripts/release --dry-run
+./scripts/release
 ```
 
 The command runs Zig and updater integration tests, builds and signs macOS arm64
@@ -76,13 +76,16 @@ static Linux amd64 musl executable, checks both binary formats, and embeds the
 version, source commit, feed URL, and public key. It signs a manifest, uploads
 immutable artifacts, and verifies their public downloads before advancing
 `channels/stable.json`. No Git tags or remotes are changed. Version numbers are
-stable `MAJOR.MINOR.PATCH` values; never reuse a version for different bytes.
+UTC datetime plus the first 12 Git hash characters (for example,
+`20260925T183012Z-be82c7b9090a`). Both binaries and the signed manifest include the
+full source commit. Every build and upload refuses a dirty checkout, including
+untracked files. Never reuse a version for different bytes.
 
 Files are prepared under `zig-out/releases/VERSION`. To resume after a network
 failure without rebuilding timestamped signatures:
 
 ```sh
-./scripts/release 0.1.1 --publish-only
+./scripts/release 20260925T183012Z-be82c7b9090a --publish-only
 ```
 
 The checkout and configuration must still match the prepared release. The local
@@ -90,10 +93,10 @@ publisher lock serializes runs on this checkout. Use a **single publishing host*
 or a CI concurrency group: object-store publication is not a distributed transaction.
 Existing assets with different bytes are rejected. Stable cannot move backwards.
 
-For a build-only check, including a dirty tree:
+For a build-only check from a clean checkout:
 
 ```sh
-./scripts/release 0.1.1 --build-only
+./scripts/release --build-only
 ```
 
 Build-only results are not publishable. `codesignIdentity: "-"` permits an ad-hoc
@@ -187,3 +190,9 @@ The updater suite builds two test releases and runs isolated real daemons agains
 a signed localhost feed. It verifies process-preserving updates, rollback,
 background staging, offline activation, signature/checksum rejection, and
 noninteractive deferral. It does not use the host Corgi runtime or B2 credentials.
+
+## Retention
+
+All published versions are retained in R2. There is no automatic deletion. Only
+`install.sh` and `channels/stable.json` move forward; versioned artifacts stay
+immutable for existing installers and rollback.
