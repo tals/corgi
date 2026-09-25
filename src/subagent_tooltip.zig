@@ -256,12 +256,17 @@ const Card = struct {
         try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, Tone.muted.ansi(), stamp, row + 1, card.x + 11, base, tone.ansi(), icon });
     }
     fn timeline(card: Card, row: usize, root: *const protocol.Conversation, agent: protocol.Agent, nodes: usize, pending: bool) !void {
+        // A working agent without a summary has no current named phase. Keep
+        // the previous interval in history until a fresh summary arrives.
+        const unreported = agent.state == .working and agent.activity.len == 0;
+        const history_nodes = nodes - @intFromBool(unreported);
+        const show_pending = pending and history_nodes > 0;
         const rule = "─" ** 88;
         const divider_width = card.width - 6;
         const label = " Recent ";
         try card.cell(row, 0, divider_width, rule[0 .. divider_width * "─".len], .border, false);
         try card.cell(row, (divider_width - label.len) / 2, label.len, label, .text, false);
-        const completed = nodes - @intFromBool(pending);
+        const completed = history_nodes - @intFromBool(show_pending);
         const history_end = root.timeline.points.len - @intFromBool(pending);
         for (root.timeline.points[history_end - completed .. history_end], 0..) |point, i| {
             const seconds: time_c.time_t = @divFloor(point.at, 1000);
@@ -273,11 +278,15 @@ const Card = struct {
                 "--:--";
             try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .muted);
         }
-        if (pending) {
-            const active = agent.state == .working;
+        if (show_pending) {
+            const active = agent.state == .working and !unreported;
             const blocked = agent.state == .blocked;
             const latest = root.timeline.points[root.timeline.points.len - 1];
             try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
+        }
+        if (unreported) {
+            const current = if (agent.compacting) "Compacting…" else if (agent.subagents.waiting) "Waiting on subagents" else "Activity not reported yet";
+            try card.drawPoint(row + nodes, "  now", current, .{}, true, .working);
         }
     }
 };
@@ -407,7 +416,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const model = if (children_available) Model.init(all, parent) else Model{ .total = root.usage };
     const width: usize = @min(88, cols);
     const pending = root.timeline.points.len > 0;
-    const timeline_nodes: usize = @min(4, root.timeline.points.len);
+    const timeline_nodes: usize = @min(4, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0));
     const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
     const child_footer = children_available and model.children == 0;
     const wanted = 7 + timeline_height +
@@ -637,6 +646,32 @@ test "timeline renders each phase once with its own interval including idle and 
             } else try std.testing.expect(std.mem.indexOf(u8, frame, "Reviewing pending changes") == null);
         }
     }
+}
+
+test "new turn without a summary keeps the old label historical even when clipped" {
+    const points = [_]protocol.Conversation.ActivityPoint{
+        .{ .at = 1000, .activity = "Inspecting installer script", .usage = .{ .known = true } },
+    };
+    var root: protocol.Conversation = .{ .id = 1, .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .recent_activity = "Old tool", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 345 } } } };
+    for (1..3) |nodes| {
+        var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer output.deinit();
+        const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
+        try card.timeline(0, &root, root.agent, nodes, true);
+        const frame = output.written();
+        try std.testing.expect(std.mem.indexOf(u8, frame, "  now  ●  Activity not reported yet") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "Old tool") == null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "345+") == null);
+        if (nodes == 2) {
+            try std.testing.expect(std.mem.indexOf(u8, frame, " last  ○  Inspecting installer script") != null);
+        } else try std.testing.expect(std.mem.indexOf(u8, frame, "Inspecting installer script") == null);
+    }
+    root.timeline = .{};
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
+    try card.timeline(0, &root, root.agent, 1, false);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Activity not reported yet") != null);
 }
 
 test "overview excludes detached history and shows System activity" {
