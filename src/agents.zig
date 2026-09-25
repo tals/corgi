@@ -31,6 +31,9 @@ pub const Agent = struct {
     activity: [160]u8 = .{0} ** 160,
     activity_len: usize = 0,
     activity_generation: u64 = 0,
+    // Last lifecycle evidence for Claude's direct activity. A delayed
+    // transcript update must not replace a label from a newer hook.
+    activity_at: i64 = 0,
     // Independent of lifecycle hooks, which also advance last_seq.
     metadata_protocol_at: i64 = 0,
     tool: [160]u8 = .{0} ** 160,
@@ -53,6 +56,14 @@ pub const Agent = struct {
     }
     pub fn displayName(a: *const Agent) []const u8 {
         return a.name[0..a.name_len];
+    }
+    /// First line only, cut on a codepoint boundary, without control bytes.
+    pub fn setActivity(a: *Agent, value: []const u8) void {
+        const line = std.mem.trim(u8, value[0 .. std.mem.indexOfScalar(u8, value, '\n') orelse value.len], " \t\r");
+        var n = @min(line.len, a.activity.len);
+        while (n > 0 and !std.unicode.utf8ValidateSlice(line[0..n])) n -= 1;
+        for (line[0..n], 0..) |ch, i| a.activity[i] = if (ch < 32 or ch == 127) ' ' else ch;
+        a.activity_len = n;
     }
     pub fn sessionId(a: *const Agent) []const u8 {
         return a.session[0..a.session_len];
@@ -209,6 +220,14 @@ pub const Agent = struct {
         // supplies activity text. Keep that summary through tool transitions.
         if (start or event == .prompt or event == .interrupt or event == .session_end)
             a.activity_len = 0;
+        // Claude has no commentary protocol; its current tool is the activity.
+        if (provider == .claude) {
+            a.activity_at = now;
+            if (event == .tool_start and !hook.asking) {
+                var label: [160]u8 = undefined;
+                a.setActivity(toolActivity(&label, hook.tool, hook.description, hook.target));
+            }
+        }
         if (start or next == .working) a.attention = if (a.observation.unread()) .finished else .none;
         if (a.observation.pending_stop) return false;
         if (event == .interrupt and (old == .working or old == .blocked)) {
@@ -241,6 +260,48 @@ pub const Agent = struct {
         return true;
     }
 };
+/// A tool's own description, else a verb and its main argument.
+pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, target: []const u8) []const u8 {
+    if (std.mem.trim(u8, description, " \t\r\n").len > 0) return description;
+    const Verb = struct { tool: []const u8, verb: []const u8, path: bool = false };
+    const verbs = [_]Verb{
+        .{ .tool = "Read", .verb = "Reading", .path = true },
+        .{ .tool = "Edit", .verb = "Editing", .path = true },
+        .{ .tool = "MultiEdit", .verb = "Editing", .path = true },
+        .{ .tool = "NotebookEdit", .verb = "Editing", .path = true },
+        .{ .tool = "Write", .verb = "Writing", .path = true },
+        .{ .tool = "Grep", .verb = "Searching for" },
+        .{ .tool = "Glob", .verb = "Finding" },
+        .{ .tool = "WebFetch", .verb = "Fetching" },
+        .{ .tool = "WebSearch", .verb = "Searching the web for" },
+        .{ .tool = "Bash", .verb = "Running" },
+        .{ .tool = "Skill", .verb = "Using skill" },
+        .{ .tool = "TodoWrite", .verb = "Updating todos" },
+    };
+    // MCP tools are mcp__server__tool; the last part names the action.
+    const short = if (std.mem.lastIndexOf(u8, tool, "__")) |i| tool[i + 2 ..] else tool;
+    var verb = short;
+    var subject = target;
+    for (verbs) |entry| if (eq(entry.tool, tool)) {
+        verb = entry.verb;
+        if (entry.path) subject = std.fs.path.basename(target);
+        break;
+    };
+    if (eq(tool, "WebFetch")) {
+        const rest = if (std.mem.indexOf(u8, subject, "://")) |i| subject[i + 3 ..] else subject;
+        subject = rest[0 .. std.mem.indexOfScalar(u8, rest, '/') orelse rest.len];
+    }
+    if (eq(tool, "TodoWrite")) subject = "";
+    if (subject.len == 0) return verb;
+    // Long commands are clipped; setActivity trims to a codepoint boundary.
+    var n: usize = 0;
+    for ([_][]const u8{ verb, " ", subject }) |part| {
+        const take = @min(part.len, buffer.len - n);
+        @memcpy(buffer[n..][0..take], part[0..take]);
+        n += take;
+    }
+    return buffer[0..n];
+}
 fn eq(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
@@ -358,4 +419,32 @@ test "conversation state rejects identity replacement and uses a controlled cloc
     try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
     try std.testing.expect(!agent.confirmStop(13, .completed, 900));
     try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
+}
+
+test "Claude tool hooks label activity from descriptions or main arguments" {
+    var buffer: [160]u8 = undefined;
+    try std.testing.expectEqualStrings("Run unit tests", toolActivity(&buffer, "Bash", "Run unit tests", "zig build test"));
+    try std.testing.expectEqualStrings("Running zig build test", toolActivity(&buffer, "Bash", " ", "zig build test"));
+    try std.testing.expectEqualStrings("Reading server.zig", toolActivity(&buffer, "Read", "", "/repo/src/server.zig"));
+    try std.testing.expectEqualStrings("Fetching docs.example.com", toolActivity(&buffer, "WebFetch", "", "https://docs.example.com/a/b"));
+    try std.testing.expectEqualStrings("Updating todos", toolActivity(&buffer, "TodoWrite", "", ""));
+    try std.testing.expectEqualStrings("search_issues bug", toolActivity(&buffer, "mcp__github__search_issues", "", "bug"));
+    const long: [300]u8 = @splat('x');
+    try std.testing.expectEqual(@as(usize, 160), toolActivity(&buffer, "Bash", "", &long).len);
+
+    var a: Agent = .{};
+    _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 1, false, 10);
+    try std.testing.expectEqual(@as(usize, 0), a.activity_len);
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Grep", .target = "routeHook" }, 2, false, 20);
+    try std.testing.expectEqualStrings("Searching for routeHook", a.activity[0..a.activity_len]);
+    try std.testing.expectEqual(@as(i64, 20), a.activity_at);
+    // Finishing a tool keeps its label until newer evidence arrives.
+    _ = a.observeHook(.claude, .{ .kind = .tool_finish, .session = "s", .tool = "Grep" }, 3, false, 30);
+    try std.testing.expectEqualStrings("Searching for routeHook", a.activity[0..a.activity_len]);
+    // Codex activity still comes only from its summaries.
+    var codex: Agent = .{};
+    _ = codex.observeHook(.codex, .{ .kind = .tool_start, .session = "c", .tool = "Bash", .description = "Run tests" }, 1, false, 10);
+    try std.testing.expectEqual(@as(usize, 0), codex.activity_len);
+    a.setActivity("First line\x1b[2J\nsecond");
+    try std.testing.expectEqualStrings("First line [2J", a.activity[0..a.activity_len]);
 }

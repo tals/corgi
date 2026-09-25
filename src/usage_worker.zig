@@ -26,12 +26,21 @@ pub const Result = struct {
     live: live_usage.View = .{},
     // A Claude conversation moved to a background session under this id.
     continued: codex_files.Name = .{},
+    // Claude's latest text update and its transcript time in microseconds.
+    update: codex_files.Name = .{},
+    update_at: i64 = 0,
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
         if (!eq(agent.sessionId(), result.session[0..result.session_len])) return false;
         if (agent.provider == .claude) {
             if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
+            // Hooks stamp activity_at, so an update from before the latest
+            // hook (or from an earlier turn) cannot replace a newer label.
+            if (agent.state == .working and result.update.len > 0 and result.update_at > agent.activity_at) {
+                agent.setActivity(result.update.bytes[0..result.update.len]);
+                agent.activity_at = result.update_at;
+            }
             return false;
         }
         if (!codex_files.available(agent, now)) return false;
@@ -147,7 +156,7 @@ pub const Worker = struct {
                     break :blk usage.Counts{};
                 };
                 t.releaseFile();
-                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex and t.model.len == 0 and t.name.len == 0 and t.continued.len == 0) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex and t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
@@ -159,6 +168,8 @@ pub const Worker = struct {
                     if (req.agent.provider == .claude) {
                         result.*.?.name = t.name;
                         result.*.?.continued = t.continued;
+                        result.*.?.update = t.update;
+                        result.*.?.update_at = t.update_at;
                     }
                     if (req.agent.provider == .codex) {
                         result.*.?.progress = t.progress.view();
@@ -194,6 +205,8 @@ pub const Tail = struct {
     name: codex_files.Name = .{},
     name_chosen: bool = false,
     continued: codex_files.Name = .{},
+    update: codex_files.Name = .{},
+    update_at: i64 = 0,
     fn releaseFile(t: *Tail) void {
         if (t.file) |f| f.close();
         t.file = null;
@@ -265,12 +278,39 @@ pub const Tail = struct {
         } else if (generated.len > 0 and !t.name_chosen and std.unicode.utf8ValidateSlice(generated)) {
             t.name.len = agents.clean(&t.name.bytes, generated);
         }
+        if (eq(kind, "assistant")) t.claudeText(value);
         if (eq(kind, "continued-in")) {
             t.continued.len = agents.clean(&t.continued.bytes, agents.str(value, "continuedInSessionId"));
         } else if (eq(kind, "user") or eq(kind, "assistant")) {
             // Resuming the original conversation later makes it current again.
             t.continued.len = 0;
         }
+    }
+    /// Text Claude writes between tools is its only commentary. Thinking is
+    /// stored without content, so it cannot supply activity.
+    fn claudeText(t: *Tail, value: std.json.Value) void {
+        const side = usage.field(value, "isSidechain");
+        if (side == .bool and side.bool) return;
+        const stamp = @import("transcript.zig").timestampMs(agents.str(value, "timestamp")) orelse return;
+        const content = usage.field(usage.field(value, "message"), "content");
+        if (content != .array) return;
+        var latest: []const u8 = "";
+        for (content.array.items) |part| {
+            if (!eq(agents.str(part, "type"), "text")) continue;
+            var lines = std.mem.tokenizeScalar(u8, agents.str(part, "text"), '\n');
+            while (lines.next()) |line| {
+                const text = std.mem.trim(u8, line, " \t\r#*->`_");
+                if (text.len == 0) continue;
+                latest = text;
+                break;
+            }
+        }
+        if (latest.len == 0) return;
+        var n = @min(latest.len, t.update.bytes.len);
+        while (n > 0 and !std.unicode.utf8ValidateSlice(latest[0..n])) n -= 1;
+        @memcpy(t.update.bytes[0..n], latest[0..n]);
+        t.update.len = n;
+        t.update_at = stamp * std.time.us_per_ms;
     }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(req);
@@ -460,4 +500,29 @@ test "Claude transcripts supply chosen names over generated titles and report co
     result.name.len = agents.clean(&result.name.bytes, "Wrong");
     _ = result.fallback(&agent, 0);
     try std.testing.expectEqualStrings("Chosen", agent.displayName());
+}
+
+test "Claude text updates apply only when newer than the latest hook" {
+    var tail: Tail = .{};
+    defer tail.close();
+    var req: Request = .{ .actor = 1, .workspace = 1, .since = 0, .agent = .{ .provider = .claude } };
+    req.agent.session_len = agents.clean(&req.agent.session, "a");
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"},{\"type\":\"text\",\"text\":\"\\n## Checking the parser\\nmore\"}]}}\n", 0);
+    try std.testing.expectEqualStrings("Checking the parser", tail.update.bytes[0..tail.update.len]);
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"isSidechain\":true,\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Subagent text\"}]}}\n", 0);
+    try std.testing.expectEqualStrings("Checking the parser", tail.update.bytes[0..tail.update.len]);
+
+    var agent: agents.Agent = .{ .provider = .claude, .state = .working, .activity_at = 3 * std.time.us_per_s };
+    agent.session_len = agents.clean(&agent.session, "a");
+    var result: Result = .{ .actor = 1, .workspace = 1, .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .update = tail.update, .update_at = tail.update_at };
+    _ = result.fallback(&agent, 0);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    agent.activity_at = 1 * std.time.us_per_s;
+    _ = result.fallback(&agent, 0);
+    try std.testing.expectEqualStrings("Checking the parser", agent.activity[0..agent.activity_len]);
+    agent.activity_len = 0;
+    agent.activity_at = 0;
+    agent.state = .idle;
+    _ = result.fallback(&agent, 0);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
 }

@@ -213,6 +213,21 @@ class ClaudeConversations(RuntimeAssertions):
         self.record('titled', type='ai-title', aiTitle='Later generated title')
         self.until(lambda: self.pane_snapshot(self.pane)['agent']['name'] == 'Chosen name')
 
+    def test_claude_activity_follows_tools_and_text_updates(self):
+        self.hook('active', 'SessionStart')
+        self.hook('active', 'UserPromptSubmit')
+        self.hook('active', 'PreToolUse', tool_name='Read', tool_input={'file_path': '/repo/src/server.zig'})
+        self.assertEqual(self.pane_snapshot(self.pane)['agent']['activity'], 'Reading server.zig')
+        time.sleep(0.01)
+        stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+        self.record('active', type='assistant', timestamp=stamp, message={'content': [{'type': 'text', 'text': 'Tracing the hook router'}]})
+        self.until(lambda: self.pane_snapshot(self.pane)['agent']['activity'] == 'Tracing the hook router')
+        self.hook('active', 'PreToolUse', tool_name='Bash', tool_input={'command': 'zig build test', 'description': 'Run unit tests'})
+        self.assertEqual(self.pane_snapshot(self.pane)['agent']['activity'], 'Run unit tests')
+        # The already-read text update is older than this hook and must not return.
+        time.sleep(0.6)
+        self.assertEqual(self.pane_snapshot(self.pane)['agent']['activity'], 'Run unit tests')
+
     def test_background_daemon_hooks_never_select_by_inherited_pane(self):
         self.hook('foreground', 'SessionStart')
         self.hook('foreground', 'UserPromptSubmit')

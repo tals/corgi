@@ -27,6 +27,8 @@ pub const Hook = struct {
     cwd: []const u8 = "",
     tool: []const u8 = "",
     description: []const u8 = "",
+    // The tool's main argument, for a readable label when there is no description.
+    target: []const u8 = "",
     asking: bool = false,
     permission_notification: bool = false,
 };
@@ -50,11 +52,20 @@ pub const Hooks = struct {
             .cwd = str(value, "cwd"),
             .tool = tool,
             .description = str(field(value, "tool_input"), "description"),
+            .target = target(field(value, "tool_input")),
             .asking = kind == .tool_start and (eq(tool, "AskUserQuestion") or eq(tool, "request_user_input")),
             .permission_notification = kind == .notification and eq(str(value, "notification_type"), "permission_prompt"),
         };
     }
 };
+
+fn target(input: std.json.Value) []const u8 {
+    for ([_][]const u8{ "file_path", "notebook_path", "pattern", "query", "url", "command", "skill" }) |key| {
+        const value = str(input, key);
+        if (value.len > 0) return value;
+    }
+    return "";
+}
 
 pub const NativeEvent = struct {
     session: []const u8 = "",

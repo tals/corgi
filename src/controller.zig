@@ -231,7 +231,7 @@ pub const Controller = struct {
         for (s.model().tabs[0..s.model().count], 0..) |_, tab_index| {
             for (s.runtime.panes.items) |*p| {
                 if (p.agent.provider == .other or s.model().tabForPane(p.id) != tab_index) continue;
-                entries[count] = .{ .conversation = p.agent.conversation, .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label else p.agent.name, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.native_notice == null and s.nav().tab().focus == p.id, .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = if (p.agent.provider == .codex or p.agent.activity.len > 0) p.agent.activity else p.agent.recent_activity };
+                entries[count] = .{ .conversation = p.agent.conversation, .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label else p.agent.name, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.native_notice == null and s.nav().tab().focus == p.id, .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = p.agent.activity };
                 count += 1;
             }
         }
