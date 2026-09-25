@@ -68,12 +68,46 @@ fn keychain(interaction: Interaction) ReadError![]u8 {
     defer CFRelease(query);
     var data: Ref = null;
     const status = SecItemCopyMatching(query, &data);
-    if (status == -25308 or status == -25315 or status == -25293 or status == -128) return error.NeedsConsent;
+    if (status == -25308 or status == -25315 or status == -25293 or status == -128) return securityTool(interaction);
     if (status != 0 or data == null) return error.Unavailable;
     defer CFRelease(data);
     const len = CFDataGetLength(data);
     if (len <= 0 or len > 65536) return error.Unavailable;
     return a.dupe(u8, CFDataGetBytePtr(data)[0..@intCast(len)]) catch error.Unavailable;
+}
+
+extern "Security" fn SecKeychainCopyDefault(*?*anyopaque) i32;
+extern "Security" fn SecKeychainGetStatus(?*anyopaque, *u32) i32;
+
+fn unlocked() bool {
+    var keychain_ref: ?*anyopaque = null;
+    if (SecKeychainCopyDefault(&keychain_ref) != 0 or keychain_ref == null) return false;
+    defer CFRelease(keychain_ref);
+    var status: u32 = 0;
+    // kSecUnlockStateStatus
+    return SecKeychainGetStatus(keychain_ref, &status) == 0 and status & 1 != 0;
+}
+
+// Claude Code reads its item through /usr/bin/security, the only client in the
+// item's partition list. It rewrites the item on each token refresh, so an
+// "Always Allow" granted to our binary never lasts. Read it the same way; the
+// child is outside our interaction guard, so silent mode refuses a locked
+// keychain, the only state in which `security` would show UI.
+fn securityTool(interaction: Interaction) ReadError![]u8 {
+    if (interaction == .silent and !unlocked()) return error.NeedsConsent;
+    const result = std.process.Child.run(.{
+        .allocator = a,
+        .argv = &.{ "/usr/bin/security", "find-generic-password", "-s", "Claude Code-credentials", "-w" },
+        .max_output_bytes = 65536,
+    }) catch return error.Unavailable;
+    a.free(result.stderr);
+    const ok = result.term == .Exited and result.term.Exited == 0;
+    const len = std.mem.trimRight(u8, result.stdout, "\n").len;
+    if (!ok or len == 0) {
+        a.free(result.stdout);
+        return if (interaction == .silent) error.NeedsConsent else error.Unavailable;
+    }
+    return a.realloc(result.stdout, len) catch result.stdout[0..len];
 }
 
 // Stdout is a private pipe to the metadata worker, never a viewer RPC response.
