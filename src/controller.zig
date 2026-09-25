@@ -437,7 +437,7 @@ pub const Controller = struct {
 
         s.dirty = true;
         switch (key_) {
-            'c' => try s.beginNewTab(),
+            'c' => try s.action("new", ""),
             'T' => s.beginRename(),
             'X' => try s.action("close-tab", ""),
             else => {},
@@ -499,12 +499,6 @@ pub const Controller = struct {
         s.name_dialog = naming.Dialog.init(.{ .rename = tab.id }, tab.title());
         s.prepareName();
     }
-    fn beginNewTab(s: *Self) !void {
-        const cwd = try a.dupe(u8, s.currentCwd());
-        s.dismissName();
-        s.name_dialog = naming.Dialog.init(.{ .create = cwd }, "");
-        s.prepareName();
-    }
     fn prepareName(s: *Self) void {
         s.search_mode = false;
         s.copy_mode = false;
@@ -514,10 +508,6 @@ pub const Controller = struct {
         s.dirty = true;
     }
     pub fn dismissName(s: *Self) void {
-        if (s.name_dialog) |dialog| switch (dialog.target) {
-            .create => |cwd| a.free(cwd),
-            else => {},
-        };
         s.name_dialog = null;
     }
     fn renamePane(s: *Self, id: u32, name: []const u8) !void {
@@ -551,17 +541,6 @@ pub const Controller = struct {
                 },
                 .rename => |id| {
                     s.edit(.{ .@"tab.rename" = .{ .target = id, .name = dialog.name() } }) catch {
-                        dialog.failed = true;
-                        return;
-                    };
-                },
-                .create => |cwd| {
-                    var dir = std.fs.cwd().openDir(cwd, .{}) catch {
-                        dialog.failed = true;
-                        return;
-                    };
-                    dir.close();
-                    _ = s.create(null, cwd, null, dialog.name()) catch {
                         dialog.failed = true;
                         return;
                     };
@@ -993,7 +972,7 @@ pub const Controller = struct {
                 'W' => s.beginWorkspace(s.current().id),
                 '}' => try s.action("workspace-next", ""),
                 '{' => try s.action("workspace-prev", ""),
-                'c' => try s.beginNewTab(),
+                'c' => try s.action("new", ""),
                 'a', 'A', 1 => try s.newAgentShortcut(),
                 'u' => try s.action("undo-close", ""),
                 'v', '%' => try s.action("split", "right"),
@@ -1586,7 +1565,8 @@ pub const Controller = struct {
             const add_x = tabs_x + render.addTabX(s.layoutView(), tabs_width);
             if (x >= add_x and x < add_x + 3) {
                 s.ui_mouse_down = true;
-                try s.beginNewTab();
+                s.dismissName();
+                try s.action("new", "");
                 return;
             }
             if (x >= tabs_x) if (render.tabAt(s.layoutView(), tabs_width, x - tabs_x)) |index| {

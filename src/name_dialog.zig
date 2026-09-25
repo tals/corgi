@@ -1,7 +1,7 @@
 const std = @import("std");
 const unicode = @import("ghostty-vt").unicode;
 
-pub const Target = union(enum) { pane: u32, rename: u32, create: []const u8, workspace_name: ?u32 }; // The server owns create's cwd.
+pub const Target = union(enum) { pane: u32, rename: u32, workspace_name: ?u32 };
 pub const Result = enum { none, save, cancel };
 pub const Hit = union(enum) { none, save, clear, cancel, field: usize };
 pub const Dialog = struct {
@@ -165,7 +165,6 @@ pub const View = struct {
             }
         }
         const title = switch (d.target) {
-            .create => "new tab",
             .rename => "rename tab",
             .pane => "rename pane",
             .workspace_name => |id| if (id == null) "new workspace: name" else "edit workspace: name",
