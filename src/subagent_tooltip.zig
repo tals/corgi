@@ -256,8 +256,11 @@ const Card = struct {
         try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, Tone.muted.ansi(), stamp, row + 1, card.x + 11, base, tone.ansi(), icon });
     }
     fn timeline(card: Card, row: usize, root: *const protocol.Conversation, agent: protocol.Agent, nodes: usize, pending: bool) !void {
-        try card.cell(row, 0, card.textWidth(), "Recent activity", .text, false);
-        try card.tokenColumns(row, null, false, .muted);
+        const rule = "─" ** 88;
+        const divider_width = card.width - 6;
+        const label = " Recent ";
+        try card.cell(row, 0, divider_width, rule[0 .. divider_width * "─".len], .border, false);
+        try card.cell(row, (divider_width - label.len) / 2, label.len, label, .text, false);
         const completed = nodes - @intFromBool(pending);
         const history_end = root.timeline.points.len - @intFromBool(pending);
         for (root.timeline.points[history_end - completed .. history_end], 0..) |point, i| {
@@ -268,14 +271,13 @@ const Card = struct {
                 try std.fmt.bufPrint(&stamp, "{d:0>2}:{d:0>2}", .{ @as(u8, @intCast(local.tm_hour)), @as(u8, @intCast(local.tm_min)) })
             else
                 "--:--";
-            try card.drawPoint(row + 2 + i * 2, time, point.activity, point.usage, false, .muted);
-            if (i + 1 < nodes) try card.line(row + 3 + i * 2, "       │", "", .border, .muted);
+            try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .muted);
         }
         if (pending) {
             const active = agent.state == .working;
             const blocked = agent.state == .blocked;
             const latest = root.timeline.points[root.timeline.points.len - 1];
-            try card.drawPoint(row + 2 + completed * 2, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
+            try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
         }
     }
 };
@@ -406,9 +408,10 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const width: usize = @min(88, cols);
     const pending = root.timeline.points.len > 0;
     const timeline_nodes: usize = @min(4, root.timeline.points.len);
-    const timeline_height = if (timeline_nodes > 0) timeline_nodes * 2 + 2 else 0;
-    const wanted = @as(usize, if (timeline_height > 0) 12 else 11) + timeline_height +
-        (if (model.children > 0) model.children + 2 + @as(usize, if (timeline_height == 0) 3 else 0) else 0);
+    const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
+    const child_footer = children_available and model.children == 0;
+    const wanted = 7 + timeline_height +
+        (if (model.children > 0) model.children + 3 else @as(usize, @intFromBool(child_footer)));
     const height = @min(wanted, rows - 2);
     const x: usize = @min(@as(usize, px) + 2, cols - width);
     const y: usize = @min(@as(usize, py) + 1, rows - 1 - height);
@@ -421,8 +424,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     }
     const card: Card = .{ .w = w, .x = x, .width = width };
     var text: [512]u8 = undefined;
-    var tokens_buf: [64]u8 = undefined;
-    const top = y + @as(usize, if (height >= 12) 2 else 1);
+    const top = y + 1;
     const root_status = status(root_agent, false);
     try card.line(top, name, try std.fmt.bufPrint(&text, "{s} {s}", .{ root_status.icon, root_status.label }), .title, root_status.tone);
     const root_activity = if (root_agent.activity.len == 0 and root_agent.recent_activity.len == 0 and
@@ -430,28 +432,27 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         "Activity not reported yet"
     else
         activity(root_agent);
-    const subtitle = if (std.ascii.eqlIgnoreCase(name, @tagName(root_agent.provider))) root_activity else try std.fmt.bufPrint(&text, "{s} · {s}", .{ @tagName(root_agent.provider), root_activity });
+    const subtitle = if (timeline_nodes > 0)
+        @tagName(root_agent.provider)
+    else if (std.ascii.eqlIgnoreCase(name, @tagName(root_agent.provider)))
+        root_activity
+    else
+        try std.fmt.bufPrint(&text, "{s} · {s}", .{ @tagName(root_agent.provider), root_activity });
     try card.line(top + 1, subtitle, "", .muted, .muted);
-    try card.cell(top + 3, 0, card.textWidth(), "Own usage", .text, false);
-    try card.tokenColumns(top + 3, null, false, .muted);
-    try card.tokenColumns(top + 4, root.usage, false, if (root.usage.known) .tokens else .muted);
-    var row = top + 6;
-    const footer_row = y + height - 3;
-    const end = footer_row - 1; // Blank separator, child status footer, bottom padding.
-    // Reserve compact child rows and the combined total, then spend remaining
-    // height on the most recent parent activity intervals.
+    try card.tokenColumns(top + 2, null, false, .muted);
+    try card.cell(top + 3, 0, card.textWidth(), "Total", .text, false);
+    try card.tokenColumns(top + 3, root.usage, false, if (root.usage.known) .tokens else .muted);
+    var row = top + 4;
+    const footer_row = y + height - 2;
+    const end = if (model.children > 0 or child_footer) footer_row else y + height - 1;
+    // Reserve child rows and the combined total; use the rest for recent phases.
     const room = end -| row;
-    const reserved_children = @min(model.children, room -| 6);
     const total_rows: usize = if (model.children > 0) 2 else 0;
-    const timeline_room = room -| (reserved_children + total_rows);
-    const visible_nodes = @min(timeline_nodes, (timeline_room -| 2) / 2);
+    const reserved_children = @min(model.children, room -| (total_rows + @as(usize, if (timeline_nodes > 0) 2 else 0)));
+    const visible_nodes = @min(timeline_nodes, (room -| (reserved_children + total_rows)) -| 1);
     if (visible_nodes > 0) {
         try card.timeline(row, root, root_agent, visible_nodes, pending);
-        row += visible_nodes * 2 + 1;
-    } else if (model.children > 0 and row + 2 < end) {
-        try card.cell(row, 0, card.textWidth(), "Recent activity", .text, false);
-        try card.tokenColumns(row, null, false, .muted);
-        row += 2;
+        row += visible_nodes + 1;
     }
     var shown: usize = 0;
     if (children_available) for (all) |child| {
@@ -465,12 +466,13 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     };
     if (model.children > 0 and row + 1 < end) {
         row += 1;
-        try card.line(row, try std.fmt.bufPrint(&text, "Total · agent + {d} subagent{s}", .{ model.children, if (model.children == 1) "" else "s" }), tokenText(&tokens_buf, model.total), .text, if (model.total.known) .tokens else .muted);
+        try card.cell(row, 0, card.textWidth(), "Including subagents", .text, false);
+        try card.tokenColumns(row, model.total, false, if (model.total.known) .tokens else .muted);
     }
     const footer = if (!children_available) "" else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0)) "Updating child details…" else if (shown < model.children)
         try std.fmt.bufPrint(&text, "+{d} more", .{model.children - shown})
     else if (model.children == 0) "No subagents" else "Live usage";
-    try card.line(footer_row, footer, "", .muted, .muted);
+    if (model.children > 0 or child_footer) try card.line(footer_row, footer, "", .muted, .muted);
     try w.writeAll("\x1b[0m\x1b8");
 }
 
@@ -576,7 +578,7 @@ test "both agent rows open one safe card before a session is bound and exiting r
     const text = output.written();
     try std.testing.expect(std.mem.indexOf(u8, text, "探索?[2J") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "\x1b[2J") == null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "Own usage") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "Total") != null);
     try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, text, "—"));
     try std.testing.expect(std.mem.indexOf(u8, text, "Starting session") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "No subagents") == null);
@@ -584,7 +586,7 @@ test "both agent rows open one safe card before a session is bound and exiting r
     try std.testing.expectEqual(null, sidebar.agentAt(view, &entries, 5, top));
 }
 
-test "own usage shares timeline columns with compact child rows" {
+test "total shares one set of timeline columns with compact child rows" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
     const own: usage.View = .{ .known = true, .tokens = .{ .input = 11900, .cached_input = 7800, .output = 2800 }, .recent_tokens = 14700 };
     const points = [_]protocol.Conversation.ActivityPoint{
@@ -602,7 +604,9 @@ test "own usage shares timeline columns with compact child rows" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try draw(&output.writer, &all, entry, 64, 30, 5, 14);
-    for ([_][]const u8{ "Own usage", "Tokens", "Cached", "6.9k", "7.8k", "Reading source", "Tracing usage", "Running tests", "500+", "Total · agent + 3 subagents", "↳" }) |text| {
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), "Tokens"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), "Cached"));
+    for ([_][]const u8{ "Total", "Tokens", "Cached", "6.9k", "7.8k", "Reading source", "Tracing usage", "Running tests", "500+", "Including subagents", "↳" }) |text| {
         try std.testing.expect(std.mem.indexOf(u8, output.written(), text) != null);
     }
 }
@@ -730,8 +734,8 @@ test "unavailable or stale child discovery makes no subagent claims" {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
         try draw(&output.writer, &all, entry, 100, 30, 5, 14);
-        for ([_][]const u8{ "subagent", "Explorer", "Updating child", "Total · agent" }) |text| try std.testing.expect(std.mem.indexOf(u8, output.written(), text) == null);
-        try std.testing.expect(std.mem.indexOf(u8, output.written(), "Own usage") != null);
+        for ([_][]const u8{ "subagent", "Explorer", "Updating child", "Including subagents" }) |text| try std.testing.expect(std.mem.indexOf(u8, output.written(), text) == null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "Total") != null);
     }
     all[0].children_observed_at = now;
     for (0..3) |case| {
@@ -744,7 +748,7 @@ test "unavailable or stale child discovery makes no subagent claims" {
         var hidden: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer hidden.deinit();
         try draw(&hidden.writer, &all, entry, 100, 30, 5, 14);
-        for ([_][]const u8{ "?", "subagent", "Explorer", "Total · agent" }) |text| try std.testing.expect(std.mem.indexOf(u8, hidden.written(), text) == null);
+        for ([_][]const u8{ "?", "subagent", "Explorer", "Including subagents" }) |text| try std.testing.expect(std.mem.indexOf(u8, hidden.written(), text) == null);
     }
     all[1].observed_at = now;
     all[1].agent.state = .working;

@@ -63,19 +63,19 @@ class Summaries(codex_titles.Titles):
             ('Tracing usage',(4500,3000,900)),
             ('Running tests',(6000,4000,1600)),
         ]):
-            spend(values)
             self.control.write_text(json.dumps({'delay':0,'label':label}))
             self.start_turn(tid=f'timeline-{i}',wave=False)
             self.until(lambda:len(conversation()['timeline']['points'])==i+1)
+            spend(values)
         spend((400,200,100))
         self.until(lambda:self.session()['system_usage']['tokens']['input']==3000)
         self.assertEqual(self.session()['system_usage']['tokens'],dict(input=3000,cached_input=1800,output=30))
         points=conversation()['timeline']['points']
-        self.assertEqual([p['usage']['tokens']['input']+p['usage']['tokens']['output'] for p in points],[1200,5400,7600])
+        self.assertEqual([p['usage']['tokens']['input']+p['usage']['tokens']['output'] for p in points],[1200,5400,0])
         self.assertEqual([p['activity'] for p in points],['Reading source','Tracing usage','Running tests'])
         self.assertEqual(sorted(p['at'] for p in points),[p['at'] for p in points])
         self.assertTrue(all(p['usage']['known'] and not p['usage']['partial'] for p in points))
-        self.assertEqual(conversation()['timeline']['pending']['tokens']['input'],400)
+        self.assertEqual(conversation()['timeline']['pending']['tokens']['input'],6400)
         self.viewers=[]
         viewer=Viewer(self,100,30)
         def hover(cols,rows):
@@ -86,18 +86,20 @@ class Summaries(codex_titles.Titles):
             return viewer.poll()['data']
         try:
             frame=hover(100,30)
-            for text in ['Own usage','14.7k tokens','11.9k input','2.8k output','7.8k cached','14.7k recent','Recent activity','In progress']:
+            for text in ['Total','Tokens','Cached','6.9k','7.8k','Recent','Running tests']:
                 self.assertIn(text,frame)
             # Timeline columns match the overview: Tokens is uncached input
             # plus output, and Cached is cached input, for every provider.
             rows=smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',frame),100,30)
             # The sidebar can show the same label; timeline rows carry a marker.
-            def timeline_row(label):return next(row for row in rows if label in row and (label=='Recent activity' or '○' in row or '●' in row))
-            self.assertRegex(timeline_row('Recent activity'),r'Recent activity\s+Tokens\s+Cached')
+            def timeline_row(label):return next(row for row in rows if label in row and ('○' in row or '●' in row))
+            self.assertEqual(sum('Tokens' in row and 'Cached' in row for row in rows),1)
+            self.assertRegex(next(row for row in rows if 'Total' in row),r'Total\s+6\.9k\s+7\.8k')
             self.assertRegex(timeline_row('Reading source'),r'Reading source\s+600\s+600')
             self.assertRegex(timeline_row('Tracing usage'),r'Tracing usage\s+2\.4k\s+3(\.0)?k')
-            self.assertRegex(timeline_row('Running tests'),r'Running tests\s+3\.6k\s+4(\.0)?k')
-            self.assertRegex(timeline_row('In progress'),r'In progress\s+300\+\s+200\+')
+            self.assertRegex(timeline_row('Running tests'),r'Running tests\s+3\.9k\+\s+4\.2k\+')
+            positions=[next(i for i,row in enumerate(rows) if label in row and ('○' in row or '●' in row)) for label in ['Reading source','Tracing usage','Running tests']]
+            self.assertEqual(positions,list(range(positions[0],positions[0]+3)))
             pathlib.Path('/tmp/corgi-timeline-frame.json').write_text(json.dumps(dict(cols=100,rows=30,frame=frame)))
             # The Corgi badge separates background inference from agent spend.
             viewer.request(op='badge',visible=True)
@@ -119,18 +121,18 @@ class Summaries(codex_titles.Titles):
             frame=hover(100,30)
             # Viewing repeatedly never consumes the pending interval.
             viewer.poll();viewer.poll()
-            self.assertEqual(conversation()['timeline']['pending']['tokens']['input'],400)
+            self.assertEqual(conversation()['timeline']['pending']['tokens']['input'],6400)
             self.states[codex_titles.A]='idle';self.turns[codex_titles.A]=('timeline-2','completed')
             self.until(lambda:self.state()['state']=='idle')
             frame=viewer.poll()['data']
-            self.assertIn('Since last update',frame)
-            self.assertNotIn('300+',frame)
+            self.assertIn(' last',frame)
+            self.assertNotIn('3.9k+',frame)
             self.assertEqual(len(conversation()['timeline']['points']),3)
             viewer.request(op='size',cols=64,rows=13)
             viewer.input('\x1b[<35;63;1M')
             small=hover(64,13)
-            for text in ['Own usage','11.9k input','2.8k output','7.8k cached','14.7k recent']:self.assertIn(text,small)
-            self.assertNotIn('Recent activity',small)
+            for text in ['Total','6.9k','7.8k','Recent','Running tests']:self.assertIn(text,small)
+            self.assertNotIn('Own usage',small)
         finally:viewer.close()
     def test_commentary_fires_without_tools_and_one_completion_refreshes(self):
         self.start_turn(wave=False)
