@@ -326,6 +326,8 @@ pub const Menu = struct {
     yolo: [2]bool = .{ false, false },
     last: Provider,
     pinned: bool,
+    /// Ctrl-B arrived while pinned; Cmd+T sends Ctrl-B A, so a repeat opens a terminal.
+    prefix: bool = false,
     preview: Preview = .{},
     checked: i64 = 0,
     const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used)", "Resets in" };

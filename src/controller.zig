@@ -859,6 +859,12 @@ pub const Controller = struct {
             return;
         }
         if (s.agent_launcher) |launch| {
+            if (launch.pinned and byte == 2) {
+                s.agent_launcher.?.prefix = true;
+                return;
+            }
+            s.agent_launcher.?.prefix = false;
+            if (launch.prefix and byte == 'A') return s.launchRow(.terminal);
             const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or byte == 'y' or byte == 't' or (byte == 'u' and launch.trackable(launch.selected));
             if (!launch.pinned and !navigation) {
                 s.closeMenu();

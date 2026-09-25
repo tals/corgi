@@ -183,6 +183,9 @@ time.sleep(120)
         self.assertRegex(view.poll()['data'], r' a \S* open')
         view.input('\r')
         self.until(lambda:len(self.session()['panes'])==before+2)
+        view.input('\x02A');view.input('\x02A')
+        self.until(lambda:len(self.session()['panes'])==before+3)
+        self.assertNotIn('New agent',view.poll()['data'])
         self.assertFalse(self.launches.exists())
 
     def test_hover_accepts_launch_keys(self):
