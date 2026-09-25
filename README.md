@@ -2,6 +2,23 @@
 
 A multiplexer terminal agent manager, heavily inspired by [herdr](https://github.com/herdrdev/herdr), powered by [Ghostty](https://github.com/ghostty-org/ghostty).
 
+Release installations download updates in the background and apply them on the
+next launch when the running session can safely hand off. `corgi update status`
+shows update state; `corgi update` checks and applies explicitly. See
+[releases and automatic updates](docs/releases.md) for installation, controls,
+and the single-command macOS arm64 + Linux amd64 R2/S3 publishing workflow.
+
+
+## Install
+
+macOS Apple Silicon (13+) or Linux amd64:
+
+```sh
+curl -fsSL https://pub-40b3831757234e008ffd5386c2c0572d.r2.dev/install.sh | bash
+```
+
+Run `~/.local/bin/corgi`, or add `~/.local/bin` to your PATH and run `corgi`.
+Updates download in the background and apply on the next launch.
 
 ## Development
 
@@ -22,6 +39,10 @@ its private key must be in your Keychain. With multiple identities, select one
 using `CORGI_SIGN_IDENTITY` or `-Dsigning-identity=SHA1`. The signing identifier is
 `dev.corgi.cli`; keep it stable. Signing stays inside the normal build, including
 `zig build run`, and credential access stays inside Corgi.
+
+`go.sh` disables secure timestamps for local development so signing does not depend
+on Apple's online timestamp service. Direct builds keep timestamping enabled by
+default; use `-Dsigning-timestamp=false` for an offline local build.
 
 Approve access once after switching from an ad-hoc build. Each Mac needs its own
 approval. For distribution to other Macs, use Developer ID Application signing

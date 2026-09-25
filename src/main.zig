@@ -4,6 +4,7 @@ const a = os.allocator;
 const c = os.c;
 const agents = @import("agents.zig");
 const integration = @import("integration.zig");
+const updates = @import("updates.zig");
 pub var build_id: [64]u8 = undefined;
 pub fn main() void {
     run() catch |err| {
@@ -20,7 +21,9 @@ pub fn main() void {
 fn run() !void {
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
-    const cmd = if (args.len > 1) args[1] else "attach";
+    const no_update = args.len == 2 and eq(args[1], "--no-update");
+    const cmd = if (no_update) "attach" else if (args.len > 1) args[1] else "attach";
+    if (try updates.internal(args)) return;
     if (eq(cmd, "__claude-credentials")) {
         if (args.len != 3) return error.Usage;
         const mode = std.meta.stringToEnum(@import("claude_credentials.zig").Interaction, args[2]) orelse return error.Usage;
@@ -30,6 +33,8 @@ fn run() !void {
     defer a.free(path);
     const exe = try std.fs.selfExePathAlloc(a);
     defer a.free(exe);
+    if (eq(cmd, "__update-start")) return ensureServer(path, exe);
+    if (eq(cmd, "update")) return updates.command(args[2..], path, exe);
     if (eq(std.fs.path.basename(args[0]), "codex")) try integration.launch("codex", args[1..], exe);
     if (eq(cmd, "attach") and os.env("CORGI_PANE") != null) return error.NestedCorgi;
     if (eq(cmd, "serve") or eq(cmd, "__handoff") or eq(cmd, "dev")) {
@@ -67,7 +72,7 @@ fn run() !void {
         try os.writeAll(1, help);
         return os.writeAll(1, @import("cli.zig").help);
     }
-    if (eq(cmd, "--version")) return os.writeAll(1, "corgi 0.1.0 (Ghostty VT; Zig 0.15.2)\n");
+    if (eq(cmd, "--version")) return os.writeAll(1, "corgi " ++ @import("corgi_options").release_version ++ " (" ++ @import("corgi_options").release_commit ++ ")\n");
     if (eq(cmd, "which")) {
         if (args.len != 3) return error.Usage;
         const provider = std.meta.stringToEnum(agents.Provider, args[2]) orelse return error.BadProvider;
@@ -128,7 +133,11 @@ fn run() !void {
         }
         return error.Usage;
     }
-    if (eq(cmd, "attach") or eq(cmd, "start")) try ensureServer(path, exe);
+    if (eq(cmd, "attach") or eq(cmd, "start")) {
+        if (!(args.len == 3 and eq(args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
+        try ensureServer(path, exe);
+        updates.background(path, exe) catch {};
+    }
     if (eq(cmd, "attach")) return @import("client.zig").attach(path);
     if (eq(cmd, "start")) return;
     if (eq(cmd, "ping") or eq(cmd, "shutdown")) return request(path, .{ .op = cmd });
@@ -219,6 +228,10 @@ const help =
     \\
     \\  corgi                         start / attach
     \\  corgi dev                     reload if changed; attach or relaunch viewer
+    \\  corgi --no-update             attach without activating a staged update
+    \\  corgi update                  download and safely apply an update
+    \\  corgi update status|rollback|--check|--download-only
+    \\  corgi update auto on|off      control automatic updates
     \\  corgi start                   start detached runtime
     \\  corgi action NAME [VALUE]     zoom, rename, next, prev, tab,
     \\                                   focus, swap, resize, move-tab,
@@ -246,6 +259,7 @@ const help =
     \\
 ;
 test {
+    _ = @import("updates.zig");
     _ = @import("agent_navigation.zig");
     _ = @import("link_tooltip.zig");
     _ = @import("checkpoint_probe.zig");

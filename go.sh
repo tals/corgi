@@ -14,7 +14,8 @@ confirm_shutdown() {
         exit 1
     fi
 }
-"$root/scripts/zig" build -Doptimize=ReleaseSafe
+# Local development retains the signing identity without needing Apple's timestamp service.
+"$root/scripts/zig" build -Doptimize=ReleaseSafe -Dsigning-timestamp=false
 if [ "${1:-}" = "--reload" ]; then
     shift
     "$root/zig-out/bin/corgi" reload

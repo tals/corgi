@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+# Download the release for this machine; refuse unsupported platforms.
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) target=macos-aarch64; expected=@MAC_SHA256@ ;;
+  Linux-x86_64) target=linux-x86_64; expected=@LINUX_SHA256@ ;;
+  *) echo 'Corgi supports macOS arm64 and Linux amd64.' >&2; exit 1 ;;
+esac
+base=@BASE@
+version=@VERSION@
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+
+download() {
+  curl --disable -fsSL --proto '=https' --proto-redir '=https' \
+    --connect-timeout 10 --max-time 300 "$base/releases/$version/$1" -o "$tmp/$2"
+}
+download "corgi-$target" corgi
+if command -v sha256sum >/dev/null 2>&1; then
+  actual=$(sha256sum "$tmp/corgi" | cut -d ' ' -f 1)
+else
+  actual=$(shasum -a 256 "$tmp/corgi" | cut -d ' ' -f 1)
+fi
+[ "$actual" = "$expected" ] || { echo 'Corgi checksum mismatch' >&2; exit 1; }
+
+# Corgi verifies the signed manifest and installs its auto-update launcher.
+download manifest.json manifest.json
+chmod 700 "$tmp/corgi"
+"$tmp/corgi" __install "${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}" \
+  "${CORGI_INSTALL_BIN:-$HOME/.local/bin/corgi}" "$tmp/manifest.json"

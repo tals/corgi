@@ -1,0 +1,193 @@
+#!/usr/bin/env bun
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from "node:crypto";
+import { mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const repo = resolve(import.meta.dir, "..");
+export const targets = [
+  { name: "macos-aarch64", zig: "aarch64-macos.13.0" },
+  { name: "linux-x86_64", zig: "x86_64-linux-musl" },
+] as const;
+export const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+export function releaseVersion(value: string) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw new Error("Version must be MAJOR.MINOR.PATCH, without a v prefix.");
+  if (value.split(".").some(n => !Number.isSafeInteger(Number(n)))) throw new Error("Version components are too large.");
+  return value;
+}
+export function validateBinary(name: string, bytes: Uint8Array) {
+  const b = Buffer.from(bytes);
+  if (name === "macos-aarch64") {
+    if (b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== 0x0100000c) throw new Error("Expected an arm64 Mach-O binary.");
+  } else {
+    if (b.length < 64 || b.subarray(0, 4).toString("hex") !== "7f454c46" || b[4] !== 2 || b[5] !== 1 || b.readUInt16LE(18) !== 62) throw new Error("Expected an amd64 ELF binary.");
+    const offset = Number(b.readBigUInt64LE(32)), size = b.readUInt16LE(54), count = b.readUInt16LE(56);
+    if (size < 56 || offset + size * count > b.length) throw new Error("Malformed ELF program headers.");
+    for (let i = 0; i < count; i++) if (b.readUInt32LE(offset + i * size) === 3) throw new Error("Linux release must be static (no dynamic interpreter).");
+  }
+}
+type Config = { publicBaseUrl: string; endpoint: string; region: string; bucket: string; signingKey: string; codesignIdentity: string; credentialsFile?: string };
+export async function loadCredentials(config: Pick<Config, "credentialsFile">, env = process.env) {
+  let accessKeyId = env.AWS_ACCESS_KEY_ID;
+  let secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId && !secretAccessKey && config.credentialsFile) {
+    const info = await stat(config.credentialsFile);
+    if (!info.isFile() || (info.mode & 0o077)) throw new Error("Credentials file must be private; run chmod 600 on it.");
+    let stored;
+    try { stored = JSON.parse(await readFile(config.credentialsFile, "utf8")); }
+    catch { throw new Error("Credentials file must contain valid JSON with accessKeyId and secretAccessKey."); }
+    accessKeyId = stored?.accessKeyId;
+    secretAccessKey = stored?.secretAccessKey;
+  }
+  if (typeof accessKeyId !== "string" || !accessKeyId.trim() || typeof secretAccessKey !== "string" || !secretAccessKey.trim()) {
+    throw new Error("Set both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or configure a private credentialsFile for R2/S3.");
+  }
+  return { accessKeyId, secretAccessKey };
+}
+type Asset = { key: string; bytes: Uint8Array; type: string };
+export interface Store {
+  get(key: string): Promise<Uint8Array | null>;
+  put(key: string, bytes: Uint8Array, type: string, cache: string): Promise<void>;
+  publicGet(key: string): Promise<Uint8Array>;
+}
+export async function publish(store: Store, assets: Asset[], envelope: Uint8Array, installer: Uint8Array) {
+  // Publisher invocations must be serialized (the CLI takes a local lock).
+  // Existing immutable objects can be reused only when their bytes match.
+  for (const asset of assets) {
+    const previous = await store.get(asset.key);
+    if (previous && sha256(previous) !== sha256(asset.bytes)) throw new Error(`Refusing to overwrite ${asset.key}; choose a new version.`);
+    if (!previous) await store.put(asset.key, asset.bytes, asset.type, "public, max-age=31536000, immutable");
+    if (sha256(await store.publicGet(asset.key)) !== sha256(asset.bytes)) throw new Error(`Public verification failed: ${asset.key}`);
+  }
+  await store.put("install.sh", installer, "text/x-shellscript", "no-cache, max-age=0");
+  if (sha256(await store.publicGet("install.sh")) !== sha256(installer)) throw new Error("Public installer verification failed");
+  // Single-object signed envelope: there is no signature/manifest pairing race.
+  await store.put("channels/stable.json", envelope, "application/json", "no-cache, max-age=0");
+  if (sha256(await store.publicGet("channels/stable.json")) !== sha256(envelope)) throw new Error("Channel was published, but public verification failed; check CDN caching before retrying.");
+}
+function shellQuote(value: string) { return "'" + value.replaceAll("'", "'\\''") + "'"; }
+const installTemplate = readFileSync(join(import.meta.dir, "install.sh.in"), "utf8");
+export function installer(base: string, version: string, binaries: Record<string, { sha256: string }>) {
+  const values: Record<string, string> = {
+    BASE: shellQuote(base), VERSION: shellQuote(releaseVersion(version)),
+    MAC_SHA256: shellQuote(binaries["macos-aarch64"].sha256),
+    LINUX_SHA256: shellQuote(binaries["linux-x86_64"].sha256),
+  };
+  return installTemplate.replace(/@(BASE|VERSION|MAC_SHA256|LINUX_SHA256)@/g, (_, key) => values[key]);
+}
+
+async function command(argv: string[], capture = false) {
+  const child = Bun.spawn(argv, { cwd: repo, stdout: capture ? "pipe" : "inherit", stderr: "inherit", stdin: "ignore" });
+  const output = capture ? await new Response(child.stdout).text() : "";
+  if (await child.exited !== 0) throw new Error(`Command failed: ${argv[0]} ${argv.slice(1, 3).join(" ")}`);
+  return output.trim();
+}
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv[0] === "--help" || !argv.length) {
+    console.log("Usage: ./scripts/release VERSION [--dry-run | --build-only | --publish-only]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + static Linux amd64 on an Apple Silicon Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\n--build-only permits a dirty tree and does not upload; such builds cannot be published.\n--publish-only resumes a previously prepared clean release without rebuilding/signing.");
+    return;
+  }
+  if (argv[0] === "--init-key") {
+    if (argv.length !== 2) throw new Error("Provide a private key path outside the repository.");
+    const path = resolve(argv[1]);
+    if (path === repo || path.startsWith(repo + "/")) throw new Error("Keep the signing key outside the repository.");
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(path, privateKey.export({ type: "pkcs8", format: "pem" }), { flag: "wx", mode: 0o600 });
+    console.log(`Created ${path}\nPublic key: ${Buffer.from(publicKey.export({ type: "spki", format: "der" })).subarray(-32).toString("hex")}`);
+    return;
+  }
+  const version = releaseVersion(argv[0]);
+  if (argv.length > 2 || (argv[1] && !["--dry-run", "--build-only", "--publish-only"].includes(argv[1]))) throw new Error("Unknown option; run --help.");
+  const mode = argv[1] || "";
+  if (mode === "--dry-run") {
+    console.log(`Release ${version}: test → build/sign macOS arm64 → cross-compile static Linux amd64 → verify both → sign manifest → upload/verify assets → publish channel last.\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`);
+    return;
+  }
+  const config: Config = JSON.parse(await readFile(process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json"), "utf8"));
+  config.publicBaseUrl = config.publicBaseUrl.replace(/\/+$/, "");
+  for (const url of [config.publicBaseUrl, config.endpoint]) {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Use credential-free HTTPS URLs without query strings or fragments.");
+  }
+  if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("Run releases on an Apple Silicon Mac (macOS signing requires it).");
+  const commit = await command(["git", "rev-parse", "HEAD"], true);
+  const statusArgs = ["git", "status", "--porcelain", "--untracked-files=all", "--", "src", "scripts", "tests", "docs", "README.md", "build.zig", "build.zig.zon", ".zigversion"];
+  const initialStatus = await command(statusArgs, true);
+  const dirty = !!initialStatus;
+  if (dirty && mode !== "--build-only") throw new Error("Commit tracked changes before publishing. --build-only is available for local verification.");
+  const credentials = mode === "--build-only" ? undefined : await loadCredentials(config);
+  const key = createPrivateKey(await readFile(config.signingKey));
+  if (key.asymmetricKeyType !== "ed25519") throw new Error("The release signing key must be Ed25519.");
+  const publicKey = Buffer.from(createPublicKey(key).export({ type: "spki", format: "der" })).subarray(-32).toString("hex");
+  const out = join(repo, "zig-out/releases", version);
+  await mkdir(dirname(out), { recursive: true });
+  const lock = join(repo, "zig-out/releases/publish.lock");
+  await mkdir(lock).catch(() => { throw new Error(`Another publisher is running (or left ${lock}); remove it only after confirming no publisher is running.`); });
+  try {
+    if (mode !== "--publish-only") {
+      // Rebuilding a prepared version could change timestamped macOS signatures.
+      if (await Bun.file(join(out, "prepared.json")).exists()) throw new Error("Release already prepared. Use --publish-only to resume, or choose another version.");
+      await command(["./scripts/zig", "build", "test"]);
+      await command(["bun", "test", "tests/release.test.ts", "tests/updates.test.ts"]);
+      await mkdir(out, { recursive: true });
+      const binaries: Record<string, { url: string; sha256: string; size: number }> = {};
+      for (const target of targets) {
+        const prefix = join(out, target.name);
+        const args = ["./scripts/zig", "build", "-Doptimize=ReleaseSafe", `-Dtarget=${target.zig}`, `-Drelease-version=${version}`, `-Drelease-commit=${commit}`, `-Dupdate-url=${config.publicBaseUrl}`, `-Dupdate-public-key=${publicKey}`, "--prefix", prefix];
+        if (target.name === "macos-aarch64") {
+          args.push("--sysroot", await command(["xcrun", "--sdk", "macosx", "--show-sdk-path"], true));
+          if (config.codesignIdentity === "-") {
+            if (mode !== "--build-only") throw new Error("Ad-hoc signing is only allowed with --build-only. Configure a persistent macOS signing identity for publishing.");
+            args.push("-Dcodesign=false");
+          } else if (config.codesignIdentity) args.push(`-Dsigning-identity=${config.codesignIdentity}`);
+        } else args.push("-Dcodesign=false");
+        await command(args);
+        const bytes = await readFile(join(prefix, "bin/corgi"));
+        validateBinary(target.name, bytes);
+        await writeFile(join(out, `corgi-${target.name}`), bytes, { mode: 0o755 });
+        binaries[target.name] = { url: `${config.publicBaseUrl}/releases/${version}/corgi-${target.name}`, sha256: sha256(bytes), size: bytes.length };
+      }
+      const info = JSON.parse(await command([join(out, "corgi-macos-aarch64"), "__update-info"], true));
+      if (info.version !== version || info.test_mode) throw new Error("Release metadata mismatch or unsafe test build.");
+      const payload = JSON.stringify({ schema_version: 1, version, update_abi: info.update_abi, targets: binaries });
+      const envelope = JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), key).toString("hex") });
+      await writeFile(join(out, "manifest.json"), envelope);
+      await writeFile(join(out, "install.sh"), installer(config.publicBaseUrl, version, binaries));
+      if (await command(["git", "rev-parse", "HEAD"], true) !== commit || await command(statusArgs, true) !== initialStatus) throw new Error("Checkout changed during the build. Choose a new release after finishing edits.");
+      await writeFile(join(out, "prepared.json"), JSON.stringify({ version, commit, publicBaseUrl: config.publicBaseUrl, publicKey, publishable: !dirty && mode !== "--build-only", hashes: { ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])), "manifest.json": sha256(envelope), "install.sh": sha256(installer(config.publicBaseUrl, version, binaries)) } }, null, 2));
+    }
+    if (mode === "--build-only") { console.log(`Both platforms built and verified in ${out}. Nothing published.`); return; }
+    const prepared = JSON.parse(await readFile(join(out, "prepared.json"), "utf8"));
+    if (!prepared.publishable || prepared.commit !== commit || prepared.publicKey !== publicKey || prepared.publicBaseUrl !== config.publicBaseUrl) throw new Error("Prepared release does not match this clean checkout/configuration.");
+    for (const [name, digest] of Object.entries(prepared.hashes)) if (sha256(await readFile(join(out, name))) !== digest) throw new Error(`Prepared artifact changed: ${name}`);
+    const s3 = new Bun.S3Client({ endpoint: config.endpoint, region: config.region, bucket: config.bucket, ...credentials });
+    const store: Store = {
+      async get(path) { const file = s3.file(path); return await file.exists() ? new Uint8Array(await file.arrayBuffer()) : null; },
+      async put(path, bytes, type, cache) {
+        const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
+        const response = await fetch(url, { method: "PUT", body: bytes, headers: { "Content-Type": type, "Cache-Control": cache }, signal: AbortSignal.timeout(300_000) });
+        if (!response.ok) throw new Error(`Upload failed for ${path}: HTTP ${response.status}`);
+      },
+      async publicGet(path) {
+        const response = await fetch(`${config.publicBaseUrl}/${path}`, { cache: "no-store", signal: AbortSignal.timeout(300_000) });
+        if (!response.ok) throw new Error(`Public download failed for ${path}: HTTP ${response.status}`);
+        return new Uint8Array(await response.arrayBuffer());
+      },
+    };
+    const previousChannel = await store.get("channels/stable.json");
+    if (previousChannel) {
+      const current = JSON.parse(JSON.parse(Buffer.from(previousChannel).toString()).payload).version;
+      const compare = (x: string) => releaseVersion(x).split(".").map(Number);
+      const old = compare(current), next = compare(version);
+      const first = next.findIndex((n, i) => n !== old[i]);
+      if (first >= 0 && next[first] < old[first]) throw new Error(`Refusing to move stable backwards from ${current} to ${version}.`);
+    }
+    const assets = await Promise.all([...targets.map(t => `corgi-${t.name}`), "manifest.json", "install.sh"].map(async name => ({ key: `releases/${version}/${name}`, bytes: await readFile(join(out, name)), type: name.endsWith(".json") ? "application/json" : name.endsWith(".sh") ? "text/x-shellscript" : "application/octet-stream" })));
+    await publish(store, assets, await readFile(join(out, "manifest.json")), await readFile(join(out, "install.sh")));
+    console.log(`Published Corgi ${version} for macOS arm64 and Linux amd64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}\nNo Git tags or remotes were changed.`);
+  } finally { await rm(lock, { recursive: true }); }
+}
+if (import.meta.main) main().catch(error => { console.error(error.message); process.exitCode = 1; });

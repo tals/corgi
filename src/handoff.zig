@@ -30,6 +30,7 @@ const SavedClient = struct {
 const Manifest = struct {
     preferred_workspace: u32 = 0,
     version: u32 = 1,
+    update_abi: ?[]const u8 = @import("updates.zig").abi,
     terminal_abi: u64 = @import("corgi_options").terminal_checkpoint_abi,
     listener: i32,
     requester: i32,
@@ -151,6 +152,7 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         const parsed = try std.json.parseFromSlice(Manifest, a, bytes, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const m = parsed.value;
+        if (m.update_abi) |abi| if (!std.mem.eql(u8, abi, @import("updates.zig").abi)) return error.IncompatibleCheckpoint;
         if (m.version != 1 or m.terminal_abi != @import("corgi_options").terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
         s = .{ .preferred_workspace = m.preferred_workspace, .socket = socket, .executable = executable, .inherited_listener = m.listener, .theme = m.theme, .default_folder_pending = m.default_folder_pending, .next_viewer = m.next_viewer, .bell_seq = m.bell_seq, .last_bell = m.last_bell, .last_bell_kind = m.last_bell_kind };
         os.cloexec(m.listener);

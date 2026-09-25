@@ -129,7 +129,7 @@ pub const Server = struct {
         if (eq(op, "hello")) {
             try protocol.require(v, null);
             cl.protocol_version = protocol.version;
-            try cl.queue(.{ .type = "hello", .protocol = protocol.version, .capabilities = protocol.capabilities, .server_pid = c.getpid(), .build_id = &@import("main.zig").build_id });
+            try cl.queue(.{ .type = "hello", .protocol = protocol.version, .capabilities = protocol.capabilities, .server_pid = c.getpid(), .build_id = &@import("main.zig").build_id, .executable = s.executable, .release_version = @import("corgi_options").release_version, .update_abi = @import("updates.zig").abi });
             return true;
         }
         var known = false;

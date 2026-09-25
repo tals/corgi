@@ -22,13 +22,18 @@ if [ "${1:-}" = --identity ]; then
     exit 1
 fi
 
-if [ "$#" -ne 3 ] || [ "$1" = - ]; then
-    echo 'Usage: sign-macos IDENTITY INPUT OUTPUT (a persistent certificate is required)' >&2
+if [ "$#" -ne 4 ] || [ "$1" = - ]; then
+    echo 'Usage: sign-macos IDENTITY INPUT OUTPUT TIMESTAMP (true or false; a persistent certificate is required)' >&2
     exit 1
 fi
+case "$4" in
+    true) timestamp=--timestamp ;;
+    false) timestamp=--timestamp=none ;;
+    *) echo 'TIMESTAMP must be true or false' >&2; exit 1 ;;
+esac
 
 # Sign a copy: never mutate the compiler cache or a running executable.
 /bin/cp "$2" "$3"
 /bin/chmod u+w "$3"
-/usr/bin/codesign --force --sign "$1" --identifier dev.corgi.cli --options runtime --timestamp "$3"
+/usr/bin/codesign --force --sign "$1" --identifier dev.corgi.cli --options runtime "$timestamp" "$3"
 /usr/bin/codesign --verify --strict "$3"
