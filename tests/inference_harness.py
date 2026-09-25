@@ -29,7 +29,9 @@ def main():
         elif method == 'config/read':
             emit({'id': ident, 'result': {'config': {'model': 'fixture-codex', 'mcp_servers': {'fixture': {}}}}})
         elif method == 'account/read':
-            emit({'id':ident,'result':{'account':{'type':'chatgpt','email':'codex@example.com'}}})
+            emit({'id':ident,'result':{'account':{'type':'chatgpt','email':'codex@example.com','planType':'pro'}}})
+        elif method == 'account/rateLimits/read':
+            emit({'id': ident, 'result': {'rateLimits': {'primary': {'usedPercent': 23, 'windowDurationMins': 300}, 'secondary': {'usedPercent': 61, 'windowDurationMins': 10080}}}})
         elif method == 'thread/start':
             assert value['params']['config']['mcp_servers.fixture.enabled'] is False
             counter += 1

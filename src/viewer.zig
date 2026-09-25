@@ -29,6 +29,11 @@ pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme) !u6
     view.navigation.workspace_id = try protocol.id(opened.value, "workspace");
     view.input_state.attached = true;
     try view.refresh();
+    // Warm the New menu cache; provider checks run on the daemon's worker.
+    const preview_cwd = view.inheritedCwd(view.current(), if (view.focused()) |p| p.id else null);
+    if (view.connection.call(.{ .op = "agent.preview", .protocol = 1, .workspace = view.current().id, .cwd = preview_cwd })) |preview| {
+        preview.deinit();
+    } else |_| {}
     return @intCast(opened.value.object.get("bell_seq").?.integer);
 }
 pub fn deinit(view: *View) void {

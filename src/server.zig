@@ -188,13 +188,13 @@ pub const Server = struct {
             try cl.queue(.{ .ok = true, .path = path });
             return;
         }
-        if (eq(operation, "agent.preview")) {
+        if (eq(operation, "agent.preview") or eq(operation, "agent.track_usage")) {
             try protocol.require(v, cl.protocol_version);
             const ws = try s.runtime.getWorkspace(try protocol.id(v, "workspace"));
             const requested = agents.str(v, "cwd");
             const cwd = if (requested.len > 0) requested else ws.cwd;
             if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
-            const preview = if (s.launch_previews) |worker| worker.preview(cwd) else @import("agent_launcher.zig").Preview{};
+            const preview = if (s.launch_previews) |worker| (if (eq(operation, "agent.track_usage")) worker.trackUsage(cwd) else worker.preview(cwd)) else @import("agent_launcher.zig").Preview{};
             try cl.queue(.{ .ok = true, .preview = preview });
             return;
         }

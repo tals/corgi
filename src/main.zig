@@ -21,6 +21,11 @@ fn run() !void {
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
     const cmd = if (args.len > 1) args[1] else "attach";
+    if (eq(cmd, "__claude-credentials")) {
+        if (args.len != 3) return error.Usage;
+        const mode = std.meta.stringToEnum(@import("claude_credentials.zig").Interaction, args[2]) orelse return error.Usage;
+        return @import("claude_credentials.zig").serve(mode);
+    }
     const path = try os.socketPath();
     defer a.free(path);
     const exe = try std.fs.selfExePathAlloc(a);

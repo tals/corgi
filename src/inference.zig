@@ -249,7 +249,7 @@ pub const Pool = struct {
         };
         return error.NoDefaultModel;
     }
-    pub fn configuredAccount(p: *Pool, stopping: *const std.atomic.Value(bool)) !Response {
+    pub fn configuredAccount(p: *Pool, stopping: *const std.atomic.Value(bool)) !@import("account_preview.zig").Info {
         const slot = &p.slots[0];
         const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
         errdefer if (slot.*) |*connection| {
@@ -260,9 +260,21 @@ pub const Pool = struct {
         const reply = try slot.*.?.rpc("account/read", .{ .refreshToken = false }, stopping, deadline);
         defer reply.deinit();
         const account = field(field(reply.value, "result"), "account");
-        const email = str(account, "email");
-        var response: Response = .{};
-        try response.set(if (email.len > 0) email else if (eq(str(account, "type"), "apiKey")) "API key" else if (account == .null) "Not signed in" else "Signed in");
+        const metadata = @import("account_preview.zig");
+        var response = metadata.codexAccount(account);
+        if (!eq(str(account, "type"), "chatgpt")) return response;
+        // A limits failure must not discard the identity/plan we already read.
+        const limits = slot.*.?.rpc("account/rateLimits/read", .{}, stopping, deadline) catch {
+            slot.*.?.close();
+            slot.* = null;
+            return response;
+        };
+        defer limits.deinit();
+        const result = field(limits.value, "result");
+        const bucket = field(field(result, "rateLimitsByLimitId"), "codex");
+        const rates = if (bucket != .null) bucket else field(result, "rateLimits");
+        response.usage = metadata.usage(rates, true);
+        response.resets = metadata.resets(rates, true);
         return response;
     }
     fn select(p: *Pool, request: Request) usize {

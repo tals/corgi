@@ -16,6 +16,10 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     mod.addImport("ghostty-vt", ghostty.module("ghostty-vt"));
+    if (target.result.os.tag == .macos) {
+        mod.linkFramework("Security", .{});
+        mod.linkFramework("CoreFoundation", .{});
+    }
     const options = b.addOptions();
     options.addOption(bool, "viewer_test_driver", b.option(bool, "viewer-test-driver", "Enable stdio viewer integration harness") orelse false);
     options.addOption(u64, "terminal_checkpoint_abi", std.hash.Wyhash.hash(0, @embedFile("build.zig.zon")));

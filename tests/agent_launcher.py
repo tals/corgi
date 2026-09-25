@@ -5,7 +5,22 @@ import smoke
 from viewer_client import Viewer
 
 class Launcher(unittest.TestCase):
-    run_cli=smoke.Runtime.run_cli
+    def run_cli(self,*args):
+        if args==('start',) and not hasattr(self,'usage_fixture_ready'):
+            self.usage_fixture_ready=True
+            root=pathlib.Path(self.temp.name)
+            curl=root/'curl'
+            curl.write_text("""#!/usr/bin/env python3
+import json,sys
+assert 'fixture-token' not in ' '.join(sys.argv)
+assert 'Authorization: Bearer fixture-token' in sys.stdin.read()
+print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].endswith('/profile') else {'five_hour':{'utilization':12},'seven_day':{'utilization':48}}))
+""")
+            curl.chmod(0o700)
+            self.env['PATH']=str(root)+':'+self.env.get('PATH','')
+            settings=pathlib.Path(self.env['CLAUDE_CONFIG_DIR']);settings.mkdir(parents=True,exist_ok=True)
+            (settings/'.credentials.json').write_text(json.dumps({'claudeAiOauth':{'accessToken':'fixture-token','subscriptionType':'max','expiresAt':int(time.time()*1000)+60000}}))
+        return smoke.Runtime.run_cli(self,*args)
     rpc=smoke.Runtime.rpc
     command=smoke.Runtime.command
     raw_rpc=smoke.Runtime.raw_rpc
@@ -20,7 +35,7 @@ import json,os,sys,time
 if 'app-server' in sys.argv:os.execv(sys.executable,[sys.executable,{str(fixture)!r},*sys.argv[1:]])
 if '--version' in sys.argv:print('codex fixture');sys.exit(0)
 if sys.argv[1:3]==['auth','status']:
-    print(json.dumps({{'loggedIn':True,'authMethod':'claude.ai','email':'claude@example.com'}}));sys.exit(0)
+    raise AssertionError('background preview must not invoke auth status')
 with open({str(self.launches)!r},'a') as f:f.write(json.dumps({{'cwd':os.getcwd(),'args':sys.argv[1:]}})+'\\n')
 print('LAUNCH FIXTURE READY',flush=True)
 time.sleep(120)
@@ -47,6 +62,8 @@ time.sleep(120)
         rows=smoke.screen_text(view.poll()['data'],100,30)
         self.assertTrue(any('Codex' in row and 'fixture-codex' in row and 'codex@example.com' in row for row in rows))
         self.assertTrue(any('Claude Code' in row and 'opus' in row and 'claude@example.com' in row for row in rows))
+        self.assertTrue(any('Codex' in row and 'pro' in row and '5h 23% / 7d 61%' in row for row in rows))
+        self.assertTrue(any('Claude Code' in row and 'max' in row and '5h 12% / 7d 48%' in row for row in rows))
         self.assertFalse(self.launches.exists());self.assertEqual(len(self.session()['panes']),1)
         self.click(view,22,19)
         self.until(lambda:self.launches.exists())
@@ -132,6 +149,110 @@ time.sleep(120)
             view.input(launch)
             self.until(lambda:len(self.session()['panes'])==before+1)
             self.assertNotIn('New agent',view.poll()['data'])
+
+    def test_claude_subscription_usage_and_private_auth_header(self):
+        self.run_cli('shutdown')
+        self.until(lambda:not pathlib.Path(self.path).exists())
+        root=pathlib.Path(self.temp.name)
+        curl=root/'curl'
+        curl.write_text("""#!/usr/bin/env python3
+import json,sys
+assert 'fixture-token' not in ' '.join(sys.argv)
+assert sys.argv[-1] in ('https://api.anthropic.com/api/oauth/usage','https://api.anthropic.com/api/oauth/profile')
+assert 'Authorization: Bearer fixture-token' in sys.stdin.read()
+print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].endswith('/profile') else {'five_hour':{'utilization':12,'resets_at':'2099-01-01T12:00:00.000000+00:00'},'seven_day':{'utilization':48,'resets_at':'2099-01-04T12:00:00Z'}}))
+""")
+        curl.chmod(0o700)
+        self.env['PATH']=str(root)+':'+self.env.get('PATH','')
+        (pathlib.Path(self.env['CLAUDE_CONFIG_DIR'])/'.credentials.json').write_text(json.dumps({'claudeAiOauth':{'accessToken':'fixture-token','subscriptionType':'max','expiresAt':int(time.time()*1000)+60000}}))
+        self.run_cli('start')
+        ws=self.session()['workspaces'][0]['id']
+        def preview():return self.rpc(op='agent.preview',protocol=1,workspace=ws,cwd=self.launch_dir)['preview']
+        self.until(lambda:not preview()['pending'],timeout=12)
+        option=preview()['options'][1]
+        self.assertEqual(option['plan']['bytes'][:option['plan']['len']],'max')
+        self.assertEqual(option['usage']['bytes'][:option['usage']['len']],'5h 12% / 7d 48%')
+        self.assertNotIn('fixture-token',json.dumps(preview()))
+        self.assertTrue(all(stamp is not None for stamp in option['resets']['at']))
+        view=Viewer(self,160,30)
+        view.input('\x02a')
+        self.until(lambda:'Resets in' in view.poll()['data'])
+        rows=smoke.screen_text(view.poll()['data'],160,30)
+        row=next(row for row in rows if 'Claude Code' in row)
+        self.assertIn('5h 12% / 7d 48%',row)
+        self.assertRegex(row,r'5h \d+d')
+
+    def consent_fixture(self, allowed=False, deny=False):
+        self.run_cli('shutdown')
+        self.until(lambda:not pathlib.Path(self.path).exists())
+        root=pathlib.Path(self.temp.name)
+        credentials=json.dumps({'claudeAiOauth':{'accessToken':'fixture-token','subscriptionType':'max','expiresAt':int(time.time()*1000)+60000}})
+        fixture=root/'credentials-fixture.json'
+        fixture.write_text(json.dumps({
+            'silent':{'credentials':credentials} if allowed else {'needs_consent':True},
+            'interactive':{'needs_consent':True,'delay_ms':250} if deny else {'credentials':credentials,'delay_ms':250},
+        }))
+        self.consent_log=root/'credential-access.log'
+        self.env['CORGI_TEST_CLAUDE_CREDENTIALS']=str(fixture)
+        self.env['CORGI_TEST_CLAUDE_CREDENTIAL_LOG']=str(self.consent_log)
+        curl=root/'curl'
+        curl.write_text("""#!/usr/bin/env python3
+import json,sys
+assert 'fixture-token' not in ' '.join(sys.argv)
+assert 'Authorization: Bearer fixture-token' in sys.stdin.read()
+print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].endswith('/profile') else {'five_hour':{'utilization':12},'seven_day':{'utilization':48}}))
+""")
+        curl.chmod(0o700)
+        self.env['PATH']=str(root)+':'+self.env.get('PATH','')
+        self.run_cli('start')
+        self.ws=self.session()['workspaces'][0]['id']
+        self.command('pane.create',workspace=self.ws,cwd=self.launch_dir,command='sleep 120')
+        return Viewer(self,100,30)
+
+    def usage_rows(self, view):
+        return smoke.screen_text(view.poll()['data'],100,30)
+
+    def test_track_usage_is_explicit_and_does_not_launch_an_agent(self):
+        view=self.consent_fixture()
+        self.until(self.consent_log.exists)
+        self.assertEqual(self.consent_log.read_text().splitlines(),['silent'])
+        self.click(view,26,15)
+        self.until(lambda:any('Claude Code' in row and 'Track usage' in row for row in self.usage_rows(view)))
+        self.assertEqual(self.consent_log.read_text().splitlines(),['silent'])
+        # Reopening the menu and hover/polling never authorize a prompt.
+        view.input('\x1b');self.click(view,26,15)
+        rows=self.usage_rows(view)
+        y,row=next((y,row) for y,row in enumerate(rows) if 'Claude Code' in row)
+        x=row.index('Track usage')
+        count=len(self.session()['panes'])
+        self.click(view,x+1,y+1)
+        self.click(view,x+1,y+1) # A second click while pending must not launch.
+        self.until(lambda:any('Claude Code' in row and '5h 12% / 7d 48%' in row for row in self.usage_rows(view)))
+        self.assertEqual(self.consent_log.read_text().splitlines(),['silent','interactive'])
+        self.assertEqual(len(self.session()['panes']),count)
+        self.assertFalse(self.launches.exists())
+        self.assertIn('New agent',view.poll()['data'])
+
+    def test_denied_tracking_is_not_retried_interactively(self):
+        view=self.consent_fixture(deny=True)
+        self.click(view,26,15)
+        self.until(lambda:'Track usage' in view.poll()['data'])
+        view.input('\x1b[B');view.input('u')
+        self.until(lambda:self.consent_log.read_text().splitlines().count('interactive')==1)
+        self.until(lambda:'Track usage' in view.poll()['data'])
+        another=pathlib.Path(self.temp.name)/'another';another.mkdir()
+        def preview():return self.rpc(op='agent.preview',protocol=1,workspace=self.ws,cwd=str(another))['preview']
+        self.until(lambda:not preview()['pending'])
+        self.assertEqual(self.consent_log.read_text().splitlines(),['silent','interactive','silent'])
+        self.assertTrue(preview()['options'][1]['usage_needs_consent'])
+        self.assertFalse(self.launches.exists())
+
+    def test_already_authorized_usage_loads_silently(self):
+        view=self.consent_fixture(allowed=True)
+        self.click(view,26,15)
+        self.until(lambda:any('5h 12% / 7d 48%' in row for row in self.usage_rows(view)))
+        self.assertNotIn('Track usage',view.poll()['data'])
+        self.assertEqual(self.consent_log.read_text().splitlines(),['silent'])
 
     def test_preview_project_model(self):
         project=pathlib.Path(self.temp.name)/'project';(project/'.claude').mkdir(parents=True)

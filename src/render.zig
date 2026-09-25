@@ -168,7 +168,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         }
     }
     if (ui.agent_launcher != null) if (ui.pointer) |pointer| {
-        link_pointer = @import("agent_launcher.zig").Menu.hit(width, height, side, pointer.x, pointer.y) != null or side.hit(pointer.x, pointer.y) == .agent_new or side.hit(pointer.x, pointer.y) == .agent_options;
+        link_pointer = ui.agent_launcher.?.hit(width, height, side, pointer.x, pointer.y) != null or side.hit(pointer.x, pointer.y) == .agent_new or side.hit(pointer.x, pointer.y) == .agent_options;
     };
     for (view.placements(area, &locations)) |place| {
         if (place.rect.w == 0 or place.rect.h == 0) continue;
