@@ -32,6 +32,7 @@ pub const Actor = struct {
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
+        if (event.kind == .tool_start and !event.asking) actor.activity_timeline.step(actor.state.turnId());
         if (actor.state.provider == .claude) {
             if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
             if (event.kind == .session_end) actor.background_tasks = .{};

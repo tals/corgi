@@ -67,6 +67,8 @@ pub const Agent = struct {
     cwd: []const u8,
     tool_active: bool,
     compacting: bool = false,
+    step: []const u8 = "",
+    step_status: agents.StepStatus = .none,
 };
 pub const Pane = struct {
     binding: u64 = 0,
@@ -96,7 +98,7 @@ pub const Native = struct {
     compacting: bool = false,
 };
 pub const Conversation = struct {
-    pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: @import("live_usage.zig").View };
+    pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: @import("live_usage.zig").View, steps: u32 = 0 };
     pub const Timeline = struct { points: []const ActivityPoint = &.{}, pending: @import("live_usage.zig").View = .{} };
     background_tasks: @import("background_tasks.zig").View = .{},
     id: u32,
@@ -146,6 +148,8 @@ fn agentView(state: *const agents.Agent, conversation: u32) Agent {
         .cwd = state.directory(),
         .tool_active = state.tool_active,
         .compacting = state.compacting,
+        .step = state.stepLabel(),
+        .step_status = state.step_status,
     };
 }
 
@@ -197,7 +201,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         const current_usage = actor.usageView(std.time.milliTimestamp());
         const points = try allocator.alloc(Conversation.ActivityPoint, actor.activity_timeline.len);
         for (actor.activity_timeline.points[0..actor.activity_timeline.len], points) |*point, *dst| {
-            dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage };
+            dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage, .steps = point.steps };
         }
         var attachments: u32 = 0;
         for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {

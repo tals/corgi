@@ -7,13 +7,22 @@ const std = @import("std");
 const summary = @import("activity_summary.zig");
 const usage = @import("live_usage.zig");
 
-pub const Point = struct { at: i64, label: summary.Label, usage: usage.View };
+pub const Point = struct { at: i64, label: summary.Label, usage: usage.View, steps: u32 = 0 };
 pub const Timeline = struct {
     points: [4]Point = undefined,
     len: usize = 0,
     baseline: usage.View = .{ .known = true },
     turn: [160]u8 = @splat(0),
     turn_len: usize = 0,
+    // Tool calls of a turn that has no summary yet join its first phase.
+    fresh_steps: u32 = 0,
+
+    pub fn step(t: *Timeline, turn: []const u8) void {
+        if (t.len > 0 and std.mem.eql(u8, turn, t.turn[0..t.turn_len]))
+            t.points[t.len - 1].steps +|= 1
+        else
+            t.fresh_steps +|= 1;
+    }
 
     pub fn pending(t: *const Timeline, current: usage.View) usage.View {
         var value = t.observedDelta(current);
@@ -51,15 +60,17 @@ pub const Timeline = struct {
         if (t.len > 0) t.points[t.len - 1].usage = interval;
         if (t.len > 0 and std.mem.eql(u8, turn, t.turn[0..t.turn_len]) and std.mem.eql(u8, label.text(), t.points[t.len - 1].label.text())) {
             // Repeated summaries continue the same interval and start time.
+            t.points[t.len - 1].steps +|= t.fresh_steps;
         } else {
             if (t.len == t.points.len) {
                 std.mem.copyForwards(Point, t.points[0 .. t.len - 1], t.points[1..t.len]);
                 t.len -= 1;
             }
             // Keep observations before the first summary with the first phase.
-            t.points[t.len] = .{ .at = at, .label = label, .usage = if (t.len == 0) interval else .{ .known = current.known } };
+            t.points[t.len] = .{ .at = at, .label = label, .usage = if (t.len == 0) interval else .{ .known = current.known }, .steps = t.fresh_steps };
             t.len += 1;
         }
+        t.fresh_steps = 0;
         t.turn_len = @min(turn.len, t.turn.len);
         @memcpy(t.turn[0..t.turn_len], turn[0..t.turn_len]);
         // Runtime counters are monotonic. Retain a high-water mark if telemetry
@@ -147,4 +158,25 @@ test "activity transitions charge the previous phase and pending retains repeate
     timeline.checkpoint("turn", reviewing, current, 4000);
     try std.testing.expectEqual(live, timeline.points[1].usage.tokens);
     try std.testing.expectEqual(@as(u64, 0), timeline.pending(current).tokens.total());
+}
+
+test "steps count toward the current phase and a new turn's first phase" {
+    var timeline: Timeline = .{};
+    const reading = summary.Label.parse("Reading source").?;
+    const testing = summary.Label.parse("Running tests").?;
+    timeline.step("a");
+    timeline.step("a");
+    timeline.checkpoint("a", reading, .{}, 1);
+    try std.testing.expectEqual(@as(u32, 2), timeline.points[0].steps);
+    timeline.step("a");
+    timeline.checkpoint("a", reading, .{}, 2);
+    try std.testing.expectEqual(@as(u32, 3), timeline.points[0].steps);
+    timeline.checkpoint("a", testing, .{}, 3);
+    timeline.step("a");
+    try std.testing.expectEqual(@as(u32, 1), timeline.points[1].steps);
+    // A new turn's steps wait for its own first phase.
+    timeline.step("b");
+    try std.testing.expectEqual(@as(u32, 1), timeline.points[1].steps);
+    timeline.checkpoint("b", testing, .{}, 4);
+    try std.testing.expectEqual(@as(u32, 1), timeline.points[2].steps);
 }

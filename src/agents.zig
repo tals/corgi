@@ -4,6 +4,8 @@ pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
 pub const providers = @import("providers.zig");
 pub const Provider = providers.Provider;
+/// A Claude tool call's own label, for the popover's current step.
+pub const StepStatus = enum { none, running, done, failed };
 pub const Subagents = struct {
     running: u32 = 0,
     blocked: u32 = 0,
@@ -41,6 +43,9 @@ pub const Agent = struct {
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,
+    step: [160]u8 = .{0} ** 160,
+    step_len: usize = 0,
+    step_status: StepStatus = .none,
     // Codex runs PermissionRequest hooks before automatic review. Only an
     // actual prompt (or a protocol waiting flag) establishes human attention.
     permission_review: ?u8 = null,
@@ -59,13 +64,11 @@ pub const Agent = struct {
     pub fn displayName(a: *const Agent) []const u8 {
         return a.name[0..a.name_len];
     }
-    /// First line only, cut on a codepoint boundary, without control bytes.
     pub fn setActivity(a: *Agent, value: []const u8) void {
-        const line = std.mem.trim(u8, value[0 .. std.mem.indexOfScalar(u8, value, '\n') orelse value.len], " \t\r");
-        var n = @min(line.len, a.activity.len);
-        while (n > 0 and !std.unicode.utf8ValidateSlice(line[0..n])) n -= 1;
-        for (line[0..n], 0..) |ch, i| a.activity[i] = if (ch < 32 or ch == 127) ' ' else ch;
-        a.activity_len = n;
+        a.activity_len = firstLine(&a.activity, value);
+    }
+    pub fn stepLabel(a: *const Agent) []const u8 {
+        return a.step[0..a.step_len];
     }
     pub fn sessionId(a: *const Agent) []const u8 {
         return a.session[0..a.session_len];
@@ -244,9 +247,16 @@ pub const Agent = struct {
             }
             if (start or event == .prompt) a.activity_inferred = false;
             a.activity_at = now;
-            if (event == .tool_start and !hook.asking and !a.activity_inferred) {
-                var label: [160]u8 = undefined;
-                a.setActivity(toolActivity(&label, hook.tool, hook.description, hook.target));
+            var label: [160]u8 = undefined;
+            const direct = toolActivity(&label, hook.tool, hook.description, hook.target);
+            if (event == .tool_start and !hook.asking) {
+                if (!a.activity_inferred) a.setActivity(direct);
+                a.step_len = firstLine(&a.step, direct);
+                a.step_status = .running;
+            } else if ((event == .tool_finish or event == .tool_failure) and a.step_status == .running) {
+                a.step_status = if (event == .tool_failure) .failed else .done;
+            } else if (start or event == .prompt or event == .interrupt or event == .session_end) {
+                a.step_status = .none;
             }
         }
         if (start or next == .working) a.attention = if (a.observation.unread()) .finished else .none;
@@ -284,6 +294,8 @@ pub const Agent = struct {
 /// A tool's own description, else a verb and its main argument.
 pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, target: []const u8) []const u8 {
     if (std.mem.trim(u8, description, " \t\r\n").len > 0) return description;
+    // A raw command line is noise; the sidebar's tool indicator marks it instead.
+    if (eq(tool, "Bash")) return "";
     const Verb = struct { tool: []const u8, verb: []const u8, path: bool = false };
     const verbs = [_]Verb{
         .{ .tool = "Read", .verb = "Reading", .path = true },
@@ -295,7 +307,6 @@ pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, tar
         .{ .tool = "Glob", .verb = "Finding" },
         .{ .tool = "WebFetch", .verb = "Fetching" },
         .{ .tool = "WebSearch", .verb = "Searching the web for" },
-        .{ .tool = "Bash", .verb = "Running" },
         .{ .tool = "Skill", .verb = "Using skill" },
         .{ .tool = "TodoWrite", .verb = "Updating todos" },
     };
@@ -322,6 +333,14 @@ pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, tar
         n += take;
     }
     return buffer[0..n];
+}
+/// First line only, cut on a codepoint boundary, without control bytes.
+fn firstLine(out: []u8, value: []const u8) usize {
+    const line = std.mem.trim(u8, value[0 .. std.mem.indexOfScalar(u8, value, '\n') orelse value.len], " \t\r");
+    var n = @min(line.len, out.len);
+    while (n > 0 and !std.unicode.utf8ValidateSlice(line[0..n])) n -= 1;
+    for (line[0..n], 0..) |ch, i| out[i] = if (ch < 32 or ch == 127) ' ' else ch;
+    return n;
 }
 fn eq(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
@@ -445,13 +464,13 @@ test "conversation state rejects identity replacement and uses a controlled cloc
 test "Claude tool hooks label activity from descriptions or main arguments" {
     var buffer: [160]u8 = undefined;
     try std.testing.expectEqualStrings("Run unit tests", toolActivity(&buffer, "Bash", "Run unit tests", "zig build test"));
-    try std.testing.expectEqualStrings("Running zig build test", toolActivity(&buffer, "Bash", " ", "zig build test"));
+    try std.testing.expectEqualStrings("", toolActivity(&buffer, "Bash", " ", "zig build test"));
     try std.testing.expectEqualStrings("Reading server.zig", toolActivity(&buffer, "Read", "", "/repo/src/server.zig"));
     try std.testing.expectEqualStrings("Fetching docs.example.com", toolActivity(&buffer, "WebFetch", "", "https://docs.example.com/a/b"));
     try std.testing.expectEqualStrings("Updating todos", toolActivity(&buffer, "TodoWrite", "", ""));
     try std.testing.expectEqualStrings("search_issues bug", toolActivity(&buffer, "mcp__github__search_issues", "", "bug"));
     const long: [300]u8 = @splat('x');
-    try std.testing.expectEqual(@as(usize, 160), toolActivity(&buffer, "Bash", "", &long).len);
+    try std.testing.expectEqual(@as(usize, 160), toolActivity(&buffer, "Grep", "", &long).len);
 
     var a: Agent = .{};
     _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 1, false, 10);
@@ -462,6 +481,22 @@ test "Claude tool hooks label activity from descriptions or main arguments" {
     // Finishing a tool keeps its label until newer evidence arrives.
     _ = a.observeHook(.claude, .{ .kind = .tool_finish, .session = "s", .tool = "Grep" }, 3, false, 30);
     try std.testing.expectEqualStrings("Searching for routeHook", a.activity[0..a.activity_len]);
+    // An undescribed command clears the label, leaving only the tool indicator.
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Bash", .target = "zig build test --summary all" }, 4, false, 40);
+    try std.testing.expectEqual(@as(usize, 0), a.activity_len);
+    try std.testing.expect(a.tool_active);
+    try std.testing.expectEqual(StepStatus.running, a.step_status);
+    try std.testing.expectEqual(@as(usize, 0), a.step_len);
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Bash", .description = "Build corgi\nand test" }, 5, false, 50);
+    try std.testing.expectEqualStrings("Build corgi", a.stepLabel());
+    _ = a.observeHook(.claude, .{ .kind = .tool_failure, .session = "s", .tool = "Bash" }, 6, false, 60);
+    try std.testing.expectEqual(StepStatus.failed, a.step_status);
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Read", .target = "/a/b.zig" }, 7, false, 70);
+    _ = a.observeHook(.claude, .{ .kind = .tool_finish, .session = "s", .tool = "Read" }, 8, false, 80);
+    try std.testing.expectEqual(StepStatus.done, a.step_status);
+    try std.testing.expectEqualStrings("Reading b.zig", a.stepLabel());
+    _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 9, false, 90);
+    try std.testing.expectEqual(StepStatus.none, a.step_status);
     // Codex activity still comes only from its summaries.
     var codex: Agent = .{};
     _ = codex.observeHook(.codex, .{ .kind = .tool_start, .session = "c", .tool = "Bash", .description = "Run tests" }, 1, false, 10);

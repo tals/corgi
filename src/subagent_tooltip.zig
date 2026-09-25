@@ -299,20 +299,45 @@ const Card = struct {
                 try std.fmt.bufPrint(&stamp, "{d:0>2}:{d:0>2}", .{ @as(u8, @intCast(local.tm_hour)), @as(u8, @intCast(local.tm_min)) })
             else
                 "--:--";
-            try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .muted);
+            var label_buf: [160]u8 = undefined;
+            try card.drawPoint(row + 1 + i, time, phaseLabel(&label_buf, point), point.usage, false, .muted);
         }
         if (show_pending) {
             const active = agent.state == .working and !unreported;
             const blocked = agent.state == .blocked;
             const latest = root.timeline.points[root.timeline.points.len - 1];
-            try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
+            var label_buf: [160]u8 = undefined;
+            try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", phaseLabel(&label_buf, latest), root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
         }
         if (unreported) {
             const current = if (agent.compacting) "Compacting…" else if (agent.subagents.waiting) "Waiting on subagents" else "Activity not reported yet";
             try card.drawPoint(row + nodes, "  now", current, .{}, true, .working);
         }
     }
+    /// Indented under the live phase: a wrench while it runs, then its outcome.
+    fn step(card: Card, row: usize, agent: protocol.Agent) !void {
+        const mark: struct { icon: []const u8, tone: Tone, text: Tone, strike: bool } = switch (agent.step_status) {
+            .running => .{ .icon = "🔧", .tone = .text, .text = .text, .strike = false },
+            .done => .{ .icon = "✓", .tone = .idle, .text = .muted, .strike = true },
+            .failed => .{ .icon = "✗", .tone = .blocked, .text = .muted, .strike = false },
+            .none => return,
+        };
+        try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 14, base, mark.tone.ansi(), mark.icon });
+        if (agent.step.len == 0) return;
+        var clean: [512]u8 = undefined;
+        try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 17, base, mark.text.ansi(), if (mark.strike) "\x1b[9m" else "" });
+        try sidebar.writeEllipsis(card.w, sidebar.directoryLabel(&clean, agent.step, null), card.textWidth() -| 13);
+        if (mark.strike) try card.w.writeAll("\x1b[29m");
+    }
 };
+fn phaseLabel(buf: []u8, point: protocol.Conversation.ActivityPoint) []const u8 {
+    if (point.steps == 0) return point.activity;
+    return std.fmt.bufPrint(buf, "{s} · {d}", .{ point.activity, point.steps }) catch point.activity;
+}
+/// The current tool call belongs to the live phase, so it ends with the turn.
+fn stepVisible(agent: protocol.Agent) bool {
+    return agent.step_status != .none and (agent.state == .working or agent.state == .blocked);
+}
 fn overviewTokens(buf: []u8, value: usage.View) []const u8 {
     if (!value.known) return "— tokens";
     var tokens: [32]u8 = undefined;
@@ -440,7 +465,8 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const width: usize = @min(88, cols);
     const pending = root.timeline.points.len > 0;
     const timeline_nodes: usize = @min(4, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0));
-    const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
+    const show_step = timeline_nodes > 0 and stepVisible(root_agent);
+    const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 + @intFromBool(show_step) else 0;
     const child_footer = children_available and model.children == 0;
     const task_height = if (root.background_tasks.items.len > 0) @min(8, root.background_tasks.items.len + 1 + @as(usize, @intFromBool(root.background_tasks.truncated))) else 0;
     const wanted = 7 + timeline_height + task_height +
@@ -485,10 +511,15 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const room = end -| row;
     const total_rows: usize = if (model.children > 0) 2 else 0;
     const reserved_children = @min(model.children, room -| (total_rows + @as(usize, if (timeline_nodes > 0) 2 else 0)));
-    const visible_nodes = @min(timeline_nodes, (room -| (reserved_children + total_rows)) -| 1);
+    const timeline_room = room -| (reserved_children + total_rows);
+    const visible_nodes = @min(timeline_nodes, timeline_room -| 1);
     if (visible_nodes > 0) {
         try card.timeline(row, root, root_agent, visible_nodes, pending);
         row += visible_nodes + 1;
+        if (show_step and timeline_room > visible_nodes + 1) {
+            try card.step(row, root_agent);
+            row += 1;
+        }
     }
     var shown: usize = 0;
     if (children_available) for (all) |child| {
@@ -872,4 +903,31 @@ test "background command rows group tasks and bound overflow without claiming st
     try std.testing.expectEqual(@as(usize, 3), try (Card{ .w = &small.writer, .x = 0, .width = 40 }).backgroundTasks(0, tasks, 3));
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Last reported") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "+2 more commands") != null);
+}
+
+test "the current step sits under the live phase with its outcome" {
+    const points = [_]protocol.Conversation.ActivityPoint{
+        .{ .at = 1000, .activity = "Building and testing", .usage = .{ .known = true }, .steps = 3 },
+    };
+    var root: protocol.Conversation = .{ .id = 1, .agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "test", .activity = "Building and testing", .cwd = "", .tool_active = true, .step = "Build corgi and run unit tests", .step_status = .running }, .timeline = .{ .points = &points, .pending = .{ .known = true } } };
+    for ([_]struct { status: @import("agents.zig").StepStatus, icon: []const u8, strike: bool }{
+        .{ .status = .running, .icon = "🔧", .strike = false },
+        .{ .status = .done, .icon = "✓", .strike = true },
+        .{ .status = .failed, .icon = "✗", .strike = false },
+    }) |case| {
+        root.agent.step_status = case.status;
+        var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer output.deinit();
+        const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
+        try card.timeline(0, &root, root.agent, 1, true);
+        try card.step(2, root.agent);
+        const frame = output.written();
+        try std.testing.expect(std.mem.indexOf(u8, frame, "Building and testing · 3") != null);
+        const icon = std.mem.indexOf(u8, frame, case.icon).?;
+        try std.testing.expect(std.mem.indexOf(u8, frame[icon..], "Build corgi and run unit tests") != null);
+        try std.testing.expectEqual(case.strike, std.mem.indexOf(u8, frame, "\x1b[9m") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "↳") == null);
+    }
+    root.agent.state = .idle;
+    try std.testing.expect(!stepVisible(root.agent));
 }
