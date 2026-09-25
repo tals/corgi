@@ -155,6 +155,10 @@ pub const Model = struct {
         for (m.tabs[0..m.count], 0..) |t, i| if (m.contains(t.root, id)) return i;
         return null;
     }
+    pub fn tabIndex(m: *const Model, id: Id) ?usize {
+        for (m.tabs[0..m.count], 0..) |t, i| if (t.id == id) return i;
+        return null;
+    }
     pub fn close(m: *Model, id: Id) !void {
         const node = m.findNode(id) orelse return error.NoPane;
         for (m.tabs[0..m.count], 0..) |t, i| if (t.root == node) {
@@ -264,7 +268,20 @@ pub const Selection = struct {
     active: usize = 0,
     pub fn reconcile(s: *Selection, m: *const Model) void {
         const old = s.*;
-        const selected = if (old.count > 0) old.tabs[old.active].id else 0;
+        var selected = if (old.count > 0) old.tabs[old.active].id else 0;
+        // A closed selected tab falls back to its nearest surviving neighbour, preferring the left.
+        if (selected != 0 and m.tabIndex(selected) == null) {
+            selected = 0;
+            var i = old.active;
+            while (i > 0 and selected == 0) {
+                i -= 1;
+                if (m.tabIndex(old.tabs[i].id) != null) selected = old.tabs[i].id;
+            }
+            i = old.active + 1;
+            while (i < old.count and selected == 0) : (i += 1) {
+                if (m.tabIndex(old.tabs[i].id) != null) selected = old.tabs[i].id;
+            }
+        }
         s.count = m.count;
         s.active = 0;
         for (m.tabs[0..m.count], 0..) |item, i| {
@@ -460,6 +477,28 @@ test "nested split close preserves stable identities and collapses tree" {
     try m.close(c);
     selection.reconcile(&m);
     try std.testing.expectEqual(@as(usize, 0), m.count);
+}
+test "closing the selected tab selects its nearest neighbour, preferring the left" {
+    var m: Model = .{};
+    var selection: Selection = .{};
+    _ = try m.newTab("one");
+    _ = try m.newTab("two");
+    const c = try m.newTab("three");
+    _ = try m.newTab("four");
+    selection.reconcile(&m);
+    selection.active = 2;
+    try m.close(c);
+    selection.reconcile(&m);
+    try std.testing.expectEqual(@as(usize, 1), selection.active);
+    selection.active = 0;
+    m.removeTab(0);
+    selection.reconcile(&m);
+    try std.testing.expectEqual(@as(usize, 0), selection.active);
+    try std.testing.expectEqual(m.tabs[0].id, selection.tabs[0].id);
+    selection.active = 1;
+    m.removeTab(1);
+    selection.reconcile(&m);
+    try std.testing.expectEqual(@as(usize, 0), selection.active);
 }
 test "directional focus, zoom and resize keep geometry inside bounds" {
     var m: Model = .{};
