@@ -90,6 +90,15 @@ fn needsInput(status: std.json.Value) bool {
     };
     return false;
 }
+// Child census and child snapshots must agree, or each poll flips the child
+// between states. A thread the daemon has not loaded (e.g. an old subagent of
+// a resumed session) or that stopped on a system error is not running.
+fn threadState(status: std.json.Value) agents.State {
+    const kind = agents.str(status, "type");
+    if (eq(u8, kind, "active")) return if (needsInput(status)) .blocked else .working;
+    if (eq(u8, kind, "idle") or eq(u8, kind, "notLoaded") or eq(u8, kind, "systemError")) return .idle;
+    return .unknown;
+}
 const Children = struct { status: agents.Subagents = .{}, any: bool = false, entries: std.ArrayList(Child) = .empty };
 fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void {
     // Validate the relation even if an older daemon ignores the filter.
@@ -105,7 +114,7 @@ fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void 
     const parsed_id = titlePrefix(id) orelse return;
     if (parsed_id.len != 36 or eq(u8, id, parent)) return;
     if (out.entries.items.len >= @import("conversations.zig").max_actors) return error.TooManyThreads;
-    var child: Child = .{ .session = parsed_id.bytes, .state = if (needsInput(status)) .blocked else if (eq(u8, kind, "active")) .working else if (eq(u8, kind, "idle")) .idle else .unknown };
+    var child: Child = .{ .session = parsed_id.bytes, .state = threadState(status) };
     const name = agents.str(thread, "name");
     child.name_len = agents.clean(&child.name, if (name.len > 0) name else agents.str(thread, "agentNickname"));
     child.role_len = agents.clean(&child.role, agents.str(thread, "agentRole"));
@@ -173,10 +182,8 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     defer meta.deinit();
     const thread = field(result(meta.value), "thread");
     if (!eq(u8, agents.str(thread, "id"), &session)) return error.WrongThread;
-    const status = field(thread, "status");
-    const kind = agents.str(status, "type");
-    var state: agents.State = if (eq(u8, kind, "active")) .working else if (eq(u8, kind, "idle")) .idle else .initializing;
-    if (needsInput(status)) state = .blocked;
+    var state = threadState(field(thread, "status"));
+    if (state == .unknown) state = .initializing;
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
     const updated = field(thread, "updatedAt");
     if (updated == .integer and updated.integer > 0) out.updated_at = updated.integer;
@@ -355,4 +362,19 @@ test "title UUID parsing handles truncation and refuses ambiguity" {
     defer parsed.deinit();
     var prefix = titlePrefix("01901234-1234-1234-1234-12345...").?;
     try std.testing.expect(unique(parsed.value.array.items, &prefix) == null);
+}
+test "unloaded child threads read as idle" {
+    const cases = [_]struct { json: []const u8, state: agents.State }{
+        .{ .json = "{\"type\":\"notLoaded\"}", .state = .idle },
+        .{ .json = "{\"type\":\"systemError\"}", .state = .idle },
+        .{ .json = "{\"type\":\"idle\"}", .state = .idle },
+        .{ .json = "{\"type\":\"active\",\"activeFlags\":[]}", .state = .working },
+        .{ .json = "{\"type\":\"active\",\"activeFlags\":[\"waitingOnApproval\"]}", .state = .blocked },
+        .{ .json = "{\"type\":\"future\"}", .state = .unknown },
+    };
+    for (cases) |case| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, case.json, .{});
+        defer parsed.deinit();
+        try std.testing.expectEqual(case.state, threadState(parsed.value));
+    }
 }
