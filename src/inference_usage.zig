@@ -3,9 +3,16 @@ const std = @import("std");
 const live = @import("live_usage.zig");
 const common = @import("providers/common.zig");
 const a = @import("os.zig").allocator;
+const log = std.log.scoped(.system_usage);
 pub const System = struct {
     meter: live.Meter = .{ .value = .{ .known = true } },
     reports: u64 = 0,
+    /// System usage never recovers from partial, so every cause is logged to
+    /// server.log with enough context to tell a real loss from a false alarm.
+    pub fn markPartial(system: *System, comptime reason: []const u8, args: anytype) void {
+        log.warn("{d} partial{s} after {d} reports, {d} tokens: " ++ reason, .{ std.time.milliTimestamp(), if (system.meter.value.partial) " (again)" else "", system.reports, system.meter.value.tokens.total() } ++ args);
+        system.meter.value.partial = true;
+    }
 };
 pub const Tracker = struct {
     // Owned thread IDs survive history rotation until the harness is closed,
@@ -37,7 +44,7 @@ pub const Tracker = struct {
                 const before = @field(previous, field.name);
                 const after = @field(current, field.name);
                 @field(delta, field.name) = after -| before;
-                if (after < before) system.meter.value.partial = true;
+                if (after < before) system.markPartial("thread {s} {s} went backwards {d} -> {d}", .{ common.str(params, "threadId"), field.name, before, after });
                 @field(previous, field.name) = @max(before, after);
             }
             system.meter.add(delta, now);

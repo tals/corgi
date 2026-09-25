@@ -107,15 +107,16 @@ const Connection = struct {
     fn poll(s: *Connection, stopping: *const std.atomic.Value(bool), deadline: i64) !void {
         if (stopping.load(.acquire)) return error.Cancelled;
         if (std.time.milliTimestamp() >= deadline) return error.Timeout;
-        defer s.collectUsage() catch {
-            s.system_usage.meter.value.partial = true;
+        defer s.collectUsage() catch |err| {
+            s.system_usage.markPartial("collecting usage failed: {s}", .{@errorName(err)});
         };
         _ = try s.transport.poll(&s.registry);
         if (s.transport.approvals.items.len != 0) return error.UnexpectedToolRequest;
         if (s.transport.events.items.len > 0 and s.transport.events.items[0].seq > s.cursor + 1) return error.EventOverflow;
     }
     fn collectUsage(s: *Connection) !void {
-        if (s.transport.events.items.len > 0 and s.transport.events.items[0].seq > s.usage_cursor + 1) s.system_usage.meter.value.partial = true;
+        if (s.transport.events.items.len > 0 and s.transport.events.items[0].seq > s.usage_cursor + 1)
+            s.system_usage.markPartial("event journal dropped seq {d}..{d} before usage was read", .{ s.usage_cursor + 1, s.transport.events.items[0].seq - 1 });
         for (s.transport.events.items) |event| {
             if (event.seq <= s.usage_cursor) continue;
             s.usage_cursor = event.seq;
@@ -171,11 +172,11 @@ pub const Pool = struct {
     /// Called only by the pool's owning worker, including between requests.
     pub fn refreshUsage(p: *Pool) void {
         for (&p.slots) |*slot| if (slot.*) |*s| {
-            _ = s.transport.poll(&s.registry) catch {
-                p.system_usage.meter.value.partial = true;
+            _ = s.transport.poll(&s.registry) catch |err| {
+                p.system_usage.markPartial("idle poll failed: {s}", .{@errorName(err)});
             };
-            s.collectUsage() catch {
-                p.system_usage.meter.value.partial = true;
+            s.collectUsage() catch |err| {
+                p.system_usage.markPartial("idle usage collection failed: {s}", .{@errorName(err)});
             };
         };
     }
@@ -240,10 +241,7 @@ pub const Pool = struct {
         p.clock += 1;
         s.used = p.clock;
         const reports = p.system_usage.reports;
-        defer if (p.system_usage.reports == reports) {
-            p.system_usage.meter.value.partial = true;
-        };
-        errdefer p.system_usage.meter.value.partial = true;
+        errdefer |err| p.system_usage.markPartial("{s} inference failed ({s} usage report): {s}; conversation {s}, turn {d}", .{ @tagName(p.config.provider), if (p.system_usage.reports == reports) "no" else "with", @errorName(err), request.conversation orelse "-", s.turns });
         const response = switch (p.config.provider) {
             .codex => try codex(s, p.config, request, stopping, deadline),
             .claude => try claude(s, request, stopping, deadline),
@@ -253,6 +251,8 @@ pub const Pool = struct {
             const parsed = std.json.parseFromSlice(std.json.Value, a, response.text(), .{}) catch return error.InvalidOutput;
             parsed.deinit();
         }
+        if (p.system_usage.reports == reports)
+            p.system_usage.markPartial("{s} turn completed without a usage report; conversation {s}, turn {d}", .{ @tagName(p.config.provider), request.conversation orelse "-", s.turns });
         s.turns += 1;
         return response;
     }
