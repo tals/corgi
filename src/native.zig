@@ -396,6 +396,26 @@ pub const Session = struct {
         }
         const actor = if (event.session.len > 0) try registry.get(s.provider, event.session) else s.attachment.actor;
         if (actor) |owner| {
+            if (s.provider == .codex) {
+                if (!owner.native_usage) {
+                    // Once a native stream owns accounting, the file reader
+                    // cannot charge the same requests a second time. Preserve
+                    // observed totals, then baseline the first native sample.
+                    owner.native_usage = true;
+                    owner.native_meter.meter.value = owner.live_usage;
+                    owner.native_meter.meter.value.recent_tokens = 0;
+                    // Reload restores active turns but intentionally starts new
+                    // meters. Their first report may replay the previous request.
+                    owner.native_meter.baseline_next = owner.live_usage.known or s.active_threads.contains(owner.state.sessionId());
+                    if (owner.native_meter.baseline_next) owner.native_meter.meter.value.partial = true;
+                }
+                const field = @import("usage.zig").field;
+                const thread = if (field(field(v, "params"), "thread") != .null) field(field(v, "params"), "thread") else field(field(v, "result"), "thread");
+                const parent_id = agents.str(thread, "parentThreadId");
+                if (registry.find(.codex, parent_id)) |parent| _ = registry.linkChild(parent, owner);
+                const role = agents.str(thread, "agentRole");
+                if (role.len > 0) owner.role_len = agents.clean(&owner.role, role);
+            }
             try s.remember(owner);
             owner.observed_at = std.time.microTimestamp();
             if (owner.workspace == 0) owner.workspace = s.workspace_id;
@@ -421,7 +441,7 @@ pub const Session = struct {
             const method = agents.str(v, "method");
             const explicit_selection = eq(method, "thread/started") or
                 (s.provider == .codex and v == .object and v.object.contains("result") and event.session.len > 0);
-            if (s.attachment.actor == null or explicit_selection) s.attachment.select(owner);
+            if (s.attachment.actor == null or (explicit_selection and owner.parent == null)) s.attachment.select(owner);
             if (s.attachment.actor == owner) s.resume_hint.observe(&owner.state);
         }
         const target = if (actor) |owner| &owner.state else &s.attachment.provisional;
@@ -436,6 +456,9 @@ pub const Session = struct {
         const completed_turn = reported_turn.len > 0 and target.finishedTurn(reported_turn);
         const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !eq(reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
+        if (actor) |owner| if (s.provider == .codex and eq(method, "thread/tokenUsage/updated")) {
+            owner.native_meter.native(@import("usage.zig").field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp());
+        };
         if (event.request_id != null) {
             // Replayed protocol requests refer to the same pending operation.
             const duplicate = for (s.approvals.items) |pending| {
@@ -556,6 +579,64 @@ test "native conversations retain independent turns and receipts across selectio
     try std.testing.expectEqual(@as(u64, 1), transport.observation().completed);
     transport.acknowledge();
     try std.testing.expect(!first.state.observation.unread());
+}
+
+test "native children retain parent selection and own usage across duplicate sources" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var transport = try testSession(.codex);
+    defer {
+        transport.exited = true;
+        transport.destroy();
+    }
+    _ = try transport.ingest(&registry,
+        \\{"method":"thread/started","params":{"thread":{"id":"parent"}}}
+    );
+    _ = try transport.ingest(&registry,
+        \\{"method":"thread/started","params":{"thread":{"id":"child","parentThreadId":"parent","agentRole":"Explorer"}}}
+    );
+    const parent = registry.find(.codex, "parent").?;
+    const child = registry.find(.codex, "child").?;
+    try std.testing.expectEqual(parent, transport.attachment.actor.?);
+    try std.testing.expectEqual(parent.id, child.parent.?);
+    try std.testing.expectEqualStrings("Explorer", child.role[0..child.role_len]);
+    _ = try transport.ingest(&registry,
+        \\{"method":"turn/started","params":{"threadId":"child","turn":{"id":"work"}}}
+    );
+    const usage_event =
+        \\{"method":"thread/tokenUsage/updated","params":{"threadId":"child","tokenUsage":{"total":{"inputTokens":1200,"cachedInputTokens":850,"outputTokens":120},"last":{"inputTokens":100,"cachedInputTokens":50,"outputTokens":20}}}}
+    ;
+    _ = try transport.ingest(&registry, usage_event);
+    _ = try transport.ingest(&registry, usage_event);
+    try std.testing.expectEqual(@as(u64, 120), child.native_meter.meter.value.tokens.total());
+    try std.testing.expectEqual(@as(u64, 50), child.native_meter.meter.value.tokens.cached_input);
+    try std.testing.expectEqual(@as(u64, 0), parent.native_meter.meter.value.tokens.total());
+    // A late inactive snapshot from another transport cannot lower the high-water
+    // mark and make a repeated current notification count as another request.
+    var second = try testSession(.codex);
+    defer {
+        second.exited = true;
+        second.destroy();
+    }
+    _ = try second.ingest(&registry,
+        \\{"method":"thread/tokenUsage/updated","params":{"threadId":"child","tokenUsage":{"total":{"inputTokens":10,"cachedInputTokens":0,"outputTokens":1}}}}
+    );
+    _ = try transport.ingest(&registry, usage_event);
+    try std.testing.expectEqual(@as(u64, 120), child.native_meter.meter.value.tokens.total());
+    const prior = try registry.get(.codex, "file-observed");
+    prior.live_usage = .{ .known = true, .tokens = .{ .input = 100, .output = 20 } };
+    _ = try transport.ingest(&registry,
+        \\{"method":"turn/started","params":{"threadId":"file-observed","turn":{"id":"work"}}}
+    );
+    _ = try transport.ingest(&registry,
+        \\{"method":"thread/tokenUsage/updated","params":{"threadId":"file-observed","tokenUsage":{"total":{"inputTokens":100,"outputTokens":20},"last":{"inputTokens":100,"outputTokens":20}}}}
+    );
+    try std.testing.expectEqual(@as(u64, 120), prior.native_meter.meter.value.tokens.total());
+    try std.testing.expect(prior.native_meter.meter.value.partial);
+    _ = try transport.ingest(&registry,
+        \\{"method":"thread/tokenUsage/updated","params":{"threadId":"file-observed","tokenUsage":{"total":{"inputTokens":130,"outputTokens":25},"last":{"inputTokens":30,"outputTokens":5}}}}
+    );
+    try std.testing.expectEqual(@as(u64, 155), prior.native_meter.meter.value.tokens.total());
 }
 
 test "native approval replies target their original conversation and duplicates stay singular" {

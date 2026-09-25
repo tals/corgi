@@ -81,6 +81,7 @@ pub const Pane = struct {
     agent: Agent,
 };
 pub const Native = struct {
+    agent: ?Agent = null,
     observation: agents.observation.State = .{},
     id: u32,
     workspace: u32,
@@ -99,6 +100,9 @@ pub const Conversation = struct {
     workspace: u32 = 0,
     observed_at: i64 = 0,
     attachments: u32 = 0,
+    role: []const u8 = "",
+    usage: @import("live_usage.zig").View = .{},
+    children_observed_at: i64 = 0,
     agent: Agent,
 };
 pub const Snapshot = struct {
@@ -165,6 +169,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     const sessions = try allocator.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*session, *out| out.* = .{
         .id = session.id,
+        .agent = agentView(session.attachment.agent(), if (session.attachment.actor) |actor| actor.id else 0),
         .workspace = session.workspace_id,
         .provider = session.provider,
         .cwd = session.cwd,
@@ -194,6 +199,9 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .observed_at = actor.observed_at,
             .attachments = attachments,
             .agent = agentView(&actor.state, actor.id),
+            .role = actor.role[0..actor.role_len],
+            .usage = if (actor.native_usage) actor.native_meter.meter.view(std.time.milliTimestamp()) else actor.live_usage,
+            .children_observed_at = actor.children_observed_at,
         };
     }
     return .{

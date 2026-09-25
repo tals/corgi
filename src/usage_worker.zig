@@ -5,12 +5,13 @@ const agents = @import("agents.zig");
 const usage = @import("usage.zig");
 const activity_tools = @import("activity_tools.zig");
 const codex_files = @import("codex_files.zig");
+const live_usage = @import("live_usage.zig");
 const a = std.heap.c_allocator;
 const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
-const Request = struct { actor: u32, workspace: u32, since: i64, agent: agents.Agent };
+const Request = struct { actor: u32, workspace: u32, since: i64, agent: agents.Agent, child: bool = false, tracked_since: i64 = 0 };
 pub const Result = struct {
     actor: u32,
     workspace: u32,
@@ -21,6 +22,7 @@ pub const Result = struct {
     progress: ?activity_tools.View = null,
     name: codex_files.Name = .{},
     seq: i64 = 0,
+    live: live_usage.View = .{},
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
@@ -69,7 +71,7 @@ pub const Worker = struct {
             const agent = &actor.state;
             if (agent.session_len == 0 or (agent.transcript_len == 0 and agent.provider != .codex)) continue;
             const ws = runtime.workspaces.get(actor.workspace) orelse continue;
-            w.requests.append(a, .{ .actor = actor.id, .workspace = ws.id, .since = ws.away.since, .agent = agent.* }) catch break;
+            w.requests.append(a, .{ .actor = actor.id, .workspace = ws.id, .since = ws.away.since, .agent = agent.*, .child = actor.parent != null, .tracked_since = actor.tracked_since }) catch break;
         }
         w.wake.signal();
     }
@@ -131,6 +133,7 @@ pub const Worker = struct {
                 w.mutex.unlock();
                 if (slot == null) continue;
                 const delta = t.poll(req) catch blk: {
+                    if (t.live.meter.value.known) t.live.meter.value.partial = true;
                     t.closeFile();
                     t.progress = .{};
                     break :blk usage.Counts{};
@@ -143,6 +146,7 @@ pub const Worker = struct {
                         result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
                     }
                     result.*.?.delta.add(delta);
+                    result.*.?.live = t.live.meter.view(std.time.milliTimestamp());
                     if (req.agent.provider == .codex) {
                         result.*.?.progress = t.progress.view();
                         result.*.?.name = index.name(req.agent.sessionId());
@@ -171,6 +175,8 @@ pub const Tail = struct {
     offset: u64 = 0,
     partial: std.ArrayList(u8) = .empty,
     discard: bool = false,
+    live: live_usage.Codex = .{},
+    opened: bool = false,
     fn releaseFile(t: *Tail) void {
         if (t.file) |f| f.close();
         t.file = null;
@@ -188,7 +194,8 @@ pub const Tail = struct {
         t.partial.deinit(a);
         t.* = .{};
     }
-    fn open(t: *Tail, agent: *const agents.Agent) !void {
+    fn open(t: *Tail, req: *const Request) !void {
+        const agent = &req.agent;
         const fd = try std.posix.open(agent.transcriptPath(), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0);
         const file: std.fs.File = .{ .handle = fd };
         errdefer file.close();
@@ -200,6 +207,23 @@ pub const Tail = struct {
             if (agent.provider == .codex) try @import("transcript.zig").verifyCodexSession(file, agent.sessionId());
             t.initial_until = stat.size;
             t.offset = stat.size -| initial_tail;
+            // Inspect only this known child's bounded prefix. Larger or older
+            // histories use the ordinary tail and publish partial coverage.
+            const catch_up = req.child and !t.opened and stat.size <= 2 * 1024 * 1024;
+            if (catch_up) t.offset = 0;
+            const retained = t.live.meter;
+            t.live = .{ .meter = retained };
+            if (t.opened) t.live.meter.value.partial = true;
+            if (agent.provider == .codex) {
+                var header: [64 * 1024]u8 = undefined;
+                const n = try file.pread(&header, 0);
+                if (std.mem.indexOfScalar(u8, header[0..n], '\n')) |end| {
+                    const parsed = try std.json.parseFromSlice(std.json.Value, a, header[0..end], .{});
+                    defer parsed.deinit();
+                    t.live.header(parsed.value, req.child, req.tracked_since, catch_up);
+                } else if (req.child) t.live.meter.value.partial = true;
+            }
+            t.opened = true;
             t.partial.clearRetainingCapacity();
             t.tracker = .{};
             t.progress = .{};
@@ -212,7 +236,7 @@ pub const Tail = struct {
         t.device = device;
     }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
-        if (t.file == null) try t.open(&req.agent);
+        if (t.file == null) try t.open(req);
         const file = t.file.?;
         const stat = try file.stat();
         const path_stat = try std.posix.fstatat(std.posix.AT.FDCWD, req.agent.transcriptPath(), std.posix.AT.SYMLINK_NOFOLLOW);
@@ -233,6 +257,7 @@ pub const Tail = struct {
             const segment = bytes[start..end];
             start = end + @intFromBool(complete);
             if (!t.discard and t.partial.items.len + segment.len > record_limit) {
+                t.live.meter.value.partial = true;
                 t.partial.clearRetainingCapacity();
                 t.discard = true;
             }
@@ -244,8 +269,16 @@ pub const Tail = struct {
                         if (req.agent.provider == .codex) t.progress.ingest(parsed.value, start_offset + start > t.initial_until);
                         const delta = t.tracker.transcript(req.agent.provider, req.agent.sessionId(), parsed.value);
                         const stamp = @import("transcript.zig").timestampMs(agents.str(parsed.value, "timestamp"));
+                        const appended = start_offset + start > t.initial_until;
+                        if (req.agent.provider == .codex) {
+                            t.live.ingest(parsed.value, appended, std.time.milliTimestamp());
+                        } else if (appended and delta.tokens_known) {
+                            t.live.meter.add(.{ .input = delta.input, .output = delta.output }, stamp orelse std.time.milliTimestamp());
+                        }
                         if (start_offset + start > t.initial_until and stamp != null and stamp.? > req.since) found.add(delta);
-                    } else |_| {}
+                    } else |_| {
+                        t.live.meter.value.partial = true;
+                    }
                 }
                 t.partial.clearRetainingCapacity();
                 t.discard = false;

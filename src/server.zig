@@ -452,7 +452,9 @@ pub const Server = struct {
                 codex.take(&snapshots);
                 for (snapshots) |entry| if (entry) |snap| {
                     const actor = try s.codexActor(snap) orelse continue;
-                    s.attention(actor.observeSnapshot(snap, s.actorWatched(actor.id)), actor.state.state);
+                    const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id));
+                    if (actor.parent == null) s.attention(ding, actor.state.state);
+                    s.runtime.conversations.observeChildren(actor, snap);
                     summaries.submit(actor, snap.evidence);
                     s.dirty = true;
                     s.runtime.changed();
@@ -471,6 +473,7 @@ pub const Server = struct {
                     }
                 };
                 var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
+                    defer snap.deinit();
                 summaries.take(&summary_results);
                 for (summary_results) |entry| if (entry) |result| {
                     if (s.runtime.conversations.byId(result.request.actor)) |actor| if (result.apply(actor)) {
@@ -506,6 +509,11 @@ pub const Server = struct {
                 var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;
                 observer.take(&completions);
                 for (completions) |entry| if (entry) |result| {
+                    if (!actor.native_usage and !std.meta.eql(actor.live_usage, result.live)) {
+                        actor.live_usage = result.live;
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
                     if (s.runtime.conversations.byId(result.actor)) |actor| {
                         const was_pending = actor.state.observation.pending_stop;
                         const ding = actor.confirmStop(result.seq, result.outcome, std.time.microTimestamp());
@@ -515,6 +523,7 @@ pub const Server = struct {
                         }
                         s.attention(ding and !s.actorWatched(actor.id), actor.state.state);
                     }
+                    if (actor.native_usage) continue;
                 };
             }
             for (s.runtime.sessions.items) |*session| {

@@ -37,6 +37,8 @@ pub fn titlePrefix(title: []const u8) ?Prefix {
 }
 pub const Request = struct { pane: u32 = 0, pid: c_int = 0, prefix: Prefix, actor: u32 = 0, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
+    children: []const Child = &.{},
+    children_complete: bool = false,
     subagents: agents.Subagents = .{},
     evidence: @import("activity_summary.zig").Text = .{},
     name: [160]u8 = @splat(0),
@@ -50,6 +52,20 @@ pub const Snapshot = struct {
     turn_len: usize = 0,
     outcome: ?agents.observation.Outcome = null,
     observed_at: i64,
+    updated_at: i64 = 0,
+    pub fn deinit(s: Snapshot) void {
+        if (s.children.len > 0) a.free(s.children);
+    }
+};
+pub const Child = struct {
+    session: [36]u8,
+    name: [160]u8 = @splat(0),
+    name_len: usize = 0,
+    role: [80]u8 = @splat(0),
+    role_len: usize = 0,
+    transcript: [std.fs.max_path_bytes]u8 = @splat(0),
+    transcript_len: usize = 0,
+    state: agents.State = .unknown,
     updated_at: i64 = 0,
 };
 fn field(v: std.json.Value, key: []const u8) std.json.Value {
@@ -74,17 +90,37 @@ fn needsInput(status: std.json.Value) bool {
     };
     return false;
 }
-const Children = struct { status: agents.Subagents = .{}, any: bool = false };
-fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) void {
+const Children = struct { status: agents.Subagents = .{}, any: bool = false, entries: std.ArrayList(Child) = .empty };
+fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void {
     // Validate the relation even if an older daemon ignores the filter.
     if (!eq(u8, agents.str(thread, "parentThreadId"), parent)) return;
     out.any = true;
     const status = field(thread, "status");
-    if (!eq(u8, agents.str(status, "type"), "active")) return;
-    if (needsInput(status)) out.status.blocked +|= 1 else out.status.running +|= 1;
+    const kind = agents.str(status, "type");
+    const id = agents.str(thread, "id");
+    for (out.entries.items) |entry| if (eq(u8, &entry.session, id)) return;
+    if (eq(u8, kind, "active")) {
+        if (needsInput(status)) out.status.blocked +|= 1 else out.status.running +|= 1;
+    }
+    const parsed_id = titlePrefix(id) orelse return;
+    if (parsed_id.len != 36 or eq(u8, id, parent)) return;
+    if (out.entries.items.len >= @import("conversations.zig").max_actors) return error.TooManyThreads;
+    var child: Child = .{ .session = parsed_id.bytes, .state = if (needsInput(status)) .blocked else if (eq(u8, kind, "active")) .working else if (eq(u8, kind, "idle")) .idle else .unknown };
+    const name = agents.str(thread, "name");
+    child.name_len = agents.clean(&child.name, if (name.len > 0) name else agents.str(thread, "agentNickname"));
+    child.role_len = agents.clean(&child.role, agents.str(thread, "agentRole"));
+    const path = agents.str(thread, "path");
+    if (std.fs.path.isAbsolute(path) and path.len <= child.transcript.len) {
+        @memcpy(child.transcript[0..path.len], path);
+        child.transcript_len = path.len;
+    }
+    const updated = field(thread, "updatedAt");
+    if (updated == .integer) child.updated_at = updated.integer;
+    try out.entries.append(a, child);
 }
 fn children(client: *Client, session: []const u8) !Children {
     var out: Children = .{};
+    errdefer out.entries.deinit(a);
     var cursor: ?[]const u8 = null;
     defer if (cursor) |p| a.free(p);
     const deadline = std.time.milliTimestamp() + 1000;
@@ -94,7 +130,7 @@ fn children(client: *Client, session: []const u8) !Children {
         defer page.deinit();
         const data = field(result(page.value), "data");
         if (data != .array) return error.BadResponse;
-        for (data.array.items) |thread| countChild(&out, thread, session);
+        for (data.array.items) |thread| try countChild(&out, thread, session);
         const next = field(result(page.value), "nextCursor");
         if (next == .null) return out;
         if (next != .string) return error.BadResponse;
@@ -169,7 +205,10 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     }
     // These optional reads must not suppress parent status/completion on older
     // daemons or a failed page. Never publish a partial child count as exact.
-    const child = children(client, &session) catch return out;
+    var child = children(client, &session) catch return out;
+    defer child.entries.deinit(a);
+    out.children = try child.entries.toOwnedSlice(a);
+    out.children_complete = true;
     out.subagents = child.status;
     if (child.any and state == .working and out.turn_len > 0 and out.outcome == null) {
         out.subagents.waiting = waiting(client, &session, out.turn[0..out.turn_len]) catch false;
@@ -204,6 +243,7 @@ pub const Worker = struct {
         w.wake.signal();
         w.mutex.unlock();
         w.thread.?.join();
+        for (w.results) |entry| if (entry) |s| s.deinit();
         a.free(w.socket);
         a.destroy(w);
     }
@@ -225,7 +265,7 @@ pub const Worker = struct {
             if (w.count == max) break;
             const actor = actors[(w.cursor + offset) % actors.len];
             if (actor.state.provider != .codex or actor.state.session_len != 36 or
-                (actor.state.state != .working and actor.state.state != .blocked)) continue;
+                (actor.state.state != .working and actor.state.state != .blocked and !actor.child_refresh)) continue;
             const selected = for (runtime.panes.items) |p| {
                 if (!p.terminal.exited and p.attachment.actor == actor) break true;
             } else false;
@@ -271,9 +311,10 @@ pub const Worker = struct {
             w.collect(&client, &ids) catch continue;
             for (requests[0..count], 0..) |req, i| {
                 if (w.stopped()) return;
-                const session = unique(ids.items, &req.prefix) orelse continue;
-                const s = snapshot(&client, req, session) catch break;
+                const session = if (req.actor != 0) req.prefix.bytes else unique(ids.items, &req.prefix) orelse continue;
+                const s = snapshot(&client, req, session) catch continue;
                 w.mutex.lock();
+                if (w.results[i]) |old| old.deinit();
                 w.results[i] = s;
                 w.mutex.unlock();
             }

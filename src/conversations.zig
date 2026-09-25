@@ -14,6 +14,14 @@ pub const Actor = struct {
     status_inference: @import("activity_summary.zig").Conversation = .{},
     workspace: u32 = 0,
     observed_at: i64 = 0,
+    tracked_since: i64 = 0,
+    child_refresh: bool = false,
+    children_observed_at: i64 = 0,
+    role: [80]u8 = @splat(0),
+    role_len: usize = 0,
+    live_usage: @import("live_usage.zig").View = .{},
+    native_usage: bool = false,
+    native_meter: @import("live_usage.zig").Codex = .{},
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
@@ -25,6 +33,7 @@ pub const Actor = struct {
     pub fn observeSnapshot(actor: *Actor, s: @import("codex_observer.zig").Snapshot, watched: bool) bool {
         const agent = &actor.state;
         if (s.observed_at <= agent.last_seq) return false;
+        actor.child_refresh = false;
         const binding = agent.last_seq == 0;
         if (agent.session_len != 0 and !std.mem.eql(u8, agent.sessionId(), &s.session)) return false;
         if (binding) {
@@ -46,6 +55,7 @@ pub const Actor = struct {
         }
         const old_state = agent.state;
         agent.state = s.state;
+        agent.permission_review = null;
         agent.subagents = s.subagents;
         agent.last_seq = s.observed_at;
         agent.observation.source = .protocol;
@@ -55,7 +65,6 @@ pub const Actor = struct {
         const same_turn = std.mem.eql(u8, agent.turnId(), s.turn[0..s.turn_len]);
         if (!same_turn or old_state != s.state or s.state != .working) {
             agent.activity_len = 0;
-        agent.permission_review = null;
             agent.compacting = false;
         }
         agent.activity_generation = s.evidence.hash();
@@ -174,12 +183,52 @@ pub const Registry = struct {
         if (registry.items.items.len == max_actors or registry.next_id == std.math.maxInt(u32)) return error.TooManyConversations;
         const actor = try registry.allocator.create(Actor);
         errdefer registry.allocator.destroy(actor);
-        actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider } };
+        actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider }, .tracked_since = std.time.milliTimestamp() };
         @memcpy(actor.state.session[0..session.len], session);
         actor.state.session_len = session.len;
         try registry.items.append(registry.allocator, actor);
         registry.next_id += 1;
         return actor;
+    }
+    /// Explicit parent identity is the only way into the child tree. Children
+    /// share the registry, so an attached child cannot become a second meter.
+    pub fn linkChild(registry: *Registry, parent: *Actor, child: *Actor) bool {
+        if (parent.state.provider != child.state.provider) return false;
+        if (child.parent) |old| if (old != parent.id) return false;
+        var ancestor: ?*Actor = parent;
+        for (0..max_actors) |_| {
+            const current = ancestor orelse break;
+            if (current.id == child.id) return false;
+            ancestor = if (current.parent) |id| registry.byId(id) else null;
+        } else return false;
+        child.parent = parent.id;
+        child.workspace = parent.workspace;
+        child.tracked_since = parent.tracked_since;
+        return true;
+    }
+    pub fn observeChildren(registry: *Registry, parent: *Actor, snapshot: @import("codex_observer.zig").Snapshot) void {
+        if (!snapshot.children_complete or snapshot.observed_at <= parent.children_observed_at) return;
+        parent.children_observed_at = snapshot.observed_at;
+        for (snapshot.children) |meta| {
+            const child = registry.get(.codex, &meta.session) catch continue;
+            if (!registry.linkChild(parent, child)) continue;
+            if (meta.role_len > 0) {
+                child.role = meta.role;
+                child.role_len = meta.role_len;
+            }
+            const state = &child.state;
+            if (snapshot.observed_at <= state.metadata_protocol_at) continue;
+            if (state.state != meta.state or state.updated_at != meta.updated_at or state.last_seq == 0) child.child_refresh = true;
+            if (meta.name_len > 0) state.setName(meta.name[0..meta.name_len]);
+            if (meta.transcript_len > 0) {
+                state.transcript = meta.transcript;
+                state.transcript_len = meta.transcript_len;
+            }
+            state.state = meta.state;
+            state.updated_at = meta.updated_at;
+            state.metadata_protocol_at = snapshot.observed_at;
+            child.observed_at = @max(child.observed_at, snapshot.observed_at);
+        }
     }
     /// An initial hook may establish identity when integration was enabled after
     /// startup. Once associated, only SessionStart selects another conversation.
@@ -199,6 +248,26 @@ pub const Registry = struct {
         return if (binding.knows(actor.id)) actor else null;
     }
 };
+
+test "child links cannot cross providers reparent or form cycles" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const root = try registry.get(.codex, "root");
+    const child = try registry.get(.codex, "child");
+    const nested = try registry.get(.codex, "nested");
+    const other = try registry.get(.codex, "other");
+    const claude = try registry.get(.claude, "root");
+    root.workspace = 7;
+    root.tracked_since = 100;
+    try std.testing.expect(registry.linkChild(root, child));
+    try std.testing.expect(registry.linkChild(child, nested));
+    try std.testing.expectEqual(@as(u32, 7), nested.workspace);
+    try std.testing.expectEqual(@as(i64, 100), nested.tracked_since);
+    try std.testing.expect(!registry.linkChild(nested, root));
+    try std.testing.expect(!registry.linkChild(other, child));
+    try std.testing.expect(!registry.linkChild(claude, child));
+    try std.testing.expect(!registry.linkChild(root, root));
+}
 
 test "selection preserves conversation receipts and shared acknowledgement" {
     var registry: Registry = .{ .allocator = std.testing.allocator };
