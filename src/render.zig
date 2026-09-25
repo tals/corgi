@@ -265,13 +265,13 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
         } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {
             try @import("subagent_tooltip.zig").draw(w, ui.conversations, entry.*, width, height, pointer.x, pointer.y);
-        } else if (width >= 24 and height >= 5) {
-            const tooltip_x = @min(pointer.x +| 1, width - 24);
+        } else if (width >= 19 and height >= 5) {
+            const tooltip_x = @min(pointer.x +| 1, width - 19);
             const tooltip_y = if (pointer.y + 4 < height) pointer.y + 1 else pointer.y -| 3;
             try w.writeAll("\x1b7\x1b]8;;\x1b\\\x1b[0;38;2;226;230;233;48;2;48;53;61m");
-            try w.print("\x1b[{d};{d}H╭──────────────────────╮", .{ tooltip_y + 1, tooltip_x + 1 });
-            try w.print("\x1b[{d};{d}H│ Ctrl-click to open ↗ │", .{ tooltip_y + 2, tooltip_x + 1 });
-            try w.print("\x1b[{d};{d}H╰──────────────────────╯", .{ tooltip_y + 3, tooltip_x + 1 });
+            try w.print("\x1b[{d};{d}H╭─────────────────╮", .{ tooltip_y + 1, tooltip_x + 1 });
+            try w.print("\x1b[{d};{d}H│ Click to open ↗ │", .{ tooltip_y + 2, tooltip_x + 1 });
+            try w.print("\x1b[{d};{d}H╰─────────────────╯", .{ tooltip_y + 3, tooltip_x + 1 });
             try w.writeAll("\x1b[0m\x1b8");
         }
     };

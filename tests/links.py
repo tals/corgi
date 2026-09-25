@@ -67,13 +67,19 @@ class Links(unittest.TestCase):
         mouse(35,len(url)+2)
         self.assertIn('\x1b]22;default\x1b\\',viewer.state['data'])
         self.assertNotIn('\x1b[4m',viewer.state['data'])
-        mouse(0);mouse(0,release=True)
-        self.assertFalse(any('open_url' in effect for effect in viewer.state['effects']))
         mouse(0);mouse(32,5)
         # First motion must survive the viewer's following snapshot refresh.
         self.assertIn('38;2;0;0;0;48;2;255;255;255m',viewer.state['data'])
         mouse(0,5,True)
         self.assertFalse(any('open_url' in effect for effect in viewer.state['effects']))
+        # Dragging off and back onto the pressed cell still selects.
+        mouse(0);mouse(32,5);mouse(32);mouse(0,release=True)
+        self.assertFalse(any('open_url' in effect for effect in viewer.state['effects']))
+        # A selection that starts off the link and ends on it must not open.
+        mouse(0,len(url)+2);mouse(32,len(url)+1);mouse(32,3);mouse(0,3,True)
+        self.assertFalse(any('open_url' in effect for effect in viewer.state['effects']))
+        mouse(0);mouse(0,release=True)
+        self.assertEqual(viewer.state['effects'], [{'open_url':url}])
         mouse(16);mouse(16,release=True)
         self.assertEqual(viewer.state['effects'], [{'open_url':url}])
         viewer.close()
@@ -92,7 +98,7 @@ class Links(unittest.TestCase):
         def tooltip_ready():
             nonlocal received
             if select.select([self.master],[],[],.05)[0]: received += os.read(self.master,65536)
-            return b'Ctrl-click to open' in received
+            return b'Click to open' in received
         self.until(tooltip_ready)
         os.write(self.master,b'\x1b[<16;30;2M\x1b[<16;30;2m')
         def opened_and_drain():
@@ -107,7 +113,7 @@ class Links(unittest.TestCase):
         self.until(lambda:url in self.command('pane.read', target=pane, view='screen')['text'])
         viewer=Viewer(self)
         other=Viewer(self)
-        hint='Ctrl-click to open'
+        hint='Click to open'
         def move(x=30): return viewer.input(f'\x1b[<35;{x};2M')
         def absent(): self.assertNotIn(hint,viewer.poll()['data'])
         def appears(): self.until(lambda:hint in viewer.poll()['data'])

@@ -40,7 +40,7 @@ const InputState = struct {
     last_control: u64 = 0,
     attached: bool = false,
     watched: bool = true,
-    port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?u32 = null, pane: ?u32 = null, px: u16 = 0, py: u16 = 0, cancelled: bool = false } = null,
+    port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?u32 = null, pane: ?u32 = null, px: u16 = 0, py: u16 = 0, drag_selects: bool = false, cancelled: bool = false } = null,
     paste: bool = false,
     paste_pane: ?layout.Id = null,
     paste_to_name: bool = false,
@@ -1256,9 +1256,9 @@ pub const Controller = struct {
         if (cl.port_click) |*click| {
             if ((x != click.x or y != click.y) and click.pane != null) {
                 if (s.pane(click.pane.?)) |p| {
-                    // A consumed Ctrl-press must not leak an unmatched drag
+                    // A consumed link press must not leak an unmatched drag
                     // or release into a mouse-aware child.
-                    if (p.terminal.emulator().*.flags.mouse_event != .none) {
+                    if (!click.drag_selects and p.terminal.emulator().*.flags.mouse_event != .none) {
                         click.cancelled = true;
                         if (release) cl.port_click = null;
                         return;
@@ -1629,22 +1629,26 @@ pub const Controller = struct {
 
             s.dirty = true;
             const term = s.pane(p.id).?.terminal;
-            // Cmd-click stays with the host's OSC 8 handler. SGR mouse
+            // Agent output keeps ordinary left-drag selection even when the
+            // agent requests mouse reporting. Alt-click still reaches its UI.
+            const agent_selection = s.pane(p.id).?.agent.provider != .other and (button == 0 or button == 32);
+            // Links open on release in the pressed cell, so a drag that ends
+            // on a link never opens it. Plain clicks only claim links when
+            // they would otherwise start a selection; mouse-aware apps keep
+            // them. Cmd-click stays with the host's OSC 8 handler. SGR mouse
             // events expose Ctrl, but do not encode the Command modifier.
-            if (!release and button == 16 and !s.copy_mode) {
+            const plain_link = button == 0 and (term.emulator().*.flags.mouse_event == .none or agent_selection);
+            if (!release and (button == 16 or plain_link) and !s.copy_mode) {
                 for (term.hyperlinks()) |link| {
                     if (link.row != y - p.rect.y or x - p.rect.x < link.start or x - p.rect.x >= link.end) continue;
                     if (!std.mem.startsWith(u8, link.uri, "http://") and !std.mem.startsWith(u8, link.uri, "https://")) continue;
-                    var click: @typeInfo(@FieldType(InputState, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = link.uri.len, .pane = p.id, .px = x - p.rect.x, .py = y - p.rect.y };
+                    var click: @typeInfo(@FieldType(InputState, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = link.uri.len, .pane = p.id, .px = x - p.rect.x, .py = y - p.rect.y, .drag_selects = plain_link };
                     if (link.uri.len > click.url.len) continue;
                     @memcpy(click.url[0..link.uri.len], link.uri);
                     cl.port_click = click;
                     return;
                 }
             }
-            // Agent output keeps ordinary left-drag selection even when the
-            // agent requests mouse reporting. Alt-click still reaches its UI.
-            const agent_selection = s.pane(p.id).?.agent.provider != .other and (button == 0 or button == 32);
             if (term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0 and !agent_selection) {
                 // Translate coordinates through Ghostty's input encoder into the app's chosen protocol.
                 const vt = @import("terminal.zig").vt;
