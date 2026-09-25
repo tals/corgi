@@ -378,6 +378,8 @@ class CodexObserver:
             session = params['threadId']
             turn, status = self.turns[session]
             result = {'data': [{'id': turn, 'status': status, 'items': self.items.get(session, [])}], 'nextCursor': None}
+        elif method == 'thread/backgroundTerminals/list':
+            result = {'data': getattr(self, 'background_tasks', {}).get(params['threadId'], []), 'nextCursor': None}
         elif method == 'thread/list':
             if params['sourceKinds'] != ['subAgent'] or not params['useStateDbOnly']:
                 raise AssertionError('observer must request only subagents from state DB')

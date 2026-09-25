@@ -29,6 +29,7 @@ pub const Hook = struct {
     cwd: []const u8 = "",
     tool: []const u8 = "",
     description: []const u8 = "",
+    background_tasks: std.json.Value = .null,
     // The tool's main argument, for a readable label when there is no description.
     target: []const u8 = "",
     asking: bool = false,
@@ -57,6 +58,7 @@ pub const Hooks = struct {
             .cwd = str(value, "cwd"),
             .tool = tool,
             .description = str(field(value, "tool_input"), "description"),
+            .background_tasks = field(value, "background_tasks"),
             .target = target(field(value, "tool_input")),
             .asking = kind == .tool_start and (eq(tool, "AskUserQuestion") or eq(tool, "request_user_input")),
             .permission_notification = kind == .notification and eq(str(value, "notification_type"), "permission_prompt"),

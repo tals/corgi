@@ -149,3 +149,21 @@ Multiple URLs with the same inferred name share that name on the shortcut.
 Different names retain the generic shortcut; the chooser shows each name beside
 its URL. Actual URLs, hover previews, remote-host selection, and click behavior
 are unchanged. Names are guesses, not verified page titles.
+# Background commands in the agent tooltip
+
+The tooltip groups provider-owned shell tasks under Tests, Builds, Servers, and
+Commands. Each row is one task identity, so shell wrappers and worker processes
+do not inflate the list. Labels use the provider description when available,
+otherwise the command. Categories use only the invocation prefix; unrecognized
+commands stay in Commands.
+
+Codex uses the optional read-only `thread/backgroundTerminals/list` endpoint.
+Unsupported or failed reads omit the inventory without changing agent lifecycle.
+Claude uses shell entries from the existing Stop hook's `background_tasks` array,
+including its descriptions. These hook snapshots are marked Last reported;
+they are not a continuously polled process census. Missing arrays retain the last
+report, empty arrays clear it, and SessionEnd clears it. Older Claude versions
+without this field cannot populate this section. No process controls are added.
+
+The inventory is bounded to 32 tasks and the tooltip to eight rows, with explicit
+overflow. Codex observations older than ten seconds also become Last reported.

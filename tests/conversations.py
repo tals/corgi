@@ -39,6 +39,21 @@ class CodexConversations(RuntimeAssertions):
     turns = codex_titles.observer_field('turns')
     errors = codex_titles.observer_field('errors')
 
+    def test_background_commands_follow_provider_inventory_and_session(self):
+        self.sim.background_tasks = {A: [
+            {'processId': 'task-1', 'command': 'bun test'},
+            {'processId': 'task-2', 'command': 'bun run dev'},
+        ]}
+        self.until(lambda: len(self.actor(A)['background_tasks']['items']) == 2)
+        tasks = self.actor(A)['background_tasks']
+        self.assertTrue(tasks['live'])
+        self.assertEqual([t['group'] for t in tasks['items']], ['tests', 'servers'])
+        self.switch(B)
+        self.assertEqual(self.actor(B)['background_tasks']['items'], [])
+        self.sim.background_tasks[A] = []
+        self.switch(A)
+        self.until(lambda: self.actor(A)['background_tasks']['items'] == [])
+
     def finish_a(self):
         self.sim.set_turn(A, 'first-turn', 'inProgress')
         self.until(lambda: self.state()['state'] == 'working')
@@ -160,6 +175,21 @@ class CodexConversations(RuntimeAssertions):
 
 
 class ClaudeConversations(RuntimeAssertions):
+    def test_shell_task_descriptions_are_last_reported_and_empty_census_clears(self):
+        self.hook('tasks', 'SessionStart')
+        self.hook('tasks', 'UserPromptSubmit')
+        self.hook('tasks', 'Stop', background_tasks=[
+            {'id': 'shell-1', 'type': 'shell', 'status': 'running',
+             'description': 'Run parser tests', 'command': 'bun test'},
+            {'id': 'agent-1', 'type': 'subagent', 'description': 'Review'},
+        ])
+        tasks = self.actor('tasks', 'claude')['background_tasks']
+        self.assertFalse(tasks['live'])
+        self.assertEqual(tasks['items'], [{'id': 'shell-1', 'label': 'Run parser tests', 'group': 'tests'}])
+        self.hook('tasks', 'UserPromptSubmit')
+        self.hook('tasks', 'Stop', background_tasks=[])
+        self.assertEqual(self.actor('tasks', 'claude')['background_tasks']['items'], [])
+
     def setUp(self):
         smoke.Runtime.setUp(self)
         self.pane = self.command('pane.create', workspace=1, command='sleep 60')['pane']

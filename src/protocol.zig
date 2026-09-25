@@ -98,6 +98,7 @@ pub const Native = struct {
 pub const Conversation = struct {
     pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: @import("live_usage.zig").View };
     pub const Timeline = struct { points: []const ActivityPoint = &.{}, pending: @import("live_usage.zig").View = .{} };
+    background_tasks: @import("background_tasks.zig").View = .{},
     id: u32,
     timeline: Timeline = .{},
     model: []const u8 = "",
@@ -214,6 +215,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .observed_at = actor.observed_at,
             .attachments = attachments,
             .role = actor.role[0..actor.role_len],
+            .background_tasks = try actor.background_tasks.view(allocator),
             .model = actor.model.bytes[0..actor.model.len],
             .usage = current_usage,
             .timeline = .{ .points = points, .pending = actor.activity_timeline.pending(current_usage) },

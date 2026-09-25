@@ -37,6 +37,7 @@ pub fn titlePrefix(title: []const u8) ?Prefix {
 }
 pub const Request = struct { pane: u32 = 0, pid: c_int = 0, prefix: Prefix, actor: u32 = 0, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
+    background_tasks: @import("background_tasks.zig").Inventory = .{},
     children: []const Child = &.{},
     children_complete: bool = false,
     subagents: agents.Subagents = .{},
@@ -212,6 +213,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     }
     // These optional reads must not suppress parent status/completion on older
     // daemons or a failed page. Never publish a partial child count as exact.
+    out.background_tasks = backgroundTasks(client, &session, out.observed_at) catch .{};
     var child = children(client, &session) catch return out;
     defer child.entries.deinit(a);
     out.children = try child.entries.toOwnedSlice(a);
@@ -220,6 +222,19 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     if (child.any and state == .working and out.turn_len > 0 and out.outcome == null) {
         out.subagents.waiting = waiting(client, &session, out.turn[0..out.turn_len]) catch false;
     }
+    return out;
+}
+
+fn backgroundTasks(client: *Client, session: []const u8, now: i64) !@import("background_tasks.zig").Inventory {
+    var out: @import("background_tasks.zig").Inventory = .{ .observed_at = now, .live = true };
+    // A bounded page is sufficient for the tooltip; explicitly mark overflow.
+    const response = try client.call("thread/backgroundTerminals/list", .{ .threadId = session, .limit = @import("background_tasks.zig").capacity });
+    defer response.deinit();
+    const body = result(response.value);
+    const data = field(body, "data");
+    if (data != .array) return error.BadResponse;
+    for (data.array.items) |item| out.append(agents.str(item, "processId"), "", agents.str(item, "command"));
+    out.truncated = out.truncated or field(body, "nextCursor") != .null;
     return out;
 }
 pub const Worker = struct {

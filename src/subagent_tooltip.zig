@@ -6,6 +6,7 @@ const sidebar = @import("sidebar.zig");
 const usage = @import("live_usage.zig");
 const max = @import("conversations.zig").max_actors;
 const time_c = @cImport(@cInclude("time.h"));
+const background = @import("background_tasks.zig");
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
 const Tone = enum {
     text,
@@ -177,6 +178,28 @@ const Card = struct {
     w: *std.Io.Writer,
     x: usize,
     width: usize,
+    fn backgroundTasks(card: Card, row: usize, tasks: background.View, budget: usize) !usize {
+        if (budget < 2 or tasks.items.len == 0) return 0;
+        const age = std.time.microTimestamp() - tasks.observed_at;
+        const live = tasks.live and age >= 0 and age <= 10 * std.time.us_per_s;
+        try card.line(row, "Background commands", if (live) "Running" else "Last reported", .group, .muted);
+        const shown = @min(tasks.items.len, budget - 1 - @as(usize, @intFromBool(tasks.items.len + 1 > budget or tasks.truncated)));
+        var offset: usize = 1;
+        inline for (std.meta.tags(background.Group)) |group| {
+            for (tasks.items) |task| {
+                if (task.group != group or offset > shown) continue;
+                var label: [384]u8 = undefined;
+                try card.line(row + offset, try std.fmt.bufPrint(&label, "{s} · {s}", .{ group.label(), task.label }), "", .text, .muted);
+                offset += 1;
+            }
+        }
+        if (shown < tasks.items.len or tasks.truncated) {
+            var more: [64]u8 = undefined;
+            try card.line(row + offset, try std.fmt.bufPrint(&more, "+{d}{s} more commands", .{ tasks.items.len - shown, if (tasks.truncated) "+" else "" }), "", .muted, .muted);
+            offset += 1;
+        }
+        return offset;
+    }
     fn line(card: Card, row: usize, left: []const u8, right: []const u8, left_tone: Tone, right_tone: Tone) !void {
         const right_width = sidebar.displayWidth(right);
         const left_room = (card.width - 6) -| (right_width + @as(usize, if (right_width > 0) 2 else 0));
@@ -419,7 +442,8 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const timeline_nodes: usize = @min(4, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0));
     const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
     const child_footer = children_available and model.children == 0;
-    const wanted = 7 + timeline_height +
+    const task_height = if (root.background_tasks.items.len > 0) @min(8, root.background_tasks.items.len + 1 + @as(usize, @intFromBool(root.background_tasks.truncated))) else 0;
+    const wanted = 7 + timeline_height + task_height +
         (if (model.children > 0) model.children + 3 else @as(usize, @intFromBool(child_footer)));
     const height = @min(wanted, rows - 2);
     const x: usize = @min(@as(usize, px) + 2, cols - width);
@@ -454,6 +478,9 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     var row = top + 4;
     const footer_row = y + height - 2;
     const end = if (model.children > 0 or child_footer) footer_row else y + height - 1;
+    // Give requested background work priority on short terminals. The section
+    // stays bounded and reports omitted commands explicitly.
+    row += try card.backgroundTasks(row, root.background_tasks, @min(task_height, end -| row));
     // Reserve child rows and the combined total; use the rest for recent phases.
     const room = end -| row;
     const total_rows: usize = if (model.children > 0) 2 else 0;
@@ -824,4 +851,25 @@ test "compact token counts round through unit boundaries without overflow" {
         .{ std.math.maxInt(u64), "18.4E" },
     };
     inline for (examples) |example| try std.testing.expectEqualStrings(example[1], compact(&buf, example[0]));
+}
+
+test "background command rows group tasks and bound overflow without claiming stale work is live" {
+    const items = [_]background.View.Item{
+        .{ .id = "server", .label = "bun run dev", .group = .servers },
+        .{ .id = "tests", .label = "Parser tests", .group = .tests },
+        .{ .id = "build", .label = "Release build", .group = .builds },
+    };
+    var tasks: background.View = .{ .items = &items, .observed_at = std.time.microTimestamp(), .live = true };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const card: Card = .{ .w = &output.writer, .x = 0, .width = 64 };
+    try std.testing.expectEqual(@as(usize, 4), try card.backgroundTasks(0, tasks, 4));
+    const frame = output.written();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "Tests · Parser tests").? < std.mem.indexOf(u8, frame, "Servers · bun run dev").?);
+    tasks.observed_at -= 11 * std.time.us_per_s;
+    var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer small.deinit();
+    try std.testing.expectEqual(@as(usize, 3), try (Card{ .w = &small.writer, .x = 0, .width = 40 }).backgroundTasks(0, tasks, 3));
+    try std.testing.expect(std.mem.indexOf(u8, small.written(), "Last reported") != null);
+    try std.testing.expect(std.mem.indexOf(u8, small.written(), "+2 more commands") != null);
 }

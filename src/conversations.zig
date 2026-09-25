@@ -13,6 +13,7 @@ pub const Actor = struct {
     pending_native_requests: u32 = 0,
     status_inference: @import("activity_summary.zig").Conversation = .{},
     activity_timeline: @import("activity_timeline.zig").Timeline = .{},
+    background_tasks: @import("background_tasks.zig").Inventory = .{},
     workspace: u32 = 0,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,
@@ -31,6 +32,10 @@ pub const Actor = struct {
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
+        if (actor.state.provider == .claude) {
+            if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
+            if (event.kind == .session_end) actor.background_tasks = .{};
+        }
         actor.observed_at = @max(actor.observed_at, now);
         return ding;
     }
@@ -53,6 +58,7 @@ pub const Actor = struct {
             agent.transcript_len = s.transcript_len;
         }
         actor.observed_at = @max(actor.observed_at, s.observed_at);
+        actor.background_tasks = s.background_tasks;
         agent.updated_at = s.updated_at;
         agent.metadata_protocol_at = s.observed_at;
         if (s.name_len > 0) {
