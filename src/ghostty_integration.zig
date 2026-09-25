@@ -71,7 +71,7 @@ fn transform(allocator: std.mem.Allocator, bytes: []const u8, enable: bool) ![]u
     if (enable) {
         if (out.written().len > 0 and out.written()[out.written().len - 1] != '\n') try out.writer.writeByte('\n');
         try out.writer.writeAll(begin);
-        try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\nkeybind = cmd+t=text:\\x02A\nkeybind = ctrl+tab=text:\\x02n\nkeybind = ctrl+shift+tab=text:\\x02p\n");
+        try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\nkeybind = cmd+t=text:\\x02A\nkeybind = cmd+w=text:\\x02X\nkeybind = ctrl+tab=text:\\x02n\nkeybind = ctrl+shift+tab=text:\\x02p\n");
         for (1..10) |i| try out.writer.print("keybind = cmd+{d}=text:\\x02{d}\nkeybind = cmd+digit_{d}=text:\\x02{d}\n", .{ i, i, i, i });
         try out.writer.writeAll(end);
     }

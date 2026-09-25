@@ -83,7 +83,7 @@ pub const Menu = struct {
             .failed => "Ghostty integration: config unavailable",
         }, b.w - 5);
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + 12, b.x + 3, panel });
-        try sidebar.writeEllipsis(w, "Cmd+1-9, Cmd+T, Ctrl+Tab / Ctrl+Shift+Tab", b.w - 5);
+        try sidebar.writeEllipsis(w, "Cmd+1-9, Cmd+T/W, Ctrl+Tab / Ctrl+Shift+Tab", b.w - 5);
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + 13, b.x + 3, panel });
         try sidebar.writeEllipsis(w, "Applies everywhere in Ghostty; reload to apply", b.w - 5);
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + b.h - 1, b.x + 3, panel });
