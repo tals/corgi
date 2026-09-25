@@ -25,7 +25,8 @@ pub fn hook(provider: []const u8, path: []const u8) !void {
     }
     // Claude's background daemon inherits the environment of whichever pane
     // first spawned it, so CORGI_PANE does not identify its sessions' pane.
-    const background = std.mem.eql(u8, provider, "claude") and std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg");
+    const background = std.mem.eql(u8, provider, "claude") and
+        (std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or @import("detection.zig").backgroundAncestor());
     const fd = os.connect(path) catch return;
     defer _ = os.c.close(fd);
     try os.sendJson(fd, .{ .op = "hook", .provider = provider, .pane = id, .event = parsed.value, .seq = std.time.microTimestamp(), .background = background });
