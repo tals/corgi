@@ -247,25 +247,18 @@ pub fn observe(key: u64, mode: Mode, now_ms: i64) ?*Presentation {
     unreachable; // At most 80 entries are rendered by a sidebar.
 }
 
-/// 4C: an eight-frame brightness handoff, alternating high/low every 600 ms.
+/// 4C: an eight-frame brightness handoff, alternating high/low every 1200 ms.
 pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: bool) !void {
-    var face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
+    const face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
     const travel = width -| 7;
     const elapsed: u64 = @intCast(@max(now_ms, 0));
-    // A brief nose twitch while still asleep, staggered between agents.
-    const sniff_period = 18_000 + (seed % 9) * 1000;
-    const sniff_phase = (elapsed + (seed % 997) * 600) % sniff_period;
-    if (sniff_phase >= sniff_period - 1200) {
-        const noses = [_][]const u8{ "ω", "ˑ", "ᴥ", "ω", "ˑ", "ᴥ" };
-        face[2] = noses[(sniff_phase - (sniff_period - 1200)) / 200];
-    }
     const tail_phase = (elapsed + (seed % 997) * 600) % 12000;
     const tail: []const u8 = if (tail_phase >= 11000 and tail_phase < 11800 and
         ((tail_phase - 11000) / 200) % 2 == 0) "-" else "~";
-    // Retain the quiet eight-second pause between traversals.
-    const phase = (elapsed + (seed % 997) * 600) % (travel * 600 + 8000);
-    const position = phase / 600;
-    const t: f64 = @as(f64, @floatFromInt((phase % 600) / 75)) / 8;
+    // Leave a quiet sixteen-second pause between traversals.
+    const phase = (elapsed + (seed % 997) * 600) % (travel * 1200 + 16000);
+    const position = phase / 1200;
+    const t: f64 = @as(f64, @floatFromInt((phase % 1200) / 150)) / 8;
     const shift = t * t * (3 - 2 * t);
     const background: [3]u8 = if (focused) .{ 35, 40, 47 } else .{ 24, 27, 32 };
     const foreground = [3]u8{ 108, 112, 134 };
@@ -307,7 +300,7 @@ test "half-cell ball travel keeps the impact before the perk and preserves picku
     try std.testing.expectEqualStrings("⡀", advance.mark);
 }
 
-test "sleeping Z crossfade and sleepy sniffs keep closed eyes without overflowing" {
+test "sleeping Z crossfade keeps a still face without overflowing" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     for ([_]usize{ 0, 1, 5, 6, 7, 18, 22, 80, 256, 294, 512 }) |width| {
@@ -315,7 +308,7 @@ test "sleeping Z crossfade and sleepy sniffs keep closed eyes without overflowin
         var rested = false;
         for (0..(width + 20) * 8) |step| {
             output.clearRetainingCapacity();
-            try idle(&output.writer, width, @intCast(step * 75), 0, false);
+            try idle(&output.writer, width, @intCast(step * 150), 0, false);
             var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
             defer plain.deinit();
             var ansi = false;
@@ -333,9 +326,7 @@ test "sleeping Z crossfade and sleepy sniffs keep closed eyes without overflowin
             }
             try std.testing.expect(letters <= 2);
             if (width >= 6) {
-                try std.testing.expect(std.mem.startsWith(u8, text[1..], "ᐯ◡ᴥ◡ᐯ") or
-                    std.mem.startsWith(u8, text[1..], "ᐯ◡ω◡ᐯ") or
-                    std.mem.startsWith(u8, text[1..], "ᐯ◡ˑ◡ᐯ"));
+                try std.testing.expect(std.mem.startsWith(u8, text[1..], "ᐯ◡ᴥ◡ᐯ"));
             }
             if (width > 7) {
                 reached_end = reached_end or !std.mem.endsWith(u8, text, " ");
@@ -421,19 +412,19 @@ test "half-cell fetch spans the full row without overlap or overflow" {
     }
 }
 
-test "4C handoff lasts 600 ms and alternates heights" {
+test "4C handoff lasts 1200 ms and alternates heights" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try idle(&output.writer, 22, 300, 0, false);
+    try idle(&output.writer, 22, 600, 0, false);
     // Halfway: both neighboring glyphs have half the original brightness.
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;66;70;83mᶻ") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;66;70;83mz") != null);
     output.clearRetainingCapacity();
-    try idle(&output.writer, 22, 600, 0, false);
+    try idle(&output.writer, 22, 1200, 0, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;108;112;134mz") != null);
     output.clearRetainingCapacity();
-    try idle(&output.writer, 22, 300, 0, true);
+    try idle(&output.writer, 22, 600, 0, true);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;72;76;91mᶻ") != null);
 }
 
