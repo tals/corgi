@@ -192,23 +192,37 @@ const Card = struct {
         try card.w.print("\x1b[{d};{d}H{s}{s}", .{ row + 1, card.x + 4 + offset + padding, base, tone.ansi() });
         try sidebar.writeEllipsis(card.w, label, width - padding);
     }
+    const number_width: usize = 8;
+    fn textWidth(card: Card) usize {
+        return card.width - 6 - 2 * (number_width + 1);
+    }
+    /// Tokens are uncached input plus output; cached input is its own column.
+    /// Null draws the column headings. Overview rows and the timeline share it.
+    fn tokenColumns(card: Card, row: usize, value: ?usage.View, live: bool, tone: Tone) !void {
+        const text_width = card.textWidth();
+        var token_buf: [32]u8 = undefined;
+        var cache_buf: [32]u8 = undefined;
+        var tokens_text: [48]u8 = undefined;
+        var cached_text: [48]u8 = undefined;
+        const suffix = if (live) "+" else "";
+        const tokens = if (value) |v| (if (v.known)
+            try std.fmt.bufPrint(&tokens_text, "{s}{s}{s}", .{ if (v.partial) "≥" else "", compact(&token_buf, (v.tokens.input -| v.tokens.cached_input) +| v.tokens.output), suffix })
+        else
+            "—") else "Tokens";
+        const cached = if (value) |v| (if (v.known)
+            try std.fmt.bufPrint(&cached_text, "{s}{s}", .{ compact(&cache_buf, v.tokens.cached_input), suffix })
+        else
+            "—") else "Cached";
+        try card.cell(row, text_width + 1, number_width, tokens, tone, true);
+        try card.cell(row, text_width + number_width + 2, number_width, cached, .muted, true);
+    }
     fn overviewRow(card: Card, row: usize, name: []const u8, model: []const u8, value: ?usage.View, tone: Tone) !void {
-        const number_width: usize = 8;
-        const text_width = card.width - 6 - 2 * (number_width + 1);
+        const text_width = card.textWidth();
         const model_width = text_width / 2;
         const name_width = text_width - model_width - 1;
         try card.cell(row, 0, name_width, name, tone, false);
         try card.cell(row, name_width + 1, model_width, model, .muted, false);
-        var token_buf: [32]u8 = undefined;
-        var cache_buf: [32]u8 = undefined;
-        var partial_buf: [40]u8 = undefined;
-        const tokens = if (value) |v| (if (v.known)
-            try std.fmt.bufPrint(&partial_buf, "{s}{s}", .{ if (v.partial) "≥" else "", compact(&token_buf, (v.tokens.input -| v.tokens.cached_input) +| v.tokens.output) })
-        else
-            "—") else "Tokens";
-        const cached = if (value) |v| (if (v.known) compact(&cache_buf, v.tokens.cached_input) else "—") else "Cached";
-        try card.cell(row, text_width + 1, number_width, tokens, .tokens, true);
-        try card.cell(row, text_width + number_width + 2, number_width, cached, .muted, true);
+        try card.tokenColumns(row, value, false, .tokens);
     }
     fn metrics(card: Card, row: usize, value: usage.View) !void {
         if (!value.known) return card.line(row, "Usage not reported yet", "", .muted, .muted);
@@ -221,15 +235,14 @@ const Card = struct {
     }
     fn drawPoint(card: Card, row: usize, stamp: []const u8, label: []const u8, value: usage.View, live: bool, tone: Tone) !void {
         var text: [512]u8 = undefined;
-        var cost: [64]u8 = undefined;
-        var number: [32]u8 = undefined;
         const icon = if (live) "●" else "○";
-        const right = if (value.known) try std.fmt.bufPrint(&cost, "{s}{s}{s}", .{ if (value.partial) "≥" else "", compact(&number, value.tokens.total()), if (live) "+" else "" }) else "—";
-        try card.line(row, try std.fmt.bufPrint(&text, "{s}  {s}  {s}", .{ stamp, icon, label }), right, .text, if (value.known) .tokens else .muted);
+        try card.cell(row, 0, card.textWidth(), try std.fmt.bufPrint(&text, "{s}  {s}  {s}", .{ stamp, icon, label }), .text, false);
+        try card.tokenColumns(row, value, live, if (value.known) .tokens else .muted);
         try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, Tone.muted.ansi(), stamp, row + 1, card.x + 11, base, tone.ansi(), icon });
     }
     fn timeline(card: Card, row: usize, root: *const protocol.Conversation, agent: protocol.Agent, nodes: usize, pending: bool) !void {
-        try card.line(row, "Recent activity", "Reported tokens", .text, .muted);
+        try card.cell(row, 0, card.textWidth(), "Recent activity", .text, false);
+        try card.tokenColumns(row, null, false, .muted);
         const completed = nodes - @intFromBool(pending);
         for (root.timeline.points[root.timeline.points.len - completed ..], 0..) |point, i| {
             const seconds: time_c.time_t = @divFloor(point.at, 1000);
@@ -458,7 +471,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const footer = if (!children_available) (if (root.usage.known and root.usage.partial) "≥ Partial coverage" else "") else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0)) "Updating child details…" else if (shown < model.children)
         try std.fmt.bufPrint(&text, "+{d} more{s}", .{ model.children - shown, if (model.total.partial) " · ≥ partial" else "" })
     else if (model.total.partial and model.total.known) "≥ Partial coverage" else if (model.children == 0) "No subagents" else "Live usage";
-    try card.line(footer_row, footer, "Recent ≈ 5 min", if (model.total.partial and model.total.known) .working else .muted, .muted);
+    try card.line(footer_row, footer, "", if (model.total.partial and model.total.known) .working else .muted, .muted);
     try w.writeAll("\x1b[0m\x1b8");
 }
 

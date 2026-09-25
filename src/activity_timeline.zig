@@ -1,5 +1,7 @@
 //! A bounded, runtime-only record of accepted activity summaries. Deltas are
 //! tokens reported between checkpoints, not causal attribution to a tool.
+//! Meters count from when Corgi began observing, so a missing reading means
+//! nothing was observed yet. Only a loss inside an interval makes it partial.
 const std = @import("std");
 const summary = @import("activity_summary.zig");
 const usage = @import("live_usage.zig");
@@ -15,7 +17,8 @@ pub const Timeline = struct {
     pub fn pending(t: *const Timeline, current: usage.View) usage.View {
         var delta: usage.View = .{
             .known = current.known,
-            .partial = current.partial or t.baseline.partial or !t.baseline.known,
+            .partial = current.losses != t.baseline.losses,
+            .losses = current.losses -| t.baseline.losses,
             .since = if (t.len > 0) t.points[t.len - 1].at else current.since,
             .updated_at = current.updated_at,
         };
@@ -36,7 +39,7 @@ pub const Timeline = struct {
             const last = &t.points[t.len - 1];
             last.at = at;
             last.usage.tokens.add(delta.tokens);
-            last.usage.partial = last.usage.partial or delta.partial or !last.usage.known or !delta.known;
+            last.usage.partial = last.usage.partial or delta.partial;
             last.usage.known = last.usage.known or delta.known;
             last.usage.updated_at = delta.updated_at;
         } else {
@@ -55,7 +58,7 @@ pub const Timeline = struct {
             @field(t.baseline.tokens, field.name) = @max(@field(t.baseline.tokens, field.name), @field(current.tokens, field.name));
         }
         t.baseline.known = current.known;
-        t.baseline.partial = delta.partial;
+        t.baseline.losses = current.losses;
     }
 };
 
@@ -83,17 +86,30 @@ test "checkpoints partition own usage, coalesce repeated labels, and remain boun
     try std.testing.expectEqual(@as(u64, 0), timeline.pending(current).tokens.total());
 }
 
-test "unknown and partial samples remain honest and counter regressions cannot duplicate tokens" {
+test "only intervals containing a loss or regression are partial" {
     var timeline: Timeline = .{};
     const label = summary.Label.parse("Reading source").?;
+    const other = summary.Label.parse("Running tests").?;
+    // Nothing observed yet is zero, not a gap in coverage.
     timeline.checkpoint("a", label, .{}, 1);
-    try std.testing.expect(!timeline.points[0].usage.known);
     timeline.checkpoint("a", label, .{ .known = true, .tokens = .{ .input = 100 } }, 2);
-    try std.testing.expect(timeline.points[0].usage.partial);
-    timeline.checkpoint("b", label, .{ .known = true, .tokens = .{ .input = 50 } }, 3);
+    try std.testing.expect(!timeline.points[0].usage.partial);
+    try std.testing.expectEqual(@as(u64, 100), timeline.points[0].usage.tokens.total());
+    // A counter regression cannot bill twice and marks only its interval.
+    timeline.checkpoint("b", other, .{ .known = true, .tokens = .{ .input = 50 } }, 3);
     try std.testing.expectEqual(@as(u64, 0), timeline.points[1].usage.tokens.total());
     try std.testing.expect(timeline.points[1].usage.partial);
-    const pending = timeline.pending(.{ .known = true, .tokens = .{ .input = 110 } });
-    try std.testing.expectEqual(@as(u64, 10), pending.tokens.total());
-    try std.testing.expect(pending.partial);
+    const clean = timeline.pending(.{ .known = true, .tokens = .{ .input = 110 } });
+    try std.testing.expectEqual(@as(u64, 10), clean.tokens.total());
+    try std.testing.expect(!clean.partial);
+    // A loss marks the interval it happened in, and no later ones.
+    const lost: usage.View = .{ .known = true, .partial = true, .losses = 1, .tokens = .{ .input = 130 } };
+    try std.testing.expect(timeline.pending(lost).partial);
+    timeline.checkpoint("b", label, lost, 4);
+    try std.testing.expect(timeline.points[2].usage.partial);
+    var later = lost;
+    later.tokens.input = 150;
+    try std.testing.expect(!timeline.pending(later).partial);
+    timeline.checkpoint("b", other, later, 5);
+    try std.testing.expect(!timeline.points[3].usage.partial);
 }

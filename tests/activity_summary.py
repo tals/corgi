@@ -86,8 +86,18 @@ class Summaries(codex_titles.Titles):
             return viewer.poll()['data']
         try:
             frame=hover(100,30)
-            for text in ['Own usage','14.7k tokens','11.9k input','2.8k output','7.8k cached','14.7k recent','Recent activity','Reading source','Tracing usage','Running tests','1.2k','5.4k','7.6k','500+','In progress']:
+            for text in ['Own usage','14.7k tokens','11.9k input','2.8k output','7.8k cached','14.7k recent','Recent activity','In progress']:
                 self.assertIn(text,frame)
+            # Timeline columns match the overview: Tokens is uncached input
+            # plus output, and Cached is cached input, for every provider.
+            rows=smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',frame),100,30)
+            # The sidebar can show the same label; timeline rows carry a marker.
+            def timeline_row(label):return next(row for row in rows if label in row and (label=='Recent activity' or '○' in row or '●' in row))
+            self.assertRegex(timeline_row('Recent activity'),r'Recent activity\s+Tokens\s+Cached')
+            self.assertRegex(timeline_row('Reading source'),r'Reading source\s+600\s+600')
+            self.assertRegex(timeline_row('Tracing usage'),r'Tracing usage\s+2\.4k\s+3(\.0)?k')
+            self.assertRegex(timeline_row('Running tests'),r'Running tests\s+3\.6k\s+4(\.0)?k')
+            self.assertRegex(timeline_row('In progress'),r'In progress\s+300\+\s+200\+')
             pathlib.Path('/tmp/corgi-timeline-frame.json').write_text(json.dumps(dict(cols=100,rows=30,frame=frame)))
             # The Corgi badge separates background inference from agent spend.
             viewer.request(op='badge',visible=True)
@@ -114,7 +124,7 @@ class Summaries(codex_titles.Titles):
             self.until(lambda:self.state()['state']=='idle')
             frame=viewer.poll()['data']
             self.assertIn('Since last update',frame)
-            self.assertNotIn('500+',frame)
+            self.assertNotIn('300+',frame)
             self.assertEqual(len(conversation()['timeline']['points']),3)
             viewer.request(op='size',cols=64,rows=13)
             viewer.input('\x1b[<35;63;1M')
