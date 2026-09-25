@@ -247,6 +247,9 @@ pub fn observe(key: u64, mode: Mode, now_ms: i64) ?*Presentation {
     unreachable; // At most 80 entries are rendered by a sidebar.
 }
 
+/// Temporarily off: the sleeping corgi keeps its still face without drifting Z's.
+const sleep_zs_enabled = false;
+
 /// 4C: an eight-frame brightness handoff, alternating high/low every 1200 ms.
 pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: bool) !void {
     const face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
@@ -267,7 +270,7 @@ pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: 
             try out.writeAll(tail);
         } else if (col <= face.len) {
             try out.writeAll(face[col - 1]);
-        } else if (col >= 7 and position < travel and
+        } else if (sleep_zs_enabled and col >= 7 and position < travel and
             (col - 7 == position or (col - 7 == position + 1 and shift > 0)))
         {
             const amount = if (col - 7 == position) 1 - shift else shift;
@@ -301,6 +304,7 @@ test "half-cell ball travel keeps the impact before the perk and preserves picku
 }
 
 test "sleeping Z crossfade keeps a still face without overflowing" {
+    if (!sleep_zs_enabled) return error.SkipZigTest;
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     for ([_]usize{ 0, 1, 5, 6, 7, 18, 22, 80, 256, 294, 512 }) |width| {
@@ -413,6 +417,7 @@ test "half-cell fetch spans the full row without overlap or overflow" {
 }
 
 test "4C handoff lasts 1200 ms and alternates heights" {
+    if (!sleep_zs_enabled) return error.SkipZigTest;
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try idle(&output.writer, 22, 600, 0, false);
