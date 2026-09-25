@@ -308,7 +308,7 @@ fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversat
     }
     return false;
 }
-pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, cols: u16, rows: u16) !void {
+pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, cols: u16, rows: u16) !void {
     if (cols < 40 or rows < 13) return;
     var total: usage.View = system_usage;
     const Row = struct {
@@ -330,8 +330,8 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     }
     std.mem.sort(Row, ranked[0..count], {}, struct {
         fn less(_: void, lhs: Row, rhs: Row) bool {
-            const l = lhs.value.tokens.total();
-            const r = rhs.value.tokens.total();
+            const l = (lhs.value.tokens.input -| lhs.value.tokens.cached_input) +| lhs.value.tokens.output;
+            const r = (rhs.value.tokens.input -| rhs.value.tokens.cached_input) +| rhs.value.tokens.output;
             return if (l == r)
                 (if (lhs.conversation) |item| item.id else 0) < (if (rhs.conversation) |item| item.id else 0)
             else
@@ -366,7 +366,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     try card.overviewRow(heading, "Top agents", "Model", null, .text);
     for (ranked[0..shown], 0..) |ranked_row, i| {
         if (ranked_row.conversation == null) {
-            try card.overviewRow(heading + 1 + i, if (system_working) "● System" else "○ System", "—", ranked_row.value, if (system_working) .working else .idle);
+            try card.overviewRow(heading + 1 + i, if (system_working) "● System" else "○ System", if (system_model.len > 0) system_model else "—", ranked_row.value, if (system_working) .working else .idle);
             continue;
         }
         const item = ranked_row.conversation.?;
@@ -533,7 +533,7 @@ test "idle children stay hidden while active descendants and usage remain" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Visible grandchild") != null);
     var overview: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer overview.deinit();
-    try drawOverview(&overview.writer, &all, .{}, false, 100, 30);
+    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Hidden child") == null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Visible parent") != null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "50 tokens") != null);
@@ -558,7 +558,7 @@ test "role groups aggregate each descendant once and exclude other trees" {
     try std.testing.expect(!model.total.partial);
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "960 tokens") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "System") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Top agents") != null);
@@ -661,7 +661,7 @@ test "overview excludes detached history and shows System activity" {
     for ([_]bool{ false, true }) |working| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
-        try drawOverview(&output.writer, &all, .{}, working, 100, 30);
+        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", 100, 30);
         const frame = output.written();
         for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● System" else "○ System" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
@@ -686,8 +686,9 @@ test "overview ranks all agents together and keeps System in small windows" {
     const system: usage.View = .{ .known = true, .tokens = .{ .input = 50 } };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, system, false, 100, 30);
+    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", 100, 30);
     const frame = output.written();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6-luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "Cached") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "1.4k tokens") != null);
@@ -697,10 +698,19 @@ test "overview ranks all agents together and keeps System in small windows" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "Unreported task") != null);
     var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer small.deinit();
-    try drawOverview(&small.writer, &all, system, false, 64, 13);
+    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", 64, 13);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "System") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Largest") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Child") != null);
+
+    // Cached-heavy agents must not outrank larger displayed Tokens values.
+    all[0].usage.tokens = .{ .input = 10000, .cached_input = 9990 };
+    var sorted: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer sorted.deinit();
+    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", 100, 30);
+    const sorted_frame = sorted.written();
+    try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Child task").? < std.mem.indexOf(u8, sorted_frame, "System").?);
+    try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "System").? < std.mem.indexOf(u8, sorted_frame, "Parent task").?);
 
     var many: [12]protocol.Conversation = undefined;
     for (&many, 0..) |*item, i| {
@@ -709,7 +719,7 @@ test "overview ranks all agents together and keeps System in small windows" {
     }
     var capped: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer capped.deinit();
-    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, 100, 30);
+    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", 100, 30);
     try std.testing.expectEqual(@as(usize, 9), std.mem.count(u8, capped.written(), "Ranked task"));
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "System"));
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "25") != null);

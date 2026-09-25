@@ -1763,6 +1763,7 @@ pub const Controller = struct {
             .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
             .agents = entries,
             .conversations = s.runtime.conversations,
+            .system_model = s.runtime.system_model,
             .system_usage = s.runtime.system_usage,
             .system_working = s.runtime.system_working,
             .workspaces = s.workspaceEntries(&workspace_storage),

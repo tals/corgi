@@ -69,6 +69,7 @@ class Summaries(codex_titles.Titles):
             spend(values)
         spend((400,200,100))
         self.until(lambda:self.session()['system_usage']['tokens']['input']==3000)
+        self.assertEqual(self.session()['system_model'],'gpt-6-luna')
         self.assertEqual(self.session()['system_usage']['tokens'],dict(input=3000,cached_input=1800,output=30))
         points=conversation()['timeline']['points']
         self.assertEqual([p['usage']['tokens']['input']+p['usage']['tokens']['output'] for p in points],[1200,5400,0])
@@ -113,7 +114,7 @@ class Summaries(codex_titles.Titles):
             rows=smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',overview),100,30)
             system_row=next(row for row in rows if 'System' in row)
             agent_row=next(row for row in rows if 'codex ·' in row)
-            self.assertRegex(system_row,r'System\s+—\s+1\.2k\s+1\.8k')
+            self.assertRegex(system_row,r'System\s+gpt-6-luna\s+1\.2k\s+1\.8k')
             self.assertRegex(agent_row,r'codex · \S+\s+—\s+6\.9k\s+7\.8k')
             self.assertNotIn('tracked sessions',overview)
             pathlib.Path('/tmp/corgi-overview-frame.json').write_text(json.dumps(dict(cols=100,rows=30,frame=overview)))

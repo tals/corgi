@@ -31,6 +31,7 @@ pub const Ui = struct {
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
     conversations: []const @import("protocol.zig").Conversation = &.{},
+    system_model: []const u8 = "",
     system_working: bool = false,
     system_usage: @import("live_usage.zig").View = .{},
     workspaces: []const sidebar.WorkspaceEntry = &.{},
@@ -253,7 +254,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     };
     if (ui.link_tooltip and ui.agent_launcher == null) if (ui.pointer) |pointer| {
         if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
-            try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, width, height);
+            try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, width, height);
         } else if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
         } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {

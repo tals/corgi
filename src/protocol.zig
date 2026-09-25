@@ -110,6 +110,7 @@ pub const Conversation = struct {
     agent: Agent,
 };
 pub const Snapshot = struct {
+    system_model: []const u8 = "",
     system_working: bool = false,
     system_usage: @import("live_usage.zig").View = .{},
     last_agent: @import("agent_launcher.zig").Provider = .codex,
@@ -220,6 +221,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     }
     return .{
         .conversations = conversations,
+        .system_model = r.system_model,
         .system_usage = r.system_usage,
         .system_working = r.system_working,
         .server_pid = @import("os.zig").c.getpid(),

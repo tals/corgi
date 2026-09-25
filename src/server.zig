@@ -449,6 +449,7 @@ pub const Server = struct {
         const codex_observer = @import("codex_observer.zig");
         const summaries = try @import("activity_worker.zig").Worker.start();
         defer summaries.stop();
+        s.runtime.system_model = summaries.implementation.pool.config.model orelse "";
         const codex = try codex_observer.Worker.start();
         defer codex.stop();
         _ = c.signal(c.SIGPIPE, os.sig_ignore);
