@@ -100,7 +100,8 @@ pub const Cache = struct {
     generation: u64 = 0,
     /// Called on the server thread; only copies the owning pane's visible text
     /// when a new/retry request is due. Unchanged successful guesses are free.
-    pub fn reconcile(cache: *Cache, runtime: anytype, worker: anytype, now: i64) void {
+    pub fn reconcile(cache: *Cache, runtime: anytype, worker: anytype, now: i64) bool {
+        var changed = false;
         for (&cache.entries) |*entry| if (entry.*) |*e| {
             e.seen = false;
         };
@@ -142,13 +143,16 @@ pub const Cache = struct {
             }) catch continue;
             worker.submitLink(request);
             entry.pending = true;
+            changed = true;
         };
         for (&cache.entries, 0..) |*entry, i| if (entry.*) |e| {
             if (!e.seen) {
                 worker.cancelLink(i, e.generation);
                 entry.* = null;
+                changed = true;
             }
         };
+        return changed;
     }
     pub fn apply(cache: *Cache, result: Result, now: i64) bool {
         if (result.slot >= capacity) return false;
@@ -156,15 +160,16 @@ pub const Cache = struct {
         if (entry.generation != result.generation or !std.meta.eql(entry.key, result.key)) return false;
         // Update the stored entry after validating the generation.
         const stored = &cache.entries[result.slot].?;
+        const was_pending = stored.pending;
         stored.pending = false;
         stored.next = now + 60000;
         if (result.name) |label| {
             // Unknown destinations can be reconsidered after startup output.
-            if (std.ascii.eqlIgnoreCase(label.text(), "Link")) return false;
+            if (std.ascii.eqlIgnoreCase(label.text(), "Link")) return was_pending;
             stored.name = label;
             return true;
         }
-        return false;
+        return was_pending;
     }
     pub fn name(cache: *const Cache, workspace: u32, endpoint: ports.Endpoint) []const u8 {
         const key = Key.of(workspace, endpoint);
@@ -173,12 +178,22 @@ pub const Cache = struct {
         };
         return "";
     }
+    fn pending(cache: *const Cache, workspace: u32, endpoint: ports.Endpoint) bool {
+        const key = Key.of(workspace, endpoint);
+        for (cache.entries) |entry| if (entry) |e| {
+            if (std.meta.eql(e.key, key)) return e.pending;
+        };
+        return false;
+    }
     pub fn snapshot(cache: *const Cache, allocator: std.mem.Allocator, source: ports.Snapshot) !ports.Snapshot {
         var result = source;
         const workspaces = try allocator.dupe(ports.Work, source.workspaces);
         for (workspaces) |*work| {
             const endpoints = try allocator.dupe(ports.Endpoint, work.endpoints);
-            for (endpoints) |*endpoint| endpoint.label = cache.name(work.id, endpoint.*);
+            for (endpoints) |*endpoint| {
+                endpoint.label = cache.name(work.id, endpoint.*);
+                endpoint.label_pending = cache.pending(work.id, endpoint.*);
+            }
             work.endpoints = endpoints;
         }
         result.workspaces = workspaces;

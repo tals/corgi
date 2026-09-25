@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import sys
@@ -89,12 +90,31 @@ s.serve_forever()
         self.until(lambda: not self.endpoints(), timeout=15)
         self.assertNotIn('Open Finance', viewer.poll()['data'])
 
+    def test_pending_dots_glimmer_then_resolve_without_changing_the_url(self):
+        self.control.write_text(json.dumps({'label': 'Finance', 'delay': 4}))
+        _, info = self.start_server()
+        self.until(lambda: any(e.get('label_pending') for e in self.endpoints()), timeout=25)
+        viewer = viewers.Viewer(self)
+        first = viewer.poll()['data']
+        self.assertIn('Open ... ↗', smoke.screen_text(first, 100, 30)[2])
+        colors = lambda frame: re.findall(r'\x1b\[38;2;(\d+;\d+;\d+)m\.', frame)
+        self.assertEqual(len(colors(first)), 3)
+        self.until(lambda: colors(viewer.poll()['data']) != colors(first), timeout=2)
+        self.assertIn('Open ... ↗', smoke.screen_text(viewer.state['data'], 100, 30)[2])
+        clicked = viewer.input('\x1b[<0;14;3M\x1b[<0;14;3m')
+        self.assertEqual(clicked['effects'], [{'open_url': f'http://localhost:{info["port"]}'}])
+        self.until(lambda: any(e.get('label') == 'Finance' and not e.get('label_pending') for e in self.endpoints()), timeout=10)
+        final = viewer.poll()['data']
+        self.assertIn('Open Finance ↗', final)
+        self.assertEqual(colors(final), [])
+
     def test_invalid_guess_keeps_fallback_and_does_not_loop(self):
         self.control.write_text(json.dumps({'label': 'Bad\u001b[2J', 'delay': 0}))
         self.start_server()
         self.until(self.log.exists, timeout=25)
         time.sleep(.8)
         self.assertTrue(all(not e.get('label') for e in self.endpoints()))
+        self.assertTrue(all(not e.get('label_pending') for e in self.endpoints()))
         viewer = viewers.Viewer(self)
         self.assertIn('Open Link ↗', viewer.poll()['data'])
         time.sleep(1)

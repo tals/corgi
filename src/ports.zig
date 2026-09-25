@@ -15,6 +15,7 @@ pub const Interface = struct { name: []const u8, address: []const u8, kind: Kind
 pub const Scheme = enum { unknown, http, https };
 pub const Endpoint = struct {
     label: []const u8 = "",
+    label_pending: bool = false,
     pid: i32,
     pane: u32,
     name: []const u8,

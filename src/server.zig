@@ -458,7 +458,10 @@ pub const Server = struct {
                     s.runtime.changed();
                 };
                 summaries.reconcile(s.runtime.conversations.items.items);
-                s.runtime.link_labels.reconcile(&s.runtime, summaries, now);
+                if (s.runtime.link_labels.reconcile(&s.runtime, summaries, now)) {
+                    s.dirty = true;
+                    s.runtime.changed();
+                }
                 var link_results: [@import("link_labels.zig").capacity]?@import("link_labels.zig").Result = undefined;
                 summaries.takeLinks(&link_results);
                 for (link_results) |entry| if (entry) |result| {
@@ -611,7 +614,12 @@ pub const Server = struct {
             }
             s.followWorkspaceDirectories();
             if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
-            if (s.runtime.ports.tick(&s.runtime)) s.dirty = true;
+            if (s.runtime.ports.tick(&s.runtime)) {
+                // Publish newly discovered links with their queued state in
+                // the same snapshot, avoiding a brief generic-label flash.
+                _ = s.runtime.link_labels.reconcile(&s.runtime, summaries, now);
+                s.dirty = true;
+            }
             if (s.dirty) {
                 s.runtime.changed();
                 s.dirty = false;

@@ -638,7 +638,7 @@ fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
         name = "";
         break;
     };
-    if (name.len == 0) name = "Link";
+    if (name.len == 0) name = if (portPending(ws)) "..." else "Link";
     return if (count == 1) std.fmt.bufPrint(buf, "Open {s} ↗", .{name}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "Open {s} ↗ {d}", .{ name, count }) catch "Open Link ↗";
 }
 fn statusMetadataWidth(ws: WorkspaceEntry) usize {
@@ -706,7 +706,7 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
     }
     if (writer) |w| {
         try w.writeAll("\x1b[4;38;2;137;180;250m");
-        try writeClipped(w, label, width);
+        try writePortLabel(w, label, width, portPending(ws), std.time.milliTimestamp());
         if (count == 1) try w.writeAll("\x1b]8;;\x1b\\");
         try w.writeAll("\x1b[24;38;2;155;163;175m");
         if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
@@ -715,6 +715,21 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
 }
 
 pub const PortMenu = struct {
+fn workspaceUrlPending(ws: WorkspaceEntry, index: usize) bool {
+    if (workspaceUrlName(ws, index).len > 0) return false;
+    var target_buf: [256]u8 = undefined;
+    const target = workspaceUrl(ws, index, &target_buf) orelse return false;
+    for (ws.ports.workspace(ws.id).endpoints) |endpoint| {
+        var candidate_buf: [256]u8 = undefined;
+        const candidate = @import("ports.zig").url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
+        if (std.mem.eql(u8, target, candidate) and endpoint.label_pending) return true;
+    }
+    return false;
+}
+fn portPending(ws: WorkspaceEntry) bool {
+    for (0..urlCount(ws)) |i| if (workspaceUrlPending(ws, i)) return true;
+    return false;
+}
     workspace: u32,
     selected: usize = 0,
     pub fn bounds(cols: u16, rows: u16) layout.Rect {
@@ -727,6 +742,19 @@ pub const PortMenu = struct {
     }
     pub fn hit(menu: PortMenu, ws: WorkspaceEntry, cols: u16, rows: u16, x: u16, y: u16) ?usize {
         const rect = bounds(cols, rows);
+/// Keep all three dots in place; only their blue intensity travels gently.
+/// Quantized to 80ms so idle viewers do not emit a different frame every poll.
+fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, pending: bool, now_ms: i64) !void {
+    if (!pending or !std.mem.startsWith(u8, label, "Open ...")) return writeClipped(w, label, width);
+    try writeClipped(w, "Open ", width);
+    for (0..@min(3, width -| 5)) |i| {
+        const phase = @mod(@divFloor(now_ms, 80) * 80 - @as(i64, @intCast(i)) * 160, 1800);
+        const glow: u32 = if (phase < 640) @intCast(320 - @abs(phase - 320)) else 0;
+        try w.print("\x1b[38;2;{d};{d};{d}m.", .{ 125 + glow * 45 / 320, 164 + glow * 35 / 320, 220 + glow * 25 / 320 });
+    }
+    try w.writeAll("\x1b[38;2;137;180;250m");
+    if (width > 8) try writeClipped(w, label[8..], width - 8);
+}
         if (x <= rect.x or x >= rect.x + rect.w -| 1 or y < rect.y + 2 or y >= rect.y + rect.h -| 1) return null;
         const selected = @min(menu.selected, urlCount(ws) -| 1);
         const index = selected / capacity(rows) * capacity(rows) + y - rect.y - 2;
@@ -750,8 +778,9 @@ pub const PortMenu = struct {
             try w.print("\x1b[{d};{d}H{s} {s} \x1b]8;id=corgi-popup-{d}-{d};{s}\x1b\\", .{ rect.y + 3 + index - offset, rect.x + 1, if (index == selected) "\x1b[38;2;137;180;250;48;2;49;56;68m" else "\x1b[38;2;137;180;250;48;2;35;40;47m", if (index == selected) "›" else " ", ws.id, index, url });
             const name = workspaceUrlName(ws, index);
             var label_buf: [384]u8 = undefined;
-            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else url;
-            try writeClipped(w, label, rect.w - 4);
+            const pending = workspaceUrlPending(ws, index);
+            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else if (pending) try std.fmt.bufPrint(&label_buf, "Open ... · {s}", .{url}) else url;
+            try writePortLabel(w, label, rect.w - 4, pending, std.time.milliTimestamp());
             try w.writeAll("\x1b]8;;\x1b\\");
         }
     }

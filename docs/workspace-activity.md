@@ -102,8 +102,10 @@ provider usage; regular tests never contact a model.
 
 ## Workspace link names
 
-Confirmed browser links start as `Open Link ↗`. The shared inference worker then
-tries to name the destination from the owning pane's visible terminal text,
+Confirmed browser links show `Open ... ↗` while their name is queued or being
+inferred. The three stationary dots have a subtle blue glimmer; the title
+replaces them when it arrives. The shared inference worker tries to name the
+destination from the owning pane's visible terminal text,
 terminal title, working directory, workspace name, process name, PID, and URL.
 For example, it can change the shortcut to `Open Finance ↗`. It sends at most
 1,600 bytes of visible terminal text and bounded metadata; it does not ask the
@@ -111,7 +113,8 @@ model to fetch the page or inspect other panes.
 
 Names are cached for the endpoint's workspace, pane, PID, port, scheme, and bind
 address. Successful names stay stable while that endpoint remains present.
-Unknown names and failures retain `Open Link` and retry after a minute. Removed
+Unknown names and failures show `Open Link` without glimmer and retry after a
+minute. Inference-disabled links also use `Open Link`. Removed
 endpoints invalidate queued work and late results. Up to 64 endpoints are named;
 others retain the fallback. Link requests and activity summaries alternate on
 the same worker and share its five-second global throttle and inference settings.
