@@ -334,7 +334,7 @@ pub const Menu = struct {
         reset_text.* = option.resets.text(std.time.timestamp());
         return .{
             if (index == 0) "Codex" else "Claude Code",
-            if (m.yolo[index]) "[x]" else "[ ]",
+            if (m.yolo[index]) "✓" else "·",
             if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
@@ -442,7 +442,9 @@ pub const Menu = struct {
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, if (selected) "›" else " " });
             if (i == m.preview.options.len) {
                 try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
-                try sidebar.writeEllipsis(w, "New terminal", b.w -| 6);
+                try writeKey(w, "t", style);
+                try w.writeAll(" ");
+                try sidebar.writeEllipsis(w, "New terminal", b.w -| 10);
                 continue;
             }
             var x: u16 = b.x + 4;
@@ -451,11 +453,13 @@ pub const Menu = struct {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x });
                 if (column == 5 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
+                if (column == 1 and m.yolo[i]) try w.writeAll("\x1b[1;38;2;255;255;255m");
                 const room = width -| @as(u16, if (column == 6) 1 else 2);
                 if (column >= 5) {
                     try writeWindowCell(w, text, room, style);
                 } else try sidebar.writeEllipsis(w, text, room);
                 try w.writeAll("\x1b[24m");
+                if (column == 1 and m.yolo[i]) try w.writeAll(style);
                 x += width;
             }
         }
@@ -463,11 +467,30 @@ pub const Menu = struct {
         const directory = std.fs.path.basename(m.cwd[0..m.cwd_len]);
         var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
         const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
-        try sidebar.writeEllipsis(w, footer, b.w - 24);
-        const hint = if (m.selected == .terminal) "t: new terminal" else if (m.trackable(m.selected)) "u: Track usage" else "a: launch  y: YOLO";
-        try w.print("\x1b[{d};{d}H{s}\x1b[0m\x1b[?25l", .{ b.y + 6, b.x + b.w - 19, hint });
+        try sidebar.writeEllipsis(w, footer, b.w - 25);
+        const Hint = struct { key: []const u8, label: []const u8 };
+        const hints: []const Hint = if (m.selected == .terminal)
+            &.{.{ .key = "a", .label = "open" }}
+        else if (m.trackable(m.selected))
+            &.{.{ .key = "u", .label = "Track usage" }}
+        else
+            &.{ .{ .key = "a", .label = "launch" }, .{ .key = "y", .label = "YOLO" } };
+        var hint_width: u16 = 0;
+        for (hints, 0..) |hint, i| hint_width += @intCast(3 + 1 + hint.label.len + @as(usize, if (i > 0) 2 else 0));
+        try w.print("\x1b[{d};{d}H", .{ b.y + 6, b.x + b.w - 1 - hint_width });
+        for (hints, 0..) |hint, i| {
+            if (i > 0) try w.writeAll("  ");
+            try writeKey(w, hint.key, panel);
+            try w.print(" {s}", .{hint.label});
+        }
+        try w.writeAll("\x1b[0m\x1b[?25l");
     }
 };
+
+/// Draw a one-letter keycap, then restore the surrounding style.
+fn writeKey(w: *std.Io.Writer, key: []const u8, after: []const u8) !void {
+    try w.print("\x1b[0;1;38;2;226;230;233;48;2;74;83;94m {s} {s}", .{ key, after });
+}
 
 // Clip plain text before adding SGR so styling never consumes column width.
 fn writeWindowCell(w: *std.Io.Writer, text: []const u8, width: usize, row_style: []const u8) !void {
