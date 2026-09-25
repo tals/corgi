@@ -15,6 +15,7 @@ pub const Server = struct {
     const Pane = runtime.Pane;
     runtime: runtime.Runtime = .{},
     launch_previews: ?*@import("agent_launcher.zig").Worker = null,
+    summaries: ?*@import("activity_worker.zig").Worker = null,
     preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
     default_folder_pending: bool = true,
     clients: std.ArrayList(Client) = .empty,
@@ -35,6 +36,15 @@ pub const Server = struct {
     reload_requester: c_int = -1,
     last_recovery: i64 = 0,
     saved_revision: u64 = 0,
+    fn publishInference(s: *Server) void {
+        const worker = s.summaries orelse return;
+        const status = worker.status();
+        if (std.meta.eql(s.runtime.inference, status)) return;
+        s.runtime.inference = status;
+        s.runtime.system_model = status.model;
+        s.runtime.changed();
+        s.dirty = true;
+    }
     pub fn initialWorkspace(s: *Server) *workspace.Workspace {
         return s.runtime.workspaces.get(s.preferred_workspace) orelse &s.runtime.workspaces.items.items[0];
     }
@@ -196,6 +206,21 @@ pub const Server = struct {
             if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
             const preview = if (s.launch_previews) |worker| (if (eq(operation, "agent.track_usage")) worker.trackUsage(cwd) else worker.preview(cwd)) else @import("agent_launcher.zig").Preview{};
             try cl.queue(.{ .ok = true, .preview = preview });
+            return;
+        }
+        if (eq(operation, "inference.configure")) {
+            try protocol.require(v, cl.protocol_version);
+            const setup = @import("inference_setup.zig");
+            const choice = std.meta.stringToEnum(setup.Choice, agents.str(v, "choice")) orelse return error.BadProvider;
+            const worker = s.summaries orelse return error.InferenceUnavailable;
+            worker.configure(choice);
+            const saved = if (setup.path(s.socket)) |file| blk: {
+                defer a.free(file);
+                setup.save(file, choice) catch break :blk false;
+                break :blk true;
+            } else |_| false;
+            s.publishInference();
+            try cl.queue(.{ .ok = true, .saved = saved, .inference = s.runtime.inference });
             return;
         }
         if (eq(operation, "session.command")) {
@@ -421,6 +446,10 @@ pub const Server = struct {
         const text = if (job != null and (!authoritative or review)) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
         var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
+        // Each new agent process counts once toward automatic inference selection.
+        if (job) |current| if (current.pid != previous_pid and current.provider != .other) if (s.summaries) |worker| {
+            worker.observeLaunch(if (current.provider == .codex) .codex else .claude);
+        };
         if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
         if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
         if (job != null and review and text != null) {
@@ -447,9 +476,16 @@ pub const Server = struct {
         const usage = try usage_worker.Worker.start();
         defer usage.stop();
         const codex_observer = @import("codex_observer.zig");
-        const summaries = try @import("activity_worker.zig").Worker.start();
-        defer summaries.stop();
-        s.runtime.system_model = summaries.implementation.pool.config.model orelse "";
+        const setup = @import("inference_setup.zig");
+        const settings = setup.path(s.socket) catch null;
+        const summaries = try @import("activity_worker.zig").Worker.start(setup.initial(if (settings) |file| setup.load(file) else null));
+        if (settings) |file| a.free(file);
+        s.summaries = summaries;
+        defer {
+            s.summaries = null;
+            summaries.stop();
+        }
+        s.publishInference();
         const codex = try codex_observer.Worker.start();
         defer codex.stop();
         _ = c.signal(c.SIGPIPE, os.sig_ignore);
@@ -527,6 +563,8 @@ pub const Server = struct {
                     s.runtime.changed();
                 };
                 summaries.reconcile(s.runtime.conversations.items.items);
+                summaries.remember(if (s.runtime.last_agent == .codex) .codex else .claude);
+                s.publishInference();
                 const system_working = summaries.implementation.pool.working.load(.acquire);
                 if (s.runtime.system_working != system_working) {
                     s.runtime.system_working = system_working;

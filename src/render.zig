@@ -12,6 +12,8 @@ pub const Ui = struct {
     pointer: ?Pointer = null,
     link_tooltip: bool = false,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
+    corgi_setup: ?@import("corgi_setup.zig").Menu = null,
+    inference: @import("inference_setup.zig").Status = .{},
     message: []const u8,
     copy_mode: bool,
     copy_feedback: bool = false,
@@ -151,7 +153,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var link_pointer = false;
     var workspace_uri: [256]u8 = undefined;
     if (ui.pointer) |pointer| {
-        if (ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
+        if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
             if (ui.port_menu) |menu| {
                 for (ui.workspaces) |ws| {
                     if (ws.id != menu.workspace) continue;
@@ -160,7 +162,8 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                     break;
                 }
             } else {
-                link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null;
+                link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null or
+                    @import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y);
                 switch (side.hit(pointer.x, pointer.y)) {
                     .agent_new, .agent_options => link_pointer = true,
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
@@ -170,6 +173,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             }
         }
     }
+    if (ui.corgi_setup != null) if (ui.pointer) |pointer| {
+        link_pointer = @import("corgi_setup.zig").Menu.hit(width, height, pointer.x, pointer.y) != null;
+    };
     if (ui.agent_launcher != null) if (ui.pointer) |pointer| {
         link_pointer = ui.agent_launcher.?.hit(width, height, side, pointer.x, pointer.y) != null or side.hit(pointer.x, pointer.y) == .agent_new or side.hit(pointer.x, pointer.y) == .agent_options;
     };
@@ -181,7 +187,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             const state = p.terminal.renderState();
             var hovered: ?u64 = null;
             if (ui.pointer) |pointer| {
-                if (r.contains(pointer.x, pointer.y) and ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
+                if (r.contains(pointer.x, pointer.y) and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
                     for (p.terminal.hyperlinks()) |link| {
                         if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
                             hovered = link.id;
@@ -242,7 +248,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.writeAll(text[0..@min(text.len, width)]);
     }
     try w.writeAll("\x1b[0m");
-    if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and ui.agent_launcher == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
+    if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
@@ -252,7 +258,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             };
         };
     };
-    if (ui.link_tooltip and ui.agent_launcher == null) if (ui.pointer) |pointer| {
+    if (ui.link_tooltip and ui.agent_launcher == null and ui.corgi_setup == null) if (ui.pointer) |pointer| {
         if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
             try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, width, height);
         } else if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
@@ -296,6 +302,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try naming.View.init(width, height, dialog).draw(dialog, w, number);
     }
     if (ui.agent_launcher) |*launcher| try launcher.draw(w, width, height, side);
+    if (ui.corgi_setup) |*setup| try setup.draw(w, ui.inference, width, height);
     try side.searchCursor(w);
     // Include the shape in each complete frame so reconnects and overlay changes
     // cannot leave the host pointer stuck on a previously hovered link.

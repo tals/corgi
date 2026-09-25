@@ -80,6 +80,7 @@ pub const Controller = struct {
     port_menu: ?sidebar.PortMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
+    corgi_setup: ?@import("corgi_setup.zig").Menu = null,
     launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
     link_tooltip: @import("link_tooltip.zig").State = .{},
@@ -372,7 +373,7 @@ pub const Controller = struct {
         return view;
     }
     fn hasMenu(s: *Self) bool {
-        return s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null;
+        return s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null or s.corgi_setup != null;
     }
     fn tabIndex(s: *Self, id: layout.Id) ?usize {
         for (s.model().tabs[0..s.model().count], 0..) |tab, i| if (tab.id == id) return i;
@@ -450,6 +451,7 @@ pub const Controller = struct {
         s.link_tooltip.cancel();
         s.agent_picker = null;
         s.agent_launcher = null;
+        s.corgi_setup = null;
         s.launcher_hover_blocked = true;
         s.port_menu = null;
         s.tab_menu = null;
@@ -464,6 +466,7 @@ pub const Controller = struct {
         s.link_tooltip.cancel();
         s.agent_picker = null;
         s.agent_launcher = null;
+        s.corgi_setup = null;
         s.launcher_hover_blocked = true;
         s.port_menu = null;
         s.tab_menu = null;
@@ -779,6 +782,28 @@ pub const Controller = struct {
     fn portWorkspaceEntry(s: *Self, id: u32) sidebar.WorkspaceEntry {
         return .{ .id = id, .name = "", .cwd = "", .active = false, .ports = s.runtime.ports, .remote_links = s.remote_links };
     }
+    fn openSetup(s: *Self) void {
+        s.closeMenu();
+        s.corgi_setup = @import("corgi_setup.zig").Menu.open(s.runtime.inference);
+        s.dirty = true;
+    }
+    fn applySetup(s: *Self, choice: @import("inference_setup.zig").Choice) void {
+        s.closeMenu();
+        const response = s.connection.call(.{ .op = "inference.configure", .protocol = 1, .choice = @tagName(choice) }) catch {
+            s.notice(" Corgi setup: the runtime did not accept the change");
+            return;
+        };
+        defer response.deinit();
+        const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
+        var buffer: [128]u8 = undefined;
+        const label = switch (choice) {
+            .auto => "Auto (follows your agents)",
+            .codex => "Codex",
+            .claude => "Claude Code",
+            .off => "Off",
+        };
+        s.notice(std.fmt.bufPrint(&buffer, " Summaries and link names: {s}{s}", .{ label, if (saved) "" else " (not saved for next start)" }) catch "");
+    }
     fn movePortMenu(s: *Self, next: bool) void {
         if (s.port_menu) |*links| {
             const count = sidebar.urlCount(s.portWorkspaceEntry(links.workspace));
@@ -788,6 +813,17 @@ pub const Controller = struct {
     }
     fn key(s: *Self, byte: u8) !void {
         const cl = &s.input_state;
+        if (s.corgi_setup) |*setup| {
+            switch (byte) {
+                27, 'q' => s.closeMenu(),
+                13, ' ' => s.applySetup(setup.selected),
+                'j', 14, 9 => setup.move(true),
+                'k', 16 => setup.move(false),
+                else => {},
+            }
+            s.dirty = true;
+            return;
+        }
         if (s.agent_launcher) |launch| {
             const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or (byte == 'u' and launch.trackable(launch.selected));
             if (!launch.pinned and !navigation) {
@@ -947,6 +983,7 @@ pub const Controller = struct {
                 'x' => try s.action("close", ""),
                 'X' => try s.action("close-tab", ""),
                 'g' => s.openAgentPicker(),
+                'i' => s.openSetup(),
                 '[' => try s.navigateAgent(false),
                 ']' => try s.navigateAgent(true),
                 9 => try s.navigateAgent(null),
@@ -1105,6 +1142,9 @@ pub const Controller = struct {
                 s.dirty = true;
             } else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(seq) else if (s.agent_picker != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) s.moveAgentPicker(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveAgentPicker(true) else s.agent_picker.?.query.sequence(seq);
+            } else if (s.corgi_setup) |*setup| {
+                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) setup.move(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) setup.move(true);
+                s.dirty = true;
             } else if (s.agent_launcher != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.moveLauncher(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB") or eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.moveLauncher(true) else if (eq(seq, "\x1b[Z")) s.moveLauncher(s.agent_launcher.?.selected == .codex) else if (!s.agent_launcher.?.pinned) {
                     s.closeMenu();
@@ -1316,6 +1356,17 @@ pub const Controller = struct {
             if (release) s.ui_mouse_down = false;
             return;
         }
+        if (s.corgi_setup != null) {
+            const setup = @import("corgi_setup.zig").Menu;
+            if (!release and button == 0) {
+                s.ui_mouse_down = true;
+                if (setup.hit(s.width, s.height, x, y)) |choice| s.applySetup(choice) else if (!setup.contains(s.width, s.height, x, y)) s.closeMenu();
+            } else if (!release and (button == 35 or button == 32)) {
+                if (setup.hit(s.width, s.height, x, y)) |choice| s.corgi_setup.?.selected = choice;
+            } else if (!release and (button == 64 or button == 65)) s.corgi_setup.?.move(button == 65);
+            s.dirty = true;
+            return;
+        }
         if (s.agent_launcher != null) {
             const side = s.sidebarView(0);
             if (!release and button == 0) {
@@ -1450,6 +1501,7 @@ pub const Controller = struct {
                 s.dirty = true;
             } else if (!release and (button == 0 or button == 2)) {
                 s.ui_mouse_down = true;
+                if (@import("corgi_badge.zig").hit(s.corgi_badge, side.width, x, y)) return s.openSetup();
                 switch (side.hit(x, y)) {
                     .toggle => try s.action("sidebar", ""),
                     .previous => s.sidebar_offset = side.offset -| side.capacity,
@@ -1553,7 +1605,10 @@ pub const Controller = struct {
                     return;
                 }
             }
-            if (term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0) {
+            // Agent output keeps ordinary left-drag selection even when the
+            // agent requests mouse reporting. Alt-click still reaches its UI.
+            const agent_selection = s.pane(p.id).?.agent.provider != .other and (button == 0 or button == 32);
+            if (term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0 and !agent_selection) {
                 // Translate coordinates through Ghostty's input encoder into the app's chosen protocol.
                 const vt = @import("terminal.zig").vt;
                 var encoded: std.Io.Writer.Allocating = .init(a);
@@ -1753,6 +1808,8 @@ pub const Controller = struct {
             .port_menu = s.port_menu,
             .agent_search = s.agentSearch(),
             .agent_launcher = s.agent_launcher,
+            .corgi_setup = s.corgi_setup,
+            .inference = s.runtime.inference,
             .tab_drop_x = s.tabDropX(),
             .dialog = s.name_dialog,
             .confirm = s.confirm != .none,

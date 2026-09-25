@@ -287,6 +287,8 @@ test {
     _ = @import("activity_summary.zig");
     _ = @import("activity_timeline.zig");
     _ = @import("inference_usage.zig");
+    _ = @import("inference_setup.zig");
+    _ = @import("corgi_setup.zig");
     _ = @import("terminal.zig");
     _ = @import("integration.zig");
     _ = @import("detection.zig");

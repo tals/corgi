@@ -107,14 +107,14 @@ class Summaries(codex_titles.Titles):
             viewer.input('\x1b[<35;3;1M')
             time.sleep(.6)
             overview=viewer.poll()['data']
-            for text in ['System','Top agents','Model','Tokens','Cached','8.1k tokens (+9.6k cached)']:
+            for text in ['Corgi (Activity summarizer)','Top agents','Model','Tokens','Cached','8.1k tokens (+9.6k cached)']:
                 self.assertIn(text,overview)
             # Decode rows after removing Kitty image commands. Cached input is
             # shown separately from input-minus-cache plus output in this table.
             rows=smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',overview),100,30)
-            system_row=next(row for row in rows if 'System' in row)
+            system_row=next(row for row in rows if 'Corgi (Activity summarizer)' in row)
             agent_row=next(row for row in rows if 'codex ·' in row)
-            self.assertRegex(system_row,r'System\s+gpt-6-luna\s+1\.2k\s+1\.8k')
+            self.assertRegex(system_row,r'Corgi \(Activity summarizer\)\s+gpt-6-luna\s+1\.2k\s+1\.8k')
             self.assertRegex(agent_row,r'codex · \S+\s+—\s+6\.9k\s+7\.8k')
             self.assertNotIn('tracked sessions',overview)
             pathlib.Path('/tmp/corgi-overview-frame.json').write_text(json.dumps(dict(cols=100,rows=30,frame=overview)))
@@ -174,6 +174,28 @@ class Summaries(codex_titles.Titles):
         self.assertEqual(sessions[0]['pid'],sessions[1]['pid'])
         self.assertEqual(sessions[0]['thread'],sessions[1]['thread'])
         self.assertEqual(sessions[1]['turn'],2)
+    def test_setup_switches_provider_persists_choice_and_auto_follows_agents(self):
+        status=self.session()['inference']
+        self.assertEqual((status['choice'],status['provider'],status['model']),('codex','codex','gpt-6-luna'))
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.until(lambda:self.session()['inference']['locked'])
+        reply=self.rpc(op='inference.configure',protocol=1,choice='claude')
+        self.assertTrue(reply['saved'])
+        self.assertEqual((reply['inference']['provider'],reply['inference']['locked']),('claude',False))
+        self.assertEqual(json.loads(pathlib.Path(self.path+'.settings.json').read_text()),{'inference':'claude'})
+        self.assertEqual(self.session()['system_model'],'claude-haiku-4-5-20251001')
+        self.control.write_text(json.dumps({'delay':0,'label':'Running tests'}))
+        self.start_turn(tid='after-switch',wave=False)
+        self.until(lambda:self.state()['activity']=='Running tests')
+        # The Codex harness was stopped and a Claude harness answered.
+        self.assertEqual(len(pathlib.Path(str(self.log)+'.processes').read_text().splitlines()),2)
+        self.assertEqual(self.rpc(op='inference.configure',protocol=1,choice='off')['inference']['provider'],None)
+        # The pane runs a Codex agent, so automatic selection follows it.
+        status=self.rpc(op='inference.configure',protocol=1,choice='auto')['inference']
+        self.assertEqual((status['choice'],status['provider']),('auto','codex'))
+        self.assertGreaterEqual(status['codex_launches'],1)
+        self.assertEqual(status['claude_launches'],0)
     def test_watched_workspace_still_collects_tools(self):
         self.attach()
         self.rpc(op='focus',pane=self.pane)

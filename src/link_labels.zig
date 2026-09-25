@@ -131,7 +131,7 @@ pub const Cache = struct {
             }
             const entry = &cache.entries[index].?;
             if (entry.attempted) continue;
-            if (worker.implementation.pool.config.disabled) continue;
+            if (worker.off()) continue;
             // Include preparation failures: noisy or unreadable terminals must
             // not trigger automatic retries on every scan.
             entry.attempted = true;
@@ -264,7 +264,6 @@ const CacheFixture = struct {
         }
     } = .{},
     item: Pane = .{},
-    implementation: struct { pool: struct { config: struct { disabled: bool = false } = .{} } = .{} } = .{},
     submitted: usize = 0,
     cancelled: usize = 0,
     request: Request = undefined,
@@ -277,6 +276,9 @@ const CacheFixture = struct {
     }
     pub fn cancelLink(f: *@This(), _: usize, _: u64) void {
         f.cancelled += 1;
+    }
+    pub fn off(_: *@This()) bool {
+        return false;
     }
 };
 

@@ -5,6 +5,7 @@ const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
 const backend = @import("summary_backend.zig");
 const links = @import("link_labels.zig");
+const setup = @import("inference_setup.zig");
 const a = std.heap.c_allocator;
 const max = @import("layout.zig").max_panes;
 const max_slots = @import("conversations.zig").max_actors;
@@ -68,6 +69,60 @@ pub const Worker = struct {
     system_meter: @import("live_usage.zig").Meter = .{ .value = .{ .known = true } },
     link_requests: [links.capacity]?links.Request = @splat(null),
     link_results: [links.capacity]?links.Result = @splat(null),
+    choice: setup.Choice = .auto,
+    launches: setup.Launches = .{},
+    remembered: setup.Provider = .codex,
+    /// Provider the pool is configured for; applied only by the worker thread.
+    active: ?setup.Provider = null,
+    applied: bool = false,
+    locked: bool = false,
+    /// Viewers and the link cache read this; the pool itself is worker-owned.
+    pub fn off(w: *Worker) bool {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        return w.choice == .off;
+    }
+    pub fn status(w: *Worker) setup.Status {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        const provider = if (w.applied) w.active else setup.resolve(w.choice, w.launches, w.remembered);
+        return .{ .choice = w.choice, .provider = provider, .model = setup.model(provider), .locked = w.locked, .codex_launches = w.launches.codex, .claude_launches = w.launches.claude, .codex_model = setup.model(.codex), .claude_model = setup.model(.claude) };
+    }
+    pub fn configure(w: *Worker, choice: setup.Choice) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.choice = choice;
+        w.applied = false;
+        w.locked = false;
+        // Failures under the previous provider should not delay the new one.
+        for (w.slots) |*entry| if (entry.*) |*slot| if (slot.retry) {
+            slot.next = 0;
+        };
+        w.wake.signal();
+    }
+    pub fn observeLaunch(w: *Worker, provider: setup.Provider) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.launches.record(provider);
+        w.remembered = provider;
+    }
+    pub fn remember(w: *Worker, provider: setup.Provider) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.remembered = provider;
+    }
+    /// Worker thread only. Automatic choices re-resolve until a harness answers.
+    fn applyChoice(w: *Worker) void {
+        w.mutex.lock();
+        const wanted = setup.resolve(w.choice, w.launches, w.remembered);
+        const change = !w.applied or (!w.locked and wanted != w.active);
+        if (change) {
+            w.active = wanted;
+            w.applied = true;
+        }
+        w.mutex.unlock();
+        if (change) w.implementation.use(wanted);
+    }
     pub fn systemUsage(w: *Worker, now: i64) @import("live_usage.zig").View {
         w.mutex.lock();
         defer w.mutex.unlock();
@@ -100,10 +155,11 @@ pub const Worker = struct {
         @memset(slots, null);
         return .{ .slots = slots, .implementation = implementation };
     }
-    pub fn start() !*Worker {
+    pub fn start(choice: setup.Choice) !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
-        w.* = try init(backend.Backend.configured());
+        w.* = try init(.{});
+        w.choice = choice;
         errdefer a.free(w.slots);
         w.thread = try std.Thread.spawn(.{}, run, .{w});
         return w;
@@ -120,10 +176,11 @@ pub const Worker = struct {
     pub fn submit(w: *Worker, owner: *const @import("conversations.zig").Actor, evidence: summary.Text) void {
         const actor = owner.id;
         const agent = &owner.state;
-        if (w.implementation.pool.config.disabled or (agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
+        if ((agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
         const req: Request = .{ .actor = actor, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation, .conversation = owner.status_inference };
         w.mutex.lock();
         defer w.mutex.unlock();
+        if (w.choice == .off) return;
         const slot = for (w.slots) |*s| {
             if (s.*) |v| {
                 if (v.request.actor == actor) break s;
@@ -192,9 +249,21 @@ pub const Worker = struct {
         var prefer_links = true;
         var next_global: i64 = 0;
         while (!w.stopping.load(.acquire)) {
+            w.applyChoice();
             w.implementation.pool.refreshUsage();
             w.mutex.lock();
+            w.locked = w.locked or w.implementation.pool.started;
             w.system_meter = w.implementation.pool.system_usage.meter;
+            if (w.choice == .off) {
+                // Settle requests queued before inference was turned off.
+                for (&w.link_requests, &w.link_results) |*request, *result| if (request.*) |r| {
+                    result.* = .{ .slot = r.slot, .generation = r.generation, .key = r.key, .name = null };
+                    request.* = null;
+                };
+                w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
+                w.mutex.unlock();
+                continue;
+            }
             w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
             const now = std.time.milliTimestamp();
             const selected: ?usize = if (now < next_global) null else for (0..max_slots) |n| {

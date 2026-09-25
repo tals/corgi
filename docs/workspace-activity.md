@@ -52,21 +52,40 @@ for idle agents. While awaiting a first result, the activity text stays blank; t
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
 
-The default backend uses a persistent native Codex App Server with the existing
-Codex login. It does not run `codex exec`. Choose Claude Code's persistent JSONL
-transport with `CORGI_INFERENCE_PROVIDER=claude`; its existing login is reused too.
-The observed agent's provider and the inference provider are independent.
-GPT-6 Luna (`gpt-6-luna`) with low reasoning effort remains the default for
-Codex activity summaries. Claude uses its configured default model.
+Corgi's own inference runs through a persistent native harness, reusing the
+existing login: Codex's App Server (it does not run `codex exec`) or Claude
+Code's JSONL transport. The observed agent's provider and the inference provider
+are independent.
 
-`CORGI_INFERENCE_MODEL` overrides the model. `CORGI_SUMMARY_MODEL` remains a legacy
-fallback. `CORGI_INFERENCE_BIN` optionally selects the native harness executable;
-otherwise the normal `CORGI_CODEX_BIN` / `CORGI_CLAUDE_BIN` discovery applies.
-Set `CORGI_INFERENCE_PROVIDER=off` to disable inference. Unknown provider values
-also disable it rather than silently sending data to a different provider.
-The old one-shot `CORGI_SUMMARY_COMMAND` executable protocol is removed; its `off`
-value is still honored. Settings take effect when the server starts; a reload
-preserves the existing server environment.
+By default the provider is **Auto**: until a harness has answered once, Corgi
+uses whichever agent you have launched most in panes since the runtime started
+(ties go to the most recent launch; with no launches yet, the last agent Corgi
+remembers). Once a harness answers, Auto keeps it until you change the setting,
+so a Claude Code user gets Claude-backed summaries and link names without
+installing or signing in to Codex.
+
+Click the corgi badge at the top of the sidebar, or press **Ctrl-B i**, to open
+**Corgi setup** and choose Auto, Codex, Claude, or Off (arrow keys and Enter, or
+click a row; Escape closes). The popover shows what Auto picked and the launch
+counts behind it. Changes apply immediately, stop the previous harness, and are
+saved in `settings.json` beside `workspaces.json`. A saved choice wins over the
+environment. Clients can do the same with
+`corgi rpc '{"op":"inference.configure","protocol":1,"choice":"claude"}'`; the
+session snapshot's `inference` field reports the choice, provider, model,
+whether Auto has settled, and launch counts.
+
+Without a saved choice, `CORGI_INFERENCE_PROVIDER` (`auto`, `codex`, `claude`,
+or `off`) sets the starting choice. Unknown values disable inference rather than
+silently sending data to a different provider. GPT-6 Luna (`gpt-6-luna`) with
+low reasoning effort is the Codex default; Claude Haiku 4.5
+(`claude-haiku-4-5-20251001`) is the Claude default. The setup popover shows the
+model beside each provider. `CORGI_INFERENCE_MODEL` overrides the model for either provider;
+`CORGI_SUMMARY_MODEL` remains a legacy fallback. `CORGI_INFERENCE_BIN`
+optionally selects the native harness executable; otherwise the normal
+`CORGI_CODEX_BIN` / `CORGI_CLAUDE_BIN` discovery applies. The old one-shot
+`CORGI_SUMMARY_COMMAND` executable protocol is removed; its `off` value is still
+honored. Environment settings take effect when the server starts; a reload
+preserves the existing server environment, and launch counts restart.
 
 The shared `src/inference.zig` module accepts instructions, bounded content, an
 optional JSON Schema, and an optional conversation key. It returns bounded UTF-8

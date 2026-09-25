@@ -24,22 +24,14 @@ pub fn recordExit(pid: c_int, _: c_int) void {
 }
 
 pub const Provider = enum { codex, claude };
+/// User-facing provider setting; see inference_setup.zig.
+pub const Choice = enum { auto, codex, claude, off };
 pub const Config = struct {
     provider: Provider = .codex,
     model: ?[]const u8 = null,
     executable: ?[]const u8 = null,
     disabled: bool = false,
     timeout_ms: u32 = 45000,
-    pub fn configured() Config {
-        const name = os.env("CORGI_INFERENCE_PROVIDER") orelse "codex";
-        const provider = std.meta.stringToEnum(Provider, name);
-        return .{
-            .provider = provider orelse .codex,
-            .disabled = provider == null or eq(os.env("CORGI_SUMMARY_COMMAND") orelse "", "off"),
-            .model = os.env("CORGI_INFERENCE_MODEL") orelse os.env("CORGI_SUMMARY_MODEL"),
-            .executable = os.env("CORGI_INFERENCE_BIN"),
-        };
-    }
 };
 
 pub const Request = struct {
@@ -168,6 +160,10 @@ pub const Pool = struct {
     clock: u64 = 0,
     system_usage: inference_usage.System = .{},
     working: std.atomic.Value(bool) = .init(false),
+    /// Set after the first successful turn (a missing or signed-out harness
+    /// never counts). Automatic provider selection stops re-evaluating after
+    /// this; an explicit reconfigure clears it.
+    started: bool = false,
     /// Nonblocking drain for token reports that arrive after turn completion.
     /// Called only by the pool's owning worker, including between requests.
     pub fn refreshUsage(p: *Pool) void {
@@ -254,6 +250,7 @@ pub const Pool = struct {
         if (p.system_usage.reports == reports)
             p.system_usage.markPartial("{s} turn completed without a usage report; conversation {s}, turn {d}", .{ @tagName(p.config.provider), request.conversation orelse "-", s.turns });
         s.turns += 1;
+        p.started = true;
         return response;
     }
     /// Read launch configuration without starting a thread or making an inference.

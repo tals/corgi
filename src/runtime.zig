@@ -53,6 +53,7 @@ pub const Runtime = struct {
     last_agent: @import("agent_launcher.zig").Provider = .codex,
     conversations: @import("conversations.zig").Registry = .{},
     system_model: []const u8 = "",
+    inference: @import("inference_setup.zig").Status = .{},
     system_working: bool = false,
     system_usage: @import("live_usage.zig").View = .{ .known = true },
     revision: u64 = 1,

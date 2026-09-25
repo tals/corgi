@@ -40,6 +40,7 @@ pub const entries = [_]Entry{
     .{ .key = '}', .label = "Next workspace", .needs_pane = false },
     .{ .key = '{', .label = "Previous workspace", .needs_pane = false },
     .{ .key = 'b', .label = "Toggle sidebar", .needs_pane = false },
+    .{ .key = 'i', .label = "Corgi setup", .needs_pane = false },
 };
 const resize_entries = [_]Entry{
     .{ .key = 'h', .label = "Resize left" },

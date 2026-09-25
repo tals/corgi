@@ -254,6 +254,28 @@ print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].ends
         self.assertNotIn('Track usage',view.poll()['data'])
         self.assertEqual(self.consent_log.read_text().splitlines(),['silent'])
 
+    def test_corgi_setup_changes_inference_provider(self):
+        view=Viewer(self,100,30)
+        def text():return '\n'.join(smoke.screen_text(view.poll()['data'],100,30))
+        view.input('\x02i')
+        self.until(lambda:'Corgi setup' in text())
+        self.assertIn('Who writes activity summaries',text())
+        self.assertIn('● Auto',text())
+        self.assertEqual(self.session()['inference']['choice'],'auto')
+        view.input('\x1b[B\x1b[B\r')
+        self.until(lambda:self.session()['inference']['choice']=='claude')
+        self.until(lambda:'Summaries and link names: Claude Code' in text())
+        self.assertNotIn('Corgi setup',text())
+        view.input('\x02i')
+        self.until(lambda:'● Claude' in text())
+        self.click(view,5,9) # The Off row.
+        self.until(lambda:self.session()['inference']['choice']=='off')
+        self.assertIsNone(self.session()['inference']['provider'])
+        view.input('\x02i')
+        self.until(lambda:'Corgi setup' in text())
+        view.input('\x1b')
+        self.until(lambda:'Corgi setup' not in text())
+        self.assertEqual(self.session()['inference']['choice'],'off')
     def test_preview_project_model(self):
         project=pathlib.Path(self.temp.name)/'project';(project/'.claude').mkdir(parents=True)
         (project/'.claude'/'settings.json').write_text(json.dumps({'model':'haiku'}))

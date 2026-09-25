@@ -2,14 +2,20 @@
 const std = @import("std");
 const inference = @import("inference.zig");
 const summary = @import("activity_summary.zig");
+const setup = @import("inference_setup.zig");
 const a = @import("os.zig").allocator;
 pub const Input = struct { provider: []const u8, evidence: []const u8, previous: []const u8, turn: []const u8, history: []const []const u8 };
 pub const Backend = struct {
     pool: inference.Pool = .{ .config = .{} },
-    pub fn configured() Backend {
-        var config = inference.Config.configured();
-        if (config.model == null and config.provider == .codex) config.model = "gpt-6-luna";
-        return .{ .pool = .{ .config = config } };
+    /// Replace the harness provider (null disables), stopping retained processes.
+    pub fn use(b: *Backend, provider: ?inference.Provider) void {
+        b.pool.deinit();
+        b.pool.started = false;
+        b.pool.config.disabled = provider == null;
+        if (provider) |value| b.pool.config.provider = value;
+        const model = setup.model(provider);
+        b.pool.config.model = if (model.len > 0) model else null;
+        b.pool.config.executable = @import("os.zig").env("CORGI_INFERENCE_BIN");
     }
     pub fn deinit(b: *Backend) void {
         b.pool.deinit();

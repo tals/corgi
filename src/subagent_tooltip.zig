@@ -354,7 +354,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     const y: usize = 2;
     const shown: usize = @min(@min(10, count), rows - 9);
     const height: usize = 6 + shown;
-    // Keep System in the same list, replacing the last visible agent if needed.
+    // Keep Corgi's own row in the same list, replacing the last visible agent if needed.
     const system_index = for (ranked[0..count], 0..) |item, i| {
         if (item.conversation == null) break i;
     } else unreachable;
@@ -375,7 +375,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     try card.overviewRow(heading, "Top agents", "Model", null, .text);
     for (ranked[0..shown], 0..) |ranked_row, i| {
         if (ranked_row.conversation == null) {
-            try card.overviewRow(heading + 1 + i, if (system_working) "● System" else "○ System", if (system_model.len > 0) system_model else "—", ranked_row.value, if (system_working) .working else .idle);
+            try card.overviewRow(heading + 1 + i, if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)", if (system_model.len > 0) system_model else "—", ranked_row.value, if (system_working) .working else .idle);
             continue;
         }
         const item = ranked_row.conversation.?;
@@ -569,7 +569,7 @@ test "role groups aggregate each descendant once and exclude other trees" {
     defer output.deinit();
     try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "960 tokens") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "System") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi (Activity summarizer)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Top agents") != null);
 }
 
@@ -674,7 +674,7 @@ test "new turn without a summary keeps the old label historical even when clippe
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Activity not reported yet") != null);
 }
 
-test "overview excludes detached history and shows System activity" {
+test "overview excludes detached history and shows Corgi activity" {
     const now = std.time.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
@@ -698,14 +698,14 @@ test "overview excludes detached history and shows System activity" {
         defer output.deinit();
         try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", 100, 30);
         const frame = output.written();
-        for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● System" else "○ System" }) |text|
+        for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
         for ([_][]const u8{ "Detached history", "Detached child", "Stale child", "Ended session", "more agents" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) == null);
     }
 }
 
-test "overview ranks all agents together and keeps System in small windows" {
+test "overview ranks all agents together and keeps Corgi in small windows" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
         .{ .id = 1, .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 100 } } },
@@ -734,7 +734,8 @@ test "overview ranks all agents together and keeps System in small windows" {
     var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer small.deinit();
     try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", 64, 13);
-    try std.testing.expect(std.mem.indexOf(u8, small.written(), "System") != null);
+    // Narrow cards clip the label; the Corgi prefix stays visible.
+    try std.testing.expect(std.mem.indexOf(u8, small.written(), "○ Corgi") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Largest") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Child") != null);
 
@@ -744,8 +745,8 @@ test "overview ranks all agents together and keeps System in small windows" {
     defer sorted.deinit();
     try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", 100, 30);
     const sorted_frame = sorted.written();
-    try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Child task").? < std.mem.indexOf(u8, sorted_frame, "System").?);
-    try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "System").? < std.mem.indexOf(u8, sorted_frame, "Parent task").?);
+    try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Child task").? < std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").?);
+    try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").? < std.mem.indexOf(u8, sorted_frame, "Parent task").?);
 
     var many: [12]protocol.Conversation = undefined;
     for (&many, 0..) |*item, i| {
@@ -756,7 +757,7 @@ test "overview ranks all agents together and keeps System in small windows" {
     defer capped.deinit();
     try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", 100, 30);
     try std.testing.expectEqual(@as(usize, 9), std.mem.count(u8, capped.written(), "Ranked task"));
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "System"));
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "Corgi (Activity summarizer)"));
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "25") != null);
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "... 3 more agents") != null);
 }
