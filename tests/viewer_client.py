@@ -1,6 +1,6 @@
 """Drive the actual viewer through its test-only stdio interface."""
-import json, pathlib, select, subprocess
-EXE=str(pathlib.Path(__file__).resolve().parents[1]/"zig-out/bin/corgi")
+import json, os, pathlib, select, subprocess
+EXE=os.environ.get('CORGI_TEST_BIN',str(pathlib.Path(__file__).resolve().parents[1]/"zig-out/bin/corgi"))
 
 class Viewer:
     def __init__(self, test, cols=100, rows=30):

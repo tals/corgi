@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real PTY/socket regressions. Provider doubles never make inference requests."""
-from viewer_client import Viewer, pump
+from viewer_client import EXE, Viewer, pump
 import fcntl
 import datetime
 import hashlib
@@ -23,7 +23,6 @@ import unittest
 import unicodedata
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-EXE = str(ROOT / 'zig-out/bin/corgi')
 
 from provider_sim import NATIVE_PROVIDER as FAKE, write_ordinary_agent
 
