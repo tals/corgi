@@ -67,8 +67,6 @@ pub const Agent = struct {
     cwd: []const u8,
     tool_active: bool,
     compacting: bool = false,
-    step: []const u8 = "",
-    step_status: agents.StepStatus = .none,
 };
 pub const Pane = struct {
     binding: u64 = 0,
@@ -148,8 +146,6 @@ fn agentView(state: *const agents.Agent, conversation: u32) Agent {
         .cwd = state.directory(),
         .tool_active = state.tool_active,
         .compacting = state.compacting,
-        .step = state.stepLabel(),
-        .step_status = state.step_status,
     };
 }
 

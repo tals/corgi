@@ -4,8 +4,6 @@ pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
 pub const providers = @import("providers.zig");
 pub const Provider = providers.Provider;
-/// A Claude tool call's own label, for the popover's current step.
-pub const StepStatus = enum { none, running, done, failed };
 pub const Subagents = struct {
     running: u32 = 0,
     blocked: u32 = 0,
@@ -43,9 +41,6 @@ pub const Agent = struct {
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,
-    step: [160]u8 = .{0} ** 160,
-    step_len: usize = 0,
-    step_status: StepStatus = .none,
     // Codex runs PermissionRequest hooks before automatic review. Only an
     // actual prompt (or a protocol waiting flag) establishes human attention.
     permission_review: ?u8 = null,
@@ -66,9 +61,6 @@ pub const Agent = struct {
     }
     pub fn setActivity(a: *Agent, value: []const u8) void {
         a.activity_len = firstLine(&a.activity, value);
-    }
-    pub fn stepLabel(a: *const Agent) []const u8 {
-        return a.step[0..a.step_len];
     }
     pub fn sessionId(a: *const Agent) []const u8 {
         return a.session[0..a.session_len];
@@ -247,16 +239,9 @@ pub const Agent = struct {
             }
             if (start or event == .prompt) a.activity_inferred = false;
             a.activity_at = now;
-            var label: [160]u8 = undefined;
-            const direct = toolActivity(&label, hook.tool, hook.description, hook.target);
-            if (event == .tool_start and !hook.asking) {
-                if (!a.activity_inferred) a.setActivity(direct);
-                a.step_len = firstLine(&a.step, direct);
-                a.step_status = .running;
-            } else if ((event == .tool_finish or event == .tool_failure) and a.step_status == .running) {
-                a.step_status = if (event == .tool_failure) .failed else .done;
-            } else if (start or event == .prompt or event == .interrupt or event == .session_end) {
-                a.step_status = .none;
+            if (event == .tool_start and !hook.asking and !a.activity_inferred) {
+                var label: [160]u8 = undefined;
+                a.setActivity(toolActivity(&label, hook.tool, hook.description, hook.target));
             }
         }
         if (start or next == .working) a.attention = if (a.observation.unread()) .finished else .none;
@@ -485,18 +470,6 @@ test "Claude tool hooks label activity from descriptions or main arguments" {
     _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Bash", .target = "zig build test --summary all" }, 4, false, 40);
     try std.testing.expectEqual(@as(usize, 0), a.activity_len);
     try std.testing.expect(a.tool_active);
-    try std.testing.expectEqual(StepStatus.running, a.step_status);
-    try std.testing.expectEqual(@as(usize, 0), a.step_len);
-    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Bash", .description = "Build corgi\nand test" }, 5, false, 50);
-    try std.testing.expectEqualStrings("Build corgi", a.stepLabel());
-    _ = a.observeHook(.claude, .{ .kind = .tool_failure, .session = "s", .tool = "Bash" }, 6, false, 60);
-    try std.testing.expectEqual(StepStatus.failed, a.step_status);
-    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Read", .target = "/a/b.zig" }, 7, false, 70);
-    _ = a.observeHook(.claude, .{ .kind = .tool_finish, .session = "s", .tool = "Read" }, 8, false, 80);
-    try std.testing.expectEqual(StepStatus.done, a.step_status);
-    try std.testing.expectEqualStrings("Reading b.zig", a.stepLabel());
-    _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 9, false, 90);
-    try std.testing.expectEqual(StepStatus.none, a.step_status);
     // Codex activity still comes only from its summaries.
     var codex: Agent = .{};
     _ = codex.observeHook(.codex, .{ .kind = .tool_start, .session = "c", .tool = "Bash", .description = "Run tests" }, 1, false, 10);
