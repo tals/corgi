@@ -14,7 +14,7 @@ and the single-command macOS arm64 + Linux amd64 R2/S3 publishing workflow.
 macOS Apple Silicon (13+) or Linux amd64:
 
 ```sh
-curl -fsSL https://pub-40b3831757234e008ffd5386c2c0572d.r2.dev/install.sh | bash
+curl -fsSL https://corgi.computer/install.sh | bash
 ```
 
 Accept the PATH setup prompt, open a new terminal, and run `corgi`.

@@ -24,7 +24,7 @@ Create `~/.config/corgi/release.json` (or set `CORGI_RELEASE_CONFIG`):
 
 ```json
 {
-  "publicBaseUrl": "https://updates.example.com/corgi",
+  "publicBaseUrl": "https://corgi.computer",
   "endpoint": "https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com",
   "region": "auto",
   "bucket": "your-corgi-releases",
@@ -106,7 +106,7 @@ dynamic interpreter; executing Linux integration tests still requires Linux.
 ## Install and use
 
 ```sh
-curl -fsSL https://updates.example.com/corgi/install.sh | bash
+curl -fsSL https://corgi.computer/install.sh | bash
 # Accept the PATH setup prompt, then open a new terminal.
 corgi
 ```
@@ -202,3 +202,8 @@ noninteractive deferral. It does not use the host Corgi runtime or B2 credential
 All published versions are retained in R2. There is no automatic deletion. Only
 `install.sh` and `channels/stable.json` move forward; versioned artifacts stay
 immutable for existing installers and rollback.
+
+The production public base URL is `https://corgi.computer`, connected directly to
+the R2 bucket. Keep the original `r2.dev` endpoint enabled for older installations
+and pinned releases; new releases embed the custom domain and existing clients
+transition when they install an update.
