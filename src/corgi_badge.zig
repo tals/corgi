@@ -1,4 +1,5 @@
 //! Viewer-owned Kitty image: upload once, then redraw by image/placement ID.
+//! Hosts that never answer the graphics query get an emoji in the same spot.
 const std = @import("std");
 const png = @embedFile("assets/corgi-badge.png");
 pub const reply_prefix = "\x1b_Gi=730031";
@@ -6,8 +7,19 @@ pub const query = "\x1b_Ga=q,i=730031,t=d,f=24,s=1,v=1;AAAA\x1b\\";
 pub const remove = "\x1b_Ga=d,d=I,i=730031,q=2\x1b\\";
 pub const hide = "\x1b_Ga=d,d=i,i=730031,q=2\x1b\\";
 
-pub fn hit(visible: bool, sidebar_width: u16, x: u16, y: u16) bool {
-    return visible and sidebar_width > 0 and x >= 1 and x < 4 and y < 2;
+pub const emoji = "🐕";
+/// Hosts without Kitty graphics ignore the query rather than reject it.
+const probe_timeout_ms = 1500;
+
+pub const Mode = enum { none, emoji, image };
+
+pub fn hit(mode: Mode, sidebar_width: u16, x: u16, y: u16) bool {
+    if (sidebar_width == 0) return false;
+    return switch (mode) {
+        .none => false,
+        .emoji => x >= 1 and x < 3 and y == 0,
+        .image => x >= 1 and x < 4 and y < 2,
+    };
 }
 
 pub const State = struct {
@@ -15,6 +27,15 @@ pub const State = struct {
     uploaded: bool = false,
     retry_at: i64 = 0,
     attempts: u8 = 0,
+    probe_deadline: ?i64 = null,
+
+    pub fn mode(self: State) Mode {
+        return switch (self.status) {
+            .ready => .image,
+            .unavailable => .emoji,
+            .probing, .supported, .uploading => .none,
+        };
+    }
 
     pub fn accept(self: *State, sequence: []const u8) bool {
         if (!std.mem.startsWith(u8, sequence, reply_prefix) or !std.mem.endsWith(u8, sequence, "\x1b\\")) return false;
@@ -25,6 +46,8 @@ pub const State = struct {
         if (std.mem.eql(u8, message, "OK")) {
             self.status = switch (self.status) {
                 .probing => .supported,
+                // A slow host (e.g. over SSH) can answer after the probe timed out.
+                .unavailable => if (self.uploaded) .unavailable else .supported,
                 .uploading => .ready,
                 else => self.status,
             };
@@ -36,6 +59,11 @@ pub const State = struct {
     }
 
     pub fn upload(self: *State, out: *std.Io.Writer, now_ms: i64) !void {
+        if (self.status == .probing) {
+            const deadline = self.probe_deadline orelse now_ms + probe_timeout_ms;
+            self.probe_deadline = deadline;
+            if (now_ms >= deadline) self.status = .unavailable;
+        }
         if (self.status == .uploading and now_ms >= self.retry_at) {
             self.status = if (self.attempts < 3) .supported else .unavailable;
         }
@@ -87,6 +115,32 @@ test "badge uploads only on support or lost-image recovery" {
     try state.upload(&output.writer, 4000);
     try std.testing.expect(output.written().len > png.len);
     try std.testing.expect(!state.accept(reply_prefix ++ "9;OK\x1b\\"));
+}
+
+test "unanswered probe falls back to the emoji and upgrades on a late reply" {
+    var state: State = .{};
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try state.upload(&output.writer, 1000);
+    try std.testing.expect(state.mode() == .none);
+    try state.upload(&output.writer, 1000 + probe_timeout_ms);
+    try std.testing.expect(state.mode() == .emoji);
+    try std.testing.expectEqual(@as(usize, 0), output.written().len);
+    try std.testing.expect(state.accept(reply_prefix ++ ";OK\x1b\\"));
+    try state.upload(&output.writer, 3000);
+    try std.testing.expect(output.written().len > png.len);
+    try std.testing.expect(state.accept(reply_prefix ++ ";OK\x1b\\"));
+    try std.testing.expect(state.mode() == .image);
+}
+
+test "emoji hit area covers only its two cells" {
+    try std.testing.expect(hit(.emoji, 30, 1, 0));
+    try std.testing.expect(hit(.emoji, 30, 2, 0));
+    try std.testing.expect(!hit(.emoji, 30, 3, 0));
+    try std.testing.expect(!hit(.emoji, 30, 1, 1));
+    try std.testing.expect(hit(.image, 30, 3, 1));
+    try std.testing.expect(!hit(.none, 30, 1, 0));
+    try std.testing.expect(!hit(.emoji, 0, 1, 0));
 }
 
 test "missing upload acknowledgement retries a bounded number of times" {

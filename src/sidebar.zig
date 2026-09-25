@@ -41,7 +41,7 @@ pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, 
 pub const Hit = union(enum) { none, toggle, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     search: ?Search = null,
-    corgi_badge: bool = false,
+    corgi_badge: @import("corgi_badge.zig").Mode = .none,
     cols: u16,
     rows: u16,
     width: u16,
@@ -166,7 +166,8 @@ pub const View = struct {
             if (search.text.len == 0) try writeClipped(w, "type to search", v.width - 5) else try writeClipped(w, search.text[v.searchOffset()..], v.width - 5);
         } else try w.print("\x1b[{d};{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m New  ▾ {s}", .{ v.middle() + 1, v.width - 9, panel });
         try w.print("\x1b[1;{d}H{s} < ", .{ v.width - 4, panel });
-        if (v.corgi_badge) {
+        if (v.corgi_badge != .none) {
+            if (v.corgi_badge == .emoji) try w.print("\x1b[1;2H{s}{s}", .{ panel, @import("corgi_badge.zig").emoji });
             try w.writeAll("\x1b[1;6H\x1b[1;38;2;226;230;233m");
             try writeEllipsis(w, "workspaces", v.width -| 17);
         } else try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");

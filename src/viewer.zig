@@ -127,9 +127,9 @@ pub fn run(fd: c_int, probe: *@import("theme.zig").Probe, input: *std.ArrayList(
         defer image_output.deinit();
         try probe.badge.upload(&image_output.writer, std.time.milliTimestamp());
         if (image_output.written().len > 0) try os.writeAll(1, image_output.written());
-        const badge_ready = probe.badge.status == .ready;
-        if (view.corgi_badge != badge_ready) {
-            view.corgi_badge = badge_ready;
+        const badge_mode = probe.badge.mode();
+        if (view.corgi_badge != badge_mode) {
+            view.corgi_badge = badge_mode;
             view.dirty = true;
         }
         if (probe.changed) {

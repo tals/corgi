@@ -29,7 +29,7 @@ pub fn run(path: []const u8) !void {
         if (std.mem.eql(u8, op, "focus")) try view.focusPane(try @import("protocol.zig").id(value, "pane"));
         if (std.mem.eql(u8, op, "workspace")) try view.switchWorkspace(try @import("protocol.zig").id(value, "workspace"));
         // The stdio driver has no host terminal to negotiate image support.
-        if (std.mem.eql(u8, op, "badge")) view.corgi_badge = value.object.get("visible").?.bool;
+        if (std.mem.eql(u8, op, "badge")) view.corgi_badge = if (!value.object.get("visible").?.bool) .none else if (value.object.get("emoji")) |e| (if (e.bool) .emoji else .image) else .image;
         if (std.mem.eql(u8, op, "size")) {
             view.width = @intCast(value.object.get("cols").?.integer);
             view.height = @intCast(value.object.get("rows").?.integer);

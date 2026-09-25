@@ -27,7 +27,7 @@ pub const Ui = struct {
     dialog: ?naming.Dialog = null,
     confirm: bool = false,
     sidebar_open: bool = true,
-    corgi_badge: bool = false,
+    corgi_badge: @import("corgi_badge.zig").Mode = .none,
     sidebar_width: u16 = 28,
     workspace_drop_y: ?u16 = null,
     sidebar_offset: usize = 0,
@@ -207,7 +207,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     }
     try drawDividers(w, view, area);
     try side.draw(w, ui.agents, ui.workspaces);
-    if (ui.corgi_badge) {
+    if (ui.corgi_badge == .image) {
         try w.writeAll(@import("corgi_badge.zig").hide);
         if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try @import("corgi_badge.zig").place(w);
@@ -420,7 +420,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     var model: layout.Model = .{};
     var selection: layout.Selection = .{};
     const view: layout.View = .{ .model = &model, .selection = &selection };
-    var ui: Ui = .{ .message = "", .copy_mode = false, .native_blocked = 0, .native_finished = 0, .corgi_badge = true };
+    var ui: Ui = .{ .message = "", .copy_mode = false, .native_blocked = 0, .native_finished = 0, .corgi_badge = .image };
     const shown = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(shown);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[2J") == null);
@@ -448,4 +448,11 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     defer a.free(hidden);
     try std.testing.expect(std.mem.indexOf(u8, hidden, @import("corgi_badge.zig").hide) != null);
     try std.testing.expect(std.mem.indexOf(u8, hidden, "a=p,i=730031") == null);
+    ui.sidebar_open = true;
+    ui.corgi_badge = .emoji;
+    const emoji = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
+    defer a.free(emoji);
+    try std.testing.expect(std.mem.indexOf(u8, emoji, @import("corgi_badge.zig").emoji) != null);
+    try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b_G") == null);
+    try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
 }
