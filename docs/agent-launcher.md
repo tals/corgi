@@ -8,6 +8,9 @@ is shared by viewers and retained by live reload and disk recovery.
 Hover over the button for an immediate preview, or click the arrow to keep the popover
 open. Choose Codex or Claude Code to launch and remember that provider. A pinned
 popover supports Up/Down, Tab/Shift-Tab, Home/End, Enter, and Escape.
+Below the providers, a `New terminal` row opens a plain shell tab in the same
+directory; press t in the popover to open one directly. It does not change the
+remembered provider.
 Arrow keys stop at the first/last row; Tab cycles. Navigation keys also activate
 a hover-opened popover. Escape keeps it dismissed until the pointer moves. Clicking outside dismisses it.
 A hover preview accepts a, A, or Ctrl+A to launch; other ordinary typing goes to the terminal. Opening a preview never sends a prompt.

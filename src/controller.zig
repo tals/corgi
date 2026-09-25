@@ -687,12 +687,22 @@ pub const Controller = struct {
         try s.focusPane(created.pane);
         s.dirty = true;
     }
+    fn launchRow(s: *Self, row: @import("agent_launcher.zig").Row) !void {
+        if (row.agent()) |provider| return s.launchAgent(provider);
+        var cwd: [std.fs.max_path_bytes]u8 = undefined;
+        const dir = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
+        if (dir.len > cwd.len) return error.NameTooLong;
+        @memcpy(cwd[0..dir.len], dir);
+        s.closeMenu();
+        _ = try s.create(null, cwd[0..dir.len], null, "");
+        s.copy_mode = false;
+    }
     fn toggleLauncherYolo(s: *Self, provider: @import("agent_launcher.zig").Provider) !void {
         const enabled = !s.runtime.agent_yolo[@intFromEnum(provider)];
         _ = try s.execute(.{ .@"agent.yolo" = .{ .provider = provider, .enabled = enabled } });
         if (s.agent_launcher) |*launch| {
             launch.yolo[@intFromEnum(provider)] = enabled;
-            launch.selected = provider;
+            launch.selected = .of(provider);
             launch.pinned = true;
         }
         s.dirty = true;
@@ -701,7 +711,7 @@ pub const Controller = struct {
         s.closeMenu();
         const cwd = s.currentCwd();
         if (cwd.len > std.fs.max_path_bytes) return;
-        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = s.runtime.last_agent, .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .pinned = pinned };
+        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = .of(s.runtime.last_agent), .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .pinned = pinned };
         @memcpy(launch.cwd[0..cwd.len], cwd);
         s.agent_launcher = launch;
         s.cancelDividers();
@@ -711,7 +721,7 @@ pub const Controller = struct {
     fn newAgentShortcut(s: *Self) !void {
         if (s.agent_launcher) |launch| {
             if (launch.pinned) {
-                try s.launchAgent(launch.selected);
+                try s.launchRow(launch.selected);
                 return;
             }
             s.agent_launcher.?.pinned = true;
@@ -721,16 +731,28 @@ pub const Controller = struct {
         s.sidebar_open = true;
         s.openLauncher(true);
     }
-    fn moveLauncher(s: *Self, next: bool) void {
+    fn moveLauncher(s: *Self, next: bool, wrap: bool) void {
         if (s.agent_launcher) |*launch| {
-            launch.selected = if (next) .claude else .codex;
+            const Row = @import("agent_launcher.zig").Row;
+            const count = @typeInfo(Row).@"enum".fields.len;
+            const index = @intFromEnum(launch.selected);
+            launch.selected = @enumFromInt(if (wrap)
+                (if (next) index + 1 else index + count - 1) % count
+            else if (next) @min(index + 1, count - 1) else index -| 1);
+            launch.pinned = true;
+        }
+        s.dirty = true;
+    }
+    fn selectLauncher(s: *Self, row: @import("agent_launcher.zig").Row) void {
+        if (s.agent_launcher) |*launch| {
+            launch.selected = row;
             launch.pinned = true;
         }
         s.dirty = true;
     }
     fn trackLauncherUsage(s: *Self, provider: @import("agent_launcher.zig").Provider) void {
         const launch = if (s.agent_launcher) |*value| value else return;
-        if (provider != .claude or !launch.trackable(provider)) return;
+        if (provider != .claude or !launch.trackable(.of(provider))) return;
         launch.pinned = true;
         const response = s.connection.call(.{ .op = "agent.track_usage", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len] }) catch return;
         defer response.deinit();
@@ -837,21 +859,22 @@ pub const Controller = struct {
             return;
         }
         if (s.agent_launcher) |launch| {
-            const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or byte == 'y' or (byte == 'u' and launch.trackable(launch.selected));
+            const navigation = byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or byte == 'y' or byte == 't' or (byte == 'u' and launch.trackable(launch.selected));
             if (!launch.pinned and !navigation) {
                 s.closeMenu();
             } else {
                 s.agent_launcher.?.pinned = true;
                 switch (byte) {
                     27 => s.closeMenu(),
-                    13, 'a', 'A', 1 => try s.launchAgent(launch.selected),
-                    9 => s.moveLauncher(launch.selected == .codex),
-                    'j', 14 => s.moveLauncher(true),
-                    'k', 16 => s.moveLauncher(false),
+                    13, 'a', 'A', 1 => try s.launchRow(launch.selected),
+                    9 => s.moveLauncher(true, true),
+                    'j', 14 => s.moveLauncher(true, false),
+                    'k', 16 => s.moveLauncher(false, false),
                     'c' => try s.launchAgent(.codex),
                     'l' => try s.launchAgent(.claude),
-                    'y' => try s.toggleLauncherYolo(launch.selected),
-                    'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected),
+                    't' => try s.launchRow(.terminal),
+                    'y' => if (launch.selected.agent()) |provider| try s.toggleLauncherYolo(provider),
+                    'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected.agent().?),
                     else => {},
                 }
                 return;
@@ -1159,7 +1182,7 @@ pub const Controller = struct {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) setup.move(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) setup.move(true);
                 s.dirty = true;
             } else if (s.agent_launcher != null) {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.moveLauncher(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB") or eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.moveLauncher(true) else if (eq(seq, "\x1b[Z")) s.moveLauncher(s.agent_launcher.?.selected == .codex) else if (!s.agent_launcher.?.pinned) {
+                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveLauncher(false, false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveLauncher(true, false) else if (eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.selectLauncher(.codex) else if (eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.selectLauncher(.terminal) else if (eq(seq, "\x1b[Z")) s.moveLauncher(false, true) else if (!s.agent_launcher.?.pinned) {
                     s.closeMenu();
                     if (s.focused()) |p| try s.sendInput(p.terminal, seq);
                 }
@@ -1385,9 +1408,9 @@ pub const Controller = struct {
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
                 const hit = side.hit(x, y);
-                if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| try s.toggleLauncherYolo(provider) else if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| s.trackLauncherUsage(provider) else if (hit == .agent_new) try s.launchAgent(null) else if (hit == .agent_options) s.agent_launcher.?.pinned = true else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |provider| try s.launchAgent(provider) else s.closeMenu();
+                if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| try s.toggleLauncherYolo(provider) else if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| s.trackLauncherUsage(provider) else if (hit == .agent_new) try s.launchAgent(null) else if (hit == .agent_options) s.agent_launcher.?.pinned = true else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| try s.launchRow(row) else s.closeMenu();
             } else if (!release and (button == 35 or button == 32)) {
-                if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |provider| s.agent_launcher.?.selected = provider;
+                if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| s.agent_launcher.?.selected = row;
                 s.dirty = true;
             }
             return;

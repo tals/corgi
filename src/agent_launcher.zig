@@ -4,6 +4,18 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 pub const Provider = enum { codex, claude };
+/// Launcher rows: one per provider, then a plain terminal.
+pub const Row = enum {
+    codex,
+    claude,
+    terminal,
+    pub fn of(provider: Provider) Row {
+        return @enumFromInt(@intFromEnum(provider));
+    }
+    pub fn agent(row: Row) ?Provider {
+        return if (row == .terminal) null else @enumFromInt(@intFromEnum(row));
+    }
+};
 const metadata = @import("account_preview.zig");
 pub const Text = metadata.Text;
 pub const Option = struct { model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
@@ -310,7 +322,7 @@ pub const Menu = struct {
     workspace: u32,
     cwd: [std.fs.max_path_bytes]u8 = undefined,
     cwd_len: usize,
-    selected: Provider,
+    selected: Row,
     yolo: [2]bool = .{ false, false },
     last: Provider,
     pinned: bool,
@@ -334,7 +346,7 @@ pub const Menu = struct {
         var content: u16 = 4;
         for (m.columns(cols)) |width| content += width;
         const width = @min(cols, @max(@as(u16, 40), content));
-        const height = @min(rows, 6);
+        const height = @min(rows, 7);
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
     fn columns(m: *const Menu, width: u16) [7]u16 {
@@ -371,26 +383,30 @@ pub const Menu = struct {
         }
         return widths;
     }
-    pub fn hit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+    pub fn hit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Row {
         const b = m.bounds(cols, rows, side);
-        if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2 or y >= b.y + @min(b.h -| 1, 4)) return null;
-        return if (y == b.y + 2) .codex else .claude;
+        if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2 or y >= b.y + @min(b.h -| 1, 5)) return null;
+        return @enumFromInt(y - b.y - 2);
+    }
+    fn providerHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+        return (m.hit(cols, rows, side, x, y) orelse return null).agent();
     }
     pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
-        const provider = m.hit(cols, rows, side, x, y) orelse return null;
+        const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 6) return null;
+        if (b.w < 24 or b.h < 7) return null;
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0];
         return if (x >= start and x < start + widths[1] -| 2) provider else null;
     }
-    pub fn trackable(m: *const Menu, provider: Provider) bool {
+    pub fn trackable(m: *const Menu, row: Row) bool {
+        const provider = row.agent() orelse return false;
         return !m.preview.pending and m.preview.options[@intFromEnum(provider)].usage_needs_consent;
     }
     pub fn usageHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
-        const provider = m.hit(cols, rows, side, x, y) orelse return null;
+        const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 6) return null;
+        if (b.w < 24 or b.h < 7) return null;
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
         return if (x >= start and x < start + widths[5] -| 1) provider else null;
@@ -398,7 +414,7 @@ pub const Menu = struct {
     pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
         const sidebar = @import("sidebar.zig");
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 6) return;
+        if (b.w < 24 or b.h < 7) return;
         const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
         for (0..b.h) |row| {
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, panel });
@@ -417,13 +433,18 @@ pub const Menu = struct {
             try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 6) 1 else 2));
             heading_x += width;
         }
-        for (0..m.preview.options.len) |i| {
-            const selected = @as(Provider, @enumFromInt(i)) == m.selected;
+        for (0..m.preview.options.len + 1) |i| {
+            const selected = @as(Row, @enumFromInt(i)) == m.selected;
             const row = b.y + 3 + i;
             const style = if (selected) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, style });
             try w.splatByteAll(' ', b.w - 2);
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, if (selected) "›" else " " });
+            if (i == m.preview.options.len) {
+                try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
+                try sidebar.writeEllipsis(w, "New terminal", b.w -| 6);
+                continue;
+            }
             var x: u16 = b.x + 4;
             var reset_text: Text = undefined;
             for (m.cells(i, &reset_text), widths, 0..) |text, width, column| {
@@ -438,12 +459,13 @@ pub const Menu = struct {
                 x += width;
             }
         }
-        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 5, b.x + 3, panel });
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 6, b.x + 3, panel });
         const directory = std.fs.path.basename(m.cwd[0..m.cwd_len]);
         var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
         const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
         try sidebar.writeEllipsis(w, footer, b.w - 24);
-        try w.print("\x1b[{d};{d}H{s}\x1b[0m\x1b[?25l", .{ b.y + 5, b.x + b.w - 19, if (m.trackable(m.selected)) "u: Track usage" else "a: launch  y: YOLO" });
+        const hint = if (m.selected == .terminal) "t: new terminal" else if (m.trackable(m.selected)) "u: Track usage" else "a: launch  y: YOLO";
+        try w.print("\x1b[{d};{d}H{s}\x1b[0m\x1b[?25l", .{ b.y + 6, b.x + b.w - 19, hint });
     }
 };
 
@@ -483,8 +505,10 @@ test "launch preview settings overlay and menu bounds" {
     const menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     const b = menu.bounds(80, 24, side);
     try std.testing.expect(b.x + b.w <= 80 and b.y + b.h <= 24);
-    try std.testing.expectEqual(Provider.codex, menu.hit(80, 24, side, b.x + 2, b.y + 2).?);
-    try std.testing.expectEqual(Provider.claude, menu.hit(80, 24, side, b.x + 2, b.y + 3).?);
+    try std.testing.expectEqual(Row.codex, menu.hit(80, 24, side, b.x + 2, b.y + 2).?);
+    try std.testing.expectEqual(Row.claude, menu.hit(80, 24, side, b.x + 2, b.y + 3).?);
+    try std.testing.expectEqual(Row.terminal, menu.hit(80, 24, side, b.x + 2, b.y + 4).?);
+    try std.testing.expectEqual(@as(?Row, null), menu.hit(80, 24, side, b.x + 2, b.y + 5));
 }
 
 test "account preview shows identities or auth mode and never credential fields" {
