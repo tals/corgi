@@ -119,10 +119,13 @@ pub const View = struct {
         return x >= range.start and x < range.end;
     }
     pub fn draw(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry) !void {
+        return v.drawAt(w, entries, workspaces, std.time.milliTimestamp());
+    }
+    fn drawAt(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry, now_ms: i64) !void {
         corgi_animation.beginFrame();
         defer corgi_animation.endFrame();
         const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-        const thinking_frame: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 80), thinking_frames.len));
+        const thinking_frame: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
         const panel = "\x1b[0;38;2;155;163;175;48;2;24;27;32m";
         if (v.width == 0) {
             if (v.cols >= 64) try w.writeAll("\x1b[1;1H\x1b[1;38;2;161;194;178m > \x1b[0m");
@@ -265,15 +268,18 @@ pub const View = struct {
                 .native => |id| (@as(u64, id) + 0x100000000) * 17,
             };
             const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
-            const now_ms = std.time.milliTimestamp();
-            const playback = corgi_animation.observe(animation_seed, fallback, now_ms);
-            if (fallback) {
-                try w.writeAll("\x1b[38;2;249;226;175m");
-                try playback.?.write(w, detail_room, now_ms);
-            } else if (e.state == .idle) {
-                try w.writeAll("\x1b[38;2;108;112;134m");
-                try corgi_animation.idle(w, detail_room, now_ms, animation_seed, e.focused);
-            } else if (detail.len > 0) try writeEllipsis(w, directoryLabel(&clean, detail, null), detail_room);
+            const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
+            const presentation = corgi_animation.observe(animation_seed, mode, now_ms);
+            if (mode != .content) {
+                try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+            } else {
+                const text = directoryLabel(&clean, detail, null);
+                if (presentation != null and presentation.?.reveal_started_ms != null) {
+                    try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+                    try w.print("\x1b[{d};5H\x1b[38;2;226;230;233m", .{y + 2});
+                    try writeRevealedDetail(w, text, detail_room, presentation.?.revealedColumns(detail_room, now_ms), presentation.?.revealPosition(detail_room, now_ms));
+                } else try writeEllipsis(w, text, detail_room);
+            }
             if (badge_width > 0) {
                 const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
                 try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - badge_width, color, badge });
@@ -343,6 +349,36 @@ fn writeEllipsis(w: *std.Io.Writer, text: []const u8, room: usize) !void {
     try writeClipped(w, text, room - 1);
     try w.writeAll("…");
 }
+// Clip the final (already ellipsized) text, so the ellipsis does not move with
+// the wipe. Opaque padding covers the old dog even for a short/empty label.
+fn writeRevealedDetail(w: *std.Io.Writer, text: []const u8, room: usize, revealed: usize, edge: ?f64) !void {
+    var buffer: [2048]u8 = undefined;
+    var final = std.Io.Writer.fixed(&buffer);
+    try writeEllipsis(&final, text, room);
+    var it = (try std.unicode.Utf8View.init(final.buffered())).iterator();
+    var used: usize = 0;
+    const limit = @min(room, revealed);
+    while (it.nextCodepointSlice()) |bytes| {
+        const width = vt.unicode.codepointWidth(try std.unicode.utf8Decode(bytes));
+        if (used + width > limit) break;
+        if (edge) |position| {
+            // The three cells behind the edge brighten continuously between
+            // column steps; smoothstep avoids a sudden brightness jump.
+            const t = std.math.clamp((position - @as(f64, @floatFromInt(used + width))) / corgi_animation.Presentation.reveal_feather, 0, 1);
+            const amount = t * t * (3 - 2 * t);
+            var color: [3]u8 = undefined;
+            for ([_]u8{ 108, 112, 134 }, [_]u8{ 226, 230, 233 }, &color) |dim, bright, *channel| {
+                channel.* = @intFromFloat(@round(@as(f64, @floatFromInt(dim)) + @as(f64, @floatFromInt(bright - dim)) * amount));
+            }
+            try w.print("\x1b[38;2;{d};{d};{d}m", .{ color[0], color[1], color[2] });
+        }
+        try w.writeAll(bytes);
+        used += width;
+    }
+    try w.splatByteAll(' ', limit - used);
+    if (edge != null) try w.writeAll("\x1b[38;2;226;230;233m");
+}
+
 // Keep the root and the longest whole-component suffix that fits.
 fn writeDirectory(w: *std.Io.Writer, path: []const u8, room: usize) !void {
     if (displayWidth(path) <= room) return w.writeAll(path);
@@ -831,6 +867,8 @@ test "idle face replaces stale activity while working activity remains useful" {
         std.mem.indexOf(u8, output.written(), "ᐯ◡ˑ◡ᐯ") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) == null);
     output.clearRetainingCapacity();
+    try view.draw(&output.writer, &.{}, &.{}); // Hide the old row; labels below have no corgi to replace.
+    output.clearRetainingCapacity();
     for ([_]agents.State{ .blocked, .initializing, .done }, [_][]const u8{ "Needs input", "Starting session", "Session ended" }) |state, label| {
         entry.state = state;
         try view.draw(&output.writer, &.{entry}, &.{});
@@ -948,4 +986,54 @@ test "commit relative time humanizes elapsed and future timestamps" {
     try std.testing.expectEqualStrings("1 minute ago", relativeTime(&buf, 10000, 10060));
     try std.testing.expectEqualStrings("2 hours ago", relativeTime(&buf, 10000, 17200));
     try std.testing.expectEqualStrings("in 2 hours", relativeTime(&buf, 17200, 10000));
+}
+
+test "content wipes over the old corgi in terminal cells and then clears it" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const host = try @import("terminal.zig").Terminal.create(100, 30);
+    defer host.destroy();
+    var entry: Entry = .{ .target = .{ .pane = 10001 }, .name = "Agent", .provider = .codex, .state = .idle, .attention = .none };
+    const view = View.init(100, 30, true, 0, 1);
+    try view.drawAt(&output.writer, &.{entry}, &.{}, 0);
+    host.feed(output.written());
+    output.clearRetainingCapacity();
+    entry.state = .blocked;
+    try view.drawAt(&output.writer, &.{entry}, &.{}, 100);
+    host.feed(output.written());
+    output.clearRetainingCapacity();
+    try view.drawAt(&output.writer, &.{entry}, &.{}, 145);
+    host.feed(output.written());
+    const mixed = try host.text();
+    defer @import("os.zig").allocator.free(mixed);
+    // Two revealed cells overlay the old tail and ear; closed eyes stay below.
+    try std.testing.expect(std.mem.indexOf(u8, mixed, "Ne◡") != null);
+    output.clearRetainingCapacity();
+    entry.state = .working;
+    entry.activity = "OK";
+    try view.drawAt(&output.writer, &.{entry}, &.{}, 150);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") == null);
+    output.clearRetainingCapacity();
+    try view.drawAt(&output.writer, &.{entry}, &.{}, 550);
+    host.feed(output.written());
+    const completed = try host.text();
+    defer @import("os.zig").allocator.free(completed);
+    try std.testing.expect(std.mem.indexOf(u8, completed, "OK                    ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, completed, "ᐯ") == null);
+}
+
+test "reveal pads short text and never splits a wide glyph or moves the ellipsis" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try writeRevealedDetail(&output.writer, "OK", 10, 6, null);
+    try std.testing.expectEqualStrings("OK    ", output.written());
+    output.clearRetainingCapacity();
+    try writeRevealedDetail(&output.writer, "界abcdef", 5, 1, null);
+    try std.testing.expectEqualStrings(" ", output.written());
+    output.clearRetainingCapacity();
+    try writeRevealedDetail(&output.writer, "界abcdef", 5, 3, null);
+    try std.testing.expectEqualStrings("界a", output.written());
+    output.clearRetainingCapacity();
+    try writeRevealedDetail(&output.writer, "界abcdef", 5, 5, null);
+    try std.testing.expectEqualStrings("界ab…", output.written());
 }

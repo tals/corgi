@@ -147,8 +147,70 @@ fn writeFrame(out: *std.Io.Writer, room: usize, frame: []const u8) !void {
     for (0..room) |_| try out.writeAll(glyphs.nextCodepointSlice() orelse break);
 }
 
+pub const Mode = enum { awake, asleep, content };
+
+/// Keeps the last corgi pose underneath a content reveal. Content changes during
+/// a reveal update its top layer without restarting the wipe.
+pub const Presentation = struct {
+    pub const reveal_duration_ms = 450;
+    playback: Playback = .{},
+    mode: Mode = .content,
+    last_corgi: ?struct { mode: Mode, at_ms: i64 } = null,
+    reveal_started_ms: ?i64 = null,
+
+    pub fn update(self: *Presentation, mode: Mode, now_ms: i64) void {
+        self.playback.update(mode == .awake, now_ms);
+        if (mode != .content) {
+            self.last_corgi = .{ .mode = mode, .at_ms = now_ms };
+            self.reveal_started_ms = null;
+        } else if (self.mode != .content and self.last_corgi != null) {
+            self.reveal_started_ms = now_ms;
+        }
+        if (self.reveal_started_ms) |start| {
+            if (now_ms - start >= reveal_duration_ms) {
+                self.reveal_started_ms = null;
+                self.last_corgi = null;
+            }
+        }
+        self.mode = mode;
+    }
+
+    pub const reveal_feather = 3.0;
+
+    pub fn revealPosition(self: Presentation, room: usize, now_ms: i64) f64 {
+        const distance = @as(f64, @floatFromInt(room)) + reveal_feather;
+        const start = self.reveal_started_ms orelse return distance;
+        const elapsed: f64 = @floatFromInt(std.math.clamp(now_ms - start, 0, reveal_duration_ms));
+        return distance * elapsed / reveal_duration_ms;
+    }
+
+    pub fn revealedColumns(self: Presentation, room: usize, now_ms: i64) usize {
+        return @min(room, @as(usize, @intFromFloat(self.revealPosition(room, now_ms))));
+    }
+
+    pub fn writeCorgi(self: Presentation, out: *std.Io.Writer, room: usize, seed: u64, focused: bool, working: bool) !void {
+        const pose = self.last_corgi orelse return;
+        if (pose.mode == .asleep and !working) {
+            try out.writeAll("\x1b[38;2;108;112;134m");
+            try idle(out, room, pose.at_ms, seed, focused);
+        } else {
+            try out.writeAll("\x1b[38;2;249;226;175m");
+            // If work starts while sleep is being covered, wake immediately.
+            const playback = if (pose.mode == .asleep) Playback{} else self.playback;
+            try playback.write(out, room, pose.at_ms);
+        }
+    }
+
+    fn hide(self: *Presentation) void {
+        self.playback.active = false;
+        self.mode = .content;
+        self.last_corgi = null;
+        self.reveal_started_ms = null;
+    }
+};
+
 // Viewer-local state: enough slots for more than two full agent sidebars.
-const Slot = struct { key: ?u64 = null, seen: bool = false, playback: Playback = .{} };
+const Slot = struct { key: ?u64 = null, seen: bool = false, presentation: Presentation = .{} };
 var slots: [256]Slot = @splat(.{});
 
 pub fn beginFrame() void {
@@ -156,20 +218,22 @@ pub fn beginFrame() void {
 }
 pub fn endFrame() void {
     for (&slots) |*slot| if (!slot.seen) {
-        slot.playback.active = false;
+        slot.presentation.hide();
     };
 }
-pub fn observe(key: u64, active: bool, now_ms: i64) ?*Playback {
+pub fn observe(key: u64, mode: Mode, now_ms: i64) ?*Presentation {
     for (&slots) |*slot| if (slot.key == key) {
         slot.seen = true;
-        slot.playback.update(active, now_ms);
-        return &slot.playback;
+        slot.presentation.update(mode, now_ms);
+        return &slot.presentation;
     };
-    if (!active) return null;
-    for (&slots) |*slot| if (!slot.playback.active and !slot.seen) {
-        slot.* = .{ .key = key, .seen = true, .playback = .{ .random = .init(std.crypto.random.int(u64)) } };
-        slot.playback.update(true, now_ms);
-        return &slot.playback;
+    if (mode == .content) return null;
+    // Use empty/finished slots first, preserving other visible corgis even if
+    // their rows have not been visited yet in this frame.
+    for (&slots) |*slot| if (!slot.seen and slot.presentation.last_corgi == null) {
+        slot.* = .{ .key = key, .seen = true, .presentation = .{ .playback = .{ .random = .init(std.crypto.random.int(u64)) } } };
+        slot.presentation.update(mode, now_ms);
+        return &slot.presentation;
     };
     unreachable; // At most 80 entries are rendered by a sidebar.
 }
@@ -362,4 +426,26 @@ test "4C handoff lasts 600 ms and alternates heights" {
     output.clearRetainingCapacity();
     try idle(&output.writer, 22, 300, 0, true);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;72;76;91mᶻ") != null);
+}
+
+test "content reveal preserves the old pose and cancels when a corgi returns" {
+    var presentation: Presentation = .{};
+    presentation.update(.asleep, 100);
+    presentation.update(.content, 200);
+    try std.testing.expectEqual(@as(i64, 100), presentation.last_corgi.?.at_ms);
+    try std.testing.expectEqual(@as(usize, 0), presentation.revealedColumns(20, 200));
+    presentation.update(.content, 425);
+    try std.testing.expectEqual(@as(usize, 11), presentation.revealedColumns(20, 425));
+    try std.testing.expectEqual(@as(usize, 21), presentation.revealedColumns(40, 425));
+    presentation.update(.awake, 430);
+    try std.testing.expect(presentation.reveal_started_ms == null);
+    try std.testing.expectEqual(Mode.awake, presentation.last_corgi.?.mode);
+    presentation.update(.content, 500);
+    presentation.update(.content, 950);
+    try std.testing.expect(presentation.last_corgi == null);
+    try std.testing.expect(presentation.reveal_started_ms == null);
+    presentation.update(.asleep, 1000);
+    presentation.hide();
+    presentation.update(.content, 1100);
+    try std.testing.expect(presentation.reveal_started_ms == null);
 }
