@@ -56,7 +56,7 @@ The default backend uses a persistent native Codex App Server with the existing
 Codex login. It does not run `codex exec`. Choose Claude Code's persistent JSONL
 transport with `CORGI_INFERENCE_PROVIDER=claude`; its existing login is reused too.
 The observed agent's provider and the inference provider are independent.
-GPT-5.6 Luna (`gpt-5.6-luna`) with low reasoning effort remains the default for
+GPT-6 Luna (`gpt-6-luna`) with low reasoning effort remains the default for
 Codex activity summaries. Claude uses its configured default model.
 
 `CORGI_INFERENCE_MODEL` overrides the model. `CORGI_SUMMARY_MODEL` remains a legacy

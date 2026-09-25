@@ -8,7 +8,7 @@ pub const Backend = struct {
     pool: inference.Pool = .{ .config = .{} },
     pub fn configured() Backend {
         var config = inference.Config.configured();
-        if (config.model == null and config.provider == .codex) config.model = "gpt-5.6-luna";
+        if (config.model == null and config.provider == .codex) config.model = "gpt-6-luna";
         return .{ .pool = .{ .config = config } };
     }
     pub fn deinit(b: *Backend) void {
