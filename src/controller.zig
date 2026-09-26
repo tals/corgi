@@ -217,7 +217,7 @@ pub const Controller = struct {
     }
     fn scopeLabel(s: *Self) []const u8 {
         return switch (s.agent_scope) {
-            .workspace => "",
+            .workspace => s.current().name,
             .all => "all",
             .only => |id| if (s.runtime.workspaces.index(id)) |index| s.runtime.workspaces.items[index].name else "",
         };

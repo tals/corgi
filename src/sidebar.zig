@@ -50,7 +50,7 @@ pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, 
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     search: ?Search = null,
-    /// Header qualifier for a non-default scope, e.g. "all" or a workspace name.
+    /// Header scope: "all" or the workspace whose agents are listed.
     scope_label: []const u8 = "",
     corgi_badge: @import("corgi_badge.zig").Mode = .none,
     cols: u16,
@@ -159,7 +159,11 @@ pub const View = struct {
         if (y == 0 and x >= v.width - 5) return .toggle;
         if (y == 0 and x >= v.width - 11 and x < v.width - 6) return .workspace_new;
         if (y == v.middle() and x >= v.width - 10 and x < v.width - 2) return if (x >= v.width - 4) .agent_options else .agent_new;
-        if (y == v.middle() and x >= 1 and x < v.width - 11) return .agent_scope;
+        if (y == v.middle() and x >= v.scopeStart()) {
+            var label: [163]u8 = undefined;
+            const qualifier = v.scopeQualifier(&label);
+            if (x < v.scopeStart() + displayWidth(qualifier) + displayWidth(v.scopeArrow())) return .agent_scope;
+        }
         if (y < v.middle()) {
             if (y == v.middle() - 2) {
                 if (v.workspace_count > v.workspaceCapacity()) {
@@ -468,18 +472,33 @@ pub const View = struct {
             for (name_end + 1..status_x - 1) |_| try w.writeAll("━");
         }
     }
+    fn scopeStart(v: View) u16 {
+        // Compact headers keep one cell for the name and one for the arrow.
+        return if (v.width >= 22) 9 else 8;
+    }
+    fn scopeArrow(v: View) []const u8 {
+        return if (v.width >= 22) " ▾" else "▾";
+    }
+    fn scopeQualifier(v: View, out: *[163]u8) []const u8 {
+        const room = (v.width -| 11) -| (v.scopeStart() - 1 + displayWidth(v.scopeArrow()));
+        var label: [160]u8 = undefined;
+        var writer = std.Io.Writer.fixed(out);
+        writeEllipsis(&writer, directoryLabel(&label, v.scope_label, null), room) catch unreachable;
+        return writer.buffered();
+    }
     fn drawScope(v: View, w: *std.Io.Writer) !void {
         if (v.middle() >= v.rows - 1) return;
         try w.print("\x1b[{d};2H\x1b[1;38;2;226;230;233m", .{v.middle() + 1});
         // Stop before the New button's leading space.
         const room: usize = v.width -| 11;
         try writeClipped(w, "agents", room);
-        if (v.scope_label.len > 0 and room > 12) {
-            var label: [160]u8 = undefined;
-            try w.writeAll("\x1b[22;38;2;125;132;143m: \x1b[1;38;2;161;194;178m");
-            try writeEllipsis(w, directoryLabel(&label, v.scope_label, null), room - 10);
+        var label: [163]u8 = undefined;
+        const qualifier = v.scopeQualifier(&label);
+        if (qualifier.len > 0) {
+            try w.print("\x1b[22;38;2;125;132;143m{s}\x1b[1;38;2;161;194;178m", .{if (v.scopeStart() == 9) ": " else " "});
+            try w.writeAll(qualifier);
         }
-        if (room > 8) try w.writeAll("\x1b[22;38;2;125;132;143m ▾");
+        try w.print("\x1b[22;38;2;125;132;143m{s}", .{v.scopeArrow()});
     }
     fn line(v: View, w: *std.Io.Writer, y: u16, text: []const u8, style: []const u8) !void {
         if (y >= v.rows - 1) return;
@@ -1321,8 +1340,13 @@ test "agents header names its scope and opens the scope menu left of New" {
     defer output.deinit();
     for ([_]u16{ 20, 28, 40 }) |width| {
         var view = View.init(100, 30, true, 0, 0).withWidth(width);
-        try std.testing.expectEqual(Hit.agent_scope, view.hit(1, view.middle()));
-        try std.testing.expectEqual(Hit.agent_scope, view.hit(width - 12, view.middle()));
+        view.scope_label = "all";
+        try std.testing.expectEqual(Hit.none, view.hit(1, view.middle()));
+        try std.testing.expectEqual(Hit.none, view.hit(view.scopeStart() - 1, view.middle()));
+        try std.testing.expectEqual(Hit.agent_scope, view.hit(view.scopeStart(), view.middle()));
+        const end: u16 = if (width == 20) 10 else 14;
+        try std.testing.expectEqual(Hit.agent_scope, view.hit(end - 1, view.middle()));
+        if (width > 20) try std.testing.expectEqual(Hit.none, view.hit(end, view.middle()));
         try std.testing.expectEqual(Hit.agent_new, view.hit(width - 10, view.middle()));
         view.scope_label = "a workspace with a long name";
         try view.draw(&output.writer, &.{}, &.{});
@@ -1337,7 +1361,7 @@ test "agents header names its scope and opens the scope menu left of New" {
         // The label never runs into the New button.
         try std.testing.expect(std.mem.indexOf(u8, header, "agents") != null);
         try std.testing.expect(std.mem.indexOf(u8, header, "New") != null);
-        if (width > 23) try std.testing.expect(std.mem.indexOf(u8, header, "…") != null);
+        try std.testing.expect(std.mem.indexOf(u8, header, "…") != null);
         output.clearRetainingCapacity();
     }
 }
