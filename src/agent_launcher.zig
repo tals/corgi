@@ -19,7 +19,12 @@ pub const Row = enum {
 const metadata = @import("account_preview.zig");
 pub const Text = metadata.Text;
 pub const Option = struct { model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
-pub const Preview = struct { pending: bool = true, options: [2]Option = @splat(.{}) };
+/// `installed` defaults true so older daemons keep showing both providers.
+pub const Preview = struct { pending: bool = true, options: [2]Option = @splat(.{}), installed: [2]bool = .{ true, true } };
+fn installed() [2]bool {
+    const discovery = @import("discovery.zig");
+    return .{ discovery.installed(.codex), discovery.installed(.claude) };
+}
 const Job = struct {
     cwd: [std.fs.max_path_bytes]u8 = undefined,
     len: usize = 0,
@@ -81,6 +86,8 @@ pub const Worker = struct {
             } else oldest = i;
         }
         var job: Job = .{ .len = cwd.len, .used = now, .request_access = request_access };
+        // Filesystem-only, so the first reply already hides missing providers.
+        job.preview.installed = installed();
         @memcpy(job.cwd[0..cwd.len], cwd);
         w.jobs[oldest] = job;
         w.wake.signal();
@@ -103,24 +110,29 @@ pub const Worker = struct {
             w.jobs[index].?.request_access = false;
             w.jobs[index].?.accessing = job.request_access;
             w.mutex.unlock();
-            var result: Preview = .{ .pending = false };
-            if (pool.configuredModel(job.cwd[0..job.len], &w.stopping)) |model| {
-                result.options[0].model.set(model.text());
-                result.options[0].source.set("Effective Codex settings");
-            } else |_| result.options[0].source.set("Model resolved by Codex at startup");
-            if (pool.configuredAccount(&w.stopping)) |account| {
-                result.options[0].account = account.account;
-                result.options[0].plan = account.plan;
-                result.options[0].usage = account.usage;
-                result.options[0].resets = account.resets;
-            } else |_| {}
-            result.options[1] = claude(job.cwd[0..job.len]);
-            const account = claudeAccount(job.cwd[0..job.len], &w.stopping, job.request_access);
-            result.options[1].account = account.account;
-            result.options[1].plan = account.plan;
-            result.options[1].usage = account.usage;
-            result.options[1].resets = account.resets;
-            result.options[1].usage_needs_consent = account.usage_needs_consent;
+            var result: Preview = .{ .pending = false, .installed = installed() };
+            // Skip reads for missing providers; their rows are hidden.
+            if (result.installed[0]) {
+                if (pool.configuredModel(job.cwd[0..job.len], &w.stopping)) |model| {
+                    result.options[0].model.set(model.text());
+                    result.options[0].source.set("Effective Codex settings");
+                } else |_| result.options[0].source.set("Model resolved by Codex at startup");
+                if (pool.configuredAccount(&w.stopping)) |account| {
+                    result.options[0].account = account.account;
+                    result.options[0].plan = account.plan;
+                    result.options[0].usage = account.usage;
+                    result.options[0].resets = account.resets;
+                } else |_| {}
+            }
+            if (result.installed[1]) {
+                result.options[1] = claude(job.cwd[0..job.len]);
+                const account = claudeAccount(job.cwd[0..job.len], &w.stopping, job.request_access);
+                result.options[1].account = account.account;
+                result.options[1].plan = account.plan;
+                result.options[1].usage = account.usage;
+                result.options[1].resets = account.resets;
+                result.options[1].usage_needs_consent = account.usage_needs_consent;
+            }
             w.mutex.lock();
             if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd[0..current.len], job.cwd[0..job.len])) {
                 current.preview = result;
@@ -344,21 +356,66 @@ pub const Menu = struct {
             if (reset_text.len > 0) reset_text.text() else if (m.preview.pending) "Reading…" else "—",
         };
     }
+    /// Rows are shown in order, skipping providers that are not installed.
+    pub fn shown(m: *const Menu, row: Row) bool {
+        const provider = row.agent() orelse return true;
+        return m.preview.installed[@intFromEnum(provider)];
+    }
+    fn count(m: *const Menu) usize {
+        var n: usize = 0;
+        for (std.enums.values(Row)) |row| n += @intFromBool(m.shown(row));
+        return n;
+    }
+    fn rowAt(m: *const Menu, index: usize) ?Row {
+        var n: usize = 0;
+        for (std.enums.values(Row)) |row| if (m.shown(row)) {
+            if (n == index) return row;
+            n += 1;
+        };
+        return null;
+    }
+    fn position(m: *const Menu, row: Row) usize {
+        var n: usize = 0;
+        for (std.enums.values(Row)) |candidate| {
+            if (candidate == row) return n;
+            n += @intFromBool(m.shown(candidate));
+        }
+        return n;
+    }
+    /// Keep the selection on a visible row after the installed set changes.
+    pub fn normalize(m: *Menu) void {
+        if (!m.shown(m.selected)) m.selected = m.rowAt(0).?;
+    }
+    pub fn first(m: *const Menu) Row {
+        return m.rowAt(0).?;
+    }
+    pub fn move(m: *Menu, next: bool, wrap: bool) void {
+        m.normalize();
+        const n = m.count();
+        const index = m.position(m.selected);
+        m.selected = m.rowAt(if (wrap)
+            (if (next) index + 1 else index + n - 1) % n
+        else if (next) @min(index + 1, n - 1) else index -| 1).?;
+    }
+    fn rowsHeight(m: *const Menu) u16 {
+        return @intCast(5 + m.count());
+    }
     pub fn bounds(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View) @import("layout.zig").Rect {
         var content: u16 = 4;
         for (m.columns(cols)) |width| content += width;
         const width = @min(cols, @max(@as(u16, 40), content));
-        const height = @min(rows, 8);
+        const height = @min(rows, m.rowsHeight());
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
     fn columns(m: *const Menu, width: u16) [7]u16 {
         var widths: [7]u16 = undefined;
-        var reset_text: [2]Text = undefined;
-        const first = m.cells(0, &reset_text[0]);
-        const second = m.cells(1, &reset_text[1]);
-        for (headings, first, second, &widths, 0..) |heading, one, two, *size, column| {
-            size.* = @intCast(@max(@import("sidebar.zig").displayWidth(heading), @max(@import("sidebar.zig").displayWidth(one), @import("sidebar.zig").displayWidth(two))) + @as(usize, if (column == 6) 1 else 2));
+        for (headings, &widths) |heading, *size| size.* = @intCast(@import("sidebar.zig").displayWidth(heading));
+        for (0..m.preview.options.len) |index| {
+            if (!m.preview.installed[index]) continue;
+            var reset_text: Text = undefined;
+            for (m.cells(index, &reset_text), &widths) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
         }
+        for (&widths, 0..) |*size, column| size.* += if (column == 6) 1 else 2;
         const available = width -| 4;
         var minimum = [_]u16{ 13, 6, 7, 9, 6, 14, 10 };
         if (available < 65) {
@@ -387,8 +444,8 @@ pub const Menu = struct {
     }
     pub fn hit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Row {
         const b = m.bounds(cols, rows, side);
-        if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2 or y >= b.y + @min(b.h -| 1, 5)) return null;
-        return @enumFromInt(y - b.y - 2);
+        if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2 or y >= b.y + @min(b.h -| 1, 2 + m.count())) return null;
+        return m.rowAt(y - b.y - 2);
     }
     fn providerHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
         return (m.hit(cols, rows, side, x, y) orelse return null).agent();
@@ -396,7 +453,7 @@ pub const Menu = struct {
     pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 8) return null;
+        if (b.w < 24 or b.h < m.rowsHeight()) return null;
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0];
         return if (x >= start and x < start + widths[1] -| 2) provider else null;
@@ -408,7 +465,7 @@ pub const Menu = struct {
     pub fn usageHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 8) return null;
+        if (b.w < 24 or b.h < m.rowsHeight()) return null;
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
         return if (x >= start and x < start + widths[5] -| 1) provider else null;
@@ -416,7 +473,7 @@ pub const Menu = struct {
     pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
         const sidebar = @import("sidebar.zig");
         const b = m.bounds(cols, rows, side);
-        if (b.w < 24 or b.h < 8) return;
+        if (b.w < 24 or b.h < m.rowsHeight()) return;
         const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
         for (0..b.h) |row| {
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, panel });
@@ -435,9 +492,11 @@ pub const Menu = struct {
             try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 6) 1 else 2));
             heading_x += width;
         }
-        for (0..m.preview.options.len + 1) |i| {
-            const selected = @as(Row, @enumFromInt(i)) == m.selected;
-            const row = b.y + 3 + i;
+        for (0..m.count()) |visible| {
+            const current = m.rowAt(visible).?;
+            const i = @intFromEnum(current);
+            const selected = current == m.selected;
+            const row = b.y + 3 + visible;
             const style = if (selected) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, style });
             try w.splatByteAll(' ', b.w - 2);
@@ -572,4 +631,25 @@ fn parseAccount(bytes: []const u8) Text {
     const parsed = std.json.parseFromSlice(std.json.Value, a, bytes, .{}) catch return .{};
     defer parsed.deinit();
     return metadata.claudeAccount(parsed.value).account;
+}
+
+test "launcher hides providers that are not installed" {
+    const side = @import("sidebar.zig").View.init(120, 24, true, 0, 0);
+    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    menu.preview.installed = .{ false, true };
+    menu.normalize();
+    try std.testing.expectEqual(Row.claude, menu.selected);
+    const b = menu.bounds(120, 24, side);
+    try std.testing.expectEqual(@as(u16, 7), b.h);
+    try std.testing.expectEqual(Row.claude, menu.hit(120, 24, side, b.x + 2, b.y + 2).?);
+    try std.testing.expectEqual(Row.terminal, menu.hit(120, 24, side, b.x + 2, b.y + 3).?);
+    try std.testing.expectEqual(@as(?Row, null), menu.hit(120, 24, side, b.x + 2, b.y + 4));
+    menu.move(true, true);
+    try std.testing.expectEqual(Row.terminal, menu.selected);
+    menu.move(true, true);
+    try std.testing.expectEqual(Row.claude, menu.selected);
+    menu.preview.installed = .{ false, false };
+    menu.normalize();
+    try std.testing.expectEqual(Row.terminal, menu.selected);
+    try std.testing.expectEqual(Row.terminal, menu.first());
 }

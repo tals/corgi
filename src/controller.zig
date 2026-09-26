@@ -80,6 +80,8 @@ pub const Controller = struct {
     port_menu: ?sidebar.PortMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
+    /// Last installed providers seen, so reopening does not flash hidden rows.
+    launcher_installed: [2]bool = .{ true, true },
     corgi_setup: ?@import("corgi_setup.zig").Menu = null,
     launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
@@ -713,6 +715,8 @@ pub const Controller = struct {
         if (cwd.len > std.fs.max_path_bytes) return;
         var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = .of(s.runtime.last_agent), .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .pinned = pinned };
         @memcpy(launch.cwd[0..cwd.len], cwd);
+        launch.preview.installed = s.launcher_installed;
+        launch.normalize();
         s.agent_launcher = launch;
         s.cancelDividers();
         s.selection = null;
@@ -733,12 +737,7 @@ pub const Controller = struct {
     }
     fn moveLauncher(s: *Self, next: bool, wrap: bool) void {
         if (s.agent_launcher) |*launch| {
-            const Row = @import("agent_launcher.zig").Row;
-            const count = @typeInfo(Row).@"enum".fields.len;
-            const index = @intFromEnum(launch.selected);
-            launch.selected = @enumFromInt(if (wrap)
-                (if (next) index + 1 else index + count - 1) % count
-            else if (next) @min(index + 1, count - 1) else index -| 1);
+            launch.move(next, wrap);
             launch.pinned = true;
         }
         s.dirty = true;
@@ -786,6 +785,8 @@ pub const Controller = struct {
             const parsed = std.json.parseFromValue(@import("agent_launcher.zig").Preview, a, response.value.object.get("preview") orelse return, .{}) catch return;
             defer parsed.deinit();
             launch.preview = parsed.value;
+            launch.normalize();
+            s.launcher_installed = parsed.value.installed;
             s.dirty = true;
         } else if (on_button and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and s.confirm == .none and !s.ui_mouse_down and !s.copy_mode) {
             s.openLauncher(false);
@@ -876,8 +877,8 @@ pub const Controller = struct {
                     9 => s.moveLauncher(true, true),
                     'j', 14 => s.moveLauncher(true, false),
                     'k', 16 => s.moveLauncher(false, false),
-                    'c' => try s.launchAgent(.codex),
-                    'l' => try s.launchAgent(.claude),
+                    'c' => if (launch.shown(.codex)) try s.launchAgent(.codex),
+                    'l' => if (launch.shown(.claude)) try s.launchAgent(.claude),
                     't' => try s.launchRow(.terminal),
                     'y' => if (launch.selected.agent()) |provider| try s.toggleLauncherYolo(provider),
                     'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected.agent().?),
@@ -1188,7 +1189,7 @@ pub const Controller = struct {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) setup.move(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) setup.move(true);
                 s.dirty = true;
             } else if (s.agent_launcher != null) {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveLauncher(false, false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveLauncher(true, false) else if (eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.selectLauncher(.codex) else if (eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.selectLauncher(.terminal) else if (eq(seq, "\x1b[Z")) s.moveLauncher(false, true) else if (!s.agent_launcher.?.pinned) {
+                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveLauncher(false, false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveLauncher(true, false) else if (eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.selectLauncher(s.agent_launcher.?.first()) else if (eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.selectLauncher(.terminal) else if (eq(seq, "\x1b[Z")) s.moveLauncher(false, true) else if (!s.agent_launcher.?.pinned) {
                     s.closeMenu();
                     if (s.focused()) |p| try s.sendInput(p.terminal, seq);
                 }

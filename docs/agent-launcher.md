@@ -6,7 +6,10 @@ empty), repeating the last provider. Codex is the initial default. The choice
 is shared by viewers and retained by live reload and disk recovery.
 
 Hover over the button for an immediate preview, or click the arrow to keep the popover
-open. Choose Codex or Claude Code to launch and remember that provider. A pinned
+open. Choose Codex or Claude Code to launch and remember that provider.
+Providers that are not installed are hidden: the daemon checks `CORGI_CODEX_BIN`
+/ `CORGI_CLAUDE_BIN`, `PATH`, and the usual install locations without running
+anything, and skips previews for missing providers. A pinned
 popover supports Up/Down, Tab/Shift-Tab, Home/End, Enter, and Escape.
 Below the providers, a `New terminal` row opens a plain shell tab in the same
 directory; press t in the popover to open one directly. Pressing Cmd+T again (Ctrl-B A)

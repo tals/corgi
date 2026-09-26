@@ -180,3 +180,60 @@ test "Codex version validation rejects successful non-Codex programs" {
     try std.testing.expect(!isVersion("unrelated tool 1.0.0\n"));
     try std.testing.expect(!isVersion("codex-cli missing native binary"));
 }
+
+/// Cheap, spawn-free presence check for the launcher. It never probes a
+/// candidate, so a broken Codex wrapper can still count as installed.
+pub fn installed(provider: Provider) bool {
+    const name: []const u8, const override = switch (provider) {
+        .codex => .{ "codex", "CORGI_CODEX_BIN" },
+        .claude => .{ "claude", "CORGI_CLAUDE_BIN" },
+        .other => return false,
+    };
+    const self = std.fs.selfExePathAlloc(a) catch return true;
+    defer a.free(self);
+    const self_real = std.fs.cwd().realpathAlloc(a, self) catch return true;
+    defer a.free(self_real);
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (os.env(override)) |path| if (path.len > 0) {
+        if (std.mem.indexOfScalar(u8, path, '/') != null) return executable(path, self_real);
+        return onPath(path, self_real);
+    };
+    if (onPath(name, self_real)) return true;
+    const home = os.env("HOME") orelse "";
+    const relatives: []const []const u8 = switch (provider) {
+        .codex => &.{ ".local/bin/codex", ".bun/bin/codex", ".npm-global/bin/codex", ".volta/bin/codex", ".cargo/bin/codex", "Applications/Codex.app/Contents/Resources/codex", "Applications/ChatGPT.app/Contents/Resources/codex" },
+        else => &.{ ".claude/local/claude", ".local/bin/claude", ".bun/bin/claude", ".npm-global/bin/claude", ".volta/bin/claude" },
+    };
+    if (home.len > 0) for (relatives) |relative| {
+        const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ home, relative }) catch continue;
+        if (executable(path, self_real)) return true;
+    };
+    const absolutes: []const []const u8 = switch (provider) {
+        .codex => &.{ "/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex", "/Applications/Codex.app/Contents/Resources/codex", "/Applications/ChatGPT.app/Contents/Resources/codex" },
+        else => &.{ "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude" },
+    };
+    for (absolutes) |path| if (executable(path, self_real)) return true;
+    return false;
+}
+fn onPath(name: []const u8, self_real: []const u8) bool {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse return false, ':');
+    while (dirs.next()) |dir| {
+        if (!std.fs.path.isAbsolute(dir)) continue;
+        const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ dir, name }) catch continue;
+        if (executable(path, self_real)) return true;
+    }
+    return false;
+}
+fn executable(path: []const u8, self_real: []const u8) bool {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    // Pane-local shims resolve to Corgi itself and do not mean a provider exists.
+    const real = std.fs.cwd().realpath(path, &buf) catch return false;
+    if (std.mem.eql(u8, real, self_real)) return false;
+    const stat = std.posix.fstatat(std.posix.AT.FDCWD, real, 0) catch return false;
+    if ((stat.mode & c.S_IFMT) != c.S_IFREG) return false;
+    var z: [std.fs.max_path_bytes + 1]u8 = undefined;
+    @memcpy(z[0..real.len], real);
+    z[real.len] = 0;
+    return c.access(@ptrCast(&z), c.X_OK) == 0;
+}
