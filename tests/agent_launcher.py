@@ -28,6 +28,7 @@ print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].ends
     until=smoke.Runtime.until
     def setUp(self):
         smoke.Runtime.setUp(self)
+        pathlib.Path(self.path + ".viewer.json").write_text(json.dumps({"onboarding_complete":True}))
         self.launches=pathlib.Path(self.temp.name)/'launches.jsonl'
         fixture=pathlib.Path(__file__).with_name('inference_harness.py').resolve()
         pathlib.Path(self.env['CORGI_CODEX_BIN']).write_text(f'''#!/usr/bin/env python3
@@ -156,6 +157,18 @@ time.sleep(120)
         self.until(lambda:view.poll() and self.session()['agent_commands'][0]['name']['bytes'].startswith('Renamed assistant'))
         self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
         self.assertTrue(self.session()['agent_commands'][0]['name']['bytes'].startswith('Renamed assistant'))
+
+    def test_custom_agent_account_in_picker(self):
+        config=pathlib.Path(self.temp.name)/'work-profile'
+        config.mkdir()
+        (config/'.claude.json').write_text(json.dumps({'oauthAccount':{'emailAddress':'work@example.com'}}))
+        self.command('agent.command',index=0,command='CLAUDE_CONFIG_DIR='+shlex.quote(str(config))+' claude --dangerously-skip-permissions',name='Work')
+        view=Viewer(self,160,30)
+        view.input('\x02a')
+        rows=smoke.screen_text(view.poll()['data'],160,30)
+        row=next(row for row in rows if 'Work' in row and 'work@example.com' in row)
+        self.assertIn('✓',row)
+        self.assertIn('(cached)',row)
 
     def test_signed_out_claude_is_hidden_but_manageable(self):
         self.run_cli('shutdown')
@@ -363,7 +376,7 @@ time.sleep(120)
         self.until(lambda:'New agent' in view.poll()['data'])
         def selected(provider):
             rows=smoke.screen_text(view.poll()['data'],100,30)
-            self.assertTrue(any(re.search(r'› +([0-9t] +)?'+re.escape(provider),row) for row in rows), '\n'.join(rows))
+            self.assertTrue(any(re.search(r'› +([0-9t→] +)?'+re.escape(provider),row) for row in rows), '\n'.join(rows))
         view.input('\x1b[B');selected('Claude Code')
         view.input('\x1b[B');selected('New terminal')
         view.input('\x1b[B');selected('Manage agents')
@@ -444,7 +457,10 @@ time.sleep(120)
         self.assertRegex(view.poll()['data'], r' a \S* open')
         view.input('\r')
         self.until(lambda:len(self.session()['panes'])==before+2)
-        view.input('\x02A');view.input('\x02A')
+        view.input('\x02a');view.input('\x02a')
+        self.assertEqual(len(self.session()['panes']),before+2)
+        self.assertIn('New agent',view.poll()['data'])
+        view.input('t')
         self.until(lambda:len(self.session()['panes'])==before+3)
         self.assertNotIn('New agent',view.poll()['data'])
         self.assertFalse(self.launches.exists())

@@ -60,8 +60,9 @@ Reads are bounded and run on the preview worker.
 
 Choose **Manage agents…** in the picker for a table of Show checkboxes, agent
 names, accounts, and **Edit** buttons. The inline command field below the table
-is focused by default. Paste a command; a name is suggested from the provider,
-model, and permission flags. Press Tab to edit the name, then Enter or **Add**
+is focused by default. Paste a command; a name is suggested from the provider
+and model. Permission behavior appears in the YOLO column. Press Tab to edit the
+name, then Enter or **Add**
 to save. Names persist across edits, hide/show, and reloads. **Edit**
 loads a command into that same field; editing a built-in creates a custom command
 and hides its default row after saving. **Done** returns to the picker. Use **Delete** beside a saved command to remove it. Clearing an edited command
@@ -115,3 +116,7 @@ reveals the frozen expansion. Cancel clears the draft. Original shorthand is
 saved separately so a name-only edit reuses the frozen expansion. The new-agent
 picker shows numeric keycaps starting at 0 for visible agents and a left-side
 `t` keycap for a plain terminal.
+
+Custom commands use the same picker columns as built-in agents. Their account
+comes from the saved command preview; commands using the default account share
+its current plan and usage preview. Separate profiles do not inherit those values.

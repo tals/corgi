@@ -502,7 +502,7 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
         .claude => "Claude Code",
         .other => "Custom agent",
     };
-    info.suggested_name.set(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else if (yolo) " - YOLO" else "", if (info.model.len > 0) info.model.text() else "" }) catch provider_name);
+    info.suggested_name.set(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else "", if (info.model.len > 0) info.model.text() else "" }) catch provider_name);
     return info;
 }
 fn readIdentity(info: *Semantics, root: []const u8) void {
@@ -551,6 +551,9 @@ test "command semantics distinguish default accounts from auth overrides" {
     try std.testing.expect(base.default_account);
     try std.testing.expectEqualStrings("sonnet", base.model.text());
     try std.testing.expectEqualStrings("Skips permission checks", base.mode.text());
+    const permission_only = analyze("claude --dangerously-skip-permissions", "/tmp");
+    try std.testing.expectEqualStrings("Claude Code", permission_only.suggested_name.text());
+    try std.testing.expectEqualStrings("Claude Code - sonnet", base.suggested_name.text());
     const api = analyze("ANTHROPIC_API_KEY=private-value claude", "/tmp");
     try std.testing.expect(!api.default_account);
     try std.testing.expectEqualStrings("API key - identity unavailable", api.account.text());

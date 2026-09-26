@@ -405,6 +405,20 @@ pub const Menu = struct {
             if (reset_text.len > 0) reset_text.text() else if (m.preview.pending) "Reading…" else "—",
         };
     }
+    fn customCells(m: *const Menu, index: usize, reset_text: *Text) [7][]const u8 {
+        const entry = &m.commands[index];
+        const info = &entry.semantics;
+        const shared = info.default_account and info.provider != .other;
+        const provider: usize = if (info.provider == .claude) 1 else 0;
+        var values: [7][]const u8 = if (shared) m.cells(provider, reset_text) else .{ "", "", "Default", "", "—", "—", "—" };
+        values[0] = entry.label();
+        values[1] = if (std.mem.eql(u8, info.mode.text(), "Skips permission checks")) "✓" else "·";
+        if (info.model.len > 0) values[2] = info.model.text();
+        values[3] = m.account(info);
+        // Tracking actions belong to built-in rows; saved commands only show data.
+        if (shared and m.trackable(@enumFromInt(provider))) values[5] = "Unavailable";
+        return values;
+    }
     /// Management includes unavailable providers so preferences stay editable.
     pub fn shown(m: *const Menu, row: Row) bool {
         if (row == .manage) return true;
@@ -482,6 +496,11 @@ pub const Menu = struct {
             if (!m.shown(@enumFromInt(index))) continue;
             var reset_text: Text = undefined;
             for (m.cells(index, &reset_text), &widths) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
+        }
+        for (&m.commands, 0..) |entry, index| {
+            if (entry.len == 0 or entry.hidden) continue;
+            var reset_text: Text = undefined;
+            for (m.customCells(index, &reset_text), &widths) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
         }
         for (&widths, 0..) |*size, column| size.* += if (column == 6) 1 else 2;
         widths[0] += 4; // Left shortcut keycap and its following space.
@@ -737,7 +756,7 @@ pub const Menu = struct {
             const selected = current == m.selected;
             const row = b.y + 3 + visible + @as(usize, if (current == .manage) 2 else 0);
             if (current == .manage) {
-                try w.print("\x1b[{d};{d}H\x1b[38;2;112;124;135m", .{ row - 1, b.x + 4 });
+                try w.print("\x1b[{d};{d}H{s}\x1b[38;2;112;124;135m", .{ row - 1, b.x + 4, panel });
                 for (0..b.w - 6) |_| try w.writeAll("─");
             }
             const style = if (selected) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
@@ -754,19 +773,11 @@ pub const Menu = struct {
                 try sidebar.writeEllipsis(w, "+ Add agent…", b.w -| 6);
                 continue;
             }
-            if (current.custom()) |index| {
-                const entry = &m.commands[index];
-                var label: [96]u8 = undefined;
-                const text = if (entry.name.len > 0) entry.name.text() else try std.fmt.bufPrint(&label, "{s} {d}", .{ entry.label(), index + 1 });
-                try w.print("\x1b[{d};{d}H", .{ row, b.x + 8 });
-                try sidebar.writeEllipsis(w, text, b.w -| 10);
-                if (m.managing) try w.print("\x1b[{d};{d}H[{s}]", .{ row, b.x + b.w - 9, if (entry.hidden) "Show" else "Hide" });
-                continue;
-            }
             if (current == .manage) {
-                if (!selected) try w.writeAll("\x1b[38;2;112;124;135m");
-                try w.print("\x1b[{d};{d}H", .{ row, b.x + 8 });
-                try sidebar.writeEllipsis(w, if (m.managing) "Back to new agent" else "Manage agents…", b.w -| 6);
+                const button = if (selected) "\x1b[0;1;38;2;242;247;244;48;2;65;94;80m" else "\x1b[0;1;38;2;226;230;233;48;2;58;68;79m";
+                try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 4, button });
+                try sidebar.writeEllipsis(w, " → Manage agents… ", b.w -| 6);
+                try w.writeAll(style);
                 continue;
             }
             if (m.managing) {
@@ -786,17 +797,19 @@ pub const Menu = struct {
             }
             var x: u16 = b.x + 4;
             var reset_text: Text = undefined;
-            for (m.cells(i, &reset_text), widths, 0..) |text, width, column| {
+            const values = if (current.custom()) |index| m.customCells(index, &reset_text) else m.cells(i, &reset_text);
+            const yolo = std.mem.eql(u8, values[1], "✓");
+            for (values, widths, 0..) |text, width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
                 if (column == 5 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
-                if (column == 1 and m.yolo[i]) try w.writeAll("\x1b[1;38;2;255;255;255m");
+                if (column == 1 and yolo) try w.writeAll("\x1b[1;38;2;255;255;255m");
                 const room = width -| @as(u16, if (column == 0) 6 else if (column == 6) 1 else 2);
                 if (column >= 5) {
                     try writeWindowCell(w, text, room, style);
                 } else try sidebar.writeEllipsis(w, text, room);
                 try w.writeAll("\x1b[24m");
-                if (column == 1 and m.yolo[i]) try w.writeAll(style);
+                if (column == 1 and yolo) try w.writeAll(style);
                 x += width;
             }
         }
@@ -972,4 +985,25 @@ test "digit shortcuts enumerate visible agents and exclude terminal and manageme
     try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('0'));
     menu.managing = true;
     try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('0'));
+}
+
+test "custom picker cells preserve account scope and permission state" {
+    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .custom0, .last = .claude, .pinned = true };
+    menu.preview.pending = false;
+    menu.preview.options[1].account.set("personal@example.com");
+    menu.preview.options[1].plan.set("Max");
+    menu.preview.options[1].model.set("opus");
+    try menu.commands[0].set("claude --dangerously-skip-permissions");
+    menu.commands[0].semantics = @import("launch_command.zig").analyze(menu.commands[0].text(), "/tmp");
+    var reset: Text = .{};
+    var values = menu.customCells(0, &reset);
+    try std.testing.expectEqualStrings("personal@example.com", values[3]);
+    try std.testing.expectEqualStrings("✓", values[1]);
+    try std.testing.expectEqualStrings("Max", values[4]);
+    menu.commands[0].semantics.default_account = false;
+    menu.commands[0].semantics.account.set("work@example.com (cached)");
+    values = menu.customCells(0, &reset);
+    try std.testing.expectEqualStrings("work@example.com (cached)", values[3]);
+    try std.testing.expectEqualStrings("—", values[4]);
+    try std.testing.expectEqualStrings("—", values[5]);
 }
