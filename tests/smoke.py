@@ -72,6 +72,10 @@ class Runtime(unittest.TestCase):
         # Provider settings must be isolated: startup now installs ordinary-CLI hooks.
         self.env = {**os.environ, 'HOME':self.temp.name, 'XDG_STATE_HOME':self.temp.name+'/.local/state', 'CODEX_HOME':self.temp.name+'/.codex', 'CLAUDE_CONFIG_DIR':self.temp.name+'/.claude', 'CORGI_SOCKET':self.path, 'CORGI_BELL':'off', 'CORGI_CODEX_BIN':str(fake), 'CORGI_CLAUDE_BIN':str(fake), 'SHELL':'/bin/sh'}
         self.env.pop('CODEX_THREAD_ID',None)
+        # These fixtures exercise the normal viewer after first-run setup.
+        preferences = pathlib.Path(self.env['XDG_STATE_HOME'], 'corgi', 'viewer.json')
+        preferences.parent.mkdir(parents=True)
+        preferences.write_text(json.dumps({'onboarding_complete':True}))
         self.client = None
         self.viewers = []
         self.proc = None
