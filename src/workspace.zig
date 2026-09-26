@@ -10,6 +10,7 @@ pub const Workspace = struct {
     name_len: usize = 0,
     cwd: []const u8,
     model: layout.Model = .{},
+    agent_order: @import("agent_order.zig").Order = .{},
     git_ahead: ?u64 = null,
     git_ref: @import("git_push.zig").Ref = .{},
     git_push: @import("git_push.zig").State = .{},

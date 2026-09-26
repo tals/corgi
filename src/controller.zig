@@ -107,6 +107,7 @@ pub const Controller = struct {
     git_hover: ?u32 = null,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
+    agent_drag: ?@import("agent_drag.zig").Drag = null,
     workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
     resize_mode: bool = false,
     copy_mode: bool = false,
@@ -341,6 +342,7 @@ pub const Controller = struct {
                 count += 1;
                 if (folded) continue;
             }
+            const first_agent = count;
             for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
                     if (p.agent.provider == .other or ws.model.tabForPane(p.id) != tab_index or count == entries.len) continue;
@@ -359,6 +361,7 @@ pub const Controller = struct {
                 }
                 count += 1;
             }
+            std.sort.insertion(sidebar.Entry, entries[first_agent..count], ws.agent_order, sidebar.Entry.lessThan);
         }
         for (entries[0..count]) |*entry| {
             if (entry.target == .group) continue;
@@ -1359,6 +1362,12 @@ pub const Controller = struct {
 
         s.sidebar_drag = false;
         s.workspace_drag = null;
+        if (s.agent_drag) |*drag| {
+            drag.cancelled = true;
+            drag.drop = null;
+            drag.preview = null;
+            s.dirty = true;
+        }
         s.cancelDividers();
         if (cl.tab_drag) |*drag| {
             drag.cancelled = true;
@@ -1821,6 +1830,32 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
+        if (s.agent_drag) |*drag| {
+            // Input can arrive before the next snapshot poll. Validate a drop
+            // against current shared state, including rows removed mid-drag.
+            if (release and button & 3 == 0) try s.refresh();
+            var storage: [sidebar.max_entries]sidebar.Entry = undefined;
+            const live = s.sidebarEntries(&storage);
+            var side = s.sidebarView(live);
+            if (!release and (button == 64 or button == 65) and drag.valid(side, s.current().id)) {
+                s.sidebar_offset = if (button == 64) side.offset -| 1 else @min(side.offset + 1, side.maxOffset());
+                side = s.sidebarView(live);
+                drag.dragging = true;
+            }
+            if (!release and button == 32 and (x != drag.start_x or y != drag.start_y)) drag.dragging = true;
+            drag.update(side, s.current().id, x, y);
+            if (release and button & 3 == 0) {
+                const saved = drag.*;
+                s.agent_drag = null;
+                s.ui_mouse_down = false;
+                if (saved.drop) |drop| {
+                    const before = if (drop.index == saved.end) null else live[drop.index].orderTarget();
+                    s.edit(.{ .@"agent.move" = .{ .workspace = saved.workspace, .target = saved.target, .before = before } }) catch |err| s.notice(@errorName(err));
+                }
+            }
+            s.dirty = true;
+            return;
+        }
         if (s.workspace_drag) |*drag| {
             const side = s.sidebarView(&.{});
             var valid = drag.width == s.width and drag.height == s.height and drag.offset == side.workspace_offset and drag.count == s.runtime.workspaces.items.len;
@@ -2092,7 +2127,28 @@ pub const Controller = struct {
                     .toggle => try s.action("sidebar", ""),
                     .previous => s.sidebar_offset = side.offset -| side.capacity,
                     .next => s.sidebar_offset = @min(side.offset + side.capacity, side.maxOffset()),
-                    .entry => |index| if (entries[index].exit == null) try s.selectAgent(entries[index].target),
+                    .entry => |index| if (entries[index].exit == null) {
+                        const target = entries[index].target;
+                        try s.selectAgent(target);
+                        if (button == 0 and target != .group) {
+                            // Selecting another workspace can scroll the list.
+                            // Capture the post-selection viewport and identity.
+                            const updated = s.sidebarEntries(&agent_storage);
+                            const view = s.sidebarView(updated);
+                            if (agent_navigation.indexOf(updated, target)) |at| {
+                                if (view.offset == side.offset) {
+                                    const owner = switch (target) {
+                                        .pane => |id| s.runtime.workspaces.owner(id).?.id,
+                                        .native => |id| for (s.runtime.sessions) |session| {
+                                            if (session.id == id) break session.workspace;
+                                        } else unreachable,
+                                        .group => unreachable,
+                                    };
+                                    s.agent_drag = .init(view, at, x, y, owner, s.current().id);
+                                }
+                            }
+                        }
+                    },
                     .workspace_new => s.beginWorkspace(null),
                     .agent_new => if (button == 0) try s.launchAgent(null) else s.openLauncher(true),
                     .agent_options => s.openLauncher(true),
@@ -2412,6 +2468,7 @@ pub const Controller = struct {
             const hit = sidebar.gitActionWorkspace(s.sidebarView(entries), s.workspaceEntries(&workspace_storage), s.git_hover, pointer.x, pointer.y);
             s.git_hover = if (hit) |ws| ws.id else null;
         } else s.git_hover = null;
+        if (s.agent_drag) |*drag| _ = drag.valid(s.sidebarView(entries), s.current().id);
         return render.frame(s.layoutView(), s.runtime.panes.items, s.width, s.height, .{
             .key_preset = s.key_preset,
             .key_prefix = s.key_prefix,
@@ -2440,6 +2497,7 @@ pub const Controller = struct {
             .corgi_badge = s.corgi_badge,
             .sidebar_width = s.sidebar_width,
             .workspace_drop_y = if (s.workspace_drag) |drag| drag.drop_y else null,
+            .dragged_agent = if (s.agent_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
             .agents = entries,
             .conversations = s.runtime.conversations,

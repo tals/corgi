@@ -3,6 +3,31 @@ const Terminal = @import("terminal.zig").Terminal;
 const cp = @import("checkpoint.zig");
 const a = @import("os.zig").allocator;
 
+test "sidebar order survives live and recovery checkpoints and defaults for old state" {
+    const Runtime = @import("runtime.zig").Runtime;
+    const ordering = @import("agent_order.zig");
+    var original: Runtime = .{};
+    defer original.deinit();
+    const id = try original.workspaces.add("ordered", "/tmp");
+    const order = [_]ordering.Target{ .{ .native = 1 }, .{ .pane = 2 }, .{ .pane = 1 } };
+    // Closed targets may remain in a saved order until the next reordering.
+    original.workspaces.get(id).?.agent_order = try ordering.Order.restore(&order);
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    for ([_]bool{ true, false }) |live| {
+        const saved = try cp.capture(arena.allocator(), &original, live);
+        const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+        const decoded = try std.json.parseFromSlice(cp.State, arena.allocator(), json, .{});
+        var fresh: Runtime = .{};
+        defer fresh.deinit();
+        try cp.restore(&fresh, decoded.value, live, "/tmp/unused-agent-order.sock", "/tmp/corgi");
+        try std.testing.expectEqualSlices(ordering.Target, &order, fresh.workspaces.get(id).?.agent_order.slice());
+    }
+    const legacy_json = try std.json.Stringify.valueAlloc(arena.allocator(), .{ .id = id, .name = "legacy", .cwd = "/tmp", .model = @import("layout.zig").Model{} }, .{});
+    const legacy = try std.json.parseFromSlice(cp.Workspace, arena.allocator(), legacy_json, .{});
+    try std.testing.expectEqual(@as(usize, 0), legacy.value.agent_order.len);
+}
+
 test "conversation checkpoint restores shared bindings and detached unread state" {
     const Runtime = @import("runtime.zig").Runtime;
     var original: Runtime = .{};

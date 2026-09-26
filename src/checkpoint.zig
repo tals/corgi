@@ -117,6 +117,7 @@ pub const Workspace = struct {
     name: []const u8,
     cwd: []const u8,
     model: layout.Model,
+    agent_order: []const @import("agent_order.zig").Target = &.{},
 };
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
@@ -203,7 +204,7 @@ fn historicalAgent(agent: agents.Agent) agents.Agent {
 pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State {
     const workspaces = try alloc.alloc(Workspace, r.workspaces.items.items.len);
     for (r.workspaces.items.items, workspaces) |*w, *out| {
-        out.* = .{ .id = w.id, .away = w.away, .name = w.customName(), .cwd = w.cwd, .model = w.model };
+        out.* = .{ .agent_order = try alloc.dupe(@import("agent_order.zig").Target, w.agent_order.slice()), .id = w.id, .away = w.away, .name = w.customName(), .cwd = w.cwd, .model = w.model };
     }
     const panes = try alloc.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {
@@ -239,7 +240,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.link_labels = if (live) try @import("link_labels.zig").Cache.restore(state.link_labels) else .{};
     for (state.workspaces) |w| {
         if (w.id == 0 or w.id >= state.next_workspace or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
-        var item: workspace.Workspace = .{ .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
+        var item: workspace.Workspace = .{ .agent_order = try @import("agent_order.zig").Order.restore(w.agent_order), .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
         item.name_len = agents.clean(&item.name_buf, w.name);
         item.model = w.model;
         for (item.model.tabs[0..item.model.count]) |tab| if (tab.id >= state.next_pane) return error.InvalidCheckpoint;

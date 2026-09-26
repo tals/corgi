@@ -33,6 +33,17 @@ pub const Entry = struct {
     group: Group = .{},
     subagents: agents.Subagents = .{},
 
+    pub fn orderTarget(e: Entry) ?@import("agent_order.zig").Target {
+        return switch (e.target) {
+            .pane => |id| .{ .pane = id },
+            .native => |id| .{ .native = id },
+            .group => null,
+        };
+    }
+    pub fn lessThan(order: []const @import("agent_order.zig").Target, left: Entry, right: Entry) bool {
+        return @import("agent_order.zig").rank(order, left.orderTarget().?) < @import("agent_order.zig").rank(order, right.orderTarget().?);
+    }
+
     // Herdr's dot style and Catppuccin colors; finished attention is its
     // unseen-idle state. Corgi also retains ended native sessions.
     fn indicator(e: Entry) struct { icon: []const u8, color: []const u8 } {
@@ -48,6 +59,24 @@ pub const Entry = struct {
 
 pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
+/// Render the prospective order without changing shared state or the stable
+/// row geometry used by the captured gesture's hit testing.
+pub const Preview = struct {
+    source: usize,
+    destination: usize,
+    pub fn apply(p: Preview, entries: []const Entry, out: *[max_entries]Entry) []const Entry {
+        if (entries.len > out.len or p.source >= entries.len or p.destination >= entries.len) return entries;
+        @memcpy(out[0..entries.len], entries);
+        const item = out[p.source];
+        if (p.source < p.destination) {
+            std.mem.copyForwards(Entry, out[p.source..p.destination], out[p.source + 1 .. p.destination + 1]);
+        } else {
+            std.mem.copyBackwards(Entry, out[p.destination + 1 .. p.source + 1], out[p.destination..p.source]);
+        }
+        out[p.destination] = item;
+        return out[0..entries.len];
+    }
+};
 pub const View = struct {
     search: ?Search = null,
     /// Header scope: "all" or the workspace whose agents are listed.
@@ -61,6 +90,7 @@ pub const View = struct {
     capacity: usize,
     /// When set, rows are measured per entry: group headers take one row.
     entries: []const Entry = &.{},
+    dragged: ?usize = null,
     workspace_count: usize = 0,
     workspace_offset: usize = 0,
     pub fn middle(v: View) u16 {
@@ -186,6 +216,20 @@ pub const View = struct {
         }
         return .none;
     }
+    pub const Drop = struct { index: usize, y: u16 };
+    /// Use the same row heights and viewport as hit testing. The marker sits
+    /// just above the destination row, including the gap after the last row.
+    pub fn agentDrop(v: View, x: u16, y: u16) ?Drop {
+        if (v.width == 0 or x >= v.width - 1 or y < v.middle() + 2 or y >= v.rows - 2 or v.entries.len == 0) return null;
+        var top: usize = v.middle() + 2;
+        const end = @min(v.count, v.offset + v.capacity);
+        for (v.offset..end) |i| {
+            const h = height(v.entries[i]);
+            if (y < top + h / 2) return .{ .index = i, .y = @intCast(top - 1) };
+            top += h;
+        }
+        return .{ .index = end, .y = @intCast(top - 1) };
+    }
     pub fn unreadRange(v: View, ws: WorkspaceEntry) struct { start: usize, end: usize } {
         var buf: [40]u8 = undefined;
         const unread_width = displayWidth(compactCount(&buf, ws.unread)) + 7 + @as(usize, if (ws.unread > 0) 2 else 0);
@@ -210,7 +254,6 @@ pub const View = struct {
     fn drawAt(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry, now_ms: i64) !void {
         corgi_animation.beginFrame();
         defer corgi_animation.endFrame();
-        const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
         const panel = "\x1b[0;38;2;155;163;175;48;2;24;27;32m";
         if (v.width == 0) {
             if (v.cols >= 64) try w.writeAll("\x1b[1;1H\x1b[1;38;2;161;194;178m > \x1b[0m");
@@ -340,7 +383,6 @@ pub const View = struct {
             var exit_writer = std.Io.Writer.fixed(&exit_buffer);
             const row_writer = if (e.exit != null) &exit_writer else w;
             const frame_ms = if (e.exit) |closing| closing.frame_ms else now_ms;
-            const frame_index: usize = @intCast(@mod(@divFloor(frame_ms, 80), thinking_frames.len));
             const y = next_y;
             next_y += @intCast(height(e));
             if (e.target == .group) {
@@ -348,85 +390,9 @@ pub const View = struct {
                 if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
                 continue;
             }
-            // Grouped rows select with the active workspace's tint; the rail stays unbroken.
-            const bg = if (!e.focused) "\x1b[48;2;24;27;32m" else if (grouped) selected_bg else "\x1b[48;2;35;40;47m";
-            for (0..2) |row| {
-                if (y + row >= v.rows - 2) break;
-                try row_writer.print("\x1b[{d};1H\x1b[0m{s}", .{ y + row + 1, bg });
-                try row_writer.splatByteAll(' ', v.width - 1);
-            }
             const last_in_group = grouped and (absolute + 1 == entries.len or entries[absolute + 1].target == .group);
-            if (grouped) {
-                // The guide sits in the margin column, so agent text keeps its columns.
-                // Beside the selected agent it turns heavy and blue, without a gap.
-                const rail = if (e.focused) "\x1b[0;38;2;137;180;250m" else "\x1b[0;38;2;112;119;130m";
-                const branch = if (e.focused) (if (last_in_group) "┗" else "┣") else if (last_in_group) "╰" else "├";
-                try row_writer.print("\x1b[{d};1H{s}{s}{s}", .{ y + 1, rail, bg, branch });
-                if (!last_in_group and y + 1 < v.rows - 2) try row_writer.print("\x1b[{d};1H{s}", .{ y + 2, if (e.focused) "┃" else "│" });
-                try row_writer.print("\x1b[0m{s}", .{bg});
-            }
-            const dot = e.indicator();
-            try row_writer.print("\x1b[{d};2H\x1b[22m{s}{s}\x1b[{d};5H\x1b[1;38;2;226;230;233m", .{ y + 1, dot.color, dot.icon, y + 1 });
-            const room = v.width - 6;
-            // Within a group, a dotted line under the text separates agents. Only
-            // Kitty-graphics hosts get it; elsewhere the style could degrade to a
-            // solid underline, so those terminals get no separator at all.
             const divider = !grouped and index + 1 < @min(entries.len - v.offset, v.capacity);
-            const dotted = grouped and !last_in_group and v.corgi_badge == .image;
-            const underline = if (dotted) "\x1b[4:4m\x1b[58:2::65:70:77m" else if (divider) "\x1b[4;58:2::65:70:77m" else "";
-            // Dotted lines start under the name, leaving the guide and activity clear.
-            const underline_x: u16 = if (dotted) 5 else 2;
-            const compacting = e.state == .working and e.compacting;
-            const waiting = e.state == .working and e.subagents.waiting and !compacting;
-            const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
-            var name: [160]u8 = undefined;
-            const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
-            try row_writer.print("\x1b[{d};5H{s}", .{ y + 1, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
-            try writeEllipsis(row_writer, provider, room);
-            try row_writer.writeAll("\x1b[22m");
-            // Underline the existing second row, including its padding, without
-            // consuming another terminal row or changing the entry hit area.
-            try row_writer.print("\x1b[{d};{d}H{s}", .{ y + 2, underline_x, underline });
-            try row_writer.splatByteAll(' ', v.width - 1 - underline_x);
-            try row_writer.print("\x1b[{d};2H{s}\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H{s}\x1b[38;2;226;230;233m", .{ y + 2, if (dotted) "\x1b[24m" else "", activity, y + 2, if (dotted) underline else "" });
-            var clean: [512]u8 = undefined;
-            const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
-                .working => e.activity,
-                .blocked => "Needs input",
-                .initializing => "Starting session",
-                .done => "Session ended",
-                else => "",
-            };
-            var badge_buf: [48]u8 = undefined;
-            const badge = subagentBadge(&badge_buf, e.subagents, e.children);
-            const badge_width = displayWidth(badge);
-            const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
-            const animation_seed: u64 = switch (e.target) {
-                .pane => |id| @as(u64, id) * 17,
-                .native => |id| (@as(u64, id) + 0x100000000) * 17,
-                .group => unreachable,
-            };
-            const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
-            const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
-            const presentation = corgi_animation.observe(animation_seed, mode, frame_ms);
-            if (mode != .content) {
-                try presentation.?.writeCorgi(row_writer, detail_room, animation_seed, e.focused, e.state == .working);
-            } else {
-                // Lifecycle signals (blocked/ended/etc.) must be immediate.
-                // Interrupts already switch straight to the sleeping mode.
-                if (e.state != .working) if (presentation) |p| p.skipReveal();
-                const text = directoryLabel(&clean, detail, null);
-                if (presentation != null and presentation.?.reveal_started_ms != null) {
-                    try presentation.?.writeCorgi(row_writer, detail_room, animation_seed, e.focused, e.state == .working);
-                    try row_writer.print("\x1b[{d};5H\x1b[38;2;226;230;233m", .{y + 2});
-                    try writeRevealedDetail(row_writer, text, detail_room, presentation.?.revealedColumns(detail_room, frame_ms), presentation.?.revealPosition(detail_room, frame_ms));
-                } else try writeEllipsis(row_writer, text, detail_room);
-            }
-            if (badge_width > 0) {
-                const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
-                try row_writer.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - badge_width, color, badge });
-            }
-            try row_writer.writeAll("\x1b[24;59m");
+            try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, frame_ms);
             if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
         }
         if (v.search != null) {
@@ -437,6 +403,88 @@ pub const View = struct {
             try v.line(w, v.rows - 2, footer, panel);
         }
         try w.writeAll("\x1b[0m");
+    }
+    fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64) !void {
+        const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+        const frame_index: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
+        // Grouped rows select with the active workspace's tint; the rail stays unbroken.
+        const bg = if (ghost) "\x1b[48;2;44;54;67m" else if (!e.focused) "\x1b[48;2;24;27;32m" else if (grouped) selected_bg else "\x1b[48;2;35;40;47m";
+        for (0..2) |row| {
+            if (y + row >= v.rows - 2) break;
+            try w.print("\x1b[{d};{d}H\x1b[0m{s}", .{ y + row + 1, x + 1, bg });
+            try w.splatByteAll(' ', v.width - 1);
+        }
+        if (grouped) {
+            // The guide sits in the margin column, so agent text keeps its columns.
+            // Beside the selected agent it turns heavy and blue, without a gap.
+            const rail = if (e.focused) "\x1b[0;38;2;137;180;250m" else "\x1b[0;38;2;112;119;130m";
+            const branch = if (e.focused) (if (last_in_group) "┗" else "┣") else if (last_in_group) "╰" else "├";
+            try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ y + 1, x + 1, rail, bg, branch });
+            if (!last_in_group and y + 1 < v.rows - 2) try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + 1, if (e.focused) "┃" else "│" });
+            try w.print("\x1b[0m{s}", .{bg});
+        }
+        const dot = e.indicator();
+        try w.print("\x1b[{d};{d}H\x1b[22m{s}{s}\x1b[{d};{d}H\x1b[1;38;2;226;230;233m", .{ y + 1, x + 2, dot.color, dot.icon, y + 1, x + 5 });
+        const room = v.width - 6;
+        // Within a group, a dotted line under the text separates agents. Only
+        // Kitty-graphics hosts get it; elsewhere the style could degrade to a
+        // solid underline, so those terminals get no separator at all.
+        const dotted = grouped and !last_in_group and v.corgi_badge == .image;
+        const underline = if (ghost) "\x1b[4;58:2::137;180;250m" else if (dotted) "\x1b[4:4m\x1b[58:2::65:70:77m" else if (divider) "\x1b[4;58:2::65:70:77m" else "";
+        // Dotted lines start under the name, leaving the guide and activity clear.
+        const underline_x: u16 = if (dotted) 5 else 2;
+        const compacting = e.state == .working and e.compacting;
+        const waiting = e.state == .working and e.subagents.waiting and !compacting;
+        const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
+        var name: [160]u8 = undefined;
+        const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
+        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
+        try writeEllipsis(w, provider, room);
+        try w.writeAll("\x1b[22m");
+        // Underline the existing second row, including its padding, without
+        // consuming another terminal row or changing the entry hit area.
+        try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + underline_x, underline });
+        try w.splatByteAll(' ', v.width - 1 - underline_x);
+        try w.print("\x1b[{d};{d}H{s}\x1b[22;38;2;125;132;143m{s}\x1b[{d};{d}H{s}\x1b[38;2;226;230;233m", .{ y + 2, x + 2, if (dotted) "\x1b[24m" else "", activity, y + 2, x + 5, if (dotted) underline else "" });
+        var clean: [512]u8 = undefined;
+        const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
+            .working => e.activity,
+            .blocked => "Needs input",
+            .initializing => "Starting session",
+            .done => "Session ended",
+            else => "",
+        };
+        var badge_buf: [48]u8 = undefined;
+        const badge = subagentBadge(&badge_buf, e.subagents, e.children);
+        const badge_width = displayWidth(badge);
+        const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
+        const animation_seed: u64 = switch (e.target) {
+            .pane => |id| @as(u64, id) * 17,
+            .native => |id| (@as(u64, id) + 0x100000000) * 17,
+            .group => unreachable,
+        };
+        const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
+        const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
+        const presentation = corgi_animation.observe(animation_seed, mode, now_ms);
+        if (mode != .content) {
+            try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+        } else {
+            // Lifecycle signals (blocked/ended/etc.) must be immediate.
+            // Interrupts already switch straight to the sleeping mode.
+            if (e.state != .working) if (presentation) |p| p.skipReveal();
+            const text = directoryLabel(&clean, detail, null);
+            if (presentation != null and presentation.?.reveal_started_ms != null) {
+                try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+                try w.print("\x1b[{d};{d}H\x1b[38;2;226;230;233m", .{ y + 2, x + 5 });
+                try writeRevealedDetail(w, text, detail_room, presentation.?.revealedColumns(detail_room, now_ms), presentation.?.revealPosition(detail_room, now_ms));
+            } else try writeEllipsis(w, text, detail_room);
+        }
+        if (badge_width > 0) {
+            const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
+            try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, x + v.width - 1 - badge_width, color, badge });
+        }
+        try w.writeAll("\x1b[24;59m");
+        if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H\x1b[48;2;137;180;250m \x1b[0m", .{ y + row + 1, x + 1 });
     }
     fn drawGroup(v: View, w: *std.Io.Writer, e: Entry, y: u16) !void {
         const g = e.group;

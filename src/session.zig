@@ -10,6 +10,7 @@ const Rename = struct { target: u32, name: []const u8 };
 pub const Beside = struct { other: u32, direction: layout.Direction = .right };
 pub const Destination = union(enum) { before: u32, after: u32, workspace: u32 };
 pub const Command = union(enum) {
+    @"agent.move": struct { workspace: u32, target: @import("agent_order.zig").Target, before: ?@import("agent_order.zig").Target = null },
     @"agent.command": struct { index: usize, command: []const u8, hidden: bool = false, name: ?[]const u8 = null, original: ?[]const u8 = null, semantics: ?@import("launch_command.zig").Semantics = null, resolve: bool = true, cwd: ?[]const u8 = null },
     @"agent.command.create": struct { workspace: u32, cwd: []const u8 = "", index: usize },
     @"agent.visibility": struct { hidden: [2]bool },
@@ -118,6 +119,27 @@ fn spawnOptions(r: *Runtime, ctx: Context, workspace: u32, from: ?u32, cwd: []co
 /// prepare copies before committing; process creation owns its rollback in Runtime.
 pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator) !Result {
     switch (cmd) {
+        .@"agent.move" => |q| {
+            const order = @import("agent_order.zig");
+            const ws = try r.getWorkspace(q.workspace);
+            var live: [order.capacity]order.Target = undefined;
+            var count: usize = 0;
+            // Include shells so a temporary loss of agent detection does not
+            // erase their saved position. IDs are validated within this workspace.
+            for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
+                for (r.panes.items) |p| if (ws.model.tabForPane(p.id) == tab_index) {
+                    if (count == live.len) return error.TooManyAgents;
+                    live[count] = .{ .pane = p.id };
+                    count += 1;
+                };
+            }
+            for (r.sessions.items) |session| if (session.workspace_id == ws.id) {
+                if (count == live.len) return error.TooManyAgents;
+                live[count] = .{ .native = session.id };
+                count += 1;
+            };
+            try ws.agent_order.move(live[0..count], q.target, q.before);
+        },
         .@"agent.command" => |q| {
             if (q.index >= r.agent_commands.len) return error.InvalidCommand;
             const source = if (q.resolve and q.command.len > 0) try @import("launch_command.zig").resolve(q.command, q.cwd, alloc) else q.command;
