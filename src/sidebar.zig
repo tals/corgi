@@ -355,10 +355,11 @@ pub const View = struct {
             const last_in_group = grouped and (absolute + 1 == entries.len or entries[absolute + 1].target == .group);
             if (grouped) {
                 // The guide sits in the margin column, so agent text keeps its columns.
-                // The selected agent's stretch of it takes the selection blue.
+                // Beside the selected agent it turns heavy and blue, without a gap.
                 const rail = if (e.focused) "\x1b[0;38;2;137;180;250m" else "\x1b[0;38;2;112;119;130m";
-                try row_writer.print("\x1b[{d};1H{s}{s}{s}", .{ y + 1, rail, bg, if (last_in_group) "╰" else "├" });
-                if (!last_in_group and y + 1 < v.rows - 2) try row_writer.print("\x1b[{d};1H│", .{y + 2});
+                const branch = if (e.focused) (if (last_in_group) "┗" else "┣") else if (last_in_group) "╰" else "├";
+                try row_writer.print("\x1b[{d};1H{s}{s}{s}", .{ y + 1, rail, bg, branch });
+                if (!last_in_group and y + 1 < v.rows - 2) try row_writer.print("\x1b[{d};1H{s}", .{ y + 2, if (e.focused) "┃" else "│" });
                 try row_writer.print("\x1b[0m{s}", .{bg});
             }
             const dot = e.indicator();
@@ -377,8 +378,9 @@ pub const View = struct {
             const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
             var name: [160]u8 = undefined;
             const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
-            try row_writer.print("\x1b[{d};5H\x1b[22;38;2;226;230;233m", .{y + 1});
+            try row_writer.print("\x1b[{d};5H{s}", .{ y + 1, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
             try writeEllipsis(row_writer, provider, room);
+            try row_writer.writeAll("\x1b[22m");
             // Underline the existing second row, including its padding, without
             // consuming another terminal row or changing the entry hit area.
             try row_writer.print("\x1b[{d};{d}H{s}", .{ y + 2, underline_x, underline });
@@ -1399,17 +1401,17 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
     for (0..top) |_| _ = lines.next();
     var rows: [6][]const u8 = undefined;
     for (&rows) |*row| row.* = std.mem.trimRight(u8, lines.next().?[0..@min(80, lines.peek().?.len)], " ");
-    // The focused agent keeps its guide cells, so the rail stays continuous.
+    // The focused agent's rail turns heavy but stays continuous.
     const expected = [_][]const u8{
         "▾ corgi ━━━━━━━━━━━━━ 1● 2 │",
-        "├●  api refactor           │",
-        "│   Needs input            │",
+        "┣●  api refactor           │",
+        "┃   Needs input            │",
         "╰○  release notes          │",
         "    Session ended          │",
         "▸ blog ━━━━━━━━━━━━━━ 1● 1 │",
     };
     for (expected, rows) |want, got| try std.testing.expectEqualStrings(want, got);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[0;38;2;137;180;250m\x1b[48;2;34;44;58m├") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[0;38;2;137;180;250m\x1b[48;2;34;44;58m┣") != null);
     // Without Kitty graphics there is no separator; with it, a dotted one under the text.
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4:4m") == null);
     output.clearRetainingCapacity();
