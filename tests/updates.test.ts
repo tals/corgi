@@ -4,6 +4,7 @@ import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Pty, deadline } from "./support";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
 const keys = generateKeyPairSync("ed25519");
 const publicKey = Buffer.from(keys.publicKey.export({ type: "spki", format: "der" })).subarray(-32).toString("hex");
@@ -23,7 +24,10 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
     return Response.json(envelope);
   }
   const v = path.split("/")[2];
-  if (path.endsWith("/corgi")) return new Response(corrupt ? new Uint8Array([0, 1]) : binaries.get(v));
+  if (path.endsWith("/corgi")) {
+    const binary = binaries.get(v);
+    return new Response(corrupt ? new Uint8Array([0, 1]) : binary && new Uint8Array(binary));
+  }
   return new Response("missing", { status: 404 });
 } });
 const url = `http://127.0.0.1:${server.port}`;
@@ -141,28 +145,13 @@ test("interactive Escape skips once per runtime without stopping processes", asy
   badAbi = true;
   await cli(["update", "--download-only"]);
   await cli(["update", "auto", "on"]);
-  const script = `
-import os, pty, select, subprocess, sys, time
-master, slave = pty.openpty()
-p = subprocess.Popen([sys.argv[1], 'start'], stdin=slave, stdout=slave, stderr=slave)
-os.close(slave)
-output = b''
-deadline = time.monotonic() + 10
-sent = False
-while time.monotonic() < deadline and p.poll() is None:
-    if select.select([master], [], [], .1)[0]:
-        try: output += os.read(master, 65536)
-        except OSError: break
-        if b'Enter / Esc' in output and not sent:
-            os.write(master, b'\\x1b'); sent = True
-if p.poll() is None: p.wait(timeout=3)
-os.close(master)
-assert sent, output
-assert p.returncode == 0, output
-print(output.decode())
-`;
-  const result = await exec(["python3", "-c", script, bin]);
-  expect(result.out).toContain("Restarting will stop ALL shells");
+  const terminal = await Pty.spawn([bin, "start"], { env });
+  try {
+    await terminal.waitFor("Enter / Esc", 10_000);
+    terminal.write("\x1b");
+    expect(await deadline(terminal.proc.exited, 3000, "Escape did not exit the update prompt")).toBe(0);
+    expect(terminal.output).toContain("Restarting will stop ALL shells");
+  } finally { await terminal.close(); }
   expect((await rpc({ op: "hello", protocol: 1 })).server_pid).toBe(before.server_pid);
   expect((await cli(["start"])).err).not.toContain("Enter / Esc");
   expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.0");

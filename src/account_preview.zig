@@ -26,8 +26,8 @@ pub const Resets = struct {
         for (r.at, r.labels) |at, label| {
             const stamp = at orelse continue;
             if (writer.end > 0) writer.writeAll(" / ") catch break;
-            var countdown: [48]u8 = undefined;
-            writer.print("{s} {s}", .{ label.text(), resetCountdown(stamp, now, &countdown) }) catch break;
+            var countdown_text: [48]u8 = undefined;
+            writer.print("{s} {s}", .{ label.text(), resetCountdown(stamp, now, &countdown_text) }) catch break;
         }
         result.set(writer.buffered());
         return result;

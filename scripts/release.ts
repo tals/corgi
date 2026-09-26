@@ -191,7 +191,7 @@ async function main() {
       async put(path, bytes, type, cache) {
         if (cleanCommit() !== commit) throw new Error("HEAD changed during publication.");
         const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
-        const response = await fetch(url, { method: "PUT", body: bytes, headers: { "Content-Type": type, "Cache-Control": cache }, signal: AbortSignal.timeout(300_000) });
+        const response = await fetch(url, { method: "PUT", body: new Uint8Array(bytes), headers: { "Content-Type": type, "Cache-Control": cache }, signal: AbortSignal.timeout(300_000) });
         if (!response.ok) throw new Error(`Upload failed for ${path}: HTTP ${response.status}`);
       },
       async publicGet(path) {

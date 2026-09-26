@@ -1045,7 +1045,7 @@ pub const Controller = struct {
             launch.hidden = s.runtime.agent_hidden;
             launch.commands = s.runtime.agent_commands;
             launch.normalize();
-            if (launch.workspace != s.current().id or side.width == 0) {
+            if (launch.workspace != s.current().id or (side.width == 0 and !launch.pinned)) {
                 s.closeLauncher();
                 return;
             }

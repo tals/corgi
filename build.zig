@@ -80,14 +80,18 @@ pub fn build(b: *std.Build) void {
     b.step("evals", "Build the activity eval driver (does not call models)").dependOn(&b.addInstallArtifact(eval_exe, .{}).step);
 
     // Real external runtimes are opt-in, never dependencies of the unit suite.
-    const handoff = b.addSystemCommand(&.{"python3"});
-    handoff.addFileArg(b.path("tests/herdr_handoff.py"));
+    const handoff = b.addSystemCommand(&.{ "bun", "run" });
+    handoff.addFileArg(b.path("tests/run.ts"));
+    handoff.addArg("herdr_handoff");
     handoff.addArg("--corgi");
     handoff.addArtifactArg(exe);
     if (b.option([]const u8, "herdr-bin", "Herdr executable for test-handoff (default: HERDR_TEST_BIN or PATH)")) |herdr| {
         handoff.addArgs(&.{ "--herdr", herdr });
     }
-    if (b.args) |args| handoff.addArgs(args);
+    if (b.args) |args| {
+        handoff.addArg("--");
+        handoff.addArgs(args);
+    }
     handoff.setCwd(b.path("."));
     handoff.has_side_effects = true;
     b.step("test-handoff", "Run slow Herdr migration integration tests in disposable runtimes").dependOn(&handoff.step);

@@ -177,7 +177,7 @@ then the same pane. Detach and reopen one viewer: the other and its running
 processes should continue. Check enhanced keyboard input, paste, mouse selection,
 search/copy, agent attention, and sounds.
 
-Validation uses the existing real-PTY smoke suite plus `tests/viewers.py`, which
+Validation uses the existing real-PTY smoke suite plus `tests/viewers.test.ts`, which
 runs the same controller/transport through a deterministic stdio harness enabled
 only by `-Dviewer-test-driver=true`. Normal builds exclude the harness entry point.
 
@@ -202,6 +202,23 @@ uses PTY/pipe EOF and process checks for children it cannot waitpid. Normal view
 sockets, buffered requests/replies, pending controls, and acknowledgements survive,
 so viewer instances keep all their local state without reconnecting or retrying
 mutations.
+
+The activity-summary worker also participates in live handoff. It finishes any
+current inference call, then parks at a request boundary; reload can wait up to
+its 45-second inference timeout plus two seconds of grace. The candidate inherits
+the actual Codex/Claude harness processes and pipes, conversation identity, wire
+buffers/cursors, usage baselines, pending activity results, and cooldowns. The
+shared worker also retains queued/completed link-label work and the endpoint
+cache, so reload neither loses names nor renews a spent naming attempt. It does
+not replay an in-flight request or start polling before commit. A failed candidate
+unparks the source worker with the same conversations. Actor-owned bounded summary
+history also survives live reload as fallback after normal pool eviction. Cold
+recovery starts fresh inference processes and conversations.
+
+`bun test tests/inference_reload.test.ts` verifies both providers' process/conversation
+continuity, usage, unchanged-input suppression, pending results, and rollback
+using isolated deterministic harnesses. Build with `-Dviewer-test-driver=true`
+first; these tests never reload the developer's active daemon.
 
 Live terminal export uses compact VT snapshots of retained history, screens,
 cursor, and input modes rather than accumulated output journals. Restoration
@@ -246,7 +263,7 @@ a pane intentionally removes it from the next recovery snapshot.
 
 Validation: `./scripts/zig build test`, then
 `./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true`,
-`python3 tests/smoke.py`, `python3 tests/viewers.py`, and `python3 tests/reloads.py`.
+`bun run tests/run.ts smoke smoke_input smoke_terminal viewers reloads`.
 All process tests use isolated sockets, HOME/state directories, and provider doubles.
 
 The daemon has no navigation cursor or fallback screen dimensions. Selection is

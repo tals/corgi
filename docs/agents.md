@@ -108,7 +108,7 @@ Zig tests exercise reducers with supplied timestamps, shared acknowledgement,
 delayed selection observations, native routing and approval ownership, worker
 rotation, and live/cold checkpoint restoration. They do not need real providers.
 
-Python remains the process-level harness. `tests/provider_sim.py` contains reusable
+Bun runs the process-level harness. `tests/provider_sim.ts` contains reusable
 terminal/native provider doubles and a Codex observer double. Its gates freeze a
 specific response until released, allowing delayed and reordered observations.
 These are controlled models of the exercised protocols, not complete emulators of
@@ -117,14 +117,14 @@ the vendor applications.
 ```sh
 ./scripts/zig build test
 ./scripts/zig build -Dviewer-test-driver=true
-python3 tests/provider_sim_test.py
-python3 tests/conversations.py
-python3 tests/codex_titles.py
-python3 tests/subagents.py
-python3 tests/smoke.py
-python3 tests/reloads.py
-python3 tests/viewers.py
+bun test tests/provider_sim.test.ts
+bun test tests/conversations.test.ts
+bun test tests/codex_titles.test.ts
+bun test tests/subagents.test.ts
+bun run tests/run.ts smoke smoke_input smoke_terminal
+bun test tests/reloads.test.ts
+bun test tests/viewers.test.ts
 ```
 
 The process suites use disposable runtimes and require permission to bind local
-Unix sockets. The simulator's own tests use socketpairs and child processes.
+Unix sockets. The simulator's own tests use local sockets and child processes.

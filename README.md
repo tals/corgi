@@ -130,7 +130,7 @@ Run `./go.sh` to build and launch: it starts the runtime if needed and live-relo
 
 Recovery snapshots are saved every two seconds when state changes, and on clean shutdown. `corgi checkpoint` saves immediately and prints the private file path. Restored agent commands are displayed for you to run; they are never executed automatically. Shell command history remains managed by the shell.
 
-Tests: `./scripts/zig build test`, then `./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true`, `python3 tests/smoke.py`, `python3 tests/viewers.py`, and `python3 tests/reloads.py`. The last suite drives multiple real viewer controllers over an isolated test transport.
+Tests: `./scripts/zig build test`, then `./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true`, `bun run tests/run.ts`. Suites run in separate Bun processes; see [tests/README.md](tests/README.md) for focused runs and optional external-runtime tests.
 
 The [development reload milestones](docs/development-reloads.md) describe the
 versioned runtime interface, viewer-owned UI, live handoff, and recovery after reboot.

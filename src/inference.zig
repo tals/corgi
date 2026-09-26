@@ -608,7 +608,7 @@ fn claude(s: *Connection, request: Request, stopping: *const std.atomic.Value(bo
 }
 
 fn fixturePool(provider: Provider) !Pool {
-    return .{ .config = .{ .provider = provider, .executable = try std.fs.cwd().realpathAlloc(a, "tests/inference_harness.py"), .timeout_ms = 3000 } };
+    return .{ .config = .{ .provider = provider, .executable = try std.fs.cwd().realpathAlloc(a, "tests/inference_harness.ts"), .timeout_ms = 3000 } };
 }
 fn fixtureValue(response: *const Response, key: []const u8) !i64 {
     const parsed = try std.json.parseFromSlice(std.json.Value, a, response.text(), .{});

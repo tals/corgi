@@ -279,12 +279,12 @@ test "Claude text and completed tools become evidence for the bound turn" {
 test "running tools publish stable evidence before completion for both providers" {
     const cases = .{
         .{
-            \\{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"python3 tests/smoke.py\"}"}}
+            \\{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"bun test tests/smoke.test.ts\"}"}}
             ,
             \\{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"done"}}
         },
         .{
-            \\{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"python3 tests/smoke.py"}}]}}
+            \\{"type":"assistant","message":{"content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"bun test tests/smoke.test.ts"}}]}}
             ,
             \\{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c1","content":"done"}]}}
         },
@@ -305,7 +305,7 @@ test "running tools publish stable evidence before completion for both providers
         const running = t.view();
         try std.testing.expectEqual(@as(u64, 0), running.completed);
         try std.testing.expect(std.mem.indexOf(u8, running.evidence.text(), "Currently running tools") != null);
-        try std.testing.expect(std.mem.indexOf(u8, running.evidence.text(), "python3 tests/smoke.py") != null);
+        try std.testing.expect(std.mem.indexOf(u8, running.evidence.text(), "bun test tests/smoke.test.ts") != null);
         t.dirty = false;
         if (provider == 0) t.ingest(start.value, true) else t.ingestClaude(start.value, true);
         try std.testing.expect(!t.dirty);

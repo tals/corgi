@@ -140,7 +140,7 @@ live cmux app or agent accounts:
 
 ```sh
 ./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true
-python3 tests/cmux_import.py
+bun test tests/cmux_import.test.ts
 ```
 
 Set `CORGI_TEST_BIN` to test an isolated build. Conversion and split validation
@@ -162,17 +162,16 @@ The slower, real-process migration tests have their own Zig build step:
 ./scripts/zig build test-handoff -Doptimize=ReleaseSafe
 ```
 
-This builds Corgi and runs `tests/herdr_handoff.py` using Python's standard-library
-`unittest` harness. It requires a Herdr binary on `PATH` with `live_handoff`
+This builds Corgi and runs `tests/herdr_handoff.test.ts` using Bun. It requires a Herdr binary on `PATH` with `live_handoff`
 support. Select another binary with `-Dherdr-bin=/absolute/path/to/herdr` or
 `HERDR_TEST_BIN`. Missing or incompatible Herdr fails the requested suite.
 
 `zig build test` and ordinary builds do **not** run handoff tests. The suite needs
 no viewer test driver and invokes the daemon's onboarding RPC directly. Forward
-unittest selectors after `--`, for example:
+Bun test selectors after `--`, for example:
 
 ```sh
-./scripts/zig build test-handoff -Doptimize=ReleaseSafe -- -k rejected
+./scripts/zig build test-handoff -Doptimize=ReleaseSafe -- --test-name-pattern rejected
 ```
 
 Each case creates disposable Herdr and Corgi runtimes with isolated homes,

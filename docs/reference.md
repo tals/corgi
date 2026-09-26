@@ -14,7 +14,7 @@ Requires **Zig 0.15.2**, pinned to the Ghostty revision in `build.zig.zon`. The 
 ./go.sh --reload               # rebuild and replace daemon; panes/viewers stay alive
 ./go.sh --restart              # stop processes, then recover in new shells
 ./scripts/zig build test
-python3 tests/smoke.py          # real PTYs + socket tests; mock providers, no inference
+bun run tests/run.ts smoke smoke_input smoke_terminal # real PTYs + socket tests; mock providers, no inference
 ```
 
 After building, the executable is `zig-out/bin/corgi`. Its directory is added to each pane's PATH. Ordinary `go.sh` preserves the running runtime; UI-only changes load in a newly opened viewer. `./go.sh --reload` builds, transfers the live runtime to that executable, and returns to the current terminal. It works inside a Corgi pane. `corgi reload [ABSOLUTE_EXE]` uses an already built executable. A failed build or handoff leaves the old runtime serving; there is no destructive fallback.
@@ -114,7 +114,7 @@ Unwatched panes retain their last dimensions; new headless panes start at 80×24
 Only real viewers supply layout geometry. A saved workspace preference determines
 where a new viewer opens, and is never an implicit command target.
 
-Regression suite: `python3 tests/cli.py` uses isolated sockets and provider settings.
+Regression suite: `bun test tests/cli.test.ts` uses isolated sockets and provider settings.
 
 ## Tabs and panes
 
