@@ -15,6 +15,8 @@ pub const Actor = struct {
     activity_timeline: @import("activity_timeline.zig").Timeline = .{},
     screen_compacting: bool = false,
     background_tasks: @import("background_tasks.zig").Inventory = .{},
+    // Foreground tool calls and background processes have independent lifetimes.
+    codex_tool_active: bool = false,
     workspace: u32 = 0,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,
@@ -124,9 +126,10 @@ pub const Actor = struct {
         agent.last_seq = s.observed_at;
         agent.observation.source = .protocol;
         agent.observation.pending_stop = false;
-        agent.tool_active = false;
-        agent.tool_len = 0;
         const same_turn = std.mem.eql(u8, agent.turnId(), s.turn[0..s.turn_len]);
+        if (!same_turn or (s.state != .working and s.state != .blocked)) actor.codex_tool_active = false;
+        actor.refreshCodexTool();
+        agent.tool_len = 0;
         if (!same_turn or old_state != s.state or s.state != .working) {
             agent.activity_len = 0;
             agent.compacting = false;
@@ -142,6 +145,17 @@ pub const Actor = struct {
         agent.attention = if (s.state == .blocked and !watched) .needs_input else if (agent.observation.unread()) .finished else .none;
         actor.compactionChanged(was_compacting, s.observed_at);
         return ding or (!binding and s.state == .blocked and old_state != .blocked and !watched);
+    }
+    pub fn observeTools(actor: *Actor, progress: @import("activity_tools.zig").View) void {
+        const agent = &actor.state;
+        if (agent.provider != .codex or !std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
+        actor.codex_tool_active = !progress.ended and progress.running > 0;
+        actor.refreshCodexTool();
+    }
+    fn refreshCodexTool(actor: *Actor) void {
+        const agent = &actor.state;
+        agent.tool_active = (agent.state == .working or agent.state == .blocked) and
+            (actor.codex_tool_active or actor.background_tasks.len > 0);
     }
     pub fn authoritative(actor: *const Actor, now: i64) bool {
         if (actor.state.last_seq == 0) return false;
@@ -172,6 +186,44 @@ pub const Actor = struct {
         actor.state.readThrough(through);
     }
 };
+
+test "Codex tools survive snapshots but never leak into another turn" {
+    var actor: Actor = .{ .id = 1, .state = .{} };
+    var snap: @import("codex_observer.zig").Snapshot = .{
+        .request = .{ .prefix = .{} },
+        .session = "01901234-1234-1234-1234-123456789abc".*,
+        .state = .working,
+        .turn_len = 1,
+        .observed_at = 1,
+    };
+    snap.turn[0] = 'a';
+    _ = actor.observeSnapshot(snap, true);
+    var tools: @import("activity_tools.zig").View = .{ .turn_len = 1, .running = 1 };
+    tools.turn[0] = 'a';
+    actor.observeTools(tools);
+    snap.observed_at += 1;
+    _ = actor.observeSnapshot(snap, true);
+    try std.testing.expect(actor.state.tool_active);
+    tools.running = 0;
+    actor.observeTools(tools);
+    try std.testing.expect(!actor.state.tool_active);
+    snap.background_tasks.append("build", "", "zig build");
+    snap.observed_at += 1;
+    _ = actor.observeSnapshot(snap, true);
+    try std.testing.expect(actor.state.tool_active);
+    snap.state = .idle;
+    snap.observed_at += 1;
+    _ = actor.observeSnapshot(snap, true);
+    try std.testing.expect(!actor.state.tool_active);
+    snap.state = .working;
+    snap.turn[0] = 'b';
+    snap.background_tasks = .{};
+    snap.observed_at += 1;
+    _ = actor.observeSnapshot(snap, true);
+    tools.running = 1;
+    actor.observeTools(tools);
+    try std.testing.expect(!actor.state.tool_active);
+}
 
 /// Anonymous screen status is useful even before a provider reveals identity.
 /// Screen inference can update the selected actor only while structured evidence is stale.

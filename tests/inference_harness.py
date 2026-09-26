@@ -69,7 +69,7 @@ def main():
                 emit(usage) # A repeated cumulative sample must not charge twice.
                 emit({'method': 'item/completed', 'params': {'threadId': 'wrong-thread', 'turnId': turn, 'item': {'type': 'agentMessage', 'text': 'Wrong stale result'}}})
                 emit({'method': 'item/completed', 'params': {'threadId': thread, 'turnId': turn, 'item': {'type': 'agentMessage', 'phase': 'final_answer', 'text': result}}})
-                emit({'method': 'turn/completed', 'params': {'threadId': thread, 'turn': {'id': turn, 'status': 'failed' if content == 'fail' else 'completed'}}})
+                emit({'method': 'turn/completed', 'params': {'threadId': thread, 'turn': {'id': turn, 'status': 'failed' if content == 'fail' or control.get('fail') else 'completed'}}})
                 emit({'id': ident, 'result': {'turn': {'id': turn}}})
             else:
                 emit({'type': 'result', 'session_id': 'fixture-session', 'subtype': 'error' if content == 'fail' else 'success', 'is_error': content == 'fail', 'result': result, 'structured_output': {'label': 'Tracing pane focus'}, 'usage':{'input_tokens':300,'cache_read_input_tokens':600,'cache_creation_input_tokens':100,'output_tokens':10}})

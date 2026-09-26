@@ -7,6 +7,7 @@ const field = @import("usage.zig").field;
 const eq = std.mem.eql;
 pub const View = struct {
     commentary: summary.Text = .{},
+    running: usize = 0,
     ended: bool = false,
     turn: [160]u8 = @splat(0),
     turn_len: usize = 0,
@@ -48,7 +49,9 @@ pub const Tracker = struct {
         var out: View = .{ .turn = t.turn, .turn_len = t.turn_len, .completed = t.completed, .commentary = t.commentary, .ended = t.ended };
         var active: usize = 0;
         if (!t.ended) for (t.pending) |call| {
-            if (call.id == 0 or !call.live) continue;
+            if (call.id == 0) continue;
+            out.running += 1;
+            if (!call.live) continue;
             if (active == 0) out.evidence.append("Currently running tools (not yet completed):\n");
             if (active < 4) {
                 out.evidence.append(call.bytes[0..call.len]);

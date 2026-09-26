@@ -17,6 +17,10 @@ pub const Request = struct {
     turn: [160]u8,
     turn_len: usize,
     evidence: summary.Text,
+    panes: [max]u32 = @splat(0),
+    panes_len: usize = 0,
+    name: [160]u8 = @splat(0),
+    name_len: usize = 0,
     conversation: summary.Conversation = .{},
     generation: u64 = 0,
     completed_tools: u64 = 0,
@@ -173,11 +177,15 @@ pub const Worker = struct {
         a.free(w.slots);
         a.destroy(w);
     }
-    pub fn submit(w: *Worker, owner: *const @import("conversations.zig").Actor, evidence: summary.Text) void {
+    pub fn submit(w: *Worker, owner: *const @import("conversations.zig").Actor, evidence: summary.Text, panes: []const @import("runtime.zig").Pane) void {
         const actor = owner.id;
         const agent = &owner.state;
         if ((agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
-        const req: Request = .{ .actor = actor, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation, .conversation = owner.status_inference };
+        var req: Request = .{ .actor = actor, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation, .conversation = owner.status_inference, .name = agent.name, .name_len = agent.name_len };
+        for (panes) |pane| if (pane.attachment.actor == owner and req.panes_len < req.panes.len) {
+            req.panes[req.panes_len] = pane.id;
+            req.panes_len += 1;
+        };
         w.mutex.lock();
         defer w.mutex.unlock();
         if (w.choice == .off) return;
@@ -189,6 +197,10 @@ pub const Worker = struct {
             if (s.* == null) break s;
         } else return;
         if (slot.* == null or !slot.*.?.request.sameTurn(&req)) slot.* = .{ .request = req };
+        slot.*.?.request.panes = req.panes;
+        slot.*.?.request.panes_len = req.panes_len;
+        slot.*.?.request.name = req.name;
+        slot.*.?.request.name_len = req.name_len;
         slot.*.?.request.conversation = owner.status_inference;
         slot.*.?.active = agent.state == .working;
         slot.*.?.commentary = evidence;
@@ -308,7 +320,12 @@ pub const Worker = struct {
             const key = request.conversation.key(request.actor, &key_buffer);
             var history: [4][]const u8 = undefined;
             for (request.conversation.recent[0..request.conversation.len], 0..) |*entry, i| history[i] = entry.text();
-            const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text(), .turn = request.turn[0..request.turn_len], .history = history[0..request.conversation.len] }, key, &w.stopping);
+            const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text(), .turn = request.turn[0..request.turn_len], .history = history[0..request.conversation.len] }, key, .{
+                .actor = request.actor,
+                .panes = request.panes[0..request.panes_len],
+                .agent_name = request.name[0..request.name_len],
+                .session = request.session[0..request.session_len],
+            }, &w.stopping);
             w.mutex.lock();
             w.system_meter = w.implementation.pool.system_usage.meter;
             if (w.slots[index]) |*s| {
@@ -389,8 +406,8 @@ test "summary slots belong to conversations shared by multiple or detached attac
     defer std.testing.allocator.destroy(worker);
     worker.* = try Worker.init(.{});
     defer a.free(worker.slots);
-    worker.submit(first.actor.?, .{});
-    worker.submit(second.actor.?, .{});
+    worker.submit(first.actor.?, .{}, &.{});
+    worker.submit(second.actor.?, .{}, &.{});
     var count: usize = 0;
     for (worker.slots) |slot| if (slot != null) {
         count += 1;
@@ -420,7 +437,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     defer std.testing.allocator.destroy(worker);
     worker.* = try Worker.init(.{});
     defer a.free(worker.slots);
-    worker.submit(actor, evidence);
+    worker.submit(actor, evidence, &.{});
     const first = worker.slots[0].?.request;
     const result: Result = .{ .request = first, .label = summary.Label.parse("Tracing pane focus").? };
     try std.testing.expect(result.apply(actor));
@@ -430,7 +447,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     try std.testing.expect(worker.slots[0] == null);
     actor.state.state = .working;
     actor.state.turn_len = agents.clean(&actor.state.turn, "turn-2");
-    worker.submit(actor, evidence);
+    worker.submit(actor, evidence, &.{});
     const second = worker.slots[0].?.request;
     var key1: [32]u8 = undefined;
     var key2: [32]u8 = undefined;

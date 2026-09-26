@@ -659,7 +659,7 @@ pub const Server = struct {
                     const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id));
                     if (actor.parent == null) s.attention(ding, actor.state.state);
                     s.runtime.conversations.observeChildren(actor, snap);
-                    summaries.submit(actor, snap.evidence);
+                    summaries.submit(actor, snap.evidence, s.runtime.panes.items);
                     s.dirty = true;
                     s.runtime.changed();
                 };
@@ -729,8 +729,9 @@ pub const Server = struct {
                     }
                     if (result.continued.len > 0) s.followContinuation(actor, result.continued.bytes[0..result.continued.len]);
                     const before = actor.state;
+                    if (result.progress) |progress| actor.observeTools(progress);
                     if (result.fallback(&actor.state, std.time.microTimestamp())) {
-                        summaries.submit(actor, result.progress.?.commentary);
+                        summaries.submit(actor, result.progress.?.commentary, s.runtime.panes.items);
                     }
                     if (!std.meta.eql(before, actor.state)) {
                         s.dirty = true;

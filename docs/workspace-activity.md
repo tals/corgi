@@ -32,6 +32,12 @@ and original request as context. The
 existing transcript reader supplies turn-scoped tool progress independently of
 workspace away counters. Claude can show provider descriptions before its first
 summary; native sessions are not summarized.
+The prompt targets 2–3 words; short labels of up to six words are also accepted
+instead of leaving the activity blank. Longer labels and control characters are rejected.
+
+For Codex, pending transcript tool calls and live background tasks also drive the
+wrench icon. A yielded build keeps the wrench until the process finishes, even
+after its launch call returns. Background task descriptions join summary evidence.
 
 The first inference runs as soon as nonempty evidence is available, including
 commentary without tools or a tool start without commentary. Changed evidence,
@@ -54,6 +60,15 @@ labels and animations from that state, including the sleeping corgi
 for idle agents. While awaiting a first result, the activity text stays blank; the
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
+
+Every summary attempt writes JSON request/result records under `activity_summary`
+in the runtime's private `server.log`. Records correlate by daemon PID and request
+number and identify the actor, attached pane IDs, agent name, session, and turn.
+The request contains the exact instructions and serialized input sent to inference;
+the result contains the exact returned text and validation result or error reason.
+An inference failure records a null output and its error. Detached actors have an
+empty pane list. These diagnostics include private conversation evidence, like
+recovery snapshots, and remain local to the runtime log.
 
 Compaction takes priority over inferred activity and records a `Compacting context`
 phase in the recent timeline. Hooks report its start and end; for Codex sessions

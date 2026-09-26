@@ -24,14 +24,21 @@ pub const Label = struct {
         return t.bytes[0..t.len];
     }
     pub fn parse(value: []const u8) ?Label {
+        return validate(value) catch null;
+    }
+    pub fn validate(value: []const u8) !Label {
         const clean = std.mem.trim(u8, value, " \t\r\n\"");
-        if (clean.len == 0 or clean.len > 80 or !std.unicode.utf8ValidateSlice(clean)) return null;
+        if (clean.len == 0) return error.EmptyLabel;
+        if (clean.len > 80) return error.LabelTooLong;
+        if (!std.unicode.utf8ValidateSlice(clean)) return error.InvalidUtf8;
         var words = std.mem.tokenizeScalar(u8, clean, ' ');
         var count: usize = 0;
         while (words.next()) |_| count += 1;
-        if (count < 2 or count > 3) return null;
-        var it = (std.unicode.Utf8View.init(clean) catch return null).iterator();
-        while (it.nextCodepoint()) |cp| if (cp < 32 or (cp >= 127 and cp <= 159)) return null;
+        // Two or three words is a prompt target, not a reason to hide a useful
+        // short label and leave the animation up for a minute.
+        if (count < 2 or count > 6) return error.InvalidWordCount;
+        var it = (try std.unicode.Utf8View.init(clean)).iterator();
+        while (it.nextCodepoint()) |cp| if (cp < 32 or (cp >= 127 and cp <= 159)) return error.ControlCharacter;
         var result: Label = .{};
         @memcpy(result.bytes[0..clean.len], clean);
         result.len = clean.len;
@@ -112,6 +119,9 @@ test "bounded commentary evidence and strict labels" {
     try std.testing.expect(std.mem.indexOf(u8, evidence.text(), "User request: Fix tabs") != null);
     try std.testing.expect(Label.parse("Tracing focus changes") != null);
     try std.testing.expect(Label.parse("Running\ncommands") == null);
-    try std.testing.expect(Label.parse("Here are four words") == null);
+    try std.testing.expect(Label.parse("Tracing tool activity code") != null);
+    try std.testing.expect(Label.parse("Inspecting logs and summary behavior") != null);
+    try std.testing.expect(Label.parse("Checking tool calls and background builds") != null);
+    try std.testing.expect(Label.parse("This label has far too many words") == null);
     try std.testing.expect(Label.parse("\x1b[2J bad") == null);
 }

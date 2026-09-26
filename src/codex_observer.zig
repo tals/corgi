@@ -214,6 +214,16 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     // These optional reads must not suppress parent status/completion on older
     // daemons or a failed page. Never publish a partial child count as exact.
     out.background_tasks = backgroundTasks(client, &session, out.observed_at) catch .{};
+    if (out.background_tasks.len > 0) {
+        const commentary = out.evidence;
+        out.evidence = .{};
+        out.evidence.append("Currently running background tasks:\n");
+        for (out.background_tasks.items[0..@min(4, out.background_tasks.len)]) |task| {
+            out.evidence.append(task.label[0..task.label_len]);
+            out.evidence.append("\n");
+        }
+        out.evidence.append(commentary.text());
+    }
     var child = children(client, &session) catch return out;
     defer child.entries.deinit(a);
     out.children = try child.entries.toOwnedSlice(a);

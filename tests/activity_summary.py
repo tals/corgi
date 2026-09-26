@@ -48,6 +48,71 @@ class Summaries(codex_titles.Titles):
     def finish_tool(self,ident):
         self.append_record('response_item',{'type':'function_call_output','call_id':ident,'output':'result'})
     def calls(self):return self.log.read_text().splitlines() if self.log.exists() else []
+    def summary_logs(self):
+        prefix='info(activity_summary): '
+        lines=pathlib.Path(self.temp.name,'server.log').read_text().splitlines()
+        return [json.loads(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+    def test_tool_icon_survives_polls_and_tracks_yielded_background_build(self):
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        call=self.tools(1,command='zig build',complete=False)[0]
+        self.until(lambda:self.state()['tool_active'])
+        time.sleep(1.2)
+        self.assertTrue(self.state()['tool_active'])
+        # A yielded command has completed its tool call but its build still runs.
+        self.sim.background_tasks={codex_titles.A:[{'processId':'build-1','command':'zig build'}]}
+        self.until(lambda:next(c for c in self.session()['conversations'] if c['agent']['session']==codex_titles.A)['background_tasks']['items'])
+        self.finish_tool(call)
+        time.sleep(1.2)
+        self.assertTrue(self.state()['tool_active'])
+        self.until(lambda:any('Currently running background tasks:\nBuilding project' in json.loads(call)['evidence'] for call in self.calls()),timeout=12)
+        from viewer_client import Viewer
+        viewer=Viewer(self,100,30)
+        try:self.until(lambda:'🔧' in viewer.poll()['data'])
+        finally:viewer.close()
+        self.sim.background_tasks={}
+        self.until(lambda:not self.state()['tool_active'])
+        # Another foreground call must clear independently when it finishes.
+        call=self.tools(1,complete=False)[0]
+        self.until(lambda:self.state()['tool_active'])
+        self.finish_tool(call)
+        self.until(lambda:not self.state()['tool_active'])
+    def test_summary_log_records_exact_request_and_output(self):
+        raw='  "Tracing pane focus"\n'
+        self.control.write_text(json.dumps({'delay':0,'label':raw}))
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        records=self.summary_logs()
+        request=next(r for r in records if r['event']=='request')
+        result=next(r for r in records if r['event']=='result')
+        self.assertEqual(request['input'],self.calls()[0])
+        self.assertIn('exactly 2 or 3 words',request['instructions'])
+        self.assertEqual(request['context'],result['context'])
+        self.assertEqual(request['context']['source']['panes'],[self.pane])
+        self.assertEqual(request['context']['source']['session'],codex_titles.A)
+        self.assertEqual(request['context']['turn'],'active')
+        self.assertEqual(result['output'],raw)
+        self.assertEqual(result['status'],'validated')
+    def test_summary_log_identifies_inference_error(self):
+        self.control.write_text(json.dumps({'delay':0,'fail':True}))
+        self.start_turn(wave=False)
+        self.until(lambda:any(r['event']=='result' for r in self.summary_logs()))
+        request,result=self.summary_logs()[:2]
+        self.assertEqual(request['context'],result['context'])
+        self.assertEqual(request['input'],self.calls()[0])
+        self.assertEqual(result['context']['source']['panes'],[self.pane])
+        self.assertEqual((result['status'],result['err']),('inference_error','InferenceFailed'))
+        self.assertIsNone(result['output'])
+        self.assertEqual(self.state()['activity'],'')
+    def test_short_summary_is_usable_without_retry(self):
+        for i,label in enumerate(['Tracing tool activity code','Inspecting logs and summary behavior','Checking tool calls and background builds']):
+            self.control.write_text(json.dumps({'delay':0,'label':label}))
+            self.start_turn(tid=f'concise-{i}',wave=False)
+            self.until(lambda:self.state()['activity']==label)
+            result=[r for r in self.summary_logs() if r['event']=='result'][-1]
+            self.assertEqual((result['status'],result['output']),('validated',label))
+            time.sleep(1)
+            self.assertEqual(len(self.calls()),i+1)
     def test_compaction_overrides_current_activity_and_remains_in_timeline(self):
         from viewer_client import Viewer
         def conversation():
@@ -293,7 +358,7 @@ class Summaries(codex_titles.Titles):
         actor=next(c for c in self.session()['conversations'] if c['agent']['session']==codex_titles.A)
         self.assertEqual(actor['timeline']['points'],[])
     def test_bad_backend_output_falls_back_without_retry_loop(self):
-        self.control.write_text(json.dumps({'delay':0,'label':'This is much too many words'}))
+        self.control.write_text(json.dumps({'delay':0,'label':'This label has far too many words'}))
         self.start_turn()
         self.until(lambda:self.log.exists())
         time.sleep(1.0)
@@ -301,8 +366,16 @@ class Summaries(codex_titles.Titles):
         self.attach()
         screen=self.frame_with('codex',row=13)
         self.assertTrue(screen[14][4:27].strip())
-        self.assertNotIn('This is much too many words','\n'.join(screen))
+        self.assertNotIn('This label has far too many words','\n'.join(screen))
         self.assertEqual(len(self.log.read_text().splitlines()),1)
+        records=self.summary_logs()
+        request=next(r for r in records if r['event']=='request')
+        result=next(r for r in records if r['event']=='result')
+        self.assertEqual(request['input'],self.calls()[0])
+        self.assertEqual(result['context'],request['context'])
+        self.assertEqual(result['context']['source']['panes'],[self.pane])
+        self.assertEqual(result['output'],'This label has far too many words')
+        self.assertEqual((result['status'],result['err']),('rejected','InvalidWordCount'))
 
 
 class ClaudeSummaries(unittest.TestCase):
