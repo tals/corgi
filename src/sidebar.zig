@@ -172,9 +172,16 @@ pub const View = struct {
             try writeEllipsis(w, "workspaces", v.width -| 17);
         } else try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");
         try w.print("\x1b[1;{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m[ + ]{s}", .{ v.width - 10, panel });
+        const active_name = "\x1b[1;38;2;182;206;240;48;2;34;44;58m";
+        const active_meta = "\x1b[0;38;2;155;163;175;48;2;34;44;58m";
+        // Kitty-graphics hosts (kitty, Ghostty, WezTerm) draw block elements to
+        // fill the cell, so a half block joins into one bar. Elsewhere the font's
+        // glyph can leave gaps between rows, so paint the whole cell instead.
+        const active_bar = if (v.corgi_badge == .image) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
             const y: u16 = @intCast(2 + index * 3);
-            const style = if (ws.active) "\x1b[1;38;2;161;194;178;48;2;35;40;47m" else panel;
+            const style = if (ws.active) active_name else panel;
+            const meta = if (ws.active) active_meta else panel;
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
             var label: [std.fs.max_path_bytes + 1]u8 = undefined;
@@ -190,7 +197,11 @@ pub const View = struct {
                 try drawPorts(w, ws, link.end - link.start, false);
             }
             if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m{s}", .{ y + 1, v.width - 1 - badge_width, badge });
-            try w.print("\x1b[{d};2H{s}", .{ y + 2, panel });
+            if (ws.active) {
+                try w.print("\x1b[{d};1H{s}", .{ y + 2, meta });
+                try w.splatByteAll(' ', v.width - 1);
+            }
+            try w.print("\x1b[{d};2H{s}", .{ y + 2, meta });
             var metadata_buf: [96]u8 = undefined;
             var tools_buf: [24]u8 = undefined;
             const tools = compactCount(&tools_buf, ws.stats.tools);
@@ -225,11 +236,16 @@ pub const View = struct {
             if (has_status) try w.writeAll("\x1b[22;38;2;90;97;108m · ");
             try w.print("\x1b[{d};{d}H", .{ y + 2, v.unreadRange(ws).start + 1 });
             var unread_room = unread_width;
-            try statusPart(w, unread, if (ws.unread > 0) "\x1b[1;38;2;148;226;213m" else panel, &unread_room);
-            if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, panel, metadata });
+            try statusPart(w, unread, if (ws.unread > 0) "\x1b[1;38;2;148;226;213m" else meta, &unread_room);
+            if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, meta, metadata });
+            if (ws.active) for ([_]u16{ y + 1, y + 2 }) |row| try w.print("\x1b[{d};1H{s}", .{ row, active_bar });
             try w.writeAll(panel);
             if (y + 2 < v.middle() - 2) {
-                try w.print("\x1b[{d};2H{s}", .{ y + 3, panel });
+                if (ws.active) {
+                    try w.print("\x1b[{d};1H{s}", .{ y + 3, meta });
+                    try w.splatByteAll(' ', v.width - 1);
+                }
+                try w.print("\x1b[{d};2H{s}", .{ y + 3, meta });
                 const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
                 if (divider) {
                     try w.writeAll("\x1b[4;58:2::65:70:77m");
@@ -237,6 +253,7 @@ pub const View = struct {
                     try w.print("\x1b[{d};2H", .{y + 3});
                 }
                 try w.writeAll("\x1b[24;59m");
+                if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, active_bar, panel });
             }
         }
         if (v.workspace_count > v.workspaceCapacity()) {
@@ -593,6 +610,24 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
+}
+
+test "active workspace bar uses a half block only where block glyphs fill the cell" {
+    const entries = [_]WorkspaceEntry{ .{ .id = 1, .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = 2, .name = "Project", .cwd = "/tmp", .active = true } };
+    for ([_]@import("corgi_badge.zig").Mode{ .image, .emoji, .none }) |mode| {
+        var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer output.deinit();
+        var view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.len, 0);
+        view.corgi_badge = mode;
+        try view.draw(&output.writer, &.{}, &entries);
+        const bar = if (mode == .image) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
+        for ([_][]const u8{ "\x1b[6;1H", "\x1b[7;1H", "\x1b[8;1H" }) |row| {
+            var buf: [96]u8 = undefined;
+            try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, bar })) != null);
+        }
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;1H\x1b[0;38;2;137;180;250") == null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;182;206;240;48;2;34;44;58mProject") != null);
+    }
 }
 
 test "subagent badge shares the second row without reserving empty space" {
