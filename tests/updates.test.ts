@@ -49,7 +49,7 @@ beforeAll(async () => {
     binaries.set(v, binary);
     const info = JSON.parse((await exec([join(prefix, "bin/corgi"), "__update-info"], process.env as Record<string, string>)).out);
     const target = { url: `${url}/releases/${v}/corgi`, sha256: sha(binary), size: binary.length };
-    const payload = JSON.stringify({ schema_version: 1, commit: "development", version: v, update_abi: info.update_abi, targets: { "macos-aarch64": target, "linux-x86_64": target } });
+    const payload = JSON.stringify({ schema_version: 1, commit: info.commit, version: v, update_abi: info.update_abi, targets: { "macos-aarch64": target, "linux-x86_64": target } });
     manifests.set(v, JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), keys.privateKey).toString("hex") }));
   }
 }, 600_000);
