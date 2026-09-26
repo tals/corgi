@@ -1,0 +1,859 @@
+<!doctype html>
+<!--
+TERMHTML / copy guide
+Open this file directly in a browser. No install or build.
+
+Everything is in this file: toolkit styles, widget renderer, and interactive demo.
+Copy this HTML directly into your artifact and adapt whichever widgets you need.
+The reusable toolkit blocks are labeled termhtml-styles and termhtml-toolkit.
+
+const ui = TermHTML.mount(root, { kitty: false, theme: 'ink' });
+Each data-tui widget uses integer data-x/y/w/h cells, relative to its parent.
+Use data-fg/bg palette names or #rrggbb, data-bold, and data-underline for styles.
+Change normal HTML/control values, then ui.render(). User events repaint for you.
+ui.open('#dialog') / ui.close() handle modal focus. ui.setKitty(true) opts into
+styled/colored underlines only (https://sw.kovidgoyal.net/kitty/underlines/).
+ui.toANSI(), ui.toText(), and ui.snapshot() export the current cell frame.
+
+Use ASCII plus box/block glyphs; unsupported characters become ?. Text clips.
+Match --th-cw/ch/font-size/font to the terminal (defaults: 9x20 cells, 14px Menlo).
+Layout is cell-exact; font rasterization can differ across browser and terminal.
+ANSI exports are snapshots, not an interactive terminal runtime.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>termhtml / interaction lab</title>
+  <style id="termhtml-styles">
+/* The only CSS required by the toolkit. All visible UI comes from cells. */
+.th-screen {
+  --th-cw: 9px;
+  --th-ch: 20px;
+  --th-font-size: 14px;
+  --th-font: Menlo, Consolas, "Liberation Mono", monospace;
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  overflow: hidden;
+  font: var(--th-font-size)/var(--th-ch) var(--th-font);
+  font-variant-ligatures: none;
+  font-kerning: none;
+  text-size-adjust: none;
+  background: #101419;
+}
+.th-screen, .th-screen * { box-sizing: border-box; }
+.th-screen .th-pixels, .th-screen .th-source { position: absolute; inset: 0; }
+.th-screen .th-pixels { pointer-events: none; user-select: none; }
+.th-screen .th-cell {
+  position: absolute;
+  display: block;
+  width: var(--th-cw);
+  height: var(--th-ch);
+  white-space: pre;
+  text-align: center;
+  overflow: hidden;
+  text-decoration-skip-ink: none;
+}
+/* Terminal emulators commonly draw these glyphs themselves. Full-cell strokes
+   avoid font-dependent gaps between box-drawing glyphs in the browser. */
+.th-screen .th-cell[data-lines] { color: transparent !important; }
+.th-screen .th-cell[data-lines]::before,
+.th-screen .th-cell[data-lines]::after { content: ""; position: absolute; background: var(--th-ink); }
+.th-screen .th-cell[data-lines]::before {
+  left: var(--th-h-left); top: round(down, calc(var(--th-ch) / 2), 1px);
+  width: var(--th-h-width); height: 1px;
+}
+.th-screen .th-cell[data-lines]::after {
+  top: var(--th-v-top); left: round(down, calc(var(--th-cw) / 2), 1px);
+  height: var(--th-v-height); width: 1px;
+}
+.th-screen .th-cell[data-block] { color: transparent !important; }
+.th-screen .th-cell[data-block]::before {
+  content: ""; position: absolute; left: 0; top: var(--th-block-top);
+  width: 100%; height: var(--th-block-height); background: var(--th-ink);
+}
+/* Keep real, accessible controls for focus/editing. Their pixels are painted
+   into the same buffer as everything else; browser chrome is never visible. */
+.th-screen .th-source { opacity: 0; }
+.th-screen [data-tui] {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  font: inherit;
+  letter-spacing: 0;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
+.th-screen [data-tui="button"], .th-screen [data-tui="check"],
+.th-screen [data-tui="input"], .th-screen [data-tui="range"],
+.th-screen [data-tui="list"], .th-screen [data-tui="log"],
+.th-screen [data-tui="tabs"] { pointer-events: auto; cursor: pointer; }
+.th-screen [data-tui="input"] { cursor: text; }
+.th-screen [data-tui="input"]::selection { background: transparent; }
+.th-screen [data-tui="tabs"] > button {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  height: var(--th-ch);
+  cursor: pointer;
+}
+.th-screen [hidden] { display: none !important; }
+.th-screen [data-modal] { z-index: 2; }
+.th-screen [disabled], .th-screen [aria-disabled="true"] { cursor: default; }
+</style>
+  <style>
+    /* Demo surroundings only. Copy the screen + toolkit into your prototype. */
+    body { margin: 0; padding: 28px; background: #090c10; color: #8c9ba9; font: 12px/1.6 Menlo, monospace; }
+    .demo { width: max-content; margin: 0 auto; }
+    .masthead { display: flex; justify-content: space-between; margin-bottom: 16px; line-height: 20px; }
+    .masthead strong { color: #d5dce3; font-weight: normal; }
+    .footnote { margin: 16px 0 0; }
+    a { color: #b7df80; }
+    @media (max-width: 1050px) { body { padding: 12px; } .demo { margin: 0; } }
+  </style>
+</head>
+<body>
+<div class="demo">
+  <header class="masthead"><strong>termhtml</strong><span>HTML + CSS + JS / no dependencies / v0.1</span></header>
+  <main id="lab" class="th-screen" data-cols="108" data-rows="40" aria-label="Terminal interaction lab">
+    <span data-tui="text" data-x="2" data-y="1" data-w="70" data-bold data-fg="accent">TERMHTML  /  INTERACTION LAB</span>
+    <span data-tui="text" data-x="88" data-y="1" data-w="18" data-fg="muted">108 cols x 40 rows</span>
+    <span data-tui="text" data-x="2" data-y="3" data-w="100" data-fg="muted">A small vocabulary. Every mark belongs to a cell.</span>
+    <nav id="views" data-tui="tabs" data-x="2" data-y="5" data-w="65" aria-label="Examples">
+      <button data-value="controls" aria-controls="controls">Controls</button>
+      <button data-value="queue" aria-controls="queue">Task queue</button>
+      <button data-value="specimen" aria-controls="specimen">Type &amp; color</button>
+    </nav>
+    <button id="kitty" data-tui="check" data-x="80" data-y="5" data-w="26" aria-checked="false">Kitty extensions</button>
+    <div data-tui="rule" data-x="2" data-y="7" data-w="104"></div>
+
+    <section data-tui="box" data-x="2" data-y="9" data-w="27" data-h="26" data-title="01 / NAVIGATE" aria-label="Workspace list">
+      <span data-tui="text" data-x="2" data-y="2" data-w="23" data-fg="muted">WORKSPACES</span>
+      <input id="filter" data-tui="input" data-x="2" data-y="4" data-w="23" aria-label="Filter workspaces" placeholder="/ filter workspaces" autocomplete="off" spellcheck="false">
+      <div id="workspaces" data-tui="list" data-x="2" data-y="7" data-w="23" data-h="10" aria-label="Workspaces">
+        <span data-value="corgi">corgi           live</span>
+        <span data-value="termhtml">termhtml        new</span>
+        <span data-value="atlas">atlas           idle</span>
+        <span data-value="fieldnotes">fieldnotes      idle</span>
+        <span data-value="sandbox">sandbox         idle</span>
+        <span data-value="archive">archive         idle</span>
+        <span data-value="observatory">observatory     idle</span>
+        <span data-value="workbench">workbench       idle</span>
+        <span data-value="dispatch">dispatch        idle</span>
+        <span data-value="notebook">notebook        idle</span>
+        <span data-value="studio">studio          idle</span>
+        <span data-value="signals">signals         idle</span>
+        <span data-value="scratch">scratch         idle</span>
+      </div>
+      <span id="workspace-count" data-tui="text" data-x="2" data-y="18" data-w="23" data-fg="muted">13 workspaces</span>
+      <div data-tui="rule" data-x="2" data-y="20" data-w="23"></div>
+      <button id="theme" data-tui="button" data-x="2" data-y="22" data-w="23">Theme: ink</button>
+      <span data-tui="text" data-x="2" data-y="24" data-w="23" data-fg="muted">Arrows / wheel / Enter</span>
+    </section>
+
+    <section id="controls" data-tui="box" data-x="31" data-y="9" data-w="75" data-h="26" data-title="02 / COMPOSE" role="tabpanel" aria-label="Controls">
+      <span id="workspace-title" data-tui="text" data-x="2" data-y="2" data-w="50" data-bold>corgi / new session</span>
+      <span data-tui="text" data-x="2" data-y="4" data-w="70" data-fg="muted">Edit a field. Toggle a flag. Run something small.</span>
+      <label for="session-name" data-tui="text" data-x="2" data-y="7" data-w="17">Session name</label>
+      <input id="session-name" data-tui="input" data-x="21" data-y="7" data-w="51" value="Sketch a terminal interface" maxlength="80" autocomplete="off" spellcheck="false" aria-label="Session name">
+      <label for="workers" data-tui="text" data-x="2" data-y="10" data-w="17">Parallel workers</label>
+      <input id="workers" data-tui="range" data-x="21" data-y="10" data-w="36" type="range" min="1" max="8" step="1" value="3" aria-label="Parallel workers">
+      <span id="worker-count" data-tui="text" data-x="60" data-y="10" data-w="12" data-fg="accent">3 / 8</span>
+      <button id="watch" data-tui="check" data-x="2" data-y="13" data-w="31" aria-checked="true">Watch for changes</button>
+      <button id="verbose" data-tui="check" data-x="37" data-y="13" data-w="35" aria-checked="false">Verbose output</button>
+      <div data-tui="rule" data-x="2" data-y="16" data-w="70"></div>
+      <button id="run" data-tui="button" data-x="2" data-y="18" data-w="19" data-fg="accent">Run session</button>
+      <button id="reset" data-tui="button" data-x="24" data-y="18" data-w="13">Reset</button>
+      <button data-tui="button" data-x="41" data-y="18" data-w="31" disabled>Deploy (unavailable)</button>
+      <span id="form-note" data-tui="text" data-x="2" data-y="21" data-w="70" data-fg="muted">Ready. This is a local simulation.</span>
+      <span data-tui="text" data-x="2" data-y="23" data-w="70" data-fg="muted">Tab / Shift+Tab to focus. Space / Enter to activate.</span>
+    </section>
+
+    <section id="queue" data-tui="box" data-x="31" data-y="9" data-w="75" data-h="26" data-title="02 / TASK QUEUE" role="tabpanel" aria-label="Task queue" hidden>
+      <span id="job-title" data-tui="text" data-x="2" data-y="2" data-w="70" data-bold>No session running</span>
+      <progress id="job-progress" data-tui="progress" data-x="2" data-y="4" data-w="56" max="100" value="0" aria-label="Session progress"></progress>
+      <span id="job-percent" data-tui="text" data-x="61" data-y="4" data-w="10" data-fg="accent">0%</span>
+      <span data-tui="text" data-x="2" data-y="7" data-w="70" data-fg="muted">STEP    OPERATION                                 STATE</span>
+      <span id="job-steps" data-tui="text" data-x="2" data-y="9" data-w="70" data-h="4">01      Read the brief                            waiting
+02      Compose the cell grid                     waiting
+03      Check terminal output                     waiting
+04      Save the prototype                        waiting</span>
+      <div data-tui="rule" data-x="2" data-y="14" data-w="70"></div>
+      <pre id="log" data-tui="log" data-x="2" data-y="16" data-w="70" data-h="5" tabindex="0" aria-label="Session log" data-fg="muted">00:00  Queue ready. Run a session from Controls.</pre>
+      <button id="pause" data-tui="button" data-x="2" data-y="23" data-w="14" disabled>Pause</button>
+      <button id="cancel" data-tui="button" data-x="20" data-y="23" data-w="14" data-fg="danger" disabled>Cancel</button>
+      <span data-tui="text" data-x="39" data-y="23" data-w="32" data-fg="muted">Log: wheel / PgUp / PgDn</span>
+    </section>
+
+    <section id="specimen" data-tui="box" data-x="31" data-y="9" data-w="75" data-h="26" data-title="02 / TYPE & COLOR" role="tabpanel" aria-label="Type and color" hidden>
+      <span data-tui="text" data-x="2" data-y="2" data-w="70" data-bold>One cell. One glyph. One shared frame.</span>
+      <span data-tui="text" data-x="2" data-y="5" data-w="70">Regular / 0123456789 / !@#$%&amp;*() / ABCDEFGHIJKLM</span>
+      <span data-tui="text" data-x="2" data-y="7" data-w="70" data-bold>Bold is a font weight, never a different size.</span>
+      <span data-tui="text" data-x="2" data-y="10" data-w="14" data-fg="accent">accent</span>
+      <span data-tui="text" data-x="19" data-y="10" data-w="14" data-fg="warm">warning</span>
+      <span data-tui="text" data-x="36" data-y="10" data-w="14" data-fg="danger">error</span>
+      <span data-tui="text" data-x="53" data-y="10" data-w="19" data-fg="muted">muted</span>
+      <span data-tui="text" data-x="2" data-y="13" data-w="70" data-underline="single">A plain underline is available in either mode.</span>
+      <span data-tui="text" data-x="2" data-y="15" data-w="70" data-underline="curl" data-underline-color="danger">Kitty: a colored undercurl for a diagnostic.</span>
+      <span data-tui="text" data-x="2" data-y="17" data-w="70" data-underline="dotted" data-underline-color="accent">Kitty: a dotted underline for an annotation.</span>
+      <div data-tui="rule" data-x="2" data-y="20" data-w="70"></div>
+      <span id="capability-note" data-tui="text" data-x="2" data-y="22" data-w="70" data-h="2" data-fg="muted">Kitty OFF: all decorations use plain underlines.
+No images, proportional type, or fractional layout.</span>
+    </section>
+
+    <span id="status" data-tui="text" data-x="2" data-y="36" data-w="104" data-fg="accent" role="status" aria-live="polite">Ready / choose a workspace or start a session.</span>
+    <span data-tui="text" data-x="2" data-y="38" data-w="48" data-fg="muted">/ filter   Ctrl+K commands   ? help</span>
+    <button id="commands" data-tui="button" data-x="51" data-y="38" data-w="16">Commands</button>
+    <button id="export" data-tui="button" data-x="71" data-y="38" data-w="17">Export ANSI</button>
+    <button id="help" data-tui="button" data-x="93" data-y="38" data-w="13">Help</button>
+
+    <section id="command-modal" data-tui="box" data-modal data-x="23" data-y="10" data-w="62" data-h="19" data-title="COMMANDS / Esc to close" data-bg="surface" data-fg="accent" role="dialog" aria-label="Commands" tabindex="-1" hidden>
+      <input id="command-filter" data-tui="input" data-x="2" data-y="2" data-w="58" aria-label="Find a command" placeholder="Type to filter commands..." autocomplete="off" spellcheck="false">
+      <div id="command-list" data-tui="list" data-x="2" data-y="5" data-w="58" data-h="8" aria-label="Commands" data-fg="fg">
+        <span data-value="run">Run a session</span>
+        <span data-value="theme">Switch ink / paper theme</span>
+        <span data-value="kitty">Toggle Kitty extensions</span>
+        <span data-value="controls">Go to Controls</span>
+        <span data-value="queue">Go to Task queue</span>
+        <span data-value="specimen">Go to Type &amp; color</span>
+        <span data-value="export">Export current ANSI frame</span>
+        <span data-value="help">Show keyboard help</span>
+      </div>
+      <span data-tui="text" data-x="2" data-y="15" data-w="58" data-fg="muted">Up / Down to choose. Enter to run. Escape to return.</span>
+      <button id="command-go" data-tui="button" data-x="2" data-y="17" data-w="18">Run command</button>
+      <button data-close data-tui="button" data-x="45" data-y="17" data-w="15">Close</button>
+    </section>
+    <section id="help-modal" data-tui="box" data-modal data-x="23" data-y="10" data-w="62" data-h="19" data-title="KEYBOARD / POINTER" data-bg="surface" role="dialog" aria-label="Keyboard help" tabindex="-1" hidden>
+      <span data-tui="text" data-x="3" data-y="3" data-w="56" data-h="12">Tab / Shift+Tab   Move between controls
+Enter / Space     Activate a button or checkbox
+Arrow keys        Move in lists, tabs, and sliders
+Home / End        First / last list item
+PageUp / PageDown Scroll a list or log
+Mouse wheel       Scroll a list or log
+Click / drag      Set a slider in whole steps
+/                 Focus the workspace filter
+Ctrl+K            Open the command palette
+?                 Open this help
+Escape            Close dialog and restore focus
+Ctrl/Cmd+A        Select all text in a field</span>
+      <button data-close data-tui="button" data-x="3" data-y="16" data-w="18" data-fg="accent">Back to work</button>
+    </section>
+    <section id="cancel-modal" data-tui="box" data-modal data-x="25" data-y="14" data-w="58" data-h="11" data-title="CANCEL SESSION" data-bg="surface" role="dialog" aria-label="Cancel session" tabindex="-1" hidden>
+      <span data-tui="text" data-x="3" data-y="3" data-w="52" data-h="3">Cancel this simulated session?
+Its log will stay in the task queue.</span>
+      <button data-close data-tui="button" data-x="3" data-y="8" data-w="22">Keep running</button>
+      <button id="confirm-cancel" data-tui="button" data-x="30" data-y="8" data-w="24" data-fg="danger">Cancel session</button>
+    </section>
+  </main>
+  <p class="footnote">Fixed cells. Narrow windows scroll. Copy guide at the top of this HTML source.</p>
+</div>
+<script id="termhtml-toolkit">
+/* termhtml: plain HTML -> cell buffer -> browser pixels / ANSI. No build step. */
+(function (global) {
+  "use strict";
+  const ESC = "\x1b[";
+  const glyphs = new Set("─│┌┐└┘├┤┬┴┼█▀▄▁▂▃▅▆▇");
+  const themes = {
+    ink: { bg: "#101419", fg: "#d5dce3", muted: "#82909e", line: "#3c4c59", accent: "#b7df80", surface: "#1a232c", selected: "#2b3e42", danger: "#ec9a91", warm: "#e9c581" },
+    paper: { bg: "#ece8de", fg: "#303a3b", muted: "#63706f", line: "#949e94", accent: "#326747", surface: "#deded1", selected: "#c3d5c1", danger: "#9b3b35", warm: "#865f20" },
+  };
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const number = (v, fallback) => v === undefined || v === null || v === "" ? fallback : Number(v);
+  const safeText = value => Array.from(String(value), ch =>
+    ch === "\n" || (ch >= " " && ch <= "~") || glyphs.has(ch) ? ch : "?").join("");
+  const color = value => {
+    if (!/^#[\da-f]{6}$/i.test(value)) throw new Error(`Use a six-digit RGB color, got ${value}`);
+    return value.toLowerCase();
+  };
+  const rgb = value => value.slice(1).match(/../g).map(x => parseInt(x, 16)).join(";");
+  const styleKey = c => `${c.fg}/${c.bg}/${+c.bold}/${c.underline}/${c.underlineColor || ""}`;
+  // Top, right, bottom, left; browser strokes share the exact cell boundaries.
+  const lines = { "─": "0101", "│": "1010", "┌": "0110", "┐": "0011", "└": "1100", "┘": "1001", "├": "1110", "┤": "1011", "┬": "0111", "┴": "1101", "┼": "1111" };
+  const blocks = { "█": [0, 8], "▀": [0, 4], "▄": [4, 4], "▁": [7, 1], "▂": [6, 2], "▃": [5, 3], "▅": [3, 5], "▆": [2, 6], "▇": [1, 7] };
+
+  class Frame {
+    constructor(cols, rows, style = {}) {
+      if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols * rows > 40000)
+        throw new Error("Screen dimensions must be positive integers, at most 40,000 cells");
+      this.cols = cols;
+      this.rows = rows;
+      this.base = { fg: color(style.fg || themes.ink.fg), bg: color(style.bg || themes.ink.bg), bold: false, underline: "none" };
+      this.cells = Array.from({ length: cols * rows }, () => ({ ch: " ", ...this.base }));
+    }
+    put(x, y, ch, style = {}) {
+      if (x < 0 || y < 0 || x >= this.cols || y >= this.rows) return;
+      this.cells[y * this.cols + x] = { ...this.base, ...style, ch: safeText(ch).replaceAll("\n", "?")[0] || " " };
+    }
+    fill(x, y, w, h, style = {}, ch = " ") {
+      for (let row = Math.max(0, y); row < Math.min(y + h, this.rows); row++)
+        for (let col = Math.max(0, x); col < Math.min(x + w, this.cols); col++) this.put(col, row, ch, style);
+    }
+    text(x, y, w, h, value, style = {}) {
+      const lines = safeText(value).split("\n");
+      for (let row = 0; row < Math.min(h, lines.length); row++)
+        for (let col = 0; col < Math.min(w, lines[row].length); col++) this.put(x + col, y + row, lines[row][col], style);
+    }
+    box(x, y, w, h, title, style = {}, ascii = false) {
+      if (w < 2 || h < 2) return;
+      const [tl, tr, bl, br, hz, vt] = ascii ? ["+", "+", "+", "+", "-", "|"] : Array.from("┌┐└┘─│");
+      this.fill(x, y, w, h, style);
+      this.fill(x + 1, y, w - 2, 1, style, hz);
+      this.fill(x + 1, y + h - 1, w - 2, 1, style, hz);
+      this.fill(x, y + 1, 1, h - 2, style, vt);
+      this.fill(x + w - 1, y + 1, 1, h - 2, style, vt);
+      [[x, y, tl], [x + w - 1, y, tr], [x, y + h - 1, bl], [x + w - 1, y + h - 1, br]].forEach(p => this.put(...p, style));
+      if (title) this.text(x + 2, y, w - 4, 1, ` ${title} `, style);
+    }
+    textContent() {
+      return Array.from({ length: this.rows }, (_, row) => this.cells.slice(row * this.cols, (row + 1) * this.cols).map(c => c.ch).join("")).join("\n");
+    }
+    ansi({ kitty = false } = {}) {
+      // CUP per row avoids newline/autowrap drift, including the bottom-right cell.
+      let output = ESC + "0m", previous = "";
+      for (let row = 0; row < this.rows; row++) {
+        output += `${ESC}${row + 1};1H`;
+        for (const c of this.cells.slice(row * this.cols, (row + 1) * this.cols)) {
+          const key = styleKey(c);
+          if (key !== previous) {
+            output += `${ESC}0;38;2;${rgb(c.fg)};48;2;${rgb(c.bg)}${c.bold ? ";1" : ""}m`;
+            if (c.underline !== "none") {
+              const kind = { single: 1, double: 2, curl: 3, dotted: 4, dashed: 5 }[c.underline] || 1;
+              output += kitty ? `${ESC}4:${kind}m` : `${ESC}4m`;
+              if (kitty && c.underlineColor) output += `${ESC}58;2;${rgb(c.underlineColor)}m`;
+            }
+            previous = key;
+          }
+          output += c.ch;
+        }
+      }
+      return output + ESC + "0m" + ESC + "H";
+    }
+  }
+
+  let nextId = 0;
+  class Terminal {
+    constructor(root, options = {}) {
+      if (root.termHTML) throw new Error("This screen is already mounted");
+      this.root = root;
+      this.cols = number(root.dataset.cols, 80);
+      this.rows = number(root.dataset.rows, 24);
+      this.theme = options.theme || "ink";
+      this.kitty = options.kitty === true;
+      this.ascii = options.ascii === true;
+      this.modal = null;
+      this.abort = new AbortController();
+      root.classList.add("th-screen");
+      this.source = document.createElement("div");
+      this.source.className = "th-source";
+      this.source.append(...root.childNodes);
+      this.pixels = document.createElement("div");
+      this.pixels.className = "th-pixels";
+      this.pixels.setAttribute("aria-hidden", "true");
+      root.append(this.pixels, this.source);
+      root.termHTML = this;
+      const on = (target, event, fn, extra = {}) => target.addEventListener(event, fn, { signal: this.abort.signal, ...extra });
+      for (const event of ["input", "change", "focusin", "focusout", "keyup", "click", "select"])
+        on(root, event, () => this.schedule());
+      on(root, "click", event => this.click(event));
+      on(root, "keydown", event => this.keydown(event));
+      on(root, "pointerdown", event => this.pointer(event));
+      on(root, "pointermove", event => { if (this.drag === event.target) this.pointer(event); });
+      on(root, "pointerup", () => { this.drag = null; });
+      on(root, "pointercancel", () => { this.drag = null; });
+      on(root, "wheel", event => this.wheel(event), { passive: false });
+      on(root, "input", event => {
+        const el = event.target;
+        if (el.dataset.tui !== "input" || event.isComposing) return;
+        const normalized = safeText(el.value).replaceAll("\n", "?");
+        if (el.value === normalized) return;
+        const start = safeText(el.value.slice(0, el.selectionStart)).length;
+        const end = safeText(el.value.slice(0, el.selectionEnd)).length;
+        el.value = normalized;
+        el.setSelectionRange(start, end);
+      }, { capture: true });
+      on(document, "selectionchange", () => { if (root.contains(document.activeElement)) this.schedule(); });
+      this.render();
+    }
+    schedule() {
+      if (this.pending || this.destroyed) return;
+      this.pending = true;
+      queueMicrotask(() => { this.pending = false; if (!this.destroyed) this.render(); });
+    }
+    palette() {
+      const p = typeof this.theme === "string" ? themes[this.theme] : this.theme;
+      if (!p) throw new Error(`Unknown theme: ${this.theme}`);
+      return p;
+    }
+    style(el) {
+      const p = this.palette();
+      const resolve = (name, fallback) => color(p[name] || name || fallback);
+      const parent = el.parentElement.closest("[data-tui]");
+      const inherited = parent ? this.style(parent) : { fg: p.fg, bg: p.bg, bold: false, underline: "none" };
+      return {
+        ...inherited,
+        fg: resolve(el.dataset.fg, inherited.fg), bg: resolve(el.dataset.bg, inherited.bg),
+        bold: el.hasAttribute("data-bold") || inherited.bold,
+        underline: el.dataset.underline || inherited.underline,
+        underlineColor: el.dataset.underlineColor ? resolve(el.dataset.underlineColor, p.fg) : inherited.underlineColor,
+      };
+    }
+    rect(el) {
+      const r = { x: number(el.dataset.x, 0), y: number(el.dataset.y, 0), w: number(el.dataset.w, 1), h: number(el.dataset.h, 1) };
+      if (!Object.values(r).every(Number.isInteger) || r.w < 1 || r.h < 1 || r.x < 0 || r.y < 0) throw new Error(`Nonnegative integer cell geometry required: ${el.id || el.dataset.tui}`);
+      const parent = el.parentElement.closest("[data-tui]");
+      const bounds = parent ? this.rect(parent) : { x: 0, y: 0, w: this.cols, h: this.rows };
+      if (r.x + r.w > bounds.w || r.y + r.h > bounds.h) throw new Error(`Widget exceeds its parent: ${el.id || el.dataset.tui}`);
+      r.x += bounds.x; r.y += bounds.y;
+      return r;
+    }
+    visible(el) { return !el.closest("[hidden]"); }
+    options(el) { return Array.from(el.children).filter(child => !child.hidden); }
+    change(el, detail = {}) { el.dispatchEvent(new CustomEvent("change", { bubbles: true, detail })); this.schedule(); }
+    select(el, index) {
+      const options = this.options(el);
+      if (!options.length) return;
+      el.dataset.selected = clamp(index, 0, options.length - 1);
+      const h = number(el.dataset.h, 1), selected = +el.dataset.selected;
+      el.dataset.scroll = clamp(number(el.dataset.scroll, 0), Math.max(0, selected - h + 1), selected);
+      this.change(el, { index: selected, value: options[selected].dataset.value || options[selected].textContent });
+    }
+    click(event) {
+      const el = event.target.closest("[data-tui]");
+      if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
+      if (el.dataset.tui === "check") {
+        el.setAttribute("aria-checked", el.getAttribute("aria-checked") !== "true");
+        this.change(el);
+      }
+      if (el.dataset.tui === "tabs") {
+        const index = this.options(el).indexOf(event.target.closest("button"));
+        if (index >= 0) this.select(el, index);
+      }
+      if (el.dataset.tui === "list") {
+        const bounds = el.getBoundingClientRect();
+        const row = Math.floor((event.clientY - bounds.top) / (bounds.height / number(el.dataset.h, 1)));
+        this.select(el, row + number(el.dataset.scroll, 0));
+      }
+    }
+    keydown(event) {
+      if (this.modal && event.key === "Escape") { event.preventDefault(); this.close(); return; }
+      if (this.modal && event.key === "Tab") {
+        const nodes = Array.from(this.modal.querySelectorAll("button:not(:disabled), input:not(:disabled), [tabindex='0']")).filter(el => this.visible(el));
+        if (nodes.length) {
+          const i = nodes.indexOf(document.activeElement);
+          nodes[(i + (event.shiftKey ? -1 : 1) + nodes.length) % nodes.length].focus();
+        }
+        event.preventDefault();
+        return;
+      }
+      const el = event.target.closest("[data-tui]");
+      if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
+      const kind = el.dataset.tui, key = event.key;
+      if (["list", "tabs"].includes(kind)) {
+        let index = number(el.dataset.selected, 0);
+        if (["ArrowDown", "ArrowRight"].includes(key)) index++;
+        else if (["ArrowUp", "ArrowLeft"].includes(key)) index--;
+        else if (key === "Home") index = 0;
+        else if (key === "End") index = this.options(el).length - 1;
+        else if (key === "PageDown") index += number(el.dataset.h, 1);
+        else if (key === "PageUp") index -= number(el.dataset.h, 1);
+        else if (kind === "list" && key === "Enter") {
+          el.dispatchEvent(new CustomEvent("activate", { bubbles: true, detail: { index } }));
+          event.preventDefault(); return;
+        } else return;
+        event.preventDefault(); this.select(el, index);
+        if (kind === "tabs") this.options(el)[+el.dataset.selected]?.focus();
+      }
+      if (kind === "log" && ["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(key)) {
+        event.preventDefault();
+        const h = number(el.dataset.h, 1), max = Math.max(0, el.textContent.split("\n").length - h);
+        const delta = { ArrowDown: 1, ArrowUp: -1, PageDown: h, PageUp: -h }[key] || 0;
+        el.dataset.scroll = key === "Home" ? 0 : key === "End" ? max : clamp(number(el.dataset.scroll, max) + delta, 0, max);
+        this.schedule();
+      }
+    }
+    pointer(event) {
+      const el = event.target.closest("[data-tui]");
+      if (!el || el.disabled) return;
+      if (el.dataset.tui === "input" && event.type === "pointerdown" && event.button === 0) {
+        event.preventDefault(); el.focus();
+        const cw = el.getBoundingClientRect().width / number(el.dataset.w, 1);
+        const pos = clamp(Math.floor((event.clientX - el.getBoundingClientRect().left) / cw) - 1 + (el._thScroll || 0), 0, el.value.length);
+        el.setSelectionRange(event.shiftKey ? el.selectionStart : pos, pos);
+        this.schedule();
+      }
+      if (el.dataset.tui === "range" && (event.button === 0 || event.type === "pointermove")) {
+        event.preventDefault(); el.focus();
+        const bounds = el.getBoundingClientRect(), w = number(el.dataset.w, 1), cw = bounds.width / w;
+        const min = number(el.min, 0), max = number(el.max, 100), step = number(el.step, 1);
+        const ratio = clamp((event.clientX - bounds.left - cw) / ((w - 3) * cw), 0, 1);
+        el.value = clamp(min + Math.round(ratio * (max - min) / step) * step, min, max);
+        if (event.type === "pointerdown") { this.drag = el; el.setPointerCapture(event.pointerId); }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        this.change(el);
+      }
+    }
+    wheel(event) {
+      const el = event.target.closest("[data-tui]");
+      if (!el || !["list", "log"].includes(el.dataset.tui)) return;
+      event.preventDefault();
+      const h = number(el.dataset.h, 1);
+      const count = el.dataset.tui === "list" ? this.options(el).length : el.textContent.split("\n").length;
+      el.dataset.scroll = clamp(number(el.dataset.scroll, Math.max(0, count - h)) + Math.sign(event.deltaY), 0, Math.max(0, count - h));
+      this.schedule();
+    }
+    open(el) {
+      if (typeof el === "string") el = this.root.querySelector(el);
+      if (!el || !el.hasAttribute("data-modal") || el.parentElement !== this.source) throw new Error("Modal must be a top-level data-modal widget");
+      if (this.modal) this.close();
+      this.returnFocus = document.activeElement;
+      this.modal = el;
+      this.savedInert = Array.from(this.source.children).filter(child => child !== el).map(child => [child, child.inert]);
+      this.savedInert.forEach(([child]) => { child.inert = true; });
+      el.hidden = false;
+      el.setAttribute("aria-modal", "true");
+      (el.querySelector("input, button:not(:disabled), [tabindex='0']") || el).focus();
+      this.render();
+    }
+    close() {
+      if (!this.modal) return;
+      const closed = this.modal;
+      closed.hidden = true;
+      closed.removeAttribute("aria-modal");
+      this.savedInert.forEach(([child, value]) => { child.inert = value; });
+      this.modal = null;
+      this.returnFocus?.focus();
+      closed.dispatchEvent(new Event("close"));
+      this.render();
+    }
+    render() {
+      const p = this.palette(), frame = new Frame(this.cols, this.rows, p);
+      this.root.style.width = `calc(${this.cols} * var(--th-cw))`;
+      this.root.style.height = `calc(${this.rows} * var(--th-ch))`;
+      const all = Array.from(this.source.querySelectorAll("[data-tui]"));
+      // Modal paints last, matching the hit-test layer, regardless of DOM order.
+      const ordered = this.modal ? all.filter(el => !this.modal.contains(el)).concat(all.filter(el => this.modal.contains(el))) : all;
+      for (const el of ordered) {
+        if (!this.visible(el)) continue;
+        const { x, y, w, h } = this.rect(el), kind = el.dataset.tui;
+        if ((["input", "range", "progress"].includes(kind) && (w < 4 || h !== 1)) || (["button", "check", "tabs"].includes(kind) && h !== 1))
+          throw new Error(`Control requires one row (fields and bars also need at least four columns): ${el.id || kind}`);
+        if (kind === "input" && el.type !== "text" && el.type !== "search") throw new Error("data-tui=input requires a text or search input");
+        el.style.left = `calc(${number(el.dataset.x, 0)} * var(--th-cw))`;
+        el.style.top = `calc(${number(el.dataset.y, 0)} * var(--th-ch))`;
+        el.style.width = `calc(${w} * var(--th-cw))`;
+        el.style.height = `calc(${h} * var(--th-ch))`;
+        const s = this.style(el), focus = el === document.activeElement || el.contains(document.activeElement);
+        const disabled = el.disabled || el.getAttribute("aria-disabled") === "true";
+        const active = { ...s, fg: disabled ? p.muted : focus ? p.bg : s.fg, bg: focus && !disabled ? p.accent : s.bg };
+        const text = value => frame.text(x, y, w, h, value, s);
+        if (kind === "box") frame.box(x, y, w, h, el.dataset.title, { ...s, fg: el.dataset.fg ? s.fg : p.line }, this.ascii);
+        else if (kind === "text") { frame.fill(x, y, w, h, s); text(el.textContent); }
+        else if (kind === "rule") frame.fill(x, y, w, h, { ...s, fg: p.line }, this.ascii ? "-" : "─");
+        else if (kind === "button" || kind === "check") {
+          frame.fill(x, y, w, h, active);
+          const label = kind === "check" ? `[${el.getAttribute("aria-checked") === "true" ? "x" : " "}] ${el.textContent.trim()}` : `[ ${el.textContent.trim()} ]`;
+          frame.text(x, y, w, 1, label, active);
+          if (kind === "check") el.setAttribute("role", "checkbox");
+        } else if (kind === "input") {
+          const value = safeText(el.value).replaceAll("\n", "?");
+          const caret = safeText(el.value.slice(0, el.selectionEnd || 0)).length;
+          const width = Math.max(1, w - 2);
+          const start = focus ? clamp(el._thScroll || 0, Math.max(0, caret - width + 1), caret) : 0;
+          el._thScroll = start;
+          const inputStyle = { ...s, bg: p.surface, fg: disabled ? p.muted : p.fg };
+          frame.fill(x, y, w, 1, inputStyle);
+          frame.text(x, y, 1, 1, "[", { ...inputStyle, fg: focus ? p.accent : p.muted });
+          frame.text(x + w - 1, y, 1, 1, "]", { ...inputStyle, fg: focus ? p.accent : p.muted });
+          frame.text(x + 1, y, width, 1, value ? value.slice(start) : el.placeholder, { ...inputStyle, fg: value ? inputStyle.fg : p.muted });
+          if (focus && !disabled) {
+            const a = safeText(el.value.slice(0, el.selectionStart)).length;
+            const b = safeText(el.value.slice(0, el.selectionEnd)).length;
+            for (let pos = Math.max(a, start); pos < Math.min(b, start + width); pos++)
+              frame.put(x + 1 + pos - start, y, value[pos], { ...inputStyle, bg: p.selected });
+            if (a === b) frame.put(x + 1 + caret - start, y, value[caret] || " ", { ...inputStyle, fg: p.bg, bg: p.accent });
+          }
+        } else if (kind === "list" || kind === "tabs") {
+          const options = this.options(el), index = clamp(number(el.dataset.selected, 0), 0, Math.max(0, options.length - 1));
+          el.dataset.selected = index;
+          const scroll = clamp(number(el.dataset.scroll, 0), 0, Math.max(0, options.length - h));
+          el.dataset.scroll = scroll;
+          el.setAttribute("role", kind === "list" ? "listbox" : "tablist");
+          if (kind === "list") el.tabIndex = disabled ? -1 : 0;
+          frame.fill(x, y, w, h, s);
+          let offset = 0;
+          options.forEach((option, i) => {
+            option.id ||= `th-option-${++nextId}`;
+            option.setAttribute("role", kind === "list" ? "option" : "tab");
+            option.setAttribute("aria-selected", i === index);
+            if (i === index && kind === "list") el.setAttribute("aria-activedescendant", option.id);
+            const label = safeText(option.textContent.trim()), selected = i === index;
+            const itemStyle = selected ? { ...s, bg: focus ? p.accent : p.selected, fg: focus ? p.bg : p.accent } : s;
+            if (kind === "list" && i >= scroll && i < scroll + h) {
+              frame.fill(x, y + i - scroll, w, 1, itemStyle);
+              frame.text(x, y + i - scroll, w - 1, 1, `${selected ? ">" : " "} ${label}`, itemStyle);
+            } else if (kind === "tabs") {
+              const width = label.length + 4;
+              option.tabIndex = selected ? 0 : -1;
+              option.style.left = `calc(${offset} * var(--th-cw))`;
+              option.style.width = `calc(${width} * var(--th-cw))`;
+              frame.fill(x + offset, y, Math.max(0, Math.min(width, w - offset)), 1, itemStyle);
+              frame.text(x + offset, y, Math.max(0, w - offset), 1, ` ${selected ? "[" : " "}${label}${selected ? "]" : " "} `, itemStyle);
+              offset += width;
+            }
+          });
+          if (!options.length) { el.removeAttribute("aria-activedescendant"); frame.text(x, y, w, 1, "  No matches", { ...s, fg: p.muted }); }
+          if (kind === "list" && options.length > h) {
+            frame.fill(x + w - 1, y, 1, h, { ...s, fg: p.line }, this.ascii ? "|" : "│");
+            frame.put(x + w - 1, y + Math.round(scroll / (options.length - h) * (h - 1)), this.ascii ? "#" : "█", { ...s, fg: p.accent });
+          }
+        } else if (kind === "progress" || kind === "range") {
+          const min = number(el.min, 0), max = number(el.max, 100), value = number(el.value ?? el.dataset.value, 0);
+          const ratio = max > min ? clamp((value - min) / (max - min), 0, 1) : 0;
+          frame.fill(x, y, w, 1, kind === "range" ? active : s);
+          frame.text(x, y, w, 1, `[${"-".repeat(Math.max(0, w - 2))}]`, kind === "range" ? active : { ...s, fg: p.line });
+          if (kind === "range") frame.put(x + 1 + Math.round(ratio * Math.max(0, w - 3)), y, "|", active);
+          else frame.fill(x + 1, y, Math.round(ratio * Math.max(0, w - 2)), 1, { ...s, fg: p.accent }, this.ascii ? "#" : "█");
+        } else if (kind === "log") {
+          const lines = el.textContent.split("\n"), max = Math.max(0, lines.length - h);
+          const scroll = clamp(number(el.dataset.scroll, max), 0, max);
+          frame.fill(x, y, w, h, s);
+          frame.text(x, y, w - 1, h, lines.slice(scroll, scroll + h).join("\n"), s);
+          if (max) frame.put(x + w - 1, y + Math.round(scroll / max * (h - 1)), this.ascii ? "#" : "█", { ...s, fg: focus ? p.accent : p.line });
+        } else throw new Error(`Unknown widget: ${kind}`);
+      }
+      this.frame = frame;
+      this.paint();
+      this.root.dispatchEvent(new CustomEvent("termhtml:render"));
+      return frame;
+    }
+    paint() {
+      while (this.pixels.children.length < this.frame.cells.length) {
+        const el = document.createElement("span"), index = this.pixels.children.length;
+        el.className = "th-cell";
+        el.style.left = `calc(${index % this.cols} * var(--th-cw))`;
+        el.style.top = `calc(${Math.floor(index / this.cols)} * var(--th-ch))`;
+        this.pixels.append(el);
+      }
+      this.frame.cells.forEach((cell, index) => {
+        const el = this.pixels.children[index], key = cell.ch + styleKey(cell) + this.kitty;
+        if (el._thKey === key) return;
+        el._thKey = key;
+        el.textContent = cell.ch;
+        el.style.color = cell.fg;
+        el.style.backgroundColor = cell.bg;
+        el.style.fontWeight = cell.bold ? "bold" : "normal";
+        el.style.textDecorationLine = cell.underline === "none" ? "none" : "underline";
+        el.style.textDecorationStyle = this.kitty ? ({ curl: "wavy", double: "double", dotted: "dotted", dashed: "dashed" }[cell.underline] || "solid") : "solid";
+        el.style.textDecorationColor = this.kitty && cell.underlineColor ? cell.underlineColor : cell.fg;
+        const line = lines[cell.ch];
+        if (line) {
+          el.dataset.lines = line;
+          const [top, right, bottom, left] = Array.from(line, Number);
+          el.style.setProperty("--th-ink", cell.fg);
+          el.style.setProperty("--th-h-left", left ? "0px" : "round(down, calc(var(--th-cw) / 2), 1px)");
+          el.style.setProperty("--th-h-width", left && right ? "var(--th-cw)" : left ? "calc(round(down, calc(var(--th-cw) / 2), 1px) + 1px)" : right ? "calc(var(--th-cw) - round(down, calc(var(--th-cw) / 2), 1px))" : "0px");
+          el.style.setProperty("--th-v-top", top ? "0px" : "round(down, calc(var(--th-ch) / 2), 1px)");
+          el.style.setProperty("--th-v-height", top && bottom ? "var(--th-ch)" : top ? "calc(round(down, calc(var(--th-ch) / 2), 1px) + 1px)" : bottom ? "calc(var(--th-ch) - round(down, calc(var(--th-ch) / 2), 1px))" : "0px");
+        } else delete el.dataset.lines;
+        const block = blocks[cell.ch];
+        if (block) {
+          el.dataset.block = cell.ch;
+          el.style.setProperty("--th-ink", cell.fg);
+          el.style.setProperty("--th-block-top", `round(down, calc(var(--th-ch) * ${block[0]} / 8), 1px)`);
+          el.style.setProperty("--th-block-height", block[0] === 0 && block[1] === 4 ? "round(down, calc(var(--th-ch) / 2), 1px)" : "calc(var(--th-ch) - var(--th-block-top))");
+        } else delete el.dataset.block;
+      });
+    }
+    setKitty(enabled) { this.kitty = Boolean(enabled); this.render(); }
+    toText() { return this.render().textContent(); }
+    toANSI() { return this.render().ansi({ kitty: this.kitty }); }
+    snapshot() { this.render(); return { cols: this.cols, rows: this.rows, kitty: this.kitty, cells: this.frame.cells.map(c => ({ ...c })) }; }
+    destroy() {
+      this.close(); this.destroyed = true; this.abort.abort();
+      this.root.replaceChildren(...this.source.childNodes);
+      this.root.classList.remove("th-screen");
+      this.root.style.removeProperty("width"); this.root.style.removeProperty("height");
+      delete this.root.termHTML;
+    }
+  }
+  global.TermHTML = { mount: (root, options) => new Terminal(root, options), Frame, themes, safeText };
+})(globalThis);
+</script>
+<script>
+/* Example behavior: replace this with your prototype's handlers. */
+(() => {
+  const $ = id => document.getElementById(id);
+  const screen = TermHTML.mount($("lab"));
+  window.lab = screen;
+  let workspace = "corgi", timer = null, progress = 0, paused = false, ticks = 0;
+  const status = message => { $("status").textContent = message; screen.render(); };
+  const log = message => {
+    $("log").textContent += `\n${String(Math.floor(ticks / 60)).padStart(2, "0")}:${String(ticks % 60).padStart(2, "0")}  ${message}`;
+    delete $("log").dataset.scroll;
+  };
+  function view(name) {
+    ["controls", "queue", "specimen"].forEach(id => { $(id).hidden = id !== name; });
+    $("views").dataset.selected = ["controls", "queue", "specimen"].indexOf(name);
+    screen.render();
+  }
+  $("views").addEventListener("change", event => view(event.detail.value));
+  function filter(input, list) {
+    const query = input.value.toLowerCase();
+    Array.from(list.children).forEach(item => { item.hidden = !item.textContent.toLowerCase().includes(query); });
+    list.dataset.scroll = 0;
+    screen.select(list, 0);
+    screen.render();
+  }
+  $("filter").addEventListener("input", () => {
+    filter($("filter"), $("workspaces"));
+    $("workspace-count").textContent = `${screen.options($("workspaces")).length} / 13 workspaces`;
+  });
+  $("filter").addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" || event.key === "Enter") { event.preventDefault(); $("workspaces").focus(); }
+  });
+  $("workspaces").addEventListener("change", event => {
+    workspace = event.detail.value;
+    $("workspace-title").textContent = `${workspace} / new session`;
+    status(`Selected / ${workspace}`);
+  });
+  $("workspaces").addEventListener("activate", () => { view("controls"); $("session-name").focus(); });
+  $("theme").onclick = () => {
+    screen.theme = screen.theme === "ink" ? "paper" : "ink";
+    $("theme").textContent = `Theme: ${screen.theme}`;
+    status(`Theme / ${screen.theme}`);
+  };
+  $("kitty").addEventListener("change", () => {
+    screen.setKitty($("kitty").getAttribute("aria-checked") === "true");
+    $("capability-note").textContent = screen.kitty
+      ? "Kitty ON: styled + colored underlines only.\nLayout and every control stay on the same cell grid."
+      : "Kitty OFF: all decorations use plain underlines.\nNo images, proportional type, or fractional layout.";
+    status(`Kitty extensions / ${screen.kitty ? "on" : "off"}`);
+  });
+  $("workers").addEventListener("input", () => { $("worker-count").textContent = `${$("workers").value} / 8`; });
+  for (const id of ["watch", "verbose"]) $(id).addEventListener("change", () => status(`${$(id).textContent} / ${$(id).getAttribute("aria-checked") === "true" ? "on" : "off"}`));
+  $("reset").onclick = () => {
+    $("session-name").value = "Sketch a terminal interface";
+    $("workers").value = 3;
+    $("worker-count").textContent = "3 / 8";
+    $("watch").setAttribute("aria-checked", "true");
+    $("verbose").setAttribute("aria-checked", "false");
+    $("form-note").textContent = "Ready. This is a local simulation.";
+    $("form-note").dataset.fg = "muted";
+    status("Controls reset.");
+  };
+  function updateJob() {
+    $("job-progress").value = progress;
+    $("job-percent").textContent = `${progress}%`;
+    const labels = ["Read the brief", "Compose the cell grid", "Check terminal output", "Save the prototype"];
+    $("job-steps").textContent = labels.map((label, index) => {
+      const state = progress >= (index + 1) * 25 ? "done" : progress >= index * 25 ? (paused ? "paused" : "running") : "waiting";
+      return `${String(index + 1).padStart(2, "0")}      ${label.padEnd(42)}${state}`;
+    }).join("\n");
+    screen.render();
+  }
+  function finish(message) {
+    clearInterval(timer); timer = null;
+    paused = false;
+    $("pause").disabled = $("cancel").disabled = true;
+    $("run").disabled = false;
+    $("pause").textContent = "Pause";
+    $("job-title").textContent = message;
+    log(message);
+    status(message);
+  }
+  $("run").onclick = () => {
+    if (timer) { view("queue"); return; }
+    if (!$("session-name").value.trim()) {
+      view("controls");
+      $("form-note").textContent = "A session needs a name. Enter one above.";
+      $("form-note").dataset.fg = "danger";
+      $("session-name").focus(); screen.render(); return;
+    }
+    progress = ticks = 0; paused = false;
+    $("log").textContent = `00:00  Starting in ${workspace}; ${$("workers").value} workers.`;
+    delete $("log").dataset.scroll;
+    $("job-title").textContent = $("session-name").value;
+    $("run").disabled = true;
+    $("pause").disabled = $("cancel").disabled = false;
+    $("form-note").textContent = "Session started. Follow its progress in Task queue.";
+    $("form-note").dataset.fg = "muted";
+    view("queue"); $("pause").focus();
+    updateJob();
+    status("Running / local simulation");
+    timer = setInterval(() => {
+      if (paused || screen.modal?.id === "cancel-modal") return;
+      ticks++;
+      const before = progress;
+      progress = Math.min(100, progress + +$("workers").value + 2);
+      if ($("verbose").getAttribute("aria-checked") === "true") log(`Processed frame ${ticks}; ${progress}% complete.`);
+      if (Math.floor(progress / 25) !== Math.floor(before / 25)) log(`Step ${Math.floor(progress / 25)} complete.`);
+      updateJob();
+      if (progress === 100) { finish("Session complete / prototype saved (simulated)"); $("views").children[1].focus(); }
+    }, 600);
+  };
+  $("pause").onclick = () => {
+    paused = !paused;
+    $("pause").textContent = paused ? "Resume" : "Pause";
+    log(paused ? "Paused by user." : "Resumed by user.");
+    updateJob(); status(paused ? "Paused / resume when ready" : "Running / local simulation");
+  };
+  $("cancel").onclick = () => screen.open("#cancel-modal");
+  $("confirm-cancel").onclick = () => {
+    screen.close(); finish("Session canceled / log retained");
+    $("job-steps").textContent = $("job-steps").textContent.replace(/running|paused|waiting/g, "canceled");
+    $("views").children[1].focus(); screen.render();
+  };
+  const download = (name, body, type) => {
+    const url = URL.createObjectURL(new Blob([body], { type }));
+    const link = document.createElement("a"); link.href = url; link.download = name; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  $("export").onclick = () => {
+    download("termhtml.ansi", screen.toANSI(), "application/octet-stream");
+    status("Exported / termhtml.ansi");
+  };
+  $("help").onclick = () => screen.open("#help-modal");
+  $("commands").onclick = () => {
+    $("command-filter").value = "";
+    filter($("command-filter"), $("command-list"));
+    screen.open("#command-modal");
+  };
+  $("command-filter").addEventListener("input", () => filter($("command-filter"), $("command-list")));
+  $("command-filter").addEventListener("keydown", event => {
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); $("command-list").focus(); }
+    if (event.key === "Enter") { event.preventDefault(); execute(); }
+  });
+  function execute() {
+    const option = screen.options($("command-list"))[+$("command-list").dataset.selected];
+    if (!option) return;
+    const command = option.dataset.value;
+    screen.close();
+    if (["controls", "queue", "specimen"].includes(command)) { view(command); $("views").children[+$("views").dataset.selected].focus(); }
+    else if (command === "run" && timer) view("queue");
+    else $(command).click();
+  }
+  $("command-go").onclick = execute;
+  $("command-list").addEventListener("activate", execute);
+  $("command-list").addEventListener("dblclick", execute);
+  document.querySelectorAll("[data-close]").forEach(button => { button.onclick = () => screen.close(); });
+  document.addEventListener("keydown", event => {
+    const editing = event.target.matches("input, textarea, [contenteditable]");
+    if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "k") {
+      event.preventDefault(); $("commands").click();
+    } else if (!editing && !screen.modal && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (event.key === "/") { event.preventDefault(); $("filter").focus(); }
+      if (event.key === "?") { event.preventDefault(); $("help").click(); }
+    }
+  });
+  screen.render();
+})();
+</script>
+</body>
+</html>
