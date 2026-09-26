@@ -378,12 +378,10 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     }
     // Rank by spend: express every row in tokens of the priciest listed model.
     var reference: ?prices.Price = null;
-    var reference_model: []const u8 = "";
     for (ranked[0..count]) |row| {
         const price = prices.lookup(row.model) orelse continue;
         if (reference == null or price.input > reference.?.input or (price.input == reference.?.input and price.output > reference.?.output)) {
             reference = price;
-            reference_model = row.model;
         }
     }
     for (ranked[0..count]) |*row| {
@@ -430,14 +428,10 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     const footer = y + height - 2;
     var reference_heading: [32]u8 = undefined;
     try card.overviewRow(heading, "Top agents", "Model", null, if (reference) |price| try std.fmt.bufPrint(&reference_heading, "≈{s}", .{price.label}) else "", .text);
-    var model_text: [160]u8 = undefined;
     var equivalent_text: [48]u8 = undefined;
     for (ranked[0..shown], 0..) |ranked_row, i| {
-        // The diamond marks the model the last column is expressed in.
         const model = if (ranked_row.model.len == 0)
             "—"
-        else if (reference != null and std.mem.eql(u8, ranked_row.model, reference_model))
-            try std.fmt.bufPrint(&model_text, "◆ {s}", .{ranked_row.model})
         else
             ranked_row.model;
         const equivalent = if (reference == null)
@@ -899,7 +893,7 @@ test "overview ranks by tokens of the priciest listed model" {
     // Haiku 42k raw is 8.4k in Opus tokens, below Opus's own 11k.
     try std.testing.expect(std.mem.indexOf(u8, frame, "Opus task").? < std.mem.indexOf(u8, frame, "Haiku task").?);
     try std.testing.expect(std.mem.indexOf(u8, frame, "Haiku task").? < std.mem.indexOf(u8, frame, "Unpriced task").?);
-    for ([_][]const u8{ "≈opus", "◆ claude-opus-5", "8.4k", "11k", "42k", "?" }) |text| {
+    for ([_][]const u8{ "≈opus", "claude-opus-5", "8.4k", "11k", "42k", "?" }) |text| {
         try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
     }
 }
