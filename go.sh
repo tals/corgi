@@ -11,6 +11,7 @@ Usage: ./go.sh [--temp | --env NAME] [--reload | --restart] [COMMAND ...]
   --restart    Confirm before stopping and restarting the selected runtime
 
 With no command, start or attach. Use "onboard" to reopen onboarding.
+Launching the main environment stops all other Corgi daemons owned by you.
 Temporary runtimes keep running after detach; shutdown still asks for confirmation.
 EOF
 }
@@ -117,6 +118,10 @@ confirm_shutdown() {
 }
 # Local development retains the signing identity without needing Apple's timestamp service.
 "$root/scripts/zig" build -Doptimize=ReleaseSafe -Dsigning-timestamp=false
+main_socket=/tmp/corgi-$(id -u)/control.sock
+if [ -z "$environment" ] && [ "${CORGI_SOCKET:-$main_socket}" = "$main_socket" ]; then
+    bun "$root/scripts/stop-other-daemons.ts"
+fi
 if [ "$runtime_action" = "--reload" ]; then
     "$root/zig-out/bin/corgi" reload
     if [ "$#" -eq 0 ]; then exit 0; fi

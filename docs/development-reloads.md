@@ -7,6 +7,12 @@ Normal shutdown terminates processes; cold recovery restores saved context in ne
 shells. Internal interfaces and the wire protocol change together with their callers;
 we do not maintain compatibility adapters for older versions.
 
+A main-environment `./go.sh` launch stops all other Corgi daemons owned by the
+current user, including temporary and named environments, while preserving the
+main daemon and its viewer. Other environments lose their running panes. Shutdown
+is attempted first; unresponsive daemons are terminated. `--temp`, `--env`, and
+an inherited non-main `CORGI_SOCKET` leave other daemons alone.
+
 ## Protocol 1
 
 The Unix socket accepts newline-delimited JSON. Session requests require either
