@@ -13,11 +13,21 @@ pub const Text = struct {
         return t.bytes[0..t.len];
     }
 };
-pub const Info = struct { signed_in: ?bool = null, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: Resets = .{}, usage_needs_consent: bool = false };
+pub const usage_max_age: i64 = 10 * 60;
+pub const Info = struct { signed_in: ?bool = null, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, usage_fetched_at: i64 = 0, usage_error: Text = .{}, resets: Resets = .{}, usage_needs_consent: bool = false };
 
 pub const Resets = struct {
     at: [2]?i64 = .{ null, null },
     labels: [2]Text = .{ .{}, .{} },
+
+    pub fn countdown(r: Resets, label: []const u8, now: i64, buffer: []u8) ?[]const u8 {
+        for (r.at, r.labels) |at, name| {
+            if (std.mem.eql(u8, name.text(), label)) {
+                if (at) |stamp| return resetCountdown(stamp, now, buffer);
+            }
+        }
+        return null;
+    }
 
     pub fn text(r: *const Resets, now: i64) Text {
         var result: Text = .{};

@@ -34,9 +34,9 @@ pub const Row = enum {
 };
 const metadata = @import("account_preview.zig");
 const account_cache = @import("account_cache.zig");
+const usage_cell = @import("launcher_usage.zig");
 pub const Text = metadata.Text;
-pub const Option = struct { signed_in: ?bool = null, model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
-/// `installed` defaults true so older daemons keep showing both providers.
+pub const Option = struct { signed_in: ?bool = null, model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, usage_fetched_at: i64 = 0, usage_error: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
 pub const Preview = struct { pending: bool = true, options: [2]Option = @splat(.{}), installed: [2]bool = .{ true, true } };
 fn installed() [2]bool {
     const discovery = @import("discovery.zig");
@@ -140,8 +140,10 @@ pub const Worker = struct {
                     result.options[0].account = account.account;
                     result.options[0].plan = account.plan;
                     result.options[0].usage = account.usage;
+                    result.options[0].usage_fetched_at = account.usage_fetched_at;
+                    result.options[0].usage_error = account.usage_error;
                     result.options[0].resets = account.resets;
-                } else |_| {}
+                } else |_| result.options[0].usage_error.set("account read failed");
             }
             if (result.installed[1]) {
                 result.options[1] = claude(job.cwd[0..job.len]);
@@ -150,6 +152,8 @@ pub const Worker = struct {
                 result.options[1].account = account.account;
                 result.options[1].plan = account.plan;
                 result.options[1].usage = account.usage;
+                result.options[1].usage_fetched_at = account.usage_fetched_at;
+                result.options[1].usage_error = account.usage_error;
                 result.options[1].resets = account.resets;
                 result.options[1].usage_needs_consent = account.usage_needs_consent;
             }
@@ -184,32 +188,35 @@ fn codexAccount(pool: *@import("inference.zig").Pool, stopping: *const std.atomi
     var cache = try account_cache.Cache.open("codex", identity, stopping);
     defer cache.close();
     const now = std.time.timestamp();
-    if (now < cache.state.next_usage) return cache.state.display();
+    if (now < cache.state.next_usage) return cache.state.display(now);
     cache.state.next_usage = now + account_cache.interval;
     try cache.save();
-    const fresh = pool.configuredAccount(stopping) catch {
-        cache.state.usage_stale = true;
+    const fresh = pool.configuredAccount(stopping) catch |err| {
+        cache.state.failed(if (err == error.Timeout) "request timed out" else "account read failed");
         try cache.save();
-        return cache.state.display();
+        return cache.state.display(std.time.timestamp());
     };
-    cache.state.update(fresh);
+    cache.state.update(fresh, std.time.timestamp());
     try cache.save();
-    return cache.state.display();
+    return cache.state.display(std.time.timestamp());
 }
 fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), request_access: bool) metadata.Info {
     // Never invoke `claude auth status` here: the CLI can perform its own
     // prompt-capable Keychain read outside our helper's interaction guard.
     var info: metadata.Info = .{};
+    info.usage_error.set("credentials unavailable");
     if (os.env("ANTHROPIC_API_KEY") != null or os.env("ANTHROPIC_AUTH_TOKEN") != null) {
         info.signed_in = true;
         info.account.set("API key");
         info.plan.set("API");
         info.usage.set("Metered");
+        info.usage_error = .{};
         return info;
     }
     if (os.env("CLAUDE_CODE_OAUTH_TOKEN") != null) {
         info.signed_in = true;
         info.account.set("OAuth token");
+        info.usage_error.set("token usage unsupported");
         return info;
     }
     for ([_][:0]const u8{ "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY" }) |name| {
@@ -217,6 +224,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
             info.signed_in = true;
             info.account.set("External provider");
             info.usage.set("Metered");
+            info.usage_error = .{};
             return info;
         }
     }
@@ -260,36 +268,47 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     info.signed_in = true;
     // Restrict header syntax; the token goes through stdin, never process argv.
     for (token) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '_' and ch != '.') return info;
-    const expires = common.field(oauth, "expiresAt");
-    if (expires == .integer and expires.integer <= std.time.milliTimestamp()) return info;
-    var cache = account_cache.Cache.open("claude", token, stopping) catch return info;
+    var cache = account_cache.Cache.open("claude", token, stopping) catch {
+        info.usage_error.set("cache read failed");
+        return info;
+    };
     defer cache.close();
     cache.state.info.signed_in = true;
     cache.state.info.plan = info.plan;
     const now = std.time.timestamp();
+    const expires = common.field(oauth, "expiresAt");
+    if (expires == .integer and expires.integer <= std.time.milliTimestamp()) {
+        cache.state.failed("access token expired");
+        return cache.state.display(now);
+    }
     const fetch_usage = now >= cache.state.next_usage;
     const fetch_profile = now >= cache.state.next_profile;
     // Persist reservations before making requests, including failures/reloads.
     if (fetch_usage) cache.state.next_usage = now + account_cache.interval;
     if (fetch_profile) cache.state.next_profile = now + account_cache.interval;
-    cache.save() catch return info;
+    cache.save() catch {
+        cache.state.failed("cache write failed");
+        return cache.state.display(now);
+    };
     const headers = std.fmt.allocPrint(a, "Authorization: Bearer {s}\nanthropic-beta: oauth-2025-04-20\nAccept: application/json\nContent-Type: application/json\n", .{token}) catch return info;
     defer a.free(headers);
     if (fetch_usage) {
-        cache.state.usage_stale = true;
+        cache.state.failed("request failed or timed out");
         if (command(&.{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/usage" }, cwd, headers, stopping, 3500)) |bytes| {
             defer a.free(bytes);
             const reply = account_cache.response(bytes, now);
             cache.state.next_usage = account_cache.nextAttempt(reply, now);
-            cache.state.rate_limited = reply.status == 429;
+            cache.state.failedResponse(reply.status);
             if (reply.status == 200) {
+                cache.state.failed("invalid usage response");
                 if (std.json.parseFromSlice(std.json.Value, a, reply.body, .{})) |parsed| {
                     defer parsed.deinit();
                     const usage = metadata.usage(parsed.value, false);
                     if (usage.len > 0) {
                         cache.state.info.usage = usage;
+                        cache.state.info.usage_fetched_at = std.time.timestamp();
+                        cache.state.info.usage_error = .{};
                         cache.state.info.resets = metadata.resets(parsed.value, false);
-                        cache.state.usage_stale = false;
                     }
                 } else |_| {}
             }
@@ -319,7 +338,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     }
     if (cache.state.info.account.len == 0) cache.state.info.account.set("Signed in");
     cache.save() catch {};
-    return cache.state.display();
+    return cache.state.display(std.time.timestamp());
 }
 // Serial metadata worker owns this child slot, including the daemon's reaper.
 fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stopping: *const std.atomic.Value(bool), timeout_ms: u32) ?[]u8 {
@@ -450,26 +469,26 @@ pub const Menu = struct {
     /// Ctrl-B arrived while pinned; Cmd+T sends Ctrl-B A, so a repeat opens a terminal.
     prefix: bool = false,
     preview: Preview = .{},
-    const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used)", "Resets in" };
-    fn cells(m: *const Menu, index: usize, reset_text: *Text) [7][]const u8 {
+    const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in" };
+    fn cells(m: *const Menu, index: usize) [6][]const u8 {
         const option = &m.preview.options[index];
-        reset_text.* = option.resets.text(std.time.timestamp());
         return .{
             if (index == 0) "Codex" else "Claude Code",
             if (m.yolo[index]) "✓" else "·",
             if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
-            if (m.trackable(@enumFromInt(index))) "Track usage" else if (option.usage.len > 0) option.usage.text() else if (m.preview.pending) "Reading…" else "Unavailable",
-            if (reset_text.len > 0) reset_text.text() else if (m.preview.pending) "Reading…" else "—",
+            if (m.trackable(@enumFromInt(index))) "Track usage" else if (option.usage.len > 0)
+                (if (option.usage_fetched_at > 0 and std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age and !std.mem.eql(u8, option.usage.text(), "Metered")) "Unavailable" else option.usage.text())
+            else if (m.preview.pending) "Reading…" else "Unavailable",
         };
     }
-    fn customCells(m: *const Menu, index: usize, reset_text: *Text) [7][]const u8 {
+    fn customCells(m: *const Menu, index: usize) [6][]const u8 {
         const entry = &m.commands[index];
         const info = &entry.semantics;
         const shared = info.default_account and info.provider != .other;
         const provider: usize = if (info.provider == .claude) 1 else 0;
-        var values: [7][]const u8 = if (shared) m.cells(provider, reset_text) else .{ "", "", "Default", "", "—", "—", "—" };
+        var values: [6][]const u8 = if (shared) m.cells(provider) else .{ "", "", "Default", "", "—", "—" };
         values[0] = entry.label();
         values[1] = if (std.mem.eql(u8, info.mode.text(), "Skips permission checks")) "✓" else "·";
         if (info.model.len > 0) values[2] = info.model.text();
@@ -477,6 +496,20 @@ pub const Menu = struct {
         // Tracking actions belong to built-in rows; saved commands only show data.
         if (shared and m.trackable(@enumFromInt(provider))) values[5] = "Unavailable";
         return values;
+    }
+    fn usageCell(m: *const Menu, row: Row, text: []const u8) usage_cell.Cell {
+        const provider = row.agent() orelse if (row.custom()) |i| blk: {
+            const info = m.commands[i].semantics;
+            if (!info.default_account or info.provider == .other) break :blk null;
+            break :blk @as(?Provider, if (info.provider == .claude) .claude else .codex);
+        } else null;
+        if (std.mem.eql(u8, text, "Unavailable") or std.mem.eql(u8, text, "Rate limited")) {
+            if (provider) |p| {
+                const option = &m.preview.options[@intFromEnum(p)];
+                return usage_cell.Cell.unavailable(if (option.usage_error.len > 0) option.usage_error.text() else if (option.usage_fetched_at > 0) "last success 10m+ ago" else "no usage received");
+            }
+        }
+        return usage_cell.Cell.init(text, if (provider) |p| m.preview.options[@intFromEnum(p)].resets else .{}, std.time.timestamp());
     }
     /// Management includes unavailable providers so preferences stay editable.
     pub fn shown(m: *const Menu, row: Row) bool {
@@ -543,33 +576,43 @@ pub const Menu = struct {
     }
     pub fn bounds(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View) @import("layout.zig").Rect {
         var content: u16 = 4;
-        for (m.columns(cols)) |width| content += width;
+        for (m.columnSizes().preferred) |width| content += width;
         const width = @min(cols, if (m.managing) @as(u16, 82) else @max(@as(u16, 40), content));
         const height = @min(rows, m.rowsHeight());
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
-    fn columns(m: *const Menu, width: u16) [7]u16 {
-        var widths: [7]u16 = undefined;
+    fn columnSizes(m: *const Menu) struct { preferred: [6]u16, usage_minimum: u16 } {
+        var widths: [6]u16 = undefined;
         for (headings, &widths) |heading, *size| size.* = @intCast(@import("sidebar.zig").displayWidth(heading));
-        for (0..m.preview.options.len) |index| {
-            if (!m.shown(@enumFromInt(index))) continue;
-            var reset_text: Text = undefined;
-            for (m.cells(index, &reset_text), &widths) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
+        var usage_minimum = widths[5];
+        for (std.enums.values(Row)) |row| {
+            if (!m.shown(row) or (row.agent() == null and row.custom() == null)) continue;
+            const values = if (row.custom()) |i| m.customCells(i) else m.cells(@intFromEnum(row));
+            for (values[0..5], widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
+            const cell = m.usageCell(row, values[5]);
+            widths[5] = @max(widths[5], @as(u16, @intCast(cell.preferredWidth())));
+            usage_minimum = @max(usage_minimum, @as(u16, @intCast(cell.minimumWidth())));
         }
-        for (&m.commands, 0..) |entry, index| {
-            if (entry.len == 0 or entry.hidden) continue;
-            var reset_text: Text = undefined;
-            for (m.customCells(index, &reset_text), &widths) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
-        }
-        for (&widths, 0..) |*size, column| size.* += if (column == 6) 1 else 2;
+        for (&widths, 0..) |*size, column| size.* += if (column == 5) 1 else 2;
         widths[0] += 4; // Left shortcut keycap and its following space.
+        return .{ .preferred = widths, .usage_minimum = usage_minimum + 1 };
+    }
+    fn columns(m: *const Menu, width: u16) [6]u16 {
+        const sizes = m.columnSizes();
+        var widths = sizes.preferred;
         const available = width -| 4;
-        var minimum = [_]u16{ 17, 6, 7, 9, 6, 14, 10 };
-        if (available < 65) {
-            widths[3] = 0;
-            widths[2] = 0;
-            minimum[3] = 0;
-            minimum[2] = 0;
+        var minimum = [_]u16{ 17, 6, 9, 18, 6, sizes.usage_minimum };
+        if (width < 64) {
+            widths[1] = 3; // A one-cell Y heading and toggle, plus its gutter.
+            minimum[1] = 3;
+        }
+        // Give up metadata columns before truncating reported limits and resets.
+        for ([_]usize{ 3, 2, 4 }) |column| {
+            var needed: u16 = 0;
+            for (minimum, widths) |size, preferred| needed += @min(size, preferred);
+            if (needed <= available) break;
+            widths[column] = 0;
+            minimum[column] = 0;
         }
         var total: u16 = 0;
         for (widths) |size| total += size;
@@ -806,7 +849,8 @@ pub const Menu = struct {
         for (headings, widths, 0..) |heading, width, column| {
             if (width == 0 or (m.managing and column != 0)) continue;
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + 2, heading_x + @as(u16, if (column == 0) 4 else 0), panel });
-            try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 0) 6 else if (column == 6) 1 else 2));
+            const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
+            try sidebar.writeEllipsis(w, if (column == 1 and room < 4) "Y" else if (column == 5 and room < sidebar.displayWidth(heading)) (if (room >= 14) "Usage · resets" else "Usage") else heading, room);
             heading_x += width;
         }
         for (0..m.count()) |visible| {
@@ -855,17 +899,16 @@ pub const Menu = struct {
                 continue;
             }
             var x: u16 = b.x + 4;
-            var reset_text: Text = undefined;
-            const values = if (current.custom()) |index| m.customCells(index, &reset_text) else m.cells(i, &reset_text);
+            const values = if (current.custom()) |index| m.customCells(index) else m.cells(i);
             const yolo = std.mem.eql(u8, values[1], "✓");
             for (values, widths, 0..) |text, width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
                 if (column == 5 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
                 if (column == 1 and yolo) try w.writeAll("\x1b[1;38;2;255;255;255m");
-                const room = width -| @as(u16, if (column == 0) 6 else if (column == 6) 1 else 2);
-                if (column >= 5) {
-                    try writeWindowCell(w, text, room, style);
+                const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
+                if (column == 5) {
+                    try m.usageCell(current, text).write(w, room, style);
                 } else try sidebar.writeEllipsis(w, text, room);
                 try w.writeAll("\x1b[24m");
                 if (column == 1 and yolo) try w.writeAll(style);
@@ -904,32 +947,6 @@ pub const Menu = struct {
 /// Draw a one-letter keycap, then restore the surrounding style.
 fn writeKey(w: *std.Io.Writer, key: []const u8, after: []const u8) !void {
     try w.print("\x1b[0;1;38;2;226;230;233;48;2;74;83;94m {s} {s}", .{ key, after });
-}
-
-// Clip plain text before adding SGR so styling never consumes column width.
-fn writeWindowCell(w: *std.Io.Writer, text: []const u8, width: usize, row_style: []const u8) !void {
-    var buffer: [192]u8 = undefined;
-    var clipped = std.Io.Writer.fixed(&buffer);
-    try @import("sidebar.zig").writeEllipsis(&clipped, text, width);
-    var windows = std.mem.splitSequence(u8, clipped.buffered(), " / ");
-    var first = true;
-    while (windows.next()) |part| {
-        if (!first) try w.writeAll(" / ");
-        first = false;
-        const end = std.mem.indexOfScalar(u8, part, ' ') orelse part.len;
-        const label = part[0..end];
-        const is_window = std.mem.eql(u8, label, "Window") or (label.len >= 2 and
-            std.mem.indexOfScalar(u8, "mhd", label[label.len - 1]) != null and
-            for (label[0 .. label.len - 1]) |ch| {
-                if (!std.ascii.isDigit(ch)) break false;
-            } else true);
-        if (is_window) {
-            try w.writeAll("\x1b[1;38;2;137;190;226m");
-            try w.writeAll(label);
-            try w.writeAll(row_style);
-            try w.writeAll(part[end..]);
-        } else try w.writeAll(part);
-    }
 }
 
 test "launch preview settings overlay and menu bounds" {
@@ -978,6 +995,70 @@ test "launcher fits long content and keeps usage hit targets aligned" {
         const usage_x = b.x + 3 + fitted[0] + fitted[1] + fitted[2] + fitted[3] + fitted[4];
         try std.testing.expectEqual(Provider.claude, menu.usageHit(cols, 24, side, usage_x, b.y + 3).?);
     }
+}
+
+test "single-line limit groups survive narrow terminal rendering" {
+    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    menu.preview.pending = false;
+    menu.preview.options[0].usage.set("7d 48%");
+    menu.preview.options[1].usage.set("5h 17% / 7d 35%");
+    const now = std.time.timestamp();
+    menu.preview.options[0].resets.at[1] = now + 6 * 86400 + 18 * 3600;
+    menu.preview.options[0].resets.labels[1].set("7d");
+    menu.preview.options[1].resets.at = .{ now + 99 * 60, now + 86400 + 15 * 3600 };
+    menu.preview.options[1].resets.labels[0].set("5h");
+    menu.preview.options[1].resets.labels[1].set("7d");
+    for (&menu.preview.options) |*option| {
+        option.usage_fetched_at = now;
+        option.account.set("toasty.tal@gmail.com");
+        option.model.set("gpt-6-astra");
+        option.plan.set("pro");
+    }
+    for ([_]u16{ 60, 80, 100, 124 }) |cols| {
+        const side = @import("sidebar.zig").View.init(cols, 24, true, 0, 0);
+        var output: std.Io.Writer.Allocating = .init(a);
+        defer output.deinit();
+        try menu.draw(&output.writer, cols, 24, side);
+        const terminal = try @import("terminal.zig").Terminal.create(cols, 24);
+        defer terminal.destroy();
+        terminal.feed(output.written());
+        const rendered = try terminal.text();
+        defer a.free(rendered);
+        var found: [2]usize = .{ 0, 0 };
+        var lines = std.mem.splitScalar(u8, rendered, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.indexOf(u8, line, "Codex") != null) {
+                found[0] += 1;
+                try std.testing.expect(std.mem.indexOf(u8, line, "7d") != null);
+                try std.testing.expect(std.mem.indexOf(u8, line, "48%") != null);
+                try std.testing.expect(std.mem.indexOf(u8, line, "6d 18h") != null);
+                try std.testing.expect(std.mem.indexOf(u8, line, "5h") == null);
+            }
+            if (std.mem.indexOf(u8, line, "Claude Code") != null) {
+                found[1] += 1;
+                for ([_][]const u8{ "5h", "17%", "1h 39m", " │ 7d", "35%", "1d 15h" }) |value|
+                    try std.testing.expect(std.mem.indexOf(u8, line, value) != null);
+            }
+            try std.testing.expect(@import("sidebar.zig").displayWidth(line) <= cols);
+        }
+        try std.testing.expectEqual([2]usize{ 1, 1 }, found);
+        const b = menu.bounds(cols, 24, side);
+        const x = b.x + 3 + menu.columns(b.w)[0];
+        try std.testing.expectEqual(Provider.codex, menu.yoloHit(cols, 24, side, x, b.y + 2).?);
+    }
+}
+
+test "viewer expires a delivered usage reading after ten minutes" {
+    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    menu.preview.pending = false;
+    const option = &menu.preview.options[0];
+    option.usage.set("7d 48%");
+    option.usage_fetched_at = std.time.timestamp() - 590;
+    try std.testing.expectEqualStrings("7d 48%", menu.cells(0)[5]);
+    option.usage_fetched_at = std.time.timestamp() - metadata.usage_max_age;
+    try std.testing.expectEqualStrings("Unavailable", menu.cells(0)[5]);
+    option.usage.set("Metered");
+    try std.testing.expectEqualStrings("Metered", menu.cells(0)[5]);
 }
 
 fn parseAccount(bytes: []const u8) Text {
@@ -1054,14 +1135,13 @@ test "custom picker cells preserve account scope and permission state" {
     menu.preview.options[1].model.set("opus");
     try menu.commands[0].set("claude --dangerously-skip-permissions");
     menu.commands[0].semantics = @import("launch_command.zig").analyze(menu.commands[0].text(), "/tmp");
-    var reset: Text = .{};
-    var values = menu.customCells(0, &reset);
+    var values = menu.customCells(0);
     try std.testing.expectEqualStrings("personal@example.com", values[3]);
     try std.testing.expectEqualStrings("✓", values[1]);
     try std.testing.expectEqualStrings("Max", values[4]);
     menu.commands[0].semantics.default_account = false;
     menu.commands[0].semantics.account.set("work@example.com (cached)");
-    values = menu.customCells(0, &reset);
+    values = menu.customCells(0);
     try std.testing.expectEqualStrings("work@example.com (cached)", values[3]);
     try std.testing.expectEqualStrings("—", values[4]);
     try std.testing.expectEqualStrings("—", values[5]);

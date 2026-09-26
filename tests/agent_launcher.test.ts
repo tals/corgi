@@ -1060,6 +1060,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     this.assertEqual(fixed(option.account), "claude@example.com");
     this.assertEqual(fixed(option.usage), "5h 12% / 7d 48%");
     this.assertEqual(option.usage_fetched_at, fetchedAt);
+    this.assertEqual(fixed(option.usage_error), "server returned 429");
     this.assertEqual(json(cache).info.usage_fetched_at, fetchedAt);
     this.assertGreaterEqual(json(cache).next_usage, Date.now() / 1000 + 115);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
@@ -1073,6 +1074,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     writeFileSync(cache, JSON.stringify(aged));
     const stale = await this.directoryPreview("stale");
     this.assertEqual(fixed(stale.usage), "Unavailable");
+    this.assertEqual(fixed(stale.usage_error), "server returned 429");
     this.assertTrue(stale.resets.at.every((stamp: any) => stamp === null));
     this.assertEqual(fixed(json(cache).info.usage), "5h 12% / 7d 48%");
     this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 2);
@@ -1092,6 +1094,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     this.assertEqual(fixed(refreshed.usage), "5h 12% / 7d 48%");
     this.assertGreaterEqual(refreshed.usage_fetched_at, fetchedAt);
     this.assertEqual(json(cache).info.usage_fetched_at, refreshed.usage_fetched_at);
+    this.assertEqual(fixed(refreshed.usage_error), "");
 
     const credentials = join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json");
     const expired = json(credentials);
@@ -1101,6 +1104,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     const expiredToken = await this.directoryPreview("expired-token");
     this.assertEqual(fixed(expiredToken.usage), "5h 12% / 7d 48%");
     this.assertEqual(expiredToken.usage_fetched_at, refreshed.usage_fetched_at);
+    this.assertEqual(fixed(expiredToken.usage_error), "access token expired");
     this.assertEqual(lines(log).length, requests);
   }
   async test_first_usage_429_still_fetches_profile() {
@@ -1109,8 +1113,14 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     const option = await this.directoryPreview("limited-first");
     this.assertEqual(fixed(option.account), "claude@example.com");
     this.assertEqual(fixed(option.usage), "Rate limited");
+    this.assertEqual(fixed(option.usage_error), "server returned 429");
     await this.directoryPreview("another-directory");
     this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 1);
+    const view = await Viewer.create(this, 120, 30);
+    await view.input("\x02a");
+    await this.until(async () => screen_text((await view.poll()).data, 120, 30).some(
+      (row) => row.includes("Claude Code") && row.includes("Unavailable · server returned 429"),
+    ));
   }
   async consentFixture(allowed = false, deny = false) {
     await this.run_cli("shutdown");

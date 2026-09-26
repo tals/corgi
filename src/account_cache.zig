@@ -10,25 +10,43 @@ pub const State = struct {
     info: metadata.Info = .{},
     next_usage: i64 = 0,
     next_profile: i64 = 0,
-    usage_stale: bool = false,
     rate_limited: bool = false,
 
-    pub fn update(s: *State, fresh: metadata.Info) void {
+    pub fn update(s: *State, fresh: metadata.Info, now: i64) void {
         const previous = s.info;
         s.info = fresh;
-        s.usage_stale = fresh.signed_in == true and fresh.usage.len == 0 and previous.usage.len > 0;
-        if (s.usage_stale) {
+        if (fresh.usage.len > 0) {
+            s.info.usage_fetched_at = now;
+        } else if (fresh.signed_in == true and previous.usage.len > 0) {
             s.info.usage = previous.usage;
             s.info.resets = previous.resets;
+            s.info.usage_fetched_at = previous.usage_fetched_at;
         }
     }
-    pub fn display(s: State) metadata.Info {
+    pub fn display(s: State, now: i64) metadata.Info {
         var result = s.info;
-        if (s.usage_stale and result.usage.len > 0) {
-            var buffer: [200]u8 = undefined;
-            result.usage.set(std.fmt.bufPrint(&buffer, "{s} (cached)", .{s.info.usage.text()}) catch "Cached usage");
+        if (s.rate_limited and result.usage_error.len == 0) result.usage_error.set("server returned 429");
+        if (result.usage.len > 0) {
+            if (!std.mem.eql(u8, result.usage.text(), "Metered") and
+                (result.usage_fetched_at <= 0 or now -| result.usage_fetched_at >= metadata.usage_max_age))
+            {
+                result.usage.set("Unavailable");
+                result.resets = .{};
+                if (result.usage_error.len == 0) result.usage_error.set(if (result.usage_fetched_at <= 0) "fetch time unknown" else "last success 10m+ ago");
+            }
         } else if (s.rate_limited) result.usage.set("Rate limited");
         return result;
+    }
+
+    pub fn failed(s: *State, reason: []const u8) void {
+        s.rate_limited = false;
+        s.info.usage_error.set(reason);
+    }
+
+    pub fn failedResponse(s: *State, status: u16) void {
+        var buffer: [48]u8 = undefined;
+        s.failed(if (status == 0) "request failed" else std.fmt.bufPrint(&buffer, "server returned {d}", .{status}) catch "request failed");
+        s.rate_limited = status == 429;
     }
 };
 pub const Cache = struct {
@@ -127,16 +145,54 @@ test "partial account refresh retains usage until a fresh reading or sign-out" {
     fresh.account.set("user@example.com");
     fresh.usage.set("5h 12%");
     fresh.resets.at[0] = 1700001000;
-    state.update(fresh);
+    state.update(fresh, 1000);
     fresh.usage = .{};
     fresh.resets = .{};
-    state.update(fresh);
-    try std.testing.expectEqualStrings("5h 12% (cached)", state.display().usage.text());
+    state.update(fresh, 1100);
+    try std.testing.expectEqualStrings("5h 12%", state.display(1100).usage.text());
+    try std.testing.expectEqual(@as(i64, 1000), state.info.usage_fetched_at);
     try std.testing.expectEqual(@as(?i64, 1700001000), state.info.resets.at[0]);
     fresh.usage.set("5h 14%");
-    state.update(fresh);
-    try std.testing.expect(!state.usage_stale);
+    state.update(fresh, 1200);
+    try std.testing.expectEqual(@as(i64, 1200), state.info.usage_fetched_at);
     try std.testing.expectEqualStrings("5h 14%", state.info.usage.text());
-    state.update(.{ .signed_in = false });
+    state.update(.{ .signed_in = false }, 1300);
     try std.testing.expectEqual(@as(usize, 0), state.info.usage.len);
+}
+
+test "usage age follows successful fetches and expires at ten minutes" {
+    var state: State = .{};
+    var fresh: metadata.Info = .{ .signed_in = true };
+    fresh.usage.set("7d 48%");
+    fresh.resets.at[1] = 90000;
+    state.update(fresh, 1000);
+    state.rate_limited = true;
+    state.next_usage = 2000;
+    state.update(.{ .signed_in = true }, 1500);
+    try std.testing.expectEqualStrings("7d 48%", state.display(1599).usage.text());
+    try std.testing.expectEqualStrings("Unavailable", state.display(1600).usage.text());
+    try std.testing.expectEqual(@as(?i64, null), state.display(1600).resets.at[1]);
+    try std.testing.expectEqualStrings("7d 48%", state.info.usage.text());
+    try std.testing.expectEqual(@as(i64, 1000), state.info.usage_fetched_at);
+    state.update(fresh, 1601);
+    try std.testing.expectEqualStrings("7d 48%", state.display(1601).usage.text());
+    state.info.usage_fetched_at = 0;
+    try std.testing.expectEqualStrings("Unavailable", state.display(1601).usage.text());
+}
+
+test "usage failures preserve recent readings and give stale readings a reason" {
+    var state: State = .{};
+    var fresh: metadata.Info = .{ .signed_in = true };
+    fresh.usage.set("7d 48%");
+    state.update(fresh, 1000);
+    state.failedResponse(429);
+    try std.testing.expectEqualStrings("7d 48%", state.display(1100).usage.text());
+    try std.testing.expectEqualStrings("server returned 429", state.display(1600).usage_error.text());
+    state.failedResponse(503);
+    try std.testing.expectEqualStrings("server returned 503", state.display(1600).usage_error.text());
+    state.failedResponse(0);
+    try std.testing.expectEqualStrings("request failed", state.display(1600).usage_error.text());
+    state.update(fresh, 1601);
+    try std.testing.expectEqual(@as(usize, 0), state.info.usage_error.len);
+    try std.testing.expectEqualStrings("last success 10m+ ago", state.display(2201).usage_error.text());
 }

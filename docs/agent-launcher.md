@@ -34,6 +34,13 @@ project, local, and local managed settings. Aliases stay aliases; account policy
 trust, and dynamic defaults remain provider decisions. Missing or unreadable
 configuration displays `Provider default` instead of guessing a specific model.
 
+Usage stays on that same row. Each reported limit groups its window, usage bar,
+percent used, and reset countdown, with `·` before the countdown and `│` between
+limits. A missing limit is omitted; a reported zero remains visible. Unknown
+reset times display `unknown`. Cached readings use the same presentation. Bars
+shrink away on narrow terminals, with account/model/plan columns yielding space
+before the usage text is clipped.
+
 Viewers keep an `agent.subscribe` stream for the active directory, including while
 the picker is closed. The daemon sends the cached preview immediately, refreshes
 subscribed directories every sixty seconds, and pushes changed snapshots. Opening
@@ -137,5 +144,10 @@ stored in this cache. Like CodexBar's `ClaudeOAuthUsageRateLimitGate`, Claude 42
 responses honor `Retry-After` (seconds or HTTP date), with a five-minute fallback
 and a one-minute minimum. Explicit tracking requests do not bypass this gate.
 The profile request runs independently of usage, so a usage failure does not hide
-account identity. Failed refreshes retain prior usage with a `(cached)` marker;
-a first-time 429 displays `Rate limited`. A credential change uses a separate cache.
+account identity. Failed refreshes keep showing the last successful usage reading
+without a cache indicator. Its successful-fetch timestamp persists with the value;
+retries, profile reads, and reloads do not renew it. At ten minutes old, usage shows
+`Unavailable` until a successful refresh. The picker includes the reason, such as
+`Unavailable · server returned 429`, an expired access token, or an invalid response.
+Recent cached values keep their normal presentation even when a refresh fails.
+A credential change uses a separate cache.

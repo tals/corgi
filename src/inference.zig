@@ -442,7 +442,8 @@ pub const Pool = struct {
         var response = metadata.codexAccount(account);
         if (!eq(str(account, "type"), "chatgpt")) return response;
         // A limits failure must not discard the identity/plan we already read.
-        const limits = slot.*.?.rpc("account/rateLimits/read", .{}, stopping, deadline) catch {
+        const limits = slot.*.?.rpc("account/rateLimits/read", .{}, stopping, deadline) catch |err| {
+            response.usage_error.set(if (err == error.Timeout) "request timed out" else "usage request failed");
             slot.*.?.close();
             slot.* = null;
             return response;
@@ -452,6 +453,7 @@ pub const Pool = struct {
         const bucket = field(field(result, "rateLimitsByLimitId"), "codex");
         const rates = if (bucket != .null) bucket else field(result, "rateLimits");
         response.usage = metadata.usage(rates, true);
+        if (response.usage.len == 0) response.usage_error.set("no usage returned");
         response.resets = metadata.resets(rates, true);
         return response;
     }
