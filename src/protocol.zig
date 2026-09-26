@@ -12,6 +12,7 @@ pub const capabilities = [_][]const u8{
     "session.list",
     "session.snapshot",
     "session.subscribe",
+    "agent.subscribe",
     "viewer.open",
     "viewer.sync",
     "viewer.search",

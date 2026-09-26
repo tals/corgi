@@ -142,6 +142,25 @@ pub const Server = struct {
         cl.last_snapshot = std.time.milliTimestamp();
     }
 
+    fn publishLaunchPreview(s: *Server, cl: *Client) !void {
+        const subscription = if (cl.launch_preview) |*value| value else return;
+        const worker = s.launch_previews orelse return;
+        const now = std.time.milliTimestamp();
+        if (cl.dead or cl.output.items.len != 0 or now - subscription.checked < 100) return;
+        subscription.checked = now;
+        const cwd = subscription.cwd[0..subscription.len];
+        var preview = worker.preview(cwd);
+        // A replacement daemon starts with an empty worker cache. Keep the
+        // subscriber's last values visible until the fresh read completes.
+        if (preview.pending) {
+            preview = subscription.preview;
+            preview.pending = true;
+        }
+        if (std.meta.eql(preview, subscription.preview)) return;
+        try cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
+        subscription.preview = preview;
+    }
+
     fn runtimeRequest(s: *Server, cl: *Client, v: std.json.Value) !bool {
         const op = agents.str(v, "op");
         if (eq(op, "hello")) {
@@ -158,7 +177,7 @@ pub const Server = struct {
         if (!known) return false;
         try protocol.require(v, cl.protocol_version);
         if (eq(op, "session.snapshot") or eq(op, "session.subscribe")) {
-            if (eq(op, "session.subscribe") and cl.viewer) return error.AlreadyAttached;
+            if (eq(op, "session.subscribe") and (cl.viewer or cl.launch_preview != null)) return error.AlreadyAttached;
             try s.queueSession(cl);
             if (eq(op, "session.subscribe")) cl.subscribed = true;
         } else if (eq(op, "conversation.list")) {
@@ -250,14 +269,20 @@ pub const Server = struct {
             try cl.queue(.{ .ok = true, .resolution = try worker.request(id, agents.str(v, "command"), cwd) });
             return;
         }
-        if (eq(operation, "agent.preview") or eq(operation, "agent.track_usage")) {
+        if (eq(operation, "agent.preview") or eq(operation, "agent.track_usage") or eq(operation, "agent.subscribe")) {
             try protocol.require(v, cl.protocol_version);
+            const subscribe = eq(operation, "agent.subscribe");
+            if (subscribe and (cl.viewer or cl.subscribed)) return error.AlreadyAttached;
             const ws = try s.runtime.getWorkspace(try protocol.id(v, "workspace"));
             const requested = agents.str(v, "cwd");
             const cwd = if (requested.len > 0) requested else ws.cwd;
-            if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
+            if (!std.fs.path.isAbsolute(cwd) or cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
             const preview = if (s.launch_previews) |worker| (if (eq(operation, "agent.track_usage")) worker.trackUsage(cwd) else worker.preview(cwd)) else @import("agent_launcher.zig").Preview{};
-            try cl.queue(.{ .ok = true, .preview = preview });
+            if (subscribe) {
+                cl.launch_preview = .{ .len = cwd.len, .preview = preview, .checked = std.time.milliTimestamp() };
+                @memcpy(cl.launch_preview.?.cwd[0..cwd.len], cwd);
+                try cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
+            } else try cl.queue(.{ .ok = true, .preview = preview });
             return;
         }
         if (eq(operation, "inference.configure")) {
@@ -823,7 +848,7 @@ pub const Server = struct {
                     std.mem.copyForwards(u8, cl.input.items[0 .. cl.input.items.len - consumed], cl.input.items[consumed..]);
                     cl.input.items.len -= consumed;
                 }
-                if (!cl.viewer and !cl.subscribed and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
+                if (!cl.viewer and !cl.subscribed and cl.launch_preview == null and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
                 if (cl.dead) {
                     cl.deinit();
                     _ = s.clients.orderedRemove(ci);
@@ -861,6 +886,7 @@ pub const Server = struct {
                 s.last_bell = std.time.milliTimestamp();
             }
             for (s.clients.items) |*cl| {
+                try s.publishLaunchPreview(cl);
                 if (cl.subscribed and !cl.dead and cl.output.items.len == 0 and
                     cl.snapshot_revision != s.runtime.revision and std.time.milliTimestamp() - cl.last_snapshot >= 30)
                 {
@@ -987,6 +1013,37 @@ test "local Codex reattachment requires current unambiguous identity and preserv
     s.reattachCodex(p, 42);
     try std.testing.expect(p.attachment.actor == null);
 }
+test "preview subscriptions schedule stale refreshes and publish completion without another request" {
+    var preview: @import("agent_launcher.zig").Preview = .{ .pending = false };
+    preview.options[1].model.set("before");
+    var worker: @import("agent_launcher.zig").Worker = .{};
+    worker.jobs[0] = .{ .len = 1, .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
+    worker.jobs[0].?.cwd[0] = '/';
+    var s: Server = .{ .socket = "", .executable = "", .launch_previews = &worker };
+    var cl: Client = .{ .fd = -1, .launch_preview = .{ .len = 1, .preview = preview } };
+    defer cl.output.deinit(a);
+    cl.launch_preview.?.cwd[0] = '/';
+    try s.publishLaunchPreview(&cl);
+    try std.testing.expect(worker.jobs[0].?.queued);
+    try std.testing.expect(cl.launch_preview.?.preview.pending);
+    try std.testing.expectEqualStrings("before", cl.launch_preview.?.preview.options[1].model.text());
+    cl.output.clearRetainingCapacity();
+    cl.launch_preview.?.checked = 0;
+    worker.jobs[0].?.updated = std.time.milliTimestamp();
+    worker.jobs[0].?.preview.pending = false;
+    worker.jobs[0].?.preview.options[1].model.set("after");
+    try s.publishLaunchPreview(&cl);
+    const message = try std.json.parseFromSlice(std.json.Value, a, cl.output.items, .{});
+    defer message.deinit();
+    try std.testing.expectEqualStrings("agent.preview", agents.str(message.value, "type"));
+    try std.testing.expect(!cl.launch_preview.?.preview.pending);
+    try std.testing.expectEqualStrings("after", cl.launch_preview.?.preview.options[1].model.text());
+    cl.output.clearRetainingCapacity();
+    cl.launch_preview.?.checked = 0;
+    try s.publishLaunchPreview(&cl);
+    try std.testing.expectEqual(@as(usize, 0), cl.output.items.len);
+}
+
 fn number(v: std.json.Value, key: []const u8, default: i64) i64 {
     if (v != .object) return default;
     const n = v.object.get(key) orelse return default;

@@ -34,9 +34,14 @@ project, local, and local managed settings. Aliases stay aliases; account policy
 trust, and dynamic defaults remain provider decisions. Missing or unreadable
 configuration displays `Provider default` instead of guessing a specific model.
 
-Model/settings previews are cached by directory for sixty seconds. Account and
-usage reads share a separate credential-scoped cache with a sixty-second minimum
-interval across directories, viewers, and daemon processes. Interactive launches use
+Viewers keep an `agent.subscribe` stream for the active directory, including while
+the picker is closed. The daemon sends the cached preview immediately, refreshes
+subscribed directories every sixty seconds, and pushes changed snapshots. Opening
+the picker reads the viewer's latest snapshot without requesting data. Directory
+changes select a new subscription; daemon reloads retain the last displayed values
+until fresh reads complete. A first uncached read can still show `Reading…`.
+Account and usage reads share a separate credential-scoped cache with a sixty-second
+minimum interval across directories, viewers, and daemon processes. Interactive launches use
 Corgi's existing discovered-binary launcher and ordinary provider settings,
 without overriding models or adding a prompt. Each provider row has an independent
 YOLO checkmark (click it, or press y for the selected row). It defaults off and
@@ -47,7 +52,9 @@ provider's remembered setting. When enabled, Codex receives
 `--dangerously-skip-permissions`; when off, ordinary provider permissions apply. They do not use the
 small-model status inference settings.
 
-The protocol exposes `agent.preview` (workspace and cwd) and the session command
+The protocol exposes `agent.subscribe` (workspace and cwd) on a dedicated connection,
+which receives `{type: "agent.preview", cwd, preview}` messages. The one-shot
+`agent.preview` operation remains available. The session command
 `agent.create` (workspace, optional cwd, optional provider). Omitting provider
 repeats the shared choice. The session snapshot and checkpoint include
 `last_agent`, with a Codex default for older data.

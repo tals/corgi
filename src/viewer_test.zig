@@ -13,7 +13,7 @@ pub fn run(path: []const u8) !void {
     defer viewer.deinit(&view);
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
-    var bell = try viewer.open(&view, cwd, .{});
+    var bell = try viewer.open(&view, cwd, .{}, path);
     while (true) {
         const line = os.readLine(0, 1024 * 1024) catch |err| {
             if (err == error.EndOfStream) return;

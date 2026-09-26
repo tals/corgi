@@ -22,7 +22,7 @@ const Response = struct {
     detach: bool,
 };
 
-pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme) !u64 {
+pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, socket: []const u8) !u64 {
     view.remote_links = @import("ports.zig").sshViewer();
     view.loadPreferences();
     const opened = try view.connection.call(.{ .op = "viewer.open", .protocol = 1, .cwd = cwd, .theme = theme });
@@ -30,14 +30,12 @@ pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme) !u6
     view.navigation.workspace_id = try protocol.id(opened.value, "workspace");
     view.input_state.attached = true;
     try view.refresh();
-    // Warm the New menu cache; provider checks run on the daemon's worker.
-    const preview_cwd = view.inheritedCwd(view.current(), if (view.focused()) |p| p.id else null);
-    if (view.connection.call(.{ .op = "agent.preview", .protocol = 1, .workspace = view.current().id, .cwd = preview_cwd })) |preview| {
-        preview.deinit();
-    } else |_| {}
+    view.launch_previews.socket = socket;
+    view.updateLaunchPreview();
     return @intCast(opened.value.object.get("bell_seq").?.integer);
 }
 pub fn deinit(view: *View) void {
+    view.launch_previews.deinit();
     if (view.onboarding) |*wizard| wizard.deinit();
     if (view.clipboard) |bytes| a.free(bytes);
     if (view.executable.len > 0) a.free(view.executable);
@@ -106,13 +104,13 @@ pub fn presented(view: *View) !void {
     }
 }
 
-pub fn run(fd: c_int, probe: *@import("theme.zig").Probe, input: *std.ArrayList(u8), start_onboarding: bool) !?[]const u8 {
+pub fn run(fd: c_int, socket: []const u8, probe: *@import("theme.zig").Probe, input: *std.ArrayList(u8), start_onboarding: bool) !?[]const u8 {
     var connection: Connection = .{ .fd = fd };
     var view: View = .{ .connection = &connection, .executable = "" };
     defer deinit(&view);
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
-    var bell_seq = try open(&view, cwd, probe.theme);
+    var bell_seq = try open(&view, cwd, probe.theme, socket);
     if (start_onboarding) view.openOnboarding();
     var openers: @import("url_opener.zig").Openers = .{};
     defer openers.reap();

@@ -6,6 +6,12 @@ const a = os.allocator;
 const layout = @import("layout.zig");
 pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = null };
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
+pub const LaunchPreview = struct {
+    cwd: [std.fs.max_path_bytes]u8 = @splat(0),
+    len: usize,
+    preview: @import("agent_launcher.zig").Preview,
+    checked: i64 = 0,
+};
 pub const Client = struct {
     viewer_id: u32 = 0,
     /// Server-wide activity order; the highest stamp sizes shared panes.
@@ -24,6 +30,7 @@ pub const Client = struct {
     sent: usize = 0,
     protocol_version: ?u32 = null,
     subscribed: bool = false,
+    launch_preview: ?LaunchPreview = null,
     snapshot_revision: ?u64 = null,
     last_snapshot: i64 = 0,
     watched: bool = true,

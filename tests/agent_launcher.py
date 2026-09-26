@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real viewer launch controls and read-only model previews."""
-import json, pathlib, re, unittest, time, shlex, sys, shutil
+import json, pathlib, re, unittest, time, shlex, sys, shutil, socket
 import smoke
 from viewer_client import Viewer
 
@@ -366,6 +366,53 @@ time.sleep(120)
         self.until(lambda:'New agent' not in view.poll()['data'])
         self.click(view,26,12);self.assertIn('New agent',view.poll()['data'])
         self.click(view,75,2);self.assertNotIn('New agent',view.poll()['data'])
+        self.assertFalse(self.launches.exists())
+
+    def test_subscription_pushes_updates_and_survives_idle_reload(self):
+        with socket.socket(socket.AF_UNIX) as client:
+            client.settimeout(12);client.connect(self.path)
+            with client.makefile('rb') as stream:
+                client.sendall((json.dumps(dict(op='agent.subscribe',protocol=1,workspace=self.ws,cwd=self.launch_dir))+'\n').encode())
+                initial=json.loads(stream.readline())
+                self.assertEqual(initial['type'],'agent.preview')
+                while initial['preview']['pending']:initial=json.loads(stream.readline())
+                self.assertEqual(initial['cwd'],self.launch_dir)
+                self.assertEqual(initial['preview']['options'][1]['model']['bytes'][:4],'opus')
+                time.sleep(5.2) # Preview subscriptions must outlive ordinary RPC clients.
+                settings=pathlib.Path(self.launch_dir)/'.claude/settings.json'
+                settings.parent.mkdir();settings.write_text(json.dumps({'model':'sonnet'}))
+                self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+                # No new preview request: the existing subscription publishes
+                # the background read and retains values while it is pending.
+                update=json.loads(stream.readline())
+                while update['preview']['pending']:
+                    self.assertEqual(update['preview']['options'][1]['model']['bytes'][:4],'opus')
+                    update=json.loads(stream.readline())
+                self.assertEqual(update['preview']['options'][1]['model']['bytes'][:6],'sonnet')
+                # Changing subscription context must select the new directory.
+                other=pathlib.Path(self.temp.name)/'other';other.mkdir()
+                client.sendall((json.dumps(dict(op='agent.subscribe',protocol=1,workspace=self.ws,cwd=str(other)))+'\n').encode())
+                update=json.loads(stream.readline())
+                while update['preview']['pending']:update=json.loads(stream.readline())
+                self.assertEqual(update['cwd'],str(other))
+                self.assertEqual(update['preview']['options'][1]['model']['bytes'][:4],'opus')
+
+    def test_reopening_uses_pushed_preview_on_first_frame(self):
+        view=Viewer(self,160,30)
+        view.input('\x02a')
+        self.until(lambda:'claude@example.com' in view.poll()['data'],timeout=12)
+        self.click(view,158,2)
+        for _ in range(3):
+            shown=view.input('\x1b[<35;21;15M')
+            self.assertIn('New agent',shown['data'])
+            self.assertNotIn('Reading','\n'.join(smoke.screen_text(shown['data'],160,30)))
+            self.assertIn('fixture-codex',shown['data'])
+            self.assertIn('claude@example.com',shown['data'])
+            self.assertIn('12%',shown['data'])
+            self.assertNotIn('New agent',view.input('\x1b[<35;158;2M')['data'])
+        shown=view.input('\x02a')
+        self.assertNotIn('Reading',shown['data'])
+        self.assertIn('fixture-codex',shown['data'])
         self.assertFalse(self.launches.exists())
     def test_popup_arrows_tabs_escape_and_enter_own_keyboard(self):
         root=pathlib.Path(self.temp.name);keys=root/'keys';ready=root/'ready'

@@ -95,9 +95,7 @@ pub const Controller = struct {
     scope_menu: ?sidebar.ScopeMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
-    /// Last installed providers seen, so reopening does not flash hidden rows.
-    launcher_installed: [2]bool = .{ true, true },
-    launcher_signed_in: [2]?bool = .{ null, null },
+    launch_previews: @import("launch_preview_stream.zig").Stream = .{},
     corgi_setup: ?@import("corgi_setup.zig").Menu = null,
     launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
@@ -972,8 +970,7 @@ pub const Controller = struct {
         if (cwd.len > std.fs.max_path_bytes) return;
         var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = .of(s.runtime.last_agent), .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .hidden = s.runtime.agent_hidden, .commands = s.runtime.agent_commands, .pinned = pinned };
         @memcpy(launch.cwd[0..cwd.len], cwd);
-        launch.preview.installed = s.launcher_installed;
-        for (&launch.preview.options, s.launcher_signed_in) |*option, signed| option.signed_in = signed;
+        launch.preview = s.launch_previews.current(cwd);
         launch.normalize();
         s.agent_launcher = launch;
         s.cancelDividers();
@@ -1015,15 +1012,15 @@ pub const Controller = struct {
         const response = s.connection.call(.{ .op = "agent.track_usage", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len] }) catch return;
         defer response.deinit();
         launch.preview.pending = true;
-        launch.checked = 0;
+        s.launch_previews.pending(launch.cwd[0..launch.cwd_len]);
         s.dirty = true;
     }
     fn pollLauncher(s: *Self) !void {
+        s.updateLaunchPreview();
         s.previewInlineCommand(false);
         if (s.agent_launcher) |launch| {
             if (launch.managing and launch.save_requested and !launch.resolution.pending) try s.saveInlineCommand();
         }
-        const now = std.time.milliTimestamp();
         const side = s.sidebarView(&.{});
         const on_button = if (s.pointer) |p| switch (side.hit(p.x, p.y)) {
             .agent_new, .agent_options => true,
@@ -1044,23 +1041,18 @@ pub const Controller = struct {
                 return;
             }
             launch.last = s.runtime.last_agent;
-            if (now - launch.checked < 1000) return;
-            launch.checked = now;
-            const response = s.connection.call(.{ .op = "agent.preview", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len] }) catch return;
-            defer response.deinit();
-            const parsed = std.json.parseFromValue(@import("agent_launcher.zig").Preview, a, response.value.object.get("preview") orelse return, .{}) catch return;
-            defer parsed.deinit();
-            launch.preview = parsed.value;
-            for (&launch.preview.options, &s.launcher_signed_in) |*option, *signed| {
-                if (option.signed_in == null and launch.preview.pending) option.signed_in = signed.*;
-                signed.* = option.signed_in;
-            }
-            launch.normalize();
-            s.launcher_installed = parsed.value.installed;
-            s.dirty = true;
         } else if (on_button and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and s.confirm == .none and !s.ui_mouse_down and !s.copy_mode) {
             s.openLauncher(false);
         }
+    }
+    pub fn updateLaunchPreview(s: *Self) void {
+        const cwd = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
+        if (!s.launch_previews.poll(s.current().id, cwd)) return;
+        if (s.agent_launcher) |*launch| {
+            launch.preview = s.launch_previews.current(launch.cwd[0..launch.cwd_len]);
+            launch.normalize();
+        }
+        s.dirty = true;
     }
     fn portWorkspaceEntry(s: *Self, id: u32) sidebar.WorkspaceEntry {
         return .{ .id = id, .name = "", .cwd = "", .active = false, .ports = s.runtime.ports, .remote_links = s.remote_links };

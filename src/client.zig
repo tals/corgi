@@ -63,5 +63,5 @@ fn attachOnce(path: []const u8, start_onboarding: bool) !?[]const u8 {
         try os.writeAll(1, "\x1b[?12s\x1b[?12l");
         cursor_blink_saved = true;
     }
-    return try @import("viewer.zig").run(fd, &probe, &input, start_onboarding);
+    return try @import("viewer.zig").run(fd, path, &probe, &input, start_onboarding);
 }

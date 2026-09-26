@@ -18,7 +18,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
     if (!known) return false;
     try protocol.require(v, cl.protocol_version);
     if (eq(u8, op, "viewer.open")) {
-        if (cl.subscribed or cl.viewer) return error.AlreadyAttached;
+        if (cl.subscribed or cl.launch_preview != null or cl.viewer) return error.AlreadyAttached;
         if (s.runtime.panes.items.len == 0 and s.initialWorkspace().model.count == 0) {
             const cwd = agents.str(v, "cwd");
             if (s.default_folder_pending and cwd.len > 0) {

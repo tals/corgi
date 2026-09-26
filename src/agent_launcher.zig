@@ -57,7 +57,8 @@ pub const Worker = struct {
     wake: std.Thread.Condition = .{},
     stopping: std.atomic.Value(bool) = .init(false),
     thread: ?std.Thread = null,
-    jobs: [8]?Job = @splat(null),
+    // Enough slots for every connected client's subscribed directory.
+    jobs: [32]?Job = @splat(null),
     pub fn start() !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
@@ -449,7 +450,6 @@ pub const Menu = struct {
     /// Ctrl-B arrived while pinned; Cmd+T sends Ctrl-B A, so a repeat opens a terminal.
     prefix: bool = false,
     preview: Preview = .{},
-    checked: i64 = 0,
     const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used)", "Resets in" };
     fn cells(m: *const Menu, index: usize, reset_text: *Text) [7][]const u8 {
         const option = &m.preview.options[index];
