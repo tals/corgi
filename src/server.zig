@@ -629,7 +629,7 @@ pub const Server = struct {
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
                     if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
-                    if (!std.meta.eql(actor.model, result.model)) {
+                    if (!actor.model_from_hook and result.model.len > 0 and !std.meta.eql(actor.model, result.model)) {
                         actor.model = result.model;
                         s.dirty = true;
                         s.runtime.changed();

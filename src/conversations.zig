@@ -22,6 +22,9 @@ pub const Actor = struct {
     role: [80]u8 = @splat(0),
     role_len: usize = 0,
     model: @import("codex_files.zig").Name = .{},
+    // Hooks report the current model on every event; a bounded transcript
+    // tail can miss the once-per-turn record, so it only fills gaps.
+    model_from_hook: bool = false,
     live_usage: @import("live_usage.zig").View = .{},
     native_usage: bool = false,
     native_meter: @import("live_usage.zig").Codex = .{},
@@ -32,6 +35,10 @@ pub const Actor = struct {
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
+        if (event.model.len > 0) {
+            actor.model.len = agents.clean(&actor.model.bytes, event.model);
+            actor.model_from_hook = true;
+        }
         if (actor.state.provider == .claude) {
             if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
             if (event.kind == .session_end) actor.background_tasks = .{};
@@ -477,4 +484,18 @@ test "delayed hook endings and transcript confirmations cannot stop resumed work
     _ = actor.observeHook(.{ .kind = .stop, .session = "a", .turn = "new" }, 5, false, 60);
     try std.testing.expect(actor.confirmStop(5, .completed, 70));
     try std.testing.expectEqual(@as(u64, 1), actor.state.observation.completed);
+}
+
+test "hook models replace the transcript model and survive events without one" {
+    var actor: Actor = .{ .id = 1, .state = .{ .provider = .codex } };
+    _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-astra" }, 1, false, 10);
+    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.bytes[0..actor.model.len]);
+    try std.testing.expect(actor.model_from_hook);
+    _ = actor.observeHook(.{ .kind = .tool_start, .session = "a", .tool = "Bash" }, 2, false, 20);
+    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.bytes[0..actor.model.len]);
+    _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-luna" }, 3, false, 30);
+    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.bytes[0..actor.model.len]);
+    // Another session's hook is rejected and cannot change the model.
+    _ = actor.observeHook(.{ .kind = .prompt, .session = "b", .model = "gpt-6-sol" }, 4, false, 40);
+    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.bytes[0..actor.model.len]);
 }

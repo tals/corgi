@@ -27,6 +27,8 @@ pub const Hook = struct {
     prompt: []const u8 = "",
     transcript: []const u8 = "",
     cwd: []const u8 = "",
+    // The model the session runs now, which follows mid-session switches.
+    model: []const u8 = "",
     tool: []const u8 = "",
     description: []const u8 = "",
     background_tasks: std.json.Value = .null,
@@ -56,6 +58,7 @@ pub const Hooks = struct {
             .prompt = str(value, "prompt_id"),
             .transcript = str(value, "transcript_path"),
             .cwd = str(value, "cwd"),
+            .model = str(value, "model"),
             .tool = tool,
             .description = str(field(value, "tool_input"), "description"),
             .background_tasks = field(value, "background_tasks"),
@@ -111,4 +114,12 @@ test "idle notifications do not mark a finished agent as needing input" {
     const hooks: Hooks = .{};
     try std.testing.expect(hooks.decode(idle.value) == null);
     try std.testing.expectEqual(.notification, hooks.decode(permission.value).?.kind);
+}
+
+test "hooks carry the session's current model" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"a","model":"gpt-6-astra"}
+    , .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("gpt-6-astra", (Hooks{}).decode(parsed.value).?.model);
 }
