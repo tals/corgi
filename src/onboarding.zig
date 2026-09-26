@@ -6,6 +6,8 @@ const km = @import("keymap.zig");
 const catalog = @import("import_catalog.zig");
 const sidebar = @import("sidebar.zig");
 const Connection = @import("rpc.zig").Connection;
+const Rect = @import("layout.zig").Rect;
+const shortcut_help = @import("shortcut_help.zig");
 pub const Step = enum { presets, keymap, connect, import, progress, complete };
 pub const Progress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?u32 = null, message: []const u8 = "" };
 pub const State = struct {
@@ -14,6 +16,7 @@ pub const State = struct {
     step: Step = .presets,
     source: catalog.Source = .tmux,
     source_initialized: bool = false,
+    help: shortcut_help.State = .{},
     workers: [3]?*catalog.Worker = .{ null, null, null },
     selected: [256]bool = @splat(false),
     cursor: usize = 0,
@@ -61,6 +64,10 @@ pub const State = struct {
         s.selected = @splat(false);
         s.message_len = 0;
         s.scan();
+    }
+    fn enterKeymap(s: *State) void {
+        s.step = .keymap;
+        s.help = .{};
     }
     fn enterImport(s: *State) void {
         s.step = .import;
@@ -161,29 +168,24 @@ pub const State = struct {
                 'j', 14 => s.preset = @enumFromInt((@as(usize, @intFromEnum(s.preset)) + 1) % 4),
                 'k', 16 => s.preset = @enumFromInt((@as(usize, @intFromEnum(s.preset)) + 3) % 4),
                 '1'...'4' => s.preset = @enumFromInt(byte - '1'),
-                'p', ' ' => s.prefix = if (s.prefix == .ctrl_b) .ctrl_a else .ctrl_b,
+                'p', 'P', ' ' => s.prefix = if (s.prefix == .ctrl_b) .ctrl_a else .ctrl_b,
                 '?' => {
-                    s.step = .keymap;
-                    s.scroll = 0;
+                    s.enterKeymap();
                 },
                 9 => s.focus = (s.focus + 1) % 3,
                 13 => {
                     if (s.focus == 1) {
                         s.prefix = if (s.prefix == .ctrl_b) .ctrl_a else .ctrl_b;
                     } else if (s.focus == 2) {
-                        s.step = .keymap;
-                        s.scroll = 0;
+                        s.enterKeymap();
                     } else if (s.preset == .cmux) {
                         s.step = .connect;
                     } else s.enterImport();
                 },
                 else => {},
             },
-            .keymap => switch (byte) {
-                27, 13, 'q' => s.step = .presets,
-                'j', 14 => s.scroll += 1,
-                'k', 16 => s.scroll -|= 1,
-                else => {},
+            .keymap => if (s.help.key(byte)) {
+                s.step = .presets;
             },
             .connect => switch (byte) {
                 27 => s.step = .presets,
@@ -245,6 +247,10 @@ pub const State = struct {
         return false;
     }
     pub fn sequence(s: *State, seq: []const u8, conn: *Connection) !bool {
+        if (s.step == .keymap) {
+            s.help.sequence(seq);
+            return false;
+        }
         const up = std.mem.eql(u8, seq, "\x1b[A") or std.mem.eql(u8, seq, "\x1bOA");
         const down = std.mem.eql(u8, seq, "\x1b[B") or std.mem.eql(u8, seq, "\x1bOB");
         if (up or down) return s.key(if (up) 16 else 14, conn);
@@ -254,6 +260,10 @@ pub const State = struct {
         return false;
     }
     pub fn click(s: *State, cols: u16, rows: u16, x: u16, y: u16, conn: *Connection) !bool {
+        if (s.step == .keymap) {
+            if (shortcut_help.State.closeAt(cols, rows, x, y)) s.step = .presets;
+            return false;
+        }
         const b = bounds(cols, rows);
         if (!b.contains(x, y) or b.w < 76 or b.h < 26) return false;
         const rx = x - b.x;
@@ -264,12 +274,17 @@ pub const State = struct {
             return s.key(13, conn);
         }
         if (s.step == .presets) {
-            if (rx < 37 and ry >= 6 and ry < 22) {
-                s.preset = @enumFromInt((ry - 6) / 4);
+            const layout = presetLayout(b);
+            for (layout.cards, 0..) |card, i| if (card.contains(x, y)) {
+                s.preset = @enumFromInt(i);
                 s.focus = 0;
+                return false;
+            };
+            if (s.preset != .cmux and layout.prefix.contains(x, y)) return s.key('p', conn);
+            if (ry == layout.help_y and rx >= layout.detail_x) {
+                if (rx < layout.detail_x + 20) return s.key('?', conn);
+                if (s.preset == .cmux) return s.key('p', conn);
             }
-            if (rx >= 40 and ry == 21) return s.key('p', conn);
-            if (rx >= 40 and ry == 20) return s.key('?', conn);
         } else if (s.step == .import) {
             if (ry == 6 and rx >= b.w -| 23) return s.key('s', conn);
             if (ry == 6 and rx < 43) return s.key('1' + @as(u8, @intCast(@min(2, rx / 14))), conn);
@@ -290,6 +305,7 @@ pub const State = struct {
         return false;
     }
     pub fn frame(s: *State, cols: u16, rows: u16) ![]u8 {
+        if (s.step == .keymap) return s.help.frame(cols, rows, s.preset, s.prefix);
         var out: std.Io.Writer.Allocating = .init(a);
         errdefer out.deinit();
         const w = &out.writer;
@@ -311,59 +327,15 @@ pub const State = struct {
         }, bright);
         try put(w, b, 3, 3, switch (s.step) {
             .presets => "Choose familiar keys.",
-            .keymap => "Prefix, then the key shown. PgUp / PgDn scroll.",
+            .keymap => "",
             .connect => "Your host terminal needs to forward these shortcuts.",
             .import => if (s.source == .tmux) "Copy sessions, named windows and layouts. Source processes stay in tmux." else if (s.source == .herdr) "Choose a session to bring into Corgi." else "Copy workspaces and surfaces. Source processes stay in cmux.",
             .progress => s.progress.message,
             .complete => if (s.activeHandoff()) "Your processes are running in Corgi." else "Your workspaces are ready.",
         }, dim);
         switch (s.step) {
-            .presets => {
-                for (std.enums.values(km.Preset), 0..) |preset, i| {
-                    const picked = s.preset == preset;
-                    const card = @import("layout.zig").Rect{ .x = b.x + 3, .y = b.y + 6 + @as(u16, @intCast(i)) * 4, .w = 32, .h = 4 };
-                    try box(w, card, picked);
-                    var buf: [80]u8 = undefined;
-                    const label = try std.fmt.bufPrint(&buf, "{s} {s}{s}", .{ if (picked) "●" else "○", if (preset == .corgi) "🐕 " else "", km.name(preset) });
-                    try put(w, card, 2, 1, label, if (picked) selected_style else bright);
-                    try put(w, card, 4, 2, km.description(preset), if (picked) selected_style else dim);
-                }
-                var buf: [120]u8 = undefined;
-                try put(w, b, 39, 6, try std.fmt.bufPrint(&buf, "{s} keys", .{km.name(s.preset)}), mint);
-                const labels = [_][]const u8{ "New tab → agent picker", "Split right / down", "Focus pane", "Next / previous tab", "Scroll / copy", "Detach" };
-                const keys: [6][]const u8 = switch (s.preset) {
-                    .tmux => .{ "c", "% / \"", "← ↓ ↑ →", "n / p", "[", "d" },
-                    .herdr => .{ "c", "v / -", "h j k l", "n / p", "[", "q" },
-                    .cmux => .{ "Cmd+T", "Cmd+D / Cmd+Shift+D", "Cmd+Option+arrows", "Cmd+Shift+] / [", "Cmd+Shift+M", "Prefix q" },
-                    .corgi => .{ "c", "v / -", "h j k l", "n / p", "s", "q" },
-                };
-                for (labels, keys, 0..) |label, shortcut_key, i| {
-                    try put(w, b, 39, 8 + i * 2, label, text);
-                    try put(w, b, @min(b.w - 25, 68), 9 + i * 2, shortcut_key, mint);
-                }
-                try put(w, b, 39, 21, try std.fmt.bufPrint(&buf, "Prefix [ {s} ]  P change", .{if (s.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A"}), if (s.focus == 1) bright else mint);
-                try put(w, b, 39, 22, "Press twice to send it through.", dim);
-                try put(w, b, 39, 20, "[ ? Full keymap ]", if (s.focus == 2) bright else mint);
-            },
-            .keymap => {
-                const direct = km.extraHints(s.preset);
-                const entries = @import("commands.zig").presetEntries(s.preset);
-                const total = direct.len + entries.len;
-                s.scroll = @min(s.scroll, total -| (b.h - 10));
-                var line: usize = 0;
-                for (direct) |hint| {
-                    defer line += 1;
-                    if (line < s.scroll or line - s.scroll >= b.h - 10) continue;
-                    try put(w, b, 5, 6 + line - s.scroll, hint, mint);
-                }
-                for (entries) |entry| {
-                    const shortcut_key = entry.key;
-                    defer line += 1;
-                    if (line < s.scroll or line - s.scroll >= b.h - 10) continue;
-                    var buf: [100]u8 = undefined;
-                    try put(w, b, 5, 6 + line - s.scroll, try std.fmt.bufPrint(&buf, "{s} {s}   {s}", .{ if (s.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A", if (shortcut_key == 9) "Tab" else &.{shortcut_key}, entry.label }), text);
-                }
-            },
+            .presets => try drawPresets(w, b, s),
+            .keymap => unreachable,
             .connect => {
                 try put(w, b, 5, 7, if (ghosttyHost()) "Ghostty / macOS" else "Command forwarding is not confirmed", mint);
                 try put(w, b, 5, 10, if (ghosttyHost()) "[ Connect and continue ]" else "[ P Use Herdr prefix keys ]", bright);
@@ -446,8 +418,8 @@ pub const State = struct {
                 }
             },
         }
-        if (s.message_len > 0) try put(w, b, 3, b.h - 5, s.message[0..s.message_len], yellow);
-        try put(w, b, 3, b.h - 3, if (s.step == .presets) "↑↓ choose · P prefix · ? keymap" else if (s.step == .import) if (s.source == .herdr) "Esc Back · Space select · H handoff" else "Esc Back · Space select" else if (s.step == .complete) "" else "Esc Back", dim);
+        if (s.message_len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message[0..s.message_len], yellow);
+        try put(w, b, 3, b.h - 3, if (s.step == .presets) "↑↓ choose · P prefix · ? keymap" else if (s.step == .keymap) "" else if (s.step == .import) if (s.source == .herdr) "Esc Back · Space select · H handoff" else "Esc Back · Space select" else if (s.step == .complete) "" else "Esc Back", dim);
         const cta: []const u8 = switch (s.step) {
             .presets => "[ Enter Continue → ]",
             .keymap => "[ Enter Back ]",
@@ -456,12 +428,138 @@ pub const State = struct {
             .progress => if (std.mem.eql(u8, s.progress.phase, "failed")) "[ Enter Back ]" else "[ Importing… ]",
             .complete => "[ Enter Open Corgi → ]",
         };
-        try put(w, b, b.w -| 27, b.h - 3, cta, mint);
+        try put(w, b, b.w -| 27, b.h - 3, cta, if (s.step == .presets and s.focus == 0) keycap else mint);
         try put(w, b, 3, b.h - 2, if (s.step == .import) "←→ sources · ↑↓ choose · PgUp/PgDn scroll · R refresh · S skip" else "", dim);
         try w.writeAll("\x1b[0m");
         return out.toOwnedSlice();
     }
 };
+// Rendering and mouse hit regions share one layout at every supported size.
+const PresetLayout = struct {
+    cards: [4]Rect,
+    hero: Rect,
+    prefix: Rect,
+    split: Rect,
+    focus: Rect,
+    detail_x: u16,
+    summary_y: u16,
+    help_y: u16,
+};
+fn presetLayout(b: Rect) PresetLayout {
+    const compact = b.h < 32;
+    const card_w: u16 = if (b.w >= 100) 32 else 24;
+    const x = card_w + 7;
+    const width = b.w - x - 4;
+    const hero_h: u16 = if (compact) 3 else 6;
+    const prefix_h: u16 = if (width < 64) 4 else 3;
+    const panes_y = 6 + hero_h + prefix_h;
+    const panes_h: u16 = if (compact) 6 else 7;
+    const split_w = (width - 2) / 2;
+    const summary_y = panes_y + panes_h + @as(u16, if (compact) 0 else 1);
+    var cards: [4]Rect = undefined;
+    for (&cards, 0..) |*card, i| card.* = .{ .x = b.x + 3, .y = b.y + 6 + @as(u16, @intCast(i)) * 4, .w = card_w, .h = 4 };
+    return .{
+        .cards = cards,
+        .hero = .{ .x = b.x + x, .y = b.y + 6 + prefix_h, .w = width, .h = hero_h },
+        .prefix = .{ .x = b.x + x, .y = b.y + 6, .w = width, .h = prefix_h },
+        .split = .{ .x = b.x + x, .y = b.y + panes_y, .w = split_w, .h = panes_h },
+        .focus = .{ .x = b.x + x + split_w + 2, .y = b.y + panes_y, .w = width - split_w - 2, .h = panes_h },
+        .detail_x = x,
+        .summary_y = summary_y,
+        .help_y = summary_y + @as(u16, if (compact) 2 else 3),
+    };
+}
+fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
+    const layout = presetLayout(b);
+    const direct = s.preset == .cmux;
+    const prefix_name = if (s.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A";
+    var buf: [120]u8 = undefined;
+    for (std.enums.values(km.Preset), layout.cards) |preset, card| {
+        const picked = s.preset == preset;
+        try box(w, card, picked);
+        try put(w, card, 2, 1, try std.fmt.bufPrint(&buf, "{s} {s}{s}", .{ if (picked) "●" else "○", if (preset == .corgi) "🐕 " else "", km.name(preset) }), if (picked) selected_style else bright);
+        const description = if (card.w >= 32) km.description(preset) else switch (preset) {
+            .corgi => "Made for Corgi",
+            .tmux => "Classic splits",
+            .herdr => "Home row",
+            .cmux => "Command keys",
+        };
+        try put(w, card, 4, 2, description, if (picked) selected_style else dim);
+    }
+
+    const hero = layout.hero;
+    const narrow = hero.w < 64;
+    try box(w, hero, false);
+    try put(w, hero, 2, 0, if (narrow or hero.h == 3) " New tab → agent picker " else " New tab ", mint);
+    const key_y: usize = if (hero.h == 3) 1 else 2;
+    try put(w, hero, 3, key_y, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), keycap);
+    try put(w, hero, if (direct) 11 else 15, key_y, if (direct) "+" else "then", text);
+    try put(w, hero, if (direct) 15 else 22, key_y, if (direct) "[ T ]" else "[ c ]", mint);
+    if (hero.h > 3) {
+        if (narrow) {
+            try put(w, hero, 3, key_y + 2, "Choose an agent or terminal", text);
+        } else {
+            try put(w, hero, 36, key_y, "Open the agent picker", text);
+            try put(w, hero, 36, key_y + 1, "Agent or new terminal", dim);
+        }
+    }
+
+    const band = layout.prefix;
+    try box(w, band, false);
+    try put(w, band, 2, 1, if (direct) "MODIFIER" else "PREFIX", mint);
+    try put(w, band, 12, 1, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), keycap);
+    const explanation = if (direct) "Hold with the action key." else "Release, then press a key.";
+    if (narrow) {
+        try put(w, band, 2, 2, explanation, text);
+    } else try put(w, band, 24, 1, explanation, text);
+    if (!direct) try put(w, band, band.w - 14, 1, "[ P change ]", if (s.focus == 1) keycap else mint);
+
+    const split = layout.split;
+    try box(w, split, false);
+    try put(w, split, 2, 0, " Split ", mint);
+    const diagram_y: u16 = if (split.h == 6) 1 else 2;
+    const diagram_w: u16 = if (split.w < 28) 5 else 9;
+    const left_x: u16 = 2;
+    const right_x = split.w / 2 + 1;
+    try drawSplitDiagram(w, .{ .x = split.x + left_x, .y = split.y + diagram_y, .w = diagram_w, .h = 3 }, false);
+    try drawSplitDiagram(w, .{ .x = split.x + right_x, .y = split.y + diagram_y, .w = diagram_w, .h = 3 }, true);
+    try put(w, split, left_x, diagram_y + 3, if (direct) "D Right" else if (s.preset == .tmux) "% Right" else "v Right", mint);
+    try put(w, split, right_x, diagram_y + 3, if (direct) "⇧D Down" else if (s.preset == .tmux) "\" Down" else "- Down", mint);
+
+    const focus = layout.focus;
+    try box(w, focus, false);
+    try put(w, focus, 2, 0, " Focus pane ", mint);
+    const nav_y: usize = if (focus.h == 6) 1 else 2;
+    try put(w, focus, 2, nav_y, if (direct) "[ Cmd+Option ]" else if (s.preset == .tmux) "Arrow keys" else "Home row", if (direct) keycap else dim);
+    const arrows = direct or s.preset == .tmux;
+    const nav_x = (focus.w - 17) / 2;
+    try put(w, focus, nav_x + 6, nav_y + 1, if (arrows) "[ ↑ ]" else "[ k ]", mint);
+    try put(w, focus, nav_x, nav_y + 2, if (arrows) "[ ← ] [ ↓ ] [ → ]" else "[ h ] [ j ] [ l ]", mint);
+
+    // The Command band applies to all direct keys; detach uses the portable prefix.
+    const detail = Rect{ .x = b.x + layout.detail_x, .y = b.y, .w = hero.w, .h = b.h };
+    const col = detail.w / 3;
+    try put(w, detail, 0, layout.summary_y, "TABS", dim);
+    try put(w, detail, col, layout.summary_y, if (narrow) "COPY" else "SCROLL / COPY", dim);
+    try put(w, detail, col * 2, layout.summary_y, "DETACH", dim);
+    try put(w, detail, 0, layout.summary_y + 1, if (direct) "⇧] / ⇧[" else "n / p", mint);
+    try put(w, detail, col, layout.summary_y + 1, if (direct) "⇧M" else if (s.preset == .corgi) "s" else "[", mint);
+    try put(w, detail, col * 2, layout.summary_y + 1, if (direct) try std.fmt.bufPrint(&buf, "{s} q", .{prefix_name}) else if (s.preset == .tmux) "d" else "q", mint);
+    try put(w, detail, 0, layout.help_y, "[ ? Full keymap ]", if (s.focus == 2) keycap else mint);
+    if (direct) {
+        try put(w, detail, 22, layout.help_y, if (narrow) try std.fmt.bufPrint(&buf, "[ P {s} ]", .{prefix_name}) else try std.fmt.bufPrint(&buf, "Prefix [ {s} ]  P change", .{prefix_name}), if (s.focus == 1) keycap else mint);
+    } else if (!narrow) try put(w, detail, 23, layout.help_y, try std.fmt.bufPrint(&buf, "{s} twice sends it through.", .{prefix_name}), dim);
+}
+fn drawSplitDiagram(w: *std.Io.Writer, b: Rect, down: bool) !void {
+    try box(w, b, false);
+    if (down) {
+        try w.print("\x1b[{d};{d}H{s}├", .{ b.y + 2, b.x + 1, panel });
+        for (0..b.w - 2) |_| try w.writeAll("─");
+        try w.writeAll("┤");
+    } else {
+        for (0..3) |row| try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + row + 1, b.x + b.w / 2 + 1, panel, if (row == 0) "┬" else if (row == 2) "┴" else "│" });
+    }
+}
 fn tabRows(tab: catalog.Tab) usize {
     return if (tab.panes.len == 1) 1 else 1 + tab.panes.len;
 }
@@ -477,7 +575,7 @@ fn ghosttyHost() bool {
 }
 pub fn bounds(cols: u16, rows: u16) @import("layout.zig").Rect {
     const w = @min(cols, 112);
-    const h = @min(rows, 32);
+    const h = @min(rows, 36);
     return .{ .x = (cols - w) / 2, .y = (rows - h) / 2, .w = w, .h = h };
 }
 const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
@@ -486,6 +584,7 @@ const bright = "\x1b[1;38;2;226;230;233;48;2;35;40;47m";
 const mint = "\x1b[0;38;2;161;194;178;48;2;35;40;47m";
 const dim = panel;
 const yellow = "\x1b[0;38;2;232;190;115;48;2;35;40;47m";
+const keycap = "\x1b[1;38;2;24;27;32;48;2;161;194;178m";
 const selected_style = "\x1b[0;38;2;201;224;211;48;2;47;64;59m";
 fn put(w: *std.Io.Writer, b: @import("layout.zig").Rect, x: usize, y: usize, str: []const u8, style: []const u8) !void {
     if (x >= b.w - 1 or y >= b.h - 1 and y != 0) return;

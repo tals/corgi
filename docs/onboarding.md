@@ -24,10 +24,28 @@ then remembers your choice. `./go.sh --env demo onboard` reopens it explicitly.
 Detaching leaves the runtime running; temporary launches print a reconnect command.
 Imports still operate on real source sessions.
 
-The wizard is an ANSI terminal interface with a frame up to 112 columns × 32
+The wizard is an ANSI terminal interface with a frame up to 112 columns × 36
 rows. Every step keeps the same frame at a given terminal size. It requires at
-least 76 × 26; imports and full keymaps scroll within the frame. There are no
+least 76 × 26 for the wizard; the full keymap supports terminals down to 32 × 12.
+Imports and full keymaps scroll within the frame. There are no
 review-handoff or shortcut-practice steps.
+
+The preset screen uses highlighted modifier keycaps, an agent-picker shortcut,
+and pane diagrams for splitting and focus. The layout compacts at smaller sizes;
+P changes the portable prefix and ? opens the full keymap. The keymap has two
+panes that scroll together: tabs/workspaces/agents on the left and
+panes/terminal/Corgi commands on the right. Panes has Focus and Swap key diagrams,
+Split diagrams, Arrange, and Close & recover groups. Below 60 columns, the two
+panes stack into one scrolling list. ↑/↓, j/k, PgUp/PgDn, and the mouse wheel
+scroll the reference; Esc returns. The prefix and footer remain visible.
+
+The same screen opens inside Corgi with **prefix ?**. The prefix alone waits
+silently for the next key. In the screen, press an action key or click its
+label/key to run it; Esc or Enter closes the screen.
+The prefix is already active, so j/k focus panes and q detaches in the Corgi
+preset. PgUp/PgDn and the wheel scroll; arrows also scroll except in tmux, where
+they focus panes. It uses the current preset and prefix in both places.
+For cmux, P marks portable prefix alternatives alongside Command shortcuts.
 
 ## Keys
 

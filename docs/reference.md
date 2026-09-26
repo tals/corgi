@@ -118,7 +118,18 @@ Regression suite: `python3 tests/cli.py` uses isolated sockets and provider sett
 
 ## Tabs and panes
 
-`prefix` means press Ctrl-B, release, then the next key. **Ctrl-B immediately opens a compact command menu**: press a displayed shortcut or click its row. Escape, the menu's `x`, or a click outside dismisses it. Resize has its own clickable direction menu. In short terminals, use the menu's previous/next buttons, the wheel, or PageUp/PageDown to see more commands.
+`prefix` means press Ctrl-B (or your configured prefix), release, then the next
+key. The prefix alone waits silently. **`prefix ?` opens the full shortcut
+screen used in onboarding.**
+Press a displayed shortcut or click its label/key to run the action. Esc, Enter,
+the Back control, or a click outside dismisses it. Press the prefix twice to send
+it through to the child. Resize has its own clickable direction menu.
+
+Section headings and Focus/Swap/Split diagrams organize the active preset.
+Both columns scroll together with PageUp/PageDown or the wheel; arrows also
+scroll except in tmux, where they focus panes. Below 60 columns the columns
+stack. Action keys retain their usual meaning: for example, Corgi j/k focus panes
+and q detaches. The prefix and Back control stay visible.
 
 Click **+** after the visible tabs, choose **New tab** from a menu, or press `prefix c` to open the **new tab** dialog. The empty name field previews the new tab's position as a number. Save (Enter) creates an unnamed tab in the workspace default directory unless you type a custom name; Cancel (Escape or clicking outside) creates nothing. Unnamed tabs store no name: their displayed numbers are recomputed as tabs move or close. The + button remains visible when tabs overflow. The CLI/control API still creates tabs immediately, unnamed unless an explicit title is supplied.
 

@@ -3,6 +3,7 @@ const std = @import("std");
 const keyboard = @import("keyboard.zig");
 const keymap = @import("keymap.zig");
 const onboarding = @import("onboarding.zig");
+const shortcut_help = @import("shortcut_help.zig");
 const os = @import("os.zig");
 const a = os.allocator;
 const layout = @import("layout.zig");
@@ -76,6 +77,8 @@ pub const Controller = struct {
     key_preset: keymap.Preset = .corgi,
     key_prefix: keymap.Prefix = .ctrl_b,
     onboarding: ?onboarding.State = null,
+    help: shortcut_help.State = .{ .command_mode = true },
+    help_visible: bool = false,
     workspace_chooser: ?usize = null,
     clipboard: ?[]const u8 = null,
     menu_page: usize = 0,
@@ -480,9 +483,9 @@ pub const Controller = struct {
         s.native_notice = null;
         s.dirty = true;
     }
-    pub fn menu(s: *Self) ?commands.View {
-        if (!s.prefix and !s.resize_mode) return null;
-        var view = commands.View.initPreset(s.width, s.height, s.resize_mode, s.menu_page, s.model().count > 0, s.key_preset);
+    pub fn menu(s: *Self) ?commands.ResizeView {
+        if (!s.resize_mode) return null;
+        var view = commands.ResizeView.init(s.width, s.height, s.menu_page, s.model().count > 0);
         view.highlighted = s.menu_highlight;
         return view;
     }
@@ -561,23 +564,19 @@ pub const Controller = struct {
         if (s.tab_menu) |*context| context.move(next);
         s.dirty = true;
     }
-    fn openMenu(s: *Self) void {
-        s.link_tooltip.cancel();
-        s.agent_picker = null;
-        s.closeLauncher();
-        s.scope_menu = null;
-        s.corgi_setup = null;
-        s.launcher_hover_blocked = true;
-        s.port_menu = null;
-        s.tab_menu = null;
-        s.prefix = true;
-        s.menu_page = 0;
-        s.menu_highlight = null;
+    fn beginPrefix(s: *Self) void {
+        s.closeMenu();
         s.cancelDividers();
         s.selection = null;
-        s.dirty = true;
+        s.prefix = true;
+        s.help = .{ .command_mode = true };
+    }
+    fn openHelp(s: *Self) void {
+        s.beginPrefix();
+        s.help_visible = true;
     }
     fn closeMenu(s: *Self) void {
+        s.help_visible = false;
         s.workspace_chooser = null;
         s.link_tooltip.cancel();
         s.agent_picker = null;
@@ -1217,7 +1216,7 @@ pub const Controller = struct {
                 s.dirty = true;
             },
             'q', 'd' => s.input_state.attached = false,
-            '?' => s.openMenu(),
+            '?' => s.openHelp(),
             keymap.workspace_picker => {
                 s.closeMenu();
                 s.workspace_chooser = s.workspaceIndex();
@@ -1375,7 +1374,7 @@ pub const Controller = struct {
                 'c' => try s.tabMenuAction('c'),
                 'T', 'r' => try s.tabMenuAction('T'),
                 'X', 'x' => try s.tabMenuAction('X'),
-                2 => s.openMenu(),
+                2 => s.beginPrefix(),
                 else => {},
             }
             return;
@@ -1430,6 +1429,11 @@ pub const Controller = struct {
             return;
         }
         if (s.prefix) {
+            if (s.help_visible and (byte == 14 or byte == 16)) {
+                s.help.move(byte == 14, 1);
+                s.dirty = true;
+                return;
+            }
             s.prefix = false;
             s.dirty = true;
             if (byte == keymap.prefixByte(s.key_prefix)) {
@@ -1440,7 +1444,7 @@ pub const Controller = struct {
             return;
         }
         if (byte == keymap.prefixByte(s.key_prefix)) {
-            s.openMenu();
+            s.beginPrefix();
             return;
         }
         if (byte == 20 and s.key_preset == .corgi and !s.copy_mode) {
@@ -1611,6 +1615,23 @@ pub const Controller = struct {
                 };
                 if (done) try s.finishOnboarding();
                 s.dirty = true;
+            } else if (s.prefix) {
+                if (s.key_preset == .tmux and seq.len == 6 and std.mem.startsWith(u8, seq, "\x1b[1;5")) {
+                    const dir: ?[]const u8 = switch (seq[5]) {
+                        'A' => "up",
+                        'B' => "down",
+                        'C' => "right",
+                        'D' => "left",
+                        else => null,
+                    };
+                    if (dir) |value| {
+                        s.prefix = false;
+                        try s.action("resize", value);
+                    }
+                } else if (s.key_preset == .herdr and eq(seq, "\x1b[Z")) {
+                    try s.dispatchKey(keymap.cycle_prev);
+                } else if (s.help_visible) s.help.sequence(seq);
+                s.dirty = true;
             } else if (s.workspace_chooser != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) try s.key(16) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) try s.key(14);
             } else if (s.agent_picker != null) {
@@ -1630,18 +1651,6 @@ pub const Controller = struct {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.movePortMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.movePortMenu(true);
             } else if (s.tab_menu != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveTabMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveTabMenu(true);
-            } else if (s.prefix and s.key_preset == .tmux and seq.len == 6 and std.mem.startsWith(u8, seq, "\x1b[1;5")) {
-                s.prefix = false;
-                const d = switch (seq[5]) {
-                    'A' => "up",
-                    'B' => "down",
-                    'C' => "right",
-                    'D' => "left",
-                    else => "",
-                };
-                if (d.len > 0) try s.action("resize", d);
-            } else if (s.prefix and s.key_preset == .herdr and eq(seq, "\x1b[Z")) {
-                try s.dispatchKey(keymap.cycle_prev);
             } else if (s.menu() != null) {
                 if (eq(seq, "\x1b[5~")) s.pageMenu(false) else if (eq(seq, "\x1b[6~")) s.pageMenu(true);
             } else if (s.name_dialog) |*dialog| {
@@ -1699,11 +1708,28 @@ pub const Controller = struct {
                 };
                 if (done) try s.finishOnboarding();
             } else if (!release and button & 64 != 0) {
-                if (button & 1 != 0) wizard.scroll += 3 else wizard.scroll -|= 3;
+                if (wizard.step == .keymap) wizard.help.move(button & 1 != 0, 3) else if (button & 1 != 0) wizard.scroll += 3 else wizard.scroll -|= 3;
             }
             s.dirty = true;
             return;
         }
+        if (s.prefix and s.help_visible) {
+            if (!release and button == 0) {
+                s.ui_mouse_down = true;
+                switch (try s.help.hit(s.width, s.height, x, y, s.key_preset)) {
+                    .close => s.closeMenu(),
+                    .action => |action_key| if (s.model().count > 0 or !shortcut_help.needsPane(action_key)) {
+                        try s.dispatchKey(action_key);
+                    },
+                    .none => {},
+                }
+            } else if (!release and (button == 64 or button == 65)) s.help.move(button == 65, 3);
+            if (release) s.ui_mouse_down = false;
+            s.dirty = true;
+            return;
+        }
+        // A hidden prefix has no mouse targets. A click resumes normal UI input.
+        if (s.prefix and !release and button & 0xe0 == 0) s.closeMenu();
         if (s.workspace_chooser != null) return;
         const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
         if (!release and button & 32 != 0 and button & 3 == 3 and button & 64 == 0) {
@@ -2220,7 +2246,6 @@ pub const Controller = struct {
             }
             if (button & 0xe3 == 2) {
                 s.ui_mouse_down = true;
-                s.openMenu();
                 return;
             }
             const px = x - p.rect.x;
@@ -2357,6 +2382,7 @@ pub const Controller = struct {
     }
     pub fn frame(s: *Self) ![]u8 {
         if (s.onboarding) |*wizard| return wizard.frame(s.width, s.height);
+        if (s.prefix and s.help_visible) return s.help.frame(s.width, s.height, s.key_preset, s.key_prefix);
         if (s.workspace_chooser) |index| {
             var output: std.Io.Writer.Allocating = .init(a);
             errdefer output.deinit();

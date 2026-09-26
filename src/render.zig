@@ -22,7 +22,7 @@ pub const Ui = struct {
     copy_feedback: bool = false,
     native_blocked: usize,
     native_finished: usize,
-    menu: ?commands.View = null,
+    menu: ?commands.ResizeView = null,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
     scope_menu: ?sidebar.ScopeMenu = null,

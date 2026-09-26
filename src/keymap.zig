@@ -119,23 +119,51 @@ pub fn modified(p: Preset, prefixed: bool, k: keyboard.Key) ?Modified {
     } };
 }
 
-pub fn extraHints(preset: Preset) []const []const u8 {
+pub const HelpSection = enum { tabs, workspaces, agents, panes, terminal, corgi };
+pub const HelpHint = struct {
+    section: HelpSection,
+    key: []const u8,
+    label: []const u8,
+    prefixed: bool = true,
+};
+pub fn helpHints(preset: Preset) []const HelpHint {
     return switch (preset) {
         .cmux => &.{
-            "Cmd+T             New tab → agent picker", "Cmd+N             New workspace",
-            "Cmd+1–9           Select workspace",       "Ctrl+1–9          Select tab",
-            "Cmd+R             Rename tab",               "Cmd+Shift+R       Rename workspace",
-            "Cmd+Shift+W       Close workspace",          "Cmd+P             Choose workspace",
-            "Cmd+D             Split right",              "Cmd+Shift+D       Split down",
-            "Cmd+Option+arrows Focus pane",               "Cmd+Shift+] / [   Next / previous tab",
-            "Cmd+Shift+Enter   Zoom pane",                "Ctrl+Shift+HJKL   Resize pane",
-            "Cmd+W             Close focused pane",       "Cmd+Shift+M       Scroll / copy",
-            "Cmd+V             Paste (host terminal)",    "Cmd+Shift+P       Find agent",
-            "Cmd+Shift+U       Jump to attention",        "Cmd+B             Toggle sidebar",
-            "Cmd+,             Corgi setup",              "Portable prefix shortcuts:",
+            .{ .section = .tabs, .key = "Cmd+T", .label = "New tab → agent picker", .prefixed = false },
+            .{ .section = .tabs, .key = "Ctrl+1–9", .label = "Select tab", .prefixed = false },
+            .{ .section = .tabs, .key = "Cmd+R", .label = "Rename tab", .prefixed = false },
+            .{ .section = .tabs, .key = "Cmd+Shift+] / [", .label = "Next / previous tab", .prefixed = false },
+            .{ .section = .workspaces, .key = "Cmd+N", .label = "New workspace", .prefixed = false },
+            .{ .section = .workspaces, .key = "Cmd+1–9", .label = "Select workspace", .prefixed = false },
+            .{ .section = .workspaces, .key = "Cmd+Shift+R", .label = "Rename workspace", .prefixed = false },
+            .{ .section = .workspaces, .key = "Cmd+Shift+W", .label = "Close workspace", .prefixed = false },
+            .{ .section = .workspaces, .key = "Cmd+P", .label = "Choose workspace", .prefixed = false },
+            .{ .section = .panes, .key = "Cmd+D", .label = "Split right", .prefixed = false },
+            .{ .section = .panes, .key = "Cmd+Shift+D", .label = "Split down", .prefixed = false },
+            .{ .section = .panes, .key = "Cmd+Opt+arrows", .label = "Focus pane", .prefixed = false },
+            .{ .section = .panes, .key = "Cmd+Shift+Enter", .label = "Zoom pane", .prefixed = false },
+            .{ .section = .panes, .key = "Ctrl+Shift+HJKL", .label = "Resize pane", .prefixed = false },
+            .{ .section = .panes, .key = "Cmd+W", .label = "Close focused pane", .prefixed = false },
+            .{ .section = .terminal, .key = "Cmd+Shift+M", .label = "Scroll / copy", .prefixed = false },
+            .{ .section = .terminal, .key = "Cmd+V", .label = "Paste (host terminal)", .prefixed = false },
+            .{ .section = .agents, .key = "Cmd+Shift+P", .label = "Find agent", .prefixed = false },
+            .{ .section = .agents, .key = "Cmd+Shift+U", .label = "Jump to attention", .prefixed = false },
+            .{ .section = .corgi, .key = "Cmd+B", .label = "Toggle sidebar", .prefixed = false },
+            .{ .section = .corgi, .key = "Cmd+,", .label = "Corgi setup", .prefixed = false },
         },
-        .tmux => &.{ "Prefix ← ↓ ↑ →     Focus pane", "Prefix Ctrl+arrows Resize pane", "Prefix 0–9         Select tab" },
-        .herdr => &.{ "Prefix Shift+Tab   Previous pane", "Prefix 1–9         Select tab", "Prefix g           Choose session / workspace" },
-        .corgi => &.{ "Ctrl+T            New tab → agent picker", "Prefix 1–9         Select tab" },
+        .tmux => &.{
+            .{ .section = .panes, .key = "← ↓ ↑ →", .label = "Focus pane" },
+            .{ .section = .panes, .key = "Ctrl+arrows", .label = "Resize pane" },
+            .{ .section = .tabs, .key = "0–9", .label = "Select tab" },
+        },
+        .herdr => &.{
+            .{ .section = .panes, .key = "Shift+Tab", .label = "Previous pane" },
+            .{ .section = .tabs, .key = "1–9", .label = "Select tab" },
+            .{ .section = .workspaces, .key = "g", .label = "Choose workspace" },
+        },
+        .corgi => &.{
+            .{ .section = .tabs, .key = "Ctrl+T", .label = "New tab → agent picker", .prefixed = false },
+            .{ .section = .tabs, .key = "1–9", .label = "Select tab" },
+        },
     };
 }
