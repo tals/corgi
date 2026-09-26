@@ -88,8 +88,10 @@ untouched empty starter workspace is removed. Existing workspaces are retained.
 
 - **tmux:** discover the inherited socket and sockets under `$TMUX_TMPDIR` or
   `/tmp/tmux-<uid>`. Copy selected sessions, named windows, pane folders and split
-  geometry into new shells. No source commands are replayed and no tmux pane is
-  closed. Non-guillotine/unsupported layouts fail and roll back the new shells.
+  geometry into new shells. Zoomed windows import all panes in their saved,
+  unzoomed arrangement; the source window stays zoomed. No source commands are
+  replayed and no tmux pane is closed. Unreadable layouts fail discovery; geometry
+  that cannot be reconstructed fails the copy and rolls back the new shells.
 - **Herdr copy:** use session snapshots, process metadata and layout exports;
   preserve split trees and known Codex/Claude resume references. Resume commands
   are shown as suggestions rather than executed. Select workspaces from one

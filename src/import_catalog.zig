@@ -128,8 +128,11 @@ pub const Worker = struct {
                     var wf = std.mem.splitScalar(u8, win, '\t');
                     const wid = wf.next().?;
                     const window_name = wf.next() orelse continue;
-                    const content = try self.command(&.{ "tmux", "-S", socket, "list-panes", "-t", wid, "-F", "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}" });
+                    // Read saved geometry in the same command as pane metadata:
+                    // a zoomed pane overlaps the hidden panes' live rectangles.
+                    const content = try self.command(&.{ "tmux", "-S", socket, "list-panes", "-t", wid, "-F", "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{?window_zoomed_flag,#{window_layout},}" });
                     var panes: std.ArrayList(Pane) = .empty;
+                    var unzoomed: ?@import("tmux_layout.zig").Geometry = null;
                     var pl = std.mem.tokenizeScalar(u8, content, '\n');
                     while (pl.next()) |row| {
                         var f = std.mem.splitScalar(u8, row, '\t');
@@ -141,7 +144,19 @@ pub const Worker = struct {
                         const y = try std.fmt.parseInt(u16, f.next() orelse "0", 10);
                         const w = try std.fmt.parseInt(u16, f.next() orelse "80", 10);
                         const h = try std.fmt.parseInt(u16, f.next() orelse "24", 10);
+                        const saved_layout = f.next() orelse "";
+                        if (unzoomed == null and saved_layout.len > 0) unzoomed = try @import("tmux_layout.zig").parse(saved_layout);
                         try panes.append(alloc, .{ .id = pid, .name = pname, .cwd = pane_cwd, .pid = process, .x = x, .y = y, .w = w, .h = h });
+                    }
+                    if (unzoomed) |geometry| {
+                        if (geometry.count != panes.items.len) return error.TmuxLayoutChanged;
+                        for (panes.items) |*pane| {
+                            const rect = geometry.find(pane.id) orelse return error.TmuxLayoutChanged;
+                            pane.x = rect.x;
+                            pane.y = rect.y;
+                            pane.w = rect.w;
+                            pane.h = rect.h;
+                        }
                     }
                     if (panes.items.len > 0) try tabs.append(alloc, .{ .id = wid, .name = window_name, .panes = try panes.toOwnedSlice(alloc) });
                 }
