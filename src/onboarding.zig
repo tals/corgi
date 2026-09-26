@@ -31,6 +31,7 @@ pub const State = struct {
     last_poll: i64 = 0,
     blink_closed: bool = false,
     scan_finished: bool = false,
+    selection_initialized: bool = false,
     operation: u64 = 0,
     pub fn deinit(s: *State) void {
         for (s.workers) |entry| if (entry) |w| w.deinit();
@@ -64,6 +65,7 @@ pub const State = struct {
         s.cursor = 0;
         s.scroll = 0;
         s.selected = @splat(false);
+        s.selection_initialized = false;
         s.message_len = 0;
         s.scan();
     }
@@ -125,7 +127,10 @@ pub const State = struct {
                 const result = try conn.call(.{ .op = "onboarding.copy", .protocol = 1, .operation = s.operation, .source = s.source, .workspaces = selected.items, .herdr_session = s.worker().?.herdr_scan.?.sessions[first], .selected = ids.items });
                 result.deinit();
             } else {
-                const result = try conn.call(.{ .op = "onboarding.copy", .protocol = 1, .operation = s.operation, .source = s.source, .workspaces = selected.items });
+                var arena: std.heap.ArenaAllocator = .init(a);
+                defer arena.deinit();
+                const workspaces = try catalog.copyWorkspaces(arena.allocator(), selected.items);
+                const result = try conn.call(.{ .op = "onboarding.copy", .protocol = 1, .operation = s.operation, .source = s.source, .workspaces = workspaces });
                 result.deinit();
             }
         }
@@ -144,6 +149,7 @@ pub const State = struct {
             if (!s.scan_finished) if (s.worker()) |w| if (w.done.load(.acquire)) {
                 s.scan_finished = true;
                 s.cursor = @min(s.cursor, s.items().len -| 1);
+                s.selectDefaults();
                 return true;
             };
             return animation_changed;
@@ -167,6 +173,7 @@ pub const State = struct {
         return true;
     }
     pub fn key(s: *State, byte: u8, conn: *Connection) !bool {
+        if (s.step == .import) s.selectDefaults();
         s.preset = km.supportedPreset(s.preset);
         s.message_len = 0;
         switch (s.step) {
@@ -224,6 +231,7 @@ pub const State = struct {
                         s.workers[@intFromEnum(s.source)] = null;
                     }
                     s.selected = @splat(false);
+                    s.selection_initialized = false;
                     s.scan();
                 },
                 'j', 14 => {
@@ -253,6 +261,15 @@ pub const State = struct {
             },
         }
         return false;
+    }
+    fn selectDefaults(s: *State) void {
+        if (s.selection_initialized) return;
+        const w = s.worker() orelse return;
+        if (!w.done.load(.acquire)) return;
+        s.selection_initialized = true;
+        if (s.source == .tmux) for (0..@min(3, s.items().len)) |i| {
+            s.selected[i] = true;
+        };
     }
     pub fn sequence(s: *State, seq: []const u8, conn: *Connection) !bool {
         if (s.step == .keymap) {
@@ -314,6 +331,7 @@ pub const State = struct {
         return false;
     }
     pub fn frame(s: *State, cols: u16, rows: u16) ![]u8 {
+        if (s.step == .import) s.selectDefaults();
         s.preset = km.supportedPreset(s.preset);
         if (s.step == .keymap) return s.help.frame(cols, rows, s.preset, s.prefix);
         var out: std.Io.Writer.Allocating = .init(a);
@@ -339,7 +357,7 @@ pub const State = struct {
             .presets => "Choose familiar keys.",
             .keymap => "",
             .connect => "Your host terminal needs to forward these shortcuts.",
-            .import => if (s.source == .tmux) "Copy sessions, named windows and layouts. Source processes stay in tmux." else if (s.source == .herdr) "Choose a session to bring into Corgi." else "Copy workspaces and surfaces. Source processes stay in cmux.",
+            .import => if (s.source == .tmux) "Copy sessions, scrollback and commands. Source processes stay in tmux." else if (s.source == .herdr) "Choose a session to bring into Corgi." else "Copy workspaces and surfaces. Source processes stay in cmux.",
             .progress => s.progress.message,
             .complete => if (s.activeHandoff()) "Your processes are running in Corgi." else "Your workspaces are ready.",
         }, dim);
@@ -368,7 +386,7 @@ pub const State = struct {
                             try put(w, b, 3, 9, try std.fmt.bufPrint(&info, "All {d} workspaces in this session move together.", .{s.selectionCount()}), dim);
                         }
                         try put(w, b, 3, 8, if (s.handoff) "[● ON ] Handoff processes  Keep your processes running" else "[  OFF] Handoff processes  Keep your processes running", mint);
-                    } else if (!s.cmuxConfused()) try put(w, b, 3, 8, if (s.source == .cmux) "Visible splits first · remaining surfaces in additional tabs" else "Names, folders and split layout · new shells", dim);
+                    } else if (!s.cmuxConfused()) try put(w, b, 3, 8, if (s.source == .cmux) "Visible splits first · remaining surfaces in additional tabs" else "Up to 3 recent groups selected · Return in each pane restarts its command", dim);
                 } else {
                     var buf: [120]u8 = undefined;
                     try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ s.progress.phase, s.progress.completed, s.progress.total }), mint);
@@ -424,7 +442,7 @@ pub const State = struct {
                             const pane = tab.panes[0];
                             var hint: [120]u8 = undefined;
                             const done = s.step != .import and pane_number < s.progress.completed;
-                            try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s} {s} · {s}{s}", .{ branch, short(tab.name), if (done) "✓ " else "", short(pane.name) }), text, try paneAnnotation(s.activeHandoff(), pane, &hint));
+                            try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s} {s} · {s}{s}", .{ branch, short(tab.name), if (done) "✓ " else "", short(pane.name) }), text, try paneAnnotation(s.source, s.activeHandoff(), pane, &hint));
                             row += 1;
                             pane_number += 1;
                             continue;
@@ -433,7 +451,7 @@ pub const State = struct {
                         row += 1;
                         for (tab.panes, 0..) |pane, pane_index| {
                             var hint: [120]u8 = undefined;
-                            const annotation = try paneAnnotation(s.activeHandoff(), pane, &hint);
+                            const annotation = try paneAnnotation(s.source, s.activeHandoff(), pane, &hint);
                             try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}  {s} {s}{s}", .{ if (last_tab) " " else "│", if (pane_index + 1 == tab.panes.len) "└─" else "├─", if (s.step != .import and pane_number < s.progress.completed) "✓ " else "", short(pane.name) }), text, annotation);
                             row += 1;
                             pane_number += 1;
@@ -596,7 +614,8 @@ fn tabRows(tab: catalog.Tab) usize {
 fn recoveryRows(ws: catalog.Workspace) usize {
     return if (ws.recovery == .full) 0 else if (ws.recovery == .workspace) 2 else 1;
 }
-fn paneAnnotation(handoff: bool, pane: catalog.Pane, buffer: []u8) ![]const u8 {
+fn paneAnnotation(source: catalog.Source, handoff: bool, pane: catalog.Pane, buffer: []u8) ![]const u8 {
+    if (source == .tmux) return "";
     if (handoff) {
         if (pane.pid) |pid| if (pid > 0) return std.fmt.bufPrint(buffer, "{d:>7} · Herdr → Corgi", .{@as(u32, @intCast(pid))});
         return "      ? · Herdr → Corgi";
@@ -643,6 +662,24 @@ test "onboarding offers only platform-supported presets and import sources" {
         try std.testing.expectEqual(catalog.Source.tmux, state.source);
         try std.testing.expectError(error.CmuxRequiresMacOS, catalog.Worker.start(.cmux));
     }
+}
+
+test "tmux selects at most three recent groups once per discovery" {
+    var worker: catalog.Worker = .{ .arena = .init(a), .source = .tmux, .done = .init(true), .catalog = .{ .workspaces = &.{
+        .{ .id = "0", .name = "first", .tabs = &.{} },
+        .{ .id = "1", .name = "second", .tabs = &.{} },
+        .{ .id = "2", .name = "third", .tabs = &.{} },
+        .{ .id = "3", .name = "fourth", .tabs = &.{} },
+    } } };
+    defer worker.arena.deinit();
+    var state: State = .{ .step = .import };
+    state.workers[0] = &worker;
+    state.selectDefaults();
+    try std.testing.expectEqualSlices(bool, &.{ true, true, true, false }, state.selected[0..4]);
+    state.selected[0] = false;
+    state.scan(); // Returning from the preset page must keep manual choices.
+    state.selectDefaults();
+    try std.testing.expect(!state.selected[0]);
 }
 
 test "failed discovery does not claim the source has no sessions" {

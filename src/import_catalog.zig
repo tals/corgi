@@ -5,10 +5,10 @@ const a = os.allocator;
 const herdr = @import("herdr_adapter.zig");
 pub const Source = enum { tmux, herdr, cmux };
 pub const available_sources: []const Source = if (@import("builtin").os.tag == .macos) &.{ .tmux, .herdr, .cmux } else &.{ .tmux, .herdr };
-pub const Pane = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", pid: ?i32 = null, url: []const u8 = "", x: u16 = 0, y: u16 = 0, w: u16 = 80, h: u16 = 24, resume_available: bool = false };
+pub const Pane = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", pid: ?i32 = null, url: []const u8 = "", x: u16 = 0, y: u16 = 0, w: u16 = 80, h: u16 = 24, resume_available: bool = false, history: []const u8 = "", screen: []const u8 = "", restart_command: []const u8 = "" };
 pub const Tab = struct { id: []const u8, name: []const u8, panes: []const Pane, nodes: []const @import("import_layout.zig").Node = &.{} };
 pub const Recovery = enum { full, layout, partial, workspace };
-pub const Workspace = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", socket: []const u8 = "", session: usize = 0, handoff: bool = false, recovery: Recovery = .full, recovery_note: []const u8 = "", tabs: []const Tab };
+pub const Workspace = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", socket: []const u8 = "", session: usize = 0, activity: i64 = 0, handoff: bool = false, recovery: Recovery = .full, recovery_note: []const u8 = "", tabs: []const Tab };
 pub const Catalog = struct { workspaces: []const Workspace = &.{}, message: []const u8 = "", confused: bool = false };
 pub const Worker = struct {
     arena: std.heap.ArenaAllocator,
@@ -134,14 +134,16 @@ pub const Worker = struct {
             }
         } else |_| {}
         if (sockets.items.len == 0) return error.NoTmuxSessions;
+        const processes = self.command(&.{ "ps", "-axo", "pid=,tpgid=" }) catch "";
         var workspaces: std.ArrayList(Workspace) = .empty;
         for (sockets.items) |socket| {
-            const sessions = self.command(&.{ "tmux", "-S", socket, "list-sessions", "-F", "#{session_id}\t#{session_name}" }) catch continue;
+            const sessions = self.command(&.{ "tmux", "-S", socket, "list-sessions", "-F", "#{session_id}\t#{session_name}\t#{session_activity}" }) catch continue;
             var lines = std.mem.tokenizeScalar(u8, sessions, '\n');
             while (lines.next()) |line| {
                 var fields = std.mem.splitScalar(u8, line, '\t');
                 const id = fields.next().?;
                 const name = fields.next() orelse continue;
+                const activity = std.fmt.parseInt(i64, fields.next() orelse "0", 10) catch 0;
                 const windows = try self.command(&.{ "tmux", "-S", socket, "list-windows", "-t", id, "-F", "#{window_id}\t#{window_name}" });
                 var tabs: std.ArrayList(Tab) = .empty;
                 var wl = std.mem.tokenizeScalar(u8, windows, '\n');
@@ -151,7 +153,7 @@ pub const Worker = struct {
                     const window_name = wf.next() orelse continue;
                     // Read saved geometry in the same command as pane metadata:
                     // a zoomed pane overlaps the hidden panes' live rectangles.
-                    const content = try self.command(&.{ "tmux", "-S", socket, "list-panes", "-t", wid, "-F", "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{?window_zoomed_flag,#{window_layout},}" });
+                    const content = try self.command(&.{ "tmux", "-S", socket, "list-panes", "-t", wid, "-F", "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_pid}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{?window_zoomed_flag,#{window_layout},}\t#{alternate_on}\t#{history_size}" });
                     var panes: std.ArrayList(Pane) = .empty;
                     var unzoomed: ?@import("tmux_layout.zig").Geometry = null;
                     var pl = std.mem.tokenizeScalar(u8, content, '\n');
@@ -166,8 +168,21 @@ pub const Worker = struct {
                         const w = try std.fmt.parseInt(u16, f.next() orelse "80", 10);
                         const h = try std.fmt.parseInt(u16, f.next() orelse "24", 10);
                         const saved_layout = f.next() orelse "";
+                        const alternate = std.mem.eql(u8, f.next() orelse "0", "1");
+                        const history_size = std.fmt.parseInt(usize, f.next() orelse "0", 10) catch 0;
                         if (unzoomed == null and saved_layout.len > 0) unzoomed = try @import("tmux_layout.zig").parse(saved_layout);
-                        try panes.append(alloc, .{ .id = pid, .name = pname, .cwd = pane_cwd, .pid = process, .x = x, .y = y, .w = w, .h = h });
+                        const tmux_resume = @import("tmux_resume.zig");
+                        const foreground = if (process) |root| tmux_resume.foregroundPid(processes, root) else null;
+                        const restart = if (foreground) |fg| try tmux_resume.command(alloc, fg) else "";
+                        const screen = self.command(&.{ "tmux", "-S", socket, "capture-pane", "-p", "-J", "-S", if (alternate) "0" else "-1000", "-t", pid }) catch "";
+                        // tmux retains scrollback in the active grid; -a contains
+                        // only the saved shell screen. Reassemble in time order.
+                        const history = if (alternate) blk: {
+                            const saved = self.command(&.{ "tmux", "-S", socket, "capture-pane", "-p", "-a", "-J", "-t", pid }) catch "";
+                            const scrollback = if (history_size > 0) self.command(&.{ "tmux", "-S", socket, "capture-pane", "-p", "-J", "-S", "-1000", "-E", "-1", "-t", pid }) catch "" else "";
+                            break :blk try std.fmt.allocPrint(alloc, "{s}{s}", .{ scrollback, saved });
+                        } else "";
+                        try panes.append(alloc, .{ .id = pid, .name = pname, .cwd = pane_cwd, .pid = process, .x = x, .y = y, .w = w, .h = h, .restart_command = restart, .resume_available = restart.len > 0, .screen = tmux_resume.tail(screen, 64 * 1024), .history = tmux_resume.tail(history, 64 * 1024) });
                     }
                     if (unzoomed) |geometry| {
                         if (geometry.count != panes.items.len) return error.TmuxLayoutChanged;
@@ -181,9 +196,10 @@ pub const Worker = struct {
                     }
                     if (panes.items.len > 0) try tabs.append(alloc, .{ .id = wid, .name = window_name, .panes = try panes.toOwnedSlice(alloc) });
                 }
-                if (tabs.items.len > 0) try workspaces.append(alloc, .{ .id = id, .name = name, .socket = socket, .cwd = tabs.items[0].panes[0].cwd, .tabs = try tabs.toOwnedSlice(alloc) });
+                if (tabs.items.len > 0) try workspaces.append(alloc, .{ .id = id, .name = name, .socket = socket, .activity = activity, .cwd = tabs.items[0].panes[0].cwd, .tabs = try tabs.toOwnedSlice(alloc) });
             }
         }
+        std.mem.sort(Workspace, workspaces.items, {}, recentFirst);
         self.catalog.workspaces = try workspaces.toOwnedSlice(alloc);
     }
     fn cmux(self: *Worker) !void {
@@ -281,6 +297,65 @@ pub const Worker = struct {
         }
     }
 };
+fn recentFirst(_: void, left: Workspace, right: Workspace) bool {
+    if (left.activity != right.activity) return left.activity > right.activity;
+    const socket_order = std.mem.order(u8, left.socket, right.socket);
+    if (socket_order != .eq) return socket_order == .lt;
+    return std.mem.lessThan(u8, left.id, right.id);
+}
+
+/// Bound terminal text in the existing one-MiB copy request, sharing the budget
+/// among selected panes. The catalog itself remains intact for retries.
+pub fn copyWorkspaces(alloc: std.mem.Allocator, selected: []const Workspace) ![]const Workspace {
+    var count: usize = 0;
+    for (selected) |ws| for (ws.tabs) |tab| {
+        count += tab.panes.len;
+    };
+    const limit = 512 * 1024 / @max(1, count) / 2;
+    const workspaces = try alloc.dupe(Workspace, selected);
+    for (workspaces) |*ws| {
+        const tabs = try alloc.dupe(Tab, ws.tabs);
+        ws.tabs = tabs;
+        for (tabs) |*tab| {
+            const panes = try alloc.dupe(Pane, tab.panes);
+            tab.panes = panes;
+            for (panes) |*pane| {
+                pane.history = @import("tmux_resume.zig").tail(pane.history, limit);
+                pane.screen = @import("tmux_resume.zig").tail(pane.screen, limit);
+            }
+        }
+    }
+    return workspaces;
+}
+
+test "tmux groups sort by recent activity across sockets" {
+    var groups = [_]Workspace{
+        .{ .id = "$0", .name = "old", .socket = "a", .activity = 10, .tabs = &.{} },
+        .{ .id = "$0", .name = "new", .socket = "b", .activity = 30, .tabs = &.{} },
+        .{ .id = "$1", .name = "middle", .socket = "a", .activity = 20, .tabs = &.{} },
+    };
+    std.mem.sort(Workspace, &groups, {}, recentFirst);
+    try std.testing.expectEqualStrings("new", groups[0].name);
+    try std.testing.expectEqualStrings("middle", groups[1].name);
+}
+
+test "copy text fits the RPC budget at full pane capacity without changing discovery" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const content = try alloc.alloc(u8, 64 * 1024);
+    @memset(content, '\\');
+    const command = try alloc.alloc(u8, 2048);
+    @memset(command, '\\');
+    const panes = try alloc.alloc(Pane, @import("layout.zig").max_panes);
+    for (panes) |*pane| pane.* = .{ .id = "%0", .name = "tig", .screen = content, .history = content, .restart_command = command };
+    const workspaces = try copyWorkspaces(alloc, &.{.{ .id = "$0", .name = "session", .tabs = &.{.{ .id = "@0", .name = "tab", .panes = panes }} }});
+    const json = try std.json.Stringify.valueAlloc(alloc, .{ .op = "onboarding.copy", .source = Source.tmux, .workspaces = workspaces }, .{});
+    try std.testing.expect(json.len < 1024 * 1024);
+    try std.testing.expectEqual(@as(usize, 64 * 1024), panes[0].screen.len);
+    try std.testing.expect(workspaces[0].tabs[0].panes[0].screen.len < panes[0].screen.len);
+}
+
 fn cmuxExecutable(alloc: std.mem.Allocator) ![]const u8 {
     var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse "", ':');
     while (dirs.next()) |dir| {

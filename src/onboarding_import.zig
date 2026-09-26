@@ -1,4 +1,4 @@
-//! Daemon-side copy transactions. Source processes are never signalled or replayed.
+//! Daemon-side copy transactions. Source processes are never signalled.
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
@@ -82,6 +82,19 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
             opts.interactive_command = false;
             opts.split = if (first) |id| .{ .pane = id, .axis = .horizontal } else null;
             const id = try r.create(opts);
+            if (kind == .tmux) {
+                const t = r.pane(id).?.terminal;
+                const tmux_resume = @import("tmux_resume.zig");
+                tmux_resume.feed(t, p.history);
+                tmux_resume.feed(t, p.screen);
+                t.feed("\x1b[0m\r\n# Imported tmux output; new shell.\r\n");
+                if (p.restart_command.len > 0) {
+                    // Even a hand-written copy request must not submit input.
+                    for (p.restart_command) |ch| if (ch < 32 or ch == 127) return error.InvalidImport;
+                    t.feed("# Press Return to restart the command below.\r\n");
+                    try t.prefill(p.restart_command);
+                }
+            }
             if (kind == .cmux) r.pane(id).?.label.set(p.name);
             ids[i] = id;
             if (first == null) first = id;
