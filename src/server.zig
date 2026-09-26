@@ -14,6 +14,7 @@ const Client = @import("peer.zig").Client;
 pub const Server = struct {
     const Pane = runtime.Pane;
     runtime: runtime.Runtime = .{},
+    command_previews: ?*@import("launch_command.zig").Worker = null,
     launch_previews: ?*@import("agent_launcher.zig").Worker = null,
     summaries: ?*@import("activity_worker.zig").Worker = null,
     preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
@@ -199,6 +200,17 @@ pub const Server = struct {
             const path = try @import("recovery.zig").path(s.socket);
             defer a.free(path);
             try cl.queue(.{ .ok = true, .path = path });
+            return;
+        }
+        if (eq(operation, "agent.command.preview")) {
+            try protocol.require(v, cl.protocol_version);
+            const ws = try s.runtime.getWorkspace(try protocol.id(v, "workspace"));
+            const requested = agents.str(v, "cwd");
+            const cwd = if (requested.len > 0) requested else ws.cwd;
+            if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
+            const id = try protocol.id(v, "request");
+            const worker = s.command_previews orelse return error.Unavailable;
+            try cl.queue(.{ .ok = true, .resolution = try worker.request(id, agents.str(v, "command"), cwd) });
             return;
         }
         if (eq(operation, "agent.preview") or eq(operation, "agent.track_usage")) {
@@ -478,6 +490,11 @@ pub const Server = struct {
         s.attention(ding, p.agent().state);
     }
     pub fn run(s: *Server) !void {
+        s.command_previews = try @import("launch_command.zig").Worker.start();
+        defer {
+            s.command_previews.?.stop();
+            s.command_previews = null;
+        }
         s.launch_previews = try @import("agent_launcher.zig").Worker.start();
         defer {
             s.launch_previews.?.stop();
@@ -709,6 +726,7 @@ pub const Server = struct {
                 @import("git_status.zig").recordExit(pid, status);
                 @import("inference.zig").recordExit(pid, status);
                 @import("agent_launcher.zig").recordExit(pid, status);
+                @import("launch_command.zig").recordExit(pid, status);
                 @import("ports.zig").recordExit(pid, status);
                 for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                     p.terminal.exited = true;

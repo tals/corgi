@@ -112,7 +112,7 @@ pub const Terminal = struct {
         }
         return .{};
     }
-    pub fn spawn(t: *Terminal, cwd: []const u8, socket: []const u8, id: u32, executable: []const u8, command: ?[]const u8) !void {
+    pub fn spawn(t: *Terminal, cwd: []const u8, socket: []const u8, id: u32, executable: []const u8, command: ?[]const u8, interactive_command: bool) !void {
         var ws = std.mem.zeroes(c.struct_winsize);
         ws.ws_col = t.vt.cols;
         ws.ws_row = t.vt.rows;
@@ -132,8 +132,8 @@ pub const Terminal = struct {
             os.setenv("PATH", path) catch c._exit(127);
             const pane = std.fmt.allocPrint(a, "{d}", .{id}) catch c._exit(127);
             os.setenv("CORGI_PANE", pane) catch c._exit(127);
-            const shell = os.env("SHELL") orelse "/bin/sh";
-            if (command) |cmd| os.exec(&.{ shell, "-lc", cmd }) catch c._exit(127) else os.exec(&.{ shell, "-l" }) catch c._exit(127);
+            const shell = @import("launch_command.zig").shell();
+            if (command) |cmd| os.exec(&.{ shell, if (interactive_command) @import("launch_command.zig").flags() else "-lc", cmd }) catch c._exit(127) else os.exec(&.{ shell, "-l" }) catch c._exit(127);
         }
         t.pid = pid;
         os.nonblock(t.fd);

@@ -1,42 +1,52 @@
 const std = @import("std");
 const unicode = @import("ghostty-vt").unicode;
 
-pub const Target = union(enum) { pane: u32, rename: u32, workspace_name: ?u32 };
+pub const Target = union(enum) { pane: u32, rename: u32, workspace_name: ?u32, agent_command: usize };
 pub const Result = enum { none, save, cancel };
 pub const Hit = union(enum) { none, save, clear, cancel, field: usize };
 pub const Dialog = struct {
     target: Target,
-    text: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
+    text: [@max(std.fs.max_path_bytes, @import("launch_command.zig").max_length)]u8 = @splat(0),
     len: usize = 0,
     cursor: usize = 0,
     selected: bool = true,
     failed: bool = false,
+    overflow: bool = false,
 
     pub fn init(target: Target, initial: []const u8) Dialog {
         var d: Dialog = .{ .target = target };
-        d.len = @min(initial.len, 80);
-        for (initial[0..d.len], 0..) |ch, i| d.text[i] = if (ch >= 32 and ch < 127) ch else '_';
+        d.len = @min(initial.len, if (target == .agent_command) @as(usize, @import("launch_command.zig").max_length) else 80);
+        for (initial[0..d.len], 0..) |ch, i| d.text[i] = if (target == .agent_command or (ch >= 32 and ch < 127)) ch else '_';
         while (d.len > 0 and !std.unicode.utf8ValidateSlice(d.text[0..d.len])) d.len -= 1;
         d.cursor = d.len;
         return d;
     }
     pub fn name(d: *const Dialog) []const u8 {
-        return std.mem.trim(u8, d.text[0..d.len], " ");
+        return std.mem.trim(u8, d.text[0..d.len], if (d.target == .agent_command) " \t\r\n" else " ");
     }
     pub fn clear(d: *Dialog) void {
         d.len = 0;
         d.cursor = 0;
         d.selected = false;
         d.failed = false;
+        d.overflow = false;
     }
     pub fn typeByte(d: *Dialog, byte: u8) void {
-        if (byte < 32 or byte >= 127) return;
+        if (byte < 32 or (byte >= 127 and d.target != .agent_command)) return;
         d.insert(&.{byte});
+    }
+    pub fn pasteByte(d: *Dialog, byte: u8) void {
+        if (d.target == .agent_command and (byte == '\t' or byte == '\r' or byte == '\n')) {
+            d.insert(&.{byte});
+        } else d.typeByte(byte);
     }
     fn insert(d: *Dialog, bytes: []const u8) void {
         if (d.selected) d.clear();
-        const limit = 80;
-        if (d.len + bytes.len > limit) return;
+        const limit: usize = if (d.target == .agent_command) @import("launch_command.zig").max_length else 80;
+        if (d.len + bytes.len > limit) {
+            d.overflow = true;
+            return;
+        }
         std.mem.copyBackwards(u8, d.text[d.cursor + bytes.len .. d.len + bytes.len], d.text[d.cursor..d.len]);
         @memcpy(d.text[d.cursor..][0..bytes.len], bytes);
         d.len += bytes.len;
@@ -84,7 +94,7 @@ pub const Dialog = struct {
             const n = std.unicode.utf8ByteSequenceLength(d.text[pos]) catch 1;
             if (pos + n > d.len) break;
             const cp = std.unicode.utf8Decode(d.text[pos..][0..n]) catch break;
-            used += unicode.codepointWidth(cp);
+            used += if (d.target == .agent_command and cp < 32) 1 else unicode.codepointWidth(cp);
             if (used > columns) break;
             pos += n;
         }
@@ -165,25 +175,34 @@ pub const View = struct {
             }
         }
         const title = switch (d.target) {
+            .agent_command => "Agent launch command",
             .rename => "rename tab",
             .pane => "rename pane",
             .workspace_name => |id| if (id == null) "new workspace: name" else "edit workspace: name",
         };
         try w.print("\x1b[{d};{d}H{s}\x1b[1m{s}", .{ v.title_y + 1, v.x + 2, panel, title[0..@min(title.len, v.width - 2)] });
-        if (d.failed and v.height >= 7) {
-            const msg = "Could not save. Check folder or capacity.";
+        if ((d.failed or d.overflow) and v.height >= 7) {
+            const msg = if (d.target == .agent_command) "Could not save command; max 2048 bytes." else "Could not save. Check folder or capacity.";
             try w.print("\x1b[{d};{d}H{s}\x1b[38;2;243;139;168m{s}", .{ v.title_y + 2, v.x + 2, panel, msg[0..@min(msg.len, v.width - 2)] });
+        }
+        if (d.target == .agent_command and !d.failed and !d.overflow and v.height >= 7) {
+            var hint: [160]u8 = undefined;
+            const launch = @import("launch_command.zig");
+            const provider = launch.identify(d.name());
+            const text = try std.fmt.bufPrint(&hint, "{s} · {s} · empty saves delete", .{ std.fs.path.basename(launch.shell()), if (provider == .other) "resolved at launch" else @tagName(provider) });
+            try w.print("\x1b[{d};{d}H{s}", .{ v.title_y + 2, v.x + 2, panel });
+            try @import("sidebar.zig").writeEllipsis(w, text, v.width - 2);
         }
         try w.print("\x1b[{d};{d}H\x1b[0;38;2;205;214;244;48;2;49;50;68m", .{ v.field_y + 1, v.x + 2 });
         try w.splatByteAll(' ', v.width - 2);
         try w.print("\x1b[{d};{d}H", .{ v.field_y + 1, v.x + 2 });
-        if (d.len == 0 and d.target != .pane) {
+        if (d.len == 0 and d.target != .pane and d.target != .agent_command) {
             // This is a preview of the current position, never an editable/saved name.
             try w.print("\x1b[38;2;125;132;143m{d}", .{number});
         } else {
             if (d.selected) try w.writeAll("\x1b[38;2;24;27;32;48;2;137;180;250m");
             const end = d.byteAtColumn(v.offset, v.width - 2);
-            try w.writeAll(d.text[v.offset..end]);
+            for (d.text[v.offset..end]) |byte| try w.writeByte(if (d.target == .agent_command and byte < 32) ' ' else byte);
         }
         for (v.buttons(), 0..) |b, i| {
             try w.print("\x1b[{d};{d}H{s}", .{ v.buttons_y + 1, b.x + 1, if (i == 0) "\x1b[1;38;2;24;27;32;48;2;137;180;250m" else "\x1b[1;38;2;205;214;244;48;2;49;50;68m" });
@@ -193,7 +212,7 @@ pub const View = struct {
         }
         var cursor_width: usize = 0;
         var it = (try std.unicode.Utf8View.init(d.text[v.offset..d.cursor])).iterator();
-        while (it.nextCodepoint()) |cp| cursor_width += unicode.codepointWidth(cp);
+        while (it.nextCodepoint()) |cp| cursor_width += if (d.target == .agent_command and cp < 32) 1 else unicode.codepointWidth(cp);
         try w.print("\x1b[0m\x1b[{d};{d}H\x1b[?25h", .{ v.field_y + 1, v.x + 2 + cursor_width });
     }
 };
@@ -215,4 +234,17 @@ test "name editing supports selection, insertion, cursor movement and clear" {
     _ = d.key(3);
     try std.testing.expectEqual(@as(usize, 0), d.len);
     try std.testing.expectEqualStrings("", d.name());
+}
+
+test "agent command editor preserves long pasted shell source" {
+    var d = Dialog.init(.{ .agent_command = 0 }, "old");
+    const source = "FOO='two words' \nmyagent --whatever 'quoted argument' ";
+    for (source) |byte| d.pasteByte(byte);
+    for (0..100) |_| d.pasteByte('x');
+    try std.testing.expect(d.len > 80);
+    try std.testing.expect(std.mem.startsWith(u8, d.name(), source));
+    const edited = Dialog.init(.{ .agent_command = 0 }, d.name());
+    try std.testing.expectEqualStrings(d.name(), edited.name());
+    for (0..2048) |_| d.pasteByte('x');
+    try std.testing.expect(d.overflow);
 }

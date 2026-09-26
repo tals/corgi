@@ -13,7 +13,7 @@ pub const Text = struct {
         return t.bytes[0..t.len];
     }
 };
-pub const Info = struct { account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: Resets = .{}, usage_needs_consent: bool = false };
+pub const Info = struct { signed_in: ?bool = null, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: Resets = .{}, usage_needs_consent: bool = false };
 
 pub const Resets = struct {
     at: [2]?i64 = .{ null, null },
@@ -86,6 +86,7 @@ pub fn resets(value: std.json.Value, codex: bool) Resets {
 
 pub fn codexAccount(value: std.json.Value) Info {
     var info: Info = .{};
+    info.signed_in = value != .null;
     const email = str(value, "email");
     const api = std.mem.eql(u8, str(value, "type"), "apiKey");
     info.account.set(if (api) "API key" else if (email.len > 0) email else if (value == .null) "Not signed in" else "Signed in");
@@ -98,6 +99,7 @@ pub fn claudeAccount(value: std.json.Value) Info {
     var info: Info = .{};
     const logged = field(value, "loggedIn");
     if (logged != .bool) return info;
+    info.signed_in = logged.bool;
     const api = std.mem.eql(u8, str(value, "authMethod"), "api_key");
     const email = str(value, "email");
     info.account.set(if (!logged.bool) "Not signed in" else if (api) "API key" else if (email.len > 0) email else "Signed in");

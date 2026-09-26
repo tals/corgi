@@ -157,6 +157,8 @@ pub const Runtime = struct {
     closed_panes: usize = 0,
     last_agent: @import("agent_launcher.zig").Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
+    agent_hidden: [2]bool = .{ false, false },
+    agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
     pub fn pane(r: *Runtime, id: u32) ?*Pane {
         for (r.panes.items) |*p| if (p.id == id) return p;
         return null;
@@ -211,6 +213,8 @@ pub const Runtime = struct {
         r.ports = snapshot.ports;
         r.last_agent = snapshot.last_agent;
         r.agent_yolo = snapshot.agent_yolo;
+        r.agent_hidden = snapshot.agent_hidden;
+        r.agent_commands = snapshot.agent_commands;
         r.revision = snapshot.revision;
         r.closed_panes = snapshot.closed_panes;
     }

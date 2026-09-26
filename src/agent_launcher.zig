@@ -8,17 +8,33 @@ pub const Provider = enum { codex, claude };
 pub const Row = enum {
     codex,
     claude,
+    custom0,
+    custom1,
+    custom2,
+    custom3,
+    custom4,
+    custom5,
     terminal,
+    add,
+    manage,
     pub fn of(provider: Provider) Row {
         return @enumFromInt(@intFromEnum(provider));
     }
+    pub fn custom(row: Row) ?usize {
+        const i = @intFromEnum(row);
+        return if (i >= @intFromEnum(Row.custom0) and i <= @intFromEnum(Row.custom5)) i - @intFromEnum(Row.custom0) else null;
+    }
     pub fn agent(row: Row) ?Provider {
-        return if (row == .terminal) null else @enumFromInt(@intFromEnum(row));
+        return switch (row) {
+            .codex => .codex,
+            .claude => .claude,
+            else => null,
+        };
     }
 };
 const metadata = @import("account_preview.zig");
 pub const Text = metadata.Text;
-pub const Option = struct { model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
+pub const Option = struct { signed_in: ?bool = null, model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
 /// `installed` defaults true so older daemons keep showing both providers.
 pub const Preview = struct { pending: bool = true, options: [2]Option = @splat(.{}), installed: [2]bool = .{ true, true } };
 fn installed() [2]bool {
@@ -118,6 +134,7 @@ pub const Worker = struct {
                     result.options[0].source.set("Effective Codex settings");
                 } else |_| result.options[0].source.set("Model resolved by Codex at startup");
                 if (pool.configuredAccount(&w.stopping)) |account| {
+                    result.options[0].signed_in = account.signed_in;
                     result.options[0].account = account.account;
                     result.options[0].plan = account.plan;
                     result.options[0].usage = account.usage;
@@ -127,6 +144,7 @@ pub const Worker = struct {
             if (result.installed[1]) {
                 result.options[1] = claude(job.cwd[0..job.len]);
                 const account = claudeAccount(job.cwd[0..job.len], &w.stopping, job.request_access);
+                result.options[1].signed_in = account.signed_in;
                 result.options[1].account = account.account;
                 result.options[1].plan = account.plan;
                 result.options[1].usage = account.usage;
@@ -157,17 +175,20 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     // prompt-capable Keychain read outside our helper's interaction guard.
     var info: metadata.Info = .{};
     if (os.env("ANTHROPIC_API_KEY") != null or os.env("ANTHROPIC_AUTH_TOKEN") != null) {
+        info.signed_in = true;
         info.account.set("API key");
         info.plan.set("API");
         info.usage.set("Metered");
         return info;
     }
     if (os.env("CLAUDE_CODE_OAUTH_TOKEN") != null) {
+        info.signed_in = true;
         info.account.set("OAuth token");
         return info;
     }
     for ([_][:0]const u8{ "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY" }) |name| {
         if (std.mem.eql(u8, os.env(name) orelse "", "1")) {
+            info.signed_in = true;
             info.account.set("External provider");
             info.usage.set("Metered");
             return info;
@@ -186,7 +207,12 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     info.usage_needs_consent = needs_consent == .bool and needs_consent.bool;
     const credentials = @import("providers/common.zig").str(response_json.value, "credentials");
     if (credentials.len == 0) {
-        if (info.usage_needs_consent) info.account.set("Access required");
+        if (info.usage_needs_consent) {
+            info.account.set("Access required");
+        } else {
+            info.signed_in = false;
+            info.account.set("Not signed in");
+        }
         return info;
     }
     const json = std.json.parseFromSlice(std.json.Value, a, credentials, .{}) catch return info;
@@ -199,7 +225,13 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
         if (std.mem.endsWith(u8, tier, "_max_5x")) info.plan.set("Max 5x") else if (std.mem.endsWith(u8, tier, "_max_20x")) info.plan.set("Max 20x");
     }
     const token = common.str(oauth, "accessToken");
-    if (token.len == 0 or token.len > 4096) return info;
+    if (token.len == 0) {
+        info.signed_in = false;
+        return info;
+    }
+    if (token.len > 4096) return info;
+    // Expired access tokens can be refreshed by Claude at launch.
+    info.signed_in = true;
     // Restrict header syntax; the token goes through stdin, never process argv.
     for (token) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '_' and ch != '.') return info;
     const expires = common.field(oauth, "expiresAt");
@@ -336,6 +368,23 @@ pub const Menu = struct {
     cwd_len: usize,
     selected: Row,
     yolo: [2]bool = .{ false, false },
+    hidden: [2]bool = .{ false, false },
+    managing: bool = false,
+    editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .agent_command = 0 }, .selected = false },
+    name_editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .rename = 0 }, .selected = false },
+    name_focused: bool = false,
+    show_command: bool = false,
+    name_customized: bool = false,
+    edit_index: ?usize = null,
+    edit_provider: ?Provider = null,
+    save_error: Text = .{},
+    draft: @import("launch_command.zig").Entry = .{},
+    draft_changed: i64 = 0,
+    request_id: u32 = 0,
+    resolution_checked: i64 = 0,
+    resolution: @import("launch_command.zig").Resolution = .{},
+    save_requested: bool = false,
+    commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
     last: Provider,
     pinned: bool,
     /// Ctrl-B arrived while pinned; Cmd+T sends Ctrl-B A, so a repeat opens a terminal.
@@ -356,10 +405,22 @@ pub const Menu = struct {
             if (reset_text.len > 0) reset_text.text() else if (m.preview.pending) "Reading…" else "—",
         };
     }
-    /// Rows are shown in order, skipping providers that are not installed.
+    /// Management includes unavailable providers so preferences stay editable.
     pub fn shown(m: *const Menu, row: Row) bool {
-        const provider = row.agent() orelse return true;
-        return m.preview.installed[@intFromEnum(provider)];
+        if (row == .manage) return true;
+        if (row == .add) return m.managing;
+        if (row.custom()) |index| return m.commands[index].len > 0 and (m.managing or !m.commands[index].hidden);
+        if (row == .terminal) return !m.managing;
+        if (m.managing) return true;
+        const index = @intFromEnum(row.agent().?);
+        return m.preview.installed[index] and !m.hidden[index] and m.preview.options[index].signed_in != false;
+    }
+    pub fn emptyCommand(m: *const Menu) ?usize {
+        for (m.commands, 0..) |entry, i| if (entry.len == 0) return i;
+        return null;
+    }
+    pub fn countRows(m: *const Menu) usize {
+        return m.count() - 2;
     }
     fn count(m: *const Menu) usize {
         var n: usize = 0;
@@ -389,6 +450,12 @@ pub const Menu = struct {
     pub fn first(m: *const Menu) Row {
         return m.rowAt(0).?;
     }
+    /// Digits enumerate visible agents only, matching the picker keycaps.
+    pub fn shortcutRow(m: *const Menu, key: u8) ?Row {
+        if (m.managing or key < '0' or key > '9') return null;
+        const row = m.rowAt(key - '0') orelse return null;
+        return if (row.agent() != null or row.custom() != null) row else null;
+    }
     pub fn move(m: *Menu, next: bool, wrap: bool) void {
         m.normalize();
         const n = m.count();
@@ -398,12 +465,13 @@ pub const Menu = struct {
         else if (next) @min(index + 1, n - 1) else index -| 1).?;
     }
     fn rowsHeight(m: *const Menu) u16 {
-        return @intCast(5 + m.count());
+        if (m.managing) return @intCast(m.count() + 20);
+        return @intCast(7 + m.count());
     }
     pub fn bounds(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View) @import("layout.zig").Rect {
         var content: u16 = 4;
         for (m.columns(cols)) |width| content += width;
-        const width = @min(cols, @max(@as(u16, 40), content));
+        const width = @min(cols, if (m.managing) @as(u16, 82) else @max(@as(u16, 40), content));
         const height = @min(rows, m.rowsHeight());
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
@@ -411,13 +479,14 @@ pub const Menu = struct {
         var widths: [7]u16 = undefined;
         for (headings, &widths) |heading, *size| size.* = @intCast(@import("sidebar.zig").displayWidth(heading));
         for (0..m.preview.options.len) |index| {
-            if (!m.preview.installed[index]) continue;
+            if (!m.shown(@enumFromInt(index))) continue;
             var reset_text: Text = undefined;
             for (m.cells(index, &reset_text), &widths) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
         }
         for (&widths, 0..) |*size, column| size.* += if (column == 6) 1 else 2;
+        widths[0] += 4; // Left shortcut keycap and its following space.
         const available = width -| 4;
-        var minimum = [_]u16{ 13, 6, 7, 9, 6, 14, 10 };
+        var minimum = [_]u16{ 17, 6, 7, 9, 6, 14, 10 };
         if (available < 65) {
             widths[3] = 0;
             widths[2] = 0;
@@ -444,10 +513,30 @@ pub const Menu = struct {
     }
     pub fn hit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Row {
         const b = m.bounds(cols, rows, side);
-        if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2 or y >= b.y + @min(b.h -| 1, 2 + m.count())) return null;
-        return m.rowAt(y - b.y - 2);
+        if (m.managing) {
+            if (x <= b.x or x >= b.x + b.w - 1) return null;
+            const n = m.count() - 2;
+            if (y >= b.y + 4 and y < b.y + 4 + n) return m.rowAt(y - b.y - 4);
+            if (y >= b.y + n + 5 and y <= b.y + n + 17 + @as(u16, if (m.show_command) 2 else 0)) return .add;
+            if (y == b.y + b.h - 2 and x >= b.x + b.w -| 10) return .manage;
+            return null;
+        }
+        if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2) return null;
+        const index = y - b.y - 2;
+        const manage_index = m.count() - 1;
+        if (index == manage_index + 2) return .manage;
+        if (index >= manage_index) return null;
+        return m.rowAt(index);
+    }
+    pub fn visibilityHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?usize {
+        if (!m.managing) return null;
+        const row = m.hit(cols, rows, side, x, y) orelse return null;
+        const index = row.custom() orelse return null;
+        const b = m.bounds(cols, rows, side);
+        return if (x < b.x + 9) index else null;
     }
     fn providerHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+        if (m.managing) return null;
         return (m.hit(cols, rows, side, x, y) orelse return null).agent();
     }
     pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
@@ -459,6 +548,7 @@ pub const Menu = struct {
         return if (x >= start and x < start + widths[1] -| 2) provider else null;
     }
     pub fn trackable(m: *const Menu, row: Row) bool {
+        if (m.managing) return false;
         const provider = row.agent() orelse return false;
         return !m.preview.pending and m.preview.options[@intFromEnum(provider)].usage_needs_consent;
     }
@@ -470,7 +560,156 @@ pub const Menu = struct {
         const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
         return if (x >= start and x < start + widths[5] -| 1) provider else null;
     }
+    pub fn edit(m: *Menu, row: Row) void {
+        m.draft = .{};
+        m.request_id = 0;
+        m.resolution = .{};
+        m.save_requested = false;
+        m.edit_index = row.custom();
+        m.edit_provider = row.agent();
+        const source = if (m.edit_index) |i| m.commands[i].inputText() else if (m.edit_provider) |provider| @tagName(provider) else "";
+        m.editor = @import("name_dialog.zig").Dialog.init(.{ .agent_command = 0 }, source);
+        m.name_focused = false;
+        m.show_command = false;
+        m.name_customized = m.edit_index != null;
+        m.name_editor = @import("name_dialog.zig").Dialog.init(.{ .rename = 0 }, if (m.edit_index) |i| m.commands[i].label() else "");
+        if (m.edit_index) |i| {
+            m.draft.set(source) catch {};
+            m.resolution = .{ .pending = false, .command = m.commands[i], .semantics = m.commands[i].semantics };
+        }
+        m.selected = .add;
+        m.pinned = true;
+    }
+    pub fn fieldWidth(b: @import("layout.zig").Rect) u16 {
+        return b.w -| 17;
+    }
+    pub fn fieldOffset(m: *const Menu, width: u16) usize {
+        var offset = m.editor.cursor -| (width -| 1);
+        while (offset < m.editor.cursor and m.editor.text[offset] & 0xc0 == 0x80) offset += 1;
+        return offset;
+    }
+    pub fn input(m: *Menu) *@import("name_dialog.zig").Dialog {
+        return if (m.name_focused) &m.name_editor else &m.editor;
+    }
+    fn account(m: *const Menu, info: *const @import("launch_command.zig").Semantics) []const u8 {
+        if (info.account.len > 0) return info.account.text();
+        if (info.default_account) {
+            const index: usize = if (info.provider == .claude) 1 else 0;
+            const option = &m.preview.options[index];
+            return if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading default account…" else "Default account · unavailable";
+        }
+        return "Account unknown";
+    }
+    fn drawInput(w: *std.Io.Writer, editor: @import("name_dialog.zig").Dialog, placeholder: []const u8, x: u16, y: usize, width: u16, focused: bool) !void {
+        const sidebar = @import("sidebar.zig");
+        var offset = editor.cursor -| (width -| 1);
+        while (offset < editor.cursor and editor.text[offset] & 0xc0 == 0x80) offset += 1;
+        const end = editor.byteAtColumn(offset, width);
+        try w.print("\x1b[{d};{d}H\x1b[48;2;{s}m", .{ y, x, if (focused) "47;64;59" else "43;48;55" });
+        try w.splatByteAll(' ', width);
+        try w.print("\x1b[{d};{d}H", .{ y, x });
+        if (editor.len == 0) try sidebar.writeEllipsis(w, placeholder, width) else {
+            if (focused and editor.selected) try w.writeAll("\x1b[7m");
+            for (editor.text[offset..end]) |ch| try w.writeByte(if (ch < 32 or ch == 127) ' ' else ch);
+        }
+        try w.writeAll("\x1b[0;38;2;201;208;215;48;2;35;40;47m");
+    }
+    fn drawManager(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
+        const sidebar = @import("sidebar.zig");
+        const b = m.bounds(cols, rows, side);
+        if (b.w < 40 or b.h < m.rowsHeight()) return;
+        const panel = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
+        for (0..b.h) |y| {
+            try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + y + 1, b.x + 1, panel, if (y == 0) "╭" else if (y == b.h - 1) "╰" else "│" });
+            if (y == 0 or y == b.h - 1) {
+                for (0..b.w - 2) |_| try w.writeAll("─");
+            } else try w.splatByteAll(' ', b.w - 2);
+            try w.writeAll(if (y == 0) "╮" else if (y == b.h - 1) "╯" else "│");
+        }
+        try w.print("\x1b[{d};{d}H Manage agents ", .{ b.y + 1, b.x + 3 });
+        const name_width: u16 = @min(24, b.w / 3);
+        const command_x = b.x + 10 + name_width;
+        try w.print("\x1b[{d};{d}HShow\x1b[{d};{d}HAgent\x1b[{d};{d}HAccount", .{ b.y + 3, b.x + 4, b.y + 3, b.x + 10, b.y + 3, command_x });
+        try w.print("\x1b[{d};{d}H", .{ b.y + 4, b.x + 4 });
+        for (0..b.w - 6) |_| try w.writeAll("─");
+        const n = m.count() - 2;
+        for (0..n) |i| {
+            const row = m.rowAt(i).?;
+            const custom = row.custom();
+            const hidden = if (custom) |index| m.commands[index].hidden else m.hidden[@intFromEnum(row)];
+            const label = if (custom) |index| m.commands[index].label() else if (row == .codex) "Codex" else "Claude Code";
+            const info = if (custom) |index| m.commands[index].semantics else @import("launch_command.zig").Semantics{ .provider = if (row == .codex) .codex else .claude, .default_account = true };
+            const source = m.account(&info);
+            try w.print("\x1b[{d};{d}H{s} [{s}]\x1b[{d};{d}H", .{ b.y + 5 + i, b.x + 2, if (m.selected == row) "›" else " ", if (hidden) " " else "✓", b.y + 5 + i, b.x + 10 });
+            try sidebar.writeEllipsis(w, label, name_width - 2);
+            try w.print("\x1b[{d};{d}H", .{ b.y + 5 + i, command_x });
+            var clean: [2048]u8 = undefined;
+            for (source, 0..) |ch, j| clean[j] = if (ch < 32 or ch == 127) ' ' else ch;
+            try sidebar.writeEllipsis(w, clean[0..source.len], b.x + b.w -| 19 -| command_x);
+            try w.print("\x1b[{d};{d}H[Edit]", .{ b.y + 5 + i, b.x + b.w - 17 });
+            if (custom != null) try w.print("\x1b[{d};{d}H[Delete]", .{ b.y + 5 + i, b.x + b.w - 10 });
+        }
+        const field_y = b.y + n + 6;
+        const input_x = b.x + 5;
+        const width = b.w -| 10;
+        const dim = "\x1b[38;2;112;124;135m";
+        for (0..2) |i| {
+            const top = field_y + i * 4;
+            const focused = m.selected == .add and m.name_focused == (i == 1);
+            try w.print("\x1b[{d};{d}H{s}{s}", .{ top, b.x + 4, dim, if (i == 0) "Command" else "Name" });
+            const border = if (focused) "\x1b[38;2;139;190;167m" else dim;
+            for (0..3) |line| {
+                try w.print("\x1b[{d};{d}H{s}{s}", .{ top + line + 1, b.x + 4, border, if (line == 0) "┌" else if (line == 2) "└" else "│" });
+                if (line != 1) {
+                    for (0..width + 2) |_| try w.writeAll("─");
+                } else try w.splatByteAll(' ', width + 2);
+                try w.writeAll(if (line == 0) "┐" else if (line == 2) "┘" else "│");
+            }
+            try w.writeAll(panel);
+            try drawInput(w, if (i == 0) m.editor else m.name_editor, if (i == 0) "Paste a command…" else "Suggested automatically", input_x + 1, top + 2, width, focused);
+        }
+        if (m.editor.len > 0) {
+            const matches = std.mem.eql(u8, m.draft.text(), m.editor.name());
+            const resolved = matches and !m.resolution.pending and m.resolution.error_message.len == 0;
+            const status = if (m.editor.failed and m.save_error.len > 0) m.save_error.text() else if (m.editor.overflow) "Command too long" else if (!matches or m.resolution.pending) "Resolving command…" else if (m.resolution.error_message.len > 0) m.resolution.error_message.text() else m.account(&m.resolution.semantics);
+            try w.print("\x1b[{d};{d}H", .{ field_y + 9, b.x + 4 });
+            var summary: [512]u8 = undefined;
+            const info = &m.resolution.semantics;
+            const provider = switch (info.provider) {
+                .codex => "Codex",
+                .claude => "Claude Code",
+                else => "Custom agent",
+            };
+            try sidebar.writeEllipsis(w, if (resolved) std.fmt.bufPrint(&summary, "{s} · {s}", .{ provider, status }) catch status else status, b.w - 8);
+            try w.print("\x1b[{d};{d}H{s}", .{ field_y + 10, b.x + 4, dim });
+            if (resolved) {
+                var detail: [340]u8 = undefined;
+                const mode = if (std.mem.eql(u8, info.mode.text(), "Provider permission settings")) "" else info.mode.text();
+                const text = std.fmt.bufPrint(&detail, "{s}{s}{s}", .{ info.model.text(), if (info.model.len > 0 and mode.len > 0) " · " else "", mode }) catch "";
+                try sidebar.writeEllipsis(w, text, b.w - 26);
+                try w.print("\x1b[{d};{d}H[{s} command]", .{ field_y + 10, b.x + b.w - 17, if (m.show_command) "Hide" else "Show" });
+                if (m.show_command) {
+                    try w.print("\x1b[{d};{d}HRuns: ", .{ field_y + 12, b.x + 4 });
+                    var clean: [2048]u8 = undefined;
+                    const source = m.resolution.command.text();
+                    for (source, 0..) |ch, j| clean[j] = if (ch < 32 or ch == 127) ' ' else ch;
+                    try sidebar.writeEllipsis(w, clean[0..source.len], b.w - 14);
+                }
+            }
+        }
+        try w.print("{s}\x1b[{d};{d}H[Cancel]  [{s}]", .{ panel, field_y + 12 + @as(usize, if (m.show_command) 2 else 0), b.x + b.w - 19, if (m.edit_index != null or m.edit_provider != null) "Save" else "Add" });
+        try w.print("\x1b[{d};{d}H{s}Tab: command / name\x1b[{d};{d}H{s}[Done]\x1b[?25l", .{ b.y + b.h - 1, b.x + 4, dim, b.y + b.h - 1, b.x + b.w - 9, panel });
+        if (m.selected == .add) {
+            const editor = if (m.name_focused) m.name_editor else m.editor;
+            var offset = editor.cursor -| (width -| 1);
+            while (offset < editor.cursor and editor.text[offset] & 0xc0 == 0x80) offset += 1;
+            const cursor = @min(width -| 1, sidebar.displayWidth(editor.text[offset..editor.cursor]));
+            try w.print("\x1b[{d};{d}H\x1b[?25h", .{ field_y + 2 + @as(usize, if (m.name_focused) 4 else 0), input_x + 1 + cursor });
+        }
+    }
+
     pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
+        if (m.managing) return m.drawManager(w, cols, rows, side);
         const sidebar = @import("sidebar.zig");
         const b = m.bounds(cols, rows, side);
         if (b.w < 24 or b.h < m.rowsHeight()) return;
@@ -483,39 +722,76 @@ pub const Menu = struct {
             } else try w.splatByteAll(' ', b.w - 2);
             try w.writeAll(if (row == 0) "╮" else if (row == b.h - 1) "╯" else "│");
         }
-        try w.print("\x1b[{d};{d}H\x1b[1;38;2;226;230;233m New agent ", .{ b.y + 1, b.x + 3 });
+        try w.print("\x1b[{d};{d}H\x1b[1;38;2;226;230;233m {s} ", .{ b.y + 1, b.x + 3, if (m.managing) "Manage agents" else "New agent" });
         const widths = m.columns(b.w);
         var heading_x: u16 = b.x + 4;
         for (headings, widths, 0..) |heading, width, column| {
-            if (width == 0) continue;
-            try w.print("\x1b[{d};{d}H{s}", .{ b.y + 2, heading_x, panel });
-            try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 6) 1 else 2));
+            if (width == 0 or (m.managing and column != 0)) continue;
+            try w.print("\x1b[{d};{d}H{s}", .{ b.y + 2, heading_x + @as(u16, if (column == 0) 4 else 0), panel });
+            try sidebar.writeEllipsis(w, heading, width -| @as(u16, if (column == 0) 6 else if (column == 6) 1 else 2));
             heading_x += width;
         }
         for (0..m.count()) |visible| {
             const current = m.rowAt(visible).?;
             const i = @intFromEnum(current);
             const selected = current == m.selected;
-            const row = b.y + 3 + visible;
+            const row = b.y + 3 + visible + @as(usize, if (current == .manage) 2 else 0);
+            if (current == .manage) {
+                try w.print("\x1b[{d};{d}H\x1b[38;2;112;124;135m", .{ row - 1, b.x + 4 });
+                for (0..b.w - 6) |_| try w.writeAll("─");
+            }
             const style = if (selected) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, style });
             try w.splatByteAll(' ', b.w - 2);
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, if (selected) "›" else " " });
-            if (i == m.preview.options.len) {
+            if (current.agent() != null or current.custom() != null) {
                 try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
-                try sidebar.writeEllipsis(w, "New terminal", b.w -| 10);
-                try w.writeAll(" ");
+                const digit = [_]u8{'0' + @as(u8, @intCast(visible))};
+                try writeKey(w, &digit, style);
+            }
+            if (current == .add) {
+                try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
+                try sidebar.writeEllipsis(w, "+ Add agent…", b.w -| 6);
+                continue;
+            }
+            if (current.custom()) |index| {
+                const entry = &m.commands[index];
+                var label: [96]u8 = undefined;
+                const text = if (entry.name.len > 0) entry.name.text() else try std.fmt.bufPrint(&label, "{s} {d}", .{ entry.label(), index + 1 });
+                try w.print("\x1b[{d};{d}H", .{ row, b.x + 8 });
+                try sidebar.writeEllipsis(w, text, b.w -| 10);
+                if (m.managing) try w.print("\x1b[{d};{d}H[{s}]", .{ row, b.x + b.w - 9, if (entry.hidden) "Show" else "Hide" });
+                continue;
+            }
+            if (current == .manage) {
+                if (!selected) try w.writeAll("\x1b[38;2;112;124;135m");
+                try w.print("\x1b[{d};{d}H", .{ row, b.x + 8 });
+                try sidebar.writeEllipsis(w, if (m.managing) "Back to new agent" else "Manage agents…", b.w -| 6);
+                continue;
+            }
+            if (m.managing) {
+                var line: [160]u8 = undefined;
+                const status = if (!m.preview.installed[i]) "Not installed" else if (m.preview.options[i].signed_in == false) "Not signed in" else if (m.hidden[i]) "Hidden" else "In picker";
+                const text = try std.fmt.bufPrint(&line, "{s} · {s}   [{s}]", .{ if (i == 0) "Codex" else "Claude Code", status, if (m.hidden[i]) "Add" else "Remove" });
+                try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
+                try sidebar.writeEllipsis(w, text, b.w -| 6);
+                continue;
+            }
+            if (current == .terminal) {
+                try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
                 try writeKey(w, "t", style);
+                try w.writeAll(" ");
+                try sidebar.writeEllipsis(w, "New terminal", b.w -| 10);
                 continue;
             }
             var x: u16 = b.x + 4;
             var reset_text: Text = undefined;
             for (m.cells(i, &reset_text), widths, 0..) |text, width, column| {
                 if (width == 0) continue;
-                try w.print("\x1b[{d};{d}H", .{ row, x });
+                try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
                 if (column == 5 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
                 if (column == 1 and m.yolo[i]) try w.writeAll("\x1b[1;38;2;255;255;255m");
-                const room = width -| @as(u16, if (column == 6) 1 else 2);
+                const room = width -| @as(u16, if (column == 0) 6 else if (column == 6) 1 else 2);
                 if (column >= 5) {
                     try writeWindowCell(w, text, room, style);
                 } else try sidebar.writeEllipsis(w, text, room);
@@ -525,7 +801,11 @@ pub const Menu = struct {
             }
         }
         const Hint = struct { key: []const u8, label: []const u8 };
-        const hints: []const Hint = if (m.selected == .terminal)
+        const hints: []const Hint = if (m.managing or m.selected == .manage)
+            &.{.{ .key = "↵", .label = if (m.selected == .manage) "back/open" else if (m.selected == .add) "add" else if (m.selected.custom() != null) "edit" else if (m.hidden[@intFromEnum(m.selected)]) "add" else "remove" }}
+        else if (m.selected.custom() != null)
+            &.{.{ .key = "a", .label = "launch" }}
+        else if (m.selected == .terminal)
             &.{.{ .key = "a", .label = "open" }}
         else if (m.trackable(m.selected))
             &.{ .{ .key = "u", .label = "Track usage" }, .{ .key = "a", .label = "launch" }, .{ .key = "y", .label = "YOLO" } }
@@ -593,7 +873,8 @@ test "launch preview settings overlay and menu bounds" {
     try std.testing.expectEqual(Row.codex, menu.hit(80, 24, side, b.x + 2, b.y + 2).?);
     try std.testing.expectEqual(Row.claude, menu.hit(80, 24, side, b.x + 2, b.y + 3).?);
     try std.testing.expectEqual(Row.terminal, menu.hit(80, 24, side, b.x + 2, b.y + 4).?);
-    try std.testing.expectEqual(@as(?Row, null), menu.hit(80, 24, side, b.x + 2, b.y + 5));
+    try std.testing.expectEqual(@as(?Row, .manage), menu.hit(80, 24, side, b.x + 2, b.y + 7));
+    try std.testing.expectEqual(@as(?Row, null), menu.hit(80, 24, side, b.x + 2, b.y + 6));
 }
 
 test "account preview shows identities or auth mode and never credential fields" {
@@ -640,16 +921,55 @@ test "launcher hides providers that are not installed" {
     menu.normalize();
     try std.testing.expectEqual(Row.claude, menu.selected);
     const b = menu.bounds(120, 24, side);
-    try std.testing.expectEqual(@as(u16, 7), b.h);
+    try std.testing.expectEqual(@as(u16, 10), b.h);
     try std.testing.expectEqual(Row.claude, menu.hit(120, 24, side, b.x + 2, b.y + 2).?);
     try std.testing.expectEqual(Row.terminal, menu.hit(120, 24, side, b.x + 2, b.y + 3).?);
-    try std.testing.expectEqual(@as(?Row, null), menu.hit(120, 24, side, b.x + 2, b.y + 4));
+    try std.testing.expectEqual(@as(?Row, .manage), menu.hit(120, 24, side, b.x + 2, b.y + 6));
     menu.move(true, true);
     try std.testing.expectEqual(Row.terminal, menu.selected);
+    menu.move(true, true);
+    try std.testing.expectEqual(Row.manage, menu.selected);
     menu.move(true, true);
     try std.testing.expectEqual(Row.claude, menu.selected);
     menu.preview.installed = .{ false, false };
     menu.normalize();
     try std.testing.expectEqual(Row.terminal, menu.selected);
     try std.testing.expectEqual(Row.terminal, menu.first());
+}
+
+test "signed-out and hidden agents remain editable in management" {
+    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    menu.preview.options[0].signed_in = false;
+    menu.hidden[1] = true;
+    menu.normalize();
+    try std.testing.expectEqual(Row.terminal, menu.selected);
+    try std.testing.expect(!menu.shown(.codex) and !menu.shown(.claude));
+    menu.managing = true;
+    try std.testing.expect(menu.shown(.codex) and menu.shown(.claude) and menu.shown(.add));
+    try menu.commands[0].set("FOO=123 claude --whatever");
+    menu.commands[0].hidden = true;
+    try std.testing.expect(menu.shown(.custom0));
+    menu.managing = false;
+    try std.testing.expect(!menu.shown(.custom0));
+    menu.commands[0].hidden = false;
+    try std.testing.expect(menu.shown(.custom0));
+    menu.preview.options[0].signed_in = null;
+    try std.testing.expect(menu.shown(.codex));
+}
+
+test "digit shortcuts enumerate visible agents and exclude terminal and management" {
+    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    try std.testing.expectEqual(Row.codex, menu.shortcutRow('0').?);
+    try std.testing.expectEqual(Row.claude, menu.shortcutRow('1').?);
+    try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('2'));
+    menu.hidden[0] = true;
+    try menu.commands[3].set("claude --model opus");
+    try std.testing.expectEqual(Row.claude, menu.shortcutRow('0').?);
+    try std.testing.expectEqual(Row.custom3, menu.shortcutRow('1').?);
+    menu.preview.options[1].signed_in = false;
+    try std.testing.expectEqual(Row.custom3, menu.shortcutRow('0').?);
+    menu.commands[3].hidden = true;
+    try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('0'));
+    menu.managing = true;
+    try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('0'));
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real viewer launch controls and read-only model previews."""
-import json, pathlib, re, unittest, time, shlex, sys
+import json, pathlib, re, unittest, time, shlex, sys, shutil
 import smoke
 from viewer_client import Viewer
 
@@ -51,6 +51,242 @@ time.sleep(120)
         self.command('pane.create',workspace=self.ws,cwd=self.launch_dir,command='sleep 120')
     def tearDown(self):smoke.Runtime.tearDown(self)
     def click(self,viewer,x,y):return viewer.input(f'\x1b[<0;{x};{y}M\x1b[<0;{x};{y}m')
+    def click_text(self, view, label, cols=120):
+        rows=smoke.screen_text(view.poll()['data'],cols,30)
+        y,row=next((y,row) for y,row in enumerate(rows) if label in row)
+        return self.click(view,row.index(label)+1,y+1)
+
+    def manager_action(self, view, name, action):
+        rows=smoke.screen_text(view.poll()['data'],120,30)
+        y,row=next((y,row) for y,row in reversed(list(enumerate(rows))) if name in row and '[Edit]' in row)
+        return self.click(view,row.index(action)+1,y+1)
+
+    def wait_saved(self, index, source):
+        def saved():
+            if self.viewers:self.viewers[-1].poll()
+            entry=self.session()['agent_commands'][index]
+            return entry['bytes'][:entry['len']]==source
+        self.until(saved)
+
+    def test_manage_hide_add_edit_and_reload(self):
+        view=Viewer(self,120,30)
+        view.input('\x02a')
+        self.click_text(view,'Manage agents')
+        self.click_text(view,'Codex')
+        self.assertEqual(self.session()['agent_hidden'],[True,False])
+        self.click_text(view,'Paste a command')
+        source="FOO=123 claude code --whatever 'two words' --prompt '"+"x"*100+"'\n"
+        view.input('\x1b[200~'+source+'\x1b[201~')
+        self.assertIn('Claude Code',view.poll()['data'])
+        view.input('\r')
+        self.wait_saved(0,source.strip())
+        self.assertFalse(self.launches.exists())
+        entry=self.session()['agent_commands'][0]
+        self.assertEqual(entry['bytes'][:entry['len']],source.strip())
+        self.manager_action(view,'Claude Code','[✓]')
+        self.assertTrue(self.session()['agent_commands'][0]['hidden'])
+        self.click_text(view,'[Done]')
+        rows=smoke.screen_text(view.poll()['data'],120,30)
+        self.assertFalse(any('Codex' in row for row in rows))
+        self.assertEqual(sum('Claude Code' in row for row in rows),1)
+        self.click_text(view,'Manage agents')
+        self.manager_action(view,'Claude Code','[ ]')
+        self.manager_action(view,'Claude Code','[Edit]')
+        changed='FOO=456 claude --model sonnet'
+        view.input('\x1b[200~'+changed+'\x1b[201~')
+        view.input('\r')
+        self.wait_saved(0,changed)
+        self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+        self.assertEqual(self.session()['agent_hidden'],[True,False])
+        entry=self.session()['agent_commands'][0]
+        self.assertEqual(entry['bytes'][:entry['len']],changed)
+        self.assertFalse(entry['hidden'])
+        self.manager_action(view,'Claude Code','[✓]')
+        self.manager_action(view,'Claude Code','[Edit]')
+        view.input('\x03\r')
+        self.assertEqual(self.session()['agent_commands'][0]['len'],0)
+        self.assertFalse(self.session()['agent_commands'][0]['hidden'])
+        self.click_text(view,'Paste a command')
+        view.input('replacement-agent\r')
+        self.wait_saved(0,'replacement-agent')
+        self.assertFalse(self.session()['agent_commands'][0]['hidden'])
+        self.click_text(view,'[Done]')
+        self.assertIn('Custom agent',view.poll()['data'])
+
+    def test_manager_focus_inline_add_and_builtin_edit(self):
+        view=Viewer(self,120,30)
+        view.input('\x02a');self.click_text(view,'Manage agents')
+        view.input('FOO=123 claude --model sonnet')
+        self.assertIn('FOO=123 claude --model sonnet',view.poll()['data'])
+        self.click_text(view,'[Add]')
+        self.wait_saved(0,'FOO=123 claude --model sonnet')
+        self.assertEqual(self.session()['agent_commands'][0]['len'],len('FOO=123 claude --model sonnet'))
+        self.assertFalse(self.launches.exists())
+        self.manager_action(view,'Codex','[Edit]')
+        view.input('codex --model example')
+        self.click_text(view,'[Save]')
+        self.wait_saved(1,'codex --model example')
+        self.assertTrue(self.session()['agent_hidden'][0])
+        entry=self.session()['agent_commands'][1]
+        self.assertEqual(entry['bytes'][:entry['len']],'codex --model example')
+        self.assertIn('Paste a command',view.poll()['data'])
+        view.input('abc');view.input('\x1b[D');view.input('X')
+        self.assertIn('abXc',view.poll()['data'])
+        view.input('\x1b')
+        self.until(lambda:'New agent' in view.poll()['data'])
+
+    def test_command_name_and_semantic_account_preview(self):
+        view=Viewer(self,120,30)
+        view.input('\x02a');self.click_text(view,'Manage agents')
+        source='ANTHROPIC_API_KEY=fixture-secret claude --model sonnet --dangerously-skip-permissions'
+        view.input(source)
+        self.until(lambda:'API key - identity unavailable' in view.poll()['data'])
+        self.assertIn('Skips permission checks',view.poll()['data'])
+        self.assertIn('Claude Code - sonnet',view.poll()['data'])
+        view.input('\tTeam assistant')
+        self.click_text(view,'[Add]')
+        self.wait_saved(0,source)
+        entry=self.session()['agent_commands'][0]
+        self.assertEqual(entry['name']['bytes'][:entry['name']['len']],'Team assistant')
+        self.assertIn('Team assistant',view.poll()['data'])
+        self.manager_action(view,'Team assistant','[✓]')
+        self.assertEqual(self.session()['agent_commands'][0]['name'],entry['name'])
+        self.manager_action(view,'Team assistant','[Edit]')
+        view.input('\tRenamed assistant\r')
+        self.until(lambda:view.poll() and self.session()['agent_commands'][0]['name']['bytes'].startswith('Renamed assistant'))
+        self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+        self.assertTrue(self.session()['agent_commands'][0]['name']['bytes'].startswith('Renamed assistant'))
+
+    def test_signed_out_claude_is_hidden_but_manageable(self):
+        self.run_cli('shutdown')
+        self.until(lambda:not pathlib.Path(self.path).exists())
+        (pathlib.Path(self.env['CLAUDE_CONFIG_DIR'])/'.credentials.json').unlink()
+        for key in ('ANTHROPIC_API_KEY','ANTHROPIC_AUTH_TOKEN','CLAUDE_CODE_OAUTH_TOKEN','CLAUDE_CODE_USE_BEDROCK','CLAUDE_CODE_USE_VERTEX','CLAUDE_CODE_USE_FOUNDRY'):
+            self.env.pop(key,None)
+        self.run_cli('start')
+        ws=self.session()['workspaces'][0]['id']
+        def preview():return self.rpc(op='agent.preview',protocol=1,workspace=ws,cwd=self.launch_dir)['preview']
+        self.until(lambda:not preview()['pending'],timeout=12)
+        self.assertFalse(preview()['options'][1]['signed_in'])
+        view=Viewer(self,120,30)
+        view.input('\x02a')
+        self.until(lambda:'Claude Code' not in view.poll()['data'])
+        view.input('\x1b');view.input('\x02a')
+        self.assertNotIn('Claude Code',view.poll()['data'])
+        self.click_text(view,'Manage agents')
+        self.assertIn('Not signed in',view.poll()['data'])
+
+    def shell_alias_case(self, name):
+        shell=shutil.which(name)
+        if not shell:self.skipTest(name+' is not installed')
+        self.run_cli('shutdown')
+        self.until(lambda:not pathlib.Path(self.path).exists())
+        root=pathlib.Path(self.temp.name)
+        result=root/'shell-result.json'
+        script=root/'record-agent'
+        script.write_text('#!'+sys.executable+'\nimport os,sys,json,pathlib\npathlib.Path('+repr(str(result))+').write_text(json.dumps({"foo":os.environ.get("FOO"),"args":sys.argv[1:]}))\n')
+        script.chmod(0o700)
+        self.env['SHELL']=shell
+        self.env['ZDOTDIR']=str(root)
+        self.env['XDG_CONFIG_HOME']=str(root/'.config')
+        if name=='fish':
+            config=root/'.config/fish/config.fish';config.parent.mkdir(parents=True)
+            config.write_text('function launchit\n '+shlex.quote(str(script))+' --preset $argv\nend\nalias myagent launchit\n')
+        else:
+            (root/('.bashrc' if name=='bash' else '.zshrc')).write_text('launchit() { '+shlex.quote(str(script))+' --preset "$@"; }\nalias myagent=\'launchit --fixed\'\n')
+        self.run_cli('start')
+        ws=self.session()['workspaces'][0]['id']
+        source="FOO='123 with spaces' myagent --whatever 'two words'"
+        self.command('agent.command',index=0,command=source)
+        self.assertFalse(result.exists())
+        saved=self.session()['agent_commands'][0]
+        saved=saved['bytes'][:saved['len']]
+        self.assertNotIn('myagent',saved)
+        self.assertNotIn('launchit',saved)
+        if name=='fish':config.write_text('function myagent\n echo WRONG\nend\n')
+        else:(root/('.bashrc' if name=='bash' else '.zshrc')).write_text('alias myagent=false\n')
+        self.command('agent.command.create',workspace=ws,cwd=self.launch_dir,index=0)
+        self.until(result.exists)
+        self.assertEqual(json.loads(result.read_text()),{'foo':'123 with spaces','args':['--preset',*(['--fixed'] if name!='fish' else []),'--whatever','two words']})
+
+    def test_fish_cc_resolves_body_and_persists_claude_label(self):
+        self.run_cli('shutdown')
+        self.until(lambda:not pathlib.Path(self.path).exists())
+        root=pathlib.Path(self.temp.name)
+        self.env['SHELL']=shutil.which('fish') or '/opt/homebrew/bin/fish'
+        self.env['XDG_CONFIG_HOME']=str(root/'.config')
+        config=root/'.config/fish/config.fish';config.parent.mkdir(parents=True)
+        config.write_text("function cc --wraps=/stale/yesplz --wraps='claude --dangerously-skip-permissions'\n claude --allow-dangerously-skip-permissions --dangerously-skip-permissions $argv\nend\n")
+        self.run_cli('start')
+        view=Viewer(self,120,30)
+        view.input('\x02a');self.click_text(view,'Manage agents')
+        view.input('cc\r')
+        self.wait_saved(0,'command claude --allow-dangerously-skip-permissions --dangerously-skip-permissions')
+        entry=self.session()['agent_commands'][0]
+        self.assertEqual(entry['bytes'][:entry['len']],'command claude --allow-dangerously-skip-permissions --dangerously-skip-permissions')
+        self.assertIn('Claude Code',view.poll()['data'])
+        config.write_text('function cc\n false\nend\n')
+        self.manager_action(view,'Claude Code','[✓]')
+        self.manager_action(view,'Claude Code','[ ]')
+        self.assertEqual(self.session()['agent_commands'][0]['bytes'],entry['bytes'])
+        self.assertFalse(self.launches.exists())
+
+    def test_debounced_preview_is_frozen_on_add_and_delete_is_inline(self):
+        self.run_cli('shutdown')
+        self.until(lambda:not pathlib.Path(self.path).exists())
+        root=pathlib.Path(self.temp.name)
+        self.env['SHELL']=shutil.which('fish') or '/opt/homebrew/bin/fish'
+        self.env['XDG_CONFIG_HOME']=str(root/'.config')
+        config=root/'.config/fish/config.fish';config.parent.mkdir(parents=True)
+        log=root/'shell-starts'
+        prefix='echo lookup >> '+shlex.quote(str(log))+'\n'
+        config.write_text(prefix+"alias cc 'claude --model original'\n")
+        self.run_cli('start')
+        view=Viewer(self,120,30)
+        view.input('\x02a');self.click_text(view,'Manage agents')
+        baseline=log.read_text() if log.exists() else ''
+        view.input('c');time.sleep(.1);view.input('c')
+        self.assertEqual(log.read_text() if log.exists() else '',baseline)
+        self.until(lambda:'[Show command]' in view.poll()['data'])
+        self.click_text(view,'[Show command]')
+        self.assertIn('command claude --model original',view.poll()['data'])
+        self.assertEqual(self.session()['agent_commands'][0]['len'],0)
+        before=log.read_text()
+        config.write_text(prefix+"alias cc 'claude --model changed'\n")
+        time.sleep(.4);view.poll()
+        self.assertEqual(log.read_text(),before)
+        self.click_text(view,'[Add]')
+        self.wait_saved(0,'command claude --model original')
+        self.assertEqual(log.read_text(),before)
+        self.manager_action(view,'Claude Code','[Edit]')
+        rows=smoke.screen_text(view.poll()['data'],120,30)
+        self.assertTrue(any('│ cc ' in row for row in rows))
+        self.assertNotIn('Runs:',view.poll()['data'])
+        self.click_text(view,'[Show command]')
+        self.assertIn('command claude --model original',view.poll()['data'])
+        self.click_text(view,'[Cancel]')
+        self.assertIn('Paste a command',view.poll()['data'])
+        self.manager_action(view,'Claude Code','[Edit]')
+        view.input('\tFrozen assistant')
+        self.click_text(view,'[Save]')
+        self.wait_saved(0,'command claude --model original')
+        self.assertEqual(log.read_text(),before)
+        self.manager_action(view,'Frozen assistant','[Delete]')
+        self.assertEqual(self.session()['agent_commands'][0]['len'],0)
+        self.assertNotIn('[Delete]',view.poll()['data'])
+        self.assertFalse(self.launches.exists())
+        config.write_text(prefix+"sleep .3\nalias cc 'claude --model stale'\n")
+        previous=log.read_text()
+        view.input('cc')
+        self.until(lambda:view.poll() and log.read_text()!=previous)
+        view.input('\x15codex --model latest\r')
+        self.wait_saved(0,'codex --model latest')
+        self.assertNotIn('stale',self.session()['agent_commands'][0]['bytes'])
+
+    def test_bash_alias_and_inline_environment(self):self.shell_alias_case('bash')
+    def test_zsh_alias_and_inline_environment(self):self.shell_alias_case('zsh')
+    def test_fish_alias_and_inline_environment(self):self.shell_alias_case('fish')
+
     def test_preview_launch_last_choice_and_reload(self):
         view=Viewer(self,100,30)
         self.assertIn('New',smoke.screen_text(view.poll()['data'],100,30)[14])
@@ -127,16 +363,17 @@ time.sleep(120)
         self.until(lambda:'New agent' in view.poll()['data'])
         def selected(provider):
             rows=smoke.screen_text(view.poll()['data'],100,30)
-            self.assertTrue(any(re.search(r'› +(t  )?'+re.escape(provider),row) for row in rows), '\n'.join(rows))
+            self.assertTrue(any(re.search(r'› +([0-9t] +)?'+re.escape(provider),row) for row in rows), '\n'.join(rows))
         view.input('\x1b[B');selected('Claude Code')
         view.input('\x1b[B');selected('New terminal')
-        view.input('\x1b[B');selected('New terminal')
+        view.input('\x1b[B');selected('Manage agents')
+        view.input('\x1b[A');selected('New terminal')
         view.input('\x1b[A');selected('Claude Code')
         view.input('\x1b[A');selected('Codex')
         view.input('\x1b[A');selected('Codex')
         view.input('\x1b[F');selected('New terminal')
         view.input('\x1b[H');selected('Codex')
-        view.input('\x1b[Z');selected('New terminal')
+        view.input('\x1b[Z');selected('Manage agents')
         view.input('\t');selected('Codex')
         view.input('\x1b')
         self.until(lambda:'New agent' not in view.poll()['data'])
@@ -171,6 +408,30 @@ time.sleep(120)
         self.assertEqual(len(self.session()['panes']),before)
         view.input('A')
         self.until(lambda:len(self.session()['panes'])==before+1)
+
+    def test_numbered_agent_shortcuts_follow_visible_rows(self):
+        view=Viewer(self,120,30)
+        view.input('\x02a')
+        rows=smoke.screen_text(view.poll()['data'],120,30)
+        self.assertTrue(any(re.search(r'0 +Codex',row) for row in rows))
+        self.assertTrue(any(re.search(r'1 +Claude Code',row) for row in rows))
+        self.assertTrue(any(re.search(r't +New terminal',row) for row in rows))
+        before=len(self.session()['panes'])
+        view.input('1')
+        self.until(lambda:len(self.session()['panes'])==before+1)
+        self.assertEqual(self.session()['last_agent'],'claude')
+        self.command('agent.visibility',hidden=[True,False])
+        self.command('agent.command',index=0,command='sleep 120',name='Custom sleeper',resolve=False)
+        view.input('\x02a')
+        rows=smoke.screen_text(view.poll()['data'],120,30)
+        self.assertTrue(any(re.search(r'0 +Claude Code',row) for row in rows))
+        self.assertTrue(any(re.search(r'1 +Custom sleeper',row) for row in rows))
+        before=len(self.session()['panes'])
+        view.input('9')
+        self.assertEqual(len(self.session()['panes']),before)
+        view.input('1')
+        self.until(lambda:len(self.session()['panes'])==before+1)
+        self.assertNotIn('New agent',view.poll()['data'])
 
     def test_new_terminal_row_opens_a_plain_tab(self):
         view=Viewer(self,100,30)

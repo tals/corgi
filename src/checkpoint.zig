@@ -165,6 +165,8 @@ pub const Binding = struct {
 pub const State = struct {
     last_agent: @import("agent_launcher.zig").Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
+    agent_hidden: [2]bool = .{ false, false },
+    agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
     version: u32 = 2,
     conversations: []const Conversation = &.{},
     next_conversation: u32 = 1,
@@ -223,7 +225,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     }
     const actors = try alloc.alloc(Conversation, r.conversations.items.items.len);
     for (r.conversations.items.items, actors) |actor, *out| out.* = .{ .id = actor.id, .agent = if (live) actor.state else historicalAgent(actor.state), .parent = actor.parent, .workspace = actor.workspace, .observed_at = if (live) actor.observed_at else 0 };
-    return .{ .last_agent = r.last_agent, .agent_yolo = r.agent_yolo, .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
+    return .{ .last_agent = r.last_agent, .agent_yolo = r.agent_yolo, .agent_hidden = r.agent_hidden, .agent_commands = r.agent_commands, .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
 // Callers own a staging runtime. Live import errors exit the candidate without
 // calling destructors: inherited descriptors are still owned by the old daemon.
@@ -245,6 +247,8 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.revision = state.revision +% 1;
     r.last_agent = state.last_agent;
     r.agent_yolo = state.agent_yolo;
+    r.agent_hidden = state.agent_hidden;
+    r.agent_commands = state.agent_commands;
     for (state.conversations) |saved| {
         if (saved.id == 0 or saved.id >= state.next_conversation or r.conversations.byId(saved.id) != null or !validAgent(saved.agent) or saved.agent.provider == .other or saved.agent.session_len == 0 or
             r.conversations.find(saved.agent.provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;
@@ -357,7 +361,7 @@ fn recoverPane(p: *runtime.Pane, socket: []const u8, executable: []const u8, sav
     const banner = if (command.len > 0) try p.resume_hint.banner(a, std.time.timestamp()) else try a.dupe(u8, "\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
     defer a.free(banner);
     p.terminal.feed(banner);
-    try p.terminal.spawn(dir, socket, p.id, executable, null);
+    try p.terminal.spawn(dir, socket, p.id, executable, null, false);
     try p.terminal.prefill(command);
     a.free(p.cwd);
     p.cwd = try a.dupe(u8, dir);

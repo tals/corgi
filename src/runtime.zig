@@ -52,6 +52,8 @@ pub const Runtime = struct {
     next_session: u32 = 1,
     last_agent: @import("agent_launcher.zig").Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
+    agent_hidden: [2]bool = .{ false, false },
+    agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
     conversations: @import("conversations.zig").Registry = .{},
     system_model: []const u8 = "",
     staged_version: []const u8 = "",
@@ -97,6 +99,7 @@ pub const Runtime = struct {
         split: ?struct { pane: layout.Id, axis: layout.Axis, before: bool = false } = null,
         cwd: []const u8,
         command: ?[]const u8 = null,
+        interactive_command: bool = false,
         title: []const u8 = "",
         cols: u16,
         rows: u16,
@@ -120,7 +123,7 @@ pub const Runtime = struct {
         errdefer t.destroy();
         t.applyTheme(opts.theme);
         try r.panes.ensureUnusedCapacity(a, 1);
-        try t.spawn(dir, opts.socket, id, opts.executable, opts.command);
+        try t.spawn(dir, opts.socket, id, opts.executable, opts.command, opts.interactive_command);
         r.panes.appendAssumeCapacity(.{ .id = id, .terminal = t, .cwd = dir });
         ws.model = next;
         r.workspaces.next_pane_id = next.next_id;

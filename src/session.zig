@@ -10,6 +10,9 @@ const Rename = struct { target: u32, name: []const u8 };
 pub const Beside = struct { other: u32, direction: layout.Direction = .right };
 pub const Destination = union(enum) { before: u32, after: u32, workspace: u32 };
 pub const Command = union(enum) {
+    @"agent.command": struct { index: usize, command: []const u8, hidden: bool = false, name: ?[]const u8 = null, original: ?[]const u8 = null, semantics: ?@import("launch_command.zig").Semantics = null, resolve: bool = true, cwd: ?[]const u8 = null },
+    @"agent.command.create": struct { workspace: u32, cwd: []const u8 = "", index: usize },
+    @"agent.visibility": struct { hidden: [2]bool },
     @"agent.yolo": struct { provider: @import("agent_launcher.zig").Provider, enabled: bool },
     @"agent.create": struct { workspace: u32, cwd: []const u8 = "", provider: ?@import("agent_launcher.zig").Provider = null },
     @"pane.create": struct {
@@ -115,6 +118,34 @@ fn spawnOptions(r: *Runtime, ctx: Context, workspace: u32, from: ?u32, cwd: []co
 /// prepare copies before committing; process creation owns its rollback in Runtime.
 pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator) !Result {
     switch (cmd) {
+        .@"agent.command" => |q| {
+            if (q.index >= r.agent_commands.len) return error.InvalidCommand;
+            const source = if (q.resolve and q.command.len > 0) try @import("launch_command.zig").resolve(q.command, q.cwd, alloc) else q.command;
+            defer if (q.resolve and q.command.len > 0) alloc.free(source);
+            try r.agent_commands[q.index].set(source);
+            if (q.original) |original| try r.agent_commands[q.index].setOriginal(original) else if (q.resolve) try r.agent_commands[q.index].setOriginal(q.command);
+            if (q.name) |name| r.agent_commands[q.index].name.set(name);
+            if (source.len == 0) r.agent_commands[q.index] = .{} else {
+                r.agent_commands[q.index].semantics = q.semantics orelse @import("launch_command.zig").analyze(source, q.cwd orelse ".");
+            }
+            r.agent_commands[q.index].hidden = r.agent_commands[q.index].len > 0 and q.hidden;
+            r.changed();
+            return .{};
+        },
+        .@"agent.command.create" => |q| {
+            if (q.index >= r.agent_commands.len) return error.InvalidCommand;
+            const entry = &r.agent_commands[q.index];
+            if (entry.len == 0) return error.InvalidCommand;
+            var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
+            opts.command = entry.text();
+            opts.interactive_command = true;
+            return location(r, try r.create(opts));
+        },
+        .@"agent.visibility" => |q| {
+            r.agent_hidden = q.hidden;
+            r.changed();
+            return .{};
+        },
         .@"agent.yolo" => |q| {
             r.agent_yolo[@intFromEnum(q.provider)] = q.enabled;
             r.changed();
