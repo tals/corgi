@@ -63,16 +63,24 @@ fn line(fd: c_int, alloc: std.mem.Allocator, limit: usize) ![]u8 {
     while (out.items.len < limit) {
         var bytes: [8192]u8 = undefined;
         const n = c.recv(fd, &bytes, @min(bytes.len, limit - out.items.len), c.MSG_PEEK);
-        if (n < 0 and std.posix.errno(n) == .INTR) continue;
-        if (n <= 0) return error.HerdrDisconnected;
+        if (n < 0) switch (std.posix.errno(n)) {
+            .INTR => continue,
+            .AGAIN => return error.HerdrTimedOut,
+            else => return error.HerdrReadFailed,
+        };
+        if (n == 0) return error.HerdrDisconnected;
         const peek = bytes[0..@intCast(n)];
         const end = std.mem.indexOfScalar(u8, peek, '\n');
         const count = if (end) |i| i + 1 else peek.len;
         var read: usize = 0;
         while (read < count) {
             const got = c.read(fd, bytes[read..].ptr, count - read);
-            if (got < 0 and std.posix.errno(got) == .INTR) continue;
-            if (got <= 0) return error.HerdrDisconnected;
+            if (got < 0) switch (std.posix.errno(got)) {
+                .INTR => continue,
+                .AGAIN => return error.HerdrTimedOut,
+                else => return error.HerdrReadFailed,
+            };
+            if (got == 0) return error.HerdrDisconnected;
             read += @intCast(got);
         }
         try out.appendSlice(alloc, bytes[0 .. count - @intFromBool(end != null)]);
@@ -779,7 +787,12 @@ fn acceptBridge(listener: i32, request: i32, cancel: *std.atomic.Value(bool)) !i
         if (pollfds[0].revents & c.POLLIN != 0) {
             const fd = c.accept(listener, null, null);
             if (fd >= 0) {
+                errdefer _ = c.close(fd);
                 os.cloexec(fd);
+                // macOS inherits O_NONBLOCK from the listener. The handshake
+                // reads below must wait for the helper, bounded by SO_RCVTIMEO.
+                const flags = c.fcntl(fd, c.F_GETFL, @as(c_int, 0));
+                if (flags < 0 or c.fcntl(fd, c.F_SETFL, flags & ~@as(c_int, c.O_NONBLOCK)) < 0) return error.HandoffSocketSetupFailed;
                 return fd;
             }
         }

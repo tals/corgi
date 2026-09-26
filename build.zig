@@ -61,6 +61,19 @@ pub fn build(b: *std.Build) void {
     b.step("run", "Run Corgi").dependOn(&run.step);
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "Test layouts, hooks, signaling and terminal behavior").dependOn(&b.addRunArtifact(tests).step);
+
+    // Real external runtimes are opt-in, never dependencies of the unit suite.
+    const handoff = b.addSystemCommand(&.{"python3"});
+    handoff.addFileArg(b.path("tests/herdr_handoff.py"));
+    handoff.addArg("--corgi");
+    handoff.addArtifactArg(exe);
+    if (b.option([]const u8, "herdr-bin", "Herdr executable for test-handoff (default: HERDR_TEST_BIN or PATH)")) |herdr| {
+        handoff.addArgs(&.{ "--herdr", herdr });
+    }
+    if (b.args) |args| handoff.addArgs(args);
+    handoff.setCwd(b.path("."));
+    handoff.has_side_effects = true;
+    b.step("test-handoff", "Run slow Herdr migration integration tests in disposable runtimes").dependOn(&handoff.step);
 }
 
 /// Development builds identify their checkout, marking uncommitted changes.

@@ -97,6 +97,38 @@ ID makes repeated start requests idempotent while that operation is retained.
 Completion is saved only when the user leaves the successful completion screen
 (or explicitly skips importing). A failed import does not complete onboarding.
 
+### Running the handoff integration suite
+
+The slower, real-process migration tests have their own Zig build step:
+
+```sh
+./scripts/zig build test-handoff -Doptimize=ReleaseSafe
+```
+
+This builds Corgi and runs `tests/herdr_handoff.py` using Python's standard-library
+`unittest` harness. It requires a Herdr binary on `PATH` with `live_handoff`
+support. Select another binary with `-Dherdr-bin=/absolute/path/to/herdr` or
+`HERDR_TEST_BIN`. Missing or incompatible Herdr fails the requested suite.
+
+`zig build test` and ordinary builds do **not** run handoff tests. The suite needs
+no viewer test driver and invokes the daemon's onboarding RPC directly. Forward
+unittest selectors after `--`, for example:
+
+```sh
+./scripts/zig build test-handoff -Doptimize=ReleaseSafe -- -k rejected
+```
+
+Each case creates disposable Herdr and Corgi runtimes with isolated homes,
+configuration, state and sockets. It runs local shells and a small foreground
+worker, with Corgi inference and Herdr update checks disabled. Cleanup stops only
+fixture processes; failures include their log tails. Existing sessions and agent
+accounts are not used.
+
+Coverage includes unchanged shell/foreground PIDs, an unexported shell variable,
+continued work, terminal input/output, named workspaces/tabs, splits, existing
+destination panes, duplicate-request handling, and rollback followed by retry.
+This tests the handoff protocol and process ownership; wizard rendering is separate.
+
 ### Herdr boundaries
 
 The transfer preserves running processes and terminal descriptors. Screen replay
