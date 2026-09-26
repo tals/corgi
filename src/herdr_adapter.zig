@@ -113,13 +113,28 @@ pub fn scan() !Scan {
     return scanCancelable(null);
 }
 
-pub fn scanCancelable(cancel: ?*const std.atomic.Value(bool)) !Scan {
+/// Local presence check only; connecting to sessions remains discovery-worker work.
+pub fn detected() bool {
+    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse "", ':');
+    while (dirs.next()) |dir| {
+        const path = std.fmt.bufPrintZ(&buffer, "{s}/herdr", .{if (dir.len == 0) "." else dir}) catch continue;
+        const stat = std.fs.cwd().statFile(path) catch continue;
+        if (stat.kind == .file and c.access(path, c.X_OK) == 0) return true;
+    }
     var arena = std.heap.ArenaAllocator.init(a);
-    errdefer arena.deinit();
-    const alloc = arena.allocator();
-    const deadline = std.time.milliTimestamp() + 15000;
-    var sessions: std.ArrayList(SourceSession) = .empty;
-    var paths: std.ArrayList(struct { path: []const u8, name: []const u8 }) = .empty;
+    defer arena.deinit();
+    const paths = socketCandidates(arena.allocator()) catch return false;
+    for (paths) |candidate| {
+        const stat = std.fs.cwd().statFile(candidate.path) catch continue;
+        if (stat.kind == .unix_domain_socket) return true;
+    }
+    return false;
+}
+
+const SocketCandidate = struct { path: []const u8, name: []const u8 };
+fn socketCandidates(alloc: std.mem.Allocator) ![]const SocketCandidate {
+    var paths: std.ArrayList(SocketCandidate) = .empty;
     if (os.env("HERDR_SOCKET_PATH")) |path| try paths.append(alloc, .{ .path = try alloc.dupe(u8, path), .name = "Herdr" });
     const root = if (os.env("XDG_CONFIG_HOME")) |path| path else try std.fs.path.join(alloc, &.{ os.env("HOME") orelse return error.NoHome, ".config" });
     for ([_][]const u8{ "herdr", "herdr-dev" }) |app| {
@@ -132,10 +147,20 @@ pub fn scanCancelable(cancel: ?*const std.atomic.Value(bool)) !Scan {
             try paths.append(alloc, .{ .path = try std.fs.path.join(alloc, &.{ dirpath, "sessions", entry.name, "herdr.sock" }), .name = try alloc.dupe(u8, entry.name) });
         };
     }
-    for (paths.items, 0..) |candidate, index| {
+    return paths.toOwnedSlice(alloc);
+}
+
+pub fn scanCancelable(cancel: ?*const std.atomic.Value(bool)) !Scan {
+    var arena = std.heap.ArenaAllocator.init(a);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
+    const deadline = std.time.milliTimestamp() + 15000;
+    var sessions: std.ArrayList(SourceSession) = .empty;
+    const paths = try socketCandidates(alloc);
+    for (paths, 0..) |candidate, index| {
         if (scanStopped(cancel, deadline)) break;
         var duplicate = false;
-        for (paths.items[0..index]) |other| if (std.mem.eql(u8, candidate.path, other.path)) {
+        for (paths[0..index]) |other| if (std.mem.eql(u8, candidate.path, other.path)) {
             duplicate = true;
             break;
         };

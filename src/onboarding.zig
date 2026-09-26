@@ -13,6 +13,7 @@ pub const State = struct {
     prefix: km.Prefix = .ctrl_b,
     step: Step = .presets,
     source: catalog.Source = .tmux,
+    source_initialized: bool = false,
     workers: [3]?*catalog.Worker = .{ null, null, null },
     selected: [256]bool = @splat(false),
     cursor: usize = 0,
@@ -64,11 +65,14 @@ pub const State = struct {
     fn enterImport(s: *State) void {
         s.step = .import;
         s.focus = 0;
-        if (s.workers[0] == null and s.workers[1] == null and s.workers[2] == null) s.source = switch (s.preset) {
-            .herdr => .herdr,
-            .cmux => .cmux,
-            else => .tmux,
-        };
+        if (!s.source_initialized) {
+            s.source_initialized = true;
+            s.source = if (@import("herdr_adapter.zig").detected()) .herdr else switch (s.preset) {
+                .herdr => .herdr,
+                .cmux => .cmux,
+                else => .tmux,
+            };
+        }
         s.scan();
     }
     fn activeHandoff(s: *const State) bool {

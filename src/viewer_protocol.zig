@@ -26,9 +26,14 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
                 s.default_folder_pending = false;
                 s.saveWorkspaces();
             }
-            var arena = std.heap.ArenaAllocator.init(a);
-            defer arena.deinit();
-            _ = try s.execute(.{ .@"pane.create" = .{ .workspace = s.initialWorkspace().id } }, arena.allocator());
+            // The wizard may import live work. Leave its starter workspace
+            // empty until the user chooses to launch something instead.
+            const onboarding = if (v.object.get("onboarding")) |value| value == .bool and value.bool else false;
+            if (!onboarding) {
+                var arena = std.heap.ArenaAllocator.init(a);
+                defer arena.deinit();
+                _ = try s.execute(.{ .@"pane.create" = .{ .workspace = s.initialWorkspace().id } }, arena.allocator());
+            }
         }
         const first = for (s.clients.items) |other| {
             if (other.viewer and !other.dead) break false;

@@ -23,9 +23,13 @@ const Response = struct {
 };
 
 pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, socket: []const u8) !u64 {
+    return openMode(view, cwd, theme, socket, false);
+}
+fn openMode(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, socket: []const u8, start_onboarding: bool) !u64 {
     view.remote_links = @import("ports.zig").sshViewer();
     view.loadPreferences();
-    const opened = try view.connection.call(.{ .op = "viewer.open", .protocol = 1, .cwd = cwd, .theme = theme });
+    if (start_onboarding) view.openOnboarding();
+    const opened = try view.connection.call(.{ .op = "viewer.open", .protocol = 1, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
     defer opened.deinit();
     view.navigation.workspace_id = try protocol.id(opened.value, "workspace");
     view.input_state.attached = true;
@@ -86,7 +90,8 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         view.last_bell_kind = reply.bell_kind;
         if (play_sound and !view.muted) try @import("sound.zig").play(@tagName(reply.bell_kind));
     }
-    return !reply.detach and view.input_state.attached;
+    const choosing = view.onboarding != null or (if (view.agent_launcher) |launcher| launcher.pinned else false);
+    return (!reply.detach or choosing) and view.input_state.attached;
 }
 
 // Called only after the frame has been written. Receipts refer to the
@@ -110,8 +115,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *@import("theme.zig").Probe, in
     defer deinit(&view);
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
-    var bell_seq = try open(&view, cwd, probe.theme, socket);
-    if (start_onboarding) view.openOnboarding();
+    var bell_seq = try openMode(&view, cwd, probe.theme, socket, start_onboarding);
     var openers: @import("url_opener.zig").Openers = .{};
     defer openers.reap();
     var previous: []const u8 = "";

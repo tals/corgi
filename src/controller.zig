@@ -1159,6 +1159,7 @@ pub const Controller = struct {
         if (target) |id| {
             try s.refresh();
             try s.switchWorkspace(id);
+            if (s.model().count == 0) s.openLauncher(true);
         } else s.openLauncher(true);
         s.dirty = true;
     }

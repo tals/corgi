@@ -63,6 +63,11 @@ are independent of the selected shortcut preset. The display uses actual names
 and hierarchy. Browser links, resume suggestions and new shells have distinct
 annotations. Only live handoff displays PIDs.
 
+Herdr is the initial import source when its executable is on `PATH` or a known
+Herdr socket exists. A source chosen manually stays selected when navigating back.
+Onboarding defers the starter shell; after a successful copy or handoff, an
+untouched empty starter workspace is removed. Existing workspaces are retained.
+
 - **tmux:** discover the inherited socket and sockets under `$TMUX_TMPDIR` or
   `/tmp/tmux-<uid>`. Copy selected sessions, named windows, pane folders and split
   geometry into new shells. No source commands are replayed and no tmux pane is

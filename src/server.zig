@@ -19,6 +19,7 @@ pub const Server = struct {
     onboarding_copy: @import("onboarding_import.zig").Job = .{},
     herdr_import: @import("herdr_adapter.zig").Manager = .{},
     handoff_operation: u64 = 0,
+    import_starter: ?struct { id: u32, revision: u64 } = null,
     summaries: ?*@import("activity_worker.zig").Worker = null,
     preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
     default_folder_pending: bool = true,
@@ -63,6 +64,27 @@ pub const Server = struct {
         const path = workspace.Store.statePath(s.socket) catch return;
         defer a.free(path);
         s.runtime.workspaces.save(path, s.initialWorkspace().id) catch |err| std.log.err("saving workspaces: {s}", .{@errorName(err)});
+    }
+    fn rememberImportStarter(s: *Server) void {
+        s.import_starter = null;
+        if (s.runtime.workspaces.items.items.len != 1 or s.runtime.sessions.items.len != 0) return;
+        const ws = &s.runtime.workspaces.items.items[0];
+        if (ws.model.count == 0 and ws.name_len == 0) s.import_starter = .{ .id = ws.id, .revision = ws.model.revision };
+    }
+    fn finishImport(s: *Server, destination: ?u32) void {
+        const starter = s.import_starter orelse return;
+        s.import_starter = null;
+        const target = destination orelse return;
+        if (s.runtime.workspaces.index(target) == null or starter.id == target) return;
+        const ws = s.runtime.workspaces.get(starter.id) orelse return;
+        // Another viewer can use or rename the starter while Herdr connects.
+        if (ws.model.count != 0 or ws.name_len != 0 or ws.model.revision != starter.revision) return;
+        s.runtime.closeWorkspace(starter.id, false) catch return;
+        s.default_folder_pending = false;
+        s.preferred_workspace = target;
+        for (s.clients.items) |*cl| if (cl.view_workspace == starter.id) {
+            cl.view_workspace = target;
+        };
     }
     fn followWorkspaceDirectories(s: *Server) void {
         var changed = false;
@@ -248,6 +270,7 @@ pub const Server = struct {
             } else if (eq(operation, "onboarding.copy")) {
                 try s.onboarding_copy.start(v, id);
             } else return error.UnknownOperation;
+            s.rememberImportStarter();
             try cl.queue(.{ .ok = true });
             return;
         }
@@ -632,7 +655,11 @@ pub const Server = struct {
             s.clients.deinit(a);
         }
         while (!s.quit) {
-            if (s.herdr_import.tick(&s.runtime) or s.onboarding_copy.tick(&s.runtime, .{ .workspace = 0, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable })) {
+            const handed_off = s.herdr_import.tick(&s.runtime);
+            const copied = s.onboarding_copy.tick(&s.runtime, .{ .workspace = 0, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
+            if (handed_off) s.finishImport(s.herdr_import.status().workspace);
+            if (copied and eq(s.onboarding_copy.progress.phase, "complete")) s.finishImport(s.onboarding_copy.progress.workspace);
+            if (handed_off or copied) {
                 s.dirty = true;
                 s.saveWorkspaces();
             }
