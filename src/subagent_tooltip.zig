@@ -292,7 +292,7 @@ const Card = struct {
     fn timeline(card: Card, row: usize, root: *const protocol.Conversation, agent: protocol.Agent, nodes: usize, pending: bool) !void {
         // A working agent without a summary has no current named phase. Keep
         // the previous interval in history until a fresh summary arrives.
-        const unreported = agent.state == .working and agent.activity.len == 0;
+        const unreported = agent.state == .working and agent.activity.len == 0 and !agent.compacting;
         const history_nodes = nodes - @intFromBool(unreported);
         const show_pending = pending and history_nodes > 0;
         const rule = "─" ** 88;
@@ -506,7 +506,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const model = if (children_available) Model.init(all, parent) else Model{ .total = root.usage };
     const width: usize = @min(88, cols);
     const pending = root.timeline.points.len > 0;
-    const timeline_nodes: usize = @min(4, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0));
+    const timeline_nodes: usize = @min(4, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0 and !root_agent.compacting));
     const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
     const child_footer = children_available and model.children == 0;
     const task_height = if (root.background_tasks.items.len > 0) @min(8, root.background_tasks.items.len + 1 + @as(usize, @intFromBool(root.background_tasks.truncated))) else 0;
@@ -766,6 +766,32 @@ test "new turn without a summary keeps the old label historical even when clippe
     const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
     try card.timeline(0, &root, root.agent, 1, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "  now  ●  .") != null);
+}
+
+test "compaction is the current timeline phase even before the first summary" {
+    const points = [_]protocol.Conversation.ActivityPoint{
+        .{ .at = 1000, .activity = "Compacting context", .usage = .{ .known = true } },
+    };
+    for ([_][]const u8{ "", "Old inferred activity" }) |label| {
+        const root: protocol.Conversation = .{ .id = 1, .agent = .{
+            .provider = .codex,
+            .state = .working,
+            .attention = .none,
+            .session = "test",
+            .activity = label,
+            .cwd = "",
+            .tool_active = false,
+            .compacting = true,
+        }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 345 } } } };
+        const entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .conversation = 1, .provider = .codex, .state = .working, .attention = .none };
+        var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer output.deinit();
+        try draw(&output.writer, &.{root}, entry, 64, 13, 5, 8);
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), "Compacting context"));
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "now  ●  Compacting context") != null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "345+") != null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "Old inferred activity") == null);
+    }
 }
 
 test "overview excludes detached history and shows Corgi activity" {

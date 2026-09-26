@@ -125,7 +125,8 @@ for line in sys.stdin:
     value=line.strip()
     if value=='exit': break
     if value.startswith('screen:'):
-        screen='Working (esc to interrupt)' if value=='screen:working' else '› '
+        screen={'screen:working':'Working (esc to interrupt)',
+                'screen:compacting':'• Compacting context (2s • esc to interrupt)'}.get(value,'› ')
         print('\\x1b[2J\\x1b[H'+screen,flush=True)
     else:
         title(value)

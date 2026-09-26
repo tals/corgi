@@ -256,6 +256,29 @@ fn has(text: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, text, needle) != null;
 }
 
+/// Only the live status beside the interrupt hint establishes compaction.
+/// Missing status (including partial redraws) is not evidence that it ended.
+pub fn screenCompacting(screen: []const u8) ?bool {
+    const visible = std.mem.trimEnd(u8, screen, " \t\r\n");
+    var rows = std.mem.splitBackwardsScalar(u8, visible, '\n');
+    var count: usize = 0;
+    while (rows.next()) |row| {
+        if (count == 8) break;
+        count += 1;
+        const hint = std.mem.indexOf(u8, row, "esc to interrupt") orelse continue;
+        const status = std.mem.trimStart(u8, row[0..hint], " ");
+        for ([_][]const u8{ "Compacting context", "Compacting conversation" }) |label| {
+            for ([_][]const u8{ "", "• ", "◦ ", "· " }) |prefix| {
+                if (!std.mem.startsWith(u8, status, prefix)) continue;
+                const rest = status[prefix.len..];
+                if (std.mem.startsWith(u8, rest, label) and rest.len > label.len and rest[label.len] == ' ') return true;
+            }
+        }
+        return false;
+    }
+    return null;
+}
+
 // Unified exec keeps Codex's status at "Working" while the command runs.
 // Its live status row carries a count, sometimes clipped by a narrow pane.
 fn screenToolActive(provider: Provider, screen: []const u8) bool {
@@ -403,6 +426,15 @@ test "identify actual executables and scripts, not arguments or shell text" {
     try std.testing.expectEqual(Provider.other, identify(&.{ "bun", "-e", "codex" }));
     try std.testing.expectEqual(Provider.other, identify(&.{ "vim", "codex" }));
     try std.testing.expectEqual(Provider.claude, identify(&.{ "/Users/a/.local/share/claude/versions/2.1.282", "--session-id", "x" }));
+}
+
+test "compaction requires a live status row and ignores quoted or historical text" {
+    try std.testing.expectEqual(true, screenCompacting("• Compacting context (12s • esc to interrupt)\n› ").?);
+    try std.testing.expectEqual(true, screenCompacting("◦ Compacting conversation (esc to interrupt)\n› ").?);
+    try std.testing.expectEqual(false, screenCompacting("• Compacting context (esc to interrupt)\nWorking (esc to interrupt)").?);
+    try std.testing.expectEqual(false, screenCompacting("I saw Compacting context (esc to interrupt)").?);
+    try std.testing.expectEqual(null, screenCompacting("Compacting context\n› "));
+    try std.testing.expectEqual(null, screenCompacting("• Compacting context (esc to interrupt)\n1\n2\n3\n4\n5\n6\n7\n8"));
 }
 
 test "claude interrupts need a stable idle title without an interrupt hint" {

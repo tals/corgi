@@ -14,8 +14,10 @@ pub const Timeline = struct {
     baseline: usage.View = .{ .known = true },
     turn: [160]u8 = @splat(0),
     turn_len: usize = 0,
+    open: bool = true,
 
     pub fn pending(t: *const Timeline, current: usage.View) usage.View {
+        if (!t.open and t.len > 0) return t.points[t.len - 1].usage;
         var value = t.observedDelta(current);
         if (t.len > 0) {
             const last = t.points[t.len - 1].usage;
@@ -49,19 +51,31 @@ pub const Timeline = struct {
         const interval = t.pending(current);
         const at = if (t.len > 0) @max(now, t.points[t.len - 1].at) else now;
         if (t.len > 0) t.points[t.len - 1].usage = interval;
-        if (t.len > 0 and std.mem.eql(u8, turn, t.turn[0..t.turn_len]) and std.mem.eql(u8, label.text(), t.points[t.len - 1].label.text())) {
+        if (t.open and t.len > 0 and std.mem.eql(u8, turn, t.turn[0..t.turn_len]) and std.mem.eql(u8, label.text(), t.points[t.len - 1].label.text())) {
             // Repeated summaries continue the same interval and start time.
         } else {
             if (t.len == t.points.len) {
                 std.mem.copyForwards(Point, t.points[0 .. t.len - 1], t.points[1..t.len]);
                 t.len -= 1;
             }
-            // Keep observations before the first summary with the first phase.
-            t.points[t.len] = .{ .at = at, .label = label, .usage = if (t.len == 0) interval else .{ .known = current.known } };
+            // Keep observations before the first summary, or after a finished
+            // phase awaiting its next summary, with the newly named phase.
+            t.points[t.len] = .{ .at = at, .label = label, .usage = if (t.len == 0) interval else if (!t.open) t.observedDelta(current) else .{ .known = current.known } };
             t.len += 1;
         }
         t.turn_len = @min(turn.len, t.turn.len);
         @memcpy(t.turn[0..t.turn_len], turn[0..t.turn_len]);
+        t.open = true;
+        t.advanceBaseline(current);
+    }
+
+    pub fn finish(t: *Timeline, current: usage.View) void {
+        if (t.len > 0) t.points[t.len - 1].usage = t.pending(current);
+        t.open = false;
+        t.advanceBaseline(current);
+    }
+
+    fn advanceBaseline(t: *Timeline, current: usage.View) void {
         // Runtime counters are monotonic. Retain a high-water mark if telemetry
         // temporarily disappears or regresses so its return cannot bill twice.
         inline for (std.meta.fields(usage.Tokens)) |field| {
@@ -147,4 +161,18 @@ test "activity transitions charge the previous phase and pending retains repeate
     timeline.checkpoint("turn", reviewing, current, 4000);
     try std.testing.expectEqual(live, timeline.points[1].usage.tokens);
     try std.testing.expectEqual(@as(u64, 0), timeline.pending(current).tokens.total());
+}
+
+test "usage after a finished compaction belongs to the next named phase" {
+    var timeline: Timeline = .{};
+    timeline.checkpoint("turn", summary.Label.parse("Compacting context").?, .{}, 1000);
+    var current: usage.View = .{ .known = true, .tokens = .{ .input = 10 } };
+    timeline.finish(current);
+    current.tokens.input = 20;
+    try std.testing.expectEqual(@as(u64, 10), timeline.pending(current).tokens.input);
+    timeline.checkpoint("turn", summary.Label.parse("Running tests").?, current, 2000);
+    try std.testing.expectEqual(@as(u64, 10), timeline.points[0].usage.tokens.input);
+    try std.testing.expectEqual(@as(u64, 10), timeline.pending(current).tokens.input);
+    current.tokens.input = 30;
+    try std.testing.expectEqual(@as(u64, 20), timeline.pending(current).tokens.input);
 }

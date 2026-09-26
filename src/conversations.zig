@@ -13,6 +13,7 @@ pub const Actor = struct {
     pending_native_requests: u32 = 0,
     status_inference: @import("activity_summary.zig").Conversation = .{},
     activity_timeline: @import("activity_timeline.zig").Timeline = .{},
+    screen_compacting: bool = false,
     background_tasks: @import("background_tasks.zig").Inventory = .{},
     workspace: u32 = 0,
     observed_at: i64 = 0,
@@ -34,17 +35,60 @@ pub const Actor = struct {
     }
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
+        const was_compacting = actor.state.compacting;
         const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
+        if (actor.state.last_seq == seq) actor.screen_compacting = false;
         if (event.model.len > 0) {
             actor.model.len = agents.clean(&actor.model.bytes, event.model);
             actor.model_from_hook = true;
         }
+        actor.compactionChanged(was_compacting, now);
         if (actor.state.provider == .claude) {
             if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
             if (event.kind == .session_end) actor.background_tasks = .{};
         }
         actor.observed_at = @max(actor.observed_at, now);
         return ding;
+    }
+
+    fn compactionChanged(actor: *Actor, was_compacting: bool, now: i64) void {
+        if (actor.state.compacting == was_compacting) return;
+        const ms = @divFloor(now, std.time.us_per_ms);
+        if (!actor.state.compacting) actor.activity_timeline.finish(actor.usageView(ms));
+        const summary = @import("activity_summary.zig");
+        var label: summary.Label = .{};
+        const text = if (actor.state.compacting) "Compacting context" else actor.state.activity[0..actor.state.activity_len];
+        if (text.len == 0) return;
+        label.len = @min(text.len, label.bytes.len);
+        while (!std.unicode.utf8ValidateSlice(text[0..label.len])) label.len -= 1;
+        @memcpy(label.bytes[0..label.len], text[0..label.len]);
+        actor.activity_timeline.checkpoint(actor.state.turnId(), label, actor.usageView(ms), ms);
+    }
+
+    /// Live reload restarts the timeline and must retain who can end this phase.
+    /// Older checkpoints lack that ownership. Only sessions with no lifecycle
+    /// timestamp can safely be assigned to the terminal fallback: a protocol
+    /// poll may have replaced the source of a hook-started compaction.
+    pub fn restoreCompaction(actor: *Actor, screen_owned: ?bool, now: i64) void {
+        if (!actor.state.compacting) return;
+        actor.screen_compacting = screen_owned orelse (actor.state.changed_at == 0 and actor.state.observation.source != .hook);
+        actor.compactionChanged(false, now);
+    }
+
+    /// The read-only Codex protocol reports working but has no compaction flag.
+    /// A live terminal status can supplement it without replacing lifecycle state.
+    pub fn observeCompactionScreen(actor: *Actor, compacting: ?bool, now: i64) void {
+        if (actor.state.provider != .codex or actor.state.state != .working) return;
+        const active = compacting orelse return;
+        const was_compacting = actor.state.compacting;
+        if (active and !was_compacting) {
+            actor.state.compacting = true;
+            actor.screen_compacting = true;
+        } else if (!active and actor.screen_compacting) {
+            actor.state.compacting = false;
+            actor.screen_compacting = false;
+        }
+        actor.compactionChanged(was_compacting, now);
     }
     // Initial attachment establishes a baseline; historic completions never ring.
     // Repeated polls and reconnects cannot duplicate a completion for the same turn.
@@ -73,6 +117,7 @@ pub const Actor = struct {
             agent.name_len = s.name_len;
         }
         const old_state = agent.state;
+        const was_compacting = agent.compacting;
         agent.state = s.state;
         agent.permission_review = null;
         agent.subagents = s.subagents;
@@ -85,6 +130,7 @@ pub const Actor = struct {
         if (!same_turn or old_state != s.state or s.state != .working) {
             agent.activity_len = 0;
             agent.compacting = false;
+            actor.screen_compacting = false;
         }
         agent.activity_generation = s.evidence.hash();
         var ding = false;
@@ -94,6 +140,7 @@ pub const Actor = struct {
             if (s.outcome) |outcome| ding = agent.recordCompletion(agent.turnId(), outcome, .protocol, binding) and outcome == .completed and !watched;
         }
         agent.attention = if (s.state == .blocked and !watched) .needs_input else if (agent.observation.unread()) .finished else .none;
+        actor.compactionChanged(was_compacting, s.observed_at);
         return ding or (!binding and s.state == .blocked and old_state != .blocked and !watched);
     }
     pub fn authoritative(actor: *const Actor, now: i64) bool {
@@ -292,6 +339,49 @@ test "child links cannot cross providers reparent or form cycles" {
     try std.testing.expect(!registry.linkChild(other, child));
     try std.testing.expect(!registry.linkChild(claude, child));
     try std.testing.expect(!registry.linkChild(root, root));
+}
+
+test "compaction hooks partition usage and preserve the summary through repeated or stale events" {
+    const summary = @import("activity_summary.zig");
+    var actor: Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working } };
+    actor.state.setActivity("Reading source");
+    actor.activity_timeline.checkpoint("", summary.Label.parse("Reading source").?, .{}, 1);
+    actor.live_usage = .{ .known = true, .tokens = .{ .input = 100 } };
+    _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 1, true, 2000);
+    try std.testing.expectEqualStrings("Reading source", actor.state.activity[0..actor.state.activity_len]);
+    try std.testing.expectEqualStrings("Compacting context", actor.activity_timeline.points[1].label.text());
+    try std.testing.expectEqual(@as(u64, 100), actor.activity_timeline.points[0].usage.tokens.input);
+    _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 2, true, 3000);
+    _ = actor.observeHook(.{ .kind = .compact_end, .session = "" }, 1, true, 4000);
+    try std.testing.expect(actor.state.compacting);
+    try std.testing.expectEqual(@as(usize, 2), actor.activity_timeline.len);
+    try std.testing.expectEqual(@as(i64, 2), actor.activity_timeline.points[1].at);
+    actor.live_usage.tokens.input = 160;
+    _ = actor.observeHook(.{ .kind = .compact_end, .session = "" }, 3, true, 5000);
+    try std.testing.expectEqualStrings("Reading source", actor.activity_timeline.points[2].label.text());
+    try std.testing.expectEqual(@as(u64, 60), actor.activity_timeline.points[1].usage.tokens.input);
+    try std.testing.expectEqual(@as(u64, 0), actor.activity_timeline.pending(actor.live_usage).tokens.input);
+}
+
+test "terminal compaction supplements protocol state without clearing hook compaction" {
+    var actor: Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working, .last_seq = 100, .observation = .{ .source = .protocol } } };
+    actor.observeCompactionScreen(true, 1000);
+    try std.testing.expect(actor.state.compacting);
+    try std.testing.expect(actor.authoritative(1001));
+    try std.testing.expectEqual(@as(usize, 1), actor.activity_timeline.len);
+    actor.observeCompactionScreen(null, 2000);
+    try std.testing.expect(actor.state.compacting);
+    _ = actor.observeHook(.{ .kind = .session_start, .session = "" }, 101, true, 2100);
+    actor.live_usage = .{ .known = true, .tokens = .{ .input = 60 } };
+    actor.observeCompactionScreen(false, 3000);
+    try std.testing.expect(!actor.state.compacting);
+    actor.live_usage.tokens.input = 100;
+    try std.testing.expectEqual(@as(u64, 60), actor.activity_timeline.pending(actor.live_usage).tokens.input);
+    _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 101, true, 4000);
+    actor.observeCompactionScreen(false, 5000);
+    try std.testing.expect(actor.state.compacting);
+    _ = actor.observeHook(.{ .kind = .tool_start, .session = "" }, 102, true, 6000);
+    try std.testing.expect(!actor.state.compacting);
 }
 
 test "selection preserves conversation receipts and shared acknowledgement" {

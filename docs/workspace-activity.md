@@ -55,6 +55,13 @@ for idle agents. While awaiting a first result, the activity text stays blank; t
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
 
+Compaction takes priority over inferred activity and records a `Compacting context`
+phase in the recent timeline. Hooks report its start and end; for Codex sessions
+observed through the daemon, the live terminal's compaction status supplements the
+protocol's working state. Summaries arriving during compaction are retained for
+afterward without replacing the current phase. The compaction entry remains in
+the bounded history when work resumes.
+
 Corgi's own inference runs through a persistent native harness, reusing the
 existing login: Codex's App Server (it does not run `codex exec`) or Claude
 Code's JSONL transport. The observed agent's provider and the inference provider

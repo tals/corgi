@@ -498,7 +498,8 @@ pub const Server = struct {
         const review = p.agent().permission_review != null;
         // Claude has no interrupt hook; its screen is the only sign a hook-reported turn was aborted.
         const settle = if (p.attachment.actor) |actor| authoritative and actor.state.provider == .claude and actor.state.state == .working and !actor.state.observation.pending_stop else false;
-        const text = if (job != null and (!authoritative or review or settle)) p.terminal.liveText() catch null else null;
+        const compaction = p.agent().provider == .codex and p.agent().state == .working;
+        const text = if (job != null and (!authoritative or review or settle or compaction)) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
         var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
         // Each new agent process counts once toward automatic inference selection.
@@ -507,6 +508,7 @@ pub const Server = struct {
         };
         if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
         if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
+        if (compaction and text != null) if (p.attachment.actor) |actor| actor.observeCompactionScreen(detection.screenCompacting(text.?), now);
         const settling = if (p.attachment.actor) |actor| settle and text != null and actor.state.state == .working else false;
         if (!settling) {
             p.detection.idle_since = 0;

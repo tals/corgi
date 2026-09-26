@@ -87,6 +87,49 @@ test "legacy pane checkpoint migrates identity into an actor" {
     try std.testing.expectEqualStrings("legacy-session", fresh.panes.items[0].agent().sessionId());
     try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
 }
+
+test "live compaction restores its clearing source including older checkpoints" {
+    const Runtime = @import("runtime.zig").Runtime;
+    const Source = @import("agents.zig").observation.Source;
+    const Case = struct { saved: ?bool, source: Source, screen_owned: bool, changed_at: i64 = 0 };
+    for ([_]Case{
+        .{ .saved = true, .source = .protocol, .screen_owned = true },
+        .{ .saved = false, .source = .protocol, .screen_owned = false },
+        .{ .saved = null, .source = .protocol, .screen_owned = true },
+        .{ .saved = null, .source = .hook, .screen_owned = false },
+        .{ .saved = null, .source = .protocol, .screen_owned = false, .changed_at = 100 },
+    }) |case| {
+        var original: Runtime = .{};
+        defer original.deinit();
+        _ = try original.workspaces.add("compaction", "/tmp");
+        const actor = try original.conversations.get(.codex, "compacting");
+        actor.state.state = .working;
+        actor.state.compacting = true;
+        actor.state.observation.source = case.source;
+        actor.state.changed_at = case.changed_at;
+        actor.state.setActivity("Reading source");
+        actor.screen_compacting = case.screen_owned;
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        var saved = try cp.capture(arena.allocator(), &original, true);
+        try std.testing.expectEqual(case.screen_owned, saved.conversations[0].screen_compacting.?);
+        const entries = try arena.allocator().dupe(cp.Conversation, saved.conversations);
+        entries[0].screen_compacting = case.saved;
+        saved.conversations = entries;
+        const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{ .emit_null_optional_fields = false });
+        const decoded = try std.json.parseFromSlice(cp.State, arena.allocator(), json, .{});
+        var fresh: Runtime = .{};
+        defer fresh.deinit();
+        try cp.restore(&fresh, decoded.value, true, "/tmp/unused-compaction.sock", "/tmp/corgi");
+        const restored_actor = fresh.conversations.byId(actor.id).?;
+        try std.testing.expectEqual(case.screen_owned, restored_actor.screen_compacting);
+        try std.testing.expectEqualStrings("Compacting context", restored_actor.activity_timeline.points[0].label.text());
+        restored_actor.observeCompactionScreen(false, std.time.microTimestamp());
+        try std.testing.expectEqual(!case.screen_owned, restored_actor.state.compacting);
+        const cold = try cp.capture(arena.allocator(), &original, false);
+        try std.testing.expect(!cold.conversations[0].agent.compacting);
+    }
+}
 fn restored(old: *Terminal) !*Terminal {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();

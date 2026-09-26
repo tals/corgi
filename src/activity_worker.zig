@@ -36,7 +36,7 @@ pub const Result = struct {
         agent.activity_inferred = true;
         actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), r.label);
         const now = std.time.milliTimestamp();
-        actor.activity_timeline.checkpoint(agent.turnId(), r.label, actor.usageView(now), now);
+        if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), r.label, actor.usageView(now), now);
         return true;
     }
 };
@@ -444,4 +444,24 @@ test "actor inference context survives turns and detachment but rejects stale re
     try std.testing.expect(!std.mem.eql(u8, second.conversation.key(actor.id, &key1), other.status_inference.key(other.id, &key2)));
     for (0..10) |_| actor.status_inference.remember("turn-2", "New evidence", result.label);
     try std.testing.expectEqual(@as(usize, 4), actor.status_inference.len);
+}
+
+test "inference completing during compaction waits to resume its timeline phase" {
+    const conversations = @import("conversations.zig");
+    var actor: conversations.Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working } };
+    _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 1, true, 1000);
+    const result: Result = .{ .request = .{
+        .actor = 1,
+        .provider = .codex,
+        .session = actor.state.session,
+        .session_len = 0,
+        .turn = actor.state.turn,
+        .turn_len = 0,
+        .evidence = .{},
+    }, .label = summary.Label.parse("Running tests").? };
+    try std.testing.expect(result.apply(&actor));
+    try std.testing.expectEqual(@as(usize, 1), actor.activity_timeline.len);
+    try std.testing.expectEqualStrings("Compacting context", actor.activity_timeline.points[0].label.text());
+    _ = actor.observeHook(.{ .kind = .compact_end, .session = "" }, 2, true, 2000);
+    try std.testing.expectEqualStrings("Running tests", actor.activity_timeline.points[1].label.text());
 }

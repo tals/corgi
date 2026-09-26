@@ -48,6 +48,53 @@ class Summaries(codex_titles.Titles):
     def finish_tool(self,ident):
         self.append_record('response_item',{'type':'function_call_output','call_id':ident,'output':'result'})
     def calls(self):return self.log.read_text().splitlines() if self.log.exists() else []
+    def test_compaction_overrides_current_activity_and_remains_in_timeline(self):
+        from viewer_client import Viewer
+        def conversation():
+            return next(c for c in self.session()['conversations'] if c['agent']['session']==codex_titles.A)
+        def points():return [p['activity'] for p in conversation()['timeline']['points']]
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.attachment.send('screen:compacting')
+        self.until(lambda:self.state()['compacting'])
+        self.assertEqual(points(),['Tracing pane focus','Compacting context'])
+        # Repeated protocol polls must preserve the terminal-only compaction.
+        time.sleep(1.2)
+        self.assertTrue(self.state()['compacting'])
+        viewer=Viewer(self,100,30)
+        try:
+            frame=viewer.poll()['data']
+            rows=smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',frame),100,30)
+            y=next(i for i,row in enumerate(rows) if i>15 and 'codex' in row)
+            viewer.input(f'\x1b[<35;6;{y+1}M')
+            time.sleep(.6)
+            def timeline_rows():
+                frame=viewer.poll()['data']
+                return smoke.screen_text(re.sub(r'\x1b_G.*?\x1b\\','',frame),100,30)
+            rows=timeline_rows()
+            self.assertTrue(any('now  ●  Compacting context' in row for row in rows),rows)
+            self.assertFalse(any('now  ●  Tracing pane focus' in row for row in rows),rows)
+            self.attachment.send('screen:working')
+            self.until(lambda:not self.state()['compacting'])
+            self.assertEqual(points(),['Tracing pane focus','Compacting context','Tracing pane focus'])
+            rows=timeline_rows()
+            self.assertTrue(any('○  Compacting context' in row for row in rows),rows)
+            self.assertTrue(any('now  ●  Tracing pane focus' in row for row in rows),rows)
+        finally:viewer.close()
+    def test_compaction_clears_after_live_reload_while_the_same_turn_keeps_working(self):
+        def conversation():
+            return next(c for c in self.session()['conversations'] if c['agent']['session']==codex_titles.A)
+        def points():return [p['activity'] for p in conversation()['timeline']['points']]
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.attachment.send('screen:compacting')
+        self.until(lambda:self.state()['compacting'])
+        self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+        self.until(lambda:self.state()['compacting'] and points()==['Compacting context'])
+        self.attachment.send('screen:working')
+        self.until(lambda:not self.state()['compacting'])
+        self.assertEqual(self.state()['state'],'working')
+        self.assertEqual(points(),['Compacting context','Tracing pane focus'])
     def test_activity_timeline_tracks_intervals_and_preserves_own_breakdown(self):
         from viewer_client import Viewer
         def conversation():
