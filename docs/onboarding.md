@@ -17,6 +17,13 @@ The daemon does not read the viewer's shortcut preferences.
 `corgi onboard` is the real wizard: imports operate on real source sessions.
 Use **Skip import** to finish without importing.
 
+For an isolated walkthrough, run `./go.sh --temp` from a terminal outside Corgi.
+Every invocation starts with fresh Corgi state and onboarding. Use `./go.sh --env demo`
+to keep a separate named environment: it shows onboarding until you finish setup,
+then remembers your choice. `./go.sh --env demo onboard` reopens it explicitly.
+Detaching leaves the runtime running; temporary launches print a reconnect command.
+Imports still operate on real source sessions.
+
 The wizard is an ANSI terminal interface with a frame up to 112 columns × 32
 rows. Every step keeps the same frame at a given terminal size. It requires at
 least 76 × 26; imports and full keymaps scroll within the frame. There are no

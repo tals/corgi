@@ -33,6 +33,18 @@ From this directory:
 
 This builds Corgi and starts or attaches to its background runtime.
 
+To try onboarding in an isolated Corgi environment, run from a terminal outside Corgi:
+
+```sh
+./go.sh --temp          # fresh setup every time
+./go.sh --env demo      # reusable environment; setup once
+./go.sh --env demo onboard  # reopen its onboarding
+```
+
+Each environment has its own runtime, preferences and saved state. Named environments
+survive restarts and reboots. Temporary environments print a reconnect command and
+keep running after detach; shutdown still requires confirmation.
+
 macOS builds sign the Corgi executable with a persistent certificate so Keychain
 “Always Allow” survives rebuilds. The build prefers a **Developer ID Application**
 identity, falling back to **Apple Development** for local use. The certificate and

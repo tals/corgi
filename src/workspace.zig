@@ -45,6 +45,8 @@ pub const Store = struct {
 
     pub fn statePath(socket: []const u8) ![]const u8 {
         const os = @import("os.zig");
+        // go.sh environments keep durable settings separate from short /tmp sockets.
+        if (os.env("CORGI_ENV_DIR")) |root| return std.fs.path.join(a, &.{ root, "state", "corgi", "workspaces.json" });
         if (os.env("CORGI_SOCKET") != null) return std.fmt.allocPrint(a, "{s}.workspaces.json", .{socket});
         if (os.env("XDG_STATE_HOME")) |root| return std.fs.path.join(a, &.{ root, "corgi", "workspaces.json" });
         return std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".local", "state", "corgi", "workspaces.json" });

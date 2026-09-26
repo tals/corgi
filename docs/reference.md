@@ -8,6 +8,9 @@ Requires **Zig 0.15.2**, pinned to the Ghostty revision in `build.zig.zon`. The 
 
 ```sh
 ./go.sh                        # ReleaseSafe build, then start or attach
+./go.sh --temp                 # fresh isolated runtime, setup and state
+./go.sh --env demo             # reuse an isolated named environment
+./go.sh --env demo onboard     # reopen its onboarding
 ./go.sh --reload               # rebuild and replace daemon; panes/viewers stay alive
 ./go.sh --restart              # stop processes, then recover in new shells
 ./scripts/zig build test
@@ -17,6 +20,23 @@ python3 tests/smoke.py          # real PTYs + socket tests; mock providers, no i
 After building, the executable is `zig-out/bin/corgi`. Its directory is added to each pane's PATH. Ordinary `go.sh` preserves the running runtime; UI-only changes load in a newly opened viewer. `./go.sh --reload` builds, transfers the live runtime to that executable, and returns to the current terminal. It works inside a Corgi pane. `corgi reload [ABSOLUTE_EXE]` uses an already built executable. A failed build or handoff leaves the old runtime serving; there is no destructive fallback.
 
 `./go.sh --restart` remains an explicit process restart: it terminates existing processes and starts new shells from saved recovery context. Run it outside Corgi. Put flags first; further arguments are passed through, e.g. `./go.sh --restart start`. It cannot preserve process memory or unsaved application work.
+
+`--temp` and `--env NAME` select isolated runtimes before any reload or restart.
+They also isolate preferences, onboarding completion, workspaces, inference settings
+and recovery snapshots. Named data lives under
+`${XDG_STATE_HOME:-$HOME/.local/state}/corgi/environments/NAME`; sockets use a short,
+private directory under `/tmp`. Names contain up to 32 letters, digits, `_` or `-`
+and start with a letter or digit. Named setup survives reboot; processes do not.
+`./go.sh --env demo --reload` reloads only demo, and `./go.sh --env demo shutdown`
+asks before stopping it. Switching environments requires a terminal outside Corgi;
+inside a named environment, ordinary `./go.sh` keeps using that environment.
+
+Temporary data lives in a fresh private `/tmp/corgi-temp-<uid>.*` directory.
+Detach leaves its runtime alive and retains the directory. Use the printed reconnect
+command to return, or append `shutdown` to it to stop the runtime with confirmation.
+After shutdown, the printed directory can be removed. Source projects, agent accounts
+and external import sources remain shared. These flags isolate Corgi state, not the
+programs running inside it.
 
 Live handoff transfers compact VT snapshots of retained screens, history, cursor, and input modes instead of accumulated terminal event journals. After the new daemon owns the PTYs, it briefly changes each PTY width and restores it 250 ms later, asking applications to repaint through ordinary resize notifications. Processes and PTYs stay alive; parser fragments and some saved terminal state may be lost, and applications that do not repaint can retain display artifacts.
 
