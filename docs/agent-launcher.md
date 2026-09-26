@@ -12,7 +12,7 @@ Providers that are not installed are hidden: the daemon checks `CORGI_CODEX_BIN`
 anything, and skips previews for missing providers. A pinned
 popover supports Up/Down, Tab/Shift-Tab, Home/End, Enter, and Escape.
 Below the providers, a `New terminal` row opens a plain shell tab in the same
-directory; press t in the popover to open one directly. Pressing Cmd+T again (Ctrl-B A)
+directory; press t in the popover to open one directly. Pressing Cmd+T (Ctrl-B A) or Ctrl+T again
 while the popover is open also opens a terminal. It does not change the
 remembered provider.
 Arrow keys stop at the first/last row; Tab cycles. Navigation keys also activate

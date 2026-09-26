@@ -10,12 +10,17 @@ pub fn indexOf(entries: []const sidebar.Entry, target: ?Target) ?usize {
     return null;
 }
 
+/// Steps over group headers; a folded group contributes no agents to skip into.
 pub fn relative(entries: []const sidebar.Entry, current: ?Target, next: bool) ?Target {
     if (entries.len == 0) return null;
-    const index = if (indexOf(entries, current)) |i|
+    var index = if (indexOf(entries, current)) |i|
         (i + if (next) @as(usize, 1) else entries.len - 1) % entries.len
     else if (next) @as(usize, 0) else entries.len - 1;
-    return entries[index].target;
+    for (0..entries.len) |_| {
+        if (entries[index].target != .group) return entries[index].target;
+        index = (index + if (next) @as(usize, 1) else entries.len - 1) % entries.len;
+    }
+    return null;
 }
 
 pub const History = struct {
@@ -46,7 +51,8 @@ pub const Picker = struct {
     }
     pub fn list(p: *const Picker, entries: []const sidebar.Entry, out: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
         var count: usize = 0;
-        for (entries) |entry| if (p.matches(entry)) {
+        // Search results are a flat list of agents, without group headers.
+        for (entries) |entry| if (entry.target != .group and p.matches(entry)) {
             out[count] = entry;
             count += 1;
         };

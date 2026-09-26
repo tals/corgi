@@ -55,6 +55,12 @@ pub const State = struct {
     order: [capacity]usize = undefined,
     count: usize = 0,
 
+    /// Drops retained rows so the next update shows the list as is, without
+    /// fading out rows that left it (folding a group removes rows instantly).
+    pub fn discard(self: *State) void {
+        self.workspace = null;
+    }
+    /// `workspace` keys the list; a new key discards retained rows.
     pub fn update(self: *State, workspace: u32, live: []const sidebar.Entry, out: *[capacity]sidebar.Entry, now_ms: i64) []sidebar.Entry {
         if (self.workspace != workspace) {
             for (&self.slots) |*slot| slot.occupied = false;

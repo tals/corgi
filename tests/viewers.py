@@ -87,6 +87,59 @@ class Viewers(unittest.TestCase):
         a.focus(shell)
         self.assertEqual(a.input('\x02\t')['pane'],agents[0])
 
+    def test_agent_scope_menu_lists_other_workspaces(self):
+        home_ws=self.session()['workspaces'][0]
+        first=self.new();self.mark_agent(first,'Alpha')
+        other=self.command('workspace.create',name='Other',cwd=self.temp.name)['workspace']
+        outsider=self.command('pane.create',workspace=other,cwd=self.temp.name,command='sleep 60')['pane']
+        self.mark_agent(outsider,'Outside-agent')
+        a=Viewer(self);a.focus(first)
+        # The last row is the status bar, which names the focused pane.
+        def sidebar():return [row[:27] for row in legacy.screen_text(a.state['data'],100,30)[:-1]]
+        self.assertFalse(any('Outside-agent' in row for row in sidebar()))
+        # Hovering the header opens the menu; leaving it closes the menu again.
+        a.input('\x1b[<35;5;15M')
+        rows=sidebar()
+        self.assertIn('This workspace',rows[16]);self.assertIn('✓',rows[16])
+        self.assertIn('All',rows[17]);self.assertIn('2',rows[17])
+        self.assertIn('Other',rows[20])
+        a.input('\x1b[<35;60;5M')
+        self.until(lambda:'This workspace' not in a.poll()['data'])
+        # All groups every workspace's agents under a one-row header.
+        a.input('\x1b[<35;5;15M')
+        a.input('\x1b[<0;8;18M\x1b[<0;8;18m')
+        rows=sidebar()
+        self.assertIn('agents: all',rows[14])
+        self.assertTrue(rows[16].startswith('▾ '));self.assertIn('Alpha',rows[17])
+        self.assertTrue(rows[19].startswith('▾ Other'))
+        self.assertTrue(rows[20].startswith('╰'));self.assertIn('Outside-agent',rows[20])
+        # Clicking a header folds its group; clicking again unfolds it.
+        a.input('\x1b[<0;8;20M\x1b[<0;8;20m')
+        rows=sidebar()
+        # Folding removes the group's rows at once, without a fade.
+        self.assertTrue(rows[19].startswith('▸ Other'));self.assertFalse(any('Outside-agent' in line for line in rows))
+        a.input('\x1b[<0;8;20M\x1b[<0;8;20m')
+        self.assertIn('Outside-agent',sidebar()[20])
+        # Selecting another workspace's agent switches to it and keeps All.
+        a.input('\x1b[<0;8;21M\x1b[<0;8;21m')
+        self.assertEqual(a.state['pane'],outsider);self.assertEqual(a.state['workspace'],other)
+        self.assertTrue(any('Alpha' in line for line in sidebar()))
+        # All survives a restart; the choice lives in the viewer's preferences.
+        self.assertEqual(json.loads(pathlib.Path(self.path+'.viewer.json').read_text())['agents'],'all')
+        a.close()
+        a=Viewer(self);a.focus(first)
+        self.assertIn('agents: all',sidebar()[14])
+        # A single workspace stays listed while another is selected, for this session only.
+        a.focus(outsider)
+        a.input('\x1b[<35;5;15M')
+        a.input('\x1b[<0;8;20M\x1b[<0;8;20m')
+        rows=sidebar()
+        self.assertIn('agents: '+home_ws['name'][:7],rows[14])
+        self.assertTrue(any('Alpha' in line for line in rows))
+        self.assertFalse(any('Outside-agent' in line for line in rows))
+        self.assertEqual(a.state['workspace'],other)
+        self.assertEqual(json.loads(pathlib.Path(self.path+'.viewer.json').read_text())['agents'],'all')
+
     def test_agent_sidebar_search_input_mouse_and_stale_targets(self):
         first,second=self.new(),self.new()
         self.mark_agent(first,'Alpha');self.mark_agent(second,'Beta')

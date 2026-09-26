@@ -22,6 +22,9 @@ pub const Ui = struct {
     menu: ?commands.View = null,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
+    scope_menu: ?sidebar.ScopeMenu = null,
+    agent_scope: sidebar.Scope = .workspace,
+    scope_label: []const u8 = "",
     agent_search: ?sidebar.Search = null,
     tab_drop_x: ?u16 = null,
     dialog: ?naming.Dialog = null,
@@ -110,8 +113,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var out: Buffer = .init(a);
     defer out.deinit();
     const w = &out.writer;
-    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset);
+    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, ui.agents.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset).withEntries(ui.agents);
     side.corgi_badge = ui.corgi_badge;
+    side.scope_label = ui.scope_label;
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
     try w.writeAll("\x1b[?1003h");
@@ -154,7 +158,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var link_pointer = false;
     var workspace_uri: [256]u8 = undefined;
     if (ui.pointer) |pointer| {
-        if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
+        if (ui.scope_menu != null) {
+            link_pointer = side.hit(pointer.x, pointer.y) == .agent_scope or sidebar.ScopeMenu.hit(side, width, height, ui.workspaces, pointer.x, pointer.y) != null;
+        } else if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
             if (ui.port_menu) |menu| {
                 for (ui.workspaces) |ws| {
                     if (ws.id != menu.workspace) continue;
@@ -166,7 +172,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null or
                     @import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y);
                 switch (side.hit(pointer.x, pointer.y)) {
-                    .agent_new, .agent_options => link_pointer = true,
+                    .agent_scope, .agent_new, .agent_options => link_pointer = true,
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
                     else => {},
                 }
@@ -188,7 +194,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             const state = p.terminal.renderState();
             var hovered: ?u64 = null;
             if (ui.pointer) |pointer| {
-                if (r.contains(pointer.x, pointer.y) and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
+                if (r.contains(pointer.x, pointer.y) and ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
                     for (p.terminal.hyperlinks()) |link| {
                         if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
                             hovered = link.id;
@@ -210,7 +216,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     try side.draw(w, ui.agents, ui.workspaces);
     if (ui.corgi_badge == .image) {
         try w.writeAll(@import("corgi_badge.zig").hide);
-        if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
+        if (side.width > 0 and ui.scope_menu == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try @import("corgi_badge.zig").place(w);
     }
     if (ui.workspace_drop_y) |y| {
@@ -302,6 +308,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
         try naming.View.init(width, height, dialog).draw(dialog, w, number);
     }
+    if (ui.scope_menu) |menu| try menu.draw(w, side, width, height, ui.workspaces, ui.agent_scope);
     if (ui.agent_launcher) |*launcher| try launcher.draw(w, width, height, side);
     if (ui.corgi_setup) |*setup| try setup.draw(w, ui.inference, width, height);
     try side.searchCursor(w);

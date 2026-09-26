@@ -304,6 +304,7 @@ test {
     _ = @import("usage.zig");
     _ = @import("live_usage.zig");
     _ = @import("subagent_tooltip.zig");
+    _ = @import("preferences.zig");
     _ = @import("usage_worker.zig");
     _ = @import("codex_observer.zig");
     _ = @import("activity_worker.zig");

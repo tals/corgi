@@ -4,9 +4,17 @@ const layout = @import("layout.zig");
 const vt = @import("ghostty-vt");
 const corgi_animation = @import("corgi_animation.zig");
 
-pub const max_entries = layout.max_panes + 16;
-pub const Target = union(enum) { pane: u32, native: u32 };
+/// Agents plus one header per workspace in the grouped "All" list.
+pub const max_entries = layout.max_panes + 16 + @import("workspace.zig").max_workspaces;
+const selected_bg = "\x1b[48;2;34;44;58m";
+/// `group` is a workspace header row in the grouped "All" list, not an agent.
+pub const Target = union(enum) { pane: u32, native: u32, group: u32 };
 pub const Search = struct { text: []const u8, cursor: usize };
+/// Viewer-local agent list filter. `workspace` follows the selected workspace;
+/// `only` stays on one workspace while navigating elsewhere.
+pub const Scope = union(enum) { workspace, all, only: u32 };
+/// Header totals for a `.group` entry; `current` marks the selected workspace.
+pub const Group = struct { agents: usize = 0, working: usize = 0, attention: usize = 0, folded: bool = false, current: bool = false };
 pub const Entry = struct {
     conversation: u32 = 0,
     children: usize = 0,
@@ -22,6 +30,7 @@ pub const Entry = struct {
     compacting: bool = false,
     unread: bool = false,
     activity: []const u8 = "",
+    group: Group = .{},
     subagents: agents.Subagents = .{},
 
     // Herdr's dot style and Catppuccin colors; finished attention is its
@@ -37,10 +46,12 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
-pub const Hit = union(enum) { none, toggle, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
+pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     search: ?Search = null,
+    /// Header qualifier for a non-default scope, e.g. "all" or a workspace name.
+    scope_label: []const u8 = "",
     corgi_badge: @import("corgi_badge.zig").Mode = .none,
     cols: u16,
     rows: u16,
@@ -48,6 +59,8 @@ pub const View = struct {
     count: usize,
     offset: usize,
     capacity: usize,
+    /// When set, rows are measured per entry: group headers take one row.
+    entries: []const Entry = &.{},
     workspace_count: usize = 0,
     workspace_offset: usize = 0,
     pub fn middle(v: View) u16 {
@@ -69,6 +82,48 @@ pub const View = struct {
     pub fn init(cols: u16, rows: u16, open: bool, offset: usize, count: usize) View {
         const capacity = @max(1, (rows -| ((rows -| 1) / 2) -| 4) / 2);
         return .{ .cols = cols, .rows = rows, .width = if (rows >= 13) widthFor(cols, open) else 0, .count = count, .capacity = capacity, .offset = @min(offset, count -| capacity) };
+    }
+    fn listRows(v: View) usize {
+        return v.rows -| v.middle() -| 4;
+    }
+    fn height(e: Entry) usize {
+        return if (e.target == .group) 1 else 2;
+    }
+    /// Entries that fit in the list starting at `from`.
+    fn fits(v: View, from: usize) usize {
+        var used: usize = 0;
+        var n: usize = 0;
+        for (v.entries[@min(from, v.entries.len)..]) |e| {
+            used += height(e);
+            if (used > v.listRows()) break;
+            n += 1;
+        }
+        return @max(1, n);
+    }
+    pub fn maxOffset(v: View) usize {
+        if (v.entries.len == 0) return v.count -| v.capacity;
+        var used: usize = 0;
+        var start = v.entries.len;
+        while (start > 0) : (start -= 1) {
+            used += height(v.entries[start - 1]);
+            if (used > v.listRows()) break;
+        }
+        return start;
+    }
+    pub fn withEntries(v: View, entries: []const Entry) View {
+        var result = v;
+        result.entries = entries;
+        result.count = entries.len;
+        result.offset = @min(v.offset, result.maxOffset());
+        result.capacity = result.fits(result.offset);
+        return result;
+    }
+    /// The smallest scroll change that shows entry `index`.
+    pub fn reveal(v: View, index: usize) usize {
+        if (index < v.offset) return index;
+        var offset = v.offset;
+        while (offset < index and index >= offset + (if (v.entries.len > 0) v.fits(offset) else v.capacity)) offset += 1;
+        return offset;
     }
     pub fn withWidth(v: View, preferred: u16) View {
         var result = v;
@@ -104,6 +159,7 @@ pub const View = struct {
         if (y == 0 and x >= v.width - 5) return .toggle;
         if (y == 0 and x >= v.width - 11 and x < v.width - 6) return .workspace_new;
         if (y == v.middle() and x >= v.width - 10 and x < v.width - 2) return if (x >= v.width - 4) .agent_options else .agent_new;
+        if (y == v.middle() and x >= 1 and x < v.width - 11) return .agent_scope;
         if (y < v.middle()) {
             if (y == v.middle() - 2) {
                 if (v.workspace_count > v.workspaceCapacity()) {
@@ -119,9 +175,12 @@ pub const View = struct {
         }
         if (y == v.rows - 2 and v.count > v.capacity) return if (x < v.width / 2) .previous else .next;
         if (y < v.middle() + 2 or y >= v.rows - 2) return .none;
-        const index = (y - v.middle() - 2) / 2;
-        if (index >= v.capacity or v.offset + index >= v.count) return .none;
-        return .{ .entry = v.offset + index };
+        var top: usize = v.middle() + 2;
+        for (v.offset..@min(v.count, v.offset + v.capacity)) |index| {
+            top += if (v.entries.len > 0) height(v.entries[index]) else 2;
+            if (y < top) return .{ .entry = index };
+        }
+        return .none;
     }
     pub fn unreadRange(v: View, ws: WorkspaceEntry) struct { start: usize, end: usize } {
         var buf: [40]u8 = undefined;
@@ -158,7 +217,7 @@ pub const View = struct {
             try w.splatByteAll(' ', v.width - 1);
             try w.writeAll("\x1b[38;2;55;61;70m│");
         }
-        try v.line(w, v.middle(), "agents", "\x1b[1;38;2;226;230;233m");
+        try v.drawScope(w);
         if (v.search) |search| {
             try v.line(w, v.middle() + 1, "/ ", "\x1b[0;38;2;161;194;178;48;2;35;40;47m");
             try w.splatByteAll(' ', v.width - 5);
@@ -268,24 +327,51 @@ pub const View = struct {
                 try v.line(w, v.middle() + 5, "codex  or  claude", panel);
             }
         }
-        for (entries[v.offset..@min(entries.len, v.offset + v.capacity)], 0..) |e, index| {
+        const grouped = for (entries) |e| {
+            if (e.target == .group) break true;
+        } else false;
+        var next_y: u16 = v.middle() + 2;
+        for (entries[v.offset..@min(entries.len, v.offset + v.capacity)], v.offset..) |e, absolute| {
+            const index = absolute - v.offset;
             var exit_buffer: [16384]u8 = undefined;
             var exit_writer = std.Io.Writer.fixed(&exit_buffer);
             const row_writer = if (e.exit != null) &exit_writer else w;
             const frame_ms = if (e.exit) |closing| closing.frame_ms else now_ms;
             const frame_index: usize = @intCast(@mod(@divFloor(frame_ms, 80), thinking_frames.len));
-            const y: u16 = @intCast(v.middle() + 2 + index * 2);
-            const bg = if (e.focused) "\x1b[48;2;35;40;47m" else "\x1b[48;2;24;27;32m";
+            const y = next_y;
+            next_y += @intCast(height(e));
+            if (e.target == .group) {
+                try v.drawGroup(row_writer, e, y);
+                if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
+                continue;
+            }
+            // Grouped rows select with the active workspace's tint; the rail stays unbroken.
+            const bg = if (!e.focused) "\x1b[48;2;24;27;32m" else if (grouped) selected_bg else "\x1b[48;2;35;40;47m";
             for (0..2) |row| {
                 if (y + row >= v.rows - 2) break;
                 try row_writer.print("\x1b[{d};1H\x1b[0m{s}", .{ y + row + 1, bg });
                 try row_writer.splatByteAll(' ', v.width - 1);
             }
+            const last_in_group = grouped and (absolute + 1 == entries.len or entries[absolute + 1].target == .group);
+            if (grouped) {
+                // The guide sits in the margin column, so agent text keeps its columns.
+                // The selected agent's stretch of it takes the selection blue.
+                const rail = if (e.focused) "\x1b[0;38;2;137;180;250m" else "\x1b[0;38;2;112;119;130m";
+                try row_writer.print("\x1b[{d};1H{s}{s}{s}", .{ y + 1, rail, bg, if (last_in_group) "╰" else "├" });
+                if (!last_in_group and y + 1 < v.rows - 2) try row_writer.print("\x1b[{d};1H│", .{y + 2});
+                try row_writer.print("\x1b[0m{s}", .{bg});
+            }
             const dot = e.indicator();
             try row_writer.print("\x1b[{d};2H\x1b[22m{s}{s}\x1b[{d};5H\x1b[1;38;2;226;230;233m", .{ y + 1, dot.color, dot.icon, y + 1 });
             const room = v.width - 6;
-            const divider = index + 1 < @min(entries.len - v.offset, v.capacity);
-            const underline = if (divider) "\x1b[4;58:2::65:70:77m" else "";
+            // Within a group, a dotted line under the text separates agents. Only
+            // Kitty-graphics hosts get it; elsewhere the style could degrade to a
+            // solid underline, so those terminals get no separator at all.
+            const divider = !grouped and index + 1 < @min(entries.len - v.offset, v.capacity);
+            const dotted = grouped and !last_in_group and v.corgi_badge == .image;
+            const underline = if (dotted) "\x1b[4:4m\x1b[58:2::65:70:77m" else if (divider) "\x1b[4;58:2::65:70:77m" else "";
+            // Dotted lines start under the name, leaving the guide and activity clear.
+            const underline_x: u16 = if (dotted) 5 else 2;
             const compacting = e.state == .working and e.compacting;
             const waiting = e.state == .working and e.subagents.waiting and !compacting;
             const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
@@ -295,9 +381,9 @@ pub const View = struct {
             try writeEllipsis(row_writer, provider, room);
             // Underline the existing second row, including its padding, without
             // consuming another terminal row or changing the entry hit area.
-            try row_writer.print("\x1b[{d};2H{s}", .{ y + 2, underline });
-            try row_writer.splatByteAll(' ', v.width - 3);
-            try row_writer.print("\x1b[{d};2H\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H\x1b[38;2;226;230;233m", .{ y + 2, activity, y + 2 });
+            try row_writer.print("\x1b[{d};{d}H{s}", .{ y + 2, underline_x, underline });
+            try row_writer.splatByteAll(' ', v.width - 1 - underline_x);
+            try row_writer.print("\x1b[{d};2H{s}\x1b[22;38;2;125;132;143m{s}\x1b[{d};5H{s}\x1b[38;2;226;230;233m", .{ y + 2, if (dotted) "\x1b[24m" else "", activity, y + 2, if (dotted) underline else "" });
             var clean: [512]u8 = undefined;
             const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
                 .working => e.activity,
@@ -313,6 +399,7 @@ pub const View = struct {
             const animation_seed: u64 = switch (e.target) {
                 .pane => |id| @as(u64, id) * 17,
                 .native => |id| (@as(u64, id) + 0x100000000) * 17,
+                .group => unreachable,
             };
             const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
             const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
@@ -346,6 +433,52 @@ pub const View = struct {
         }
         try w.writeAll("\x1b[0m");
     }
+    fn drawGroup(v: View, w: *std.Io.Writer, e: Entry, y: u16) !void {
+        const g = e.group;
+        const bg = if (e.focused) selected_bg else "\x1b[48;2;24;27;32m";
+        try w.print("\x1b[{d};1H\x1b[0m{s}", .{ y + 1, bg });
+        try w.splatByteAll(' ', v.width - 1);
+        try w.print("\x1b[{d};1H\x1b[38;2;150;158;170m{s}", .{ y + 1, if (g.folded) "▸" else "▾" });
+        // Right side: working and attention counts, then the agent count.
+        var digits: [24]u8 = undefined;
+        var count_buf: [24]u8 = undefined;
+        const count = compactCount(&count_buf, g.agents);
+        const count_x = (v.width -| 2) -| displayWidth(count);
+        var working_buf: [32]u8 = undefined;
+        var attention_buf: [32]u8 = undefined;
+        const working = if (g.working > 0) try std.fmt.bufPrint(&working_buf, "{s}●", .{compactCount(&digits, g.working)}) else "";
+        const attention = if (g.attention > 0) try std.fmt.bufPrint(&attention_buf, "{s}●", .{compactCount(&digits, g.attention)}) else "";
+        const both = working.len > 0 and attention.len > 0;
+        const status_width = displayWidth(working) + displayWidth(attention) + @as(usize, if (both) 1 else 0);
+        const status_x = count_x -| (status_width + @as(usize, if (status_width > 0) 1 else 0));
+        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, count_x + 1, count });
+        if (status_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;249;226;175m{s}{s}\x1b[1;38;2;243;139;168m{s}\x1b[22m", .{ y + 1, status_x + 1, working, if (both) " " else "", attention });
+        // Name, then a rule that leaves one space on each side.
+        var label: [160]u8 = undefined;
+        const text = directoryLabel(&label, e.name, null);
+        const name_room = status_x -| 5;
+        try w.print("\x1b[{d};3H{s}", .{ y + 1, if (g.current) "\x1b[1;38;2;182;206;240m" else "\x1b[1;38;2;226;230;233m" });
+        try writeEllipsis(w, text, name_room);
+        const name_end = 2 + @min(displayWidth(text), name_room);
+        if (status_x > name_end + 2) {
+            // A heavy, bright rule so each header stands out from its agents.
+            try w.print("\x1b[{d};{d}H\x1b[22;38;2;150;158;170m", .{ y + 1, name_end + 2 });
+            for (name_end + 1..status_x - 1) |_| try w.writeAll("━");
+        }
+    }
+    fn drawScope(v: View, w: *std.Io.Writer) !void {
+        if (v.middle() >= v.rows - 1) return;
+        try w.print("\x1b[{d};2H\x1b[1;38;2;226;230;233m", .{v.middle() + 1});
+        // Stop before the New button's leading space.
+        const room: usize = v.width -| 11;
+        try writeClipped(w, "agents", room);
+        if (v.scope_label.len > 0 and room > 12) {
+            var label: [160]u8 = undefined;
+            try w.writeAll("\x1b[22;38;2;125;132;143m: \x1b[1;38;2;161;194;178m");
+            try writeEllipsis(w, directoryLabel(&label, v.scope_label, null), room - 10);
+        }
+        if (room > 8) try w.writeAll("\x1b[22;38;2;125;132;143m ▾");
+    }
     fn line(v: View, w: *std.Io.Writer, y: u16, text: []const u8, style: []const u8) !void {
         if (y >= v.rows - 1) return;
         try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
@@ -371,7 +504,7 @@ pub fn agentAt(v: View, entries: []const Entry, x: u16, y: u16) ?*const Entry {
     const hit = v.hit(x, y);
     if (hit != .entry or hit.entry >= entries.len) return null;
     const entry = &entries[hit.entry];
-    return if (entry.exit == null) entry else null;
+    return if (entry.exit == null and entry.target != .group) entry else null;
 }
 
 // Fade both the card background and its foreground/underline colors into the
@@ -861,6 +994,92 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
     return null;
 }
 
+/// Hover popover under the agents header for choosing which agents are listed.
+pub const ScopeMenu = struct {
+    pinned: bool = false,
+    hovered: ?Scope = null,
+    pub fn bounds(side: View, cols: u16, rows: u16, workspaces: usize) layout.Rect {
+        const y = side.middle() + 1;
+        const width = @min(cols -| 1, @max(side.width -| 2, 26));
+        const height = @min(5 + workspaces, (rows -| 1) -| y);
+        return .{ .x = 1, .y = y, .w = width, .h = @intCast(height) };
+    }
+    pub fn hit(side: View, cols: u16, rows: u16, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?Scope {
+        const b = bounds(side, cols, rows, workspaces.len);
+        if (b.h < 5 or x <= b.x or x + 1 >= b.x + b.w or y <= b.y or y + 1 >= b.y + b.h) return null;
+        return switch (y - b.y) {
+            1 => .workspace,
+            2 => .all,
+            3 => null,
+            else => |index| .{ .only = workspaces[index - 4].id },
+        };
+    }
+    pub fn draw(menu: ScopeMenu, w: *std.Io.Writer, side: View, cols: u16, rows: u16, workspaces: []const WorkspaceEntry, scope: Scope) !void {
+        const b = bounds(side, cols, rows, workspaces.len);
+        if (b.h < 5 or b.w < 16) return;
+        const border = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
+        for (0..b.h) |y| {
+            try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + 1, border });
+            try w.writeAll(if (y == 0) "╭" else if (y == b.h - 1) "╰" else "│");
+            if (y == 0 or y == b.h - 1 or y == 3) {
+                if (y == 3) try w.writeAll(" ");
+                for (0..b.w - @as(u16, if (y == 3) 4 else 2)) |_| try w.writeAll("─");
+                if (y == 3) try w.writeAll(" ");
+            } else try w.splatByteAll(' ', b.w - 2);
+            try w.writeAll(if (y == 0) "╮" else if (y == b.h - 1) "╯" else "│");
+        }
+        var total: usize = 0;
+        var current: usize = 0;
+        for (workspaces) |ws| {
+            total += ws.agents;
+            if (ws.active) current = ws.agents;
+        }
+        try menu.row(w, b, 1, .workspace, scope, "This workspace", null, current);
+        try menu.row(w, b, 2, .all, scope, "All", null, total);
+        for (workspaces[0..@min(workspaces.len, b.h - 5)], 0..) |ws, index| {
+            try menu.row(w, b, @intCast(4 + index), .{ .only = ws.id }, scope, ws.name, ws, ws.agents);
+        }
+        try w.writeAll("\x1b[0m");
+    }
+    fn row(menu: ScopeMenu, w: *std.Io.Writer, b: layout.Rect, y: u16, option: Scope, scope: Scope, text: []const u8, ws: ?WorkspaceEntry, count: usize) !void {
+        const hovered = if (menu.hovered) |h| std.meta.eql(h, option) else false;
+        const style = if (hovered) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
+        const line = b.y + y + 1;
+        try w.print("\x1b[{d};{d}H{s}", .{ line, b.x + 2, style });
+        try w.splatByteAll(' ', b.w - 2);
+        if (std.meta.eql(option, scope)) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m✓{s}", .{ line, b.x + 3, style });
+        var number_buf: [24]u8 = undefined;
+        const number = compactCount(&number_buf, count);
+        // Right side: optional workspace status, then the agent count.
+        var status_buf: [64]u8 = undefined;
+        var working_buf: [24]u8 = undefined;
+        var attention_buf: [24]u8 = undefined;
+        var status: []const u8 = "";
+        if (ws) |entry| if (entry.agents > 0) {
+            var digits: [24]u8 = undefined;
+            const working = if (entry.working > 0) try std.fmt.bufPrint(&working_buf, "{s}●", .{compactCount(&digits, entry.working)}) else "";
+            const attention = if (entry.attention > 0) try std.fmt.bufPrint(&attention_buf, "{s}●", .{compactCount(&digits, entry.attention)}) else "";
+            status = try std.fmt.bufPrint(&status_buf, "\x1b[38;2;249;226;175m{s}{s}\x1b[38;2;243;139;168m{s}{s}", .{ working, if (working.len > 0 and attention.len > 0) " " else "", attention, if (working.len == 0 and attention.len == 0) "\x1b[38;2;166;227;161m○" else "" });
+        };
+        const status_width = if (status.len == 0) 0 else statusWidth(ws.?);
+        const count_width = displayWidth(number);
+        const right = b.x + b.w - 2 - count_width;
+        try w.print("\x1b[{d};{d}H\x1b[38;2;125;132;143m{s}{s}", .{ line, right + 1, number, style });
+        const status_x = right -| (status_width + @as(usize, if (status_width > 0) 2 else 0));
+        if (status_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ line, status_x + 1, status, style });
+        var label: [160]u8 = undefined;
+        try w.print("\x1b[{d};{d}H{s}", .{ line, b.x + 5, if (ws != null and ws.?.active) "\x1b[1m" else "" });
+        try writeEllipsis(w, directoryLabel(&label, text, null), (status_x -| (b.x + 4)) -| 2);
+    }
+    fn statusWidth(ws: WorkspaceEntry) usize {
+        var buf: [24]u8 = undefined;
+        var width: usize = 0;
+        if (ws.working > 0) width += displayWidth(compactCount(&buf, ws.working)) + 1;
+        if (ws.attention > 0) width += displayWidth(compactCount(&buf, ws.attention)) + 1 + @as(usize, if (ws.working > 0) 1 else 0);
+        return if (width == 0) 1 else width;
+    }
+};
+
 pub const PortMenu = struct {
     workspace: u32,
     selected: usize = 0,
@@ -1093,6 +1312,124 @@ pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u1
         try writeEllipsis(w, footer, width - 4);
     }
     try w.writeAll("\x1b[0m\x1b8");
+}
+
+test "agents header names its scope and opens the scope menu left of New" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    for ([_]u16{ 20, 28, 40 }) |width| {
+        var view = View.init(100, 30, true, 0, 0).withWidth(width);
+        try std.testing.expectEqual(Hit.agent_scope, view.hit(1, view.middle()));
+        try std.testing.expectEqual(Hit.agent_scope, view.hit(width - 12, view.middle()));
+        try std.testing.expectEqual(Hit.agent_new, view.hit(width - 10, view.middle()));
+        view.scope_label = "a workspace with a long name";
+        try view.draw(&output.writer, &.{}, &.{});
+        const host = try @import("terminal.zig").Terminal.create(100, 30);
+        defer host.destroy();
+        host.feed(output.written());
+        const text = try host.text();
+        defer @import("os.zig").allocator.free(text);
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        for (0..view.middle()) |_| _ = lines.next();
+        const header = lines.next().?;
+        // The label never runs into the New button.
+        try std.testing.expect(std.mem.indexOf(u8, header, "agents") != null);
+        try std.testing.expect(std.mem.indexOf(u8, header, "New") != null);
+        if (width > 23) try std.testing.expect(std.mem.indexOf(u8, header, "…") != null);
+        output.clearRetainingCapacity();
+    }
+}
+
+test "scope menu lists both scopes then each workspace with status" {
+    const workspaces = [_]WorkspaceEntry{
+        .{ .id = 4, .name = "corgi", .cwd = "/tmp", .active = true, .agents = 3, .working = 2, .attention = 1 },
+        .{ .id = 7, .name = "blog", .cwd = "/tmp", .active = false, .agents = 1 },
+        .{ .id = 9, .name = "notes", .cwd = "/tmp", .active = false },
+    };
+    const view = View.init(100, 30, true, 0, 0).withWorkspaces(3, 0);
+    const b = ScopeMenu.bounds(view, 100, 30, workspaces.len);
+    try std.testing.expectEqual(@as(?Scope, .workspace), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 1));
+    try std.testing.expectEqual(@as(?Scope, .all), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 2));
+    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 3));
+    try std.testing.expectEqual(@as(?Scope, .{ .only = 7 }), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 5));
+    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 7));
+    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, &workspaces, b.x, b.y + 1));
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try (ScopeMenu{}).draw(&output.writer, view, 100, 30, &workspaces, .all);
+    const host = try @import("terminal.zig").Terminal.create(100, 30);
+    defer host.destroy();
+    host.feed(output.written());
+    const text = try host.text();
+    defer @import("os.zig").allocator.free(text);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    for (0..b.y + 1) |_| _ = lines.next();
+    try std.testing.expectEqualStrings(" │   This workspace     3 │", std.mem.trimRight(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" │ ✓ All                4 │", std.mem.trimRight(u8, lines.next().?, " "));
+    _ = lines.next();
+    try std.testing.expectEqualStrings(" │   corgi       2● 1●  3 │", std.mem.trimRight(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" │   blog            ○  1 │", std.mem.trimRight(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" │   notes              0 │", std.mem.trimRight(u8, lines.next().?, " "));
+}
+
+test "grouped list draws one-row headers with a margin guide and measures rows per entry" {
+    const entries = [_]Entry{
+        .{ .target = .{ .group = 1 }, .name = "corgi", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 2, .working = 1, .current = true } },
+        .{ .target = .{ .pane = 1 }, .name = "api refactor", .provider = .codex, .state = .blocked, .attention = .none, .focused = true },
+        .{ .target = .{ .pane = 2 }, .name = "release notes", .provider = .claude, .state = .done, .attention = .none },
+        .{ .target = .{ .group = 2 }, .name = "blog", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 1, .attention = 1, .folded = true } },
+    };
+    const view = View.init(100, 30, true, 0, entries.len).withEntries(&entries);
+    const top = view.middle() + 2;
+    try std.testing.expectEqual(@as(usize, 4), view.capacity);
+    for ([_]struct { u16, usize }{ .{ 0, 0 }, .{ 1, 1 }, .{ 2, 1 }, .{ 3, 2 }, .{ 4, 2 }, .{ 5, 3 } }) |case| {
+        try std.testing.expectEqual(Hit{ .entry = case[1] }, view.hit(5, top + case[0]));
+    }
+    try std.testing.expectEqual(Hit.none, view.hit(5, top + 6));
+    try std.testing.expect(agentAt(view, &entries, 5, top) == null);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try view.draw(&output.writer, &entries, &.{});
+    const host = try @import("terminal.zig").Terminal.create(100, 30);
+    defer host.destroy();
+    host.feed(output.written());
+    const text = try host.text();
+    defer @import("os.zig").allocator.free(text);
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    for (0..top) |_| _ = lines.next();
+    var rows: [6][]const u8 = undefined;
+    for (&rows) |*row| row.* = std.mem.trimRight(u8, lines.next().?[0..@min(80, lines.peek().?.len)], " ");
+    // The focused agent keeps its guide cells, so the rail stays continuous.
+    const expected = [_][]const u8{
+        "▾ corgi ━━━━━━━━━━━━━ 1● 2 │",
+        "├●  api refactor           │",
+        "│   Needs input            │",
+        "╰○  release notes          │",
+        "    Session ended          │",
+        "▸ blog ━━━━━━━━━━━━━━ 1● 1 │",
+    };
+    for (expected, rows) |want, got| try std.testing.expectEqualStrings(want, got);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[0;38;2;137;180;250m\x1b[48;2;34;44;58m├") != null);
+    // Without Kitty graphics there is no separator; with it, a dotted one under the text.
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4:4m") == null);
+    output.clearRetainingCapacity();
+    var rich = view;
+    rich.corgi_badge = .image;
+    try rich.draw(&output.writer, &entries, &.{});
+    var dotted: [64]u8 = undefined;
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&dotted, "\x1b[{d};5H\x1b[4:4m", .{top + 3})) != null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), "\x1b[4:4m\x1b[58:2::65:70:77m") / 2);
+}
+
+test "grouped scrolling fits more rows when headers are shorter" {
+    var entries: [7]Entry = undefined;
+    for (&entries, 0..) |*e, i| e.* = .{ .target = if (i % 3 == 0) .{ .group = @intCast(i) } else .{ .pane = @intCast(i) }, .provider = .codex, .state = .idle, .attention = .none };
+    // 13 rows leave three list rows: a header and an agent, or an agent and a header.
+    const view = View.init(100, 13, true, 0, entries.len).withEntries(&entries);
+    try std.testing.expectEqual(@as(usize, 2), view.capacity);
+    try std.testing.expectEqual(@as(usize, 5), view.maxOffset());
+    try std.testing.expectEqual(@as(usize, 2), view.reveal(3));
+    try std.testing.expectEqual(@as(usize, 5), View.init(100, 13, true, 99, entries.len).withEntries(&entries).offset);
 }
 
 test "git badge hit area follows sidebar width and workspace scroll" {

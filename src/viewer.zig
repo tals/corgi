@@ -24,6 +24,7 @@ const Response = struct {
 
 pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme) !u64 {
     view.remote_links = @import("ports.zig").sshViewer();
+    view.loadPreferences();
     const opened = try view.connection.call(.{ .op = "viewer.open", .protocol = 1, .cwd = cwd, .theme = theme });
     defer opened.deinit();
     view.navigation.workspace_id = try protocol.id(opened.value, "workspace");
