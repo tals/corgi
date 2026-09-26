@@ -291,6 +291,7 @@ test {
     _ = @import("protocol.zig");
     _ = @import("surface.zig");
     _ = @import("sidebar.zig");
+    _ = @import("model_prices.zig");
     _ = @import("name_dialog.zig");
     _ = @import("commands.zig");
     _ = @import("discovery.zig");
