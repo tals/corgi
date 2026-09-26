@@ -208,6 +208,17 @@ pub const Server = struct {
     fn request(s: *Server, cl: *Client, v: std.json.Value) !void {
         if (v != .object) return error.UnknownOperation;
         const operation = agents.str(v, "op");
+        if (eq(operation, "git.push")) {
+            try protocol.require(v, cl.protocol_version);
+            if (s.reload_executable != null) return error.ReloadInProgress;
+            const Request = struct { workspace: u32, ref: @import("git_push.zig").RefView };
+            const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
+            defer parsed.deinit();
+            try s.runtime.git_push.start(&s.runtime.workspaces, parsed.value.workspace, parsed.value.ref);
+            s.dirty = true;
+            try cl.queue(.{ .ok = true });
+            return;
+        }
         if (std.mem.startsWith(u8, operation, "onboarding.")) {
             try protocol.require(v, cl.protocol_version);
             const operation_value = v.object.get("operation") orelse return error.InvalidImport;
@@ -244,6 +255,7 @@ pub const Server = struct {
             try protocol.require(v, cl.protocol_version);
             if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
             if (s.reload_executable != null) return error.ReloadInProgress;
+            if (s.runtime.git_push.busy()) return error.GitPushInProgress;
             const executable = agents.str(v, "executable");
             if (!std.fs.path.isAbsolute(executable)) return error.InvalidExecutable;
             s.reload_executable = try a.dupe(u8, executable);
@@ -796,6 +808,7 @@ pub const Server = struct {
                 const pid = c.waitpid(-1, &status, c.WNOHANG);
                 if (pid <= 0) break;
                 @import("git_status.zig").recordExit(pid, status);
+                s.runtime.git_push.recordExit(pid, status);
                 @import("inference.zig").recordExit(pid, status);
                 @import("agent_launcher.zig").recordExit(pid, status);
                 @import("launch_command.zig").recordExit(pid, status);
@@ -859,6 +872,7 @@ pub const Server = struct {
                 ci += 1;
             }
             s.followWorkspaceDirectories();
+            if (s.runtime.git_push.tick(&s.runtime.workspaces, &s.runtime.git_status)) s.dirty = true;
             if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
             if (s.runtime.ports.tick(&s.runtime)) {
                 // Publish newly discovered links with their queued state in

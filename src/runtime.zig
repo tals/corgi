@@ -61,6 +61,7 @@ pub const Runtime = struct {
     system_working: bool = false,
     system_usage: @import("live_usage.zig").View = .{ .known = true },
     revision: u64 = 1,
+    git_push: @import("git_push.zig").Manager = .{},
     git_status: @import("git_status.zig").Tracker = .{},
     ports: @import("ports.zig").Tracker = .{},
     link_labels: @import("link_labels.zig").Cache = .{},
@@ -71,6 +72,7 @@ pub const Runtime = struct {
 
     pub fn deinit(r: *Runtime) void {
         r.ports.deinit();
+        r.git_push.deinit();
         r.git_status.deinit();
         for (r.panes.items) |p| {
             p.terminal.destroy();

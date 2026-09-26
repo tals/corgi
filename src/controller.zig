@@ -101,6 +101,7 @@ pub const Controller = struct {
     launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
     link_tooltip: @import("link_tooltip.zig").State = .{},
+    git_hover: ?u32 = null,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
@@ -298,7 +299,7 @@ pub const Controller = struct {
     }
     pub fn workspaceEntries(s: *Self, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
         for (s.runtime.workspaces.items, 0..) |*ws, i| {
-            out[i] = .{ .id = ws.id, .name = ws.name, .cwd = ws.cwd, .active = i == s.workspaceIndex(), .git_ahead = ws.git_ahead, .git_commits = ws.git_commits, .stats = ws.stats };
+            out[i] = .{ .id = ws.id, .name = ws.name, .cwd = ws.cwd, .active = i == s.workspaceIndex(), .git_ahead = ws.git_ahead, .git_push = ws.git_push, .git_commits = ws.git_commits, .stats = ws.stats };
             out[i].ports = s.runtime.ports;
             out[i].remote_links = s.remote_links;
             for (s.runtime.panes.items) |p| {
@@ -2021,6 +2022,22 @@ pub const Controller = struct {
             s.sidebar_drag = true;
             return;
         }
+        var git_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+        const git_hit = sidebar.gitActionWorkspace(side, s.workspaceEntries(&git_storage), s.git_hover, x, y);
+        s.git_hover = if (git_hit) |ws| ws.id else null;
+        if (!release and button == 0 and git_hit != null and !s.copy_mode) {
+            s.ui_mouse_down = true;
+            const ws = git_hit.?;
+            if (ws.git_push.phase == .pushing or ws.git_push.phase == .succeeded) return;
+            const index = s.runtime.workspaces.index(ws.id) orelse return;
+            const response = try s.connection.request(.{ .op = "git.push", .protocol = 1, .workspace = ws.id, .ref = s.runtime.workspaces.items[index].git_ref });
+            defer response.deinit();
+            const err = agents.str(response.value, "err");
+            if (err.len > 0) s.notice(if (std.mem.eql(u8, err, "GitPreviewChanged")) "Branch, commits, or upstream changed. Review the preview and retry." else if (std.mem.eql(u8, err, "GitPushInProgress")) "A push is already running for this repository." else err);
+            try s.refresh();
+            s.dirty = true;
+            return;
+        }
         if (!release and button == 0) {
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             if (sidebar.portWorkspace(side, s.workspaceEntries(&workspace_storage), x, y)) |ws| {
@@ -2310,8 +2327,9 @@ pub const Controller = struct {
                 if (@import("corgi_badge.zig").hit(s.corgi_badge, s.sidebarView(&.{}).width, pointer.x, pointer.y)) {
                     target = .{ .pane = 0, .link = 0, .usage = true };
                 }
-                if (sidebar.gitWorkspace(s.sidebarView(&.{}), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
+                if (sidebar.gitActionWorkspace(s.sidebarView(&.{}), s.workspaceEntries(&storage), s.git_hover, pointer.x, pointer.y)) |ws| {
                     target = .{ .pane = ws.id, .link = 0, .git = true };
+                    if (ws.git_push.phase == .failed) return true;
                 }
                 var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
                 const entries = s.sidebarEntries(&agent_storage);
@@ -2363,11 +2381,16 @@ pub const Controller = struct {
         var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
         const entries = if (s.agent_picker != null) s.pickerEntries(&agent_storage) else s.sidebarEntries(&agent_storage);
         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+        if (s.pointer) |pointer| {
+            const hit = sidebar.gitActionWorkspace(s.sidebarView(entries), s.workspaceEntries(&workspace_storage), s.git_hover, pointer.x, pointer.y);
+            s.git_hover = if (hit) |ws| ws.id else null;
+        } else s.git_hover = null;
         return render.frame(s.layoutView(), s.runtime.panes.items, s.width, s.height, .{
             .key_preset = s.key_preset,
             .key_prefix = s.key_prefix,
             .pointer = s.pointer,
             .link_tooltip = try s.linkTooltipReady(),
+            .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null) s.git_hover else null,
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
             .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
             .copy_mode = s.copy_mode,

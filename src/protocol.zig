@@ -51,6 +51,8 @@ pub const Workspace = struct {
     model: layout.Model,
     git_commits: []const GitCommit = &.{},
     git_ahead: ?u64 = null,
+    git_ref: @import("git_push.zig").RefView = .{},
+    git_push: @import("git_push.zig").View = .{},
     stats: @import("usage.zig").Counts = .{},
 };
 pub const Agent = struct {
@@ -164,7 +166,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         for (ws.git_commits.items[0..ws.git_commits.len], commits) |*commit, *dest| {
             dest.* = .{ .timestamp = commit.timestamp, .hash = commit.hash[0..commit.hash_len], .subject = commit.subject[0..commit.subject_len], .author = commit.author[0..commit.author_len], .date = commit.date[0..commit.date_len] };
         }
-        out.* = .{ .git_commits = commits, .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .stats = ws.away.counts, .model = ws.model };
+        out.* = .{ .git_commits = commits, .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .git_ref = ws.git_ref.view(), .git_push = ws.git_push.view(), .stats = ws.away.counts, .model = ws.model };
     }
     const panes = try allocator.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {

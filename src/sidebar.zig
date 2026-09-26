@@ -46,7 +46,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 pub const View = struct {
     search: ?Search = null,
@@ -248,9 +248,8 @@ pub const View = struct {
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
             var label: [std.fs.max_path_bytes + 1]u8 = undefined;
-            var badge_buf: [32]u8 = undefined;
-            var number: [24]u8 = undefined;
-            const badge = if (ws.git_ahead) |n| if (n > 0) try std.fmt.bufPrint(&badge_buf, "↑{s}", .{compactCount(&number, n)}) else "" else "";
+            var badge_buf: [64]u8 = undefined;
+            const badge = gitLabel(&badge_buf, ws, false);
             const badge_width = displayWidth(badge);
             try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
             const link = linkRange(v, ws, workspaces);
@@ -259,7 +258,7 @@ pub const View = struct {
                 try w.print("\x1b[{d};{d}H", .{ y + 1, link.start + 1 });
                 try drawPorts(w, ws, link.end - link.start, false);
             }
-            if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m{s}", .{ y + 1, v.width - 1 - badge_width, badge });
+            if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;{s}m{s}", .{ y + 1, v.width - 1 - badge_width, if (ws.git_push.phase == .failed) "243;139;168" else "166;227;161", badge });
             if (ws.active) {
                 try w.print("\x1b[{d};1H{s}", .{ y + 2, meta });
                 try w.splatByteAll(' ', v.width - 1);
@@ -1279,22 +1278,91 @@ test "idle face replaces stale activity while working activity remains useful" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;249;226;175m") != null);
 }
 
-/// Hit only the visible badge, using the exact columns used by draw().
+/// Keep the right edge fixed: expansion covers the name, never moves the badge.
+fn gitLabel(buf: []u8, ws: WorkspaceEntry, expanded: bool) []const u8 {
+    switch (ws.git_push.phase) {
+        .pushing => {
+            const frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+            const i: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 80), frames.len));
+            return std.fmt.bufPrint(buf, " Pushing {s}", .{frames[i]}) catch "";
+        },
+        .succeeded => return " Pushed ✓",
+        .failed => return " Retry !",
+        .idle => {},
+    }
+    const count = ws.git_ahead orelse return "";
+    if (count == 0) return "";
+    var number: [24]u8 = undefined;
+    return std.fmt.bufPrint(buf, "{s}↑{s}", .{ if (expanded) " Push " else "", compactCount(&number, count) }) catch "";
+}
+
 pub fn gitWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?WorkspaceEntry {
+    return gitActionWorkspace(v, workspaces, null, x, y);
+}
+
+pub fn gitActionWorkspace(v: View, workspaces: []const WorkspaceEntry, expanded: ?u32, x: u16, y: u16) ?WorkspaceEntry {
     if (v.width == 0 or y < 2 or (y - 2) % 3 != 0) return null;
     const hit = v.hit(x, y);
-    if (hit != .workspace) return null;
+    if (hit != .workspace or hit.workspace >= workspaces.len) return null;
     const ws = workspaces[hit.workspace];
-    const count = ws.git_ahead orelse return null;
-    if (count == 0) return null;
-    var buf: [24]u8 = undefined;
-    const size = 1 + displayWidth(compactCount(&buf, count));
+    var buf: [64]u8 = undefined;
+    const size = displayWidth(gitLabel(&buf, ws, expanded == ws.id));
     const end = v.width - 2;
-    return if (x >= end -| size and x < end) ws else null;
+    return if (size > 0 and x >= end -| size and x < end) ws else null;
+}
+
+pub fn drawGitAction(w: *std.Io.Writer, v: View, workspaces: []const WorkspaceEntry, id: u32) !void {
+    if (v.width == 0) return;
+    for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, i| {
+        if (ws.id != id) continue;
+        var buf: [64]u8 = undefined;
+        const label = gitLabel(&buf, ws, true);
+        if (label.len == 0) return;
+        const color = if (ws.git_push.phase == .failed) "243;139;168" else "166;227;161";
+        try w.print("\x1b]8;;\x1b\\\x1b[{d};{d}H\x1b[0;1;38;2;{s};48;2;48;62;58m{s}\x1b[0m", .{ 3 + i * 3, v.width - 1 - displayWidth(label), color, label });
+        return;
+    }
+}
+
+fn drawGitError(w: *std.Io.Writer, message: []const u8, cols: u16, rows: u16, px: u16, py: u16) !void {
+    const width: usize = @min(76, cols);
+    const room = width - 4;
+    var lines: [20][]const u8 = undefined;
+    var count: usize = 0;
+    var rest = message;
+    while (rest.len > 0 and count < @min(lines.len, rows - 5)) {
+        var end: usize = 0;
+        while (end < rest.len) {
+            const next = end + (std.unicode.utf8ByteSequenceLength(rest[end]) catch 1);
+            if (displayWidth(rest[0..next]) > room) break;
+            end = next;
+        }
+        if (end < rest.len) if (std.mem.lastIndexOfScalar(u8, rest[0..end], ' ')) |space| {
+            if (space > 0) end = space;
+        };
+        if (end == 0) break;
+        lines[count] = rest[0..end];
+        count += 1;
+        rest = std.mem.trimStart(u8, rest[end..], " ");
+    }
+    const height = count + 3;
+    const x = @min(@as(usize, px) + 2, cols - width);
+    const y = @min(@as(usize, py) + 1, rows - 1 - height);
+    try w.writeAll("\x1b7\x1b]8;;\x1b\\");
+    for (0..height) |row| {
+        try w.print("\x1b[{d};{d}H\x1b[0;38;2;243;139;168;48;2;30;30;46m", .{ y + row + 1, x + 1 });
+        try w.writeAll(if (row == 0) "╭" else if (row == height - 1) "╰" else "│");
+        for (0..width - 2) |_| try w.writeAll(if (row == 0 or row == height - 1) "─" else " ");
+        try w.writeAll(if (row == 0) "╮" else if (row == height - 1) "╯" else "│");
+    }
+    try w.print("\x1b[{d};{d}H\x1b[1mPush failed\x1b[22m", .{ y + 2, x + 3 });
+    for (lines[0..count], 0..) |line, i| try w.print("\x1b[{d};{d}H{s}", .{ y + 3 + i, x + 3, line });
+    try w.writeAll("\x1b[0m\x1b8");
 }
 
 pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u16, px: u16, py: u16) !void {
     if (cols < 24 or rows < 8) return;
+    if (ws.git_push.phase == .failed) return drawGitError(w, ws.git_push.message, cols, rows, px, py);
     const width: usize = @min(76, cols);
     const count: usize = @min(ws.git_commits.len, (rows - 6) / 2);
     const remaining = (ws.git_ahead orelse 0) -| count;

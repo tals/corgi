@@ -4,6 +4,7 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
+const PushRef = @import("git_push.zig").Ref;
 pub const Commit = struct {
     hash: [12]u8 = @splat(0),
     hash_len: u8 = 0,
@@ -71,8 +72,8 @@ pub const Tracker = struct {
     next_refresh: i64 = 0,
     jobs: std.ArrayList(Job) = .empty,
     cache: std.StringHashMapUnmanaged(Cache) = .empty,
-    const Job = struct { id: u32, cwd: []const u8, ahead: ?u64 = null, commits: Commits = .{} };
-    const Cache = struct { refs: []const u8, ahead: ?u64, seen: i64, commits: Commits = .{} };
+    const Job = struct { id: u32, cwd: []const u8, ahead: ?u64 = null, commits: Commits = .{}, ref: PushRef = .{} };
+    const Cache = struct { refs: []const u8, ahead: ?u64, seen: i64, commits: Commits = .{}, ref: PushRef = .{} };
 
     pub fn deinit(t: *Tracker) void {
         t.stopping.store(true, .release);
@@ -100,6 +101,10 @@ pub const Tracker = struct {
                 const ws = store.get(job.id) orelse continue;
                 if (!std.mem.eql(u8, ws.cwd, job.cwd)) continue;
                 changed = changed or ws.git_ahead != job.ahead;
+                changed = changed or !std.meta.eql(ws.git_ref, job.ref);
+                if (!ws.git_ref.view().sameBranch(job.ref.view())) ws.git_push = .{};
+                if (!std.meta.eql(ws.git_ref, job.ref) and ws.git_push.phase == .failed) ws.git_push = .{};
+                ws.git_ref = job.ref;
                 changed = changed or !std.meta.eql(ws.git_commits, job.commits);
                 ws.git_ahead = job.ahead;
                 ws.git_commits = job.commits;
@@ -138,21 +143,24 @@ pub const Tracker = struct {
         }
         for (t.jobs.items) |*job| {
             if (t.stopping.load(.acquire)) break;
-            job.ahead = t.refreshInto(job.cwd, now, &job.commits) catch null;
+            job.ahead = t.refreshInto(job.cwd, now, &job.commits, &job.ref) catch null;
         }
     }
     fn refresh(t: *Tracker, cwd: []const u8, now: i64) !?u64 {
         var commits: Commits = .{};
-        return t.refreshInto(cwd, now, &commits);
+        var ref: PushRef = .{};
+        return t.refreshInto(cwd, now, &commits, &ref);
     }
-    fn cachedResult(cached: Cache, commits: *Commits) ?u64 {
+    fn cachedResult(cached: Cache, commits: *Commits, ref: *PushRef) ?u64 {
         commits.* = cached.commits;
+        ref.* = cached.ref;
         return cached.ahead;
     }
-    fn refreshInto(t: *Tracker, cwd: []const u8, now: i64, commits: *Commits) !?u64 {
+    fn refreshInto(t: *Tracker, cwd: []const u8, now: i64, commits: *Commits, ref: *PushRef) !?u64 {
         commits.* = .{};
+        ref.* = .{};
         if (t.cache.get(cwd)) |cached| {
-            if (cached.refs.len == 0 and now - cached.seen < 30000) return cachedResult(cached, commits);
+            if (cached.refs.len == 0 and now - cached.seen < 30000) return cachedResult(cached, commits, ref);
         }
         // A filesystem walk is cheap and recognizes linked worktrees (.git files).
         // Let Git resolve the actual refs/config, including includes and reftables.
@@ -166,10 +174,18 @@ pub const Tracker = struct {
         const key = try std.fs.cwd().realpathAlloc(a, root);
         defer a.free(key);
         if (t.cache.get(key)) |cached| {
-            if (cached.seen == now or (cached.refs.len == 0 and now - cached.seen < 30000)) return cachedResult(cached, commits);
+            if (cached.seen == now or (cached.refs.len == 0 and now - cached.seen < 30000)) return cachedResult(cached, commits, ref);
         }
         const refs = command(root, &.{ "rev-parse", "--verify", "HEAD" }) orelse return t.save(key, "", null, now);
         defer a.free(refs);
+        const branch = command(root, &.{ "symbolic-ref", "--quiet", "HEAD" }) orelse return t.save(key, refs, null, now);
+        defer a.free(branch);
+        const tracking = command(root, &.{ "for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", branch }) orelse return t.save(key, refs, null, now);
+        defer a.free(tracking);
+        var fields = std.mem.splitScalar(u8, tracking, 0);
+        const remote = fields.next() orelse "";
+        const destination = fields.next() orelse "";
+        ref.* = PushRef.init(key, refs, branch, remote, destination);
         const upstream = command(root, &.{ "rev-parse", "--verify", "@{upstream}" }) orelse return t.save(key, refs, null, now);
         defer a.free(upstream);
         const fingerprint = try std.fmt.allocPrint(a, "{s}..{s}", .{ upstream, refs });
@@ -177,7 +193,8 @@ pub const Tracker = struct {
         if (t.cache.getPtr(key)) |cached| {
             if (std.mem.eql(u8, cached.refs, fingerprint) and cached.ahead != null) {
                 cached.seen = now;
-                return cachedResult(cached.*, commits);
+                cached.ref = ref.*;
+                return cachedResult(cached.*, commits, ref);
             }
         }
         const count = command(root, &.{ "rev-list", "--count", fingerprint }) orelse return t.save(key, fingerprint, null, now);
@@ -191,6 +208,7 @@ pub const Tracker = struct {
         }
         const saved = try t.save(key, fingerprint, ahead, now);
         t.cache.getPtr(key).?.commits = commits.*;
+        t.cache.getPtr(key).?.ref = ref.*;
         return saved;
     }
     fn save(t: *Tracker, key: []const u8, refs: []const u8, ahead: ?u64, now: i64) !?u64 {

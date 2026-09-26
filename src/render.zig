@@ -13,6 +13,7 @@ pub const Ui = struct {
     key_prefix: @import("keymap.zig").Prefix = .ctrl_b,
     pointer: ?Pointer = null,
     link_tooltip: bool = false,
+    git_hover: ?u32 = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
     corgi_setup: ?@import("corgi_setup.zig").Menu = null,
     inference: @import("inference_setup.zig").Status = .{},
@@ -217,6 +218,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     }
     try drawDividers(w, view, area);
     try side.draw(w, ui.agents, ui.workspaces);
+    if (ui.git_hover) |id| try sidebar.drawGitAction(w, side, ui.workspaces, id);
     if (ui.corgi_badge == .image) {
         try w.writeAll(@import("corgi_badge.zig").hide);
         if (side.width > 0 and ui.scope_menu == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
@@ -271,7 +273,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     if (ui.link_tooltip and ui.agent_launcher == null and ui.corgi_setup == null) if (ui.pointer) |pointer| {
         if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
             try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, ui.release, width, height);
-        } else if (sidebar.gitWorkspace(side, ui.workspaces, pointer.x, pointer.y)) |ws| {
+        } else if (sidebar.gitActionWorkspace(side, ui.workspaces, ui.git_hover, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
         } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {
             try @import("subagent_tooltip.zig").draw(w, ui.conversations, entry.*, width, height, pointer.x, pointer.y);
