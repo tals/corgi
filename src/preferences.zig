@@ -54,7 +54,9 @@ fn readExisting(file: []const u8) ?Preferences {
     defer a.free(bytes);
     const parsed = std.json.parseFromSlice(Preferences, a, bytes, .{ .ignore_unknown_fields = true }) catch return null;
     defer parsed.deinit();
-    return parsed.value;
+    var value = parsed.value;
+    value.preset = @import("keymap.zig").supportedPreset(value.preset);
+    return value;
 }
 
 fn write(file: []const u8, value: Preferences) !void {
@@ -79,6 +81,8 @@ test "preferences round trip and fall back to defaults" {
     try std.testing.expectEqual(Preferences{}, read(file));
     try write(file, .{ .agents = .all });
     try std.testing.expectEqual(Preferences{ .agents = .all }, read(file));
+    try write(file, .{ .preset = .cmux, .onboarding_complete = true });
+    try std.testing.expectEqual(if (@import("builtin").os.tag == .macos) @import("keymap.zig").Preset.cmux else .corgi, read(file).preset);
     try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{broken" });
     try std.testing.expectEqual(Preferences{}, read(file));
 }

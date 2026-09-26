@@ -2,6 +2,10 @@
 //! unless a prefix or an explicitly bound modifier is present.
 const keyboard = @import("keyboard.zig");
 pub const Preset = enum { corgi, tmux, herdr, cmux };
+pub const available_presets: []const Preset = if (@import("builtin").os.tag == .macos) &.{ .corgi, .tmux, .herdr, .cmux } else &.{ .corgi, .tmux, .herdr };
+pub fn supportedPreset(preset: Preset) Preset {
+    return if (preset == .cmux and @import("builtin").os.tag != .macos) .corgi else preset;
+}
 pub const Prefix = enum { ctrl_b, ctrl_a };
 pub fn prefixByte(p: Prefix) u8 {
     return if (p == .ctrl_a) 1 else 2;

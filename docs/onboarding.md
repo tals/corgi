@@ -45,6 +45,8 @@ label/key to run it; Esc or Enter closes the screen.
 The prefix is already active, so j/k focus panes and q detaches in the Corgi
 preset. PgUp/PgDn and the wheel scroll; arrows also scroll except in tmux, where
 they focus panes. It uses the current preset and prefix in both places.
+The cmux shortcut preset and import source appear only in macOS builds. Preferences
+copied from a Mac use the Corgi preset on other platforms.
 For cmux, P marks portable prefix alternatives alongside Command shortcuts.
 
 ## Keys
@@ -104,10 +106,38 @@ untouched empty starter workspace is removed. Existing workspaces are retained.
   waits for confirmation while retaining the descriptors. Launch Corgi outside
   the Herdr session being moved; source-pane and foreground-process-group checks
   prevent moving the console that is displaying the wizard.
-- **cmux:** use `cmux tree --all --json` to discover windows/workspaces, named panes
-  and surfaces. Surfaces become Corgi tabs; browser URLs appear in the resulting
-  terminal scrollback. Folders are copied when the source reports them; otherwise
-  the workspace folder, then home, is used. Running processes remain in cmux.
+- **cmux (macOS builds only):** discover windows, workspaces and surfaces with `cmux tree --all --json`.
+  Each workspace becomes a Corgi workspace. Its first tab reconstructs the visible
+  splits using the selected surface in each cmux pane. Additional tabs take one
+  remaining surface per source pane, in source order; empty branches collapse.
+  Every readable surface appears once. There are no model calls during import.
+  Split trees preserve direction, nesting and ratios within Corgi's limits. When
+  unavailable, `list-panes` rectangles reconstruct the geometry; otherwise a
+  balanced layout approximates it. Browser URLs appear in terminal scrollback.
+  Missing or unusable folders fall back to the workspace folder, then home.
+  Running processes remain in cmux; Corgi starts new shells.
+
+  Discovery is best effort: unknown entries do not discard readable surfaces or
+  other workspaces. Older CLI flags are retried, and unreadable tree output falls
+  back to window/workspace listings. If only workspace metadata can be recovered
+  (or a workspace exceeds import limits), its name and usable folder are copied
+  with one new shell. Per-workspace notes show approximated layouts, missing
+  details and workspace-only recovery. A confused `ᐱoᴥ°ᐱ` blinks briefly every
+  five seconds with “I'm confused by this cmux version. I'll bring over what I
+  can.” Completely unreadable discovery offers refresh/skip without claiming
+  that the source has no workspaces. No source commands are replayed. The CLI is
+  found on `PATH` or in the standard macOS cmux application locations.
+
+The cmux integration fixtures run through the real wizard and daemon without a
+live cmux app or agent accounts:
+
+```sh
+./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true
+python3 tests/cmux_import.py
+```
+
+Set `CORGI_TEST_BIN` to test an isolated build. Conversion and split validation
+tests are also included in `./scripts/zig build test`.
 
 The daemon reports real phases/counts through `onboarding.status`. Copy creates
 one workspace per event-loop iteration and discards all newly created shells on

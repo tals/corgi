@@ -294,6 +294,9 @@ const help =
 ;
 test {
     _ = @import("tmux_layout.zig");
+    _ = @import("cmux_import_test.zig");
+    _ = @import("import_layout.zig");
+    _ = @import("onboarding.zig");
     _ = @import("updates.zig");
     _ = @import("agent_navigation.zig");
     _ = @import("link_tooltip.zig");

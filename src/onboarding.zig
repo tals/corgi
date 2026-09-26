@@ -29,6 +29,7 @@ pub const State = struct {
     message: [256]u8 = @splat(0),
     message_len: usize = 0,
     last_poll: i64 = 0,
+    blink_closed: bool = false,
     scan_finished: bool = false,
     operation: u64 = 0,
     pub fn deinit(s: *State) void {
@@ -57,6 +58,7 @@ pub const State = struct {
         };
     }
     fn changeSource(s: *State, source: catalog.Source) void {
+        if (!std.mem.containsAtLeast(catalog.Source, catalog.available_sources, 1, &.{source})) return;
         s.operation = 0;
         s.source = source;
         s.cursor = 0;
@@ -74,7 +76,7 @@ pub const State = struct {
         s.focus = 0;
         if (!s.source_initialized) {
             s.source_initialized = true;
-            s.source = if (@import("herdr_adapter.zig").detected()) .herdr else switch (s.preset) {
+            s.source = if (@import("herdr_adapter.zig").detected()) .herdr else switch (km.supportedPreset(s.preset)) {
                 .herdr => .herdr,
                 .cmux => .cmux,
                 else => .tmux,
@@ -135,15 +137,18 @@ pub const State = struct {
         return false;
     }
     pub fn poll(s: *State, conn: *Connection) bool {
+        const blink = s.cmuxConfused() and @mod(std.time.milliTimestamp(), 5000) >= 4850;
+        const animation_changed = blink != s.blink_closed;
+        s.blink_closed = blink;
         if (s.step == .import) {
             if (!s.scan_finished) if (s.worker()) |w| if (w.done.load(.acquire)) {
                 s.scan_finished = true;
                 s.cursor = @min(s.cursor, s.items().len -| 1);
                 return true;
             };
-            return false;
+            return animation_changed;
         }
-        if (s.step != .progress or std.time.milliTimestamp() - s.last_poll < 100) return false;
+        if (s.step != .progress or std.time.milliTimestamp() - s.last_poll < 100) return animation_changed;
         s.last_poll = std.time.milliTimestamp();
         const response = conn.call(.{ .op = "onboarding.status", .protocol = 1, .operation = s.operation }) catch |err| {
             s.fail(err);
@@ -162,12 +167,15 @@ pub const State = struct {
         return true;
     }
     pub fn key(s: *State, byte: u8, conn: *Connection) !bool {
+        s.preset = km.supportedPreset(s.preset);
         s.message_len = 0;
         switch (s.step) {
             .presets => switch (byte) {
-                'j', 14 => s.preset = @enumFromInt((@as(usize, @intFromEnum(s.preset)) + 1) % 4),
-                'k', 16 => s.preset = @enumFromInt((@as(usize, @intFromEnum(s.preset)) + 3) % 4),
-                '1'...'4' => s.preset = @enumFromInt(byte - '1'),
+                'j', 14 => s.preset = km.available_presets[(@as(usize, @intFromEnum(s.preset)) + 1) % km.available_presets.len],
+                'k', 16 => s.preset = km.available_presets[(@as(usize, @intFromEnum(s.preset)) + km.available_presets.len - 1) % km.available_presets.len],
+                '1'...'4' => if (byte - '1' < km.available_presets.len) {
+                    s.preset = km.available_presets[byte - '1'];
+                },
                 'p', 'P', ' ' => s.prefix = if (s.prefix == .ctrl_b) .ctrl_a else .ctrl_b,
                 '?' => {
                     s.enterKeymap();
@@ -256,7 +264,7 @@ pub const State = struct {
         if (up or down) return s.key(if (up) 16 else 14, conn);
         if (std.mem.eql(u8, seq, "\x1b[5~")) s.scroll -|= 5;
         if (std.mem.eql(u8, seq, "\x1b[6~")) s.scroll += 5;
-        if (s.step == .import and (std.mem.eql(u8, seq, "\x1b[C") or std.mem.eql(u8, seq, "\x1b[D"))) s.changeSource(@enumFromInt((@as(usize, @intFromEnum(s.source)) + if (seq[2] == 'C') @as(usize, 1) else 2) % 3));
+        if (s.step == .import and (std.mem.eql(u8, seq, "\x1b[C") or std.mem.eql(u8, seq, "\x1b[D"))) s.changeSource(catalog.available_sources[(@as(usize, @intFromEnum(s.source)) + if (seq[2] == 'C') @as(usize, 1) else catalog.available_sources.len - 1) % catalog.available_sources.len]);
         return false;
     }
     pub fn click(s: *State, cols: u16, rows: u16, x: u16, y: u16, conn: *Connection) !bool {
@@ -276,7 +284,7 @@ pub const State = struct {
         if (s.step == .presets) {
             const layout = presetLayout(b);
             for (layout.cards, 0..) |card, i| if (card.contains(x, y)) {
-                s.preset = @enumFromInt(i);
+                s.preset = km.available_presets[i];
                 s.focus = 0;
                 return false;
             };
@@ -287,7 +295,7 @@ pub const State = struct {
             }
         } else if (s.step == .import) {
             if (ry == 6 and rx >= b.w -| 23) return s.key('s', conn);
-            if (ry == 6 and rx < 43) return s.key('1' + @as(u8, @intCast(@min(2, rx / 14))), conn);
+            if (ry == 6 and rx >= 3 and rx < 3 + 14 * catalog.available_sources.len) return s.key('1' + @as(u8, @intCast((rx - 3) / 14)), conn);
             if (ry == 8 and s.source == .herdr) return s.key('h', conn);
             if (ry < 11 or ry >= b.h - 5) return false;
             var row: usize = 0;
@@ -298,6 +306,7 @@ pub const State = struct {
                     break;
                 }
                 row += 1;
+                row += recoveryRows(ws);
                 for (ws.tabs) |tab| row += tabRows(tab);
                 row += 1;
             }
@@ -305,6 +314,7 @@ pub const State = struct {
         return false;
     }
     pub fn frame(s: *State, cols: u16, rows: u16) ![]u8 {
+        s.preset = km.supportedPreset(s.preset);
         if (s.step == .keymap) return s.help.frame(cols, rows, s.preset, s.prefix);
         var out: std.Io.Writer.Allocating = .init(a);
         errdefer out.deinit();
@@ -346,7 +356,7 @@ pub const State = struct {
             },
             .import, .progress, .complete => {
                 if (s.step == .import) {
-                    for ([_]catalog.Source{ .tmux, .herdr, .cmux }, 0..) |source, i| {
+                    for (catalog.available_sources, 0..) |source, i| {
                         var buf: [32]u8 = undefined;
                         try put(w, b, 3 + i * 14, 6, try std.fmt.bufPrint(&buf, "[ {d} {s} ]", .{ i + 1, @tagName(source) }), if (source == s.source) mint else dim);
                     }
@@ -358,15 +368,21 @@ pub const State = struct {
                             try put(w, b, 3, 9, try std.fmt.bufPrint(&info, "All {d} workspaces in this session move together.", .{s.selectionCount()}), dim);
                         }
                         try put(w, b, 3, 8, if (s.handoff) "[● ON ] Handoff processes  Keep your processes running" else "[  OFF] Handoff processes  Keep your processes running", mint);
-                    } else try put(w, b, 3, 8, if (s.source == .cmux) "Surfaces become tabs · browser links are saved" else "Names, folders and split layout · new shells", dim);
+                    } else if (!s.cmuxConfused()) try put(w, b, 3, 8, if (s.source == .cmux) "Visible splits first · remaining surfaces in additional tabs" else "Names, folders and split layout · new shells", dim);
                 } else {
                     var buf: [120]u8 = undefined;
                     try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ s.progress.phase, s.progress.completed, s.progress.total }), mint);
                     try put(w, b, 3, 8, if (s.step == .complete) "[✓] Complete" else if (std.mem.eql(u8, s.progress.phase, "failed")) "[!] Import stopped · Enter returns to selection" else "[···] Working", bright);
                 }
+                if (s.cmuxConfused()) {
+                    const y: usize = if (s.step == .import) 8 else 9;
+                    try put(w, b, 3, y, if (s.blink_closed) "ᐱ─ᴥ─ᐱ" else "ᐱoᴥ°ᐱ", yellow);
+                    try put(w, b, 10, y, "I'm confused by this cmux version.", yellow);
+                    try put(w, b, 10, y + 1, if (s.step == .complete) "Imported what I could. See details below." else "I'll bring over what I can.", dim);
+                }
                 if (s.worker()) |wk| {
                     if (!wk.done.load(.acquire)) try put(w, b, 5, 12, "Looking for running sessions…", dim) else if (s.items().len == 0) {
-                        try put(w, b, 5, 12, "No available sessions found. Continue without importing.", text);
+                        try put(w, b, 5, 12, if (s.cmuxConfused()) "No workspaces could be recovered yet." else if (wk.catalog.message.len > 0) "Couldn't read this source. R retries; S skips import." else "No available sessions found. Continue without importing.", text);
                         try put(w, b, 5, 14, wk.catalog.message, dim);
                     }
                 }
@@ -376,6 +392,7 @@ pub const State = struct {
                     if (s.step != .import and !s.chosen(i)) continue;
                     if (i == s.cursor) cursor_row = row;
                     row += 2;
+                    row += recoveryRows(ws);
                     for (ws.tabs) |tab| row += tabRows(tab);
                 }
                 const capacity: usize = b.h - 16;
@@ -392,6 +409,14 @@ pub const State = struct {
                     var buf: [1024]u8 = undefined;
                     try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "{s}{s} {s}", .{ if (i == s.cursor and s.step == .import) "›" else " ", if (s.chosen(i)) "[x]" else "[ ]", short(ws.name) }), mint, "");
                     row += 1;
+                    if (ws.recovery != .full) {
+                        if (ws.recovery == .workspace) {
+                            try treeLine(w, b, row, s.scroll, "    Workspace only · opens a new shell", yellow, "");
+                            row += 1;
+                        }
+                        try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}", .{ws.recovery_note}), yellow, "");
+                        row += 1;
+                    }
                     for (ws.tabs, 0..) |tab, tab_index| {
                         const last_tab = tab_index + 1 == ws.tabs.len;
                         const branch: []const u8 = if (last_tab) "└─" else "├─";
@@ -433,10 +458,15 @@ pub const State = struct {
         try w.writeAll("\x1b[0m");
         return out.toOwnedSlice();
     }
+    fn cmuxConfused(s: *const State) bool {
+        if (s.source != .cmux or (s.step != .import and s.step != .progress and s.step != .complete)) return false;
+        const wk = s.worker() orelse return false;
+        return wk.done.load(.acquire) and wk.catalog.confused;
+    }
 };
 // Rendering and mouse hit regions share one layout at every supported size.
 const PresetLayout = struct {
-    cards: [4]Rect,
+    cards: [km.available_presets.len]Rect,
     hero: Rect,
     prefix: Rect,
     split: Rect,
@@ -456,7 +486,7 @@ fn presetLayout(b: Rect) PresetLayout {
     const panes_h: u16 = if (compact) 6 else 7;
     const split_w = (width - 2) / 2;
     const summary_y = panes_y + panes_h + @as(u16, if (compact) 0 else 1);
-    var cards: [4]Rect = undefined;
+    var cards: [km.available_presets.len]Rect = undefined;
     for (&cards, 0..) |*card, i| card.* = .{ .x = b.x + 3, .y = b.y + 6 + @as(u16, @intCast(i)) * 4, .w = card_w, .h = 4 };
     return .{
         .cards = cards,
@@ -474,7 +504,7 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     const direct = s.preset == .cmux;
     const prefix_name = if (s.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A";
     var buf: [120]u8 = undefined;
-    for (std.enums.values(km.Preset), layout.cards) |preset, card| {
+    for (km.available_presets, layout.cards) |preset, card| {
         const picked = s.preset == preset;
         try box(w, card, picked);
         try put(w, card, 2, 1, try std.fmt.bufPrint(&buf, "{s} {s}{s}", .{ if (picked) "●" else "○", if (preset == .corgi) "🐕 " else "", km.name(preset) }), if (picked) selected_style else bright);
@@ -563,6 +593,9 @@ fn drawSplitDiagram(w: *std.Io.Writer, b: Rect, down: bool) !void {
 fn tabRows(tab: catalog.Tab) usize {
     return if (tab.panes.len == 1) 1 else 1 + tab.panes.len;
 }
+fn recoveryRows(ws: catalog.Workspace) usize {
+    return if (ws.recovery == .full) 0 else if (ws.recovery == .workspace) 2 else 1;
+}
 fn paneAnnotation(handoff: bool, pane: catalog.Pane, buffer: []u8) ![]const u8 {
     if (handoff) {
         if (pane.pid) |pid| if (pid > 0) return std.fmt.bufPrint(buffer, "{d:>7} · Herdr → Corgi", .{@as(u32, @intCast(pid))});
@@ -586,6 +619,47 @@ const dim = panel;
 const yellow = "\x1b[0;38;2;232;190;115;48;2;35;40;47m";
 const keycap = "\x1b[1;38;2;24;27;32;48;2;161;194;178m";
 const selected_style = "\x1b[0;38;2;201;224;211;48;2;47;64;59m";
+
+test "onboarding offers only platform-supported presets and import sources" {
+    const macos = @import("builtin").os.tag == .macos;
+    var state: State = .{};
+    defer state.deinit();
+    var conn: Connection = undefined; // Preset navigation does not use RPC.
+    const presets = try state.frame(100, 34);
+    defer a.free(presets);
+    try std.testing.expectEqual(macos, std.mem.indexOf(u8, presets, "cmux") != null);
+    _ = try state.key('k', &conn);
+    try std.testing.expectEqual(if (macos) km.Preset.cmux else .herdr, state.preset);
+    _ = try state.key('j', &conn);
+    try std.testing.expectEqual(km.Preset.corgi, state.preset);
+    _ = try state.key('4', &conn);
+    try std.testing.expectEqual(if (macos) km.Preset.cmux else .corgi, state.preset);
+    state.step = .import;
+    const sources = try state.frame(100, 34);
+    defer a.free(sources);
+    try std.testing.expectEqual(macos, std.mem.indexOf(u8, sources, "cmux") != null);
+    if (!macos) {
+        _ = try state.key('3', &conn);
+        try std.testing.expectEqual(catalog.Source.tmux, state.source);
+        try std.testing.expectError(error.CmuxRequiresMacOS, catalog.Worker.start(.cmux));
+    }
+}
+
+test "failed discovery does not claim the source has no sessions" {
+    var worker: catalog.Worker = .{
+        .arena = .init(a),
+        .source = .tmux,
+        .done = .init(true),
+        .catalog = .{ .message = "FileNotFound" },
+    };
+    defer worker.arena.deinit();
+    var state: State = .{ .step = .import };
+    state.workers[0] = &worker;
+    const output = try state.frame(76, 26);
+    defer a.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Couldn't read this source.") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "No available sessions found") == null);
+}
 fn put(w: *std.Io.Writer, b: @import("layout.zig").Rect, x: usize, y: usize, str: []const u8, style: []const u8) !void {
     if (x >= b.w - 1 or y >= b.h - 1 and y != 0) return;
     try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + x + 1, style });
@@ -606,7 +680,7 @@ fn treeLine(w: *std.Io.Writer, b: @import("layout.zig").Rect, row: usize, scroll
     const y = 11 + row - scroll;
     const split = b.w -| 32;
     try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + 4, style });
-    try safeText(w, label, split - 5);
+    try safeText(w, label, if (hint.len > 0) split - 5 else b.w - 7);
     if (hint.len > 0) try put(w, b, split, y, hint, mint);
 }
 

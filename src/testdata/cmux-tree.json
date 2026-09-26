@@ -1,0 +1,31 @@
+{
+  "windows": [{
+    "id": "window-1",
+    "workspaces": [{
+      "id": "workspace-1", "title": "cmux project", "cwd": "/tmp",
+      "layout": {"direction": "horizontal", "split": 0.6, "children": [
+        {"pane": {"id": "left"}}, {"pane": {"id": "right"}}
+      ]},
+      "panes": [
+        {"id": "left", "selected_surface_id": "A", "surfaces": [
+          {"id": "A", "title": "Editor", "cwd": "/tmp", "command": "never run this"},
+          {"id": "B", "title": "Build", "cwd": "/tmp"},
+          {"id": "C", "title": "Docs", "type": "browser", "url": "https://example.test/docs"}
+        ]},
+        {"id": "right", "surfaces": [
+          {"id": "X", "title": "Logs"},
+          {"id": "Y", "title": "Server", "selected_in_pane": true}
+        ]}
+      ]
+    }, {
+      "id": "workspace-2", "title": "layoutless", "cwd": "/tmp",
+      "panes": [
+        {"id": "one", "surfaces": [{"id": "Q", "title": "First"}]},
+        {"id": "two", "surfaces": [{"id": "Z", "title": "Second"}]}
+      ]
+    }, {
+      "id": "workspace-3", "title": "research", "cwd": "/does-not-exist/corgi-import",
+      "panes": {"unknown_new_format": true}
+    }]
+  }]
+}

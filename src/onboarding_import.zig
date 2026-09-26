@@ -6,6 +6,7 @@ const catalog = @import("import_catalog.zig");
 const herdr = @import("herdr_adapter.zig");
 const Runtime = @import("runtime.zig").Runtime;
 const layout = @import("layout.zig");
+const import_layout = @import("import_layout.zig");
 pub const Plan = struct { source: catalog.Source, workspaces: []const catalog.Workspace, herdr_session: ?herdr.SourceSession = null, selected: []const []const u8 = &.{} };
 pub const Progress = @import("onboarding.zig").Progress;
 pub const Job = struct {
@@ -31,7 +32,11 @@ pub const Job = struct {
         var total: usize = 0;
         for (p.value.workspaces) |ws| {
             if (ws.tabs.len > layout.max_tabs) return error.TooManyTabs;
-            for (ws.tabs) |tab| total += tab.panes.len;
+            for (ws.tabs) |tab| {
+                if (tab.panes.len == 0 or tab.panes.len > layout.max_panes) return error.InvalidImport;
+                if (tab.nodes.len > 0) try import_layout.validate(tab.nodes, tab.panes.len);
+                total += tab.panes.len;
+            }
         }
         if (total > layout.max_panes) return error.TooManyPanes;
         j.* = .{ .plan = p, .operation = operation, .progress = .{ .phase = "copying", .total = total, .message = "Creating workspaces and shells" } };
@@ -61,7 +66,7 @@ pub const Job = struct {
     }
 };
 fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: Runtime.Create) !u32 {
-    const dir = if (std.fs.path.isAbsolute(source.cwd)) source.cwd else os.env("HOME") orelse "/";
+    const dir = if (kind == .cmux) cmuxDirectory(source.cwd, os.env("HOME") orelse "/") else if (std.fs.path.isAbsolute(source.cwd)) source.cwd else os.env("HOME") orelse "/";
     const wid = try r.workspaces.add(source.name, dir);
     errdefer discard(r, wid);
     for (source.tabs) |tab| {
@@ -71,10 +76,13 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
         for (tab.panes, 0..) |p, i| {
             var opts = defaults;
             opts.workspace = wid;
-            opts.cwd = if (std.fs.path.isAbsolute(p.cwd)) p.cwd else dir;
-            opts.title = if (kind == .cmux) p.name else tab.name;
-            if (kind == .tmux and first != null) opts.split = .{ .pane = first.?, .axis = .horizontal };
+            opts.cwd = if (kind == .cmux) cmuxDirectory(p.cwd, dir) else if (std.fs.path.isAbsolute(p.cwd)) p.cwd else dir;
+            opts.title = tab.name;
+            opts.command = null;
+            opts.interactive_command = false;
+            opts.split = if (first) |id| .{ .pane = id, .axis = .horizontal } else null;
             const id = try r.create(opts);
+            if (kind == .cmux) r.pane(id).?.label.set(p.name);
             ids[i] = id;
             if (first == null) first = id;
             if (p.url.len > 0) {
@@ -84,7 +92,7 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
                 t.feed("\r\n");
             }
         }
-        if (kind == .tmux and tab.panes.len > 1) {
+        if (tab.nodes.len > 0 or (kind == .tmux and tab.panes.len > 1)) {
             const ws = try r.getWorkspace(wid);
             const ti = ws.model.tabForPane(first.?).?;
             // Build in a copy, then replace the old subtree in one step.
@@ -92,12 +100,21 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
             clear(&model, model.tabs[ti].root);
             var indices: [layout.max_panes]usize = undefined;
             for (0..tab.panes.len) |i| indices[i] = i;
-            model.tabs[ti].root = try geometry(&model, tab.panes, &ids, indices[0..tab.panes.len]);
+            model.tabs[ti].root = if (tab.nodes.len > 0) try import_layout.install(&model, tab.nodes, ids[0..tab.panes.len]) else try geometry(&model, tab.panes, &ids, indices[0..tab.panes.len]);
             ws.model = model;
         }
     }
     r.changed();
     return wid;
+}
+fn cmuxDirectory(path: []const u8, fallback: []const u8) []const u8 {
+    for ([_][]const u8{ path, fallback, os.env("HOME") orelse "/", "/" }) |candidate| {
+        if (!std.fs.path.isAbsolute(candidate)) continue;
+        var dir = std.fs.openDirAbsolute(candidate, .{}) catch continue;
+        dir.close();
+        return candidate;
+    }
+    return "/";
 }
 fn clear(m: *layout.Model, node: u8) void {
     const old = m.nodes[node] orelse return;

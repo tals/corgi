@@ -4,10 +4,12 @@ const os = @import("os.zig");
 const a = os.allocator;
 const herdr = @import("herdr_adapter.zig");
 pub const Source = enum { tmux, herdr, cmux };
+pub const available_sources: []const Source = if (@import("builtin").os.tag == .macos) &.{ .tmux, .herdr, .cmux } else &.{ .tmux, .herdr };
 pub const Pane = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", pid: ?i32 = null, url: []const u8 = "", x: u16 = 0, y: u16 = 0, w: u16 = 80, h: u16 = 24, resume_available: bool = false };
-pub const Tab = struct { id: []const u8, name: []const u8, panes: []const Pane };
-pub const Workspace = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", socket: []const u8 = "", session: usize = 0, handoff: bool = false, tabs: []const Tab };
-pub const Catalog = struct { workspaces: []const Workspace = &.{}, message: []const u8 = "" };
+pub const Tab = struct { id: []const u8, name: []const u8, panes: []const Pane, nodes: []const @import("import_layout.zig").Node = &.{} };
+pub const Recovery = enum { full, layout, partial, workspace };
+pub const Workspace = struct { id: []const u8, name: []const u8, cwd: []const u8 = "", socket: []const u8 = "", session: usize = 0, handoff: bool = false, recovery: Recovery = .full, recovery_note: []const u8 = "", tabs: []const Tab };
+pub const Catalog = struct { workspaces: []const Workspace = &.{}, message: []const u8 = "", confused: bool = false };
 pub const Worker = struct {
     arena: std.heap.ArenaAllocator,
     thread: ?std.Thread = null,
@@ -17,6 +19,7 @@ pub const Worker = struct {
     catalog: Catalog = .{},
     herdr_scan: ?herdr.Scan = null,
     pub fn start(source: Source) !*Worker {
+        if (source == .cmux and @import("builtin").os.tag != .macos) return error.CmuxRequiresMacOS;
         const self = try a.create(Worker);
         self.* = .{ .arena = .init(a), .source = source };
         errdefer a.destroy(self);
@@ -39,7 +42,7 @@ pub const Worker = struct {
     fn discover(self: *Worker) !void {
         switch (self.source) {
             .tmux => try self.tmux(),
-            .cmux => try self.cmux(),
+            .cmux => if (@import("builtin").os.tag == .macos) try self.cmux() else return error.CmuxRequiresMacOS,
             .herdr => {
                 self.herdr_scan = try herdr.scanCancelable(&self.stop);
                 var list: std.ArrayList(Workspace) = .empty;
@@ -59,35 +62,53 @@ pub const Worker = struct {
     }
     // Bounded subprocesses. No shell interpretation and no source mutations.
     fn command(self: *Worker, argv: []const []const u8) ![]const u8 {
+        return self.commandUntil(argv, std.time.milliTimestamp() + 5000);
+    }
+    fn commandUntil(self: *Worker, argv: []const []const u8, until: i64) ![]const u8 {
+        if (self.stop.load(.acquire)) return error.SourceCancelled;
+        const deadline = @min(until, std.time.milliTimestamp() + 5000);
+        if (std.time.milliTimestamp() >= deadline) return error.SourceTimedOut;
         var child = std.process.Child.init(argv, a);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Ignore;
+        child.pgid = 0;
         try child.spawn();
         var reaped = false;
-        defer if (!reaped) {
-            _ = child.kill() catch {};
-        };
+        defer {
+            _ = os.c.kill(-child.id, os.c.SIGKILL);
+            if (!reaped) {
+                var status: c_int = 0;
+                _ = os.c.waitpid(child.id, &status, 0);
+            }
+            if (child.stdout) |file| file.close();
+        }
+        try child.waitForSpawn();
         const fd = child.stdout.?.handle;
         os.nonblock(fd);
         var bytes: std.ArrayList(u8) = .empty;
         defer bytes.deinit(a);
-        const deadline = std.time.milliTimestamp() + 5000;
         var buf: [8192]u8 = undefined;
+        var status: c_int = 0;
         while (!self.stop.load(.acquire) and std.time.milliTimestamp() < deadline) {
             const n = os.c.read(fd, &buf, buf.len);
             if (n > 0) {
                 if (bytes.items.len + @as(usize, @intCast(n)) > 4 * 1024 * 1024) return error.SourceTooLarge;
                 try bytes.appendSlice(a, buf[0..@intCast(n)]);
-            } else if (n == 0) {
-                const result = try child.wait();
+            } else if (n < 0 and std.posix.errno(n) != .AGAIN and std.posix.errno(n) != .INTR) return error.SourceUnavailable;
+            if (!reaped and os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id) {
                 reaped = true;
-                if (result != .Exited or result.Exited != 0) return error.SourceUnavailable;
+                continue; // A final write may have raced the preceding read.
+            }
+            // EOF alone is not exit: a broken CLI can close stdout and hang.
+            // Drain buffered output even after exit before releasing the result.
+            if (reaped and n <= 0) {
+                if (status != 0) return error.SourceUnavailable;
                 return self.arena.allocator().dupe(u8, bytes.items);
-            } else if (std.posix.errno(n) != .AGAIN and std.posix.errno(n) != .INTR) return error.SourceUnavailable;
+            }
             std.Thread.sleep(5 * std.time.ns_per_ms);
         }
-        return error.SourceTimedOut;
+        return if (self.stop.load(.acquire)) error.SourceCancelled else error.SourceTimedOut;
     }
     fn tmux(self: *Worker) !void {
         const alloc = self.arena.allocator();
@@ -167,45 +188,127 @@ pub const Worker = struct {
     }
     fn cmux(self: *Worker) !void {
         const alloc = self.arena.allocator();
-        const bytes = try self.command(&.{ "cmux", "tree", "--all", "--json", "--id-format", "uuids" });
-        const parsed = try std.json.parseFromSlice(std.json.Value, alloc, bytes, .{ .allocate = .alloc_always });
+        const exe = try cmuxExecutable(alloc);
+        const deadline = std.time.milliTimestamp() + 15000;
         var workspaces: std.ArrayList(Workspace) = .empty;
-        for (array(parsed.value, "windows")) |window| for (array(window, "workspaces")) |ws| {
-            var tabs: std.ArrayList(Tab) = .empty;
-            for (array(ws, "panes")) |pane| {
-                var panes: std.ArrayList(Pane) = .empty;
-                for (array(pane, "surfaces")) |surface| try panes.append(alloc, .{ .id = str(surface, "id"), .name = title(surface), .cwd = cwd(surface), .url = str(surface, "url") });
-                if (panes.items.len > 0) try tabs.append(alloc, .{ .id = str(pane, "id"), .name = title(pane), .panes = try panes.toOwnedSlice(alloc) });
+        const snapshot = try self.cmuxJson(exe, &.{ "tree", "--all" }, deadline);
+        var known_list = false;
+        if (arrayField(snapshot, "windows")) |windows| {
+            known_list = true;
+            for (windows) |window| {
+                if (arrayField(window, "workspaces")) |entries| {
+                    try self.cmuxEntries(exe, entries, false, &workspaces, deadline);
+                } else {
+                    self.catalog.confused = true;
+                    const handle = str(window, "id");
+                    if (handle.len > 0) {
+                        const listed = try self.cmuxJson(exe, &.{ "list-workspaces", "--window", handle }, deadline);
+                        if (arrayField(listed, "workspaces")) |entries| try self.cmuxEntries(exe, entries, true, &workspaces, deadline) else known_list = false;
+                    } else known_list = false;
+                }
             }
-            if (tabs.items.len > 0) try workspaces.append(alloc, .{ .id = str(ws, "id"), .name = title(ws), .cwd = cwd(ws), .tabs = try tabs.toOwnedSlice(alloc) });
-        };
+        } else if (arrayField(snapshot, "workspaces")) |entries| {
+            known_list = true;
+            try self.cmuxEntries(exe, entries, false, &workspaces, deadline);
+        }
+        if (workspaces.items.len == 0 and self.catalog.confused) known_list = false;
+        if (!known_list) {
+            self.catalog.confused = true;
+            const windows = try self.cmuxJson(exe, &.{"list-windows"}, deadline);
+            var listed_all = false;
+            if (arrayField(windows, "windows")) |entries| {
+                listed_all = true;
+                for (entries) |window| {
+                    const handle = str(window, "id");
+                    if (handle.len == 0) {
+                        listed_all = false;
+                        continue;
+                    }
+                    const listed = try self.cmuxJson(exe, &.{ "list-workspaces", "--window", handle }, deadline);
+                    if (arrayField(listed, "workspaces")) |ws| try self.cmuxEntries(exe, ws, true, &workspaces, deadline) else listed_all = false;
+                }
+            }
+            if (!listed_all) {
+                const listed = try self.cmuxJson(exe, &.{"list-workspaces"}, deadline);
+                if (arrayField(listed, "workspaces")) |entries| try self.cmuxEntries(exe, entries, true, &workspaces, deadline);
+            }
+        }
         self.catalog.workspaces = try workspaces.toOwnedSlice(alloc);
-        self.catalog.message = "cmux surfaces become Corgi tabs; browser links are saved.";
+        self.catalog.message = if (self.catalog.confused and self.catalog.workspaces.len == 0) "Couldn't read the workspace list. R refreshes; S skips import." else "Visible splits first; remaining surfaces become additional tabs.";
+    }
+    // Try UUID output first, then the older CLI's default JSON format. A failure
+    // is local to this read; subsequent recovery keeps already discovered work.
+    fn cmuxJson(self: *Worker, exe: []const u8, args: []const []const u8, deadline: i64) !std.json.Value {
+        const alloc = self.arena.allocator();
+        for ([_]bool{ true, false }) |uuids| {
+            var argv: std.ArrayList([]const u8) = .empty;
+            try argv.append(alloc, exe);
+            try argv.appendSlice(alloc, args);
+            try argv.appendSlice(alloc, if (uuids) &.{ "--json", "--id-format", "uuids" } else &.{"--json"});
+            const bytes = self.commandUntil(argv.items, deadline) catch |err| switch (err) {
+                error.SourceCancelled, error.OutOfMemory => return err,
+                else => continue,
+            };
+            const parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{ .allocate = .alloc_always }) catch |err| switch (err) {
+                error.OutOfMemory => return err,
+                else => continue,
+            };
+            const value = parsed.value;
+            if (value == .object) return value.object.get("result") orelse value;
+        }
+        return .null;
+    }
+    fn cmuxEntries(self: *Worker, exe: []const u8, entries: []const std.json.Value, shallow: bool, out: *std.ArrayList(Workspace), deadline: i64) !void {
+        const alloc = self.arena.allocator();
+        for (entries) |ws| {
+            if (self.stop.load(.acquire)) return error.SourceCancelled;
+            var details: std.json.Value = .null;
+            if (array(ws, "panes").len > 1 and ws == .object and (ws.object.get("layout") orelse .null) == .null) {
+                const handle = str(ws, "id");
+                if (handle.len > 0) details = try self.cmuxJson(exe, &.{ "list-panes", "--workspace", handle }, deadline);
+            }
+            const converted = if (shallow and arrayField(ws, "panes") == null and arrayField(ws, "surfaces") == null) try @import("cmux_import.zig").workspaceOnly(alloc, ws, "Couldn't read its panes or tabs") else try @import("cmux_import.zig").convert(alloc, ws, details);
+            if (converted) |item| {
+                if (item.recovery != .full) self.catalog.confused = true;
+                var duplicate = false;
+                const identified = str(ws, "id").len > 0 or str(ws, "ref").len > 0 or str(ws, "workspace_id").len > 0;
+                for (out.items) |existing| if (identified and std.mem.eql(u8, existing.id, item.id)) {
+                    duplicate = true;
+                    break;
+                };
+                if (!duplicate) try out.append(alloc, item);
+            } else self.catalog.confused = true;
+        }
     }
 };
+fn cmuxExecutable(alloc: std.mem.Allocator) ![]const u8 {
+    var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse "", ':');
+    while (dirs.next()) |dir| {
+        const path = try std.fmt.allocPrintSentinel(alloc, "{s}/cmux", .{if (dir.len == 0) "." else dir}, 0);
+        if (os.c.access(path, os.c.X_OK) == 0) return path;
+    }
+    if (@import("builtin").os.tag == .macos) {
+        if (os.env("HOME")) |home| {
+            const path = try std.fmt.allocPrintSentinel(alloc, "{s}/Applications/cmux.app/Contents/Resources/bin/cmux", .{home}, 0);
+            if (os.c.access(path, os.c.X_OK) == 0) return path;
+        }
+        const path = "/Applications/cmux.app/Contents/Resources/bin/cmux";
+        if (os.c.access(path, os.c.X_OK) == 0) return path;
+    }
+    return error.CmuxNotFound;
+}
 fn array(v: std.json.Value, key: []const u8) []const std.json.Value {
+    return arrayField(v, key) orelse &.{};
+}
+fn arrayField(v: std.json.Value, key: []const u8) ?[]const std.json.Value {
     if (v == .object) if (v.object.get(key)) |x| {
         if (x == .array) return x.array.items;
     };
-    return &.{};
+    return null;
 }
 fn str(v: std.json.Value, key: []const u8) []const u8 {
     if (v == .object) if (v.object.get(key)) |x| {
         if (x == .string) return x.string;
     };
-    return "";
-}
-fn title(v: std.json.Value) []const u8 {
-    for ([_][]const u8{ "title", "name", "ref", "id" }) |key| {
-        const s = str(v, key);
-        if (s.len > 0) return s;
-    }
-    return "Untitled";
-}
-fn cwd(v: std.json.Value) []const u8 {
-    for ([_][]const u8{ "cwd", "current_directory", "requested_working_directory", "working_directory" }) |key| {
-        const s = str(v, key);
-        if (s.len > 0) return s;
-    }
     return "";
 }
