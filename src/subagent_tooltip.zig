@@ -299,15 +299,13 @@ const Card = struct {
                 try std.fmt.bufPrint(&stamp, "{d:0>2}:{d:0>2}", .{ @as(u8, @intCast(local.tm_hour)), @as(u8, @intCast(local.tm_min)) })
             else
                 "--:--";
-            var label_buf: [160]u8 = undefined;
-            try card.drawPoint(row + 1 + i, time, phaseLabel(&label_buf, point), point.usage, false, .muted);
+            try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .muted);
         }
         if (show_pending) {
             const active = agent.state == .working and !unreported;
             const blocked = agent.state == .blocked;
             const latest = root.timeline.points[root.timeline.points.len - 1];
-            var label_buf: [160]u8 = undefined;
-            try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", phaseLabel(&label_buf, latest), root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
+            try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
         }
         if (unreported) {
             const current = if (agent.compacting) "Compacting…" else if (agent.subagents.waiting) "Waiting on subagents" else "Activity not reported yet";
@@ -315,10 +313,6 @@ const Card = struct {
         }
     }
 };
-fn phaseLabel(buf: []u8, point: protocol.Conversation.ActivityPoint) []const u8 {
-    if (point.steps == 0) return point.activity;
-    return std.fmt.bufPrint(buf, "{s} · {d}", .{ point.activity, point.steps }) catch point.activity;
-}
 fn overviewTokens(buf: []u8, value: usage.View) []const u8 {
     if (!value.known) return "— tokens";
     var tokens: [32]u8 = undefined;
@@ -880,8 +874,3 @@ test "background command rows group tasks and bound overflow without claiming st
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "+2 more commands") != null);
 }
 
-test "phases show their tool call count" {
-    var buf: [160]u8 = undefined;
-    try std.testing.expectEqualStrings("Building and testing · 3", phaseLabel(&buf, .{ .at = 0, .activity = "Building and testing", .usage = .{}, .steps = 3 }));
-    try std.testing.expectEqualStrings("Reading source", phaseLabel(&buf, .{ .at = 0, .activity = "Reading source", .usage = .{} }));
-}
