@@ -31,6 +31,8 @@ pub const Server = struct {
     next_viewer: u32 = 1,
     last_bell_kind: agents.Attention = .none,
     last_detection: i64 = 0,
+    last_update_check: i64 = 0,
+    staged_buf: [64]u8 = undefined,
     inherited_listener: ?c_int = null,
     reload_executable: ?[]const u8 = null,
     reload_requester: c_int = -1,
@@ -575,6 +577,17 @@ pub const Server = struct {
                 summaries.reconcile(s.runtime.conversations.items.items);
                 summaries.remember(if (s.runtime.last_agent == .codex) .codex else .claude);
                 s.publishInference();
+                if (now - s.last_update_check >= 30 * std.time.ms_per_s) {
+                    s.last_update_check = now;
+                    var scratch: [64]u8 = undefined;
+                    const found = @import("updates.zig").stagedVersion(s.executable, &scratch) orelse "";
+                    if (!std.mem.eql(u8, found, s.runtime.staged_version)) {
+                        @memcpy(s.staged_buf[0..found.len], found);
+                        s.runtime.staged_version = s.staged_buf[0..found.len];
+                        s.runtime.changed();
+                        s.dirty = true;
+                    }
+                }
                 const system_working = summaries.implementation.pool.working.load(.acquire);
                 if (s.runtime.system_working != system_working) {
                     s.runtime.system_working = system_working;

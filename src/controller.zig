@@ -1869,6 +1869,7 @@ pub const Controller = struct {
             .agents = entries,
             .conversations = s.runtime.conversations,
             .system_model = s.runtime.system_model,
+            .release = .{ .running = s.runtime.release_version, .commit = s.runtime.release_commit, .staged = s.runtime.staged_version },
             .system_usage = s.runtime.system_usage,
             .system_working = s.runtime.system_working,
             .workspaces = s.workspaceEntries(&workspace_storage),

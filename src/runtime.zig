@@ -54,6 +54,7 @@ pub const Runtime = struct {
     agent_yolo: [2]bool = .{ false, false },
     conversations: @import("conversations.zig").Registry = .{},
     system_model: []const u8 = "",
+    staged_version: []const u8 = "",
     inference: @import("inference_setup.zig").Status = .{},
     system_working: bool = false,
     system_usage: @import("live_usage.zig").View = .{ .known = true },

@@ -340,7 +340,9 @@ fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversat
     }
     return false;
 }
-pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, cols: u16, rows: u16) !void {
+/// The runtime's release and any newer one downloaded for the next launch.
+pub const Release = struct { running: []const u8 = "", commit: []const u8 = "", staged: []const u8 = "" };
+pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, release: Release, cols: u16, rows: u16) !void {
     if (cols < 40 or rows < 13) return;
     var total: usage.View = system_usage;
     const Row = struct {
@@ -409,7 +411,23 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
         try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), if (item.model.len > 0) item.model else "—", item.usage, .text);
         try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, x + 4, base, agent_status.tone.ansi(), agent_status.icon });
     }
-    if (shown < count) try card.line(footer, try std.fmt.bufPrint(&text, "... {d} more agents", .{count - shown}), "", .muted, .muted);
+    const more = if (shown < count) try std.fmt.bufPrint(&text, "... {d} more agents", .{count - shown}) else "";
+    var running_buf: [64]u8 = undefined;
+    var staged_buf: [64]u8 = undefined;
+    var version_text: [160]u8 = undefined;
+    const running = @import("updates.zig").label(&running_buf, release.running, release.commit);
+    const staged = @import("updates.zig").label(&staged_buf, release.staged, "");
+    // Prefer the most complete version text that still leaves room for the agent count.
+    const room = (width - 6) -| (if (more.len > 0) sidebar.displayWidth(more) + 2 else 0);
+    const candidates = if (staged.len > 0) [_][]const u8{
+        try std.fmt.bufPrint(&version_text, "↑ Update {s} ready · relaunch Corgi", .{staged}),
+        "↑ Update ready · relaunch Corgi",
+        "↑ Update ready",
+    } else [_][]const u8{ if (running.len > 0) try std.fmt.bufPrint(&version_text, "Corgi {s}", .{running}) else "", running, "" };
+    const version_line = for (candidates) |candidate| {
+        if (sidebar.displayWidth(candidate) <= room) break candidate;
+    } else "";
+    try card.line(footer, more, version_line, .muted, if (staged.len > 0) .idle else .muted);
     try w.writeAll("\x1b[0m\x1b8");
 }
 
@@ -569,7 +587,7 @@ test "idle children stay hidden while active descendants and usage remain" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Visible grandchild") != null);
     var overview: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer overview.deinit();
-    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", 100, 30);
+    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Hidden child") == null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Visible parent") != null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "50 tokens") != null);
@@ -594,7 +612,7 @@ test "role groups aggregate each descendant once and exclude other trees" {
     try std.testing.expect(!model.total.partial);
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "960 tokens") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi (Activity summarizer)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Top agents") != null);
@@ -723,7 +741,7 @@ test "overview excludes detached history and shows Corgi activity" {
     for ([_]bool{ false, true }) |working| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
-        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", 100, 30);
+        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", .{}, 100, 30);
         const frame = output.written();
         for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
@@ -748,7 +766,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     const system: usage.View = .{ .known = true, .tokens = .{ .input = 50 } };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", 100, 30);
+    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", .{}, 100, 30);
     const frame = output.written();
     try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6-luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6") != null);
@@ -760,7 +778,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "Unreported task") != null);
     var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer small.deinit();
-    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", 64, 13);
+    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", .{}, 64, 13);
     // Narrow cards clip the label; the Corgi prefix stays visible.
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "○ Corgi") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Largest") != null);
@@ -770,7 +788,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     all[0].usage.tokens = .{ .input = 10000, .cached_input = 9990 };
     var sorted: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer sorted.deinit();
-    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", 100, 30);
+    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", .{}, 100, 30);
     const sorted_frame = sorted.written();
     try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Child task").? < std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").?);
     try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").? < std.mem.indexOf(u8, sorted_frame, "Parent task").?);
@@ -782,7 +800,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     }
     var capped: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer capped.deinit();
-    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", 100, 30);
+    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", .{}, 100, 30);
     try std.testing.expectEqual(@as(usize, 9), std.mem.count(u8, capped.written(), "Ranked task"));
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "Corgi (Activity summarizer)"));
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "25") != null);
@@ -874,3 +892,30 @@ test "background command rows group tasks and bound overflow without claiming st
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "+2 more commands") != null);
 }
 
+test "overview footer shows the running release and a staged update" {
+    const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
+    const all = [_]protocol.Conversation{.{ .id = 1, .attachments = 1, .agent = agent }};
+    var current: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer current.deinit();
+    try drawOverview(&current.writer, &all, .{}, false, "", .{ .running = "20260925T183012Z-be82c7b9090a", .commit = "be82c7b9090a5f7e" }, 100, 30);
+    try std.testing.expect(std.mem.indexOf(u8, current.written(), "Corgi 2026-09-25 · be82c7b") != null);
+    try std.testing.expect(std.mem.indexOf(u8, current.written(), "Update") == null);
+    var ready: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer ready.deinit();
+    const release: Release = .{ .running = "20260925T183012Z-be82c7b9090a", .staged = "20260926T090000Z-a1b2c3d4e5f6" };
+    try drawOverview(&ready.writer, &all, .{}, false, "", release, 100, 30);
+    try std.testing.expect(std.mem.indexOf(u8, ready.written(), "↑ Update 2026-09-26 · a1b2c3d ready · relaunch Corgi") != null);
+    var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer narrow.deinit();
+    try drawOverview(&narrow.writer, &all, .{}, false, "", release, 40, 13);
+    try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "↑ Update ready · relaunch Corgi") != null);
+}
+
+test "overview footer names a development build's commit" {
+    const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
+    const all = [_]protocol.Conversation{.{ .id = 1, .attachments = 1, .agent = agent }};
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try drawOverview(&output.writer, &all, .{}, false, "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, 100, 30);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi 0.1.0-dev · 0123abc-dirty") != null);
+}

@@ -112,6 +112,9 @@ pub const Conversation = struct {
     agent: Agent,
 };
 pub const Snapshot = struct {
+    release_version: []const u8 = "",
+    release_commit: []const u8 = "",
+    staged_version: []const u8 = "",
     system_model: []const u8 = "",
     inference: @import("inference_setup.zig").Status = .{},
     system_working: bool = false,
@@ -226,6 +229,9 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     }
     return .{
         .conversations = conversations,
+        .release_version = @import("corgi_options").release_version,
+        .release_commit = @import("corgi_options").release_commit,
+        .staged_version = r.staged_version,
         .system_model = r.system_model,
         .inference = r.inference,
         .system_usage = r.system_usage,

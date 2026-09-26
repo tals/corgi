@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     const package = @import("build.zig.zon");
     options.addOption(u64, "terminal_checkpoint_abi", std.hash.Wyhash.hash(0, package.dependencies.ghostty.hash));
     options.addOption([]const u8, "release_version", b.option([]const u8, "release-version", "Release version") orelse "0.1.0-dev");
-    options.addOption([]const u8, "release_commit", b.option([]const u8, "release-commit", "Source commit") orelse "development");
+    options.addOption([]const u8, "release_commit", b.option([]const u8, "release-commit", "Source commit") orelse gitCommit(b));
     options.addOption([]const u8, "update_url", b.option([]const u8, "update-url", "HTTPS update feed base URL") orelse "");
     options.addOption([]const u8, "update_public_key", b.option([]const u8, "update-public-key", "Ed25519 public key, hex") orelse "");
     options.addOption(bool, "update_test_mode", b.option(bool, "update-test-mode", "Allow local HTTP update fixtures (never publish)") orelse false);
@@ -61,4 +61,13 @@ pub fn build(b: *std.Build) void {
     b.step("run", "Run Corgi").dependOn(&run.step);
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "Test layouts, hooks, signaling and terminal behavior").dependOn(&b.addRunArtifact(tests).step);
+}
+
+/// Development builds identify their checkout, marking uncommitted changes.
+fn gitCommit(b: *std.Build) []const u8 {
+    var code: u8 = 0;
+    const head = b.runAllowFail(&.{ "git", "-C", b.pathFromRoot("."), "rev-parse", "HEAD" }, &code, .Ignore) catch return "development";
+    const commit = std.mem.trim(u8, head, " \r\n\t");
+    const status = b.runAllowFail(&.{ "git", "-C", b.pathFromRoot("."), "status", "--porcelain" }, &code, .Ignore) catch return commit;
+    return if (std.mem.trim(u8, status, " \r\n\t").len > 0) b.fmt("{s}-dirty", .{commit}) else commit;
 }
