@@ -199,7 +199,7 @@ class NativeUsage(unittest.TestCase):
             frame = a.poll()['data']
             self.assertIn('Total', frame)
             self.assertIn('Running a tool', frame)
-            self.assertNotIn('Activity not reported yet', frame)
+            self.assertNotIn('●  .', frame)
             self.assertIn('6.6k', frame)
             self.assertIn('8.1k', frame)
             self.assertIn('Tokens', frame)

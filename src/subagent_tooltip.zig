@@ -161,6 +161,12 @@ fn activity(agent: protocol.Agent) []const u8 {
         .unknown => "Waiting for activity",
     };
 }
+/// Working with nothing reported yet: animated dots advance with the sidebar
+/// spinner's redraws.
+fn thinking() []const u8 {
+    const dots: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 400), 3));
+    return "..."[0 .. dots + 1];
+}
 const Status = struct { icon: []const u8, label: []const u8, tone: Tone };
 fn status(agent: protocol.Agent, stale: bool) Status {
     if (stale) return .{ .icon = "?", .label = "Last seen", .tone = .muted };
@@ -308,7 +314,7 @@ const Card = struct {
             try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
         }
         if (unreported) {
-            const current = if (agent.compacting) "Compacting…" else if (agent.subagents.waiting) "Waiting on subagents" else "Activity not reported yet";
+            const current = if (agent.compacting) "Compacting…" else if (agent.subagents.waiting) "Waiting on subagents" else thinking();
             try card.drawPoint(row + nodes, "  now", current, .{}, true, .working);
         }
     }
@@ -479,8 +485,8 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const root_status = status(root_agent, false);
     try card.line(top, name, try std.fmt.bufPrint(&text, "{s} {s}", .{ root_status.icon, root_status.label }), .title, root_status.tone);
     const root_activity = if (root_agent.activity.len == 0 and root_agent.recent_activity.len == 0 and
-        !root_agent.tool_active and !root_agent.compacting and !root_agent.subagents.waiting and (root_agent.state == .working or root_agent.state == .idle))
-        "Activity not reported yet"
+        !root_agent.tool_active and !root_agent.compacting and !root_agent.subagents.waiting and root_agent.state == .working)
+        thinking()
     else
         activity(root_agent);
     const subtitle = if (timeline_nodes > 0)
@@ -704,7 +710,7 @@ test "new turn without a summary keeps the old label historical even when clippe
         const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
         try card.timeline(0, &root, root.agent, nodes, true);
         const frame = output.written();
-        try std.testing.expect(std.mem.indexOf(u8, frame, "  now  ●  Activity not reported yet") != null);
+        try std.testing.expect(std.mem.indexOf(u8, frame, "  now  ●  .") != null);
         try std.testing.expect(std.mem.indexOf(u8, frame, "Old tool") == null);
         try std.testing.expect(std.mem.indexOf(u8, frame, "345+") == null);
         if (nodes == 2) {
@@ -716,7 +722,7 @@ test "new turn without a summary keeps the old label historical even when clippe
     defer output.deinit();
     const card: Card = .{ .w = &output.writer, .x = 0, .width = 88 };
     try card.timeline(0, &root, root.agent, 1, false);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Activity not reported yet") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "  now  ●  .") != null);
 }
 
 test "overview excludes detached history and shows Corgi activity" {
