@@ -2415,9 +2415,10 @@ pub const Controller = struct {
                 }
                 var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
                 const entries = s.sidebarEntries(&agent_storage);
-                if (sidebar.agentAt(s.sidebarView(entries), entries, pointer.x, pointer.y)) |entry| {
+                // The host may leave its last mouse report at the window edge.
+                if (pointer.x > 0) if (sidebar.agentAt(s.sidebarView(entries), entries, pointer.x, pointer.y)) |entry| {
                     target = .{ .pane = 0, .link = 0, .conversation = entry.conversation, .agent = entry.target };
-                }
+                };
                 var locations: [layout.max_panes]layout.Placement = undefined;
                 for (s.layoutView().placements(s.area(), &locations)) |place| {
                     if (!place.rect.contains(pointer.x, pointer.y)) continue;
