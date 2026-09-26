@@ -7,6 +7,7 @@ const usage = @import("live_usage.zig");
 const max = @import("conversations.zig").max_actors;
 const time_c = @cImport(@cInclude("time.h"));
 const background = @import("background_tasks.zig");
+const prices = @import("model_prices.zig");
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
 const Tone = enum {
     text,
@@ -269,13 +270,17 @@ const Card = struct {
         if (name_width > 0) try card.cell(row, text_width - name_width, name_width, name, .muted, true);
         try card.tokenColumns(row, child.usage, child.agent.state == .working, if (child.usage.known) .tokens else .muted);
     }
-    fn overviewRow(card: Card, row: usize, name: []const u8, model: []const u8, value: ?usage.View, tone: Tone) !void {
-        const text_width = card.textWidth();
-        const model_width = text_width / 2;
+    /// Token columns plus a trailing column in reference-model tokens.
+    fn overviewRow(card: Card, row: usize, name: []const u8, model: []const u8, value: ?usage.View, equivalent: []const u8, tone: Tone) !void {
+        const columns: Card = .{ .w = card.w, .x = card.x, .width = card.width - (number_width + 1) };
+        const text_width = columns.textWidth();
+        // Model ids are short; the extra column comes out of their share.
+        const model_width = @min(text_width / 2, 22);
         const name_width = text_width - model_width - 1;
         try card.cell(row, 0, name_width, name, tone, false);
         try card.cell(row, name_width + 1, model_width, model, .muted, false);
-        try card.tokenColumns(row, value, false, .tokens);
+        try columns.tokenColumns(row, value, false, if (value == null) .tokens else .text);
+        try card.cell(row, text_width + 2 * number_width + 3, number_width, equivalent, .tokens, true);
     }
     fn drawPoint(card: Card, row: usize, stamp: []const u8, label: []const u8, value: usage.View, live: bool, tone: Tone) !void {
         var text: [512]u8 = undefined;
@@ -354,9 +359,12 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     const Row = struct {
         conversation: ?*const protocol.Conversation = null,
         value: usage.View,
+        model: []const u8,
+        // Uncached input plus output in reference-model tokens; raw for unknown models.
+        equivalent: u64 = 0,
     };
     var ranked: [max + 1]Row = undefined;
-    ranked[0] = .{ .value = system_usage };
+    ranked[0] = .{ .value = system_usage, .model = system_model };
     var count: usize = 1;
     const now = std.time.microTimestamp();
     // Rows use exclusive own usage. Parents never include their children here.
@@ -364,14 +372,31 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
         add(&total, item.usage);
         if (!runningSomewhere(all, item.*, now)) continue;
         if (count < ranked.len) {
-            ranked[count] = .{ .conversation = item, .value = item.usage };
+            ranked[count] = .{ .conversation = item, .value = item.usage, .model = item.model };
             count += 1;
         }
     }
+    // Rank by spend: express every row in tokens of the priciest listed model.
+    var reference: ?prices.Price = null;
+    var reference_model: []const u8 = "";
+    for (ranked[0..count]) |row| {
+        const price = prices.lookup(row.model) orelse continue;
+        if (reference == null or price.input > reference.?.input or (price.input == reference.?.input and price.output > reference.?.output)) {
+            reference = price;
+            reference_model = row.model;
+        }
+    }
+    for (ranked[0..count]) |*row| {
+        const uncached = row.value.tokens.input -| row.value.tokens.cached_input;
+        row.equivalent = if (reference != null and prices.lookup(row.model) != null)
+            prices.equivalent(prices.lookup(row.model).?, reference.?, uncached, row.value.tokens.output)
+        else
+            uncached +| row.value.tokens.output;
+    }
     std.mem.sort(Row, ranked[0..count], {}, struct {
         fn less(_: void, lhs: Row, rhs: Row) bool {
-            const l = (lhs.value.tokens.input -| lhs.value.tokens.cached_input) +| lhs.value.tokens.output;
-            const r = (rhs.value.tokens.input -| rhs.value.tokens.cached_input) +| rhs.value.tokens.output;
+            const l = lhs.equivalent;
+            const r = rhs.equivalent;
             return if (l == r)
                 (if (lhs.conversation) |item| item.id else 0) < (if (rhs.conversation) |item| item.id else 0)
             else
@@ -403,10 +428,28 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     try card.line(y + 1, "Observed tokens", overviewTokens(&tokens, total), .title, .tokens);
     const heading = y + 3;
     const footer = y + height - 2;
-    try card.overviewRow(heading, "Top agents", "Model", null, .text);
+    var reference_heading: [32]u8 = undefined;
+    try card.overviewRow(heading, "Top agents", "Model", null, if (reference) |price| try std.fmt.bufPrint(&reference_heading, "≈{s}", .{price.label}) else "", .text);
+    var model_text: [160]u8 = undefined;
+    var equivalent_text: [48]u8 = undefined;
     for (ranked[0..shown], 0..) |ranked_row, i| {
+        // The diamond marks the model the last column is expressed in.
+        const model = if (ranked_row.model.len == 0)
+            "—"
+        else if (reference != null and std.mem.eql(u8, ranked_row.model, reference_model))
+            try std.fmt.bufPrint(&model_text, "◆ {s}", .{ranked_row.model})
+        else
+            ranked_row.model;
+        const equivalent = if (reference == null)
+            ""
+        else if (!ranked_row.value.known)
+            "—"
+        else if (prices.lookup(ranked_row.model) == null)
+            "?"
+        else
+            try std.fmt.bufPrint(&equivalent_text, "{s}{s}", .{ if (ranked_row.value.partial) "≥" else "", compact(&tokens, ranked_row.equivalent) });
         if (ranked_row.conversation == null) {
-            try card.overviewRow(heading + 1 + i, if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)", if (system_model.len > 0) system_model else "—", ranked_row.value, if (system_working) .working else .idle);
+            try card.overviewRow(heading + 1 + i, if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)", model, ranked_row.value, equivalent, if (system_working) .working else .idle);
             continue;
         }
         const item = ranked_row.conversation.?;
@@ -414,7 +457,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
         const agent_status = status(item.agent, false);
         var fallback: [80]u8 = undefined;
         const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{ @tagName(item.agent.provider), item.agent.session[0..@min(8, item.agent.session.len)] });
-        try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), if (item.model.len > 0) item.model else "—", item.usage, .text);
+        try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, .text);
         try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, x + 4, base, agent_status.tone.ansi(), agent_status.icon });
     }
     const more = if (shown < count) try std.fmt.bufPrint(&text, "... {d} more agents", .{count - shown}) else "";
@@ -811,6 +854,28 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "Corgi (Activity summarizer)"));
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "25") != null);
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "... 3 more agents") != null);
+}
+
+test "overview ranks by tokens of the priciest listed model" {
+    const agent: protocol.Agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
+    var all = [_]protocol.Conversation{
+        .{ .id = 1, .attachments = 1, .agent = agent, .model = "claude-haiku-4-5-20251001", .usage = .{ .known = true, .tokens = .{ .input = 42_000, .cached_input = 2_000, .output = 2_000 } } },
+        .{ .id = 2, .attachments = 1, .agent = agent, .model = "claude-opus-5", .usage = .{ .known = true, .tokens = .{ .input = 12_000, .cached_input = 2_000, .output = 1_000 } } },
+        .{ .id = 3, .attachments = 1, .agent = agent, .model = "codex-auto-review", .usage = .{ .known = true, .tokens = .{ .input = 5_000 } } },
+    };
+    all[0].agent.name = "Haiku task";
+    all[1].agent.name = "Opus task";
+    all[2].agent.name = "Unpriced task";
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, 100, 30);
+    const frame = output.written();
+    // Haiku 42k raw is 8.4k in Opus tokens, below Opus's own 11k.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "Opus task").? < std.mem.indexOf(u8, frame, "Haiku task").?);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "Haiku task").? < std.mem.indexOf(u8, frame, "Unpriced task").?);
+    for ([_][]const u8{ "≈opus", "◆ claude-opus-5", "8.4k", "11k", "42k", "?" }) |text| {
+        try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
+    }
 }
 
 test "unavailable or stale child discovery makes no subagent claims" {
