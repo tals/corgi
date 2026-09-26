@@ -10,3 +10,6 @@ __pycache__/
 /~/.cmuxterm/
 /deploy.sh
 /zig-pkg/
+
+# Local Lavish review artifacts.
+/.lavish/
