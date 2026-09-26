@@ -52,7 +52,7 @@ switching signing identities can require another approval. CI or cross builds
 without a certificate can use `./scripts/zig build -Dcodesign=false`, but ad-hoc
 builds do not preserve Keychain approval across code changes.
 
-Multiple terminals can attach to the same runtime. They share workspaces, tabs, and split arrangement. Each viewer has its own selected workspace, tab, pane, menus, zoom, and scroll position. A pane fits the smallest viewer currently displaying it; other panes are unaffected. Detaching one viewer leaves the others connected.
+Multiple terminals can attach to the same runtime. They share workspaces, tabs, and split arrangement. Each viewer has its own selected workspace, tab, pane, menus, zoom, and scroll position. A pane takes the size of the most recently used viewer displaying it (typing, clicking, or resizing counts as use); other viewers clip or pad it. Detaching one viewer leaves the others connected.
 
 The caret is steady by default while attached, preserving the host terminal's cursor shape. Corgi saves the host's blink mode and restores it on detach. Set `CORGI_CURSOR_BLINK=1` when launching a viewer to leave the host's blink behavior unchanged. This uses the terminal's DEC cursor-blink mode, supported by Ghostty; an explicit Ghostty `cursor-style-blink` setting takes precedence.
 

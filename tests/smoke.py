@@ -569,7 +569,7 @@ time.sleep(30)
             if any(text in row for row in screen):return screen
             time.sleep(.03)
         self.fail('missing viewer frame '+text)
-    def test_multiple_viewers_share_input_resize_and_detach_independently(self):
+    def test_multiple_viewers_share_input_most_recent_sizes_and_detach_independently(self):
         self.attach();self.get_type('frame')
         self.rpc(op='action',name='sidebar')
         pane=self.panes()[0]['id']
@@ -583,12 +583,16 @@ time.sleep(30)
         other,reader=self.viewer(60,18)
         self.viewer_frame(reader,'^B commands',60,18)
         check_size(60,16)
+        # Input takes the pane over for whichever viewer was used last.
         self.input("printf 'FIRST_VIEWER\\n'\r")
         self.viewer_frame(reader,'FIRST_VIEWER',60,18)
+        check_size(80,22)
         other.request(op='input',data="printf 'SECOND_VIEWER\\n'\r")
         self.frame_with('SECOND_VIEWER')
-        self.write(op='size',cols=100,rows=30)
         check_size(60,16)
+        # Resizing the window is activity too.
+        self.write(op='size',cols=100,rows=30)
+        check_size(100,28)
         other.request(op='input',data='\x02q')
         self.assertTrue(other.state['detached'])
         other.close()

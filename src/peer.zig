@@ -8,6 +8,8 @@ pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = 
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
 pub const Client = struct {
     viewer_id: u32 = 0,
+    /// Server-wide activity order; the highest stamp sizes shared panes.
+    active_seq: u64 = 0,
     next_control: u64 = 1,
     last_control: u64 = 0,
     view_workspace: u32 = 0,

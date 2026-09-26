@@ -33,6 +33,7 @@ pub fn run(path: []const u8) !void {
         if (std.mem.eql(u8, op, "size")) {
             view.width = @intCast(value.object.get("cols").?.integer);
             view.height = @intCast(value.object.get("rows").?.integer);
+            view.input_state.active = true;
         }
         try view.expireInput();
         const previous_bell = bell;

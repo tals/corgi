@@ -40,6 +40,9 @@ const InputState = struct {
     last_control: u64 = 0,
     attached: bool = false,
     watched: bool = true,
+    /// User input or a window resize since the last sync; the daemon sizes
+    /// shared panes for the viewer that was used most recently.
+    active: bool = false,
     port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?u32 = null, pane: ?u32 = null, px: u16 = 0, py: u16 = 0, drag_selects: bool = false, cancelled: bool = false } = null,
     paste: bool = false,
     paste_pane: ?layout.Id = null,
@@ -1195,6 +1198,7 @@ pub const Controller = struct {
     }
     pub fn input(s: *Self, data: []const u8) !void {
         const cl = &s.input_state;
+        if (data.len > 0) cl.active = true;
         try cl.keybuf.appendSlice(a, data);
         var used: usize = 0;
         while (used < cl.keybuf.items.len) {

@@ -59,7 +59,8 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset };
         count += 1;
     }
-    const response = try view.connection.call(.{ .op = "viewer.sync", .protocol = 1, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?u32, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control });
+    const response = try view.connection.call(.{ .op = "viewer.sync", .protocol = 1, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?u32, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
+    view.input_state.active = false;
     defer response.deinit();
     const parsed = try std.json.parseFromValue(Response, a, response.value, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
@@ -141,6 +142,7 @@ pub fn run(fd: c_int, probe: *@import("theme.zig").Probe, input: *std.ArrayList(
         if (view.width != size.cols or view.height != size.rows) {
             view.width = size.cols;
             view.height = size.rows;
+            view.input_state.active = true;
             view.dirty = true;
         }
         var input_end = input.items.len;

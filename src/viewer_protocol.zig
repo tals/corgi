@@ -36,13 +36,15 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         cl.viewer = true;
         cl.viewer_id = s.next_viewer;
         s.next_viewer += 1;
+        s.next_active += 1;
+        cl.active_seq = s.next_active;
         cl.view_workspace = s.initialWorkspace().id;
         cl.protocol_version = 1;
         if (first) s.updateTheme(v);
         try cl.queue(.{ .ok = true, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (eq(u8, op, "viewer.sync")) {
         if (!cl.viewer) return error.NotAttached;
-        const Request = struct { interests: []const @import("peer.zig").Interest, focus: ?u32 = null, watched: bool = true, workspace: u32 = 0, ack: u64 = 0 };
+        const Request = struct { interests: []const @import("peer.zig").Interest, focus: ?u32 = null, watched: bool = true, workspace: u32 = 0, ack: u64 = 0, active: bool = false };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const req = parsed.value;
@@ -70,6 +72,10 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
             cl.view_focus = req.focus;
         };
         cl.watched = req.watched;
+        if (req.active) {
+            s.next_active += 1;
+            cl.active_seq = s.next_active;
+        }
         if (s.runtime.workspaces.index(req.workspace) != null) cl.view_workspace = req.workspace;
         if (cl.watched) {
             s.visitWorkspace(cl.view_workspace);
@@ -116,22 +122,21 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
     return true;
 }
 
-/// A pane is constrained only by viewers actually displaying it. Hidden panes
-/// retain their last size; detaching a smaller viewer lets surviving views grow.
+/// A pane takes the size shown by the most recently used viewer displaying it;
+/// other viewers clip or pad. Hidden panes retain their last size.
 pub fn resize(s: anytype) !void {
     for (s.runtime.panes.items) |p| {
-        var cols: u16 = 500;
-        var rows: u16 = 200;
-        var found = false;
-        for (s.clients.items) |cl| if (cl.viewer and !cl.dead) {
+        var chosen: ?@import("peer.zig").Interest = null;
+        var latest: u64 = 0;
+        for (s.clients.items) |cl| if (cl.viewer and !cl.dead and (chosen == null or cl.active_seq > latest)) {
             for (cl.interests[0..cl.interest_count]) |interest| if (interest.pane == p.id) {
-                cols = @min(cols, interest.cols);
-                rows = @min(rows, interest.rows);
-                found = true;
+                chosen = interest;
+                latest = cl.active_seq;
             };
         };
-        if (found and (p.terminal.vt.cols != cols or p.terminal.vt.rows != rows)) {
-            try p.terminal.resize(cols, rows);
+        const size = chosen orelse continue;
+        if (p.terminal.vt.cols != size.cols or p.terminal.vt.rows != size.rows) {
+            try p.terminal.resize(size.cols, size.rows);
             s.runtime.changed();
             s.dirty = true;
         }

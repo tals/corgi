@@ -29,6 +29,7 @@ pub const Server = struct {
     last_bell: i64 = 0,
     bell_seq: u64 = 0,
     next_viewer: u32 = 1,
+    next_active: u64 = 0,
     last_bell_kind: agents.Attention = .none,
     last_detection: i64 = 0,
     last_update_check: i64 = 0,
