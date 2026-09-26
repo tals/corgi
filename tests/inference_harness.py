@@ -20,6 +20,7 @@ def main():
     counter = 0
     thread = ''
     turns = 0
+    schema = None
     for line in sys.stdin:
         value = json.loads(line)
         method = value.get('method')
@@ -41,6 +42,8 @@ def main():
         elif method == 'thread/unsubscribe':
             emit({'id': ident, 'result': {}})
         elif value.get('type') == 'control_request':
+            if '--json-schema' in sys.argv:
+                schema = json.loads(sys.argv[sys.argv.index('--json-schema') + 1])
             emit({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': value['request_id'], 'response': {}}})
         elif method == 'turn/start' or value.get('type') == 'user':
             content = value['params']['input'][0]['text'] if codex else value['message']['content']
@@ -59,6 +62,13 @@ def main():
                     f.write(json.dumps({'pid':os.getpid(),'thread':thread,'turn':turns}) + '\n')
             time.sleep(control.get('delay', 0))
             result = control.get('label', json.dumps({'pid': os.getpid(), 'thread': thread, 'turn': turns}))
+            if codex:
+                schema = value['params'].get('outputSchema')
+            structured = {'label': control.get('label', 'Tracing pane focus')}
+            if schema and 'label' in control:
+                result = json.dumps(structured)
+            if 'raw' in control:
+                result = control['raw']
             if content == 'oversize':
                 result = 'x' * 9000
             if codex:
@@ -72,7 +82,7 @@ def main():
                 emit({'method': 'turn/completed', 'params': {'threadId': thread, 'turn': {'id': turn, 'status': 'failed' if content == 'fail' or control.get('fail') else 'completed'}}})
                 emit({'id': ident, 'result': {'turn': {'id': turn}}})
             else:
-                emit({'type': 'result', 'session_id': 'fixture-session', 'subtype': 'error' if content == 'fail' else 'success', 'is_error': content == 'fail', 'result': result, 'structured_output': {'label': 'Tracing pane focus'}, 'usage':{'input_tokens':300,'cache_read_input_tokens':600,'cache_creation_input_tokens':100,'output_tokens':10}})
+                emit({'type': 'result', 'session_id': 'fixture-session', 'subtype': 'error' if content == 'fail' or control.get('fail') else 'success', 'is_error': content == 'fail' or control.get('fail',False), 'result': result, 'structured_output': structured, 'usage':{'input_tokens':300,'cache_read_input_tokens':600,'cache_creation_input_tokens':100,'output_tokens':10}})
 
 
 if __name__ == '__main__':

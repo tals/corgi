@@ -12,6 +12,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
     const shared = try original.conversations.get(.claude, "shared");
     shared.workspace = workspace;
     shared.state.state = .blocked;
+    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("activity_summary.zig").Label.parse("Explaining cursor visibility").?);
     shared.state.observation.finish(.completed, .hook);
     const detached = try original.conversations.get(.codex, "detached");
     detached.parent = shared.id;
@@ -38,6 +39,8 @@ test "conversation checkpoint restores shared bindings and detached unread state
     try cp.restore(&fresh, decoded.value, true, "/tmp/unused-actor-test.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 2), fresh.conversations.items.items.len);
     const actor = fresh.conversations.byId(shared.id).?;
+    try std.testing.expectEqualStrings("Explaining cursor visibility", actor.status_inference.previous.text());
+    try std.testing.expectEqual(@as(usize, 1), actor.status_inference.len);
     try std.testing.expect(fresh.panes.items[0].attachment.actor == actor);
     try std.testing.expect(fresh.panes.items[1].attachment.actor == actor);
     try std.testing.expect(fresh.panes.items[0].attachment.knows(detached.id));
@@ -237,4 +240,45 @@ test "recovery never prefills selection or control characters" {
     const unsafe = try hint.command(a);
     defer a.free(unsafe);
     try std.testing.expectEqualStrings("", unsafe);
+}
+
+test "link cache and spent inference attempts survive live checkpoints only" {
+    const Runtime = @import("runtime.zig").Runtime;
+    const links = @import("link_labels.zig");
+    var original: Runtime = .{};
+    defer original.deinit();
+    _ = try original.workspaces.add("links", "/tmp");
+    original.link_labels.generation = 3;
+    for (0..3) |i| original.link_labels.entries[i] = .{
+        .key = .{ .workspace = 1, .pane = 1, .pid = 7, .port = @intCast(3000 + i), .scheme = .http, .address = 9 },
+        .generation = i + 1,
+        .attempted = true,
+        .pending = i == 1,
+        .name = if (i == 0) links.Name.parse("Finance").? else .{},
+    };
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    for ([_]bool{ true, false }) |live| {
+        const saved = try cp.capture(arena.allocator(), &original, live);
+        const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+        const parsed = try std.json.parseFromSlice(cp.State, arena.allocator(), json, .{});
+        var fresh: Runtime = .{};
+        defer fresh.deinit();
+        try cp.restore(&fresh, parsed.value, live, "/tmp/unused-link-test.sock", "/tmp/corgi");
+        if (live) {
+            try std.testing.expectEqualStrings("Finance", fresh.link_labels.entries[0].?.name.text());
+            try std.testing.expect(fresh.link_labels.entries[1].?.pending);
+            try std.testing.expect(fresh.link_labels.entries[2].?.attempted);
+            try std.testing.expectEqual(@as(u64, 3), fresh.link_labels.generation);
+        } else {
+            try std.testing.expect(fresh.link_labels.entries[0] == null);
+            try std.testing.expectEqual(@as(u64, 0), fresh.link_labels.generation);
+        }
+    }
+    var invalid = original.link_labels;
+    invalid.entries[0].?.name.len = 33;
+    try std.testing.expectError(error.InvalidCheckpoint, links.Cache.restore(invalid));
+    invalid = original.link_labels;
+    invalid.entries[0].?.generation = 4;
+    try std.testing.expectError(error.InvalidCheckpoint, links.Cache.restore(invalid));
 }

@@ -62,6 +62,23 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "Test layouts, hooks, signaling and terminal behavior").dependOn(&b.addRunArtifact(tests).step);
 
+    // Opt-in live eval driver shares the production prompt, parser and harness.
+    const eval_backend = b.createModule(.{ .root_source_file = b.path("src/summary_backend.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    eval_backend.addImport("ghostty-vt", ghostty.module("ghostty-vt"));
+    eval_backend.addOptions("corgi_options", options);
+    if (target.result.os.tag == .macos) {
+        if (b.sysroot) |sdk| {
+            eval_backend.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
+            eval_backend.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+        }
+        eval_backend.linkFramework("Security", .{});
+        eval_backend.linkFramework("CoreFoundation", .{});
+    }
+    const eval_mod = b.createModule(.{ .root_source_file = b.path("evals/driver.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    eval_mod.addImport("backend", eval_backend);
+    const eval_exe = b.addExecutable(.{ .name = "corgi-eval", .root_module = eval_mod });
+    b.step("evals", "Build the activity eval driver (does not call models)").dependOn(&b.addInstallArtifact(eval_exe, .{}).step);
+
     // Real external runtimes are opt-in, never dependencies of the unit suite.
     const handoff = b.addSystemCommand(&.{"python3"});
     handoff.addFileArg(b.path("tests/herdr_handoff.py"));

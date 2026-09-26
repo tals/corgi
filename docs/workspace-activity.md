@@ -34,6 +34,10 @@ workspace away counters. Claude can show provider descriptions before its first
 summary; native sessions are not summarized.
 The prompt targets 2–3 words; short labels of up to six words are also accepted
 instead of leaving the activity blank. Longer labels and control characters are rejected.
+The summarizer can explicitly abstain with a null label when current evidence is
+insufficient. A bare user request or stale history does not establish current
+work. Abstention clears activity text and shows the working animation; it never
+changes the agent's lifecycle or implies that the user must provide input.
 
 For Codex, pending transcript tool calls and live background tasks also drive the
 wrench icon. A yielded build keeps the wrench until the process finishes, even
@@ -60,6 +64,9 @@ labels and animations from that state, including the sleeping corgi
 for idle agents. While awaiting a first result, the activity text stays blank; the
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
+Abstention is successful inference, so unchanged evidence is not retried and new
+evidence uses the normal eight-second cooldown. See [activity evals](../evals/README.md)
+for repeatable live Haiku/Luna checks and scorecards.
 
 Every summary attempt writes JSON request/result records under `activity_summary`
 in the runtime's private `server.log`. Records correlate by daemon PID and request

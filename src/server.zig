@@ -608,7 +608,10 @@ pub const Server = struct {
         const codex_observer = @import("codex_observer.zig");
         const setup = @import("inference_setup.zig");
         const settings = setup.path(s.socket) catch null;
-        const summaries = try @import("activity_worker.zig").Worker.start(setup.initial(if (settings) |file| setup.load(file) else null));
+        const summaries = if (s.summaries) |inherited| blk: {
+            try inherited.activate();
+            break :blk inherited;
+        } else try @import("activity_worker.zig").Worker.start(setup.initial(if (settings) |file| setup.load(file) else null));
         if (settings) |file| a.free(file);
         s.summaries = summaries;
         defer {

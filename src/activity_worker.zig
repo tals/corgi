@@ -30,17 +30,22 @@ pub const Request = struct {
 };
 pub const Result = struct {
     request: Request,
-    label: summary.Label,
+    label: ?summary.Label,
     pub fn apply(r: *const Result, actor: *@import("conversations.zig").Actor) bool {
         if (actor.id != r.request.actor) return false;
         const agent = &actor.state;
         if (agent.state != .working or agent.provider != r.request.provider or !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len]) or !std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len]) or agent.activity_generation != r.request.generation) return false;
-        @memcpy(agent.activity[0..r.label.len], r.label.text());
-        agent.activity_len = r.label.len;
+        const label = r.label orelse {
+            agent.activity_len = 0;
+            agent.activity_inferred = false;
+            return true;
+        };
+        @memcpy(agent.activity[0..label.len], label.text());
+        agent.activity_len = label.len;
         agent.activity_inferred = true;
-        actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), r.label);
+        actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), label);
         const now = std.time.milliTimestamp();
-        if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), r.label, actor.usageView(now), now);
+        if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), label, actor.usageView(now), now);
         return true;
     }
 };
@@ -63,12 +68,37 @@ const Slot = struct {
         s.request.evidence.append(s.commentary.text());
     }
 };
+pub const Checkpoint = struct {
+    const Entry = struct { index: usize, slot: Slot };
+    const LinkRequest = struct { slot: usize, generation: u64, key: links.Key, evidence: []const u8 };
+    slots: []const Entry,
+    link_requests: []const LinkRequest = &.{},
+    link_results: [links.capacity]?links.Result = @splat(null),
+    pool: @import("inference.zig").Checkpoint,
+    next_request: u64,
+    choice: setup.Choice,
+    launches: setup.Launches,
+    remembered: setup.Provider,
+    active: ?setup.Provider,
+    applied: bool,
+    locked: bool,
+    cursor: usize,
+    link_cursor: usize,
+    prefer_links: bool,
+    next_global: i64,
+};
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: std.atomic.Value(bool) = .init(false),
     slots: []?Slot,
     thread: ?std.Thread = null,
+    pausing: bool = false,
+    paused: bool = false,
+    cursor: usize = 0,
+    link_cursor: usize = 0,
+    prefer_links: bool = true,
+    next_global: i64 = 0,
     implementation: backend.Backend,
     system_meter: @import("live_usage.zig").Meter = .{ .value = .{ .known = true } },
     link_requests: [links.capacity]?links.Request = @splat(null),
@@ -168,6 +198,88 @@ pub const Worker = struct {
         w.thread = try std.Thread.spawn(.{}, run, .{w});
         return w;
     }
+    /// Finish an already billed request, then park without destroying its
+    /// conversation. The server stops publishing new requests while preparing
+    /// the handoff. Any failed preparation resumes this same worker.
+    pub fn pause(w: *Worker) !void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.pausing = true;
+        w.wake.broadcast();
+        const deadline = std.time.milliTimestamp() + 47000;
+        while (!w.paused) {
+            const remaining = deadline - std.time.milliTimestamp();
+            if (remaining <= 0) {
+                w.pausing = false;
+                w.wake.broadcast();
+                return error.ReloadInferenceBusy;
+            }
+            w.wake.timedWait(&w.mutex, @as(u64, @intCast(remaining)) * std.time.ns_per_ms) catch {};
+        }
+    }
+    pub fn unpause(w: *Worker) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.pausing = false;
+        w.wake.broadcast();
+    }
+    /// Capturing a paused worker does not consume pending results or retry work.
+    pub fn capture(w: *Worker, alloc: std.mem.Allocator) !Checkpoint {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        if (!w.paused) return error.InferenceBusy;
+        var slots: std.ArrayList(Checkpoint.Entry) = .empty;
+        for (w.slots, 0..) |slot, i| if (slot) |entry| try slots.append(alloc, .{ .index = i, .slot = entry });
+        var link_requests: std.ArrayList(Checkpoint.LinkRequest) = .empty;
+        for (w.link_requests) |entry| if (entry) |request| try link_requests.append(alloc, .{ .slot = request.slot, .generation = request.generation, .key = request.key, .evidence = try alloc.dupe(u8, request.evidence[0..request.len]) });
+        return .{ .slots = try slots.toOwnedSlice(alloc), .link_requests = try link_requests.toOwnedSlice(alloc), .link_results = w.link_results, .pool = try w.implementation.pool.capture(alloc), .next_request = w.implementation.next_request, .choice = w.choice, .launches = w.launches, .remembered = w.remembered, .active = w.active, .applied = w.applied, .locked = w.locked, .cursor = w.cursor, .link_cursor = w.link_cursor, .prefer_links = w.prefer_links, .next_global = w.next_global };
+    }
+    /// Allocate and restore before candidate readiness; activate only after
+    /// ownership commits. Pre-commit errors must exit without destructors.
+    pub fn restore(saved: Checkpoint) !*Worker {
+        if (saved.slots.len > max_slots or saved.link_requests.len > links.capacity or saved.cursor >= max_slots or saved.link_cursor >= links.capacity) return error.InvalidCheckpoint;
+        const w = try a.create(Worker);
+        w.* = try init(.{});
+        w.choice = saved.choice;
+        w.launches = saved.launches;
+        w.remembered = saved.remembered;
+        w.active = saved.active;
+        w.applied = saved.applied;
+        w.locked = saved.locked;
+        w.cursor = saved.cursor;
+        w.link_cursor = saved.link_cursor;
+        w.prefer_links = saved.prefer_links;
+        w.next_global = saved.next_global;
+        w.implementation.next_request = saved.next_request;
+        for (saved.slots) |entry| {
+            if (entry.index >= w.slots.len or w.slots[entry.index] != null) return error.InvalidCheckpoint;
+            try validateRequest(entry.slot.request);
+            if (entry.slot.commentary.len > entry.slot.commentary.bytes.len or entry.slot.tool_evidence.len > entry.slot.tool_evidence.bytes.len) return error.InvalidCheckpoint;
+            if (entry.slot.result) |result| {
+                try validateRequest(result.request);
+                if (result.label) |label| if (label.len > label.bytes.len) return error.InvalidCheckpoint;
+            }
+            w.slots[entry.index] = entry.slot;
+        }
+        for (saved.link_requests) |request| {
+            if (request.slot >= links.capacity or request.evidence.len > @sizeOf(@FieldType(links.Request, "evidence")) or w.link_requests[request.slot] != null) return error.InvalidCheckpoint;
+            var restored: links.Request = .{ .slot = request.slot, .generation = request.generation, .key = request.key, .len = request.evidence.len };
+            @memcpy(restored.evidence[0..restored.len], request.evidence);
+            w.link_requests[request.slot] = restored;
+        }
+        for (saved.link_results, 0..) |entry, i| if (entry) |result| {
+            if (result.slot != i) return error.InvalidCheckpoint;
+            if (result.name) |name| try links.validateName(name);
+            w.link_results[i] = result;
+        };
+        try w.implementation.pool.restore(saved.pool);
+        w.system_meter = saved.pool.system_usage.meter;
+        return w;
+    }
+    pub fn activate(w: *Worker) !void {
+        std.debug.assert(w.thread == null);
+        w.thread = try std.Thread.spawn(.{}, run, .{w});
+    }
     pub fn stop(w: *Worker) void {
         w.stopping.store(true, .release);
         w.mutex.lock();
@@ -256,11 +368,16 @@ pub const Worker = struct {
     }
     fn run(w: *Worker) void {
         defer w.implementation.deinit();
-        var cursor: usize = 0;
-        var link_cursor: usize = 0;
-        var prefer_links = true;
-        var next_global: i64 = 0;
         while (!w.stopping.load(.acquire)) {
+            w.mutex.lock();
+            while (w.pausing and !w.stopping.load(.acquire)) {
+                w.paused = true;
+                w.wake.broadcast();
+                w.wake.wait(&w.mutex);
+            }
+            w.paused = false;
+            w.mutex.unlock();
+            if (w.stopping.load(.acquire)) break;
             w.applyChoice();
             w.implementation.pool.refreshUsage();
             w.mutex.lock();
@@ -277,22 +394,26 @@ pub const Worker = struct {
                 continue;
             }
             w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
+            if (w.pausing or w.stopping.load(.acquire)) {
+                w.mutex.unlock();
+                continue;
+            }
             const now = std.time.milliTimestamp();
-            const selected: ?usize = if (now < next_global) null else for (0..max_slots) |n| {
-                const i = (cursor + n) % max_slots;
+            const selected: ?usize = if (now < w.next_global) null else for (0..max_slots) |n| {
+                const i = (w.cursor + n) % max_slots;
                 if (w.slots[i]) |s| if (s.ready(now)) break i;
             } else null;
-            const selected_link: ?usize = if (now < next_global) null else for (0..links.capacity) |n| {
-                const i = (link_cursor + n) % links.capacity;
+            const selected_link: ?usize = if (now < w.next_global) null else for (0..links.capacity) |n| {
+                const i = (w.link_cursor + n) % links.capacity;
                 if (w.link_requests[i] != null) break i;
             } else null;
-            if (selected_link != null and (prefer_links or selected == null)) {
+            if (selected_link != null and (w.prefer_links or selected == null)) {
                 const index = selected_link.?;
                 const request = w.link_requests[index].?;
                 w.link_requests[index] = null;
-                link_cursor = (index + 1) % links.capacity;
-                prefer_links = false;
-                next_global = now + 1000;
+                w.link_cursor = (index + 1) % links.capacity;
+                w.prefer_links = false;
+                w.next_global = now + 1000;
                 w.mutex.unlock();
                 const result = links.infer(&w.implementation.pool, request, &w.stopping);
                 w.mutex.lock();
@@ -306,15 +427,15 @@ pub const Worker = struct {
                 continue;
             }
             const index = selected.?;
-            prefer_links = true;
+            w.prefer_links = true;
             const request = w.slots[index].?.request;
             const previous = request.conversation.previous;
             w.slots[index].?.attempted_tools = request.completed_tools;
             w.slots[index].?.attempted_evidence = request.evidence.hash();
             w.slots[index].?.retry = false;
             w.slots[index].?.next = now + 8000;
-            cursor = (index + 1) % max_slots;
-            next_global = now + 1000;
+            w.cursor = (index + 1) % max_slots;
+            w.next_global = now + 1000;
             w.mutex.unlock();
             var key_buffer: [32]u8 = undefined;
             const key = request.conversation.key(request.actor, &key_buffer);
@@ -334,7 +455,7 @@ pub const Worker = struct {
                         // New tool completions must not starve a busy agent of
                         // summaries. Reject only a changed commentary generation;
                         // later tool waves remain queued behind the cooldown.
-                        if (s.request.generation == request.generation) s.result = .{ .request = request, .label = value };
+                        if (s.request.generation == request.generation) s.result = .{ .request = request, .label = value.label };
                     } else {
                         s.retry = true;
                         s.next = std.time.milliTimestamp() + 60000;
@@ -459,7 +580,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     try std.testing.expectEqual(@as(usize, 1), actor.status_inference.len);
     const other = try registry.get(.codex, "different");
     try std.testing.expect(!std.mem.eql(u8, second.conversation.key(actor.id, &key1), other.status_inference.key(other.id, &key2)));
-    for (0..10) |_| actor.status_inference.remember("turn-2", "New evidence", result.label);
+    for (0..10) |_| actor.status_inference.remember("turn-2", "New evidence", result.label.?);
     try std.testing.expectEqual(@as(usize, 4), actor.status_inference.len);
 }
 
@@ -481,4 +602,42 @@ test "inference completing during compaction waits to resume its timeline phase"
     try std.testing.expectEqualStrings("Compacting context", actor.activity_timeline.points[0].label.text());
     _ = actor.observeHook(.{ .kind = .compact_end, .session = "" }, 2, true, 2000);
     try std.testing.expectEqualStrings("Running tests", actor.activity_timeline.points[1].label.text());
+}
+
+fn validateRequest(request: Request) !void {
+    if (request.session_len > request.session.len or request.turn_len > request.turn.len or request.evidence.len > request.evidence.bytes.len or request.panes_len > request.panes.len or request.name_len > request.name.len or request.conversation.len > request.conversation.recent.len or request.conversation.previous.len > request.conversation.previous.bytes.len) return error.InvalidCheckpoint;
+    for (request.conversation.recent) |entry| if (entry.len > entry.bytes.len) return error.InvalidCheckpoint;
+}
+
+test "worker live checkpoint preserves queued link evidence and unconsumed results" {
+    var worker = try Worker.init(.{});
+    defer a.free(worker.slots);
+    worker.paused = true;
+    const key: links.Key = .{ .workspace = 1, .pane = 3, .pid = 7, .port = 3000, .scheme = .http, .address = 9 };
+    const evidence = "{\"terminal\":\"Finance dashboard ready\"}";
+    var request: links.Request = .{ .slot = 4, .generation = 8, .key = key, .len = evidence.len };
+    @memcpy(request.evidence[0..request.len], evidence);
+    worker.link_requests[4] = request;
+    worker.link_results[5] = .{ .slot = 5, .generation = 9, .key = key, .name = links.Name.parse("Finance") };
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const saved = try worker.capture(arena.allocator());
+    const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+    const parsed = try std.json.parseFromSlice(Checkpoint, arena.allocator(), json, .{});
+    const restored = try Worker.restore(parsed.value);
+    defer {
+        restored.implementation.deinit();
+        a.free(restored.slots);
+        a.destroy(restored);
+    }
+    const pending = restored.link_requests[4].?;
+    try std.testing.expectEqualStrings(evidence, pending.evidence[0..pending.len]);
+    try std.testing.expectEqual(@as(u64, 8), pending.generation);
+    var results: [links.capacity]?links.Result = undefined;
+    restored.takeLinks(&results);
+    try std.testing.expectEqualStrings("Finance", results[5].?.name.?.text());
+    try std.testing.expectEqual(@as(u64, 9), results[5].?.generation);
+    restored.takeLinks(&results);
+    try std.testing.expect(results[5] == null);
+    try std.testing.expect(restored.link_requests[4] != null);
 }

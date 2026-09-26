@@ -47,7 +47,7 @@ pub const Label = struct {
 };
 /// Actor-owned bounded context. Native harnesses are a disposable cache; this
 /// checkpoint survives turn changes, detachment, eviction and harness failures.
-/// It intentionally lives only as long as the actor in this daemon.
+/// Live daemon handoff preserves it; cold recovery starts fresh context.
 pub const Conversation = struct {
     recent: [4]Text = @splat(.{}),
     len: usize = 0,

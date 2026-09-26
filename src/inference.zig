@@ -13,6 +13,7 @@ const mutex = &@import("git_status.zig").child_mutex;
 const capacity = 4;
 const inference_usage = @import("inference_usage.zig");
 const output_limit = 8192;
+const binary = @import("base64.zig");
 
 // The server's general reaper and the worker serialize all child ownership.
 // Store PIDs, never pointers into movable pool slots.
@@ -119,7 +120,7 @@ const Connection = struct {
     }
     fn idle(s: *Connection) !void {
         mutex.lock();
-        const exited = children[s.child_slot].?.exited;
+        const exited = s.transport.exited or children[s.child_slot].?.exited;
         var status: c_int = 0;
         const reaped = if (exited) true else os.c.waitpid(s.transport.child.id, &status, os.c.WNOHANG) == s.transport.child.id;
         if (reaped) children[s.child_slot].?.exited = true;
@@ -154,8 +155,43 @@ const Connection = struct {
     }
 };
 
+/// Live-only checkpoint, captured with the owning worker parked between calls.
+/// Conversation history remains in the inherited harness process. These fields
+/// retain its wire position and usage baselines, not a replay of model requests.
+pub const SavedConnection = struct {
+    pid: c_int,
+    stdin: c_int,
+    stdout: c_int,
+    exited: bool,
+    ready: bool,
+    input: []const u8,
+    output: []const u8,
+    deferred: []const u8,
+    events: []const native.Event,
+    next_seq: u64,
+    cursor: u64,
+    next_id: u64,
+    thread: []const u8,
+    key: ?[]const u8,
+    instructions: []const u8,
+    schema: ?[]const u8,
+    turns: usize,
+    conversations_created: usize,
+    used: u64,
+    usage_cursor: u64,
+    usage: []const struct { thread: []const u8, tokens: @import("live_usage.zig").Tokens },
+};
+pub const Checkpoint = struct {
+    config: Config,
+    slots: [capacity]?SavedConnection = @splat(null),
+    clock: u64,
+    started: bool,
+    system_usage: inference_usage.System,
+};
+
 pub const Pool = struct {
     config: Config,
+    owned_config: bool = false,
     slots: [capacity]?Connection = @splat(null),
     clock: u64 = 0,
     system_usage: inference_usage.System = .{},
@@ -176,7 +212,113 @@ pub const Pool = struct {
             };
         };
     }
+    /// No transport polling or child ownership changes may race capture.
+    pub fn capture(p: *Pool, alloc: std.mem.Allocator) !Checkpoint {
+        if (p.working.load(.acquire)) return error.InferenceBusy;
+        var saved: Checkpoint = .{ .config = p.config, .clock = p.clock, .started = p.started, .system_usage = p.system_usage };
+        mutex.lock();
+        defer mutex.unlock();
+        for (&p.slots, &saved.slots) |*slot, *out| if (slot.*) |*s| {
+            const transport = &s.transport;
+            if (transport.approvals.items.len != 0 or transport.active_tools.items.len != 0 or transport.active_threads.count() != 0) return error.InferenceBusy;
+            const usage = try alloc.alloc(@typeInfo(@FieldType(SavedConnection, "usage")).pointer.child, s.usage_tracker.threads.count());
+            var it = s.usage_tracker.threads.iterator();
+            for (usage) |*entry| {
+                const item = it.next().?;
+                entry.* = .{ .thread = item.key_ptr.*, .tokens = item.value_ptr.* };
+            }
+            out.* = .{
+                .pid = transport.child.id,
+                .stdin = if (transport.child.stdin) |file| file.handle else -1,
+                .stdout = if (transport.child.stdout) |file| file.handle else -1,
+                .exited = transport.exited or children[s.child_slot].?.exited,
+                .ready = transport.ready,
+                .input = try binary.encode(alloc, transport.input.items),
+                .output = try binary.encode(alloc, transport.output.items),
+                .deferred = try binary.encode(alloc, transport.deferred.items),
+                .events = transport.events.items,
+                .next_seq = transport.next_seq,
+                .cursor = s.cursor,
+                .next_id = s.next_id,
+                .thread = s.thread[0..s.thread_len],
+                .key = s.key,
+                .instructions = s.instructions,
+                .schema = s.schema,
+                .turns = s.turns,
+                .conversations_created = s.conversations_created,
+                .used = s.used,
+                .usage_cursor = s.usage_cursor,
+                .usage = usage,
+            };
+        };
+        return saved;
+    }
+    /// Preparation only: never poll inherited pipes or kill a harness on error.
+    /// The candidate exits with _exit on failure, leaving the source as owner.
+    pub fn restore(p: *Pool, saved: Checkpoint) !void {
+        p.config = saved.config;
+        p.config.model = if (saved.config.model) |v| try a.dupe(u8, v) else null;
+        p.config.executable = if (saved.config.executable) |v| try a.dupe(u8, v) else null;
+        p.owned_config = true;
+        p.clock = saved.clock;
+        p.started = saved.started;
+        p.system_usage = saved.system_usage;
+        for (saved.slots, &p.slots) |entry, *slot| if (entry) |s| {
+            if (s.pid <= 0 or s.stdin < 0 or s.stdout < 0 or s.thread.len > 160 or s.events.len > 128 or s.usage.len > 32 or s.turns > 32 or s.conversations_created > 32 or s.cursor >= s.next_seq or s.usage_cursor >= s.next_seq) return error.InvalidCheckpoint;
+            const child_slot = for (children, 0..) |child, i| {
+                if (child == null) break i;
+            } else return error.TooManyHarnesses;
+            slot.* = .{
+                .transport = .{ .id = 0, .provider = if (saved.config.provider == .codex) .codex else .claude, .cwd = try a.dupe(u8, "/tmp"), .child = std.process.Child.init(&.{}, a), .ready = s.ready, .exited = s.exited, .imported = true, .next_seq = s.next_seq },
+                .child_slot = child_slot,
+                .cursor = s.cursor,
+                .next_id = s.next_id,
+                .thread_len = s.thread.len,
+                .key = if (s.key) |v| try a.dupe(u8, v) else null,
+                .instructions = try a.dupe(u8, s.instructions),
+                .schema = if (s.schema) |v| try a.dupe(u8, v) else null,
+                .turns = s.turns,
+                .conversations_created = s.conversations_created,
+                .used = s.used,
+                .system_usage = &p.system_usage,
+                .usage_cursor = s.usage_cursor,
+            };
+            const connection = &slot.*.?;
+            @memcpy(connection.thread[0..s.thread.len], s.thread);
+            const transport = &connection.transport;
+            transport.child.id = s.pid;
+            transport.child.stdin = .{ .handle = s.stdin };
+            transport.child.stdout = .{ .handle = s.stdout };
+            os.cloexec(s.stdin);
+            os.cloexec(s.stdout);
+            children[child_slot] = .{ .pid = s.pid, .exited = s.exited };
+            transport.input = .fromOwnedSlice(try binary.decode(a, s.input));
+            transport.output = .fromOwnedSlice(try binary.decode(a, s.output));
+            transport.deferred = .fromOwnedSlice(try binary.decode(a, s.deferred));
+            for (s.events) |event| {
+                try transport.events.append(a, .{ .seq = event.seq, .line = try a.dupe(u8, event.line) });
+                transport.journal_bytes += event.line.len;
+            }
+            for (s.usage) |entry_usage| {
+                try connection.usage_tracker.begin(entry_usage.thread);
+                connection.usage_tracker.threads.getPtr(entry_usage.thread).?.* = entry_usage.tokens;
+            }
+        };
+    }
+    pub fn inherit(p: *const Pool) void {
+        for (p.slots) |slot| if (slot) |s| {
+            if (s.transport.child.stdin) |f| _ = os.c.fcntl(f.handle, os.c.F_SETFD, @as(c_int, 0));
+            if (s.transport.child.stdout) |f| _ = os.c.fcntl(f.handle, os.c.F_SETFD, @as(c_int, 0));
+        };
+    }
     pub fn deinit(p: *Pool) void {
+        if (p.owned_config) {
+            if (p.config.model) |value| a.free(value);
+            if (p.config.executable) |value| a.free(value);
+            p.config.model = null;
+            p.config.executable = null;
+            p.owned_config = false;
+        }
         for (&p.slots) |*slot| if (slot.*) |*s| {
             s.close();
             slot.* = null;
@@ -556,4 +698,39 @@ test "opt-in live native inference preserves a conversation" {
     try std.testing.expectEqualStrings("Marigold", std.mem.trim(u8, first.text(), " \r\n."));
     const second = try pool.infer(.{ .instructions = instructions, .content = "Reply with the word I asked you to remember.", .conversation = "live-test" }, &stopping);
     try std.testing.expectEqualStrings("Marigold", std.mem.trim(u8, second.text(), " \r\n."));
+}
+
+// Fork imitates the ownership boundary without running a daemon or contacting
+// providers. The source remains idle until the importing child exits.
+test "live inference checkpoint continues the same process and conversation" {
+    for ([_]Provider{ .codex, .claude }) |provider| {
+        var pool = try fixturePool(provider);
+        defer a.free(pool.config.executable.?);
+        defer pool.deinit();
+        var stopping: std.atomic.Value(bool) = .init(false);
+        const request: Request = .{ .instructions = "Return JSON", .content = "snapshot", .conversation = "reload" };
+        const first = try pool.infer(request, &stopping);
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        const saved = try pool.capture(arena.allocator());
+        const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+        const pid = os.c.fork();
+        if (pid < 0) return error.ForkFailed;
+        if (pid == 0) {
+            children = @splat(null);
+            const parsed = std.json.parseFromSlice(Checkpoint, a, json, .{}) catch os.c._exit(1);
+            var imported: Pool = .{ .config = .{} };
+            imported.restore(parsed.value) catch os.c._exit(2);
+            const second = imported.infer(request, &stopping) catch os.c._exit(3);
+            const same_pid = (fixtureValue(&first, "pid") catch os.c._exit(4)) == (fixtureValue(&second, "pid") catch os.c._exit(5));
+            const same_turn = (fixtureValue(&second, "turn") catch os.c._exit(6)) == 2;
+            const same_usage = imported.system_usage.meter.value.tokens.total() == 2020;
+            // A pre-commit candidate must never run destructors for inherited
+            // child processes. Closing only its fd duplicates is safe.
+            os.c._exit(if (same_pid and same_turn and same_usage) 0 else 7);
+        }
+        var status: c_int = 0;
+        try std.testing.expectEqual(pid, os.c.waitpid(pid, &status, 0));
+        try std.testing.expectEqual(@as(c_int, 0), status);
+    }
 }

@@ -94,9 +94,25 @@ const Entry = struct {
     pending: bool = false,
     name: Name = .{},
 };
+pub fn validateName(name: Name) !void {
+    if (name.len > name.bytes.len) return error.InvalidCheckpoint;
+    if (name.len != 0 and Name.parse(name.text()) == null) return error.InvalidCheckpoint;
+}
 pub const Cache = struct {
     entries: [capacity]?Entry = @splat(null),
     generation: u64 = 0,
+    /// Live-only: retain both successful names and spent attempts. A temporary
+    /// gap in port discovery after reload must not renew an inference budget.
+    pub fn restore(saved: Cache) !Cache {
+        for (saved.entries, 0..) |entry, i| if (entry) |e| {
+            if (e.generation == 0 or e.generation > saved.generation or (e.pending and !e.attempted)) return error.InvalidCheckpoint;
+            try validateName(e.name);
+            for (saved.entries[0..i]) |prior| if (prior) |p| {
+                if (p.generation == e.generation or std.meta.eql(p.key, e.key)) return error.InvalidCheckpoint;
+            };
+        };
+        return saved;
+    }
     /// One naming attempt per endpoint identity for the pane lifetime. Health
     /// probes, missing scans, and terminal output never renew the inference budget.
     pub fn reconcile(cache: *Cache, runtime: anytype, worker: anytype, _: i64) bool {

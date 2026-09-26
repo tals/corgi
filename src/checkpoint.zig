@@ -148,6 +148,7 @@ pub const Native = struct {
     resume_hint: Resume,
 };
 pub const Conversation = struct {
+    status_inference: @import("activity_summary.zig").Conversation = .{},
     id: u32,
     agent: agents.Agent,
     screen_compacting: ?bool = null,
@@ -164,6 +165,7 @@ pub const Binding = struct {
     provisional: agents.Agent = .{},
 };
 pub const State = struct {
+    link_labels: @import("link_labels.zig").Cache = .{},
     last_agent: @import("agent_launcher.zig").Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
@@ -226,14 +228,15 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
         out.* = .{ .binding = try captureBinding(alloc, &s.attachment, live), .members = members, .approval_actors = approval_actors, .usage_tracker = s.usage_tracker, .id = s.id, .provider = s.provider, .cwd = s.cwd, .workspace_id = s.workspace_id, .pid = if (live) s.child.id else -1, .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1, .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1, .ready = s.ready, .exited = s.exited, .state = s.status(), .attention = s.attention(), .input = try binary.encode(alloc, if (live) s.input.items else ""), .output = try binary.encode(alloc, if (live) s.output.items else ""), .deferred = try binary.encode(alloc, if (live) s.deferred.items else ""), .events = s.events.items, .approvals = try s.approvalLines(alloc), .turns = turns, .observation = s.observation(), .tools = s.active_tools.items, .next_seq = s.next_seq, .journal_bytes = s.journal_bytes, .resume_hint = s.resume_hint };
     }
     const actors = try alloc.alloc(Conversation, r.conversations.items.items.len);
-    for (r.conversations.items.items, actors) |actor, *out| out.* = .{ .id = actor.id, .agent = if (live) actor.state else historicalAgent(actor.state), .screen_compacting = live and actor.screen_compacting, .parent = actor.parent, .workspace = actor.workspace, .observed_at = if (live) actor.observed_at else 0 };
-    return .{ .last_agent = r.last_agent, .agent_yolo = r.agent_yolo, .agent_hidden = r.agent_hidden, .agent_commands = r.agent_commands, .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
+    for (r.conversations.items.items, actors) |actor, *out| out.* = .{ .status_inference = if (live) actor.status_inference else .{}, .id = actor.id, .agent = if (live) actor.state else historicalAgent(actor.state), .screen_compacting = live and actor.screen_compacting, .parent = actor.parent, .workspace = actor.workspace, .observed_at = if (live) actor.observed_at else 0 };
+    return .{ .link_labels = if (live) r.link_labels else .{}, .last_agent = r.last_agent, .agent_yolo = r.agent_yolo, .agent_hidden = r.agent_hidden, .agent_commands = r.agent_commands, .conversations = actors, .next_conversation = r.conversations.next_id, .live = live, .saved_at = std.time.timestamp(), .next_workspace = r.workspaces.next_id, .next_pane = r.workspaces.next_pane_id, .next_session = r.next_session, .revision = r.revision, .workspaces = workspaces, .panes = panes, .closed = closed, .sessions = sessions };
 }
 // Callers own a staging runtime. Live import errors exit the candidate without
 // calling destructors: inherited descriptors are still owned by the old daemon.
 pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8, executable: []const u8) !void {
     if ((state.version != 1 and state.version != 2) or state.conversations.len > conversations.max_actors or state.live != live or state.workspaces.len == 0 or state.workspaces.len > workspace.max_workspaces or
         state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16) return error.InvalidCheckpoint;
+    r.link_labels = if (live) try @import("link_labels.zig").Cache.restore(state.link_labels) else .{};
     for (state.workspaces) |w| {
         if (w.id == 0 or w.id >= state.next_workspace or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
         var item: workspace.Workspace = .{ .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
@@ -255,6 +258,9 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         if (saved.id == 0 or saved.id >= state.next_conversation or r.conversations.byId(saved.id) != null or !validAgent(saved.agent) or saved.agent.provider == .other or saved.agent.session_len == 0 or
             r.conversations.find(saved.agent.provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;
         const actor = try r.conversations.get(saved.agent.provider, saved.agent.sessionId());
+        if (saved.status_inference.len > saved.status_inference.recent.len or saved.status_inference.previous.len > saved.status_inference.previous.bytes.len) return error.InvalidCheckpoint;
+        for (saved.status_inference.recent) |entry| if (entry.len > entry.bytes.len) return error.InvalidCheckpoint;
+        actor.status_inference = if (live) saved.status_inference else .{};
         actor.id = saved.id;
         actor.state = if (live) saved.agent else historicalAgent(saved.agent);
         if (live) actor.restoreCompaction(saved.screen_compacting, std.time.microTimestamp());

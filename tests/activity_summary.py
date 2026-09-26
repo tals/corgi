@@ -86,12 +86,12 @@ class Summaries(codex_titles.Titles):
         request=next(r for r in records if r['event']=='request')
         result=next(r for r in records if r['event']=='result')
         self.assertEqual(request['input'],self.calls()[0])
-        self.assertIn('exactly 2 or 3 words',request['instructions'])
+        self.assertIn('2 or 3 words',request['instructions'])
         self.assertEqual(request['context'],result['context'])
         self.assertEqual(request['context']['source']['panes'],[self.pane])
         self.assertEqual(request['context']['source']['session'],codex_titles.A)
         self.assertEqual(request['context']['turn'],'active')
-        self.assertEqual(result['output'],raw)
+        self.assertEqual(json.loads(result['output']),{'label':raw})
         self.assertEqual(result['status'],'validated')
     def test_summary_log_identifies_inference_error(self):
         self.control.write_text(json.dumps({'delay':0,'fail':True}))
@@ -110,7 +110,7 @@ class Summaries(codex_titles.Titles):
             self.start_turn(tid=f'concise-{i}',wave=False)
             self.until(lambda:self.state()['activity']==label)
             result=[r for r in self.summary_logs() if r['event']=='result'][-1]
-            self.assertEqual((result['status'],result['output']),('validated',label))
+            self.assertEqual((result['status'],json.loads(result['output'])['label']),('validated',label))
             time.sleep(1)
             self.assertEqual(len(self.calls()),i+1)
     def test_compaction_overrides_current_activity_and_remains_in_timeline(self):
@@ -374,8 +374,31 @@ class Summaries(codex_titles.Titles):
         self.assertEqual(request['input'],self.calls()[0])
         self.assertEqual(result['context'],request['context'])
         self.assertEqual(result['context']['source']['panes'],[self.pane])
-        self.assertEqual(result['output'],'This label has far too many words')
+        self.assertEqual(json.loads(result['output'])['label'],'This label has far too many words')
         self.assertEqual((result['status'],result['err']),('rejected','InvalidWordCount'))
+
+    def test_abstention_waits_for_evidence_without_failure_backoff(self):
+        self.control.write_text(json.dumps({'label':None}))
+        self.start_turn(wave=False)
+        self.until(lambda:any(r.get('status')=='abstained' for r in self.summary_logs()))
+        self.assertEqual(self.state()['activity'],'')
+        self.assertEqual(self.state()['state'],'working')
+        time.sleep(9)
+        self.assertEqual(len(self.calls()),1) # unchanged evidence is not queried again
+        self.control.write_text(json.dumps({'label':'Fixing cursor visibility'}))
+        self.items[codex_titles.A][-1]['text']='I am fixing cursor visibility.'
+        self.until(lambda:self.state()['activity']=='Fixing cursor visibility',timeout=12)
+        self.assertEqual(len(self.calls()),2) # no 60-second error retry delay
+
+    def test_abstention_clears_stale_activity_without_changing_lifecycle(self):
+        self.start_turn(wave=False)
+        self.until(lambda:self.state()['activity']=='Tracing pane focus')
+        self.control.write_text(json.dumps({'label':None}))
+        self.items[codex_titles.A]=[{'type':'userMessage','content':[{'type':'text','text':'continue'}]}]
+        self.until(lambda:any(r.get('status')=='abstained' for r in self.summary_logs()),timeout=12)
+        self.until(lambda:self.state()['activity']=='')
+        self.assertEqual(self.state()['state'],'working')
+        self.assertEqual(self.state()['attention'],'none')
 
 
 class ClaudeSummaries(unittest.TestCase):

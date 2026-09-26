@@ -13,3 +13,6 @@ __pycache__/
 
 # Local Lavish review artifacts.
 /.lavish/
+
+# Repeatable live-model eval outputs; curated scorecards can be checked in separately.
+/evals/results/

@@ -37,6 +37,7 @@ const Manifest = struct {
     listener: i32,
     requester: i32,
     runtime: cp.State,
+    summaries: ?@import("activity_worker.zig").Checkpoint = null,
     clients: []const SavedClient,
     theme: @import("theme.zig").Theme,
     default_folder_pending: bool,
@@ -72,12 +73,14 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
         if (std.time.milliTimestamp() >= deadline) return error.ReloadInputBackpressure;
         _ = c.poll(null, 0, 5);
     }
+    if (s.summaries) |worker| try worker.pause();
+    defer if (s.summaries) |worker| worker.unpause();
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const alloc = arena.allocator();
     const clients = try alloc.alloc(SavedClient, s.clients.items.len);
     for (s.clients.items, clients) |cl, *out| out.* = .{ .fd = cl.fd, .input = try binary.encode(alloc, cl.input.items), .output = try binary.encode(alloc, cl.output.items[cl.sent..]), .viewer = cl.viewer, .viewer_id = cl.viewer_id, .active_seq = cl.active_seq, .view_workspace = cl.view_workspace, .view_focus = cl.view_focus, .interests = cl.interests[0..cl.interest_count], .watched = cl.watched, .controls = cl.controls.items, .next_control = cl.next_control, .last_control = cl.last_control, .protocol_version = cl.protocol_version, .subscribed = cl.subscribed, .launch_preview = cl.launch_preview, .snapshot_revision = cl.snapshot_revision, .touched = cl.touched };
-    const manifest: Manifest = .{ .preferred_workspace = s.preferred_workspace, .listener = listener, .requester = requester, .runtime = try cp.capture(alloc, &s.runtime, true), .clients = clients, .theme = s.theme, .default_folder_pending = s.default_folder_pending, .next_viewer = s.next_viewer, .next_active = s.next_active, .bell_seq = s.bell_seq, .last_bell = s.last_bell, .last_bell_kind = s.last_bell_kind };
+    const manifest: Manifest = .{ .preferred_workspace = s.preferred_workspace, .listener = listener, .requester = requester, .runtime = try cp.capture(alloc, &s.runtime, true), .summaries = if (s.summaries) |worker| try worker.capture(alloc) else null, .clients = clients, .theme = s.theme, .default_folder_pending = s.default_folder_pending, .next_viewer = s.next_viewer, .next_active = s.next_active, .bell_seq = s.bell_seq, .last_bell = s.last_bell, .last_bell_kind = s.last_bell_kind };
     const bytes = try std.json.Stringify.valueAlloc(alloc, manifest, .{});
     if (bytes.len > 256 * 1024 * 1024) return error.CheckpointTooLarge;
     const name = try std.fmt.allocPrint(alloc, "{s}.handoff-{d}-{x}", .{ s.socket, c.getpid(), std.crypto.random.int(u64) });
@@ -111,6 +114,7 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
             if (n.child.stdin) |f| inherit(f.handle);
             if (n.child.stdout) |f| inherit(f.handle);
         }
+        if (s.summaries) |worker| worker.implementation.pool.inherit();
         os.exec(&.{ executable, "__handoff", state_arg, control_arg }) catch c._exit(127);
     }
     errdefer {
@@ -160,6 +164,7 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         s = .{ .preferred_workspace = m.preferred_workspace, .socket = socket, .executable = executable, .inherited_listener = m.listener, .theme = m.theme, .default_folder_pending = m.default_folder_pending, .next_viewer = m.next_viewer, .next_active = m.next_active, .bell_seq = m.bell_seq, .last_bell = m.last_bell, .last_bell_kind = m.last_bell_kind };
         os.cloexec(m.listener);
         try cp.restore(&s.runtime, m.runtime, true, socket, executable);
+        if (m.summaries) |saved| s.summaries = try @import("activity_worker.zig").Worker.restore(saved);
         for (m.clients) |saved| {
             if (saved.interests.len > @import("layout.zig").max_panes) return error.InvalidCheckpoint;
             var cl: peer.Client = .{ .fd = saved.fd, .viewer = saved.viewer, .viewer_id = saved.viewer_id, .active_seq = saved.active_seq, .view_workspace = saved.view_workspace, .view_focus = saved.view_focus, .watched = saved.watched, .next_control = saved.next_control, .last_control = saved.last_control, .protocol_version = saved.protocol_version, .subscribed = saved.subscribed, .launch_preview = saved.launch_preview, .snapshot_revision = saved.snapshot_revision, .touched = std.time.milliTimestamp() };

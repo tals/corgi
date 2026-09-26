@@ -108,6 +108,21 @@ s.serve_forever()
         self.assertIn('Open Finance ↗', final)
         self.assertEqual(colors(final), [])
 
+    def test_inflight_result_and_cached_name_survive_reload_without_rebilling(self):
+        self.control.write_text(json.dumps({'label': 'Finance', 'delay': 2.5}))
+        self.start_server()
+        self.until(self.log.exists, timeout=25)
+        self.assertTrue(any(e.get('label_pending') for e in self.endpoints()))
+        self.rpc(op='server.reload', protocol=1, executable=smoke.EXE)
+        self.until(lambda: any(e.get('label') == 'Finance' and not e.get('label_pending') for e in self.endpoints()), timeout=25)
+        self.assertEqual(len(self.log.read_text().splitlines()), 1,
+                         'completed in-flight link inference was billed again')
+        self.rpc(op='server.reload', protocol=1, executable=smoke.EXE)
+        self.until(lambda: any(e.get('label') == 'Finance' for e in self.endpoints()), timeout=25)
+        time.sleep(1)
+        self.assertEqual(len(self.log.read_text().splitlines()), 1,
+                         'cached link name was inferred again after reload')
+
     def test_invalid_guess_keeps_fallback_and_does_not_loop(self):
         self.control.write_text(json.dumps({'label': 'Bad\u001b[2J', 'delay': 0}))
         self.start_server()
