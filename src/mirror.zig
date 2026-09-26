@@ -20,6 +20,8 @@ pub const Terminal = struct {
     bottom: usize = 0,
     selection: ?Selection = null,
     holding_selection: bool = false,
+    known: ?surface.Stamp = null,
+    render_dirty: bool = true,
     pending: std.ArrayList(u8) = .empty,
     pub fn emulator(t: *Terminal) *vt.Terminal {
         return &t.inner.vt;
@@ -31,7 +33,9 @@ pub const Terminal = struct {
         return &t.inner.render;
     }
     pub fn updateRender(t: *Terminal) !void {
+        if (!t.render_dirty) return;
         try t.inner.updateRender();
+        t.render_dirty = false;
     }
     pub fn destroy(t: *Terminal) void {
         t.inner.destroy();
@@ -45,6 +49,7 @@ pub const Terminal = struct {
         t.selection = null;
         t.holding_selection = false;
         try t.inner.clearSelection();
+        t.render_dirty = true;
     }
     pub fn scrollViewport(t: *Terminal, scroll: vt.Terminal.ScrollViewport) void {
         t.offset = switch (scroll) {
@@ -59,6 +64,7 @@ pub const Terminal = struct {
     pub fn select(t: *Terminal, x: u16, y: u16, end_x: u16, end_y: u16) !void {
         t.selection = .{ .x = x, .y = y, .end_x = end_x, .end_y = end_y };
         try t.inner.select(x, y, end_x, end_y);
+        t.render_dirty = true;
     }
     pub fn selectedText(t: *Terminal) ![]const u8 {
         return t.inner.selectedText();
@@ -69,6 +75,8 @@ pub const Terminal = struct {
         const offset = response.value.object.get("offset") orelse return false;
         if (offset == .null) return false;
         t.offset = @intCast(offset.integer);
+        // A match on the current viewport still needs its selection applied.
+        t.known = null;
         if (response.value.object.get("match")) |match| if (match != .null) {
             const parsed = try std.json.parseFromValue(Selection, a, match, .{});
             defer parsed.deinit();
@@ -93,6 +101,7 @@ pub const Terminal = struct {
         if (t.holding_selection) return;
         const frame = view.surface;
         if (frame.cols == 0 or frame.rows == 0) return;
+        t.render_dirty = true;
         try t.inner.resize(frame.cols, frame.rows);
         t.inner.feed("\x1b[?7l\x1b[0m\x1b[H\x1b[2J");
         var bytes: std.Io.Writer.Allocating = .init(a);
@@ -117,7 +126,10 @@ pub const Terminal = struct {
         t.bottom = view.bottom;
         if (t.offset != null) t.offset = view.offset;
         if (t.selection) |sel| try t.inner.select(sel.x, sel.y, sel.end_x, sel.end_y);
-        try t.inner.updateRender();
+        try t.updateRender();
+        // Only acknowledge surfaces actually installed. A mouse gesture may
+        // hold the old display while the daemon continues collecting output.
+        t.known = view.stamp;
     }
 };
 pub const Pane = struct {
@@ -141,6 +153,7 @@ pub const Workspaces = struct {
 };
 pub const Runtime = struct {
     snapshot: ?std.json.Parsed(protocol.Snapshot) = null,
+    snapshot_hash: ?u64 = null,
     workspaces: Workspaces = .{},
     panes: std.ArrayList(Pane) = .empty,
     sessions: []const protocol.Native = &.{},
@@ -199,6 +212,7 @@ pub const Runtime = struct {
         r.panes.deinit(a);
         if (r.snapshot) |previous| previous.deinit();
         r.snapshot = parsed;
+        r.snapshot_hash = null;
         r.panes = panes;
         r.workspaces.items = snapshot.workspaces;
         r.sessions = snapshot.native_sessions;

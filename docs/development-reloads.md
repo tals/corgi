@@ -147,6 +147,18 @@ Viewer operations are:
   shared viewport. Selection and clipboard formatting remain local.
 - `viewer.list`: inspect IDs and last reported selections for targeting CLI actions.
 
+Viewer open/sync exchanges carry `viewer_protocol: 2`, separately from runtime
+`protocol: 1`. The viewer checks every reply before decoding its payload. An
+incompatible replacement server makes the viewer restore its terminal and exit
+with a reattach explanation; handoff does not upgrade existing viewer processes.
+
+Sync requests include the last session hash and each pane's applied surface
+stamp. Unchanged metadata returns `session: null`; unchanged panes are omitted
+from `surfaces`. Surface stamps cover terminal identity, output revision, and
+requested scroll offset. Handoff imports get new identities, forcing refresh.
+Viewers acknowledge a stamp only after applying it, so held selections cannot
+lose output. Local UI animations continue independently of surface updates.
+
 A pane is sized only by viewers showing it; hidden panes retain their last size.
 Views of the same pane use the minimum requested dimensions. Scroll offsets,
 selections, and paste targets are local. Input batching keeps a bracketed paste

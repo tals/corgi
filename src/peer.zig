@@ -4,7 +4,7 @@ const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
-pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = null };
+pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = null, known: ?@import("surface.zig").Stamp = null };
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
 pub const LaunchPreview = struct {
     cwd: [std.fs.max_path_bytes]u8 = @splat(0),

@@ -215,7 +215,7 @@ while True:
         self.assertEqual(len(self.corgi(op="session.snapshot")["panes"]), 4)
 
     def test_rejected_handoff_rolls_back_and_can_retry(self):
-        self.corgi(op="viewer.open", onboarding=True, cwd=str(self.root))
+        self.corgi(op="viewer.open", viewer_protocol=2, onboarding=True, cwd=str(self.root))
         self.assertEqual(self.corgi(op="session.snapshot")["panes"], [])
         pane, _ = self.source_shell()
         self.source_input(pane, "handoff_token=rollback-survived")

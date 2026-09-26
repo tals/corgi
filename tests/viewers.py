@@ -660,7 +660,7 @@ with open(sys.argv[1], 'wb', buffering=0) as capture:
             client.connect(self.path);client.settimeout(3)
             with client.makefile('rb') as stream:
                 def call(**request):
-                    client.sendall(json.dumps(dict(protocol=1,**request)).encode()+b'\n')
+                    client.sendall(json.dumps(dict(protocol=1,viewer_protocol=2,**request)).encode()+b'\n')
                     return json.loads(stream.readline())
                 call(op='viewer.open',cwd=self.temp.name)
                 call(op='viewer.sync',interests=[dict(pane=first,cols=80,rows=24)],focus=first)

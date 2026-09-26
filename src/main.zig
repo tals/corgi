@@ -8,7 +8,9 @@ const updates = @import("updates.zig");
 pub var build_id: [64]u8 = undefined;
 pub fn main() void {
     run() catch |err| {
-        if (err == error.AmbiguousViewer) {
+        if (err == error.IncompatibleViewerProtocol) {
+            std.debug.print("corgi: this viewer is incompatible with the server (requires viewer protocol {d}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n", .{@import("viewer_version.zig").version});
+        } else if (err == error.AmbiguousViewer) {
             std.debug.print("corgi: multiple viewers are focused on this pane. Detach the intended viewer with Ctrl-B q and run ./go.sh from its terminal.\n", .{});
         } else if (err == error.NestedCorgi) {
             std.debug.print("corgi: cannot attach inside a Corgi pane; detach first or use another terminal.\n", .{});

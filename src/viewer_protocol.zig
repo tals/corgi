@@ -5,6 +5,7 @@ const os = @import("os.zig");
 const a = os.allocator;
 const layout = @import("layout.zig");
 const protocol = @import("protocol.zig");
+const viewer_version = @import("viewer_version.zig");
 const agents = @import("agents.zig");
 const surface = @import("surface.zig");
 const workspace = @import("workspace.zig");
@@ -16,6 +17,10 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         if (eq(u8, op, name)) break true;
     } else false;
     if (!known) return false;
+    if ((eq(u8, op, "viewer.open") or eq(u8, op, "viewer.sync")) and !viewer_version.compatible(v)) {
+        try cl.queue(.{ .err = "UnsupportedViewerProtocol", .viewer_protocol = viewer_version.version });
+        return true;
+    }
     try protocol.require(v, cl.protocol_version);
     if (eq(u8, op, "viewer.open")) {
         if (cl.subscribed or cl.launch_preview != null or cl.viewer) return error.AlreadyAttached;
@@ -46,10 +51,10 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         cl.view_workspace = s.initialWorkspace().id;
         cl.protocol_version = 1;
         if (first) s.updateTheme(v);
-        try cl.queue(.{ .ok = true, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
+        try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (eq(u8, op, "viewer.sync")) {
         if (!cl.viewer) return error.NotAttached;
-        const Request = struct { interests: []const @import("peer.zig").Interest, focus: ?u32 = null, watched: bool = true, workspace: u32 = 0, ack: u64 = 0, active: bool = false };
+        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?u32 = null, watched: bool = true, workspace: u32 = 0, ack: u64 = 0, active: bool = false };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const req = parsed.value;
@@ -93,11 +98,17 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
         const allocator = arena.allocator();
-        const frames = try allocator.alloc(surface.View, cl.interest_count);
-        for (cl.interests[0..cl.interest_count], frames) |interest, *out| {
-            out.* = try surface.captureView(allocator, interest.pane, s.runtime.pane(interest.pane).?.terminal, interest.offset);
+        var frames: std.ArrayList(surface.View) = .empty;
+        for (cl.interests[0..cl.interest_count]) |interest| {
+            const terminal = s.runtime.pane(interest.pane).?.terminal;
+            if (interest.known) |receipt| if (std.meta.eql(receipt, surface.stamp(terminal, interest.offset))) continue;
+            try frames.append(allocator, try surface.captureView(allocator, interest.pane, terminal, interest.offset));
         }
-        try cl.queue(.{ .type = "view", .session = try protocol.snapshot(allocator, &s.runtime), .surfaces = frames, .bell_seq = s.bell_seq, .bell_kind = s.last_bell_kind, .controls = cl.controls.items, .viewer = cl.viewer_id, .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1 });
+        // Snapshot fields include time-dependent usage and metadata updated by
+        // independent workers. Compare the actual payload, not just layout revision.
+        const session = try std.json.Stringify.valueAlloc(allocator, try protocol.snapshot(allocator, &s.runtime), .{});
+        const session_hash = std.hash.Wyhash.hash(0, session);
+        try cl.queue(.{ .type = "view", .viewer_protocol = viewer_version.version, .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session }, .session_hash = session_hash, .surfaces = frames.items, .bell_seq = s.bell_seq, .bell_kind = s.last_bell_kind, .controls = cl.controls.items, .viewer = cl.viewer_id, .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1 });
     } else if (eq(u8, op, "viewer.search")) {
         const p = s.runtime.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
         const Request = struct { needle: []const u8, skip: usize = 0 };
@@ -126,6 +137,15 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
     }
     return true;
 }
+
+const SnapshotJson = struct {
+    bytes: []const u8,
+    pub fn jsonStringify(self: SnapshotJson, writer: *std.json.Stringify) !void {
+        try writer.beginWriteRaw();
+        try writer.writer.writeAll(self.bytes);
+        writer.endWriteRaw();
+    }
+};
 
 /// A pane takes the size shown by the most recently used viewer displaying it;
 /// other viewers clip or pad. Hidden panes retain their last size.

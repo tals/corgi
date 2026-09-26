@@ -22,6 +22,20 @@ pub const Connection = struct {
         }
         return result;
     }
+    pub fn callViewer(conn: *Connection, value: anytype) !std.json.Parsed(std.json.Value) {
+        const result = try conn.request(value);
+        errdefer result.deinit();
+        const err = @import("agents.zig").str(result.value, "err");
+        if (err.len > 0) {
+            if (std.mem.eql(u8, err, "UnsupportedViewerProtocol") or
+                std.mem.eql(u8, err, "UnsupportedProtocol") or
+                std.mem.eql(u8, err, "ProtocolRequired")) return error.IncompatibleViewerProtocol;
+            return error.ServerRejected;
+        }
+        // Validate the envelope before any viewer-specific payload is decoded.
+        try @import("viewer_version.zig").require(result.value);
+        return result;
+    }
     pub fn send(conn: *Connection, value: anytype) !void {
         const response = try conn.call(value);
         response.deinit();

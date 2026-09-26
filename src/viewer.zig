@@ -7,6 +7,7 @@ const a = os.allocator;
 const agents = @import("agents.zig");
 const layout = @import("layout.zig");
 const protocol = @import("protocol.zig");
+const viewer_version = @import("viewer_version.zig");
 const surface = @import("surface.zig");
 const controller = @import("controller.zig");
 const peer = @import("peer.zig");
@@ -16,6 +17,7 @@ const Response = struct {
     viewer: u32,
     controls: []const peer.Control,
     session: std.json.Value,
+    session_hash: u64,
     surfaces: []const surface.View,
     bell_seq: u64,
     bell_kind: agents.Attention,
@@ -29,7 +31,7 @@ fn openMode(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, soc
     view.remote_links = @import("ports.zig").sshViewer();
     view.loadPreferences();
     if (start_onboarding) view.openOnboarding();
-    const opened = try view.connection.call(.{ .op = "viewer.open", .protocol = 1, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
+    const opened = try view.connection.callViewer(.{ .op = "viewer.open", .protocol = 1, .viewer_protocol = viewer_version.version, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
     defer opened.deinit();
     view.navigation.workspace_id = try protocol.id(opened.value, "workspace");
     view.input_state.attached = true;
@@ -60,16 +62,17 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     var count: usize = 0;
     for (view.layoutView().placements(view.area(), &places)) |place| {
         const p = view.runtime.pane(place.id) orelse continue;
-        interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset };
+        interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset, .known = p.terminal.known };
         count += 1;
     }
-    const response = try view.connection.call(.{ .op = "viewer.sync", .protocol = 1, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?u32, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
+    const response = try view.connection.callViewer(.{ .op = "viewer.sync", .protocol = 1, .viewer_protocol = viewer_version.version, .session_hash = view.runtime.snapshot_hash, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?u32, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
     view.input_state.active = false;
     defer response.deinit();
     const parsed = try std.json.parseFromValue(Response, a, response.value, .{ .ignore_unknown_fields = true });
     defer parsed.deinit();
     const reply = parsed.value;
-    try view.receiveSnapshot(reply.session);
+    if (reply.session != .null) try view.receiveSnapshot(reply.session);
+    view.runtime.snapshot_hash = reply.session_hash;
     view.input_state.viewer_id = reply.viewer;
     for (reply.controls) |control| {
         if (control.seq <= view.input_state.last_control) continue;

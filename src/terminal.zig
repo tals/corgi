@@ -7,6 +7,9 @@ pub const Terminal = struct {
     vt: vt.Terminal,
     stream: vt.TerminalStream,
     render: vt.RenderState = .empty,
+    // New terminal instances (including handoff imports) invalidate viewer receipts.
+    surface_identity: u64,
+    surface_revision: u64 = 0,
     links: @import("hyperlinks.zig").Snapshot = .{},
     fd: c_int = -1,
     pid: c_int = -1,
@@ -25,6 +28,7 @@ pub const Terminal = struct {
 
     pub fn applyTheme(t: *Terminal, theme: @import("theme.zig").Theme) void {
         theme.apply(&t.vt);
+        t.surface_revision +%= 1;
     }
     const synchronized_timeout_ms = 1000;
 
@@ -41,7 +45,7 @@ pub const Terminal = struct {
     pub fn create(cols: u16, rows: u16) !*Terminal {
         const t = try a.create(Terminal);
         errdefer a.destroy(t);
-        t.* = .{ .vt = try vt.Terminal.init(a, .{ .cols = @max(1, cols), .rows = @max(1, rows), .max_scrollback = 10_000 }), .stream = undefined };
+        t.* = .{ .vt = try vt.Terminal.init(a, .{ .cols = @max(1, cols), .rows = @max(1, rows), .max_scrollback = 10_000 }), .stream = undefined, .surface_identity = std.crypto.random.int(u64) };
         // Answer OSC 10/11 even before a client supplies its host theme. These
         // match RenderState's fallback colors for headless or non-querying hosts.
         t.vt.colors.foreground = .init(.{ .r = 255, .g = 255, .b = 255 });
@@ -232,6 +236,7 @@ pub const Terminal = struct {
         const h = @max(1, rows);
         if (t.vt.cols == w and t.vt.rows == h) return;
         try t.vt.resize(a, w, h);
+        t.surface_revision +%= 1;
         var ws = std.mem.zeroes(c.struct_winsize);
         ws.ws_col = w;
         ws.ws_row = h;
@@ -239,6 +244,7 @@ pub const Terminal = struct {
     }
     pub fn feed(t: *Terminal, bytes: []const u8) void {
         t.stream.nextSlice(bytes);
+        if (bytes.len > 0) t.surface_revision +%= 1;
         if (t.vt.modes.get(.synchronized_output)) {
             if (t.synchronized_since == null) t.synchronized_since = std.time.milliTimestamp();
         } else {
@@ -247,6 +253,7 @@ pub const Terminal = struct {
     }
     fn endSynchronizedOutput(t: *Terminal) void {
         t.vt.modes.set(.synchronized_output, false);
+        t.surface_revision +%= 1;
         t.synchronized_since = null;
     }
     fn expireSynchronizedOutput(t: *Terminal, now: i64) bool {

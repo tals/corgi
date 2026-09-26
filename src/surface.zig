@@ -110,7 +110,13 @@ pub const Modes = struct {
     mouse_event: @FieldType(vt.input.MouseEncodeOptions, "event"),
     mouse_format: @FieldType(vt.input.MouseEncodeOptions, "format"),
 };
-pub const View = struct { surface: Surface, bottom: usize, offset: usize, modes: Modes };
+/// A receipt for a particular terminal and requested viewport. It is independent
+/// of Ghostty's dirty flags, which other render consumers are allowed to clear.
+pub const Stamp = struct { identity: u64, revision: u64, offset: ?usize };
+pub fn stamp(t: *const terminal.Terminal, offset: ?usize) Stamp {
+    return .{ .identity = t.surface_identity, .revision = t.surface_revision, .offset = offset };
+}
+pub const View = struct { surface: Surface, bottom: usize, offset: usize, modes: Modes, stamp: Stamp };
 
 /// Borrow a viewport for a synchronous capture; never change another viewer's
 /// scroll or selection. A pending synchronized redraw keeps its completed frame.
@@ -138,6 +144,7 @@ pub fn captureView(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal,
     }
     return .{
         .surface = try capture(allocator, id, t),
+        .stamp = stamp(t, offset),
         .bottom = bottom,
         .offset = @min(offset orelse bottom, bottom),
         .modes = .{
