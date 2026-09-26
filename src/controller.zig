@@ -95,6 +95,7 @@ pub const Controller = struct {
     scope_menu: ?sidebar.ScopeMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
+    launcher_selection: ?@import("agent_launcher.zig").Row = null,
     launch_previews: @import("launch_preview_stream.zig").Stream = .{},
     corgi_setup: ?@import("corgi_setup.zig").Menu = null,
     launcher_hover_blocked: bool = false,
@@ -562,7 +563,7 @@ pub const Controller = struct {
     fn openMenu(s: *Self) void {
         s.link_tooltip.cancel();
         s.agent_picker = null;
-        s.agent_launcher = null;
+        s.closeLauncher();
         s.scope_menu = null;
         s.corgi_setup = null;
         s.launcher_hover_blocked = true;
@@ -579,7 +580,7 @@ pub const Controller = struct {
         s.workspace_chooser = null;
         s.link_tooltip.cancel();
         s.agent_picker = null;
-        s.agent_launcher = null;
+        s.closeLauncher();
         s.scope_menu = null;
         s.corgi_setup = null;
         s.launcher_hover_blocked = true;
@@ -816,6 +817,7 @@ pub const Controller = struct {
         @memcpy(cwd[0..dir.len], dir);
         const len = dir.len;
         s.closeMenu();
+        s.launcher_selection = .of(provider orelse s.runtime.last_agent);
         const created = s.execute(.{ .@"agent.create" = .{ .workspace = s.current().id, .cwd = cwd[0..len], .provider = provider } }) catch |err| {
             s.notice(@errorName(err));
             return;
@@ -825,6 +827,7 @@ pub const Controller = struct {
     }
     fn launchRow(s: *Self, row: @import("agent_launcher.zig").Row) !void {
         if (s.agent_launcher) |*launch| {
+            if (!launch.managing and row != .manage) launch.selected = row;
             if (launch.managing and row == .add) return s.saveInlineCommand();
             if (launch.managing and row.custom() != null) {
                 launch.edit(row);
@@ -839,8 +842,10 @@ pub const Controller = struct {
                 return;
             };
             if (row == .manage) {
+                s.rememberLauncherSelection();
                 launch.managing = !launch.managing;
-                launch.selected = if (launch.managing) .add else launch.first();
+                launch.selected = if (launch.managing) .add else s.launcher_selection orelse launch.first();
+                launch.normalize();
                 launch.pinned = true;
                 s.dirty = true;
                 return;
@@ -964,11 +969,20 @@ pub const Controller = struct {
         }
         s.dirty = true;
     }
+    fn rememberLauncherSelection(s: *Self) void {
+        if (s.agent_launcher) |launch| {
+            if (!launch.managing and launch.selected != .manage and launch.selected != .add) s.launcher_selection = launch.selected;
+        }
+    }
+    fn closeLauncher(s: *Self) void {
+        s.rememberLauncherSelection();
+        s.agent_launcher = null;
+    }
     fn openLauncher(s: *Self, pinned: bool) void {
         s.closeMenu();
         const cwd = s.currentCwd();
         if (cwd.len > std.fs.max_path_bytes) return;
-        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = .of(s.runtime.last_agent), .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .hidden = s.runtime.agent_hidden, .commands = s.runtime.agent_commands, .pinned = pinned };
+        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = s.launcher_selection orelse .of(s.runtime.last_agent), .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .hidden = s.runtime.agent_hidden, .commands = s.runtime.agent_commands, .pinned = pinned };
         @memcpy(launch.cwd[0..cwd.len], cwd);
         launch.preview = s.launch_previews.current(cwd);
         launch.normalize();
@@ -1032,7 +1046,7 @@ pub const Controller = struct {
             launch.commands = s.runtime.agent_commands;
             launch.normalize();
             if (launch.workspace != s.current().id or side.width == 0) {
-                s.agent_launcher = null;
+                s.closeLauncher();
                 return;
             }
             const inside = if (s.pointer) |p| launch.bounds(s.width, s.height, side).contains(p.x, p.y) else false;
