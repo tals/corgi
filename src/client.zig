@@ -26,12 +26,18 @@ fn signalHandler(_: c_int) callconv(.c) void {
     c._exit(0);
 }
 pub fn attach(path: []const u8) !void {
-    if (try attachOnce(path)) |executable| {
+    return attachMode(path, false);
+}
+pub fn onboard(path: []const u8) !void {
+    return attachMode(path, true);
+}
+fn attachMode(path: []const u8, start_onboarding: bool) !void {
+    if (try attachOnce(path, start_onboarding)) |executable| {
         defer a.free(executable);
         try os.exec(&.{ executable, "attach" });
     }
 }
-fn attachOnce(path: []const u8) !?[]const u8 {
+fn attachOnce(path: []const u8, start_onboarding: bool) !?[]const u8 {
     if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
     const fd = try os.connect(path);
     defer _ = c.close(fd);
@@ -57,5 +63,5 @@ fn attachOnce(path: []const u8) !?[]const u8 {
         try os.writeAll(1, "\x1b[?12s\x1b[?12l");
         cursor_blink_saved = true;
     }
-    return try @import("viewer.zig").run(fd, &probe, &input);
+    return try @import("viewer.zig").run(fd, &probe, &input, start_onboarding);
 }

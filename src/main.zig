@@ -23,6 +23,7 @@ fn run() !void {
     defer std.process.argsFree(a, args);
     const no_update = args.len == 2 and eq(args[1], "--no-update");
     const cmd = if (no_update) "attach" else if (args.len > 1) args[1] else "attach";
+    if (eq(cmd, "__herdr_import")) return @import("herdr_adapter.zig").importBridge(args[2..]);
     if (try updates.internal(args)) return;
     if (eq(cmd, "__claude-credentials")) {
         if (args.len != 3) return error.Usage;
@@ -138,6 +139,15 @@ fn run() !void {
         try ensureServer(path, exe);
         updates.background(path, exe) catch {};
     }
+    if (eq(cmd, "onboard")) {
+        if (args.len != 2) return error.Usage;
+        if (os.env("CORGI_PANE")) |pane| {
+            return request(path, .{ .op = "action", .name = "onboard", .pane = try std.fmt.parseInt(u32, pane, 10) });
+        }
+        if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
+        try ensureServer(path, exe);
+        return @import("client.zig").onboard(path);
+    }
     if (eq(cmd, "attach")) return @import("client.zig").attach(path);
     if (eq(cmd, "start")) return;
     if (eq(cmd, "ping") or eq(cmd, "shutdown")) return request(path, .{ .op = cmd });
@@ -250,6 +260,7 @@ const help =
     \\corgi — a small Ghostty-powered agent terminal
     \\
     \\  corgi                         start / attach
+    \\  corgi onboard                 open onboarding, even after setup
     \\  corgi dev                     reload if changed; attach or relaunch viewer
     \\  corgi --no-update             attach without activating a staged update
     \\  corgi update                  download and safely apply an update

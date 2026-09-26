@@ -38,6 +38,8 @@ pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme) !u6
     return @intCast(opened.value.object.get("bell_seq").?.integer);
 }
 pub fn deinit(view: *View) void {
+    if (view.onboarding) |*wizard| wizard.deinit();
+    if (view.clipboard) |bytes| a.free(bytes);
     if (view.executable.len > 0) a.free(view.executable);
     view.dismissName();
     view.input_state.deinit();
@@ -92,7 +94,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
 // Called only after the frame has been written. Receipts refer to the
 // snapshot displayed, never whatever completion happens to be latest remotely.
 pub fn presented(view: *View) !void {
-    if (!view.input_state.watched) return;
+    if (!view.input_state.watched or view.onboarding != null or view.workspace_chooser != null) return;
     var places: [layout.max_panes]layout.Placement = undefined;
     for (view.layoutView().placements(view.area(), &places)) |place| {
         const p = view.runtime.pane(place.id) orelse continue;
@@ -104,13 +106,14 @@ pub fn presented(view: *View) !void {
     }
 }
 
-pub fn run(fd: c_int, probe: *@import("theme.zig").Probe, input: *std.ArrayList(u8)) !?[]const u8 {
+pub fn run(fd: c_int, probe: *@import("theme.zig").Probe, input: *std.ArrayList(u8), start_onboarding: bool) !?[]const u8 {
     var connection: Connection = .{ .fd = fd };
     var view: View = .{ .connection = &connection, .executable = "" };
     defer deinit(&view);
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
     var bell_seq = try open(&view, cwd, probe.theme);
+    if (start_onboarding) view.openOnboarding();
     var openers: @import("url_opener.zig").Openers = .{};
     defer openers.reap();
     var previous: []const u8 = "";

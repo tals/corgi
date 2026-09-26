@@ -61,6 +61,9 @@ pub fn state() State {
     return if ((block(bytes) catch return .failed) != null) .enabled else .disabled;
 }
 fn transform(allocator: std.mem.Allocator, bytes: []const u8, enable: bool) ![]u8 {
+    return transformMode(allocator, bytes, enable, false);
+}
+fn transformMode(allocator: std.mem.Allocator, bytes: []const u8, enable: bool, cmux: bool) ![]u8 {
     const existing = try block(bytes);
     var out: std.Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
@@ -71,19 +74,48 @@ fn transform(allocator: std.mem.Allocator, bytes: []const u8, enable: bool) ![]u
     if (enable) {
         if (out.written().len > 0 and out.written()[out.written().len - 1] != '\n') try out.writer.writeByte('\n');
         try out.writer.writeAll(begin);
-        try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\nkeybind = cmd+t=text:\\x02A\nkeybind = cmd+w=text:\\x02X\nkeybind = ctrl+tab=text:\\x02n\nkeybind = ctrl+shift+tab=text:\\x02p\n");
-        for (1..10) |i| try out.writer.print("keybind = cmd+{d}=text:\\x02{d}\nkeybind = cmd+digit_{d}=text:\\x02{d}\n", .{ i, i, i, i });
+        if (cmux) {
+            try out.writer.writeAll("# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n");
+            const Binding = struct { host: []const u8, cp: u21, mods: u8 };
+            const bindings = [_]Binding{
+                .{ .host = "cmd+t", .cp = 't', .mods = 9 },                    .{ .host = "cmd+n", .cp = 'n', .mods = 9 },
+                .{ .host = "cmd+r", .cp = 'r', .mods = 9 },                    .{ .host = "cmd+shift+r", .cp = 'r', .mods = 10 },
+                .{ .host = "cmd+shift+w", .cp = 'w', .mods = 10 },             .{ .host = "cmd+p", .cp = 'p', .mods = 9 },
+                .{ .host = "cmd+d", .cp = 'd', .mods = 9 },                    .{ .host = "cmd+shift+d", .cp = 'd', .mods = 10 },
+                .{ .host = "cmd+alt+left", .cp = 57350, .mods = 11 },          .{ .host = "cmd+alt+right", .cp = 57351, .mods = 11 },
+                .{ .host = "cmd+alt+up", .cp = 57352, .mods = 11 },            .{ .host = "cmd+alt+down", .cp = 57353, .mods = 11 },
+                .{ .host = "cmd+shift+right_bracket", .cp = ']', .mods = 10 }, .{ .host = "cmd+shift+left_bracket", .cp = '[', .mods = 10 },
+                .{ .host = "cmd+shift+enter", .cp = 13, .mods = 10 },          .{ .host = "cmd+w", .cp = 'w', .mods = 9 },
+                .{ .host = "cmd+shift+m", .cp = 'm', .mods = 10 },             .{ .host = "cmd+shift+p", .cp = 'p', .mods = 10 },
+                .{ .host = "cmd+shift+u", .cp = 'u', .mods = 10 },             .{ .host = "cmd+b", .cp = 'b', .mods = 9 },
+                .{ .host = "cmd+comma", .cp = ',', .mods = 9 },
+            };
+            for (bindings) |binding| try out.writer.print("keybind = {s}=text:\\x1b[{d};{d}u\n", .{ binding.host, binding.cp, binding.mods });
+            for (1..10) |digit| {
+                try out.writer.print("keybind = cmd+{d}=text:\\x1b[{d};9u\nkeybind = ctrl+{d}=text:\\x1b[{d};5u\n", .{ digit, '0' + digit, digit, '0' + digit });
+            }
+            for ("hjkl") |key| try out.writer.print("keybind = ctrl+shift+{c}=text:\\x1b[{d};6u\n", .{ key, key });
+        } else {
+            try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\nkeybind = cmd+t=text:\\x02A\nkeybind = cmd+w=text:\\x02X\nkeybind = ctrl+tab=text:\\x02n\nkeybind = ctrl+shift+tab=text:\\x02p\n");
+            for (1..10) |i| try out.writer.print("keybind = cmd+{d}=text:\\x02{d}\nkeybind = cmd+digit_{d}=text:\\x02{d}\n", .{ i, i, i, i });
+        }
         try out.writer.writeAll(end);
     }
     return allocator.dupe(u8, out.written());
 }
 pub fn setEnabled(enable: bool) !void {
+    return setMode(enable, false);
+}
+pub fn setCmux() !void {
+    return setMode(true, true);
+}
+fn setMode(enable: bool, cmux: bool) !void {
     if (!available()) return error.LocalMacOSOnly;
     const file = try path();
     defer a.free(file);
     const bytes = try read(file);
     defer a.free(bytes);
-    const updated = try transform(a, bytes, enable);
+    const updated = try transformMode(a, bytes, enable, cmux);
     defer a.free(updated);
     if (std.mem.eql(u8, bytes, updated)) return;
     try std.fs.cwd().makePath(std.fs.path.dirname(file).?);

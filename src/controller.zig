@@ -1,6 +1,8 @@
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations are RPC operations.
 const std = @import("std");
 const keyboard = @import("keyboard.zig");
+const keymap = @import("keymap.zig");
+const onboarding = @import("onboarding.zig");
 const os = @import("os.zig");
 const a = os.allocator;
 const layout = @import("layout.zig");
@@ -71,6 +73,11 @@ pub const Controller = struct {
     height: u16 = 30,
     dirty: bool = true,
     prefix: bool = false,
+    key_preset: keymap.Preset = .corgi,
+    key_prefix: keymap.Prefix = .ctrl_b,
+    onboarding: ?onboarding.State = null,
+    workspace_chooser: ?usize = null,
+    clipboard: ?[]const u8 = null,
     menu_page: usize = 0,
     menu_highlight: ?u8 = null,
     sidebar_open: bool = true,
@@ -233,10 +240,16 @@ pub const Controller = struct {
             .all => .all,
             .only => return,
         };
-        preferences.save(.{ .agents = lasting }) catch |err| s.notice(@errorName(err));
+        var saved = preferences.load();
+        saved.agents = lasting;
+        preferences.save(saved) catch |err| s.notice(@errorName(err));
     }
     pub fn loadPreferences(s: *Self) void {
-        s.agent_scope = switch (@import("preferences.zig").load().agents) {
+        const saved = @import("preferences.zig").load();
+        s.key_preset = saved.preset;
+        s.key_prefix = saved.prefix;
+        if (!saved.onboarding_complete) s.onboarding = .{ .preset = saved.preset, .prefix = saved.prefix };
+        s.agent_scope = switch (saved.agents) {
             .workspace => .workspace,
             .all => .all,
         };
@@ -469,12 +482,12 @@ pub const Controller = struct {
     }
     pub fn menu(s: *Self) ?commands.View {
         if (!s.prefix and !s.resize_mode) return null;
-        var view = commands.View.init(s.width, s.height, s.resize_mode, s.menu_page, s.model().count > 0);
+        var view = commands.View.initPreset(s.width, s.height, s.resize_mode, s.menu_page, s.model().count > 0, s.key_preset);
         view.highlighted = s.menu_highlight;
         return view;
     }
     fn hasMenu(s: *Self) bool {
-        return s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null or s.corgi_setup != null or s.scope_menu != null;
+        return s.onboarding != null or s.workspace_chooser != null or s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null or s.corgi_setup != null or s.scope_menu != null;
     }
     fn tabIndex(s: *Self, id: layout.Id) ?usize {
         for (s.model().tabs[0..s.model().count], 0..) |tab, i| if (tab.id == id) return i;
@@ -565,6 +578,7 @@ pub const Controller = struct {
         s.dirty = true;
     }
     fn closeMenu(s: *Self) void {
+        s.workspace_chooser = null;
         s.link_tooltip.cancel();
         s.agent_picker = null;
         s.agent_launcher = null;
@@ -729,12 +743,13 @@ pub const Controller = struct {
     }
     pub fn action(s: *Self, name: []const u8, value: []const u8) !void {
         s.message_len = 0;
+        if (eq(name, "onboard")) return s.openOnboarding();
         if (eq(name, "workspace-next") or eq(name, "workspace-prev")) {
             const count = s.runtime.workspaces.items.len;
             const index = if (eq(name, "workspace-next")) (s.workspaceIndex() + 1) % count else (s.workspaceIndex() + count - 1) % count;
             return s.switchWorkspace(s.runtime.workspaces.items[index].id);
         } else if (eq(name, "new")) {
-            _ = try s.create(null, s.currentCwd(), null, "");
+            s.openLauncher(true);
             s.copy_mode = false;
         } else if (eq(name, "sidebar")) {
             s.sidebar_open = !s.sidebar_open;
@@ -785,6 +800,9 @@ pub const Controller = struct {
     fn copyPane(s: *Self, p: *Pane) !void {
         const text = try p.terminal.selectedText();
         defer a.free(text);
+        if (s.clipboard) |old| a.free(old);
+        s.clipboard = null;
+        s.clipboard = try a.dupe(u8, text);
         const encoded = try a.alloc(u8, std.base64.standard.Encoder.calcSize(text.len));
         defer a.free(encoded);
         _ = std.base64.standard.Encoder.encode(encoded, text);
@@ -1053,7 +1071,24 @@ pub const Controller = struct {
         s.corgi_setup.?.integration = if (s.remote_links) .unavailable else @import("ghostty_integration.zig").state();
         s.dirty = true;
     }
+    pub fn openOnboarding(s: *Self) void {
+        // Repeated commands must preserve an open wizard and any active import.
+        if (s.onboarding != null) return;
+        s.dismissName();
+        s.closeMenu();
+        s.confirm = .none;
+        s.confirm_tab = null;
+        s.copy_mode = false;
+        s.search_mode = false;
+        s.selection = null;
+        s.cancelDividers();
+        s.onboarding = .{ .preset = s.key_preset, .prefix = s.key_prefix };
+        s.dirty = true;
+    }
     fn applySetup(s: *Self, choice: @import("corgi_setup.zig").Choice) void {
+        if (choice == .onboarding) {
+            return s.openOnboarding();
+        }
         if (choice == .ghostty) {
             const integration = @import("ghostty_integration.zig");
             const integration_state = if (s.remote_links) integration.State.unavailable else integration.state();
@@ -1083,7 +1118,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
-            .ghostty => unreachable,
+            .ghostty, .onboarding => unreachable,
             .auto => "Auto (follows your agents)",
             .codex => "Codex",
             .claude => "Claude Code",
@@ -1098,8 +1133,131 @@ pub const Controller = struct {
             s.dirty = true;
         }
     }
+    fn finishOnboarding(s: *Self) !void {
+        const wizard = if (s.onboarding) |*w| w else return;
+        var saved = @import("preferences.zig").load();
+        saved.preset = wizard.preset;
+        saved.prefix = wizard.prefix;
+        saved.onboarding_complete = true;
+        @import("preferences.zig").save(saved) catch |err| {
+            wizard.fail(err);
+            s.dirty = true;
+            return;
+        };
+        s.key_preset = saved.preset;
+        s.key_prefix = saved.prefix;
+        const target = wizard.progress.workspace;
+        wizard.deinit();
+        s.onboarding = null;
+        if (target) |id| {
+            try s.refresh();
+            try s.switchWorkspace(id);
+        } else s.openLauncher(true);
+        s.dirty = true;
+    }
+    fn cyclePane(s: *Self, next: bool) !void {
+        if (s.model().count == 0) return;
+        var places: [layout.max_panes]layout.Placement = undefined;
+        var selection = s.nav().*;
+        selection.tab().zoom = false;
+        const view = layout.View{ .model = s.model(), .selection = &selection };
+        const list = view.placements(s.area(), &places);
+        if (list.len == 0) return;
+        const index = for (list, 0..) |p, i| {
+            if (p.id == s.nav().tab().focus) break i;
+        } else 0;
+        try s.focusPane(list[if (next) (index + 1) % list.len else (index + list.len - 1) % list.len].id);
+    }
+    fn dispatchKey(s: *Self, byte: u8) !void {
+        s.prefix = false;
+        s.dirty = true;
+        switch (byte) {
+            'w' => s.beginWorkspace(null),
+            'W' => s.beginWorkspace(s.current().id),
+            '}' => try s.action("workspace-next", ""),
+            '{' => try s.action("workspace-prev", ""),
+            'c' => try s.action("new", ""),
+            'a', 'A', 1 => s.openLauncher(true),
+            'u' => try s.action("undo-close", ""),
+            'v', '%' => try s.action("split", "right"),
+            '-', '"' => try s.action("split", "down"),
+            'h', 'j', 'k', 'l' => try s.action("focus", direction(byte).?),
+            'H', 'J', 'K', 'L' => try s.action("swap", direction(std.ascii.toLower(byte)).?),
+            'n' => try s.action("next", ""),
+            'p' => try s.action("prev", ""),
+            '1'...'9' => try s.action("tab", &.{byte}),
+            'z' => try s.action("zoom", ""),
+            'f' => try s.action("attention", ""),
+            'b' => try s.action("sidebar", ""),
+            '!' => try s.action("break", ""),
+            'm' => try s.action("mute", ""),
+            'r' => {
+                s.resize_mode = true;
+                s.menu_page = 0;
+                s.menu_highlight = null;
+            },
+            'T', ',' => s.beginRename(),
+            'x' => try s.action("close", ""),
+            'X' => try s.action("close-tab", ""),
+            'g' => s.openAgentPicker(),
+            'i', 'C' => s.openSetup(),
+            '[' => try s.navigateAgent(false),
+            ']' => try s.navigateAgent(true),
+            9 => try s.navigateAgent(null),
+            's' => {
+                s.copy_mode = true;
+                s.dirty = true;
+            },
+            'q', 'd' => s.input_state.attached = false,
+            '?' => s.openMenu(),
+            keymap.workspace_picker => {
+                s.closeMenu();
+                s.workspace_chooser = s.workspaceIndex();
+            },
+            keymap.cycle_next => try s.cyclePane(true),
+            keymap.cycle_prev => try s.cyclePane(false),
+            keymap.close_workspace => try s.closeWorkspace(s.current().id, true),
+            keymap.paste => if (s.clipboard) |text| {
+                if (s.focused()) |p| {
+                    const bracketed = p.terminal.emulator().*.modes.get(.bracketed_paste);
+                    if (bracketed) try s.sendInput(p.terminal, "\x1b[200~");
+                    try s.sendInput(p.terminal, text);
+                    if (bracketed) try s.sendInput(p.terminal, "\x1b[201~");
+                }
+            },
+            245 => if (s.model().count > 9) {
+                s.nav().active = 9;
+            },
+            else => {},
+        }
+    }
     fn key(s: *Self, byte: u8) !void {
         const cl = &s.input_state;
+        if (s.onboarding) |*wizard| {
+            if (byte == 3) {
+                cl.attached = false;
+                return;
+            }
+            const done = wizard.key(byte, s.connection) catch |err| {
+                wizard.fail(err);
+                s.dirty = true;
+                return;
+            };
+            if (done) try s.finishOnboarding();
+            s.dirty = true;
+            return;
+        }
+        if (s.workspace_chooser) |index| {
+            switch (byte) {
+                27 => s.closeMenu(),
+                'j', 14, 9 => s.workspace_chooser = @min(index + 1, s.runtime.workspaces.items.len -| 1),
+                'k', 16 => s.workspace_chooser = index -| 1,
+                13 => try s.switchWorkspace(s.runtime.workspaces.items[index].id),
+                else => {},
+            }
+            s.dirty = true;
+            return;
+        }
         if (s.scope_menu != null) {
             s.closeMenu();
             if (byte == 27) return;
@@ -1131,12 +1289,13 @@ pub const Controller = struct {
                 s.dirty = true;
                 return;
             }
-            if (launch.pinned and byte == 2) {
+            if (launch.pinned and byte == keymap.prefixByte(s.key_prefix)) {
                 s.agent_launcher.?.prefix = true;
                 return;
             }
             s.agent_launcher.?.prefix = false;
-            if ((launch.prefix and byte == 'A') or (launch.pinned and byte == 20)) return s.launchRow(.terminal);
+            if (launch.prefix and (byte == 'c' or byte == 'a' or byte == 'A')) return;
+            if (launch.pinned and byte == 20 and s.key_preset == .corgi) return;
             const navigation = launch.shortcutRow(byte) != null or byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or byte == 'y' or byte == 't' or (byte == 'u' and launch.trackable(launch.selected));
             if (!launch.pinned and !navigation) {
                 s.closeMenu();
@@ -1265,59 +1424,21 @@ pub const Controller = struct {
         if (s.prefix) {
             s.prefix = false;
             s.dirty = true;
-            if (s.model().count == 0) {
-                for (commands.entries) |entry| if (entry.key == byte and entry.needs_pane) return;
+            if (byte == keymap.prefixByte(s.key_prefix)) {
+                if (s.focused()) |p| try s.sendInput(p.terminal, &.{byte});
+                return;
             }
-            switch (byte) {
-                2 => if (s.focused()) |p| try s.sendInput(p.terminal, &.{2}),
-                'w' => s.beginWorkspace(null),
-                'W' => s.beginWorkspace(s.current().id),
-                '}' => try s.action("workspace-next", ""),
-                '{' => try s.action("workspace-prev", ""),
-                'c' => try s.action("new", ""),
-                'a', 'A', 1 => try s.newAgentShortcut(),
-                'u' => try s.action("undo-close", ""),
-                'v', '%' => try s.action("split", "right"),
-                '-', '"' => try s.action("split", "down"),
-                'h', 'j', 'k', 'l' => try s.action("focus", direction(byte).?),
-                'H', 'J', 'K', 'L' => try s.action("swap", direction(std.ascii.toLower(byte)).?),
-                'n' => try s.action("next", ""),
-                'p' => try s.action("prev", ""),
-                '1'...'9' => try s.action("tab", &.{byte}),
-                'z' => try s.action("zoom", ""),
-                'f' => try s.action("attention", ""),
-                'b' => try s.action("sidebar", ""),
-                '!' => try s.action("break", ""),
-                'm' => try s.action("mute", ""),
-                'r' => {
-                    s.resize_mode = true;
-                    s.menu_page = 0;
-                    s.menu_highlight = null;
-                },
-                'T', ',' => s.beginRename(),
-                'x' => try s.action("close", ""),
-                'X' => try s.action("close-tab", ""),
-                'g' => s.openAgentPicker(),
-                'i' => s.openSetup(),
-                '[' => try s.navigateAgent(false),
-                ']' => try s.navigateAgent(true),
-                9 => try s.navigateAgent(null),
-                's' => {
-                    s.copy_mode = true;
-                    s.dirty = true;
-                },
-                'q', 'd' => cl.attached = false,
-                '?' => s.openMenu(),
-                else => {},
-            }
+            if (keymap.resolve(s.key_preset, byte)) |action_key| try s.dispatchKey(action_key);
             return;
         }
-        if (byte == 2) {
+        if (byte == keymap.prefixByte(s.key_prefix)) {
             s.openMenu();
             return;
         }
-        // Ctrl-T mirrors the Ghostty Cmd+T binding (Ctrl-B A).
-        if (byte == 20 and !s.copy_mode) return s.newAgentShortcut();
+        if (byte == 20 and s.key_preset == .corgi and !s.copy_mode) {
+            s.openLauncher(true);
+            return;
+        }
         if (s.copy_mode) {
             switch (byte) {
                 'k' => s.scroll(-1),
@@ -1418,12 +1539,26 @@ pub const Controller = struct {
             defer encoded.deinit();
             if (!cl.paste) {
                 if (keyboard.decode(seq)) |key_event| {
+                    if (s.onboarding == null and s.name_dialog == null and s.workspace_chooser == null and (s.prefix or !s.hasMenu())) {
+                        if (keymap.modified(s.key_preset, s.prefix, key_event)) |binding| {
+                            s.prefix = false;
+                            switch (binding) {
+                                .action => |key_| try s.dispatchKey(key_),
+                                .resize => |key_| try s.action("resize", direction(key_).?),
+                                .workspace => |index| if (index < s.runtime.workspaces.items.len) {
+                                    try s.switchWorkspace(s.runtime.workspaces.items[index].id);
+                                },
+                            }
+                            used += len;
+                            continue;
+                        }
+                    }
                     // Resolve Corgi shortcuts before encoding for the child. A
                     // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
                     try key_event.encode(&encoded.writer, .{});
                     const legacy = encoded.written();
                     const owned = s.hasMenu() or s.name_dialog != null or s.confirm != .none or s.copy_mode or s.search_mode;
-                    if (owned or (legacy.len == 1 and (legacy[0] == 2 or legacy[0] == 20))) {
+                    if (owned or (legacy.len == 1 and (legacy[0] == keymap.prefixByte(s.key_prefix) or (legacy[0] == 20 and s.key_preset == .corgi)))) {
                         seq = legacy;
                     } else if (s.focused()) |p| {
                         encoded.clearRetainingCapacity();
@@ -1461,7 +1596,16 @@ pub const Controller = struct {
                 cl.watched = false;
                 s.pointer = null;
                 s.dirty = true;
-            } else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(seq) else if (s.agent_picker != null) {
+            } else if (std.mem.startsWith(u8, seq, "\x1b[<")) try s.mouse(seq) else if (s.onboarding) |*wizard| {
+                const done = wizard.sequence(seq, s.connection) catch |err| blk: {
+                    wizard.fail(err);
+                    break :blk false;
+                };
+                if (done) try s.finishOnboarding();
+                s.dirty = true;
+            } else if (s.workspace_chooser != null) {
+                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) try s.key(16) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) try s.key(14);
+            } else if (s.agent_picker != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) s.moveAgentPicker(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveAgentPicker(true) else s.agent_picker.?.query.sequence(seq);
             } else if (s.corgi_setup) |*setup| {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) setup.move(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) setup.move(true);
@@ -1478,6 +1622,18 @@ pub const Controller = struct {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.movePortMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.movePortMenu(true);
             } else if (s.tab_menu != null) {
                 if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveTabMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveTabMenu(true);
+            } else if (s.prefix and s.key_preset == .tmux and seq.len == 6 and std.mem.startsWith(u8, seq, "\x1b[1;5")) {
+                s.prefix = false;
+                const d = switch (seq[5]) {
+                    'A' => "up",
+                    'B' => "down",
+                    'C' => "right",
+                    'D' => "left",
+                    else => "",
+                };
+                if (d.len > 0) try s.action("resize", d);
+            } else if (s.prefix and s.key_preset == .herdr and eq(seq, "\x1b[Z")) {
+                try s.dispatchKey(keymap.cycle_prev);
             } else if (s.menu() != null) {
                 if (eq(seq, "\x1b[5~")) s.pageMenu(false) else if (eq(seq, "\x1b[6~")) s.pageMenu(true);
             } else if (s.name_dialog) |*dialog| {
@@ -1527,6 +1683,20 @@ pub const Controller = struct {
         const x = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
         const y = (std.fmt.parseInt(u16, fields.next() orelse return, 10) catch return) -| 1;
         const release = seq[seq.len - 1] == 'm';
+        if (s.onboarding) |*wizard| {
+            if (!release and button == 0) {
+                const done = wizard.click(s.width, s.height, x, y, s.connection) catch |err| blk: {
+                    wizard.fail(err);
+                    break :blk false;
+                };
+                if (done) try s.finishOnboarding();
+            } else if (!release and button & 64 != 0) {
+                if (button & 1 != 0) wizard.scroll += 3 else wizard.scroll -|= 3;
+            }
+            s.dirty = true;
+            return;
+        }
+        if (s.workspace_chooser != null) return;
         const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
         if (!release and button & 32 != 0 and button & 3 == 3 and button & 64 == 0) {
             if (moved) {
@@ -2106,6 +2276,9 @@ pub const Controller = struct {
         s.dirty = true;
     }
     pub fn expireInput(s: *Self) !void {
+        if (s.onboarding) |*wizard| {
+            if (wizard.poll(s.connection)) s.dirty = true;
+        }
         try s.pollLauncher();
         s.pollScopeMenu();
         if (s.link_tooltip.due(std.time.milliTimestamp())) s.dirty = true;
@@ -2158,6 +2331,21 @@ pub const Controller = struct {
         return s.link_tooltip.ready(target, std.time.milliTimestamp());
     }
     pub fn frame(s: *Self) ![]u8 {
+        if (s.onboarding) |*wizard| return wizard.frame(s.width, s.height);
+        if (s.workspace_chooser) |index| {
+            var output: std.Io.Writer.Allocating = .init(a);
+            errdefer output.deinit();
+            try output.writer.writeAll("\x1b[0;38;2;201;208;215;48;2;35;40;47m\x1b[2J\x1b[H Workspaces\r\n\r\n");
+            const capacity = s.height -| 5;
+            const start = index -| (capacity -| 1);
+            for (s.runtime.workspaces.items[start..@min(s.runtime.workspaces.items.len, start + capacity)], start..) |ws, i| {
+                try output.writer.writeAll(if (i == index) " › " else "   ");
+                try sidebar.writeEllipsis(&output.writer, ws.name, s.width -| 5);
+                try output.writer.writeAll("\r\n");
+            }
+            try output.writer.writeAll("\r\n ↑↓ choose · Enter switch · Esc close\x1b[0m\x1b[?25l");
+            return output.toOwnedSlice();
+        }
         s.rememberAgent();
         var native_blocked: usize = 0;
         var native_finished: usize = 0;
@@ -2170,6 +2358,8 @@ pub const Controller = struct {
         const entries = if (s.agent_picker != null) s.pickerEntries(&agent_storage) else s.sidebarEntries(&agent_storage);
         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
         return render.frame(s.layoutView(), s.runtime.panes.items, s.width, s.height, .{
+            .key_preset = s.key_preset,
+            .key_prefix = s.key_prefix,
             .pointer = s.pointer,
             .link_tooltip = try s.linkTooltipReady(),
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],

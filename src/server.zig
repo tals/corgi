@@ -16,6 +16,9 @@ pub const Server = struct {
     runtime: runtime.Runtime = .{},
     command_previews: ?*@import("launch_command.zig").Worker = null,
     launch_previews: ?*@import("agent_launcher.zig").Worker = null,
+    onboarding_copy: @import("onboarding_import.zig").Job = .{},
+    herdr_import: @import("herdr_adapter.zig").Manager = .{},
+    handoff_operation: u64 = 0,
     summaries: ?*@import("activity_worker.zig").Worker = null,
     preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
     default_folder_pending: bool = true,
@@ -99,6 +102,7 @@ pub const Server = struct {
     }
     /// All shared commands have one execution and post-commit path.
     pub fn execute(s: *Server, command: @import("session.zig").Command, allocator: std.mem.Allocator) !@import("session.zig").Result {
+        if (s.herdr_import.locked() or s.onboarding_copy.busy()) return error.ImportInProgress;
         const before = s.runtime.revision;
         const result = try @import("session.zig").execute(&s.runtime, .{ .socket = s.socket, .executable = s.executable, .theme = s.theme }, command, allocator);
         if (s.runtime.revision != before) {
@@ -185,8 +189,41 @@ pub const Server = struct {
     fn request(s: *Server, cl: *Client, v: std.json.Value) !void {
         if (v != .object) return error.UnknownOperation;
         const operation = agents.str(v, "op");
+        if (std.mem.startsWith(u8, operation, "onboarding.")) {
+            try protocol.require(v, cl.protocol_version);
+            const operation_value = v.object.get("operation") orelse return error.InvalidImport;
+            if (operation_value != .integer or operation_value.integer < 0) return error.InvalidImport;
+            const id: u64 = @intCast(operation_value.integer);
+            if (eq(operation, "onboarding.status")) {
+                if (id == s.handoff_operation and id != 0) {
+                    const status = s.herdr_import.status();
+                    try cl.queue(.{ .ok = true, .progress = .{ .phase = @tagName(status.phase), .completed = status.completed, .total = status.total, .workspace = status.workspace, .message = status.message } });
+                } else if (id == s.onboarding_copy.operation and id != 0) {
+                    try cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
+                } else return error.NoImport;
+                return;
+            }
+            if (id == 0) return error.InvalidImport;
+            // Retrying an acknowledged/lost start response must not duplicate work.
+            if ((eq(operation, "onboarding.handoff") and id == s.handoff_operation) or (eq(operation, "onboarding.copy") and id == s.onboarding_copy.operation)) {
+                try cl.queue(.{ .ok = true });
+                return;
+            }
+            if (s.reload_executable != null or s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
+            if (eq(operation, "onboarding.handoff")) {
+                const pgid = try protocol.id(v, "viewer_pgid");
+                if (pgid > std.math.maxInt(i32)) return error.InvalidImport;
+                try s.herdr_import.start(agents.str(v, "socket"), s.executable, s.theme, @intCast(pgid));
+                s.handoff_operation = id;
+            } else if (eq(operation, "onboarding.copy")) {
+                try s.onboarding_copy.start(v, id);
+            } else return error.UnknownOperation;
+            try cl.queue(.{ .ok = true });
+            return;
+        }
         if (eq(operation, "server.reload")) {
             try protocol.require(v, cl.protocol_version);
+            if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
             if (s.reload_executable != null) return error.ReloadInProgress;
             const executable = agents.str(v, "executable");
             if (!std.fs.path.isAbsolute(executable)) return error.InvalidExecutable;
@@ -349,6 +386,7 @@ pub const Server = struct {
             };
             try cl.queue(.{ .ok = true });
         } else if (eq(op, "ping")) try cl.queue(.{ .ok = true, .version = "0.1.0" }) else if (eq(op, "shutdown")) {
+            if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
             s.quit = true;
             try cl.queue(.{ .ok = true });
         } else return error.UnknownOperation;
@@ -525,6 +563,8 @@ pub const Server = struct {
             std.fs.cwd().deleteFile(s.socket) catch {};
         }
         defer s.runtime.deinit();
+        defer s.herdr_import.deinit();
+        defer s.onboarding_copy.deinit();
         const state_path = try workspace.Store.statePath(s.socket);
         defer a.free(state_path);
         if (s.inherited_listener != null) {
@@ -553,6 +593,10 @@ pub const Server = struct {
             s.clients.deinit(a);
         }
         while (!s.quit) {
+            if (s.herdr_import.tick(&s.runtime) or s.onboarding_copy.tick(&s.runtime, .{ .workspace = 0, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable })) {
+                s.dirty = true;
+                s.saveWorkspaces();
+            }
             var polls: [1 + layout.max_panes + 32]c.struct_pollfd = undefined;
             var count: usize = 1;
             polls[0] = .{ .fd = fd, .events = c.POLLIN, .revents = 0 };
@@ -743,7 +787,7 @@ pub const Server = struct {
             // Remove in a separate pass so adjacent exits aren't skipped.
             var pi: usize = 0;
             while (pi < s.runtime.panes.items.len) {
-                if (s.runtime.panes.items[pi].terminal.exited) {
+                if (s.runtime.panes.items[pi].terminal.exited and !s.herdr_import.locked() and !s.onboarding_copy.busy()) {
                     try s.close(s.runtime.panes.items[pi].id);
                 } else pi += 1;
             }

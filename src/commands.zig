@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const keymap = @import("keymap.zig");
 pub const Entry = struct {
     key: u8,
     label: []const u8,
@@ -42,6 +43,34 @@ pub const entries = [_]Entry{
     .{ .key = 'b', .label = "Toggle sidebar", .needs_pane = false },
     .{ .key = 'i', .label = "Corgi setup", .needs_pane = false },
 };
+const EntrySet = struct { values: [64]Entry = undefined, len: usize = 0 };
+fn mapped(comptime preset: keymap.Preset) EntrySet {
+    @setEvalBranchQuota(100000);
+    var set: EntrySet = .{};
+    for (entries) |entry| if (keymap.shortcut(preset, entry.key)) |key| {
+        set.values[set.len] = .{ .key = key, .label = entry.label, .needs_pane = entry.needs_pane };
+        set.len += 1;
+    };
+    for ([_]Entry{
+        .{ .key = keymap.workspace_picker, .label = "Choose workspace", .needs_pane = false },
+        .{ .key = keymap.cycle_next, .label = "Next pane" },
+        .{ .key = keymap.close_workspace, .label = "Close workspace", .needs_pane = false },
+        .{ .key = keymap.paste, .label = "Paste copied text" },
+    }) |entry| if (keymap.shortcut(preset, entry.key)) |key| {
+        set.values[set.len] = .{ .key = key, .label = entry.label, .needs_pane = entry.needs_pane };
+        set.len += 1;
+    };
+    return set;
+}
+const tmux_entries = mapped(.tmux);
+const herdr_entries = mapped(.herdr);
+pub fn presetEntries(preset: keymap.Preset) []const Entry {
+    return switch (preset) {
+        .tmux => tmux_entries.values[0..tmux_entries.len],
+        .herdr => herdr_entries.values[0..herdr_entries.len],
+        else => &entries,
+    };
+}
 const resize_entries = [_]Entry{
     .{ .key = 'h', .label = "Resize left" },
     .{ .key = 'j', .label = "Resize down" },
@@ -122,17 +151,21 @@ pub const View = struct {
     resizing: bool,
     has_pane: bool,
     highlighted: ?u8 = null,
+    preset: keymap.Preset = .corgi,
 
     pub fn init(width: u16, height: u16, resizing: bool, page: usize, has_pane: bool) View {
+        return initPreset(width, height, resizing, page, has_pane, .corgi);
+    }
+    pub fn initPreset(width: u16, height: u16, resizing: bool, page: usize, has_pane: bool, preset: keymap.Preset) View {
         const columns: u16 = if (width >= 64 and !resizing) 2 else 1;
         const w = @min(width, if (columns == 2) @as(u16, 66) else 34);
-        const count: u16 = if (resizing) resize_entries.len else entries.len;
+        const count: u16 = if (resizing) resize_entries.len else @intCast(presetEntries(preset).len);
         const rows = @max(1, @min((count + columns - 1) / columns, height -| 3));
         const pages = (count + rows * columns - 1) / (rows * columns);
-        return .{ .x = (width - w) / 2, .y = (height -| (rows + 3)) / 2, .width = w, .rows = rows, .columns = columns, .page = @min(page, pages - 1), .pages = pages, .resizing = resizing, .has_pane = has_pane };
+        return .{ .x = (width - w) / 2, .y = (height -| (rows + 3)) / 2, .width = w, .rows = rows, .columns = columns, .page = @min(page, pages - 1), .pages = pages, .resizing = resizing, .has_pane = has_pane, .preset = preset };
     }
     pub fn items(v: View) []const Entry {
-        const all: []const Entry = if (v.resizing) &resize_entries else &entries;
+        const all: []const Entry = if (v.resizing) &resize_entries else presetEntries(v.preset);
         const size = v.rows * v.columns;
         const start = v.page * size;
         return all[start..@min(all.len, start + size)];
@@ -178,7 +211,7 @@ pub const View = struct {
             const next = "Next >";
             const next_len = @min(next.len, v.width / 2);
             try w.print("\x1b[{d};{d}H{s}", .{ v.y + v.rows + 3, v.x + v.width - next_len + 1, next[next.len - next_len ..] });
-        } else try v.line(w, v.rows + 2, if (v.resizing) " Esc done" else " Esc close   1-9 jump to tab", false);
+        } else try v.line(w, v.rows + 2, if (v.resizing) " Esc done" else if (v.preset == .tmux) " Esc close   0-9 jump to tab" else " Esc close   1-9 jump to tab", false);
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
     fn line(v: View, w: *std.Io.Writer, row: u16, text: []const u8, bold: bool) !void {

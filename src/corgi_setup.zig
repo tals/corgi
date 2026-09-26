@@ -4,7 +4,7 @@ const std = @import("std");
 const setup = @import("inference_setup.zig");
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
-pub const Choice = enum { auto, codex, claude, off, ghostty };
+pub const Choice = enum { auto, codex, claude, off, ghostty, onboarding };
 const ghostty = @import("ghostty_integration.zig");
 
 const options = [_]struct { choice: Choice, label: []const u8 }{
@@ -24,7 +24,7 @@ pub const Menu = struct {
     }
     pub fn bounds(cols: u16, rows: u16) Rect {
         const width = @min(cols, 52);
-        const height = @min(rows, 15);
+        const height = @min(rows, 17);
         // Hang below the badge: its image is drawn above text on rows 0–1.
         return .{ .x = @min(1, cols - width), .y = @min(2, rows - height), .w = width, .h = height };
     }
@@ -33,18 +33,19 @@ pub const Menu = struct {
     }
     pub fn hit(cols: u16, rows: u16, x: u16, y: u16) ?Choice {
         const b = bounds(cols, rows);
-        if (b.w < 32 or b.h < 15 or x <= b.x or x >= b.x + b.w - 1) return null;
+        if (b.w < 32 or b.h < 17 or x <= b.x or x >= b.x + b.w - 1) return null;
+        if (y == b.y + 14) return .onboarding;
         if (y == b.y + 10) return .ghostty;
         if (y < b.y + first_option or y >= b.y + first_option + options.len) return null;
         return options[y - b.y - first_option].choice;
     }
     pub fn move(m: *Menu, next: bool) void {
         const index: usize = @intFromEnum(m.selected);
-        m.selected = @enumFromInt(if (next) @min(index + 1, options.len) else index -| 1);
+        m.selected = @enumFromInt(if (next) @min(index + 1, options.len + 1) else index -| 1);
     }
     pub fn draw(m: *const Menu, w: *std.Io.Writer, status: setup.Status, cols: u16, rows: u16) !void {
         const b = bounds(cols, rows);
-        if (b.w < 32 or b.h < 15) return;
+        if (b.w < 32 or b.h < 17) return;
         const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
         const text = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
         const bright = "\x1b[1;38;2;226;230;233;48;2;35;40;47m";
@@ -86,6 +87,8 @@ pub const Menu = struct {
         try sidebar.writeEllipsis(w, "Cmd+1-9, Cmd+T/W, Ctrl+Tab / Ctrl+Shift+Tab", b.w - 5);
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + 13, b.x + 3, panel });
         try sidebar.writeEllipsis(w, "Applies everywhere in Ghostty; reload to apply", b.w - 5);
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 15, b.x + 3, if (m.selected == .onboarding) bright else accent });
+        try sidebar.writeEllipsis(w, "Shortcuts & import...", b.w - 5);
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + b.h - 1, b.x + 3, panel });
         try sidebar.writeEllipsis(w, "↑↓ choose · Enter save · Esc close", b.w - 5);
         try w.writeAll("\x1b[0m\x1b[?25l");
@@ -98,6 +101,7 @@ fn modelName(id: []const u8) []const u8 {
 
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
+        .onboarding => "Choose shortcuts or bring existing work into Corgi",
         .ghostty => "Reload Ghostty with Cmd+Shift+, after changes",
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
@@ -118,6 +122,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
+        .onboarding => "Choose shortcuts or bring existing work into Corgi",
         .ghostty => "Reload Ghostty with Cmd+Shift+, after changes",
         .auto => if (status.codex_launches + status.claude_launches == 0)
             "No agents yet this session; using your last one"

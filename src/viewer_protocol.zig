@@ -151,7 +151,9 @@ pub fn clearControls(cl: anytype) void {
     cl.controls.clearRetainingCapacity();
 }
 fn targetViewer(s: anytype, v: std.json.Value) !?*@import("peer.zig").Client {
-    if (eq(u8, agents.str(v, "name"), "relaunch")) {
+    const relaunch = eq(u8, agents.str(v, "name"), "relaunch");
+    const onboard = eq(u8, agents.str(v, "name"), "onboard") and v.object.get("pane") != null;
+    if (relaunch or onboard) {
         const pane = try protocol.id(v, "pane");
         var target: ?*@import("peer.zig").Client = null;
         for (s.clients.items) |*view| if (view.viewer and !view.dead and view.view_focus == pane) {
@@ -159,7 +161,7 @@ fn targetViewer(s: anytype, v: std.json.Value) !?*@import("peer.zig").Client {
             target = view;
         };
         const view = target orelse return error.NoViewer;
-        if (!std.fs.path.isAbsolute(agents.str(v, "value"))) return error.InvalidExecutable;
+        if (relaunch and !std.fs.path.isAbsolute(agents.str(v, "value"))) return error.InvalidExecutable;
         return view;
     }
     if (v.object.get("viewer")) |_| {

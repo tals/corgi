@@ -9,6 +9,8 @@ pub const Pane = @import("mirror.zig").Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
 pub const Ui = struct {
+    key_preset: @import("keymap.zig").Preset = .corgi,
+    key_prefix: @import("keymap.zig").Prefix = .ctrl_b,
     pointer: ?Pointer = null,
     link_tooltip: bool = false,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
@@ -132,7 +134,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.writeAll(if (i == view.selection.active) "\x1b[1;38;2;226;230;233;48;2;48;53;61m" else "\x1b[0;38;2;125;132;143;48;2;24;27;32m");
         var name: [96]u8 = undefined;
         const text = if (tab.name_len == 0)
-            try std.fmt.bufPrint(&name, "{d}", .{i + 1})
+            try std.fmt.bufPrint(&name, "{d}", .{i + @as(usize, if (ui.key_preset == .tmux) 0 else 1)})
         else
             tab.title()[0..@min(tab.title().len, 16)];
         const text_len = @min(text.len, len);
@@ -148,7 +150,8 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.print("\x1b[1;{d}H\x1b[1;38;2;161;194;178m│\x1b[0m", .{side.tabX() + drop_x + 1});
     }
     if (model.count == 0) {
-        const empty = " No panes. Ctrl-B c: new tab | Ctrl-B u: undo close | Ctrl-B q: detach";
+        var empty_buffer: [160]u8 = undefined;
+        const empty = try std.fmt.bufPrint(&empty_buffer, " No panes. {s} c: agent picker | {s} ?: shortcuts", .{ if (ui.key_prefix == .ctrl_b) "Ctrl-B" else "Ctrl-A", if (ui.key_prefix == .ctrl_b) "Ctrl-B" else "Ctrl-A" });
         try w.print("\x1b[2;{d}H", .{side.width + 1});
         try w.writeAll(empty[0..@min(empty.len, side.area().w)]);
     }

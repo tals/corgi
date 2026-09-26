@@ -1,0 +1,170 @@
+//! Daemon-side copy transactions. Source processes are never signalled or replayed.
+const std = @import("std");
+const os = @import("os.zig");
+const a = os.allocator;
+const catalog = @import("import_catalog.zig");
+const herdr = @import("herdr_adapter.zig");
+const Runtime = @import("runtime.zig").Runtime;
+const layout = @import("layout.zig");
+pub const Plan = struct { source: catalog.Source, workspaces: []const catalog.Workspace, herdr_session: ?herdr.SourceSession = null, selected: []const []const u8 = &.{} };
+pub const Progress = @import("onboarding.zig").Progress;
+pub const Job = struct {
+    plan: ?std.json.Parsed(Plan) = null,
+    progress: Progress = .{},
+    index: usize = 0,
+    created: [@import("workspace.zig").max_workspaces]u32 = undefined,
+    count: usize = 0,
+    operation: u64 = 0,
+    pub fn busy(j: *const Job) bool {
+        return j.plan != null;
+    }
+    pub fn deinit(j: *Job) void {
+        if (j.plan) |p| p.deinit();
+        j.plan = null;
+    }
+    pub fn start(j: *Job, value: std.json.Value, operation: u64) !void {
+        if (j.busy()) return error.ImportInProgress;
+        const p = try std.json.parseFromValue(Plan, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true });
+        errdefer p.deinit();
+        if (p.value.workspaces.len == 0 or p.value.workspaces.len > j.created.len) return error.InvalidImport;
+        if (p.value.source == .herdr and p.value.herdr_session == null) return error.InvalidImport;
+        var total: usize = 0;
+        for (p.value.workspaces) |ws| {
+            if (ws.tabs.len > layout.max_tabs) return error.TooManyTabs;
+            for (ws.tabs) |tab| total += tab.panes.len;
+        }
+        if (total > layout.max_panes) return error.TooManyPanes;
+        j.* = .{ .plan = p, .operation = operation, .progress = .{ .phase = "copying", .total = total, .message = "Creating workspaces and shells" } };
+    }
+    pub fn tick(j: *Job, r: *Runtime, defaults: Runtime.Create) bool {
+        const plan = j.plan orelse return false;
+        const source = plan.value.workspaces[j.index];
+        const id = (if (plan.value.source == .herdr) herdr.copy(r, plan.value.herdr_session.?, &.{source.id}, defaults) else copy(r, source, plan.value.source, defaults)) catch |err| {
+            for (j.created[0..j.count]) |created| discard(r, created);
+            j.progress.phase = "failed";
+            j.progress.message = @errorName(err);
+            j.progress.completed = 0;
+            j.deinit();
+            return true;
+        };
+        j.created[j.count] = id;
+        j.count += 1;
+        if (j.progress.workspace == null) j.progress.workspace = id;
+        for (source.tabs) |tab| j.progress.completed += tab.panes.len;
+        j.index += 1;
+        if (j.index == plan.value.workspaces.len) {
+            j.progress.phase = "complete";
+            j.progress.message = "Copied successfully. Source processes are unchanged.";
+            j.deinit();
+        }
+        return true;
+    }
+};
+fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: Runtime.Create) !u32 {
+    const dir = if (std.fs.path.isAbsolute(source.cwd)) source.cwd else os.env("HOME") orelse "/";
+    const wid = try r.workspaces.add(source.name, dir);
+    errdefer discard(r, wid);
+    for (source.tabs) |tab| {
+        if (tab.panes.len > layout.max_panes) return error.TooManyPanes;
+        var ids: [layout.max_panes]u32 = undefined;
+        var first: ?u32 = null;
+        for (tab.panes, 0..) |p, i| {
+            var opts = defaults;
+            opts.workspace = wid;
+            opts.cwd = if (std.fs.path.isAbsolute(p.cwd)) p.cwd else dir;
+            opts.title = if (kind == .cmux) p.name else tab.name;
+            if (kind == .tmux and first != null) opts.split = .{ .pane = first.?, .axis = .horizontal };
+            const id = try r.create(opts);
+            ids[i] = id;
+            if (first == null) first = id;
+            if (p.url.len > 0) {
+                const t = r.pane(id).?.terminal;
+                t.feed("\r\n# Imported browser link:\r\n# ");
+                for (p.url) |ch| if (ch >= 32 and ch != 127) t.feed(&.{ch});
+                t.feed("\r\n");
+            }
+        }
+        if (kind == .tmux and tab.panes.len > 1) {
+            const ws = try r.getWorkspace(wid);
+            const ti = ws.model.tabForPane(first.?).?;
+            // Build in a copy, then replace the old subtree in one step.
+            var model = ws.model;
+            clear(&model, model.tabs[ti].root);
+            var indices: [layout.max_panes]usize = undefined;
+            for (0..tab.panes.len) |i| indices[i] = i;
+            model.tabs[ti].root = try geometry(&model, tab.panes, &ids, indices[0..tab.panes.len]);
+            ws.model = model;
+        }
+    }
+    r.changed();
+    return wid;
+}
+fn clear(m: *layout.Model, node: u8) void {
+    const old = m.nodes[node] orelse return;
+    if (old == .split) {
+        clear(m, old.split.first);
+        clear(m, old.split.second);
+    }
+    m.nodes[node] = null;
+}
+fn geometry(m: *layout.Model, panes: []const catalog.Pane, ids: []const u32, indices: []const usize) anyerror!u8 {
+    if (indices.len == 1) return m.alloc(.{ .pane = ids[indices[0]] });
+    for ([_]layout.Axis{ .horizontal, .vertical }) |axis| {
+        var min: u32 = std.math.maxInt(u16);
+        var max: u32 = 0;
+        for (indices) |i| {
+            const p = panes[i];
+            const origin: u32 = if (axis == .horizontal) p.x else p.y;
+            const size: u32 = if (axis == .horizontal) p.w else p.h;
+            min = @min(min, origin);
+            max = @max(max, origin + size);
+        }
+        for (indices) |candidate| {
+            const cut: u32 = if (axis == .horizontal) panes[candidate].x else panes[candidate].y;
+            if (cut <= min or cut >= max) continue;
+            var left: [layout.max_panes]usize = undefined;
+            var right: [layout.max_panes]usize = undefined;
+            var nl: usize = 0;
+            var nr: usize = 0;
+            var crosses = false;
+            for (indices) |i| {
+                const p = panes[i];
+                const start: u32 = if (axis == .horizontal) p.x else p.y;
+                const end = start + @as(u32, if (axis == .horizontal) p.w else p.h);
+                if (end <= cut) {
+                    left[nl] = i;
+                    nl += 1;
+                } else if (start >= cut) {
+                    right[nr] = i;
+                    nr += 1;
+                } else {
+                    crosses = true;
+                    break;
+                }
+            }
+            if (crosses or nl == 0 or nr == 0) continue;
+            const l = try geometry(m, panes, ids, left[0..nl]);
+            const rr = try geometry(m, panes, ids, right[0..nr]);
+            return m.alloc(.{ .split = .{ .axis = axis, .first = l, .second = rr, .ratio = @intCast(std.math.clamp((cut - min) * 1000 / (max - min), 100, 900)) } });
+        }
+    }
+    return error.UnsupportedSourceLayout;
+}
+
+// Rollback owns only newly spawned shells. Do not turn them into undo-close items.
+fn discard(r: *Runtime, wid: u32) void {
+    const index = r.workspaces.index(wid) orelse return;
+    const model = r.workspaces.items.items[index].model;
+    var i: usize = r.panes.items.len;
+    while (i > 0) {
+        i -= 1;
+        if (model.tabForPane(r.panes.items[i].id) != null) {
+            const pane = r.panes.orderedRemove(i);
+            pane.terminal.destroy();
+            a.free(pane.cwd);
+        }
+    }
+    const ws = r.workspaces.items.orderedRemove(index);
+    a.free(ws.cwd);
+    r.changed();
+}
