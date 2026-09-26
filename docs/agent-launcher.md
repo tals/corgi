@@ -34,7 +34,9 @@ project, local, and local managed settings. Aliases stay aliases; account policy
 trust, and dynamic defaults remain provider decisions. Missing or unreadable
 configuration displays `Provider default` instead of guessing a specific model.
 
-Previews are cached by directory for sixty seconds. Interactive launches use
+Model/settings previews are cached by directory for sixty seconds. Account and
+usage reads share a separate credential-scoped cache with a sixty-second minimum
+interval across directories, viewers, and daemon processes. Interactive launches use
 Corgi's existing discovered-binary launcher and ordinary provider settings,
 without overriding models or adding a prompt. Each provider row has an independent
 YOLO checkmark (click it, or press y for the selected row). It defaults off and
@@ -120,3 +122,13 @@ picker shows numeric keycaps starting at 0 for visible agents and a left-side
 Custom commands use the same picker columns as built-in agents. Their account
 comes from the saved command preview; commands using the default account share
 its current plan and usage preview. Separate profiles do not inherit those values.
+
+Account preview metadata and request deadlines persist under
+`$XDG_STATE_HOME/corgi/account-previews` (or `~/.local/state/corgi/account-previews`).
+Files are private and named by credential fingerprints; credentials are never
+stored in this cache. Like CodexBar's `ClaudeOAuthUsageRateLimitGate`, Claude 429
+responses honor `Retry-After` (seconds or HTTP date), with a five-minute fallback
+and a one-minute minimum. Explicit tracking requests do not bypass this gate.
+The profile request runs independently of usage, so a usage failure does not hide
+account identity. Failed refreshes retain prior usage with a `(cached)` marker;
+a first-time 429 displays `Rate limited`. A credential change uses a separate cache.

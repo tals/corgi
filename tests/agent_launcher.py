@@ -14,6 +14,7 @@ class Launcher(unittest.TestCase):
 import json,sys
 assert 'fixture-token' not in ' '.join(sys.argv)
 assert 'Authorization: Bearer fixture-token' in sys.stdin.read()
+sys.stdout.write('HTTP/2 200\\r\\n\\r\\n')
 print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].endswith('/profile') else {'five_hour':{'utilization':12},'seven_day':{'utilization':48}}))
 """)
             curl.chmod(0o700)
@@ -485,6 +486,7 @@ import json,sys
 assert 'fixture-token' not in ' '.join(sys.argv)
 assert sys.argv[-1] in ('https://api.anthropic.com/api/oauth/usage','https://api.anthropic.com/api/oauth/profile')
 assert 'Authorization: Bearer fixture-token' in sys.stdin.read()
+sys.stdout.write('HTTP/2 200\\r\\n\\r\\n')
 print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].endswith('/profile') else {'five_hour':{'utilization':12,'resets_at':'2099-01-01T12:00:00.000000+00:00'},'seven_day':{'utilization':48,'resets_at':'2099-01-04T12:00:00Z'}}))
 """)
         curl.chmod(0o700)
@@ -507,6 +509,70 @@ print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].ends
         self.assertIn('5h 12% / 7d 48%',row)
         self.assertRegex(row,r'5h \d+d')
 
+    def account_cache_fixture(self):
+        root=pathlib.Path(self.temp.name)
+        log=root/'account-requests.jsonl'
+        mode=root/'usage-mode'
+        mode.write_text('ok')
+        (root/'curl').write_text(f"""#!/usr/bin/env python3
+import json,sys,pathlib
+headers=sys.stdin.read()
+assert 'fixture-token' not in ' '.join(sys.argv)
+endpoint=sys.argv[-1].rsplit('/',1)[-1]
+with open({str(log)!r},'a') as f:f.write(json.dumps(endpoint)+'\\n')
+limited=endpoint=='usage' and pathlib.Path({str(mode)!r}).read_text()=='limited'
+sys.stdout.write('HTTP/2 429\\r\\nRetry-After: 120\\r\\n\\r\\n' if limited else 'HTTP/2 200\\r\\n\\r\\n')
+print(json.dumps({{'error':{{'type':'rate_limit_error'}}}} if limited else {{'account':{{'email':'claude@example.com'}}}} if endpoint=='profile' else {{'five_hour':{{'utilization':12}},'seven_day':{{'utilization':48}}}}))
+""")
+        return log,mode
+
+    def directory_preview(self, name):
+        directory=pathlib.Path(self.temp.name)/name
+        directory.mkdir(exist_ok=True)
+        def preview():return self.rpc(op='agent.preview',protocol=1,workspace=self.ws,cwd=str(directory))['preview']
+        self.until(lambda:not preview()['pending'],timeout=12)
+        return preview()['options'][1]
+
+    def test_account_requests_shared_across_directories_reload_and_credentials(self):
+        log,_=self.account_cache_fixture()
+        for i in range(10):self.directory_preview('dir'+str(i))
+        self.assertEqual(log.read_text().splitlines().count('"usage"'),1)
+        self.assertEqual(log.read_text().splitlines().count('"profile"'),1)
+        self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+        self.directory_preview('after-reload')
+        self.assertEqual(log.read_text().splitlines().count('"usage"'),1)
+        credentials=pathlib.Path(self.env['CLAUDE_CONFIG_DIR'])/'.credentials.json'
+        data=json.loads(credentials.read_text());data['claudeAiOauth']['accessToken']='fixture-token-other'
+        credentials.write_text(json.dumps(data))
+        self.directory_preview('other-account')
+        self.assertEqual(log.read_text().splitlines().count('"usage"'),2)
+        cache=pathlib.Path(self.env['XDG_STATE_HOME'])/'corgi/account-previews'
+        self.assertNotIn('fixture-token',''.join(p.name+p.read_text() for p in cache.glob('*.json')))
+
+    def test_rate_limit_keeps_identity_and_cached_usage_and_honors_cooldown(self):
+        log,mode=self.account_cache_fixture()
+        self.directory_preview('initial')
+        cache=next((pathlib.Path(self.env['XDG_STATE_HOME'])/'corgi/account-previews').glob('claude-*.json'))
+        state=json.loads(cache.read_text());state['next_usage']=0;state['next_profile']=0
+        cache.write_text(json.dumps(state));mode.write_text('limited')
+        option=self.directory_preview('limited')
+        text=lambda field:option[field]['bytes'][:option[field]['len']]
+        self.assertEqual(text('account'),'claude@example.com')
+        self.assertIn('cached',text('usage'))
+        self.assertIn('12%',text('usage'))
+        self.assertGreaterEqual(json.loads(cache.read_text())['next_usage'],time.time()+115)
+        self.rpc(op='server.reload',protocol=1,executable=smoke.EXE)
+        self.directory_preview('still-limited')
+        self.assertEqual(log.read_text().splitlines().count('"usage"'),2)
+
+    def test_first_usage_429_still_fetches_profile(self):
+        log,mode=self.account_cache_fixture();mode.write_text('limited')
+        option=self.directory_preview('limited-first')
+        self.assertEqual(option['account']['bytes'][:option['account']['len']],'claude@example.com')
+        self.assertEqual(option['usage']['bytes'][:option['usage']['len']],'Rate limited')
+        self.directory_preview('another-directory')
+        self.assertEqual(log.read_text().splitlines().count('"usage"'),1)
+
     def consent_fixture(self, allowed=False, deny=False):
         self.run_cli('shutdown')
         self.until(lambda:not pathlib.Path(self.path).exists())
@@ -525,6 +591,7 @@ print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].ends
 import json,sys
 assert 'fixture-token' not in ' '.join(sys.argv)
 assert 'Authorization: Bearer fixture-token' in sys.stdin.read()
+sys.stdout.write('HTTP/2 200\\r\\n\\r\\n')
 print(json.dumps({'account':{'email':'claude@example.com'}} if sys.argv[-1].endswith('/profile') else {'five_hour':{'utilization':12},'seven_day':{'utilization':48}}))
 """)
         curl.chmod(0o700)

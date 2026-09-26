@@ -33,6 +33,7 @@ pub const Row = enum {
     }
 };
 const metadata = @import("account_preview.zig");
+const account_cache = @import("account_cache.zig");
 pub const Text = metadata.Text;
 pub const Option = struct { signed_in: ?bool = null, model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
 /// `installed` defaults true so older daemons keep showing both providers.
@@ -133,7 +134,7 @@ pub const Worker = struct {
                     result.options[0].model.set(model.text());
                     result.options[0].source.set("Effective Codex settings");
                 } else |_| result.options[0].source.set("Model resolved by Codex at startup");
-                if (pool.configuredAccount(&w.stopping)) |account| {
+                if (codexAccount(&pool, &w.stopping)) |account| {
                     result.options[0].signed_in = account.signed_in;
                     result.options[0].account = account.account;
                     result.options[0].plan = account.plan;
@@ -169,6 +170,30 @@ var auth_status: ?c_int = null;
 // Called by the daemon reaper while holding child_mutex.
 pub fn recordExit(pid: c_int, status: c_int) void {
     if (pid == auth_pid) auth_status = status;
+}
+fn codexAccount(pool: *@import("inference.zig").Pool, stopping: *const std.atomic.Value(bool)) !metadata.Info {
+    const root = os.env("CODEX_HOME") orelse try std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".codex" });
+    defer if (os.env("CODEX_HOME") == null) a.free(root);
+    const path = try std.fs.path.join(a, &.{ root, "auth.json" });
+    defer a.free(path);
+    const auth = std.fs.cwd().readFileAlloc(a, path, 65536) catch try a.dupe(u8, root);
+    defer a.free(auth);
+    const identity = try std.fmt.allocPrint(a, "{s}\n{s}", .{ auth, os.env("OPENAI_API_KEY") orelse "" });
+    defer a.free(identity);
+    var cache = try account_cache.Cache.open("codex", identity, stopping);
+    defer cache.close();
+    const now = std.time.timestamp();
+    if (now < cache.state.next_usage) return cache.state.display();
+    cache.state.next_usage = now + account_cache.interval;
+    try cache.save();
+    const fresh = pool.configuredAccount(stopping) catch {
+        cache.state.usage_stale = true;
+        try cache.save();
+        return cache.state.display();
+    };
+    cache.state.update(fresh);
+    try cache.save();
+    return cache.state.display();
 }
 fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), request_access: bool) metadata.Info {
     // Never invoke `claude auth status` here: the CLI can perform its own
@@ -236,30 +261,64 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     for (token) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '_' and ch != '.') return info;
     const expires = common.field(oauth, "expiresAt");
     if (expires == .integer and expires.integer <= std.time.milliTimestamp()) return info;
-    const headers = std.fmt.allocPrint(a, "Authorization: Bearer {s}\nanthropic-beta: oauth-2025-04-20\nAccept: application/json\n", .{token}) catch return info;
+    var cache = account_cache.Cache.open("claude", token, stopping) catch return info;
+    defer cache.close();
+    cache.state.info.signed_in = true;
+    cache.state.info.plan = info.plan;
+    const now = std.time.timestamp();
+    const fetch_usage = now >= cache.state.next_usage;
+    const fetch_profile = now >= cache.state.next_profile;
+    // Persist reservations before making requests, including failures/reloads.
+    if (fetch_usage) cache.state.next_usage = now + account_cache.interval;
+    if (fetch_profile) cache.state.next_profile = now + account_cache.interval;
+    cache.save() catch return info;
+    const headers = std.fmt.allocPrint(a, "Authorization: Bearer {s}\nanthropic-beta: oauth-2025-04-20\nAccept: application/json\nContent-Type: application/json\n", .{token}) catch return info;
     defer a.free(headers);
-    const response = command(&.{ "curl", "-q", "--silent", "--fail", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/usage" }, cwd, headers, stopping, 3000) orelse return info;
-    defer a.free(response);
-    const usage_json = std.json.parseFromSlice(std.json.Value, a, response, .{}) catch return info;
-    defer usage_json.deinit();
-    info.usage = metadata.usage(usage_json.value, false);
-    info.resets = metadata.resets(usage_json.value, false);
-    if (info.usage.len > 0) info.account.set("Signed in");
-    // Read the identity with the very same token, not a potentially stale local
-    // account cache or a CLI that may independently ask Keychain for access.
-    const profile = command(&.{ "curl", "-q", "--silent", "--fail", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/profile" }, cwd, headers, stopping, 3000) orelse return info;
-    defer a.free(profile);
-    const profile_json = std.json.parseFromSlice(std.json.Value, a, profile, .{}) catch return info;
-    defer profile_json.deinit();
-    const account = common.field(profile_json.value, "account");
-    for ([_][]const u8{ "emailAddress", "email_address", "email" }) |key| {
-        const email = common.str(account, key);
-        if (email.len > 0) {
-            info.account.set(email);
-            break;
+    if (fetch_usage) {
+        cache.state.usage_stale = true;
+        if (command(&.{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/usage" }, cwd, headers, stopping, 3500)) |bytes| {
+            defer a.free(bytes);
+            const reply = account_cache.response(bytes, now);
+            cache.state.next_usage = account_cache.nextAttempt(reply, now);
+            cache.state.rate_limited = reply.status == 429;
+            if (reply.status == 200) {
+                if (std.json.parseFromSlice(std.json.Value, a, reply.body, .{})) |parsed| {
+                    defer parsed.deinit();
+                    const usage = metadata.usage(parsed.value, false);
+                    if (usage.len > 0) {
+                        cache.state.info.usage = usage;
+                        cache.state.info.resets = metadata.resets(parsed.value, false);
+                        cache.state.usage_stale = false;
+                    }
+                } else |_| {}
+            }
         }
     }
-    return info;
+    // Profile failures and usage failures are independent. Never erase identity
+    // just because the usage endpoint is rate limited.
+    if (fetch_profile) {
+        if (command(&.{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/profile" }, cwd, headers, stopping, 3500)) |bytes| {
+            defer a.free(bytes);
+            const reply = account_cache.response(bytes, now);
+            cache.state.next_profile = account_cache.nextAttempt(reply, now);
+            if (reply.status == 200) {
+                if (std.json.parseFromSlice(std.json.Value, a, reply.body, .{})) |parsed| {
+                    defer parsed.deinit();
+                    const account = common.field(parsed.value, "account");
+                    for ([_][]const u8{ "emailAddress", "email_address", "email" }) |key| {
+                        const email = common.str(account, key);
+                        if (email.len > 0) {
+                            cache.state.info.account.set(email);
+                            break;
+                        }
+                    }
+                } else |_| {}
+            }
+        }
+    }
+    if (cache.state.info.account.len == 0) cache.state.info.account.set("Signed in");
+    cache.save() catch {};
+    return cache.state.display();
 }
 // Serial metadata worker owns this child slot, including the daemon's reaper.
 fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stopping: *const std.atomic.Value(bool), timeout_ms: u32) ?[]u8 {
