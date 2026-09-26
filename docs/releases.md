@@ -78,22 +78,36 @@ immutable artifacts, and verifies their public downloads before advancing
 `channels/stable.json`. No Git tags or remotes are changed. Version numbers are
 UTC datetime plus the first 12 Git hash characters (for example,
 `20260925T183012Z-be82c7b9090a`). Both binaries and the signed manifest include the
-full source commit. Every build and upload refuses a dirty checkout, including
-untracked files. Never reuse a version for different bytes.
+full source commit. Never reuse a version for different bytes.
 
-Files are prepared under `zig-out/releases/VERSION`. To resume after a network
-failure without rebuilding timestamped signatures:
+Publishing pins the commit at HEAD when the command starts and builds it in a
+temporary detached Git worktree. Staged, unstaged, and untracked changes are
+excluded. Your index, working files, and development `zig-out` and `.zig-cache`
+directories stay untouched, so you can keep editing, building, and committing
+while it publishes. The installer template also comes from the pinned commit.
+The existing publisher drives the release using your usual external configuration,
+signing keys, and Zig compiler (including a compiler installed under `.tools`).
+
+Isolated artifacts are saved in `corgi-releases/VERSION` under the repository's
+common Git directory (normally `.git/corgi-releases/VERSION`); the exact location
+is printed. The temporary worktree and its build cache are removed on completion
+or a build/upload error. Saved artifacts remain available for retry:
 
 ```sh
-./scripts/release 20260925T183012Z-be82c7b9090a --publish-only
+./publish.sh 20260925T183012Z-be82c7b9090a --publish-only
 ```
 
-The checkout and configuration must still match the prepared release. The local
-publisher lock serializes runs on this checkout. Use a **single publishing host**
+This resumes the saved source commit even if you have made newer commits or have
+pending edits, without rebuilding timestamped signatures. The configuration must
+still match the prepared release. Previously prepared releases under
+`zig-out/releases/VERSION` can also be resumed; the publisher checks that location
+if the version is absent from the new directory. A local publisher lock in the
+common Git directory serializes runs across linked worktrees of this repository.
+Use a **single publishing host**
 or a CI concurrency group: object-store publication is not a distributed transaction.
 Existing assets with different bytes are rejected. Stable cannot move backwards.
 
-For a build-only check from a clean checkout:
+For a build-only check of committed HEAD:
 
 ```sh
 ./scripts/release --build-only

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
-import { publish, releaseVersion, installer, loadCredentials, cleanCommit, timestampVersion, publishedVersion, versionParts, type Store } from "../scripts/release.ts";
-import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
+import { publish, releaseVersion, installer, loadCredentials, cleanCommit, timestampVersion, publishedVersion, versionParts, releaseOptions, releasePaths, releaseCommit, withReleaseCheckout, releaseEnvironment, type Store } from "../scripts/release.ts";
+import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat } from "node:fs/promises";
+import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const bytes = (s: string) => new TextEncoder().encode(s);
@@ -68,7 +69,7 @@ test("timestamp versions include the commit and sort chronologically", () => {
   expect(versionParts(v)).toEqual([20260925, 3012, 0]);
   expect(() => releaseVersion("20260925T003012Z-../../foo")).toThrow();
 });
-test("release refuses unstaged, staged and untracked changes anywhere", async () => {
+test("release checkout validation refuses unstaged, staged and untracked changes anywhere", async () => {
   const dir = await mkdtemp(join(tmpdir(), "corgi-clean-test-"));
   const git = (...args: string[]) => {
     const p = Bun.spawnSync(["git", ...args], {cwd: dir});
@@ -93,6 +94,190 @@ test("publishing only accepts valid timestamp IDs tied to HEAD", () => {
   const commit = "a".repeat(40);
   expect(publishedVersion("20260925T003012Z-aaaaaaaaaaaa", commit)).toBe("20260925T003012Z-aaaaaaaaaaaa");
   for (const v of ["1.2.3", "20260925T003012Z-aaaaaaa", "20260925T003012Z-bbbbbbbbbbbb", "20260230T003012Z-aaaaaaaaaaaa"]) expect(() => publishedVersion(v, commit)).toThrow();
+});
+
+test("release modes accept an explicit version and reject ambiguous arguments", () => {
+  const version = timestampVersion("a".repeat(40));
+  for (const mode of ["--dry-run", "--build-only", "--publish-only"]) {
+    expect(releaseOptions([mode, version])).toEqual({ mode, version });
+    expect(releaseOptions([version, mode])).toEqual({ mode, version });
+  }
+  expect(releaseOptions([])).toEqual({ mode: "", version: undefined });
+  for (const args of [["--dry-run", "--dry-run"], ["--dry-run", "--build-only"], ["--unknown"], ["--publish-only"], [version, version]]) {
+    expect(() => releaseOptions(args)).toThrow();
+  }
+});
+
+async function releaseFixture(run: (dir: string, git: (...args: string[]) => string) => Promise<void>) {
+  const dir = await mkdtemp(join(tmpdir(), "corgi release test "));
+  const git = (...args: string[]) => {
+    const p = Bun.spawnSync(["git", "--no-optional-locks", ...args], { cwd: dir });
+    if (p.exitCode) throw new Error(p.stderr.toString());
+    return p.stdout.toString().trim();
+  };
+  try {
+    git("init"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.invalid");
+    await writeFile(join(dir, "tracked"), "committed");
+    await writeFile(join(dir, ".gitignore"), "zig-out/\n.zig-cache/\n.tools/\n");
+    git("add", "."); git("commit", "-m", "initial");
+    await run(dir, git);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+test("isolated release pins HEAD and preserves dirty files, index and development outputs", async () => {
+  await releaseFixture(async (dir, git) => {
+    const options = releaseOptions([]);
+    const paths = releasePaths(dir);
+    const commit = await releaseCommit(dir, options, paths.releases);
+    await writeFile(join(dir, "tracked"), "staged"); git("add", "tracked");
+    await writeFile(join(dir, "tracked"), "unstaged");
+    await writeFile(join(dir, "untracked"), "keep me");
+    await mkdir(join(dir, "zig-out"));
+    await writeFile(join(dir, "zig-out/development"), "running build");
+    const index = await readFile(join(dir, ".git/index"));
+    const status = git("status", "--porcelain");
+    const worktrees = git("worktree", "list", "--porcelain");
+    let sourcePath = "";
+    await withReleaseCheckout(dir, commit, async source => {
+      sourcePath = source;
+      expect(cleanCommit(source)).toBe(commit);
+      expect(await Bun.file(join(source, "tracked")).text()).toBe("committed");
+      expect(await Bun.file(join(source, "untracked")).exists()).toBe(false);
+      expect(await Bun.file(join(source, "zig-out/development")).exists()).toBe(false);
+      expect(releasePaths(source)).toEqual(paths);
+      expect(git("status", "--porcelain")).toBe(status);
+      expect(await readFile(join(dir, ".git/index"))).toEqual(index);
+      // The user can keep committing and building while this release runs.
+      git("commit", "-m", "next development commit");
+      expect(git("rev-parse", "HEAD")).not.toBe(commit);
+      expect(cleanCommit(source)).toBe(commit);
+      await mkdir(join(source, "zig-out"));
+      await writeFile(join(source, "zig-out/development"), "release build");
+    });
+    expect(await Bun.file(join(sourcePath, "tracked")).exists()).toBe(false);
+    expect(git("worktree", "list", "--porcelain").split("worktree ").length).toBe(worktrees.split("worktree ").length);
+    expect(await Bun.file(join(dir, "tracked")).text()).toBe("unstaged");
+    expect(await Bun.file(join(dir, "untracked")).text()).toBe("keep me");
+    expect(await Bun.file(join(dir, "zig-out/development")).text()).toBe("running build");
+  });
+});
+
+test("failed isolated builds remove their worktree and leave staging untouched", async () => {
+  await releaseFixture(async (dir, git) => {
+    const commit = git("rev-parse", "HEAD");
+    await writeFile(join(dir, "tracked"), "staged"); git("add", "tracked");
+    const index = await readFile(join(dir, ".git/index"));
+    const worktrees = git("worktree", "list", "--porcelain");
+    let sourcePath = "";
+    await expect(withReleaseCheckout(dir, commit, async source => {
+      sourcePath = source;
+      await writeFile(join(source, "tracked"), "failed build changed its source");
+      throw new Error("build failed");
+    })).rejects.toThrow("build failed");
+    expect(await Bun.file(join(sourcePath, "tracked")).exists()).toBe(false);
+    expect(git("worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(await readFile(join(dir, ".git/index"))).toEqual(index);
+    expect(await Bun.file(join(dir, "tracked")).text()).toBe("staged");
+  });
+});
+
+test("resume uses the saved commit after HEAD moves and retains artifacts", async () => {
+  await releaseFixture(async (dir, git) => {
+    const commit = git("rev-parse", "HEAD");
+    const version = timestampVersion(commit);
+    const paths = releasePaths(dir);
+    const out = join(paths.releases, version);
+    await mkdir(out, { recursive: true });
+    await writeFile(join(out, "prepared.json"), JSON.stringify({ commit, version }));
+    await writeFile(join(out, "artifact"), "signed bytes");
+    await writeFile(join(dir, "tracked"), "next commit");
+    git("add", "tracked"); git("commit", "-m", "next");
+    await writeFile(join(dir, "tracked"), "more pending changes");
+    const options = releaseOptions([version, "--publish-only"]);
+    const saved = await releaseCommit(dir, options, paths.releases);
+    expect(saved).toBe(commit);
+    expect(publishedVersion(version, saved)).toBe(version);
+    await withReleaseCheckout(dir, saved, async source => {
+      expect(cleanCommit(source)).toBe(commit);
+      expect(await Bun.file(join(source, "tracked")).text()).toBe("committed");
+    });
+    expect(await Bun.file(join(out, "artifact")).text()).toBe("signed bytes");
+    await writeFile(join(out, "prepared.json"), JSON.stringify({ commit: "../../invalid", version }));
+    await expect(releaseCommit(dir, options, paths.releases)).rejects.toThrow("Invalid prepared");
+  });
+});
+
+test("isolated builds reuse a local compiler with a separate local cache", () => {
+  const env = releaseEnvironment("/repo", "/isolated", { ZIG: ".tools/zig", ZIG_LOCAL_CACHE_DIR: "/repo/.zig-cache" });
+  expect(env.ZIG).toBe("/repo/.tools/zig");
+  expect(env.ZIG_LOCAL_CACHE_DIR).toBe("/isolated/.zig-cache");
+  expect(releaseEnvironment("/repo", "/isolated", { PATH: "/nonexistent" }).ZIG).toBe("/repo/.tools/zig-aarch64-macos-0.15.2/zig");
+});
+
+test("CLI dry run accepts dirty HEAD without creating release state", async () => {
+  await releaseFixture(async (dir, git) => {
+    await mkdir(join(dir, "scripts"));
+    for (const name of ["release.ts", "install.sh.in"]) await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
+    git("add", "scripts"); git("commit", "-m", "publisher");
+    const commit = git("rev-parse", "HEAD");
+    await writeFile(join(dir, "tracked"), "pending"); git("add", "tracked");
+    const index = await readFile(join(dir, ".git/index"));
+    const worktrees = git("worktree", "list", "--porcelain");
+    const run = (...args: string[]) => Bun.spawnSync([process.execPath, "run", "scripts/release.ts", ...args], { cwd: dir });
+    const dry = run("--dry-run");
+    expect(dry.exitCode).toBe(0);
+    expect(dry.stdout.toString()).toContain(`Source: ${commit} (isolated committed tree; pending edits excluded)`);
+    expect(await stat(join(dir, ".git/corgi-publish.lock")).catch(() => null)).toBeNull();
+    expect(await stat(join(dir, ".git/corgi-releases")).catch(() => null)).toBeNull();
+    expect(git("worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(await readFile(join(dir, ".git/index"))).toEqual(index);
+  });
+});
+
+test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")("CLI runs the committed build script and cleans up after failure", async () => {
+  await releaseFixture(async (dir, git) => {
+    await mkdir(join(dir, "scripts"));
+    for (const name of ["release.ts", "install.sh.in"]) await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
+    await writeFile(join(dir, "scripts/zig"), '#!/bin/sh\nset -eu\nprintf "COMMITTED BUILD: %s\\n" "$PWD"\ntest "$(cat tracked)" = committed\ntest "$ZIG_LOCAL_CACHE_DIR" = "$PWD/.zig-cache"\nprintf "ISOLATION VERIFIED\\n"\nexit 37\n', { mode: 0o755 });
+    git("add", "scripts"); git("commit", "-m", "publisher fixture");
+    await writeFile(join(dir, "scripts/zig"), '#!/bin/sh\necho DIRTY BUILD RAN\nexit 1\n');
+    await writeFile(join(dir, "tracked"), "pending"); git("add", "tracked");
+    const index = await readFile(join(dir, ".git/index"));
+    const status = git("status", "--porcelain");
+    const worktrees = git("worktree", "list", "--porcelain");
+    // Fixture keys/config stay in Git metadata and never reach a service.
+    const keyPath = join(dir, ".git/test-key.pem");
+    await writeFile(keyPath, generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }));
+    const configPath = join(dir, ".git/test-config.json");
+    await writeFile(configPath, JSON.stringify({ publicBaseUrl: "https://example.invalid", endpoint: "https://example.invalid", region: "auto", bucket: "fixture", signingKey: keyPath, codesignIdentity: "-" }));
+    const child = Bun.spawn([process.execPath, "run", "scripts/release.ts", "--build-only"], { cwd: dir, env: { ...process.env, CORGI_RELEASE_CONFIG: configPath }, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(code).toBe(1);
+    expect(stdout).toContain("ISOLATION VERIFIED");
+    expect(stdout).not.toContain("DIRTY BUILD RAN");
+    expect(stderr).toContain("Command failed: ./scripts/zig build test");
+    expect(git("worktree", "list", "--porcelain")).toBe(worktrees);
+    expect(git("status", "--porcelain")).toBe(status);
+    expect(await readFile(join(dir, ".git/index"))).toEqual(index);
+    expect(await stat(join(dir, ".git/corgi-publish.lock")).catch(() => null)).toBeNull();
+
+    // Older prepared releases still resume from zig-out, after HEAD advances.
+    const commit = git("rev-parse", "HEAD");
+    const version = timestampVersion(commit);
+    const legacyOut = join(dir, "zig-out/releases", version);
+    await mkdir(legacyOut, { recursive: true });
+    await writeFile(join(legacyOut, "prepared.json"), JSON.stringify({ commit, version, publishable: false }));
+    git("commit", "-m", "new development commit");
+    const resumed = Bun.spawn([process.execPath, "run", "scripts/release.ts", version, "--publish-only"], { cwd: dir, env: { ...process.env, CORGI_RELEASE_CONFIG: configPath, AWS_ACCESS_KEY_ID: "fixture", AWS_SECRET_ACCESS_KEY: "fixture" }, stdout: "pipe", stderr: "pipe" });
+    const [resumeOut, resumeErr, resumeCode] = await Promise.all([new Response(resumed.stdout).text(), new Response(resumed.stderr).text(), resumed.exited]);
+    expect(resumeCode).toBe(1);
+    expect(resumeOut).toContain(`from ${commit} (isolated committed tree)`);
+    expect(resumeOut).toContain(`/zig-out/releases/${version}`);
+    expect(resumeOut).not.toContain("COMMITTED BUILD");
+    // Non-publishable fixtures stop before any network access.
+    expect(resumeErr).toContain("Prepared release does not match");
+    expect(await stat(join(dir, ".git/corgi-publish.lock")).catch(() => null)).toBeNull();
+  });
 });
 
 test("PATH setup handles shell configs, spaces, duplicates and opting out", async () => {
