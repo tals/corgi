@@ -27,8 +27,8 @@ fn expectShape(expected: []const u8, tab: catalog.Tab) !void {
     try shape(&text.writer, tab, tab.nodes.len - 1);
     try std.testing.expectEqualStrings(expected, text.written());
     var model: layout.Model = .{};
-    var ids: [layout.max_panes]u32 = undefined;
-    for (tab.panes, 0..) |_, i| ids[i] = @intCast(i + 100);
+    var ids: [layout.max_panes]layout.PaneId = undefined;
+    for (tab.panes, 0..) |_, i| ids[i] = @enumFromInt(i + 100);
     _ = try tree.install(&model, tab.nodes, ids[0..tab.panes.len]);
 }
 

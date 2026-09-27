@@ -1,14 +1,15 @@
 //! On-demand completion verification. One worker, bounded reads and framing;
 //! no transcript IO or JSON parsing on the terminal interaction thread.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 const agents = @import("agents.zig");
 const a = std.heap.c_allocator;
 const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 64 * 1024;
-const Request = struct { actor: u32, agent: agents.Agent };
-pub const Result = struct { actor: u32, seq: i64, outcome: agents.observation.Outcome };
+const Request = struct { actor: ActorId, agent: agents.Agent };
+pub const Result = struct { actor: ActorId, seq: i64, outcome: agents.observation.Outcome };
 
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
@@ -60,7 +61,7 @@ pub const Worker = struct {
         w.results = .{null} ** max_jobs;
     }
     fn run(w: *Worker) void {
-        var watchers: std.AutoHashMapUnmanaged(u32, *Tail) = .empty;
+        var watchers: std.AutoHashMapUnmanaged(ActorId, *Tail) = .empty;
         defer {
             var values = watchers.valueIterator();
             while (values.next()) |entry| {
@@ -124,7 +125,7 @@ pub const Worker = struct {
 };
 
 const Tail = struct {
-    actor: u32 = 0,
+    actor: ActorId = .none,
     seq: i64 = 0,
     file: ?std.fs.File = null,
     inode: std.fs.File.INode = 0,

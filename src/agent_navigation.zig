@@ -3,6 +3,7 @@ const std = @import("std");
 const sidebar = @import("sidebar.zig");
 const naming = @import("name_dialog.zig");
 const Target = sidebar.Target;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 
 pub fn indexOf(entries: []const sidebar.Entry, target: ?Target) ?usize {
     const wanted = target orelse return null;
@@ -39,8 +40,8 @@ pub const History = struct {
 };
 
 pub const Picker = struct {
-    workspace: u32,
-    query: naming.Dialog = naming.Dialog.init(.{ .pane = 0 }, ""),
+    workspace: WorkspaceId,
+    query: naming.Dialog = naming.Dialog.init(.{ .pane = @enumFromInt(0) }, ""),
     selected: ?Target = null,
     offset: usize = 0,
 
@@ -80,8 +81,8 @@ fn contains(text: []const u8, query: []const u8) bool {
 
 test "agent navigation wraps, excludes shells, and validates history against the current list" {
     const entries = [_]sidebar.Entry{
-        .{ .target = .{ .pane = 2 }, .provider = .codex, .state = .idle, .attention = .none },
-        .{ .target = .{ .native = 2 }, .provider = .claude, .state = .blocked, .attention = .needs_input },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .provider = .codex, .state = .idle, .attention = .none },
+        .{ .target = .{ .native = @enumFromInt(2) }, .provider = .claude, .state = .blocked, .attention = .needs_input },
     };
     try std.testing.expectEqual(entries[1].target, relative(&entries, entries[0].target, false).?);
     try std.testing.expectEqual(entries[0].target, relative(&entries, entries[1].target, true).?);
@@ -95,10 +96,10 @@ test "agent navigation wraps, excludes shells, and validates history against the
 
 test "picker preserves target identity across reordering and removes filtered or deleted selections" {
     var entries = [_]sidebar.Entry{
-        .{ .name = "Alpha", .target = .{ .pane = 1 }, .provider = .codex, .state = .idle, .attention = .none },
-        .{ .name = "Beta", .target = .{ .native = 1 }, .provider = .claude, .state = .blocked, .attention = .needs_input },
+        .{ .name = "Alpha", .target = .{ .pane = @enumFromInt(1) }, .provider = .codex, .state = .idle, .attention = .none },
+        .{ .name = "Beta", .target = .{ .native = @enumFromInt(1) }, .provider = .claude, .state = .blocked, .attention = .needs_input },
     };
-    var p: Picker = .{ .workspace = 1, .selected = entries[1].target };
+    var p: Picker = .{ .workspace = @enumFromInt(1), .selected = entries[1].target };
     p.reconcile(&entries, 1);
     try std.testing.expectEqual(@as(usize, 1), p.offset);
     std.mem.swap(sidebar.Entry, &entries[0], &entries[1]);

@@ -5,6 +5,10 @@ const os = @import("os.zig");
 const a = os.allocator;
 const viewer = @import("viewer.zig");
 const agents = @import("agents.zig");
+const protocol = @import("protocol.zig");
+const PaneId = @import("layout.zig").PaneId;
+const TabId = @import("layout.zig").TabId;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 pub fn run(path: []const u8) !void {
     const fd = try os.connect(path);
     defer _ = os.c.close(fd);
@@ -28,8 +32,8 @@ pub fn run(path: []const u8) !void {
         // Viewer-local delays (hover cards, command preview debounce).
         if (std.mem.eql(u8, op, "advance")) @import("clock.zig").advance(value.object.get("ms").?.integer);
         if (std.mem.eql(u8, op, "action")) try view.action(agents.str(value, "name"), agents.str(value, "value"));
-        if (std.mem.eql(u8, op, "focus")) try view.focusPane(try @import("protocol.zig").id(value, "pane"));
-        if (std.mem.eql(u8, op, "workspace")) try view.switchWorkspace(try @import("protocol.zig").id(value, "workspace"));
+        if (std.mem.eql(u8, op, "focus")) try view.focusPane(try protocol.typedId(PaneId, value, "pane"));
+        if (std.mem.eql(u8, op, "workspace")) try view.switchWorkspace(try protocol.typedId(WorkspaceId, value, "workspace"));
         // The stdio driver has no host terminal to negotiate image support.
         if (std.mem.eql(u8, op, "badge")) {
             view.corgi_badge = if (!value.object.get("visible").?.bool) .none else if (value.object.get("emoji")) |e| (if (e.bool) .emoji else .image) else .image;
@@ -50,7 +54,7 @@ pub fn run(path: []const u8) !void {
         try viewer.presented(&view);
         defer a.free(frame);
         const model = &view.current().model;
-        try os.sendJson(1, .{ .bell_seq = bell, .bell_kind = @tagName(view.last_bell_kind), .rang = bell != previous_bell, .data = frame, .workspace = view.current().id, .tab = if (model.count > 0) model.tabs[view.layoutView().selection.active].id else 0, .pane = if (view.focused()) |p| p.id else 0, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.effects.items });
+        try os.sendJson(1, .{ .bell_seq = bell, .bell_kind = @tagName(view.last_bell_kind), .rang = bell != previous_bell, .data = frame, .workspace = view.current().id, .tab = if (model.count > 0) model.tabs[view.layoutView().selection.active].id else TabId.none, .pane = if (view.focused()) |p| p.id else PaneId.none, .prefix = view.prefix, .dialog = view.name_dialog != null, .detached = !active, .effects = view.effects.items });
         view.clearEffects();
         if (!active) return;
     }

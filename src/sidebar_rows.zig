@@ -2,6 +2,8 @@
 //! their last visible content has faded; never retain borrowed snapshot strings.
 const std = @import("std");
 const sidebar = @import("sidebar.zig");
+const ActorId = @import("conversations.zig").Actor.Id;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const capacity = sidebar.max_entries;
 const Stored = struct {
     entry: sidebar.Entry = undefined,
@@ -50,7 +52,7 @@ const Stored = struct {
 
 pub const State = struct {
     pub const duration_ms = 240;
-    workspace: ?u32 = null,
+    workspace: ?WorkspaceId = null,
     slots: [capacity * 2]Stored = @splat(.{}),
     order: [capacity]usize = undefined,
     count: usize = 0,
@@ -61,7 +63,7 @@ pub const State = struct {
         self.workspace = null;
     }
     /// `workspace` keys the list; a new key discards retained rows.
-    pub fn update(self: *State, workspace: u32, live: []const sidebar.Entry, out: *[capacity]sidebar.Entry, now_ms: i64) []sidebar.Entry {
+    pub fn update(self: *State, workspace: WorkspaceId, live: []const sidebar.Entry, out: *[capacity]sidebar.Entry, now_ms: i64) []sidebar.Entry {
         if (self.workspace != workspace) {
             for (&self.slots) |*slot| slot.occupied = false;
             self.count = 0;
@@ -87,7 +89,7 @@ pub const State = struct {
             };
             const slot = &self.slots[index];
             const lost_binding = slot.occupied and entry.target == .pane and
-                slot.entry.provider == entry.provider and slot.entry.conversation != 0 and entry.conversation == 0 and
+                slot.entry.provider == entry.provider and slot.entry.conversation != ActorId.none and entry.conversation == ActorId.none and
                 (entry.state == .initializing or entry.state == .unknown);
             if (lost_binding and slot.unbound_ms == null) slot.unbound_ms = now_ms;
             // Foreground detection needs two 250 ms polls to confirm exit.
@@ -139,65 +141,65 @@ test "end hook and disappearance share one frozen exit without changing adjacent
     var out: [capacity]sidebar.Entry = undefined;
     var name = [_]u8{ 'D', 'o', 'g' };
     var live = [_]sidebar.Entry{
-        .{ .target = .{ .pane = 1 }, .provider = .codex, .state = .working, .attention = .none, .name = &name },
-        .{ .target = .{ .pane = 2 }, .provider = .claude, .state = .idle, .attention = .none },
+        .{ .target = .{ .pane = @enumFromInt(1) }, .provider = .codex, .state = .working, .attention = .none, .name = &name },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .provider = .claude, .state = .idle, .attention = .none },
     };
-    _ = rows.update(1, &live, &out, 0);
+    _ = rows.update(@enumFromInt(1), &live, &out, 0);
     name[0] = 'X';
     live[0].state = .done;
-    var shown = rows.update(1, &live, &out, 10);
+    var shown = rows.update(@enumFromInt(1), &live, &out, 10);
     try std.testing.expectEqualStrings("Dog", shown[0].name);
     try std.testing.expectEqual(.working, shown[0].state);
     try std.testing.expect(shown[0].exit != null);
-    shown = rows.update(1, live[1..], &out, 130);
+    shown = rows.update(@enumFromInt(1), live[1..], &out, 130);
     try std.testing.expectEqual(@as(usize, 2), shown.len);
     try std.testing.expectEqual(@as(u32, 2), shown[1].target.pane);
     try std.testing.expectEqual(@as(f64, 0.5), shown[0].exit.?.progress);
-    shown = rows.update(1, live[1..], &out, 250);
+    shown = rows.update(@enumFromInt(1), live[1..], &out, 250);
     try std.testing.expectEqual(@as(usize, 1), shown.len);
     try std.testing.expectEqual(@as(u32, 2), shown[0].target.pane);
-    shown = rows.update(2, &.{}, &out, 260);
+    shown = rows.update(@enumFromInt(2), &.{}, &out, 260);
     try std.testing.expectEqual(@as(usize, 0), shown.len);
 }
 
 test "lost terminal binding holds the label until exit or a real replacement" {
     var rows: State = .{};
     var out: [capacity]sidebar.Entry = undefined;
-    var entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .conversation = 42, .provider = .codex, .state = .idle, .attention = .none, .name = "Stable name" };
-    _ = rows.update(1, &.{entry}, &out, 0);
+    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = 42, .provider = .codex, .state = .idle, .attention = .none, .name = "Stable name" };
+    _ = rows.update(@enumFromInt(1), &.{entry}, &out, 0);
     entry.conversation = 0;
     entry.name = "";
     entry.state = .initializing;
-    var shown = rows.update(1, &.{entry}, &out, 10);
+    var shown = rows.update(@enumFromInt(1), &.{entry}, &out, 10);
     try std.testing.expectEqualStrings("Stable name", shown[0].name);
-    shown = rows.update(1, &.{}, &out, 510);
+    shown = rows.update(@enumFromInt(1), &.{}, &out, 510);
     try std.testing.expectEqualStrings("Stable name", shown[0].name);
     try std.testing.expect(shown[0].exit != null);
     entry.conversation = 43;
     entry.name = "New session";
-    shown = rows.update(1, &.{entry}, &out, 520);
+    shown = rows.update(@enumFromInt(1), &.{entry}, &out, 520);
     try std.testing.expect(shown[0].exit == null);
     try std.testing.expectEqualStrings("New session", shown[0].name);
     entry.conversation = 0;
-    _ = rows.update(1, &.{entry}, &out, 530);
-    shown = rows.update(1, &.{entry}, &out, 1180);
+    _ = rows.update(@enumFromInt(1), &.{entry}, &out, 530);
+    shown = rows.update(@enumFromInt(1), &.{entry}, &out, 1180);
     try std.testing.expectEqual(@as(u32, 0), shown[0].conversation);
 }
 
 test "pane removal fades once while ended natives stay visible and same-workspace reordering stays live" {
     var rows: State = .{};
     var out: [capacity]sidebar.Entry = undefined;
-    const pane: sidebar.Entry = .{ .target = .{ .pane = 1 }, .provider = .codex, .state = .idle, .attention = .none };
+    const pane: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .provider = .codex, .state = .idle, .attention = .none };
     var native: sidebar.Entry = .{ .target = .{ .native = 1 }, .provider = .claude, .state = .working, .attention = .none };
-    _ = rows.update(1, &.{ pane, native }, &out, 0);
-    var shown = rows.update(1, &.{ native, pane }, &out, 10);
+    _ = rows.update(@enumFromInt(1), &.{ pane, native }, &out, 0);
+    var shown = rows.update(@enumFromInt(1), &.{ native, pane }, &out, 10);
     try std.testing.expectEqual(sidebar.Target{ .native = 1 }, shown[0].target);
     native.state = .done;
-    shown = rows.update(1, &.{native}, &out, 20);
+    shown = rows.update(@enumFromInt(1), &.{native}, &out, 20);
     try std.testing.expectEqual(@as(usize, 2), shown.len);
     try std.testing.expect(shown[0].exit == null);
     try std.testing.expect(shown[1].exit != null);
-    shown = rows.update(1, &.{native}, &out, 260);
+    shown = rows.update(@enumFromInt(1), &.{native}, &out, 260);
     try std.testing.expectEqual(@as(usize, 1), shown.len);
     try std.testing.expectEqual(.done, shown[0].state);
 }

@@ -4,6 +4,7 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const Preview = @import("agent_launcher.zig").Preview;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 
 pub const Stream = struct {
     socket: []const u8 = "",
@@ -11,7 +12,7 @@ pub const Stream = struct {
     input: std.ArrayList(u8) = .empty,
     cwd: [std.fs.max_path_bytes]u8 = undefined,
     len: usize = 0,
-    workspace: u32 = 0,
+    workspace: WorkspaceId = .none,
     preview: Preview = .{},
     received: bool = false,
     retry_at: i64 = 0,
@@ -41,7 +42,7 @@ pub const Stream = struct {
 
     /// Subscribe only when the directory changes or the connection is lost.
     /// Otherwise this only drains pushed messages; it sends no requests.
-    pub fn poll(s: *Stream, workspace: u32, cwd: []const u8) bool {
+    pub fn poll(s: *Stream, workspace: WorkspaceId, cwd: []const u8) bool {
         if (s.socket.len == 0 or cwd.len > s.cwd.len) return false;
         var changed = false;
         if (s.workspace != workspace or !std.mem.eql(u8, cwd, s.cwd[0..s.len])) {

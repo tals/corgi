@@ -2,7 +2,9 @@
 //! inference runs on the shared worker and never changes a link destination.
 const std = @import("std");
 const ports = @import("ports.zig");
+const layout = @import("layout.zig");
 const inference = @import("inference.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const a = @import("os.zig").allocator;
 pub const capacity = 64;
 pub const Name = struct {
@@ -27,13 +29,13 @@ pub const Name = struct {
     }
 };
 pub const Key = struct {
-    workspace: u32,
-    pane: u32,
+    workspace: WorkspaceId,
+    pane: layout.PaneId,
     pid: i32,
     port: u16,
     scheme: ports.Scheme,
     address: u64,
-    fn of(workspace: u32, e: ports.Endpoint) Key {
+    fn of(workspace: WorkspaceId, e: ports.Endpoint) Key {
         return .{ .workspace = workspace, .pane = e.pane, .pid = e.pid, .port = e.port, .scheme = e.scheme, .address = std.hash.Wyhash.hash(0, e.bind_address) };
     }
 };
@@ -185,14 +187,14 @@ pub const Cache = struct {
         }
         return was_pending;
     }
-    pub fn name(cache: *const Cache, workspace: u32, endpoint: ports.Endpoint) []const u8 {
+    pub fn name(cache: *const Cache, workspace: WorkspaceId, endpoint: ports.Endpoint) []const u8 {
         const key = Key.of(workspace, endpoint);
         for (&cache.entries) |*entry| if (entry.*) |*e| {
             if (std.meta.eql(e.key, key)) return e.name.text();
         };
         return "";
     }
-    fn pending(cache: *const Cache, workspace: u32, endpoint: ports.Endpoint) bool {
+    fn pending(cache: *const Cache, workspace: WorkspaceId, endpoint: ports.Endpoint) bool {
         const key = Key.of(workspace, endpoint);
         for (cache.entries) |entry| if (entry) |e| {
             if (std.meta.eql(e.key, key)) return e.pending;
@@ -225,8 +227,8 @@ test "link guesses are bounded display names and stale endpoint results cannot a
     try std.testing.expect(Name.parse("Bad\x1b[2J") == null);
     try std.testing.expect(Name.parse("Here are too many words") == null);
     var cache: Cache = .{};
-    const endpoint: ports.Endpoint = .{ .pid = 2, .pane = 3, .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000 };
-    const key = Key.of(1, endpoint);
+    const endpoint: ports.Endpoint = .{ .pid = 2, .pane = @enumFromInt(3), .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000 };
+    const key = Key.of(@enumFromInt(1), endpoint);
     cache.entries[0] = .{ .key = key, .generation = 2, .pending = true };
     var result: Result = .{ .slot = 0, .key = key, .generation = 1, .name = Name.parse("Finance") };
     try std.testing.expect(!cache.apply(result, 0));
@@ -235,13 +237,13 @@ test "link guesses are bounded display names and stale endpoint results cannot a
     try std.testing.expect(!cache.apply(result, 0));
     result.key = key;
     try std.testing.expect(cache.apply(result, 0));
-    try std.testing.expectEqualStrings("Finance", cache.name(1, endpoint));
+    try std.testing.expectEqualStrings("Finance", cache.name(@enumFromInt(1), endpoint));
 }
 
 test "JSON escaping cannot overflow link evidence and preserves the latest terminal text" {
     var terminal: [1600]u8 = @splat(1);
     @memcpy(terminal[1593..], "Finance");
-    var request: Request = .{ .slot = 0, .generation = 1, .key = .{ .workspace = 1, .pane = 1, .pid = 1, .port = 3000, .scheme = .http, .address = 0 } };
+    var request: Request = .{ .slot = 0, .generation = 1, .key = .{ .workspace = @enumFromInt(1), .pane = @enumFromInt(1), .pid = 1, .port = 3000, .scheme = .http, .address = 0 } };
     try encode(&request, .{ .url = "http://localhost:3000", .pid = 1, .process = "bun", .cwd = "/tmp", .workspace = "Finance", .terminal_title = "", .terminal = &terminal });
     try std.testing.expect(request.len <= request.evidence.len);
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, request.evidence[0..request.len], .{});
@@ -266,16 +268,16 @@ const CacheFixture = struct {
             return a.dupe(u8, t.text);
         }
     };
-    const Pane = struct { id: u32 = 3, cwd: []const u8 = "/tmp", terminal: Terminal = .{} };
+    const Pane = struct { id: layout.PaneId = @enumFromInt(3), cwd: []const u8 = "/tmp", terminal: Terminal = .{} };
     const Owner = struct {
-        id: u32 = 1,
+        id: WorkspaceId = @enumFromInt(1),
         pub fn name(_: @This()) []const u8 {
             return "fin";
         }
     };
     ports: struct { current: ports.Snapshot = .{} } = .{},
     workspaces: struct {
-        pub fn owner(_: @This(), _: u32) ?Owner {
+        pub fn owner(_: @This(), _: layout.PaneId) ?Owner {
             return .{};
         }
     } = .{},
@@ -283,7 +285,7 @@ const CacheFixture = struct {
     submitted: usize = 0,
     cancelled: usize = 0,
     request: Request = undefined,
-    pub fn pane(f: *@This(), _: u32) ?*Pane {
+    pub fn pane(f: *@This(), _: layout.PaneId) ?*Pane {
         return &f.item;
     }
     pub fn submitLink(f: *@This(), request: Request) void {
@@ -302,8 +304,8 @@ test "endpoint naming survives failed probes and missing scans without spending 
     for ([_]?Name{ Name.parse("Finance"), Name.parse("Link"), null }) |answer| {
         var cache: Cache = .{};
         var f: CacheFixture = .{};
-        var endpoints = [_]ports.Endpoint{.{ .pid = 2, .pane = 3, .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 }};
-        const works = [_]ports.Work{.{ .id = 1, .endpoints = &endpoints }};
+        var endpoints = [_]ports.Endpoint{.{ .pid = 2, .pane = @enumFromInt(3), .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 }};
+        const works = [_]ports.Work{.{ .id = @enumFromInt(1), .endpoints = &endpoints }};
         f.ports.current.workspaces = &works;
         try std.testing.expect(cache.reconcile(&f, &f, 0));
         const request = f.request;
@@ -322,7 +324,7 @@ test "endpoint naming survives failed probes and missing scans without spending 
         try std.testing.expectEqual(@as(usize, 1), f.submitted);
         try std.testing.expectEqual(@as(usize, 1), f.item.terminal.reads);
         try std.testing.expectEqual(@as(usize, 0), f.cancelled);
-        try std.testing.expectEqualStrings(if (answer != null and !std.mem.eql(u8, answer.?.text(), "Link")) "Finance" else "", cache.name(1, endpoints[0]));
+        try std.testing.expectEqualStrings(if (answer != null and !std.mem.eql(u8, answer.?.text(), "Link")) "Finance" else "", cache.name(@enumFromInt(1), endpoints[0]));
         // A different process is a different endpoint and may be named once.
         endpoints[0].pid = 4;
         try std.testing.expect(cache.reconcile(&f, &f, 3600001));

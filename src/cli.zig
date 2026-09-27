@@ -4,6 +4,7 @@ const os = @import("os.zig");
 const a = os.allocator;
 const session = @import("session.zig");
 const layout = @import("layout.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
@@ -85,7 +86,7 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
     var command: ?session.Command = if (eq(action, "list") or eq(action, "current") or eq(action, "focus") or eq(action, "workspace.switch")) null else try parseCommand(action, target, &parsed);
     try parsed.end();
     if (eq(action, "current") and caller == 0) return error.NoCallerPane;
-    if (command) |cmd| if (cmd == .@"pane.create" and cmd.@"pane.create".workspace == 0 and caller == 0) return error.MissingWorkspace;
+    if (command) |cmd| if (cmd == .@"pane.create" and cmd.@"pane.create".workspace == WorkspaceId.none and caller == 0) return error.MissingWorkspace;
 
     const fd = try os.connect(path);
     defer _ = os.c.close(fd);
@@ -93,16 +94,16 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
         const located = try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller });
         defer located.deinit();
         const here = located.value.object.get("result").?;
-        const tab = try @import("protocol.zig").id(here, "tab");
-        const workspace = try @import("protocol.zig").id(here, "workspace");
+        const tab = try @import("protocol.zig").typedId(layout.TabId, here, "tab");
+        const workspace = try @import("protocol.zig").typedId(WorkspaceId, here, "workspace");
         switch (command.?) {
             .@"tab.rename" => |*q| q.target = tab,
             .@"tab.move" => |*q| q.target = tab,
             .@"tab.merge" => |*q| q.target = tab,
             .@"tab.close" => |*q| q.target = tab,
             .@"pane.create" => |*q| {
-                if (q.workspace == 0) q.workspace = workspace;
-                if (q.workspace == workspace) q.from = caller;
+                if (q.workspace == WorkspaceId.none) q.workspace = workspace;
+                if (q.workspace == workspace) q.from = @enumFromInt(caller);
             },
             else => unreachable,
         }
@@ -128,7 +129,7 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
 
 fn parseCommand(action: []const u8, target: u32, args: *Args) !session.Command {
     if (eq(action, "tab.new")) return .{ .@"pane.create" = .{
-        .workspace = if (try args.option("--workspace")) |value| try id(value) else 0,
+        .workspace = if (try args.option("--workspace")) |value| @enumFromInt(try id(value)) else .none,
         .title = (try args.option("--name")) orelse "",
         .cwd = try args.cwd(),
         .command = try args.option("--command"),
@@ -139,37 +140,37 @@ fn parseCommand(action: []const u8, target: u32, args: *Args) !session.Command {
     } };
     const tag = std.meta.stringToEnum(std.meta.Tag(session.Command), action) orelse return error.Usage;
     return switch (tag) {
-        .@"workspace.close" => .{ .@"workspace.close" = .{ .target = target } },
+        .@"workspace.close" => .{ .@"workspace.close" = .{ .target = @enumFromInt(target) } },
         .@"workspace.edit" => .{ .@"workspace.edit" = .{
-            .target = target,
+            .target = @enumFromInt(target),
             .name = if (try args.flag("--clear")) "" else try args.option("--name"),
             .cwd = if (try args.option("--cwd")) |value| try args.directory(value) else null,
         } },
-        .@"tab.rename" => .{ .@"tab.rename" = .{ .target = target, .name = if (try args.flag("--clear")) "" else try args.next() } },
-        .@"tab.close" => .{ .@"tab.close" = .{ .target = target } },
-        .@"pane.close" => .{ .@"pane.close" = .{ .target = target } },
-        .@"pane.swap" => .{ .@"pane.swap" = .{ .target = target, .other = try id(try args.next()) } },
+        .@"tab.rename" => .{ .@"tab.rename" = .{ .target = @enumFromInt(target), .name = if (try args.flag("--clear")) "" else try args.next() } },
+        .@"tab.close" => .{ .@"tab.close" = .{ .target = @enumFromInt(target) } },
+        .@"pane.close" => .{ .@"pane.close" = .{ .target = @enumFromInt(target) } },
+        .@"pane.swap" => .{ .@"pane.swap" = .{ .target = @enumFromInt(target), .other = @enumFromInt(try id(try args.next())) } },
         .@"pane.split" => .{ .@"pane.split" = .{
-            .target = target,
+            .target = @enumFromInt(target),
             .direction = try args.direction(),
             .cwd = try args.cwd(),
             .command = try args.option("--command"),
         } },
         .@"tab.merge" => blk: {
             const beside = try args.beside();
-            break :blk .{ .@"tab.merge" = .{ .target = target, .other = beside.other, .direction = beside.direction } };
+            break :blk .{ .@"tab.merge" = .{ .target = @enumFromInt(target), .other = beside.other, .direction = beside.direction } };
         },
         .@"tab.move" => .{ .@"tab.move" = .{
-            .target = target,
+            .target = @enumFromInt(target),
             .destination = if (try args.option("--before")) |value|
-                .{ .before = try id(value) }
+                .{ .before = @enumFromInt(try id(value)) }
             else if (try args.option("--after")) |value|
-                .{ .after = try id(value) }
+                .{ .after = @enumFromInt(try id(value)) }
             else
-                .{ .workspace = try id(try args.required("--workspace")) },
+                .{ .workspace = @enumFromInt(try id(try args.required("--workspace"))) },
         } },
         .@"pane.move" => .{ .@"pane.move" = .{
-            .target = target,
+            .target = @enumFromInt(target),
             .destination = if (try args.flag("--new-tab"))
                 .{ .new_tab = (try args.option("--name")) orelse "" }
             else
@@ -182,7 +183,7 @@ fn parseCommand(action: []const u8, target: u32, args: *Args) !session.Command {
             const percent = try std.fmt.parseInt(u16, value[0 .. value.len - 1], 10);
             if (percent < 10 or percent > 90) return error.Usage;
             break :blk .{ .@"pane.resize" = .{
-                .target = target,
+                .target = @enumFromInt(target),
                 .axis = if (width != null) .horizontal else .vertical,
                 .ratio = percent * 10,
             } };
@@ -190,10 +191,10 @@ fn parseCommand(action: []const u8, target: u32, args: *Args) !session.Command {
         .@"pane.read" => blk: {
             const lines = if (try args.option("--lines")) |value| try std.fmt.parseInt(usize, value, 10) else 100;
             if (lines == 0 or lines > 10000) return error.Usage;
-            break :blk .{ .@"pane.read" = .{ .target = target, .lines = lines } };
+            break :blk .{ .@"pane.read" = .{ .target = @enumFromInt(target), .lines = lines } };
         },
         .@"pane.send" => .{ .@"pane.send" = .{
-            .target = target,
+            .target = @enumFromInt(target),
             .text = if (try args.flag("--stdin")) try std.fs.File.stdin().readToEndAlloc(args.mem, 1024 * 1024) else try args.next(),
             .enter = try args.flag("--enter"),
         } },
@@ -202,7 +203,7 @@ fn parseCommand(action: []const u8, target: u32, args: *Args) !session.Command {
             for (args.positional.items) |key| _ = try session.logicalKey(key);
             const text = try std.mem.join(args.mem, " ", args.positional.items);
             args.positional.clearRetainingCapacity();
-            break :blk .{ .@"pane.keys" = .{ .target = target, .text = text } };
+            break :blk .{ .@"pane.keys" = .{ .target = @enumFromInt(target), .text = text } };
         },
         else => error.Usage,
     };
@@ -273,7 +274,7 @@ const Args = struct {
     fn beside(args: *Args) !session.Beside {
         const flags = [_][]const u8{ "--left-of", "--right-of", "--above", "--below" };
         const directions = [_]layout.Direction{ .left, .right, .up, .down };
-        for (flags, directions) |name, value| if (try args.option(name)) |other| return .{ .other = try id(other), .direction = value };
+        for (flags, directions) |name, value| if (try args.option(name)) |other| return .{ .other = @enumFromInt(try id(other)), .direction = value };
         return error.Usage;
     }
 };

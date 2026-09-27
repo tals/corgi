@@ -14,7 +14,9 @@ const naming = @import("name_dialog.zig");
 const sidebar = @import("sidebar.zig");
 const agent_navigation = @import("agent_navigation.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const protocol = @import("protocol.zig");
+const NativeId = @import("native.zig").Session.Id;
 const Effect = union(enum) {
     write_terminal: []const u8,
     open_url: []const u8,
@@ -26,13 +28,13 @@ const Effect = union(enum) {
     }
 };
 const TabDrag = struct {
-    workspace_id: u32,
-    tab_id: layout.Id,
+    workspace_id: WorkspaceId,
+    tab_id: layout.TabId,
     start_x: u16,
     width: u16,
     tabs_x: u16,
     first: usize,
-    ids: [layout.max_tabs]layout.Id = undefined,
+    ids: [layout.max_tabs]layout.TabId = undefined,
     count: usize,
     dragging: bool = false,
     cancelled: bool = false,
@@ -46,9 +48,9 @@ const InputState = struct {
     /// User input or a window resize since the last sync; the daemon sizes
     /// shared panes for the viewer that was used most recently.
     active: bool = false,
-    port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?u32 = null, pane: ?u32 = null, px: u16 = 0, py: u16 = 0, drag_selects: bool = false, cancelled: bool = false } = null,
+    port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?WorkspaceId = null, pane: ?layout.PaneId = null, px: u16 = 0, py: u16 = 0, drag_selects: bool = false, cancelled: bool = false } = null,
     paste: bool = false,
-    paste_pane: ?layout.Id = null,
+    paste_pane: ?layout.PaneId = null,
     paste_to_name: bool = false,
     paste_to_picker: bool = false,
     tab_drag: ?TabDrag = null,
@@ -94,7 +96,7 @@ pub const Controller = struct {
     port_menu: ?sidebar.PortMenu = null,
     agent_scope: sidebar.Scope = .workspace,
     /// Workspace ids whose group is folded in the grouped "All" list.
-    folded_groups: [workspace.max_workspaces]u32 = undefined,
+    folded_groups: [workspace.max_workspaces]WorkspaceId = undefined,
     folded_count: usize = 0,
     scope_menu: ?sidebar.ScopeMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
@@ -106,22 +108,22 @@ pub const Controller = struct {
     pointer: ?render.Pointer = null,
     iterm2_pointer: bool = false,
     link_tooltip: @import("link_tooltip.zig").State = .{},
-    git_hover: ?u32 = null,
+    git_hover: ?WorkspaceId = null,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?@import("agent_drag.zig").Drag = null,
-    workspace_drag: ?struct { id: u32, start_y: u16, before: ?u32 = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]u32 = undefined, count: usize = 0 } = null,
+    workspace_drag: ?struct { id: WorkspaceId, start_y: u16, before: ?WorkspaceId = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]WorkspaceId = undefined, count: usize = 0 } = null,
     resize_mode: bool = false,
     copy_mode: bool = false,
     name_dialog: ?naming.Dialog = null,
     confirm: enum { none, pane, tab } = .none,
-    confirm_tab: ?layout.Id = null,
+    confirm_tab: ?layout.TabId = null,
     message: [512]u8 = .{0} ** 512,
     message_len: usize = 0,
-    native_notice: ?u32 = null,
+    native_notice: ?NativeId = null,
     copy_feedback_until: i64 = 0,
     muted: bool = false,
-    selection: ?struct { pane: u32, x: u16, y: u16, moved: bool = false } = null,
+    selection: ?struct { pane: layout.PaneId, x: u16, y: u16, moved: bool = false } = null,
     search_mode: bool = false,
     search_text: [128]u8 = .{0} ** 128,
     search_len: usize = 0,
@@ -146,7 +148,7 @@ pub const Controller = struct {
     pub fn layoutView(s: *Self) layout.View {
         return .{ .model = s.model(), .selection = s.nav() };
     }
-    const Created = struct { pane: u32, workspace: u32 };
+    const Created = struct { pane: layout.PaneId, workspace: WorkspaceId };
     fn execute(s: *Self, command: @import("session.zig").Command) !Created {
         const response = try s.connection.call(.{ .op = "session.command", .protocol = 1, .command = command });
         defer response.deinit();
@@ -163,11 +165,11 @@ pub const Controller = struct {
     fn edit(s: *Self, command: @import("session.zig").Command) !void {
         _ = try s.execute(command);
     }
-    fn moveTab(s: *Self, id: u32, gap: usize) !void {
+    fn moveTab(s: *Self, id: layout.TabId, gap: usize) !void {
         if (@import("navigation.zig").moveTab(s.model(), id, gap)) |operation| try s.edit(operation);
     }
 
-    pub fn switchWorkspace(s: *Self, id: u32) !void {
+    pub fn switchWorkspace(s: *Self, id: WorkspaceId) !void {
         _ = s.runtime.workspaces.index(id) orelse return error.NoWorkspace;
         s.rememberAgent();
         if (s.input_state.tab_drag) |*drag| {
@@ -190,7 +192,7 @@ pub const Controller = struct {
         s.rememberAgent();
         s.dirty = true;
     }
-    fn closeWorkspace(s: *Self, id: u32, close_contents: bool) !void {
+    fn closeWorkspace(s: *Self, id: WorkspaceId, close_contents: bool) !void {
         _ = s.runtime.workspaces.index(id) orelse return error.NoWorkspace;
         if (s.runtime.workspaces.items.len == 1) return error.LastWorkspace;
 
@@ -203,7 +205,7 @@ pub const Controller = struct {
         const index = s.workspaceIndex();
         if (index < s.workspace_offset) s.workspace_offset = index else if (index >= s.workspace_offset + capacity) s.workspace_offset = index + 1 - capacity;
     }
-    pub fn focusPane(s: *Self, id: u32) !void {
+    pub fn focusPane(s: *Self, id: layout.PaneId) !void {
         const owner = s.runtime.workspaces.owner(id) orelse return error.NoPane;
         s.rememberAgent();
         const workspace_id = owner.id;
@@ -227,7 +229,7 @@ pub const Controller = struct {
             .all => "all",
         };
     }
-    fn inScope(s: *Self, id: u32) bool {
+    fn inScope(s: *Self, id: WorkspaceId) bool {
         return switch (s.agent_scope) {
             .workspace => id == s.current().id,
             .all => true,
@@ -258,11 +260,11 @@ pub const Controller = struct {
             .all => .all,
         };
     }
-    fn groupFolded(s: *Self, id: u32) bool {
-        return std.mem.indexOfScalar(u32, s.folded_groups[0..s.folded_count], id) != null;
+    fn groupFolded(s: *Self, id: WorkspaceId) bool {
+        return std.mem.indexOfScalar(WorkspaceId, s.folded_groups[0..s.folded_count], id) != null;
     }
-    fn toggleGroup(s: *Self, id: u32) void {
-        if (std.mem.indexOfScalar(u32, s.folded_groups[0..s.folded_count], id)) |index| {
+    fn toggleGroup(s: *Self, id: WorkspaceId) void {
+        if (std.mem.indexOfScalar(WorkspaceId, s.folded_groups[0..s.folded_count], id)) |index| {
             s.folded_groups[index] = s.folded_groups[s.folded_count - 1];
             s.folded_count -= 1;
         } else if (s.folded_count < s.folded_groups.len) {
@@ -293,7 +295,7 @@ pub const Controller = struct {
         if (s.agent_picker) |*picker| return .{ .text = picker.query.text[0..picker.query.len], .cursor = picker.query.cursor };
         return null;
     }
-    pub fn inheritedCwd(s: *Self, ws: *protocol.Workspace, target: ?layout.Id) []const u8 {
+    pub fn inheritedCwd(s: *Self, ws: *protocol.Workspace, target: ?layout.PaneId) []const u8 {
         const id = target orelse if (ws.model.count > 0) ws.model.firstPane(ws.model.tabs[0].root) else return ws.cwd;
         const p = s.pane(id) orelse return ws.cwd;
         return p.cwd;
@@ -325,7 +327,7 @@ pub const Controller = struct {
     }
     pub fn agentEntries(s: *Self, entries: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
         var count: usize = 0;
-        const focus = if (s.model().count > 0) s.nav().tab().focus else 0;
+        const focus = if (s.model().count > 0) s.nav().tab().focus else layout.PaneId.none;
         // "All" groups agents under a header per workspace that has any.
         const grouped = s.agent_scope == .all;
         var totals_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
@@ -373,7 +375,7 @@ pub const Controller = struct {
         var live: [sidebar.max_entries]sidebar.Entry = undefined;
         const list = switch (s.agent_scope) {
             .workspace => s.current().id,
-            .all => std.math.maxInt(u32),
+            .all => @as(WorkspaceId, @enumFromInt(std.math.maxInt(u32))),
         };
         return s.sidebar_rows.update(list, s.agentEntries(&live), entries, std.time.milliTimestamp());
     }
@@ -407,7 +409,7 @@ pub const Controller = struct {
                 if (session.id != id) continue;
                 if (session.workspace != s.current().id) try s.switchWorkspace(session.workspace);
                 var msg: [180]u8 = undefined;
-                s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}. Inspect: corgi native events {d}", .{ @tagName(session.provider), id, @tagName(session.state), id }));
+                s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}. Inspect: corgi native events {d}", .{ @tagName(session.provider), @intFromEnum(id), @tagName(session.state), @intFromEnum(id) }));
                 s.native_notice = id;
                 break;
             },
@@ -474,7 +476,7 @@ pub const Controller = struct {
         s.closeMenu();
         try s.selectAgent(target);
     }
-    fn pane(s: *Self, id: layout.Id) ?*Pane {
+    fn pane(s: *Self, id: layout.PaneId) ?*Pane {
         return s.runtime.pane(id);
     }
     pub fn focused(s: *Self) ?*Pane {
@@ -494,7 +496,7 @@ pub const Controller = struct {
     fn hasMenu(s: *Self) bool {
         return s.onboarding != null or s.workspace_chooser != null or s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null or s.corgi_setup != null or s.scope_menu != null;
     }
-    fn tabIndex(s: *Self, id: layout.Id) ?usize {
+    fn tabIndex(s: *Self, id: layout.TabId) ?usize {
         for (s.model().tabs[0..s.model().count], 0..) |tab, i| if (tab.id == id) return i;
         return null;
     }
@@ -503,7 +505,7 @@ pub const Controller = struct {
         s.search_mode = false;
         s.cancelDividers();
         s.selection = null;
-        s.tab_menu = .{ .tab = s.model().tabs[index].id, .anchor_x = x };
+        s.tab_menu = .{ .tab = @intFromEnum(s.model().tabs[index].id), .anchor_x = x };
     }
     fn tabMenuAction(s: *Self, key_: u8) !void {
         const context = s.tab_menu orelse return;
@@ -513,23 +515,25 @@ pub const Controller = struct {
         if (!supported) return;
         s.closeMenu();
         if (context.pane) {
-            if (s.pane(context.tab) == null) return;
+            const pane_id: layout.PaneId = @enumFromInt(context.tab);
+            if (s.pane(pane_id) == null) return;
             if (key_ == 'T') {
-                s.name_dialog = naming.Dialog.init(.{ .pane = context.tab }, s.pane(context.tab).?.label);
+                s.name_dialog = naming.Dialog.init(.{ .pane = pane_id }, s.pane(pane_id).?.label);
                 s.dirty = true;
             } else if (key_ == 'C') {
-                try s.renamePane(context.tab, "");
+                try s.renamePane(pane_id, "");
             } else if (key_ == 'X') {
-                try s.close(context.tab);
+                try s.close(pane_id);
             } else if (key_ == 's') {
-                if (context.source) |source| {
-                    if (s.model().tabForPane(source) != s.model().tabForPane(context.tab)) return;
+                if (context.source) |raw_source| {
+                    const source: layout.PaneId = @enumFromInt(raw_source);
+                    if (s.model().tabForPane(source) != s.model().tabForPane(pane_id)) return;
                     try s.focusPane(source);
-                    try s.edit(.{ .@"pane.swap" = .{ .target = source, .other = context.tab } });
+                    try s.edit(.{ .@"pane.swap" = .{ .target = source, .other = pane_id } });
                     s.dirty = true;
                 }
             } else {
-                try s.focusPane(context.tab);
+                try s.focusPane(pane_id);
                 switch (key_) {
                     'v' => try s.action("split", "right"),
                     '-' => try s.action("split", "down"),
@@ -540,16 +544,16 @@ pub const Controller = struct {
             return;
         }
         if (context.workspace) {
-            if (s.runtime.workspaces.index(context.tab) == null) return;
+            if (s.runtime.workspaces.index(@enumFromInt(context.tab)) == null) return;
             switch (key_) {
-                'T' => s.beginWorkspace(context.tab),
-                'X' => s.closeWorkspace(context.tab, true) catch |err| s.notice(if (err == error.LastWorkspace) " Cannot close the last workspace" else " Could not close workspace"),
+                'T' => s.beginWorkspace(@enumFromInt(context.tab)),
+                'X' => s.closeWorkspace(@enumFromInt(context.tab), true) catch |err| s.notice(if (err == error.LastWorkspace) " Cannot close the last workspace" else " Could not close workspace"),
                 else => {},
             }
             return;
         }
         s.rememberAgent();
-        s.nav().active = s.tabIndex(context.tab) orelse return;
+        s.nav().active = s.tabIndex(@enumFromInt(context.tab)) orelse return;
         s.native_notice = null;
         s.rememberAgent();
         s.copy_mode = false;
@@ -599,13 +603,13 @@ pub const Controller = struct {
         s.menu_page = if (next) (view.page + 1) % view.pages else (view.page + view.pages - 1) % view.pages;
         s.dirty = true;
     }
-    fn beginWorkspace(s: *Self, id: ?u32) void {
+    fn beginWorkspace(s: *Self, id: ?WorkspaceId) void {
         s.dismissName();
         const initial = if (id) |value| s.runtime.workspaces.items[s.runtime.workspaces.index(value) orelse return].custom_name else "";
         s.name_dialog = naming.Dialog.init(.{ .workspace_name = id }, initial);
         s.prepareName();
     }
-    fn newWorkspace(s: *Self, name: []const u8, cwd: []const u8) !u32 {
+    fn newWorkspace(s: *Self, name: []const u8, cwd: []const u8) !WorkspaceId {
         const id = (try s.execute(.{ .@"workspace.create" = .{ .name = name, .cwd = cwd } })).workspace;
         try s.switchWorkspace(id);
         return id;
@@ -628,7 +632,7 @@ pub const Controller = struct {
     pub fn dismissName(s: *Self) void {
         s.name_dialog = null;
     }
-    fn renamePane(s: *Self, id: u32, name: []const u8) !void {
+    fn renamePane(s: *Self, id: layout.PaneId, name: []const u8) !void {
         try s.edit(.{ .@"pane.rename" = .{ .target = id, .name = name } });
     }
     fn finishName(s: *Self, save: bool) void {
@@ -685,10 +689,10 @@ pub const Controller = struct {
         }
         s.message_len = 0;
     }
-    fn create(s: *Self, split: ?layout.Axis, cwd: []const u8, command: ?[]const u8, title: []const u8) !layout.Id {
+    fn create(s: *Self, split: ?layout.Axis, cwd: []const u8, command: ?[]const u8, title: []const u8) !layout.PaneId {
         const operation: @import("session.zig").Command = if (split) |axis|
             .{ .@"pane.split" = .{
-                .target = if (s.model().count > 0) s.nav().tab().focus else 0,
+                .target = if (s.model().count > 0) s.nav().tab().focus else layout.PaneId.none,
                 .direction = if (axis == .horizontal) .right else .down,
                 .cwd = cwd,
                 .command = command,
@@ -702,7 +706,7 @@ pub const Controller = struct {
         s.dirty = true;
         return id;
     }
-    pub fn close(s: *Self, id: layout.Id) !void {
+    pub fn close(s: *Self, id: layout.PaneId) !void {
         try s.edit(.{ .@"pane.close" = .{ .target = id } });
         s.dirty = true;
         return;
@@ -735,7 +739,7 @@ pub const Controller = struct {
             for (s.runtime.sessions) |session| if (session.attention == priority) {
                 if (session.workspace != s.current().id) try s.switchWorkspace(session.workspace);
                 var msg: [180]u8 = undefined;
-                s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}. Inspect: corgi native events {d}", .{ @tagName(session.provider), session.id, @tagName(session.state), session.id }));
+                s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}. Inspect: corgi native events {d}", .{ @tagName(session.provider), @intFromEnum(session.id), @tagName(session.state), @intFromEnum(session.id) }));
                 s.native_notice = session.id;
                 return;
             };
@@ -897,7 +901,7 @@ pub const Controller = struct {
         defer parsed.deinit();
         launch.resolution = parsed.value;
         if (!launch.resolution.pending and !launch.name_customized and launch.resolution.error_message.len == 0) {
-            launch.name_editor = naming.Dialog.init(.{ .rename = 0 }, launch.resolution.semantics.suggested_name.text());
+            launch.name_editor = naming.Dialog.init(.{ .rename = @enumFromInt(0) }, launch.resolution.semantics.suggested_name.text());
         }
         s.dirty = true;
     }
@@ -1075,7 +1079,7 @@ pub const Controller = struct {
         }
         s.dirty = true;
     }
-    fn portWorkspaceEntry(s: *Self, id: u32) sidebar.WorkspaceEntry {
+    fn portWorkspaceEntry(s: *Self, id: WorkspaceId) sidebar.WorkspaceEntry {
         return .{ .id = id, .name = "", .cwd = "", .active = false, .ports = s.runtime.ports, .remote_links = s.remote_links };
     }
     fn openSetup(s: *Self) void {
@@ -2167,7 +2171,7 @@ pub const Controller = struct {
                         s.search_mode = false;
                         s.cancelDividers();
                         s.selection = null;
-                        s.tab_menu = .{ .tab = s.runtime.workspaces.items[index].id, .workspace = true, .anchor_x = x, .anchor_y = y };
+                        s.tab_menu = .{ .tab = @intFromEnum(s.runtime.workspaces.items[index].id), .workspace = true, .anchor_x = x, .anchor_y = y };
                     } else {
                         const id = s.runtime.workspaces.items[index].id;
                         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
@@ -2234,7 +2238,7 @@ pub const Controller = struct {
                 s.closeMenu();
                 s.selection = null;
                 s.cancelDividers();
-                s.tab_menu = .{ .pane = true, .tab = p.id, .source = if (source != p.id) source else null, .anchor_x = x, .anchor_y = y };
+                s.tab_menu = .{ .pane = true, .tab = @intFromEnum(p.id), .source = if (source != p.id) @intFromEnum(source) else null, .anchor_x = x, .anchor_y = y };
                 s.ui_mouse_down = true;
                 s.dirty = true;
                 return;
@@ -2335,7 +2339,7 @@ pub const Controller = struct {
         };
     }
 
-    pub fn visitWorkspace(s: *Self, id: u32) void {
+    pub fn visitWorkspace(s: *Self, id: WorkspaceId) void {
         const index = s.runtime.workspaces.index(id) orelse return;
         if (s.runtime.workspaces.items[index].stats.any()) {
             s.runtime.workspaces.items[index].stats = .{};
@@ -2348,12 +2352,12 @@ pub const Controller = struct {
         try s.receiveSnapshot(reply.value);
     }
     pub fn receiveSnapshot(s: *Self, snapshot: std.json.Value) !void {
-        const previous_focus = if (s.runtime.workspaces.items.len > 0) if (s.focused()) |p| p.id else 0 else 0;
-        const previous_workspace = if (s.runtime.workspaces.items.len > 0) s.current().id else 0;
+        const previous_focus = if (s.runtime.workspaces.items.len > 0) (if (s.focused()) |p| p.id else layout.PaneId.none) else layout.PaneId.none;
+        const previous_workspace = if (s.runtime.workspaces.items.len > 0) s.current().id else WorkspaceId.none;
         const previous_token = if (s.runtime.workspaces.items.len > 0) s.model().revision else 0;
         try s.runtime.receive(s.connection, snapshot);
         if (previous_workspace != s.current().id or previous_token != s.model().revision) s.cancelDividers();
-        if (previous_focus != 0 and previous_focus != (if (s.focused()) |p| p.id else 0)) {
+        if (previous_focus != layout.PaneId.none and previous_focus != (if (s.focused()) |p| p.id else layout.PaneId.none)) {
             s.copy_mode = false;
             s.search_mode = false;
             s.selection = null;
@@ -2372,7 +2376,7 @@ pub const Controller = struct {
                 s.port_menu = null;
             } else links.selected = @min(links.selected, count - 1);
         }
-        if (s.tab_menu) |context| if (if (context.pane) s.pane(context.tab) == null else if (context.workspace) s.runtime.workspaces.index(context.tab) == null else s.tabIndex(context.tab) == null) {
+        if (s.tab_menu) |context| if (if (context.pane) s.pane(@enumFromInt(context.tab)) == null else if (context.workspace) s.runtime.workspaces.index(@enumFromInt(context.tab)) == null else s.tabIndex(@enumFromInt(context.tab)) == null) {
             s.tab_menu = null;
         };
         if (s.confirm_tab) |id| if (s.tabIndex(id) == null) {
@@ -2413,17 +2417,17 @@ pub const Controller = struct {
             if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
                 var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
                 if (@import("corgi_badge.zig").hit(s.corgi_badge, s.sidebarView(&.{}).width, pointer.x, pointer.y)) {
-                    target = .{ .pane = 0, .link = 0, .usage = true };
+                    target = .{ .pane = .none, .link = 0, .usage = true };
                 }
                 if (sidebar.gitActionWorkspace(s.sidebarView(&.{}), s.workspaceEntries(&storage), s.git_hover, pointer.x, pointer.y)) |ws| {
-                    target = .{ .pane = ws.id, .link = 0, .git = true };
+                    target = .{ .pane = @enumFromInt(@intFromEnum(ws.id)), .link = 0, .git = true };
                     if (ws.git_push.phase == .failed) return true;
                 }
                 var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
                 const entries = s.sidebarEntries(&agent_storage);
                 // The host may leave its last mouse report at the window edge.
                 if (pointer.x > 0) if (sidebar.agentAt(s.sidebarView(entries), entries, pointer.x, pointer.y)) |entry| {
-                    target = .{ .pane = 0, .link = 0, .conversation = entry.conversation, .agent = entry.target };
+                    target = .{ .pane = .none, .link = 0, .conversation = entry.conversation, .agent = entry.target };
                 };
                 var locations: [layout.max_panes]layout.Placement = undefined;
                 for (s.layoutView().placements(s.area(), &locations)) |place| {

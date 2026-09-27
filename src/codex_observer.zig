@@ -1,16 +1,18 @@
 //! Title-selected, read-only daemon observation. Never resumes or subscribes a
 //! thread, and never changes the CLI transport or launch configuration.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 const os = @import("os.zig");
 const agents = @import("agents.zig");
 const providers = @import("providers.zig");
 const Client = @import("codex_socket.zig").Client;
 const a = os.allocator;
-const max = @import("layout.zig").max_panes;
+const layout = @import("layout.zig");
+const max = layout.max_panes;
 const eq = std.mem.eql;
 pub const Prefix = providers.SessionPrefix;
 pub const titlePrefix = providers.Codex.titleSession;
-pub const Request = struct { pane: u32 = 0, pid: c_int = 0, prefix: Prefix, actor: u32 = 0, generation: u64 = 0, title_revision: u64 = 0 };
+pub const Request = struct { pane: layout.PaneId = .none, pid: c_int = 0, prefix: Prefix, actor: ActorId = .none, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
     background_tasks: @import("background_tasks.zig").Inventory = .{},
     children: []const Child = &.{},
@@ -319,7 +321,7 @@ pub const Worker = struct {
             w.collect(&client, &ids) catch continue;
             for (requests[0..count], 0..) |req, i| {
                 if (w.stopped()) return;
-                const session = if (req.actor != 0) req.prefix.bytes else unique(ids.items, &req.prefix) orelse continue;
+                const session = if (req.actor != ActorId.none) req.prefix.bytes else unique(ids.items, &req.prefix) orelse continue;
                 const s = snapshot(&client, req, session) catch continue;
                 w.mutex.lock();
                 if (w.results[i]) |old| old.deinit();

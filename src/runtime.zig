@@ -4,14 +4,16 @@ const os = @import("os.zig");
 const a = os.allocator;
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const agents = @import("agents.zig");
 const Terminal = @import("terminal.zig").Terminal;
 const native = @import("native.zig");
+const NativeId = native.Session.Id;
 const Theme = @import("theme.zig").Theme;
 
 pub const Pane = struct {
     label: @import("pane_label.zig").Label = .{},
-    id: layout.Id,
+    id: layout.PaneId,
     terminal: *Terminal,
     attachment: @import("conversations.zig").Attachment = .{},
 
@@ -37,7 +39,7 @@ pub const ClosedPane = struct {
     terminal: *Terminal,
     cwd: []const u8,
     tab: layout.Tab,
-    workspace_id: u32,
+    workspace_id: WorkspaceId,
     pub fn deinit(p: ClosedPane) void {
         p.terminal.destroy();
         a.free(p.cwd);
@@ -49,7 +51,7 @@ pub const Runtime = struct {
     panes: std.ArrayList(Pane) = .empty,
     closed: std.ArrayList(ClosedPane) = .empty,
     sessions: std.ArrayList(native.Session) = .empty,
-    next_session: u32 = 1,
+    next_session: NativeId = .first,
     last_agent: agents.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
@@ -87,18 +89,18 @@ pub const Runtime = struct {
         r.conversations.deinit();
     }
 
-    pub fn pane(r: *Runtime, id: layout.Id) ?*Pane {
+    pub fn pane(r: *Runtime, id: layout.PaneId) ?*Pane {
         for (r.panes.items) |*p| if (p.id == id) return p;
         return null;
     }
 
-    pub fn getWorkspace(r: *Runtime, id: u32) !*workspace.Workspace {
+    pub fn getWorkspace(r: *Runtime, id: WorkspaceId) !*workspace.Workspace {
         return r.workspaces.get(id) orelse error.NoWorkspace;
     }
 
     pub const Create = struct {
-        workspace: u32,
-        split: ?struct { pane: layout.Id, axis: layout.Axis, before: bool = false } = null,
+        workspace: WorkspaceId,
+        split: ?struct { pane: layout.PaneId, axis: layout.Axis, before: bool = false } = null,
         cwd: []const u8,
         command: ?[]const u8 = null,
         interactive_command: bool = false,
@@ -111,7 +113,7 @@ pub const Runtime = struct {
     };
 
     /// Changes the shared arrangement without selecting the result in a viewer.
-    pub fn create(r: *Runtime, opts: Create) !layout.Id {
+    pub fn create(r: *Runtime, opts: Create) !layout.PaneId {
         if (r.panes.items.len >= layout.max_panes) return error.TooManyPanes;
         const ws = try r.getWorkspace(opts.workspace);
         var next = ws.model;
@@ -133,7 +135,7 @@ pub const Runtime = struct {
         return id;
     }
 
-    pub fn close(r: *Runtime, id: layout.Id) !void {
+    pub fn close(r: *Runtime, id: layout.PaneId) !void {
         const owner = r.workspaces.owner(id) orelse return error.NoPane;
         const previous = owner.model.tabs[owner.model.tabForPane(id).?];
         try r.closed.ensureUnusedCapacity(a, 1);
@@ -151,7 +153,7 @@ pub const Runtime = struct {
         r.changed();
     }
 
-    pub fn restore(r: *Runtime, fallback: Create) !layout.Id {
+    pub fn restore(r: *Runtime, fallback: Create) !layout.PaneId {
         if (r.closed.items.len == 0) return error.NoClosedPane;
         const saved = r.closed.items[r.closed.items.len - 1];
         const content = try saved.terminal.snapshot();
@@ -169,7 +171,7 @@ pub const Runtime = struct {
         saved.deinit();
         return id;
     }
-    pub fn createWorkspace(r: *Runtime, name: []const u8, opts: Create) !u32 {
+    pub fn createWorkspace(r: *Runtime, name: []const u8, opts: Create) !WorkspaceId {
         const id = try r.workspaces.add(name, opts.cwd);
         errdefer {
             const removed = r.workspaces.items.pop().?;
@@ -180,7 +182,7 @@ pub const Runtime = struct {
         _ = try r.create(shell);
         return id;
     }
-    pub fn closeWorkspace(r: *Runtime, id: u32, close_contents: bool) !void {
+    pub fn closeWorkspace(r: *Runtime, id: WorkspaceId, close_contents: bool) !void {
         const index = r.workspaces.index(id) orelse return error.NoWorkspace;
         if (r.workspaces.items.items.len == 1) return error.LastWorkspace;
         const ws = &r.workspaces.items.items[index];

@@ -3,9 +3,10 @@ const std = @import("std");
 const session = @import("session.zig");
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 pub const State = struct {
-    workspace_id: u32 = 0,
-    entries: [workspace.max_workspaces]struct { id: u32 = 0, value: layout.Selection = .{}, agents: @import("agent_navigation.zig").History = .{} } = @splat(.{}),
+    workspace_id: WorkspaceId = .none,
+    entries: [workspace.max_workspaces]struct { id: WorkspaceId = .none, value: layout.Selection = .{}, agents: @import("agent_navigation.zig").History = .{} } = @splat(.{}),
     pub fn index(n: *State, store: *@import("mirror.zig").Workspaces) usize {
         const i = store.index(n.workspace_id) orelse 0;
         n.workspace_id = store.items[i].id;
@@ -20,14 +21,14 @@ pub const State = struct {
             entry.value.reconcile(&ws.model);
             return &entry.value;
         };
-        for (&n.entries) |*entry| if (entry.id == 0 or store.index(entry.id) == null) {
+        for (&n.entries) |*entry| if (entry.id == WorkspaceId.none or store.index(entry.id) == null) {
             entry.* = .{ .id = ws.id };
             entry.value.reconcile(&ws.model);
             return &entry.value;
         };
         unreachable;
     }
-    pub const Intent = struct { edit: ?session.Command = null, focus: ?u32 = null };
+    pub const Intent = struct { edit: ?session.Command = null, focus: ?layout.PaneId = null };
     pub fn agentHistory(n: *State, store: *@import("mirror.zig").Workspaces) *@import("agent_navigation.zig").History {
         _ = n.tabs(store);
         for (&n.entries) |*entry| if (entry.id == n.workspace_id) return &entry.agents;
@@ -66,7 +67,7 @@ pub const State = struct {
     }
 };
 
-pub fn moveTab(model: *const layout.Model, id: u32, gap: usize) ?session.Command {
+pub fn moveTab(model: *const layout.Model, id: layout.TabId, gap: usize) ?session.Command {
     if (gap > model.count or model.count == 0) return null;
     const other = model.tabs[if (gap == model.count) gap - 1 else gap].id;
     if (id == other) return null;

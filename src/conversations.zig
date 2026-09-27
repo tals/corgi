@@ -4,12 +4,27 @@
 const std = @import("std");
 const agents = @import("agents.zig");
 const providers = @import("providers.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 
 pub const max_actors = 1024;
 pub const Actor = struct {
-    id: u32,
+    /// Stable for the daemon's lifetime and across checkpoints. Saved and wire
+    /// formats carry it as a plain number, where 0 means no conversation.
+    pub const Id = enum(u32) {
+        _,
+
+        /// Never assigned to an actor.
+        pub const none: Id = @enumFromInt(0);
+        pub const first: Id = @enumFromInt(1);
+
+        pub fn next(id: Id) Id {
+            return @enumFromInt(@intFromEnum(id) + 1);
+        }
+    };
+
+    id: Id,
     state: agents.Agent,
-    parent: ?u32 = null,
+    parent: ?Id = null,
     pending_native_requests: u32 = 0,
     status_inference: @import("activity_summary.zig").Conversation = .{},
     activity_timeline: @import("activity_timeline.zig").Timeline = .{},
@@ -17,7 +32,7 @@ pub const Actor = struct {
     background_tasks: @import("background_tasks.zig").Inventory = .{},
     // Foreground tool calls and background processes have independent lifetimes.
     transcript_tool_active: bool = false,
-    workspace: u32 = 0,
+    workspace: WorkspaceId = .none,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,
     child_refresh: bool = false,
@@ -202,7 +217,7 @@ pub const Actor = struct {
 };
 
 test "Codex tools survive snapshots but never leak into another turn" {
-    var actor: Actor = .{ .id = 1, .state = .{} };
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
     var snap: @import("codex_observer.zig").Snapshot = .{
         .request = .{ .prefix = .{} },
         .session = "01901234-1234-1234-1234-123456789abc".*,
@@ -249,7 +264,7 @@ pub const Attachment = struct {
     hook_seq: i64 = 0,
     // Conversations observed by this process. Old hooks may update them after
     // selection changes, but cannot invent a new session except on SessionStart.
-    known: [256]u32 = @splat(0),
+    known: [256]Actor.Id = @splat(.none),
     known_len: usize = 0,
 
     pub fn agent(binding: *const Attachment) *agents.Agent {
@@ -258,7 +273,7 @@ pub const Attachment = struct {
     pub fn select(binding: *Attachment, actor: *Actor) void {
         if (!binding.knows(actor.id)) {
             if (binding.known_len == binding.known.len) {
-                std.mem.copyForwards(u32, binding.known[0 .. binding.known.len - 1], binding.known[1..]);
+                std.mem.copyForwards(Actor.Id, binding.known[0 .. binding.known.len - 1], binding.known[1..]);
                 binding.known_len -= 1;
             }
             binding.known[binding.known_len] = actor.id;
@@ -268,8 +283,8 @@ pub const Attachment = struct {
         binding.actor = actor;
         binding.generation +%= 1;
     }
-    pub fn knows(binding: *const Attachment, id: u32) bool {
-        return std.mem.indexOfScalar(u32, binding.known[0..binding.known_len], id) != null;
+    pub fn knows(binding: *const Attachment, id: Actor.Id) bool {
+        return std.mem.indexOfScalar(Actor.Id, binding.known[0..binding.known_len], id) != null;
     }
     /// Selection is unknown, but this process can still report known sessions.
     pub fn deselect(binding: *Attachment) void {
@@ -284,7 +299,7 @@ pub const Attachment = struct {
         binding.selection_hash = 0;
         binding.hook_seq = 0;
     }
-    pub fn matches(binding: *const Attachment, generation: u64, actor: u32) bool {
+    pub fn matches(binding: *const Attachment, generation: u64, actor: Actor.Id) bool {
         return binding.generation == generation and binding.actor != null and binding.actor.?.id == actor;
     }
 };
@@ -292,7 +307,7 @@ pub const Attachment = struct {
 pub const Registry = struct {
     allocator: std.mem.Allocator = std.heap.c_allocator,
     items: std.ArrayList(*Actor) = .empty,
-    next_id: u32 = 1,
+    next_id: Actor.Id = .first,
 
     pub fn deinit(registry: *Registry) void {
         for (registry.items.items) |actor| registry.allocator.destroy(actor);
@@ -304,7 +319,7 @@ pub const Registry = struct {
         }
         return null;
     }
-    pub fn byId(registry: *const Registry, id: u32) ?*Actor {
+    pub fn byId(registry: *const Registry, id: Actor.Id) ?*Actor {
         for (registry.items.items) |actor| if (actor.id == id) return actor;
         return null;
     }
@@ -312,14 +327,14 @@ pub const Registry = struct {
         if (session.len == 0 or session.len > 160 or !std.unicode.utf8ValidateSlice(session)) return error.InvalidSession;
         for (session) |ch| if (ch < 32 or ch == 127) return error.InvalidSession;
         if (registry.find(provider, session)) |actor| return actor;
-        if (registry.items.items.len == max_actors or registry.next_id == std.math.maxInt(u32)) return error.TooManyConversations;
+        if (registry.items.items.len == max_actors or @intFromEnum(registry.next_id) == std.math.maxInt(u32)) return error.TooManyConversations;
         const actor = try registry.allocator.create(Actor);
         errdefer registry.allocator.destroy(actor);
         actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider }, .tracked_since = std.time.milliTimestamp() };
         @memcpy(actor.state.session[0..session.len], session);
         actor.state.session_len = session.len;
         try registry.items.append(registry.allocator, actor);
-        registry.next_id += 1;
+        registry.next_id = registry.next_id.next();
         return actor;
     }
     /// Explicit parent identity is the only way into the child tree. Children
@@ -395,11 +410,11 @@ test "child links cannot cross providers reparent or form cycles" {
     const nested = try registry.get(.codex, "nested");
     const other = try registry.get(.codex, "other");
     const claude = try registry.get(.claude, "root");
-    root.workspace = 7;
+    root.workspace = @enumFromInt(7);
     root.tracked_since = 100;
     try std.testing.expect(registry.linkChild(root, child));
     try std.testing.expect(registry.linkChild(child, nested));
-    try std.testing.expectEqual(@as(u32, 7), nested.workspace);
+    try std.testing.expectEqual(@as(WorkspaceId, @enumFromInt(7)), nested.workspace);
     try std.testing.expectEqual(@as(i64, 100), nested.tracked_since);
     try std.testing.expect(!registry.linkChild(nested, root));
     try std.testing.expect(!registry.linkChild(other, child));
@@ -409,7 +424,7 @@ test "child links cannot cross providers reparent or form cycles" {
 
 test "compaction hooks partition usage and preserve the summary through repeated or stale events" {
     const summary = @import("activity_summary.zig");
-    var actor: Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working } };
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working } };
     actor.state.setActivity("Reading source");
     actor.activity_timeline.checkpoint("", summary.Label.parse("Reading source").?, .{}, 1);
     actor.live_usage = .{ .known = true, .tokens = .{ .input = 100 } };
@@ -430,7 +445,7 @@ test "compaction hooks partition usage and preserve the summary through repeated
 }
 
 test "terminal compaction supplements protocol state without clearing hook compaction" {
-    var actor: Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working, .last_seq = 100, .observation = .{ .source = .protocol } } };
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .last_seq = 100, .observation = .{ .source = .protocol } } };
     actor.observeCompactionScreen(true, 1000);
     try std.testing.expect(actor.state.compacting);
     try std.testing.expect(actor.authoritative(1001));
@@ -584,8 +599,8 @@ test "ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
 }
 
 test "snapshot baseline and completion receipts are idempotent" {
-    var actor: Actor = .{ .id = 1, .state = .{} };
-    var s: @import("codex_observer.zig").Snapshot = .{ .request = .{ .pane = 1, .pid = 1, .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .idle, .turn_len = 1, .outcome = .completed, .observed_at = 1 };
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
+    var s: @import("codex_observer.zig").Snapshot = .{ .request = .{ .pane = @enumFromInt(1), .pid = 1, .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .idle, .turn_len = 1, .outcome = .completed, .observed_at = 1 };
     s.turn[0] = 'a';
     try std.testing.expect(!actor.observeSnapshot(s, false));
     try std.testing.expectEqual(@as(u64, 0), actor.state.observation.completed);
@@ -601,7 +616,7 @@ test "snapshot baseline and completion receipts are idempotent" {
 
 test "a snapshot completion records history without overriding active or blocked state" {
     for ([_]agents.State{ .working, .blocked }) |state| {
-        var actor: Actor = .{ .id = 1, .state = .{} };
+        var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
         var s: @import("codex_observer.zig").Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .turn_len = 1, .observed_at = 1 };
         s.turn[0] = 'a';
         try std.testing.expect(!actor.observeSnapshot(s, false));
@@ -623,7 +638,7 @@ test "a snapshot completion records history without overriding active or blocked
 }
 
 test "delayed hook endings and transcript confirmations cannot stop resumed work" {
-    var actor: Actor = .{ .id = 1, .state = .{ .provider = .claude } };
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .claude } };
     _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .turn = "old" }, 1, false, 10);
     _ = actor.observeHook(.{ .kind = .stop, .session = "a", .turn = "old" }, 2, false, 20);
     try std.testing.expect(actor.state.observation.pending_stop);
@@ -643,7 +658,7 @@ test "delayed hook endings and transcript confirmations cannot stop resumed work
 }
 
 test "hook models replace the transcript model and survive events without one" {
-    var actor: Actor = .{ .id = 1, .state = .{ .provider = .codex } };
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex } };
     _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-astra" }, 1, false, 10);
     try std.testing.expectEqualStrings("gpt-6-astra", actor.model.bytes[0..actor.model.len]);
     try std.testing.expect(actor.model_from_hook);

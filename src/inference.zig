@@ -3,6 +3,7 @@
 const std = @import("std");
 const os = @import("os.zig");
 const native = @import("native.zig");
+const NativeId = native.Session.Id;
 const conversations = @import("conversations.zig");
 const common = @import("providers/common.zig");
 const field = common.field;
@@ -281,7 +282,7 @@ pub const Pool = struct {
                 if (child == null) break i;
             } else return error.TooManyHarnesses;
             slot.* = .{
-                .transport = .{ .id = 0, .provider = saved.config.provider, .cwd = try a.dupe(u8, "/tmp"), .child = std.process.Child.init(&.{}, a), .ready = s.ready, .exited = s.exited, .imported = true, .next_seq = s.next_seq },
+                .transport = .{ .id = NativeId.none, .provider = saved.config.provider, .cwd = try a.dupe(u8, "/tmp"), .child = std.process.Child.init(&.{}, a), .ready = s.ready, .exited = s.exited, .imported = true, .next_seq = s.next_seq },
                 .child_slot = child_slot,
                 .cursor = s.cursor,
                 .next_id = s.next_id,
@@ -506,7 +507,7 @@ pub const Pool = struct {
         const child_slot = for (children, 0..) |child, i| {
             if (child == null) break i;
         } else return error.TooManyHarnesses;
-        const transport = try native.Session.startWithOptions(0, p.config.provider, "/tmp", .{ .args = args.items, .executable = p.config.executable, .inference = true });
+        const transport = try native.Session.startWithOptions(NativeId.none, p.config.provider, "/tmp", .{ .args = args.items, .executable = p.config.executable, .inference = true });
         children[child_slot] = .{ .pid = transport.child.id };
         return .{ .transport = transport, .child_slot = child_slot, .key = key, .instructions = instructions, .schema = schema, .system_usage = &p.system_usage };
     }

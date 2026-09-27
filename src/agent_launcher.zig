@@ -4,6 +4,7 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 pub const Provider = @import("providers.zig").Provider;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 /// Launcher rows: one per provider, then saved commands and a plain terminal.
 pub const Row = enum {
     codex,
@@ -448,7 +449,7 @@ fn applyModel(out: *Option, value: std.json.Value, source: []const u8) void {
     out.source.set(source);
 }
 pub const Menu = struct {
-    workspace: u32,
+    workspace: WorkspaceId,
     cwd: [std.fs.max_path_bytes]u8 = undefined,
     cwd_len: usize,
     selected: Row,
@@ -456,7 +457,7 @@ pub const Menu = struct {
     hidden: [Provider.all.len]bool = @splat(false),
     managing: bool = false,
     editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .agent_command = 0 }, .selected = false },
-    name_editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .rename = 0 }, .selected = false },
+    name_editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .rename = @enumFromInt(0) }, .selected = false },
     name_focused: bool = false,
     show_command: bool = false,
     name_customized: bool = false,
@@ -700,7 +701,7 @@ pub const Menu = struct {
         m.name_focused = false;
         m.show_command = false;
         m.name_customized = m.edit_index != null;
-        m.name_editor = @import("name_dialog.zig").Dialog.init(.{ .rename = 0 }, if (m.edit_index) |i| m.commands[i].label() else "");
+        m.name_editor = @import("name_dialog.zig").Dialog.init(.{ .rename = @enumFromInt(0) }, if (m.edit_index) |i| m.commands[i].label() else "");
         if (m.edit_index) |i| {
             m.draft.set(source) catch {};
             m.resolution = .{ .pending = false, .command = m.commands[i], .semantics = m.commands[i].semantics };
@@ -958,7 +959,7 @@ test "launch preview settings overlay and menu bounds" {
     applyModel(&result, parsed.value, "Project");
     try std.testing.expectEqualStrings("opus", result.model.text());
     const side = @import("sidebar.zig").View.init(80, 24, true, 0, 0);
-    const menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    const menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     const b = menu.bounds(80, 24, side);
     try std.testing.expect(b.x + b.w <= 80 and b.y + b.h <= 24);
     try std.testing.expectEqual(Row.codex, menu.hit(80, 24, side, b.x + 2, b.y + 2).?);
@@ -978,7 +979,7 @@ test "account preview shows identities or auth mode and never credential fields"
 }
 
 test "launcher fits long content and keeps usage hit targets aligned" {
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .claude, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .claude, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     menu.preview.options[0].model.set("a-long-model-name-that-needs-room");
     menu.preview.options[1].account.set("person.with.a.long.name@example.com");
@@ -1000,7 +1001,7 @@ test "launcher fits long content and keeps usage hit targets aligned" {
 }
 
 test "single-line limit groups survive narrow terminal rendering" {
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     menu.preview.options[0].usage.set("7d 48%");
     menu.preview.options[1].usage.set("5h 17% / 7d 35%");
@@ -1051,7 +1052,7 @@ test "single-line limit groups survive narrow terminal rendering" {
 }
 
 test "viewer expires a delivered usage reading after ten minutes" {
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     const option = &menu.preview.options[0];
     option.usage.set("7d 48%");
@@ -1071,7 +1072,7 @@ fn parseAccount(bytes: []const u8) Text {
 
 test "launcher hides providers that are not installed" {
     const side = @import("sidebar.zig").View.init(120, 24, true, 0, 0);
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.installed = .{ false, true };
     menu.normalize();
     try std.testing.expectEqual(Row.claude, menu.selected);
@@ -1093,7 +1094,7 @@ test "launcher hides providers that are not installed" {
 }
 
 test "signed-out and hidden agents remain editable in management" {
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.options[0].signed_in = false;
     menu.hidden[1] = true;
     menu.normalize();
@@ -1113,7 +1114,7 @@ test "signed-out and hidden agents remain editable in management" {
 }
 
 test "digit shortcuts enumerate visible agents and exclude terminal and management" {
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     try std.testing.expectEqual(Row.codex, menu.shortcutRow('0').?);
     try std.testing.expectEqual(Row.claude, menu.shortcutRow('1').?);
     try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('2'));
@@ -1130,7 +1131,7 @@ test "digit shortcuts enumerate visible agents and exclude terminal and manageme
 }
 
 test "custom picker cells preserve account scope and permission state" {
-    var menu: Menu = .{ .workspace = 1, .cwd_len = 0, .selected = .custom0, .last = .claude, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .custom0, .last = .claude, .pinned = true };
     menu.preview.pending = false;
     menu.preview.options[1].account.set("personal@example.com");
     menu.preview.options[1].plan.set("Max");

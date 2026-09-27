@@ -1,6 +1,7 @@
 //! Runtime operations for viewer-owned presentation. No menus, key bindings,
 //! screen coordinates, or composed UI frames are produced by this interface.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 const os = @import("os.zig");
 const a = os.allocator;
 const layout = @import("layout.zig");
@@ -9,6 +10,7 @@ const viewer_version = @import("viewer_version.zig");
 const agents = @import("agents.zig");
 const surface = @import("surface.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const eq = std.mem.eql;
 
 pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
@@ -54,7 +56,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (eq(u8, op, "viewer.sync")) {
         if (!cl.viewer) return error.NotAttached;
-        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?u32 = null, watched: bool = true, workspace: u32 = 0, ack: u64 = 0, active: bool = false };
+        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const req = parsed.value;
@@ -110,18 +112,18 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         const session_hash = std.hash.Wyhash.hash(0, session);
         try cl.queue(.{ .type = "view", .viewer_protocol = viewer_version.version, .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session }, .session_hash = session_hash, .surfaces = frames.items, .bell_seq = s.bell_seq, .bell_kind = s.last_bell_kind, .controls = cl.controls.items, .viewer = cl.viewer_id, .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1 });
     } else if (eq(u8, op, "viewer.search")) {
-        const p = s.runtime.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
+        const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const Request = struct { needle: []const u8, skip: usize = 0 };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const result = try p.terminal.search(parsed.value.needle, parsed.value.skip);
         try cl.queue(.{ .ok = true, .offset = result.offset, .match = result.match });
     } else if (eq(u8, op, "pane.acknowledge")) {
-        const p = s.runtime.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
+        const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const through = if (v.object.get("through")) |value| if (value == .integer and value.integer >= 0) @as(u64, @intCast(value.integer)) else return error.InvalidAcknowledgement else 0;
         if (!eq(u8, agents.str(v, "session"), p.agent().sessionId())) return error.StaleAcknowledgement;
         if (v.object.get("binding")) |value| if (value != .integer or value.integer != p.attachment.generation) return error.StaleAcknowledgement;
-        if (v.object.get("conversation")) |value| if (value != .integer or value.integer != (if (p.attachment.actor) |actor| actor.id else @as(u32, 0))) return error.StaleAcknowledgement;
+        if (v.object.get("conversation")) |value| if (value != .integer or value.integer != @intFromEnum(if (p.attachment.actor) |actor| actor.id else ActorId.none)) return error.StaleAcknowledgement;
         if (p.agent().attention != .none or p.agent().observation.unread()) {
             const stamp: ?i64 = if (v.object.get("attention_at")) |value| (if (value == .integer) value.integer else null) else null;
             if (p.attachment.actor) |actor| {
@@ -179,7 +181,7 @@ fn targetViewer(s: anytype, v: std.json.Value) !?*@import("peer.zig").Client {
     const relaunch = eq(u8, agents.str(v, "name"), "relaunch");
     const onboard = eq(u8, agents.str(v, "name"), "onboard") and v.object.get("pane") != null;
     if (relaunch or onboard) {
-        const pane = try protocol.id(v, "pane");
+        const pane = try protocol.typedId(layout.PaneId, v, "pane");
         var target: ?*@import("peer.zig").Client = null;
         for (s.clients.items) |*view| if (view.viewer and !view.dead and view.view_focus == pane) {
             if (target != null) return error.AmbiguousViewer;
@@ -216,13 +218,13 @@ pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         errdefer a.free(value);
         try enqueue(target, .{ .kind = .action, .name = name, .value = value });
     } else if (eq(u8, op, "focus")) {
-        const id = try protocol.id(v, "pane");
+        const id = try protocol.typedId(layout.PaneId, v, "pane");
         if (s.runtime.pane(id) == null) return error.NoPane;
-        try enqueue(target, .{ .kind = .focus, .id = id });
+        try enqueue(target, .{ .kind = .focus, .id = @intFromEnum(id) });
     } else {
-        const id = try protocol.id(v, "workspace");
+        const id = try protocol.typedId(WorkspaceId, v, "workspace");
         _ = try s.runtime.getWorkspace(id);
-        try enqueue(target, .{ .kind = .workspace, .id = id });
+        try enqueue(target, .{ .kind = .workspace, .id = @intFromEnum(id) });
     }
     try cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
     return true;
@@ -235,7 +237,7 @@ fn enqueue(cl: anytype, value: @import("peer.zig").Control) !void {
     cl.next_control += 1;
 }
 
-const ViewerInfo = struct { id: u32, workspace: u32, pane: ?u32, watched: bool };
+const ViewerInfo = struct { id: u32, workspace: WorkspaceId, pane: ?layout.PaneId, watched: bool };
 pub fn viewers(s: anytype, alloc: std.mem.Allocator) ![]const ViewerInfo {
     var result: std.ArrayList(ViewerInfo) = .empty;
     for (s.clients.items) |view| if (view.viewer and !view.dead) try result.append(alloc, .{ .id = view.viewer_id, .workspace = view.view_workspace, .pane = view.view_focus, .watched = view.watched });

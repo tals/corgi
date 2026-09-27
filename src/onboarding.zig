@@ -8,8 +8,9 @@ const sidebar = @import("sidebar.zig");
 const Connection = @import("rpc.zig").Connection;
 const Rect = @import("layout.zig").Rect;
 const shortcut_help = @import("shortcut_help.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 pub const Step = enum { presets, keymap, connect, import, progress, complete };
-pub const Progress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?u32 = null, message: []const u8 = "" };
+pub const Progress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
 pub const State = struct {
     preset: km.Preset = .corgi,
     prefix: km.Prefix = .ctrl_b,

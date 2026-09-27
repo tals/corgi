@@ -5,6 +5,7 @@ const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
 const git = @import("git_status.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 
 pub const Phase = enum { idle, pushing, succeeded, failed };
 pub const View = struct { phase: Phase = .idle, message: []const u8 = "" };
@@ -83,7 +84,7 @@ pub const Manager = struct {
             if (job.pid == pid) job.exit_status = status;
         };
     }
-    pub fn start(m: *Manager, store: anytype, id: u32, expected: RefView) !void {
+    pub fn start(m: *Manager, store: anytype, id: WorkspaceId, expected: RefView) !void {
         const ws = store.get(id) orelse return error.NoWorkspace;
         const ref = ws.git_ref.view();
         if (!ref.eql(expected)) return error.GitPreviewChanged;

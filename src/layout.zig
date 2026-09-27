@@ -4,7 +4,23 @@ pub const max_panes = 64;
 pub const max_borders = max_panes + 3;
 pub const max_tabs = 24;
 const max_nodes = max_panes * 2;
-pub const Id = u32;
+pub const PaneId = enum(u32) {
+    _,
+
+    /// Never assigned. Saved and wire formats use 0 for "no pane".
+    pub const none: PaneId = @enumFromInt(0);
+    pub const first: PaneId = @enumFromInt(1);
+
+    pub fn next(id: PaneId) PaneId {
+        return @enumFromInt(@intFromEnum(id) + 1);
+    }
+};
+pub const TabId = enum(u32) {
+    _,
+
+    /// Never assigned. Saved and wire formats use 0 for "no tab".
+    pub const none: TabId = @enumFromInt(0);
+};
 pub const Axis = enum { horizontal, vertical };
 pub const Direction = enum { left, down, up, right };
 pub const Rect = struct {
@@ -17,13 +33,13 @@ pub const Rect = struct {
     }
 };
 pub const Split = struct { axis: Axis, first: u8, second: u8, ratio: u16 = 500 };
-pub const Node = union(enum) { pane: Id, split: Split };
+pub const Node = union(enum) { pane: PaneId, split: Split };
 pub const Tab = struct {
-    id: Id,
+    id: TabId,
     root: u8,
     name: [80]u8 = .{0} ** 80,
     name_len: usize = 0, // Zero means unnamed; its number is derived from its current position.
-    const Data = struct { id: Id, root: u8, title: []const u8 };
+    const Data = struct { id: TabId, root: u8, title: []const u8 };
     pub fn jsonStringify(t: Tab, writer: anytype) !void {
         try writer.write(Data{ .id = t.id, .root = t.root, .title = t.title() });
     }
@@ -47,12 +63,12 @@ pub const Tab = struct {
         for (trimmed[0..t.name_len], 0..) |ch, i| t.name[i] = if (ch >= 32 and ch < 127) ch else '_';
     }
 };
-pub const Placement = struct { id: Id, rect: Rect };
+pub const Placement = struct { id: PaneId, rect: Rect };
 pub const Model = struct {
     nodes: [max_nodes]?Node = .{null} ** max_nodes,
     tabs: [max_tabs]Tab = undefined,
     count: usize = 0,
-    next_id: Id = 1,
+    next_id: PaneId = .first,
     revision: u64 = 0,
 
     // The same flat arrangement is used by the runtime, snapshots and viewers.
@@ -76,7 +92,7 @@ pub const Model = struct {
         @memcpy(model.tabs[0..data.tabs.len], data.tabs);
         var visited: [max_nodes]bool = @splat(false);
         for (data.tabs, 0..) |tab, i| {
-            if (tab.id == 0 or tab.name_len > tab.name.len) return error.UnexpectedToken;
+            if (tab.id == TabId.none or tab.name_len > tab.name.len) return error.UnexpectedToken;
             for (data.tabs[0..i]) |other| if (other.id == tab.id) return error.UnexpectedToken;
             try model.validateTree(tab.root, &visited);
         }
@@ -95,7 +111,7 @@ pub const Model = struct {
         const node = m.nodes[index] orelse return error.UnexpectedToken;
         visited[index] = true;
         switch (node) {
-            .pane => |id| if (id == 0) return error.UnexpectedToken,
+            .pane => |id| if (id == PaneId.none) return error.UnexpectedToken,
             .split => |branch| {
                 if (branch.ratio < 100 or branch.ratio > 900) return error.UnexpectedToken;
                 try m.validateTree(branch.first, visited);
@@ -112,54 +128,55 @@ pub const Model = struct {
         return error.TooManyPanes;
     }
 
-    pub fn newTab(m: *Model, name: []const u8) !Id {
+    pub fn newTab(m: *Model, name: []const u8) !PaneId {
         if (m.count == max_tabs) return error.TooManyTabs;
         const id = m.next_id;
         const root = try m.alloc(.{ .pane = id });
-        m.next_id += 2;
-        m.tabs[m.count] = .{ .id = id + 1, .root = root };
+        // Tab ids share the pane-id counter: the new tab takes the slot right after its root pane.
+        m.next_id = @enumFromInt(@intFromEnum(id) + 2);
+        m.tabs[m.count] = .{ .id = @enumFromInt(@intFromEnum(id) + 1), .root = root };
         m.tabs[m.count].rename(name);
         m.count += 1;
         return id;
     }
-    pub fn findNode(m: *const Model, id: Id) ?u8 {
+    pub fn findNode(m: *const Model, id: PaneId) ?u8 {
         for (m.nodes, 0..) |maybe, i| if (maybe) |n| {
             if (n == .pane and n.pane == id) return @intCast(i);
         };
         return null;
     }
-    pub fn split(m: *Model, target: Id, axis: Axis) !Id {
+    pub fn split(m: *Model, target: PaneId, axis: Axis) !PaneId {
         const old = m.findNode(target) orelse return error.NoPane;
         const first = try m.alloc(m.nodes[old].?);
         errdefer m.nodes[first] = null;
         const id = m.next_id;
         const second = try m.alloc(.{ .pane = id });
-        m.next_id += 1;
+        m.next_id = id.next();
         m.nodes[old] = .{ .split = .{ .axis = axis, .first = first, .second = second } };
         return id;
     }
-    pub fn firstPane(m: *const Model, index: u8) Id {
+    pub fn firstPane(m: *const Model, index: u8) PaneId {
         return switch (m.nodes[index].?) {
             .pane => |id| id,
             .split => |s| m.firstPane(s.first),
         };
     }
-    pub fn contains(m: *const Model, index: u8, id: Id) bool {
+    pub fn contains(m: *const Model, index: u8, id: PaneId) bool {
         return switch (m.nodes[index].?) {
             .pane => |p| p == id,
             .split => |s| m.contains(s.first, id) or m.contains(s.second, id),
         };
     }
 
-    pub fn tabForPane(m: *const Model, id: Id) ?usize {
+    pub fn tabForPane(m: *const Model, id: PaneId) ?usize {
         for (m.tabs[0..m.count], 0..) |t, i| if (m.contains(t.root, id)) return i;
         return null;
     }
-    pub fn tabIndex(m: *const Model, id: Id) ?usize {
+    pub fn tabIndex(m: *const Model, id: TabId) ?usize {
         for (m.tabs[0..m.count], 0..) |t, i| if (t.id == id) return i;
         return null;
     }
-    pub fn close(m: *Model, id: Id) !void {
+    pub fn close(m: *Model, id: PaneId) !void {
         const node = m.findNode(id) orelse return error.NoPane;
         for (m.tabs[0..m.count], 0..) |t, i| if (t.root == node) {
             m.nodes[node] = null;
@@ -178,13 +195,13 @@ pub const Model = struct {
         };
         return error.NoPane;
     }
-    pub fn swap(m: *Model, target: Id, other: Id) !void {
+    pub fn swap(m: *Model, target: PaneId, other: PaneId) !void {
         const a = m.findNode(target) orelse return error.NoPane;
         const b = m.findNode(other) orelse return error.NoPane;
         std.mem.swap(?Node, &m.nodes[a], &m.nodes[b]);
         // Focus follows the process, not its former rectangle.
     }
-    pub fn resize(m: *Model, id: Id, direction: Direction) void {
+    pub fn resize(m: *Model, id: PaneId, direction: Direction) void {
         const axis: Axis = switch (direction) {
             .left, .right => .horizontal,
             .up, .down => .vertical,
@@ -196,7 +213,7 @@ pub const Model = struct {
         const index = m.tabForPane(id) orelse return;
         _ = m.resizeNode(m.tabs[index].root, id, axis, delta);
     }
-    fn resizeNode(m: *Model, index: u8, id: Id, axis: Axis, delta: i32) bool {
+    fn resizeNode(m: *Model, index: u8, id: PaneId, axis: Axis, delta: i32) bool {
         const n = &m.nodes[index].?;
         if (n.* != .split) return false;
         const s = &n.split;
@@ -207,7 +224,7 @@ pub const Model = struct {
         return true;
     }
 
-    pub fn moveTab(m: *Model, id: Id, insert: usize) void {
+    pub fn moveTab(m: *Model, id: TabId, insert: usize) void {
         if (insert > m.count or m.count == 0) return;
         for (m.tabs[0..m.count], 0..) |tab_value, source| {
             if (tab_value.id != id) continue;
@@ -239,17 +256,17 @@ pub const Model = struct {
         }
         m.nodes[root] = null;
     }
-    pub fn insertTree(m: *Model, root: u8, target: Id, direction: Direction) !void {
+    pub fn insertTree(m: *Model, root: u8, target: PaneId, direction: Direction) !void {
         const node = m.findNode(target) orelse return error.NoPane;
         const old = try m.alloc(m.nodes[node].?);
         const before = direction == .left or direction == .up;
         m.nodes[node] = .{ .split = .{ .axis = if (direction == .left or direction == .right) .horizontal else .vertical, .first = if (before) root else old, .second = if (before) old else root } };
     }
-    pub fn setShare(m: *Model, id: Id, axis: Axis, ratio: u16) !void {
+    pub fn setShare(m: *Model, id: PaneId, axis: Axis, ratio: u16) !void {
         const tab_index = m.tabForPane(id) orelse return error.NoPane;
         if (!m.shareNode(m.tabs[tab_index].root, id, axis, ratio)) return error.NoSplit;
     }
-    fn shareNode(m: *Model, root: u8, id: Id, axis: Axis, ratio: u16) bool {
+    fn shareNode(m: *Model, root: u8, id: PaneId, axis: Axis, ratio: u16) bool {
         const n = &m.nodes[root].?;
         if (n.* != .split) return false;
         const first = m.contains(n.split.first, id);
@@ -262,23 +279,23 @@ pub const Model = struct {
 
 /// Viewer-local tab, pane and zoom selection, reconciled once against shared IDs.
 pub const Selection = struct {
-    pub const TabState = struct { id: Id, focus: Id, zoom: bool = false };
-    tabs: [max_tabs]TabState = @splat(.{ .id = 0, .focus = 0 }),
+    pub const TabState = struct { id: TabId, focus: PaneId, zoom: bool = false };
+    tabs: [max_tabs]TabState = @splat(.{ .id = .none, .focus = .none }),
     count: usize = 0,
     active: usize = 0,
     pub fn reconcile(s: *Selection, m: *const Model) void {
         const old = s.*;
-        var selected = if (old.count > 0) old.tabs[old.active].id else 0;
+        var selected = if (old.count > 0) old.tabs[old.active].id else TabId.none;
         // A closed selected tab falls back to its nearest surviving neighbour, preferring the left.
-        if (selected != 0 and m.tabIndex(selected) == null) {
-            selected = 0;
+        if (selected != TabId.none and m.tabIndex(selected) == null) {
+            selected = TabId.none;
             var i = old.active;
-            while (i > 0 and selected == 0) {
+            while (i > 0 and selected == TabId.none) {
                 i -= 1;
                 if (m.tabIndex(old.tabs[i].id) != null) selected = old.tabs[i].id;
             }
             i = old.active + 1;
-            while (i < old.count and selected == 0) : (i += 1) {
+            while (i < old.count and selected == TabId.none) : (i += 1) {
                 if (m.tabIndex(old.tabs[i].id) != null) selected = old.tabs[i].id;
             }
         }
@@ -293,7 +310,7 @@ pub const Selection = struct {
             if (item.id == selected) s.active = i;
         }
     }
-    pub fn focus(s: *Selection, m: *const Model, id: Id) !void {
+    pub fn focus(s: *Selection, m: *const Model, id: PaneId) !void {
         const i = m.tabForPane(id) orelse return error.NoPane;
         s.active = i;
         s.tabs[i].focus = id;
@@ -341,7 +358,7 @@ pub const View = struct {
             },
         }
     }
-    pub fn neighbor(m: View, direction: Direction, area: Rect) ?Id {
+    pub fn neighbor(m: View, direction: Direction, area: Rect) ?PaneId {
         var items: [max_panes]Placement = undefined;
         var selection = m.selection.*;
         selection.tabs[selection.active].zoom = false;
@@ -350,7 +367,7 @@ pub const View = struct {
         for (placements_) |p| if (p.id == m.selection.tabs[m.selection.active].focus) {
             current = p.rect;
         };
-        var best: ?Id = null;
+        var best: ?PaneId = null;
         var score: u64 = std.math.maxInt(u64);
         const cx = @as(i32, current.x) * 2 + current.w;
         const cy = @as(i32, current.y) * 2 + current.h;

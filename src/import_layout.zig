@@ -27,7 +27,7 @@ pub fn validate(nodes: []const Node, panes: usize) !void {
     for (leaves[0..panes]) |used| if (!used) return error.InvalidImportLayout;
 }
 
-pub fn install(model: *layout.Model, nodes: []const Node, ids: []const u32) !u8 {
+pub fn install(model: *layout.Model, nodes: []const Node, ids: []const layout.PaneId) !u8 {
     try validate(nodes, ids.len);
     var mapped: [layout.max_panes * 2]u8 = undefined;
     for (nodes, 0..) |node, i| mapped[i] = try model.alloc(switch (node) {

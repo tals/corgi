@@ -4,7 +4,8 @@ const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
-pub const Interest = struct { pane: u32, cols: u16, rows: u16, offset: ?usize = null, known: ?@import("surface.zig").Stamp = null };
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
+pub const Interest = struct { pane: layout.PaneId, cols: u16, rows: u16, offset: ?usize = null, known: ?@import("surface.zig").Stamp = null };
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
 pub const LaunchPreview = struct {
     cwd: [std.fs.max_path_bytes]u8 = @splat(0),
@@ -18,10 +19,10 @@ pub const Client = struct {
     active_seq: u64 = 0,
     next_control: u64 = 1,
     last_control: u64 = 0,
-    view_workspace: u32 = 0,
+    view_workspace: WorkspaceId = .none,
     controls: std.ArrayList(Control) = .empty,
     viewer: bool = false,
-    view_focus: ?u32 = null,
+    view_focus: ?layout.PaneId = null,
     interests: [layout.max_panes]Interest = undefined,
     interest_count: usize = 0,
     fd: c_int,

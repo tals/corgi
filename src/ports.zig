@@ -1,6 +1,8 @@
 //! Host process/socket discovery; immutable results are selected by each viewer.
 const std = @import("std");
 const os = @import("os.zig");
+const layout = @import("layout.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const a = os.allocator;
 const c = os.c;
 const net = @cImport({
@@ -17,7 +19,7 @@ pub const Endpoint = struct {
     label: []const u8 = "",
     label_pending: bool = false,
     pid: i32,
-    pane: u32,
+    pane: layout.PaneId,
     name: []const u8,
     transport: enum { tcp, udp },
     bind_address: []const u8,
@@ -28,12 +30,12 @@ pub const Endpoint = struct {
     http_status: ?u16 = null,
     probed_at: i64 = 0,
 };
-pub const Work = struct { id: u32, background: usize = 0, endpoints: []const Endpoint = &.{} };
+pub const Work = struct { id: WorkspaceId, background: usize = 0, endpoints: []const Endpoint = &.{} };
 pub const Snapshot = struct {
     processes_available: bool = false,
     ports_available: bool = false,
     workspaces: []const Work = &.{},
-    pub fn workspace(s: Snapshot, id: u32) Work {
+    pub fn workspace(s: Snapshot, id: WorkspaceId) Work {
         for (s.workspaces) |w| if (w.id == id) return w;
         return .{ .id = id };
     }
@@ -82,7 +84,7 @@ pub fn url(buf: []u8, e: Endpoint, remote: bool) ?[]const u8 {
     return std.fmt.bufPrint(buf, "{s}://{s}{s}{s}:{d}", .{ @tagName(e.scheme), if (ipv6) "[" else "", address, if (ipv6) "]" else "", e.port }) catch null;
 }
 
-pub const Root = struct { pid: i32, pane: u32, workspace: u32, agent_pid: i32 = 0 };
+pub const Root = struct { pid: i32, pane: layout.PaneId, workspace: WorkspaceId, agent_pid: i32 = 0 };
 const Process = struct { pid: i32, parent: i32, group: i32, name: []const u8 };
 fn processes(allocator: std.mem.Allocator, text: []const u8) ![]const Process {
     var result: std.ArrayList(Process) = .empty;
@@ -411,7 +413,7 @@ test "viewer chooses only bound addresses in tailscale VPN network order" {
         .{ .name = "utun2", .address = "10.8.0.2", .kind = .vpn },
         .{ .name = "utun4", .address = "100.80.1.2", .kind = .tailscale },
     };
-    var e: Endpoint = .{ .pid = 1, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "*", .port = 3000, .scheme = .http, .http_status = 200, .interfaces = &all };
+    var e: Endpoint = .{ .pid = 1, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "*", .port = 3000, .scheme = .http, .http_status = 200, .interfaces = &all };
     var buf: [256]u8 = undefined;
     try std.testing.expectEqualStrings("http://localhost:3000", url(&buf, e, false).?);
     try std.testing.expectEqualStrings("http://100.80.1.2:3000", url(&buf, e, true).?);
@@ -433,14 +435,14 @@ test "lsof inventory associates descendants, ignores TCP clients, keeps UDP and 
     defer arena.deinit();
     const allocator = arena.allocator();
     const list = try processes(allocator, "10 1 10\n20 10 20\n21 20 20\n30 1 30\n");
-    const roots = [_]Root{.{ .pid = 10, .pane = 1, .workspace = 7, .agent_pid = 0 }};
+    const roots = [_]Root{.{ .pid = 10, .pane = @enumFromInt(1), .workspace = @enumFromInt(7), .agent_pid = 0 }};
     const text = "p21\ncweb\nf4\ntIPv4\nPTCP\nn*:3000\nTST=LISTEN\nf5\ntIPv4\nPTCP\nn127.0.0.1:51000->127.0.0.1:80\nTST=ESTABLISHED\nf6\ntIPv6\nPUDP\nn[::1]:9000\np30\ncother\nf4\ntIPv4\nPTCP\nn*:4000\nTST=LISTEN\n";
     const endpoints = try sockets(allocator, text, list, &roots, &.{});
     try std.testing.expectEqual(@as(usize, 2), endpoints.len);
     try std.testing.expectEqual(@as(u16, 3000), endpoints[0].port);
     try std.testing.expectEqualStrings("::1", endpoints[1].bind_address);
     try std.testing.expect(endpoints[1].ipv6);
-    try std.testing.expectEqual(@as(u32, 7), owner(21, list, &roots).?.workspace);
+    try std.testing.expectEqual(@as(WorkspaceId, @enumFromInt(7)), owner(21, list, &roots).?.workspace);
     try std.testing.expect(owner(30, list, &roots) == null);
 }
 
@@ -456,7 +458,7 @@ test "wildcard interface expansion respects family and explicit bind constraints
     const specific = try matching(arena.allocator(), "192.168.1.20", false, &all);
     try std.testing.expectEqual(@as(usize, 1), specific.len);
     try std.testing.expectEqualStrings("en0", specific[0].name);
-    var e: Endpoint = .{ .pid = 1, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "::", .port = 443, .ipv6 = true, .scheme = .https, .http_status = 200, .interfaces = try matching(arena.allocator(), "::", true, &all) };
+    var e: Endpoint = .{ .pid = 1, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "::", .port = 443, .ipv6 = true, .scheme = .https, .http_status = 200, .interfaces = try matching(arena.allocator(), "::", true, &all) };
     var buf: [256]u8 = undefined;
     try std.testing.expectEqualStrings("https://[fd7a:115c:a1e0::1]:443", url(&buf, e, true).?);
     e.ipv6 = false;
@@ -474,7 +476,7 @@ test "workloads count foreground servers and agent children but not shells or co
         "30 10 30 codex\n31 30 30 /bin/sh\n32 31 30 python3\n" ++
         "33 30 33 /opt/node\n" ++
         "40 1 40 unrelated\n");
-    const root: Root = .{ .pid = 10, .pane = 1, .workspace = 1, .agent_pid = 33 };
+    const root: Root = .{ .pid = 10, .pane = @enumFromInt(1), .workspace = @enumFromInt(1), .agent_pid = 33 };
     var count: usize = 0;
     for (list) |p| if (owner(p.pid, list, &.{root})) |owned| {
         if (workload(p, owned)) count += 1;
@@ -496,7 +498,7 @@ test "workloads count foreground servers and agent children but not shells or co
 }
 
 test "HTTP errors and unprobed endpoints never become browser links" {
-    var e: Endpoint = .{ .pid = 1, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http };
+    var e: Endpoint = .{ .pid = 1, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http };
     var buf: [256]u8 = undefined;
     try std.testing.expect(url(&buf, e, false) == null);
     for ([_]u16{ 101, 401, 403, 404, 500, 503 }) |status| {

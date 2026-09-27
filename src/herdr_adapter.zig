@@ -9,6 +9,7 @@ const Runtime = @import("runtime.zig").Runtime;
 const Terminal = @import("terminal.zig").Terminal;
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const Resume = @import("checkpoint.zig").Resume;
 const Theme = @import("theme.zig").Theme;
 const max_manifest = 16 * 1024 * 1024;
@@ -230,7 +231,7 @@ fn scanSession(alloc: std.mem.Allocator, socket: []const u8, name: []const u8, c
 
 /// Copy starts ordinary new shells, preserves resume references as suggestions,
 /// and never runs arbitrary source commands or resumes an agent automatically.
-pub fn copy(r: *Runtime, source: SourceSession, selected: []const []const u8, defaults: Runtime.Create) !u32 {
+pub fn copy(r: *Runtime, source: SourceSession, selected: []const []const u8, defaults: Runtime.Create) !WorkspaceId {
     const old_len = r.workspaces.items.items.len;
     const old_panes = r.panes.items.len;
     errdefer {
@@ -242,7 +243,7 @@ pub fn copy(r: *Runtime, source: SourceSession, selected: []const []const u8, de
         while (r.workspaces.items.items.len > old_len) a.free(r.workspaces.items.pop().?.cwd);
         r.changed();
     }
-    var first: u32 = 0;
+    var first: WorkspaceId = .none;
     for (source.workspaces) |ws| {
         var chosen = false;
         for (selected) |id| if (std.mem.eql(u8, id, ws.id)) {
@@ -251,7 +252,7 @@ pub fn copy(r: *Runtime, source: SourceSession, selected: []const []const u8, de
         };
         if (!chosen) continue;
         const ws_id = try r.workspaces.add(ws.name, if (ws.cwd.len > 0) ws.cwd else defaults.cwd);
-        if (first == 0) first = ws_id;
+        if (first == WorkspaceId.none) first = ws_id;
         for (ws.tabs) |tab| {
             var options = defaults;
             options.workspace = ws_id;
@@ -259,7 +260,7 @@ pub fn copy(r: *Runtime, source: SourceSession, selected: []const []const u8, de
             try copyTab(r, tab, options);
         }
     }
-    if (first == 0) return error.NothingSelected;
+    if (first == WorkspaceId.none) return error.NothingSelected;
     r.changed();
     return first;
 }
@@ -273,7 +274,7 @@ fn clearTree(model: *layout.Model, node_index: u8) void {
     model.nodes[node_index] = null;
 }
 
-fn copiedTree(model: *layout.Model, node: Value, sources: []const SourcePane, ids: []const u32, used: []bool, depth: usize) anyerror!u8 {
+fn copiedTree(model: *layout.Model, node: Value, sources: []const SourcePane, ids: []const layout.PaneId, used: []bool, depth: usize) anyerror!u8 {
     if (depth > layout.max_panes) return error.InvalidHerdrLayout;
     if (equal(node, "type", "pane")) {
         for (sources, ids, 0..) |source, id, i| if (equal(node, "pane_id", source.id)) {
@@ -295,7 +296,7 @@ fn copiedTree(model: *layout.Model, node: Value, sources: []const SourcePane, id
 
 fn copyTab(r: *Runtime, tab: SourceTab, defaults: Runtime.Create) !void {
     if (tab.panes.len == 0 or tab.panes.len > layout.max_panes) return error.InvalidHerdrLayout;
-    var ids: [layout.max_panes]u32 = undefined;
+    var ids: [layout.max_panes]layout.PaneId = undefined;
     for (tab.panes, 0..) |source, i| {
         var opts = defaults;
         opts.cwd = if (source.cwd.len > 0) source.cwd else defaults.cwd;
@@ -327,7 +328,7 @@ fn copyTab(r: *Runtime, tab: SourceTab, defaults: Runtime.Create) !void {
 }
 
 pub const Phase = enum(u8) { idle, connecting, receiving, preparing, committing, complete, failed };
-pub const Progress = struct { phase: Phase = .idle, completed: usize = 0, total: usize = 0, workspace: ?u32 = null, message: []const u8 = "" };
+pub const Progress = struct { phase: Phase = .idle, completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
 
 /// Own on the daemon event loop. While locked(), reject layout mutation,
 /// daemon reload and shutdown until tick() finishes the ownership transaction.
@@ -450,7 +451,7 @@ const Job = struct {
     pids: []i32 = &.{},
     reserved: bool = false,
     adopted: bool = false,
-    first_workspace: ?u32 = null,
+    first_workspace: ?WorkspaceId = null,
     target: ?*Runtime = null,
 
     fn run(job: *Job) void {
@@ -466,13 +467,15 @@ const Job = struct {
     fn prepare(job: *Job, r: *Runtime) !void {
         if (r.panes.items.len + job.staged.panes.items.len > layout.max_panes) return error.TooManyPanes;
         if (r.workspaces.items.items.len + job.staged.workspaces.items.items.len > workspace.max_workspaces) return error.TooManyWorkspaces;
-        if (r.workspaces.next_id > std.math.maxInt(u32) - job.staged.workspaces.items.items.len) return error.TooManyWorkspaces;
+        if (@intFromEnum(r.workspaces.next_id) > std.math.maxInt(u32) - job.staged.workspaces.items.items.len) return error.TooManyWorkspaces;
         try r.panes.ensureUnusedCapacity(a, job.staged.panes.items.len);
         try r.workspaces.items.ensureUnusedCapacity(a, job.staged.workspaces.items.items.len);
-        const pane_offset = r.workspaces.next_pane_id;
-        if (pane_offset > std.math.maxInt(u32) - job.staged.workspaces.next_pane_id) return error.TooManyPanes;
+        // Pane/tab ids from the source daemon are shifted into this daemon's
+        // unused range; the shift itself is plain arithmetic on the counter.
+        const pane_offset = @intFromEnum(r.workspaces.next_pane_id);
+        if (pane_offset > std.math.maxInt(u32) - @intFromEnum(job.staged.workspaces.next_pane_id)) return error.TooManyPanes;
         for (job.staged.panes.items) |*p| {
-            p.id += pane_offset;
+            p.id = @enumFromInt(@intFromEnum(p.id) + pane_offset);
             if (p.resume_hint.provider) |provider| if (p.resume_hint.len > 0) {
                 const actor = try r.conversations.get(provider, p.resume_hint.session[0..p.resume_hint.len]);
                 if (actor.state.last_seq == 0 and actor.state.state == .unknown) {
@@ -487,15 +490,15 @@ const Job = struct {
         }
         for (job.staged.workspaces.items.items) |*ws| {
             ws.id = r.workspaces.next_id;
-            r.workspaces.next_id += 1;
+            r.workspaces.next_id = r.workspaces.next_id.next();
             if (job.first_workspace == null) job.first_workspace = ws.id;
             for (&ws.model.nodes) |*slot| if (slot.*) |node| if (node == .pane) {
-                slot.*.?.pane += pane_offset;
+                slot.*.?.pane = @enumFromInt(@intFromEnum(slot.*.?.pane) + pane_offset);
             };
-            for (ws.model.tabs[0..ws.model.count]) |*tab| tab.id += pane_offset;
-            ws.model.next_id += pane_offset;
+            for (ws.model.tabs[0..ws.model.count]) |*tab| tab.id = @enumFromInt(@intFromEnum(tab.id) + pane_offset);
+            ws.model.next_id = @enumFromInt(@intFromEnum(ws.model.next_id) + pane_offset);
         }
-        r.workspaces.next_pane_id += job.staged.workspaces.next_pane_id;
+        r.workspaces.next_pane_id = @enumFromInt(pane_offset + @intFromEnum(job.staged.workspaces.next_pane_id));
         job.target = r;
     }
     fn transfer(job: *Job) !void {
@@ -656,9 +659,9 @@ const Job = struct {
             terminal.restoring = false;
             const cwd = try a.dupe(u8, "/");
             errdefer a.free(cwd);
-            try job.staged.panes.append(a, .{ .id = @intCast(i + 1), .terminal = terminal, .cwd = cwd });
+            try job.staged.panes.append(a, .{ .id = @enumFromInt(i + 1), .terminal = terminal, .cwd = cwd });
         }
-        job.staged.workspaces.next_pane_id = @intCast(states.len + 1);
+        job.staged.workspaces.next_pane_id = @enumFromInt(states.len + 1);
         for (snapshots) |snapshot| {
             const cwd = textField(snapshot, "identity_cwd");
             if (!std.fs.path.isAbsolute(cwd)) return error.InvalidHerdrDirectory;
@@ -673,8 +676,9 @@ const Job = struct {
             if (tabs.len == 0 or tabs.len > layout.max_tabs) return error.TooManyTabs;
             for (tabs) |tab| {
                 const root = try restoreTree(&ws.model, field(tab, "layout"), states, &seen, 0);
-                var out: layout.Tab = .{ .id = job.staged.workspaces.next_pane_id, .root = root };
-                job.staged.workspaces.next_pane_id += 1;
+                // Tab ids share the pane-id counter, same as a live newTab.
+                var out: layout.Tab = .{ .id = @enumFromInt(@intFromEnum(job.staged.workspaces.next_pane_id)), .root = root };
+                job.staged.workspaces.next_pane_id = job.staged.workspaces.next_pane_id.next();
                 out.rename(textField(tab, "custom_name"));
                 ws.model.tabs[ws.model.count] = out;
                 ws.model.count += 1;
@@ -700,7 +704,7 @@ const Job = struct {
             }
             ws.model.next_id = job.staged.workspaces.next_pane_id;
             try job.staged.workspaces.items.append(a, ws);
-            job.staged.workspaces.next_id += 1;
+            job.staged.workspaces.next_id = job.staged.workspaces.next_id.next();
         }
         for (seen[0..states.len]) |found| if (!found) return error.UnmappedHerdrTerminal;
     }
@@ -726,7 +730,7 @@ fn restoreTree(model: *layout.Model, node: Value, states: []Value, seen: *[layou
         const index = stateIndex(states, @intCast(leaf.integer)) orelse return error.InvalidHerdrLayout;
         if (seen[index]) return error.DuplicateHerdrPane;
         seen[index] = true;
-        return model.alloc(.{ .pane = @intCast(index + 1) });
+        return model.alloc(.{ .pane = @enumFromInt(index + 1) });
     }
     const split = field(node, "Split");
     if (split != .object or (!equal(split, "direction", "Horizontal") and !equal(split, "direction", "Vertical"))) return error.InvalidHerdrLayout;

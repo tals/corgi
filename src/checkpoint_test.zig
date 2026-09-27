@@ -59,7 +59,7 @@ test "sidebar order survives live and recovery checkpoints and defaults for old 
     var original: Runtime = .{};
     defer original.deinit();
     const id = try original.workspaces.add("ordered", "/tmp");
-    const order = [_]ordering.Target{ .{ .native = 1 }, .{ .pane = 2 }, .{ .pane = 1 } };
+    const order = [_]ordering.Target{ .{ .native = @enumFromInt(1) }, .{ .pane = @enumFromInt(2) }, .{ .pane = @enumFromInt(1) } };
     // Closed targets may remain in a saved order until the next reordering.
     original.workspaces.get(id).?.agent_order = try ordering.Order.restore(&order);
     var arena = std.heap.ArenaAllocator.init(a);
@@ -125,7 +125,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
     try std.testing.expect(fresh.conversations.byId(detached.id).?.state.observation.unread());
     try std.testing.expectEqual(shared.id, fresh.conversations.byId(detached.id).?.parent.?);
     const next = try fresh.conversations.get(.claude, "next");
-    try std.testing.expect(next.id > detached.id);
+    try std.testing.expect(@intFromEnum(next.id) > @intFromEnum(detached.id));
 
     const cold = try cp.capture(arena.allocator(), &original, false);
     var recovered: Runtime = .{};
@@ -329,7 +329,7 @@ test "link cache and spent inference attempts survive live checkpoints only" {
     _ = try original.workspaces.add("links", "/tmp");
     original.link_labels.generation = 3;
     for (0..3) |i| original.link_labels.entries[i] = .{
-        .key = .{ .workspace = 1, .pane = 1, .pid = 7, .port = @intCast(3000 + i), .scheme = .http, .address = 9 },
+        .key = .{ .workspace = @enumFromInt(1), .pane = @enumFromInt(1), .pid = 7, .port = @intCast(3000 + i), .scheme = .http, .address = 9 },
         .generation = i + 1,
         .attempted = true,
         .pending = i == 1,

@@ -6,79 +6,84 @@ const layout = @import("layout.zig");
 const runtime = @import("runtime.zig");
 const Runtime = runtime.Runtime;
 const Workspace = @import("workspace.zig").Workspace;
-const Id = struct { target: u32 };
-const Rename = struct { target: u32, name: []const u8 };
-pub const Beside = struct { other: u32, direction: layout.Direction = .right };
-pub const Destination = union(enum) { before: u32, after: u32, workspace: u32 };
+const WorkspaceId = Workspace.Id;
+const PaneId = layout.PaneId;
+const TabId = layout.TabId;
+const PaneTarget = struct { target: PaneId };
+const TabTarget = struct { target: TabId };
+const PaneRename = struct { target: PaneId, name: []const u8 };
+const TabRename = struct { target: TabId, name: []const u8 };
+pub const Beside = struct { other: PaneId, direction: layout.Direction = .right };
+pub const Destination = union(enum) { before: TabId, after: TabId, workspace: WorkspaceId };
 pub const Command = union(enum) {
-    @"agent.move": struct { workspace: u32, target: @import("agent_order.zig").Target, before: ?@import("agent_order.zig").Target = null },
+    @"agent.move": struct { workspace: WorkspaceId, target: @import("agent_order.zig").Target, before: ?@import("agent_order.zig").Target = null },
     @"agent.command": struct { index: usize, command: []const u8, hidden: bool = false, name: ?[]const u8 = null, original: ?[]const u8 = null, semantics: ?@import("launch_command.zig").Semantics = null, resolve: bool = true, cwd: ?[]const u8 = null },
-    @"agent.command.create": struct { workspace: u32, cwd: []const u8 = "", index: usize },
+    @"agent.command.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", index: usize },
     @"agent.visibility": struct { hidden: [2]bool },
     @"agent.yolo": struct { provider: Provider, enabled: bool },
-    @"agent.create": struct { workspace: u32, cwd: []const u8 = "", provider: ?Provider = null },
+    @"agent.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", provider: ?Provider = null },
     @"pane.create": struct {
-        workspace: u32,
-        from: ?u32 = null,
+        workspace: WorkspaceId,
+        from: ?PaneId = null,
         cwd: []const u8 = "",
         command: ?[]const u8 = null,
         title: []const u8 = "",
     },
     @"pane.split": struct {
-        target: u32,
+        target: PaneId,
         direction: layout.Direction = .right,
         cwd: []const u8 = "",
         command: ?[]const u8 = null,
         title: []const u8 = "",
     },
-    @"pane.close": Id,
-    @"tab.close": Id,
-    @"pane.restore": struct { workspace: u32 },
+    @"pane.close": PaneTarget,
+    @"tab.close": TabTarget,
+    @"pane.restore": struct { workspace: WorkspaceId },
     @"workspace.create": struct { name: []const u8 = "", cwd: []const u8 },
     @"workspace.edit": struct {
-        target: u32,
+        target: WorkspaceId,
         name: ?[]const u8 = null,
         cwd: ?[]const u8 = null,
     },
-    @"workspace.close": struct { target: u32, close_contents: bool = false },
-    @"workspace.move": struct { target: u32, before: u32 },
-    @"pane.rename": Rename,
-    @"tab.rename": Rename,
-    @"pane.swap": struct { target: u32, other: u32 },
+    @"workspace.close": struct { target: WorkspaceId, close_contents: bool = false },
+    @"workspace.move": struct { target: WorkspaceId, before: WorkspaceId },
+    @"pane.rename": PaneRename,
+    @"tab.rename": TabRename,
+    @"pane.swap": struct { target: PaneId, other: PaneId },
     @"pane.resize": struct {
-        target: u32,
+        target: PaneId,
         axis: layout.Axis,
         ratio: u16,
     },
-    @"split.resize": struct { target: u32, direction: layout.Direction },
+    @"split.resize": struct { target: PaneId, direction: layout.Direction },
     @"split.ratio": struct {
-        target: u32,
-        other: u32,
+        target: PaneId,
+        other: PaneId,
         ratio: u16,
         expected: u64,
     },
     @"pane.move": struct {
-        target: u32,
+        target: PaneId,
         destination: union(enum) { beside: Beside, new_tab: []const u8 },
     },
-    @"tab.move": struct { target: u32, destination: Destination },
+    @"tab.move": struct { target: TabId, destination: Destination },
     @"tab.merge": struct {
-        target: u32,
-        other: u32,
+        target: TabId,
+        other: PaneId,
         direction: layout.Direction = .right,
     },
     @"pane.read": struct {
-        target: u32,
+        target: PaneId,
         lines: usize = 100,
         view: enum { history, screen } = .history,
     },
     @"pane.send": struct {
-        target: u32,
+        target: PaneId,
         text: []const u8,
         enter: bool = false,
     },
-    @"pane.keys": struct { target: u32, text: []const u8 },
-    @"pane.input": struct { target: u32, data: []const u8 },
+    @"pane.keys": struct { target: PaneId, text: []const u8 },
+    @"pane.input": struct { target: PaneId, data: []const u8 },
 };
 pub const Context = struct {
     socket: []const u8,
@@ -86,27 +91,27 @@ pub const Context = struct {
     theme: @import("theme.zig").Theme,
 };
 pub const Result = struct {
-    pane: u32 = 0,
-    tab: u32 = 0,
-    workspace: u32 = 0,
+    pane: PaneId = .none,
+    tab: TabId = .none,
+    workspace: WorkspaceId = .none,
     text: ?[]const u8 = null,
-    closed_panes: []const u32 = &.{},
+    closed_panes: []const PaneId = &.{},
 };
-pub fn location(r: *Runtime, pane: u32) !Result {
+pub fn location(r: *Runtime, pane: PaneId) !Result {
     const ws = r.workspaces.owner(pane) orelse return error.NoPane;
     return .{ .pane = pane, .tab = ws.model.tabs[ws.model.tabForPane(pane).?].id, .workspace = ws.id };
 }
-fn tabOwner(r: *Runtime, id: u32) !*Workspace {
+fn tabOwner(r: *Runtime, id: TabId) !*Workspace {
     for (r.workspaces.items.items) |*ws| for (ws.model.tabs[0..ws.model.count]) |t| {
         if (t.id == id) return ws;
     };
     return error.NoTab;
 }
-fn tabIndex(m: *const layout.Model, id: u32) !usize {
+fn tabIndex(m: *const layout.Model, id: TabId) !usize {
     for (m.tabs[0..m.count], 0..) |t, i| if (t.id == id) return i;
     return error.NoTab;
 }
-fn spawnOptions(r: *Runtime, ctx: Context, workspace: u32, from: ?u32, cwd: []const u8) !runtime.Runtime.Create {
+fn spawnOptions(r: *Runtime, ctx: Context, workspace: WorkspaceId, from: ?PaneId, cwd: []const u8) !runtime.Runtime.Create {
     const ws = try r.getWorkspace(workspace);
     const dir = if (cwd.len > 0) cwd else if (from) |id| blk: {
         const p = r.pane(id) orelse return error.NoPane;
@@ -201,7 +206,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             return location(r, try r.create(opts));
         },
         .@"workspace.create" => |q| {
-            const id = try r.createWorkspace(q.name, .{ .workspace = 0, .cwd = q.cwd, .cols = 80, .rows = 24, .theme = ctx.theme, .socket = ctx.socket, .executable = ctx.executable });
+            const id = try r.createWorkspace(q.name, .{ .workspace = .none, .cwd = q.cwd, .cols = 80, .rows = 24, .theme = ctx.theme, .socket = ctx.socket, .executable = ctx.executable });
             const ws = try r.getWorkspace(id);
             return location(r, ws.model.firstPane(ws.model.tabs[0].root));
         },
@@ -212,21 +217,23 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         .@"workspace.close" => |q| try r.closeWorkspace(q.target, q.close_contents),
         .@"workspace.move" => |q| try r.workspaces.moveBefore(q.target, q.before),
         .@"pane.restore" => |q| return location(r, try r.restore(try spawnOptions(r, ctx, q.workspace, null, ""))),
-        .@"pane.close", .@"tab.close" => |q| {
-            const ids = try alloc.alloc(u32, layout.max_panes);
+        .@"pane.close" => |q| {
+            const ids = try alloc.alloc(PaneId, layout.max_panes);
+            _ = try location(r, q.target);
+            ids[0] = q.target;
+            try r.closed.ensureUnusedCapacity(os.allocator, 1);
+            try r.close(q.target);
+            return .{ .closed_panes = ids[0..1] };
+        },
+        .@"tab.close" => |q| {
+            const ids = try alloc.alloc(PaneId, layout.max_panes);
             var count: usize = 0;
-            if (cmd == .@"pane.close") {
-                _ = try location(r, q.target);
-                ids[0] = q.target;
-                count = 1;
-            } else {
-                const ws = try tabOwner(r, q.target);
-                const root = ws.model.tabs[try tabIndex(&ws.model, q.target)].root;
-                for (ws.model.nodes) |slot| if (slot) |node| if (node == .pane and ws.model.contains(root, node.pane)) {
-                    ids[count] = node.pane;
-                    count += 1;
-                };
-            }
+            const ws = try tabOwner(r, q.target);
+            const root = ws.model.tabs[try tabIndex(&ws.model, q.target)].root;
+            for (ws.model.nodes) |slot| if (slot) |node| if (node == .pane and ws.model.contains(root, node.pane)) {
+                ids[count] = node.pane;
+                count += 1;
+            };
             try r.closed.ensureUnusedCapacity(os.allocator, count);
             for (ids[0..count]) |id| try r.close(id);
             return .{ .closed_panes = ids[0..count] };
@@ -294,44 +301,49 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
     return .{};
 }
 fn arrange(r: *Runtime, cmd: Command) !Result {
-    const target = switch (cmd) {
-        .@"tab.rename", .@"pane.rename" => |q| q.target,
-        .@"pane.swap" => |q| q.target,
-        .@"pane.resize" => |q| q.target,
-        .@"split.resize" => |q| q.target,
-        .@"split.ratio" => |q| q.target,
-        .@"pane.move" => |q| q.target,
-        .@"tab.move" => |q| q.target,
-        .@"tab.merge" => |q| q.target,
+    // Panes and tabs share one numeric target space on the wire; recover
+    // whichever typed id this command actually addresses.
+    const target: u32 = switch (cmd) {
+        .@"tab.rename" => |q| @intFromEnum(q.target),
+        .@"tab.move" => |q| @intFromEnum(q.target),
+        .@"tab.merge" => |q| @intFromEnum(q.target),
+        .@"pane.rename" => |q| @intFromEnum(q.target),
+        .@"pane.swap" => |q| @intFromEnum(q.target),
+        .@"pane.resize" => |q| @intFromEnum(q.target),
+        .@"split.resize" => |q| @intFromEnum(q.target),
+        .@"split.ratio" => |q| @intFromEnum(q.target),
+        .@"pane.move" => |q| @intFromEnum(q.target),
         else => unreachable,
     };
     const tab_op = switch (cmd) {
         .@"tab.rename", .@"tab.move", .@"tab.merge" => true,
         else => false,
     };
-    const source = if (tab_op) try tabOwner(r, target) else r.workspaces.owner(target) orelse return error.NoPane;
+    const pane_target: PaneId = @enumFromInt(target);
+    const tab_target: TabId = @enumFromInt(target);
+    const source = if (tab_op) try tabOwner(r, tab_target) else r.workspaces.owner(pane_target) orelse return error.NoPane;
     var src = source.model;
     const original = src;
-    const index = if (tab_op) try tabIndex(&src, target) else src.tabForPane(target).?;
-    const representative = if (tab_op) src.firstPane(src.tabs[index].root) else target;
+    const index = if (tab_op) try tabIndex(&src, tab_target) else src.tabForPane(pane_target).?;
+    const representative = if (tab_op) src.firstPane(src.tabs[index].root) else pane_target;
     switch (cmd) {
         .@"tab.rename" => |q| src.tabs[index].rename(q.name),
-        .@"pane.rename" => |q| (r.pane(target) orelse return error.NoPane).label.set(q.name),
-        .@"split.resize" => |q| src.resize(target, q.direction),
+        .@"pane.rename" => |q| (r.pane(pane_target) orelse return error.NoPane).label.set(q.name),
+        .@"split.resize" => |q| src.resize(pane_target, q.direction),
         .@"pane.resize" => |q| {
             if (q.ratio < 100 or q.ratio > 900) return error.InvalidRatio;
-            try src.setShare(target, q.axis, q.ratio);
+            try src.setShare(pane_target, q.axis, q.ratio);
         },
         .@"split.ratio" => |q| {
             if (source.model.revision != q.expected) return error.StaleLayout;
             if (q.ratio < 100 or q.ratio > 900) return error.InvalidRatio;
             const node = for (&src.nodes) |*slot| {
-                if (slot.*) |n| if (n == .split and src.firstPane(n.split.first) == target and src.firstPane(n.split.second) == q.other) break slot;
+                if (slot.*) |n| if (n == .split and src.firstPane(n.split.first) == pane_target and src.firstPane(n.split.second) == q.other) break slot;
             } else return error.NoSplit;
             node.*.?.split.ratio = q.ratio;
         },
         else => {
-            const Placement = union(enum) { beside: Beside, new_tab: []const u8, tab: Destination, swap: u32 };
+            const Placement = union(enum) { beside: Beside, new_tab: []const u8, tab: Destination, swap: PaneId };
             const place: Placement = switch (cmd) {
                 .@"pane.swap" => |q| .{ .swap = q.other },
                 .@"pane.move" => |q| switch (q.destination) {
@@ -354,17 +366,17 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
             var dst_copy = destination.model;
             const dst = if (source == destination) &src else &dst_copy;
             if (place == .swap) {
-                std.mem.swap(?layout.Node, &src.nodes[src.findNode(target).?], &dst.nodes[dst.findNode(place.swap).?]);
+                std.mem.swap(?layout.Node, &src.nodes[src.findNode(pane_target).?], &dst.nodes[dst.findNode(place.swap).?]);
             } else if (place == .tab and source == destination) {
                 switch (place.tab) {
-                    .before, .after => |other| src.moveTab(target, (try tabIndex(&src, other)) + @intFromBool(place.tab == .after)),
+                    .before, .after => |other| src.moveTab(tab_target, (try tabIndex(&src, other)) + @intFromBool(place.tab == .after)),
                     .workspace => {},
                 }
             } else {
-                if (place == .beside and src.contains(src.tabs[index].root, place.beside.other) and (tab_op or target == place.beside.other)) return error.InvalidDestination;
+                if (place == .beside and src.contains(src.tabs[index].root, place.beside.other) and (tab_op or pane_target == place.beside.other)) return error.InvalidDestination;
                 const saved = src.tabs[index];
-                const root = if (tab_op) saved.root else src.findNode(target).?;
-                if (tab_op) src.removeTab(index) else try src.close(target);
+                const root = if (tab_op) saved.root else src.findNode(pane_target).?;
+                if (tab_op) src.removeTab(index) else try src.close(pane_target);
                 const copied = try dst.copyTree(&original, root);
                 if (place == .beside) {
                     try dst.insertTree(copied, place.beside.other, place.beside.direction);
@@ -373,7 +385,9 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
                     var tab = saved;
                     tab.root = copied;
                     if (!tab_op) {
-                        tab.id = r.workspaces.next_pane_id;
+                        // Tab ids share the pane-id counter: a tab created by a pane
+                        // move/merge takes the next counter value as its own id.
+                        tab.id = @enumFromInt(@intFromEnum(r.workspaces.next_pane_id));
                         tab.rename(place.new_tab);
                     }
                     dst.tabs[dst.count] = tab;
@@ -388,7 +402,7 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
                 dst.revision +%= 1;
                 destination.model = dst.*;
             }
-            if (place == .new_tab) r.workspaces.next_pane_id += 1;
+            if (place == .new_tab) r.workspaces.next_pane_id = r.workspaces.next_pane_id.next();
         },
     }
     src.revision +%= 1;

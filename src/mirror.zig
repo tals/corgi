@@ -8,6 +8,7 @@ const vt = terminal.vt;
 const protocol = @import("protocol.zig");
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const Connection = @import("rpc.zig").Connection;
 const surface = @import("surface.zig");
 
@@ -15,7 +16,7 @@ pub const Terminal = struct {
     const Selection = struct { x: u16, y: u16, end_x: u16, end_y: u16 };
     inner: *terminal.Terminal,
     conn: *Connection,
-    id: u32,
+    id: layout.PaneId,
     offset: ?usize = null,
     bottom: usize = 0,
     selection: ?Selection = null,
@@ -134,7 +135,7 @@ pub const Terminal = struct {
 };
 pub const Pane = struct {
     binding: u64 = 0,
-    id: u32,
+    id: layout.PaneId,
     label: []const u8,
     cwd: []const u8,
     agent: protocol.Agent,
@@ -142,11 +143,11 @@ pub const Pane = struct {
 };
 pub const Workspaces = struct {
     items: []protocol.Workspace = &.{},
-    pub fn index(store: *const Workspaces, id: u32) ?usize {
+    pub fn index(store: *const Workspaces, id: WorkspaceId) ?usize {
         for (store.items, 0..) |ws, i| if (ws.id == id) return i;
         return null;
     }
-    pub fn owner(store: *Workspaces, pane: u32) ?*protocol.Workspace {
+    pub fn owner(store: *Workspaces, pane: layout.PaneId) ?*protocol.Workspace {
         for (store.items) |*ws| if (ws.model.tabForPane(pane) != null) return ws;
         return null;
     }
@@ -172,7 +173,7 @@ pub const Runtime = struct {
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
     agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
-    pub fn pane(r: *Runtime, id: u32) ?*Pane {
+    pub fn pane(r: *Runtime, id: layout.PaneId) ?*Pane {
         for (r.panes.items) |*p| if (p.id == id) return p;
         return null;
     }

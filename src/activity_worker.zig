@@ -1,6 +1,7 @@
 //! One bounded inference queue shared by providers. Observation and UI never
 //! wait for inference. Coalescing and cooldowns prevent unchanged polls billing.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 const clock = @import("clock.zig");
 const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
@@ -8,17 +9,18 @@ const backend = @import("summary_backend.zig");
 const links = @import("link_labels.zig");
 const setup = @import("inference_setup.zig");
 const a = std.heap.c_allocator;
-const max = @import("layout.zig").max_panes;
+const layout = @import("layout.zig");
+const max = layout.max_panes;
 const max_slots = @import("conversations.zig").max_actors;
 pub const Request = struct {
-    actor: u32,
+    actor: ActorId,
     provider: agents.Provider,
     session: [160]u8,
     session_len: usize,
     turn: [160]u8,
     turn_len: usize,
     evidence: summary.Text,
-    panes: [max]u32 = @splat(0),
+    panes: [max]layout.PaneId = @splat(.none),
     panes_len: usize = 0,
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
@@ -342,7 +344,7 @@ pub const Worker = struct {
         slot.*.?.combine();
         w.wake.signal();
     }
-    pub fn tools(w: *Worker, actor: u32, agent: *const agents.Agent, progress: @import("activity_tools.zig").View) void {
+    pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: @import("activity_tools.zig").View) void {
         if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
         w.mutex.lock();
         defer w.mutex.unlock();
@@ -491,14 +493,14 @@ pub const Worker = struct {
 };
 
 test "late results cannot overwrite another turn or changed evidence" {
-    var actor: @import("conversations.zig").Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working, .session_len = 1, .turn_len = 1 } };
+    var actor: @import("conversations.zig").Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session_len = 1, .turn_len = 1 } };
     const agent = &actor.state;
     agent.session[0] = 's';
     agent.turn[0] = 't';
     var text: summary.Text = .{};
     text.append("Checking input");
     agent.activity_generation = text.hash();
-    const r: Result = .{ .request = .{ .actor = 1, .provider = .codex, .session = agent.session, .session_len = 1, .turn = agent.turn, .turn_len = 1, .evidence = text, .generation = text.hash() }, .label = summary.Label.parse("Checking input").? };
+    const r: Result = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = agent.session, .session_len = 1, .turn = agent.turn, .turn_len = 1, .evidence = text, .generation = text.hash() }, .label = summary.Label.parse("Checking input").? };
     try std.testing.expect(r.apply(&actor));
     agent.turn[0] = 'u';
     try std.testing.expect(!r.apply(&actor));
@@ -511,7 +513,7 @@ test "late results cannot overwrite another turn or changed evidence" {
 }
 
 test "fresh evidence triggers inference without a tool threshold and coalesces during cooldown" {
-    var s: Slot = .{ .request = .{ .actor = 1, .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
+    var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
     try std.testing.expect(!s.ready(0));
     s.request.evidence.append("Planning the fix");
     try std.testing.expect(s.ready(0));
@@ -609,10 +611,10 @@ test "actor inference context survives turns and detachment but rejects stale re
 
 test "inference completing during compaction waits to resume its timeline phase" {
     const conversations = @import("conversations.zig");
-    var actor: conversations.Actor = .{ .id = 1, .state = .{ .provider = .codex, .state = .working } };
+    var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working } };
     _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 1, true, 1000);
     const result: Result = .{ .request = .{
-        .actor = 1,
+        .actor = @enumFromInt(1),
         .provider = .codex,
         .session = actor.state.session,
         .session_len = 0,
@@ -636,7 +638,7 @@ test "worker live checkpoint preserves queued link evidence and unconsumed resul
     var worker = try Worker.init(.{});
     defer a.free(worker.slots);
     worker.paused = true;
-    const key: links.Key = .{ .workspace = 1, .pane = 3, .pid = 7, .port = 3000, .scheme = .http, .address = 9 };
+    const key: links.Key = .{ .workspace = @enumFromInt(1), .pane = @enumFromInt(3), .pid = 7, .port = 3000, .scheme = .http, .address = 9 };
     const evidence = "{\"terminal\":\"Finance dashboard ready\"}";
     var request: links.Request = .{ .slot = 4, .generation = 8, .key = key, .len = evidence.len };
     @memcpy(request.evidence[0..request.len], evidence);

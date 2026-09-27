@@ -7,13 +7,14 @@ const herdr = @import("herdr_adapter.zig");
 const Runtime = @import("runtime.zig").Runtime;
 const layout = @import("layout.zig");
 const import_layout = @import("import_layout.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 pub const Plan = struct { source: catalog.Source, workspaces: []const catalog.Workspace, herdr_session: ?herdr.SourceSession = null, selected: []const []const u8 = &.{} };
 pub const Progress = @import("onboarding.zig").Progress;
 pub const Job = struct {
     plan: ?std.json.Parsed(Plan) = null,
     progress: Progress = .{},
     index: usize = 0,
-    created: [@import("workspace.zig").max_workspaces]u32 = undefined,
+    created: [@import("workspace.zig").max_workspaces]WorkspaceId = undefined,
     count: usize = 0,
     operation: u64 = 0,
     pub fn busy(j: *const Job) bool {
@@ -65,14 +66,14 @@ pub const Job = struct {
         return true;
     }
 };
-fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: Runtime.Create) !u32 {
+fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: Runtime.Create) !WorkspaceId {
     const dir = if (kind == .cmux) cmuxDirectory(source.cwd, os.env("HOME") orelse "/") else if (std.fs.path.isAbsolute(source.cwd)) source.cwd else os.env("HOME") orelse "/";
     const wid = try r.workspaces.add(source.name, dir);
     errdefer discard(r, wid);
     for (source.tabs) |tab| {
         if (tab.panes.len > layout.max_panes) return error.TooManyPanes;
-        var ids: [layout.max_panes]u32 = undefined;
-        var first: ?u32 = null;
+        var ids: [layout.max_panes]layout.PaneId = undefined;
+        var first: ?layout.PaneId = null;
         for (tab.panes, 0..) |p, i| {
             var opts = defaults;
             opts.workspace = wid;
@@ -137,7 +138,7 @@ fn clear(m: *layout.Model, node: u8) void {
     }
     m.nodes[node] = null;
 }
-fn geometry(m: *layout.Model, panes: []const catalog.Pane, ids: []const u32, indices: []const usize) anyerror!u8 {
+fn geometry(m: *layout.Model, panes: []const catalog.Pane, ids: []const layout.PaneId, indices: []const usize) anyerror!u8 {
     if (indices.len == 1) return m.alloc(.{ .pane = ids[indices[0]] });
     for ([_]layout.Axis{ .horizontal, .vertical }) |axis| {
         var min: u32 = std.math.maxInt(u16);
@@ -182,7 +183,7 @@ fn geometry(m: *layout.Model, panes: []const catalog.Pane, ids: []const u32, ind
 }
 
 // Rollback owns only newly spawned shells. Do not turn them into undo-close items.
-fn discard(r: *Runtime, wid: u32) void {
+fn discard(r: *Runtime, wid: WorkspaceId) void {
     const index = r.workspaces.index(wid) orelse return;
     const model = r.workspaces.items.items[index].model;
     var i: usize = r.panes.items.len;

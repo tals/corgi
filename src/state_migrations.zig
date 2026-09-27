@@ -264,7 +264,11 @@ fn shape(comptime T: type, comptime path: []const u8, comptime sealed: []const t
             path ++ ": string\n"
         else
             shape(info.child, path ++ "[]", sealed),
-        .@"enum" => |info| names: {
+        // std.json writes an unnamed value of a non-exhaustive enum as its
+        // integer, so an enum with no named values is just that integer.
+        .@"enum" => |info| if (!info.is_exhaustive and info.fields.len == 0)
+            path ++ ": " ++ @typeName(info.tag_type) ++ "\n"
+        else names: {
             var out: []const u8 = path ++ (if (info.is_exhaustive) ": enum" else ": enum(" ++ @typeName(info.tag_type) ++ ")");
             for (info.fields) |field| out = out ++ " " ++ field.name;
             break :names out ++ "\n";

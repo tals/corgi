@@ -10,6 +10,8 @@ const migrations = @import("state_migrations.zig");
 const binary = @import("base64.zig");
 const peer = @import("peer.zig");
 const Server = @import("server.zig").Server;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const PaneId = @import("layout.zig").PaneId;
 const SavedClient = struct {
     fd: i32,
     input: []const u8,
@@ -17,8 +19,8 @@ const SavedClient = struct {
     viewer: bool,
     viewer_id: u32,
     active_seq: u64 = 0,
-    view_workspace: u32,
-    view_focus: ?u32,
+    view_workspace: WorkspaceId,
+    view_focus: ?PaneId,
     interests: []const peer.Interest,
     watched: bool,
     controls: []const peer.Control,
@@ -31,7 +33,7 @@ const SavedClient = struct {
     touched: i64,
 };
 const Manifest = struct {
-    preferred_workspace: u32 = 0,
+    preferred_workspace: WorkspaceId = .none,
     version: u32 = migrations.handoff_version,
     update_abi: ?[]const u8 = @import("updates.zig").abi,
     terminal_abi: u64 = @import("corgi_options").terminal_checkpoint_abi,

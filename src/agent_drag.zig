@@ -2,9 +2,10 @@
 //! snapshots cannot silently redirect a pending drop to another agent.
 const std = @import("std");
 const sidebar = @import("sidebar.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 pub const Drag = struct {
-    workspace: u32,
-    current: u32,
+    workspace: WorkspaceId,
+    current: WorkspaceId,
     target: @import("agent_order.zig").Target,
     source: usize,
     first: usize,
@@ -21,7 +22,7 @@ pub const Drag = struct {
     drop: ?sidebar.View.Drop = null,
     preview: ?usize = null,
 
-    pub fn init(view: sidebar.View, source: usize, x: u16, y: u16, workspace: u32, current: u32) Drag {
+    pub fn init(view: sidebar.View, source: usize, x: u16, y: u16, workspace: WorkspaceId, current: WorkspaceId) Drag {
         var first = source;
         while (first > 0 and view.entries[first - 1].target != .group) first -= 1;
         var end = source + 1;
@@ -30,7 +31,7 @@ pub const Drag = struct {
         for (view.entries, 0..) |entry, i| result.ids[i] = entry.target;
         return result;
     }
-    pub fn valid(self: *Drag, view: sidebar.View, current: u32) bool {
+    pub fn valid(self: *Drag, view: sidebar.View, current: WorkspaceId) bool {
         if (self.cols != view.cols or self.rows != view.rows or self.width != view.width or self.current != current or self.count != view.entries.len) self.cancelled = true;
         if (!self.cancelled) for (view.entries, 0..) |entry, i| {
             if (!std.meta.eql(self.ids[i], entry.target) or entry.exit != null) self.cancelled = true;
@@ -41,7 +42,7 @@ pub const Drag = struct {
         }
         return !self.cancelled;
     }
-    pub fn update(self: *Drag, view: sidebar.View, current: u32, x: u16, y: u16) void {
+    pub fn update(self: *Drag, view: sidebar.View, current: WorkspaceId, x: u16, y: u16) void {
         self.drop = null;
         self.preview = null;
         if (!self.valid(view, current) or !self.dragging) return;
@@ -54,13 +55,13 @@ pub const Drag = struct {
 };
 
 test "agent drop respects grouped boundaries, scrolling, and stale rows" {
-    const entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .provider = .claude, .state = .idle, .attention = .none };
+    const entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .provider = .claude, .state = .idle, .attention = .none };
     var entries = [_]sidebar.Entry{entry} ** 6;
     entries[0].target = .{ .group = 1 };
-    entries[2].target = .{ .pane = 2 };
+    entries[2].target = .{ .pane = @enumFromInt(2) };
     entries[3].target = .{ .group = 2 };
-    entries[4].target = .{ .pane = 3 };
-    entries[5].target = .{ .native = 1 };
+    entries[4].target = .{ .pane = @enumFromInt(3) };
+    entries[5].target = .{ .native = @enumFromInt(1) };
     const view = sidebar.View.init(100, 30, true, 0, entries.len).withEntries(&entries);
     var drag = Drag.init(view, 1, 5, 17, 1, 1);
     drag.dragging = true;

@@ -1,6 +1,8 @@
 //! Incremental usage observation off the terminal thread. Opening a file seeds
 //! baselines only; old history never appears as new workspace activity.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const agents = @import("agents.zig");
 const usage = @import("usage.zig");
 const activity_tools = @import("activity_tools.zig");
@@ -12,8 +14,8 @@ const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
 const Request = struct {
-    actor: u32,
-    workspace: u32,
+    actor: ActorId,
+    workspace: WorkspaceId,
     since: i64,
     agent: agents.Agent,
     child: bool = false,
@@ -32,8 +34,8 @@ fn indexedNames(provider: agents.Provider) bool {
     };
 }
 pub const Result = struct {
-    actor: u32,
-    workspace: u32,
+    actor: ActorId,
+    workspace: WorkspaceId,
     since: i64,
     session: [160]u8,
     session_len: usize,
@@ -142,7 +144,7 @@ pub const Worker = struct {
     fn run(w: *Worker) void {
         var index: codex_files.Index = .{};
         defer index.deinit();
-        var watchers: std.AutoHashMapUnmanaged(u32, *Tail) = .empty;
+        var watchers: std.AutoHashMapUnmanaged(ActorId, *Tail) = .empty;
         defer {
             var values = watchers.valueIterator();
             while (values.next()) |entry| {
@@ -222,7 +224,7 @@ fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
 pub const Tail = struct {
-    actor: u32 = 0,
+    actor: ActorId = .none,
     session: [160]u8 = @splat(0),
     session_len: usize = 0,
     initial_until: u64 = 0,
@@ -436,7 +438,7 @@ pub const Tail = struct {
 test "usage tail frames records, ignores history and advances baselines while watched" {
     var tail: Tail = .{};
     defer tail.close();
-    var req: Request = .{ .actor = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 1000, .agent = .{ .provider = .codex } };
     req.agent.session_len = agents.clean(&req.agent.session, "session");
     const baseline = "{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:00.000Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"output_tokens\":10}}}}\n";
     try std.testing.expect(!(try tail.ingest(&req, baseline, 0)).any());
@@ -463,7 +465,7 @@ test "file metadata prefers fresh protocol and rejects other sessions and turns"
     var progress: activity_tools.View = .{};
     progress.turn_len = agents.clean(&progress.turn, "current");
     progress.commentary.append("Tracing pane focus");
-    var result: Result = .{ .actor = 1, .workspace = 1, .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .progress = progress, .seq = 10 };
+    var result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .progress = progress, .seq = 10 };
     result.name.len = agents.clean(&result.name.bytes, "File title");
     agent.setName("Protocol title");
     agent.metadata_protocol_at = 100;
@@ -501,7 +503,7 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     try std.testing.expectError(error.WrongSession, @import("transcript.zig").verifySession(file, .codex, "other-session"));
     const path = try tmp.dir.realpathAlloc(std.testing.allocator, "usage.jsonl");
     defer std.testing.allocator.free(path);
-    var req: Request = .{ .actor = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 1000, .agent = .{ .provider = .codex } };
     req.agent.session_len = agents.clean(&req.agent.session, "large-session");
     @memcpy(req.agent.transcript[0..path.len], path);
     req.agent.transcript_len = path.len;
@@ -526,7 +528,7 @@ test "real file usage reader accepts large Codex metadata and counts later activ
 test "usage tail retains the latest reported model across unrelated records" {
     var tail: Tail = .{};
     defer tail.close();
-    var req: Request = .{ .actor = 1, .workspace = 1, .since = 0, .agent = .{ .provider = .codex } };
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .codex } };
     _ = try tail.ingest(&req, "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6\"}}\n", 0);
     _ = try tail.ingest(&req, "{\"type\":\"event_msg\",\"payload\":{}}\n", 0);
     try std.testing.expectEqualStrings("gpt-6", tail.model.bytes[0..tail.model.len]);
@@ -538,7 +540,7 @@ test "usage tail retains the latest reported model across unrelated records" {
 test "Claude transcripts supply chosen names over generated titles and report continuations" {
     var tail: Tail = .{};
     defer tail.close();
-    var req: Request = .{ .actor = 1, .workspace = 1, .since = 0, .agent = .{ .provider = .claude } };
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
     req.agent.session_len = agents.clean(&req.agent.session, "a");
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Other session\",\"sessionId\":\"b\"}\n", 0);
     try std.testing.expectEqual(@as(usize, 0), tail.name.len);
@@ -554,7 +556,7 @@ test "Claude transcripts supply chosen names over generated titles and report co
 
     var agent: agents.Agent = .{ .provider = .claude };
     agent.session_len = agents.clean(&agent.session, "a");
-    var result: Result = .{ .actor = 1, .workspace = 1, .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .name = tail.name };
+    var result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .name = tail.name };
     try std.testing.expect(!result.fallback(&agent, 0));
     try std.testing.expectEqualStrings("Chosen", agent.displayName());
     result.session[0] = 'x';
@@ -566,7 +568,7 @@ test "Claude transcripts supply chosen names over generated titles and report co
 test "Claude text updates apply only when newer than the latest hook" {
     var tail: Tail = .{};
     defer tail.close();
-    var req: Request = .{ .actor = 1, .workspace = 1, .since = 0, .agent = .{ .provider = .claude } };
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
     req.agent.session_len = agents.clean(&req.agent.session, "a");
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"},{\"type\":\"text\",\"text\":\"\\n## Checking the parser\\nmore\"}]}}\n", 0);
     try std.testing.expectEqualStrings("Checking the parser", tail.update.bytes[0..tail.update.len]);
@@ -575,7 +577,7 @@ test "Claude text updates apply only when newer than the latest hook" {
 
     var agent: agents.Agent = .{ .provider = .claude, .state = .working, .activity_at = 3 * std.time.us_per_s };
     agent.session_len = agents.clean(&agent.session, "a");
-    var result: Result = .{ .actor = 1, .workspace = 1, .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .update = tail.update, .update_at = tail.update_at };
+    var result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .update = tail.update, .update_at = tail.update_at };
     _ = result.fallback(&agent, 0);
     try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
     agent.activity_at = 1 * std.time.us_per_s;

@@ -1,7 +1,9 @@
 const std = @import("std");
 const unicode = @import("ghostty-vt").unicode;
+const layout = @import("layout.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 
-pub const Target = union(enum) { pane: u32, rename: u32, workspace_name: ?u32, agent_command: usize };
+pub const Target = union(enum) { pane: layout.PaneId, rename: layout.TabId, workspace_name: ?WorkspaceId, agent_command: usize };
 pub const Result = enum { none, save, cancel };
 pub const Hit = union(enum) { none, save, clear, cancel, field: usize };
 pub const Dialog = struct {
@@ -221,7 +223,7 @@ fn eq(a: []const u8, b: []const u8) bool {
 }
 
 test "name editing supports selection, insertion, cursor movement and clear" {
-    var d = Dialog.init(.{ .rename = 1 }, "original");
+    var d = Dialog.init(.{ .rename = @enumFromInt(1) }, "original");
     _ = d.key('a');
     _ = d.key('c');
     d.sequence("\x1b[D");

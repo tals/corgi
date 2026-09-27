@@ -1,6 +1,7 @@
 //! Viewer-only grouping. Usage always belongs to individual conversations;
 //! changing a role/activity label cannot move, reset, or duplicate its tokens.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 const protocol = @import("protocol.zig");
 const sidebar = @import("sidebar.zig");
 const usage = @import("live_usage.zig");
@@ -40,12 +41,12 @@ const Tone = enum {
     }
 };
 
-fn find(all: []const protocol.Conversation, id: u32) ?*const protocol.Conversation {
+fn find(all: []const protocol.Conversation, id: ActorId) ?*const protocol.Conversation {
     for (all) |*item| if (item.id == id) return item;
     return null;
 }
-pub fn descendant(all: []const protocol.Conversation, item: protocol.Conversation, parent: u32) bool {
-    if (parent == 0 or item.id == parent) return false;
+pub fn descendant(all: []const protocol.Conversation, item: protocol.Conversation, parent: ActorId) bool {
+    if (parent == ActorId.none or item.id == parent) return false;
     var current = item.parent;
     for (0..@min(max, all.len)) |_| {
         const id = current orelse return false;
@@ -54,17 +55,17 @@ pub fn descendant(all: []const protocol.Conversation, item: protocol.Conversatio
     }
     return false;
 }
-fn visibleChild(all: []const protocol.Conversation, item: protocol.Conversation, parent: u32) bool {
+fn visibleChild(all: []const protocol.Conversation, item: protocol.Conversation, parent: ActorId) bool {
     return item.agent.state != .idle and descendant(all, item, parent);
 }
-pub fn childCount(all: []const protocol.Conversation, parent: u32) usize {
+pub fn childCount(all: []const protocol.Conversation, parent: ActorId) usize {
     var count: usize = 0;
     for (all) |item| if (visibleChild(all, item, parent)) {
         count += 1;
     };
     return count;
 }
-pub fn childrenAvailable(all: []const protocol.Conversation, parent: u32, now: i64) bool {
+pub fn childrenAvailable(all: []const protocol.Conversation, parent: ActorId, now: i64) bool {
     const root = find(all, parent) orelse return false;
     const age = now - root.children_observed_at;
     if (root.children_observed_at <= 0 or age < 0 or age > 10 * std.time.us_per_s) return false;
@@ -99,7 +100,7 @@ pub const Model = struct {
     group_count: usize = 0,
     children: usize = 0,
     total: usage.View = .{},
-    pub fn init(all: []const protocol.Conversation, parent: u32) Model {
+    pub fn init(all: []const protocol.Conversation, parent: ActorId) Model {
         var m: Model = .{};
         if (find(all, parent)) |root| add(&m.total, root.usage);
         for (all) |child| {
@@ -396,7 +397,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
             const l = lhs.equivalent;
             const r = rhs.equivalent;
             return if (l == r)
-                (if (lhs.conversation) |item| item.id else 0) < (if (rhs.conversation) |item| item.id else 0)
+                @intFromEnum(if (lhs.conversation) |item| item.id else ActorId.none) < @intFromEnum(if (rhs.conversation) |item| item.id else ActorId.none)
             else
                 l > r;
         }
@@ -575,7 +576,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
 }
 
 test "compact child rows prioritize activity and color only the status and secondary name" {
-    var child: protocol.Conversation = .{ .id = 2, .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .name = "Maxwell with a long name", .activity = "Tracing activity integration", .cwd = "", .tool_active = false }, .usage = .{ .known = true, .tokens = .{ .input = 1000, .cached_input = 800 } } };
+    var child: protocol.Conversation = .{ .id = @enumFromInt(2), .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .name = "Maxwell with a long name", .activity = "Tracing activity integration", .cwd = "", .tool_active = false }, .usage = .{ .known = true, .tokens = .{ .input = 1000, .cached_input = 800 } } };
     for ([_]@import("agents.zig").State{ .working, .blocked, .idle, .done }) |state| {
         child.agent.state = state;
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
@@ -607,19 +608,19 @@ test "idle children stay hidden while active descendants and usage remain" {
     const now = std.time.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Scanning", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
-        .{ .id = 1, .attachments = 1, .agent = agent, .children_observed_at = now },
-        .{ .id = 2, .parent = 1, .role = "Hidden role", .agent = agent, .observed_at = now, .usage = .{ .known = true, .tokens = .{ .input = 20 } } },
-        .{ .id = 3, .parent = 2, .role = "Explorer", .agent = agent, .observed_at = now, .usage = .{ .known = true, .tokens = .{ .input = 30 } } },
+        .{ .id = @enumFromInt(1), .attachments = 1, .agent = agent, .children_observed_at = now },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .role = "Hidden role", .agent = agent, .observed_at = now, .usage = .{ .known = true, .tokens = .{ .input = 20 } } },
+        .{ .id = @enumFromInt(3), .parent = @enumFromInt(2), .role = "Explorer", .agent = agent, .observed_at = now, .usage = .{ .known = true, .tokens = .{ .input = 30 } } },
     };
     all[0].agent.state = .idle;
     all[0].agent.name = "Visible parent";
     all[1].agent.state = .idle;
     all[1].agent.name = "Hidden child";
     all[2].agent.name = "Visible grandchild";
-    var entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .conversation = 1, .provider = .codex, .state = .idle, .attention = .none };
+    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .codex, .state = .idle, .attention = .none };
     presentChildren(&entry, &all, now);
     try std.testing.expectEqual(@as(usize, 1), entry.children);
-    const model = Model.init(&all, 1);
+    const model = Model.init(&all, @enumFromInt(1));
     try std.testing.expectEqual(@as(usize, 1), model.children);
     try std.testing.expectEqual(@as(usize, 1), model.group_count);
     try std.testing.expectEqual(@as(u64, 50), model.total.tokens.total());
@@ -643,12 +644,12 @@ test "idle children stay hidden while active descendants and usage remain" {
 test "role groups aggregate each descendant once and exclude other trees" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Scanning", .cwd = "", .tool_active = false };
     const all = [_]protocol.Conversation{
-        .{ .id = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 10 } } },
-        .{ .id = 2, .parent = 1, .role = "Explorer", .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 20 } } },
-        .{ .id = 3, .parent = 2, .role = "explorer", .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 30 } } },
-        .{ .id = 4, .parent = 99, .role = "Explorer", .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
+        .{ .id = @enumFromInt(1), .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 10 } } },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 20 } } },
+        .{ .id = @enumFromInt(3), .parent = @enumFromInt(2), .role = "explorer", .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 30 } } },
+        .{ .id = @enumFromInt(4), .parent = @enumFromInt(99), .role = "Explorer", .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
     };
-    const model = Model.init(&all, 1);
+    const model = Model.init(&all, @enumFromInt(1));
     try std.testing.expectEqual(@as(usize, 1), model.group_count);
     try std.testing.expectEqual(@as(usize, 2), model.children);
     try std.testing.expectEqual(@as(u64, 50), model.groups[0].usage.tokens.total());
@@ -663,7 +664,7 @@ test "role groups aggregate each descendant once and exclude other trees" {
 }
 
 test "both agent rows open one safe card before a session is bound and exiting rows do not" {
-    var entries = [_]sidebar.Entry{.{ .target = .{ .pane = 1 }, .provider = .codex, .state = .initializing, .attention = .none, .name = "探索\x1b[2J" }};
+    var entries = [_]sidebar.Entry{.{ .target = .{ .pane = @enumFromInt(1) }, .provider = .codex, .state = .initializing, .attention = .none, .name = "探索\x1b[2J" }};
     const view = sidebar.View.init(100, 30, true, 0, 1);
     const top = view.middle() + 2;
     try std.testing.expectEqual(&entries[0], sidebar.agentAt(view, &entries, 5, top).?);
@@ -693,12 +694,12 @@ test "total shares one set of timeline columns with compact child rows" {
         .{ .at = 3000, .activity = "Running tests", .usage = .{ .known = true, .tokens = .{ .input = 7600 } } },
     };
     const all = [_]protocol.Conversation{
-        .{ .id = 1, .agent = agent, .children_observed_at = std.time.microTimestamp(), .usage = own, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 500 } } } },
-        .{ .id = 2, .parent = 1, .role = "Explorer", .agent = agent, .observed_at = std.time.microTimestamp() },
-        .{ .id = 3, .parent = 1, .role = "Explorer", .agent = agent, .observed_at = std.time.microTimestamp() },
-        .{ .id = 4, .parent = 1, .role = "Reviewer", .agent = agent, .observed_at = std.time.microTimestamp() },
+        .{ .id = @enumFromInt(1), .agent = agent, .children_observed_at = std.time.microTimestamp(), .usage = own, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 500 } } } },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .observed_at = std.time.microTimestamp() },
+        .{ .id = @enumFromInt(3), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .observed_at = std.time.microTimestamp() },
+        .{ .id = @enumFromInt(4), .parent = @enumFromInt(1), .role = "Reviewer", .agent = agent, .observed_at = std.time.microTimestamp() },
     };
-    const entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .conversation = 1, .provider = .codex, .state = .working, .attention = .none };
+    const entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .codex, .state = .working, .attention = .none };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try draw(&output.writer, &all, entry, 64, 30, 5, 14);
@@ -714,7 +715,7 @@ test "timeline renders each phase once with its own interval including idle and 
         .{ .at = 1000, .activity = "Reviewing pending changes", .usage = .{ .known = true, .tokens = .{ .input = 21500, .cached_input = 12800 } } },
         .{ .at = 2000, .activity = "Inspecting repository changes", .usage = .{ .known = true } },
     };
-    var root: protocol.Conversation = .{ .id = 1, .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Inspecting repository changes", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 99600, .cached_input = 78700 } } } };
+    var root: protocol.Conversation = .{ .id = @enumFromInt(1), .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Inspecting repository changes", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 99600, .cached_input = 78700 } } } };
     for ([_]@import("agents.zig").State{ .working, .blocked, .idle }) |state| {
         root.agent.state = state;
         for (1..3) |nodes| {
@@ -741,7 +742,7 @@ test "new turn without a summary keeps the old label historical even when clippe
     const points = [_]protocol.Conversation.ActivityPoint{
         .{ .at = 1000, .activity = "Inspecting installer script", .usage = .{ .known = true } },
     };
-    var root: protocol.Conversation = .{ .id = 1, .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .recent_activity = "Old tool", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 345 } } } };
+    var root: protocol.Conversation = .{ .id = @enumFromInt(1), .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .recent_activity = "Old tool", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 345 } } } };
     for (1..3) |nodes| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
@@ -768,7 +769,7 @@ test "compaction is the current timeline phase even before the first summary" {
         .{ .at = 1000, .activity = "Compacting context", .usage = .{ .known = true } },
     };
     for ([_][]const u8{ "", "Old inferred activity" }) |label| {
-        const root: protocol.Conversation = .{ .id = 1, .agent = .{
+        const root: protocol.Conversation = .{ .id = @enumFromInt(1), .agent = .{
             .provider = .codex,
             .state = .working,
             .attention = .none,
@@ -778,7 +779,7 @@ test "compaction is the current timeline phase even before the first summary" {
             .tool_active = false,
             .compacting = true,
         }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 345 } } } };
-        const entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .conversation = 1, .provider = .codex, .state = .working, .attention = .none };
+        const entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .codex, .state = .working, .attention = .none };
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
         try draw(&output.writer, &.{root}, entry, 64, 13, 5, 8);
@@ -793,12 +794,12 @@ test "overview excludes detached history and shows Corgi activity" {
     const now = std.time.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
-        .{ .id = 1, .attachments = 1, .agent = agent },
-        .{ .id = 2, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
-        .{ .id = 3, .parent = 1, .observed_at = now, .agent = agent },
-        .{ .id = 4, .parent = 2, .observed_at = now, .agent = agent },
-        .{ .id = 5, .parent = 1, .observed_at = now - 11 * std.time.us_per_s, .agent = agent },
-        .{ .id = 6, .attachments = 1, .agent = agent },
+        .{ .id = @enumFromInt(1), .attachments = 1, .agent = agent },
+        .{ .id = @enumFromInt(2), .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
+        .{ .id = @enumFromInt(3), .parent = @enumFromInt(1), .observed_at = now, .agent = agent },
+        .{ .id = @enumFromInt(4), .parent = @enumFromInt(2), .observed_at = now, .agent = agent },
+        .{ .id = @enumFromInt(5), .parent = @enumFromInt(1), .observed_at = now - 11 * std.time.us_per_s, .agent = agent },
+        .{ .id = @enumFromInt(6), .attachments = 1, .agent = agent },
     };
     all[0].agent.state = .idle;
     all[0].agent.name = "Open session";
@@ -823,10 +824,10 @@ test "overview excludes detached history and shows Corgi activity" {
 test "overview ranks all agents together and keeps Corgi in small windows" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
-        .{ .id = 1, .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 100 } } },
-        .{ .id = 2, .parent = 1, .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 300 } } },
-        .{ .id = 3, .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
-        .{ .id = 4, .attachments = 1, .agent = agent },
+        .{ .id = @enumFromInt(1), .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 100 } } },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 300 } } },
+        .{ .id = @enumFromInt(3), .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
+        .{ .id = @enumFromInt(4), .attachments = 1, .agent = agent },
     };
     all[0].model = "gpt-6";
     all[0].agent.name = "Parent task";
@@ -865,7 +866,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
 
     var many: [12]protocol.Conversation = undefined;
     for (&many, 0..) |*item, i| {
-        item.* = .{ .id = @intCast(i + 1), .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 1000 + i } } };
+        item.* = .{ .id = @enumFromInt(i + 1), .attachments = 1, .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 1000 + i } } };
         item.agent.name = "Ranked task";
     }
     var capped: std.Io.Writer.Allocating = .init(std.testing.allocator);
@@ -880,9 +881,9 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
 test "overview ranks by tokens of the priciest listed model" {
     const agent: protocol.Agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "test", .activity = "Running tests", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
-        .{ .id = 1, .attachments = 1, .agent = agent, .model = "claude-haiku-4-5-20251001", .usage = .{ .known = true, .tokens = .{ .input = 42_000, .cached_input = 2_000, .output = 2_000 } } },
-        .{ .id = 2, .attachments = 1, .agent = agent, .model = "claude-opus-5", .usage = .{ .known = true, .tokens = .{ .input = 12_000, .cached_input = 2_000, .output = 1_000 } } },
-        .{ .id = 3, .attachments = 1, .agent = agent, .model = "codex-auto-review", .usage = .{ .known = true, .tokens = .{ .input = 5_000 } } },
+        .{ .id = @enumFromInt(1), .attachments = 1, .agent = agent, .model = "claude-haiku-4-5-20251001", .usage = .{ .known = true, .tokens = .{ .input = 42_000, .cached_input = 2_000, .output = 2_000 } } },
+        .{ .id = @enumFromInt(2), .attachments = 1, .agent = agent, .model = "claude-opus-5", .usage = .{ .known = true, .tokens = .{ .input = 12_000, .cached_input = 2_000, .output = 1_000 } } },
+        .{ .id = @enumFromInt(3), .attachments = 1, .agent = agent, .model = "codex-auto-review", .usage = .{ .known = true, .tokens = .{ .input = 5_000 } } },
     };
     all[0].agent.name = "Haiku task";
     all[1].agent.name = "Opus task";
@@ -903,10 +904,10 @@ test "unavailable or stale child discovery makes no subagent claims" {
     const now = std.time.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "parent", .activity = "Reading source", .cwd = "", .tool_active = false, .subagents = .{ .running = 2, .waiting = true } };
     var all = [_]protocol.Conversation{
-        .{ .id = 1, .agent = agent },
-        .{ .id = 2, .parent = 1, .agent = agent, .role = "Explorer" },
+        .{ .id = @enumFromInt(1), .agent = agent },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .agent = agent, .role = "Explorer" },
     };
-    var entry: sidebar.Entry = .{ .target = .{ .pane = 1 }, .conversation = 1, .provider = .codex, .state = .working, .attention = .none };
+    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .codex, .state = .working, .attention = .none };
     for ([_]i64{ 0, now - 11 * std.time.us_per_s }) |stamp| {
         all[0].children_observed_at = stamp;
         entry.subagents = agent.subagents;
@@ -986,7 +987,7 @@ test "background command rows group tasks and bound overflow without claiming st
 
 test "overview footer shows the running release and a staged update" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
-    const all = [_]protocol.Conversation{.{ .id = 1, .attachments = 1, .agent = agent }};
+    const all = [_]protocol.Conversation{.{ .id = @enumFromInt(1), .attachments = 1, .agent = agent }};
     var current: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer current.deinit();
     try drawOverview(&current.writer, &all, .{}, false, "", .{ .running = "20260925T183012Z-be82c7b9090a", .commit = "be82c7b9090a5f7e" }, 100, 30);
@@ -1005,7 +1006,7 @@ test "overview footer shows the running release and a staged update" {
 
 test "overview footer names a development build's commit" {
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
-    const all = [_]protocol.Conversation{.{ .id = 1, .attachments = 1, .agent = agent }};
+    const all = [_]protocol.Conversation{.{ .id = @enumFromInt(1), .attachments = 1, .agent = agent }};
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try drawOverview(&output.writer, &all, .{}, false, "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, 100, 30);

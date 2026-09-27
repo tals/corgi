@@ -3,6 +3,7 @@ pub const vt = @import("ghostty-vt");
 const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
+const layout = @import("layout.zig");
 pub const Terminal = struct {
     vt: vt.Terminal,
     stream: vt.TerminalStream,
@@ -116,7 +117,7 @@ pub const Terminal = struct {
         }
         return .{};
     }
-    pub fn spawn(t: *Terminal, cwd: []const u8, socket: []const u8, id: u32, executable: []const u8, command: ?[]const u8, interactive_command: bool) !void {
+    pub fn spawn(t: *Terminal, cwd: []const u8, socket: []const u8, id: layout.PaneId, executable: []const u8, command: ?[]const u8, interactive_command: bool) !void {
         var ws = std.mem.zeroes(c.struct_winsize);
         ws.ws_col = t.vt.cols;
         ws.ws_row = t.vt.rows;
@@ -134,7 +135,7 @@ pub const Terminal = struct {
             _ = c.unsetenv("CODEX_THREAD_ID");
             const path = std.fmt.allocPrint(a, "{s}:{s}", .{ std.fs.path.dirname(executable) orelse ".", os.env("PATH") orelse "/usr/bin:/bin" }) catch c._exit(127);
             os.setenv("PATH", path) catch c._exit(127);
-            const pane = std.fmt.allocPrint(a, "{d}", .{id}) catch c._exit(127);
+            const pane = std.fmt.allocPrint(a, "{d}", .{@intFromEnum(id)}) catch c._exit(127);
             os.setenv("CORGI_PANE", pane) catch c._exit(127);
             const shell = @import("launch_command.zig").shell();
             if (command) |cmd| os.exec(&.{ shell, if (interactive_command) @import("launch_command.zig").flags() else "-lc", cmd }) catch c._exit(127) else os.exec(&.{ shell, "-l" }) catch c._exit(127);

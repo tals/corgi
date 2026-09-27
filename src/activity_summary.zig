@@ -1,6 +1,7 @@
 //! Provider-neutral, bounded evidence and validated display text. Providers
 //! supply evidence; inference backends never need to understand their protocols.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 pub const Text = struct {
     bytes: [2048]u8 = @splat(0),
     len: usize = 0,
@@ -53,7 +54,7 @@ pub const Conversation = struct {
     len: usize = 0,
     previous: Label = .{},
 
-    pub fn key(_: *const Conversation, actor: u32, buffer: []u8) []const u8 {
+    pub fn key(_: *const Conversation, actor: ActorId, buffer: []u8) []const u8 {
         return std.fmt.bufPrint(buffer, "activity:{d}", .{actor}) catch unreachable;
     }
     pub fn remember(c: *Conversation, turn: []const u8, evidence: []const u8, label: Label) void {

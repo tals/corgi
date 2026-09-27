@@ -1,9 +1,10 @@
 const std = @import("std");
 const terminal = @import("terminal.zig");
 const vt = terminal.vt;
+const layout = @import("layout.zig");
 
 pub const Surface = struct {
-    pane: u32,
+    pane: layout.PaneId,
     cols: u16,
     rows: u16,
     lines: []const []const u8,
@@ -12,7 +13,7 @@ pub const Surface = struct {
 
 /// Each line starts with its own style and ends with SGR reset. Coordinates,
 /// cursor visibility, and all surrounding UI belong to the consuming viewer.
-pub fn capture(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal) !Surface {
+pub fn capture(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal.Terminal) !Surface {
     try t.updateRender();
     const state = &t.render;
     const lines = try allocator.alloc([]const u8, state.rows);
@@ -37,11 +38,11 @@ pub fn capture(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal) !Su
     };
 }
 
-pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: u32, row: usize, cols: u16, dimmed: bool) !void {
+pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool) !void {
     return writeRowHovered(w, state, links, pane, row, cols, dimmed, null);
 }
 
-pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: u32, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
+pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
     const cells = state.row_data.items(.cells)[row];
     var active_link: ?u64 = null;
     var link_index: usize = 0;
@@ -59,7 +60,7 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         if (hovered != null and link_id == hovered) style.flags.underline = .single;
         if (active_link != link_id) {
             if (active_link != null) try w.writeAll("\x1b]8;;\x1b\\");
-            if (link) |value| try w.print("\x1b]8;id=corgi-{d}-{x};{s}\x1b\\", .{ pane, value.id, value.uri });
+            if (link) |value| try w.print("\x1b]8;id=corgi-{d}-{x};{s}\x1b\\", .{ @intFromEnum(pane), value.id, value.uri });
             active_link = link_id;
         }
         var fg = style.fg(.{ .default = state.colors.foreground, .palette = &state.colors.palette });
@@ -120,7 +121,7 @@ pub const View = struct { surface: Surface, bottom: usize, offset: usize, modes:
 
 /// Borrow a viewport for a synchronous capture; never change another viewer's
 /// scroll or selection. A pending synchronized redraw keeps its completed frame.
-pub fn captureView(allocator: std.mem.Allocator, id: u32, t: *terminal.Terminal, offset: ?usize) !View {
+pub fn captureView(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal.Terminal, offset: ?usize) !View {
     const screen = t.vt.screens.active;
     const pages = &screen.pages;
     const bottom = pages.total_rows -| t.vt.rows;
@@ -168,12 +169,12 @@ test "named hyperlinks survive capture and a second terminal render without leak
     const t = try terminal.Terminal.create(32, 3);
     defer t.destroy();
     t.feed("\x1b]8;id=docs;https://example.com/docs\x1b\\\x1b[4mDocs 界\x1b]8;;\x1b\\\x1b[0m plain");
-    const captured = try capture(arena.allocator(), 7, t);
+    const captured = try capture(arena.allocator(), @enumFromInt(7), t);
     try std.testing.expect(std.mem.indexOf(u8, captured.lines[0], ";https://example.com/docs\x1b\\") != null);
     const mirror = try terminal.Terminal.create(32, 3);
     defer mirror.destroy();
     mirror.feed(captured.lines[0]);
-    const again = try capture(arena.allocator(), 7, mirror);
+    const again = try capture(arena.allocator(), @enumFromInt(7), mirror);
     const host = try terminal.Terminal.create(32, 3);
     defer host.destroy();
     host.feed(again.lines[0]);
@@ -184,7 +185,7 @@ test "named hyperlinks survive capture and a second terminal render without leak
     try std.testing.expectEqual(@as(usize, 0), link.start);
     try std.testing.expectEqual(@as(usize, 7), link.end);
     // A redraw of the same source retains the same emitted identity.
-    const repeated = try capture(arena.allocator(), 7, t);
+    const repeated = try capture(arena.allocator(), @enumFromInt(7), t);
     try std.testing.expectEqualStrings(captured.lines[0], repeated.lines[0]);
 }
 
@@ -194,12 +195,12 @@ test "hyperlinks retain completed frame during synchronized output and disappear
     const t = try terminal.Terminal.create(20, 2);
     defer t.destroy();
     t.feed("\x1b]8;;https://example.com/old\x1b\\OLD\x1b]8;;\x1b\\");
-    const before = try capture(arena.allocator(), 1, t);
+    const before = try capture(arena.allocator(), @enumFromInt(1), t);
     t.feed("\x1b[?2026h\x1b[2J\x1b[HNEW");
-    const during = try capture(arena.allocator(), 1, t);
+    const during = try capture(arena.allocator(), @enumFromInt(1), t);
     try std.testing.expectEqualStrings(before.lines[0], during.lines[0]);
     t.feed("\x1b[?2026l");
-    const after = try capture(arena.allocator(), 1, t);
+    const after = try capture(arena.allocator(), @enumFromInt(1), t);
     try std.testing.expect(std.mem.indexOf(u8, after.lines[0], "\x1b]8;") == null);
 }
 
@@ -224,14 +225,14 @@ test "plain links span soft wraps but not hard newlines and remain snapshot owne
     defer t.destroy();
     const url = "https://example.com/a-long-path";
     t.feed(url ++ " ");
-    const before = try capture(arena.allocator(), 9, t);
+    const before = try capture(arena.allocator(), @enumFromInt(9), t);
     try std.testing.expectEqual(@as(usize, 2), t.hyperlinks().len);
     for (t.hyperlinks()) |link| try std.testing.expectEqualStrings(url, link.uri);
     for (before.lines[0..2]) |line| try std.testing.expect(std.mem.indexOf(u8, line, ";" ++ url ++ "\x1b\\") != null);
     t.feed("\x1b[?2026h\x1b[2J\x1b[Hhttps://new.example/");
-    const during = try capture(arena.allocator(), 9, t);
+    const during = try capture(arena.allocator(), @enumFromInt(9), t);
     try std.testing.expectEqualStrings(before.lines[0], during.lines[0]);
     t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
-    _ = try capture(arena.allocator(), 9, t);
+    _ = try capture(arena.allocator(), @enumFromInt(9), t);
     try std.testing.expectEqual(@as(usize, 0), t.hyperlinks().len);
 }

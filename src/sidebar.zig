@@ -1,4 +1,7 @@
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
+const NativeId = @import("native.zig").Session.Id;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const agents = @import("agents.zig");
 const layout = @import("layout.zig");
 const vt = @import("ghostty-vt");
@@ -8,14 +11,14 @@ const corgi_animation = @import("corgi_animation.zig");
 pub const max_entries = layout.max_panes + 16 + @import("workspace.zig").max_workspaces;
 const selected_bg = "\x1b[48;2;34;44;58m";
 /// `group` is a workspace header row in the grouped "All" list, not an agent.
-pub const Target = union(enum) { pane: u32, native: u32, group: u32 };
+pub const Target = union(enum) { pane: layout.PaneId, native: NativeId, group: WorkspaceId };
 pub const Search = struct { text: []const u8, cursor: usize };
 /// Viewer-local agent list filter. `workspace` follows the selected workspace.
 pub const Scope = enum { workspace, all };
 /// Header totals for a `.group` entry; `current` marks the selected workspace.
 pub const Group = struct { agents: usize = 0, working: usize = 0, attention: usize = 0, folded: bool = false, current: bool = false };
 pub const Entry = struct {
-    conversation: u32 = 0,
+    conversation: ActorId = .none,
     children: usize = 0,
     exit: ?struct { frame_ms: i64, progress: f64 } = null,
     name: []const u8 = "",
@@ -57,7 +60,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: u32, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: WorkspaceId, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 /// Render the prospective order without changing shared state or the stable
 /// row geometry used by the captured gesture's hit testing.
@@ -463,8 +466,8 @@ pub const View = struct {
         const badge_width = displayWidth(badge);
         const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
         const animation_seed: u64 = switch (e.target) {
-            .pane => |id| @as(u64, id) * 17,
-            .native => |id| (@as(u64, id) + 0x100000000) * 17,
+            .pane => |id| @as(u64, @intFromEnum(id)) * 17,
+            .native => |id| (@as(u64, @intFromEnum(id)) + 0x100000000) * 17,
             .group => unreachable,
         };
         const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
@@ -810,7 +813,7 @@ test "unpushed badge retains its columns beside a long workspace name" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
-    const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "abcdefghijklmnopqrstuvwxyz", .cwd = "/tmp", .active = true, .git_ahead = 123 }};
+    const entries = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "abcdefghijklmnopqrstuvwxyz", .cwd = "/tmp", .active = true, .git_ahead = 123 }};
     try view.draw(&output.writer, &.{}, &entries);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
@@ -818,7 +821,7 @@ test "unpushed badge retains its columns beside a long workspace name" {
 }
 
 test "active workspace bar follows graphics support independently of the badge" {
-    const entries = [_]WorkspaceEntry{ .{ .id = 1, .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = 2, .name = "Project", .cwd = "/tmp", .active = true } };
+    const entries = [_]WorkspaceEntry{ .{ .id = @enumFromInt(1), .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = @enumFromInt(2), .name = "Project", .cwd = "/tmp", .active = true } };
     for ([_]struct { supported: bool, mode: @import("corgi_badge.zig").Mode }{
         .{ .supported = true, .mode = .image },
         .{ .supported = true, .mode = .emoji },
@@ -845,7 +848,7 @@ test "active workspace bar follows graphics support independently of the badge" 
 test "subagent badge shares the second row without reserving empty space" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    var entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Long agent title", .provider = .codex, .state = .working, .attention = .none, .activity = "abcdefghijklmnopqrstuv", .subagents = .{ .running = 2, .waiting = true } };
+    var entry: Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .name = "Long agent title", .provider = .codex, .state = .working, .attention = .none, .activity = "abcdefghijklmnopqrstuv", .subagents = .{ .running = 2, .waiting = true } };
     for ([_]u16{ 20, 28, 40 }) |width| {
         const view = View.init(100, 30, true, 0, 1).withWidth(width);
         try view.draw(&output.writer, &.{entry}, &.{});
@@ -866,7 +869,7 @@ test "workspace status uses agent colors and keeps usage on its second row" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
-    const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "Project", .cwd = "/tmp", .active = false, .working = 1, .attention = 2, .unread = 3, .stats = .{ .tools = 12, .input = 1200, .output = 300, .tokens_known = true } }};
+    const entries = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = false, .working = 1, .attention = 2, .unread = 3, .stats = .{ .tools = 12, .input = 1200, .output = 300, .tokens_known = true } }};
     try view.draw(&output.writer, &.{}, &entries);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;2H\x1b[0;38;2;155;163;175;48;2;24;27;32m\x1b[22m\x1b[38;2;249;226;175m●1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;243;139;168m ●2") != null);
@@ -874,7 +877,7 @@ test "workspace status uses agent colors and keeps usage on its second row" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "⚒12") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;24H\x1b[0;38;2;155;163;175;48;2;24;27;32m⚒12") != null);
     output.clearRetainingCapacity();
-    const empty = [_]WorkspaceEntry{.{ .id = 1, .name = "Project", .cwd = "/tmp", .active = true }};
+    const empty = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = true }};
     try view.draw(&output.writer, &.{}, &empty);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "unread") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "●0") == null);
@@ -900,7 +903,7 @@ test "workspace status uses agent colors and keeps usage on its second row" {
 test "unread label and arrow share their hit area across sidebar widths" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    var ws: WorkspaceEntry = .{ .id = 1, .name = "Project", .cwd = "/tmp", .active = false, .unread = 3, .working = 1, .attention = 2 };
+    var ws: WorkspaceEntry = .{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = false, .unread = 3, .working = 1, .attention = 2 };
     for ([_]u16{ 20, 28, 40 }) |width| {
         const view = View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0);
         output.clearRetainingCapacity();
@@ -923,7 +926,7 @@ test "unread label and arrow share their hit area across sidebar widths" {
 test "compaction occupies the second agent row ahead of waiting and summaries" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    const entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Agent title", .provider = .codex, .state = .working, .attention = .none, .compacting = true, .activity = "Old summary", .subagents = .{ .waiting = true } };
+    const entry: Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .name = "Agent title", .provider = .codex, .state = .working, .attention = .none, .compacting = true, .activity = "Old summary", .subagents = .{ .waiting = true } };
     try View.init(100, 30, true, 0, 1).draw(&output.writer, &.{entry}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[18;5H\x1b[38;2;226;230;233mCompacting…") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Old summary") == null);
@@ -1132,7 +1135,7 @@ pub const ScopeMenu = struct {
 };
 
 pub const PortMenu = struct {
-    workspace: u32,
+    workspace: WorkspaceId,
     selected: usize = 0,
     pub fn bounds(cols: u16, rows: u16) layout.Rect {
         const width = @min(cols, 64);
@@ -1178,9 +1181,9 @@ pub const PortMenu = struct {
 test "workspace port labels contain OSC8 URLs selected per viewer" {
     const ports = @import("ports.zig");
     const ifaces = [_]ports.Interface{.{ .name = "tailscale0", .address = "100.80.1.2", .kind = .tailscale }};
-    const endpoints = [_]ports.Endpoint{.{ .pid = 12, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "*", .port = 3000, .scheme = .http, .http_status = 200, .interfaces = &ifaces }};
-    const works = [_]ports.Work{.{ .id = 1, .background = 2, .endpoints = &endpoints }};
-    var ws: WorkspaceEntry = .{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } };
+    const endpoints = [_]ports.Endpoint{.{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "*", .port = 3000, .scheme = .http, .http_status = 200, .interfaces = &ifaces }};
+    const works = [_]ports.Work{.{ .id = @enumFromInt(1), .background = 2, .endpoints = &endpoints }};
+    var ws: WorkspaceEntry = .{ .id = @enumFromInt(1), .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } };
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try drawPorts(&out.writer, ws, 25, false);
@@ -1194,11 +1197,11 @@ test "workspace port labels contain OSC8 URLs selected per viewer" {
 test "non-browser endpoints have no link-out control" {
     const ports = @import("ports.zig");
     const endpoints = [_]ports.Endpoint{
-        .{ .pid = 12, .pane = 1, .name = "dns", .transport = .udp, .bind_address = "127.0.0.1", .port = 5353 },
-        .{ .pid = 13, .pane = 1, .name = "db", .transport = .tcp, .bind_address = "::1", .port = 5432, .ipv6 = true },
+        .{ .pid = 12, .pane = @enumFromInt(1), .name = "dns", .transport = .udp, .bind_address = "127.0.0.1", .port = 5353 },
+        .{ .pid = 13, .pane = @enumFromInt(1), .name = "db", .transport = .tcp, .bind_address = "::1", .port = 5432, .ipv6 = true },
     };
-    const works = [_]ports.Work{.{ .id = 1, .endpoints = &endpoints }};
-    const ws: WorkspaceEntry = .{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .remote_links = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } };
+    const works = [_]ports.Work{.{ .id = @enumFromInt(1), .endpoints = &endpoints }};
+    const ws: WorkspaceEntry = .{ .id = @enumFromInt(1), .name = "test", .cwd = "/tmp", .active = true, .remote_links = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } };
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try drawPorts(&out.writer, ws, 60, false);
@@ -1208,22 +1211,22 @@ test "non-browser endpoints have no link-out control" {
 test "port hit testing matches clipped labels and outer terminal receives link metadata" {
     const ports = @import("ports.zig");
     const endpoints = [_]ports.Endpoint{
-        .{ .pid = 12, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
-        .{ .pid = 12, .pane = 1, .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
+        .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
+        .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
     };
-    const works = [_]ports.Work{.{ .id = 1, .endpoints = &endpoints }};
-    const entries = [_]WorkspaceEntry{.{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } }};
+    const works = [_]ports.Work{.{ .id = @enumFromInt(1), .endpoints = &endpoints }};
+    const entries = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .processes_available = true, .ports_available = true, .workspaces = &works } }};
     const view = View.init(80, 24, true, 0, 0).withWorkspaces(1, 0);
     var buf: [256]u8 = undefined;
     try std.testing.expect(portLink(view, &entries, 1, 4, &buf) == null);
-    try std.testing.expectEqual(@as(u32, 1), portWorkspace(view, &entries, 12, 2).?.id);
+    try std.testing.expectEqual(@as(WorkspaceId, @enumFromInt(1)), portWorkspace(view, &entries, 12, 2).?.id);
     try std.testing.expect(portWorkspace(view, &entries, 1, 2) == null);
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try view.draw(&out.writer, &.{}, &entries);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open Link ↗ 2") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "http://") == null);
-    const menu: PortMenu = .{ .workspace = 1 };
+    const menu: PortMenu = .{ .workspace = @enumFromInt(1) };
     try menu.draw(&out.writer, entries[0], 80, 24);
     const host = try @import("terminal.zig").Terminal.create(80, 24);
     defer host.destroy();
@@ -1235,7 +1238,7 @@ test "port hit testing matches clipped labels and outer terminal receives link m
     try std.testing.expectEqual(@as(usize, 0), menu.hit(entries[0], 80, 24, rect.x + 3, rect.y + 2).?);
     try std.testing.expect(menu.hit(entries[0], 80, 24, 0, 0) == null);
     var single = entries[0];
-    const single_works = [_]ports.Work{.{ .id = 1, .endpoints = endpoints[0..1] }};
+    const single_works = [_]ports.Work{.{ .id = @enumFromInt(1), .endpoints = endpoints[0..1] }};
     single.ports.workspaces = &single_works;
     try std.testing.expectEqualStrings("http://localhost:3000", portLink(view, &.{single}, 13, 2, &buf).?);
 }
@@ -1243,11 +1246,11 @@ test "port hit testing matches clipped labels and outer terminal receives link m
 test "inferred link names share clipped hit geometry and name chooser destinations" {
     const ports = @import("ports.zig");
     var endpoints = [_]ports.Endpoint{
-        .{ .pid = 12, .pane = 1, .name = "web", .label = "Finance Dashboard", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
-        .{ .pid = 13, .pane = 2, .name = "web", .label = "API Docs", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
+        .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .label = "Finance Dashboard", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
+        .{ .pid = 13, .pane = @enumFromInt(2), .name = "web", .label = "API Docs", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
     };
-    var works = [_]ports.Work{.{ .id = 1, .endpoints = endpoints[0..1] }};
-    const ws: WorkspaceEntry = .{ .id = 1, .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .workspaces = &works } };
+    var works = [_]ports.Work{.{ .id = @enumFromInt(1), .endpoints = endpoints[0..1] }};
+    const ws: WorkspaceEntry = .{ .id = @enumFromInt(1), .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .workspaces = &works } };
     var buf: [256]u8 = undefined;
     for ([_]u16{ 20, 28, 40 }) |width| {
         const view = View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0);
@@ -1260,7 +1263,7 @@ test "inferred link names share clipped hit geometry and name chooser destinatio
     try std.testing.expectEqualStrings("Open Link ↗ 2", portLabel(ws, &buf));
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
-    try (PortMenu{ .workspace = 1 }).draw(&out.writer, ws, 100, 30);
+    try (PortMenu{ .workspace = @enumFromInt(1) }).draw(&out.writer, ws, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open Finance Dashboard · http://localhost:3000") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open API Docs · http://localhost:3001") != null);
 }
@@ -1277,7 +1280,7 @@ test "corgi frames occupy one column per glyph in the terminal" {
 test "idle face replaces stale activity while working activity remains useful" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    var entry: Entry = .{ .target = .{ .pane = 1 }, .name = "Agent", .provider = .codex, .state = .idle, .attention = .none, .activity = "Reading source files" };
+    var entry: Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .name = "Agent", .provider = .codex, .state = .idle, .attention = .none, .activity = "Reading source files" };
     const view = View.init(100, 30, true, 0, 1);
     try view.draw(&output.writer, &.{entry}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") != null or
@@ -1331,7 +1334,7 @@ pub fn gitWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16)
     return gitActionWorkspace(v, workspaces, null, x, y);
 }
 
-pub fn gitActionWorkspace(v: View, workspaces: []const WorkspaceEntry, expanded: ?u32, x: u16, y: u16) ?WorkspaceEntry {
+pub fn gitActionWorkspace(v: View, workspaces: []const WorkspaceEntry, expanded: ?WorkspaceId, x: u16, y: u16) ?WorkspaceEntry {
     if (v.width == 0 or y < 2 or (y - 2) % 3 != 0) return null;
     const hit = v.hit(x, y);
     if (hit != .workspace or hit.workspace >= workspaces.len) return null;
@@ -1342,7 +1345,7 @@ pub fn gitActionWorkspace(v: View, workspaces: []const WorkspaceEntry, expanded:
     return if (size > 0 and x >= end -| size and x < end) ws else null;
 }
 
-pub fn drawGitAction(w: *std.Io.Writer, v: View, workspaces: []const WorkspaceEntry, id: u32) !void {
+pub fn drawGitAction(w: *std.Io.Writer, v: View, workspaces: []const WorkspaceEntry, id: WorkspaceId) !void {
     if (v.width == 0) return;
     for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, i| {
         if (ws.id != id) continue;
@@ -1467,9 +1470,9 @@ test "agents header names its scope and opens the scope menu left of New" {
 
 test "scope menu offers only the current workspace and all agents" {
     const workspaces = [_]WorkspaceEntry{
-        .{ .id = 4, .name = "corgi", .cwd = "/tmp", .active = true, .agents = 3, .working = 2, .attention = 1 },
-        .{ .id = 7, .name = "blog", .cwd = "/tmp", .active = false, .agents = 1 },
-        .{ .id = 9, .name = "notes", .cwd = "/tmp", .active = false },
+        .{ .id = @enumFromInt(4), .name = "corgi", .cwd = "/tmp", .active = true, .agents = 3, .working = 2, .attention = 1 },
+        .{ .id = @enumFromInt(7), .name = "blog", .cwd = "/tmp", .active = false, .agents = 1 },
+        .{ .id = @enumFromInt(9), .name = "notes", .cwd = "/tmp", .active = false },
     };
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(3, 0);
     const b = ScopeMenu.bounds(view, 100, 30);
@@ -1497,10 +1500,10 @@ test "scope menu offers only the current workspace and all agents" {
 
 test "grouped list draws one-row headers with a margin guide and measures rows per entry" {
     const entries = [_]Entry{
-        .{ .target = .{ .group = 1 }, .name = "corgi", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 2, .working = 1, .current = true } },
-        .{ .target = .{ .pane = 1 }, .name = "api refactor", .provider = .codex, .state = .blocked, .attention = .none, .focused = true },
-        .{ .target = .{ .pane = 2 }, .name = "release notes", .provider = .claude, .state = .done, .attention = .none },
-        .{ .target = .{ .group = 2 }, .name = "blog", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 1, .attention = 1, .folded = true } },
+        .{ .target = .{ .group = @enumFromInt(1) }, .name = "corgi", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 2, .working = 1, .current = true } },
+        .{ .target = .{ .pane = @enumFromInt(1) }, .name = "api refactor", .provider = .codex, .state = .blocked, .attention = .none, .focused = true },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .name = "release notes", .provider = .claude, .state = .done, .attention = .none },
+        .{ .target = .{ .group = @enumFromInt(2) }, .name = "blog", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 1, .attention = 1, .folded = true } },
     };
     const view = View.init(100, 30, true, 0, entries.len).withEntries(&entries);
     const top = view.middle() + 2;
@@ -1547,7 +1550,7 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
 
 test "grouped scrolling fits more rows when headers are shorter" {
     var entries: [7]Entry = undefined;
-    for (&entries, 0..) |*e, i| e.* = .{ .target = if (i % 3 == 0) .{ .group = @intCast(i) } else .{ .pane = @intCast(i) }, .provider = .codex, .state = .idle, .attention = .none };
+    for (&entries, 0..) |*e, i| e.* = .{ .target = if (i % 3 == 0) .{ .group = @enumFromInt(i) } else .{ .pane = @enumFromInt(i) }, .provider = .codex, .state = .idle, .attention = .none };
     // 13 rows leave three list rows: a header and an agent, or an agent and a header.
     const view = View.init(100, 13, true, 0, entries.len).withEntries(&entries);
     try std.testing.expectEqual(@as(usize, 2), view.capacity);
@@ -1558,12 +1561,12 @@ test "grouped scrolling fits more rows when headers are shorter" {
 
 test "git badge hit area follows sidebar width and workspace scroll" {
     const entries = [_]WorkspaceEntry{
-        .{ .id = 1, .name = "one", .cwd = "/tmp", .active = false },
-        .{ .id = 2, .name = "two", .cwd = "/tmp", .active = true, .git_ahead = 14 },
-        .{ .id = 3, .name = "three", .cwd = "/tmp", .active = false },
+        .{ .id = @enumFromInt(1), .name = "one", .cwd = "/tmp", .active = false },
+        .{ .id = @enumFromInt(2), .name = "two", .cwd = "/tmp", .active = true, .git_ahead = 14 },
+        .{ .id = @enumFromInt(3), .name = "three", .cwd = "/tmp", .active = false },
     };
     const view = View.init(100, 20, true, 0, 0).withWidth(36).withWorkspaces(3, 1);
-    try std.testing.expectEqual(@as(u32, 2), gitWorkspace(view, &entries, 31, 2).?.id);
+    try std.testing.expectEqual(@as(WorkspaceId, @enumFromInt(2)), gitWorkspace(view, &entries, 31, 2).?.id);
     try std.testing.expect(gitWorkspace(view, &entries, 30, 2) == null);
     try std.testing.expect(gitWorkspace(view, &entries, 34, 2) == null);
     try std.testing.expect(gitWorkspace(view, &entries, 32, 3) == null);
@@ -1602,7 +1605,7 @@ test "content wipes over the old corgi in terminal cells and then clears it" {
     defer output.deinit();
     const host = try @import("terminal.zig").Terminal.create(100, 30);
     defer host.destroy();
-    var entry: Entry = .{ .target = .{ .pane = 10001 }, .name = "Agent", .provider = .codex, .state = .working, .attention = .none };
+    var entry: Entry = .{ .target = .{ .pane = @enumFromInt(10001) }, .name = "Agent", .provider = .codex, .state = .working, .attention = .none };
     const view = View.init(100, 30, true, 0, 1);
     try view.drawAt(&output.writer, &.{entry}, &.{}, 0);
     host.feed(output.written());

@@ -5,7 +5,19 @@ const a = @import("os.zig").allocator;
 pub const max_workspaces = 32;
 
 pub const Workspace = struct {
-    id: u32,
+    pub const Id = enum(u32) {
+        _,
+
+        /// Never assigned. Saved and wire formats use 0 for "no workspace".
+        pub const none: Id = @enumFromInt(0);
+        pub const first: Id = @enumFromInt(1);
+
+        pub fn next(id: Id) Id {
+            return @enumFromInt(@intFromEnum(id) + 1);
+        }
+    };
+
+    id: Id,
     name_buf: [80]u8 = .{0} ** 80,
     name_len: usize = 0,
     cwd: []const u8,
@@ -43,10 +55,10 @@ pub const Workspace = struct {
 };
 pub const Store = struct {
     items: std.ArrayList(Workspace) = .empty,
-    next_id: u32 = 1,
-    next_pane_id: u32 = 1,
-    const SavedWorkspace = struct { id: u32, name: []const u8, cwd: []const u8 };
-    const Saved = struct { version: u32 = 2, active: u32, next_id: u32, workspaces: []const SavedWorkspace };
+    next_id: Workspace.Id = .first,
+    next_pane_id: layout.PaneId = .first,
+    const SavedWorkspace = struct { id: Workspace.Id, name: []const u8, cwd: []const u8 };
+    const Saved = struct { version: u32 = 2, active: Workspace.Id, next_id: Workspace.Id, workspaces: []const SavedWorkspace };
 
     pub fn statePath(socket: []const u8) ![]const u8 {
         const os = @import("os.zig");
@@ -56,7 +68,7 @@ pub const Store = struct {
         if (os.env("XDG_STATE_HOME")) |root| return std.fs.path.join(a, &.{ root, "corgi", "workspaces.json" });
         return std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".local", "state", "corgi", "workspaces.json" });
     }
-    pub fn save(s: *Store, path: []const u8, selected: u32) !void {
+    pub fn save(s: *Store, path: []const u8, selected: Workspace.Id) !void {
         var entries: [max_workspaces]SavedWorkspace = undefined;
         for (s.items.items, 0..) |*w, i| entries[i] = .{ .id = w.id, .name = w.customName(), .cwd = w.cwd };
         const bytes = try std.json.Stringify.valueAlloc(a, Saved{ .active = selected, .next_id = s.next_id, .workspaces = entries[0..s.items.items.len] }, .{ .whitespace = .indent_2 });
@@ -71,7 +83,7 @@ pub const Store = struct {
         try file.sync();
         try std.fs.cwd().rename(temp, path);
     }
-    pub fn load(s: *Store, path: []const u8) !?u32 {
+    pub fn load(s: *Store, path: []const u8) !?Workspace.Id {
         const bytes = std.fs.cwd().readFileAlloc(a, path, 1024 * 1024) catch |err| switch (err) {
             error.FileNotFound => return null,
             else => return err,
@@ -84,7 +96,7 @@ pub const Store = struct {
         var restored: Store = .{};
         errdefer restored.deinit();
         for (saved.workspaces) |w| {
-            if (w.id == 0 or w.id >= saved.next_id or restored.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidWorkspaceState;
+            if (w.id == Workspace.Id.none or @intFromEnum(w.id) >= @intFromEnum(saved.next_id) or restored.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidWorkspaceState;
             const cwd = try a.dupe(u8, w.cwd);
             errdefer a.free(cwd);
             var item: Workspace = .{ .id = w.id, .cwd = cwd };
@@ -101,19 +113,19 @@ pub const Store = struct {
         for (s.items.items) |w| a.free(w.cwd);
         s.items.deinit(a);
     }
-    pub fn index(s: *const Store, id: u32) ?usize {
+    pub fn index(s: *const Store, id: Workspace.Id) ?usize {
         for (s.items.items, 0..) |w, i| if (w.id == id) return i;
         return null;
     }
-    pub fn get(s: *Store, id: u32) ?*Workspace {
+    pub fn get(s: *Store, id: Workspace.Id) ?*Workspace {
         return &s.items.items[s.index(id) orelse return null];
     }
-    pub fn owner(s: *Store, pane: u32) ?*Workspace {
+    pub fn owner(s: *Store, pane: layout.PaneId) ?*Workspace {
         for (s.items.items) |*w| if (w.model.tabForPane(pane) != null) return w;
         return null;
     }
     /// Move before another workspace; before == id moves to the end.
-    pub fn moveBefore(s: *Store, id: u32, before: u32) !void {
+    pub fn moveBefore(s: *Store, id: Workspace.Id, before: Workspace.Id) !void {
         const from = s.index(id) orelse return error.NoWorkspace;
         _ = s.index(before) orelse return error.NoWorkspace;
         const item = s.items.orderedRemove(from);
@@ -128,21 +140,21 @@ pub const Store = struct {
         defer dir.close();
         return dir.realpathAlloc(a, ".");
     }
-    pub fn add(s: *Store, name: []const u8, cwd: []const u8) !u32 {
+    pub fn add(s: *Store, name: []const u8, cwd: []const u8) !Workspace.Id {
         if (s.items.items.len >= max_workspaces) return error.TooManyWorkspaces;
         const path = try directory(cwd);
         errdefer a.free(path);
         var w: Workspace = .{ .id = s.next_id, .cwd = path };
         w.rename(name);
         try s.items.append(a, w);
-        s.next_id += 1;
+        s.next_id = s.next_id.next();
         return w.id;
     }
-    pub fn rename(s: *Store, id: u32, name: []const u8) !void {
+    pub fn rename(s: *Store, id: Workspace.Id, name: []const u8) !void {
         const w = s.get(id) orelse return error.NoWorkspace;
         w.rename(name);
     }
-    pub fn edit(s: *Store, id: u32, name: []const u8, cwd: []const u8) !void {
+    pub fn edit(s: *Store, id: Workspace.Id, name: []const u8, cwd: []const u8) !void {
         const w = s.get(id) orelse return error.NoWorkspace;
         const path = try directory(cwd);
         a.free(w.cwd);

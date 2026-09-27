@@ -7,6 +7,7 @@ const c = os.c;
 const agents = @import("agents.zig");
 const conversations = @import("conversations.zig");
 const providers = @import("providers.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 pub const Event = struct { seq: u64, line: []const u8 };
 pub const PendingRequest = struct { line: []const u8, actor: ?*conversations.Actor };
 pub const Tool = struct {
@@ -20,14 +21,28 @@ pub const Tool = struct {
     }
 };
 pub const Session = struct {
-    id: u32,
+    /// Stable for the daemon's lifetime and across checkpoints. Saved and wire
+    /// formats carry it as a plain number, where 0 means no session.
+    pub const Id = enum(u32) {
+        _,
+
+        /// Never assigned to a session.
+        pub const none: Id = @enumFromInt(0);
+        pub const first: Id = @enumFromInt(1);
+
+        pub fn next(id: Id) Id {
+            return @enumFromInt(@intFromEnum(id) + 1);
+        }
+    };
+
+    id: Id,
     provider: agents.Provider,
     cwd: []const u8,
     child: std.process.Child,
     ready: bool = false,
     imported: bool = false,
     resume_hint: @import("checkpoint.zig").Resume = .{},
-    workspace_id: u32 = 0,
+    workspace_id: WorkspaceId = .none,
     exited: bool = false,
     attachment: conversations.Attachment = .{},
     members: std.ArrayList(*conversations.Actor) = .empty,
@@ -130,12 +145,12 @@ pub const Session = struct {
         executable: ?[]const u8 = null,
         inference: bool = false,
     };
-    pub fn start(id: u32, provider: agents.Provider, cwd: []const u8) !Session {
+    pub fn start(id: Id, provider: agents.Provider, cwd: []const u8) !Session {
         return startWithOptions(id, provider, cwd, .{});
     }
     /// The inference worker uses the same native transport with a private
     /// conversation registry and an explicitly restricted harness invocation.
-    pub fn startWithOptions(id: u32, provider: agents.Provider, cwd: []const u8, options: Options) !Session {
+    pub fn startWithOptions(id: Id, provider: agents.Provider, cwd: []const u8, options: Options) !Session {
         const directory = try std.fs.cwd().realpathAlloc(a, cwd);
         errdefer a.free(directory);
         var argv: std.ArrayList([]const u8) = .empty;
@@ -435,7 +450,7 @@ pub const Session = struct {
             }
             try s.remember(owner);
             owner.observed_at = std.time.microTimestamp();
-            if (owner.workspace == 0) owner.workspace = s.workspace_id;
+            if (owner.workspace == WorkspaceId.none) owner.workspace = s.workspace_id;
             if (s.attachment.actor == null) {
                 if (owner.state.state == .unknown) {
                     const session = owner.state.session;
@@ -558,7 +573,7 @@ fn eq(x: []const u8, y: []const u8) bool {
 
 fn testSession(provider: agents.Provider) !Session {
     return .{
-        .id = 1,
+        .id = @enumFromInt(1),
         .provider = provider,
         .cwd = try a.dupe(u8, "/tmp"),
         .child = std.process.Child.init(&.{}, a),

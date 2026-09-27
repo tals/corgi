@@ -1,9 +1,13 @@
 //! Versioned runtime data. No viewer focus, menus, or screen coordinates belong
 //! in a session snapshot. Clients keep selection by the stable IDs below.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const layout = @import("layout.zig");
 const runtime = @import("runtime.zig");
 const agents = @import("agents.zig");
+const native = @import("native.zig");
+const NativeId = native.Session.Id;
 
 pub const version: u32 = 1;
 pub const capabilities = [_][]const u8{
@@ -34,6 +38,10 @@ pub fn require(v: std.json.Value, negotiated: ?u32) !void {
     if (selected != version) return error.UnsupportedProtocol;
 }
 
+/// A nonzero wire id as one of the typed ids (`Actor.Id`, `Workspace.Id`, ...).
+pub fn typedId(comptime T: type, v: std.json.Value, field: []const u8) !T {
+    return @enumFromInt(try id(v, field));
+}
 pub fn id(v: std.json.Value, field: []const u8) !u32 {
     const value = v.object.get(field) orelse return error.MissingTarget;
     if (value != .integer) return error.InvalidTarget;
@@ -44,7 +52,7 @@ pub fn id(v: std.json.Value, field: []const u8) !u32 {
 
 pub const GitCommit = struct { timestamp: i64 = 0, hash: []const u8, subject: []const u8, author: []const u8, date: []const u8 };
 pub const Workspace = struct {
-    id: u32,
+    id: WorkspaceId,
     name: []const u8,
     custom_name: []const u8,
     cwd: []const u8,
@@ -57,7 +65,7 @@ pub const Workspace = struct {
     stats: @import("usage.zig").Counts = .{},
 };
 pub const Agent = struct {
-    conversation: u32 = 0,
+    conversation: ActorId = .none,
     subagents: agents.Subagents = .{},
     name: []const u8 = "",
     observation: agents.observation.State = .{},
@@ -80,9 +88,9 @@ pub const Agent = struct {
 pub const Pane = struct {
     binding: u64 = 0,
     name: []const u8 = "",
-    id: u32,
-    workspace: u32,
-    tab: u32,
+    id: layout.PaneId,
+    workspace: WorkspaceId,
+    tab: layout.TabId,
     cwd: []const u8,
     pid: i32,
     cols: u16,
@@ -93,8 +101,8 @@ pub const Pane = struct {
 pub const Native = struct {
     agent: ?Agent = null,
     observation: agents.observation.State = .{},
-    id: u32,
-    workspace: u32,
+    id: NativeId,
+    workspace: WorkspaceId,
     provider: agents.Provider,
     cwd: []const u8,
     ready: bool,
@@ -108,11 +116,11 @@ pub const Conversation = struct {
     pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: @import("live_usage.zig").View };
     pub const Timeline = struct { points: []const ActivityPoint = &.{}, pending: @import("live_usage.zig").View = .{} };
     background_tasks: @import("background_tasks.zig").View = .{},
-    id: u32,
+    id: ActorId,
     timeline: Timeline = .{},
     model: []const u8 = "",
-    parent: ?u32 = null,
-    workspace: u32 = 0,
+    parent: ?ActorId = null,
+    workspace: WorkspaceId = .none,
     observed_at: i64 = 0,
     attachments: u32 = 0,
     role: []const u8 = "",
@@ -144,7 +152,7 @@ pub const Snapshot = struct {
     closed_panes: usize,
 };
 
-fn agentView(state: *const agents.Agent, conversation: u32) Agent {
+fn agentView(state: *const agents.Agent, conversation: ActorId) Agent {
     return .{
         .conversation = conversation,
         .subagents = state.subagents,
@@ -189,12 +197,12 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .cols = p.terminal.vt.cols,
             .rows = p.terminal.vt.rows,
             .exited = p.terminal.exited,
-            .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else 0),
+            .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else .none),
         };
     }
     const sessions = try allocator.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*session, *out| out.* = .{
-        .agent = agentView(session.attachment.agent(), if (session.attachment.actor) |actor| actor.id else 0),
+        .agent = agentView(session.attachment.agent(), if (session.attachment.actor) |actor| actor.id else .none),
         .id = session.id,
         .workspace = session.workspace_id,
         .provider = session.provider,

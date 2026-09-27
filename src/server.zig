@@ -1,13 +1,16 @@
 //! Daemon resource ownership, socket dispatch and background observation.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
 const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
 const agents = @import("agents.zig");
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const runtime = @import("runtime.zig");
 const native = @import("native.zig");
+const NativeId = native.Session.Id;
 const protocol = @import("protocol.zig");
 const Theme = @import("theme.zig").Theme;
 const Client = @import("peer.zig").Client;
@@ -19,7 +22,7 @@ pub const Server = struct {
     onboarding_copy: @import("onboarding_import.zig").Job = .{},
     herdr_import: @import("herdr_adapter.zig").Manager = .{},
     handoff_operation: u64 = 0,
-    import_starter: ?struct { id: u32, revision: u64 } = null,
+    import_starter: ?struct { id: WorkspaceId, revision: u64 } = null,
     summaries: ?*@import("activity_worker.zig").Worker = null,
     /// Polling workers a `test.settle` waits for; set while the daemon runs.
     workers: ?struct {
@@ -30,7 +33,7 @@ pub const Server = struct {
     /// Test builds: clients waiting for every worker to finish a later pass
     /// and for the daemon to apply its results.
     settles: std.ArrayList(struct { fd: c_int, targets: [3]u64, collected: bool = false }) = .empty,
-    preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
+    preferred_workspace: WorkspaceId = .none, // Startup hint only; commands never use it.
     default_folder_pending: bool = true,
     clients: std.ArrayList(Client) = .empty,
     socket: []const u8,
@@ -80,7 +83,7 @@ pub const Server = struct {
         const ws = &s.runtime.workspaces.items.items[0];
         if (ws.model.count == 0 and ws.name_len == 0) s.import_starter = .{ .id = ws.id, .revision = ws.model.revision };
     }
-    fn finishImport(s: *Server, destination: ?u32) void {
+    fn finishImport(s: *Server, destination: ?WorkspaceId) void {
         const starter = s.import_starter orelse return;
         s.import_starter = null;
         const target = destination orelse return;
@@ -109,7 +112,7 @@ pub const Server = struct {
     }
     fn codexActor(s: *Server, snap: @import("codex_observer.zig").Snapshot) !?*@import("conversations.zig").Actor {
         const codex_observer = @import("codex_observer.zig");
-        return if (snap.request.actor != 0)
+        return if (snap.request.actor != ActorId.none)
             s.runtime.conversations.byId(snap.request.actor) orelse return null
         else blk: {
             const p = s.pane(snap.request.pane) orelse return null;
@@ -119,13 +122,13 @@ pub const Server = struct {
                 p.attachment.generation != snap.request.generation or !eq(prefix.text(), snap.request.prefix.text())) return null;
             const selected = try s.runtime.conversations.get(.codex, &snap.session);
             p.attachment.select(selected);
-            if (selected.workspace == 0 or s.runtime.workspaces.index(selected.workspace) == null) {
+            if (selected.workspace == WorkspaceId.none or s.runtime.workspaces.index(selected.workspace) == null) {
                 if (s.runtime.workspaces.owner(p.id)) |ws| selected.workspace = ws.id;
             }
             break :blk selected;
         };
     }
-    fn pane(s: *Server, id: layout.Id) ?*Pane {
+    fn pane(s: *Server, id: layout.PaneId) ?*Pane {
         return s.runtime.pane(id);
     }
     pub fn notice(_: *Server, msg: []const u8) void {
@@ -137,7 +140,7 @@ pub const Server = struct {
         const before = s.runtime.revision;
         const result = try @import("session.zig").execute(&s.runtime, .{ .socket = s.socket, .executable = s.executable, .theme = s.theme }, command, allocator);
         if (s.runtime.revision != before) {
-            if (result.pane != 0) s.default_folder_pending = false;
+            if (result.pane != layout.PaneId.none) s.default_folder_pending = false;
             s.dirty = true;
             s.followWorkspaceDirectories();
             s.saveWorkspaces();
@@ -145,23 +148,23 @@ pub const Server = struct {
         }
         return result;
     }
-    pub fn close(s: *Server, id: layout.Id) !void {
+    pub fn close(s: *Server, id: layout.PaneId) !void {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
         _ = try s.execute(.{ .@"pane.close" = .{ .target = id } }, arena.allocator());
     }
-    pub fn visitWorkspace(s: *Server, id: u32) void {
+    pub fn visitWorkspace(s: *Server, id: WorkspaceId) void {
         const index = s.runtime.workspaces.index(id) orelse return;
         if (s.runtime.workspaces.items.items[index].away.visit(std.time.milliTimestamp())) {
             s.runtime.changed();
             s.dirty = true;
         }
     }
-    fn workspaceWatched(s: *Server, id: u32) bool {
+    fn workspaceWatched(s: *Server, id: WorkspaceId) bool {
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
         return false;
     }
-    fn paneWatched(s: *Server, id: u32) bool {
+    fn paneWatched(s: *Server, id: layout.PaneId) bool {
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
         return false;
     }
@@ -217,7 +220,7 @@ pub const Server = struct {
             const snapshot = try protocol.snapshot(arena.allocator(), &s.runtime);
             try cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
         } else if (eq(op, "conversation.acknowledge")) {
-            const actor = s.runtime.conversations.byId(try protocol.id(v, "conversation")) orelse return error.NoConversation;
+            const actor = s.runtime.conversations.byId(try protocol.typedId(ActorId, v, "conversation")) orelse return error.NoConversation;
             const through = v.object.get("through") orelse return error.InvalidAcknowledgement;
             if (through != .integer or through.integer < 0) return error.InvalidAcknowledgement;
             const stamp = v.object.get("attention_at");
@@ -226,7 +229,7 @@ pub const Server = struct {
             s.dirty = true;
             try cl.queue(.{ .ok = true });
         } else if (eq(op, "pane.surface")) {
-            const id = try protocol.id(v, "pane");
+            const id = try protocol.typedId(layout.PaneId, v, "pane");
             const p = s.pane(id) orelse return error.NoPane;
             var arena = std.heap.ArenaAllocator.init(a);
             defer arena.deinit();
@@ -242,7 +245,7 @@ pub const Server = struct {
         if (eq(operation, "git.push")) {
             try protocol.require(v, cl.protocol_version);
             if (s.reload_executable != null) return error.ReloadInProgress;
-            const Request = struct { workspace: u32, ref: @import("git_push.zig").RefView };
+            const Request = struct { workspace: WorkspaceId, ref: @import("git_push.zig").RefView };
             const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
             defer parsed.deinit();
             try s.runtime.git_push.start(&s.runtime.workspaces, parsed.value.workspace, parsed.value.ref);
@@ -304,7 +307,7 @@ pub const Server = struct {
         }
         if (eq(operation, "agent.command.preview")) {
             try protocol.require(v, cl.protocol_version);
-            const ws = try s.runtime.getWorkspace(try protocol.id(v, "workspace"));
+            const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
             const requested = agents.str(v, "cwd");
             const cwd = if (requested.len > 0) requested else ws.cwd;
             if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
@@ -317,7 +320,7 @@ pub const Server = struct {
             try protocol.require(v, cl.protocol_version);
             const subscribe = eq(operation, "agent.subscribe");
             if (subscribe and (cl.viewer or cl.subscribed)) return error.AlreadyAttached;
-            const ws = try s.runtime.getWorkspace(try protocol.id(v, "workspace"));
+            const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
             const requested = agents.str(v, "cwd");
             const cwd = if (requested.len > 0) requested else ws.cwd;
             if (!std.fs.path.isAbsolute(cwd) or cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
@@ -357,7 +360,7 @@ pub const Server = struct {
         if (try @import("viewer_protocol.zig").routeControl(s, cl, v)) return;
         if (eq(operation, "session.locate")) {
             try protocol.require(v, cl.protocol_version);
-            try cl.queue(.{ .ok = true, .result = try @import("session.zig").location(&s.runtime, try protocol.id(v, "pane")) });
+            try cl.queue(.{ .ok = true, .result = try @import("session.zig").location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
             return;
         }
         if (eq(operation, "session.list")) {
@@ -374,21 +377,21 @@ pub const Server = struct {
             const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
             const cwd = agents.str(v, "cwd");
             try s.runtime.sessions.ensureUnusedCapacity(a, 1);
-            const ws = if (v.object.get("workspace") != null) try s.runtime.getWorkspace(try protocol.id(v, "workspace")) else try s.onlyWorkspace();
+            const ws = if (v.object.get("workspace") != null) try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace")) else try s.onlyWorkspace();
             var session = try native.Session.start(s.runtime.next_session, provider, if (cwd.len > 0) cwd else ws.cwd);
             session.workspace_id = ws.id;
             s.runtime.sessions.appendAssumeCapacity(session);
-            s.runtime.next_session += 1;
+            s.runtime.next_session = s.runtime.next_session.next();
             s.dirty = true;
             try cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
         } else if (eq(op, "native.list")) {
-            const Info = struct { id: u32, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
+            const Info = struct { id: NativeId, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
             var info: std.ArrayList(Info) = .empty;
             defer info.deinit(a);
             for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.status(), .attention = session.attention(), .observation = session.observation(), .unread = session.observation().unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
             try cl.queue(.{ .ok = true, .sessions = info.items });
         } else if (std.mem.startsWith(u8, op, "native.")) {
-            const id = std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession;
+            const id: NativeId = @enumFromInt(std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession);
             for (s.runtime.sessions.items, 0..) |*session, index| if (session.id == id) {
                 s.dirty = true;
                 if (eq(op, "native.stop")) {
@@ -436,7 +439,7 @@ pub const Server = struct {
                 try cl.queue(.{ .ok = true });
                 return;
             }
-            const p = s.pane(try protocol.id(v, "pane")) orelse return error.NoPane;
+            const p = s.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
             // Bind a newly launched foreground process before applying its
             // first hook, including back-to-back launches in the same pane.
             s.detectPane(p);
@@ -444,7 +447,7 @@ pub const Server = struct {
             if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, provider, hook.?)) |actor| {
                 p.attachment.hook_seq = seq;
                 if (hook.?.kind == .session_start) s.runtime.last_agent = provider;
-                if (actor.workspace == 0 or s.runtime.workspaces.index(actor.workspace) == null) {
+                if (actor.workspace == WorkspaceId.none or s.runtime.workspaces.index(actor.workspace) == null) {
                     if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
                 }
                 const now = std.time.microTimestamp();
@@ -490,7 +493,7 @@ pub const Server = struct {
         for (s.runtime.panes.items) |*p| {
             if (p.attachment.actor != old) continue;
             const next = s.runtime.conversations.get(.claude, session) catch return;
-            if (next.workspace == 0) next.workspace = old.workspace;
+            if (next.workspace == WorkspaceId.none) next.workspace = old.workspace;
             if (next.state.last_seq == 0) {
                 // The continuation is usually mid-turn; hooks refine it later.
                 next.state.state = if (old.state.state == .done) .idle else old.state.state;
@@ -512,7 +515,7 @@ pub const Server = struct {
         s.runtime.changed();
         s.dirty = true;
     }
-    fn actorWatched(s: *Server, actor: u32) bool {
+    fn actorWatched(s: *Server, actor: ActorId) bool {
         for (s.runtime.panes.items) |p| if (p.attachment.actor) |selected| {
             if (selected.id == actor and !p.terminal.exited and s.paneWatched(p.id)) return true;
         };
@@ -557,7 +560,7 @@ pub const Server = struct {
         }
         if (found) |actor| {
             p.attachment.select(actor);
-            if (actor.workspace == 0 or s.runtime.workspaces.index(actor.workspace) == null) {
+            if (actor.workspace == WorkspaceId.none or s.runtime.workspaces.index(actor.workspace) == null) {
                 if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
             }
         }
@@ -693,7 +696,7 @@ pub const Server = struct {
         } else if (try @import("recovery.zig").load(&s.runtime, s.socket, s.executable)) {
             var preferences: workspace.Store = .{};
             defer preferences.deinit();
-            s.preferred_workspace = (preferences.load(state_path) catch null) orelse 0;
+            s.preferred_workspace = (preferences.load(state_path) catch null) orelse .none;
             s.default_folder_pending = false;
         } else if (try s.runtime.workspaces.load(state_path)) |selected| {
             s.preferred_workspace = selected;
@@ -721,7 +724,7 @@ pub const Server = struct {
         }
         while (!s.quit) {
             const handed_off = s.herdr_import.tick(&s.runtime);
-            const copied = s.onboarding_copy.tick(&s.runtime, .{ .workspace = 0, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
+            const copied = s.onboarding_copy.tick(&s.runtime, .{ .workspace = .none, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
             if (handed_off) s.finishImport(s.herdr_import.status().workspace);
             if (copied and eq(s.onboarding_copy.progress.phase, "complete")) s.finishImport(s.onboarding_copy.progress.workspace);
             if (handed_off or copied) {
@@ -891,7 +894,7 @@ pub const Server = struct {
                     s.bell = true;
                     if (s.bell_kind != .needs_input) s.bell_kind = session.attention();
                     var msg: [160]u8 = undefined;
-                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{ @tagName(session.provider), session.id, @tagName(session.status()), session.id }));
+                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{ @tagName(session.provider), @intFromEnum(session.id), @tagName(session.status()), @intFromEnum(session.id) }));
                 }
             }
             // Reap closed panes too, forwarding Git exits to its worker.
@@ -1058,9 +1061,9 @@ test "Codex selection rejects delayed ABA observations while detached actors rem
     const terminal = try @import("terminal.zig").Terminal.create(40, 4);
     terminal.feed("\x1b]2;" ++ id ++ "\x07");
     terminal.title_pid = 42;
-    try s.runtime.panes.append(a, .{ .id = 1, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .detection = .{ .pid = 42 } });
+    try s.runtime.panes.append(a, .{ .id = @enumFromInt(1), .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .detection = .{ .pid = 42 } });
     const p = &s.runtime.panes.items[0];
-    var snap: observer.Snapshot = .{ .request = .{ .pane = 1, .pid = 42, .prefix = observer.titlePrefix(id).?, .generation = p.attachment.generation, .title_revision = terminal.title_revision }, .session = id.*, .state = .working, .observed_at = 100 };
+    var snap: observer.Snapshot = .{ .request = .{ .pane = @enumFromInt(1), .pid = 42, .prefix = observer.titlePrefix(id).?, .generation = p.attachment.generation, .title_revision = terminal.title_revision }, .session = id.*, .state = .working, .observed_at = 100 };
     const actor = (try s.codexActor(snap)).?;
     snap.request.generation = p.attachment.generation;
     // CLI redraws may repeat or decorate the same conversation title while an
@@ -1088,7 +1091,7 @@ test "local Codex reattachment requires current unambiguous identity and preserv
     var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
     defer s.runtime.deinit();
     const terminal = try @import("terminal.zig").Terminal.create(40, 4);
-    try s.runtime.panes.append(a, .{ .id = 1, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp") });
+    try s.runtime.panes.append(a, .{ .id = @enumFromInt(1), .terminal = terminal, .cwd = try a.dupe(u8, "/tmp") });
     const p = &s.runtime.panes.items[0];
     const actor = try s.runtime.conversations.get(.codex, id);
     actor.state.setName("App server name");

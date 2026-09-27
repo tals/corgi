@@ -6,6 +6,7 @@ const c = os.c;
 const a = os.allocator;
 const agents = @import("agents.zig");
 const layout = @import("layout.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const protocol = @import("protocol.zig");
 const viewer_version = @import("viewer_version.zig");
 const surface = @import("surface.zig");
@@ -36,7 +37,7 @@ fn openMode(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, soc
     if (start_onboarding) view.openOnboarding();
     const opened = try view.connection.callViewer(.{ .op = "viewer.open", .protocol = 1, .viewer_protocol = viewer_version.version, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
     defer opened.deinit();
-    view.navigation.workspace_id = try protocol.id(opened.value, "workspace");
+    view.navigation.workspace_id = try protocol.typedId(WorkspaceId, opened.value, "workspace");
     view.input_state.attached = true;
     try view.refresh();
     view.launch_previews.socket = socket;
@@ -68,7 +69,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset, .known = p.terminal.known };
         count += 1;
     }
-    const response = try view.connection.callViewer(.{ .op = "viewer.sync", .protocol = 1, .viewer_protocol = viewer_version.version, .session_hash = view.runtime.snapshot_hash, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?u32, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
+    const response = try view.connection.callViewer(.{ .op = "viewer.sync", .protocol = 1, .viewer_protocol = viewer_version.version, .session_hash = view.runtime.snapshot_hash, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
     view.input_state.active = false;
     defer response.deinit();
     const parsed = try std.json.parseFromValue(Response, a, response.value, .{ .ignore_unknown_fields = true });
@@ -84,8 +85,8 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
             return false;
         }
         switch (control.kind) {
-            .focus => view.focusPane(control.id) catch |err| view.notice(@errorName(err)),
-            .workspace => view.switchWorkspace(control.id) catch |err| view.notice(@errorName(err)),
+            .focus => view.focusPane(@enumFromInt(control.id)) catch |err| view.notice(@errorName(err)),
+            .workspace => view.switchWorkspace(@enumFromInt(control.id)) catch |err| view.notice(@errorName(err)),
             .action => view.action(control.name, control.value) catch |err| view.notice(@errorName(err)),
         }
         view.input_state.last_control = control.seq;

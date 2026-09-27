@@ -56,6 +56,7 @@ fn parseCommits(raw: []const u8) Commits {
     return result;
 }
 const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 
 // The server's general reaper may collect a Git child before its worker does.
 pub var child_mutex: std.Thread.Mutex = .{};
@@ -72,7 +73,7 @@ pub const Tracker = struct {
     next_refresh: i64 = 0,
     jobs: std.ArrayList(Job) = .empty,
     cache: std.StringHashMapUnmanaged(Cache) = .empty,
-    const Job = struct { id: u32, cwd: []const u8, ahead: ?u64 = null, commits: Commits = .{}, ref: PushRef = .{} };
+    const Job = struct { id: WorkspaceId, cwd: []const u8, ahead: ?u64 = null, commits: Commits = .{}, ref: PushRef = .{} };
     const Cache = struct { refs: []const u8, ahead: ?u64, seen: i64, commits: Commits = .{}, ref: PushRef = .{} };
 
     pub fn deinit(t: *Tracker) void {

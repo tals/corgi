@@ -4,6 +4,7 @@ const agents = @import("agents.zig");
 const commands = @import("commands.zig");
 const naming = @import("name_dialog.zig");
 const sidebar = @import("sidebar.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const a = @import("os.zig").allocator;
 pub const Pane = @import("mirror.zig").Pane;
 pub const Buffer = std.Io.Writer.Allocating;
@@ -14,7 +15,7 @@ pub const Ui = struct {
     pointer: ?Pointer = null,
     iterm2_pointer: bool = false,
     link_tooltip: bool = false,
-    git_hover: ?u32 = null,
+    git_hover: ?WorkspaceId = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
     corgi_setup: ?@import("corgi_setup.zig").Menu = null,
     inference: @import("inference_setup.zig").Status = .{},
@@ -476,7 +477,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Since Corgi started") == null);
     try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Usage not reported yet") != null);
     ui.link_tooltip = false;
-    ui.agent_launcher = .{ .workspace = 1, .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    ui.agent_launcher = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     const popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(popup);
     try std.testing.expect(std.mem.indexOf(u8, popup, "New agent") != null);

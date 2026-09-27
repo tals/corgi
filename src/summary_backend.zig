@@ -1,11 +1,13 @@
 //! Activity-summary task over the shared persistent inference module.
 const std = @import("std");
+const ActorId = @import("conversations.zig").Actor.Id;
+const layout = @import("layout.zig");
 const inference = @import("inference.zig");
 pub const contract = @import("activity_prompt.zig");
 const setup = @import("inference_setup.zig");
 const a = @import("os.zig").allocator;
 pub const Input = contract.Input;
-pub const Source = struct { actor: u32, panes: []const u32, agent_name: []const u8, session: []const u8 };
+pub const Source = struct { actor: ActorId, panes: []const layout.PaneId, agent_name: []const u8, session: []const u8 };
 
 // JSON encoding preserves exact strings while keeping terminal escapes and
 // embedded newlines from masquerading as additional log records.
