@@ -663,30 +663,30 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
           readFileSync(path, "utf8").trim() === `${rows} ${cols}`,
       );
     };
-    await checkSize(80, 22);
+    await checkSize(80, 23);
     const [other, reader] = await this.viewer(60, 18);
     await this.viewer_frame(reader, " + ", 60, 18);
-    await checkSize(60, 16);
+    await checkSize(60, 17);
     await this.input("printf 'FIRST_VIEWER\\n'\r");
     await this.viewer_frame(reader, "FIRST_VIEWER", 60, 18);
-    await checkSize(80, 22);
+    await checkSize(80, 23);
     await other.request({ op: "input", data: "printf 'SECOND_VIEWER\\n'\r" });
     await this.frame_with("SECOND_VIEWER");
-    await checkSize(60, 16);
+    await checkSize(60, 17);
     await this.write({ op: "size", cols: 100, rows: 30 });
-    await checkSize(100, 28);
+    await checkSize(100, 29);
     await other.request({ op: "input", data: "\x02q" });
     this.assertTrue(other.state.detached);
     await other.close();
-    await checkSize(100, 28);
+    await checkSize(100, 29);
     await this.input("printf 'STILL_CONNECTED\\n'\r");
     await this.frame_with("STILL_CONNECTED", 100, 30);
     const [third, thirdReader] = await this.viewer(50, 12);
     await this.viewer_frame(thirdReader, " + ", 50, 12);
-    await checkSize(50, 10);
+    await checkSize(50, 11);
     await thirdReader.close();
     await third.close();
-    await checkSize(100, 28);
+    await checkSize(100, 29);
   }
   async test_new_viewer_has_independent_dialog_and_paste() {
     await this.attach();
@@ -1002,7 +1002,8 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
   async test_wheel_and_right_drag_do_not_open_commands() {
     await this.attach();
     const screen = await this.frame_with(" + ");
-    this.assertEqual(screen.at(-1)!.trim(), "");
+    // The last row belongs to the sidebar and panes; no status text sits there.
+    this.assertEqual(screen.at(-1)!.replace("│", "").trim(), "");
     for (const modifiers of [0, 4, 8, 16, 28])
       for (const button of [64, 65, 66, 67, 34]) {
         await this.input(`\x1b[<${button | modifiers};40;10M`);

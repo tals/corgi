@@ -179,7 +179,7 @@ pub const View = struct {
         try w.print("\x1b[0m\x1b[{d};{d}H\x1b[?25h", .{ v.middle() + 2, 4 + search.cursor - v.searchOffset() });
     }
     pub fn area(v: View) layout.Rect {
-        return .{ .x = v.width, .y = 1, .w = v.cols - v.width, .h = v.rows -| 2 };
+        return .{ .x = v.width, .y = 1, .w = v.cols - v.width, .h = v.rows -| 1 };
     }
     pub fn tabX(v: View) u16 {
         return if (v.width > 0) v.width else if (v.cols >= 64) 3 else 0;
@@ -265,7 +265,7 @@ pub const View = struct {
             if (v.cols >= 64) try w.writeAll("\x1b[1;1H\x1b[1;38;2;161;194;178m > \x1b[0m");
             return;
         }
-        for (0..v.rows - 1) |row| {
+        for (0..v.rows) |row| {
             try w.print("\x1b[{d};1H{s}", .{ row + 1, panel });
             try w.splatByteAll(' ', v.width - 1);
             try w.writeAll("\x1b[38;2;55;61;70m│");

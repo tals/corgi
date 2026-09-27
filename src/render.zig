@@ -112,6 +112,21 @@ pub fn tabDrop(view: layout.View, width: u16, x: u16) ?TabDrop {
     }
     return last;
 }
+/// Draw one row of text over the window's bottom-left corner, like a browser's
+/// link preview. Panes keep the row otherwise. It moves to the bottom-right
+/// corner when the pointer is where it would go.
+fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointer: ?Pointer) !void {
+    const text = std.mem.trimLeft(u8, raw, " ");
+    if (width < 4 or height == 0 or text.len == 0 or !std.unicode.utf8ValidateSlice(text)) return;
+    var buffer: [2048]u8 = undefined;
+    var clipped = std.Io.Writer.fixed(&buffer);
+    sidebar.writeEllipsis(&clipped, text, width - 2) catch {};
+    const body = clipped.buffered();
+    const chip_width = sidebar.displayWidth(body) + 2;
+    const covered = if (pointer) |p| p.y == height - 1 and p.x < chip_width else false;
+    const x = if (covered) width - chip_width else 0;
+    try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\\x1b[0;38;2;201;208;214;48;2;48;53;61m {s} \x1b[0m", .{ height, x + 1, body });
+}
 pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui) ![]u8 {
     const model = view.model;
     var out: Buffer = .init(a);
@@ -234,18 +249,16 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         for (0..side.width -| 1) |_| try w.writeAll("─");
         try w.writeAll("\x1b[0m");
     }
-    try w.print("\x1b[{d};1H\x1b[0;38;2;125;132;143m", .{height});
-    var status: [512]u8 = undefined;
     if (ui.confirm) {
+        var status: [512]u8 = undefined;
         const text = try std.fmt.bufPrint(&status, " [ Close ]  [ Cancel ] {s}", .{ui.message});
+        try w.print("\x1b[{d};1H\x1b[0;38;2;125;132;143m", .{height});
         try w.writeAll(text[0..@min(text.len, width)]);
-    } else if (hovered_uri) |uri| {
-        try sidebar.writeClipped(w, uri, width);
+        try w.writeAll("\x1b[0m");
     } else {
-        const text = if (ui.message.len > 0) ui.message else if (ui.copy_mode) " SCROLL  j/k move  y copy viewport  q exit" else "";
-        try w.writeAll(text[0..@min(text.len, width)]);
+        const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
+        try writeChip(w, text, width, height, ui.pointer);
     }
-    try w.writeAll("\x1b[0m");
     if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {

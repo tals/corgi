@@ -869,14 +869,14 @@ class ViewerScenarios extends Viewers {
     await b.focus(second);
     await a.poll();
     let sizes = await this.geometry();
-    this.assertEqual(sizes[first], [92, 38]);
-    this.assertEqual(sizes[second], [60, 18]);
+    this.assertEqual(sizes[first], [92, 39]);
+    this.assertEqual(sizes[second], [60, 19]);
     await b.focus(first);
     await a.poll();
-    this.assertEqual((await this.geometry())[first], [60, 18]);
+    this.assertEqual((await this.geometry())[first], [60, 19]);
     await b.close();
     await a.poll();
-    this.assertEqual((await this.geometry())[first], [92, 38]);
+    this.assertEqual((await this.geometry())[first], [92, 39]);
   }
 
   async test_scroll_and_copy_are_private_and_preserve_live_screen() {
