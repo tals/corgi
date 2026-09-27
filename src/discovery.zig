@@ -8,6 +8,12 @@ const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
 const Provider = @import("agents.zig").Provider;
+/// Integration tests move system install locations under a fixture directory,
+/// so what happens to be installed on the machine cannot satisfy discovery.
+fn systemRoot() []const u8 {
+    if (!@import("corgi_options").test_build) return "";
+    return os.env("CORGI_TEST_SYSTEM_ROOT") orelse "";
+}
 
 /// The caller owns the result. Explicit overrides preserve execvp semantics.
 pub fn resolve(provider: Provider, cwd: ?[]const u8) ![]const u8 {
@@ -43,11 +49,16 @@ pub fn resolve(provider: Provider, cwd: ?[]const u8) ![]const u8 {
             if (try finder.applications(apps)) |found| return found;
         }
     }
-    for (info.system_paths) |candidate| {
+    const root = systemRoot();
+    for (info.system_paths) |system| {
+        const candidate = try std.fmt.allocPrint(a, "{s}{s}", .{ root, system });
+        defer a.free(candidate);
         if (try finder.candidate(candidate)) |found| return found;
     }
     if (builtin.os.tag == .macos and info.app_bundles.len > 0) {
-        if (try finder.applications("/Applications")) |found| return found;
+        const apps = try std.fmt.allocPrint(a, "{s}/Applications", .{root});
+        defer a.free(apps);
+        if (try finder.applications(apps)) |found| return found;
     }
     return error.ProviderNotFound;
 }
@@ -209,9 +220,13 @@ pub fn installed(provider: Provider) bool {
             if (executable(path, self_real)) return true;
         }
     }
-    for (info.system_paths) |path| if (executable(path, self_real)) return true;
+    const root = systemRoot();
+    for (info.system_paths) |system| {
+        const path = std.fmt.bufPrint(&buf, "{s}{s}", .{ root, system }) catch continue;
+        if (executable(path, self_real)) return true;
+    }
     for (info.app_bundles) |bundle| {
-        const path = std.fmt.bufPrint(&buf, "/Applications/{s}/Contents/Resources/{s}", .{ bundle, name }) catch continue;
+        const path = std.fmt.bufPrint(&buf, "{s}/Applications/{s}/Contents/Resources/{s}", .{ root, bundle, name }) catch continue;
         if (executable(path, self_real)) return true;
     }
     return false;

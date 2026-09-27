@@ -155,7 +155,18 @@ fn run() !void {
     }
     if (eq(cmd, "attach")) return @import("client.zig").attach(path);
     if (eq(cmd, "start")) return;
-    if (eq(cmd, "ping") or eq(cmd, "shutdown")) return request(path, .{ .op = cmd });
+    if (eq(cmd, "ping")) return request(path, .{ .op = cmd });
+    if (eq(cmd, "shutdown")) {
+        try request(path, .{ .op = cmd });
+        // The daemon stops listening before its slower teardown. Waiting for
+        // that lets an immediate start get a fresh daemon, not the exiting one.
+        for (0..500) |_| {
+            const fd = os.connect(path) catch return;
+            _ = c.close(fd);
+            std.Thread.sleep(10 * std.time.ns_per_ms);
+        }
+        return error.ShutdownTimedOut;
+    }
     if (eq(cmd, "action")) {
         if (args.len < 3) return error.Usage;
         return request(path, .{ .op = "action", .name = args[2], .value = if (args.len > 3) args[3] else "" });

@@ -27,7 +27,10 @@ pub fn build(b: *std.Build) void {
         mod.linkFramework("CoreFoundation", .{});
     }
     const options = b.addOptions();
-    options.addOption(bool, "viewer_test_driver", b.option(bool, "viewer-test-driver", "Enable stdio viewer integration harness") orelse false);
+    const viewer_test_driver = b.option(bool, "viewer-test-driver", "Enable stdio viewer integration harness") orelse false;
+    options.addOption(bool, "viewer_test_driver", viewer_test_driver);
+    // The integration-test binary already builds with the viewer harness.
+    options.addOption(bool, "test_build", b.option(bool, "test-build", "Enable integration-test hooks (default: -Dviewer-test-driver)") orelse viewer_test_driver);
     const package = @import("build.zig.zon");
     options.addOption(u64, "terminal_checkpoint_abi", std.hash.Wyhash.hash(0, package.dependencies.ghostty.hash));
     options.addOption([]const u8, "release_version", b.option([]const u8, "release-version", "Release version") orelse "0.1.0-dev");

@@ -637,10 +637,7 @@ pub const Server = struct {
         defer codex.stop();
         _ = c.signal(c.SIGPIPE, os.sig_ignore);
         const fd = s.inherited_listener orelse try os.listen(s.socket);
-        defer {
-            _ = c.close(fd);
-            std.fs.cwd().deleteFile(s.socket) catch {};
-        }
+        const socket_inode = inode(s.socket);
         defer s.runtime.deinit();
         defer s.herdr_import.deinit();
         defer s.onboarding_copy.deinit();
@@ -670,6 +667,12 @@ pub const Server = struct {
         defer {
             for (s.clients.items) |*cl| cl.deinit();
             s.clients.deinit(a);
+        }
+        // Runs before the slower teardown above: a daemon started after
+        // shutdown replied may already own this path.
+        defer {
+            _ = c.close(fd);
+            if (socket_inode != null and inode(s.socket) == socket_inode) std.fs.cwd().deleteFile(s.socket) catch {};
         }
         while (!s.quit) {
             const handed_off = s.herdr_import.tick(&s.runtime);
@@ -995,6 +998,10 @@ pub const Server = struct {
 };
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
+}
+fn inode(path: []const u8) ?std.posix.ino_t {
+    const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch return null;
+    return stat.ino;
 }
 
 test "Codex selection rejects delayed ABA observations while detached actors remain addressable" {
