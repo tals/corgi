@@ -1268,6 +1268,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
       );
     this.assertNotIn("When busy", await text());
     this.assertNotIn("Process card on hover", await text());
+    this.assertNotIn("Amber alerts", await text());
     await this.clickText(view, "Resource readings", 100);
     await this.until(async () => readSaved().resources.enabled === false);
     await this.until(async () => /Resource readings\s+○ Off/.test(await text()));
@@ -1279,16 +1280,10 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     await view.input("\r");
     await this.until(async () => readSaved().resources.enabled === true);
     await this.until(async () => /Resource readings\s+● On/.test(await text()));
-    await this.clickText(view, "I/O", 100);
-    await this.until(async () => (await text()).includes("[ ] I/O"));
-    this.assertEqual(readSaved().sleep_animation, false);
-    await this.clickText(view, "Sleep animation", 100);
-    await this.until(async () => readSaved().sleep_animation === true);
-    const saved = readSaved();
-    this.assertEqual(saved.resources, {
-      enabled: true, cpu: true, memory: true, io: false, alerts: true,
-    });
-    this.assertEqual(saved.resources.io, false);
+    this.assertEqual(readSaved().sleeping_corgis, true);
+    await this.clickText(view, "Sleeping corgis", 100);
+    await this.until(async () => readSaved().sleeping_corgis === false);
+    this.assertEqual(readSaved().resources, { enabled: true });
     await view.input("\x1b");
     await this.until(async () => !(await text()).includes("Corgi setup"));
     this.assertEqual((await this.session()).inference.choice, "off");

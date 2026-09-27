@@ -1,12 +1,13 @@
 # Workspace resources
 
-Each workspace's third sidebar row shows current CPU (`C`), physical memory
-(`M`), and disk read + write throughput (`↕`). Unavailable metrics are omitted,
-including their labels. A real zero is still displayed. A thin separator runs
-under the readings between workspaces. A trailing `›` marks rows with hover
-details, and the row immediately highlights on hover, staying highlighted while
-the pointer is in its card. All three rows select the workspace on
-click, including when a resource card overlaps them on a narrow screen.
+Each workspace's third sidebar row shows current CPU and physical memory,
+shortened to `Mem`, then `C` and `M`, as the sidebar narrows; disk throughput is
+only in the hover card. Unavailable metrics are omitted, including their labels.
+A real zero is still displayed. A thin separator runs under the readings between
+workspaces. A trailing `›` marks rows with hover details, and the row
+immediately highlights on hover, staying highlighted while the pointer is in its
+card. All three rows select the workspace on click, including when a resource
+card overlaps them on a narrow screen.
 
 Hover the resource row for 500 ms to open three framed history graphs and the
 process table, with separate PID and executable-name columns. No process activity

@@ -1251,7 +1251,8 @@ pub const Controller = struct {
         if (choice == .keyboard or choice == .import) {
             return s.openOnboarding(if (choice == .keyboard) .keyboard else .import);
         }
-        if (choice.applyResources(&s.resource_prefs)) {
+        if (choice == .readings) {
+            s.resource_prefs.enabled = !s.resource_prefs.enabled;
             if (s.corgi_setup) |*setup| setup.resources = s.resource_prefs;
             var saved = preferences.load();
             saved.resources = s.resource_prefs;
@@ -1299,7 +1300,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
-            .ghostty, .keyboard, .import, .readings, .cpu, .memory, .io, .alerts, .sleeping_corgis => unreachable,
+            .ghostty, .keyboard, .import, .readings, .sleeping_corgis => unreachable,
             .auto => "Auto (follows your agents)",
             .off => "Off",
             else => choice.provider().?.info().label,

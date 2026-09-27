@@ -71,7 +71,9 @@ class Resources extends Runtime {
       const resourceRow = frame.slice(resourceStart, frame.indexOf("\x1b[6;1H", resourceStart));
       this.assertIn("\x1b[4;58:2::65:70:77m", resourceRow);
       this.assertIn("\x1b[24;59m", resourceRow);
-      this.assertRegex(screen_text(frame, cols, 40)[4], /C .*M .*↕ /);
+      this.assertRegex(screen_text(frame, cols, 40)[4], /CPU .*Mem/);
+      // Disk throughput stays in the hover card.
+      this.assertNotIn("↕", screen_text(frame, cols, 40)[4]);
       this.assertEqual(screen_text(frame, cols, 40)[4][25], "›");
       this.assertNotIn("\x1b[48;2;48;57;70m", frame);
 
@@ -157,7 +159,7 @@ class Resources extends Runtime {
     const rows = screen_text(viewer.state.data, 120, 40);
     // Two rows per workspace: the second workspace's name follows the first's status.
     this.assertIn("second", rows[4]);
-    for (const row of rows.slice(0, 12)) this.assertFalse(/C .*M .*↕ /.test(row), row);
+    for (const row of rows.slice(0, 12)) this.assertFalse(/CPU .*Mem/.test(row), row);
     await viewer.input("\x1b[<0;5;6M");
     await viewer.input("\x1b[<0;5;6m");
     this.assertEqual(viewer.state.workspace, second);
@@ -230,8 +232,8 @@ class Resources extends Runtime {
     const second = await Viewer.create(this, 120, 40);
     let frame = (await viewer.poll()).data;
     const rows = screen_text(frame, 120, 40);
-    this.assertRegex(rows[4], /C .*M .*↕ /);
-    this.assertRegex(rows[7], /C .*M .*↕ /);
+    this.assertRegex(rows[4], /CPU .*Mem/);
+    this.assertRegex(rows[7], /CPU .*Mem/);
     await viewer.input("\x1b[<35;5;5M");
     this.assertNotIn("TOP PROCESSES", viewer.state.data);
     await viewer.advance(0.6);

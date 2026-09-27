@@ -12,10 +12,6 @@ pub const Choice = enum {
     off,
     ghostty,
     readings,
-    cpu,
-    memory,
-    io,
-    alerts,
     sleeping_corgis,
     keyboard,
     import,
@@ -26,23 +22,6 @@ pub const Choice = enum {
     fn summarizer(choice: Choice) bool {
         return @intFromEnum(choice) <= @intFromEnum(Choice.off);
     }
-    fn toggle(choice: Choice, prefs: *Resources) ?*bool {
-        return switch (choice) {
-            .readings => &prefs.enabled,
-            .cpu => &prefs.cpu,
-            .memory => &prefs.memory,
-            .io => &prefs.io,
-            .alerts => &prefs.alerts,
-            else => null,
-        };
-    }
-    /// Applies a resource choice. False for choices that are not resource settings.
-    pub fn applyResources(choice: Choice, prefs: *Resources) bool {
-        if (choice.toggle(prefs)) |value| {
-            value.* = !value.*;
-        } else return false;
-        return true;
-    }
     fn label(choice: Choice) []const u8 {
         return switch (choice) {
             .auto => "Auto",
@@ -51,10 +30,6 @@ pub const Choice = enum {
             .off => "Off",
             .ghostty => "Command-key integration",
             .readings => "Resource readings",
-            .cpu => "CPU",
-            .memory => "Memory",
-            .io => "I/O",
-            .alerts => "Amber alerts",
             .sleeping_corgis => "Sleeping corgis",
             .keyboard => "Keyboard shortcuts",
             .import => "Import sessions",
@@ -79,8 +54,6 @@ const Line = union(enum) {
     /// Dim text aligned with row labels.
     hint: []const u8,
     option: Choice,
-    /// Checkboxes side by side on one row.
-    toggles: []const Choice,
     /// Requirements or status for the highlighted (or current) summarizer.
     detail,
     divider,
@@ -103,8 +76,6 @@ const lines = [_]Line{
     .spacer,
     .{ .heading = "Workspace resources" },
     .{ .option = .readings },
-    .{ .toggles = &.{ .cpu, .memory, .io } },
-    .{ .toggles = &.{.alerts} },
     .spacer,
     .{ .heading = "Idle agents" },
     .{ .option = .sleeping_corgis },
@@ -132,9 +103,6 @@ fn heightFor(density: Density) u16 {
 }
 const max_width = 64;
 const min_width = 48;
-// Toggle rows start under the radio labels.
-const toggle_x = label_x + 2;
-const toggle_gap = 3;
 
 fn densityFor(rows: u16) Density {
     return if (rows >= comptime heightFor(.full)) .full else if (rows >= comptime heightFor(.tight)) .tight else .minimal;
@@ -151,9 +119,6 @@ fn lineAt(rows: u16, offset: usize) ?Line {
 }
 fn usable(b: Rect) bool {
     return b.w >= min_width and b.h >= comptime heightFor(.minimal);
-}
-fn toggleWidth(choice: Choice) u16 {
-    return @intCast("[x] ".len + choice.label().len);
 }
 
 const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
@@ -205,14 +170,6 @@ pub const Menu = struct {
         if (!usable(b) or x <= b.x or x >= b.x + b.w - 1 or y <= b.y) return null;
         return switch (lineAt(rows, y - b.y - 1) orelse return null) {
             .option => |choice| choice,
-            .toggles => |choices| {
-                var start = b.x + toggle_x;
-                for (choices) |choice| {
-                    if (x >= start and x < start + toggleWidth(choice)) return choice;
-                    start += toggleWidth(choice) + toggle_gap;
-                }
-                return null;
-            },
             else => null,
         };
     }
@@ -257,7 +214,6 @@ pub const Menu = struct {
                 .lead => |label| try put(w, b, marker_x, y, panel, label),
                 .hint => |label| try put(w, b, label_x, y, panel, label),
                 .option => |choice| try m.drawOption(w, b, y, choice, status, now_ms),
-                .toggles => |choices| try m.drawToggles(w, b, y, choices),
                 .detail => {
                     var buffer: [96]u8 = undefined;
                     const in_use: Choice = @enumFromInt(@intFromEnum(status.choice));
@@ -329,21 +285,6 @@ pub const Menu = struct {
     fn current(choice: Choice, status: setup.Status) bool {
         return @intFromEnum(choice) == @intFromEnum(status.choice);
     }
-    fn drawToggles(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choices: []const Choice) !void {
-        const highlighted = std.mem.indexOfScalar(Choice, choices, m.selected) != null;
-        const p = if (highlighted) row_selected else row_normal;
-        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + 2, p.text });
-        try w.splatByteAll(' ', b.w - 2);
-        if (highlighted) try w.print("\x1b[{d};{d}H{s}›", .{ y + 1, b.x + marker_x + 1, p.accent });
-        var x: u16 = toggle_x;
-        var prefs = m.resources;
-        for (choices) |choice| {
-            const inert = !prefs.enabled;
-            const style = if (inert) p.quiet else if (choice == m.selected) p.label else p.text;
-            try w.print("\x1b[{d};{d}H{s}[{s}] {s}", .{ y + 1, b.x + x + 1, style, if (choice.toggle(&prefs).?.*) "x" else " ", choice.label() });
-            x += toggleWidth(choice) + toggle_gap;
-        }
-    }
     fn keysLabel(m: *const Menu, buffer: []u8) []const u8 {
         if (m.preset == .cmux) return "cmux · Cmd  →";
         return std.fmt.bufPrint(buffer, "{s} · {s}  →", .{ km.name(m.preset), if (m.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A" }) catch "→";
@@ -356,12 +297,9 @@ pub const Menu = struct {
                 .disabled => "Turn on",
                 .unavailable, .failed => null,
             },
+            .readings => if (m.resources.enabled) "Turn off" else "Turn on",
             .sleeping_corgis => if (m.sleeping_corgis) "Turn off" else "Turn on",
             .keyboard, .import => "Open →",
-            .readings, .cpu, .memory, .io, .alerts => |choice| {
-                var prefs = m.resources;
-                return if (choice.toggle(&prefs).?.*) "Turn off" else "Turn on";
-            },
             else => |choice| if (current(choice, status))
                 "Keep"
             else
@@ -381,7 +319,7 @@ fn modelName(id: []const u8) []const u8 {
 
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleeping_corgis => unreachable,
+        .keyboard, .import, .ghostty, .readings, .sleeping_corgis => unreachable,
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
         else if (status.provider) |provider|
@@ -403,7 +341,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleeping_corgis => unreachable,
+        .keyboard, .import, .ghostty, .readings, .sleeping_corgis => unreachable,
         .auto => if (status.launches.codex + status.launches.claude == 0)
             "No agents yet this session; using your last one"
         else
@@ -427,7 +365,7 @@ test "setup modal is centered and its rows are clickable inside the frame" {
     try std.testing.expectEqual(auto + 3, rowOf(100, 30, .off).?);
     try std.testing.expect(rowOf(100, 30, .off).? < rowOf(100, 30, .ghostty).?);
     try std.testing.expect(rowOf(100, 30, .ghostty).? < rowOf(100, 30, .keyboard).?);
-    try std.testing.expect(rowOf(100, 30, .alerts).? < rowOf(100, 30, .sleeping_corgis).?);
+    try std.testing.expect(rowOf(100, 30, .readings).? < rowOf(100, 30, .sleeping_corgis).?);
     try std.testing.expect(rowOf(100, 30, .sleeping_corgis).? < rowOf(100, 30, .keyboard).?);
     try std.testing.expectEqual(rowOf(100, 30, .keyboard).? + 1, rowOf(100, 30, .import).?);
     try std.testing.expect(Menu.hit(100, 30, b.x + 6, b.y + 2) == null);
@@ -466,21 +404,22 @@ test "setup modal explains the automatic choice" {
     try std.testing.expectEqual(@as(usize, 0), output.written().len);
 }
 
-test "resource toggles share a row, are clicked by column, and flip preferences" {
-    const row = rowOf(100, 40, .cpu).?;
-    try std.testing.expectEqual(row, rowOf(100, 40, .io).?);
-    try std.testing.expectEqual(row + 1, rowOf(100, 40, .alerts).?);
-    const b = Menu.bounds(100, 40);
-    try std.testing.expectEqual(Choice.memory, Menu.hit(100, 40, b.x + toggle_x + toggleWidth(.cpu) + toggle_gap, row).?);
-    try std.testing.expect(Menu.hit(100, 40, b.x + toggle_x + toggleWidth(.cpu), row) == null);
-    var prefs: Resources = .{};
-    try std.testing.expect(Choice.io.applyResources(&prefs));
-    try std.testing.expect(!prefs.io);
-    try std.testing.expect(Choice.readings.applyResources(&prefs));
-    try std.testing.expect(!prefs.enabled);
-    try std.testing.expect(Choice.readings.applyResources(&prefs));
-    try std.testing.expect(prefs.enabled);
-    try std.testing.expect(!Choice.codex.applyResources(&prefs));
+test "resource readings are one on/off row" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var menu = Menu.open(.{});
+    menu.selected = .readings;
+    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Resource readings") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn off ]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[x]") == null);
+    menu.move(true);
+    try std.testing.expectEqual(Choice.sleeping_corgis, menu.selected);
+    output.clearRetainingCapacity();
+    menu.selected = .readings;
+    menu.resources.enabled = false;
+    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
 }
 
 test "sleeping corgis row shows its state, offers the opposite, and naps beside the label" {

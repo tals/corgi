@@ -7,14 +7,10 @@ const keymap = @import("keymap.zig");
 const builtin = @import("builtin");
 
 /// Resource readings shown in the sidebar. Disabling removes the row and,
-/// once every attached viewer is off, stops the daemon's sampling.
+/// once every attached viewer is off, stops the daemon's sampling. Settings
+/// older builds kept beside `enabled` are ignored.
 pub const Resources = struct {
     enabled: bool = true,
-    cpu: bool = true,
-    memory: bool = true,
-    io: bool = true,
-    /// Amber CPU and memory pressure.
-    alerts: bool = true,
 };
 
 pub const Preferences = struct {
@@ -102,8 +98,10 @@ test "preferences round trip and fall back to defaults" {
     try std.testing.expectEqual(Preferences{ .agents = .all }, read(file));
     try write(file, .{ .sidebar_width = 44 });
     try std.testing.expectEqual(@as(u16, 44), read(file).sidebar_width);
-    try write(file, .{ .resources = .{ .enabled = false, .io = false } });
-    try std.testing.expectEqual(Resources{ .enabled = false, .io = false }, read(file).resources);
+    try write(file, .{ .resources = .{ .enabled = false } });
+    try std.testing.expectEqual(Resources{ .enabled = false }, read(file).resources);
+    try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{\"resources\":{\"enabled\":false,\"io\":false,\"alerts\":true}}" });
+    try std.testing.expectEqual(Resources{ .enabled = false }, read(file).resources);
     try write(file, .{ .preset = .cmux, .onboarding_complete = true });
     try std.testing.expectEqual(if (builtin.os.tag == .macos) keymap.Preset.cmux else .corgi, read(file).preset);
     try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{broken" });

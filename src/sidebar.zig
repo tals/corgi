@@ -687,58 +687,52 @@ pub fn resourceAt(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?
     if (i >= v.workspaceCapacity() or i + v.workspace_offset >= workspaces.len) return null;
     const ws = workspaces[i + v.workspace_offset];
     if (!resourceCardFits(v)) return null;
-    for (0..3) |reading| if (shownReading(v.resources, ws.resources, reading)) return ws;
+    for (0..2) |reading| if (shownReading(v.resources, ws.resources, reading)) return ws;
     return null;
 }
 fn resourceCardFits(v: View) bool {
     return resource_tooltip.geometry(v.cols, v.rows, v.width, 0) != null;
 }
-fn alerting(prefs: Resources, work: resources.Work, reading: usize) bool {
-    if (!prefs.alerts) return false;
+fn alerting(work: resources.Work, reading: usize) bool {
     return (reading == 0 and work.cpu_pressure) or (reading == 1 and work.memory_pressure);
 }
-/// Whether the row shows CPU (0), memory (1) or I/O (2) under these preferences.
+/// Whether the row shows CPU (0) or memory (1). Disk I/O is only in the hover card.
 fn shownReading(prefs: Resources, work: resources.Work, reading: usize) bool {
-    const available = switch (reading) {
-        0 => work.cpu != null,
-        1 => work.memory != null,
-        else => work.read != null and work.written != null,
-    };
-    const enabled = switch (reading) {
-        0 => prefs.cpu,
-        1 => prefs.memory,
-        else => prefs.io,
-    };
-    return prefs.enabled and available and enabled;
+    const available = if (reading == 0) work.cpu != null else work.memory != null;
+    return prefs.enabled and available;
 }
 fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool) !void {
     const width = v.width -| 3;
     const prefs = v.resources;
-    const details = resourceCardFits(v) and width >= 2 and (shownReading(prefs, work, 0) or shownReading(prefs, work, 1) or shownReading(prefs, work, 2));
+    const details = resourceCardFits(v) and width >= 2 and (shownReading(prefs, work, 0) or shownReading(prefs, work, 1));
     const hover = details and hovered;
     const normal = if (hover) "\x1b[22;38;2;214;222;232m" else "\x1b[22;38;2;125;137;155m";
     if (hover) try w.writeAll("\x1b[48;2;48;57;70m");
     const readings_width = width - @as(usize, if (details) 2 else 0);
-    var buffers: [3][32]u8 = undefined;
-    const total_io = if (work.read != null and work.written != null) work.read.? +| work.written.? else null;
+    var buffers: [2][32]u8 = undefined;
     const values = [_][]const u8{
         resources.cpuText(&buffers[0], work.cpu),
         resources.memoryText(&buffers[1], work.memory),
-        resources.ioText(&buffers[2], total_io),
     };
-    for (values, [_][]const u8{ "C", "M", "↕" }, 0..) |value, label, i| {
-        const room = if (i == 2) readings_width - (readings_width / 3) * 2 else readings_width / 3;
+    const names = [_][]const []const u8{ &.{ "CPU", "C" }, &.{ "Memory", "Mem", "M" } };
+    for (values, names, 0..) |value, choices, i| {
+        const room = if (i == 1) readings_width - readings_width / 2 else readings_width / 2;
+        // The longest label that leaves room for a five-character value
+        // (1234%, 12.3G) and, after CPU, a one-column gap.
+        const label = for (choices) |name| {
+            if (room >= name.len + 1 + 5 + @as(usize, if (i == 0) 1 else 0)) break name;
+        } else choices[choices.len - 1];
         if (value.len == 0 or !shownReading(prefs, work, i)) {
             try w.splatByteAll(' ', room);
             continue;
         }
-        const alert = alerting(prefs, work, i);
+        const alert = alerting(work, i);
         try w.writeAll(if (alert) "\x1b[1;38;2;249;226;175m" else normal);
         try w.writeAll(label);
         if (room >= 7) try w.writeByte(' ');
-        const used: usize = if (room >= 7) 2 else 1;
-        try writeClipped(w, value, room -| used - @as(usize, if (i < 2) 1 else 0));
-        const printed = used + @min(displayWidth(value), room -| used - @as(usize, if (i < 2) 1 else 0));
+        const used: usize = label.len + @as(usize, if (room >= 7) 1 else 0);
+        try writeClipped(w, value, room -| used - @as(usize, if (i == 0) 1 else 0));
+        const printed = used + @min(displayWidth(value), room -| used - @as(usize, if (i == 0) 1 else 0));
         try w.splatByteAll(' ', room -| printed);
     }
     if (details) {
@@ -748,7 +742,7 @@ fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool
     try w.writeAll("\x1b[22m");
 }
 
-test "resource row omits unavailable metrics and preserves real zeros" {
+test "resource row omits unavailable metrics and I/O, and preserves real zeros" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const view = View.init(100, 30, true, 0, 0);
@@ -760,27 +754,35 @@ test "resource row omits unavailable metrics and preserves real zeros" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "›") == null);
     output.clearRetainingCapacity();
     try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, view, false);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 0%") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "M 0M") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕ 0K/s") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 0%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory 0M") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "›") != null);
+    output.clearRetainingCapacity();
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 3_000_000, .written = 1_000_000 }, view, false);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "M/s") == null);
 }
 
-test "resource preferences hide individual readings and disable all readings" {
+test "resource readings turn off as a whole" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const hot: resources.Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
     var view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
-    view.resources.io = false;
     try drawResources(&output.writer, hot, view, false);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 182%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory 3.0G") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "249;226;175") != null);
     output.clearRetainingCapacity();
-    view.resources = .{ .alerts = false };
-    try drawResources(&output.writer, hot, view, false);
+    // Narrower sidebars shorten labels rather than clipping values.
+    try drawResources(&output.writer, hot, view.withWidth(26), false);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 182%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Mem 3.0G") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory") == null);
+    output.clearRetainingCapacity();
+    try drawResources(&output.writer, hot, view.withWidth(20), false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
-    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "249;226;175") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "M 3.0G") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Mem") == null);
     output.clearRetainingCapacity();
     view.resources.enabled = false;
     try drawResources(&output.writer, hot, view, false);
@@ -819,7 +821,7 @@ test "readings off removes the resource row and moves the separator under the st
     defer output.deinit();
     try view.draw(&output.writer, &.{}, &entries);
     const frame = output.written();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "C 182%") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "182%") == null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;2H\x1b[0;38;2;155;163;175;48;2;24;27;32m\x1b[4;58:2::65:70:77m") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;58:2::65:70:77m⚒12") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[5;2H\x1b[1;38;2;182;206;240;48;2;34;44;58msecond") != null);
