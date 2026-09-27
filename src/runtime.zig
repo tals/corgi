@@ -66,6 +66,7 @@ pub const Runtime = struct {
     git_push: @import("git_push.zig").Manager = .{},
     git_status: @import("git_status.zig").Tracker = .{},
     ports: @import("ports.zig").Tracker = .{},
+    resources: @import("resources.zig").Tracker = .{},
     link_labels: @import("link_labels.zig").Cache = .{},
 
     pub fn changed(r: *Runtime) void {
@@ -73,6 +74,7 @@ pub const Runtime = struct {
     }
 
     pub fn deinit(r: *Runtime) void {
+        r.resources.deinit();
         r.ports.deinit();
         r.git_push.deinit();
         r.git_status.deinit();

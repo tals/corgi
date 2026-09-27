@@ -15,6 +15,8 @@ pub const Ui = struct {
     pointer: ?Pointer = null,
     iterm2_pointer: bool = false,
     link_tooltip: bool = false,
+    resources: @import("resources.zig").Snapshot = .{},
+    resource_card: ?@import("resource_tooltip.zig").State = null,
     git_hover: ?WorkspaceId = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
     corgi_setup: ?@import("corgi_setup.zig").Menu = null,
@@ -292,7 +294,14 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
     };
     if (ui.link_tooltip and ui.agent_launcher == null and ui.corgi_setup == null) if (ui.pointer) |pointer| {
-        if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
+        if (ui.resource_card) |card| {
+            if (@import("resource_tooltip.zig").geometry(width, height, side.width, card.anchor)) |rect| {
+                const name = for (ui.workspaces) |ws| {
+                    if (ws.id == card.workspace) break ws.name;
+                } else "workspace";
+                try @import("resource_tooltip.zig").draw(w, rect, name, ui.resources, card);
+            }
+        } else if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
             try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, ui.release, width, height);
         } else if (sidebar.gitActionWorkspace(side, ui.workspaces, ui.git_hover, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);

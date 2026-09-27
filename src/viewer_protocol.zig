@@ -56,7 +56,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (eq(u8, op, "viewer.sync")) {
         if (!cl.viewer) return error.NotAttached;
-        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false };
+        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false, resource_detail: ?WorkspaceId = null };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const req = parsed.value;
@@ -84,6 +84,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
             cl.view_focus = req.focus;
         };
         cl.watched = req.watched;
+        cl.resource_detail = if (req.resource_detail) |id| if (s.runtime.workspaces.get(id) != null) id else null else null;
         if (req.active) {
             s.next_active += 1;
             cl.active_seq = s.next_active;
@@ -108,7 +109,9 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         }
         // Snapshot fields include time-dependent usage and metadata updated by
         // independent workers. Compare the actual payload, not just layout revision.
-        const session = try std.json.Stringify.valueAlloc(allocator, try protocol.snapshot(allocator, &s.runtime), .{});
+        var snapshot = try protocol.snapshot(allocator, &s.runtime);
+        snapshot.resources = try snapshot.resources.forViewer(allocator, cl.resource_detail);
+        const session = try std.json.Stringify.valueAlloc(allocator, snapshot, .{});
         const session_hash = std.hash.Wyhash.hash(0, session);
         try cl.queue(.{ .type = "view", .viewer_protocol = viewer_version.version, .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session }, .session_hash = session_hash, .surfaces = frames.items, .bell_seq = s.bell_seq, .bell_kind = s.last_bell_kind, .controls = cl.controls.items, .viewer = cl.viewer_id, .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1 });
     } else if (eq(u8, op, "viewer.search")) {

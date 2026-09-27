@@ -60,7 +60,7 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: WorkspaceId, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct { resources: @import("resources.zig").Work = .{ .id = .none }, ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: WorkspaceId, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 /// Render the prospective order without changing shared state or the stable
 /// row geometry used by the captured gesture's hit testing.
@@ -207,7 +207,6 @@ pub const View = struct {
                 return .none;
             }
             if (y < 2 or y >= v.middle() - 2) return .none;
-            if ((y - 2) % 3 == 2) return .none;
             const index = (y - 2) / 3 + v.workspace_offset;
             return if (index < v.workspace_count and (y - 2) / 3 < v.workspaceCapacity()) .{ .workspace = index } else .none;
         }
@@ -359,11 +358,8 @@ pub const View = struct {
                 }
                 try w.print("\x1b[{d};2H{s}", .{ y + 3, meta });
                 const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
-                if (divider) {
-                    try w.writeAll("\x1b[4;58:2::65:70:77m");
-                    try w.splatByteAll(' ', v.width - 3);
-                    try w.print("\x1b[{d};2H", .{y + 3});
-                }
+                if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
+                try drawResources(w, ws.resources, v.width - 3);
                 try w.writeAll("\x1b[24;59m");
                 if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, active_bar, panel });
             }
@@ -575,6 +571,53 @@ fn subagentBadge(buf: []u8, status: agents.Subagents, children: usize) []const u
     return "";
 }
 
+/// Resource hover stays on the third workspace row. Clicks and drags on that
+/// row select the workspace, just like its title and status rows.
+pub fn resourceAt(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?WorkspaceEntry {
+    if (v.width == 0 or x < 1 or x >= v.width - 2 or y < 4 or y >= v.middle() -| 2 or (y - 2) % 3 != 2) return null;
+    const i = (y - 2) / 3;
+    if (i >= v.workspaceCapacity() or i + v.workspace_offset >= workspaces.len) return null;
+    const ws = workspaces[i + v.workspace_offset];
+    if (ws.resources.cpu == null and ws.resources.memory == null and ws.resources.read == null and ws.resources.written == null) return null;
+    return ws;
+}
+fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, width: usize) !void {
+    const r = @import("resources.zig");
+    var buffers: [3][32]u8 = undefined;
+    const values = [_][]const u8{ r.cpuText(&buffers[0], work.cpu), r.memoryText(&buffers[1], work.memory), r.ioText(&buffers[2], if (work.read != null and work.written != null) work.read.? +| work.written.? else null) };
+    for (values, "CMI", 0..) |value, label, i| {
+        const room = if (i == 2) width - (width / 3) * 2 else width / 3;
+        if (value.len == 0) {
+            try w.splatByteAll(' ', room);
+            continue;
+        }
+        const alert = (i == 0 and work.cpu_pressure) or (i == 1 and work.memory_pressure);
+        try w.writeAll(if (alert) "\x1b[1;38;2;249;226;175m" else "\x1b[22;38;2;125;137;155m");
+        try w.writeByte(label);
+        if (room >= 7) try w.writeByte(' ');
+        const used: usize = if (room >= 7) 2 else 1;
+        try writeClipped(w, value, room -| used - @as(usize, if (i < 2) 1 else 0));
+        const printed = used + @min(displayWidth(value), room -| used - @as(usize, if (i < 2) 1 else 0));
+        try w.splatByteAll(' ', room -| printed);
+    }
+    try w.writeAll("\x1b[22m");
+}
+
+test "resource row omits unavailable metrics and preserves real zeros" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, 25);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "--") == null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') == null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'I') == null);
+    output.clearRetainingCapacity();
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, 25);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 0%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "M 0M") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "I 0K/s") != null);
+}
+
 pub fn agentAt(v: View, entries: []const Entry, x: u16, y: u16) ?*const Entry {
     const hit = v.hit(x, y);
     if (hit != .entry or hit.entry >= entries.len) return null;
@@ -781,14 +824,14 @@ test "compact paths preserve root and folder within column budget" {
     try std.testing.expect(std.mem.endsWith(u8, output.written(), "folder"));
 }
 
-test "compact workspace rows, spacers and bottom bar have distinct click targets" {
+test "all three workspace rows select while bottom controls remain distinct" {
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(2, 0);
     try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 2));
     try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 3));
-    try std.testing.expectEqual(Hit.none, view.hit(24, 4));
+    try std.testing.expectEqual(Hit{ .workspace = 0 }, view.hit(24, 4));
     try std.testing.expectEqual(Hit{ .workspace = 1 }, view.hit(24, 5));
     try std.testing.expectEqual(Hit{ .workspace = 1 }, view.hit(24, 6));
-    try std.testing.expectEqual(Hit.none, view.hit(24, 7));
+    try std.testing.expectEqual(Hit{ .workspace = 1 }, view.hit(24, 7));
     try std.testing.expectEqual(Hit.none, view.hit(2, 12));
     try std.testing.expectEqual(Hit.none, view.hit(2, 13));
     try std.testing.expectEqual(Hit.workspace_new, view.hit(17, 0));

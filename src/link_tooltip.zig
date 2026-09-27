@@ -2,7 +2,7 @@
 const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
 const layout = @import("layout.zig");
-pub const Target = struct { pane: layout.PaneId, link: u64, git: bool = false, usage: bool = false, conversation: ActorId = .none, agent: ?@import("sidebar.zig").Target = null };
+pub const Target = struct { resource: ?@import("workspace.zig").Workspace.Id = null, pane: layout.PaneId, link: u64, git: bool = false, usage: bool = false, conversation: ActorId = .none, agent: ?@import("sidebar.zig").Target = null };
 pub const State = struct {
     suppressed: bool = true,
     target: ?Target = null,

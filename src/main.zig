@@ -316,6 +316,9 @@ test {
     _ = @import("updates.zig");
     _ = @import("agent_navigation.zig");
     _ = @import("link_tooltip.zig");
+    _ = @import("resources.zig");
+    _ = @import("resource_os.zig");
+    _ = @import("resource_tooltip.zig");
     _ = @import("checkpoint_probe.zig");
     _ = @import("checkpoint_test.zig");
     _ = @import("state_migrations.zig");

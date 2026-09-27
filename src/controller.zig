@@ -109,6 +109,7 @@ pub const Controller = struct {
     iterm2_pointer: bool = false,
     link_tooltip: @import("link_tooltip.zig").State = .{},
     git_hover: ?WorkspaceId = null,
+    resource_card: @import("resource_tooltip.zig").State = .{},
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?@import("agent_drag.zig").Drag = null,
@@ -307,6 +308,7 @@ pub const Controller = struct {
         for (s.runtime.workspaces.items, 0..) |*ws, i| {
             out[i] = .{ .id = ws.id, .name = ws.name, .cwd = ws.cwd, .active = i == s.workspaceIndex(), .git_ahead = ws.git_ahead, .git_push = ws.git_push, .git_commits = ws.git_commits, .stats = ws.stats };
             out[i].ports = s.runtime.ports;
+            out[i].resources = s.runtime.resources.workspace(ws.id);
             out[i].remote_links = s.remote_links;
             for (s.runtime.panes.items) |p| {
                 if (p.agent.provider == null or ws.model.tabForPane(p.id) == null) continue;
@@ -1766,9 +1768,25 @@ pub const Controller = struct {
         if (s.prefix and !release and button & 0xe0 == 0) s.closeMenu();
         if (s.workspace_chooser != null) return;
         const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
+        var resource_workspace_press = false;
+        if (s.resourceRect()) |rect| if (rect.contains(x, y)) {
+            // The card can cover workspace rows on narrower screens. A
+            // workspace press dismisses it and reaches normal navigation.
+            resource_workspace_press = !release and (button == 0 or button == 2) and s.sidebarView(&.{}).hit(x, y) == .workspace;
+            if (!resource_workspace_press) {
+                s.pointer = .{ .x = x, .y = y };
+                if (!release and button == 0) {
+                    s.resource_card.click(rect, x, y);
+                } else if (release) s.ui_mouse_down = false else if (button & 64 != 0) s.link_tooltip.cancel();
+                s.dirty = true;
+                return;
+            }
+        };
         if (!release and button & 32 != 0 and button & 3 == 3 and button & 64 == 0) {
             if (moved) {
-                s.link_tooltip.move();
+                var resource_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+                const resource_hit = sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&resource_storage), x, y);
+                if (resource_hit == null or s.resourceDetail() != resource_hit.?.id) s.link_tooltip.move();
                 s.launcher_hover_blocked = false;
             }
         } else {
@@ -2114,7 +2132,8 @@ pub const Controller = struct {
             return;
         }
         var git_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
-        const git_hit = sidebar.gitActionWorkspace(side, s.workspaceEntries(&git_storage), s.git_hover, x, y);
+        // Do not activate Git or URL controls hidden behind the resource card.
+        const git_hit = if (resource_workspace_press) null else sidebar.gitActionWorkspace(side, s.workspaceEntries(&git_storage), s.git_hover, x, y);
         s.git_hover = if (git_hit) |ws| ws.id else null;
         if (!release and button == 0 and git_hit != null and !s.copy_mode) {
             s.ui_mouse_down = true;
@@ -2129,7 +2148,7 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
-        if (!release and button == 0) {
+        if (!release and button == 0 and !resource_workspace_press) {
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             if (sidebar.portWorkspace(side, s.workspaceEntries(&workspace_storage), x, y)) |ws| {
                 var click: @typeInfo(@FieldType(InputState, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = 0 };
@@ -2194,7 +2213,7 @@ pub const Controller = struct {
                         const id = s.runtime.workspaces.items[index].id;
                         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
                         const ws_entries = s.workspaceEntries(&workspace_storage);
-                        const jump = side.unreadHit(ws_entries[index], x, y);
+                        const jump = !resource_workspace_press and side.unreadHit(ws_entries[index], x, y);
                         const target = if (jump) s.firstUnreadAgent(index) else null;
                         try s.switchWorkspace(id);
                         if (jump) {
@@ -2429,11 +2448,30 @@ pub const Controller = struct {
             cl.keybuf.clearRetainingCapacity();
         }
     }
+    pub fn resourceDetail(s: *Self) ?WorkspaceId {
+        if (!s.link_tooltip.shown or s.link_tooltip.target == null) return null;
+        const id = s.link_tooltip.target.?.resource orelse return null;
+        if (s.runtime.workspaces.index(id) == null) return null;
+        const work = s.runtime.resources.workspace(id);
+        if (work.cpu == null and work.memory == null and work.read == null and work.written == null) return null;
+        return id;
+    }
+    fn resourceRect(s: *Self) ?layout.Rect {
+        _ = s.resourceDetail() orelse return null;
+        return @import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, s.resource_card.anchor);
+    }
     fn linkTooltipReady(s: *Self) !bool {
         var target: ?@import("link_tooltip.zig").Target = null;
         if (s.pointer) |pointer| {
             if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
                 var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+                if (s.resourceRect()) |rect| if (rect.contains(pointer.x, pointer.y)) return true;
+                if (sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
+                    if (@import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, pointer.y) != null) {
+                        target = .{ .pane = .none, .link = 0, .resource = ws.id };
+                        s.resource_card.anchor = pointer.y;
+                    }
+                }
                 if (@import("corgi_badge.zig").hit(s.corgi_badge, s.sidebarView(&.{}).width, pointer.x, pointer.y)) {
                     target = .{ .pane = .none, .link = 0, .usage = true };
                 }
@@ -2491,12 +2529,21 @@ pub const Controller = struct {
             s.git_hover = if (hit) |ws| ws.id else null;
         } else s.git_hover = null;
         if (s.agent_drag) |*drag| _ = drag.valid(s.sidebarView(entries), s.current().id);
+        const tooltip_ready = try s.linkTooltipReady();
+        const detail = s.resourceDetail();
+        if (detail) |id| {
+            const rect = s.resourceRect();
+            const freeze = if (s.pointer) |pointer| if (rect) |box| box.contains(pointer.x, pointer.y) else false else false;
+            s.resource_card.update(s.runtime.resources.workspace(id), freeze);
+        }
         return render.frame(s.layoutView(), s.runtime.panes.items, s.width, s.height, .{
             .key_preset = s.key_preset,
             .key_prefix = s.key_prefix,
             .pointer = s.pointer,
             .iterm2_pointer = s.iterm2_pointer,
-            .link_tooltip = try s.linkTooltipReady(),
+            .link_tooltip = tooltip_ready,
+            .resources = s.runtime.resources,
+            .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
             .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null) s.git_hover else null,
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
             .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),

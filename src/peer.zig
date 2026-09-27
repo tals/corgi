@@ -35,6 +35,7 @@ pub const Client = struct {
     snapshot_revision: ?u64 = null,
     last_snapshot: i64 = 0,
     watched: bool = true,
+    resource_detail: ?WorkspaceId = null,
     dead: bool = false,
     touched: i64 = 0,
     pub fn queue(cl: *Client, value: anytype) !void {
