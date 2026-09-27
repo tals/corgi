@@ -2,6 +2,9 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const Provider = @import("providers.zig").Provider;
+const agents = @import("agents.zig");
+const detection = @import("detection.zig");
+const discovery = @import("discovery.zig");
 pub fn hook(provider: Provider, path: []const u8) !void {
     const pane = os.env("CORGI_PANE") orelse return;
     const id = std.fmt.parseInt(u32, pane, 10) catch return;
@@ -19,7 +22,7 @@ pub fn hook(provider: Provider, path: []const u8) !void {
         // Codex tools/subagents inherit the pane environment. Their sessions
         // must not take ownership of the parent terminal's sidebar entry.
         .codex => if (os.env("CODEX_THREAD_ID")) |parent| {
-            const session = @import("agents.zig").str(parsed.value, "session_id");
+            const session = agents.str(parsed.value, "session_id");
             if (parent.len > 0 and !std.mem.eql(u8, parent, session)) return;
         },
         .claude => {},
@@ -27,7 +30,7 @@ pub fn hook(provider: Provider, path: []const u8) !void {
     // Claude's background daemon inherits the environment of whichever pane
     // first spawned it, so CORGI_PANE does not identify its sessions' pane.
     const background = switch (provider) {
-        .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or @import("detection.zig").backgroundAncestor(),
+        .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or detection.backgroundAncestor(),
         .codex => false,
     };
     const fd = os.connect(path) catch return;
@@ -115,7 +118,7 @@ pub fn mergedConfig(allocator: std.mem.Allocator, provider: Provider, existing: 
             const handlers = group.object.get("hooks") orelse return error.InvalidHookSettings;
             if (handlers != .array) return error.InvalidHookSettings;
             for (handlers.array.items) |handler| {
-                if (std.mem.eql(u8, @import("agents.zig").str(handler, "command"), command)) found = true;
+                if (std.mem.eql(u8, agents.str(handler, "command"), command)) found = true;
             }
         }
         if (found) continue;
@@ -185,7 +188,7 @@ pub fn launch(provider: Provider, args: []const []const u8, executable: []const 
     _ = executable;
     if (os.env("CORGI_PANE") == null) return error.LaunchInsideCorgi;
     var argv: std.ArrayList([]const u8) = .empty;
-    const binary = try @import("discovery.zig").resolve(provider, null);
+    const binary = try discovery.resolve(provider, null);
     defer a.free(binary);
     try argv.append(a, binary);
     try argv.appendSlice(a, args);

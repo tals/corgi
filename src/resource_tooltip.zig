@@ -140,6 +140,14 @@ fn sample(point: resources.Point, metric: resources.Sort) ?f64 {
         .io => if (point.io) |n| @floatFromInt(n) else null,
     };
 }
+fn statusText(work: resources.Work) []const u8 {
+    if (!work.known) return "Sampling unavailable";
+    if (work.partial) return "Partial process coverage";
+    if (work.cpu_pressure and work.memory_pressure) return "CPU busy + memory pressure";
+    if (work.memory_pressure) return "Memory pressure";
+    if (work.cpu_pressure) return "CPU busy";
+    return "";
+}
 
 pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources.Snapshot, state: State) !void {
     const work = snapshot.workspace(state.workspace orelse return);
@@ -150,7 +158,7 @@ pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources
     }
     var buf: [180]u8 = undefined;
     try box(w, rect, try std.fmt.bufPrint(&buf, " {s} / resources ", .{name}));
-    const status = if (!work.known) "Sampling unavailable" else if (work.partial) "Partial process coverage" else if (work.cpu_pressure and work.memory_pressure) "CPU busy + memory pressure" else if (work.memory_pressure) "Memory pressure" else if (work.cpu_pressure) "CPU busy" else "";
+    const status = statusText(work);
     try at(w, rect.x + 2, rect.y + 1, if (work.cpu_pressure or work.memory_pressure) warm else text, status, rect.w - 20);
     try right(w, rect.x + rect.w - 16, rect.y + 1, muted, try std.fmt.bufPrint(&buf, "live / {d}s", .{snapshot.interval_ms / 1000}), 13);
     const gw = (rect.w - 6) / 3;
@@ -191,7 +199,12 @@ pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources
         } else try at(w, rect.x + 10, y, muted, "Sample not available", rect.w - 43);
     }
     try at(w, rect.x + 2, rect.y + rect.h - 3, muted, "* Claude Code   † Codex", rect.w - 4);
-    try at(w, rect.x + 2, rect.y + rect.h - 2, muted, try std.fmt.bufPrint(&buf, "{d} local processes / {s}{s} / {d} shown", .{ work.count, snapshot.memory_kind, if (work.partial) " / partial" else "", count }), rect.w - 4);
+    try at(w, rect.x + 2, rect.y + rect.h - 2, muted, try std.fmt.bufPrint(&buf, "{d} local processes / {s}{s} / {d} shown", .{
+        work.count,
+        snapshot.memory_kind,
+        if (work.partial) " / partial" else "",
+        count,
+    }), rect.w - 4);
     try w.writeAll("\x1b[0m\x1b8\x1b[?25l");
 }
 

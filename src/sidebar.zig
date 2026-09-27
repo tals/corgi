@@ -1,14 +1,28 @@
 const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
 const NativeId = @import("native.zig").Session.Id;
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const agents = @import("agents.zig");
 const layout = @import("layout.zig");
 const vt = @import("ghostty-vt");
 const corgi_animation = @import("corgi_animation.zig");
+const agent_order = @import("agent_order.zig");
+const resources = @import("resources.zig");
+const ports = @import("ports.zig");
+const git_push = @import("git_push.zig");
+const protocol = @import("protocol.zig");
+const usage = @import("usage.zig");
+const corgi_badge = @import("corgi_badge.zig");
+const resource_tooltip = @import("resource_tooltip.zig");
+const preferences = @import("preferences.zig");
+const Resources = preferences.Resources;
+const terminal = @import("terminal.zig");
+const corgi_frames = @import("corgi_frames.zig");
+const a = @import("os.zig").allocator;
 
 /// Agents plus one header per workspace in the grouped "All" list.
-pub const max_entries = layout.max_panes + 16 + @import("workspace.zig").max_workspaces;
+pub const max_entries = layout.max_panes + 16 + workspace.max_workspaces;
 const selected_bg = "\x1b[48;2;34;44;58m";
 /// `group` is a workspace header row in the grouped "All" list, not an agent.
 pub const Target = union(enum) { pane: layout.PaneId, native: NativeId, group: WorkspaceId };
@@ -36,15 +50,15 @@ pub const Entry = struct {
     group: Group = .{},
     subagents: agents.Subagents = .{},
 
-    pub fn orderTarget(e: Entry) ?@import("agent_order.zig").Target {
+    pub fn orderTarget(e: Entry) ?agent_order.Target {
         return switch (e.target) {
             .pane => |id| .{ .pane = id },
             .native => |id| .{ .native = id },
             .group => null,
         };
     }
-    pub fn lessThan(order: []const @import("agent_order.zig").Target, left: Entry, right: Entry) bool {
-        return @import("agent_order.zig").rank(order, left.orderTarget().?) < @import("agent_order.zig").rank(order, right.orderTarget().?);
+    pub fn lessThan(order: []const agent_order.Target, left: Entry, right: Entry) bool {
+        return agent_order.rank(order, left.orderTarget().?) < agent_order.rank(order, right.orderTarget().?);
     }
 
     // Herdr's dot style and Catppuccin colors; finished attention is its
@@ -60,7 +74,23 @@ pub const Entry = struct {
     }
 };
 
-pub const WorkspaceEntry = struct { resources: @import("resources.zig").Work = .{ .id = .none }, ports: @import("ports.zig").Snapshot = .{}, remote_links: bool = false, git_push: @import("git_push.zig").View = .{}, git_ahead: ?u64 = null, git_commits: []const @import("protocol.zig").GitCommit = &.{}, id: WorkspaceId, name: []const u8, cwd: []const u8, active: bool, agents: usize = 0, working: usize = 0, unread: usize = 0, attention: usize = 0, stats: @import("usage.zig").Counts = .{} };
+pub const WorkspaceEntry = struct {
+    resources: resources.Work = .{ .id = .none },
+    ports: ports.Snapshot = .{},
+    remote_links: bool = false,
+    git_push: git_push.View = .{},
+    git_ahead: ?u64 = null,
+    git_commits: []const protocol.GitCommit = &.{},
+    id: WorkspaceId,
+    name: []const u8,
+    cwd: []const u8,
+    active: bool,
+    agents: usize = 0,
+    working: usize = 0,
+    unread: usize = 0,
+    attention: usize = 0,
+    stats: usage.Counts = .{},
+};
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 /// Render the prospective order without changing shared state or the stable
 /// row geometry used by the captured gesture's hit testing.
@@ -84,7 +114,7 @@ pub const View = struct {
     search: ?Search = null,
     /// Header scope: "all" or the workspace whose agents are listed.
     scope_label: []const u8 = "",
-    corgi_badge: @import("corgi_badge.zig").Mode = .none,
+    corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
     cols: u16,
     rows: u16,
@@ -304,7 +334,7 @@ pub const View = struct {
         } else try w.print("\x1b[{d};{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m New  ▾ {s}", .{ v.middle() + 1, v.width - 9, panel });
         try w.print("\x1b[1;{d}H{s} < ", .{ v.width - 4, panel });
         if (v.corgi_badge != .none) {
-            if (v.corgi_badge == .emoji) try w.print("\x1b[1;2H{s}{s}", .{ panel, @import("corgi_badge.zig").emoji });
+            if (v.corgi_badge == .emoji) try w.print("\x1b[1;2H{s}{s}", .{ panel, corgi_badge.emoji });
             try w.writeAll("\x1b[1;6H\x1b[1;38;2;226;230;233m");
             try writeEllipsis(w, "workspaces", v.width -| 17);
         } else try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");
@@ -454,6 +484,15 @@ pub const View = struct {
         }
         try w.writeAll("\x1b[0m");
     }
+    /// The small glyph beside an agent's detail line: a wait clock, an active
+    /// tool, the thinking spinner, or a napping "z" once idle.
+    fn activityGlyph(e: Entry, waiting: bool, napping: bool, thinking: []const u8) []const u8 {
+        if (waiting) return "◷";
+        if (e.tool_active and (e.state == .working or e.state == .blocked)) return "🔧";
+        if (e.state == .working) return thinking;
+        if (napping) return "ᶻ";
+        return "";
+    }
     fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64, dream: ?corgi_animation.Dream) !void {
         const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
         const frame_index: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
@@ -487,7 +526,7 @@ pub const View = struct {
         const waiting = e.state == .working and e.subagents.waiting and !compacting;
         // Without sleeping corgis, a faint Z marks an idle agent; unseen ones are brighter.
         const napping = e.state == .idle and !v.sleeping_corgis;
-        const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else if (napping) "ᶻ" else "";
+        const activity = activityGlyph(e, waiting, napping, thinking_frames[frame_index]);
         const activity_color = if (!napping) "\x1b[22;38;2;125;132;143m" else if (e.attention == .finished) "\x1b[22;38;2;108;112;134m" else "\x1b[22;38;2;70;74;88m";
         var name: [160]u8 = undefined;
         const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
@@ -498,7 +537,16 @@ pub const View = struct {
         // consuming another terminal row or changing the entry hit area.
         try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + underline_x, underline });
         try w.splatByteAll(' ', v.width - 1 - underline_x);
-        try w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}\x1b[38;2;226;230;233m", .{ y + 2, x + 2, if (dotted) "\x1b[24m" else "", activity_color, activity, y + 2, x + 5, if (dotted) underline else "" });
+        try w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}\x1b[38;2;226;230;233m", .{
+            y + 2,
+            x + 2,
+            if (dotted) "\x1b[24m" else "",
+            activity_color,
+            activity,
+            y + 2,
+            x + 5,
+            if (dotted) underline else "",
+        });
         var clean: [512]u8 = undefined;
         const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
             .working => e.activity,
@@ -642,16 +690,15 @@ pub fn resourceAt(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?
     for (0..3) |reading| if (shownReading(v.resources, ws.resources, reading)) return ws;
     return null;
 }
-const Resources = @import("preferences.zig").Resources;
 fn resourceCardFits(v: View) bool {
-    return @import("resource_tooltip.zig").geometry(v.cols, v.rows, v.width, 0) != null;
+    return resource_tooltip.geometry(v.cols, v.rows, v.width, 0) != null;
 }
-fn alerting(prefs: Resources, work: @import("resources.zig").Work, reading: usize) bool {
+fn alerting(prefs: Resources, work: resources.Work, reading: usize) bool {
     if (!prefs.alerts) return false;
     return (reading == 0 and work.cpu_pressure) or (reading == 1 and work.memory_pressure);
 }
 /// Whether the row shows CPU (0), memory (1) or I/O (2) under these preferences.
-fn shownReading(prefs: Resources, work: @import("resources.zig").Work, reading: usize) bool {
+fn shownReading(prefs: Resources, work: resources.Work, reading: usize) bool {
     const available = switch (reading) {
         0 => work.cpu != null,
         1 => work.memory != null,
@@ -664,8 +711,7 @@ fn shownReading(prefs: Resources, work: @import("resources.zig").Work, reading: 
     };
     return prefs.enabled and available and enabled;
 }
-fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, v: View, hovered: bool) !void {
-    const r = @import("resources.zig");
+fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool) !void {
     const width = v.width -| 3;
     const prefs = v.resources;
     const details = resourceCardFits(v) and width >= 2 and (shownReading(prefs, work, 0) or shownReading(prefs, work, 1) or shownReading(prefs, work, 2));
@@ -674,7 +720,12 @@ fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, v: View
     if (hover) try w.writeAll("\x1b[48;2;48;57;70m");
     const readings_width = width - @as(usize, if (details) 2 else 0);
     var buffers: [3][32]u8 = undefined;
-    const values = [_][]const u8{ r.cpuText(&buffers[0], work.cpu), r.memoryText(&buffers[1], work.memory), r.ioText(&buffers[2], if (work.read != null and work.written != null) work.read.? +| work.written.? else null) };
+    const total_io = if (work.read != null and work.written != null) work.read.? +| work.written.? else null;
+    const values = [_][]const u8{
+        resources.cpuText(&buffers[0], work.cpu),
+        resources.memoryText(&buffers[1], work.memory),
+        resources.ioText(&buffers[2], total_io),
+    };
     for (values, [_][]const u8{ "C", "M", "↕" }, 0..) |value, label, i| {
         const room = if (i == 2) readings_width - (readings_width / 3) * 2 else readings_width / 3;
         if (value.len == 0 or !shownReading(prefs, work, i)) {
@@ -718,7 +769,7 @@ test "resource row omits unavailable metrics and preserves real zeros" {
 test "resource preferences hide individual readings and disable all readings" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    const hot: @import("resources.zig").Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
+    const hot: resources.Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
     var view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
     view.resources.io = false;
     try drawResources(&output.writer, hot, view, false);
@@ -758,7 +809,7 @@ test "readings off removes the resource row and moves the separator under the st
     try std.testing.expectEqual(Hit.workspace_next, paged.hit(24, 12));
     try std.testing.expectEqual(@as(usize, 4), paged.workspaceDrop(5, 4).?.index);
 
-    const hot: @import("resources.zig").Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
+    const hot: resources.Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
     const entries = [_]WorkspaceEntry{
         .{ .id = WorkspaceId.first, .name = "first", .cwd = "", .active = false, .resources = hot, .stats = .{ .tools = 12 } },
         .{ .id = @enumFromInt(2), .name = "second", .cwd = "", .active = true, .resources = hot },
@@ -1024,7 +1075,7 @@ test "unpushed badge retains its columns beside a long workspace name" {
 
 test "active workspace bar follows graphics support independently of the badge" {
     const entries = [_]WorkspaceEntry{ .{ .id = @enumFromInt(1), .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = @enumFromInt(2), .name = "Project", .cwd = "/tmp", .active = true } };
-    for ([_]struct { supported: bool, mode: @import("corgi_badge.zig").Mode }{
+    for ([_]struct { supported: bool, mode: corgi_badge.Mode }{
         .{ .supported = true, .mode = .image },
         .{ .supported = true, .mode = .emoji },
         .{ .supported = true, .mode = .none },
@@ -1163,7 +1214,7 @@ pub fn workspaceUrlName(ws: WorkspaceEntry, index: usize) []const u8 {
     const target = workspaceUrl(ws, index, &target_buf) orelse return "";
     for (ws.ports.workspace(ws.id).endpoints) |endpoint| {
         var candidate_buf: [256]u8 = undefined;
-        const candidate = @import("ports.zig").url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
+        const candidate = ports.url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
         if (std.mem.eql(u8, target, candidate) and endpoint.label.len > 0) return endpoint.label;
     }
     return "";
@@ -1174,7 +1225,7 @@ fn workspaceUrlPending(ws: WorkspaceEntry, index: usize) bool {
     const target = workspaceUrl(ws, index, &target_buf) orelse return false;
     for (ws.ports.workspace(ws.id).endpoints) |endpoint| {
         var candidate_buf: [256]u8 = undefined;
-        const candidate = @import("ports.zig").url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
+        const candidate = ports.url(&candidate_buf, endpoint, ws.remote_links) orelse continue;
         if (std.mem.eql(u8, target, candidate) and endpoint.label_pending) return true;
     }
     return false;
@@ -1219,7 +1270,6 @@ pub fn portLink(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16, buf
 
 // Only confirmed browser URLs participate; duplicate binds collapse to one link.
 pub fn workspaceUrl(ws: WorkspaceEntry, wanted: usize, buf: []u8) ?[]const u8 {
-    const ports = @import("ports.zig");
     const endpoints = ws.ports.workspace(ws.id).endpoints;
     var count: usize = 0;
     for (endpoints, 0..) |endpoint, i| {
@@ -1369,7 +1419,15 @@ pub const PortMenu = struct {
         for (offset..@min(count, offset + capacity(rows))) |index| {
             var buf: [256]u8 = undefined;
             const url = workspaceUrl(ws, index, &buf) orelse continue;
-            try w.print("\x1b[{d};{d}H{s} {s} \x1b]8;id=corgi-popup-{d}-{d};{s}\x1b\\", .{ rect.y + 3 + index - offset, rect.x + 1, if (index == selected) "\x1b[38;2;137;180;250;48;2;49;56;68m" else "\x1b[38;2;137;180;250;48;2;35;40;47m", if (index == selected) "›" else " ", ws.id, index, url });
+            try w.print("\x1b[{d};{d}H{s} {s} \x1b]8;id=corgi-popup-{d}-{d};{s}\x1b\\", .{
+                rect.y + 3 + index - offset,
+                rect.x + 1,
+                if (index == selected) "\x1b[38;2;137;180;250;48;2;49;56;68m" else "\x1b[38;2;137;180;250;48;2;35;40;47m",
+                if (index == selected) "›" else " ",
+                ws.id,
+                index,
+                url,
+            });
             const name = workspaceUrlName(ws, index);
             var label_buf: [384]u8 = undefined;
             const pending = workspaceUrlPending(ws, index);
@@ -1381,7 +1439,6 @@ pub const PortMenu = struct {
 };
 
 test "workspace port labels contain OSC8 URLs selected per viewer" {
-    const ports = @import("ports.zig");
     const ifaces = [_]ports.Interface{.{ .name = "tailscale0", .address = "100.80.1.2", .kind = .tailscale }};
     const endpoints = [_]ports.Endpoint{.{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "*", .port = 3000, .scheme = .http, .http_status = 200, .interfaces = &ifaces }};
     const works = [_]ports.Work{.{ .id = @enumFromInt(1), .background = 2, .endpoints = &endpoints }};
@@ -1397,7 +1454,6 @@ test "workspace port labels contain OSC8 URLs selected per viewer" {
 }
 
 test "non-browser endpoints have no link-out control" {
-    const ports = @import("ports.zig");
     const endpoints = [_]ports.Endpoint{
         .{ .pid = 12, .pane = @enumFromInt(1), .name = "dns", .transport = .udp, .bind_address = "127.0.0.1", .port = 5353 },
         .{ .pid = 13, .pane = @enumFromInt(1), .name = "db", .transport = .tcp, .bind_address = "::1", .port = 5432, .ipv6 = true },
@@ -1411,7 +1467,6 @@ test "non-browser endpoints have no link-out control" {
 }
 
 test "port hit testing matches clipped labels and outer terminal receives link metadata" {
-    const ports = @import("ports.zig");
     const endpoints = [_]ports.Endpoint{
         .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
         .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
@@ -1430,7 +1485,7 @@ test "port hit testing matches clipped labels and outer terminal receives link m
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "http://") == null);
     const menu: PortMenu = .{ .workspace = @enumFromInt(1) };
     try menu.draw(&out.writer, entries[0], 80, 24);
-    const host = try @import("terminal.zig").Terminal.create(80, 24);
+    const host = try terminal.Terminal.create(80, 24);
     defer host.destroy();
     host.feed(out.written());
     try host.updateRender();
@@ -1446,7 +1501,6 @@ test "port hit testing matches clipped labels and outer terminal receives link m
 }
 
 test "inferred link names share clipped hit geometry and name chooser destinations" {
-    const ports = @import("ports.zig");
     var endpoints = [_]ports.Endpoint{
         .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .label = "Finance Dashboard", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
         .{ .pid = 13, .pane = @enumFromInt(2), .name = "web", .label = "API Docs", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3001, .scheme = .http, .http_status = 200 },
@@ -1471,8 +1525,7 @@ test "inferred link names share clipped hit geometry and name chooser destinatio
 }
 
 test "corgi frames occupy one column per glyph in the terminal" {
-    const frames = @import("corgi_frames.zig");
-    const routines = [_][]const []const u8{ &frames.wag, &frames.fetch, &frames.sniff };
+    const routines = [_][]const []const u8{ &corgi_frames.wag, &corgi_frames.fetch, &corgi_frames.sniff };
     for (routines) |routine| for (routine) |frame| {
         try std.testing.expectEqual(try std.unicode.utf8CountCodepoints(frame), displayWidth(frame));
         try std.testing.expect(displayWidth(frame) <= 18);
@@ -1654,11 +1707,11 @@ test "agents header names its scope and opens the scope menu left of New" {
         try std.testing.expectEqual(Hit.agent_new, view.hit(width - 10, view.middle()));
         view.scope_label = "a workspace with a long name";
         try view.draw(&output.writer, &.{}, &.{});
-        const host = try @import("terminal.zig").Terminal.create(100, 30);
+        const host = try terminal.Terminal.create(100, 30);
         defer host.destroy();
         host.feed(output.written());
         const text = try host.text();
-        defer @import("os.zig").allocator.free(text);
+        defer a.free(text);
         var lines = std.mem.splitScalar(u8, text, '\n');
         for (0..view.middle()) |_| _ = lines.next();
         const header = lines.next().?;
@@ -1687,11 +1740,11 @@ test "scope menu offers only the current workspace and all agents" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try (ScopeMenu{}).draw(&output.writer, view, 100, 30, &workspaces, .all);
-    const host = try @import("terminal.zig").Terminal.create(100, 30);
+    const host = try terminal.Terminal.create(100, 30);
     defer host.destroy();
     host.feed(output.written());
     const text = try host.text();
-    defer @import("os.zig").allocator.free(text);
+    defer a.free(text);
     var lines = std.mem.splitScalar(u8, text, '\n');
     for (0..b.y + 1) |_| _ = lines.next();
     try std.testing.expectEqualStrings(" │   This workspace     3 │", std.mem.trimRight(u8, lines.next().?, " "));
@@ -1718,11 +1771,11 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try view.draw(&output.writer, &entries, &.{});
-    const host = try @import("terminal.zig").Terminal.create(100, 30);
+    const host = try terminal.Terminal.create(100, 30);
     defer host.destroy();
     host.feed(output.written());
     const text = try host.text();
-    defer @import("os.zig").allocator.free(text);
+    defer a.free(text);
     var lines = std.mem.splitScalar(u8, text, '\n');
     for (0..top) |_| _ = lines.next();
     var rows: [6][]const u8 = undefined;
@@ -1805,7 +1858,7 @@ test "commit relative time humanizes elapsed and future timestamps" {
 test "content wipes over the old corgi in terminal cells and then clears it" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    const host = try @import("terminal.zig").Terminal.create(100, 30);
+    const host = try terminal.Terminal.create(100, 30);
     defer host.destroy();
     var entry: Entry = .{ .target = .{ .pane = @enumFromInt(10001) }, .name = "Agent", .provider = .codex, .state = .working, .attention = .none };
     const view = View.init(100, 30, true, 0, 1);
@@ -1819,7 +1872,7 @@ test "content wipes over the old corgi in terminal cells and then clears it" {
     try view.drawAt(&output.writer, &.{entry}, &.{}, 145);
     host.feed(output.written());
     const mixed = try host.text();
-    defer @import("os.zig").allocator.free(mixed);
+    defer a.free(mixed);
     // Two revealed cells overlay the old tail and ear; the awake face stays below.
     try std.testing.expect(std.mem.indexOf(u8, mixed, "Re•") != null);
     output.clearRetainingCapacity();
@@ -1831,7 +1884,7 @@ test "content wipes over the old corgi in terminal cells and then clears it" {
     try view.drawAt(&output.writer, &.{entry}, &.{}, 550);
     host.feed(output.written());
     const completed = try host.text();
-    defer @import("os.zig").allocator.free(completed);
+    defer a.free(completed);
     try std.testing.expect(std.mem.indexOf(u8, completed, "OK                    ") != null);
     try std.testing.expect(std.mem.indexOf(u8, completed, "ᐯ") == null);
 }

@@ -12,6 +12,9 @@ const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const Resume = @import("checkpoint.zig").Resume;
 const Theme = @import("theme.zig").Theme;
+const builtin = @import("builtin");
+const providers = @import("providers.zig");
+const detection = @import("detection.zig");
 const max_manifest = 16 * 1024 * 1024;
 
 pub const SourcePane = struct { id: []const u8, name: []const u8, cwd: []const u8, pid: ?i32 = null, resume_hint: Resume = .{} };
@@ -108,7 +111,7 @@ fn resumeRef(value: Value) Resume {
     var out: Resume = .{};
     if (!equal(value, "kind", "id")) return out;
     const agent = textField(value, "agent");
-    out.provider = @import("providers.zig").Provider.named(agent);
+    out.provider = providers.Provider.named(agent);
     const id = textField(value, "value");
     if (out.provider == null or id.len == 0 or id.len > out.session.len or !std.unicode.utf8ValidateSlice(id)) return .{};
     for (id) |ch| if (ch < 32 or ch == 127) return .{};
@@ -217,7 +220,13 @@ fn scanSession(alloc: std.mem.Allocator, socket: []const u8, name: []const u8, c
                 }
                 if (pid <= 0) pid = number(field(process, "shell_pid"));
                 if (label.len == 0) label = "Terminal";
-                try panes.append(alloc, .{ .id = pane_id, .name = label, .cwd = dir, .pid = if (pid > 0 and pid <= std.math.maxInt(i32)) @intCast(pid) else null, .resume_hint = resumeRef(field(pane, "agent_session")) });
+                try panes.append(alloc, .{
+                    .id = pane_id,
+                    .name = label,
+                    .cwd = dir,
+                    .pid = if (pid > 0 and pid <= std.math.maxInt(i32)) @intCast(pid) else null,
+                    .resume_hint = resumeRef(field(pane, "agent_session")),
+                });
             }
             const exported = try rpc(alloc, socket, "layout.export", .{ .tab_id = tab_id });
             const root_node = field(field(exported, "layout"), "root");
@@ -365,14 +374,20 @@ pub const Manager = struct {
         const job = self.job orelse return .{};
         const actual = job.phase.load(.acquire);
         const phase: Phase = if (actual == .complete and !job.adopted) .committing else actual;
-        return .{ .phase = phase, .completed = if (phase == .complete) job.total.load(.monotonic) else 0, .total = job.total.load(.monotonic), .workspace = if (job.adopted) job.first_workspace else null, .message = if (phase == .failed) job.failure else switch (phase) {
-            .connecting => "Connecting to Herdr",
-            .receiving => "Receiving live terminals",
-            .preparing => "Preparing your workspaces",
-            .committing => if (job.uncertain.load(.monotonic)) "Waiting for Herdr ownership confirmation" else "Moving terminal ownership",
-            .complete => "Processes are running in Corgi",
-            else => "",
-        } };
+        return .{
+            .phase = phase,
+            .completed = if (phase == .complete) job.total.load(.monotonic) else 0,
+            .total = job.total.load(.monotonic),
+            .workspace = if (job.adopted) job.first_workspace else null,
+            .message = if (phase == .failed) job.failure else switch (phase) {
+                .connecting => "Connecting to Herdr",
+                .receiving => "Receiving live terminals",
+                .preparing => "Preparing your workspaces",
+                .committing => if (job.uncertain.load(.monotonic)) "Waiting for Herdr ownership confirmation" else "Moving terminal ownership",
+                .complete => "Processes are running in Corgi",
+                else => "",
+            },
+        };
     }
     pub fn tick(self: *Manager, r: *Runtime) bool {
         const job = self.job orelse return false;
@@ -515,7 +530,11 @@ const Job = struct {
         const token = try std.fmt.allocPrint(alloc, "{x}{x}", .{ std.crypto.random.int(u64), std.crypto.random.int(u64) });
         const listener = try os.listen(bridge_path);
         defer _ = c.close(listener);
-        const script = try std.fmt.allocPrint(alloc, "#!/bin/sh\nexec {s} __herdr_import {s} {s} \"$@\"\n", .{ try shellQuote(alloc, job.executable), try shellQuote(alloc, bridge_path), try shellQuote(alloc, token) });
+        const script = try std.fmt.allocPrint(alloc, "#!/bin/sh\nexec {s} __herdr_import {s} {s} \"$@\"\n", .{
+            try shellQuote(alloc, job.executable),
+            try shellQuote(alloc, bridge_path),
+            try shellQuote(alloc, token),
+        });
         {
             const file = try std.fs.cwd().createFile(launcher, .{ .mode = 0o700, .exclusive = true });
             defer file.close();
@@ -552,7 +571,7 @@ const Job = struct {
             const foreground = c.tcgetpgrp(fd);
             if (job.viewer_pgid) |viewer| if (viewer > 0 and foreground == viewer) return error.CannotHandoffCurrentConsole;
             if (foreground > 0 and corgiProcess(foreground, job.executable)) return error.CannotHandoffCurrentConsole;
-            if (@import("detection.zig").foreground(fd)) |process| {
+            if (detection.foreground(fd)) |process| {
                 const p = &job.staged.panes.items[i];
                 p.detection.pid = process.pid;
                 p.detection.ready = p.attachment.provisional.state != .unknown;
@@ -744,12 +763,25 @@ fn restoreTree(model: *layout.Model, node: Value, states: []Value, seen: *[layou
     }
     const split = field(node, "Split");
     if (split != .object or (!equal(split, "direction", "Horizontal") and !equal(split, "direction", "Vertical"))) return error.InvalidHerdrLayout;
-    return model.alloc(.{ .split = .{ .axis = if (equal(split, "direction", "Horizontal")) .horizontal else .vertical, .ratio = ratio(field(split, "ratio")), .first = try restoreTree(model, field(split, "first"), states, seen, depth + 1), .second = try restoreTree(model, field(split, "second"), states, seen, depth + 1) } });
+    return model.alloc(.{ .split = .{
+        .axis = if (equal(split, "direction", "Horizontal")) .horizontal else .vertical,
+        .ratio = ratio(field(split, "ratio")),
+        .first = try restoreTree(model, field(split, "first"), states, seen, depth + 1),
+        .second = try restoreTree(model, field(split, "second"), states, seen, depth + 1),
+    } });
 }
 fn seedTerminal(t: *Terminal, state: Value) void {
     t.feed(textField(state, "initial_history_ansi"));
     const input = field(state, "input_state");
-    const modes = .{ .{ "alternate_screen", "\x1b[?1049h" }, .{ "application_cursor", "\x1b[?1h" }, .{ "bracketed_paste", "\x1b[?2004h" }, .{ "focus_reporting", "\x1b[?1004h" }, .{ "mouse_alternate_scroll", "\x1b[?1007h" }, .{ "modify_other_keys", "\x1b[>4;2m" }, .{ "color_scheme_reporting", "\x1b[?2031h" } };
+    const modes = .{
+        .{ "alternate_screen", "\x1b[?1049h" },
+        .{ "application_cursor", "\x1b[?1h" },
+        .{ "bracketed_paste", "\x1b[?2004h" },
+        .{ "focus_reporting", "\x1b[?1004h" },
+        .{ "mouse_alternate_scroll", "\x1b[?1007h" },
+        .{ "modify_other_keys", "\x1b[>4;2m" },
+        .{ "color_scheme_reporting", "\x1b[?2031h" },
+    };
     inline for (modes) |mode| if (yes(field(input, mode[0]))) t.feed(mode[1]);
     const mouse = textField(input, "mouse_protocol_mode");
     switch (std.meta.stringToEnum(MouseMode, mouse) orelse .unknown) {
@@ -790,7 +822,7 @@ fn shellQuote(alloc: std.mem.Allocator, value: []const u8) ![]u8 {
 
 fn corgiProcess(pid: i32, executable: []const u8) bool {
     var bytes: [std.fs.max_path_bytes]u8 = undefined;
-    const path = if (@import("builtin").os.tag == .macos) blk: {
+    const path = if (builtin.os.tag == .macos) blk: {
         const n = c.proc_pidpath(pid, &bytes, bytes.len);
         if (n <= 0) return false;
         break :blk std.mem.sliceTo(bytes[0..@intCast(n)], 0);
@@ -824,7 +856,7 @@ fn acceptBridge(listener: i32, request: i32, cancel: *std.atomic.Value(bool)) !i
     return error.HandoffImporterTimedOut;
 }
 
-const control_align = if (@import("builtin").os.tag == .macos) 4 else @sizeOf(usize);
+const control_align = if (builtin.os.tag == .macos) 4 else @sizeOf(usize);
 fn aligned(n: usize) usize {
     return std.mem.alignForward(usize, n, control_align);
 }

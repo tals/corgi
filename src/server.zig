@@ -16,21 +16,49 @@ const protocol = @import("protocol.zig");
 const Op = protocol.Op;
 const Theme = @import("theme.zig").Theme;
 const Client = @import("peer.zig").Client;
+const launch_command = @import("launch_command.zig");
+const agent_launcher = @import("agent_launcher.zig");
+const onboarding_import = @import("onboarding_import.zig");
+const herdr_adapter = @import("herdr_adapter.zig");
+const activity_worker = @import("activity_worker.zig");
+const transcript = @import("transcript.zig");
+const usage_worker = @import("usage_worker.zig");
+const codex_observer = @import("codex_observer.zig");
+const session_command = @import("session.zig");
+const git_push = @import("git_push.zig");
+const recovery = @import("recovery.zig");
+const inference_setup = @import("inference_setup.zig");
+const viewer_protocol = @import("viewer_protocol.zig");
+const surface = @import("surface.zig");
+const passes = @import("passes.zig");
+const main = @import("main.zig");
+const options = @import("corgi_options");
+const updates = @import("updates.zig");
+const detection = @import("detection.zig");
+const git_status = @import("git_status.zig");
+const inference = @import("inference.zig");
+const ports = @import("ports.zig");
+const link_labels = @import("link_labels.zig");
+const clock = @import("clock.zig");
+const integration = @import("integration.zig");
+const handoff = @import("handoff.zig");
+const Terminal = @import("terminal.zig").Terminal;
+const log = std.log.scoped(.server);
 pub const Server = struct {
     const Pane = runtime.Pane;
     runtime: runtime.Runtime = .{},
-    command_previews: ?*@import("launch_command.zig").Worker = null,
-    launch_previews: ?*@import("agent_launcher.zig").Worker = null,
-    onboarding_copy: @import("onboarding_import.zig").Job = .{},
-    herdr_import: @import("herdr_adapter.zig").Manager = .{},
+    command_previews: ?*launch_command.Worker = null,
+    launch_previews: ?*agent_launcher.Worker = null,
+    onboarding_copy: onboarding_import.Job = .{},
+    herdr_import: herdr_adapter.Manager = .{},
     handoff_operation: u64 = 0,
     import_starter: ?struct { id: WorkspaceId, revision: u64 } = null,
-    summaries: ?*@import("activity_worker.zig").Worker = null,
+    summaries: ?*activity_worker.Worker = null,
     /// Polling workers a `test.settle` waits for; set while the daemon runs.
     workers: ?struct {
-        transcripts: *@import("transcript.zig").Worker,
-        usage: *@import("usage_worker.zig").Worker,
-        codex: *@import("codex_observer.zig").Worker,
+        transcripts: *transcript.Worker,
+        usage: *usage_worker.Worker,
+        codex: *codex_observer.Worker,
     } = null,
     /// Test builds: clients waiting for every worker to finish a later pass
     /// and for the daemon to apply its results.
@@ -77,9 +105,12 @@ pub const Server = struct {
         return &s.runtime.workspaces.items.items[0];
     }
     pub fn saveWorkspaces(s: *Server) void {
-        const path = workspace.Store.statePath(s.socket) catch return;
+        const path = workspace.Store.statePath(s.socket) catch |err| {
+            log.warn("workspace state path: {}", .{err});
+            return;
+        };
         defer a.free(path);
-        s.runtime.workspaces.save(path, s.initialWorkspace().id) catch |err| std.log.err("saving workspaces: {s}", .{@errorName(err)});
+        s.runtime.workspaces.save(path, s.initialWorkspace().id) catch |err| log.err("saving workspaces: {}", .{err});
     }
     fn rememberImportStarter(s: *Server) void {
         s.import_starter = null;
@@ -95,7 +126,10 @@ pub const Server = struct {
         const ws = s.runtime.workspaces.get(starter.id) orelse return;
         // Another viewer can use or rename the starter while Herdr connects.
         if (ws.model.count != 0 or ws.name_len != 0 or ws.model.revision != starter.revision) return;
-        s.runtime.closeWorkspace(starter.id, false) catch return;
+        s.runtime.closeWorkspace(starter.id, false) catch |err| {
+            log.warn("closing import starter workspace: {}", .{err});
+            return;
+        };
         s.default_folder_pending = false;
         s.preferred_workspace = target;
         for (s.clients.items) |*cl| if (cl.view_workspace == starter.id) {
@@ -114,8 +148,7 @@ pub const Server = struct {
             s.saveWorkspaces();
         }
     }
-    fn codexActor(s: *Server, snap: @import("codex_observer.zig").Snapshot) !?*@import("conversations.zig").Actor {
-        const codex_observer = @import("codex_observer.zig");
+    fn codexActor(s: *Server, snap: codex_observer.Snapshot) !?*Actor {
         return if (snap.request.actor != ActorId.none)
             s.runtime.conversations.byId(snap.request.actor) orelse return null
         else blk: {
@@ -123,7 +156,7 @@ pub const Server = struct {
             const prefix = codex_observer.titlePrefix(p.terminal.vt.getTitle() orelse "") orelse return null;
             if (p.terminal.exited or p.detection.missing != 0 or p.detection.pid != snap.request.pid or
                 p.terminal.title_pid != snap.request.pid or p.terminal.title_revision != snap.request.title_revision or
-                p.attachment.generation != snap.request.generation or !eq(prefix.text(), snap.request.prefix.text())) return null;
+                p.attachment.generation != snap.request.generation or !std.mem.eql(u8, prefix.text(), snap.request.prefix.text())) return null;
             const selected = try s.runtime.conversations.get(.codex, &snap.session);
             p.attachment.select(selected);
             if (selected.workspace == WorkspaceId.none or s.runtime.workspaces.index(selected.workspace) == null) {
@@ -136,19 +169,19 @@ pub const Server = struct {
         return s.runtime.pane(id);
     }
     pub fn notice(_: *Server, msg: []const u8) void {
-        std.log.info("{s}", .{msg});
+        log.info("{s}", .{msg});
     }
     /// All shared commands have one execution and post-commit path.
-    pub fn execute(s: *Server, command: @import("session.zig").Command, allocator: std.mem.Allocator) !@import("session.zig").Result {
+    pub fn execute(s: *Server, command: session_command.Command, allocator: std.mem.Allocator) !session_command.Result {
         if (s.herdr_import.locked() or s.onboarding_copy.busy()) return error.ImportInProgress;
         const before = s.runtime.revision;
-        const result = try @import("session.zig").execute(&s.runtime, .{ .socket = s.socket, .executable = s.executable, .theme = s.theme }, command, allocator);
+        const result = try session_command.execute(&s.runtime, .{ .socket = s.socket, .executable = s.executable, .theme = s.theme }, command, allocator);
         if (s.runtime.revision != before) {
             if (result.pane != layout.PaneId.none) s.default_folder_pending = false;
             s.dirty = true;
             s.followWorkspaceDirectories();
             s.saveWorkspaces();
-            @import("viewer_protocol.zig").resize(s) catch |err| std.log.warn("resizing panes: {s}", .{@errorName(err)});
+            viewer_protocol.resize(s) catch |err| log.warn("resizing panes: {}", .{err});
         }
         return result;
     }
@@ -206,12 +239,21 @@ pub const Server = struct {
             .hello => {
                 try protocol.require(v, null);
                 cl.protocol_version = protocol.version;
-                try cl.queue(.{ .type = "hello", .protocol = protocol.version, .capabilities = protocol.capabilities, .server_pid = c.getpid(), .build_id = &@import("main.zig").build_id, .executable = s.executable, .release_version = @import("corgi_options").release_version, .update_abi = @import("updates.zig").abi });
+                try cl.queue(.{
+                    .type = "hello",
+                    .protocol = protocol.version,
+                    .capabilities = protocol.capabilities,
+                    .server_pid = c.getpid(),
+                    .build_id = &main.build_id,
+                    .executable = s.executable,
+                    .release_version = options.release_version,
+                    .update_abi = updates.abi,
+                });
             },
             .@"git.push" => {
                 try protocol.require(v, cl.protocol_version);
                 if (s.reload_executable != null) return error.ReloadInProgress;
-                const Request = struct { workspace: WorkspaceId, ref: @import("git_push.zig").RefView };
+                const Request = struct { workspace: WorkspaceId, ref: git_push.RefView };
                 const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
                 defer parsed.deinit();
                 try s.runtime.git_push.start(&s.runtime.workspaces, parsed.value.workspace, parsed.value.ref);
@@ -226,7 +268,13 @@ pub const Server = struct {
                 if (op == .@"onboarding.status") {
                     if (id == s.handoff_operation and id != 0) {
                         const status = s.herdr_import.status();
-                        try cl.queue(.{ .ok = true, .progress = .{ .phase = @tagName(status.phase), .completed = status.completed, .total = status.total, .workspace = status.workspace, .message = status.message } });
+                        try cl.queue(.{ .ok = true, .progress = .{
+                            .phase = @tagName(status.phase),
+                            .completed = status.completed,
+                            .total = status.total,
+                            .workspace = status.workspace,
+                            .message = status.message,
+                        } });
                     } else if (id == s.onboarding_copy.operation and id != 0) {
                         try cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
                     } else return error.NoImport;
@@ -262,8 +310,8 @@ pub const Server = struct {
             },
             .@"recovery.save" => {
                 try protocol.require(v, cl.protocol_version);
-                try @import("recovery.zig").save(&s.runtime, s.socket);
-                const path = try @import("recovery.zig").path(s.socket);
+                try recovery.save(&s.runtime, s.socket);
+                const path = try recovery.path(s.socket);
                 defer a.free(path);
                 try cl.queue(.{ .ok = true, .path = path });
             },
@@ -285,7 +333,7 @@ pub const Server = struct {
                 const requested = agents.str(v, "cwd");
                 const cwd = if (requested.len > 0) requested else ws.cwd;
                 if (!std.fs.path.isAbsolute(cwd) or cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
-                const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else @import("agent_launcher.zig").Preview{};
+                const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else agent_launcher.Preview{};
                 if (subscribe) {
                     cl.launch_preview = .{ .len = cwd.len, .preview = preview, .checked = std.time.milliTimestamp() };
                     @memcpy(cl.launch_preview.?.cwd[0..cwd.len], cwd);
@@ -294,13 +342,12 @@ pub const Server = struct {
             },
             .@"inference.configure" => {
                 try protocol.require(v, cl.protocol_version);
-                const setup = @import("inference_setup.zig");
-                const choice = std.meta.stringToEnum(setup.Choice, agents.str(v, "choice")) orelse return error.BadProvider;
+                const choice = std.meta.stringToEnum(inference_setup.Choice, agents.str(v, "choice")) orelse return error.BadProvider;
                 const worker = s.summaries orelse return error.InferenceUnavailable;
                 worker.configure(choice);
-                const saved = if (setup.path(s.socket)) |file| blk: {
+                const saved = if (inference_setup.path(s.socket)) |file| blk: {
                     defer a.free(file);
-                    setup.save(file, choice) catch break :blk false;
+                    inference_setup.save(file, choice) catch break :blk false;
                     break :blk true;
                 } else |_| false;
                 s.publishInference();
@@ -310,25 +357,25 @@ pub const Server = struct {
                 try protocol.require(v, cl.protocol_version);
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                const parsed = try std.json.parseFromValue(@import("session.zig").Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
+                const parsed = try std.json.parseFromValue(session_command.Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
                 const result = try s.execute(parsed.value, arena.allocator());
                 try cl.queue(.{ .ok = true, .result = result });
             },
             .@"viewer.open", .@"viewer.sync", .@"viewer.search", .@"pane.acknowledge" => {
-                try @import("viewer_protocol.zig").handle(s, cl, v, op);
+                try viewer_protocol.handle(s, cl, v, op);
             },
             .@"viewer.list", .action, .focus, .@"workspace.switch" => {
-                try @import("viewer_protocol.zig").routeControl(s, cl, v, op);
+                try viewer_protocol.routeControl(s, cl, v, op);
             },
             .@"session.locate" => {
                 try protocol.require(v, cl.protocol_version);
-                try cl.queue(.{ .ok = true, .result = try @import("session.zig").location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
+                try cl.queue(.{ .ok = true, .result = try session_command.location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
             },
             .@"session.list" => {
                 try protocol.require(v, cl.protocol_version);
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                try cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try @import("viewer_protocol.zig").viewers(s, arena.allocator()) });
+                try cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try viewer_protocol.viewers(s, arena.allocator()) });
             },
             .@"session.snapshot", .@"session.subscribe" => {
                 try protocol.require(v, cl.protocol_version);
@@ -360,8 +407,8 @@ pub const Server = struct {
                 const p = s.pane(id) orelse return error.NoPane;
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                const surface = try @import("surface.zig").capture(arena.allocator(), id, p.terminal);
-                try cl.queue(.{ .type = "surface", .protocol = protocol.version, .server_pid = c.getpid(), .revision = s.runtime.revision, .surface = surface });
+                const captured = try surface.capture(arena.allocator(), id, p.terminal);
+                try cl.queue(.{ .type = "surface", .protocol = protocol.version, .server_pid = c.getpid(), .revision = s.runtime.revision, .surface = captured });
             },
             .@"native.start" => {
                 if (s.runtime.sessions.items.len >= 16) return error.TooManyNativeSessions;
@@ -377,10 +424,38 @@ pub const Server = struct {
                 try cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
             },
             .@"native.list" => {
-                const Info = struct { id: NativeId, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
+                const Info = struct {
+                    id: NativeId,
+                    pid: i32,
+                    session_id: []const u8,
+                    provider: agents.Provider,
+                    ready: bool,
+                    exited: bool,
+                    state: agents.State,
+                    attention: agents.Attention,
+                    observation: agents.observation.State,
+                    unread: bool,
+                    pending_requests: usize,
+                    active_tools: usize,
+                    next_seq: u64,
+                };
                 var info: std.ArrayList(Info) = .empty;
                 defer info.deinit(a);
-                for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.status(), .attention = session.attention(), .observation = session.observation(), .unread = session.observation().unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
+                for (s.runtime.sessions.items) |session| try info.append(a, .{
+                    .id = session.id,
+                    .pid = session.child.id,
+                    .session_id = session.resume_hint.session[0..session.resume_hint.len],
+                    .provider = session.provider,
+                    .ready = session.ready,
+                    .exited = session.exited,
+                    .state = session.status(),
+                    .attention = session.attention(),
+                    .observation = session.observation(),
+                    .unread = session.observation().unread(),
+                    .pending_requests = session.approvals.items.len,
+                    .active_tools = session.active_tools.items.len,
+                    .next_seq = session.next_seq,
+                });
                 try cl.queue(.{ .ok = true, .sessions = info.items });
             },
             .@"native.stop", .@"native.send", .@"native.events" => {
@@ -404,7 +479,13 @@ pub const Server = struct {
                             for (session.events.items) |event| if (event.seq > after) try events.append(a, event);
                             const requests = try session.approvalLines(a);
                             defer a.free(requests);
-                            try cl.queue(.{ .ok = true, .events = events.items, .pending_requests = requests, .next_seq = session.next_seq, .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq });
+                            try cl.queue(.{
+                                .ok = true,
+                                .events = events.items,
+                                .pending_requests = requests,
+                                .next_seq = session.next_seq,
+                                .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq,
+                            });
                             session.acknowledge();
                         },
                         else => unreachable,
@@ -469,17 +550,16 @@ pub const Server = struct {
                 try cl.queue(.{ .ok = true });
             },
             .@"test.settle" => {
-                if (!@import("corgi_options").test_build) return error.UnknownOperation;
+                if (!options.test_build) return error.UnknownOperation;
                 // Replied from the main loop once the daemon has caught up.
                 const w = s.workers orelse return error.NotRunning;
-                const passes = @import("passes.zig");
                 try s.settles.append(a, .{ .fd = cl.fd, .targets = .{ passes.settle(w.transcripts), passes.settle(w.usage), passes.settle(w.codex) } });
             },
             .@"test.advance" => {
-                if (!@import("corgi_options").test_build) return error.UnknownOperation;
+                if (!options.test_build) return error.UnknownOperation;
                 const ms = v.object.get("ms") orelse return error.MissingField;
                 if (ms != .integer or ms.integer < 0) return error.InvalidField;
-                @import("clock.zig").advance(ms.integer);
+                clock.advance(ms.integer);
                 if (s.summaries) |worker| worker.poke();
                 try cl.queue(.{ .ok = true });
             },
@@ -494,16 +574,19 @@ pub const Server = struct {
     /// Backgrounding a Claude conversation continues it under a new session in
     /// Claude's daemon while the pane's client keeps showing it. Its hooks
     /// cannot name that pane, so panes follow the transcript's continued-in.
-    fn followContinuation(s: *Server, old: *@import("conversations.zig").Actor, session: []const u8) void {
+    fn followContinuation(s: *Server, old: *Actor, session: []const u8) void {
         switch (old.provider()) {
             .claude => {},
             .codex => return,
         }
-        if (eq(session, old.state.sessionId())) return;
+        if (std.mem.eql(u8, session, old.state.sessionId())) return;
         var followed = false;
         for (s.runtime.panes.items) |*p| {
             if (p.attachment.actor != old) continue;
-            const next = s.runtime.conversations.get(.claude, session) catch return;
+            const next = s.runtime.conversations.get(.claude, session) catch |err| {
+                log.warn("following continuation to session {s}: {}", .{ session, err });
+                return;
+            };
             if (next.workspace == WorkspaceId.none) next.workspace = old.workspace;
             if (next.state.last_seq == 0) {
                 // The continuation is usually mid-turn; hooks refine it later.
@@ -545,7 +628,6 @@ pub const Server = struct {
     /// and git scans in progress are applied first too; pushes are not awaited.
     fn progressSettles(s: *Server) void {
         const w = s.workers orelse return;
-        const passes = @import("passes.zig");
         var i: usize = 0;
         while (i < s.settles.items.len) {
             const pending = &s.settles.items[i];
@@ -563,7 +645,7 @@ pub const Server = struct {
     fn reattachFromTitle(s: *Server, p: *Pane, provider: agents.Provider, pid: c_int) void {
         if (p.attachment.actor != null or p.terminal.exited or pid <= 0 or p.terminal.title_pid != pid) return;
         const prefix = provider.backend().titleSession(p.terminal.vt.getTitle() orelse "") orelse return;
-        var found: ?*@import("conversations.zig").Actor = null;
+        var found: ?*Actor = null;
         for (s.runtime.conversations.items.items) |actor| {
             if (actor.provider() != provider or actor.state.session_len != 36 or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.text())) continue;
             if (found != null) return; // A truncated UUID must resolve uniquely.
@@ -577,12 +659,11 @@ pub const Server = struct {
         }
     }
     fn detectPane(s: *Server, p: *Pane) void {
-        const detection = @import("detection.zig");
         const job = detection.foreground(p.terminal.fd);
         const before = p.agent().*;
         const old_binding = p.attachment.generation;
         const previous_pid = p.detection.pid;
-        if (before.provider != p.agent().provider or !eq(before.sessionId(), p.agent().sessionId())) {
+        if (before.provider != p.agent().provider or !std.mem.eql(u8, before.sessionId(), p.agent().sessionId())) {
             if (p.agent().provider) |provider| s.runtime.last_agent = provider;
         }
         p.resume_hint.observe(p.agent());
@@ -668,28 +749,28 @@ pub const Server = struct {
         s.attention(ding, p.agent().state);
     }
     pub fn run(s: *Server) !void {
-        s.command_previews = try @import("launch_command.zig").Worker.start();
+        s.command_previews = try launch_command.Worker.start();
         defer {
             s.command_previews.?.stop();
             s.command_previews = null;
         }
-        s.launch_previews = try @import("agent_launcher.zig").Worker.start();
+        s.launch_previews = try agent_launcher.Worker.start();
         defer {
             s.launch_previews.?.stop();
             s.launch_previews = null;
         }
-        const observer = try @import("transcript.zig").Worker.start();
+        const observer = try transcript.Worker.start();
         defer observer.stop();
-        const usage_worker = @import("usage_worker.zig");
         const usage = try usage_worker.Worker.start();
         defer usage.stop();
-        const codex_observer = @import("codex_observer.zig");
-        const setup = @import("inference_setup.zig");
-        const settings = setup.path(s.socket) catch null;
+        const settings = inference_setup.path(s.socket) catch |err| blk: {
+            log.warn("inference settings path: {}", .{err});
+            break :blk null;
+        };
         const summaries = if (s.summaries) |inherited| blk: {
             try inherited.activate();
             break :blk inherited;
-        } else try @import("activity_worker.zig").Worker.start(setup.initial(if (settings) |file| setup.load(file) else null));
+        } else try activity_worker.Worker.start(inference_setup.initial(if (settings) |file| inference_setup.load(file) else null));
         if (settings) |file| a.free(file);
         s.summaries = summaries;
         defer {
@@ -714,10 +795,13 @@ pub const Server = struct {
         defer a.free(state_path);
         if (s.inherited_listener != null) {
             // Imported state and sockets are ready before ownership commits.
-        } else if (try @import("recovery.zig").load(&s.runtime, s.socket, s.executable)) {
+        } else if (try recovery.load(&s.runtime, s.socket, s.executable)) {
             var preferences: workspace.Store = .{};
             defer preferences.deinit();
-            s.preferred_workspace = (preferences.load(state_path) catch null) orelse .none;
+            s.preferred_workspace = (preferences.load(state_path) catch |err| blk: {
+                log.warn("loading preferred workspace: {}", .{err});
+                break :blk null;
+            }) orelse .none;
             s.default_folder_pending = false;
         } else if (try s.runtime.workspaces.load(state_path)) |selected| {
             s.preferred_workspace = selected;
@@ -727,8 +811,8 @@ pub const Server = struct {
             try s.runtime.workspaces.save(state_path, s.initialWorkspace().id);
         }
         if (s.inherited_listener == null) for (agents.Provider.all) |provider| {
-            @import("integration.zig").install(provider) catch |err| {
-                std.log.warn("{t} hook setup: {s}; using automatic detection", .{ provider, @errorName(err) });
+            integration.install(provider) catch |err| {
+                log.warn("{t} hook setup: {}; using automatic detection", .{ provider, err });
                 var msg: [180]u8 = undefined;
                 s.notice(std.fmt.bufPrint(&msg, "{t} hooks: {s}; automatic detection is active", .{ provider, @errorName(err) }) catch "Hook setup failed; automatic detection is active");
             };
@@ -747,7 +831,7 @@ pub const Server = struct {
             const handed_off = s.herdr_import.tick(&s.runtime);
             const copied = s.onboarding_copy.tick(&s.runtime, .{ .workspace = .none, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
             if (handed_off) s.finishImport(s.herdr_import.status().workspace);
-            if (copied and eq(s.onboarding_copy.progress.phase, "complete")) s.finishImport(s.onboarding_copy.progress.workspace);
+            if (copied and std.mem.eql(u8, s.onboarding_copy.progress.phase, "complete")) s.finishImport(s.onboarding_copy.progress.workspace);
             if (handed_off or copied) {
                 s.dirty = true;
                 s.saveWorkspaces();
@@ -797,7 +881,7 @@ pub const Server = struct {
                 if (now - s.last_update_check >= 30 * std.time.ms_per_s) {
                     s.last_update_check = now;
                     var scratch: [64]u8 = undefined;
-                    const found = @import("updates.zig").stagedVersion(s.executable, &scratch) orelse "";
+                    const found = updates.stagedVersion(s.executable, &scratch) orelse "";
                     if (!std.mem.eql(u8, found, s.runtime.staged_version)) {
                         @memcpy(s.staged_buf[0..found.len], found);
                         s.runtime.staged_version = s.staged_buf[0..found.len];
@@ -821,7 +905,7 @@ pub const Server = struct {
                     s.dirty = true;
                     s.runtime.changed();
                 }
-                var link_results: [@import("link_labels.zig").capacity]?@import("link_labels.zig").Result = undefined;
+                var link_results: [link_labels.capacity]?link_labels.Result = undefined;
                 summaries.takeLinks(&link_results);
                 for (link_results) |entry| if (entry) |result| {
                     if (s.runtime.link_labels.apply(result, now)) {
@@ -829,7 +913,7 @@ pub const Server = struct {
                         s.runtime.changed();
                     }
                 };
-                var summary_results: [layout.max_panes]?@import("activity_worker.zig").Result = undefined;
+                var summary_results: [layout.max_panes]?activity_worker.Result = undefined;
                 summaries.take(&summary_results);
                 for (summary_results) |entry| if (entry) |result| {
                     if (s.runtime.conversations.byId(result.request.actor)) |actor| if (result.apply(actor)) {
@@ -844,7 +928,7 @@ pub const Server = struct {
                 usage.take(&activity);
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
-                    if (!eq(actor.state.sessionId(), result.session[0..result.session_len])) continue;
+                    if (!std.mem.eql(u8, actor.state.sessionId(), result.session[0..result.session_len])) continue;
                     if (!actor.model_from_hook and result.model.len > 0 and !std.meta.eql(actor.model, result.model)) {
                         actor.model = result.model;
                         s.dirty = true;
@@ -875,7 +959,7 @@ pub const Server = struct {
                     }
                 };
                 observer.reconcile(s.runtime.conversations.items.items);
-                var completions: [layout.max_panes]?@import("transcript.zig").Result = undefined;
+                var completions: [layout.max_panes]?transcript.Result = undefined;
                 observer.take(&completions);
                 for (completions) |entry| if (entry) |result| {
                     if (s.runtime.conversations.byId(result.actor)) |actor| {
@@ -915,21 +999,26 @@ pub const Server = struct {
                     s.bell = true;
                     if (s.bell_kind != .needs_input) s.bell_kind = session.attention();
                     var msg: [160]u8 = undefined;
-                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{ @tagName(session.provider), @intFromEnum(session.id), @tagName(session.status()), @intFromEnum(session.id) }));
+                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{
+                        @tagName(session.provider),
+                        @intFromEnum(session.id),
+                        @tagName(session.status()),
+                        @intFromEnum(session.id),
+                    }));
                 }
             }
             // Reap closed panes too, forwarding Git exits to its worker.
-            @import("git_status.zig").child_mutex.lock();
+            git_status.child_mutex.lock();
             while (true) {
                 var status: c_int = 0;
                 const pid = c.waitpid(-1, &status, c.WNOHANG);
                 if (pid <= 0) break;
-                @import("git_status.zig").recordExit(pid, status);
+                git_status.recordExit(pid, status);
                 s.runtime.git_push.recordExit(pid, status);
-                @import("inference.zig").recordExit(pid, status);
-                @import("agent_launcher.zig").recordExit(pid, status);
-                @import("launch_command.zig").recordExit(pid, status);
-                @import("ports.zig").recordExit(pid, status);
+                inference.recordExit(pid, status);
+                agent_launcher.recordExit(pid, status);
+                launch_command.recordExit(pid, status);
+                ports.recordExit(pid, status);
                 for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
                     p.terminal.exited = true;
                     p.terminal.exit_status = status;
@@ -940,7 +1029,7 @@ pub const Server = struct {
                     s.dirty = true;
                 };
             }
-            @import("git_status.zig").child_mutex.unlock();
+            git_status.child_mutex.unlock();
             // Both Terminal.read and the general child reaper can detect exit.
             // Remove in a separate pass so adjacent exits aren't skipped.
             var pi: usize = 0;
@@ -983,7 +1072,7 @@ pub const Server = struct {
                 if (cl.dead) {
                     cl.deinit();
                     _ = s.clients.orderedRemove(ci);
-                    try @import("viewer_protocol.zig").resize(s);
+                    try viewer_protocol.resize(s);
                     continue;
                 }
                 ci += 1;
@@ -1060,7 +1149,7 @@ pub const Server = struct {
                 }
             }
             if (!s.quit) if (s.reload_executable) |executable| {
-                @import("handoff.zig").replace(s, fd, executable, s.reload_requester) catch |err| {
+                handoff.replace(s, fd, executable, s.reload_requester) catch |err| {
                     for (s.clients.items) |*cl| if (cl.fd == s.reload_requester) try cl.queue(.{ .ok = false, .err = @errorName(err) });
                     a.free(executable);
                     s.reload_executable = null;
@@ -1069,8 +1158,8 @@ pub const Server = struct {
             };
             if ((now - s.last_recovery >= 2000 and s.saved_revision != s.runtime.revision) or s.quit) {
                 s.last_recovery = now;
-                @import("recovery.zig").save(&s.runtime, s.socket) catch |err| {
-                    std.log.err("saving recovery: {s}", .{@errorName(err)});
+                recovery.save(&s.runtime, s.socket) catch |err| {
+                    log.err("saving recovery: {}", .{err});
                     s.notice(" Could not save recovery snapshot; see server.log");
                     continue;
                 };
@@ -1079,9 +1168,6 @@ pub const Server = struct {
         }
     }
 };
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
 fn inode(path: []const u8) ?std.posix.ino_t {
     const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch return null;
     return stat.ino;
@@ -1121,16 +1207,26 @@ fn logHook(actor: *const Actor, from: Lifecycle, event: std.json.Value, pane: ?l
 }
 
 test "Codex selection rejects delayed ABA observations while detached actors remain addressable" {
-    const observer = @import("codex_observer.zig");
     const id = "11111111-1111-4111-8111-111111111111";
     var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
     defer s.runtime.deinit();
-    const terminal = try @import("terminal.zig").Terminal.create(40, 4);
+    const terminal = try Terminal.create(40, 4);
     terminal.feed("\x1b]2;" ++ id ++ "\x07");
     terminal.title_pid = 42;
     try s.runtime.panes.append(a, .{ .id = @enumFromInt(1), .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .detection = .{ .pid = 42 } });
     const p = &s.runtime.panes.items[0];
-    var snap: observer.Snapshot = .{ .request = .{ .pane = @enumFromInt(1), .pid = 42, .prefix = observer.titlePrefix(id).?, .generation = p.attachment.generation, .title_revision = terminal.title_revision }, .session = id.*, .state = .working, .observed_at = 100 };
+    var snap: codex_observer.Snapshot = .{
+        .request = .{
+            .pane = @enumFromInt(1),
+            .pid = 42,
+            .prefix = codex_observer.titlePrefix(id).?,
+            .generation = p.attachment.generation,
+            .title_revision = terminal.title_revision,
+        },
+        .session = id.*,
+        .state = .working,
+        .observed_at = 100,
+    };
     const actor = (try s.codexActor(snap)).?;
     snap.request.generation = p.attachment.generation;
     // CLI redraws may repeat or decorate the same conversation title while an
@@ -1157,7 +1253,7 @@ test "local Codex reattachment requires current unambiguous identity and preserv
     const id = "11111111-1111-4111-8111-111111111111";
     var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
     defer s.runtime.deinit();
-    const terminal = try @import("terminal.zig").Terminal.create(40, 4);
+    const terminal = try Terminal.create(40, 4);
     try s.runtime.panes.append(a, .{ .id = @enumFromInt(1), .terminal = terminal, .cwd = try a.dupe(u8, "/tmp") });
     const p = &s.runtime.panes.items[0];
     const actor = try s.runtime.conversations.get(.codex, id);
@@ -1196,9 +1292,9 @@ test "local Codex reattachment requires current unambiguous identity and preserv
     try std.testing.expect(p.attachment.actor == null);
 }
 test "preview subscriptions schedule stale refreshes and publish completion without another request" {
-    var preview: @import("agent_launcher.zig").Preview = .{ .pending = false };
+    var preview: agent_launcher.Preview = .{ .pending = false };
     preview.options[1].model.set("before");
-    var worker: @import("agent_launcher.zig").Worker = .{};
+    var worker: agent_launcher.Worker = .{};
     worker.jobs[0] = .{ .len = 1, .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
     worker.jobs[0].?.cwd[0] = '/';
     var s: Server = .{ .socket = "", .executable = "", .launch_previews = &worker };

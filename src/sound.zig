@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const os = @import("os.zig");
 const a = os.allocator;
 
@@ -39,7 +40,7 @@ fn playEmbedded(kind: Kind) !void {
         try file.writeAll(if (kind == .request) request else done);
     }
     defer std.fs.cwd().deleteFile(path) catch {};
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         if (runPlayer(&.{ "afplay", path }, 15 * std.time.ns_per_s)) return;
     } else {
         // Like Herdr, only try players that decode MP3 (never bare aplay).

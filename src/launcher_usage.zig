@@ -2,6 +2,7 @@
 const std = @import("std");
 const metadata = @import("account_preview.zig");
 const sidebar = @import("sidebar.zig");
+const account_cache = @import("account_cache.zig");
 
 pub const Cell = struct {
     const Window = struct {
@@ -117,7 +118,7 @@ test "usage groups omit absent limits and match resets by label" {
 }
 
 test "cached readings have no extra indicator and statuses remain readable" {
-    var state: @import("account_cache.zig").State = .{};
+    var state: account_cache.State = .{};
     var info: metadata.Info = .{ .signed_in = true };
     info.usage.set("5h 12% / 7d 48%");
     state.update(info, 1000);

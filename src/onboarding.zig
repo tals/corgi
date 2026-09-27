@@ -10,6 +10,9 @@ const Connection = @import("rpc.zig").Connection;
 const Rect = @import("layout.zig").Rect;
 const shortcut_help = @import("shortcut_help.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const builtin = @import("builtin");
+const herdr_adapter = @import("herdr_adapter.zig");
+const ghostty_integration = @import("ghostty_integration.zig");
 pub const Step = enum { presets, keymap, connect, import, progress, complete };
 /// `welcome` is the first-run wizard. Corgi setup opens `keyboard` or `import`
 /// on its own: no greeting, and finishing returns to Corgi instead of chaining.
@@ -103,7 +106,7 @@ pub const State = struct {
         s.focus = 0;
         if (!s.source_initialized) {
             s.source_initialized = true;
-            s.source = if (@import("herdr_adapter.zig").detected()) .herdr else switch (km.supportedPreset(s.preset)) {
+            s.source = if (herdr_adapter.detected()) .herdr else switch (km.supportedPreset(s.preset)) {
                 .herdr => .herdr,
                 .cmux => .cmux,
                 else => .tmux,
@@ -149,7 +152,15 @@ pub const State = struct {
                 var ids: std.ArrayList([]const u8) = .empty;
                 defer ids.deinit(a);
                 for (selected.items) |ws| try ids.append(a, ws.id);
-                const result = try conn.call(.{ .op = "onboarding.copy", .protocol = 1, .operation = s.operation, .source = s.source, .workspaces = selected.items, .herdr_session = s.worker().?.herdr_scan.?.sessions[first], .selected = ids.items });
+                const result = try conn.call(.{
+                    .op = "onboarding.copy",
+                    .protocol = 1,
+                    .operation = s.operation,
+                    .source = s.source,
+                    .workspaces = selected.items,
+                    .herdr_session = s.worker().?.herdr_scan.?.sessions[first],
+                    .selected = ids.items,
+                });
                 result.deinit();
             } else {
                 var arena: std.heap.ArenaAllocator = .init(a);
@@ -237,7 +248,7 @@ pub const State = struct {
                 },
                 13 => {
                     if (ghosttyHost()) {
-                        try @import("ghostty_integration.zig").setCmux();
+                        try ghostty_integration.setCmux();
                         if (s.mode == .keyboard) return true;
                         s.enterImport();
                         s.setMessage("Reload Ghostty: Cmd+Shift+, to apply Command keys.");
@@ -328,7 +339,10 @@ pub const State = struct {
             else => {},
         };
         // CSI-only, unlike keys.zig's arrows.
-        if (s.step == .import and (std.mem.eql(u8, seq, "\x1b[C") or std.mem.eql(u8, seq, "\x1b[D"))) s.changeSource(catalog.available_sources[(@as(usize, @intFromEnum(s.source)) + if (seq[2] == 'C') @as(usize, 1) else catalog.available_sources.len - 1) % catalog.available_sources.len]);
+        if (s.step == .import and (std.mem.eql(u8, seq, "\x1b[C") or std.mem.eql(u8, seq, "\x1b[D"))) {
+            const delta: usize = if (seq[2] == 'C') 1 else catalog.available_sources.len - 1;
+            s.changeSource(catalog.available_sources[(@as(usize, @intFromEnum(s.source)) + delta) % catalog.available_sources.len]);
+        }
         return false;
     }
     pub fn click(s: *State, cols: u16, rows: u16, x: u16, y: u16, conn: *Connection) !bool {
@@ -413,7 +427,11 @@ pub const State = struct {
             .presets => "Choose familiar keys.",
             .keymap => "",
             .connect => "Your host terminal needs to forward these shortcuts.",
-            .import => if (s.source == .tmux) "Copy sessions, scrollback and commands. Source processes stay in tmux." else if (s.source == .herdr) "Choose a session to bring into Corgi." else "Copy workspaces and surfaces. Source processes stay in cmux.",
+            .import => switch (s.source) {
+                .tmux => "Copy sessions, scrollback and commands. Source processes stay in tmux.",
+                .herdr => "Choose a session to bring into Corgi.",
+                .cmux => "Copy workspaces and surfaces. Source processes stay in cmux.",
+            },
             .progress => s.progress.message,
             .complete => if (s.activeHandoff()) "Your processes are running in Corgi." else "Your workspaces are ready.",
         }, dim);
@@ -442,11 +460,15 @@ pub const State = struct {
                             try put(w, b, 3, 9, try std.fmt.bufPrint(&info, "All {d} workspaces in this session move together.", .{s.selectionCount()}), dim);
                         }
                         try put(w, b, 3, 8, if (s.handoff) "[● ON ] Handoff processes  Keep your processes running" else "[  OFF] Handoff processes  Keep your processes running", mint);
-                    } else if (!s.cmuxConfused()) try put(w, b, 3, 8, if (s.source == .cmux) "Visible splits first · remaining surfaces in additional tabs" else "Up to 3 recent groups selected · Return in each pane restarts its command", dim);
+                    } else if (!s.cmuxConfused()) try put(w, b, 3, 8, if (s.source == .cmux)
+                        "Visible splits first · remaining surfaces in additional tabs"
+                    else
+                        "Up to 3 recent groups selected · Return in each pane restarts its command", dim);
                 } else {
                     var buf: [120]u8 = undefined;
                     try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ s.progress.phase, s.progress.completed, s.progress.total }), mint);
-                    try put(w, b, 3, 8, if (s.step == .complete) "[✓] Complete" else if (s.phase() == .failed) "[!] Import stopped · Enter returns to selection" else "[···] Working", bright);
+                    const status: []const u8 = if (s.step == .complete) "[✓] Complete" else if (s.phase() == .failed) "[!] Import stopped · Enter returns to selection" else "[···] Working";
+                    try put(w, b, 3, 8, status, bright);
                 }
                 if (s.cmuxConfused()) {
                     const y: usize = if (s.step == .import) 8 else 9;
@@ -456,7 +478,13 @@ pub const State = struct {
                 }
                 if (s.worker()) |wk| {
                     if (!wk.done.load(.acquire)) try put(w, b, 5, 12, "Looking for running sessions…", dim) else if (s.items().len == 0) {
-                        try put(w, b, 5, 12, if (s.cmuxConfused()) "No workspaces could be recovered yet." else if (wk.catalog.message.len > 0) "Couldn't read this source. R retries; S skips import." else "No available sessions found. Continue without importing.", text);
+                        const empty: []const u8 = if (s.cmuxConfused())
+                            "No workspaces could be recovered yet."
+                        else if (wk.catalog.message.len > 0)
+                            "Couldn't read this source. R retries; S skips import."
+                        else
+                            "No available sessions found. Continue without importing.";
+                        try put(w, b, 5, 12, empty, text);
                         try put(w, b, 5, 14, wk.catalog.message, dim);
                     }
                 }
@@ -480,7 +508,9 @@ pub const State = struct {
                     if (s.step != .import and !s.chosen(i)) continue;
                     const preview_layout = s.preview(ws, i);
                     var buf: [1024]u8 = undefined;
-                    try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "{s}{s} {s}", .{ if (i == s.cursor and s.step == .import) "›" else " ", if (s.chosen(i)) "[x]" else "[ ]", short(ws.name) }), mint, "");
+                    const cursor_mark: []const u8 = if (i == s.cursor and s.step == .import) "›" else " ";
+                    const check_mark: []const u8 = if (s.chosen(i)) "[x]" else "[ ]";
+                    try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "{s}{s} {s}", .{ cursor_mark, check_mark, short(ws.name) }), mint, "");
                     row += 1;
                     if (ws.recovery != .full) {
                         if (ws.recovery == .workspace) {
@@ -505,7 +535,8 @@ pub const State = struct {
                             const pane = tab.panes[0];
                             var hint: [120]u8 = undefined;
                             const done = s.step != .import and pane_number < s.progress.completed;
-                            try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s} {s} · {s}{s}", .{ branch, short(tab.name), if (done) "✓ " else "", short(pane.name) }), text, try paneAnnotation(s.source, s.activeHandoff(), pane, &hint));
+                            const label = try std.fmt.bufPrint(&buf, "    {s} {s} · {s}{s}", .{ branch, short(tab.name), if (done) "✓ " else "", short(pane.name) });
+                            try treeLine(w, b, row, s.scroll, label, text, try paneAnnotation(s.source, s.activeHandoff(), pane, &hint));
                             row += 1;
                             pane_number += 1;
                             continue;
@@ -515,7 +546,11 @@ pub const State = struct {
                         for (tab.panes[0..visible], 0..) |pane, pane_index| {
                             var hint: [120]u8 = undefined;
                             const annotation = try paneAnnotation(s.source, s.activeHandoff(), pane, &hint);
-                            try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}  {s} {s}{s}", .{ if (last_tab) " " else "│", if (pane_index + 1 == tab.panes.len) "└─" else "├─", if (s.step != .import and pane_number < s.progress.completed) "✓ " else "", short(pane.name) }), text, annotation);
+                            const rail: []const u8 = if (last_tab) " " else "│";
+                            const twig: []const u8 = if (pane_index + 1 == tab.panes.len) "└─" else "├─";
+                            const check: []const u8 = if (s.step != .import and pane_number < s.progress.completed) "✓ " else "";
+                            const label = try std.fmt.bufPrint(&buf, "    {s}  {s} {s}{s}", .{ rail, twig, check, short(pane.name) });
+                            try treeLine(w, b, row, s.scroll, label, text, annotation);
                             row += 1;
                             pane_number += 1;
                         }
@@ -529,12 +564,17 @@ pub const State = struct {
             },
         }
         if (s.message_len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message[0..s.message_len], yellow);
-        try put(w, b, 3, b.h - 3, if (s.step == .presets) if (s.dismissable) "Esc close · ↑↓ choose · P prefix · ? keymap" else "↑↓ choose · P prefix · ? keymap" else if (s.step == .keymap) "" else if (s.step == .import) if (s.source == .herdr) "Esc · Space select · E expand · H handoff" else if (s.mode == .import) "Esc close · Space select · E expand" else "Esc Back · Space select · E expand" else if (s.step == .complete) "" else "Esc Back", dim);
+        try put(w, b, 3, b.h - 3, footerHint(s), dim);
         const cta: []const u8 = switch (s.step) {
             .presets => if (s.mode == .keyboard and s.preset != .cmux) "[ Enter Save ]" else "[ Enter Continue → ]",
             .keymap => "[ Enter Back ]",
             .connect => "[ Enter Connect → ]",
-            .import => if (s.selectionCount() == 0) (if (s.mode == .import) "[ Enter Close ]" else "[ Enter Skip import → ]") else if (s.activeHandoff()) "[ Enter Handoff → ]" else "[ Enter Import → ]",
+            .import => if (s.selectionCount() == 0)
+                (if (s.mode == .import) "[ Enter Close ]" else "[ Enter Skip import → ]")
+            else if (s.activeHandoff())
+                "[ Enter Handoff → ]"
+            else
+                "[ Enter Import → ]",
             .progress => if (s.phase() == .failed) "[ Enter Back ]" else "[ Importing… ]",
             .complete => if (s.mode == .import) "[ Enter Done ]" else "[ Enter Open Corgi → ]",
         };
@@ -592,7 +632,9 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     for (km.available_presets, layout.cards) |preset, card| {
         const picked = s.preset == preset;
         try box(w, card, picked);
-        try put(w, card, 2, 1, try std.fmt.bufPrint(&buf, "{s} {s}{s}", .{ if (picked) "●" else "○", if (preset == .corgi) "🐕 " else "", km.name(preset) }), if (picked) selected_style else bright);
+        const dot: []const u8 = if (picked) "●" else "○";
+        const paw: []const u8 = if (preset == .corgi) "🐕 " else "";
+        try put(w, card, 2, 1, try std.fmt.bufPrint(&buf, "{s} {s}{s}", .{ dot, paw, km.name(preset) }), if (picked) selected_style else bright);
         const description = if (card.w >= 32) km.description(preset) else switch (preset) {
             .corgi => "Made for Corgi",
             .tmux => "Classic splits",
@@ -662,7 +704,8 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     try put(w, detail, col * 2, layout.summary_y + 1, if (direct) try std.fmt.bufPrint(&buf, "{s} q", .{prefix_name}) else if (s.preset == .tmux) "d" else "q", mint);
     try put(w, detail, 0, layout.help_y, "[ ? Full keymap ]", if (s.focus == 2) keycap else mint);
     if (direct) {
-        try put(w, detail, 22, layout.help_y, if (narrow) try std.fmt.bufPrint(&buf, "[ P {s} ]", .{prefix_name}) else try std.fmt.bufPrint(&buf, "Prefix [ {s} ]  P change", .{prefix_name}), if (s.focus == 1) keycap else mint);
+        const prefix_hint = if (narrow) try std.fmt.bufPrint(&buf, "[ P {s} ]", .{prefix_name}) else try std.fmt.bufPrint(&buf, "Prefix [ {s} ]  P change", .{prefix_name});
+        try put(w, detail, 22, layout.help_y, prefix_hint, if (s.focus == 1) keycap else mint);
     } else if (!narrow) try put(w, detail, 23, layout.help_y, try std.fmt.bufPrint(&buf, "{s} twice sends it through.", .{prefix_name}), dim);
 }
 fn drawSplitDiagram(w: *std.Io.Writer, b: Rect, down: bool) !void {
@@ -704,6 +747,20 @@ const WorkspacePreview = struct {
         };
     }
 };
+fn footerHint(s: *const State) []const u8 {
+    return switch (s.step) {
+        .presets => if (s.dismissable) "Esc close · ↑↓ choose · P prefix · ? keymap" else "↑↓ choose · P prefix · ? keymap",
+        .keymap => "",
+        .connect, .progress => "Esc Back",
+        .import => if (s.source == .herdr)
+            "Esc · Space select · E expand · H handoff"
+        else if (s.mode == .import)
+            "Esc close · Space select · E expand"
+        else
+            "Esc Back · Space select · E expand",
+        .complete => "",
+    };
+}
 fn recoveryRows(ws: catalog.Workspace) usize {
     return if (ws.recovery == .full) 0 else if (ws.recovery == .workspace) 2 else 1;
 }
@@ -716,9 +773,9 @@ fn paneAnnotation(source: catalog.Source, handoff: bool, pane: catalog.Pane, buf
     return if (pane.url.len > 0) "↗ Browser link" else if (pane.resume_available) "↻ Resume available" else "+ New shell";
 }
 fn ghosttyHost() bool {
-    return @import("ghostty_integration.zig").available() and os.env("GHOSTTY_RESOURCES_DIR") != null and os.env("CMUX_WORKSPACE_ID") == null;
+    return ghostty_integration.available() and os.env("GHOSTTY_RESOURCES_DIR") != null and os.env("CMUX_WORKSPACE_ID") == null;
 }
-pub fn bounds(cols: u16, rows: u16) @import("layout.zig").Rect {
+pub fn bounds(cols: u16, rows: u16) Rect {
     const w = @min(cols, 112);
     const h = @min(rows, 36);
     return .{ .x = (cols - w) / 2, .y = (rows - h) / 2, .w = w, .h = h };
@@ -733,7 +790,7 @@ const keycap = "\x1b[1;38;2;24;27;32;48;2;161;194;178m";
 const selected_style = "\x1b[0;38;2;201;224;211;48;2;47;64;59m";
 
 test "onboarding offers only platform-supported presets and import sources" {
-    const macos = @import("builtin").os.tag == .macos;
+    const macos = builtin.os.tag == .macos;
     var state: State = .{};
     defer state.deinit();
     var conn: Connection = undefined; // Preset navigation does not use RPC.
@@ -850,12 +907,12 @@ test "workspace previews keep recovery rows and handoff selection aligned while 
     try std.testing.expect(std.mem.indexOf(u8, completed, "✓ eight") != null);
     try std.testing.expect(std.mem.indexOf(u8, completed, "more") == null);
 }
-fn put(w: *std.Io.Writer, b: @import("layout.zig").Rect, x: usize, y: usize, str: []const u8, style: []const u8) !void {
+fn put(w: *std.Io.Writer, b: Rect, x: usize, y: usize, str: []const u8, style: []const u8) !void {
     if (x >= b.w - 1 or y >= b.h - 1 and y != 0) return;
     try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + x + 1, style });
     try safeText(w, str, b.w - x - 2);
 }
-fn box(w: *std.Io.Writer, b: @import("layout.zig").Rect, on: bool) !void {
+fn box(w: *std.Io.Writer, b: Rect, on: bool) !void {
     for (0..b.h) |row| {
         try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, if (on) selected_style else panel });
         try w.writeAll(if (row == 0) "╭" else if (row == b.h - 1) "╰" else "│");
@@ -865,7 +922,7 @@ fn box(w: *std.Io.Writer, b: @import("layout.zig").Rect, on: bool) !void {
         try w.writeAll(if (row == 0) "╮" else if (row == b.h - 1) "╯" else "│");
     }
 }
-fn treeLine(w: *std.Io.Writer, b: @import("layout.zig").Rect, row: usize, scroll: usize, label: []const u8, style: []const u8, hint: []const u8) !void {
+fn treeLine(w: *std.Io.Writer, b: Rect, row: usize, scroll: usize, label: []const u8, style: []const u8, hint: []const u8) !void {
     if (row < scroll or row - scroll >= b.h - 16) return;
     const y = 11 + row - scroll;
     const split = b.w -| 32;

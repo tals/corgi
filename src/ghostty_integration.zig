@@ -1,5 +1,6 @@
 //! Viewer-local, opt-in Ghostty shortcuts. Never edits existing bindings.
 const std = @import("std");
+const builtin = @import("builtin");
 const os = @import("os.zig");
 const a = std.heap.page_allocator;
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
@@ -7,7 +8,7 @@ const end = "# END CORGI GHOSTTY INTEGRATION\n";
 pub const State = enum { unavailable, disabled, enabled, failed };
 
 pub fn available() bool {
-    return @import("builtin").os.tag == .macos and os.env("SSH_CONNECTION") == null and os.env("SSH_TTY") == null;
+    return builtin.os.tag == .macos and os.env("SSH_CONNECTION") == null and os.env("SSH_TTY") == null;
 }
 
 fn path() ![]const u8 {

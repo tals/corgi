@@ -2,6 +2,7 @@
 //! Never selects a pane or supplies lifecycle/completion observations.
 const std = @import("std");
 const agents = @import("agents.zig");
+const os = @import("os.zig");
 const a = std.heap.c_allocator;
 
 pub const Name = struct {
@@ -20,8 +21,8 @@ pub const Index = struct {
         const now = std.time.milliTimestamp();
         if (now < index.next_read) return;
         index.next_read = now + 1000;
-        const home = @import("os.zig").env("HOME") orelse return;
-        const root = @import("os.zig").env("CODEX_HOME");
+        const home = os.env("HOME") orelse return;
+        const root = os.env("CODEX_HOME");
         const path = if (root) |dir| std.fs.path.join(a, &.{ dir, "session_index.jsonl" }) catch return else std.fs.path.join(a, &.{ home, ".codex", "session_index.jsonl" }) catch return;
         defer a.free(path);
         const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0) catch return;

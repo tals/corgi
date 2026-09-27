@@ -3,6 +3,8 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
+const keymap = @import("keymap.zig");
+const builtin = @import("builtin");
 
 /// Resource readings shown in the sidebar. Disabling removes the row and,
 /// once every attached viewer is off, stops the daemon's sampling.
@@ -20,8 +22,8 @@ pub const Preferences = struct {
     agents: enum { workspace, all } = .workspace,
     /// The last dragged sidebar width seeds new viewers; open ones keep their own.
     sidebar_width: u16 = 28,
-    preset: @import("keymap.zig").Preset = .corgi,
-    prefix: @import("keymap.zig").Prefix = .ctrl_b,
+    preset: keymap.Preset = .corgi,
+    prefix: keymap.Prefix = .ctrl_b,
     onboarding_complete: bool = false,
     resources: Resources = .{},
     /// Idle agents nap as corgis in the sidebar; off marks them with a faint Z.
@@ -72,7 +74,7 @@ fn readExisting(file: []const u8) ?Preferences {
     defer parsed.deinit();
     var value = parsed.value;
     value.sidebar_width = @max(value.sidebar_width, 20);
-    value.preset = @import("keymap.zig").supportedPreset(value.preset);
+    value.preset = keymap.supportedPreset(value.preset);
     return value;
 }
 
@@ -103,7 +105,7 @@ test "preferences round trip and fall back to defaults" {
     try write(file, .{ .resources = .{ .enabled = false, .io = false } });
     try std.testing.expectEqual(Resources{ .enabled = false, .io = false }, read(file).resources);
     try write(file, .{ .preset = .cmux, .onboarding_complete = true });
-    try std.testing.expectEqual(if (@import("builtin").os.tag == .macos) @import("keymap.zig").Preset.cmux else .corgi, read(file).preset);
+    try std.testing.expectEqual(if (builtin.os.tag == .macos) keymap.Preset.cmux else .corgi, read(file).preset);
     try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{broken" });
     try std.testing.expectEqual(Preferences{}, read(file));
 }

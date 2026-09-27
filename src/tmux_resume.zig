@@ -2,6 +2,8 @@
 const std = @import("std");
 const os = @import("os.zig");
 const c = os.c;
+const builtin = @import("builtin");
+const Terminal = @import("terminal.zig").Terminal;
 
 pub fn foregroundPid(processes: []const u8, pane_pid: i32) ?i32 {
     var lines = std.mem.tokenizeScalar(u8, processes, '\n');
@@ -20,7 +22,7 @@ pub fn command(alloc: std.mem.Allocator, pid: i32) ![]const u8 {
     defer os.allocator.free(bytes);
     var data: []const u8 = undefined;
     var argc: ?usize = null;
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
         var len = bytes.len;
         if (c.sysctl(&mib, mib.len, bytes.ptr, &len, null, 0) != 0 or len < @sizeOf(c_int)) return "";
@@ -30,7 +32,7 @@ pub fn command(alloc: std.mem.Allocator, pid: i32) ![]const u8 {
         data = bytes[@sizeOf(c_int)..len];
         const end = std.mem.indexOfScalar(u8, data, 0) orelse return "";
         data = std.mem.trimStart(u8, data[end..], "\x00");
-    } else if (@import("builtin").os.tag == .linux) {
+    } else if (builtin.os.tag == .linux) {
         var path: [64]u8 = undefined;
         const file = std.fs.cwd().openFile(try std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}), .{}) catch return "";
         defer file.close();
@@ -101,7 +103,7 @@ pub fn tail(text: []const u8, limit: usize) []const u8 {
     return trimmed[start..];
 }
 
-pub fn feed(terminal: *@import("terminal.zig").Terminal, text: []const u8) void {
+pub fn feed(terminal: *Terminal, text: []const u8) void {
     // capture-pane without -e supplies text, not a terminal command stream.
     // Drop controls defensively so imported output cannot write shell input.
     for (text) |ch| {

@@ -9,6 +9,8 @@ const max = @import("conversations.zig").max_actors;
 const time_c = @cImport(@cInclude("time.h"));
 const background = @import("background_tasks.zig");
 const prices = @import("model_prices.zig");
+const updates = @import("updates.zig");
+const agents = @import("agents.zig");
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
 const Tone = enum {
     text,
@@ -317,7 +319,14 @@ const Card = struct {
             const active = agent.state == .working and !unreported;
             const blocked = agent.state == .blocked;
             const latest = root.timeline.points[root.timeline.points.len - 1];
-            try card.drawPoint(row + 1 + completed, if (active or blocked) "  now" else " last", latest.activity, root.timeline.pending, active, if (active) .working else if (blocked) .blocked else .muted);
+            try card.drawPoint(
+                row + 1 + completed,
+                if (active or blocked) "  now" else " last",
+                latest.activity,
+                root.timeline.pending,
+                active,
+                if (active) .working else if (blocked) .blocked else .muted,
+            );
         }
         if (unreported) {
             const current = if (agent.compacting) "Compacting…" else if (agent.subagents.waiting) "Waiting on subagents" else thinking();
@@ -428,7 +437,8 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     const heading = y + 3;
     const footer = y + height - 2;
     var reference_heading: [32]u8 = undefined;
-    try card.overviewRow(heading, "Top agents", "Model", null, if (reference) |price| try std.fmt.bufPrint(&reference_heading, "≈{s}", .{price.label}) else "", .text);
+    const reference_label = if (reference) |price| try std.fmt.bufPrint(&reference_heading, "≈{s}", .{price.label}) else "";
+    try card.overviewRow(heading, "Top agents", "Model", null, reference_label, .text);
     var equivalent_text: [48]u8 = undefined;
     for (ranked[0..shown], 0..) |ranked_row, i| {
         const model = if (ranked_row.model.len == 0)
@@ -444,14 +454,24 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
         else
             try std.fmt.bufPrint(&equivalent_text, "{s}{s}", .{ if (ranked_row.value.partial) "≥" else "", compact(&tokens, ranked_row.equivalent) });
         if (ranked_row.conversation == null) {
-            try card.overviewRow(heading + 1 + i, if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)", model, ranked_row.value, equivalent, if (system_working) .working else .idle);
+            try card.overviewRow(
+                heading + 1 + i,
+                if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
+                model,
+                ranked_row.value,
+                equivalent,
+                if (system_working) .working else .idle,
+            );
             continue;
         }
         const item = ranked_row.conversation.?;
         const row = heading + 1 + i;
         const agent_status = status(item.agent, false);
         var fallback: [80]u8 = undefined;
-        const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{ item.agent.providerName(), item.agent.session[0..@min(8, item.agent.session.len)] });
+        const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{
+            item.agent.providerName(),
+            item.agent.session[0..@min(8, item.agent.session.len)],
+        });
         try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, .text);
         try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, x + 4, base, agent_status.tone.ansi(), agent_status.icon });
     }
@@ -459,8 +479,8 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     var running_buf: [64]u8 = undefined;
     var staged_buf: [64]u8 = undefined;
     var version_text: [160]u8 = undefined;
-    const running = @import("updates.zig").label(&running_buf, release.running, release.commit);
-    const staged = @import("updates.zig").label(&staged_buf, release.staged, "");
+    const running = updates.label(&running_buf, release.running, release.commit);
+    const staged = updates.label(&staged_buf, release.staged, "");
     // Prefer the most complete version text that still leaves room for the agent count.
     const room = (width - 6) -| (if (more.len > 0) sidebar.displayWidth(more) + 2 else 0);
     const candidates = if (staged.len > 0) [_][]const u8{
@@ -568,16 +588,23 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         try card.cell(row, 0, card.textWidth(), "Including subagents", .text, false);
         try card.tokenColumns(row, model.total, false, if (model.total.known) .tokens else .muted);
     }
-    const footer = if (!children_available) "" else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0)) "Updating child details…" else if (shown < model.children)
+    const footer = if (!children_available)
+        ""
+    else if (model.children == 0 and (entry.subagents.running > 0 or entry.subagents.blocked > 0))
+        "Updating child details…"
+    else if (shown < model.children)
         try std.fmt.bufPrint(&text, "+{d} more", .{model.children - shown})
-    else if (model.children == 0) "No subagents" else "Live usage";
+    else if (model.children == 0)
+        "No subagents"
+    else
+        "Live usage";
     if (model.children > 0 or child_footer) try card.line(footer_row, footer, "", .muted, .muted);
     try w.writeAll("\x1b[0m\x1b8");
 }
 
 test "compact child rows prioritize activity and color only the status and secondary name" {
     var child: protocol.Conversation = .{ .id = @enumFromInt(2), .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .name = "Maxwell with a long name", .activity = "Tracing activity integration", .cwd = "", .tool_active = false }, .usage = .{ .known = true, .tokens = .{ .input = 1000, .cached_input = 800 } } };
-    for ([_]@import("agents.zig").State{ .working, .blocked, .idle, .done }) |state| {
+    for ([_]agents.State{ .working, .blocked, .idle, .done }) |state| {
         child.agent.state = state;
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
@@ -716,7 +743,7 @@ test "timeline renders each phase once with its own interval including idle and 
         .{ .at = 2000, .activity = "Inspecting repository changes", .usage = .{ .known = true } },
     };
     var root: protocol.Conversation = .{ .id = @enumFromInt(1), .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Inspecting repository changes", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 99600, .cached_input = 78700 } } } };
-    for ([_]@import("agents.zig").State{ .working, .blocked, .idle }) |state| {
+    for ([_]agents.State{ .working, .blocked, .idle }) |state| {
         root.agent.state = state;
         for (1..3) |nodes| {
             var output: std.Io.Writer.Allocating = .init(std.testing.allocator);

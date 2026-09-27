@@ -4,14 +4,16 @@
 //! output identifies them.
 const std = @import("std");
 const builtin = @import("builtin");
+const options = @import("corgi_options");
 const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
 const Provider = @import("agents.zig").Provider;
+const providers = @import("providers.zig");
 /// Integration tests move system install locations under a fixture directory,
 /// so what happens to be installed on the machine cannot satisfy discovery.
 fn systemRoot() []const u8 {
-    if (!@import("corgi_options").test_build) return "";
+    if (!options.test_build) return "";
     return os.env("CORGI_TEST_SYSTEM_ROOT") orelse "";
 }
 
@@ -185,7 +187,7 @@ fn isVersion(output: []const u8, prefix: []const u8) bool {
     return std.mem.startsWith(u8, line, prefix) and line.len > prefix.len and std.ascii.isDigit(line[prefix.len]);
 }
 test "Codex version validation rejects successful non-Codex programs" {
-    const prefix = @import("providers.zig").Codex.info.version_prefix.?;
+    const prefix = providers.Codex.info.version_prefix.?;
     try std.testing.expect(isVersion("codex-cli 0.155.0-alpha.2.6\n", prefix));
     try std.testing.expect(!isVersion("", prefix));
     try std.testing.expect(!isVersion("codex-cli ", prefix));

@@ -2,13 +2,17 @@
 //! Bump the first ABI component when runtime/checkpoint/viewer changes cannot
 //! coexist across a live handoff. Release version changes do not change the ABI.
 const std = @import("std");
+const builtin = @import("builtin");
 const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const opts = @import("corgi_options");
 const agents = @import("agents.zig");
+const atomicWrite = @import("recovery.zig").atomicWrite;
+const recoveryPath = @import("recovery.zig").path;
+const Connection = @import("rpc.zig").Connection;
 pub const abi = std.fmt.comptimePrint("1-{x}", .{opts.terminal_checkpoint_abi});
-const platform = switch (@import("builtin").os.tag) {
+const platform = switch (builtin.os.tag) {
     .macos => "macos-aarch64",
     else => "linux-x86_64",
 };
@@ -39,7 +43,7 @@ fn read(root: []const u8, name: []const u8) !?[]u8 {
 fn write(root: []const u8, name: []const u8, bytes: []const u8) !void {
     const p = try join(root, name);
     defer a.free(p);
-    try @import("recovery.zig").atomicWrite(p, bytes);
+    try atomicWrite(p, bytes);
 }
 fn remove(root: []const u8, name: []const u8) void {
     const p = join(root, name) catch return;
@@ -145,7 +149,14 @@ fn run(argv: []const []const u8) !void {
 fn fetch(url: []const u8, dest: []const u8, limit: u64) !void {
     const size = try std.fmt.allocPrint(a, "{d}", .{limit});
     defer a.free(size);
-    try run(&.{ "curl", "--disable", "--fail", "--silent", "--show-error", "--location", "--proto", if (opts.update_test_mode) "=http,https" else "=https", "--proto-redir", if (opts.update_test_mode) "=http,https" else "=https", "--connect-timeout", "10", "--max-time", "300", "--max-filesize", size, "--output", dest, url });
+    const proto = if (opts.update_test_mode) "=http,https" else "=https";
+    try run(&.{
+        "curl",          "--disable",  "--fail",            "--silent",
+        "--show-error",  "--location", "--proto",           proto,
+        "--proto-redir", proto,        "--connect-timeout", "10",
+        "--max-time",    "300",        "--max-filesize",    size,
+        "--output",      dest,         url,
+    });
 }
 fn hashFile(path: []const u8) ![64]u8 {
     var file = try std.fs.cwd().openFile(path, .{});
@@ -215,7 +226,7 @@ fn feed(root: []const u8, download: bool, explicit: bool) !void {
 fn rpc(socket: []const u8, value: anytype) !std.json.Parsed(std.json.Value) {
     const fd = try os.connect(socket);
     defer _ = c.close(fd);
-    var conn: @import("rpc.zig").Connection = .{ .fd = fd };
+    var conn: Connection = .{ .fd = fd };
     return conn.call(value);
 }
 fn hello(socket: []const u8) !?std.json.Parsed(std.json.Value) {
@@ -398,7 +409,7 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
         // Backup the recovery file before the explicitly destructive operation.
         const saved = try rpc(socket, .{ .op = "recovery.save", .protocol = 1 });
         saved.deinit();
-        const recovery = try @import("recovery.zig").path(socket);
+        const recovery = try recoveryPath(socket);
         defer a.free(recovery);
         const backup = try std.fmt.allocPrint(a, "{s}.before-update", .{recovery});
         defer a.free(backup);
@@ -537,7 +548,13 @@ pub fn internal(args: []const []const u8) !bool {
             try worker(args[2]);
         },
         .@"__update-info" => {
-            const bytes = try std.json.Stringify.valueAlloc(a, .{ .version = opts.release_version, .commit = opts.release_commit, .update_abi = abi, .platform = platform, .test_mode = opts.update_test_mode }, .{});
+            const bytes = try std.json.Stringify.valueAlloc(a, .{
+                .version = opts.release_version,
+                .commit = opts.release_commit,
+                .update_abi = abi,
+                .platform = platform,
+                .test_mode = opts.update_test_mode,
+            }, .{});
             defer a.free(bytes);
             try os.writeAll(1, bytes);
         },

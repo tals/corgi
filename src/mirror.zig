@@ -11,6 +11,13 @@ const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const Connection = @import("rpc.zig").Connection;
 const surface = @import("surface.zig");
+const hyperlink = @import("hyperlinks.zig");
+const inference_setup = @import("inference_setup.zig");
+const live_usage = @import("live_usage.zig");
+const ports = @import("ports.zig");
+const resources = @import("resources.zig");
+const providers = @import("providers.zig");
+const launch_command = @import("launch_command.zig");
 
 pub const Terminal = struct {
     const Selection = struct { x: u16, y: u16, end_x: u16, end_y: u16 };
@@ -27,7 +34,7 @@ pub const Terminal = struct {
     pub fn emulator(t: *Terminal) *vt.Terminal {
         return &t.inner.vt;
     }
-    pub fn hyperlinks(t: *Terminal) []const @import("hyperlinks.zig").Link {
+    pub fn hyperlinks(t: *Terminal) []const hyperlink.Link {
         return t.inner.hyperlinks();
     }
     pub fn renderState(t: *Terminal) *vt.RenderState {
@@ -163,17 +170,17 @@ pub const Runtime = struct {
     release_version: []const u8 = "",
     release_commit: []const u8 = "",
     staged_version: []const u8 = "",
-    inference: @import("inference_setup.zig").Status = .{},
+    inference: inference_setup.Status = .{},
     system_working: bool = false,
-    system_usage: @import("live_usage.zig").View = .{},
-    ports: @import("ports.zig").Snapshot = .{},
-    resources: @import("resources.zig").Snapshot = .{},
+    system_usage: live_usage.View = .{},
+    ports: ports.Snapshot = .{},
+    resources: resources.Snapshot = .{},
     revision: u64 = 0,
     closed_panes: usize = 0,
-    last_agent: @import("providers.zig").Provider = .codex,
+    last_agent: providers.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
-    agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
+    agent_commands: [launch_command.capacity]launch_command.Entry = @splat(.{}),
     pub fn pane(r: *Runtime, id: layout.PaneId) ?*Pane {
         for (r.panes.items) |*p| if (p.id == id) return p;
         return null;

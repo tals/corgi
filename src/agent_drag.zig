@@ -3,10 +3,11 @@
 const std = @import("std");
 const sidebar = @import("sidebar.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const Target = @import("agent_order.zig").Target;
 pub const Drag = struct {
     workspace: WorkspaceId,
     current: WorkspaceId,
-    target: @import("agent_order.zig").Target,
+    target: Target,
     source: usize,
     first: usize,
     end: usize,
@@ -27,7 +28,20 @@ pub const Drag = struct {
         while (first > 0 and view.entries[first - 1].target != .group) first -= 1;
         var end = source + 1;
         while (end < view.entries.len and view.entries[end].target != .group) end += 1;
-        var result: Drag = .{ .workspace = workspace, .current = current, .target = view.entries[source].orderTarget().?, .source = source, .first = first, .end = end, .start_x = x, .start_y = y, .cols = view.cols, .rows = view.rows, .width = view.width, .count = view.entries.len };
+        var result: Drag = .{
+            .workspace = workspace,
+            .current = current,
+            .target = view.entries[source].orderTarget().?,
+            .source = source,
+            .first = first,
+            .end = end,
+            .start_x = x,
+            .start_y = y,
+            .cols = view.cols,
+            .rows = view.rows,
+            .width = view.width,
+            .count = view.entries.len,
+        };
         for (view.entries, 0..) |entry, i| result.ids[i] = entry.target;
         return result;
     }

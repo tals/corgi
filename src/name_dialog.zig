@@ -1,14 +1,18 @@
 const std = @import("std");
 const unicode = @import("ghostty-vt").unicode;
 const layout = @import("layout.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
+const keys = @import("keys.zig");
+const launch_command = @import("launch_command.zig");
+const sidebar = @import("sidebar.zig");
 
 pub const Target = union(enum) { pane: layout.PaneId, rename: layout.TabId, workspace_name: ?WorkspaceId, agent_command: usize };
 pub const Result = enum { none, save, cancel };
 pub const Hit = union(enum) { none, save, clear, cancel, field: usize };
 pub const Dialog = struct {
     target: Target,
-    text: [@max(std.fs.max_path_bytes, @import("launch_command.zig").max_length)]u8 = @splat(0),
+    text: [@max(std.fs.max_path_bytes, launch_command.max_length)]u8 = @splat(0),
     len: usize = 0,
     cursor: usize = 0,
     selected: bool = true,
@@ -17,7 +21,7 @@ pub const Dialog = struct {
 
     pub fn init(target: Target, initial: []const u8) Dialog {
         var d: Dialog = .{ .target = target };
-        d.len = @min(initial.len, if (target == .agent_command) @as(usize, @import("launch_command.zig").max_length) else 80);
+        d.len = @min(initial.len, if (target == .agent_command) @as(usize, launch_command.max_length) else 80);
         for (initial[0..d.len], 0..) |ch, i| d.text[i] = if (target == .agent_command or (ch >= 32 and ch < 127)) ch else '_';
         while (d.len > 0 and !std.unicode.utf8ValidateSlice(d.text[0..d.len])) d.len -= 1;
         d.cursor = d.len;
@@ -44,7 +48,7 @@ pub const Dialog = struct {
     }
     fn insert(d: *Dialog, bytes: []const u8) void {
         if (d.selected) d.clear();
-        const limit: usize = if (d.target == .agent_command) @import("launch_command.zig").max_length else 80;
+        const limit: usize = if (d.target == .agent_command) launch_command.max_length else 80;
         if (d.len + bytes.len > limit) {
             d.overflow = true;
             return;
@@ -103,13 +107,18 @@ pub const Dialog = struct {
         return pos;
     }
     pub fn sequence(d: *Dialog, seq: []const u8) void {
-        if (eq(seq, "\x1b[D") or eq(seq, "\x1bOD")) d.position(if (d.selected) 0 else d.previous()) else if (eq(seq, "\x1b[C") or eq(seq, "\x1bOC")) d.position(if (d.selected) d.len else d.next()) else if (eq(seq, "\x1b[H") or eq(seq, "\x1bOH") or eq(seq, "\x1b[1~")) d.position(0) else if (eq(seq, "\x1b[F") or eq(seq, "\x1bOF") or eq(seq, "\x1b[4~")) d.position(d.len) else if (eq(seq, "\x1b[3~")) {
-            if (d.selected) d.clear() else if (d.cursor < d.len) {
+        switch (keys.parse(seq) orelse return) {
+            .left => d.position(if (d.selected) 0 else d.previous()),
+            .right => d.position(if (d.selected) d.len else d.next()),
+            .home => d.position(0),
+            .end => d.position(d.len),
+            .delete => if (d.selected) d.clear() else if (d.cursor < d.len) {
                 const next_pos = d.next();
                 const count = next_pos - d.cursor;
                 std.mem.copyForwards(u8, d.text[d.cursor .. d.len - count], d.text[next_pos..d.len]);
                 d.len -= count;
-            }
+            },
+            else => {},
         }
     }
 };
@@ -189,11 +198,11 @@ pub const View = struct {
         }
         if (d.target == .agent_command and !d.failed and !d.overflow and v.height >= 7) {
             var hint: [160]u8 = undefined;
-            const launch = @import("launch_command.zig");
+            const launch = launch_command;
             const provider = launch.identify(d.name());
             const text = try std.fmt.bufPrint(&hint, "{s} · {s} · empty saves delete", .{ std.fs.path.basename(launch.shell()), if (provider) |known| @tagName(known) else "resolved at launch" });
             try w.print("\x1b[{d};{d}H{s}", .{ v.title_y + 2, v.x + 2, panel });
-            try @import("sidebar.zig").writeEllipsis(w, text, v.width - 2);
+            try sidebar.writeEllipsis(w, text, v.width - 2);
         }
         try w.print("\x1b[{d};{d}H\x1b[0;38;2;205;214;244;48;2;49;50;68m", .{ v.field_y + 1, v.x + 2 });
         try w.splatByteAll(' ', v.width - 2);
@@ -218,9 +227,6 @@ pub const View = struct {
         try w.print("\x1b[0m\x1b[{d};{d}H\x1b[?25h", .{ v.field_y + 1, v.x + 2 + cursor_width });
     }
 };
-fn eq(a: []const u8, b: []const u8) bool {
-    return std.mem.eql(u8, a, b);
-}
 
 test "name editing supports selection, insertion, cursor movement and clear" {
     var d = Dialog.init(.{ .rename = @enumFromInt(1) }, "original");

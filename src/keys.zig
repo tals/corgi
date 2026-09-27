@@ -14,6 +14,7 @@ pub const Key = enum {
     page_down,
     home,
     end,
+    delete,
     shift_tab,
     focus_in,
     focus_out,
@@ -31,7 +32,9 @@ const map = std.StaticStringMap(Key).initComptime(.{
     .{ "\x1b[B", .down },
     .{ "\x1bOB", .down },
     .{ "\x1b[C", .right },
+    .{ "\x1bOC", .right },
     .{ "\x1b[D", .left },
+    .{ "\x1bOD", .left },
     .{ "\x1b[5~", .page_up },
     .{ "\x1b[6~", .page_down },
     .{ "\x1b[H", .home },
@@ -40,6 +43,7 @@ const map = std.StaticStringMap(Key).initComptime(.{
     .{ "\x1b[F", .end },
     .{ "\x1bOF", .end },
     .{ "\x1b[4~", .end },
+    .{ "\x1b[3~", .delete },
     .{ "\x1b[Z", .shift_tab },
     .{ "\x1b[I", .focus_in },
     .{ "\x1b[O", .focus_out },
@@ -54,11 +58,17 @@ pub fn parse(seq: []const u8) ?Key {
 test "parse recognizes CSI and SS3 forms, and rejects the unmapped" {
     try std.testing.expectEqual(Key.up, parse("\x1b[A").?);
     try std.testing.expectEqual(Key.up, parse("\x1bOA").?);
+    try std.testing.expectEqual(Key.right, parse("\x1b[C").?);
+    try std.testing.expectEqual(Key.right, parse("\x1bOC").?);
+    try std.testing.expectEqual(Key.left, parse("\x1b[D").?);
+    try std.testing.expectEqual(Key.left, parse("\x1bOD").?);
     try std.testing.expectEqual(Key.home, parse("\x1b[1~").?);
+    try std.testing.expectEqual(Key.end, parse("\x1b[4~").?);
+    try std.testing.expectEqual(Key.delete, parse("\x1b[3~").?);
     try std.testing.expectEqual(Key.shift_tab, parse("\x1b[Z").?);
     try std.testing.expectEqual(Key.paste_start, parse(paste_start).?);
     try std.testing.expectEqual(Key.paste_end, parse(paste_end).?);
-    try std.testing.expect(parse("\x1bOC") == null);
-    try std.testing.expect(parse("\x1b[3~") == null);
+    try std.testing.expectEqual(Key.down, parse("\x1bOB").?);
+    try std.testing.expect(parse("\x1b[9~") == null);
     try std.testing.expect(parse("") == null);
 }

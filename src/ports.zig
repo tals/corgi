@@ -1,8 +1,12 @@
 //! Host process/socket discovery; immutable results are selected by each viewer.
 const std = @import("std");
+const log = std.log.scoped(.ports);
 const os = @import("os.zig");
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const detection = @import("detection.zig");
+const git_status = @import("git_status.zig");
+const clock = @import("clock.zig");
 const a = os.allocator;
 const c = os.c;
 const net = @cImport({
@@ -11,7 +15,6 @@ const net = @cImport({
     @cInclude("arpa/inet.h");
     @cInclude("netinet/in.h");
 });
-const eq = std.mem.eql;
 pub const Kind = enum { loopback, tailscale, vpn, network };
 pub const Interface = struct { name: []const u8, address: []const u8, kind: Kind, ipv6: bool = false };
 pub const Scheme = enum { unknown, http, https };
@@ -47,25 +50,29 @@ pub fn sshViewer() bool {
     return false;
 }
 pub fn loopback(address: []const u8) bool {
-    return std.mem.startsWith(u8, address, "127.") or eq(u8, address, "::1");
+    return std.mem.startsWith(u8, address, "127.") or std.mem.eql(u8, address, "::1");
 }
 fn wildcard(address: []const u8) bool {
-    return eq(u8, address, "*") or eq(u8, address, "0.0.0.0") or eq(u8, address, "::");
+    return std.mem.eql(u8, address, "*") or std.mem.eql(u8, address, "0.0.0.0") or std.mem.eql(u8, address, "::");
 }
 pub fn kind(name: []const u8, address: []const u8) Kind {
     if (loopback(address)) return .loopback;
-    const tunnel = std.mem.startsWith(u8, name, "utun") or std.mem.startsWith(u8, name, "tun") or std.mem.startsWith(u8, name, "wg") or std.mem.startsWith(u8, name, "ppp") or std.mem.startsWith(u8, name, "tap");
+    const tunnel = for ([_][]const u8{ "utun", "tun", "wg", "ppp", "tap" }) |prefix| {
+        if (std.mem.startsWith(u8, name, prefix)) break true;
+    } else false;
     // macOS gives Tailscale an ordinary utun name. Its address range is a hint,
     // not a guarantee that the remote browser is on the same tailnet.
     var parts = std.mem.splitScalar(u8, address, '.');
     const first = parts.next() orelse "";
     const second = std.fmt.parseInt(u8, parts.next() orelse "", 10) catch 0;
-    if (std.mem.startsWith(u8, name, "tailscale") or (tunnel and ((eq(u8, first, "100") and second >= 64 and second <= 127) or std.mem.startsWith(u8, address, "fd7a:115c:a1e0:")))) return .tailscale;
+    const tailnet_range = std.mem.eql(u8, first, "100") and second >= 64 and second <= 127;
+    if (std.mem.startsWith(u8, name, "tailscale") or
+        (tunnel and (tailnet_range or std.mem.startsWith(u8, address, "fd7a:115c:a1e0:")))) return .tailscale;
     return if (tunnel) .vpn else .network;
 }
 /// Only use addresses matched to this bind. Wildcard binds never become URLs.
 pub fn host(e: Endpoint, remote: bool) ?[]const u8 {
-    if (!remote and (eq(u8, e.bind_address, "127.0.0.1") or eq(u8, e.bind_address, "::1") or wildcard(e.bind_address))) return "localhost";
+    if (!remote and (std.mem.eql(u8, e.bind_address, "127.0.0.1") or std.mem.eql(u8, e.bind_address, "::1") or wildcard(e.bind_address))) return "localhost";
     var best: ?Interface = null;
     for (e.interfaces) |iface| {
         if (remote and iface.kind == .loopback) continue;
@@ -104,9 +111,9 @@ fn workload(p: Process, root: Root) bool {
     if (p.pid == root.agent_pid) return false;
     const name = std.mem.trimStart(u8, std.fs.path.basename(p.name), "-");
     for ([_][]const u8{ "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu" }) |shell| {
-        if (eq(u8, name, shell)) return false;
+        if (std.mem.eql(u8, name, shell)) return false;
     }
-    return @import("detection.zig").identify(&.{name}) == null;
+    return detection.identify(&.{name}) == null;
 }
 fn browserResponse(status: ?u16) bool {
     const code = status orelse return false;
@@ -136,7 +143,10 @@ fn interfaces(allocator: std.mem.Allocator) ![]const Interface {
         const family = address.*.sa_family;
         if (family != net.AF_INET and family != net.AF_INET6) continue;
         var buf: [net.INET6_ADDRSTRLEN]u8 = undefined;
-        const bytes: *const anyopaque = if (family == net.AF_INET) &@as(*const net.struct_sockaddr_in, @ptrCast(@alignCast(address))).sin_addr else &@as(*const net.struct_sockaddr_in6, @ptrCast(@alignCast(address))).sin6_addr;
+        const bytes: *const anyopaque = if (family == net.AF_INET)
+            &@as(*const net.struct_sockaddr_in, @ptrCast(@alignCast(address))).sin_addr
+        else
+            &@as(*const net.struct_sockaddr_in6, @ptrCast(@alignCast(address))).sin6_addr;
         const raw = net.inet_ntop(family, bytes, &buf, buf.len) orelse continue;
         const ip = std.mem.span(raw);
         const name = std.mem.span(entry.ifa_name);
@@ -149,7 +159,7 @@ fn interfaces(allocator: std.mem.Allocator) ![]const Interface {
 fn matching(allocator: std.mem.Allocator, address: []const u8, ipv6: bool, all: []const Interface) ![]const Interface {
     var result: std.ArrayList(Interface) = .empty;
     for (all) |iface| {
-        if (iface.ipv6 == ipv6 and (wildcard(address) or eq(u8, address, iface.address))) try result.append(allocator, iface);
+        if (iface.ipv6 == ipv6 and (wildcard(address) or std.mem.eql(u8, address, iface.address))) try result.append(allocator, iface);
     }
     return result.toOwnedSlice(allocator);
 }
@@ -176,8 +186,19 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
                 const port = std.fmt.parseInt(u16, local[colon + 1 ..], 10) catch break :blk;
                 if (port == 0) break :blk;
                 const bind = std.mem.trim(u8, local[0..colon], "[]");
-                for (result.items) |e| if (e.pid == pid and e.port == port and e.ipv6 == ipv6 and eq(u8, e.bind_address, bind) and eq(u8, @tagName(e.transport), @tagName(transport))) break :blk;
-                try result.append(allocator, .{ .pid = pid, .pane = root.pane, .name = try allocator.dupe(u8, name), .transport = if (transport == .tcp) .tcp else .udp, .bind_address = try allocator.dupe(u8, bind), .port = port, .ipv6 = ipv6, .interfaces = try matching(allocator, bind, ipv6, all) });
+                for (result.items) |e| if (e.pid == pid and e.port == port and e.ipv6 == ipv6 and
+                    std.mem.eql(u8, e.bind_address, bind) and
+                    std.mem.eql(u8, @tagName(e.transport), @tagName(transport))) break :blk;
+                try result.append(allocator, .{
+                    .pid = pid,
+                    .pane = root.pane,
+                    .name = try allocator.dupe(u8, name),
+                    .transport = if (transport == .tcp) .tcp else .udp,
+                    .bind_address = try allocator.dupe(u8, bind),
+                    .port = port,
+                    .ipv6 = ipv6,
+                    .interfaces = try matching(allocator, bind, ipv6, all),
+                });
             }
             address = "";
             listening = false;
@@ -189,10 +210,10 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
         switch (field[0]) {
             'p' => pid = std.fmt.parseInt(i32, field[1..], 10) catch 0,
             'c' => name = field[1..],
-            't' => ipv6 = eq(u8, field[1..], "IPv6"),
-            'P' => transport = if (eq(u8, field[1..], "TCP")) .tcp else if (eq(u8, field[1..], "UDP")) .udp else .none,
+            't' => ipv6 = std.mem.eql(u8, field[1..], "IPv6"),
+            'P' => transport = if (std.mem.eql(u8, field[1..], "TCP")) .tcp else if (std.mem.eql(u8, field[1..], "UDP")) .udp else .none,
             'n' => address = field[1..],
-            'T' => if (eq(u8, field[1..], "ST=LISTEN")) {
+            'T' => if (std.mem.eql(u8, field[1..], "ST=LISTEN")) {
                 listening = true;
             },
             else => {},
@@ -202,7 +223,7 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
 }
 
 // Share the daemon reaper's lock, but keep this worker's child slot separate.
-const mutex = &@import("git_status.zig").child_mutex;
+const mutex = &git_status.child_mutex;
 var child_pid: c_int = 0;
 var child_status: ?c_int = null;
 pub fn recordExit(pid: c_int, status: c_int) void {
@@ -279,7 +300,13 @@ fn probe(endpoint: Endpoint, stopping: *const std.atomic.Value(bool)) Probe {
         const target = std.fmt.bufPrint(&buf, "{s}://{s}{s}{s}:{d}/", .{ @tagName(scheme), if (e.ipv6) "[" else "", address, if (e.ipv6) "]" else "", e.port }) catch continue;
         // -q disables user curlrc; never use proxies, credentials or redirects.
         // Certificate trust belongs to the browser, not protocol detection.
-        const result = command(&.{ "curl", "-q", "--noproxy", "*", "--silent", "--insecure", "--range", "0-4095", "--connect-timeout", "0.3", "--max-time", "0.6", "--output", "/dev/null", "--write-out", "%{http_code}", "--", target }, stopping, false) orelse continue;
+        const result = command(&.{
+            "curl",              "-q",         "--noproxy",   "*",
+            "--silent",          "--insecure", "--range",     "0-4095",
+            "--connect-timeout", "0.3",        "--max-time",  "0.6",
+            "--output",          "/dev/null",  "--write-out", "%{http_code}",
+            "--",                target,
+        }, stopping, false) orelse continue;
         defer a.free(result);
         const status = std.fmt.parseInt(u16, result, 10) catch continue;
         if (status >= 100 and status <= 599) return .{ .scheme = scheme, .status = status };
@@ -287,6 +314,10 @@ fn probe(endpoint: Endpoint, stopping: *const std.atomic.Value(bool)) Probe {
     return .{};
 }
 
+/// Whether a recurring failure repeats the last one logged.
+fn same(last: ?anyerror, err: anyerror) bool {
+    return if (last) |previous| previous == err else false;
+}
 pub const Tracker = struct {
     arena: std.heap.ArenaAllocator = .init(a),
     current: Snapshot = .{},
@@ -297,6 +328,9 @@ pub const Tracker = struct {
     done: std.atomic.Value(bool) = .init(false),
     stopping: std.atomic.Value(bool) = .init(false),
     next_refresh: i64 = 0,
+    // Scans repeat every few seconds; warn once per distinct failure.
+    scan_error: ?anyerror = null,
+    interfaces_error: ?anyerror = null,
     pub fn deinit(t: *Tracker) void {
         t.stopping.store(true, .release);
         if (t.thread) |thread| thread.join();
@@ -327,7 +361,7 @@ pub const Tracker = struct {
                 changed = true;
             }
         }
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         if (now < t.next_refresh) return changed;
         t.next_refresh = now + 3000;
         _ = t.pending_arena.reset(.free_all);
@@ -341,26 +375,40 @@ pub const Tracker = struct {
         t.roots = roots.toOwnedSlice(allocator) catch return changed;
         t.pending = .{};
         t.done.store(false, .release);
-        t.thread = std.Thread.spawn(.{}, run, .{t}) catch null;
+        t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
+            log.warn("spawn scan thread failed: {}", .{err});
+            break :blk null;
+        };
         return changed;
     }
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
-        t.scan() catch {
+        t.scan() catch |err| {
+            if (!same(t.scan_error, err)) log.warn("port/process scan failed: {}", .{err});
+            t.scan_error = err;
             t.pending = .{};
+            return;
         };
+        t.scan_error = null;
     }
     fn scan(t: *Tracker) !void {
         const allocator = t.pending_arena.allocator();
         const ps = command(&.{ "ps", "-axo", "pid=,ppid=,pgid=,comm=" }, &t.stopping, false) orelse return;
         defer a.free(ps);
         const list = try processes(allocator, ps);
-        const all = interfaces(allocator) catch &.{};
+        const all = if (interfaces(allocator)) |found| blk: {
+            t.interfaces_error = null;
+            break :blk found;
+        } else |err| blk: {
+            if (!same(t.interfaces_error, err)) log.warn("network interface enumeration failed: {}", .{err});
+            t.interfaces_error = err;
+            break :blk &.{};
+        };
         const files = command(&.{ "lsof", "-nP", "-iTCP", "-iUDP", "-FpcftPnT" }, &t.stopping, true);
         defer if (files) |text| a.free(text);
         const endpoints = if (files) |text| try sockets(allocator, text, list, t.roots, all) else &.{};
         var works: std.ArrayList(Work) = .empty;
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         for (t.roots) |root| {
             const exists = for (works.items) |w| {
                 if (w.id == root.workspace) break true;
@@ -376,7 +424,7 @@ pub const Tracker = struct {
                 if (owned.workspace != root.workspace) continue;
                 var e = endpoint;
                 for (t.current.workspace(work.id).endpoints) |old| {
-                    if (old.pid == e.pid and old.pane == e.pane and old.port == e.port and old.ipv6 == e.ipv6 and old.transport == e.transport and eq(u8, old.bind_address, e.bind_address)) {
+                    if (old.pid == e.pid and old.pane == e.pane and old.port == e.port and old.ipv6 == e.ipv6 and old.transport == e.transport and std.mem.eql(u8, old.bind_address, e.bind_address)) {
                         e.scheme = old.scheme;
                         e.http_status = old.http_status;
                         e.probed_at = old.probed_at;
@@ -458,7 +506,18 @@ test "wildcard interface expansion respects family and explicit bind constraints
     const specific = try matching(arena.allocator(), "192.168.1.20", false, &all);
     try std.testing.expectEqual(@as(usize, 1), specific.len);
     try std.testing.expectEqualStrings("en0", specific[0].name);
-    var e: Endpoint = .{ .pid = 1, .pane = @enumFromInt(1), .name = "web", .transport = .tcp, .bind_address = "::", .port = 443, .ipv6 = true, .scheme = .https, .http_status = 200, .interfaces = try matching(arena.allocator(), "::", true, &all) };
+    var e: Endpoint = .{
+        .pid = 1,
+        .pane = @enumFromInt(1),
+        .name = "web",
+        .transport = .tcp,
+        .bind_address = "::",
+        .port = 443,
+        .ipv6 = true,
+        .scheme = .https,
+        .http_status = 200,
+        .interfaces = try matching(arena.allocator(), "::", true, &all),
+    };
     var buf: [256]u8 = undefined;
     try std.testing.expectEqualStrings("https://[fd7a:115c:a1e0::1]:443", url(&buf, e, true).?);
     e.ipv6 = false;

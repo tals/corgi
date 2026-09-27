@@ -5,6 +5,14 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const providers = @import("providers.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const activity_summary = @import("activity_summary.zig");
+const activity_timeline = @import("activity_timeline.zig");
+const background_tasks = @import("background_tasks.zig");
+const detection = @import("detection.zig");
+const codex_files = @import("codex_files.zig");
+const live_usage = @import("live_usage.zig");
+const codex_observer = @import("codex_observer.zig");
+const activity_tools = @import("activity_tools.zig");
 
 pub const max_actors = 1024;
 pub const Actor = struct {
@@ -26,13 +34,13 @@ pub const Actor = struct {
     state: agents.Agent,
     parent: ?Id = null,
     pending_native_requests: u32 = 0,
-    status_inference: @import("activity_summary.zig").Conversation = .{},
-    activity_timeline: @import("activity_timeline.zig").Timeline = .{},
+    status_inference: activity_summary.Conversation = .{},
+    activity_timeline: activity_timeline.Timeline = .{},
     screen_compacting: bool = false,
-    background_tasks: @import("background_tasks.zig").Inventory = .{},
+    background_tasks: background_tasks.Inventory = .{},
     // Foreground tool calls and background processes have independent lifetimes.
     transcript_tool_active: bool = false,
-    prompt_watch: @import("detection.zig").PromptWatch = .{},
+    prompt_watch: detection.PromptWatch = .{},
     workspace: WorkspaceId = .none,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,
@@ -40,20 +48,20 @@ pub const Actor = struct {
     children_observed_at: i64 = 0,
     role: [80]u8 = @splat(0),
     role_len: usize = 0,
-    model: @import("codex_files.zig").Name = .{},
+    model: codex_files.Name = .{},
     // Hooks report the current model on every event; a bounded transcript
     // tail can miss the once-per-turn record, so it only fills gaps.
     model_from_hook: bool = false,
-    live_usage: @import("live_usage.zig").View = .{},
+    live_usage: live_usage.View = .{},
     native_usage: bool = false,
-    native_meter: @import("live_usage.zig").Codex = .{},
+    native_meter: live_usage.Codex = .{},
 
     /// The registry assigns a provider on creation; only a pane's provisional
     /// agent state can lack one.
     pub fn provider(actor: *const Actor) agents.Provider {
         return actor.state.provider.?;
     }
-    pub fn usageView(actor: *const Actor, now: i64) @import("live_usage.zig").View {
+    pub fn usageView(actor: *const Actor, now: i64) live_usage.View {
         return if (actor.native_usage) actor.native_meter.meter.view(now) else actor.live_usage;
     }
 
@@ -68,7 +76,7 @@ pub const Actor = struct {
         actor.compactionChanged(was_compacting, now);
         switch (actor.provider()) {
             .claude => {
-                if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
+                if (background_tasks.Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
                 if (event.kind == .session_end) actor.background_tasks = .{};
             },
             .codex => {},
@@ -81,8 +89,7 @@ pub const Actor = struct {
         if (actor.state.compacting == was_compacting) return;
         const ms = @divFloor(now, std.time.us_per_ms);
         if (!actor.state.compacting) actor.activity_timeline.finish(actor.usageView(ms));
-        const summary = @import("activity_summary.zig");
-        var label: summary.Label = .{};
+        var label: activity_summary.Label = .{};
         const text = if (actor.state.compacting) "Compacting context" else actor.state.activity[0..actor.state.activity_len];
         if (text.len == 0) return;
         label.len = @min(text.len, label.bytes.len);
@@ -118,7 +125,7 @@ pub const Actor = struct {
     }
     // Initial attachment establishes a baseline; historic completions never ring.
     // Repeated polls and reconnects cannot duplicate a completion for the same turn.
-    pub fn observeSnapshot(actor: *Actor, s: @import("codex_observer.zig").Snapshot, watched: bool) bool {
+    pub fn observeSnapshot(actor: *Actor, s: codex_observer.Snapshot, watched: bool) bool {
         const agent = &actor.state;
         if (s.observed_at <= agent.last_seq) return false;
         actor.child_refresh = false;
@@ -170,7 +177,7 @@ pub const Actor = struct {
         actor.compactionChanged(was_compacting, s.observed_at);
         return ding or (!binding and s.state == .blocked and old_state != .blocked and !watched);
     }
-    pub fn observeTools(actor: *Actor, progress: @import("activity_tools.zig").View) void {
+    pub fn observeTools(actor: *Actor, progress: activity_tools.View) void {
         const agent = &actor.state;
         // Codex tool hooks can end while unified-exec commands keep running;
         // its transcript progress decides which tools are still active.
@@ -219,7 +226,7 @@ pub const Actor = struct {
 
 test "Codex tools survive snapshots but never leak into another turn" {
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
-    var snap: @import("codex_observer.zig").Snapshot = .{
+    var snap: codex_observer.Snapshot = .{
         .request = .{ .prefix = .{} },
         .session = "01901234-1234-1234-1234-123456789abc".*,
         .state = .working,
@@ -228,7 +235,7 @@ test "Codex tools survive snapshots but never leak into another turn" {
     };
     snap.turn[0] = 'a';
     _ = actor.observeSnapshot(snap, true);
-    var tools: @import("activity_tools.zig").View = .{ .turn_len = 1, .running = 1 };
+    var tools: activity_tools.View = .{ .turn_len = 1, .running = 1 };
     tools.turn[0] = 'a';
     actor.observeTools(tools);
     snap.observed_at += 1;
@@ -354,7 +361,7 @@ pub const Registry = struct {
         child.tracked_since = parent.tracked_since;
         return true;
     }
-    pub fn observeChildren(registry: *Registry, parent: *Actor, snapshot: @import("codex_observer.zig").Snapshot) void {
+    pub fn observeChildren(registry: *Registry, parent: *Actor, snapshot: codex_observer.Snapshot) void {
         if (snapshot.observed_at <= parent.children_observed_at) return;
         if (!snapshot.children_complete) {
             // Retain known identities and usage, but stop claiming a current
@@ -424,10 +431,9 @@ test "child links cannot cross providers reparent or form cycles" {
 }
 
 test "compaction hooks partition usage and preserve the summary through repeated or stale events" {
-    const summary = @import("activity_summary.zig");
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working } };
     actor.state.setActivity("Reading source");
-    actor.activity_timeline.checkpoint("", summary.Label.parse("Reading source").?, .{}, 1);
+    actor.activity_timeline.checkpoint("", activity_summary.Label.parse("Reading source").?, .{}, 1);
     actor.live_usage = .{ .known = true, .tokens = .{ .input = 100 } };
     _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 1, true, 2000);
     try std.testing.expectEqualStrings("Reading source", actor.state.activity[0..actor.state.activity_len]);
@@ -601,7 +607,14 @@ test "ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
 
 test "snapshot baseline and completion receipts are idempotent" {
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
-    var s: @import("codex_observer.zig").Snapshot = .{ .request = .{ .pane = @enumFromInt(1), .pid = 1, .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .idle, .turn_len = 1, .outcome = .completed, .observed_at = 1 };
+    var s: codex_observer.Snapshot = .{
+        .request = .{ .pane = @enumFromInt(1), .pid = 1, .prefix = .{} },
+        .session = "01901234-1234-1234-1234-123456789abc".*,
+        .state = .idle,
+        .turn_len = 1,
+        .outcome = .completed,
+        .observed_at = 1,
+    };
     s.turn[0] = 'a';
     try std.testing.expect(!actor.observeSnapshot(s, false));
     try std.testing.expectEqual(@as(u64, 0), actor.state.observation.completed);
@@ -618,7 +631,7 @@ test "snapshot baseline and completion receipts are idempotent" {
 test "a snapshot completion records history without overriding active or blocked state" {
     for ([_]agents.State{ .working, .blocked }) |state| {
         var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
-        var s: @import("codex_observer.zig").Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .turn_len = 1, .observed_at = 1 };
+        var s: codex_observer.Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .turn_len = 1, .observed_at = 1 };
         s.turn[0] = 'a';
         try std.testing.expect(!actor.observeSnapshot(s, false));
         // Thread status and turn history are read separately. The listed turn

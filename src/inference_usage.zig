@@ -10,7 +10,12 @@ pub const System = struct {
     /// System usage never recovers from partial, so every cause is logged to
     /// server.log with enough context to tell a real loss from a false alarm.
     pub fn markPartial(system: *System, comptime reason: []const u8, args: anytype) void {
-        log.warn("{d} partial{s} after {d} reports, {d} tokens: " ++ reason, .{ std.time.milliTimestamp(), if (system.meter.value.partial) " (again)" else "", system.reports, system.meter.value.tokens.total() } ++ args);
+        log.warn("{d} partial{s} after {d} reports, {d} tokens: " ++ reason, .{
+            std.time.milliTimestamp(),
+            if (system.meter.value.partial) " (again)" else "",
+            system.reports,
+            system.meter.value.tokens.total(),
+        } ++ args);
         system.meter.value.partial = true;
     }
 };

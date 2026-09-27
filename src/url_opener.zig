@@ -1,5 +1,6 @@
 //! Viewer-local system opener. Never run on the daemon or an SSH host.
 const std = @import("std");
+const builtin = @import("builtin");
 const os = @import("os.zig");
 const c = os.c;
 pub const Openers = struct {
@@ -18,7 +19,7 @@ pub const Openers = struct {
         const slot = for (&o.pids) |*pid| {
             if (pid.* == 0) break pid;
         } else return error.TooManyOpenRequests;
-        const executable = if (@import("builtin").os.tag == .macos) "open" else "xdg-open";
+        const executable = if (builtin.os.tag == .macos) "open" else "xdg-open";
         var child = std.process.Child.init(&.{ executable, url }, os.allocator);
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Ignore;

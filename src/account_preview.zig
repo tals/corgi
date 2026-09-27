@@ -4,18 +4,29 @@ const common = @import("providers/common.zig");
 const field = common.field;
 const str = common.str;
 const Provider = @import("providers.zig").Provider;
+const agents = @import("agents.zig");
+const transcript = @import("transcript.zig");
 pub const Text = struct {
     bytes: [160]u8 = @splat(0),
     len: usize = 0,
     pub fn set(t: *Text, value: []const u8) void {
-        t.len = @import("agents.zig").clean(&t.bytes, value);
+        t.len = agents.clean(&t.bytes, value);
     }
     pub fn text(t: *const Text) []const u8 {
         return t.bytes[0..t.len];
     }
 };
 pub const usage_max_age: i64 = 10 * 60;
-pub const Info = struct { signed_in: ?bool = null, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, usage_fetched_at: i64 = 0, usage_error: Text = .{}, resets: Resets = .{}, usage_needs_consent: bool = false };
+pub const Info = struct {
+    signed_in: ?bool = null,
+    account: Text = .{},
+    plan: Text = .{},
+    usage: Text = .{},
+    usage_fetched_at: i64 = 0,
+    usage_error: Text = .{},
+    resets: Resets = .{},
+    usage_needs_consent: bool = false,
+};
 
 pub const Resets = struct {
     at: [2]?i64 = .{ null, null },
@@ -52,12 +63,16 @@ fn resetCountdown(at: i64, now: i64, buf: []u8) []const u8 {
     const days = @divTrunc(minutes, 1440);
     const hours = @mod(@divTrunc(minutes, 60), 24);
     const mins = @mod(minutes, 60);
-    return if (days > 0)
-        (if (hours > 0) std.fmt.bufPrint(buf, "{d}d {d}h", .{ days, hours }) else if (mins > 0) std.fmt.bufPrint(buf, "{d}d {d}m", .{ days, mins }) else std.fmt.bufPrint(buf, "{d}d", .{days})) catch ""
-    else if (hours > 0)
-        (if (mins > 0) std.fmt.bufPrint(buf, "{d}h {d}m", .{ hours, mins }) else std.fmt.bufPrint(buf, "{d}h", .{hours})) catch ""
-    else
-        std.fmt.bufPrint(buf, "{d}m", .{minutes}) catch "";
+    if (days > 0) {
+        if (hours > 0) return std.fmt.bufPrint(buf, "{d}d {d}h", .{ days, hours }) catch "";
+        if (mins > 0) return std.fmt.bufPrint(buf, "{d}d {d}m", .{ days, mins }) catch "";
+        return std.fmt.bufPrint(buf, "{d}d", .{days}) catch "";
+    }
+    if (hours > 0) {
+        if (mins > 0) return std.fmt.bufPrint(buf, "{d}h {d}m", .{ hours, mins }) catch "";
+        return std.fmt.bufPrint(buf, "{d}h", .{hours}) catch "";
+    }
+    return std.fmt.bufPrint(buf, "{d}m", .{minutes}) catch "";
 }
 
 /// Where a provider's rate-limit response keeps its two usage windows.
@@ -98,7 +113,7 @@ fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
         if (tail[0] == '-') offset = -offset;
         stamp = std.fmt.bufPrint(&normalized, "{s}Z", .{raw[0 .. raw.len - 6]}) catch return null;
     }
-    return @divFloor(@import("transcript.zig").timestampMs(stamp) orelse return null, 1000) - offset;
+    return @divFloor(transcript.timestampMs(stamp) orelse return null, 1000) - offset;
 }
 
 pub fn resets(value: std.json.Value, provider: Provider) Resets {
@@ -158,7 +173,9 @@ fn duration(value: std.json.Value, buf: []u8) []const u8 {
     const minutes = field(value, "windowDurationMins");
     if (minutes != .integer or minutes.integer <= 0) return "Window";
     const n = minutes.integer;
-    return if (@mod(n, 1440) == 0) std.fmt.bufPrint(buf, "{d}d", .{@divExact(n, 1440)}) catch "Window" else if (@mod(n, 60) == 0) std.fmt.bufPrint(buf, "{d}h", .{@divExact(n, 60)}) catch "Window" else std.fmt.bufPrint(buf, "{d}m", .{n}) catch "Window";
+    if (@mod(n, 1440) == 0) return std.fmt.bufPrint(buf, "{d}d", .{@divExact(n, 1440)}) catch "Window";
+    if (@mod(n, 60) == 0) return std.fmt.bufPrint(buf, "{d}h", .{@divExact(n, 60)}) catch "Window";
+    return std.fmt.bufPrint(buf, "{d}m", .{n}) catch "Window";
 }
 
 pub fn usage(value: std.json.Value, provider: Provider) Text {
@@ -226,7 +243,7 @@ test "reset countdown rounds up and preserves window labels" {
     , .{});
     defer claude.deinit();
     const claude_times = resets(claude.value, .claude);
-    const now = @divExact(@import("transcript.zig").timestampMs("2026-09-24T10:00:00Z").?, 1000);
+    const now = @divExact(transcript.timestampMs("2026-09-24T10:00:00Z").?, 1000);
     try std.testing.expectEqualStrings("5h 2h / 7d 3d 6h", claude_times.text(now).text());
     const unknown = resets(.null, .claude);
     try std.testing.expectEqualStrings("", unknown.text(now).text());

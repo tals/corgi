@@ -4,18 +4,21 @@ const session = @import("session.zig");
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
+const mirror = @import("mirror.zig");
+const protocol = @import("protocol.zig");
+const agent_navigation = @import("agent_navigation.zig");
 pub const State = struct {
     workspace_id: WorkspaceId = .none,
-    entries: [workspace.max_workspaces]struct { id: WorkspaceId = .none, value: layout.Selection = .{}, agents: @import("agent_navigation.zig").History = .{} } = @splat(.{}),
-    pub fn index(n: *State, store: *@import("mirror.zig").Workspaces) usize {
+    entries: [workspace.max_workspaces]struct { id: WorkspaceId = .none, value: layout.Selection = .{}, agents: agent_navigation.History = .{} } = @splat(.{}),
+    pub fn index(n: *State, store: *mirror.Workspaces) usize {
         const i = store.index(n.workspace_id) orelse 0;
         n.workspace_id = store.items[i].id;
         return i;
     }
-    pub fn current(n: *State, store: *@import("mirror.zig").Workspaces) *@import("protocol.zig").Workspace {
+    pub fn current(n: *State, store: *mirror.Workspaces) *protocol.Workspace {
         return &store.items[n.index(store)];
     }
-    pub fn tabs(n: *State, store: *@import("mirror.zig").Workspaces) *layout.Selection {
+    pub fn tabs(n: *State, store: *mirror.Workspaces) *layout.Selection {
         const ws = n.current(store);
         for (&n.entries) |*entry| if (entry.id == ws.id) {
             entry.value.reconcile(&ws.model);
@@ -29,13 +32,13 @@ pub const State = struct {
         unreachable;
     }
     pub const Intent = struct { edit: ?session.Command = null, focus: ?layout.PaneId = null };
-    pub fn agentHistory(n: *State, store: *@import("mirror.zig").Workspaces) *@import("agent_navigation.zig").History {
+    pub fn agentHistory(n: *State, store: *mirror.Workspaces) *agent_navigation.History {
         _ = n.tabs(store);
         for (&n.entries) |*entry| if (entry.id == n.workspace_id) return &entry.agents;
         unreachable;
     }
     /// Resolve command shorthand once, before crossing the session seam.
-    pub fn command(n: *State, store: *@import("mirror.zig").Workspaces, act: Action, value: []const u8, area: layout.Rect) !Intent {
+    pub fn command(n: *State, store: *mirror.Workspaces, act: Action, value: []const u8, area: layout.Rect) !Intent {
         const model = &n.current(store).model;
         if (model.count == 0) return error.NoPane;
         const selected = n.tabs(store);
@@ -49,8 +52,15 @@ pub const State = struct {
                 const other = (layout.View{ .model = model, .selection = selected }).neighbor(direction, area) orelse return .{};
                 return if (act == .focus) .{ .focus = other } else .{ .edit = .{ .@"pane.swap" = .{ .target = pane, .other = other } } };
             },
-            .@"move-tab" => return .{ .edit = moveTab(model, tab, if (std.mem.eql(u8, value, "left")) selected.active -| 1 else @min(selected.active + 2, model.count)) },
-            .@"break" => return if (model.nodes[model.tabs[selected.active].root].? == .pane) .{} else .{ .edit = .{ .@"pane.move" = .{ .target = pane, .destination = .{ .new_tab = "" } } }, .focus = pane },
+            .@"move-tab" => return .{ .edit = moveTab(
+                model,
+                tab,
+                if (std.mem.eql(u8, value, "left")) selected.active -| 1 else @min(selected.active + 2, model.count),
+            ) },
+            .@"break" => return if (model.nodes[model.tabs[selected.active].root].? == .pane)
+                .{}
+            else
+                .{ .edit = .{ .@"pane.move" = .{ .target = pane, .destination = .{ .new_tab = "" } } }, .focus = pane },
             .next, .prev => return .{ .focus = selected.tabs[(selected.active + if (act == .next) @as(usize, 1) else model.count - 1) % model.count].focus },
             .tab, .join => {
                 const number = try std.fmt.parseInt(usize, value, 10);

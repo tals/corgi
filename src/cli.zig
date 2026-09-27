@@ -5,6 +5,10 @@ const a = os.allocator;
 const session = @import("session.zig");
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const Store = @import("workspace.zig").Store;
+const protocol = @import("protocol.zig");
+const rpc = @import("rpc.zig");
+const agents = @import("agents.zig");
 
 const Group = enum { tab, pane, workspace, current, list, focus, @"--skill" };
 const Action = enum {
@@ -105,7 +109,10 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
         if (try parsed.option("--viewer")) |value| try id(value) else @as(?u32, null)
     else
         null;
-    var command: ?session.Command = if (action == .list or action == .current or action == .focus or action == .@"workspace.switch") null else try parseCommand(action orelse return error.Usage, target, &parsed);
+    var command: ?session.Command = switch (action orelse return error.Usage) {
+        .list, .current, .focus, .@"workspace.switch" => null,
+        else => |value| try parseCommand(value, target, &parsed),
+    };
     try parsed.end();
     if (action == .current and caller == 0) return error.NoCallerPane;
     if (command) |cmd| if (cmd == .@"pane.create" and cmd.@"pane.create".workspace == WorkspaceId.none and caller == 0) return error.MissingWorkspace;
@@ -116,8 +123,8 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
         const located = try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller });
         defer located.deinit();
         const here = located.value.object.get("result").?;
-        const tab = try @import("protocol.zig").typedId(layout.TabId, here, "tab");
-        const workspace = try @import("protocol.zig").typedId(WorkspaceId, here, "workspace");
+        const tab = try protocol.typedId(layout.TabId, here, "tab");
+        const workspace = try protocol.typedId(WorkspaceId, here, "workspace");
         switch (command.?) {
             .@"tab.rename" => |*q| q.target = tab,
             .@"tab.move" => |*q| q.target = tab,
@@ -282,7 +289,7 @@ const Args = struct {
         return args.directory(value);
     }
     fn directory(args: *Args, value: []const u8) ![]const u8 {
-        const resolved = try @import("workspace.zig").Store.directory(value);
+        const resolved = try Store.directory(value);
         defer a.free(resolved);
         return args.mem.dupe(u8, resolved);
     }
@@ -301,10 +308,10 @@ const Args = struct {
 };
 
 fn call(fd: c_int, request: anytype) !std.json.Parsed(std.json.Value) {
-    var connection: @import("rpc.zig").Connection = .{ .fd = fd };
+    var connection: rpc.Connection = .{ .fd = fd };
     const response = try connection.request(request);
     errdefer response.deinit();
-    const err = @import("agents.zig").str(response.value, "err");
+    const err = agents.str(response.value, "err");
     if (err.len > 0) try failure(err, 1);
     return response;
 }

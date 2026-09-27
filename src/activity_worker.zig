@@ -1,7 +1,8 @@
 //! One bounded inference queue shared by providers. Observation and UI never
 //! wait for inference. Coalescing and cooldowns prevent unchanged polls billing.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
+const conversations = @import("conversations.zig");
+const ActorId = conversations.Actor.Id;
 const clock = @import("clock.zig");
 const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
@@ -11,7 +12,11 @@ const setup = @import("inference_setup.zig");
 const a = std.heap.c_allocator;
 const layout = @import("layout.zig");
 const max = layout.max_panes;
-const max_slots = @import("conversations.zig").max_actors;
+const max_slots = conversations.max_actors;
+const inference = @import("inference.zig");
+const live_usage = @import("live_usage.zig");
+const runtime = @import("runtime.zig");
+const activity_tools = @import("activity_tools.zig");
 pub const Request = struct {
     actor: ActorId,
     provider: agents.Provider,
@@ -28,16 +33,21 @@ pub const Request = struct {
     generation: u64 = 0,
     completed_tools: u64 = 0,
     pub fn sameTurn(r: *const Request, other: *const Request) bool {
-        return r.actor == other.actor and r.provider == other.provider and std.mem.eql(u8, r.session[0..r.session_len], other.session[0..other.session_len]) and std.mem.eql(u8, r.turn[0..r.turn_len], other.turn[0..other.turn_len]);
+        return r.actor == other.actor and r.provider == other.provider and
+            std.mem.eql(u8, r.session[0..r.session_len], other.session[0..other.session_len]) and
+            std.mem.eql(u8, r.turn[0..r.turn_len], other.turn[0..other.turn_len]);
     }
 };
 pub const Result = struct {
     request: Request,
     label: ?summary.Label,
-    pub fn apply(r: *const Result, actor: *@import("conversations.zig").Actor) bool {
+    pub fn apply(r: *const Result, actor: *conversations.Actor) bool {
         if (actor.id != r.request.actor) return false;
         const agent = &actor.state;
-        if (agent.state != .working or agent.provider != r.request.provider or !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len]) or !std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len]) or agent.activity_generation != r.request.generation) return false;
+        if (agent.state != .working or agent.provider != r.request.provider or
+            !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len]) or
+            !std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len]) or
+            agent.activity_generation != r.request.generation) return false;
         const label = r.label orelse {
             agent.activity_len = 0;
             agent.activity_inferred = false;
@@ -77,7 +87,7 @@ pub const Checkpoint = struct {
     slots: []const Entry,
     link_requests: []const LinkRequest = &.{},
     link_results: [links.capacity]?links.Result = @splat(null),
-    pool: @import("inference.zig").Checkpoint,
+    pool: inference.Checkpoint,
     next_request: u64,
     choice: setup.Choice,
     launches: setup.Launches,
@@ -105,7 +115,7 @@ pub const Worker = struct {
     /// Scheduling decisions made; `poke` waits for the next one.
     passes: u64 = 0,
     implementation: backend.Backend,
-    system_meter: @import("live_usage.zig").Meter = .{ .value = .{ .known = true } },
+    system_meter: live_usage.Meter = .{ .value = .{ .known = true } },
     link_requests: [links.capacity]?links.Request = @splat(null),
     link_results: [links.capacity]?links.Result = @splat(null),
     choice: setup.Choice = .auto,
@@ -181,7 +191,7 @@ pub const Worker = struct {
         w.mutex.unlock();
         if (change) w.implementation.use(wanted);
     }
-    pub fn systemUsage(w: *Worker, now: i64) @import("live_usage.zig").View {
+    pub fn systemUsage(w: *Worker, now: i64) live_usage.View {
         w.mutex.lock();
         defer w.mutex.unlock();
         return w.system_meter.view(now);
@@ -255,8 +265,29 @@ pub const Worker = struct {
         var slots: std.ArrayList(Checkpoint.Entry) = .empty;
         for (w.slots, 0..) |slot, i| if (slot) |entry| try slots.append(alloc, .{ .index = i, .slot = entry });
         var link_requests: std.ArrayList(Checkpoint.LinkRequest) = .empty;
-        for (w.link_requests) |entry| if (entry) |request| try link_requests.append(alloc, .{ .slot = request.slot, .generation = request.generation, .key = request.key, .evidence = try alloc.dupe(u8, request.evidence[0..request.len]) });
-        return .{ .slots = try slots.toOwnedSlice(alloc), .link_requests = try link_requests.toOwnedSlice(alloc), .link_results = w.link_results, .pool = try w.implementation.pool.capture(alloc), .next_request = w.implementation.next_request, .choice = w.choice, .launches = w.launches, .remembered = w.remembered, .active = w.active, .applied = w.applied, .locked = w.locked, .cursor = w.cursor, .link_cursor = w.link_cursor, .prefer_links = w.prefer_links, .next_global = w.next_global };
+        for (w.link_requests) |entry| if (entry) |request| try link_requests.append(alloc, .{
+            .slot = request.slot,
+            .generation = request.generation,
+            .key = request.key,
+            .evidence = try alloc.dupe(u8, request.evidence[0..request.len]),
+        });
+        return .{
+            .slots = try slots.toOwnedSlice(alloc),
+            .link_requests = try link_requests.toOwnedSlice(alloc),
+            .link_results = w.link_results,
+            .pool = try w.implementation.pool.capture(alloc),
+            .next_request = w.implementation.next_request,
+            .choice = w.choice,
+            .launches = w.launches,
+            .remembered = w.remembered,
+            .active = w.active,
+            .applied = w.applied,
+            .locked = w.locked,
+            .cursor = w.cursor,
+            .link_cursor = w.link_cursor,
+            .prefer_links = w.prefer_links,
+            .next_global = w.next_global,
+        };
     }
     /// Allocate and restore before candidate readiness; activate only after
     /// ownership commits. Pre-commit errors must exit without destructors.
@@ -313,11 +344,23 @@ pub const Worker = struct {
         a.free(w.slots);
         a.destroy(w);
     }
-    pub fn submit(w: *Worker, owner: *const @import("conversations.zig").Actor, evidence: summary.Text, panes: []const @import("runtime.zig").Pane) void {
+    pub fn submit(w: *Worker, owner: *const conversations.Actor, evidence: summary.Text, panes: []const runtime.Pane) void {
         const actor = owner.id;
         const agent = &owner.state;
         if ((agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
-        var req: Request = .{ .actor = actor, .provider = owner.provider(), .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation, .conversation = owner.status_inference, .name = agent.name, .name_len = agent.name_len };
+        var req: Request = .{
+            .actor = actor,
+            .provider = owner.provider(),
+            .session = agent.session,
+            .session_len = agent.session_len,
+            .turn = agent.turn,
+            .turn_len = agent.turn_len,
+            .evidence = evidence,
+            .generation = agent.activity_generation,
+            .conversation = owner.status_inference,
+            .name = agent.name,
+            .name_len = agent.name_len,
+        };
         for (panes) |pane| if (pane.attachment.actor == owner and req.panes_len < req.panes.len) {
             req.panes[req.panes_len] = pane.id;
             req.panes_len += 1;
@@ -344,12 +387,14 @@ pub const Worker = struct {
         slot.*.?.combine();
         w.wake.signal();
     }
-    pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: @import("activity_tools.zig").View) void {
+    pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: activity_tools.View) void {
         if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
         w.mutex.lock();
         defer w.mutex.unlock();
         for (w.slots) |*entry| if (entry.*) |*slot| {
-            if (slot.request.actor != actor or !std.mem.eql(u8, slot.request.session[0..slot.request.session_len], agent.sessionId()) or !std.mem.eql(u8, slot.request.turn[0..slot.request.turn_len], agent.turnId())) continue;
+            if (slot.request.actor != actor or
+                !std.mem.eql(u8, slot.request.session[0..slot.request.session_len], agent.sessionId()) or
+                !std.mem.eql(u8, slot.request.turn[0..slot.request.turn_len], agent.turnId())) continue;
             // Cumulative counts survive watched-workspace counter resets. If a
             // transcript is replaced, seed a fresh wave instead of replaying it.
             if (progress.completed < slot.request.completed_tools) {
@@ -368,7 +413,10 @@ pub const Worker = struct {
         defer w.mutex.unlock();
         for (w.slots) |*slot| if (slot.*) |s| {
             const found = for (actors) |actor| {
-                if (actor.id == s.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and std.mem.eql(u8, actor.state.sessionId(), s.request.session[0..s.request.session_len]) and std.mem.eql(u8, actor.state.turnId(), s.request.turn[0..s.request.turn_len])) {
+                if (actor.id == s.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and
+                    std.mem.eql(u8, actor.state.sessionId(), s.request.session[0..s.request.session_len]) and
+                    std.mem.eql(u8, actor.state.turnId(), s.request.turn[0..s.request.turn_len]))
+                {
                     slot.*.?.active = actor.state.state == .working;
                     slot.*.?.request.conversation = actor.status_inference;
                     break true;
@@ -466,7 +514,13 @@ pub const Worker = struct {
             const key = request.conversation.key(request.actor, &key_buffer);
             var history: [4][]const u8 = undefined;
             for (request.conversation.recent[0..request.conversation.len], 0..) |*entry, i| history[i] = entry.text();
-            const label = w.implementation.infer(.{ .provider = @tagName(request.provider), .evidence = request.evidence.text(), .previous = previous.text(), .turn = request.turn[0..request.turn_len], .history = history[0..request.conversation.len] }, key, .{
+            const label = w.implementation.infer(.{
+                .provider = @tagName(request.provider),
+                .evidence = request.evidence.text(),
+                .previous = previous.text(),
+                .turn = request.turn[0..request.turn_len],
+                .history = history[0..request.conversation.len],
+            }, key, .{
                 .actor = request.actor,
                 .panes = request.panes[0..request.panes_len],
                 .agent_name = request.name[0..request.name_len],
@@ -493,14 +547,23 @@ pub const Worker = struct {
 };
 
 test "late results cannot overwrite another turn or changed evidence" {
-    var actor: @import("conversations.zig").Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session_len = 1, .turn_len = 1 } };
+    var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session_len = 1, .turn_len = 1 } };
     const agent = &actor.state;
     agent.session[0] = 's';
     agent.turn[0] = 't';
     var text: summary.Text = .{};
     text.append("Checking input");
     agent.activity_generation = text.hash();
-    const r: Result = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = agent.session, .session_len = 1, .turn = agent.turn, .turn_len = 1, .evidence = text, .generation = text.hash() }, .label = summary.Label.parse("Checking input").? };
+    const r: Result = .{ .request = .{
+        .actor = @enumFromInt(1),
+        .provider = .codex,
+        .session = agent.session,
+        .session_len = 1,
+        .turn = agent.turn,
+        .turn_len = 1,
+        .evidence = text,
+        .generation = text.hash(),
+    }, .label = summary.Label.parse("Checking input").? };
     try std.testing.expect(r.apply(&actor));
     agent.turn[0] = 'u';
     try std.testing.expect(!r.apply(&actor));
@@ -538,7 +601,6 @@ test "fresh evidence triggers inference without a tool threshold and coalesces d
 }
 
 test "summary slots belong to conversations shared by multiple or detached attachments" {
-    const conversations = @import("conversations.zig");
     var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
     defer registry.deinit();
     const actor = try registry.get(.codex, "shared");
@@ -570,7 +632,6 @@ test "summary slots belong to conversations shared by multiple or detached attac
 }
 
 test "actor inference context survives turns and detachment but rejects stale results" {
-    const conversations = @import("conversations.zig");
     var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
     defer registry.deinit();
     const actor = try registry.get(.codex, "shared");
@@ -610,7 +671,6 @@ test "actor inference context survives turns and detachment but rejects stale re
 }
 
 test "inference completing during compaction waits to resume its timeline phase" {
-    const conversations = @import("conversations.zig");
     var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working } };
     _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 1, true, 1000);
     const result: Result = .{ .request = .{
@@ -630,7 +690,10 @@ test "inference completing during compaction waits to resume its timeline phase"
 }
 
 fn validateRequest(request: Request) !void {
-    if (request.session_len > request.session.len or request.turn_len > request.turn.len or request.evidence.len > request.evidence.bytes.len or request.panes_len > request.panes.len or request.name_len > request.name.len or request.conversation.len > request.conversation.recent.len or request.conversation.previous.len > request.conversation.previous.bytes.len) return error.InvalidCheckpoint;
+    if (request.session_len > request.session.len or request.turn_len > request.turn.len or
+        request.evidence.len > request.evidence.bytes.len or request.panes_len > request.panes.len or
+        request.name_len > request.name.len or request.conversation.len > request.conversation.recent.len or
+        request.conversation.previous.len > request.conversation.previous.bytes.len) return error.InvalidCheckpoint;
     for (request.conversation.recent) |entry| if (entry.len > entry.bytes.len) return error.InvalidCheckpoint;
 }
 

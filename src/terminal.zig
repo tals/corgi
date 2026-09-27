@@ -4,6 +4,11 @@ const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
+const hyperlink = @import("hyperlinks.zig");
+const codex_observer = @import("codex_observer.zig");
+const detection = @import("detection.zig");
+const launch_command = @import("launch_command.zig");
+const Theme = @import("theme.zig").Theme;
 pub const Terminal = struct {
     vt: vt.Terminal,
     stream: vt.TerminalStream,
@@ -11,11 +16,11 @@ pub const Terminal = struct {
     // New terminal instances (including handoff imports) invalidate viewer receipts.
     surface_identity: u64,
     surface_revision: u64 = 0,
-    links: @import("hyperlinks.zig").Snapshot = .{},
+    links: hyperlink.Snapshot = .{},
     fd: c_int = -1,
     pid: c_int = -1,
     title_pid: c_int = 0,
-    title_prefix: ?@import("codex_observer.zig").Prefix = null,
+    title_prefix: ?codex_observer.Prefix = null,
     title_revision: u64 = 0,
     exited: bool = false,
     exit_status: c_int = 0,
@@ -27,7 +32,7 @@ pub const Terminal = struct {
     redraw_pending: bool = false,
     redraw_restore_at: ?i64 = null,
 
-    pub fn applyTheme(t: *Terminal, theme: @import("theme.zig").Theme) void {
+    pub fn applyTheme(t: *Terminal, theme: Theme) void {
         theme.apply(&t.vt);
         t.surface_revision +%= 1;
     }
@@ -36,7 +41,7 @@ pub const Terminal = struct {
     pub fn emulator(t: *Terminal) *vt.Terminal {
         return &t.vt;
     }
-    pub fn hyperlinks(t: *Terminal) []const @import("hyperlinks.zig").Link {
+    pub fn hyperlinks(t: *Terminal) []const hyperlink.Link {
         return t.links.links;
     }
     pub fn clearSelection(t: *Terminal) !void {
@@ -60,13 +65,13 @@ pub const Terminal = struct {
     }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
-        const prefix = @import("codex_observer.zig").titlePrefix(t.vt.getTitle() orelse "");
+        const prefix = codex_observer.titlePrefix(t.vt.getTitle() orelse "");
         if (!std.meta.eql(t.title_prefix, prefix)) {
             t.title_revision +%= 1;
             t.title_prefix = prefix;
         }
         if (!t.restoring and t.fd >= 0) {
-            t.title_pid = if (@import("detection.zig").foreground(t.fd)) |job| job.pid else 0;
+            t.title_pid = if (detection.foreground(t.fd)) |job| job.pid else 0;
         }
     }
     fn reply(handler: *vt.TerminalStream.Handler, bytes: [:0]const u8) void {
@@ -137,8 +142,11 @@ pub const Terminal = struct {
             os.setenv("PATH", path) catch c._exit(127);
             const pane = std.fmt.allocPrint(a, "{d}", .{@intFromEnum(id)}) catch c._exit(127);
             os.setenv("CORGI_PANE", pane) catch c._exit(127);
-            const shell = @import("launch_command.zig").shell();
-            if (command) |cmd| os.exec(&.{ shell, if (interactive_command) @import("launch_command.zig").flags() else "-lc", cmd }) catch c._exit(127) else os.exec(&.{ shell, "-l" }) catch c._exit(127);
+            const shell = launch_command.shell();
+            if (command) |cmd|
+                os.exec(&.{ shell, if (interactive_command) launch_command.flags() else "-lc", cmd }) catch c._exit(127)
+            else
+                os.exec(&.{ shell, "-l" }) catch c._exit(127);
         }
         t.pid = pid;
         os.nonblock(t.fd);
@@ -442,7 +450,7 @@ test "terminal reports host colors and keeps application overrides" {
     t.feed("\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
     try std.testing.expectEqualStrings("\x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b]11;rgb:0000/0000/0000\x1b\\", t.pending.items);
     t.pending.clearRetainingCapacity();
-    var theme: @import("theme.zig").Theme = .{
+    var theme: Theme = .{
         .foreground = .{ .r = 220, .g = 220, .b = 220 },
         .background = .{ .r = 30, .g = 30, .b = 30 },
     };

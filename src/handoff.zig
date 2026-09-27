@@ -2,6 +2,7 @@
 //! only allowlisted descriptors and cannot read/write them before commit. Any
 //! pre-commit failure kills only the candidate; the source keeps serving.
 const std = @import("std");
+const log = std.log.scoped(.handoff);
 const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
@@ -11,7 +12,14 @@ const binary = @import("base64.zig");
 const peer = @import("peer.zig");
 const Server = @import("server.zig").Server;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const PaneId = @import("layout.zig").PaneId;
+const layout = @import("layout.zig");
+const PaneId = layout.PaneId;
+const updates = @import("updates.zig");
+const options = @import("corgi_options");
+const activity_worker = @import("activity_worker.zig");
+const Theme = @import("theme.zig").Theme;
+const agents = @import("agents.zig");
+const recovery = @import("recovery.zig");
 const SavedClient = struct {
     fd: i32,
     input: []const u8,
@@ -35,20 +43,20 @@ const SavedClient = struct {
 const Manifest = struct {
     preferred_workspace: WorkspaceId = .none,
     version: u32 = migrations.handoff_version,
-    update_abi: ?[]const u8 = @import("updates.zig").abi,
-    terminal_abi: u64 = @import("corgi_options").terminal_checkpoint_abi,
+    update_abi: ?[]const u8 = updates.abi,
+    terminal_abi: u64 = options.terminal_checkpoint_abi,
     listener: i32,
     requester: i32,
     runtime: cp.State,
-    summaries: ?@import("activity_worker.zig").Checkpoint = null,
+    summaries: ?activity_worker.Checkpoint = null,
     clients: []const SavedClient,
-    theme: @import("theme.zig").Theme,
+    theme: Theme,
     default_folder_pending: bool,
     next_viewer: u32,
     next_active: u64 = 0,
     bell_seq: u64,
     last_bell: i64,
-    last_bell_kind: @import("agents.zig").Attention,
+    last_bell_kind: agents.Attention,
 };
 fn timeout(fd: c_int) void {
     const value: c.struct_timeval = .{ .tv_sec = 15, .tv_usec = 0 };
@@ -60,7 +68,7 @@ fn inherit(fd: c_int) void {
 }
 pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c_int) !noreturn {
     // Keep the saved context current even if the machine fails during reload.
-    try @import("recovery.zig").save(&s.runtime, s.socket);
+    try recovery.save(&s.runtime, s.socket);
     const deadline = std.time.milliTimestamp() + 1500;
     while (true) {
         var pending = false;
@@ -82,8 +90,41 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     defer arena.deinit();
     const alloc = arena.allocator();
     const clients = try alloc.alloc(SavedClient, s.clients.items.len);
-    for (s.clients.items, clients) |cl, *out| out.* = .{ .fd = cl.fd, .input = try binary.encode(alloc, cl.input.items), .output = try binary.encode(alloc, cl.output.items[cl.sent..]), .viewer = cl.viewer, .viewer_id = cl.viewer_id, .active_seq = cl.active_seq, .view_workspace = cl.view_workspace, .view_focus = cl.view_focus, .interests = cl.interests[0..cl.interest_count], .watched = cl.watched, .controls = cl.controls.items, .next_control = cl.next_control, .last_control = cl.last_control, .protocol_version = cl.protocol_version, .subscribed = cl.subscribed, .launch_preview = cl.launch_preview, .snapshot_revision = cl.snapshot_revision, .touched = cl.touched };
-    const manifest: Manifest = .{ .preferred_workspace = s.preferred_workspace, .listener = listener, .requester = requester, .runtime = try cp.capture(alloc, &s.runtime, true), .summaries = if (s.summaries) |worker| try worker.capture(alloc) else null, .clients = clients, .theme = s.theme, .default_folder_pending = s.default_folder_pending, .next_viewer = s.next_viewer, .next_active = s.next_active, .bell_seq = s.bell_seq, .last_bell = s.last_bell, .last_bell_kind = s.last_bell_kind };
+    for (s.clients.items, clients) |cl, *out| out.* = .{
+        .fd = cl.fd,
+        .input = try binary.encode(alloc, cl.input.items),
+        .output = try binary.encode(alloc, cl.output.items[cl.sent..]),
+        .viewer = cl.viewer,
+        .viewer_id = cl.viewer_id,
+        .active_seq = cl.active_seq,
+        .view_workspace = cl.view_workspace,
+        .view_focus = cl.view_focus,
+        .interests = cl.interests[0..cl.interest_count],
+        .watched = cl.watched,
+        .controls = cl.controls.items,
+        .next_control = cl.next_control,
+        .last_control = cl.last_control,
+        .protocol_version = cl.protocol_version,
+        .subscribed = cl.subscribed,
+        .launch_preview = cl.launch_preview,
+        .snapshot_revision = cl.snapshot_revision,
+        .touched = cl.touched,
+    };
+    const manifest: Manifest = .{
+        .preferred_workspace = s.preferred_workspace,
+        .listener = listener,
+        .requester = requester,
+        .runtime = try cp.capture(alloc, &s.runtime, true),
+        .summaries = if (s.summaries) |worker| try worker.capture(alloc) else null,
+        .clients = clients,
+        .theme = s.theme,
+        .default_folder_pending = s.default_folder_pending,
+        .next_viewer = s.next_viewer,
+        .next_active = s.next_active,
+        .bell_seq = s.bell_seq,
+        .last_bell = s.last_bell,
+        .last_bell_kind = s.last_bell_kind,
+    };
     const bytes = try std.json.Stringify.valueAlloc(alloc, manifest, .{});
     if (bytes.len > 256 * 1024 * 1024) return error.CheckpointTooLarge;
     const name = try std.fmt.allocPrint(alloc, "{s}.handoff-{d}-{x}", .{ s.socket, c.getpid(), std.crypto.random.int(u64) });
@@ -131,7 +172,7 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     const ready = os.readLine(pair[0], 1024) catch return error.ReloadCandidateFailed;
     defer a.free(ready);
     if (!std.mem.eql(u8, ready, "ready")) {
-        std.log.err("reload candidate: {s}", .{ready});
+        log.err("reload candidate: {s}", .{ready});
         inline for (.{ error.UnsupportedStateVersion, error.MissingStateVersion, error.InvalidStateVersion }) |failure| {
             if (std.mem.eql(u8, ready, @errorName(failure))) return failure;
         }
@@ -165,15 +206,42 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         const parsed = try migrations.decode(Manifest, .handoff, a, bytes);
         defer parsed.deinit();
         const m = parsed.parsed.value;
-        if (m.update_abi) |abi| if (!std.mem.eql(u8, abi, @import("updates.zig").abi)) return error.IncompatibleCheckpoint;
-        if (m.terminal_abi != @import("corgi_options").terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
-        s = .{ .preferred_workspace = m.preferred_workspace, .socket = socket, .executable = executable, .inherited_listener = m.listener, .theme = m.theme, .default_folder_pending = m.default_folder_pending, .next_viewer = m.next_viewer, .next_active = m.next_active, .bell_seq = m.bell_seq, .last_bell = m.last_bell, .last_bell_kind = m.last_bell_kind };
+        if (m.update_abi) |abi| if (!std.mem.eql(u8, abi, updates.abi)) return error.IncompatibleCheckpoint;
+        if (m.terminal_abi != options.terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
+        s = .{
+            .preferred_workspace = m.preferred_workspace,
+            .socket = socket,
+            .executable = executable,
+            .inherited_listener = m.listener,
+            .theme = m.theme,
+            .default_folder_pending = m.default_folder_pending,
+            .next_viewer = m.next_viewer,
+            .next_active = m.next_active,
+            .bell_seq = m.bell_seq,
+            .last_bell = m.last_bell,
+            .last_bell_kind = m.last_bell_kind,
+        };
         os.cloexec(m.listener);
         try cp.restore(&s.runtime, m.runtime, true, socket, executable);
-        if (m.summaries) |saved| s.summaries = try @import("activity_worker.zig").Worker.restore(saved);
+        if (m.summaries) |saved| s.summaries = try activity_worker.Worker.restore(saved);
         for (m.clients) |saved| {
-            if (saved.interests.len > @import("layout.zig").max_panes) return error.InvalidCheckpoint;
-            var cl: peer.Client = .{ .fd = saved.fd, .viewer = saved.viewer, .viewer_id = saved.viewer_id, .active_seq = saved.active_seq, .view_workspace = saved.view_workspace, .view_focus = saved.view_focus, .watched = saved.watched, .next_control = saved.next_control, .last_control = saved.last_control, .protocol_version = saved.protocol_version, .subscribed = saved.subscribed, .launch_preview = saved.launch_preview, .snapshot_revision = saved.snapshot_revision, .touched = std.time.milliTimestamp() };
+            if (saved.interests.len > layout.max_panes) return error.InvalidCheckpoint;
+            var cl: peer.Client = .{
+                .fd = saved.fd,
+                .viewer = saved.viewer,
+                .viewer_id = saved.viewer_id,
+                .active_seq = saved.active_seq,
+                .view_workspace = saved.view_workspace,
+                .view_focus = saved.view_focus,
+                .watched = saved.watched,
+                .next_control = saved.next_control,
+                .last_control = saved.last_control,
+                .protocol_version = saved.protocol_version,
+                .subscribed = saved.subscribed,
+                .launch_preview = saved.launch_preview,
+                .snapshot_revision = saved.snapshot_revision,
+                .touched = std.time.milliTimestamp(),
+            };
             cl.input = .fromOwnedSlice(try binary.decode(a, saved.input));
             cl.output = .fromOwnedSlice(try binary.decode(a, saved.output));
             cl.interest_count = saved.interests.len;

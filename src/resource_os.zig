@@ -1,7 +1,6 @@
 //! Native, read-only process counters. No subprocesses or command-line scraping.
 const std = @import("std");
 const builtin = @import("builtin");
-const a = @import("os.zig").allocator;
 const c = @cImport({
     @cInclude("unistd.h");
     if (builtin.os.tag == .macos) {
@@ -71,7 +70,13 @@ pub fn counters(pid: i32) ?Counters {
         var timebase: c.mach_timebase_info_data_t = undefined;
         if (c.mach_timebase_info(&timebase) != c.KERN_SUCCESS or timebase.denom == 0) return null;
         const cpu_ns = @as(u128, info.ri_user_time +| info.ri_system_time) * timebase.numer / timebase.denom;
-        return .{ .start = info.ri_proc_start_abstime, .cpu_ns = @intCast(@min(std.math.maxInt(u64), cpu_ns)), .memory = info.ri_phys_footprint, .read = info.ri_diskio_bytesread, .written = info.ri_diskio_byteswritten };
+        return .{
+            .start = info.ri_proc_start_abstime,
+            .cpu_ns = @intCast(@min(std.math.maxInt(u64), cpu_ns)),
+            .memory = info.ri_phys_footprint,
+            .read = info.ri_diskio_bytesread,
+            .written = info.ri_diskio_byteswritten,
+        };
     } else if (builtin.os.tag == .linux) {
         var buf: [4096]u8 = undefined;
         const stat = linuxStat(pid, &buf) orelse return null;
@@ -80,7 +85,13 @@ pub fn counters(pid: i32) ?Counters {
         if (ticks <= 0 or pages <= 0) return null;
         var path: [64]u8 = undefined;
         const io = read(std.fmt.bufPrint(&path, "/proc/{d}/io", .{pid}) catch return null, &buf);
-        return .{ .start = stat.identity.start, .cpu_ns = stat.ticks *| (std.time.ns_per_s / @as(u64, @intCast(ticks))), .memory = stat.pages *| @as(u64, @intCast(pages)), .read = if (io) |text| field(text, "read_bytes:") else null, .written = if (io) |text| field(text, "write_bytes:") else null };
+        return .{
+            .start = stat.identity.start,
+            .cpu_ns = stat.ticks *| (std.time.ns_per_s / @as(u64, @intCast(ticks))),
+            .memory = stat.pages *| @as(u64, @intCast(pages)),
+            .read = if (io) |text| field(text, "read_bytes:") else null,
+            .written = if (io) |text| field(text, "write_bytes:") else null,
+        };
     } else return null;
 }
 

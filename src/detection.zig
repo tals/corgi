@@ -1,5 +1,6 @@
 //! Passive foreground-job discovery. No shell aliases or PATH shims required.
 const std = @import("std");
+const builtin = @import("builtin");
 const os = @import("os.zig");
 const c = os.c;
 const agents = @import("agents.zig");
@@ -50,7 +51,7 @@ fn process(pid: c_int) ?Provider {
     var bytes: [65536]u8 = undefined;
     var data: []const u8 = undefined;
     var max_args: usize = 64;
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
         var len: usize = bytes.len;
         if (c.sysctl(&mib, mib.len, &bytes, &len, null, 0) != 0 or len < @sizeOf(c_int)) return null;
@@ -62,7 +63,7 @@ fn process(pid: c_int) ?Provider {
         // The kernel starts with the executable path and alignment padding,
         // followed by argc NUL-separated arguments (then environment data).
         data = std.mem.trimStart(u8, data[end..], "\x00");
-    } else if (@import("builtin").os.tag == .linux) {
+    } else if (builtin.os.tag == .linux) {
         var path: [64]u8 = undefined;
         const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}) catch return null, .{}) catch return null;
         defer file.close();
@@ -120,7 +121,7 @@ fn processBlock(pid: c_int, bytes: []u8) ?Block {
     var out: Block = .{};
     var argc: usize = 0;
     var data: []const u8 = undefined;
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
         var len: usize = bytes.len;
         if (c.sysctl(&mib, mib.len, bytes.ptr, &len, null, 0) != 0 or len < @sizeOf(c_int)) return null;
@@ -132,7 +133,7 @@ fn processBlock(pid: c_int, bytes: []u8) ?Block {
         const end = std.mem.indexOfScalar(u8, data, 0) orelse return null;
         out.exec = data[0..end];
         data = std.mem.trimStart(u8, data[end..], "\x00");
-    } else if (@import("builtin").os.tag == .linux) {
+    } else if (builtin.os.tag == .linux) {
         var path: [64]u8 = undefined;
         // The executable path lives past the argument and environment halves.
         const reserve = std.fs.max_path_bytes;
@@ -175,11 +176,11 @@ fn processBlock(pid: c_int, bytes: []u8) ?Block {
 }
 
 fn parent(pid: c_int) ?c_int {
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         var info: c.proc_bsdinfo = undefined;
         if (c.proc_pidinfo(pid, c.PROC_PIDTBSDINFO, 0, &info, @sizeOf(c.proc_bsdinfo)) != @sizeOf(c.proc_bsdinfo)) return null;
         return @intCast(info.pbi_ppid);
-    } else if (@import("builtin").os.tag == .linux) {
+    } else if (builtin.os.tag == .linux) {
         var path: [64]u8 = undefined;
         var bytes: [1024]u8 = undefined;
         const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/stat", .{pid}) catch return null, .{}) catch return null;
@@ -198,7 +199,7 @@ pub fn foreground(fd: c_int) ?Job {
     const pgid = c.tcgetpgrp(fd);
     if (pgid <= 0) return null;
     if (process(pgid)) |leader| return .{ .pid = pgid, .provider = leader };
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         var pids: [128]c_int = undefined;
         const n = c.proc_listpids(c.PROC_PGRP_ONLY, @intCast(pgid), &pids, @sizeOf(@TypeOf(pids)));
         if (n <= 0) return null;
@@ -206,7 +207,7 @@ pub fn foreground(fd: c_int) ?Job {
             if (pid <= 0 or pid == pgid) continue;
             if (process(pid)) |provider| return .{ .pid = pid, .provider = provider };
         }
-    } else if (@import("builtin").os.tag == .linux) {
+    } else if (builtin.os.tag == .linux) {
         var dir = std.fs.openDirAbsolute("/proc", .{ .iterate = true }) catch return null;
         defer dir.close();
         var it = dir.iterate();

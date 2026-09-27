@@ -2,6 +2,7 @@ const std = @import("std");
 const vt = @import("ghostty-vt");
 const os = @import("os.zig");
 const keys = @import("keys.zig");
+const corgi_badge = @import("corgi_badge.zig");
 const a = os.allocator;
 
 /// The host's default colors and its configurable ANSI palette. Applications
@@ -65,7 +66,7 @@ pub const Theme = struct {
 /// keystrokes, fragmented replies, and literal escape sequences in bracketed paste.
 pub const Probe = struct {
     theme: Theme = .{},
-    badge: @import("corgi_badge.zig").State = .{},
+    badge: corgi_badge.State = .{},
     changed: bool = false,
     paste: bool = false,
     pending: [128]u8 = undefined,
@@ -91,7 +92,7 @@ pub const Probe = struct {
             }
             if (std.mem.startsWith(u8, start, sequence) or std.mem.startsWith(u8, end, sequence)) continue;
             if (!p.paste) {
-                const badge_prefix = @import("corgi_badge.zig").reply_prefix;
+                const badge_prefix = corgi_badge.reply_prefix;
                 if (std.mem.startsWith(u8, badge_prefix, sequence)) continue;
                 if (std.mem.startsWith(u8, sequence, badge_prefix)) {
                     if (std.mem.endsWith(u8, sequence, "\x1b\\")) {
@@ -183,7 +184,7 @@ test "badge replies are consumed across fragments but not inside pasted text" {
     var p: Probe = .{};
     var input: std.ArrayList(u8) = .empty;
     defer input.deinit(a);
-    const reply = @import("corgi_badge.zig").reply_prefix ++ "i=730031;OK\x1b\\";
+    const reply = corgi_badge.reply_prefix ++ "i=730031;OK\x1b\\";
     for ("x" ++ reply ++ "y") |byte| try p.feed(&.{byte}, &input);
     try std.testing.expectEqualStrings("xy", input.items);
     try std.testing.expect(p.badge.status == .supported);

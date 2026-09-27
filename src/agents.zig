@@ -110,7 +110,7 @@ pub const Agent = struct {
         return a.recent[0..a.recent_len];
     }
     pub fn finishedTurn(a: *const Agent, turn: []const u8) bool {
-        return if (turn.len > 0) eq(turn, a.last_finished_turn[0..a.last_finished_turn_len]) else a.finished_since_activity;
+        return if (turn.len > 0) std.mem.eql(u8, turn, a.last_finished_turn[0..a.last_finished_turn_len]) else a.finished_since_activity;
     }
     pub fn beginTurn(a: *Agent, turn: []const u8) void {
         a.permission_review = null;
@@ -131,7 +131,7 @@ pub const Agent = struct {
         return true;
     }
     pub fn endTurn(a: *Agent, turn: []const u8, outcome: observation.Outcome, source: observation.Source, now: i64) bool {
-        if (turn.len > 0 and a.turn_len > 0 and !eq(turn, a.turnId())) return false;
+        if (turn.len > 0 and a.turn_len > 0 and !std.mem.eql(u8, turn, a.turnId())) return false;
         const recorded = a.recordCompletion(if (turn.len > 0) turn else a.turnId(), outcome, source, false);
         a.finished_since_activity = true;
         a.permission_review = null;
@@ -168,13 +168,13 @@ pub const Agent = struct {
         const reported_turn = hook.turn;
         // A conversation actor never changes identity. The attachment router
         // finds or creates a different actor when the provider selects a session.
-        if (a.session_len > 0 and session.len > 0 and !eq(a.sessionId(), session)) return null;
+        if (a.session_len > 0 and session.len > 0 and !std.mem.eql(u8, a.sessionId(), session)) return null;
         if (a.provider != null and a.provider != provider) return null;
         // A repeated end signal must not revive a completed turn or replace
         // a newer turn currently running in the same session.
         if (event == .stop or event == .interrupt) {
             if (a.finishedTurn(reported_turn)) return null;
-            if (reported_turn.len > 0 and a.turn_len > 0 and !eq(reported_turn, a.turnId())) return null;
+            if (reported_turn.len > 0 and a.turn_len > 0 and !std.mem.eql(u8, reported_turn, a.turnId())) return null;
         }
         const path = hook.transcript;
         if (std.fs.path.isAbsolute(path) and path.len <= a.transcript.len) {
@@ -221,7 +221,7 @@ pub const Agent = struct {
         } else if (hook.permission_notification) {
             a.tool_active = true;
         } else if (event == .tool_finish or event == .tool_failure) {
-            if (tool.len == 0 or eq(tool, a.toolLabel())) {
+            if (tool.len == 0 or std.mem.eql(u8, tool, a.toolLabel())) {
                 a.tool_len = 0;
                 a.tool_active = false;
             }
@@ -241,7 +241,7 @@ pub const Agent = struct {
             // Claude hooks carry no turn id. The prompt id keys inferred labels
             // only; Stop matching above deliberately stays turn-agnostic.
             const prompt = hook.prompt;
-            if (prompt.len > 0 and prompt.len <= a.turn.len and !eq(prompt, a.turnId())) {
+            if (prompt.len > 0 and prompt.len <= a.turn.len and !std.mem.eql(u8, prompt, a.turnId())) {
                 a.turn_len = clean(&a.turn, prompt);
                 a.activity_inferred = false;
             }
@@ -298,7 +298,7 @@ pub const Agent = struct {
 pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, target: []const u8) []const u8 {
     if (std.mem.trim(u8, description, " \t\r\n").len > 0) return description;
     // A raw command line is noise; the sidebar's tool indicator marks it instead.
-    if (eq(tool, "Bash")) return "";
+    if (std.mem.eql(u8, tool, "Bash")) return "";
     const Verb = struct { tool: []const u8, verb: []const u8, path: bool = false };
     const verbs = [_]Verb{
         .{ .tool = "Read", .verb = "Reading", .path = true },
@@ -317,16 +317,16 @@ pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, tar
     const short = if (std.mem.lastIndexOf(u8, tool, "__")) |i| tool[i + 2 ..] else tool;
     var verb = short;
     var subject = target;
-    for (verbs) |entry| if (eq(entry.tool, tool)) {
+    for (verbs) |entry| if (std.mem.eql(u8, entry.tool, tool)) {
         verb = entry.verb;
         if (entry.path) subject = std.fs.path.basename(target);
         break;
     };
-    if (eq(tool, "WebFetch")) {
+    if (std.mem.eql(u8, tool, "WebFetch")) {
         const rest = if (std.mem.indexOf(u8, subject, "://")) |i| subject[i + 3 ..] else subject;
         subject = rest[0 .. std.mem.indexOfScalar(u8, rest, '/') orelse rest.len];
     }
-    if (eq(tool, "TodoWrite")) subject = "";
+    if (std.mem.eql(u8, tool, "TodoWrite")) subject = "";
     if (subject.len == 0) return verb;
     // Long commands are clipped; setActivity trims to a codepoint boundary.
     var n: usize = 0;
@@ -344,9 +344,6 @@ fn firstLine(out: []u8, value: []const u8) usize {
     while (n > 0 and !std.unicode.utf8ValidateSlice(line[0..n])) n -= 1;
     for (line[0..n], 0..) |ch, i| out[i] = if (ch < 32 or ch == 127) ' ' else ch;
     return n;
-}
-fn eq(a: []const u8, b: []const u8) bool {
-    return std.mem.eql(u8, a, b);
 }
 pub fn str(v: std.json.Value, key: []const u8) []const u8 {
     if (v != .object) return "";

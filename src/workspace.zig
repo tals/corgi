@@ -1,6 +1,11 @@
 const std = @import("std");
 const layout = @import("layout.zig");
-const a = @import("os.zig").allocator;
+const os = @import("os.zig");
+const a = os.allocator;
+const agent_order = @import("agent_order.zig");
+const git_push = @import("git_push.zig");
+const git_status = @import("git_status.zig");
+const usage = @import("usage.zig");
 
 pub const max_workspaces = 32;
 
@@ -22,12 +27,12 @@ pub const Workspace = struct {
     name_len: usize = 0,
     cwd: []const u8,
     model: layout.Model = .{},
-    agent_order: @import("agent_order.zig").Order = .{},
+    agent_order: agent_order.Order = .{},
     git_ahead: ?u64 = null,
-    git_ref: @import("git_push.zig").Ref = .{},
-    git_push: @import("git_push.zig").State = .{},
-    git_commits: @import("git_status.zig").Commits = .{},
-    away: @import("usage.zig").Window = .{},
+    git_ref: git_push.Ref = .{},
+    git_push: git_push.State = .{},
+    git_commits: git_status.Commits = .{},
+    away: usage.Window = .{},
     pub fn customName(w: *const Workspace) []const u8 {
         return w.name_buf[0..w.name_len];
     }
@@ -61,7 +66,6 @@ pub const Store = struct {
     const Saved = struct { version: u32 = 2, active: Workspace.Id, next_id: Workspace.Id, workspaces: []const SavedWorkspace };
 
     pub fn statePath(socket: []const u8) ![]const u8 {
-        const os = @import("os.zig");
         // go.sh environments keep durable settings separate from short /tmp sockets.
         if (os.env("CORGI_ENV_DIR")) |root| return std.fs.path.join(a, &.{ root, "state", "corgi", "workspaces.json" });
         if (os.env("CORGI_SOCKET") != null) return std.fmt.allocPrint(a, "{s}.workspaces.json", .{socket});
@@ -133,8 +137,13 @@ pub const Store = struct {
         s.items.insertAssumeCapacity(to, item);
     }
     pub fn directory(path: []const u8) ![]const u8 {
-        const home = @import("os.zig").env("HOME") orelse ".";
-        const expanded = if (std.mem.eql(u8, path, "~")) try a.dupe(u8, home) else if (std.mem.startsWith(u8, path, "~/")) try std.fs.path.join(a, &.{ home, path[2..] }) else try a.dupe(u8, if (path.len == 0) "." else path);
+        const home = os.env("HOME") orelse ".";
+        const expanded = if (std.mem.eql(u8, path, "~"))
+            try a.dupe(u8, home)
+        else if (std.mem.startsWith(u8, path, "~/"))
+            try std.fs.path.join(a, &.{ home, path[2..] })
+        else
+            try a.dupe(u8, if (path.len == 0) "." else path);
         defer a.free(expanded);
         var dir = try std.fs.cwd().openDir(expanded, .{});
         defer dir.close();

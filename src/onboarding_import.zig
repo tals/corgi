@@ -7,14 +7,16 @@ const herdr = @import("herdr_adapter.zig");
 const Runtime = @import("runtime.zig").Runtime;
 const layout = @import("layout.zig");
 const import_layout = @import("import_layout.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
+const tmux_resume = @import("tmux_resume.zig");
 pub const Plan = struct { source: catalog.Source, workspaces: []const catalog.Workspace, herdr_session: ?herdr.SourceSession = null, selected: []const []const u8 = &.{} };
 pub const Progress = @import("onboarding.zig").Progress;
 pub const Job = struct {
     plan: ?std.json.Parsed(Plan) = null,
     progress: Progress = .{},
     index: usize = 0,
-    created: [@import("workspace.zig").max_workspaces]WorkspaceId = undefined,
+    created: [workspace.max_workspaces]WorkspaceId = undefined,
     count: usize = 0,
     operation: u64 = 0,
     pub fn busy(j: *const Job) bool {
@@ -85,7 +87,6 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
             const id = try r.create(opts);
             if (kind == .tmux) {
                 const t = r.pane(id).?.terminal;
-                const tmux_resume = @import("tmux_resume.zig");
                 tmux_resume.feed(t, p.history);
                 tmux_resume.feed(t, p.screen);
                 t.feed("\x1b[0m\r\n# Imported tmux output; new shell.\r\n");

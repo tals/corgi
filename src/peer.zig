@@ -5,12 +5,15 @@ const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
-pub const Interest = struct { pane: layout.PaneId, cols: u16, rows: u16, offset: ?usize = null, known: ?@import("surface.zig").Stamp = null };
+const surface = @import("surface.zig");
+const agent_launcher = @import("agent_launcher.zig");
+const viewer_protocol = @import("viewer_protocol.zig");
+pub const Interest = struct { pane: layout.PaneId, cols: u16, rows: u16, offset: ?usize = null, known: ?surface.Stamp = null };
 pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
 pub const LaunchPreview = struct {
     cwd: [std.fs.max_path_bytes]u8 = @splat(0),
     len: usize,
-    preview: @import("agent_launcher.zig").Preview,
+    preview: agent_launcher.Preview,
     checked: i64 = 0,
 };
 pub const Client = struct {
@@ -51,7 +54,7 @@ pub const Client = struct {
         try cl.output.append(a, '\n');
     }
     pub fn deinit(cl: *Client) void {
-        @import("viewer_protocol.zig").clearControls(cl);
+        viewer_protocol.clearControls(cl);
         cl.controls.deinit(a);
         _ = c.close(cl.fd);
         cl.input.deinit(a);

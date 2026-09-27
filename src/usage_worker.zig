@@ -8,8 +8,11 @@ const usage = @import("usage.zig");
 const activity_tools = @import("activity_tools.zig");
 const codex_files = @import("codex_files.zig");
 const live_usage = @import("live_usage.zig");
+const transcript = @import("transcript.zig");
+const passes = @import("passes.zig");
 const a = std.heap.c_allocator;
 const max_jobs = @import("layout.zig").max_panes;
+const log = std.log.scoped(.usage_worker);
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
@@ -53,7 +56,7 @@ pub const Result = struct {
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
-        if (!eq(agent.sessionId(), result.session[0..result.session_len])) return false;
+        if (!std.mem.eql(u8, agent.sessionId(), result.session[0..result.session_len])) return false;
         switch (agent.provider orelse return false) {
             .claude => return result.claudeFallback(agent),
             .codex => return result.codexFallback(agent, now),
@@ -70,7 +73,7 @@ pub const Result = struct {
         // Hooks own Claude's turn id; transcript evidence only joins it.
         const progress = result.progress orelse return false;
         if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
-        if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return false;
         if (progress.commentary.len == 0 and progress.evidence.len == 0) return false;
         // Claude writes text before most tools, so commentary-keyed labels
         // would arrive stale. A label from this turn's slightly older
@@ -87,7 +90,7 @@ pub const Result = struct {
         if (agent.turn_len == 0 and agent.last_seq == result.seq) {
             agent.turn_len = agents.clean(&agent.turn, progress.turn[0..progress.turn_len]);
         }
-        if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return false;
         agent.activity_generation = progress.commentary.hash();
         return true;
     }
@@ -96,7 +99,7 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
-    passes: @import("passes.zig").Passes = .{},
+    passes: passes.Passes = .{},
     requests: std.ArrayList(Request) = .empty,
     cursor: usize = 0,
     results: [max_jobs]?Result = @splat(null),
@@ -125,7 +128,17 @@ pub const Worker = struct {
             const agent = &actor.state;
             if (agent.session_len == 0 or (agent.transcript_len == 0 and !indexedNames(actor.provider()))) continue;
             const ws = runtime.workspaces.get(actor.workspace) orelse continue;
-            w.requests.append(a, .{ .actor = actor.id, .workspace = ws.id, .since = ws.away.since, .agent = agent.*, .child = actor.parent != null, .tracked_since = actor.tracked_since }) catch break;
+            w.requests.append(a, .{
+                .actor = actor.id,
+                .workspace = ws.id,
+                .since = ws.away.since,
+                .agent = agent.*,
+                .child = actor.parent != null,
+                .tracked_since = actor.tracked_since,
+            }) catch |err| {
+                log.warn("queuing usage request: {}", .{err});
+                break;
+            };
         }
         w.wake.signal();
     }
@@ -165,9 +178,13 @@ pub const Worker = struct {
             w.mutex.unlock();
             index.refresh();
             for (batch_requests) |*req| {
-                const entry = watchers.getOrPut(a, req.actor) catch continue;
+                const entry = watchers.getOrPut(a, req.actor) catch |err| {
+                    log.warn("tracking usage tail: {}", .{err});
+                    continue;
+                };
                 if (!entry.found_existing) {
-                    const tail = a.create(Tail) catch {
+                    const tail = a.create(Tail) catch |err| {
+                        log.warn("allocating usage tail: {}", .{err});
                         _ = watchers.remove(req.actor);
                         continue;
                     };
@@ -193,10 +210,13 @@ pub const Worker = struct {
                     break :blk usage.Counts{};
                 };
                 t.releaseFile();
-                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and
+                    t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
-                    if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
+                    if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or
+                        !std.mem.eql(u8, result.*.?.session[0..result.*.?.session_len], req.agent.sessionId()))
+                    {
                         result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
                     }
                     result.*.?.delta.add(delta);
@@ -213,16 +233,13 @@ pub const Worker = struct {
                         },
                         .codex => result.*.?.name = index.name(req.agent.sessionId()),
                     }
-                    if (eq(t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
+                    if (std.mem.eql(u8, t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
                 }
                 w.mutex.unlock();
             }
         }
     }
 };
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
 // Claude transcript record types relevant to titles, continuation and text.
 const RecordKind = enum { @"agent-name", @"custom-title", @"ai-title", assistant, @"continued-in", user, unknown };
 pub const Tail = struct {
@@ -273,7 +290,7 @@ pub const Tail = struct {
         const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
         const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
         if (!resumed) {
-            try @import("transcript.zig").verifySession(file, req.provider(), agent.sessionId());
+            try transcript.verifySession(file, req.provider(), agent.sessionId());
             t.initial_until = stat.size;
             t.offset = stat.size -| initial_tail;
             // Inspect only this known child's bounded prefix. Larger or older
@@ -344,12 +361,12 @@ pub const Tail = struct {
     fn claudeText(t: *Tail, value: std.json.Value) void {
         const side = usage.field(value, "isSidechain");
         if (side == .bool and side.bool) return;
-        const stamp = @import("transcript.zig").timestampMs(agents.str(value, "timestamp")) orelse return;
+        const stamp = transcript.timestampMs(agents.str(value, "timestamp")) orelse return;
         const content = usage.field(usage.field(value, "message"), "content");
         if (content != .array) return;
         var latest: []const u8 = "";
         for (content.array.items) |part| {
-            if (!eq(agents.str(part, "type"), "text")) continue;
+            if (!std.mem.eql(u8, agents.str(part, "type"), "text")) continue;
             var lines = std.mem.tokenizeScalar(u8, agents.str(part, "text"), '\n');
             while (lines.next()) |line| {
                 const text = std.mem.trim(u8, line, " \t\r#*->`_");
@@ -426,7 +443,7 @@ pub const Tail = struct {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
                         const appended = start_offset + start > t.initial_until;
-                        const stamp = @import("transcript.zig").timestampMs(agents.str(parsed.value, "timestamp"));
+                        const stamp = transcript.timestampMs(agents.str(parsed.value, "timestamp"));
                         const delta = t.record(req, parsed.value, appended, stamp);
                         if (appended and stamp != null and stamp.? > req.since) found.add(delta);
                     } else |_| {
@@ -471,7 +488,16 @@ test "file metadata prefers fresh protocol and rejects other sessions and turns"
     var progress: activity_tools.View = .{};
     progress.turn_len = agents.clean(&progress.turn, "current");
     progress.commentary.append("Tracing pane focus");
-    var result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .progress = progress, .seq = 10 };
+    var result: Result = .{
+        .actor = @enumFromInt(1),
+        .workspace = @enumFromInt(1),
+        .since = 0,
+        .session = agent.session,
+        .session_len = agent.session_len,
+        .delta = .{},
+        .progress = progress,
+        .seq = 10,
+    };
     result.name.len = agents.clean(&result.name.bytes, "File title");
     agent.setName("Protocol title");
     agent.metadata_protocol_at = 100;
@@ -505,8 +531,8 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     const padding: [24 * 1024]u8 = @splat('x');
     try file.writeAll(&padding);
     try file.writeAll("\"}}\n");
-    try @import("transcript.zig").verifySession(file, .codex, "large-session");
-    try std.testing.expectError(error.WrongSession, @import("transcript.zig").verifySession(file, .codex, "other-session"));
+    try transcript.verifySession(file, .codex, "large-session");
+    try std.testing.expectError(error.WrongSession, transcript.verifySession(file, .codex, "other-session"));
     const path = try tmp.dir.realpathAlloc(std.testing.allocator, "usage.jsonl");
     defer std.testing.allocator.free(path);
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 1000, .agent = .{ .provider = .codex } };
@@ -583,7 +609,16 @@ test "Claude text updates apply only when newer than the latest hook" {
 
     var agent: agents.Agent = .{ .provider = .claude, .state = .working, .activity_at = 3 * std.time.us_per_s };
     agent.session_len = agents.clean(&agent.session, "a");
-    var result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .update = tail.update, .update_at = tail.update_at };
+    var result: Result = .{
+        .actor = @enumFromInt(1),
+        .workspace = @enumFromInt(1),
+        .since = 0,
+        .session = agent.session,
+        .session_len = agent.session_len,
+        .delta = .{},
+        .update = tail.update,
+        .update_at = tail.update_at,
+    };
     _ = result.fallback(&agent, 0);
     try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
     agent.activity_at = 1 * std.time.us_per_s;

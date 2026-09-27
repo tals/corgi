@@ -2,6 +2,7 @@ const std = @import("std");
 const terminal = @import("terminal.zig");
 const vt = terminal.vt;
 const layout = @import("layout.zig");
+const hyperlink = @import("hyperlinks.zig");
 
 pub const Surface = struct {
     pane: layout.PaneId,
@@ -38,11 +39,11 @@ pub fn capture(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal.Ter
     };
 }
 
-pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool) !void {
+pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool) !void {
     return writeRowHovered(w, state, links, pane, row, cols, dimmed, null);
 }
 
-pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const @import("hyperlinks.zig").Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
+pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
     const cells = state.row_data.items(.cells)[row];
     var active_link: ?u64 = null;
     var link_index: usize = 0;
@@ -55,7 +56,9 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         if (cell.wide == .spacer_tail or cell.wide == .spacer_head) continue;
         var style: terminal.vt.Style = if (cell.style_id == 0) .{} else cells.items(.style)[col];
         while (link_index < links.len and links[link_index].row == row and links[link_index].end <= col) link_index += 1;
-        const link: ?@import("hyperlinks.zig").Link = if (!style.flags.invisible and link_index < links.len and links[link_index].row == row and links[link_index].start <= col and col < links[link_index].end) links[link_index] else null;
+        const at_link = link_index < links.len and links[link_index].row == row and
+            links[link_index].start <= col and col < links[link_index].end;
+        const link: ?hyperlink.Link = if (!style.flags.invisible and at_link) links[link_index] else null;
         const link_id: ?u64 = if (link) |value| value.id else null;
         if (hovered != null and link_id == hovered) style.flags.underline = .single;
         if (active_link != link_id) {

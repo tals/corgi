@@ -13,6 +13,12 @@ const surface = @import("surface.zig");
 const controller = @import("controller.zig");
 const peer = @import("peer.zig");
 const Connection = @import("rpc.zig").Connection;
+const Theme = @import("theme.zig").Theme;
+const Probe = @import("theme.zig").Probe;
+const ports = @import("ports.zig");
+const sound = @import("sound.zig");
+const url_opener = @import("url_opener.zig");
+const corgi_badge = @import("corgi_badge.zig");
 pub const View = controller.Controller;
 const Response = struct {
     viewer: u32,
@@ -25,17 +31,24 @@ const Response = struct {
     detach: bool,
 };
 
-pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, socket: []const u8) !u64 {
+pub fn open(view: *View, cwd: []const u8, theme: Theme, socket: []const u8) !u64 {
     return openMode(view, cwd, theme, socket, false);
 }
-fn openMode(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, socket: []const u8, start_onboarding: bool) !u64 {
-    view.remote_links = @import("ports.zig").sshViewer();
+fn openMode(view: *View, cwd: []const u8, theme: Theme, socket: []const u8, start_onboarding: bool) !u64 {
+    view.remote_links = ports.sshViewer();
     // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
     // attaching viewer's environment: one daemon can serve both terminals.
     view.iterm2_pointer = std.mem.eql(u8, os.env("TERM_PROGRAM") orelse "", "iTerm.app");
     view.loadPreferences();
     if (start_onboarding) view.openOnboarding(.welcome);
-    const opened = try view.connection.callViewer(.{ .op = "viewer.open", .protocol = 1, .viewer_protocol = viewer_version.version, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
+    const opened = try view.connection.callViewer(.{
+        .op = "viewer.open",
+        .protocol = 1,
+        .viewer_protocol = viewer_version.version,
+        .cwd = cwd,
+        .theme = theme,
+        .onboarding = view.onboarding != null,
+    });
     defer opened.deinit();
     view.navigation.workspace_id = try protocol.typedId(WorkspaceId, opened.value, "workspace");
     view.input_state.attached = true;
@@ -69,7 +82,20 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset, .known = p.terminal.known };
         count += 1;
     }
-    const response = try view.connection.callViewer(.{ .op = "viewer.sync", .resource_detail = view.resourceDetail(), .resources = view.resource_prefs.enabled, .protocol = 1, .viewer_protocol = viewer_version.version, .session_hash = view.runtime.snapshot_hash, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
+    const response = try view.connection.callViewer(.{
+        .op = "viewer.sync",
+        .resource_detail = view.resourceDetail(),
+        .resources = view.resource_prefs.enabled,
+        .protocol = 1,
+        .viewer_protocol = viewer_version.version,
+        .session_hash = view.runtime.snapshot_hash,
+        .interests = interests[0..count],
+        .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null,
+        .watched = view.input_state.watched,
+        .workspace = view.current().id,
+        .ack = view.input_state.last_control,
+        .active = view.input_state.active,
+    });
     view.input_state.active = false;
     defer response.deinit();
     const parsed = try std.json.parseFromValue(Response, a, response.value, .{ .ignore_unknown_fields = true });
@@ -95,7 +121,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     if (reply.bell_seq != bell_seq.*) {
         bell_seq.* = reply.bell_seq;
         view.last_bell_kind = reply.bell_kind;
-        if (play_sound and !view.muted) try @import("sound.zig").play(@tagName(reply.bell_kind));
+        if (play_sound and !view.muted) try sound.play(@tagName(reply.bell_kind));
     }
     const choosing = view.onboarding != null or (if (view.agent_launcher) |launcher| launcher.pinned else false);
     return (!reply.detach or choosing) and view.input_state.attached;
@@ -110,28 +136,36 @@ pub fn presented(view: *View) !void {
         const p = view.runtime.pane(place.id) orelse continue;
         const focused = if (view.focused()) |selected| selected.id == p.id else false;
         if (!p.agent.observation.unread() and (p.agent.attention == .none or !focused)) continue;
-        try view.connection.send(.{ .op = "pane.acknowledge", .protocol = 1, .pane = p.id, .binding = p.binding, .conversation = p.agent.conversation, .session = p.agent.session, .through = p.agent.observation.completed, .attention_at = if (focused) p.agent.changed_at else @as(i64, -1) });
+        try view.connection.send(.{
+            .op = "pane.acknowledge",
+            .protocol = 1,
+            .pane = p.id,
+            .binding = p.binding,
+            .conversation = p.agent.conversation,
+            .session = p.agent.session,
+            .through = p.agent.observation.completed,
+            .attention_at = if (focused) p.agent.changed_at else @as(i64, -1),
+        });
         p.agent.observation.acknowledge(p.agent.observation.completed);
         if (focused or p.agent.attention != .needs_input) p.agent.attention = .none;
     }
 }
 
-pub fn run(fd: c_int, socket: []const u8, probe: *@import("theme.zig").Probe, input: *std.ArrayList(u8), start_onboarding: bool) !?[]const u8 {
+pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u8), start_onboarding: bool) !?[]const u8 {
     var connection: Connection = .{ .fd = fd };
     var view: View = .{ .connection = &connection, .executable = "" };
     defer deinit(&view);
     const cwd = try std.process.getCwdAlloc(a);
     defer a.free(cwd);
     var bell_seq = try openMode(&view, cwd, probe.theme, socket, start_onboarding);
-    var openers: @import("url_opener.zig").Openers = .{};
+    var openers: url_opener.Openers = .{};
     defer openers.reap();
     var previous: []const u8 = "";
     defer if (previous.len > 0) a.free(previous);
-    const badge = @import("corgi_badge.zig");
     probe.badge = .{};
-    try os.writeAll(1, badge.query);
+    try os.writeAll(1, corgi_badge.query);
     defer if (probe.badge.uploaded) {
-        os.writeAll(1, badge.remove) catch {};
+        os.writeAll(1, corgi_badge.remove) catch {};
     };
     var next_sync: i64 = 0;
     while (view.input_state.attached) {

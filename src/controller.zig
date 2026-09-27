@@ -18,6 +18,25 @@ const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const protocol = @import("protocol.zig");
 const NativeId = @import("native.zig").Session.Id;
+const mirror = @import("mirror.zig");
+const rpc = @import("rpc.zig");
+const navigation = @import("navigation.zig");
+const corgi_badge = @import("corgi_badge.zig");
+const sidebar_rows = @import("sidebar_rows.zig");
+const agent_launcher = @import("agent_launcher.zig");
+const launch_preview_stream = @import("launch_preview_stream.zig");
+const corgi_setup = @import("corgi_setup.zig");
+const link_tooltip = @import("link_tooltip.zig");
+const resource_tooltip = @import("resource_tooltip.zig");
+const preferences = @import("preferences.zig");
+const agent_drag = @import("agent_drag.zig");
+const workspace_drag = @import("workspace_drag.zig");
+const clock = @import("clock.zig");
+const launch_command = @import("launch_command.zig");
+const ghostty_integration = @import("ghostty_integration.zig");
+const subagent_tooltip = @import("subagent_tooltip.zig");
+const vt = @import("terminal.zig").vt;
+const Command = @import("session.zig").Command;
 const Effect = union(enum) {
     write_terminal: []const u8,
     open_url: []const u8,
@@ -41,6 +60,19 @@ const TabDrag = struct {
     cancelled: bool = false,
     drop: ?render.TabDrop = null,
 };
+/// A pressed link or port row, tracked until release confirms it wasn't a drag.
+const PortClick = struct {
+    x: u16,
+    y: u16,
+    url: [4096]u8,
+    len: usize,
+    menu: ?WorkspaceId = null,
+    pane: ?layout.PaneId = null,
+    px: u16 = 0,
+    py: u16 = 0,
+    drag_selects: bool = false,
+    cancelled: bool = false,
+};
 const InputState = struct {
     viewer_id: u32 = 0,
     last_control: u64 = 0,
@@ -49,7 +81,7 @@ const InputState = struct {
     /// User input or a window resize since the last sync; the daemon sizes
     /// shared panes for the viewer that was used most recently.
     active: bool = false,
-    port_click: ?struct { x: u16, y: u16, url: [4096]u8, len: usize, menu: ?WorkspaceId = null, pane: ?layout.PaneId = null, px: u16 = 0, py: u16 = 0, drag_selects: bool = false, cancelled: bool = false } = null,
+    port_click: ?PortClick = null,
     paste: bool = false,
     paste_pane: ?layout.PaneId = null,
     paste_to_name: bool = false,
@@ -64,11 +96,11 @@ const InputState = struct {
 };
 pub const Controller = struct {
     const Self = @This();
-    const Terminal = @import("mirror.zig").Terminal;
-    const Pane = @import("mirror.zig").Pane;
-    connection: *@import("rpc.zig").Connection,
-    runtime: @import("mirror.zig").Runtime = .{},
-    navigation: @import("navigation.zig").State = .{},
+    const Terminal = mirror.Terminal;
+    const Pane = mirror.Pane;
+    connection: *rpc.Connection,
+    runtime: mirror.Runtime = .{},
+    navigation: navigation.State = .{},
     workspace_offset: usize = 0,
     input_state: InputState = .{},
     effects: std.ArrayList(Effect) = .empty,
@@ -87,11 +119,11 @@ pub const Controller = struct {
     menu_page: usize = 0,
     menu_highlight: ?u8 = null,
     sidebar_open: bool = true,
-    corgi_badge: @import("corgi_badge.zig").Mode = .none,
+    corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
     sidebar_width: u16 = 28,
     sidebar_offset: usize = 0,
-    sidebar_rows: @import("sidebar_rows.zig").State = .{},
+    sidebar_rows: sidebar_rows.State = .{},
     remote_links: bool = false,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
@@ -101,23 +133,23 @@ pub const Controller = struct {
     folded_count: usize = 0,
     scope_menu: ?sidebar.ScopeMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
-    agent_launcher: ?@import("agent_launcher.zig").Menu = null,
-    launcher_selection: ?@import("agent_launcher.zig").Row = null,
-    launch_previews: @import("launch_preview_stream.zig").Stream = .{},
-    corgi_setup: ?@import("corgi_setup.zig").Menu = null,
+    agent_launcher: ?agent_launcher.Menu = null,
+    launcher_selection: ?agent_launcher.Row = null,
+    launch_previews: launch_preview_stream.Stream = .{},
+    corgi_setup: ?corgi_setup.Menu = null,
     launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
     iterm2_pointer: bool = false,
-    link_tooltip: @import("link_tooltip.zig").State = .{},
+    link_tooltip: link_tooltip.State = .{},
     git_hover: ?WorkspaceId = null,
-    resource_card: @import("resource_tooltip.zig").State = .{},
-    resource_aim: ?@import("resource_tooltip.zig").Aim = null,
-    resource_prefs: @import("preferences.zig").Resources = .{},
+    resource_card: resource_tooltip.State = .{},
+    resource_aim: ?resource_tooltip.Aim = null,
+    resource_prefs: preferences.Resources = .{},
     sleeping_corgis: bool = true,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
-    agent_drag: ?@import("agent_drag.zig").Drag = null,
-    workspace_drag: ?@import("workspace_drag.zig").Drag = null,
+    agent_drag: ?agent_drag.Drag = null,
+    workspace_drag: ?workspace_drag.Drag = null,
     resize_mode: bool = false,
     copy_mode: bool = false,
     name_dialog: ?naming.Dialog = null,
@@ -154,7 +186,7 @@ pub const Controller = struct {
         return .{ .model = s.model(), .selection = s.nav() };
     }
     const Created = struct { pane: layout.PaneId, workspace: WorkspaceId };
-    fn execute(s: *Self, command: @import("session.zig").Command) !Created {
+    fn execute(s: *Self, command: Command) !Created {
         const response = try s.connection.call(.{ .op = "session.command", .protocol = 1, .command = command });
         defer response.deinit();
         const parsed = try std.json.parseFromValue(Created, a, response.value.object.get("result").?, .{ .ignore_unknown_fields = true });
@@ -167,11 +199,11 @@ pub const Controller = struct {
         s.dirty = true;
         return result;
     }
-    fn edit(s: *Self, command: @import("session.zig").Command) !void {
+    fn edit(s: *Self, command: Command) !void {
         _ = try s.execute(command);
     }
     fn moveTab(s: *Self, id: layout.TabId, gap: usize) !void {
-        if (@import("navigation.zig").moveTab(s.model(), id, gap)) |operation| try s.edit(operation);
+        if (navigation.moveTab(s.model(), id, gap)) |operation| try s.edit(operation);
     }
 
     pub fn switchWorkspace(s: *Self, id: WorkspaceId) !void {
@@ -249,7 +281,6 @@ pub const Controller = struct {
         s.agent_scope = scope;
         s.sidebar_offset = 0;
         s.dirty = true;
-        const preferences = @import("preferences.zig");
         const lasting: @FieldType(preferences.Preferences, "agents") = switch (scope) {
             .workspace => .workspace,
             .all => .all,
@@ -259,7 +290,7 @@ pub const Controller = struct {
         preferences.save(saved) catch |err| s.notice(@errorName(err));
     }
     pub fn loadPreferences(s: *Self) void {
-        const saved = @import("preferences.zig").load();
+        const saved = preferences.load();
         s.key_preset = saved.preset;
         s.key_prefix = saved.prefix;
         s.sidebar_width = saved.sidebar_width;
@@ -320,7 +351,16 @@ pub const Controller = struct {
     }
     pub fn workspaceEntries(s: *Self, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
         for (s.runtime.workspaces.items, 0..) |*ws, i| {
-            out[i] = .{ .id = ws.id, .name = ws.name, .cwd = ws.cwd, .active = i == s.workspaceIndex(), .git_ahead = ws.git_ahead, .git_push = ws.git_push, .git_commits = ws.git_commits, .stats = ws.stats };
+            out[i] = .{
+                .id = ws.id,
+                .name = ws.name,
+                .cwd = ws.cwd,
+                .active = i == s.workspaceIndex(),
+                .git_ahead = ws.git_ahead,
+                .git_push = ws.git_push,
+                .git_commits = ws.git_commits,
+                .stats = ws.stats,
+            };
             out[i].ports = s.runtime.ports;
             out[i].resources = s.runtime.resources.workspace(ws.id);
             out[i].remote_links = s.remote_links;
@@ -356,7 +396,15 @@ pub const Controller = struct {
                 const folded = s.groupFolded(ws.id);
                 const here = ws.id == s.current().id;
                 // A folded header stands in for the focused agent it hides.
-                entries[count] = .{ .target = .{ .group = ws.id }, .name = ws.name, .provider = null, .state = .idle, .attention = .none, .focused = folded and here and s.focusedAgent() != null, .group = .{ .agents = total.agents, .working = total.working, .attention = total.attention, .folded = folded, .current = here } };
+                entries[count] = .{
+                    .target = .{ .group = ws.id },
+                    .name = ws.name,
+                    .provider = null,
+                    .state = .idle,
+                    .attention = .none,
+                    .focused = folded and here and s.focusedAgent() != null,
+                    .group = .{ .agents = total.agents, .working = total.working, .attention = total.attention, .folded = folded, .current = here },
+                };
                 count += 1;
                 if (folded) continue;
             }
@@ -364,13 +412,36 @@ pub const Controller = struct {
             for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
                     if (p.agent.provider == null or ws.model.tabForPane(p.id) != tab_index or count == entries.len) continue;
-                    entries[count] = .{ .conversation = p.agent.conversation, .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label else p.agent.name, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.native_notice == null and focus == p.id, .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = p.agent.activity };
+                    entries[count] = .{
+                        .conversation = p.agent.conversation,
+                        .target = .{ .pane = p.id },
+                        .name = if (p.label.len > 0) p.label else p.agent.name,
+                        .provider = p.agent.provider,
+                        .state = p.agent.state,
+                        .attention = p.agent.attention,
+                        .focused = s.native_notice == null and focus == p.id,
+                        .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd,
+                        .tool_active = p.agent.tool_active,
+                        .compacting = p.agent.compacting,
+                        .subagents = p.agent.subagents,
+                        .unread = p.agent.observation.unread(),
+                        .activity = p.agent.activity,
+                    };
                     count += 1;
                 }
             }
             for (s.runtime.sessions) |*session| {
                 if (session.workspace != ws.id or count == entries.len) continue;
-                entries[count] = .{ .target = .{ .native = session.id }, .provider = session.provider, .state = session.state, .attention = session.attention, .focused = s.native_notice == session.id, .cwd = session.cwd, .tool_active = session.tool_active, .unread = session.observation.unread() };
+                entries[count] = .{
+                    .target = .{ .native = session.id },
+                    .provider = session.provider,
+                    .state = session.state,
+                    .attention = session.attention,
+                    .focused = s.native_notice == session.id,
+                    .cwd = session.cwd,
+                    .tool_active = session.tool_active,
+                    .unread = session.observation.unread(),
+                };
                 if (session.agent) |agent| {
                     entries[count].conversation = agent.conversation;
                     entries[count].subagents = agent.subagents;
@@ -383,7 +454,7 @@ pub const Controller = struct {
         }
         for (entries[0..count]) |*entry| {
             if (entry.target == .group) continue;
-            @import("subagent_tooltip.zig").presentChildren(entry, s.runtime.conversations, std.time.microTimestamp());
+            subagent_tooltip.presentChildren(entry, s.runtime.conversations, std.time.microTimestamp());
         }
         return entries[0..count];
     }
@@ -424,9 +495,7 @@ pub const Controller = struct {
             .native => |id| for (s.runtime.sessions) |session| {
                 if (session.id != id) continue;
                 if (session.workspace != s.current().id) try s.switchWorkspace(session.workspace);
-                var msg: [180]u8 = undefined;
-                s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}. Inspect: corgi native events {d}", .{ @tagName(session.provider), @intFromEnum(id), @tagName(session.state), @intFromEnum(id) }));
-                s.native_notice = id;
+                try s.noticeNativeSession(session);
                 break;
             },
             .group => |id| s.toggleGroup(id),
@@ -503,6 +572,15 @@ pub const Controller = struct {
         s.native_notice = null;
         s.dirty = true;
     }
+    fn noticeNativeSession(s: *Self, session: protocol.Native) !void {
+        var msg: [180]u8 = undefined;
+        s.notice(try std.fmt.bufPrint(
+            &msg,
+            " {s} native session {d}: {s}. Inspect: corgi native events {d}",
+            .{ @tagName(session.provider), @intFromEnum(session.id), @tagName(session.state), @intFromEnum(session.id) },
+        ));
+        s.native_notice = session.id;
+    }
     pub fn menu(s: *Self) ?commands.ResizeView {
         if (!s.resize_mode) return null;
         var view = commands.ResizeView.init(s.width, s.height, s.menu_page, s.model().count > 0);
@@ -510,11 +588,19 @@ pub const Controller = struct {
         return view;
     }
     fn hasMenu(s: *Self) bool {
-        return s.onboarding != null or s.workspace_chooser != null or s.prefix or s.resize_mode or s.tab_menu != null or s.port_menu != null or s.agent_picker != null or s.agent_launcher != null or s.corgi_setup != null or s.scope_menu != null;
+        return s.onboarding != null or s.workspace_chooser != null or s.prefix or s.resize_mode or
+            s.tab_menu != null or s.port_menu != null or s.agent_picker != null or
+            s.agent_launcher != null or s.corgi_setup != null or s.scope_menu != null;
     }
     fn tabIndex(s: *Self, id: layout.TabId) ?usize {
         for (s.model().tabs[0..s.model().count], 0..) |tab, i| if (tab.id == id) return i;
         return null;
+    }
+    /// Whether a tab menu's target (pane, workspace, or tab) has disappeared.
+    fn tabMenuStale(s: *Self, context: commands.TabMenu) bool {
+        if (context.pane) return s.pane(@enumFromInt(context.tab)) == null;
+        if (context.workspace) return s.runtime.workspaces.index(@enumFromInt(context.tab)) == null;
+        return s.tabIndex(@enumFromInt(context.tab)) == null;
     }
     fn openTabMenu(s: *Self, index: usize, x: u16) void {
         s.closeMenu();
@@ -706,7 +792,7 @@ pub const Controller = struct {
         s.message_len = 0;
     }
     fn create(s: *Self, split: ?layout.Axis, cwd: []const u8, command: ?[]const u8, title: []const u8) !layout.PaneId {
-        const operation: @import("session.zig").Command = if (split) |axis|
+        const operation: Command = if (split) |axis|
             .{ .@"pane.split" = .{
                 .target = if (s.model().count > 0) s.nav().tab().focus else layout.PaneId.none,
                 .direction = if (axis == .horizontal) .right else .down,
@@ -754,9 +840,7 @@ pub const Controller = struct {
         for ([_]agents.Attention{ .needs_input, .finished }) |priority| {
             for (s.runtime.sessions) |session| if (session.attention == priority) {
                 if (session.workspace != s.current().id) try s.switchWorkspace(session.workspace);
-                var msg: [180]u8 = undefined;
-                s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}. Inspect: corgi native events {d}", .{ @tagName(session.provider), @intFromEnum(session.id), @tagName(session.state), @intFromEnum(session.id) }));
-                s.native_notice = session.id;
+                try s.noticeNativeSession(session);
                 return;
             };
         }
@@ -792,7 +876,7 @@ pub const Controller = struct {
             .split, .zoom, .close, .@"close-tab" => {
                 if (s.model().count == 0) return error.NoPane;
                 switch (act) {
-                    .split => _ = try s.create(if (eq(value, "down")) .vertical else .horizontal, s.currentCwd(), null, ""),
+                    .split => _ = try s.create(if (std.mem.eql(u8, value, "down")) .vertical else .horizontal, s.currentCwd(), null, ""),
                     .zoom => s.nav().tab().zoom = !s.nav().tab().zoom,
                     .close => try s.close(s.nav().tab().focus),
                     .@"close-tab" => try s.edit(.{ .@"tab.close" = .{ .target = s.selectedTab().id } }),
@@ -801,7 +885,7 @@ pub const Controller = struct {
             },
         } else {
             if (s.model().count == 0) return error.NoPane;
-            const nav_action = std.meta.stringToEnum(@import("navigation.zig").Action, name) orelse return error.UnknownAction;
+            const nav_action = std.meta.stringToEnum(navigation.Action, name) orelse return error.UnknownAction;
             const intent = try s.navigation.command(&s.runtime.workspaces, nav_action, value, s.area());
             if (intent.edit) |operation| try s.edit(operation);
             if (intent.focus) |id| {
@@ -864,7 +948,7 @@ pub const Controller = struct {
         try s.focusPane(created.pane);
         s.dirty = true;
     }
-    fn launchRow(s: *Self, row: @import("agent_launcher.zig").Row) !void {
+    fn launchRow(s: *Self, row: agent_launcher.Row) !void {
         if (s.agent_launcher) |*launch| {
             if (!launch.managing and row != .manage) launch.selected = row;
             if (launch.managing and row == .add) return s.saveInlineCommand();
@@ -913,7 +997,7 @@ pub const Controller = struct {
     fn previewInlineCommand(s: *Self, immediate: bool) void {
         const launch = if (s.agent_launcher) |*value| value else return;
         if (!launch.managing) return;
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         if (!std.mem.eql(u8, launch.draft.text(), launch.editor.name())) {
             launch.draft.set(launch.editor.name()) catch return;
             launch.draft_changed = now;
@@ -927,10 +1011,17 @@ pub const Controller = struct {
         if (!immediate and now - launch.draft_changed < 350) return;
         if (now - launch.resolution_checked < 100) return;
         launch.resolution_checked = now;
-        const response = s.connection.call(.{ .op = "agent.command.preview", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len], .request = launch.request_id, .command = launch.draft.text() }) catch return;
+        const response = s.connection.call(.{
+            .op = "agent.command.preview",
+            .protocol = 1,
+            .workspace = launch.workspace,
+            .cwd = launch.cwd[0..launch.cwd_len],
+            .request = launch.request_id,
+            .command = launch.draft.text(),
+        }) catch return;
         defer response.deinit();
         const value = response.value.object.get("resolution") orelse return;
-        const parsed = std.json.parseFromValue(@import("launch_command.zig").Resolution, a, value, .{}) catch return;
+        const parsed = std.json.parseFromValue(launch_command.Resolution, a, value, .{}) catch return;
         defer parsed.deinit();
         launch.resolution = parsed.value;
         if (!launch.resolution.pending and !launch.name_customized and launch.resolution.error_message.len == 0) {
@@ -973,7 +1064,15 @@ pub const Controller = struct {
         }
         launch.save_error = .{};
         const hidden = if (launch.edit_index) |i| launch.commands[i].hidden else false;
-        _ = s.execute(.{ .@"agent.command" = .{ .index = index, .command = if (launch.editor.name().len == 0) "" else launch.resolution.command.text(), .hidden = hidden, .resolve = false, .original = launch.editor.name(), .name = if (launch.name_editor.name().len > 0) launch.name_editor.name() else launch.resolution.semantics.suggested_name.text(), .semantics = launch.resolution.semantics } }) catch {
+        _ = s.execute(.{ .@"agent.command" = .{
+            .index = index,
+            .command = if (launch.editor.name().len == 0) "" else launch.resolution.command.text(),
+            .hidden = hidden,
+            .resolve = false,
+            .original = launch.editor.name(),
+            .name = if (launch.name_editor.name().len > 0) launch.name_editor.name() else launch.resolution.semantics.suggested_name.text(),
+            .semantics = launch.resolution.semantics,
+        } }) catch {
             launch.save_error.set("Could not resolve shorthand. Paste its underlying command.");
             launch.editor.failed = true;
             s.dirty = true;
@@ -1021,7 +1120,16 @@ pub const Controller = struct {
         s.closeMenu();
         const cwd = s.currentCwd();
         if (cwd.len > std.fs.max_path_bytes) return;
-        var launch: @import("agent_launcher.zig").Menu = .{ .workspace = s.current().id, .cwd_len = cwd.len, .selected = s.launcher_selection orelse .of(s.runtime.last_agent), .last = s.runtime.last_agent, .yolo = s.runtime.agent_yolo, .hidden = s.runtime.agent_hidden, .commands = s.runtime.agent_commands, .pinned = pinned };
+        var launch: agent_launcher.Menu = .{
+            .workspace = s.current().id,
+            .cwd_len = cwd.len,
+            .selected = s.launcher_selection orelse .of(s.runtime.last_agent),
+            .last = s.runtime.last_agent,
+            .yolo = s.runtime.agent_yolo,
+            .hidden = s.runtime.agent_hidden,
+            .commands = s.runtime.agent_commands,
+            .pinned = pinned,
+        };
         @memcpy(launch.cwd[0..cwd.len], cwd);
         launch.preview = s.launch_previews.current(cwd);
         launch.normalize();
@@ -1050,7 +1158,7 @@ pub const Controller = struct {
         }
         s.dirty = true;
     }
-    fn selectLauncher(s: *Self, row: @import("agent_launcher.zig").Row) void {
+    fn selectLauncher(s: *Self, row: agent_launcher.Row) void {
         if (s.agent_launcher) |*launch| {
             launch.selected = row;
             launch.normalize();
@@ -1117,8 +1225,8 @@ pub const Controller = struct {
     }
     fn openSetup(s: *Self) void {
         s.closeMenu();
-        s.corgi_setup = @import("corgi_setup.zig").Menu.open(s.runtime.inference);
-        s.corgi_setup.?.integration = if (s.remote_links) .unavailable else @import("ghostty_integration.zig").state();
+        s.corgi_setup = corgi_setup.Menu.open(s.runtime.inference);
+        s.corgi_setup.?.integration = if (s.remote_links) .unavailable else ghostty_integration.state();
         s.corgi_setup.?.preset = s.key_preset;
         s.corgi_setup.?.prefix = s.key_prefix;
         s.corgi_setup.?.resources = s.resource_prefs;
@@ -1139,30 +1247,29 @@ pub const Controller = struct {
         s.onboarding = .start(mode, s.key_preset, s.key_prefix);
         s.dirty = true;
     }
-    fn applySetup(s: *Self, choice: @import("corgi_setup.zig").Choice) void {
+    fn applySetup(s: *Self, choice: corgi_setup.Choice) void {
         if (choice == .keyboard or choice == .import) {
             return s.openOnboarding(if (choice == .keyboard) .keyboard else .import);
         }
         if (choice.applyResources(&s.resource_prefs)) {
             if (s.corgi_setup) |*setup| setup.resources = s.resource_prefs;
-            var saved = @import("preferences.zig").load();
+            var saved = preferences.load();
             saved.resources = s.resource_prefs;
-            @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
+            preferences.save(saved) catch |err| s.notice(@errorName(err));
             s.dirty = true;
             return;
         }
         if (choice == .sleeping_corgis) {
             s.sleeping_corgis = !s.sleeping_corgis;
             if (s.corgi_setup) |*setup| setup.sleeping_corgis = s.sleeping_corgis;
-            var saved = @import("preferences.zig").load();
+            var saved = preferences.load();
             saved.sleeping_corgis = s.sleeping_corgis;
-            @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
+            preferences.save(saved) catch |err| s.notice(@errorName(err));
             s.dirty = true;
             return;
         }
         if (choice == .ghostty) {
-            const integration = @import("ghostty_integration.zig");
-            const integration_state = if (s.remote_links) integration.State.unavailable else integration.state();
+            const integration_state = if (s.remote_links) ghostty_integration.State.unavailable else ghostty_integration.state();
             s.dirty = true;
             if (integration_state == .unavailable) {
                 s.notice(" Ghostty integration requires a local macOS viewer");
@@ -1172,12 +1279,12 @@ pub const Controller = struct {
                 s.notice(" Could not read Ghostty config; no changes made");
                 return;
             }
-            integration.setEnabled(integration_state != .enabled) catch |err| {
+            ghostty_integration.setEnabled(integration_state != .enabled) catch |err| {
                 var message: [160]u8 = undefined;
                 s.notice(std.fmt.bufPrint(&message, " Ghostty integration: {s}", .{@errorName(err)}) catch "Ghostty config update failed");
                 return;
             };
-            if (s.corgi_setup) |*setup| setup.integration = integration.state();
+            if (s.corgi_setup) |*setup| setup.integration = ghostty_integration.state();
             s.notice(if (integration_state == .enabled) " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+," else " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,");
             return;
         }
@@ -1214,11 +1321,11 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
-        var saved = @import("preferences.zig").load();
+        var saved = preferences.load();
         saved.preset = wizard.preset;
         saved.prefix = wizard.prefix;
         saved.onboarding_complete = true;
-        @import("preferences.zig").save(saved) catch |err| {
+        preferences.save(saved) catch |err| {
             wizard.fail(err);
             s.dirty = true;
             return;
@@ -1383,8 +1490,12 @@ pub const Controller = struct {
             s.agent_launcher.?.prefix = false;
             if (launch.prefix and (byte == 'c' or byte == 'a' or byte == 'A')) return;
             if (launch.pinned and byte == 20 and s.key_preset == .corgi) return;
-            const navigation = launch.shortcutRow(byte) != null or byte == 27 or byte == 13 or byte == 9 or byte == 14 or byte == 16 or byte == 'a' or byte == 'A' or byte == 1 or byte == 'y' or byte == 't' or (byte == 'u' and launch.trackable(launch.selected));
-            if (!launch.pinned and !navigation) {
+            const recognized = switch (byte) {
+                27, 13, 9, 14, 16, 'a', 'A', 1, 'y', 't' => true,
+                'u' => launch.trackable(launch.selected) or launch.shortcutRow(byte) != null,
+                else => launch.shortcutRow(byte) != null,
+            };
+            if (!launch.pinned and !recognized) {
                 s.closeMenu();
             } else {
                 s.agent_launcher.?.pinned = true;
@@ -1398,7 +1509,7 @@ pub const Controller = struct {
                     't' => try s.launchRow(.terminal),
                     'y' => if (!launch.managing) if (launch.selected.agent()) |provider| try s.toggleLauncherYolo(provider),
                     'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected.agent().?),
-                    else => if (@import("agent_launcher.zig").keyAgent(byte)) |provider| {
+                    else => if (agent_launcher.keyAgent(byte)) |provider| {
                         if (!launch.managing and launch.shown(.of(provider))) try s.launchAgent(provider);
                     },
                 }
@@ -1665,7 +1776,7 @@ pub const Controller = struct {
                         seq = legacy;
                     } else if (s.focused()) |p| {
                         encoded.clearRetainingCapacity();
-                        try key_event.encode(&encoded.writer, @import("terminal.zig").vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.emulator().*));
+                        try key_event.encode(&encoded.writer, vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.emulator().*));
                         seq = encoded.written();
                     }
                     if (seq.len == 0) {
@@ -1733,10 +1844,22 @@ pub const Controller = struct {
                 s.dirty = true;
             } else if (s.agent_launcher != null) {
                 // CSI-only on purpose: SS3 arrows reach the name field as input.
-                if (s.agent_launcher.?.managing and s.agent_launcher.?.selected == .add and !eq(seq, "\x1b[A") and !eq(seq, "\x1b[B") and !eq(seq, "\x1b[Z")) {
+                if (s.agent_launcher.?.managing and s.agent_launcher.?.selected == .add and
+                    !std.mem.eql(u8, seq, "\x1b[A") and !std.mem.eql(u8, seq, "\x1b[B") and !std.mem.eql(u8, seq, "\x1b[Z"))
+                {
                     s.agent_launcher.?.input().sequence(seq);
                     s.dirty = true;
-                } else if (parsed_key == .up) s.moveLauncher(false, false) else if (parsed_key == .down) s.moveLauncher(true, false) else if (eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.selectLauncher(s.agent_launcher.?.first()) else if (eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.selectLauncher(if (s.agent_launcher.?.managing) .manage else .terminal) else if (parsed_key == .shift_tab) s.moveLauncher(false, true) else if (!s.agent_launcher.?.pinned) {
+                } else if (parsed_key == .up) {
+                    s.moveLauncher(false, false);
+                } else if (parsed_key == .down) {
+                    s.moveLauncher(true, false);
+                } else if (std.mem.eql(u8, seq, "\x1b[H") or std.mem.eql(u8, seq, "\x1b[1~")) {
+                    s.selectLauncher(s.agent_launcher.?.first());
+                } else if (std.mem.eql(u8, seq, "\x1b[F") or std.mem.eql(u8, seq, "\x1b[4~")) {
+                    s.selectLauncher(if (s.agent_launcher.?.managing) .manage else .terminal);
+                } else if (parsed_key == .shift_tab) {
+                    s.moveLauncher(false, true);
+                } else if (!s.agent_launcher.?.pinned) {
                     s.closeMenu();
                     if (s.focused()) |p| try s.sendInput(p.terminal, seq);
                 }
@@ -1894,7 +2017,7 @@ pub const Controller = struct {
             if (!release and button == 0) {
                 if (links.hit(ws, s.width, s.height, x, y)) |index| {
                     if (!s.remote_links) {
-                        var click: @typeInfo(@FieldType(InputState, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = 0 };
+                        var click: PortClick = .{ .x = x, .y = y, .url = undefined, .len = 0 };
                         if (sidebar.workspaceUrl(ws, index, &click.url)) |url| {
                             click.len = url.len;
                             cl.port_click = click;
@@ -1909,7 +2032,7 @@ pub const Controller = struct {
             if (!std.meta.eql(drag.area, s.area())) drag.cancelled = true;
             if (!drag.cancelled and (release or button & 0xe3 == 32)) {
                 const split = s.model().nodes[drag.hit.node].?.split;
-                const operation: @import("session.zig").Command = .{ .@"split.ratio" = .{
+                const operation: Command = .{ .@"split.ratio" = .{
                     .target = s.model().firstPane(split.first),
                     .other = s.model().firstPane(split.second),
                     .ratio = layout.View.dividerRatio(drag.hit, split.axis, x, y),
@@ -1926,9 +2049,9 @@ pub const Controller = struct {
         if (s.sidebar_drag) {
             if (release) {
                 s.sidebar_drag = false;
-                var saved = @import("preferences.zig").load();
+                var saved = preferences.load();
                 saved.sidebar_width = s.sidebar_width;
-                @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
+                preferences.save(saved) catch |err| s.notice(@errorName(err));
             } else if (button == 32) {
                 s.sidebar_width = std.math.clamp(x +| 1, 20, @max(20, s.width -| 20));
                 s.dirty = true;
@@ -2022,7 +2145,7 @@ pub const Controller = struct {
             return;
         }
         if (s.corgi_setup != null) {
-            const setup = @import("corgi_setup.zig").Menu;
+            const setup = corgi_setup.Menu;
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
                 if (setup.hit(s.width, s.height, x, y)) |choice| s.applySetup(choice) else if (!setup.contains(s.width, s.height, x, y)) s.closeMenu();
@@ -2070,13 +2193,33 @@ pub const Controller = struct {
                                 while (offset < editor.cursor and editor.text[offset] & 0xc0 == 0x80) offset += 1;
                                 editor.position(editor.byteAtColumn(offset, x -| (b.x + 5)));
                             }
-                        } else if (row == .manage) try s.launchRow(row) else if (row.custom() != null and x >= b.x + b.w -| 11) try s.deleteLauncherCommand(row.custom().?) else if (x >= b.x + b.w -| 18) launch.edit(row) else if (row.custom()) |index| try s.toggleCommandVisibility(index) else try s.launchRow(row);
+                        } else if (row == .manage) {
+                            try s.launchRow(row);
+                        } else if (row.custom() != null and x >= b.x + b.w -| 11) {
+                            try s.deleteLauncherCommand(row.custom().?);
+                        } else if (x >= b.x + b.w -| 18) {
+                            launch.edit(row);
+                        } else if (row.custom()) |index| {
+                            try s.toggleCommandVisibility(index);
+                        } else try s.launchRow(row);
                     } else if (!b.contains(x, y)) s.closeMenu();
                     s.dirty = true;
                     return;
                 }
                 const hit = side.hit(x, y);
-                if (s.agent_launcher.?.visibilityHit(s.width, s.height, side, x, y)) |index| try s.toggleCommandVisibility(index) else if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| try s.toggleLauncherYolo(provider) else if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| s.trackLauncherUsage(provider) else if (hit == .agent_new) try s.launchAgent(null) else if (hit == .agent_options) s.agent_launcher.?.pinned = true else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| try s.launchRow(row) else s.closeMenu();
+                if (s.agent_launcher.?.visibilityHit(s.width, s.height, side, x, y)) |index| {
+                    try s.toggleCommandVisibility(index);
+                } else if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| {
+                    try s.toggleLauncherYolo(provider);
+                } else if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| {
+                    s.trackLauncherUsage(provider);
+                } else if (hit == .agent_new) {
+                    try s.launchAgent(null);
+                } else if (hit == .agent_options) {
+                    s.agent_launcher.?.pinned = true;
+                } else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| {
+                    try s.launchRow(row);
+                } else s.closeMenu();
             } else if (!release and (button == 35 or button == 32)) {
                 if (!s.agent_launcher.?.managing) if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| {
                     s.agent_launcher.?.selected = row;
@@ -2197,7 +2340,7 @@ pub const Controller = struct {
             const response = try s.connection.request(.{ .op = "git.push", .protocol = 1, .workspace = ws.id, .ref = s.runtime.workspaces.items[index].git_ref });
             defer response.deinit();
             const err = agents.str(response.value, "err");
-            if (err.len > 0) s.notice(if (std.mem.eql(u8, err, @errorName(error.GitPreviewChanged))) "Branch, commits, or upstream changed. Review the preview and retry." else if (std.mem.eql(u8, err, @errorName(error.GitPushInProgress))) "A push is already running for this repository." else err);
+            if (err.len > 0) s.notice(gitPushMessage(err));
             try s.refresh();
             s.dirty = true;
             return;
@@ -2205,7 +2348,7 @@ pub const Controller = struct {
         if (!release and button == 0 and !resource_workspace_press) {
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             if (sidebar.portWorkspace(side, s.workspaceEntries(&workspace_storage), x, y)) |ws| {
-                var click: @typeInfo(@FieldType(InputState, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = 0 };
+                var click: PortClick = .{ .x = x, .y = y, .url = undefined, .len = 0 };
                 if (sidebar.urlCount(ws) > 1) {
                     click.menu = ws.id;
                 } else if (!s.remote_links) {
@@ -2224,7 +2367,7 @@ pub const Controller = struct {
                 s.dirty = true;
             } else if (!release and (button == 0 or button == 2)) {
                 s.ui_mouse_down = true;
-                if (@import("corgi_badge.zig").hit(s.corgi_badge, side.width, x, y)) return s.openSetup();
+                if (corgi_badge.hit(s.corgi_badge, side.width, x, y)) return s.openSetup();
                 switch (side.hit(x, y)) {
                     .toggle => try s.action("sidebar", ""),
                     .previous => s.sidebar_offset = side.offset -| side.capacity,
@@ -2355,7 +2498,7 @@ pub const Controller = struct {
                 for (term.hyperlinks()) |link| {
                     if (link.row != y - p.rect.y or x - p.rect.x < link.start or x - p.rect.x >= link.end) continue;
                     if (!std.mem.startsWith(u8, link.uri, "http://") and !std.mem.startsWith(u8, link.uri, "https://")) continue;
-                    var click: @typeInfo(@FieldType(InputState, "port_click")).optional.child = .{ .x = x, .y = y, .url = undefined, .len = link.uri.len, .pane = p.id, .px = x - p.rect.x, .py = y - p.rect.y, .drag_selects = plain_link };
+                    var click: PortClick = .{ .x = x, .y = y, .url = undefined, .len = link.uri.len, .pane = p.id, .px = x - p.rect.x, .py = y - p.rect.y, .drag_selects = plain_link };
                     if (link.uri.len > click.url.len) continue;
                     @memcpy(click.url[0..link.uri.len], link.uri);
                     cl.port_click = click;
@@ -2364,7 +2507,6 @@ pub const Controller = struct {
             }
             if (term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0 and !agent_selection) {
                 // Translate coordinates through Ghostty's input encoder into the app's chosen protocol.
-                const vt = @import("terminal.zig").vt;
                 var encoded: std.Io.Writer.Allocating = .init(a);
                 defer encoded.deinit();
                 var opts = vt.input.MouseEncodeOptions.fromTerminal(&term.emulator().*, .{
@@ -2471,7 +2613,7 @@ pub const Controller = struct {
                 s.port_menu = null;
             } else links.selected = @min(links.selected, count - 1);
         }
-        if (s.tab_menu) |context| if (if (context.pane) s.pane(@enumFromInt(context.tab)) == null else if (context.workspace) s.runtime.workspaces.index(@enumFromInt(context.tab)) == null else s.tabIndex(@enumFromInt(context.tab)) == null) {
+        if (s.tab_menu) |context| if (s.tabMenuStale(context)) {
             s.tab_menu = null;
         };
         if (s.confirm_tab) |id| if (s.tabIndex(id) == null) {
@@ -2491,8 +2633,8 @@ pub const Controller = struct {
         }
         try s.pollLauncher();
         s.pollScopeMenu();
-        if (s.link_tooltip.due(@import("clock.zig").milliTimestamp())) s.dirty = true;
-        if (s.resource_aim) |aim| if (@import("clock.zig").milliTimestamp() - aim.at >= @import("resource_tooltip.zig").aim_ms) {
+        if (s.link_tooltip.due(clock.milliTimestamp())) s.dirty = true;
+        if (s.resource_aim) |aim| if (clock.milliTimestamp() - aim.at >= resource_tooltip.aim_ms) {
             // The pointer stopped short of the card: what it rests on takes over.
             s.resource_aim = null;
             if (s.resourceDetail() != null) s.link_tooltip.move();
@@ -2522,7 +2664,7 @@ pub const Controller = struct {
     }
     fn resourceRect(s: *Self) ?layout.Rect {
         _ = s.resourceDetail() orelse return null;
-        return @import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, s.resource_card.anchor);
+        return resource_tooltip.geometry(s.width, s.height, s.sidebarView(&.{}).width, s.resource_card.anchor);
     }
     fn resourceBridgeContains(s: *Self, rect: layout.Rect, x: u16, y: u16) bool {
         const side = s.sidebarView(&.{}).width;
@@ -2534,7 +2676,7 @@ pub const Controller = struct {
         const rect = s.resourceRect() orelse return false;
         if (s.resourceBridgeContains(rect, x, y)) return true;
         const aim = s.resource_aim orelse return false;
-        return @import("resource_tooltip.zig").aimed(rect, aim, x, y);
+        return resource_tooltip.aimed(rect, aim, x, y);
     }
     /// Starts aiming when the pointer steps off the card's row toward the
     /// card and keeps the card while each move stays inside the triangle.
@@ -2556,22 +2698,26 @@ pub const Controller = struct {
             s.resource_aim = .{ .x = from.x, .y = from.y };
         };
         if (s.resource_aim) |*aim| {
-            if (@import("resource_tooltip.zig").aimed(rect, aim.*, x, y)) aim.at = @import("clock.zig").milliTimestamp() else s.resource_aim = null;
+            if (resource_tooltip.aimed(rect, aim.*, x, y)) aim.at = clock.milliTimestamp() else s.resource_aim = null;
         }
     }
+    /// No modal, drag, or selection is claiming the pointer right now.
+    fn hoverIdle(s: *Self) bool {
+        return !s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and s.workspace_drag == null;
+    }
     fn linkTooltipReady(s: *Self) !bool {
-        var target: ?@import("link_tooltip.zig").Target = null;
+        var target: ?link_tooltip.Target = null;
         if (s.pointer) |pointer| {
             if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
                 var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
                 if (s.resourceHoverContains(pointer.x, pointer.y)) return true;
                 if (sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
-                    if (@import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, pointer.y) != null) {
+                    if (resource_tooltip.geometry(s.width, s.height, s.sidebarView(&.{}).width, pointer.y) != null) {
                         target = .{ .pane = .none, .link = 0, .resource = ws.id };
                         s.resource_card.anchor = pointer.y;
                     }
                 }
-                if (@import("corgi_badge.zig").hit(s.corgi_badge, s.sidebarView(&.{}).width, pointer.x, pointer.y)) {
+                if (corgi_badge.hit(s.corgi_badge, s.sidebarView(&.{}).width, pointer.x, pointer.y)) {
                     target = .{ .pane = .none, .link = 0, .usage = true };
                 }
                 if (sidebar.gitActionWorkspace(s.sidebarView(&.{}), s.workspaceEntries(&storage), s.git_hover, pointer.x, pointer.y)) |ws| {
@@ -2600,7 +2746,7 @@ pub const Controller = struct {
                 }
             }
         }
-        return s.link_tooltip.ready(target, @import("clock.zig").milliTimestamp());
+        return s.link_tooltip.ready(target, clock.milliTimestamp());
     }
     pub fn frame(s: *Self) ![]u8 {
         if (s.onboarding) |*wizard| return wizard.frame(s.width, s.height);
@@ -2650,7 +2796,7 @@ pub const Controller = struct {
             .sleeping_corgis = s.sleeping_corgis,
             .resource_hover = if (s.link_tooltip.target) |target| target.resource else null,
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
-            .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and s.workspace_drag == null) s.git_hover else null,
+            .git_hover = if (s.hoverIdle()) s.git_hover else null,
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
             .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
             .copy_mode = s.copy_mode,
@@ -2685,9 +2831,6 @@ pub const Controller = struct {
         });
     }
 };
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
 fn direction(key: u8) ?[]const u8 {
     return switch (key) {
         'h' => "left",
@@ -2696,4 +2839,9 @@ fn direction(key: u8) ?[]const u8 {
         'l' => "right",
         else => null,
     };
+}
+fn gitPushMessage(err: []const u8) []const u8 {
+    if (std.mem.eql(u8, err, @errorName(error.GitPreviewChanged))) return "Branch, commits, or upstream changed. Review the preview and retry.";
+    if (std.mem.eql(u8, err, @errorName(error.GitPushInProgress))) return "A push is already running for this repository.";
+    return err;
 }

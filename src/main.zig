@@ -5,6 +5,17 @@ const c = os.c;
 const agents = @import("agents.zig");
 const integration = @import("integration.zig");
 const updates = @import("updates.zig");
+const viewer_version = @import("viewer_version.zig");
+const herdr_adapter = @import("herdr_adapter.zig");
+const claude_credentials = @import("claude_credentials.zig");
+const rpc = @import("rpc.zig");
+const client = @import("client.zig");
+const cli = @import("cli.zig");
+const options = @import("corgi_options");
+const discovery = @import("discovery.zig");
+const handoff = @import("handoff.zig");
+const Server = @import("server.zig").Server;
+const viewer_test = @import("viewer_test.zig");
 pub var build_id: [64]u8 = undefined;
 fn providerArg(name: []const u8) !agents.Provider {
     return std.meta.stringToEnum(agents.Provider, name) orelse error.BadProvider;
@@ -40,7 +51,7 @@ const NativeCommand = enum { start, list, events, stop, send };
 pub fn main() void {
     run() catch |err| {
         if (err == error.IncompatibleViewerProtocol) {
-            std.debug.print("corgi: this viewer is incompatible with the server (requires viewer protocol {d}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n", .{@import("viewer_version.zig").version});
+            std.debug.print("corgi: this viewer is incompatible with the server (requires viewer protocol {d}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n", .{viewer_version.version});
         } else if (err == error.AmbiguousViewer) {
             std.debug.print("corgi: multiple viewers are focused on this pane. Detach the intended viewer with Ctrl-B q and run ./go.sh from its terminal.\n", .{});
         } else if (err == error.NestedCorgi) {
@@ -57,12 +68,12 @@ fn run() !void {
     const no_update = args.len == 2 and std.mem.eql(u8, args[1], "--no-update");
     const cmd = if (no_update) "attach" else if (args.len > 1) args[1] else "attach";
     const command = std.meta.stringToEnum(Command, cmd);
-    if (command == .__herdr_import) return @import("herdr_adapter.zig").importBridge(args[2..]);
+    if (command == .__herdr_import) return herdr_adapter.importBridge(args[2..]);
     if (try updates.internal(args)) return;
     if (command == .@"__claude-credentials") {
         if (args.len != 3) return error.Usage;
-        const mode = std.meta.stringToEnum(@import("claude_credentials.zig").Interaction, args[2]) orelse return error.Usage;
-        return @import("claude_credentials.zig").serve(mode);
+        const mode = std.meta.stringToEnum(claude_credentials.Interaction, args[2]) orelse return error.Usage;
+        return claude_credentials.serve(mode);
     }
     const path = try os.socketPath();
     defer a.free(path);
@@ -88,39 +99,39 @@ fn run() !void {
         try ensureServer(path, exe);
         const fd = try os.connect(path);
         defer _ = c.close(fd);
-        var conn: @import("rpc.zig").Connection = .{ .fd = fd };
+        var conn: rpc.Connection = .{ .fd = fd };
         const hello = try conn.call(.{ .op = "hello", .protocol = 1 });
         defer hello.deinit();
         if (!std.mem.eql(u8, agents.str(hello.value, "build_id"), &build_id)) try reload(path, exe);
         if (os.env("CORGI_PANE")) |pane| {
             return request(path, .{ .op = "action", .name = "relaunch", .value = exe, .pane = try std.fmt.parseInt(u32, pane, 10) });
         }
-        return @import("client.zig").attach(path);
+        return client.attach(path);
     }
-    if (@import("cli.zig").handles(args)) {
-        @import("cli.zig").run(path, args) catch |err| {
-            @import("cli.zig").failure(@errorName(err), if (err == error.Usage or err == error.InvalidCharacter or err == error.Overflow or err == error.InvalidKey or err == error.NoCallerPane or err == error.MissingWorkspace) 2 else 1) catch {};
+    if (cli.handles(args)) {
+        cli.run(path, args) catch |err| {
+            cli.failure(@errorName(err), usageStatus(err)) catch {};
         };
         return;
     }
     if (command == .@"--help" or command == .help) {
         try os.writeAll(1, help);
-        return os.writeAll(1, @import("cli.zig").help);
+        return os.writeAll(1, cli.help);
     }
-    if (command == .@"--version") return os.writeAll(1, "corgi " ++ @import("corgi_options").release_version ++ " (" ++ @import("corgi_options").release_commit ++ ")\n");
+    if (command == .@"--version") return os.writeAll(1, "corgi " ++ options.release_version ++ " (" ++ options.release_commit ++ ")\n");
     if (command == .which) {
         if (args.len != 3) return error.Usage;
         const provider = try providerArg(args[2]);
-        const binary = try @import("discovery.zig").resolve(provider, null);
+        const binary = try discovery.resolve(provider, null);
         defer a.free(binary);
         try os.writeAll(1, binary);
         return os.writeAll(1, "\n");
     }
-    if (@import("corgi_options").viewer_test_driver and command == .@"__viewer-test") return @import("viewer_test.zig").run(path);
+    if (options.viewer_test_driver and command == .@"__viewer-test") return viewer_test.run(path);
     switch (command orelse return error.UnknownCommand) {
         .__handoff => {
             if (args.len != 4) return error.Usage;
-            @import("handoff.zig").importAndRun(path, exe, try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
+            handoff.importAndRun(path, exe, try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
         },
         .reload => {
             if (args.len > 3) return error.Usage;
@@ -128,7 +139,7 @@ fn run() !void {
         },
         .checkpoint => return request(path, .{ .op = "recovery.save", .protocol = 1 }),
         .serve => {
-            var server: @import("server.zig").Server = .{ .socket = path, .executable = exe };
+            var server: Server = .{ .socket = path, .executable = exe };
             return server.run();
         },
         .hook => {
@@ -183,7 +194,7 @@ fn run() !void {
             if (!(args.len == 3 and std.mem.eql(u8, args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
             try ensureServer(path, exe);
             updates.background(path, exe) catch {};
-            return @import("client.zig").attach(path);
+            return client.attach(path);
         },
         .start => {
             if (!(args.len == 3 and std.mem.eql(u8, args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
@@ -198,7 +209,7 @@ fn run() !void {
             }
             if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
             try ensureServer(path, exe);
-            return @import("client.zig").onboard(path);
+            return client.onboard(path);
         },
         .ping => return request(path, .{ .op = "ping" }),
         .shutdown => {
@@ -225,18 +236,25 @@ fn run() !void {
         else => return error.UnknownCommand,
     }
 }
+/// The CLI's own usage errors report as a client mistake, not a server failure.
+fn usageStatus(err: anyerror) u8 {
+    return switch (err) {
+        error.Usage, error.InvalidCharacter, error.Overflow, error.InvalidKey, error.NoCallerPane, error.MissingWorkspace => 2,
+        else => 1,
+    };
+}
 fn reload(path: []const u8, executable: []const u8) !void {
     return request(path, .{ .op = "server.reload", .protocol = 1, .executable = executable });
 }
 fn request(path: []const u8, value: anytype) !void {
     const fd = try os.connect(path);
     defer _ = c.close(fd);
-    var connection: @import("rpc.zig").Connection = .{ .fd = fd };
+    var connection: rpc.Connection = .{ .fd = fd };
     const parsed = try connection.request(value);
     defer parsed.deinit();
     const err = agents.str(parsed.value, "err");
     if (err.len > 0) {
-        if (std.meta.stringToEnum(@import("rpc.zig").Rejection, err) == .AmbiguousViewer) return error.AmbiguousViewer;
+        if (std.meta.stringToEnum(rpc.Rejection, err) == .AmbiguousViewer) return error.AmbiguousViewer;
         std.debug.print("{s}\n", .{err});
         return error.ServerRejected;
     }

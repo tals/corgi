@@ -7,6 +7,7 @@ const os = @import("os.zig");
 const inference = @import("inference.zig");
 const a = os.allocator;
 const providers = @import("providers.zig");
+const workspace = @import("workspace.zig");
 pub const Choice = inference.Choice;
 pub const Provider = providers.Provider;
 
@@ -75,7 +76,7 @@ const Saved = struct { inference: ?Choice = null };
 
 /// Caller owns the result. Lives beside workspaces.json.
 pub fn path(socket: []const u8) ![]const u8 {
-    const state = try @import("workspace.zig").Store.statePath(socket);
+    const state = try workspace.Store.statePath(socket);
     defer a.free(state);
     const suffix = "workspaces.json";
     std.debug.assert(std.mem.endsWith(u8, state, suffix));

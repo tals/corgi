@@ -87,15 +87,23 @@ pub fn convert(a: Allocator, ws: Value, details: Value) !?catalog.Workspace {
             const surface = p.surfaces[si];
             mapping[i] = output.items.len;
             const dir = cwd(surface);
-            try output.append(a, .{ .id = if (id(surface).len > 0) id(surface) else try std.fmt.allocPrint(a, "surface:{d}:{d}", .{ i, si }), .name = title(surface), .cwd = if (dir.len > 0) dir else cwd(p.value), .url = text(surface, "url") });
+            const surface_id = if (id(surface).len > 0) id(surface) else try std.fmt.allocPrint(a, "surface:{d}:{d}", .{ i, si });
+            try output.append(a, .{ .id = surface_id, .name = title(surface), .cwd = if (dir.len > 0) dir else cwd(p.value), .url = text(surface, "url") });
         }
         var projected: Nodes = .empty;
         _ = try project(a, &projected, nodes.items, nodes.items.len - 1, mapping[0..source.len]);
         try tree.validate(projected.items, output.items.len);
         const name = if (output.items.len == 1) output.items[0].name else if (layer == 0) title(ws) else try std.fmt.allocPrint(a, "{s} ({d})", .{ title(ws), layer + 1 });
-        try tabs.append(a, .{ .id = try std.fmt.allocPrint(a, "{s}:{d}", .{ id(ws), layer }), .name = name, .panes = try output.toOwnedSlice(a), .nodes = try projected.toOwnedSlice(a) });
+        try tabs.append(a, .{
+            .id = try std.fmt.allocPrint(a, "{s}:{d}", .{ id(ws), layer }),
+            .name = name,
+            .panes = try output.toOwnedSlice(a),
+            .nodes = try projected.toOwnedSlice(a),
+        });
     }
-    return .{ .id = workspaceId(ws), .name = title(ws), .cwd = cwd(ws), .tabs = try tabs.toOwnedSlice(a), .recovery = if (partial) .partial else if (approximate and source.len > 1) .layout else .full, .recovery_note = if (partial) "Some pane or tab details couldn't be read" else if (approximate and source.len > 1) "Split layout approximated" else "" };
+    const recovery: catalog.Recovery = if (partial) .partial else if (approximate and source.len > 1) .layout else .full;
+    const recovery_note: []const u8 = if (partial) "Some pane or tab details couldn't be read" else if (approximate and source.len > 1) "Split layout approximated" else "";
+    return .{ .id = workspaceId(ws), .name = title(ws), .cwd = cwd(ws), .tabs = try tabs.toOwnedSlice(a), .recovery = recovery, .recovery_note = recovery_note };
 }
 
 pub fn workspaceOnly(a: Allocator, ws: Value, reason: []const u8) !?catalog.Workspace {
@@ -167,7 +175,12 @@ fn number(v: Value) ?f64 {
 }
 fn rect(p: Value) ?Rect {
     const f = field(p, "pixel_frame");
-    const r: Rect = .{ .x = number(field(f, "x")) orelse return null, .y = number(field(f, "y")) orelse return null, .w = number(field(f, "width")) orelse return null, .h = number(field(f, "height")) orelse return null };
+    const r: Rect = .{
+        .x = number(field(f, "x")) orelse return null,
+        .y = number(field(f, "y")) orelse return null,
+        .w = number(field(f, "width")) orelse return null,
+        .h = number(field(f, "height")) orelse return null,
+    };
     return if (r.w > 0 and r.h > 0) r else null;
 }
 fn ratio(n: f64) u16 {

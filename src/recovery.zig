@@ -1,6 +1,7 @@
 //! Atomic, private recovery snapshot. No live descriptors, process resurrection,
 //! input replay, or automatic agent command execution on cold startup.
 const std = @import("std");
+const log = std.log.scoped(.recovery);
 const os = @import("os.zig");
 const a = os.allocator;
 const checkpoint = @import("checkpoint.zig");
@@ -49,12 +50,12 @@ pub fn load(r: *Runtime, socket: []const u8, executable: []const u8) !bool {
     };
     defer a.free(bytes);
     const parsed = migrations.decode(checkpoint.State, .checkpoint, a, bytes) catch |err| {
-        std.log.err("recovery snapshot {s} could not be decoded or migrated ({s}); original file left unchanged", .{ source, @errorName(err) });
+        log.err("recovery snapshot {s} could not be decoded or migrated ({}); original file left unchanged", .{ source, err });
         return err;
     };
     defer parsed.deinit();
     checkpoint.restore(r, parsed.parsed.value, false, socket, executable) catch |err| {
-        std.log.err("recovery snapshot {s} could not be restored ({s}); move it aside to start fresh", .{ source, @errorName(err) });
+        log.err("recovery snapshot {s} could not be restored ({}); move it aside to start fresh", .{ source, err });
         return err;
     };
     if (parsed.migrated) {
@@ -64,12 +65,12 @@ pub fn load(r: *Runtime, socket: []const u8, executable: []const u8) !bool {
         const backup = try std.fmt.allocPrint(a, "{s}.v{d}", .{ source, parsed.from });
         defer a.free(backup);
         atomicWrite(backup, bytes) catch |err| {
-            std.log.err("recovery snapshot {s} could not be backed up before migration ({s}); original file left unchanged", .{ source, @errorName(err) });
+            log.err("recovery snapshot {s} could not be backed up before migration ({}); original file left unchanged", .{ source, err });
             return err;
         };
         // Serialize the migrated saved state, not newly spawned recovery shells.
         // Best effort: the next periodic save writes the current format anyway.
-        upgrade(source, parsed.parsed.value) catch |err| std.log.err("recovery snapshot {s} could not be rewritten after migration ({s})", .{ source, @errorName(err) });
+        upgrade(source, parsed.parsed.value) catch |err| log.err("recovery snapshot {s} could not be rewritten after migration ({})", .{ source, err });
     }
     return true;
 }

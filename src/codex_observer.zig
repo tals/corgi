@@ -1,7 +1,8 @@
 //! Title-selected, read-only daemon observation. Never resumes or subscribes a
 //! thread, and never changes the CLI transport or launch configuration.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
+const conversations = @import("conversations.zig");
+const ActorId = conversations.Actor.Id;
 const os = @import("os.zig");
 const agents = @import("agents.zig");
 const providers = @import("providers.zig");
@@ -9,15 +10,18 @@ const Client = @import("codex_socket.zig").Client;
 const a = os.allocator;
 const layout = @import("layout.zig");
 const max = layout.max_panes;
+const background_tasks = @import("background_tasks.zig");
+const activity_summary = @import("activity_summary.zig");
+const passes = @import("passes.zig");
 pub const Prefix = providers.SessionPrefix;
 pub const titlePrefix = providers.Codex.titleSession;
 pub const Request = struct { pane: layout.PaneId = .none, pid: c_int = 0, prefix: Prefix, actor: ActorId = .none, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
-    background_tasks: @import("background_tasks.zig").Inventory = .{},
+    background_tasks: background_tasks.Inventory = .{},
     children: []const Child = &.{},
     children_complete: bool = false,
     subagents: agents.Subagents = .{},
-    evidence: @import("activity_summary.zig").Text = .{},
+    evidence: activity_summary.Text = .{},
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
     request: Request,
@@ -95,7 +99,7 @@ fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void 
     }
     const parsed_id = titlePrefix(id) orelse return;
     if (parsed_id.len != 36 or std.mem.eql(u8, id, parent)) return;
-    if (out.entries.items.len >= @import("conversations.zig").max_actors) return error.TooManyThreads;
+    if (out.entries.items.len >= conversations.max_actors) return error.TooManyThreads;
     var child: Child = .{ .session = parsed_id.bytes, .state = threadState(status) };
     const name = agents.str(thread, "name");
     child.name_len = agents.clean(&child.name, if (name.len > 0) name else agents.str(thread, "agentNickname"));
@@ -183,7 +187,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     const data = field(result(turns.value), "data");
     if (data == .array and data.array.items.len > 0) {
         const turn = data.array.items[0];
-        out.evidence = @import("activity_summary.zig").codex(turn);
+        out.evidence = activity_summary.codex(turn);
         const id = agents.str(turn, "id");
         if (id.len > 0 and id.len <= out.turn.len) {
             @memcpy(out.turn[0..id.len], id);
@@ -215,10 +219,10 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     return out;
 }
 
-fn backgroundTasks(client: *Client, session: []const u8, now: i64) !@import("background_tasks.zig").Inventory {
-    var out: @import("background_tasks.zig").Inventory = .{ .observed_at = now, .live = true };
+fn backgroundTasks(client: *Client, session: []const u8, now: i64) !background_tasks.Inventory {
+    var out: background_tasks.Inventory = .{ .observed_at = now, .live = true };
     // A bounded page is sufficient for the tooltip; explicitly mark overflow.
-    const response = try client.call("thread/backgroundTerminals/list", .{ .threadId = session, .limit = @import("background_tasks.zig").capacity });
+    const response = try client.call("thread/backgroundTerminals/list", .{ .threadId = session, .limit = background_tasks.capacity });
     defer response.deinit();
     const body = result(response.value);
     const data = field(body, "data");
@@ -231,7 +235,7 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
-    passes: @import("passes.zig").Passes = .{},
+    passes: passes.Passes = .{},
     requests: [max]Request = undefined,
     count: usize = 0,
     cursor: usize = 0,

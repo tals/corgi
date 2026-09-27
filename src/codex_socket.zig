@@ -18,7 +18,12 @@ pub const Client = struct {
         std.crypto.random.bytes(&nonce);
         var key: [24]u8 = undefined;
         _ = std.base64.standard.Encoder.encode(&key, &nonce);
-        const request = try std.fmt.allocPrint(a, "GET /rpc HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {s}\r\nSec-WebSocket-Version: 13\r\n\r\n", .{key});
+        const request = try std.fmt.allocPrint(
+            a,
+            "GET /rpc HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" ++
+                "Sec-WebSocket-Key: {s}\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            .{key},
+        );
         defer a.free(request);
         try s.write(request);
         var header: std.ArrayList(u8) = .empty;

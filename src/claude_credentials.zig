@@ -1,6 +1,8 @@
 //! Credential access runs in a short-lived helper. Only an explicit user action
 //! permits that helper to display a Keychain dialog.
 const std = @import("std");
+const builtin = @import("builtin");
+const options = @import("corgi_options");
 const os = @import("os.zig");
 const a = os.allocator;
 
@@ -9,7 +11,7 @@ const ReadError = error{ Unavailable, NeedsConsent };
 
 fn read(interaction: Interaction) ReadError![]u8 {
     const home = os.env("HOME") orelse return error.Unavailable;
-    if (@import("builtin").os.tag == .macos and os.env("CLAUDE_CONFIG_DIR") == null) {
+    if (builtin.os.tag == .macos and os.env("CLAUDE_CONFIG_DIR") == null) {
         if (keychain(interaction)) |bytes| return bytes else |err| {
             if (err == error.NeedsConsent) return err;
         }
@@ -112,7 +114,7 @@ fn securityTool(interaction: Interaction) ReadError![]u8 {
 
 // Stdout is a private pipe to the metadata worker, never a viewer RPC response.
 pub fn serve(interaction: Interaction) !void {
-    if (@import("corgi_options").viewer_test_driver) {
+    if (options.viewer_test_driver) {
         if (os.env("CORGI_TEST_CLAUDE_CREDENTIALS")) |path| {
             const file = try std.fs.openFileAbsolute(path, .{});
             defer file.close();
@@ -157,7 +159,7 @@ test "silent credential reads fail closed if legacy UI cannot be disabled" {
 }
 
 test "silent mode disables actual macOS legacy Keychain interaction without reading credentials" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (builtin.os.tag != .macos) return error.SkipZigTest;
     var original: u8 = 0;
     try std.testing.expectEqual(@as(i32, 0), SecKeychainGetUserInteractionAllowed(&original));
     defer _ = SecKeychainSetUserInteractionAllowed(original);

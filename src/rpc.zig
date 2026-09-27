@@ -2,6 +2,8 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
+const agents = @import("agents.zig");
+const viewer_version = @import("viewer_version.zig");
 /// Error strings the server sends back in the "err" field of a response.
 pub const Rejection = enum {
     StaleLayout,
@@ -23,7 +25,7 @@ pub const Connection = struct {
     pub fn call(conn: *Connection, value: anytype) !std.json.Parsed(std.json.Value) {
         const result = try conn.request(value);
         errdefer result.deinit();
-        const err = @import("agents.zig").str(result.value, "err");
+        const err = agents.str(result.value, "err");
         if (err.len > 0) {
             return switch (std.meta.stringToEnum(Rejection, err) orelse return error.ServerRejected) {
                 .StaleLayout => error.StaleLayout,
@@ -36,7 +38,7 @@ pub const Connection = struct {
     pub fn callViewer(conn: *Connection, value: anytype) !std.json.Parsed(std.json.Value) {
         const result = try conn.request(value);
         errdefer result.deinit();
-        const err = @import("agents.zig").str(result.value, "err");
+        const err = agents.str(result.value, "err");
         if (err.len > 0) {
             return switch (std.meta.stringToEnum(Rejection, err) orelse return error.ServerRejected) {
                 .UnsupportedViewerProtocol, .UnsupportedProtocol, .ProtocolRequired => error.IncompatibleViewerProtocol,
@@ -44,7 +46,7 @@ pub const Connection = struct {
             };
         }
         // Validate the envelope before any viewer-specific payload is decoded.
-        try @import("viewer_version.zig").require(result.value);
+        try viewer_version.require(result.value);
         return result;
     }
     pub fn send(conn: *Connection, value: anytype) !void {

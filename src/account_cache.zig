@@ -4,6 +4,7 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const metadata = @import("account_preview.zig");
+const log = std.log.scoped(.account_cache);
 pub const interval: i64 = 60;
 pub const cooldown: i64 = 5 * 60;
 /// The one place the producer's "Metered" text is read back; callers use the
@@ -60,7 +61,10 @@ pub const Cache = struct {
     state: State = .{},
     pub fn open(provider: []const u8, identity: []const u8, stopping: *const std.atomic.Value(bool)) !Cache {
         const home = os.env("HOME") orelse return error.NoHome;
-        const root = if (os.env("XDG_STATE_HOME")) |state| try std.fs.path.join(a, &.{ state, "corgi", "account-previews" }) else try std.fs.path.join(a, &.{ home, ".local", "state", "corgi", "account-previews" });
+        const root = if (os.env("XDG_STATE_HOME")) |state|
+            try std.fs.path.join(a, &.{ state, "corgi", "account-previews" })
+        else
+            try std.fs.path.join(a, &.{ home, ".local", "state", "corgi", "account-previews" });
         defer a.free(root);
         try std.fs.cwd().makePath(root);
         var digest: [32]u8 = undefined;
@@ -80,7 +84,7 @@ pub const Cache = struct {
         if (std.json.parseFromSlice(State, a, bytes, .{ .ignore_unknown_fields = true })) |parsed| {
             defer parsed.deinit();
             result.state = parsed.value;
-        } else |_| {}
+        } else |err| log.warn("discarding unreadable {s} account cache: {}", .{ provider, err });
         return result;
     }
     pub fn save(cache: *Cache) !void {

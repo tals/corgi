@@ -8,6 +8,11 @@ const agents = @import("agents.zig");
 const conversations = @import("conversations.zig");
 const providers = @import("providers.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const checkpoint = @import("checkpoint.zig");
+const usage = @import("usage.zig");
+const discovery = @import("discovery.zig");
+const codex_observer = @import("codex_observer.zig");
+const log = std.log.scoped(.native);
 pub const Event = struct { seq: u64, line: []const u8 };
 pub const PendingRequest = struct { line: []const u8, actor: ?*conversations.Actor };
 pub const Tool = struct {
@@ -41,12 +46,14 @@ pub const Session = struct {
     child: std.process.Child,
     ready: bool = false,
     imported: bool = false,
-    resume_hint: @import("checkpoint.zig").Resume = .{},
+    resume_hint: checkpoint.Resume = .{},
     workspace_id: WorkspaceId = .none,
     exited: bool = false,
     attachment: conversations.Attachment = .{},
     members: std.ArrayList(*conversations.Actor) = .empty,
     requests_released: bool = false,
+    // A provider that keeps printing non-JSON gets one warning, not one per line.
+    invalid_json_logged: bool = false,
     input: std.ArrayList(u8) = .empty,
     output: std.ArrayList(u8) = .empty,
     deferred: std.ArrayList(u8) = .empty,
@@ -54,8 +61,8 @@ pub const Session = struct {
     approvals: std.ArrayList(PendingRequest) = .empty,
     active_threads: std.StringHashMapUnmanaged([]const u8) = .empty,
     active_tools: std.ArrayList(Tool) = .empty,
-    usage_pending: @import("usage.zig").Counts = .{},
-    usage_tracker: @import("usage.zig").Tracker = .{},
+    usage_pending: usage.Counts = .{},
+    usage_tracker: usage.Tracker = .{},
     journal_bytes: usize = 0,
     next_seq: u64 = 1,
     pub fn agent(s: *Session) *agents.Agent {
@@ -155,7 +162,7 @@ pub const Session = struct {
         errdefer a.free(directory);
         var argv: std.ArrayList([]const u8) = .empty;
         defer argv.deinit(a);
-        const bin = if (options.executable) |path| try a.dupe(u8, path) else try @import("discovery.zig").resolve(provider, cwd);
+        const bin = if (options.executable) |path| try a.dupe(u8, path) else try discovery.resolve(provider, cwd);
         defer a.free(bin);
         try argv.append(a, bin);
         try argv.appendSlice(a, options.args orelse providers.Backend.init(provider).nativeArgs());
@@ -190,7 +197,14 @@ pub const Session = struct {
             .codex => true,
             .claude => false,
         };
-        var result: Session = .{ .id = id, .provider = provider, .cwd = directory, .child = child, .ready = !handshake, .attachment = .{ .provisional = .{ .provider = provider, .state = if (handshake) .initializing else .idle } } };
+        var result: Session = .{
+            .id = id,
+            .provider = provider,
+            .cwd = directory,
+            .child = child,
+            .ready = !handshake,
+            .attachment = .{ .provisional = .{ .provider = provider, .state = if (handshake) .initializing else .idle } },
+        };
         result.resume_hint.provider = provider;
         if (handshake) try result.queue(.{ .id = "__corgi_init", .method = "initialize", .params = .{ .clientInfo = .{ .name = "corgi", .version = "0.1.0" } } });
         return result;
@@ -291,7 +305,7 @@ pub const Session = struct {
             owner.native_meter.baseline_next = owner.live_usage.known or s.active_threads.contains(owner.state.sessionId());
             if (owner.native_meter.baseline_next) owner.native_meter.meter.value.partial = true;
         }
-        const field = @import("usage.zig").field;
+        const field = usage.field;
         const thread = if (field(field(v, "params"), "thread") != .null) field(field(v, "params"), "thread") else field(field(v, "result"), "thread");
         const parent_id = agents.str(thread, "parentThreadId");
         if (registry.find(.codex, parent_id)) |parent| _ = registry.linkChild(parent, owner);
@@ -302,7 +316,6 @@ pub const Session = struct {
         if (params != .object) return;
         const thread = agents.str(params, "threadId");
         if (method == .@"thread/tokenUsage/updated") {
-            const usage = @import("usage.zig");
             s.usage_pending.add(s.usage_tracker.codexNotification(thread, usage.field(params, "tokenUsage"), s.active_threads.contains(thread)));
         }
         if (method == .@"item/started" or method == .@"item/completed") {
@@ -427,7 +440,11 @@ pub const Session = struct {
     /// of which thread this transport most recently opened.
     pub fn ingest(s: *Session, registry: *conversations.Registry, line: []const u8) !bool {
         if (line.len > 4 * 1024 * 1024) return error.NativeMessageTooLarge;
-        const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch return false;
+        const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch |err| {
+            if (!s.invalid_json_logged) log.warn("{t} session {d} wrote a line that is not JSON: {}", .{ s.provider, @intFromEnum(s.id), err });
+            s.invalid_json_logged = true;
+            return false;
+        };
         defer parsed.deinit();
         const v = parsed.value;
         const method = std.meta.stringToEnum(providers.Codex.Method, agents.str(v, "method"));
@@ -489,7 +506,7 @@ pub const Session = struct {
         const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !std.mem.eql(u8, reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
         if (actor) |owner| if (method == .@"thread/tokenUsage/updated") switch (s.provider) {
-            .codex => owner.native_meter.native(@import("usage.zig").field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
+            .codex => owner.native_meter.native(usage.field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
             .claude => {},
         };
         if (event.request_id != null) {
@@ -802,10 +819,20 @@ test "native events snapshots and hooks share exactly one receipt regardless of 
                 \\{"method":"turn/started","params":{"threadId":"01901234-1234-1234-1234-123456789abc","turn":{"id":"t"}}}
             );
             const actor = transport.attachment.actor.?;
-            const completion = try std.json.Stringify.valueAlloc(std.testing.allocator, .{ .method = "turn/completed", .params = .{ .threadId = session, .turn = .{ .id = "t", .status = @tagName(outcome) } } }, .{});
+            const completion = try std.json.Stringify.valueAlloc(std.testing.allocator, .{
+                .method = "turn/completed",
+                .params = .{ .threadId = session, .turn = .{ .id = "t", .status = @tagName(outcome) } },
+            }, .{});
             defer std.testing.allocator.free(completion);
             if (native_first) try std.testing.expectEqual(outcome == .completed, try transport.ingest(&registry, completion));
-            var snapshot: @import("codex_observer.zig").Snapshot = .{ .request = .{ .prefix = .{} }, .session = session.*, .state = .idle, .turn_len = 1, .outcome = outcome, .observed_at = actor.state.last_seq + 1 };
+            var snapshot: codex_observer.Snapshot = .{
+                .request = .{ .prefix = .{} },
+                .session = session.*,
+                .state = .idle,
+                .turn_len = 1,
+                .outcome = outcome,
+                .observed_at = actor.state.last_seq + 1,
+            };
             snapshot.turn[0] = 't';
             try std.testing.expectEqual(!native_first and outcome == .completed, actor.observeSnapshot(snapshot, false));
             try std.testing.expect(!try transport.ingest(&registry, completion));

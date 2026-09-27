@@ -10,16 +10,28 @@ const Terminal = @import("terminal.zig").Terminal;
 const native = @import("native.zig");
 const NativeId = native.Session.Id;
 const Theme = @import("theme.zig").Theme;
+const pane_label = @import("pane_label.zig");
+const conversations = @import("conversations.zig");
+const detection = @import("detection.zig");
+const checkpoint = @import("checkpoint.zig");
+const launch_command = @import("launch_command.zig");
+const inference_setup = @import("inference_setup.zig");
+const live_usage = @import("live_usage.zig");
+const git_push = @import("git_push.zig");
+const git_status = @import("git_status.zig");
+const ports = @import("ports.zig");
+const resources = @import("resources.zig");
+const link_labels = @import("link_labels.zig");
 
 pub const Pane = struct {
-    label: @import("pane_label.zig").Label = .{},
+    label: pane_label.Label = .{},
     id: layout.PaneId,
     terminal: *Terminal,
-    attachment: @import("conversations.zig").Attachment = .{},
+    attachment: conversations.Attachment = .{},
 
-    detection: @import("detection.zig").Tracker = .{},
+    detection: detection.Tracker = .{},
     cwd: []const u8,
-    resume_hint: @import("checkpoint.zig").Resume = .{},
+    resume_hint: checkpoint.Resume = .{},
 
     pub fn agent(p: *const Pane) *agents.Agent {
         return p.attachment.agent();
@@ -27,7 +39,11 @@ pub const Pane = struct {
 
     pub fn refreshCwd(p: *Pane) void {
         if (p.terminal.exited) return;
-        if ((if (p.detection.pid > 0) os.processCwd(p.detection.pid) else null) orelse (if (os.c.tcgetpgrp(p.terminal.fd) > 0) os.processCwd(os.c.tcgetpgrp(p.terminal.fd)) else null) orelse os.processCwd(p.terminal.pid)) |cwd| {
+        const pgid = os.c.tcgetpgrp(p.terminal.fd);
+        const found = (if (p.detection.pid > 0) os.processCwd(p.detection.pid) else null) orelse
+            (if (pgid > 0) os.processCwd(pgid) else null) orelse
+            os.processCwd(p.terminal.pid);
+        if (found) |cwd| {
             a.free(p.cwd);
             p.cwd = cwd;
         }
@@ -35,7 +51,7 @@ pub const Pane = struct {
 };
 
 pub const ClosedPane = struct {
-    label: @import("pane_label.zig").Label = .{},
+    label: pane_label.Label = .{},
     terminal: *Terminal,
     cwd: []const u8,
     tab: layout.Tab,
@@ -55,19 +71,19 @@ pub const Runtime = struct {
     last_agent: agents.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
-    agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
-    conversations: @import("conversations.zig").Registry = .{},
+    agent_commands: [launch_command.capacity]launch_command.Entry = @splat(.{}),
+    conversations: conversations.Registry = .{},
     system_model: []const u8 = "",
     staged_version: []const u8 = "",
-    inference: @import("inference_setup.zig").Status = .{},
+    inference: inference_setup.Status = .{},
     system_working: bool = false,
-    system_usage: @import("live_usage.zig").View = .{ .known = true },
+    system_usage: live_usage.View = .{ .known = true },
     revision: u64 = 1,
-    git_push: @import("git_push.zig").Manager = .{},
-    git_status: @import("git_status.zig").Tracker = .{},
-    ports: @import("ports.zig").Tracker = .{},
-    resources: @import("resources.zig").Tracker = .{},
-    link_labels: @import("link_labels.zig").Cache = .{},
+    git_push: git_push.Manager = .{},
+    git_status: git_status.Tracker = .{},
+    ports: ports.Tracker = .{},
+    resources: resources.Tracker = .{},
+    link_labels: link_labels.Cache = .{},
 
     pub fn changed(r: *Runtime) void {
         r.revision +%= 1;

@@ -43,7 +43,12 @@ pub const TabMenu = struct {
     const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
     fn bounds(m: TabMenu, width: u16, height: u16) Bounds {
         const w = @min(width, if (m.pane) @as(u16, 30) else 20);
-        return .{ .x = @min(m.anchor_x, width - w), .y = @min(m.anchor_y, height -| (m.entries().len + 2)), .width = w, .padding = if (height >= m.entries().len + 2) 1 else 0 };
+        return .{
+            .x = @min(m.anchor_x, width - w),
+            .y = @min(m.anchor_y, height -| (m.entries().len + 2)),
+            .width = w,
+            .padding = if (height >= m.entries().len + 2) 1 else 0,
+        };
     }
     pub fn hit(m: TabMenu, width: u16, height: u16, x: u16, y: u16) ?usize {
         const b = m.bounds(width, height);
@@ -63,7 +68,8 @@ pub const TabMenu = struct {
             }
         }
         for (m.entries(), 0..) |entry, index| {
-            try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m|{s}", .{ b.y + index + b.padding + 1, b.x + 1, if (index == m.highlighted) "\x1b[1;38;2;24;27;32;48;2;161;194;178m" else "\x1b[22;38;2;226;230;233m" });
+            const row_style = if (index == m.highlighted) "\x1b[1;38;2;24;27;32;48;2;161;194;178m" else "\x1b[22;38;2;226;230;233m";
+            try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m|{s}", .{ b.y + index + b.padding + 1, b.x + 1, row_style });
             const show_key = b.width >= 14;
             const len = @min(entry.label.len, b.width - @as(u16, if (show_key) 6 else 2));
             try w.writeAll(entry.label[0..len]);
@@ -74,6 +80,12 @@ pub const TabMenu = struct {
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
 };
+/// Key-cap and label colors for a resize-menu row, by highlight and reachability.
+fn rowColors(selected: bool, enabled: bool) struct { key: []const u8, label: []const u8 } {
+    if (selected) return .{ .key = "\x1b[1;38;2;24;27;32m", .label = "\x1b[38;2;24;27;32m" };
+    if (enabled) return .{ .key = "\x1b[1;38;2;161;194;178m", .label = "\x1b[38;2;226;230;233m" };
+    return .{ .key = "\x1b[38;2;86;94;105m", .label = "\x1b[38;2;86;94;105m" };
+}
 pub const ResizeView = struct {
     x: u16,
     y: u16,
@@ -128,7 +140,8 @@ pub const ResizeView = struct {
             const selected = enabled and v.highlighted == entry.key;
             try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) "\x1b[48;2;161;194;178m" else "\x1b[48;2;35;40;47m" });
             try w.splatByteAll(' ', col_width);
-            try w.print("\x1b[{d};{d}H{s} {s}  \x1b[22m{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) "\x1b[1;38;2;24;27;32m" else if (enabled) "\x1b[1;38;2;161;194;178m" else "\x1b[38;2;86;94;105m", if (entry.key == 9) "⇥" else &.{entry.key}, if (selected) "\x1b[38;2;24;27;32m" else if (enabled) "\x1b[38;2;226;230;233m" else "\x1b[38;2;86;94;105m" });
+            const rc = rowColors(selected, enabled);
+            try w.print("\x1b[{d};{d}H{s} {s}  \x1b[22m{s}", .{ v.y + row + 3, v.x + col * col_width + 1, rc.key, if (entry.key == 9) "⇥" else &.{entry.key}, rc.label });
             try w.writeAll(entry.label[0..@min(entry.label.len, col_width -| 5)]);
         }
         try w.writeAll("\x1b[48;2;35;40;47m");

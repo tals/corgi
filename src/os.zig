@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 pub const c = @cImport({
     @cInclude("unistd.h");
     @cInclude("pwd.h");
@@ -11,7 +12,7 @@ pub const c = @cImport({
     @cInclude("sys/socket.h");
     @cInclude("sys/stat.h");
     @cInclude("poll.h");
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         @cInclude("util.h");
         @cInclude("libproc.h");
         @cInclude("sys/proc_info.h");
@@ -48,7 +49,7 @@ pub fn setenv(name: [:0]const u8, value: []const u8) !void {
     if (c.setenv(name, z, 1) != 0) return error.SetEnvFailed;
 }
 pub fn processCwd(pid: c_int) ?[]u8 {
-    if (@import("builtin").os.tag == .macos) {
+    if (builtin.os.tag == .macos) {
         var info: c.struct_proc_vnodepathinfo = undefined;
         if (c.proc_pidinfo(pid, c.PROC_PIDVNODEPATHINFO, 0, &info, @sizeOf(@TypeOf(info))) != @sizeOf(@TypeOf(info))) return null;
         return allocator.dupe(u8, std.mem.sliceTo(&info.pvi_cdir.vip_path, 0)) catch null;

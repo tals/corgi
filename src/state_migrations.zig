@@ -3,6 +3,9 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;
+const inference_setup = @import("inference_setup.zig");
+const providers = @import("providers.zig");
+const agents = @import("agents.zig");
 
 /// A migration rewrites one version's JSON tree into the next version's. Steps
 /// see only JSON: they must not decode into runtime types, which keep changing
@@ -434,7 +437,7 @@ test "handoff and runtime versions migrate independently without losing launch c
     const T = struct {
         version: u32,
         runtime: struct { version: u32 },
-        summaries: struct { launches: @import("inference_setup.zig").Launches },
+        summaries: struct { launches: inference_setup.Launches },
     };
     const decoded = try decode(T, .handoff, std.testing.allocator,
         \\{"version":1,"runtime":{"version":1},"summaries":{"launches":{"codex":7,"claude":4,"latest":"claude"}}}
@@ -445,7 +448,7 @@ test "handoff and runtime versions migrate independently without losing launch c
     const launches = decoded.parsed.value.summaries.launches;
     try std.testing.expectEqual(@as(u32, 7), launches.count.get(.codex));
     try std.testing.expectEqual(@as(u32, 4), launches.count.get(.claude));
-    try std.testing.expectEqual(@import("providers.zig").Provider.claude, launches.latest.?);
+    try std.testing.expectEqual(providers.Provider.claude, launches.latest.?);
     const current_runtime = try decode(T, .handoff, std.testing.allocator,
         \\{"version":1,"runtime":{"version":3},"summaries":{"launches":{"count":{"values":[7,4]},"latest":"claude"}}}
     );
@@ -460,7 +463,7 @@ test "legacy panes and native sessions share one migrated conversation" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    var agent: @import("agents.zig").Agent = .{ .provider = .codex, .state = .blocked };
+    var agent: agents.Agent = .{ .provider = .codex, .state = .blocked };
     @memcpy(agent.session[0..6], "shared");
     agent.session_len = 6;
     const bytes = try std.json.Stringify.valueAlloc(alloc, .{

@@ -1,10 +1,13 @@
 //! On-demand completion verification. One worker, bounded reads and framing;
 //! no transcript IO or JSON parsing on the terminal interaction thread.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
+const conversations = @import("conversations.zig");
+const ActorId = conversations.Actor.Id;
 const agents = @import("agents.zig");
 const a = std.heap.c_allocator;
 const max_jobs = @import("layout.zig").max_panes;
+const passes = @import("passes.zig");
+const log = std.log.scoped(.transcript);
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 64 * 1024;
@@ -35,7 +38,7 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
-    passes: @import("passes.zig").Passes = .{},
+    passes: passes.Passes = .{},
     requests: std.ArrayList(Request) = .empty,
     cursor: usize = 0,
     results: [max_jobs]?Result = .{null} ** max_jobs,
@@ -64,7 +67,10 @@ pub const Worker = struct {
         for (actors) |actor| {
             const agent = &actor.state;
             if (!agent.observation.pending_stop or agent.transcript_len == 0 or agent.session_len == 0) continue;
-            w.requests.append(a, .{ .actor = actor.id, .agent = agent.* }) catch break;
+            w.requests.append(a, .{ .actor = actor.id, .agent = agent.* }) catch |err| {
+                log.warn("queuing completion request: {}", .{err});
+                break;
+            };
         }
         w.wake.signal();
     }
@@ -101,9 +107,13 @@ pub const Worker = struct {
             const batch_requests = w.batch(&requests);
             w.mutex.unlock();
             for (batch_requests) |*req| {
-                const entry = watchers.getOrPut(a, req.actor) catch continue;
+                const entry = watchers.getOrPut(a, req.actor) catch |err| {
+                    log.warn("tracking completion tail: {}", .{err});
+                    continue;
+                };
                 if (!entry.found_existing) {
-                    const tail = a.create(Tail) catch {
+                    const tail = a.create(Tail) catch |err| {
+                        log.warn("allocating completion tail: {}", .{err});
                         _ = watchers.remove(req.actor);
                         continue;
                     };
@@ -332,7 +342,6 @@ test "completion requires matching turn, fresh timestamp and complete JSONL reco
 }
 
 test "completion scheduling retains detached actors and fairly batches beyond pane capacity" {
-    const conversations = @import("conversations.zig");
     var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
     defer registry.deinit();
     var worker: Worker = .{};

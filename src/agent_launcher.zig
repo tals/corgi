@@ -5,6 +5,17 @@ const os = @import("os.zig");
 const a = os.allocator;
 pub const Provider = @import("providers.zig").Provider;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const discovery = @import("discovery.zig");
+const inference = @import("inference.zig");
+const git_status = @import("git_status.zig");
+const common = @import("providers/common.zig");
+const agents = @import("agents.zig");
+const name_dialog = @import("name_dialog.zig");
+const launch_command = @import("launch_command.zig");
+const sidebar = @import("sidebar.zig");
+const layout = @import("layout.zig");
+const Terminal = @import("terminal.zig").Terminal;
+const log = std.log.scoped(.agent_launcher);
 /// Launcher rows: one per provider, then saved commands and a plain terminal.
 pub const Row = enum {
     codex,
@@ -59,7 +70,7 @@ pub const Option = struct {
 pub const Preview = struct { pending: bool = true, options: [Provider.all.len]Option = @splat(.{}), installed: [Provider.all.len]bool = @splat(true) };
 fn installed() [Provider.all.len]bool {
     var result: [Provider.all.len]bool = undefined;
-    for (Provider.all, &result) |provider, *found| found.* = @import("discovery.zig").installed(provider);
+    for (Provider.all, &result) |provider, *found| found.* = discovery.installed(provider);
     return result;
 }
 const Job = struct {
@@ -132,7 +143,7 @@ pub const Worker = struct {
         return job.preview;
     }
     fn run(w: *Worker) void {
-        var pool: @import("inference.zig").Pool = .{ .config = .{ .timeout_ms = 5000 } };
+        var pool: inference.Pool = .{ .config = .{ .timeout_ms = 5000 } };
         defer pool.deinit();
         while (!w.stopping.load(.acquire)) {
             w.mutex.lock();
@@ -191,14 +202,14 @@ pub const Worker = struct {
         }
     }
 };
-const child_mutex = &@import("git_status.zig").child_mutex;
+const child_mutex = &git_status.child_mutex;
 var auth_pid: c_int = 0;
 var auth_status: ?c_int = null;
 // Called by the daemon reaper while holding child_mutex.
 pub fn recordExit(pid: c_int, status: c_int) void {
     if (pid == auth_pid) auth_status = status;
 }
-fn codexAccount(pool: *@import("inference.zig").Pool, stopping: *const std.atomic.Value(bool)) !metadata.Info {
+fn codexAccount(pool: *inference.Pool, stopping: *const std.atomic.Value(bool)) !metadata.Info {
     const root = os.env("CODEX_HOME") orelse try std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".codex" });
     defer if (os.env("CODEX_HOME") == null) a.free(root);
     const path = try std.fs.path.join(a, &.{ root, "auth.json" });
@@ -259,9 +270,9 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     defer a.free(response_bytes);
     const response_json = std.json.parseFromSlice(std.json.Value, a, response_bytes, .{}) catch return info;
     defer response_json.deinit();
-    const needs_consent = @import("providers/common.zig").field(response_json.value, "needs_consent");
+    const needs_consent = common.field(response_json.value, "needs_consent");
     info.usage_needs_consent = needs_consent == .bool and needs_consent.bool;
-    const credentials = @import("providers/common.zig").str(response_json.value, "credentials");
+    const credentials = common.str(response_json.value, "credentials");
     if (credentials.len == 0) {
         if (info.usage_needs_consent) {
             info.account.set("Access required");
@@ -273,7 +284,6 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     }
     const json = std.json.parseFromSlice(std.json.Value, a, credentials, .{}) catch return info;
     defer json.deinit();
-    const common = @import("providers/common.zig");
     const oauth = common.field(json.value, "claudeAiOauth");
     const subscription_type = common.str(oauth, "subscriptionType");
     if (info.plan.len == 0) info.plan.set(subscription_type);
@@ -317,7 +327,8 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     defer a.free(headers);
     if (fetch_usage) {
         cache.state.failed("request failed or timed out");
-        if (command(&.{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/usage" }, cwd, headers, stopping, 3500)) |bytes| {
+        const usage_argv = [_][]const u8{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/usage" };
+        if (command(&usage_argv, cwd, headers, stopping, 3500)) |bytes| {
             defer a.free(bytes);
             const reply = account_cache.response(bytes, now);
             cache.state.next_usage = account_cache.nextAttempt(reply, now);
@@ -340,7 +351,8 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     // Profile failures and usage failures are independent. Never erase identity
     // just because the usage endpoint is rate limited.
     if (fetch_profile) {
-        if (command(&.{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/profile" }, cwd, headers, stopping, 3500)) |bytes| {
+        const profile_argv = [_][]const u8{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/profile" };
+        if (command(&profile_argv, cwd, headers, stopping, 3500)) |bytes| {
             defer a.free(bytes);
             const reply = account_cache.response(bytes, now);
             cache.state.next_profile = account_cache.nextAttempt(reply, now);
@@ -360,7 +372,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
         }
     }
     if (cache.state.info.account.len == 0) cache.state.info.account.set("Signed in");
-    cache.save() catch {};
+    cache.save() catch |err| log.warn("claude account cache save failed: {}", .{err});
     return cache.state.display(std.time.timestamp());
 }
 // Serial metadata worker owns this child slot, including the daemon's reaper.
@@ -459,7 +471,7 @@ fn readModel(out: *Option, root: []const u8, relative: []const u8, source: []con
     applyModel(out, json.value, source);
 }
 fn applyModel(out: *Option, value: std.json.Value, source: []const u8) void {
-    const model = @import("agents.zig").str(value, "model");
+    const model = agents.str(value, "model");
     if (model.len == 0) return;
     out.model.set(model);
     out.source.set(source);
@@ -472,21 +484,21 @@ pub const Menu = struct {
     yolo: [Provider.all.len]bool = @splat(false),
     hidden: [Provider.all.len]bool = @splat(false),
     managing: bool = false,
-    editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .agent_command = 0 }, .selected = false },
-    name_editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .rename = @enumFromInt(0) }, .selected = false },
+    editor: name_dialog.Dialog = .{ .target = .{ .agent_command = 0 }, .selected = false },
+    name_editor: name_dialog.Dialog = .{ .target = .{ .rename = @enumFromInt(0) }, .selected = false },
     name_focused: bool = false,
     show_command: bool = false,
     name_customized: bool = false,
     edit_index: ?usize = null,
     edit_provider: ?Provider = null,
     save_error: Text = .{},
-    draft: @import("launch_command.zig").Entry = .{},
+    draft: launch_command.Entry = .{},
     draft_changed: i64 = 0,
     request_id: u32 = 0,
     resolution_checked: i64 = 0,
-    resolution: @import("launch_command.zig").Resolution = .{},
+    resolution: launch_command.Resolution = .{},
     save_requested: bool = false,
-    commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
+    commands: [launch_command.capacity]launch_command.Entry = @splat(.{}),
     last: Provider,
     pinned: bool,
     /// Ctrl-B arrived while pinned; Cmd+T sends Ctrl-B A, so a repeat opens a terminal.
@@ -529,7 +541,15 @@ pub const Menu = struct {
         } else null;
         if (provider) |p| {
             const option = &m.preview.options[@intFromEnum(p)];
-            if (m.usageUnavailable(row, p, option)) return usage_cell.Cell.unavailable(if (option.usage_error.len > 0) option.usage_error.text() else if (option.usage_fetched_at > 0) "last success 10m+ ago" else "no usage received");
+            if (m.usageUnavailable(row, p, option)) {
+                const reason = if (option.usage_error.len > 0)
+                    option.usage_error.text()
+                else if (option.usage_fetched_at > 0)
+                    "last success 10m+ ago"
+                else
+                    "no usage received";
+                return usage_cell.Cell.unavailable(reason);
+            }
             return usage_cell.Cell.init(text, option.resets, std.time.timestamp());
         }
         return usage_cell.Cell.init(text, .{}, std.time.timestamp());
@@ -610,7 +630,7 @@ pub const Menu = struct {
         if (m.managing) return @intCast(m.count() + 20);
         return @intCast(7 + m.count());
     }
-    pub fn bounds(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View) @import("layout.zig").Rect {
+    pub fn bounds(m: *const Menu, cols: u16, rows: u16, side: sidebar.View) layout.Rect {
         var content: u16 = 4;
         for (m.columnSizes().preferred) |width| content += width;
         const width = @min(cols, if (m.managing) @as(u16, 82) else @max(@as(u16, 40), content));
@@ -619,12 +639,12 @@ pub const Menu = struct {
     }
     fn columnSizes(m: *const Menu) struct { preferred: [6]u16, usage_minimum: u16 } {
         var widths: [6]u16 = undefined;
-        for (headings, &widths) |heading, *size| size.* = @intCast(@import("sidebar.zig").displayWidth(heading));
+        for (headings, &widths) |heading, *size| size.* = @intCast(sidebar.displayWidth(heading));
         var usage_minimum = widths[5];
         for (std.enums.values(Row)) |row| {
             if (!m.shown(row) or (row.agent() == null and row.custom() == null)) continue;
             const values = if (row.custom()) |i| m.customCells(i) else m.cells(row.agent().?);
-            for (values[0..5], widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
+            for (values[0..5], widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(sidebar.displayWidth(text))));
             const cell = m.usageCell(row, values[5]);
             widths[5] = @max(widths[5], @as(u16, @intCast(cell.preferredWidth())));
             usage_minimum = @max(usage_minimum, @as(u16, @intCast(cell.minimumWidth())));
@@ -668,7 +688,7 @@ pub const Menu = struct {
         }
         return widths;
     }
-    pub fn hit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Row {
+    pub fn hit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Row {
         const b = m.bounds(cols, rows, side);
         if (m.managing) {
             if (x <= b.x or x >= b.x + b.w - 1) return null;
@@ -685,18 +705,18 @@ pub const Menu = struct {
         if (index >= manage_index) return null;
         return m.rowAt(index);
     }
-    pub fn visibilityHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?usize {
+    pub fn visibilityHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?usize {
         if (!m.managing) return null;
         const row = m.hit(cols, rows, side, x, y) orelse return null;
         const index = row.custom() orelse return null;
         const b = m.bounds(cols, rows, side);
         return if (x < b.x + 9) index else null;
     }
-    fn providerHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+    fn providerHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Provider {
         if (m.managing) return null;
         return (m.hit(cols, rows, side, x, y) orelse return null).agent();
     }
-    pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+    pub fn yoloHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
         if (b.w < 24 or b.h < m.rowsHeight()) return null;
@@ -709,7 +729,7 @@ pub const Menu = struct {
         const provider = row.agent() orelse return false;
         return !m.preview.pending and m.preview.options[@intFromEnum(provider)].usage_needs_consent;
     }
-    pub fn usageHit(m: *const Menu, cols: u16, rows: u16, side: @import("sidebar.zig").View, x: u16, y: u16) ?Provider {
+    pub fn usageHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
         const b = m.bounds(cols, rows, side);
         if (b.w < 24 or b.h < m.rowsHeight()) return null;
@@ -725,11 +745,11 @@ pub const Menu = struct {
         m.edit_index = row.custom();
         m.edit_provider = row.agent();
         const source = if (m.edit_index) |i| m.commands[i].inputText() else if (m.edit_provider) |provider| @tagName(provider) else "";
-        m.editor = @import("name_dialog.zig").Dialog.init(.{ .agent_command = 0 }, source);
+        m.editor = name_dialog.Dialog.init(.{ .agent_command = 0 }, source);
         m.name_focused = false;
         m.show_command = false;
         m.name_customized = m.edit_index != null;
-        m.name_editor = @import("name_dialog.zig").Dialog.init(.{ .rename = @enumFromInt(0) }, if (m.edit_index) |i| m.commands[i].label() else "");
+        m.name_editor = name_dialog.Dialog.init(.{ .rename = @enumFromInt(0) }, if (m.edit_index) |i| m.commands[i].label() else "");
         if (m.edit_index) |i| {
             m.draft.set(source) catch {};
             m.resolution = .{ .pending = false, .command = m.commands[i], .semantics = m.commands[i].semantics };
@@ -737,7 +757,7 @@ pub const Menu = struct {
         m.selected = .add;
         m.pinned = true;
     }
-    pub fn fieldWidth(b: @import("layout.zig").Rect) u16 {
+    pub fn fieldWidth(b: layout.Rect) u16 {
         return b.w -| 17;
     }
     pub fn fieldOffset(m: *const Menu, width: u16) usize {
@@ -745,10 +765,10 @@ pub const Menu = struct {
         while (offset < m.editor.cursor and m.editor.text[offset] & 0xc0 == 0x80) offset += 1;
         return offset;
     }
-    pub fn input(m: *Menu) *@import("name_dialog.zig").Dialog {
+    pub fn input(m: *Menu) *name_dialog.Dialog {
         return if (m.name_focused) &m.name_editor else &m.editor;
     }
-    fn account(m: *const Menu, info: *const @import("launch_command.zig").Semantics) []const u8 {
+    fn account(m: *const Menu, info: *const launch_command.Semantics) []const u8 {
         if (info.account.len > 0) return info.account.text();
         if (info.default_account) if (info.provider) |provider| {
             const option = &m.preview.options[@intFromEnum(provider)];
@@ -756,8 +776,7 @@ pub const Menu = struct {
         };
         return "Account unknown";
     }
-    fn drawInput(w: *std.Io.Writer, editor: @import("name_dialog.zig").Dialog, placeholder: []const u8, x: u16, y: usize, width: u16, focused: bool) !void {
-        const sidebar = @import("sidebar.zig");
+    fn drawInput(w: *std.Io.Writer, editor: name_dialog.Dialog, placeholder: []const u8, x: u16, y: usize, width: u16, focused: bool) !void {
         var offset = editor.cursor -| (width -| 1);
         while (offset < editor.cursor and editor.text[offset] & 0xc0 == 0x80) offset += 1;
         const end = editor.byteAtColumn(offset, width);
@@ -770,8 +789,7 @@ pub const Menu = struct {
         }
         try w.writeAll("\x1b[0;38;2;201;208;215;48;2;35;40;47m");
     }
-    fn drawManager(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
-        const sidebar = @import("sidebar.zig");
+    fn drawManager(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: sidebar.View) !void {
         const b = m.bounds(cols, rows, side);
         if (b.w < 40 or b.h < m.rowsHeight()) return;
         const panel = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
@@ -794,7 +812,7 @@ pub const Menu = struct {
             const custom = row.custom();
             const hidden = if (custom) |index| m.commands[index].hidden else m.hidden[@intFromEnum(row)];
             const label = if (custom) |index| m.commands[index].label() else row.agent().?.info().label;
-            const info = if (custom) |index| m.commands[index].semantics else @import("launch_command.zig").Semantics{ .provider = row.agent().?, .default_account = true };
+            const info = if (custom) |index| m.commands[index].semantics else launch_command.Semantics{ .provider = row.agent().?, .default_account = true };
             const source = m.account(&info);
             try w.print("\x1b[{d};{d}H{s} [{s}]\x1b[{d};{d}H", .{ b.y + 5 + i, b.x + 2, if (m.selected == row) "›" else " ", if (hidden) " " else "✓", b.y + 5 + i, b.x + 10 });
             try sidebar.writeEllipsis(w, label, name_width - 2);
@@ -827,7 +845,16 @@ pub const Menu = struct {
         if (m.editor.len > 0) {
             const matches = std.mem.eql(u8, m.draft.text(), m.editor.name());
             const resolved = matches and !m.resolution.pending and m.resolution.error_message.len == 0;
-            const status = if (m.editor.failed and m.save_error.len > 0) m.save_error.text() else if (m.editor.overflow) "Command too long" else if (!matches or m.resolution.pending) "Resolving command…" else if (m.resolution.error_message.len > 0) m.resolution.error_message.text() else m.account(&m.resolution.semantics);
+            const status = if (m.editor.failed and m.save_error.len > 0)
+                m.save_error.text()
+            else if (m.editor.overflow)
+                "Command too long"
+            else if (!matches or m.resolution.pending)
+                "Resolving command…"
+            else if (m.resolution.error_message.len > 0)
+                m.resolution.error_message.text()
+            else
+                m.account(&m.resolution.semantics);
             try w.print("\x1b[{d};{d}H", .{ field_y + 9, b.x + 4 });
             var summary: [512]u8 = undefined;
             const info = &m.resolution.semantics;
@@ -849,7 +876,8 @@ pub const Menu = struct {
                 }
             }
         }
-        try w.print("{s}\x1b[{d};{d}H[Cancel]  [{s}]", .{ panel, field_y + 12 + @as(usize, if (m.show_command) 2 else 0), b.x + b.w - 19, if (m.edit_index != null or m.edit_provider != null) "Save" else "Add" });
+        const action = if (m.edit_index != null or m.edit_provider != null) "Save" else "Add";
+        try w.print("{s}\x1b[{d};{d}H[Cancel]  [{s}]", .{ panel, field_y + 12 + @as(usize, if (m.show_command) 2 else 0), b.x + b.w - 19, action });
         try w.print("\x1b[{d};{d}H{s}Tab: command / name\x1b[{d};{d}H{s}[Done]\x1b[?25l", .{ b.y + b.h - 1, b.x + 4, dim, b.y + b.h - 1, b.x + b.w - 9, panel });
         if (m.selected == .add) {
             const editor = if (m.name_focused) m.name_editor else m.editor;
@@ -860,9 +888,8 @@ pub const Menu = struct {
         }
     }
 
-    pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: @import("sidebar.zig").View) !void {
+    pub fn draw(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: sidebar.View) !void {
         if (m.managing) return m.drawManager(w, cols, rows, side);
-        const sidebar = @import("sidebar.zig");
         const b = m.bounds(cols, rows, side);
         if (b.w < 24 or b.h < m.rowsHeight()) return;
         const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
@@ -881,7 +908,13 @@ pub const Menu = struct {
             if (width == 0 or (m.managing and column != 0)) continue;
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + 2, heading_x + @as(u16, if (column == 0) 4 else 0), panel });
             const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
-            try sidebar.writeEllipsis(w, if (column == 1 and room < 4) "Y" else if (column == 5 and room < sidebar.displayWidth(heading)) (if (room >= 14) "Usage · resets" else "Usage") else heading, room);
+            const label = if (column == 1 and room < 4)
+                "Y"
+            else if (column == 5 and room < sidebar.displayWidth(heading))
+                (if (room >= 14) "Usage · resets" else "Usage")
+            else
+                heading;
+            try sidebar.writeEllipsis(w, label, room);
             heading_x += width;
         }
         for (0..m.count()) |visible| {
@@ -947,9 +980,19 @@ pub const Menu = struct {
             }
         }
         const Hint = struct { key: []const u8, label: []const u8 };
-        const hints: []const Hint = if (m.managing or m.selected == .manage)
-            &.{.{ .key = "↵", .label = if (m.selected == .manage) "back/open" else if (m.selected == .add) "add" else if (m.selected.custom() != null) "edit" else if (m.hidden[@intFromEnum(m.selected)]) "add" else "remove" }}
-        else if (m.selected.custom() != null)
+        const hints: []const Hint = if (m.managing or m.selected == .manage) blk: {
+            const label = if (m.selected == .manage)
+                "back/open"
+            else if (m.selected == .add)
+                "add"
+            else if (m.selected.custom() != null)
+                "edit"
+            else if (m.hidden[@intFromEnum(m.selected)])
+                "add"
+            else
+                "remove";
+            break :blk &.{.{ .key = "↵", .label = label }};
+        } else if (m.selected.custom() != null)
             &.{.{ .key = "a", .label = "launch" }}
         else if (m.selected == .terminal)
             &.{.{ .key = "a", .label = "open" }}
@@ -986,7 +1029,7 @@ test "launch preview settings overlay and menu bounds" {
     defer parsed.deinit();
     applyModel(&result, parsed.value, "Project");
     try std.testing.expectEqualStrings("opus", result.model.text());
-    const side = @import("sidebar.zig").View.init(80, 24, true, 0, 0);
+    const side = sidebar.View.init(80, 24, true, 0, 0);
     const menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     const b = menu.bounds(80, 24, side);
     try std.testing.expect(b.x + b.w <= 80 and b.y + b.h <= 24);
@@ -1016,7 +1059,7 @@ test "launcher fits long content and keeps usage hit targets aligned" {
     try std.testing.expectEqual(@as(u16, 35), widths[2]);
     try std.testing.expectEqual(@as(u16, 37), widths[3]);
     for ([_]u16{ 24, 40, 64, 80, 120, 200 }) |cols| {
-        const side = @import("sidebar.zig").View.init(cols, 24, true, 0, 0);
+        const side = sidebar.View.init(cols, 24, true, 0, 0);
         const b = menu.bounds(cols, 24, side);
         try std.testing.expect(b.x + b.w <= cols);
         const fitted = menu.columns(b.w);
@@ -1046,14 +1089,14 @@ test "single-line limit groups survive narrow terminal rendering" {
         option.plan.set("pro");
     }
     for ([_]u16{ 60, 80, 100, 124 }) |cols| {
-        const side = @import("sidebar.zig").View.init(cols, 24, true, 0, 0);
+        const side = sidebar.View.init(cols, 24, true, 0, 0);
         var output: std.Io.Writer.Allocating = .init(a);
         defer output.deinit();
         try menu.draw(&output.writer, cols, 24, side);
-        const terminal = try @import("terminal.zig").Terminal.create(cols, 24);
-        defer terminal.destroy();
-        terminal.feed(output.written());
-        const rendered = try terminal.text();
+        const host = try Terminal.create(cols, 24);
+        defer host.destroy();
+        host.feed(output.written());
+        const rendered = try host.text();
         defer a.free(rendered);
         var found: [2]usize = .{ 0, 0 };
         var lines = std.mem.splitScalar(u8, rendered, '\n');
@@ -1070,7 +1113,7 @@ test "single-line limit groups survive narrow terminal rendering" {
                 for ([_][]const u8{ "5h", "17%", "1h 39m", " │ 7d", "35%", "1d 15h" }) |value|
                     try std.testing.expect(std.mem.indexOf(u8, line, value) != null);
             }
-            try std.testing.expect(@import("sidebar.zig").displayWidth(line) <= cols);
+            try std.testing.expect(sidebar.displayWidth(line) <= cols);
         }
         try std.testing.expectEqual([2]usize{ 1, 1 }, found);
         const b = menu.bounds(cols, 24, side);
@@ -1100,7 +1143,7 @@ fn parseAccount(bytes: []const u8) Text {
 }
 
 test "launcher hides providers that are not installed" {
-    const side = @import("sidebar.zig").View.init(120, 24, true, 0, 0);
+    const side = sidebar.View.init(120, 24, true, 0, 0);
     var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.installed = .{ false, true };
     menu.normalize();
@@ -1166,7 +1209,7 @@ test "custom picker cells preserve account scope and permission state" {
     menu.preview.options[1].plan.set("Max");
     menu.preview.options[1].model.set("opus");
     try menu.commands[0].set("claude --dangerously-skip-permissions");
-    menu.commands[0].semantics = @import("launch_command.zig").analyze(menu.commands[0].text(), "/tmp");
+    menu.commands[0].semantics = launch_command.analyze(menu.commands[0].text(), "/tmp");
     var values = menu.customCells(0);
     try std.testing.expectEqualStrings("personal@example.com", values[3]);
     try std.testing.expectEqualStrings("✓", values[1]);

@@ -1,10 +1,14 @@
 //! Shared resource sampling. Immutable snapshots cross the worker boundary;
 //! UI views never inspect processes, spawn tools or own a polling loop.
 const std = @import("std");
+const log = std.log.scoped(.resources);
+const builtin = @import("builtin");
 const os = @import("os.zig");
 const native = @import("resource_os.zig");
+const clock = @import("clock.zig");
 const a = os.allocator;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const Provider = @import("agents.zig").Provider;
 pub const history_capacity = 48;
 pub const process_capacity = 64;
 pub const Sort = enum { cpu, memory, io };
@@ -28,7 +32,7 @@ pub const Process = struct {
     pid: i32,
     start: u64,
     name: []const u8,
-    provider: ?@import("agents.zig").Provider = null,
+    provider: ?Provider = null,
     cpu: ?f64 = null,
     memory: u64 = 0,
     read: ?u64 = null,
@@ -76,7 +80,7 @@ pub const Snapshot = struct {
     cores: u32 = 1,
     memory_pressure: native.MemoryPressure = .unknown,
     /// Linux sums RSS; macOS sums physical footprints. Both are estimates.
-    memory_kind: []const u8 = if (@import("builtin").os.tag == .linux) "RSS" else "footprint",
+    memory_kind: []const u8 = if (builtin.os.tag == .linux) "RSS" else "footprint",
     workspaces: []const Work = &.{},
     pub fn workspace(s: Snapshot, id: WorkspaceId) Work {
         for (s.workspaces) |work| if (work.id == id) return work;
@@ -95,7 +99,7 @@ pub const Snapshot = struct {
         return result;
     }
 };
-const Root = struct { key: u64 = 0, pid: i32, start: ?u64 = null, workspace: WorkspaceId, agent_pid: i32 = 0, provider: ?@import("agents.zig").Provider = null };
+const Root = struct { key: u64 = 0, pid: i32, start: ?u64 = null, workspace: WorkspaceId, agent_pid: i32 = 0, provider: ?Provider = null };
 const Origin = struct { pid: i32, start: u64 };
 const Reading = struct { pid: i32, workspace: WorkspaceId, identity_start: u64, at: i64, value: native.Counters };
 const Alarm = struct {
@@ -142,6 +146,8 @@ pub const Tracker = struct {
     stopping: std.atomic.Value(bool) = .init(false),
     next_refresh: i64 = 0,
     last_started: i64 = 0,
+    // Samples repeat every few seconds; warn once per distinct failure.
+    sample_error: ?anyerror = null,
     interval_ms: u32 = 2000,
 
     pub fn deinit(t: *Tracker) void {
@@ -177,7 +183,7 @@ pub const Tracker = struct {
                 changed = true;
             }
         }
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         const interval: u32 = if (detailed) 1000 else 2000;
         if (now < @min(t.next_refresh, t.last_started + interval)) return changed;
         t.interval_ms = interval;
@@ -191,17 +197,32 @@ pub const Tracker = struct {
         for (runtime.panes.items) |*p| {
             if (p.terminal.exited) continue;
             const ws = runtime.workspaces.owner(p.id) orelse continue;
-            roots.append(allocator, .{ .key = @as(u64, @intFromEnum(p.id)) * 2, .pid = p.terminal.pid, .workspace = ws.id, .agent_pid = p.detection.pid, .provider = p.agent().provider }) catch return changed;
+            roots.append(allocator, .{
+                .key = @as(u64, @intFromEnum(p.id)) * 2,
+                .pid = p.terminal.pid,
+                .workspace = ws.id,
+                .agent_pid = p.detection.pid,
+                .provider = p.agent().provider,
+            }) catch return changed;
         }
         for (runtime.sessions.items) |*s| {
             if (s.exited or s.workspace_id == WorkspaceId.none) continue;
-            roots.append(allocator, .{ .key = @as(u64, @intFromEnum(s.id)) * 2 + 1, .pid = s.child.id, .workspace = s.workspace_id, .agent_pid = s.child.id, .provider = s.provider }) catch return changed;
+            roots.append(allocator, .{
+                .key = @as(u64, @intFromEnum(s.id)) * 2 + 1,
+                .pid = s.child.id,
+                .workspace = s.workspace_id,
+                .agent_pid = s.child.id,
+                .provider = s.provider,
+            }) catch return changed;
         }
         t.roots = roots.toOwnedSlice(allocator) catch return changed;
         t.workspaces = works.toOwnedSlice(allocator) catch return changed;
         t.pending = .{};
         t.done.store(false, .release);
-        t.thread = std.Thread.spawn(.{}, run, .{t}) catch null;
+        t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
+            log.warn("spawn sample thread failed: {}", .{err});
+            break :blk null;
+        };
         return changed;
     }
     /// Discards every reading once sampling is turned off, so snapshots carry
@@ -226,14 +247,19 @@ pub const Tracker = struct {
     }
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
-        t.sample() catch {
+        t.sample() catch |err| {
+            const repeated = if (t.sample_error) |previous| previous == err else false;
+            if (err != error.Stopped and !repeated) log.warn("resource sample failed: {}", .{err});
+            t.sample_error = err;
             // Never retain stale values as a healthy zero after sampling fails.
-            t.pending = .{ .view = .{ .sampled_at = @import("clock.zig").milliTimestamp(), .interval_ms = t.interval_ms } };
+            t.pending = .{ .view = .{ .sampled_at = clock.milliTimestamp(), .interval_ms = t.interval_ms } };
+            return;
         };
+        t.sample_error = null;
     }
     fn sample(t: *Tracker) !void {
         const allocator = t.pending_arena.allocator();
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         const inventory = try native.inventory(allocator);
         var index: std.AutoHashMapUnmanaged(i32, usize) = .empty;
         for (inventory.items, 0..) |item, i| try index.put(allocator, item.pid, i);
@@ -290,7 +316,15 @@ pub const Tracker = struct {
             const reading: Reading = .{ .pid = identity.pid, .workspace = root.workspace, .identity_start = identity.start, .at = now, .value = value };
             try readings.append(allocator, reading);
             const rates = delta(previous.get(identity.pid), reading);
-            var proc: Process = .{ .pid = identity.pid, .start = value.start, .name = try allocator.dupe(u8, std.mem.sliceTo(&identity.name, 0)), .cpu = rates.cpu, .memory = value.memory, .read = rates.read, .written = rates.written };
+            var proc: Process = .{
+                .pid = identity.pid,
+                .start = value.start,
+                .name = try allocator.dupe(u8, std.mem.sliceTo(&identity.name, 0)),
+                .cpu = rates.cpu,
+                .memory = value.memory,
+                .read = rates.read,
+                .written = rates.written,
+            };
             if (identity.pid == root.agent_pid) proc.provider = root.provider;
             // A new process needs a baseline before it contributes rates.
             // Preserve measurements from the rest of the workspace meanwhile.
@@ -326,7 +360,20 @@ pub const Tracker = struct {
             history[keep] = .{ .at = now, .cpu = work.cpu, .memory = work.memory, .io = if (work.read != null and work.written != null) work.read.? +| work.written.? else null };
             work.history = history;
         }
-        t.pending = .{ .view = .{ .sampled_at = now, .interval_ms = t.interval_ms, .host_cpu = host_cpu, .host_memory = host.memory, .cores = host.cores, .memory_pressure = host.pressure, .workspaces = works }, .readings = try readings.toOwnedSlice(allocator), .host = host, .health = health };
+        t.pending = .{
+            .view = .{
+                .sampled_at = now,
+                .interval_ms = t.interval_ms,
+                .host_cpu = host_cpu,
+                .host_memory = host.memory,
+                .cores = host.cores,
+                .memory_pressure = host.pressure,
+                .workspaces = works,
+            },
+            .readings = try readings.toOwnedSlice(allocator),
+            .host = host,
+            .health = health,
+        };
     }
 };
 
@@ -370,7 +417,11 @@ fn delta(old: ?Reading, new: Reading) Rates {
     const prev = old orelse return .{};
     if (prev.workspace != new.workspace or prev.identity_start != new.identity_start or prev.value.start != new.value.start or new.at <= prev.at or new.at - prev.at > 10000) return .{};
     const ms: u64 = @intCast(new.at - prev.at);
-    return .{ .cpu = if (new.value.cpu_ns >= prev.value.cpu_ns) @as(f64, @floatFromInt(new.value.cpu_ns - prev.value.cpu_ns)) / (@as(f64, @floatFromInt(ms)) * 10000) else null, .read = rate(prev.value.read, new.value.read, ms), .written = rate(prev.value.written, new.value.written, ms) };
+    const cpu: ?f64 = if (new.value.cpu_ns >= prev.value.cpu_ns)
+        @as(f64, @floatFromInt(new.value.cpu_ns - prev.value.cpu_ns)) / (@as(f64, @floatFromInt(ms)) * 10000)
+    else
+        null;
+    return .{ .cpu = cpu, .read = rate(prev.value.read, new.value.read, ms), .written = rate(prev.value.written, new.value.written, ms) };
 }
 
 test "new process baselines preserve established workspace rates" {

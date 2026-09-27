@@ -76,7 +76,14 @@ pub fn shortcut(p: Preset, action: u8) ?u8 {
 }
 pub const Modified = union(enum) { action: u8, workspace: usize, resize: u8 };
 pub fn modified(p: Preset, prefixed: bool, k: keyboard.Key) ?Modified {
-    const cp: u21 = if (k.codepoint >= 'A' and k.codepoint <= 'Z') k.codepoint + 32 else if (k.mods.shift and k.codepoint == '}') ']' else if (k.mods.shift and k.codepoint == '{') '[' else k.codepoint;
+    const cp: u21 = if (k.codepoint >= 'A' and k.codepoint <= 'Z')
+        k.codepoint + 32
+    else if (k.mods.shift and k.codepoint == '}')
+        ']'
+    else if (k.mods.shift and k.codepoint == '{')
+        '['
+    else
+        k.codepoint;
     const m = k.mods;
     const dir: ?u8 = switch (cp) {
         57350 => 'h',

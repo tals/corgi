@@ -5,6 +5,10 @@ const os = @import("os.zig");
 const a = os.allocator;
 const c = os.c;
 const PushRef = @import("git_push.zig").Ref;
+const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
+const clock = @import("clock.zig");
+const log = std.log.scoped(.git_status);
 pub const Commit = struct {
     hash: [12]u8 = @splat(0),
     hash_len: u8 = 0,
@@ -55,9 +59,6 @@ fn parseCommits(raw: []const u8) Commits {
     }
     return result;
 }
-const workspace = @import("workspace.zig");
-const WorkspaceId = workspace.Workspace.Id;
-
 // The server's general reaper may collect a Git child before its worker does.
 pub var child_mutex: std.Thread.Mutex = .{};
 var child_pid: c_int = 0;
@@ -116,18 +117,23 @@ pub const Tracker = struct {
             }
             t.clearJobs();
         }
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         if (now < t.next_refresh) return changed;
         t.next_refresh = now + 3000;
         for (store.items.items) |ws| {
-            const cwd = a.dupe(u8, ws.cwd) catch break;
-            t.jobs.append(a, .{ .id = ws.id, .cwd = cwd }) catch {
+            const cwd = a.dupe(u8, ws.cwd) catch |err| {
+                log.warn("git scan alloc failed: {}", .{err});
+                break;
+            };
+            t.jobs.append(a, .{ .id = ws.id, .cwd = cwd }) catch |err| {
+                log.warn("git scan alloc failed: {}", .{err});
                 a.free(cwd);
                 break;
             };
         }
         t.done.store(false, .release);
-        t.thread = std.Thread.spawn(.{}, run, .{t}) catch blk: {
+        t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
+            log.warn("git tracker thread spawn failed: {}", .{err});
             t.clearJobs();
             break :blk null;
         };
@@ -136,7 +142,7 @@ pub const Tracker = struct {
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
         // Evict unused checkouts and negative entries to keep a long-lived server bounded.
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         while (true) {
             var it = t.cache.iterator();
             const key = while (it.next()) |entry| {
@@ -206,9 +212,9 @@ pub const Tracker = struct {
         defer a.free(count);
         const ahead = std.fmt.parseInt(u64, count, 10) catch null;
         if (ahead != null and ahead.? > 0) {
-            if (command(root, &.{ "log", "--no-show-signature", "--no-decorate", "--encoding=UTF-8", "--date=format:%Y-%m-%d %H:%M", "--format=%h%x00%an%x00%ad%x00%at%x00%s%x00", "-12", fingerprint, "--" })) |log| {
-                defer a.free(log);
-                commits.* = parseCommits(log);
+            if (command(root, &.{ "log", "--no-show-signature", "--no-decorate", "--encoding=UTF-8", "--date=format:%Y-%m-%d %H:%M", "--format=%h%x00%an%x00%ad%x00%at%x00%s%x00", "-12", fingerprint, "--" })) |output| {
+                defer a.free(output);
+                commits.* = parseCommits(output);
             }
         }
         const saved = try t.save(key, fingerprint, ahead, now);
@@ -244,8 +250,9 @@ fn command(cwd: []const u8, args: []const []const u8) ?[]const u8 {
     child.stderr_behavior = .Ignore;
     child.pgid = 0;
     child_mutex.lock();
-    child.spawn() catch {
+    child.spawn() catch |err| {
         child_mutex.unlock();
+        log.warn("git spawn failed: {}", .{err});
         return null;
     };
     child_pid = child.id;

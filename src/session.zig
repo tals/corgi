@@ -9,6 +9,12 @@ const Workspace = @import("workspace.zig").Workspace;
 const WorkspaceId = Workspace.Id;
 const PaneId = layout.PaneId;
 const TabId = layout.TabId;
+const keyboard = @import("keyboard.zig");
+const Theme = @import("theme.zig").Theme;
+const ordering = @import("agent_order.zig");
+const launch_command = @import("launch_command.zig");
+const terminal = @import("terminal.zig");
+const integration = @import("integration.zig");
 const PaneTarget = struct { target: PaneId };
 const TabTarget = struct { target: TabId };
 const PaneRename = struct { target: PaneId, name: []const u8 };
@@ -16,8 +22,17 @@ const TabRename = struct { target: TabId, name: []const u8 };
 pub const Beside = struct { other: PaneId, direction: layout.Direction = .right };
 pub const Destination = union(enum) { before: TabId, after: TabId, workspace: WorkspaceId };
 pub const Command = union(enum) {
-    @"agent.move": struct { workspace: WorkspaceId, target: @import("agent_order.zig").Target, before: ?@import("agent_order.zig").Target = null },
-    @"agent.command": struct { index: usize, command: []const u8, hidden: bool = false, name: ?[]const u8 = null, original: ?[]const u8 = null, semantics: ?@import("launch_command.zig").Semantics = null, resolve: bool = true, cwd: ?[]const u8 = null },
+    @"agent.move": struct { workspace: WorkspaceId, target: ordering.Target, before: ?ordering.Target = null },
+    @"agent.command": struct {
+        index: usize,
+        command: []const u8,
+        hidden: bool = false,
+        name: ?[]const u8 = null,
+        original: ?[]const u8 = null,
+        semantics: ?launch_command.Semantics = null,
+        resolve: bool = true,
+        cwd: ?[]const u8 = null,
+    },
     @"agent.command.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", index: usize },
     @"agent.visibility": struct { hidden: [2]bool },
     @"agent.yolo": struct { provider: Provider, enabled: bool },
@@ -88,7 +103,7 @@ pub const Command = union(enum) {
 pub const Context = struct {
     socket: []const u8,
     executable: []const u8,
-    theme: @import("theme.zig").Theme,
+    theme: Theme,
 };
 pub const Result = struct {
     pane: PaneId = .none,
@@ -126,9 +141,8 @@ fn spawnOptions(r: *Runtime, ctx: Context, workspace: WorkspaceId, from: ?PaneId
 pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator) !Result {
     switch (cmd) {
         .@"agent.move" => |q| {
-            const order = @import("agent_order.zig");
             const ws = try r.getWorkspace(q.workspace);
-            var live: [order.capacity]order.Target = undefined;
+            var live: [ordering.capacity]ordering.Target = undefined;
             var count: usize = 0;
             // Include shells so a temporary loss of agent detection does not
             // erase their saved position. IDs are validated within this workspace.
@@ -148,13 +162,13 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         },
         .@"agent.command" => |q| {
             if (q.index >= r.agent_commands.len) return error.InvalidCommand;
-            const source = if (q.resolve and q.command.len > 0) try @import("launch_command.zig").resolve(q.command, q.cwd, alloc) else q.command;
+            const source = if (q.resolve and q.command.len > 0) try launch_command.resolve(q.command, q.cwd, alloc) else q.command;
             defer if (q.resolve and q.command.len > 0) alloc.free(source);
             try r.agent_commands[q.index].set(source);
             if (q.original) |original| try r.agent_commands[q.index].setOriginal(original) else if (q.resolve) try r.agent_commands[q.index].setOriginal(q.command);
             if (q.name) |name| r.agent_commands[q.index].name.set(name);
             if (source.len == 0) r.agent_commands[q.index] = .{} else {
-                r.agent_commands[q.index].semantics = q.semantics orelse @import("launch_command.zig").analyze(source, q.cwd orelse ".");
+                r.agent_commands[q.index].semantics = q.semantics orelse launch_command.analyze(source, q.cwd orelse ".");
             }
             r.agent_commands[q.index].hidden = r.agent_commands[q.index].len > 0 and q.hidden;
             r.changed();
@@ -182,10 +196,15 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         .@"agent.create" => |q| {
             const provider = q.provider orelse r.last_agent;
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
-            const executable = try @import("integration.zig").shellQuote(ctx.executable);
+            const executable = try integration.shellQuote(ctx.executable);
             defer os.allocator.free(executable);
             const yolo = r.agent_yolo[@intFromEnum(provider)];
-            const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {t}{s}{s}", .{ executable, provider, if (yolo) " " else "", if (yolo) provider.info().yolo_flag else "" });
+            const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {t}{s}{s}", .{
+                executable,
+                provider,
+                if (yolo) " " else "",
+                if (yolo) provider.info().yolo_flag else "",
+            });
             opts.command = command;
             const pane = try r.create(opts);
             r.last_agent = provider;
@@ -275,7 +294,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             if (bracketed) try output.writer.writeAll("\x1b[200~");
             try output.writer.writeAll(q.text);
             if (bracketed) try output.writer.writeAll("\x1b[201~");
-            if (q.enter) try (try logicalKey("enter")).encode(&output.writer, @import("terminal.zig").vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
+            if (q.enter) try (try logicalKey("enter")).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
             try p.terminal.send(output.written());
             return location(r, q.target);
         },
@@ -284,7 +303,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             var output: std.Io.Writer.Allocating = .init(alloc);
             defer output.deinit();
             var keys = std.mem.tokenizeScalar(u8, q.text, ' ');
-            while (keys.next()) |key| try (try logicalKey(key)).encode(&output.writer, @import("terminal.zig").vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
+            while (keys.next()) |key| try (try logicalKey(key)).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
             p.detection.observeInput(output.written(), std.time.microTimestamp());
             try p.terminal.send(output.written());
             return location(r, q.target);
@@ -410,21 +429,32 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
     r.changed();
     return location(r, representative);
 }
-pub fn logicalKey(name: []const u8) !@import("keyboard.zig").Key {
-    var mods: @import("terminal.zig").vt.input.KeyMods = .{};
+const named_keys = std.StaticStringMap(u21).initComptime(.{
+    .{ "esc", 27 },
+    .{ "enter", 13 },
+    .{ "tab", 9 },
+    .{ "backspace", 127 },
+    .{ "left", 57350 },
+    .{ "right", 57351 },
+    .{ "up", 57352 },
+    .{ "down", 57353 },
+    .{ "home", 57356 },
+    .{ "end", 57357 },
+    .{ "delete", 57349 },
+    .{ "pageup", 57354 },
+    .{ "pagedown", 57355 },
+    .{ "space", 32 },
+});
+pub fn logicalKey(name: []const u8) !keyboard.Key {
+    var mods: terminal.vt.input.KeyMods = .{};
     var key = name;
     while (std.mem.indexOfScalar(u8, key, '+')) |i| {
-        const mod = key[0..i];
-        if (eq(mod, "ctrl")) mods.ctrl = true else if (eq(mod, "alt")) mods.alt = true else if (eq(mod, "shift")) mods.shift = true else return error.InvalidKey;
+        switch (std.meta.stringToEnum(enum { ctrl, alt, shift }, key[0..i]) orelse return error.InvalidKey) {
+            inline else => |m| @field(mods, @tagName(m)) = true,
+        }
         key = key[i + 1 ..];
     }
-    const names = [_][]const u8{ "esc", "enter", "tab", "backspace", "left", "right", "up", "down", "home", "end", "delete", "pageup", "pagedown", "space" };
-    const codes = [_]u21{ 27, 13, 9, 127, 57350, 57351, 57352, 57353, 57356, 57357, 57349, 57354, 57355, 32 };
-    for (names, codes) |n, cp| if (eq(key, n)) return .{ .codepoint = cp, .mods = mods };
+    if (named_keys.get(key)) |cp| return .{ .codepoint = cp, .mods = mods };
     if (key.len == 1 and key[0] >= 32 and key[0] < 127) return .{ .codepoint = key[0], .mods = mods };
     return error.InvalidKey;
-}
-
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
 }

@@ -10,11 +10,13 @@ const viewer_version = @import("viewer_version.zig");
 const agents = @import("agents.zig");
 const surface = @import("surface.zig");
 const workspace = @import("workspace.zig");
+const peer = @import("peer.zig");
+const Client = peer.Client;
+const Server = @import("server.zig").Server;
 const WorkspaceId = workspace.Workspace.Id;
-const eq = std.mem.eql;
 const Op = protocol.Op;
 
-pub fn handle(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void {
+pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     if ((op == .@"viewer.open" or op == .@"viewer.sync") and !viewer_version.compatible(v)) {
         try cl.queue(.{ .err = "UnsupportedViewerProtocol", .viewer_protocol = viewer_version.version });
         return;
@@ -52,7 +54,17 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void 
         try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (op == .@"viewer.sync") {
         if (!cl.viewer) return error.NotAttached;
-        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false, resource_detail: ?WorkspaceId = null, resources: bool = true };
+        const Request = struct {
+            interests: []const peer.Interest,
+            session_hash: ?u64 = null,
+            focus: ?layout.PaneId = null,
+            watched: bool = true,
+            workspace: WorkspaceId = .none,
+            ack: u64 = 0,
+            active: bool = false,
+            resource_detail: ?WorkspaceId = null,
+            resources: bool = true,
+        };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const req = parsed.value;
@@ -110,7 +122,18 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void 
         snapshot.resources = try snapshot.resources.forViewer(allocator, cl.resource_detail);
         const session = try std.json.Stringify.valueAlloc(allocator, snapshot, .{});
         const session_hash = std.hash.Wyhash.hash(0, session);
-        try cl.queue(.{ .type = "view", .viewer_protocol = viewer_version.version, .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session }, .session_hash = session_hash, .surfaces = frames.items, .bell_seq = s.bell_seq, .bell_kind = s.last_bell_kind, .controls = cl.controls.items, .viewer = cl.viewer_id, .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1 });
+        try cl.queue(.{
+            .type = "view",
+            .viewer_protocol = viewer_version.version,
+            .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session },
+            .session_hash = session_hash,
+            .surfaces = frames.items,
+            .bell_seq = s.bell_seq,
+            .bell_kind = s.last_bell_kind,
+            .controls = cl.controls.items,
+            .viewer = cl.viewer_id,
+            .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1,
+        });
     } else if (op == .@"viewer.search") {
         const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const Request = struct { needle: []const u8, skip: usize = 0 };
@@ -121,7 +144,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void 
     } else if (op == .@"pane.acknowledge") {
         const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const through = if (v.object.get("through")) |value| if (value == .integer and value.integer >= 0) @as(u64, @intCast(value.integer)) else return error.InvalidAcknowledgement else 0;
-        if (!eq(u8, agents.str(v, "session"), p.agent().sessionId())) return error.StaleAcknowledgement;
+        if (!std.mem.eql(u8, agents.str(v, "session"), p.agent().sessionId())) return error.StaleAcknowledgement;
         if (v.object.get("binding")) |value| if (value != .integer or value.integer != p.attachment.generation) return error.StaleAcknowledgement;
         if (v.object.get("conversation")) |value| if (value != .integer or value.integer != @intFromEnum(if (p.attachment.actor) |actor| actor.id else ActorId.none)) return error.StaleAcknowledgement;
         if (p.agent().attention != .none or p.agent().observation.unread()) {
@@ -150,9 +173,9 @@ const SnapshotJson = struct {
 
 /// A pane takes the size shown by the most recently used viewer displaying it;
 /// other viewers clip or pad. Hidden panes retain their last size.
-pub fn resize(s: anytype) !void {
+pub fn resize(s: *Server) !void {
     for (s.runtime.panes.items) |p| {
-        var chosen: ?@import("peer.zig").Interest = null;
+        var chosen: ?peer.Interest = null;
         var latest: u64 = 0;
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and (chosen == null or cl.active_seq > latest)) {
             for (cl.interests[0..cl.interest_count]) |interest| if (interest.pane == p.id) {
@@ -169,19 +192,19 @@ pub fn resize(s: anytype) !void {
     }
 }
 
-pub fn clearControls(cl: anytype) void {
+pub fn clearControls(cl: *Client) void {
     for (cl.controls.items) |control| if (control.kind == .action) {
         a.free(control.name);
         a.free(control.value);
     };
     cl.controls.clearRetainingCapacity();
 }
-fn targetViewer(s: anytype, v: std.json.Value) !?*@import("peer.zig").Client {
-    const relaunch = eq(u8, agents.str(v, "name"), "relaunch");
-    const onboard = eq(u8, agents.str(v, "name"), "onboard") and v.object.get("pane") != null;
+fn targetViewer(s: *Server, v: std.json.Value) !?*Client {
+    const relaunch = std.mem.eql(u8, agents.str(v, "name"), "relaunch");
+    const onboard = std.mem.eql(u8, agents.str(v, "name"), "onboard") and v.object.get("pane") != null;
     if (relaunch or onboard) {
         const pane = try protocol.typedId(layout.PaneId, v, "pane");
-        var target: ?*@import("peer.zig").Client = null;
+        var target: ?*Client = null;
         for (s.clients.items) |*view| if (view.viewer and !view.dead and view.view_focus == pane) {
             if (target != null) return error.AmbiguousViewer;
             target = view;
@@ -199,7 +222,7 @@ fn targetViewer(s: anytype, v: std.json.Value) !?*@import("peer.zig").Client {
     for (s.clients.items) |*cl| if (cl.viewer and !cl.dead) return cl;
     return null;
 }
-pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void {
+pub fn routeControl(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     if (op == .@"viewer.list") {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
@@ -226,7 +249,7 @@ pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror
     try cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
 }
 
-fn enqueue(cl: anytype, value: @import("peer.zig").Control) !void {
+fn enqueue(cl: *Client, value: peer.Control) !void {
     var control = value;
     control.seq = cl.next_control;
     try cl.controls.append(a, control);
@@ -234,8 +257,13 @@ fn enqueue(cl: anytype, value: @import("peer.zig").Control) !void {
 }
 
 const ViewerInfo = struct { id: u32, workspace: WorkspaceId, pane: ?layout.PaneId, watched: bool };
-pub fn viewers(s: anytype, alloc: std.mem.Allocator) ![]const ViewerInfo {
+pub fn viewers(s: *Server, alloc: std.mem.Allocator) ![]const ViewerInfo {
     var result: std.ArrayList(ViewerInfo) = .empty;
-    for (s.clients.items) |view| if (view.viewer and !view.dead) try result.append(alloc, .{ .id = view.viewer_id, .workspace = view.view_workspace, .pane = view.view_focus, .watched = view.watched });
+    for (s.clients.items) |view| if (view.viewer and !view.dead) try result.append(alloc, .{
+        .id = view.viewer_id,
+        .workspace = view.view_workspace,
+        .pane = view.view_focus,
+        .watched = view.watched,
+    });
     return result.toOwnedSlice(alloc);
 }

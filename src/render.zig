@@ -4,26 +4,40 @@ const agents = @import("agents.zig");
 const commands = @import("commands.zig");
 const naming = @import("name_dialog.zig");
 const sidebar = @import("sidebar.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const workspace = @import("workspace.zig");
+const WorkspaceId = workspace.Workspace.Id;
 const a = @import("os.zig").allocator;
-pub const Pane = @import("mirror.zig").Pane;
+const mirror = @import("mirror.zig");
+const keymap = @import("keymap.zig");
+const resources = @import("resources.zig");
+const preferences = @import("preferences.zig");
+const resource_tooltip = @import("resource_tooltip.zig");
+const AgentLauncherMenu = @import("agent_launcher.zig").Menu;
+const CorgiSetupMenu = @import("corgi_setup.zig").Menu;
+const inference_setup = @import("inference_setup.zig");
+const corgi_badge = @import("corgi_badge.zig");
+const protocol = @import("protocol.zig");
+const subagent_tooltip = @import("subagent_tooltip.zig");
+const live_usage = @import("live_usage.zig");
+const surface = @import("surface.zig");
+pub const Pane = mirror.Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
 pub const Ui = struct {
-    key_preset: @import("keymap.zig").Preset = .corgi,
-    key_prefix: @import("keymap.zig").Prefix = .ctrl_b,
+    key_preset: keymap.Preset = .corgi,
+    key_prefix: keymap.Prefix = .ctrl_b,
     pointer: ?Pointer = null,
     iterm2_pointer: bool = false,
     link_tooltip: bool = false,
-    resources: @import("resources.zig").Snapshot = .{},
-    resource_prefs: @import("preferences.zig").Resources = .{},
+    resources: resources.Snapshot = .{},
+    resource_prefs: preferences.Resources = .{},
     sleeping_corgis: bool = true,
     resource_hover: ?WorkspaceId = null,
-    resource_card: ?@import("resource_tooltip.zig").State = null,
+    resource_card: ?resource_tooltip.State = null,
     git_hover: ?WorkspaceId = null,
-    agent_launcher: ?@import("agent_launcher.zig").Menu = null,
-    corgi_setup: ?@import("corgi_setup.zig").Menu = null,
-    inference: @import("inference_setup.zig").Status = .{},
+    agent_launcher: ?AgentLauncherMenu = null,
+    corgi_setup: ?CorgiSetupMenu = null,
+    inference: inference_setup.Status = .{},
     message: []const u8,
     copy_mode: bool,
     copy_feedback: bool = false,
@@ -38,18 +52,18 @@ pub const Ui = struct {
     dialog: ?naming.Dialog = null,
     confirm: bool = false,
     sidebar_open: bool = true,
-    corgi_badge: @import("corgi_badge.zig").Mode = .none,
+    corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
     sidebar_width: u16 = 28,
     dragged_workspace: ?sidebar.Preview = null,
     dragged_agent: ?sidebar.Preview = null,
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
-    conversations: []const @import("protocol.zig").Conversation = &.{},
+    conversations: []const protocol.Conversation = &.{},
     system_model: []const u8 = "",
-    release: @import("subagent_tooltip.zig").Release = .{},
+    release: subagent_tooltip.Release = .{},
     system_working: bool = false,
-    system_usage: @import("live_usage.zig").View = .{},
+    system_usage: live_usage.View = .{},
     workspaces: []const sidebar.WorkspaceEntry = &.{},
     workspace_offset: usize = 0,
 };
@@ -121,6 +135,11 @@ pub fn tabDrop(view: layout.View, width: u16, x: u16) ?TabDrop {
 /// Draw one row of text over the window's bottom-left corner, like a browser's
 /// link preview. Panes keep the row otherwise. It moves to the bottom-right
 /// corner when the pointer is where it would go.
+/// No modal overlay, menu, or dialog is covering the panes.
+fn noOverlay(ui: Ui) bool {
+    return ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and
+        ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm;
+}
 fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointer: ?Pointer) !void {
     const text = std.mem.trimLeft(u8, raw, " ");
     if (width < 4 or height == 0 or text.len == 0 or !std.unicode.utf8ValidateSlice(text)) return;
@@ -140,7 +159,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     const w = &out.writer;
     var preview_storage: [sidebar.max_entries]sidebar.Entry = undefined;
     const entries = if (ui.dragged_agent) |drag| drag.apply(sidebar.Entry, ui.agents, &preview_storage) else ui.agents;
-    var workspace_storage: [@import("workspace.zig").max_workspaces]sidebar.WorkspaceEntry = undefined;
+    var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
     const workspaces = if (ui.dragged_workspace) |drag| drag.apply(sidebar.WorkspaceEntry, ui.workspaces, &workspace_storage) else ui.workspaces;
     const dragging = ui.dragged_agent != null or ui.dragged_workspace != null;
     var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width);
@@ -186,7 +205,8 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     }
     if (model.count == 0) {
         var empty_buffer: [160]u8 = undefined;
-        const empty = try std.fmt.bufPrint(&empty_buffer, " No panes. {s} c: agent picker | {s} ?: shortcuts", .{ if (ui.key_prefix == .ctrl_b) "Ctrl-B" else "Ctrl-A", if (ui.key_prefix == .ctrl_b) "Ctrl-B" else "Ctrl-A" });
+        const prefix_key = if (ui.key_prefix == .ctrl_b) "Ctrl-B" else "Ctrl-A";
+        const empty = try std.fmt.bufPrint(&empty_buffer, " No panes. {s} c: agent picker | {s} ?: shortcuts", .{ prefix_key, prefix_key });
         try w.print("\x1b[2;{d}H", .{side.width + 1});
         try w.writeAll(empty[0..@min(empty.len, side.area().w)]);
     }
@@ -196,7 +216,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var link_pointer = false;
     var workspace_uri: [256]u8 = undefined;
     const card_rect: ?layout.Rect = if (!ui.link_tooltip or ui.agent_launcher != null or ui.corgi_setup != null or ui.pointer == null) null else if (ui.resource_card) |card|
-        @import("resource_tooltip.zig").geometry(width, height, side.width, card.anchor)
+        resource_tooltip.geometry(width, height, side.width, card.anchor)
     else
         null;
     // The card hides links beneath it. Workspace rows it covers still take
@@ -204,7 +224,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     const on_card = if (ui.pointer) |pointer| if (card_rect) |rect| rect.contains(pointer.x, pointer.y) and side.hit(pointer.x, pointer.y) != .workspace else false else false;
     if (ui.pointer) |pointer| {
         if (on_card) {
-            link_pointer = @import("resource_tooltip.zig").sortAt(card_rect.?, pointer.x, pointer.y) != null;
+            link_pointer = resource_tooltip.sortAt(card_rect.?, pointer.x, pointer.y) != null;
         } else if (ui.scope_menu != null) {
             link_pointer = side.hit(pointer.x, pointer.y) == .agent_scope or sidebar.ScopeMenu.hit(side, width, height, pointer.x, pointer.y) != null;
         } else if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
@@ -217,7 +237,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 }
             } else {
                 link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null or
-                    @import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y);
+                    corgi_badge.hit(ui.corgi_badge, side.width, pointer.x, pointer.y);
                 switch (side.hit(pointer.x, pointer.y)) {
                     .toggle, .workspace_new, .workspace_previous, .workspace_next, .previous, .next, .agent_scope, .agent_new, .agent_options => link_pointer = true,
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
@@ -235,7 +255,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         }
     }
     if (ui.corgi_setup != null) if (ui.pointer) |pointer| {
-        link_pointer = @import("corgi_setup.zig").Menu.hit(width, height, pointer.x, pointer.y) != null;
+        link_pointer = CorgiSetupMenu.hit(width, height, pointer.x, pointer.y) != null;
     };
     if (ui.pointer) |pointer| {
         if (ui.menu) |menu| link_pointer = switch (menu.hit(pointer.x, pointer.y)) {
@@ -265,7 +285,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             const state = p.terminal.renderState();
             var hovered: ?u64 = null;
             if (ui.pointer) |pointer| {
-                if (r.contains(pointer.x, pointer.y) and !on_card and ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
+                if (r.contains(pointer.x, pointer.y) and !on_card and noOverlay(ui)) {
                     for (p.terminal.hyperlinks()) |link| {
                         if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
                             hovered = link.id;
@@ -277,7 +297,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             }
             for (0..@min(state.rows, r.h)) |row| {
                 try w.print("\x1b[{d};{d}H", .{ r.y + row + 1, r.x + 1 });
-                try @import("surface.zig").writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
+                try surface.writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
             }
             try w.writeAll("\x1b[0m");
             break;
@@ -287,9 +307,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     try side.draw(w, entries, workspaces);
     if (ui.git_hover) |id| try sidebar.drawGitAction(w, side, ui.workspaces, id);
     if (ui.corgi_badge == .image) {
-        try w.writeAll(@import("corgi_badge.zig").hide);
+        try w.writeAll(corgi_badge.hide);
         if (side.width > 0 and ui.scope_menu == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
-            try @import("corgi_badge.zig").place(w);
+            try corgi_badge.place(w);
     }
     if (ui.confirm) {
         var status: [512]u8 = undefined;
@@ -301,7 +321,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
         try writeChip(w, text, width, height, ui.pointer);
     }
-    if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) for (view.placements(area, &locations)) |place| {
+    if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and noOverlay(ui)) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
@@ -317,14 +337,14 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 const name = for (ui.workspaces) |ws| {
                     if (ws.id == card.workspace) break ws.name;
                 } else "workspace";
-                try @import("resource_tooltip.zig").draw(w, rect, name, ui.resources, card);
+                try resource_tooltip.draw(w, rect, name, ui.resources, card);
             }
-        } else if (@import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
-            try @import("subagent_tooltip.zig").drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, ui.release, width, height);
+        } else if (corgi_badge.hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
+            try subagent_tooltip.drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, ui.release, width, height);
         } else if (sidebar.gitActionWorkspace(side, ui.workspaces, ui.git_hover, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
         } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {
-            try @import("subagent_tooltip.zig").draw(w, ui.conversations, entry.*, width, height, pointer.x, pointer.y);
+            try subagent_tooltip.draw(w, ui.conversations, entry.*, width, height, pointer.x, pointer.y);
         } else if (width >= 19 and height >= 5) {
             const tooltip_x = @min(pointer.x +| 1, width - 19);
             const tooltip_y = if (pointer.y + 4 < height) pointer.y + 1 else pointer.y -| 3;
@@ -419,7 +439,7 @@ test "resource card points only at its sortable column headers" {
     const view: layout.View = .{ .model = &model, .selection = &selection };
     var workspaces = [_]sidebar.WorkspaceEntry{.{ .id = WorkspaceId.first, .name = "Busy", .cwd = "/tmp", .active = true }};
     const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.len, 0);
-    const rect = @import("resource_tooltip.zig").geometry(100, 30, side.width, 2).?;
+    const rect = resource_tooltip.geometry(100, 30, side.width, 2).?;
     const header = rect.y + 14;
     const Case = struct { x: u16, y: u16, hand: bool = false };
     for ([_]Case{
@@ -464,6 +484,14 @@ test "tab drop slots follow midpoints and clipped visible tabs" {
     try std.testing.expect(tabDrop(view, 3, 0) == null);
 }
 
+/// The box-drawing glyph joining a divider cell with its neighbors on each side.
+fn dividerGlyph(up: bool, down: bool, left: bool, right: bool, horizontal: bool) []const u8 {
+    if (up and down) return if (left and right) "┼" else if (left) "┤" else if (right) "├" else "│";
+    if (left and right) return if (up) "┴" else if (down) "┬" else "─";
+    if (up) return if (left) "┘" else if (right) "└" else "│";
+    if (down) return if (left) "┐" else if (right) "┌" else "│";
+    return if (horizontal) "│" else "─";
+}
 fn drawDividers(w: *std.Io.Writer, view: layout.View, area: layout.Rect) !void {
     var storage: [layout.max_borders]layout.View.Border = undefined;
     const borders = view.borders(area, &storage);
@@ -494,10 +522,7 @@ fn drawDividers(w: *std.Io.Writer, view: layout.View, area: layout.Rect) !void {
                     if (y > area.y and other.rect.contains(@intCast(x), @intCast(y - 1))) up = true;
                     if (y + 1 < area.y + area.h and other.rect.contains(@intCast(x), @intCast(y + 1))) down = true;
                 }
-                const glyph: []const u8 = if (up and down)
-                    (if (left and right) "┼" else if (left) "┤" else if (right) "├" else "│")
-                else if (left and right) (if (up) "┴" else if (down) "┬" else "─") else if (up) (if (left) "┘" else if (right) "└" else "│") else if (down) (if (left) "┐" else if (right) "┌" else "│") else if (border.axis == .horizontal) "│" else "─";
-                try w.writeAll(glyph);
+                try w.writeAll(dividerGlyph(up, down, left, right, border.axis == .horizontal));
             }
         }
     }
@@ -545,13 +570,13 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     ui.sidebar_open = false;
     const hidden = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(hidden);
-    try std.testing.expect(std.mem.indexOf(u8, hidden, @import("corgi_badge.zig").hide) != null);
+    try std.testing.expect(std.mem.indexOf(u8, hidden, corgi_badge.hide) != null);
     try std.testing.expect(std.mem.indexOf(u8, hidden, "a=p,i=730031") == null);
     ui.sidebar_open = true;
     ui.corgi_badge = .emoji;
     const emoji = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(emoji);
-    try std.testing.expect(std.mem.indexOf(u8, emoji, @import("corgi_badge.zig").emoji) != null);
+    try std.testing.expect(std.mem.indexOf(u8, emoji, corgi_badge.emoji) != null);
     try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b_G") == null);
     try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
 }

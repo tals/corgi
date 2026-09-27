@@ -8,6 +8,17 @@ const runtime = @import("runtime.zig");
 const agents = @import("agents.zig");
 const native = @import("native.zig");
 const NativeId = native.Session.Id;
+const os = @import("os.zig");
+const options = @import("corgi_options");
+const agent_order = @import("agent_order.zig");
+const git_push = @import("git_push.zig");
+const usage = @import("usage.zig");
+const live_usage = @import("live_usage.zig");
+const background_tasks = @import("background_tasks.zig");
+const inference_setup = @import("inference_setup.zig");
+const launch_command = @import("launch_command.zig");
+const ports = @import("ports.zig");
+const resources = @import("resources.zig");
 
 pub const version: u32 = 1;
 
@@ -104,12 +115,12 @@ pub const Workspace = struct {
     custom_name: []const u8,
     cwd: []const u8,
     model: layout.Model,
-    agent_order: []const @import("agent_order.zig").Target = &.{},
+    agent_order: []const agent_order.Target = &.{},
     git_commits: []const GitCommit = &.{},
     git_ahead: ?u64 = null,
-    git_ref: @import("git_push.zig").RefView = .{},
-    git_push: @import("git_push.zig").View = .{},
-    stats: @import("usage.zig").Counts = .{},
+    git_ref: git_push.RefView = .{},
+    git_push: git_push.View = .{},
+    stats: usage.Counts = .{},
 };
 pub const Agent = struct {
     conversation: ActorId = .none,
@@ -160,9 +171,9 @@ pub const Native = struct {
     compacting: bool = false,
 };
 pub const Conversation = struct {
-    pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: @import("live_usage.zig").View };
-    pub const Timeline = struct { points: []const ActivityPoint = &.{}, pending: @import("live_usage.zig").View = .{} };
-    background_tasks: @import("background_tasks.zig").View = .{},
+    pub const ActivityPoint = struct { at: i64, activity: []const u8, usage: live_usage.View };
+    pub const Timeline = struct { points: []const ActivityPoint = &.{}, pending: live_usage.View = .{} };
+    background_tasks: background_tasks.View = .{},
     id: ActorId,
     timeline: Timeline = .{},
     model: []const u8 = "",
@@ -171,7 +182,7 @@ pub const Conversation = struct {
     observed_at: i64 = 0,
     attachments: u32 = 0,
     role: []const u8 = "",
-    usage: @import("live_usage.zig").View = .{},
+    usage: live_usage.View = .{},
     children_observed_at: i64 = 0,
     agent: Agent,
 };
@@ -180,16 +191,16 @@ pub const Snapshot = struct {
     release_commit: []const u8 = "",
     staged_version: []const u8 = "",
     system_model: []const u8 = "",
-    inference: @import("inference_setup.zig").Status = .{},
+    inference: inference_setup.Status = .{},
     system_working: bool = false,
-    system_usage: @import("live_usage.zig").View = .{},
+    system_usage: live_usage.View = .{},
     last_agent: agents.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
-    agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
+    agent_commands: [launch_command.capacity]launch_command.Entry = @splat(.{}),
     conversations: []const Conversation = &.{},
-    ports: @import("ports.zig").Snapshot = .{},
-    resources: @import("resources.zig").Snapshot = .{},
+    ports: ports.Snapshot = .{},
+    resources: resources.Snapshot = .{},
     type: []const u8 = "session",
     protocol: u32 = version,
     server_pid: i32,
@@ -226,9 +237,27 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     for (r.workspaces.items.items, workspaces) |*ws, *out| {
         const commits = try allocator.alloc(GitCommit, ws.git_commits.len);
         for (ws.git_commits.items[0..ws.git_commits.len], commits) |*commit, *dest| {
-            dest.* = .{ .timestamp = commit.timestamp, .hash = commit.hash[0..commit.hash_len], .subject = commit.subject[0..commit.subject_len], .author = commit.author[0..commit.author_len], .date = commit.date[0..commit.date_len] };
+            dest.* = .{
+                .timestamp = commit.timestamp,
+                .hash = commit.hash[0..commit.hash_len],
+                .subject = commit.subject[0..commit.subject_len],
+                .author = commit.author[0..commit.author_len],
+                .date = commit.date[0..commit.date_len],
+            };
         }
-        out.* = .{ .agent_order = ws.agent_order.slice(), .git_commits = commits, .id = ws.id, .name = ws.name(), .cwd = ws.cwd, .custom_name = ws.customName(), .git_ahead = ws.git_ahead, .git_ref = ws.git_ref.view(), .git_push = ws.git_push.view(), .stats = ws.away.counts, .model = ws.model };
+        out.* = .{
+            .agent_order = ws.agent_order.slice(),
+            .git_commits = commits,
+            .id = ws.id,
+            .name = ws.name(),
+            .cwd = ws.cwd,
+            .custom_name = ws.customName(),
+            .git_ahead = ws.git_ahead,
+            .git_ref = ws.git_ref.view(),
+            .git_push = ws.git_push.view(),
+            .stats = ws.away.counts,
+            .model = ws.model,
+        };
     }
     const panes = try allocator.alloc(Pane, r.panes.items.len);
     for (r.panes.items, panes) |*p, *out| {
@@ -296,14 +325,14 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     }
     return .{
         .conversations = conversations,
-        .release_version = @import("corgi_options").release_version,
-        .release_commit = @import("corgi_options").release_commit,
+        .release_version = options.release_version,
+        .release_commit = options.release_commit,
         .staged_version = r.staged_version,
         .system_model = r.system_model,
         .inference = r.inference,
         .system_usage = r.system_usage,
         .system_working = r.system_working,
-        .server_pid = @import("os.zig").c.getpid(),
+        .server_pid = os.c.getpid(),
         .ports = try r.link_labels.snapshot(allocator, r.ports.current),
         .resources = r.resources.current,
         .revision = r.revision,

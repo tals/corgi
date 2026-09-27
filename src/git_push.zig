@@ -6,6 +6,7 @@ const a = os.allocator;
 const c = os.c;
 const git = @import("git_status.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const clock = @import("clock.zig");
 
 pub const Phase = enum { idle, pushing, succeeded, failed };
 pub const View = struct { phase: Phase = .idle, message: []const u8 = "" };
@@ -59,7 +60,13 @@ pub const Ref = struct {
         return result;
     }
     pub fn view(r: *const Ref) RefView {
-        return .{ .root = r.root[0..r.root_len], .head = r.head[0..r.head_len], .branch = r.branch[0..r.branch_len], .remote = r.remote[0..r.remote_len], .destination = r.destination[0..r.destination_len] };
+        return .{
+            .root = r.root[0..r.root_len],
+            .head = r.head[0..r.head_len],
+            .branch = r.branch[0..r.branch_len],
+            .remote = r.remote[0..r.remote_len],
+            .destination = r.destination[0..r.destination_len],
+        };
     }
 };
 
@@ -115,7 +122,7 @@ pub const Manager = struct {
     }
     pub fn tick(m: *Manager, store: anytype, tracker: *git.Tracker) bool {
         var changed = false;
-        const now = @import("clock.zig").milliTimestamp();
+        const now = clock.milliTimestamp();
         for (&m.jobs) |*slot| if (slot.*) |job| {
             if (!job.done.load(.acquire)) continue;
             job.thread.?.join();

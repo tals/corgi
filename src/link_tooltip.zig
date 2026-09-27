@@ -1,8 +1,10 @@
 //! Tooltip timing is viewer-local. Interaction suppresses it until a fresh move.
 const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const layout = @import("layout.zig");
-pub const Target = struct { resource: ?@import("workspace.zig").Workspace.Id = null, pane: layout.PaneId, link: u64, git: bool = false, usage: bool = false, conversation: ActorId = .none, agent: ?@import("sidebar.zig").Target = null };
+const sidebar = @import("sidebar.zig");
+pub const Target = struct { resource: ?WorkspaceId = null, pane: layout.PaneId, link: u64, git: bool = false, usage: bool = false, conversation: ActorId = .none, agent: ?sidebar.Target = null };
 pub const State = struct {
     suppressed: bool = true,
     target: ?Target = null,

@@ -2,6 +2,11 @@
 const std = @import("std");
 const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
+const detection = @import("detection.zig");
+const git_status = @import("git_status.zig");
+const common = @import("providers/common.zig");
+const Text = @import("account_preview.zig").Text;
+const log = std.log.scoped(.launch_command);
 pub const capacity = 6;
 pub const max_length = 2048;
 pub const Entry = struct {
@@ -10,7 +15,7 @@ pub const Entry = struct {
     original: [max_length]u8 = @splat(0),
     original_len: usize = 0,
     hidden: bool = false,
-    name: @import("account_preview.zig").Text = .{},
+    name: Text = .{},
     semantics: Semantics = .{},
 
     pub fn text(e: *const Entry) []const u8 {
@@ -89,7 +94,7 @@ pub fn identify(source: []const u8) ?Provider {
         const package = provider.info().package;
         if (std.mem.startsWith(u8, word, package) and (word.len == package.len or word[package.len] == '@')) return provider;
     }
-    return @import("detection.zig").identify(&.{word});
+    return detection.identify(&.{word});
 }
 fn assignment(word: []const u8) bool {
     const end = std.mem.indexOfScalar(u8, word, '=') orelse return false;
@@ -229,7 +234,7 @@ fn definitionOf(name: []const u8, cwd: ?[]const u8, deadline: i64, allocator: st
     defer allocator.free(query);
     const script = try std.fmt.allocPrint(allocator, "printf '\\036CORGI_BEGIN\\n'; {s} 2>/dev/null; printf '\\036CORGI_END\\n'", .{query});
     defer allocator.free(script);
-    const mutex = &@import("git_status.zig").child_mutex;
+    const mutex = &git_status.child_mutex;
     var child = std.process.Child.init(&.{ chosen, flags(), script }, allocator);
     child.cwd = cwd;
     child.stdin_behavior = .Ignore;
@@ -320,7 +325,7 @@ pub const Resolution = struct {
     semantics: Semantics = .{},
     pending: bool = true,
     command: Entry = .{},
-    error_message: @import("account_preview.zig").Text = .{},
+    error_message: Text = .{},
 };
 pub const Worker = struct {
     const Job = struct {
@@ -392,14 +397,16 @@ pub const Worker = struct {
             } else |err| result.error_message.set(@errorName(err));
             w.mutex.lock();
             if (w.jobs[index]) |*current| {
-                if (current.id == job.id and std.mem.eql(u8, current.source.text(), job.source.text()) and std.mem.eql(u8, current.cwd[0..current.cwd_len], job.cwd[0..job.cwd_len])) current.result = result;
+                const matches = current.id == job.id and
+                    std.mem.eql(u8, current.source.text(), job.source.text()) and
+                    std.mem.eql(u8, current.cwd[0..current.cwd_len], job.cwd[0..job.cwd_len]);
+                if (matches) current.result = result;
             }
             w.mutex.unlock();
         }
     }
 };
 
-const Text = @import("account_preview.zig").Text;
 pub const Semantics = struct {
     provider: ?Provider = null,
     suggested_name: Text = .{},
@@ -495,9 +502,15 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
     if (facts) |known| if (!info.default_account and !credential_override and !settings_override) {
         var root: ?[]u8 = null;
         if (config_len > 0 and std.mem.indexOfAny(u8, config[0..config_len], "$~`") == null) {
-            root = std.fs.path.resolve(os.allocator, &.{ cwd, config[0..config_len] }) catch null;
+            root = std.fs.path.resolve(os.allocator, &.{ cwd, config[0..config_len] }) catch |err| blk: {
+                log.warn("resolving config override path failed: {}", .{err});
+                break :blk null;
+            };
         } else if (home_len > 0 and std.mem.indexOfAny(u8, home[0..home_len], "$~`") == null) {
-            root = std.fs.path.resolve(os.allocator, &.{ cwd, home[0..home_len], known.account_home }) catch null;
+            root = std.fs.path.resolve(os.allocator, &.{ cwd, home[0..home_len], known.account_home }) catch |err| blk: {
+                log.warn("resolving home override path failed: {}", .{err});
+                break :blk null;
+            };
         }
         defer if (root) |value| os.allocator.free(value);
         info.account.set("Custom profile - identity unknown");
@@ -529,7 +542,6 @@ fn envMatches(key: []const u8, names: []const []const u8) bool {
     return false;
 }
 fn readIdentity(info: *Semantics, root: []const u8) void {
-    const common = @import("providers/common.zig");
     const provider = info.provider orelse return;
     const path = std.fs.path.join(os.allocator, &.{ root, provider.info().account_file }) catch return;
     defer os.allocator.free(path);
