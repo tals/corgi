@@ -91,6 +91,10 @@ pub const Tracker = struct {
         for (t.jobs.items) |job| a.free(job.cwd);
         t.jobs.clearRetainingCapacity();
     }
+    /// A scan is running or its result has not been applied yet.
+    pub fn busy(t: *const Tracker) bool {
+        return t.thread != null;
+    }
     pub fn tick(t: *Tracker, store: *workspace.Store) bool {
         var changed = false;
         if (t.thread) |thread| {
@@ -111,7 +115,7 @@ pub const Tracker = struct {
             }
             t.clearJobs();
         }
-        const now = std.time.milliTimestamp();
+        const now = @import("clock.zig").milliTimestamp();
         if (now < t.next_refresh) return changed;
         t.next_refresh = now + 3000;
         for (store.items.items) |ws| {
@@ -131,7 +135,7 @@ pub const Tracker = struct {
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
         // Evict unused checkouts and negative entries to keep a long-lived server bounded.
-        const now = std.time.milliTimestamp();
+        const now = @import("clock.zig").milliTimestamp();
         while (true) {
             var it = t.cache.iterator();
             const key = while (it.next()) |entry| {

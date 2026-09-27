@@ -114,7 +114,7 @@ pub const Manager = struct {
     }
     pub fn tick(m: *Manager, store: anytype, tracker: *git.Tracker) bool {
         var changed = false;
-        const now = std.time.milliTimestamp();
+        const now = @import("clock.zig").milliTimestamp();
         for (&m.jobs) |*slot| if (slot.*) |job| {
             if (!job.done.load(.acquire)) continue;
             job.thread.?.join();

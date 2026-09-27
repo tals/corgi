@@ -28,7 +28,10 @@ class GitPush extends Runtime {
     await this.git("push", "-u", "origin", "main");
     await this.commit("ready to push");
     await this.new();
-    await this.until(async () => (await this.workspace()).git_ahead === 1);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.workspace()).git_ahead === 1,
+    );
     this.gitViewer = await Viewer.create(this);
   }
 
@@ -133,7 +136,7 @@ class GitPush extends Runtime {
         ),
         "refs/heads/main",
       );
-      await this.until(async () => {
+      await this.untilAdvancing(3, async () => {
         const ws = await this.workspace();
         return ws.git_ahead === 0 && ws.git_push.phase === "idle";
       });
@@ -156,7 +159,10 @@ class GitPush extends Runtime {
     this.assertIn("Push failed", frame);
     unlinkSync(hook);
     await this.click();
-    await this.until(async () => (await this.workspace()).git_ahead === 0);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.workspace()).git_ahead === 0,
+    );
   }
 
   async test_stale_preview_and_non_fast_forward_never_force() {
@@ -177,7 +183,10 @@ class GitPush extends Runtime {
       await this.git("rev-parse", "HEAD"),
       await this.git("--git-dir", this.remote, "rev-parse", "main"),
     );
-    await this.until(async () => (await this.workspace()).git_ahead === 2);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.workspace()).git_ahead === 2,
+    );
     const tree = await this.git("rev-parse", "HEAD^{tree}");
     const base = await this.git("rev-parse", "origin/main");
     const remoteTip = await this.git(
@@ -222,23 +231,40 @@ class GitPush extends Runtime {
     await this.hover();
     await this.click();
     this.assertEqual(this.gitViewer.state.workspace, second);
-    await this.until(async () => (await this.workspace()).git_ahead === 0);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.workspace()).git_ahead === 0,
+    );
     this.assertEqual((await this.gitViewer.poll()).workspace, second);
   }
 
+  /** A push that stays in progress until the test calls the returned release. */
+  heldPush() {
+    const marker = join(this.remote, "started"),
+      gate = join(this.remote, "release");
+    this.hook(
+      `touch "${marker}"\nwhile [ ! -e "${gate}" ]; do sleep 0.05; done`,
+    );
+    return {
+      started: () => existsSync(marker),
+      release: () => writeFileSync(gate, ""),
+    };
+  }
   async test_push_freezes_commit_and_finishes_after_checkout_changes() {
-    const marker = join(this.remote, "started");
-    this.hook(`touch "${marker}"\nsleep 4`);
+    const push = this.heldPush();
     const expected = await this.git("rev-parse", "HEAD");
     await this.hover();
     await this.click(21);
-    await this.until(() => existsSync(marker));
+    await this.until(push.started);
     await this.commit("created while pushing");
     await this.git("checkout", "--detach");
-    await this.until(async () => (await this.workspace()).git_ref.head === "");
+    await this.untilAdvancing(
+      3,
+      async () => (await this.workspace()).git_ref.head === "",
+    );
+    push.release();
     await this.until(
       async () => (await this.workspace()).git_push.phase !== "pushing",
-      6,
     );
     await this.until(
       async () =>
@@ -268,13 +294,17 @@ class GitPush extends Runtime {
       );
     } else this.assertEqual(response.err, "GitPreviewChanged");
     this.assertEqual(base, await this.git("rev-parse", "local-upstream"));
-    await this.until(
+    await this.untilAdvancing(
+      3,
       async () => (await this.workspace()).git_ref.remote === ".",
     );
     await this.gitViewer.poll();
     await this.hover();
     await this.click();
-    await this.until(async () => (await this.workspace()).git_ahead === 0);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.workspace()).git_ahead === 0,
+    );
     this.assertEqual(
       await this.git("rev-parse", "HEAD"),
       await this.git("rev-parse", "local-upstream"),
@@ -287,13 +317,13 @@ class GitPush extends Runtime {
     await this.git("push", "origin", `${base}:refs/heads/second`);
     await this.git("branch", "second");
     await this.git("branch", "--set-upstream-to=origin/second", "second");
-    const marker = join(this.remote, "started");
-    this.hook(`touch "${marker}"\nsleep 4`);
+    const push = this.heldPush();
     await this.hover();
     await this.click();
-    await this.until(() => existsSync(marker));
+    await this.until(push.started);
     await this.git("checkout", "second");
-    await this.until(
+    await this.untilAdvancing(
+      3,
       async () =>
         (await this.workspace()).git_ref.branch === "refs/heads/second",
     );
@@ -301,6 +331,7 @@ class GitPush extends Runtime {
     this.assertEqual((await this.workspace()).git_push.phase, "idle");
     await this.click();
     this.assertIn("A push is already running", this.gitViewer.state.data);
+    push.release();
     await this.until(
       async () =>
         (await this.git("--git-dir", this.remote, "rev-parse", "main")) ===
