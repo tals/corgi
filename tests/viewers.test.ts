@@ -598,12 +598,10 @@ class ViewerScenarios extends Viewers {
         session_id: "usage",
       },
     });
-    this.assertIn("\x1b[1;38;2;243;139;168m1●", (await a.poll()).data);
+    this.assertIn("\x1b[1;38;2;243;139;168m ●1", (await a.poll()).data);
     this.assertNotIn("↓50↑10", a.state.data);
-    this.assertIn(
-      "0 unread",
-      screen_text(a.state.data, 100, 30)[3].slice(0, 27),
-    );
+    this.assertIn("●1", screen_text(a.state.data, 100, 30)[3].slice(0, 27));
+    this.assertNotIn("unread", screen_text(a.state.data, 100, 30)[3]);
     await a.request({ op: "workspace", workspace: home });
     this.assertEqual((await counts()).tools, 0);
     append(2, 200, 30);
