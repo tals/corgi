@@ -308,7 +308,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     if (ui.git_hover) |id| try sidebar.drawGitAction(w, side, ui.workspaces, id);
     if (ui.corgi_badge == .image) {
         try w.writeAll(corgi_badge.hide);
-        if (side.width > 0 and ui.scope_menu == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
+        if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try corgi_badge.place(w);
     }
     if (ui.confirm) {
@@ -567,6 +567,13 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, popup, "a=p,i=730031") != null);
     try std.testing.expect(std.mem.indexOf(u8, popup, "a=t,") == null);
     ui.agent_launcher = null;
+    // The scope menu opens below the workspaces, clear of the badge.
+    ui.scope_menu = .{};
+    const scope = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
+    defer a.free(scope);
+    try std.testing.expect(std.mem.indexOf(u8, scope, "This workspace") != null);
+    try std.testing.expect(std.mem.indexOf(u8, scope, "a=p,i=730031") != null);
+    ui.scope_menu = null;
     ui.sidebar_open = false;
     const hidden = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(hidden);
