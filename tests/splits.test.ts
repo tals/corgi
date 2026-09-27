@@ -80,10 +80,10 @@ class Splits extends Viewers {
     this.assertIn("\x1b[3;80H│", a.state.data);
     await a.input("\x1b[<32;85;5M");
     this.assertEqual((await this.tree()).ratio, released);
-    await a.input("\x1b[<0;90;15M");
-    await a.input("\x1b[<32;90;20M");
+    await a.input("\x1b[<0;90;16M");
+    await a.input("\x1b[<32;90;21M");
     this.assertGreater((await this.tree()).second.split.ratio, 500);
-    await a.input("\x1b[<0;90;20m");
+    await a.input("\x1b[<0;90;21m");
     await a.action("zoom");
     this.assertNotIn("├", a.state.data);
     this.assertNotIn("\x1b[3;80H│", a.state.data);
@@ -98,26 +98,26 @@ class Splits extends Viewers {
     for (const [x, y] of [
       [28, 1],
       [40, 1],
-      [40, 28],
+      [40, 29],
       [28, 10],
       [63, 10],
       [63, 1],
-      [63, 28],
+      [63, 29],
     ])
       this.assertTrue(cell(cells, x, y)[1], [x, y]);
     this.assertEqual(cell(cells, 28, 1)[0], "┌");
-    this.assertEqual(cell(cells, 28, 28)[0], "└");
+    this.assertEqual(cell(cells, 28, 29)[0], "└");
     this.assertEqual(cell(cells, 63, 1)[0], "┬");
     this.assertFalse(cell(cells, 90, 1)[1]);
     this.assertFalse(cell(cells, 99, 10)[1]);
-    this.assertEqual((await this.geometry())[left], [34, 26]);
-    this.assertEqual((await this.geometry())[right], [35, 26]);
+    this.assertEqual((await this.geometry())[left], [34, 27]);
+    this.assertEqual((await this.geometry())[right], [35, 27]);
     await a.focus(right);
     cells = border_cells(a.state.data);
     for (const [x, y] of [
       [99, 1],
       [90, 1],
-      [90, 28],
+      [90, 29],
       [99, 10],
       [63, 10],
     ])
@@ -127,7 +127,7 @@ class Splits extends Viewers {
     await a.input("\x1b[<0;90;2M\x1b[<32;80;5M\x1b[<0;80;5m");
     this.assertEqual((await this.tree()).ratio, ratio);
     await a.action("zoom");
-    this.assertEqual((await this.geometry())[right], [72, 28]);
+    this.assertEqual((await this.geometry())[right], [72, 29]);
     this.assertEqual(border_cells(a.state.data).get("99,1"), undefined);
   }
 
@@ -140,8 +140,8 @@ class Splits extends Viewers {
     for (const [x, y] of [
       [28, 20],
       [99, 20],
-      [50, 28],
-      [50, 14],
+      [50, 29],
+      [50, 15],
     ])
       this.assertTrue(cell(cells, x, y)[1], [x, y]);
     this.assertFalse(cell(cells, 50, 1)[1]);
@@ -152,13 +152,13 @@ class Splits extends Viewers {
     cells = border_cells(a.state.data);
     for (const [x, y] of [
       [99, 20],
-      [90, 28],
-      [90, 14],
+      [90, 29],
+      [90, 15],
       [63, 20],
-      [63, 14],
+      [63, 15],
     ])
       this.assertTrue(cell(cells, x, y)[1], [x, y]);
-    this.assertFalse(cell(cells, 40, 28)[1]);
+    this.assertFalse(cell(cells, 40, 29)[1]);
     this.assertFalse(cell(cells, 28, 20)[1]);
   }
 

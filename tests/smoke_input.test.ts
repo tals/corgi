@@ -22,13 +22,13 @@ class SmokeInput extends Runtime {
     const command = "exec " + quote(fixture);
     const first = (await this.open_pane({ cwd: this.temp.name, command })).pane;
     await this.attach();
-    let screen = await this.frame_with("BOTTOM_22");
-    this.assertTrue(screen[1].slice(28).startsWith("TOP_22x52"));
-    this.assertTrue(screen[22].slice(28).startsWith("BOTTOM_22"));
+    let screen = await this.frame_with("BOTTOM_23");
+    this.assertTrue(screen[1].slice(28).startsWith("TOP_23x52"));
+    this.assertTrue(screen[23].slice(28).startsWith("BOTTOM_23"));
     await this.click(31, 2);
-    await this.click(31, 23);
+    await this.click(31, 24);
     let expected = Buffer.from(
-      "\x1b[<0;3;1M\x1b[<0;3;1m\x1b[<0;3;22M\x1b[<0;3;22m",
+      "\x1b[<0;3;1M\x1b[<0;3;1m\x1b[<0;3;23M\x1b[<0;3;23m",
     );
     await this.until(
       () => existsSync(log) && readFileSync(log).equals(expected),
@@ -59,23 +59,23 @@ class SmokeInput extends Runtime {
       Buffer.from("TOP"),
     );
     await this.split_pane("down", { cwd: this.temp.name, command });
-    screen = await this.frame_with("TOP_10x50");
-    this.assertTrue(screen[2].slice(29).startsWith("TOP_9x50"));
-    this.assertTrue(screen[10].slice(29).startsWith("BOTTOM_9"));
-    this.assertTrue(screen[12].slice(29).startsWith("TOP_10x50"));
-    this.assertTrue(screen[21].slice(29).startsWith("BOTTOM_10"));
+    screen = await this.frame_with("TOP_10x50", 80, 24, 13);
+    this.assertTrue(screen[2].slice(29).startsWith("TOP_10x50"));
+    this.assertTrue(screen[11].slice(29).startsWith("BOTTOM_10"));
+    this.assertTrue(screen[13].slice(29).startsWith("TOP_10x50"));
+    this.assertTrue(screen[22].slice(29).startsWith("BOTTOM_10"));
     await this.rpc({ op: "action", name: "zoom" });
-    screen = await this.frame_with("TOP_22x52");
-    this.assertTrue(screen[1].slice(28).startsWith("TOP_22x52"));
-    this.assertTrue(screen[22].slice(28).startsWith("BOTTOM_22"));
+    screen = await this.frame_with("TOP_23x52");
+    this.assertTrue(screen[1].slice(28).startsWith("TOP_23x52"));
+    this.assertTrue(screen[23].slice(28).startsWith("BOTTOM_23"));
     await this.input("\x02b");
-    screen = await this.frame_with("TOP_22x80");
-    this.assertTrue(screen[1].startsWith("TOP_22x80"));
-    this.assertTrue(screen[22].startsWith("BOTTOM_22"));
+    screen = await this.frame_with("TOP_23x80");
+    this.assertTrue(screen[1].startsWith("TOP_23x80"));
+    this.assertTrue(screen[23].startsWith("BOTTOM_23"));
     await this.write({ op: "size", cols: 10, rows: 4 });
-    screen = await this.frame_with("TOP_2x10", 10, 4);
-    this.assertTrue(screen[1].startsWith("TOP_2x10"));
-    this.assertTrue(screen[2].startsWith("BOTTOM_2"));
+    screen = await this.frame_with("TOP_3x10", 10, 4);
+    this.assertTrue(screen[1].startsWith("TOP_3x10"));
+    this.assertTrue(screen[3].startsWith("BOTTOM_3"));
   }
   async test_keyboard_fragmented_paste_mouse_resize_and_reattach() {
     await this.attach();

@@ -40,9 +40,22 @@ class ViewerScenarios extends Viewers {
     const panes: number[] = [];
     for (let i = 0; i < 9; i++) panes.push(await this.new());
     const viewer = await this.newViewer();
-    let state = await viewer.input("\x02i");
-    this.assertIn("Enable Ghostty integration", state.data);
-    await viewer.input("jjjj\r");
+    // The toggle lives under the Ghostty heading in Corgi setup, which stays
+    // open after Enter; its row shows the current state.
+    const ghosttyRow = (data: string) => {
+      const screen = screen_text(data, 100, 30);
+      const y = screen.findIndex((row) =>
+        row.includes("Command-key integration"),
+      );
+      this.assertTrue(y >= 0, screen);
+      return { y, row: screen[y] };
+    };
+    this.assertIn("○ Off", ghosttyRow((await viewer.input("\x02i")).data).row);
+    const selected = ghosttyRow((await viewer.input("jjjj")).data).row;
+    this.assertIn("›", selected);
+    this.assertIn("[ Enter Turn on ]", viewer.state.data);
+    await viewer.input("\r");
+    await viewer.input("q");
     const enabled = readFileSync(config, "utf8");
     this.assertEqual(statSync(config).mode & 0o777, 0o640);
     this.assertTrue(enabled.startsWith(original));
@@ -52,10 +65,11 @@ class ViewerScenarios extends Viewers {
     }
     this.assertEqual((await viewer.input("\x02n")).pane, panes[0]);
     this.assertEqual((await viewer.input("\x02p")).pane, panes.at(-1));
-    state = await viewer.input("\x02i");
-    this.assertIn("Disable Ghostty integration", state.data);
-    await viewer.input("\x1b[<0;5;13M");
-    await viewer.input("\x1b[<0;5;13m");
+    const { y, row } = ghosttyRow((await viewer.input("\x02i")).data);
+    this.assertIn("● On", row);
+    const x = row.indexOf("Command-key integration") + 1;
+    await viewer.input(`\x1b[<0;${x};${y + 1}M`);
+    await viewer.input(`\x1b[<0;${x};${y + 1}m`);
     this.assertEqual(readFileSync(config, "utf8"), original);
     this.assertEqual(statSync(config).mode & 0o777, 0o640);
   }
