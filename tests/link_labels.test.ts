@@ -88,19 +88,18 @@ class LinkLabels extends Runtime {
     );
     const state = await viewer.input("\x1b[<0;14;3M\x1b[<0;14;3m");
     this.assertEqual(state.effects, [{ open_url: payload.url }]);
-    await sleep(1);
+    await this.advance(1);
     this.assertEqual(lines(this.log).length, 1);
     this.assertEqual((await this.rpc({ op: "native.list" })).sessions, []);
     await this.command("pane.close", { target: pane });
-    await this.until(async () => (await this.endpoints()).length === 0, 15);
+    await this.untilAdvancing(3, async () => (await this.endpoints()).length === 0);
     this.assertNotIn("Open Finance", (await viewer.poll()).data);
   }
   async test_pending_dots_glimmer_then_resolve_without_changing_the_url() {
     writeFileSync(this.control, JSON.stringify({ label: "Finance", delay: 4 }));
     const { info } = await this.start_server();
-    await this.until(
-      async () => (await this.endpoints()).some((e: any) => e.label_pending),
-      25,
+    await this.untilAdvancing(3, async () =>
+      (await this.endpoints()).some((e: any) => e.label_pending),
     );
     const viewer = await Viewer.create(this);
     const first = (await viewer.poll()).data;
@@ -136,7 +135,7 @@ class LinkLabels extends Runtime {
       JSON.stringify({ label: "Finance", delay: 2.5 }),
     );
     await this.start_server();
-    await this.until(() => existsSync(this.log), 25);
+    await this.untilAdvancing(3, () => existsSync(this.log));
     this.assertTrue((await this.endpoints()).some((e: any) => e.label_pending));
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     await this.until(
@@ -157,7 +156,7 @@ class LinkLabels extends Runtime {
         (await this.endpoints()).some((e: any) => e.label === "Finance"),
       25,
     );
-    await sleep(1);
+    await this.advance(1);
     this.assertEqual(
       lines(this.log).length,
       1,
@@ -170,15 +169,14 @@ class LinkLabels extends Runtime {
       JSON.stringify({ label: "Bad\x1b[2J", delay: 0 }),
     );
     await this.start_server();
-    await this.until(() => existsSync(this.log), 25);
-    await sleep(0.8);
-    this.assertTrue((await this.endpoints()).every((e: any) => !e.label));
-    this.assertTrue(
+    await this.untilAdvancing(3, () => existsSync(this.log));
+    await this.until(async () =>
       (await this.endpoints()).every((e: any) => !e.label_pending),
     );
+    this.assertTrue((await this.endpoints()).every((e: any) => !e.label));
     const viewer = await Viewer.create(this);
     this.assertIn("Open Link ↗", (await viewer.poll()).data);
-    await sleep(1);
+    await this.advance(1);
     this.assertEqual(lines(this.log).length, 1);
   }
   async test_late_guess_for_removed_endpoint_is_discarded() {
@@ -187,9 +185,9 @@ class LinkLabels extends Runtime {
       JSON.stringify({ label: "Stale App", delay: 2 }),
     );
     const { pane } = await this.start_server();
-    await this.until(() => existsSync(this.log), 25);
+    await this.untilAdvancing(3, () => existsSync(this.log));
     await this.command("pane.close", { target: pane });
-    await this.until(async () => (await this.endpoints()).length === 0, 15);
+    await this.untilAdvancing(3, async () => (await this.endpoints()).length === 0);
     await sleep(2.2);
     const viewer = await Viewer.create(this);
     this.assertNotIn("Open Stale App", (await viewer.poll()).data);
