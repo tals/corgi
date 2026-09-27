@@ -207,6 +207,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
                     else => {},
                 }
+                // Pushing and just-pushed badges ignore clicks, so only Push and Retry point.
+                if (sidebar.gitActionWorkspace(side, ui.workspaces, ui.git_hover, pointer.x, pointer.y)) |ws|
+                    link_pointer = link_pointer or ws.git_push.phase == .idle or ws.git_push.phase == .failed;
                 if (pointer.y == 0 and pointer.x >= side.tabX()) {
                     const add_x = side.tabX() + addTabX(view, width - side.tabX());
                     link_pointer = link_pointer or (pointer.x >= add_x and pointer.x < add_x + 3);
