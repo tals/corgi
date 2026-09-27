@@ -4,7 +4,7 @@ Run **`corgi onboard`** to open the wizard explicitly. From the repository, use
 `./go.sh onboard`. Inside a Corgi pane it opens in that pane's viewer; outside
 Corgi it starts or attaches to the selected runtime and opens onboarding there.
 An already open wizard keeps its current state, including any active import.
-You can also reopen it from **Corgi setup → Shortcuts & import**.
+**Corgi setup → Keyboard shortcuts** and **Import sessions** open either step on its own.
 
 Automatic onboarding appears until setup is completed once for the current user
 on this machine. Completion, preset, prefix and agent scope live in

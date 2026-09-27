@@ -34,7 +34,7 @@ fn openMode(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, soc
     // attaching viewer's environment: one daemon can serve both terminals.
     view.iterm2_pointer = std.mem.eql(u8, os.env("TERM_PROGRAM") orelse "", "iTerm.app");
     view.loadPreferences();
-    if (start_onboarding) view.openOnboarding();
+    if (start_onboarding) view.openOnboarding(.welcome);
     const opened = try view.connection.callViewer(.{ .op = "viewer.open", .protocol = 1, .viewer_protocol = viewer_version.version, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
     defer opened.deinit();
     view.navigation.workspace_id = try protocol.typedId(WorkspaceId, opened.value, "workspace");

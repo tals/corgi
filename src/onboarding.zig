@@ -10,6 +10,9 @@ const Rect = @import("layout.zig").Rect;
 const shortcut_help = @import("shortcut_help.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 pub const Step = enum { presets, keymap, connect, import, progress, complete };
+/// `welcome` is the first-run wizard. Corgi setup opens `keyboard` or `import`
+/// on its own: no greeting, and finishing returns to Corgi instead of chaining.
+pub const Mode = enum { welcome, keyboard, import };
 pub const Progress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
 pub const State = struct {
     preset: km.Preset = .corgi,
@@ -35,6 +38,19 @@ pub const State = struct {
     scan_finished: bool = false,
     selection_initialized: bool = false,
     operation: u64 = 0,
+    mode: Mode = .welcome,
+    /// Opened on request (not first run): Esc on the first screen closes it.
+    dismissable: bool = false,
+    cancelled: bool = false,
+    pub fn start(mode: Mode, preset: km.Preset, prefix: km.Prefix) State {
+        var state: State = .{ .mode = mode, .preset = preset, .prefix = prefix, .dismissable = true };
+        if (mode == .import) state.enterImport();
+        return state;
+    }
+    fn cancel(s: *State) bool {
+        s.cancelled = true;
+        return true;
+    }
     pub fn deinit(s: *State) void {
         for (s.workers) |entry| if (entry) |w| w.deinit();
         if (s.progress_data) |data| data.deinit();
@@ -104,7 +120,7 @@ pub const State = struct {
         return n;
     }
     fn begin(s: *State, conn: *Connection) !bool {
-        if (s.selectionCount() == 0) return true;
+        if (s.selectionCount() == 0) return if (s.mode == .import) s.cancel() else true;
         if (s.operation == 0) s.operation = (std.crypto.random.int(u64) >> 1) | 1;
         if (s.activeHandoff()) {
             if (os.env("HERDR_PANE_ID")) |current_pane| {
@@ -191,6 +207,7 @@ pub const State = struct {
                     s.enterKeymap();
                 },
                 9 => s.focus = (s.focus + 1) % 3,
+                27 => if (s.dismissable) return s.cancel(),
                 13 => {
                     if (s.focus == 1) {
                         s.prefix = if (s.prefix == .ctrl_b) .ctrl_a else .ctrl_b;
@@ -198,7 +215,7 @@ pub const State = struct {
                         s.enterKeymap();
                     } else if (s.preset == .cmux) {
                         s.step = .connect;
-                    } else s.enterImport();
+                    } else if (s.mode == .keyboard) return true else s.enterImport();
                 },
                 else => {},
             },
@@ -209,11 +226,13 @@ pub const State = struct {
                 27 => s.step = .presets,
                 'p' => {
                     s.preset = .herdr;
+                    if (s.mode == .keyboard) return true;
                     s.enterImport();
                 },
                 13 => {
                     if (ghosttyHost()) {
                         try @import("ghostty_integration.zig").setCmux();
+                        if (s.mode == .keyboard) return true;
                         s.enterImport();
                         s.setMessage("Reload Ghostty: Cmd+Shift+, to apply Command keys.");
                     } else s.setMessage("Press P for portable Herdr prefix keys, or Esc to choose again.");
@@ -221,8 +240,10 @@ pub const State = struct {
                 else => {},
             },
             .import => switch (byte) {
-                's', 'S' => return true,
-                27 => s.step = .presets,
+                's', 'S' => return if (s.mode == .import) s.cancel() else true,
+                27 => if (s.mode == .import) return s.cancel() else {
+                    s.step = .presets;
+                },
                 '1'...'3' => s.changeSource(@enumFromInt(byte - '1')),
                 'h' => if (s.source == .herdr) {
                     s.handoff = !s.handoff;
@@ -312,7 +333,7 @@ pub const State = struct {
         const ry = y - b.y;
         if (ry == b.h - 3) {
             if (s.step == .presets) s.focus = 0;
-            if (rx < 15 and s.step != .presets) return s.key(27, conn);
+            if (rx < 15 and (s.step != .presets or s.dismissable)) return s.key(27, conn);
             return s.key(13, conn);
         }
         if (s.step == .presets) {
@@ -366,14 +387,18 @@ pub const State = struct {
             return out.toOwnedSlice();
         }
         try box(w, b, false);
-        try put(w, b, 2, 0, " Welcome to Corgi ", mint);
+        try put(w, b, 2, 0, switch (s.mode) {
+            .welcome => " Welcome to Corgi ",
+            .keyboard => " Keyboard shortcuts ",
+            .import => " Import sessions ",
+        }, mint);
         try put(w, b, 3, 2, switch (s.step) {
             .presets => "Which shortcuts feel like home?",
             .keymap => "Your shortcuts",
             .connect => "Connect your Command keys",
             .import => "Bring your work along",
             .progress => if (s.activeHandoff()) "Handing off to Corgi" else "Copying into Corgi",
-            .complete => "You're ready to go",
+            .complete => if (s.mode == .import) "Import complete" else "You're ready to go",
         }, bright);
         try put(w, b, 3, 3, switch (s.step) {
             .presets => "Choose familiar keys.",
@@ -495,14 +520,14 @@ pub const State = struct {
             },
         }
         if (s.message_len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message[0..s.message_len], yellow);
-        try put(w, b, 3, b.h - 3, if (s.step == .presets) "↑↓ choose · P prefix · ? keymap" else if (s.step == .keymap) "" else if (s.step == .import) if (s.source == .herdr) "Esc · Space select · E expand · H handoff" else "Esc Back · Space select · E expand" else if (s.step == .complete) "" else "Esc Back", dim);
+        try put(w, b, 3, b.h - 3, if (s.step == .presets) if (s.dismissable) "Esc close · ↑↓ choose · P prefix · ? keymap" else "↑↓ choose · P prefix · ? keymap" else if (s.step == .keymap) "" else if (s.step == .import) if (s.source == .herdr) "Esc · Space select · E expand · H handoff" else if (s.mode == .import) "Esc close · Space select · E expand" else "Esc Back · Space select · E expand" else if (s.step == .complete) "" else "Esc Back", dim);
         const cta: []const u8 = switch (s.step) {
-            .presets => "[ Enter Continue → ]",
+            .presets => if (s.mode == .keyboard and s.preset != .cmux) "[ Enter Save ]" else "[ Enter Continue → ]",
             .keymap => "[ Enter Back ]",
             .connect => "[ Enter Connect → ]",
-            .import => if (s.selectionCount() == 0) "[ Enter Skip import → ]" else if (s.activeHandoff()) "[ Enter Handoff → ]" else "[ Enter Import → ]",
+            .import => if (s.selectionCount() == 0) (if (s.mode == .import) "[ Enter Close ]" else "[ Enter Skip import → ]") else if (s.activeHandoff()) "[ Enter Handoff → ]" else "[ Enter Import → ]",
             .progress => if (std.mem.eql(u8, s.progress.phase, "failed")) "[ Enter Back ]" else "[ Importing… ]",
-            .complete => "[ Enter Open Corgi → ]",
+            .complete => if (s.mode == .import) "[ Enter Done ]" else "[ Enter Open Corgi → ]",
         };
         try put(w, b, b.w -| 27, b.h - 3, cta, if (s.step == .presets and s.focus == 0) keycap else mint);
         try put(w, b, 3, b.h - 2, if (s.step == .import) "←→ sources · ↑↓ choose · PgUp/PgDn scroll · R refresh · S skip" else "", dim);
@@ -863,4 +888,23 @@ fn safeText(w: *std.Io.Writer, value: []const u8, room: usize) !void {
         offset += len;
     }
     try sidebar.writeEllipsis(w, clean[0..n], room);
+}
+
+test "keyboard setup saves without chaining and Esc closes it; first run cannot be dismissed" {
+    var conn: Connection = undefined; // These keys do not use RPC.
+    var first: State = .{};
+    defer first.deinit();
+    try std.testing.expect(!try first.key(27, &conn));
+    var keyboard = State.start(.keyboard, .tmux, .ctrl_a);
+    defer keyboard.deinit();
+    const frame = try keyboard.frame(100, 34);
+    defer a.free(frame);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "Welcome") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "Keyboard shortcuts") != null);
+    try std.testing.expect(try keyboard.key(13, &conn));
+    try std.testing.expect(!keyboard.cancelled);
+    try std.testing.expectEqual(Step.presets, keyboard.step);
+    keyboard.cancelled = false;
+    try std.testing.expect(try keyboard.key(27, &conn));
+    try std.testing.expect(keyboard.cancelled);
 }

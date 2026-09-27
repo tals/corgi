@@ -748,7 +748,7 @@ pub const Controller = struct {
     }
     pub fn action(s: *Self, name: []const u8, value: []const u8) !void {
         s.message_len = 0;
-        if (eq(name, "onboard")) return s.openOnboarding();
+        if (eq(name, "onboard")) return s.openOnboarding(.welcome);
         if (eq(name, "workspace-next") or eq(name, "workspace-prev")) {
             const count = s.runtime.workspaces.items.len;
             const index = if (eq(name, "workspace-next")) (s.workspaceIndex() + 1) % count else (s.workspaceIndex() + count - 1) % count;
@@ -1086,9 +1086,11 @@ pub const Controller = struct {
         s.closeMenu();
         s.corgi_setup = @import("corgi_setup.zig").Menu.open(s.runtime.inference);
         s.corgi_setup.?.integration = if (s.remote_links) .unavailable else @import("ghostty_integration.zig").state();
+        s.corgi_setup.?.preset = s.key_preset;
+        s.corgi_setup.?.prefix = s.key_prefix;
         s.dirty = true;
     }
-    pub fn openOnboarding(s: *Self) void {
+    pub fn openOnboarding(s: *Self, mode: onboarding.Mode) void {
         // Repeated commands must preserve an open wizard and any active import.
         if (s.onboarding != null) return;
         s.dismissName();
@@ -1099,17 +1101,17 @@ pub const Controller = struct {
         s.search_mode = false;
         s.selection = null;
         s.cancelDividers();
-        s.onboarding = .{ .preset = s.key_preset, .prefix = s.key_prefix };
+        s.onboarding = .start(mode, s.key_preset, s.key_prefix);
         s.dirty = true;
     }
     fn applySetup(s: *Self, choice: @import("corgi_setup.zig").Choice) void {
-        if (choice == .onboarding) {
-            return s.openOnboarding();
+        if (choice == .keyboard or choice == .import) {
+            return s.openOnboarding(if (choice == .keyboard) .keyboard else .import);
         }
         if (choice == .ghostty) {
             const integration = @import("ghostty_integration.zig");
             const integration_state = if (s.remote_links) integration.State.unavailable else integration.state();
-            s.closeMenu();
+            s.dirty = true;
             if (integration_state == .unavailable) {
                 s.notice(" Ghostty integration requires a local macOS viewer");
                 return;
@@ -1123,10 +1125,13 @@ pub const Controller = struct {
                 s.notice(std.fmt.bufPrint(&message, " Ghostty integration: {s}", .{@errorName(err)}) catch "Ghostty config update failed");
                 return;
             };
+            if (s.corgi_setup) |*setup| setup.integration = integration.state();
             s.notice(if (integration_state == .enabled) " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+," else " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,");
             return;
         }
-        s.closeMenu();
+        // The setup screen stays open; the daemon republishes status, which
+        // moves the "in use" marker.
+        s.dirty = true;
         const response = s.connection.call(.{ .op = "inference.configure", .protocol = 1, .choice = @tagName(choice) }) catch {
             s.notice(" Corgi setup: the runtime did not accept the change");
             return;
@@ -1135,7 +1140,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
-            .ghostty, .onboarding => unreachable,
+            .ghostty, .keyboard, .import => unreachable,
             .auto => "Auto (follows your agents)",
             .off => "Off",
             else => choice.provider().?.info().label,
@@ -1151,6 +1156,12 @@ pub const Controller = struct {
     }
     fn finishOnboarding(s: *Self) !void {
         const wizard = if (s.onboarding) |*w| w else return;
+        if (wizard.cancelled) {
+            wizard.deinit();
+            s.onboarding = null;
+            s.dirty = true;
+            return;
+        }
         var saved = @import("preferences.zig").load();
         saved.preset = wizard.preset;
         saved.prefix = wizard.prefix;
@@ -1163,13 +1174,20 @@ pub const Controller = struct {
         s.key_preset = saved.preset;
         s.key_prefix = saved.prefix;
         const target = wizard.progress.workspace;
+        const mode = wizard.mode;
         wizard.deinit();
         s.onboarding = null;
-        if (target) |id| {
+        if (mode == .keyboard) {
+            var message: [96]u8 = undefined;
+            s.notice(if (saved.preset == .cmux)
+                " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
+            else
+                std.fmt.bufPrint(&message, " Shortcuts: {s} · prefix {s}", .{ keymap.name(saved.preset), if (saved.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A" }) catch "");
+        } else if (target) |id| {
             try s.refresh();
             try s.switchWorkspace(id);
             if (s.model().count == 0) s.openLauncher(true);
-        } else s.openLauncher(true);
+        } else if (mode == .welcome) s.openLauncher(true);
         s.dirty = true;
     }
     fn cyclePane(s: *Self, next: bool) !void {
