@@ -166,6 +166,17 @@ export class Runtime extends TestCase {
   async run_cli(...args: string[]) {
     return (await run([EXE, ...args], { env: this.env })).stdout;
   }
+  /** Waits until the daemon's workers have read everything written so far and it has applied their results (test builds only). */
+  async settle() {
+    const result = await this.rpc({ op: "test.settle" });
+    this.assertTrue(result.ok, JSON.stringify(result));
+  }
+  /** Settles, then lets `seconds` pass on the daemon's policy clock (cooldowns, retries) without waiting for them. */
+  async advance(seconds: number) {
+    await this.settle();
+    const result = await this.rpc({ op: "test.advance", ms: Math.round(seconds * 1000) });
+    this.assertTrue(result.ok, JSON.stringify(result));
+  }
   async rpc(value: any) {
     await pump(this);
     const result = JSON.parse(await this.run_cli("rpc", JSON.stringify(value)));

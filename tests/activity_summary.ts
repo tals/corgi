@@ -206,7 +206,7 @@ export class ClaudeSummaries extends Runtime {
       "Currently running tools",
       JSON.parse(lines(this.log)[0]).evidence,
     );
-    await sleep(8.5);
+    await this.advance(8.5);
     this.assertEqual(lines(this.log).length, 1);
   }
   async test_claude_labels_timeline_and_cached_usage_match_codex() {
@@ -251,12 +251,9 @@ export class ClaudeSummaries extends Runtime {
         content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
       },
     });
-    await this.until(
-      () =>
-        JSON.parse(lines(this.log).at(-1)!).evidence.includes(
-          "Find hook routing",
-        ),
-      12,
+    await this.advance(8);
+    await this.until(() =>
+      JSON.parse(lines(this.log).at(-1)!).evidence.includes("Find hook routing"),
     );
     const call = JSON.parse(lines(this.log).at(-1)!);
     this.assertIn("Tracing how hooks reach panes", JSON.stringify(call));

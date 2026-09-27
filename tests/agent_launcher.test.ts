@@ -438,9 +438,8 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\x02a");
     await this.clickText(view, "Manage agents");
     const baseline = existsSync(log) ? content(log) : "";
-    await view.input("c");
-    await sleep(0.1);
-    await view.input("c");
+    // Continuous typing stays inside the debounce window.
+    await view.input("cc");
     this.assertEqual(existsSync(log) ? content(log) : "", baseline);
     await this.until(async () =>
       (await view.poll()).data.includes("[Show command]"),

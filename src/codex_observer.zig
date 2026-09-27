@@ -226,6 +226,7 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
+    passes: @import("passes.zig").Passes = .{},
     requests: [max]Request = undefined,
     count: usize = 0,
     cursor: usize = 0,
@@ -297,7 +298,7 @@ pub const Worker = struct {
         while (true) {
             var requests: [max]Request = undefined;
             w.mutex.lock();
-            w.wake.timedWait(&w.mutex, 500 * std.time.ns_per_ms) catch {};
+            if (!w.passes.next()) w.wake.timedWait(&w.mutex, 500 * std.time.ns_per_ms) catch {};
             if (w.stopping) {
                 w.mutex.unlock();
                 return;

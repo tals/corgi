@@ -1,6 +1,7 @@
 //! One bounded inference queue shared by providers. Observation and UI never
 //! wait for inference. Coalescing and cooldowns prevent unchanged polls billing.
 const std = @import("std");
+const clock = @import("clock.zig");
 const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
 const backend = @import("summary_backend.zig");
@@ -99,6 +100,8 @@ pub const Worker = struct {
     link_cursor: usize = 0,
     prefer_links: bool = true,
     next_global: i64 = 0,
+    /// Scheduling decisions made; `poke` waits for the next one.
+    passes: u64 = 0,
     implementation: backend.Backend,
     system_meter: @import("live_usage.zig").Meter = .{ .value = .{ .known = true } },
     link_requests: [links.capacity]?links.Request = @splat(null),
@@ -138,6 +141,20 @@ pub const Worker = struct {
             slot.next = 0;
         };
         w.wake.signal();
+    }
+    /// Re-evaluate schedules now, e.g. after the test clock moved, and wait
+    /// (briefly) until the worker has decided what is due.
+    pub fn poke(w: *Worker) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        const before = w.passes;
+        w.wake.signal();
+        var waited: u64 = 0;
+        while (w.passes == before and waited < 2 * std.time.ns_per_s) : (waited += 10 * std.time.ns_per_ms) {
+            w.mutex.unlock();
+            std.Thread.sleep(10 * std.time.ns_per_ms);
+            w.mutex.lock();
+        }
     }
     pub fn observeLaunch(w: *Worker, provider: setup.Provider) void {
         w.mutex.lock();
@@ -403,7 +420,7 @@ pub const Worker = struct {
                 w.mutex.unlock();
                 continue;
             }
-            const now = std.time.milliTimestamp();
+            const now = clock.milliTimestamp();
             const selected: ?usize = if (now < w.next_global) null else for (0..max_slots) |n| {
                 const i = (w.cursor + n) % max_slots;
                 if (w.slots[i]) |s| if (s.ready(now)) break i;
@@ -412,6 +429,7 @@ pub const Worker = struct {
                 const i = (w.link_cursor + n) % links.capacity;
                 if (w.link_requests[i] != null) break i;
             } else null;
+            w.passes +%= 1;
             if (selected_link != null and (w.prefer_links or selected == null)) {
                 const index = selected_link.?;
                 const request = w.link_requests[index].?;
@@ -463,7 +481,7 @@ pub const Worker = struct {
                         if (s.request.generation == request.generation) s.result = .{ .request = request, .label = value.label };
                     } else {
                         s.retry = true;
-                        s.next = std.time.milliTimestamp() + 60000;
+                        s.next = clock.milliTimestamp() + 60000;
                     }
                 }
             }

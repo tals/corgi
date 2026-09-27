@@ -14,7 +14,7 @@ class SummaryCases extends Summaries {
     );
     const call = this.tools(1, "zig build", false)[0];
     await this.until(async () => (await this.state()).tool_active);
-    await sleep(1.2);
+    await this.settle();
     this.assertTrue((await this.state()).tool_active);
     this.sim.background_tasks = {
       [A]: [{ processId: "build-1", command: "zig build" }],
@@ -26,16 +26,15 @@ class SummaryCases extends Summaries {
         ).background_tasks.items.length,
     );
     this.finish_tool(call);
-    await sleep(1.2);
+    await this.settle();
     this.assertTrue((await this.state()).tool_active);
-    await this.until(
-      () =>
-        this.calls().some((call) =>
-          JSON.parse(call).evidence.includes(
-            "Currently running background tasks:\nBuilding project",
-          ),
+    await this.advance(8);
+    await this.until(() =>
+      this.calls().some((call) =>
+        JSON.parse(call).evidence.includes(
+          "Currently running background tasks:\nBuilding project",
         ),
-      12,
+      ),
     );
     const viewer = await Viewer.create(this);
     try {
@@ -102,7 +101,7 @@ class SummaryCases extends Summaries {
         [result.status, JSON.parse(result.output).label],
         ["validated", label],
       );
-      await sleep(1);
+      await this.settle();
       this.assertEqual(this.calls().length, i + 1);
     }
   }
@@ -196,9 +195,10 @@ class SummaryCases extends Summaries {
     const id = this.tools(1, "rg focus src", false)[0];
     this.finish_tool(id);
     this.finish_tool(id);
-    await this.until(() => this.calls().length === 2, 12);
+    await this.advance(8);
+    await this.until(() => this.calls().length === 2);
     this.assertIn("rg focus src", JSON.parse(this.calls()[1]).evidence);
-    await sleep(8.5);
+    await this.advance(8.5);
     this.assertEqual(this.calls().length, 2);
   }
   async test_running_command_refreshes_before_completion_without_repeated_inference() {
@@ -211,21 +211,20 @@ class SummaryCases extends Summaries {
       JSON.stringify({ delay: 0, label: "Running smoke tests" }),
     );
     this.tools(1, "bun test tests/smoke.test.ts --long-running", false);
+    await this.advance(8);
     await this.until(
       async () => (await this.state()).activity === "Running smoke tests",
-      12,
     );
     const evidence = JSON.parse(this.calls().at(-1)!).evidence;
     this.assertIn("Currently running tools", evidence);
     this.assertIn("bun test tests/smoke.test.ts", evidence);
     const count = this.calls().length;
-    await sleep(8.5);
+    await this.advance(8.5);
     this.assertEqual(this.calls().length, count);
   }
   async test_later_wave_refreshes_under_throttle_even_when_commentary_is_unchanged() {
     await this.start_turn();
     await this.until(() => this.calls().length === 1);
-    const first = performance.now();
     await this.until(
       async () => (await this.state()).activity === "Tracing pane focus",
     );
@@ -234,10 +233,11 @@ class SummaryCases extends Summaries {
       JSON.stringify({ delay: 0, label: "Testing pane focus" }),
     );
     this.tools(3, "zig build test");
-    await sleep(1);
+    // The wave waits out the conversation's cooldown, then refreshes.
+    await this.advance(6);
     this.assertEqual(this.calls().length, 1);
-    await this.until(() => this.calls().length === 2, 12);
-    this.assertGreater(performance.now() - first, 6000);
+    await this.advance(2.5);
+    await this.until(() => this.calls().length === 2);
     this.assertEqual(lines(this.log + ".processes").length, 1);
     await this.until(
       async () => (await this.state()).activity === "Testing pane focus",
@@ -407,7 +407,7 @@ class SummaryCases extends Summaries {
     );
     this.assertEqual((await this.state()).activity, "");
     this.assertEqual((await this.state()).state, "working");
-    await sleep(9);
+    await this.advance(9);
     this.assertEqual(this.calls().length, 1);
     writeFileSync(
       this.control,
@@ -429,9 +429,9 @@ class SummaryCases extends Summaries {
     this.items[A] = [
       { type: "userMessage", content: [{ type: "text", text: "continue" }] },
     ];
-    await this.until(
-      () => this.summary_logs().some((r: any) => r.status === "abstained"),
-      12,
+    await this.advance(8);
+    await this.until(() =>
+      this.summary_logs().some((r: any) => r.status === "abstained"),
     );
     await this.until(async () => (await this.state()).activity === "");
     this.assertEqual((await this.state()).state, "working");
@@ -469,6 +469,7 @@ class SummaryCases extends Summaries {
     for (const [i, [label, values]] of waves.entries()) {
       writeFileSync(this.control, JSON.stringify({ delay: 0, label }));
       await this.start_turn("timeline-" + i, false);
+      await this.advance(1); // Summaries are spaced a second apart.
       await this.until(
         async () => (await conversation()).timeline.points.length === i + 1,
       );

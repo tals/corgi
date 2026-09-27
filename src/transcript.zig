@@ -14,6 +14,7 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: bool = false,
+    passes: @import("passes.zig").Passes = .{},
     requests: std.ArrayList(Request) = .empty,
     cursor: usize = 0,
     results: [max_jobs]?Result = .{null} ** max_jobs,
@@ -71,7 +72,7 @@ pub const Worker = struct {
         var requests: [max_jobs]Request = undefined;
         while (true) {
             w.mutex.lock();
-            w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
+            if (!w.passes.next()) w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
             if (w.stopping) {
                 w.mutex.unlock();
                 return;

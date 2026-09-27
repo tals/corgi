@@ -21,6 +21,15 @@ pub const Server = struct {
     handoff_operation: u64 = 0,
     import_starter: ?struct { id: u32, revision: u64 } = null,
     summaries: ?*@import("activity_worker.zig").Worker = null,
+    /// Polling workers a `test.settle` waits for; set while the daemon runs.
+    workers: ?struct {
+        transcripts: *@import("transcript.zig").Worker,
+        usage: *@import("usage_worker.zig").Worker,
+        codex: *@import("codex_observer.zig").Worker,
+    } = null,
+    /// Test builds: clients waiting for every worker to finish a later pass
+    /// and for the daemon to apply its results.
+    settles: std.ArrayList(struct { fd: c_int, targets: [3]u64, collected: bool = false }) = .empty,
     preferred_workspace: u32 = 0, // Startup hint only; commands never use it.
     default_folder_pending: bool = true,
     clients: std.ArrayList(Client) = .empty,
@@ -449,6 +458,17 @@ pub const Server = struct {
             if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
             s.quit = true;
             try cl.queue(.{ .ok = true });
+        } else if (@import("corgi_options").test_build and eq(op, "test.settle")) {
+            // Replied from the main loop once the daemon has caught up.
+            const w = s.workers orelse return error.NotRunning;
+            const passes = @import("passes.zig");
+            try s.settles.append(a, .{ .fd = cl.fd, .targets = .{ passes.settle(w.transcripts), passes.settle(w.usage), passes.settle(w.codex) } });
+        } else if (@import("corgi_options").test_build and eq(op, "test.advance")) {
+            const ms = v.object.get("ms") orelse return error.MissingField;
+            if (ms != .integer or ms.integer < 0) return error.InvalidField;
+            @import("clock.zig").advance(ms.integer);
+            if (s.summaries) |worker| worker.poke();
+            try cl.queue(.{ .ok = true });
         } else return error.UnknownOperation;
     }
     pub fn updateTheme(s: *Server, v: std.json.Value) void {
@@ -506,6 +526,25 @@ pub const Server = struct {
     // Resuming a known conversation need not emit a hook before the first
     // prompt. OSC title identity can restore its attachment without observing
     // lifecycle, resetting receipts, or waiting for the app-server transport.
+    /// Runs after each collection cycle. Once every worker has finished a pass
+    /// that began after the request, one more cycle collects its results.
+    fn progressSettles(s: *Server) void {
+        const w = s.workers orelse return;
+        const passes = @import("passes.zig");
+        var i: usize = 0;
+        while (i < s.settles.items.len) {
+            const pending = &s.settles.items[i];
+            if (!pending.collected) {
+                pending.collected = passes.reached(w.transcripts, pending.targets[0]) and
+                    passes.reached(w.usage, pending.targets[1]) and passes.reached(w.codex, pending.targets[2]);
+                i += 1;
+                continue;
+            }
+            if (s.summaries) |summaries| summaries.poke();
+            for (s.clients.items) |*cl| if (cl.fd == pending.fd) cl.queue(.{ .ok = true }) catch {};
+            _ = s.settles.swapRemove(i);
+        }
+    }
     fn reattachFromTitle(s: *Server, p: *Pane, provider: agents.Provider, pid: c_int) void {
         if (p.attachment.actor != null or p.terminal.exited or pid <= 0 or p.terminal.title_pid != pid) return;
         const prefix = provider.backend().titleSession(p.terminal.vt.getTitle() orelse "") orelse return;
@@ -635,6 +674,11 @@ pub const Server = struct {
         s.publishInference();
         const codex = try codex_observer.Worker.start();
         defer codex.stop();
+        s.workers = .{ .transcripts = observer, .usage = usage, .codex = codex };
+        defer {
+            s.workers = null;
+            s.settles.deinit(a);
+        }
         _ = c.signal(c.SIGPIPE, os.sig_ignore);
         const fd = s.inherited_listener orelse try os.listen(s.socket);
         const socket_inode = inode(s.socket);
@@ -706,7 +750,7 @@ pub const Server = struct {
                 }
             }
             const now = std.time.milliTimestamp();
-            if (now - s.last_detection >= 250) {
+            if (now - s.last_detection >= 250 or s.settles.items.len > 0) {
                 s.last_detection = now;
                 for (s.runtime.panes.items) |*p| if (!p.terminal.exited) s.detectPane(p);
                 codex.reconcile(&s.runtime);
@@ -819,6 +863,7 @@ pub const Server = struct {
                         s.attention(ding and !s.actorWatched(actor.id), actor.state.state);
                     }
                 };
+                s.progressSettles();
             }
             for (s.runtime.sessions.items) |*session| {
                 const old_seq = session.next_seq;
