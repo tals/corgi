@@ -223,14 +223,12 @@ pub const Controller = struct {
         return switch (s.agent_scope) {
             .workspace => s.current().name,
             .all => "all",
-            .only => |id| if (s.runtime.workspaces.index(id)) |index| s.runtime.workspaces.items[index].name else "",
         };
     }
     fn inScope(s: *Self, id: u32) bool {
         return switch (s.agent_scope) {
             .workspace => id == s.current().id,
             .all => true,
-            .only => |only| id == only,
         };
     }
     fn setAgentScope(s: *Self, scope: sidebar.Scope) void {
@@ -242,7 +240,6 @@ pub const Controller = struct {
         const lasting: @FieldType(preferences.Preferences, "agents") = switch (scope) {
             .workspace => .workspace,
             .all => .all,
-            .only => return,
         };
         var saved = preferences.load();
         saved.agents = lasting;
@@ -283,7 +280,7 @@ pub const Controller = struct {
         const side = s.sidebarView(&.{});
         const on_label = if (s.pointer) |p| side.hit(p.x, p.y) == .agent_scope else false;
         if (s.scope_menu) |open| {
-            const inside = if (s.pointer) |p| sidebar.ScopeMenu.bounds(side, s.width, s.height, s.runtime.workspaces.items.len).contains(p.x, p.y) else false;
+            const inside = if (s.pointer) |p| sidebar.ScopeMenu.bounds(side, s.width, s.height).contains(p.x, p.y) else false;
             if (side.width == 0 or (!open.pinned and !on_label and !inside)) s.closeMenu();
         } else if (on_label and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and s.confirm == .none and !s.ui_mouse_down and !s.copy_mode) {
             s.openScopeMenu(false);
@@ -374,7 +371,6 @@ pub const Controller = struct {
         const list = switch (s.agent_scope) {
             .workspace => s.current().id,
             .all => std.math.maxInt(u32),
-            .only => |id| id,
         };
         return s.sidebar_rows.update(list, s.agentEntries(&live), entries, std.time.milliTimestamp());
     }
@@ -1936,8 +1932,7 @@ pub const Controller = struct {
         }
         if (s.scope_menu) |*scope_menu| {
             const side = s.sidebarView(&.{});
-            var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
-            const scope = sidebar.ScopeMenu.hit(side, s.width, s.height, s.workspaceEntries(&workspace_storage), x, y);
+            const scope = sidebar.ScopeMenu.hit(side, s.width, s.height, x, y);
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
                 if (scope) |value| s.setAgentScope(value) else if (side.hit(x, y) == .agent_scope and !scope_menu.pinned) scope_menu.pinned = true else s.closeMenu();
@@ -2360,7 +2355,6 @@ pub const Controller = struct {
         s.reconcile();
     }
     pub fn reconcile(s: *Self) void {
-        if (s.agent_scope == .only and s.runtime.workspaces.index(s.agent_scope.only) == null) s.agent_scope = .workspace;
         if (s.agent_picker) |picker| {
             if (picker.workspace != s.current().id) s.agent_picker = null;
         }

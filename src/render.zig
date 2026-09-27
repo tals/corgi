@@ -167,7 +167,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var workspace_uri: [256]u8 = undefined;
     if (ui.pointer) |pointer| {
         if (ui.scope_menu != null) {
-            link_pointer = side.hit(pointer.x, pointer.y) == .agent_scope or sidebar.ScopeMenu.hit(side, width, height, ui.workspaces, pointer.x, pointer.y) != null;
+            link_pointer = side.hit(pointer.x, pointer.y) == .agent_scope or sidebar.ScopeMenu.hit(side, width, height, pointer.x, pointer.y) != null;
         } else if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
             if (ui.port_menu) |menu| {
                 for (ui.workspaces) |ws| {

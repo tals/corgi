@@ -10,9 +10,8 @@ const selected_bg = "\x1b[48;2;34;44;58m";
 /// `group` is a workspace header row in the grouped "All" list, not an agent.
 pub const Target = union(enum) { pane: u32, native: u32, group: u32 };
 pub const Search = struct { text: []const u8, cursor: usize };
-/// Viewer-local agent list filter. `workspace` follows the selected workspace;
-/// `only` stays on one workspace while navigating elsewhere.
-pub const Scope = union(enum) { workspace, all, only: u32 };
+/// Viewer-local agent list filter. `workspace` follows the selected workspace.
+pub const Scope = enum { workspace, all };
 /// Header totals for a `.group` entry; `current` marks the selected workspace.
 pub const Group = struct { agents: usize = 0, working: usize = 0, attention: usize = 0, folded: bool = false, current: bool = false };
 pub const Entry = struct {
@@ -1067,33 +1066,30 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
 pub const ScopeMenu = struct {
     pinned: bool = false,
     hovered: ?Scope = null,
-    pub fn bounds(side: View, cols: u16, rows: u16, workspaces: usize) layout.Rect {
+    pub fn bounds(side: View, cols: u16, rows: u16) layout.Rect {
         const y = side.middle() + 1;
         const width = @min(cols -| 1, @max(side.width -| 2, 26));
-        const height = @min(5 + workspaces, (rows -| 1) -| y);
+        const height = @min(4, (rows -| 1) -| y);
         return .{ .x = 1, .y = y, .w = width, .h = @intCast(height) };
     }
-    pub fn hit(side: View, cols: u16, rows: u16, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?Scope {
-        const b = bounds(side, cols, rows, workspaces.len);
-        if (b.h < 5 or x <= b.x or x + 1 >= b.x + b.w or y <= b.y or y + 1 >= b.y + b.h) return null;
+    pub fn hit(side: View, cols: u16, rows: u16, x: u16, y: u16) ?Scope {
+        const b = bounds(side, cols, rows);
+        if (b.h < 4 or x <= b.x or x + 1 >= b.x + b.w or y <= b.y or y + 1 >= b.y + b.h) return null;
         return switch (y - b.y) {
             1 => .workspace,
             2 => .all,
-            3 => null,
-            else => |index| .{ .only = workspaces[index - 4].id },
+            else => null,
         };
     }
     pub fn draw(menu: ScopeMenu, w: *std.Io.Writer, side: View, cols: u16, rows: u16, workspaces: []const WorkspaceEntry, scope: Scope) !void {
-        const b = bounds(side, cols, rows, workspaces.len);
-        if (b.h < 5 or b.w < 16) return;
+        const b = bounds(side, cols, rows);
+        if (b.h < 4 or b.w < 16) return;
         const border = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
         for (0..b.h) |y| {
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + 1, border });
             try w.writeAll(if (y == 0) "╭" else if (y == b.h - 1) "╰" else "│");
-            if (y == 0 or y == b.h - 1 or y == 3) {
-                if (y == 3) try w.writeAll(" ");
-                for (0..b.w - @as(u16, if (y == 3) 4 else 2)) |_| try w.writeAll("─");
-                if (y == 3) try w.writeAll(" ");
+            if (y == 0 or y == b.h - 1) {
+                for (0..b.w - 2) |_| try w.writeAll("─");
             } else try w.splatByteAll(' ', b.w - 2);
             try w.writeAll(if (y == 0) "╮" else if (y == b.h - 1) "╯" else "│");
         }
@@ -1103,49 +1099,24 @@ pub const ScopeMenu = struct {
             total += ws.agents;
             if (ws.active) current = ws.agents;
         }
-        try menu.row(w, b, 1, .workspace, scope, "This workspace", null, current);
-        try menu.row(w, b, 2, .all, scope, "All", null, total);
-        for (workspaces[0..@min(workspaces.len, b.h - 5)], 0..) |ws, index| {
-            try menu.row(w, b, @intCast(4 + index), .{ .only = ws.id }, scope, ws.name, ws, ws.agents);
-        }
+        try menu.row(w, b, 1, .workspace, scope, "This workspace", current);
+        try menu.row(w, b, 2, .all, scope, "All", total);
         try w.writeAll("\x1b[0m");
     }
-    fn row(menu: ScopeMenu, w: *std.Io.Writer, b: layout.Rect, y: u16, option: Scope, scope: Scope, text: []const u8, ws: ?WorkspaceEntry, count: usize) !void {
-        const hovered = if (menu.hovered) |h| std.meta.eql(h, option) else false;
+    fn row(menu: ScopeMenu, w: *std.Io.Writer, b: layout.Rect, y: u16, option: Scope, scope: Scope, text: []const u8, count: usize) !void {
+        const hovered = menu.hovered == option;
         const style = if (hovered) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
         const line = b.y + y + 1;
         try w.print("\x1b[{d};{d}H{s}", .{ line, b.x + 2, style });
         try w.splatByteAll(' ', b.w - 2);
-        if (std.meta.eql(option, scope)) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m✓{s}", .{ line, b.x + 3, style });
+        if (option == scope) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m✓{s}", .{ line, b.x + 3, style });
         var number_buf: [24]u8 = undefined;
         const number = compactCount(&number_buf, count);
-        // Right side: optional workspace status, then the agent count.
-        var status_buf: [64]u8 = undefined;
-        var working_buf: [24]u8 = undefined;
-        var attention_buf: [24]u8 = undefined;
-        var status: []const u8 = "";
-        if (ws) |entry| if (entry.agents > 0) {
-            var digits: [24]u8 = undefined;
-            const working = if (entry.working > 0) try std.fmt.bufPrint(&working_buf, "{s}●", .{compactCount(&digits, entry.working)}) else "";
-            const attention = if (entry.attention > 0) try std.fmt.bufPrint(&attention_buf, "{s}●", .{compactCount(&digits, entry.attention)}) else "";
-            status = try std.fmt.bufPrint(&status_buf, "\x1b[38;2;249;226;175m{s}{s}\x1b[38;2;243;139;168m{s}{s}", .{ working, if (working.len > 0 and attention.len > 0) " " else "", attention, if (working.len == 0 and attention.len == 0) "\x1b[38;2;166;227;161m○" else "" });
-        };
-        const status_width = if (status.len == 0) 0 else statusWidth(ws.?);
         const count_width = displayWidth(number);
         const right = b.x + b.w - 2 - count_width;
         try w.print("\x1b[{d};{d}H\x1b[38;2;125;132;143m{s}{s}", .{ line, right + 1, number, style });
-        const status_x = right -| (status_width + @as(usize, if (status_width > 0) 2 else 0));
-        if (status_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ line, status_x + 1, status, style });
-        var label: [160]u8 = undefined;
-        try w.print("\x1b[{d};{d}H{s}", .{ line, b.x + 5, if (ws != null and ws.?.active) "\x1b[1m" else "" });
-        try writeEllipsis(w, directoryLabel(&label, text, null), (status_x -| (b.x + 4)) -| 2);
-    }
-    fn statusWidth(ws: WorkspaceEntry) usize {
-        var buf: [24]u8 = undefined;
-        var width: usize = 0;
-        if (ws.working > 0) width += displayWidth(compactCount(&buf, ws.working)) + 1;
-        if (ws.attention > 0) width += displayWidth(compactCount(&buf, ws.attention)) + 1 + @as(usize, if (ws.working > 0) 1 else 0);
-        return if (width == 0) 1 else width;
+        try w.print("\x1b[{d};{d}H", .{ line, b.x + 5 });
+        try writeEllipsis(w, text, (right -| (b.x + 4)) -| 2);
     }
 };
 
@@ -1483,20 +1454,20 @@ test "agents header names its scope and opens the scope menu left of New" {
     }
 }
 
-test "scope menu lists both scopes then each workspace with status" {
+test "scope menu offers only the current workspace and all agents" {
     const workspaces = [_]WorkspaceEntry{
         .{ .id = 4, .name = "corgi", .cwd = "/tmp", .active = true, .agents = 3, .working = 2, .attention = 1 },
         .{ .id = 7, .name = "blog", .cwd = "/tmp", .active = false, .agents = 1 },
         .{ .id = 9, .name = "notes", .cwd = "/tmp", .active = false },
     };
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(3, 0);
-    const b = ScopeMenu.bounds(view, 100, 30, workspaces.len);
-    try std.testing.expectEqual(@as(?Scope, .workspace), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 1));
-    try std.testing.expectEqual(@as(?Scope, .all), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 2));
-    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 3));
-    try std.testing.expectEqual(@as(?Scope, .{ .only = 7 }), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 5));
-    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, &workspaces, 5, b.y + 7));
-    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, &workspaces, b.x, b.y + 1));
+    const b = ScopeMenu.bounds(view, 100, 30);
+    try std.testing.expectEqual(@as(u16, 4), b.h);
+    try std.testing.expectEqual(@as(?Scope, .workspace), ScopeMenu.hit(view, 100, 30, 5, b.y + 1));
+    try std.testing.expectEqual(@as(?Scope, .all), ScopeMenu.hit(view, 100, 30, 5, b.y + 2));
+    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, 5, b.y + 3));
+    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, 5, b.y + 5));
+    try std.testing.expectEqual(@as(?Scope, null), ScopeMenu.hit(view, 100, 30, b.x, b.y + 1));
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try (ScopeMenu{}).draw(&output.writer, view, 100, 30, &workspaces, .all);
@@ -1509,10 +1480,8 @@ test "scope menu lists both scopes then each workspace with status" {
     for (0..b.y + 1) |_| _ = lines.next();
     try std.testing.expectEqualStrings(" │   This workspace     3 │", std.mem.trimRight(u8, lines.next().?, " "));
     try std.testing.expectEqualStrings(" │ ✓ All                4 │", std.mem.trimRight(u8, lines.next().?, " "));
-    _ = lines.next();
-    try std.testing.expectEqualStrings(" │   corgi       2● 1●  3 │", std.mem.trimRight(u8, lines.next().?, " "));
-    try std.testing.expectEqualStrings(" │   blog            ○  1 │", std.mem.trimRight(u8, lines.next().?, " "));
-    try std.testing.expectEqualStrings(" │   notes              0 │", std.mem.trimRight(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" ╰────────────────────────╯", std.mem.trimRight(u8, lines.next().?, " "));
+    for (workspaces) |ws| try std.testing.expect(std.mem.indexOf(u8, text, ws.name) == null);
 }
 
 test "grouped list draws one-row headers with a margin guide and measures rows per entry" {

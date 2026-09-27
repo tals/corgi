@@ -5,7 +5,7 @@ const os = @import("os.zig");
 const a = os.allocator;
 
 pub const Preferences = struct {
-    /// Only the two lasting scopes persist; a single-workspace pick is per session.
+    /// The agent scope persists across viewer restarts.
     agents: enum { workspace, all } = .workspace,
     preset: @import("keymap.zig").Preset = .corgi,
     prefix: @import("keymap.zig").Prefix = .ctrl_b,

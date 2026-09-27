@@ -113,7 +113,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await a.input("\x02\t")).pane, agents[0]);
   }
 
-  async test_agent_scope_menu_lists_other_workspaces() {
+  async test_agent_scope_menu_only_offers_all_and_current_workspace() {
     const preferences = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
     const first = await this.new();
     await this.mark_agent(first, "Alpha");
@@ -148,7 +148,8 @@ class ViewerScenarios extends Viewers {
     this.assertIn("✓", rows[16]);
     this.assertIn("All", rows[17]);
     this.assertIn("2", rows[17]);
-    this.assertIn("Other", rows[20]);
+    this.assertTrue(rows[18].trim().startsWith("╰"));
+    this.assertFalse(rows.slice(15).some((row) => row.includes("Other")));
     await a.input("\x1b[<35;60;5M");
     await this.until(
       async () => !(await a.poll()).data.includes("This workspace"),
@@ -182,16 +183,26 @@ class ViewerScenarios extends Viewers {
     this.assertIn("agents: all", sidebar()[14]);
     await a.focus(outsider);
     await a.input("\x1b[<35;10;15M");
-    await a.input("\x1b[<0;8;20M\x1b[<0;8;20m");
+    await a.input("\x1b[<0;8;17M\x1b[<0;8;17m");
+    rows = sidebar();
+    this.assertIn("agents: Other", rows[14]);
+    this.assertFalse(rows.some((line) => line.includes("Alpha")));
+    this.assertTrue(rows.some((line) => line.includes("Outside-agent")));
+    this.assertEqual(a.state.workspace, other);
+    this.assertEqual(
+      JSON.parse(readFileSync(preferences, "utf8")).agents,
+      "workspace",
+    );
+    await a.focus(first);
     rows = sidebar();
     this.assertIn("agents: " + homeWs.name.slice(0, 6), rows[14]);
     this.assertTrue(rows.some((line) => line.includes("Alpha")));
     this.assertFalse(rows.some((line) => line.includes("Outside-agent")));
-    this.assertEqual(a.state.workspace, other);
-    this.assertEqual(
-      JSON.parse(readFileSync(preferences, "utf8")).agents,
-      "all",
-    );
+    await a.close();
+    a = await this.newViewer();
+    await a.focus(outsider);
+    this.assertIn("agents: Other", sidebar()[14]);
+    this.assertFalse(sidebar().some((line) => line.includes("Alpha")));
   }
 
   async test_agent_sidebar_search_input_mouse_and_stale_targets() {
