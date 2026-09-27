@@ -37,6 +37,31 @@ class Reloads extends Runtime {
   reload(exe = EXE) {
     return this.rpc({ op: "server.reload", protocol: 1, executable: exe });
   }
+  candidate(mutation: string) {
+    const candidate = join(this.temp.name, "candidate"),
+      transformer = join(this.temp.name, "mutate.ts");
+    writeExecutable(transformer, `#!/usr/bin/env bun
+import { readFileSync, writeSync, ftruncateSync } from 'node:fs';
+import { dlopen, FFIType } from 'bun:ffi';
+const libc = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', {
+  lseek: { args: [FFIType.i32, FFIType.i64, FFIType.i32], returns: FFIType.i64 }
+});
+const fd = Number(process.argv[2]);
+// Preserve u64 terminal fingerprints and selection hashes exactly.
+const m = JSON.parse(readFileSync(fd, 'utf8'), (_key, value, context) =>
+  typeof value === 'number' && !Number.isSafeInteger(value)
+    ? JSON.rawJSON(context.source) : value);
+${mutation};
+libc.symbols.lseek(fd, 0n, 0);
+ftruncateSync(fd, 0); writeSync(fd, JSON.stringify(m));
+libc.symbols.lseek(fd, 0n, 0);
+`);
+    writeFileSync(candidate,
+      `#!/bin/sh\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`,
+      { mode: 0o700 });
+    chmodSync(candidate, 0o700);
+    return candidate;
+  }
   async screen(pane: number) {
     return (await this.command("pane.read", { target: pane, view: "screen" }))
       .text;
@@ -129,6 +154,69 @@ class Reloads extends Runtime {
     await this.until(async () =>
       (await this.screen(first)).includes("STILL_HERE"),
     );
+  }
+  async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
+    const first = await this.new(), viewer = await Viewer.create(this);
+    const before = await this.session();
+    const executable = this.candidate(`
+m.version = 1;
+m.runtime.version = 2;
+for (const p of m.runtime.panes) {
+  for (const a of [p.agent, p.resume_hint, p.binding.provisional])
+    if (a.provider === null) a.provider = 'other';
+}
+for (const command of m.runtime.agent_commands)
+  if (command.semantics.provider === null) command.semantics.provider = 'other';
+m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
+`);
+    const result = await this.raw_rpc({ op: "server.reload", protocol: 1, executable });
+    this.assertTrue(result.ok, readFileSync(join(this.temp.name, "server.log"), "utf8"));
+    this.assertNotEqual(result.server_pid, before.server_pid);
+    const after = await this.session();
+    this.assertEqual(before.panes.map((p: any) => [p.id, p.pid]),
+      after.panes.map((p: any) => [p.id, p.pid]));
+    this.assertEqual(after.inference.launches, { codex: 7, claude: 4 });
+    this.assertEqual((await viewer.poll()).pane, first);
+    await viewer.input("printf 'MIGRATED_%s\\n' ALIVE\r");
+    await this.until(async () => (await this.screen(first)).includes("MIGRATED_ALIVE"));
+    const saved = (await this.rpc({ op: "recovery.save", protocol: 1 })).path;
+    const state = JSON.parse(readFileSync(saved, "utf8"));
+    this.assertEqual(state.version, 3);
+    this.assertEqual(state.panes[0].binding.provisional.provider, null);
+    await this.reload();
+    this.assertEqual((await viewer.poll()).pane, first);
+  }
+  async test_cold_migration_upgrades_only_after_successful_restore() {
+    const first = await this.new("printf 'MIGRATION_%s\\n' HISTORY; exec /bin/sh");
+    await this.until(async () => (await this.screen(first)).includes("MIGRATION_HISTORY"));
+    const before = await this.session();
+    const saved = (await this.rpc({ op: "recovery.save", protocol: 1 })).path;
+    await this.run_cli("shutdown");
+    await this.until(() => {
+      try { process.kill(before.server_pid, 0); return false; } catch { return true; }
+    });
+    const original = JSON.parse(readFileSync(saved, "utf8"));
+    original.version = 2;
+    original.panes[0].agent.provider = "other";
+    original.panes[0].binding.provisional.provider = "other";
+    original.panes[0].resume_hint.provider = "other";
+    for (const bad of [
+      { ...original, version: 999 },
+      { ...original, next_pane: 0 },
+    ]) {
+      const bytes = JSON.stringify(bad);
+      writeFileSync(saved, bytes);
+      const failed = await run([EXE, "start"], { env: this.env, check: false });
+      this.assertNotEqual(failed.code, 0);
+      this.assertIn(bad.version === 999 ? "UnsupportedStateVersion" : "InvalidCheckpoint", failed.stderr);
+      this.assertEqual(readFileSync(saved, "utf8"), bytes);
+    }
+    writeFileSync(saved, JSON.stringify(original));
+    await this.run_cli("start");
+    this.assertEqual(JSON.parse(readFileSync(saved, "utf8")).version, 3);
+    this.assertEqual(statSync(saved).mode & 0o777, 0o600);
+    this.assertEqual((await this.session()).panes[0].id, first);
+    await this.until(async () => (await this.screen(first)).includes("MIGRATION_HISTORY"));
   }
   async test_fragmented_rpc_and_paste_survive() {
     const first = await this.new(),
@@ -342,40 +430,20 @@ class Reloads extends Runtime {
     const first = await this.new();
     await this.new();
     const before = await this.session();
-    const candidate = join(this.temp.name, "candidate"),
-      transformer = join(this.temp.name, "mutate.ts");
-    for (const mutation of [
-      "m.version = 999",
-      "m.runtime.panes[1].screen.data = 'invalid base64!'",
+    for (const [mutation, expected] of [
+      ["m.version = 999", "UnsupportedStateVersion"],
+      ["m.runtime.version = 999", "UnsupportedStateVersion"],
+      ["delete m.runtime.version", "MissingStateVersion"],
+      ["m.runtime.version = 0", "InvalidStateVersion"],
+      ["m.runtime.panes[1].screen.data = 'invalid base64!'", "ReloadCandidateFailed"],
     ]) {
-      writeExecutable(
-        transformer,
-        `#!/usr/bin/env bun
-import { readFileSync, writeSync, ftruncateSync } from 'node:fs';
-import { dlopen, FFIType } from 'bun:ffi';
-const libc = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', {
-  lseek: { args: [FFIType.i32, FFIType.i64, FFIType.i32], returns: FFIType.i64 }
-});
-const fd = Number(process.argv[2]);
-const m = JSON.parse(readFileSync(fd, 'utf8'));
-${mutation};
-libc.symbols.lseek(fd, 0n, 0);
-ftruncateSync(fd, 0); writeSync(fd, JSON.stringify(m));
-libc.symbols.lseek(fd, 0n, 0);
-`,
-      );
-      writeFileSync(
-        candidate,
-        `#!/bin/sh\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`,
-        { mode: 0o700 },
-      );
-      chmodSync(candidate, 0o700);
+      const candidate = this.candidate(mutation);
       const response = await this.raw_rpc({
         op: "server.reload",
         protocol: 1,
         executable: candidate,
       });
-      this.assertEqual(response.err, "ReloadCandidateFailed");
+      this.assertEqual(response.err, expected);
       this.assertEqual(before.server_pid, (await this.session()).server_pid);
       this.assertEqual(
         before.panes.map((p: any) => [p.id, p.pid]),

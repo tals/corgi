@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "live": true,
+  "saved_at": 1700000000,
+  "next_workspace": 2,
+  "next_pane": 2,
+  "next_session": 1,
+  "revision": 1,
+  "workspaces": [{
+    "id": 1,
+    "name": "other",
+    "cwd": "/tmp",
+    "model": {
+      "nodes": [{"pane": 1}],
+      "tabs": [{"id": 1, "root": 0, "title": "other"}],
+      "revision": 1
+    }
+  }],
+  "panes": [{
+    "id": 1,
+    "cwd": "/tmp",
+    "screen": {"cols": 20, "rows": 4, "data": "b3RoZXI=", "exited": true},
+    "agent": {"provider": "other"},
+    "binding": {"provisional": {"provider": "other"}},
+    "resume_hint": {"provider": "other"}
+  }],
+  "closed": [],
+  "sessions": []
+}

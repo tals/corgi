@@ -110,7 +110,7 @@ pub const Screen = struct {
         return t;
     }
 };
-pub const Pane = struct { binding: ?Binding = null, label: @import("pane_label.zig").Label = .{}, id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
+pub const Pane = struct { binding: Binding, label: @import("pane_label.zig").Label = .{}, id: u32, cwd: []const u8, screen: Screen, agent: agents.Agent = .{}, detection: @import("detection.zig").Tracker = .{}, resume_hint: Resume = .{} };
 pub const Closed = struct { label: @import("pane_label.zig").Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: u32 };
 pub const Workspace = struct {
     away: @import("usage.zig").Window = .{},
@@ -122,7 +122,7 @@ pub const Workspace = struct {
 };
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
-    binding: ?Binding = null,
+    binding: Binding,
     members: []const u32 = &.{},
     approval_actors: []const u32 = &.{},
     usage_tracker: @import("usage.zig").Tracker = .{},
@@ -172,7 +172,7 @@ pub const State = struct {
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
     agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
-    version: u32 = 2,
+    version: u32 = @import("state_migrations.zig").checkpoint_version,
     conversations: []const Conversation = &.{},
     next_conversation: u32 = 1,
     live: bool,
@@ -236,7 +236,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
 // Callers own a staging runtime. Live import errors exit the candidate without
 // calling destructors: inherited descriptors are still owned by the old daemon.
 pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8, executable: []const u8) !void {
-    if ((state.version != 1 and state.version != 2) or state.conversations.len > conversations.max_actors or state.live != live or state.workspaces.len == 0 or state.workspaces.len > workspace.max_workspaces or
+    if (state.version != @import("state_migrations.zig").checkpoint_version or state.conversations.len > conversations.max_actors or state.live != live or state.workspaces.len == 0 or state.workspaces.len > workspace.max_workspaces or
         state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16) return error.InvalidCheckpoint;
     r.link_labels = if (live) try @import("link_labels.zig").Cache.restore(state.link_labels) else .{};
     for (state.workspaces) |w| {
@@ -281,7 +281,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             p.agent.transcript_len > p.agent.transcript.len or p.agent.turn_len > 160 or
             p.agent.last_finished_turn_len > 160 or p.agent.recent_len > 160 or p.agent.observation.read > p.agent.observation.completed) return error.InvalidCheckpoint;
         const t = try p.screen.restore(live);
-        try r.panes.append(a, .{ .id = p.id, .label = p.label, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .attachment = try restoreBinding(&r.conversations, p.binding, p.agent, live), .detection = p.detection, .resume_hint = p.resume_hint });
+        try r.panes.append(a, .{ .id = p.id, .label = p.label, .terminal = t, .cwd = try a.dupe(u8, p.cwd), .attachment = try restoreBinding(&r.conversations, p.binding, live), .detection = p.detection, .resume_hint = p.resume_hint });
     }
     for (r.workspaces.items.items) |w| for (w.model.nodes) |maybe| if (maybe) |n| if (n == .pane and r.pane(n.pane) == null) return error.InvalidCheckpoint;
     for (state.closed) |p| {
@@ -290,7 +290,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     }
     for (state.sessions) |n| {
         if (n.resume_hint.len > 160 or n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
-        var s: native.Session = .{ .usage_tracker = if (live) n.usage_tracker else .{}, .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .attachment = try restoreBinding(&r.conversations, n.binding, .{ .provider = n.provider, .state = if (live) n.state else .done, .attention = if (live) n.attention else .none, .observation = n.observation, .session = n.resume_hint.session, .session_len = n.resume_hint.len }, live), .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
+        var s: native.Session = .{ .usage_tracker = if (live) n.usage_tracker else .{}, .id = n.id, .provider = n.provider, .cwd = try a.dupe(u8, n.cwd), .workspace_id = n.workspace_id, .child = std.process.Child.init(&.{}, a), .ready = n.ready, .exited = if (live) n.exited else true, .attachment = try restoreBinding(&r.conversations, n.binding, live), .next_seq = n.next_seq, .journal_bytes = n.journal_bytes, .resume_hint = n.resume_hint, .imported = live };
         if (n.members.len > 256 or (n.approval_actors.len != 0 and n.approval_actors.len != n.approvals.len)) return error.InvalidCheckpoint;
         for (n.members) |id| {
             const actor = r.conversations.byId(id) orelse return error.InvalidCheckpoint;
@@ -343,7 +343,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             const id = try r.create(.{ .workspace = n.workspace_id, .cwd = dir, .title = "Recovered native session", .cols = 100, .rows = 30, .theme = .{}, .socket = socket, .executable = executable });
             const pane = r.pane(id).?;
             pane.resume_hint = n.resume_hint;
-            pane.attachment = try restoreBinding(&r.conversations, n.binding, .{ .provider = n.provider, .state = .done, .observation = n.observation, .session = n.resume_hint.session, .session_len = n.resume_hint.len, .attention = if (n.observation.unread()) .finished else .none }, false);
+            pane.attachment = try restoreBinding(&r.conversations, n.binding, false);
             const command = try pane.resume_hint.command(a);
             defer a.free(command);
             for (n.events) |event| {
@@ -387,32 +387,18 @@ fn validAgent(agent: agents.Agent) bool {
         agent.transcript_len <= agent.transcript.len and agent.turn_len <= agent.turn.len and agent.last_finished_turn_len <= agent.last_finished_turn.len and
         agent.activity_len <= agent.activity.len and agent.tool_len <= agent.tool.len and agent.recent_len <= agent.recent.len and agent.observation.read <= agent.observation.completed;
 }
-fn restoreBinding(registry: *conversations.Registry, saved: ?Binding, legacy: agents.Agent, live: bool) !conversations.Attachment {
+fn restoreBinding(registry: *conversations.Registry, value: Binding, live: bool) !conversations.Attachment {
     var binding: conversations.Attachment = .{};
-    if (saved) |value| {
-        if (!validAgent(value.provisional) or value.known.len > binding.known.len) return error.InvalidCheckpoint;
-        binding.provisional = value.provisional;
-        binding.generation = value.generation +% @intFromBool(!live);
-        binding.selection_hash = if (live) value.selection_hash else 0;
-        binding.hook_seq = if (live) value.hook_seq else 0;
-        if (value.actor != 0) binding.actor = registry.byId(value.actor) orelse return error.InvalidCheckpoint;
-        if (live) for (value.known) |id| {
-            if (registry.byId(id) == null) return error.InvalidCheckpoint;
-            binding.known[binding.known_len] = id;
-            binding.known_len += 1;
-        };
-    } else {
-        if (!validAgent(legacy)) return error.InvalidCheckpoint;
-        const provider = if (legacy.session_len > 0) legacy.provider else null;
-        if (provider) |known| {
-            const existing = registry.find(known, legacy.sessionId());
-            const actor = existing orelse try registry.get(known, legacy.sessionId());
-            if (existing == null) {
-                actor.state = legacy;
-                if (live) actor.restoreCompaction(null, std.time.microTimestamp());
-            }
-            binding.select(actor);
-        } else binding.provisional = legacy;
-    }
+    if (!validAgent(value.provisional) or value.known.len > binding.known.len) return error.InvalidCheckpoint;
+    binding.provisional = value.provisional;
+    binding.generation = value.generation +% @intFromBool(!live);
+    binding.selection_hash = if (live) value.selection_hash else 0;
+    binding.hook_seq = if (live) value.hook_seq else 0;
+    if (value.actor != 0) binding.actor = registry.byId(value.actor) orelse return error.InvalidCheckpoint;
+    if (live) for (value.known) |id| {
+        if (registry.byId(id) == null) return error.InvalidCheckpoint;
+        binding.known[binding.known_len] = id;
+        binding.known_len += 1;
+    };
     return binding;
 }

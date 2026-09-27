@@ -4,6 +4,7 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const checkpoint = @import("checkpoint.zig");
+const migrations = @import("state_migrations.zig");
 const Runtime = @import("runtime.zig").Runtime;
 pub fn path(socket: []const u8) ![]const u8 {
     const root = if (os.env("XDG_STATE_HOME")) |p| try a.dupe(u8, p) else try std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".local", "state" });
@@ -47,14 +48,21 @@ pub fn load(r: *Runtime, socket: []const u8, executable: []const u8) !bool {
         else => return err,
     };
     defer a.free(bytes);
-    const parsed = std.json.parseFromSlice(checkpoint.State, a, bytes, .{ .ignore_unknown_fields = true }) catch |err| {
-        std.log.err("recovery snapshot {s} is unreadable ({s}); move it aside to start fresh", .{ source, @errorName(err) });
+    const parsed = migrations.decode(checkpoint.State, .checkpoint, a, bytes) catch |err| {
+        std.log.err("recovery snapshot {s} could not be decoded or migrated ({s}); original file left unchanged", .{ source, @errorName(err) });
         return err;
     };
     defer parsed.deinit();
-    checkpoint.restore(r, parsed.value, false, socket, executable) catch |err| {
+    checkpoint.restore(r, parsed.parsed.value, false, socket, executable) catch |err| {
         std.log.err("recovery snapshot {s} could not be restored ({s}); move it aside to start fresh", .{ source, @errorName(err) });
         return err;
     };
+    if (parsed.migrated) {
+        // Restore/validation must succeed before replacing the user's source.
+        // Serialize the migrated saved state, not newly spawned recovery shells.
+        const upgraded = try std.json.Stringify.valueAlloc(a, parsed.parsed.value, .{});
+        defer a.free(upgraded);
+        try atomicWrite(source, upgraded);
+    }
     return true;
 }

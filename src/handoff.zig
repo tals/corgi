@@ -6,6 +6,7 @@ const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const cp = @import("checkpoint.zig");
+const migrations = @import("state_migrations.zig");
 const binary = @import("base64.zig");
 const peer = @import("peer.zig");
 const Server = @import("server.zig").Server;
@@ -31,7 +32,7 @@ const SavedClient = struct {
 };
 const Manifest = struct {
     preferred_workspace: u32 = 0,
-    version: u32 = 1,
+    version: u32 = migrations.handoff_version,
     update_abi: ?[]const u8 = @import("updates.zig").abi,
     terminal_abi: u64 = @import("corgi_options").terminal_checkpoint_abi,
     listener: i32,
@@ -129,6 +130,9 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     defer a.free(ready);
     if (!std.mem.eql(u8, ready, "ready")) {
         std.log.err("reload candidate: {s}", .{ready});
+        inline for (.{ error.UnsupportedStateVersion, error.MissingStateVersion, error.InvalidStateVersion }) |failure| {
+            if (std.mem.eql(u8, ready, @errorName(failure))) return failure;
+        }
         return error.ReloadCandidateFailed;
     }
     try os.writeAll(pair[0], "commit\n");
@@ -156,11 +160,11 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         const bytes = try file.readToEndAlloc(a, 256 * 1024 * 1024);
         defer a.free(bytes);
         file.close();
-        const parsed = try std.json.parseFromSlice(Manifest, a, bytes, .{ .ignore_unknown_fields = true });
+        const parsed = try migrations.decode(Manifest, .handoff, a, bytes);
         defer parsed.deinit();
-        const m = parsed.value;
+        const m = parsed.parsed.value;
         if (m.update_abi) |abi| if (!std.mem.eql(u8, abi, @import("updates.zig").abi)) return error.IncompatibleCheckpoint;
-        if (m.version != 1 or m.terminal_abi != @import("corgi_options").terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
+        if (m.terminal_abi != @import("corgi_options").terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
         s = .{ .preferred_workspace = m.preferred_workspace, .socket = socket, .executable = executable, .inherited_listener = m.listener, .theme = m.theme, .default_folder_pending = m.default_folder_pending, .next_viewer = m.next_viewer, .next_active = m.next_active, .bell_seq = m.bell_seq, .last_bell = m.last_bell, .last_bell_kind = m.last_bell_kind };
         os.cloexec(m.listener);
         try cp.restore(&s.runtime, m.runtime, true, socket, executable);

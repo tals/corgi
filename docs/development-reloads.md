@@ -5,7 +5,9 @@ viewers. Live daemon handoff transfers PTYs and native-session pipes while keepi
 process IDs and viewer state. A failed handoff leaves the original daemon serving.
 Normal shutdown terminates processes; cold recovery restores saved context in new
 shells. Internal interfaces and the wire protocol change together with their callers;
-we do not maintain compatibility adapters for older versions.
+historical saved-state formats are normalized by ordered migrations before
+current runtime types are decoded. Wire protocols and terminal compatibility
+remain separate from saved-state schema versions.
 
 A main-environment `./go.sh` launch stops all other Corgi daemons owned by the
 current user, including temporary and named environments, while preserving the
@@ -250,6 +252,38 @@ old launch command, pending approval, or agent command is automatically executed
 Native transports restore as archived sessions plus recovery shell tabs. Existing
 shell history files remain the shell's responsibility. Missing directories use
 HOME and retain the original path in the pane's recovery banner.
+
+### Saved-state migrations
+
+`src/state_migrations.zig` owns two independent, monotonically increasing schema
+versions: checkpoint **3** (shared runtime state) and handoff **2** (the live
+envelope containing clients and workers). Readers parse plain JSON, require an
+explicit supported version, apply each numbered migration in order, then decode
+current Zig types and validate/restore the state. Missing, invalid, and future
+versions fail explicitly; they are never treated as the current version.
+
+Checkpoint 1 → 2 introduces the conversation table. Checkpoint 2 → 3 normalizes
+the old `other` provider to `null` and promotes remaining inline identities into
+conversation bindings. Both provider representations shipped as version 2, so
+that migration accepts either. Handoff 1 → 2 preserves inference launch counters
+in their new representation. Migrations touch only known schema fields; terminal
+data, native messages, and other opaque payloads remain unchanged.
+
+For a serialized schema change, bump the owning version, append a migration, and
+add an old-format fixture test through `state_migrations.decode`. Do not edit
+earlier steps or scatter historical parsing branches through runtime code. Tests
+must cover a current-format round trip, the upgrade, and rejection of future or
+malformed versions. For handoff changes, verify pane/client continuity and rollback
+in an isolated runtime as well. Provider enum strings are serialized names;
+removing or renaming them is a schema change.
+
+Cold recovery atomically rewrites a migrated snapshot only after restoration has
+succeeded. A decode, migration, or restoration failure leaves the source file
+unchanged. Live migration happens entirely inside the candidate before the
+ownership commit. Terminal fingerprints and update ABI checks still reject
+incompatible live runtimes; JSON migrations cannot repair a process or terminal
+engine incompatibility. Migrations run forward only: an older binary rejects a
+newer snapshot rather than silently dropping state.
 
 ### Manual check
 

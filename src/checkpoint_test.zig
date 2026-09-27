@@ -3,6 +3,30 @@ const Terminal = @import("terminal.zig").Terminal;
 const cp = @import("checkpoint.zig");
 const a = @import("os.zig").allocator;
 
+test "V2 fixture migrates before typed decoding and restores unchanged terminal data" {
+    const migrations = @import("state_migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v2.json"));
+    defer decoded.deinit();
+    try std.testing.expect(decoded.migrated);
+    try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
+    try std.testing.expectEqual(null, decoded.parsed.value.panes[0].agent.provider);
+    try std.testing.expectEqual(null, decoded.parsed.value.panes[0].binding.provisional.provider);
+    try std.testing.expectEqual(null, decoded.parsed.value.panes[0].resume_hint.provider);
+    var fresh: @import("runtime.zig").Runtime = .{};
+    defer fresh.deinit();
+    try cp.restore(&fresh, decoded.parsed.value, true, "/tmp/unused-v2.sock", "/tmp/corgi");
+    const text = try fresh.panes.items[0].terminal.text();
+    defer a.free(text);
+    try std.testing.expect(std.mem.indexOf(u8, text, "other") != null);
+    try std.testing.expectEqualStrings("other", fresh.workspaces.items.items[0].customName());
+    // Re-emitting and reading the current schema requires no migration.
+    const json = try std.json.Stringify.valueAlloc(std.testing.allocator, decoded.parsed.value, .{});
+    defer std.testing.allocator.free(json);
+    const current = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, json);
+    defer current.deinit();
+    try std.testing.expect(!current.migrated);
+}
+
 test "sidebar order survives live and recovery checkpoints and defaults for old state" {
     const Runtime = @import("runtime.zig").Runtime;
     const ordering = @import("agent_order.zig");
@@ -105,12 +129,16 @@ test "legacy pane checkpoint migrates identity into an actor" {
     defer arena.deinit();
     var saved = try cp.capture(arena.allocator(), &original, true);
     saved.version = 1;
-    const panes = try arena.allocator().dupe(cp.Pane, saved.panes);
-    panes[0].binding = null;
-    saved.panes = panes;
+    const original_json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+    var tree = try std.json.parseFromSlice(std.json.Value, arena.allocator(), original_json, .{});
+    defer tree.deinit();
+    tree.value.object.getPtr("panes").?.array.items[0].object.getPtr("binding").?.* = .null;
+    const json = try std.json.Stringify.valueAlloc(arena.allocator(), tree.value, .{});
+    const decoded = try @import("state_migrations.zig").decode(cp.State, .checkpoint, arena.allocator(), json);
+    defer decoded.deinit();
     var fresh: Runtime = .{};
     defer fresh.deinit();
-    try cp.restore(&fresh, saved, true, "/tmp/unused-legacy-test.sock", "/tmp/corgi");
+    try cp.restore(&fresh, decoded.parsed.value, true, "/tmp/unused-legacy-test.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
     try std.testing.expectEqualStrings("legacy-session", fresh.panes.items[0].agent().sessionId());
     try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
