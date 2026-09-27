@@ -2,6 +2,15 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
+/// Error strings the server sends back in the "err" field of a response.
+pub const Rejection = enum {
+    StaleLayout,
+    NoPane,
+    UnsupportedViewerProtocol,
+    UnsupportedProtocol,
+    ProtocolRequired,
+    AmbiguousViewer,
+};
 pub const Connection = struct {
     fd: c_int,
     pub fn request(conn: *Connection, value: anytype) !std.json.Parsed(std.json.Value) {
@@ -16,9 +25,11 @@ pub const Connection = struct {
         errdefer result.deinit();
         const err = @import("agents.zig").str(result.value, "err");
         if (err.len > 0) {
-            if (std.mem.eql(u8, err, "StaleLayout")) return error.StaleLayout;
-            if (std.mem.eql(u8, err, "NoPane")) return error.NoPane;
-            return error.ServerRejected;
+            return switch (std.meta.stringToEnum(Rejection, err) orelse return error.ServerRejected) {
+                .StaleLayout => error.StaleLayout,
+                .NoPane => error.NoPane,
+                else => error.ServerRejected,
+            };
         }
         return result;
     }
@@ -27,10 +38,10 @@ pub const Connection = struct {
         errdefer result.deinit();
         const err = @import("agents.zig").str(result.value, "err");
         if (err.len > 0) {
-            if (std.mem.eql(u8, err, "UnsupportedViewerProtocol") or
-                std.mem.eql(u8, err, "UnsupportedProtocol") or
-                std.mem.eql(u8, err, "ProtocolRequired")) return error.IncompatibleViewerProtocol;
-            return error.ServerRejected;
+            return switch (std.meta.stringToEnum(Rejection, err) orelse return error.ServerRejected) {
+                .UnsupportedViewerProtocol, .UnsupportedProtocol, .ProtocolRequired => error.IncompatibleViewerProtocol,
+                else => error.ServerRejected,
+            };
         }
         // Validate the envelope before any viewer-specific payload is decoded.
         try @import("viewer_version.zig").require(result.value);

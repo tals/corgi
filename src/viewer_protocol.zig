@@ -12,19 +12,15 @@ const surface = @import("surface.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const eq = std.mem.eql;
+const Op = protocol.Op;
 
-pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
-    const op = agents.str(v, "op");
-    const known = for ([_][]const u8{ "viewer.open", "viewer.sync", "viewer.search", "pane.acknowledge" }) |name| {
-        if (eq(u8, op, name)) break true;
-    } else false;
-    if (!known) return false;
-    if ((eq(u8, op, "viewer.open") or eq(u8, op, "viewer.sync")) and !viewer_version.compatible(v)) {
+pub fn handle(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void {
+    if ((op == .@"viewer.open" or op == .@"viewer.sync") and !viewer_version.compatible(v)) {
         try cl.queue(.{ .err = "UnsupportedViewerProtocol", .viewer_protocol = viewer_version.version });
-        return true;
+        return;
     }
     try protocol.require(v, cl.protocol_version);
-    if (eq(u8, op, "viewer.open")) {
+    if (op == .@"viewer.open") {
         if (cl.subscribed or cl.launch_preview != null or cl.viewer) return error.AlreadyAttached;
         if (s.runtime.panes.items.len == 0 and s.initialWorkspace().model.count == 0) {
             const cwd = agents.str(v, "cwd");
@@ -54,7 +50,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         cl.protocol_version = 1;
         if (first) s.updateTheme(v);
         try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
-    } else if (eq(u8, op, "viewer.sync")) {
+    } else if (op == .@"viewer.sync") {
         if (!cl.viewer) return error.NotAttached;
         const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false, resource_detail: ?WorkspaceId = null, resources: bool = true };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
@@ -115,14 +111,14 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         const session = try std.json.Stringify.valueAlloc(allocator, snapshot, .{});
         const session_hash = std.hash.Wyhash.hash(0, session);
         try cl.queue(.{ .type = "view", .viewer_protocol = viewer_version.version, .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session }, .session_hash = session_hash, .surfaces = frames.items, .bell_seq = s.bell_seq, .bell_kind = s.last_bell_kind, .controls = cl.controls.items, .viewer = cl.viewer_id, .detach = s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.items.len == 1 });
-    } else if (eq(u8, op, "viewer.search")) {
+    } else if (op == .@"viewer.search") {
         const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const Request = struct { needle: []const u8, skip: usize = 0 };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const result = try p.terminal.search(parsed.value.needle, parsed.value.skip);
         try cl.queue(.{ .ok = true, .offset = result.offset, .match = result.match });
-    } else if (eq(u8, op, "pane.acknowledge")) {
+    } else if (op == .@"pane.acknowledge") {
         const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const through = if (v.object.get("through")) |value| if (value == .integer and value.integer >= 0) @as(u64, @intCast(value.integer)) else return error.InvalidAcknowledgement else 0;
         if (!eq(u8, agents.str(v, "session"), p.agent().sessionId())) return error.StaleAcknowledgement;
@@ -141,7 +137,6 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         }
         try cl.queue(.{ .ok = true });
     }
-    return true;
 }
 
 const SnapshotJson = struct {
@@ -204,24 +199,22 @@ fn targetViewer(s: anytype, v: std.json.Value) !?*@import("peer.zig").Client {
     for (s.clients.items) |*cl| if (cl.viewer and !cl.dead) return cl;
     return null;
 }
-pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
-    const op = agents.str(v, "op");
-    if (eq(u8, op, "viewer.list")) {
+pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value, op: Op) anyerror!void {
+    if (op == .@"viewer.list") {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
         try cl.queue(.{ .ok = true, .viewers = try viewers(s, arena.allocator()) });
-        return true;
+        return;
     }
-    if (!eq(u8, op, "action") and !eq(u8, op, "focus") and !eq(u8, op, "workspace.switch")) return false;
     const target = try targetViewer(s, v) orelse return error.NoViewer;
     if (target.controls.items.len >= 64) return error.ViewerBusy;
-    if (eq(u8, op, "action")) {
+    if (op == .action) {
         const name = try a.dupe(u8, agents.str(v, "name"));
         errdefer a.free(name);
         const value = try a.dupe(u8, agents.str(v, "value"));
         errdefer a.free(value);
         try enqueue(target, .{ .kind = .action, .name = name, .value = value });
-    } else if (eq(u8, op, "focus")) {
+    } else if (op == .focus) {
         const id = try protocol.typedId(layout.PaneId, v, "pane");
         if (s.runtime.pane(id) == null) return error.NoPane;
         try enqueue(target, .{ .kind = .focus, .id = @intFromEnum(id) });
@@ -231,7 +224,6 @@ pub fn routeControl(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         try enqueue(target, .{ .kind = .workspace, .id = @intFromEnum(id) });
     }
     try cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
-    return true;
 }
 
 fn enqueue(cl: anytype, value: @import("peer.zig").Control) !void {

@@ -9,6 +9,34 @@ pub var build_id: [64]u8 = undefined;
 fn providerArg(name: []const u8) !agents.Provider {
     return std.meta.stringToEnum(agents.Provider, name) orelse error.BadProvider;
 }
+const Command = enum {
+    __herdr_import,
+    @"__claude-credentials",
+    @"__update-start",
+    update,
+    attach,
+    serve,
+    __handoff,
+    dev,
+    @"--help",
+    help,
+    @"--version",
+    which,
+    @"__viewer-test",
+    reload,
+    checkpoint,
+    hook,
+    hooks,
+    agent,
+    native,
+    start,
+    onboard,
+    ping,
+    shutdown,
+    action,
+    rpc,
+};
+const NativeCommand = enum { start, list, events, stop, send };
 pub fn main() void {
     run() catch |err| {
         if (err == error.IncompatibleViewerProtocol) {
@@ -26,11 +54,12 @@ pub fn main() void {
 fn run() !void {
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
-    const no_update = args.len == 2 and eq(args[1], "--no-update");
+    const no_update = args.len == 2 and std.mem.eql(u8, args[1], "--no-update");
     const cmd = if (no_update) "attach" else if (args.len > 1) args[1] else "attach";
-    if (eq(cmd, "__herdr_import")) return @import("herdr_adapter.zig").importBridge(args[2..]);
+    const command = std.meta.stringToEnum(Command, cmd);
+    if (command == .__herdr_import) return @import("herdr_adapter.zig").importBridge(args[2..]);
     if (try updates.internal(args)) return;
-    if (eq(cmd, "__claude-credentials")) {
+    if (command == .@"__claude-credentials") {
         if (args.len != 3) return error.Usage;
         const mode = std.meta.stringToEnum(@import("claude_credentials.zig").Interaction, args[2]) orelse return error.Usage;
         return @import("claude_credentials.zig").serve(mode);
@@ -39,11 +68,11 @@ fn run() !void {
     defer a.free(path);
     const exe = try std.fs.selfExePathAlloc(a);
     defer a.free(exe);
-    if (eq(cmd, "__update-start")) return ensureServer(path, exe);
-    if (eq(cmd, "update")) return updates.command(args[2..], path, exe);
+    if (command == .@"__update-start") return ensureServer(path, exe);
+    if (command == .update) return updates.command(args[2..], path, exe);
     if (std.meta.stringToEnum(agents.Provider, std.fs.path.basename(args[0]))) |provider| try integration.launch(provider, args[1..], exe);
-    if (eq(cmd, "attach") and os.env("CORGI_PANE") != null) return error.NestedCorgi;
-    if (eq(cmd, "serve") or eq(cmd, "__handoff") or eq(cmd, "dev")) {
+    if (command == .attach and os.env("CORGI_PANE") != null) return error.NestedCorgi;
+    if (command == .serve or command == .__handoff or command == .dev) {
         var file = try std.fs.openFileAbsolute(exe, .{});
         defer file.close();
         var hash = std.crypto.hash.sha2.Sha256.init(.{});
@@ -55,14 +84,14 @@ fn run() !void {
         }
         build_id = std.fmt.bytesToHex(hash.finalResult(), .lower);
     }
-    if (eq(cmd, "dev")) {
+    if (command == .dev) {
         try ensureServer(path, exe);
         const fd = try os.connect(path);
         defer _ = c.close(fd);
         var conn: @import("rpc.zig").Connection = .{ .fd = fd };
         const hello = try conn.call(.{ .op = "hello", .protocol = 1 });
         defer hello.deinit();
-        if (!eq(agents.str(hello.value, "build_id"), &build_id)) try reload(path, exe);
+        if (!std.mem.eql(u8, agents.str(hello.value, "build_id"), &build_id)) try reload(path, exe);
         if (os.env("CORGI_PANE")) |pane| {
             return request(path, .{ .op = "action", .name = "relaunch", .value = exe, .pane = try std.fmt.parseInt(u32, pane, 10) });
         }
@@ -74,12 +103,12 @@ fn run() !void {
         };
         return;
     }
-    if (eq(cmd, "--help") or eq(cmd, "help")) {
+    if (command == .@"--help" or command == .help) {
         try os.writeAll(1, help);
         return os.writeAll(1, @import("cli.zig").help);
     }
-    if (eq(cmd, "--version")) return os.writeAll(1, "corgi " ++ @import("corgi_options").release_version ++ " (" ++ @import("corgi_options").release_commit ++ ")\n");
-    if (eq(cmd, "which")) {
+    if (command == .@"--version") return os.writeAll(1, "corgi " ++ @import("corgi_options").release_version ++ " (" ++ @import("corgi_options").release_commit ++ ")\n");
+    if (command == .which) {
         if (args.len != 3) return error.Usage;
         const provider = try providerArg(args[2]);
         const binary = try @import("discovery.zig").resolve(provider, null);
@@ -87,97 +116,114 @@ fn run() !void {
         try os.writeAll(1, binary);
         return os.writeAll(1, "\n");
     }
-    if (@import("corgi_options").viewer_test_driver and eq(cmd, "__viewer-test")) return @import("viewer_test.zig").run(path);
-    if (eq(cmd, "__handoff")) {
-        if (args.len != 4) return error.Usage;
-        @import("handoff.zig").importAndRun(path, exe, try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
-    }
-    if (eq(cmd, "reload")) {
-        if (args.len > 3) return error.Usage;
-        return reload(path, if (args.len == 3) args[2] else exe);
-    }
-    if (eq(cmd, "checkpoint")) return request(path, .{ .op = "recovery.save", .protocol = 1 });
-    if (eq(cmd, "serve")) {
-        var server: @import("server.zig").Server = .{ .socket = path, .executable = exe };
-        return server.run();
-    }
-    if (eq(cmd, "hook")) {
-        if (args.len != 3) return error.Usage;
-        integration.hook(providerArg(args[2]) catch return, path) catch {};
-        return;
-    }
-    if (eq(cmd, "hooks")) {
-        if (args.len != 3) return error.Usage;
-        const config = try integration.config(try providerArg(args[2]), exe);
-        defer a.free(config);
-        try os.writeAll(1, config);
-        return os.writeAll(1, "\n");
-    }
-    if (eq(cmd, "agent")) {
-        if (args.len < 3) return error.Usage;
-        try integration.launch(try providerArg(args[2]), args[3..], exe);
-    }
-    if (eq(cmd, "native")) {
-        if (args.len < 3) return error.Usage;
-        if (eq(args[2], "start")) {
-            if (args.len != 4 and (args.len != 6 or !eq(args[4], "--workspace"))) return error.Usage;
+    if (@import("corgi_options").viewer_test_driver and command == .@"__viewer-test") return @import("viewer_test.zig").run(path);
+    switch (command orelse return error.UnknownCommand) {
+        .__handoff => {
+            if (args.len != 4) return error.Usage;
+            @import("handoff.zig").importAndRun(path, exe, try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
+        },
+        .reload => {
+            if (args.len > 3) return error.Usage;
+            return reload(path, if (args.len == 3) args[2] else exe);
+        },
+        .checkpoint => return request(path, .{ .op = "recovery.save", .protocol = 1 }),
+        .serve => {
+            var server: @import("server.zig").Server = .{ .socket = path, .executable = exe };
+            return server.run();
+        },
+        .hook => {
+            if (args.len != 3) return error.Usage;
+            integration.hook(providerArg(args[2]) catch return, path) catch {};
+            return;
+        },
+        .hooks => {
+            if (args.len != 3) return error.Usage;
+            const config = try integration.config(try providerArg(args[2]), exe);
+            defer a.free(config);
+            try os.writeAll(1, config);
+            return os.writeAll(1, "\n");
+        },
+        .agent => {
+            if (args.len < 3) return error.Usage;
+            try integration.launch(try providerArg(args[2]), args[3..], exe);
+        },
+        .native => {
+            if (args.len < 3) return error.Usage;
+            const sub = std.meta.stringToEnum(NativeCommand, args[2]) orelse return error.Usage;
+            switch (sub) {
+                .start => {
+                    if (args.len != 4 and (args.len != 6 or !std.mem.eql(u8, args[4], "--workspace"))) return error.Usage;
+                    try ensureServer(path, exe);
+                    const cwd = try std.process.getCwdAlloc(a);
+                    defer a.free(cwd);
+                    if (args.len == 6) return request(path, .{ .op = "native.start", .provider = args[3], .cwd = cwd, .workspace = try std.fmt.parseInt(u32, args[5], 10) });
+                    return request(path, .{ .op = "native.start", .provider = args[3], .cwd = cwd });
+                },
+                .list => return request(path, .{ .op = "native.list" }),
+                .events => {
+                    if (args.len < 4) return error.Usage;
+                    const id = try std.fmt.parseInt(u32, args[3], 10);
+                    return request(path, .{ .op = "native.events", .session = id, .after = if (args.len > 4) try std.fmt.parseInt(u64, args[4], 10) else 0 });
+                },
+                .stop => {
+                    if (args.len < 4) return error.Usage;
+                    const id = try std.fmt.parseInt(u32, args[3], 10);
+                    return request(path, .{ .op = "native.stop", .session = id });
+                },
+                .send => {
+                    if (args.len != 5) return error.Usage;
+                    const id = try std.fmt.parseInt(u32, args[3], 10);
+                    const msg = try std.json.parseFromSlice(std.json.Value, a, args[4], .{});
+                    defer msg.deinit();
+                    return request(path, .{ .op = "native.send", .session = id, .message = msg.value });
+                },
+            }
+        },
+        .attach => {
+            if (!(args.len == 3 and std.mem.eql(u8, args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
             try ensureServer(path, exe);
-            const cwd = try std.process.getCwdAlloc(a);
-            defer a.free(cwd);
-            if (args.len == 6) return request(path, .{ .op = "native.start", .provider = args[3], .cwd = cwd, .workspace = try std.fmt.parseInt(u32, args[5], 10) });
-            return request(path, .{ .op = "native.start", .provider = args[3], .cwd = cwd });
-        }
-        if (eq(args[2], "list")) return request(path, .{ .op = "native.list" });
-        if (args.len < 4) return error.Usage;
-        const id = try std.fmt.parseInt(u32, args[3], 10);
-        if (eq(args[2], "events")) return request(path, .{ .op = "native.events", .session = id, .after = if (args.len > 4) try std.fmt.parseInt(u64, args[4], 10) else 0 });
-        if (eq(args[2], "stop")) return request(path, .{ .op = "native.stop", .session = id });
-        if (eq(args[2], "send") and args.len == 5) {
-            const msg = try std.json.parseFromSlice(std.json.Value, a, args[4], .{});
-            defer msg.deinit();
-            return request(path, .{ .op = "native.send", .session = id, .message = msg.value });
-        }
-        return error.Usage;
+            updates.background(path, exe) catch {};
+            return @import("client.zig").attach(path);
+        },
+        .start => {
+            if (!(args.len == 3 and std.mem.eql(u8, args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
+            try ensureServer(path, exe);
+            updates.background(path, exe) catch {};
+            return;
+        },
+        .onboard => {
+            if (args.len != 2) return error.Usage;
+            if (os.env("CORGI_PANE")) |pane| {
+                return request(path, .{ .op = "action", .name = "onboard", .pane = try std.fmt.parseInt(u32, pane, 10) });
+            }
+            if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
+            try ensureServer(path, exe);
+            return @import("client.zig").onboard(path);
+        },
+        .ping => return request(path, .{ .op = "ping" }),
+        .shutdown => {
+            try request(path, .{ .op = "shutdown" });
+            // The daemon stops listening before its slower teardown. Waiting for
+            // that lets an immediate start get a fresh daemon, not the exiting one.
+            for (0..500) |_| {
+                const fd = os.connect(path) catch return;
+                _ = c.close(fd);
+                std.Thread.sleep(10 * std.time.ns_per_ms);
+            }
+            return error.ShutdownTimedOut;
+        },
+        .action => {
+            if (args.len < 3) return error.Usage;
+            return request(path, .{ .op = "action", .name = args[2], .value = if (args.len > 3) args[3] else "" });
+        },
+        .rpc => {
+            if (args.len != 3) return error.Usage;
+            const parsed = try std.json.parseFromSlice(std.json.Value, a, args[2], .{});
+            defer parsed.deinit();
+            return request(path, parsed.value);
+        },
+        else => return error.UnknownCommand,
     }
-    if (eq(cmd, "attach") or eq(cmd, "start")) {
-        if (!(args.len == 3 and eq(args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
-        try ensureServer(path, exe);
-        updates.background(path, exe) catch {};
-    }
-    if (eq(cmd, "onboard")) {
-        if (args.len != 2) return error.Usage;
-        if (os.env("CORGI_PANE")) |pane| {
-            return request(path, .{ .op = "action", .name = "onboard", .pane = try std.fmt.parseInt(u32, pane, 10) });
-        }
-        if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
-        try ensureServer(path, exe);
-        return @import("client.zig").onboard(path);
-    }
-    if (eq(cmd, "attach")) return @import("client.zig").attach(path);
-    if (eq(cmd, "start")) return;
-    if (eq(cmd, "ping")) return request(path, .{ .op = cmd });
-    if (eq(cmd, "shutdown")) {
-        try request(path, .{ .op = cmd });
-        // The daemon stops listening before its slower teardown. Waiting for
-        // that lets an immediate start get a fresh daemon, not the exiting one.
-        for (0..500) |_| {
-            const fd = os.connect(path) catch return;
-            _ = c.close(fd);
-            std.Thread.sleep(10 * std.time.ns_per_ms);
-        }
-        return error.ShutdownTimedOut;
-    }
-    if (eq(cmd, "action")) {
-        if (args.len < 3) return error.Usage;
-        return request(path, .{ .op = "action", .name = args[2], .value = if (args.len > 3) args[3] else "" });
-    }
-    if (eq(cmd, "rpc")) {
-        if (args.len != 3) return error.Usage;
-        const parsed = try std.json.parseFromSlice(std.json.Value, a, args[2], .{});
-        defer parsed.deinit();
-        return request(path, parsed.value);
-    }
-    return error.UnknownCommand;
 }
 fn reload(path: []const u8, executable: []const u8) !void {
     return request(path, .{ .op = "server.reload", .protocol = 1, .executable = executable });
@@ -190,7 +236,7 @@ fn request(path: []const u8, value: anytype) !void {
     defer parsed.deinit();
     const err = agents.str(parsed.value, "err");
     if (err.len > 0) {
-        if (eq(err, "AmbiguousViewer")) return error.AmbiguousViewer;
+        if (std.meta.stringToEnum(@import("rpc.zig").Rejection, err) == .AmbiguousViewer) return error.AmbiguousViewer;
         std.debug.print("{s}\n", .{err});
         return error.ServerRejected;
     }
@@ -268,9 +314,6 @@ fn reportServerLog(log_path: []const u8, start: u64) void {
         return;
     }
     std.debug.print("corgi: server did not start; {s}:\n{s}\n", .{ log_path, trimmed });
-}
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
 }
 const help =
     \\corgi — a small Ghostty-powered agent terminal

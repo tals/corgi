@@ -12,6 +12,7 @@ const runtime = @import("runtime.zig");
 const native = @import("native.zig");
 const NativeId = native.Session.Id;
 const protocol = @import("protocol.zig");
+const Op = protocol.Op;
 const Theme = @import("theme.zig").Theme;
 const Client = @import("peer.zig").Client;
 pub const Server = struct {
@@ -195,284 +196,287 @@ pub const Server = struct {
         subscription.preview = preview;
     }
 
-    fn runtimeRequest(s: *Server, cl: *Client, v: std.json.Value) !bool {
-        const op = agents.str(v, "op");
-        if (eq(op, "hello")) {
-            try protocol.require(v, null);
-            cl.protocol_version = protocol.version;
-            try cl.queue(.{ .type = "hello", .protocol = protocol.version, .capabilities = protocol.capabilities, .server_pid = c.getpid(), .build_id = &@import("main.zig").build_id, .executable = s.executable, .release_version = @import("corgi_options").release_version, .update_abi = @import("updates.zig").abi });
-            return true;
-        }
-        var known = false;
-        for (protocol.capabilities) |name| if (eq(op, name)) {
-            known = true;
-            break;
-        };
-        if (!known) return false;
-        try protocol.require(v, cl.protocol_version);
-        if (eq(op, "session.snapshot") or eq(op, "session.subscribe")) {
-            if (eq(op, "session.subscribe") and (cl.viewer or cl.launch_preview != null)) return error.AlreadyAttached;
-            try s.queueSession(cl);
-            if (eq(op, "session.subscribe")) cl.subscribed = true;
-        } else if (eq(op, "conversation.list")) {
-            var arena = std.heap.ArenaAllocator.init(a);
-            defer arena.deinit();
-            const snapshot = try protocol.snapshot(arena.allocator(), &s.runtime);
-            try cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
-        } else if (eq(op, "conversation.acknowledge")) {
-            const actor = s.runtime.conversations.byId(try protocol.typedId(ActorId, v, "conversation")) orelse return error.NoConversation;
-            const through = v.object.get("through") orelse return error.InvalidAcknowledgement;
-            if (through != .integer or through.integer < 0) return error.InvalidAcknowledgement;
-            const stamp = v.object.get("attention_at");
-            actor.acknowledge(@intCast(through.integer), if (stamp != null and stamp.? == .integer) stamp.?.integer else null);
-            s.runtime.changed();
-            s.dirty = true;
-            try cl.queue(.{ .ok = true });
-        } else if (eq(op, "pane.surface")) {
-            const id = try protocol.typedId(layout.PaneId, v, "pane");
-            const p = s.pane(id) orelse return error.NoPane;
-            var arena = std.heap.ArenaAllocator.init(a);
-            defer arena.deinit();
-            const surface = try @import("surface.zig").capture(arena.allocator(), id, p.terminal);
-            try cl.queue(.{ .type = "surface", .protocol = protocol.version, .server_pid = c.getpid(), .revision = s.runtime.revision, .surface = surface });
-        }
-        return true;
-    }
-
     fn request(s: *Server, cl: *Client, v: std.json.Value) !void {
         if (v != .object) return error.UnknownOperation;
-        const operation = agents.str(v, "op");
-        if (eq(operation, "git.push")) {
-            try protocol.require(v, cl.protocol_version);
-            if (s.reload_executable != null) return error.ReloadInProgress;
-            const Request = struct { workspace: WorkspaceId, ref: @import("git_push.zig").RefView };
-            const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
-            defer parsed.deinit();
-            try s.runtime.git_push.start(&s.runtime.workspaces, parsed.value.workspace, parsed.value.ref);
-            s.dirty = true;
-            try cl.queue(.{ .ok = true });
-            return;
-        }
-        if (std.mem.startsWith(u8, operation, "onboarding.")) {
-            try protocol.require(v, cl.protocol_version);
-            const operation_value = v.object.get("operation") orelse return error.InvalidImport;
-            if (operation_value != .integer or operation_value.integer < 0) return error.InvalidImport;
-            const id: u64 = @intCast(operation_value.integer);
-            if (eq(operation, "onboarding.status")) {
-                if (id == s.handoff_operation and id != 0) {
-                    const status = s.herdr_import.status();
-                    try cl.queue(.{ .ok = true, .progress = .{ .phase = @tagName(status.phase), .completed = status.completed, .total = status.total, .workspace = status.workspace, .message = status.message } });
-                } else if (id == s.onboarding_copy.operation and id != 0) {
-                    try cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
-                } else return error.NoImport;
-                return;
-            }
-            if (id == 0) return error.InvalidImport;
-            // Retrying an acknowledged/lost start response must not duplicate work.
-            if ((eq(operation, "onboarding.handoff") and id == s.handoff_operation) or (eq(operation, "onboarding.copy") and id == s.onboarding_copy.operation)) {
-                try cl.queue(.{ .ok = true });
-                return;
-            }
-            if (s.reload_executable != null or s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
-            if (eq(operation, "onboarding.handoff")) {
-                const pgid = try protocol.id(v, "viewer_pgid");
-                if (pgid > std.math.maxInt(i32)) return error.InvalidImport;
-                try s.herdr_import.start(agents.str(v, "socket"), s.executable, s.theme, @intCast(pgid));
-                s.handoff_operation = id;
-            } else if (eq(operation, "onboarding.copy")) {
-                try s.onboarding_copy.start(v, id);
-            } else return error.UnknownOperation;
-            s.rememberImportStarter();
-            try cl.queue(.{ .ok = true });
-            return;
-        }
-        if (eq(operation, "server.reload")) {
-            try protocol.require(v, cl.protocol_version);
-            if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
-            if (s.reload_executable != null) return error.ReloadInProgress;
-            if (s.runtime.git_push.busy()) return error.GitPushInProgress;
-            const executable = agents.str(v, "executable");
-            if (!std.fs.path.isAbsolute(executable)) return error.InvalidExecutable;
-            s.reload_executable = try a.dupe(u8, executable);
-            s.reload_requester = cl.fd;
-            return;
-        }
-        if (eq(operation, "recovery.save")) {
-            try protocol.require(v, cl.protocol_version);
-            try @import("recovery.zig").save(&s.runtime, s.socket);
-            const path = try @import("recovery.zig").path(s.socket);
-            defer a.free(path);
-            try cl.queue(.{ .ok = true, .path = path });
-            return;
-        }
-        if (eq(operation, "agent.command.preview")) {
-            try protocol.require(v, cl.protocol_version);
-            const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
-            const requested = agents.str(v, "cwd");
-            const cwd = if (requested.len > 0) requested else ws.cwd;
-            if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
-            const id = try protocol.id(v, "request");
-            const worker = s.command_previews orelse return error.Unavailable;
-            try cl.queue(.{ .ok = true, .resolution = try worker.request(id, agents.str(v, "command"), cwd) });
-            return;
-        }
-        if (eq(operation, "agent.preview") or eq(operation, "agent.track_usage") or eq(operation, "agent.subscribe")) {
-            try protocol.require(v, cl.protocol_version);
-            const subscribe = eq(operation, "agent.subscribe");
-            if (subscribe and (cl.viewer or cl.subscribed)) return error.AlreadyAttached;
-            const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
-            const requested = agents.str(v, "cwd");
-            const cwd = if (requested.len > 0) requested else ws.cwd;
-            if (!std.fs.path.isAbsolute(cwd) or cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
-            const preview = if (s.launch_previews) |worker| (if (eq(operation, "agent.track_usage")) worker.trackUsage(cwd) else worker.preview(cwd)) else @import("agent_launcher.zig").Preview{};
-            if (subscribe) {
-                cl.launch_preview = .{ .len = cwd.len, .preview = preview, .checked = std.time.milliTimestamp() };
-                @memcpy(cl.launch_preview.?.cwd[0..cwd.len], cwd);
-                try cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
-            } else try cl.queue(.{ .ok = true, .preview = preview });
-            return;
-        }
-        if (eq(operation, "inference.configure")) {
-            try protocol.require(v, cl.protocol_version);
-            const setup = @import("inference_setup.zig");
-            const choice = std.meta.stringToEnum(setup.Choice, agents.str(v, "choice")) orelse return error.BadProvider;
-            const worker = s.summaries orelse return error.InferenceUnavailable;
-            worker.configure(choice);
-            const saved = if (setup.path(s.socket)) |file| blk: {
-                defer a.free(file);
-                setup.save(file, choice) catch break :blk false;
-                break :blk true;
-            } else |_| false;
-            s.publishInference();
-            try cl.queue(.{ .ok = true, .saved = saved, .inference = s.runtime.inference });
-            return;
-        }
-        if (eq(operation, "session.command")) {
-            try protocol.require(v, cl.protocol_version);
-            var arena = std.heap.ArenaAllocator.init(a);
-            defer arena.deinit();
-            const parsed = try std.json.parseFromValue(@import("session.zig").Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
-            const result = try s.execute(parsed.value, arena.allocator());
-            try cl.queue(.{ .ok = true, .result = result });
-            return;
-        }
-        if (try @import("viewer_protocol.zig").handle(s, cl, v)) return;
-        if (try @import("viewer_protocol.zig").routeControl(s, cl, v)) return;
-        if (eq(operation, "session.locate")) {
-            try protocol.require(v, cl.protocol_version);
-            try cl.queue(.{ .ok = true, .result = try @import("session.zig").location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
-            return;
-        }
-        if (eq(operation, "session.list")) {
-            try protocol.require(v, cl.protocol_version);
-            var arena = std.heap.ArenaAllocator.init(a);
-            defer arena.deinit();
-            try cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try @import("viewer_protocol.zig").viewers(s, arena.allocator()) });
-            return;
-        }
-        if (try s.runtimeRequest(cl, v)) return;
-        const op = operation;
-        if (eq(op, "native.start")) {
-            if (s.runtime.sessions.items.len >= 16) return error.TooManyNativeSessions;
-            const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
-            const cwd = agents.str(v, "cwd");
-            try s.runtime.sessions.ensureUnusedCapacity(a, 1);
-            const ws = if (v.object.get("workspace") != null) try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace")) else try s.onlyWorkspace();
-            var session = try native.Session.start(s.runtime.next_session, provider, if (cwd.len > 0) cwd else ws.cwd);
-            session.workspace_id = ws.id;
-            s.runtime.sessions.appendAssumeCapacity(session);
-            s.runtime.next_session = s.runtime.next_session.next();
-            s.dirty = true;
-            try cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
-        } else if (eq(op, "native.list")) {
-            const Info = struct { id: NativeId, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
-            var info: std.ArrayList(Info) = .empty;
-            defer info.deinit(a);
-            for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.status(), .attention = session.attention(), .observation = session.observation(), .unread = session.observation().unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
-            try cl.queue(.{ .ok = true, .sessions = info.items });
-        } else if (std.mem.startsWith(u8, op, "native.")) {
-            const id: NativeId = @enumFromInt(std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession);
-            for (s.runtime.sessions.items, 0..) |*session, index| if (session.id == id) {
+        const op = protocol.parse(v) orelse return error.UnknownOperation;
+        switch (op) {
+            .hello => {
+                try protocol.require(v, null);
+                cl.protocol_version = protocol.version;
+                try cl.queue(.{ .type = "hello", .protocol = protocol.version, .capabilities = protocol.capabilities, .server_pid = c.getpid(), .build_id = &@import("main.zig").build_id, .executable = s.executable, .release_version = @import("corgi_options").release_version, .update_abi = @import("updates.zig").abi });
+            },
+            .@"git.push" => {
+                try protocol.require(v, cl.protocol_version);
+                if (s.reload_executable != null) return error.ReloadInProgress;
+                const Request = struct { workspace: WorkspaceId, ref: @import("git_push.zig").RefView };
+                const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
+                defer parsed.deinit();
+                try s.runtime.git_push.start(&s.runtime.workspaces, parsed.value.workspace, parsed.value.ref);
                 s.dirty = true;
-                if (eq(op, "native.stop")) {
-                    session.destroy();
-                    _ = s.runtime.sessions.orderedRemove(index);
+                try cl.queue(.{ .ok = true });
+            },
+            .@"onboarding.status", .@"onboarding.handoff", .@"onboarding.copy" => {
+                try protocol.require(v, cl.protocol_version);
+                const operation_value = v.object.get("operation") orelse return error.InvalidImport;
+                if (operation_value != .integer or operation_value.integer < 0) return error.InvalidImport;
+                const id: u64 = @intCast(operation_value.integer);
+                if (op == .@"onboarding.status") {
+                    if (id == s.handoff_operation and id != 0) {
+                        const status = s.herdr_import.status();
+                        try cl.queue(.{ .ok = true, .progress = .{ .phase = @tagName(status.phase), .completed = status.completed, .total = status.total, .workspace = status.workspace, .message = status.message } });
+                    } else if (id == s.onboarding_copy.operation and id != 0) {
+                        try cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
+                    } else return error.NoImport;
+                    return;
+                }
+                if (id == 0) return error.InvalidImport;
+                // Retrying an acknowledged/lost start response must not duplicate work.
+                if ((op == .@"onboarding.handoff" and id == s.handoff_operation) or (op == .@"onboarding.copy" and id == s.onboarding_copy.operation)) {
                     try cl.queue(.{ .ok = true });
-                } else if (eq(op, "native.send")) {
-                    try session.send(&s.runtime.conversations, v.object.get("message") orelse return error.InvalidMessage);
+                    return;
+                }
+                if (s.reload_executable != null or s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
+                if (op == .@"onboarding.handoff") {
+                    const pgid = try protocol.id(v, "viewer_pgid");
+                    if (pgid > std.math.maxInt(i32)) return error.InvalidImport;
+                    try s.herdr_import.start(agents.str(v, "socket"), s.executable, s.theme, @intCast(pgid));
+                    s.handoff_operation = id;
+                } else {
+                    try s.onboarding_copy.start(v, id);
+                }
+                s.rememberImportStarter();
+                try cl.queue(.{ .ok = true });
+            },
+            .@"server.reload" => {
+                try protocol.require(v, cl.protocol_version);
+                if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
+                if (s.reload_executable != null) return error.ReloadInProgress;
+                if (s.runtime.git_push.busy()) return error.GitPushInProgress;
+                const executable = agents.str(v, "executable");
+                if (!std.fs.path.isAbsolute(executable)) return error.InvalidExecutable;
+                s.reload_executable = try a.dupe(u8, executable);
+                s.reload_requester = cl.fd;
+            },
+            .@"recovery.save" => {
+                try protocol.require(v, cl.protocol_version);
+                try @import("recovery.zig").save(&s.runtime, s.socket);
+                const path = try @import("recovery.zig").path(s.socket);
+                defer a.free(path);
+                try cl.queue(.{ .ok = true, .path = path });
+            },
+            .@"agent.command.preview" => {
+                try protocol.require(v, cl.protocol_version);
+                const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
+                const requested = agents.str(v, "cwd");
+                const cwd = if (requested.len > 0) requested else ws.cwd;
+                if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
+                const id = try protocol.id(v, "request");
+                const worker = s.command_previews orelse return error.Unavailable;
+                try cl.queue(.{ .ok = true, .resolution = try worker.request(id, agents.str(v, "command"), cwd) });
+            },
+            .@"agent.preview", .@"agent.track_usage", .@"agent.subscribe" => {
+                try protocol.require(v, cl.protocol_version);
+                const subscribe = op == .@"agent.subscribe";
+                if (subscribe and (cl.viewer or cl.subscribed)) return error.AlreadyAttached;
+                const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
+                const requested = agents.str(v, "cwd");
+                const cwd = if (requested.len > 0) requested else ws.cwd;
+                if (!std.fs.path.isAbsolute(cwd) or cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
+                const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else @import("agent_launcher.zig").Preview{};
+                if (subscribe) {
+                    cl.launch_preview = .{ .len = cwd.len, .preview = preview, .checked = std.time.milliTimestamp() };
+                    @memcpy(cl.launch_preview.?.cwd[0..cwd.len], cwd);
+                    try cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
+                } else try cl.queue(.{ .ok = true, .preview = preview });
+            },
+            .@"inference.configure" => {
+                try protocol.require(v, cl.protocol_version);
+                const setup = @import("inference_setup.zig");
+                const choice = std.meta.stringToEnum(setup.Choice, agents.str(v, "choice")) orelse return error.BadProvider;
+                const worker = s.summaries orelse return error.InferenceUnavailable;
+                worker.configure(choice);
+                const saved = if (setup.path(s.socket)) |file| blk: {
+                    defer a.free(file);
+                    setup.save(file, choice) catch break :blk false;
+                    break :blk true;
+                } else |_| false;
+                s.publishInference();
+                try cl.queue(.{ .ok = true, .saved = saved, .inference = s.runtime.inference });
+            },
+            .@"session.command" => {
+                try protocol.require(v, cl.protocol_version);
+                var arena = std.heap.ArenaAllocator.init(a);
+                defer arena.deinit();
+                const parsed = try std.json.parseFromValue(@import("session.zig").Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
+                const result = try s.execute(parsed.value, arena.allocator());
+                try cl.queue(.{ .ok = true, .result = result });
+            },
+            .@"viewer.open", .@"viewer.sync", .@"viewer.search", .@"pane.acknowledge" => {
+                try @import("viewer_protocol.zig").handle(s, cl, v, op);
+            },
+            .@"viewer.list", .action, .focus, .@"workspace.switch" => {
+                try @import("viewer_protocol.zig").routeControl(s, cl, v, op);
+            },
+            .@"session.locate" => {
+                try protocol.require(v, cl.protocol_version);
+                try cl.queue(.{ .ok = true, .result = try @import("session.zig").location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
+            },
+            .@"session.list" => {
+                try protocol.require(v, cl.protocol_version);
+                var arena = std.heap.ArenaAllocator.init(a);
+                defer arena.deinit();
+                try cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try @import("viewer_protocol.zig").viewers(s, arena.allocator()) });
+            },
+            .@"session.snapshot", .@"session.subscribe" => {
+                try protocol.require(v, cl.protocol_version);
+                if (op == .@"session.subscribe" and (cl.viewer or cl.launch_preview != null)) return error.AlreadyAttached;
+                try s.queueSession(cl);
+                if (op == .@"session.subscribe") cl.subscribed = true;
+            },
+            .@"conversation.list" => {
+                try protocol.require(v, cl.protocol_version);
+                var arena = std.heap.ArenaAllocator.init(a);
+                defer arena.deinit();
+                const snapshot = try protocol.snapshot(arena.allocator(), &s.runtime);
+                try cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
+            },
+            .@"conversation.acknowledge" => {
+                try protocol.require(v, cl.protocol_version);
+                const actor = s.runtime.conversations.byId(try protocol.typedId(ActorId, v, "conversation")) orelse return error.NoConversation;
+                const through = v.object.get("through") orelse return error.InvalidAcknowledgement;
+                if (through != .integer or through.integer < 0) return error.InvalidAcknowledgement;
+                const stamp = v.object.get("attention_at");
+                actor.acknowledge(@intCast(through.integer), if (stamp != null and stamp.? == .integer) stamp.?.integer else null);
+                s.runtime.changed();
+                s.dirty = true;
+                try cl.queue(.{ .ok = true });
+            },
+            .@"pane.surface" => {
+                try protocol.require(v, cl.protocol_version);
+                const id = try protocol.typedId(layout.PaneId, v, "pane");
+                const p = s.pane(id) orelse return error.NoPane;
+                var arena = std.heap.ArenaAllocator.init(a);
+                defer arena.deinit();
+                const surface = try @import("surface.zig").capture(arena.allocator(), id, p.terminal);
+                try cl.queue(.{ .type = "surface", .protocol = protocol.version, .server_pid = c.getpid(), .revision = s.runtime.revision, .surface = surface });
+            },
+            .@"native.start" => {
+                if (s.runtime.sessions.items.len >= 16) return error.TooManyNativeSessions;
+                const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
+                const cwd = agents.str(v, "cwd");
+                try s.runtime.sessions.ensureUnusedCapacity(a, 1);
+                const ws = if (v.object.get("workspace") != null) try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace")) else try s.onlyWorkspace();
+                var session = try native.Session.start(s.runtime.next_session, provider, if (cwd.len > 0) cwd else ws.cwd);
+                session.workspace_id = ws.id;
+                s.runtime.sessions.appendAssumeCapacity(session);
+                s.runtime.next_session = s.runtime.next_session.next();
+                s.dirty = true;
+                try cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
+            },
+            .@"native.list" => {
+                const Info = struct { id: NativeId, pid: i32, session_id: []const u8, provider: agents.Provider, ready: bool, exited: bool, state: agents.State, attention: agents.Attention, observation: agents.observation.State, unread: bool, pending_requests: usize, active_tools: usize, next_seq: u64 };
+                var info: std.ArrayList(Info) = .empty;
+                defer info.deinit(a);
+                for (s.runtime.sessions.items) |session| try info.append(a, .{ .id = session.id, .pid = session.child.id, .session_id = session.resume_hint.session[0..session.resume_hint.len], .provider = session.provider, .ready = session.ready, .exited = session.exited, .state = session.status(), .attention = session.attention(), .observation = session.observation(), .unread = session.observation().unread(), .pending_requests = session.approvals.items.len, .active_tools = session.active_tools.items.len, .next_seq = session.next_seq });
+                try cl.queue(.{ .ok = true, .sessions = info.items });
+            },
+            .@"native.stop", .@"native.send", .@"native.events" => {
+                const id: NativeId = @enumFromInt(std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession);
+                for (s.runtime.sessions.items, 0..) |*session, index| if (session.id == id) {
+                    s.dirty = true;
+                    switch (op) {
+                        .@"native.stop" => {
+                            session.destroy();
+                            _ = s.runtime.sessions.orderedRemove(index);
+                            try cl.queue(.{ .ok = true });
+                        },
+                        .@"native.send" => {
+                            try session.send(&s.runtime.conversations, v.object.get("message") orelse return error.InvalidMessage);
+                            try cl.queue(.{ .ok = true });
+                        },
+                        .@"native.events" => {
+                            const after = std.math.cast(u64, number(v, "after", 0)) orelse 0;
+                            var events: std.ArrayList(native.Event) = .empty;
+                            defer events.deinit(a);
+                            for (session.events.items) |event| if (event.seq > after) try events.append(a, event);
+                            const requests = try session.approvalLines(a);
+                            defer a.free(requests);
+                            try cl.queue(.{ .ok = true, .events = events.items, .pending_requests = requests, .next_seq = session.next_seq, .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq });
+                            session.acknowledge();
+                        },
+                        else => unreachable,
+                    }
+                    return;
+                };
+                return error.NoNativeSession;
+            },
+            .theme => {
+                if (!cl.viewer) return error.NotAttached;
+                for (s.clients.items) |viewer| if (viewer.viewer and !viewer.dead) {
+                    if (viewer.fd == cl.fd) s.updateTheme(v);
+                    break;
+                };
+                if (cl.viewer) try cl.queue(.{ .ok = true });
+            },
+            .hook => {
+                const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
+                const event = v.object.get("event") orelse return error.NoEvent;
+                const hook = agents.providers.Backend.init(provider).hook(event);
+                const background = if (v.object.get("background")) |value| value == .bool and value.bool else false;
+                if (background) {
+                    // A daemon-hosted session only updates a conversation some pane
+                    // already follows (see continued-in handling); it never selects.
+                    if (hook) |h| if (s.runtime.conversations.find(provider, h.session)) |actor| {
+                        const now = std.time.microTimestamp();
+                        const ding = actor.observeHook(h, number(v, "seq", now), s.actorWatched(actor.id), now);
+                        s.attention(ding, actor.state.state);
+                        s.runtime.changed();
+                        s.dirty = true;
+                    };
                     try cl.queue(.{ .ok = true });
-                } else if (eq(op, "native.events")) {
-                    const after = std.math.cast(u64, number(v, "after", 0)) orelse 0;
-                    var events: std.ArrayList(native.Event) = .empty;
-                    defer events.deinit(a);
-                    for (session.events.items) |event| if (event.seq > after) try events.append(a, event);
-                    const requests = try session.approvalLines(a);
-                    defer a.free(requests);
-                    try cl.queue(.{ .ok = true, .events = events.items, .pending_requests = requests, .next_seq = session.next_seq, .first_seq = if (session.events.items.len > 0) session.events.items[0].seq else session.next_seq });
-                    session.acknowledge();
-                } else return error.UnknownOperation;
-                return;
-            };
-            return error.NoNativeSession;
-        } else if (eq(op, "theme")) {
-            if (!cl.viewer) return error.NotAttached;
-            for (s.clients.items) |viewer| if (viewer.viewer and !viewer.dead) {
-                if (viewer.fd == cl.fd) s.updateTheme(v);
-                break;
-            };
-            if (cl.viewer) try cl.queue(.{ .ok = true });
-        } else if (eq(op, "hook")) {
-            const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
-            const event = v.object.get("event") orelse return error.NoEvent;
-            const hook = agents.providers.Backend.init(provider).hook(event);
-            const background = if (v.object.get("background")) |value| value == .bool and value.bool else false;
-            if (background) {
-                // A daemon-hosted session only updates a conversation some pane
-                // already follows (see continued-in handling); it never selects.
-                if (hook) |h| if (s.runtime.conversations.find(provider, h.session)) |actor| {
+                    return;
+                }
+                const p = s.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
+                // Bind a newly launched foreground process before applying its
+                // first hook, including back-to-back launches in the same pane.
+                s.detectPane(p);
+                const seq = number(v, "seq", std.time.microTimestamp());
+                if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, provider, hook.?)) |actor| {
+                    p.attachment.hook_seq = seq;
+                    if (hook.?.kind == .session_start) s.runtime.last_agent = provider;
+                    if (actor.workspace == WorkspaceId.none or s.runtime.workspaces.index(actor.workspace) == null) {
+                        if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
+                    }
                     const now = std.time.microTimestamp();
-                    const ding = actor.observeHook(h, number(v, "seq", now), s.actorWatched(actor.id), now);
+                    const ding = actor.observeHook(hook.?, seq, s.actorWatched(actor.id), now);
                     s.attention(ding, actor.state.state);
                     s.runtime.changed();
                     s.dirty = true;
                 };
                 try cl.queue(.{ .ok = true });
-                return;
-            }
-            const p = s.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
-            // Bind a newly launched foreground process before applying its
-            // first hook, including back-to-back launches in the same pane.
-            s.detectPane(p);
-            const seq = number(v, "seq", std.time.microTimestamp());
-            if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, provider, hook.?)) |actor| {
-                p.attachment.hook_seq = seq;
-                if (hook.?.kind == .session_start) s.runtime.last_agent = provider;
-                if (actor.workspace == WorkspaceId.none or s.runtime.workspaces.index(actor.workspace) == null) {
-                    if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
-                }
-                const now = std.time.microTimestamp();
-                const ding = actor.observeHook(hook.?, seq, s.actorWatched(actor.id), now);
-                s.attention(ding, actor.state.state);
-                s.runtime.changed();
-                s.dirty = true;
-            };
-            try cl.queue(.{ .ok = true });
-        } else if (eq(op, "ping")) try cl.queue(.{ .ok = true, .version = "0.1.0" }) else if (eq(op, "shutdown")) {
-            if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
-            s.quit = true;
-            try cl.queue(.{ .ok = true });
-        } else if (@import("corgi_options").test_build and eq(op, "test.settle")) {
-            // Replied from the main loop once the daemon has caught up.
-            const w = s.workers orelse return error.NotRunning;
-            const passes = @import("passes.zig");
-            try s.settles.append(a, .{ .fd = cl.fd, .targets = .{ passes.settle(w.transcripts), passes.settle(w.usage), passes.settle(w.codex) } });
-        } else if (@import("corgi_options").test_build and eq(op, "test.advance")) {
-            const ms = v.object.get("ms") orelse return error.MissingField;
-            if (ms != .integer or ms.integer < 0) return error.InvalidField;
-            @import("clock.zig").advance(ms.integer);
-            if (s.summaries) |worker| worker.poke();
-            try cl.queue(.{ .ok = true });
-        } else return error.UnknownOperation;
+            },
+            .ping => try cl.queue(.{ .ok = true, .version = "0.1.0" }),
+            .shutdown => {
+                if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
+                s.quit = true;
+                try cl.queue(.{ .ok = true });
+            },
+            .@"test.settle" => {
+                if (!@import("corgi_options").test_build) return error.UnknownOperation;
+                // Replied from the main loop once the daemon has caught up.
+                const w = s.workers orelse return error.NotRunning;
+                const passes = @import("passes.zig");
+                try s.settles.append(a, .{ .fd = cl.fd, .targets = .{ passes.settle(w.transcripts), passes.settle(w.usage), passes.settle(w.codex) } });
+            },
+            .@"test.advance" => {
+                if (!@import("corgi_options").test_build) return error.UnknownOperation;
+                const ms = v.object.get("ms") orelse return error.MissingField;
+                if (ms != .integer or ms.integer < 0) return error.InvalidField;
+                @import("clock.zig").advance(ms.integer);
+                if (s.summaries) |worker| worker.poke();
+                try cl.queue(.{ .ok = true });
+            },
+        }
     }
     pub fn updateTheme(s: *Server, v: std.json.Value) void {
         const value = v.object.get("theme") orelse return;

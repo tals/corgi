@@ -755,30 +755,47 @@ pub const Controller = struct {
         }
         s.notice(" Nothing needs your attention");
     }
+    /// Controller-level action names. Anything else is tried as a `navigation.Action`.
+    pub const Action = enum { onboard, @"workspace-next", @"workspace-prev", new, sidebar, mute, @"undo-close", attention, split, zoom, close, @"close-tab" };
     pub fn action(s: *Self, name: []const u8, value: []const u8) !void {
         s.message_len = 0;
-        if (eq(name, "onboard")) return s.openOnboarding(.welcome);
-        if (eq(name, "workspace-next") or eq(name, "workspace-prev")) {
-            const count = s.runtime.workspaces.items.len;
-            const index = if (eq(name, "workspace-next")) (s.workspaceIndex() + 1) % count else (s.workspaceIndex() + count - 1) % count;
-            return s.switchWorkspace(s.runtime.workspaces.items[index].id);
-        } else if (eq(name, "new")) {
-            s.openLauncher(true);
-            s.copy_mode = false;
-        } else if (eq(name, "sidebar")) {
-            s.sidebar_open = !s.sidebar_open;
-            s.selection = null;
-            s.cancelDividers();
-            s.dirty = true;
-        } else if (eq(name, "mute")) {
-            s.muted = !s.muted;
-            s.notice(if (s.muted) " Dings muted; attention markers remain on" else " Dings enabled");
-        } else if (eq(name, "undo-close")) return s.undoClose() else if (eq(name, "attention")) return s.attention() else if (s.model().count == 0) return error.NoPane else if (eq(name, "split")) {
-            _ = try s.create(if (eq(value, "down")) .vertical else .horizontal, s.currentCwd(), null, "");
-        } else if (eq(name, "zoom")) s.nav().tab().zoom = !s.nav().tab().zoom else if (eq(name, "close")) try s.close(s.nav().tab().focus) else if (eq(name, "close-tab")) {
-            try s.edit(.{ .@"tab.close" = .{ .target = s.selectedTab().id } });
+        if (std.meta.stringToEnum(Action, name)) |act| switch (act) {
+            .onboard => return s.openOnboarding(.welcome),
+            .@"workspace-next", .@"workspace-prev" => {
+                const count = s.runtime.workspaces.items.len;
+                const index = if (act == .@"workspace-next") (s.workspaceIndex() + 1) % count else (s.workspaceIndex() + count - 1) % count;
+                return s.switchWorkspace(s.runtime.workspaces.items[index].id);
+            },
+            .new => {
+                s.openLauncher(true);
+                s.copy_mode = false;
+            },
+            .sidebar => {
+                s.sidebar_open = !s.sidebar_open;
+                s.selection = null;
+                s.cancelDividers();
+                s.dirty = true;
+            },
+            .mute => {
+                s.muted = !s.muted;
+                s.notice(if (s.muted) " Dings muted; attention markers remain on" else " Dings enabled");
+            },
+            .@"undo-close" => return s.undoClose(),
+            .attention => return s.attention(),
+            .split, .zoom, .close, .@"close-tab" => {
+                if (s.model().count == 0) return error.NoPane;
+                switch (act) {
+                    .split => _ = try s.create(if (eq(value, "down")) .vertical else .horizontal, s.currentCwd(), null, ""),
+                    .zoom => s.nav().tab().zoom = !s.nav().tab().zoom,
+                    .close => try s.close(s.nav().tab().focus),
+                    .@"close-tab" => try s.edit(.{ .@"tab.close" = .{ .target = s.selectedTab().id } }),
+                    else => unreachable,
+                }
+            },
         } else {
-            const intent = try s.navigation.command(&s.runtime.workspaces, name, value, s.area());
+            if (s.model().count == 0) return error.NoPane;
+            const nav_action = std.meta.stringToEnum(@import("navigation.zig").Action, name) orelse return error.UnknownAction;
+            const intent = try s.navigation.command(&s.runtime.workspaces, nav_action, value, s.area());
             if (intent.edit) |operation| try s.edit(operation);
             if (intent.focus) |id| {
                 try s.focusPane(id);

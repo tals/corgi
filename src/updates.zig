@@ -25,9 +25,6 @@ const Manifest = struct {
         return @field(m.targets, platform);
     }
 };
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
 fn join(root: []const u8, name: []const u8) ![]u8 {
     return std.fs.path.join(a, &.{ root, name });
 }
@@ -74,9 +71,9 @@ fn managed(exe: []const u8) !?[]u8 {
     if (opts.update_url.len == 0 or opts.update_public_key.len != 64) return null;
     const dir = std.fs.path.dirname(exe) orelse return null;
     const releases = std.fs.path.dirname(dir) orelse return null;
-    if (!eq(std.fs.path.basename(releases), "releases")) return null;
+    if (!std.mem.eql(u8, std.fs.path.basename(releases), "releases")) return null;
     const root = std.fs.path.dirname(releases) orelse return null;
-    if (!eq(std.fs.path.basename(dir), opts.release_version) or !exists(root, "current")) return null;
+    if (!std.mem.eql(u8, std.fs.path.basename(dir), opts.release_version) or !exists(root, "current")) return null;
     try os.privateDirectory(root);
     return try a.dupe(u8, root);
 }
@@ -165,7 +162,7 @@ fn hashFile(path: []const u8) ![64]u8 {
 fn verifyFile(path: []const u8, t: Target) !void {
     var f = try std.fs.cwd().openFile(path, .{});
     defer f.close();
-    if ((try f.stat()).size != t.size or !eq(&(try hashFile(path)), t.sha256)) return error.UpdateChecksumMismatch;
+    if ((try f.stat()).size != t.size or !std.mem.eql(u8, &(try hashFile(path)), t.sha256)) return error.UpdateChecksumMismatch;
 }
 fn feed(root: []const u8, download: bool, explicit: bool) !void {
     const guard = (try lock(root, "download.lock", explicit)) orelse return;
@@ -230,14 +227,14 @@ fn hello(socket: []const u8) !?std.json.Parsed(std.json.Value) {
 fn switchCurrent(root: []const u8, ver: []const u8) !void {
     const old = (try read(root, "current")) orelse return error.MissingInstalledVersion;
     defer a.free(old);
-    if (!eq(old, ver)) {
+    if (!std.mem.eql(u8, old, ver)) {
         try write(root, "previous", old);
         try write(root, "current", ver);
     }
     const staged = try read(root, "staged");
     if (staged) |s| {
         defer a.free(s);
-        if (eq(s, ver)) remove(root, "staged");
+        if (std.mem.eql(u8, s, ver)) remove(root, "staged");
     }
 }
 fn recordError(root: []const u8, err: anyerror) void {
@@ -272,7 +269,7 @@ fn activate(root: []const u8, socket: []const u8, ver: []const u8, target: []con
             // Probe before deciding whether to stay on the old executable.
             if (try hello(socket)) |h| {
                 defer h.deinit();
-                if (eq(agents.str(h.value, "executable"), target)) {
+                if (std.mem.eql(u8, agents.str(h.value, "executable"), target)) {
                     try switchCurrent(root, ver);
                     return;
                 }
@@ -285,7 +282,7 @@ fn activate(root: []const u8, socket: []const u8, ver: []const u8, target: []con
     }
     const h = (try hello(socket)) orelse return error.UpdateRuntimeNotReady;
     defer h.deinit();
-    if (!eq(agents.str(h.value, "executable"), target)) return error.UpdateRuntimeChanged;
+    if (!std.mem.eql(u8, agents.str(h.value, "executable"), target)) return error.UpdateRuntimeChanged;
     try switchCurrent(root, ver);
 }
 fn deferName(socket: []const u8, pid: i64) ![]u8 {
@@ -327,7 +324,7 @@ fn confirmRestart(socket: []const u8) !?bool {
     try os.writeAll(2, "Type restart to stop these processes and update: ");
     const line = try os.readLine(0, 128);
     defer a.free(line);
-    return eq(std.mem.trim(u8, line, "\r\n"), "restart");
+    return std.mem.eql(u8, std.mem.trim(u8, line, "\r\n"), "restart");
 }
 // Returns the executable compatible with the runtime (or selected installation).
 fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rollback: bool) ![]u8 {
@@ -348,7 +345,7 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
     if (!rollback and (try version(candidate)).order(try version(current)) == .lt) return old_exe;
     const target = try executable(root, candidate);
     defer a.free(target);
-    if (eq(target, old_exe)) {
+    if (std.mem.eql(u8, target, old_exe)) {
         try switchCurrent(root, candidate);
         return old_exe;
     }
@@ -358,18 +355,18 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
     defer a.free(bytes);
     const m = try parse(bytes);
     defer m.deinit();
-    if (!eq(m.value.version, candidate)) return error.WrongReleaseManifest;
+    if (!std.mem.eql(u8, m.value.version, candidate)) return error.WrongReleaseManifest;
     try verifyFile(target, m.value.target());
     var safe = true;
     var deferred: ?[]u8 = null;
     defer if (deferred) |d| a.free(d);
     if (h) |v| {
-        safe = eq(agents.str(v.value, "update_abi"), m.value.update_abi);
+        safe = std.mem.eql(u8, agents.str(v.value, "update_abi"), m.value.update_abi);
         const pid = v.value.object.get("server_pid").?.integer;
         deferred = try deferName(socket, pid);
         if (!explicit) if (try read(root, deferred.?)) |d| {
             defer a.free(d);
-            if (eq(d, candidate)) return old_exe;
+            if (std.mem.eql(u8, d, candidate)) return old_exe;
         };
     }
     if (safe) {
@@ -387,7 +384,7 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
         if (h) |*v| v.deinit();
         h = null;
         h = try hello(socket);
-        if (h) |v| if (eq(agents.str(v.value, "executable"), target)) {
+        if (h) |v| if (std.mem.eql(u8, agents.str(v.value, "executable"), target)) {
             a.free(old_exe);
             return try a.dupe(u8, target);
         };
@@ -440,12 +437,12 @@ pub fn startup(socket: []const u8, exe: []const u8, cmd: []const u8, skip: bool)
         if (try hello(socket)) |h| {
             defer h.deinit();
             const running = agents.str(h.value, "executable");
-            if (running.len > 0 and !eq(running, exe)) try reexec(running, cmd);
+            if (running.len > 0 and !std.mem.eql(u8, running, exe)) try reexec(running, cmd);
         }
         return;
     };
     defer a.free(target);
-    if (!eq(target, exe)) try reexec(target, cmd);
+    if (!std.mem.eql(u8, target, exe)) try reexec(target, cmd);
 }
 pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !void {
     const root = (try managed(exe)) orelse {
@@ -453,14 +450,18 @@ pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !v
         return error.UnmanagedInstallation;
     };
     defer a.free(root);
-    if (args.len == 2 and eq(args[0], "auto") and (eq(args[1], "on") or eq(args[1], "off"))) {
-        if (eq(args[1], "off")) try write(root, "auto-off", "off") else {
+    const Command = enum { auto, status, rollback, @"--check", @"--download-only" };
+    const cmd = if (args.len == 0) null else std.meta.stringToEnum(Command, args[0]);
+    if (args.len == 2 and cmd == .auto) {
+        const Toggle = enum { on, off };
+        const toggle = std.meta.stringToEnum(Toggle, args[1]) orelse return error.Usage;
+        if (toggle == .off) try write(root, "auto-off", "off") else {
             remove(root, "auto-off");
             try background(socket, exe);
         }
         return;
     }
-    if (args.len == 1 and eq(args[0], "status")) {
+    if (args.len == 1 and cmd == .status) {
         std.debug.print("Automatic updates: {s}\n", .{if (exists(root, "auto-off")) "off" else "on"});
         for ([_][]const u8{ "current", "staged", "previous", "suppressed", "last-error" }) |name| {
             if (try read(root, name)) |value| {
@@ -474,9 +475,9 @@ pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !v
         }
         return;
     }
-    const rollback = args.len == 1 and eq(args[0], "rollback");
-    if (args.len > 1 or (args.len == 1 and !rollback and !eq(args[0], "--check") and !eq(args[0], "--download-only"))) return error.Usage;
-    if (!rollback) try feed(root, args.len == 0 or eq(args[0], "--download-only"), true);
+    const rollback = args.len == 1 and cmd == .rollback;
+    if (args.len > 1 or (args.len == 1 and !rollback and cmd != .@"--check" and cmd != .@"--download-only")) return error.Usage;
+    if (!rollback) try feed(root, args.len == 0 or cmd == .@"--download-only", true);
     if (args.len == 1 and !rollback) return;
     if (rollback and !exists(root, "previous")) return error.NoPreviousRelease;
     const target = try select(root, socket, true, true, rollback);
@@ -528,21 +529,24 @@ fn worker(socket: []const u8) !void {
 }
 pub fn internal(args: []const []const u8) !bool {
     if (args.len < 2) return false;
-    if (eq(args[1], "__update-worker") and args.len == 3) {
-        try worker(args[2]);
-        return true;
+    const Internal = enum { @"__update-worker", @"__update-info", __install };
+    const cmd = std.meta.stringToEnum(Internal, args[1]) orelse return false;
+    switch (cmd) {
+        .@"__update-worker" => {
+            if (args.len != 3) return false;
+            try worker(args[2]);
+        },
+        .@"__update-info" => {
+            const bytes = try std.json.Stringify.valueAlloc(a, .{ .version = opts.release_version, .commit = opts.release_commit, .update_abi = abi, .platform = platform, .test_mode = opts.update_test_mode }, .{});
+            defer a.free(bytes);
+            try os.writeAll(1, bytes);
+        },
+        .__install => {
+            if (args.len != 5) return false;
+            try install(args[2], args[3], args[4]);
+        },
     }
-    if (eq(args[1], "__update-info")) {
-        const bytes = try std.json.Stringify.valueAlloc(a, .{ .version = opts.release_version, .commit = opts.release_commit, .update_abi = abi, .platform = platform, .test_mode = opts.update_test_mode }, .{});
-        defer a.free(bytes);
-        try os.writeAll(1, bytes);
-        return true;
-    }
-    if (eq(args[1], "__install") and args.len == 5) {
-        try install(args[2], args[3], args[4]);
-        return true;
-    }
-    return false;
+    return true;
 }
 fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
     if (!std.fs.path.isAbsolute(root) or !std.fs.path.isAbsolute(bin)) return error.AbsoluteInstallPathRequired;
@@ -554,7 +558,7 @@ fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
     defer a.free(bytes);
     const m = try parse(bytes);
     defer m.deinit();
-    if (!eq(m.value.version, opts.release_version) or !eq(m.value.commit, opts.release_commit)) return error.WrongReleaseManifest;
+    if (!std.mem.eql(u8, m.value.version, opts.release_version) or !std.mem.eql(u8, m.value.commit, opts.release_commit)) return error.WrongReleaseManifest;
     const exe = try std.fs.selfExePathAlloc(a);
     defer a.free(exe);
     try verifyFile(exe, m.value.target());

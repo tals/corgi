@@ -5,9 +5,30 @@ const a = os.allocator;
 const session = @import("session.zig");
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
+
+const Group = enum { tab, pane, workspace, current, list, focus, @"--skill" };
+const Action = enum {
+    list,
+    current,
+    focus,
+    @"tab.new",
+    @"tab.rename",
+    @"tab.move",
+    @"tab.merge",
+    @"tab.close",
+    @"pane.split",
+    @"pane.move",
+    @"pane.swap",
+    @"pane.resize",
+    @"pane.close",
+    @"pane.read",
+    @"pane.send",
+    @"pane.keys",
+    @"workspace.new",
+    @"workspace.edit",
+    @"workspace.close",
+    @"workspace.switch",
+};
 pub const help =
     \\Agent controls (JSON by default; --text for readable output):
     \\  corgi list [--text]                 layout, panes, agents, viewers
@@ -46,51 +67,52 @@ pub const help =
 
 pub fn handles(args: []const [:0]u8) bool {
     if (args.len < 2) return false;
-    for ([_][]const u8{ "tab", "pane", "workspace", "current", "list", "focus", "--skill" }) |name| if (eq(args[1], name)) return true;
-    return false;
+    return std.meta.stringToEnum(Group, args[1]) != null;
 }
 
 pub fn run(path: []const u8, args: []const [:0]u8) !void {
-    if (eq(args[1], "--skill")) {
+    const group = std.meta.stringToEnum(Group, args[1]).?;
+    if (group == .@"--skill") {
         if (args.len != 2) return error.Usage;
         return os.writeAll(1, @embedFile("corgi-skill.md"));
     }
-    const group = eq(args[1], "tab") or eq(args[1], "pane") or eq(args[1], "workspace");
-    if (group and args.len == 2) return os.writeAll(1, help);
-    for (args[2..]) |arg| if (eq(arg, "--help") or eq(arg, "-h")) return os.writeAll(1, help);
+    const has_subaction = group == .tab or group == .pane or group == .workspace;
+    if (has_subaction and args.len == 2) return os.writeAll(1, help);
+    for (args[2..]) |arg| if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return os.writeAll(1, help);
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const mem = arena.allocator();
-    const raw_action = if (group) try std.fmt.allocPrint(mem, "{s}.{s}", .{ args[1], args[2] }) else args[1];
-    const action = if (eq(raw_action, "workspace.list")) "list" else raw_action;
+    const raw_action = if (has_subaction) try std.fmt.allocPrint(mem, "{s}.{s}", .{ args[1], args[2] }) else args[1];
+    const mapped_action = if (std.mem.eql(u8, raw_action, "workspace.list")) "list" else raw_action;
+    const action = std.meta.stringToEnum(Action, mapped_action);
     const caller = if (os.env("CORGI_PANE")) |value| std.fmt.parseInt(u32, value, 10) catch 0 else 0;
-    var start: usize = if (group) 3 else 2;
+    var start: usize = if (has_subaction) 3 else 2;
     var current = false;
     var target: u32 = 0;
-    if (!eq(action, "list") and !eq(action, "current") and !eq(action, "tab.new") and !eq(action, "workspace.new")) {
+    if (action != .list and action != .current and action != .@"tab.new" and action != .@"workspace.new") {
         if (start == args.len) return error.Usage;
-        current = eq(args[start], "current");
-        if (current and eq(args[1], "workspace")) return error.Usage;
+        current = std.mem.eql(u8, args[start], "current");
+        if (current and group == .workspace) return error.Usage;
         target = if (current) caller else try id(args[start]);
         if (current and caller == 0) return error.NoCallerPane;
         start += 1;
     }
     var parsed = try Args.parse(mem, args[start..]);
     const text_mode = try parsed.flag("--text");
-    const viewer = if (eq(action, "focus"))
+    const viewer = if (action == .focus)
         try id(try parsed.required("--viewer"))
-    else if (eq(action, "workspace.switch"))
+    else if (action == .@"workspace.switch")
         if (try parsed.option("--viewer")) |value| try id(value) else @as(?u32, null)
     else
         null;
-    var command: ?session.Command = if (eq(action, "list") or eq(action, "current") or eq(action, "focus") or eq(action, "workspace.switch")) null else try parseCommand(action, target, &parsed);
+    var command: ?session.Command = if (action == .list or action == .current or action == .focus or action == .@"workspace.switch") null else try parseCommand(action orelse return error.Usage, target, &parsed);
     try parsed.end();
-    if (eq(action, "current") and caller == 0) return error.NoCallerPane;
+    if (action == .current and caller == 0) return error.NoCallerPane;
     if (command) |cmd| if (cmd == .@"pane.create" and cmd.@"pane.create".workspace == WorkspaceId.none and caller == 0) return error.MissingWorkspace;
 
     const fd = try os.connect(path);
     defer _ = os.c.close(fd);
-    if ((current and eq(args[1], "tab")) or (eq(action, "tab.new") and caller != 0)) {
+    if ((current and group == .tab) or (action == .@"tab.new" and caller != 0)) {
         const located = try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller });
         defer located.deinit();
         const here = located.value.object.get("result").?;
@@ -110,11 +132,11 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
     }
     const response = if (command) |cmd|
         try call(fd, .{ .op = "session.command", .protocol = 1, .command = cmd })
-    else if (eq(action, "list"))
+    else if (action == .list)
         try call(fd, .{ .op = "session.list", .protocol = 1 })
-    else if (eq(action, "current"))
+    else if (action == .current)
         try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller })
-    else if (eq(action, "workspace.switch"))
+    else if (action == .@"workspace.switch")
         if (viewer) |selected| try call(fd, .{ .op = "workspace.switch", .workspace = target, .viewer = selected }) else try call(fd, .{ .op = "workspace.switch", .workspace = target })
     else
         try call(fd, .{ .op = "focus", .pane = target, .viewer = viewer });
@@ -127,19 +149,18 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
     try os.writeAll(1, "\n");
 }
 
-fn parseCommand(action: []const u8, target: u32, args: *Args) !session.Command {
-    if (eq(action, "tab.new")) return .{ .@"pane.create" = .{
-        .workspace = if (try args.option("--workspace")) |value| @enumFromInt(try id(value)) else .none,
-        .title = (try args.option("--name")) orelse "",
-        .cwd = try args.cwd(),
-        .command = try args.option("--command"),
-    } };
-    if (eq(action, "workspace.new")) return .{ .@"workspace.create" = .{
-        .name = try args.next(),
-        .cwd = try args.directory((try args.option("--cwd")) orelse "."),
-    } };
-    const tag = std.meta.stringToEnum(std.meta.Tag(session.Command), action) orelse return error.Usage;
-    return switch (tag) {
+fn parseCommand(action: Action, target: u32, args: *Args) !session.Command {
+    return switch (action) {
+        .@"tab.new" => .{ .@"pane.create" = .{
+            .workspace = if (try args.option("--workspace")) |value| @enumFromInt(try id(value)) else .none,
+            .title = (try args.option("--name")) orelse "",
+            .cwd = try args.cwd(),
+            .command = try args.option("--command"),
+        } },
+        .@"workspace.new" => .{ .@"workspace.create" = .{
+            .name = try args.next(),
+            .cwd = try args.directory((try args.option("--cwd")) orelse "."),
+        } },
         .@"workspace.close" => .{ .@"workspace.close" = .{ .target = @enumFromInt(target) } },
         .@"workspace.edit" => .{ .@"workspace.edit" = .{
             .target = @enumFromInt(target),
@@ -220,13 +241,13 @@ const Args = struct {
         var i: usize = 0;
         while (i < values.len) : (i += 1) {
             const arg = values[i];
-            if (!literal and eq(arg, "--")) {
+            if (!literal and std.mem.eql(u8, arg, "--")) {
                 literal = true;
             } else if (!literal and std.mem.startsWith(u8, arg, "--")) {
                 const entry = try result.options.getOrPut(arg);
                 if (entry.found_existing) return error.Usage;
                 const flag_ = for ([_][]const u8{ "--text", "--clear", "--stdin", "--enter", "--new-tab", "--left", "--right", "--up", "--down" }) |name| {
-                    if (eq(arg, name)) break true;
+                    if (std.mem.eql(u8, arg, name)) break true;
                 } else false;
                 entry.value_ptr.* = if (flag_) null else blk: {
                     i += 1;

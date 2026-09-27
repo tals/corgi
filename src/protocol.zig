@@ -10,23 +10,70 @@ const native = @import("native.zig");
 const NativeId = native.Session.Id;
 
 pub const version: u32 = 1;
-pub const capabilities = [_][]const u8{
-    "session.command",
-    "session.locate",
-    "session.list",
-    "session.snapshot",
-    "session.subscribe",
-    "agent.subscribe",
-    "viewer.open",
-    "viewer.sync",
-    "viewer.search",
-    "pane.acknowledge",
-    "conversation.list",
-    "conversation.acknowledge",
-    "pane.surface",
-    "server.reload",
-    "recovery.save",
-    "inference.configure",
+
+/// Every op the server accepts as the wire `"op"` field. Tag names are the
+/// exact wire strings (`@tagName` round-trips through `parse`).
+pub const Op = enum {
+    hello,
+    @"session.command",
+    @"session.locate",
+    @"session.list",
+    @"session.snapshot",
+    @"session.subscribe",
+    @"agent.subscribe",
+    @"viewer.open",
+    @"viewer.sync",
+    @"viewer.search",
+    @"pane.acknowledge",
+    @"conversation.list",
+    @"conversation.acknowledge",
+    @"pane.surface",
+    @"server.reload",
+    @"recovery.save",
+    @"inference.configure",
+    @"git.push",
+    @"onboarding.status",
+    @"onboarding.handoff",
+    @"onboarding.copy",
+    @"agent.command.preview",
+    @"agent.preview",
+    @"agent.track_usage",
+    @"viewer.list",
+    action,
+    focus,
+    @"workspace.switch",
+    @"native.start",
+    @"native.list",
+    @"native.stop",
+    @"native.send",
+    @"native.events",
+    theme,
+    hook,
+    ping,
+    shutdown,
+    @"test.settle",
+    @"test.advance",
+};
+pub fn parse(v: std.json.Value) ?Op {
+    return std.meta.stringToEnum(Op, agents.str(v, "op"));
+}
+pub const capabilities = [_]Op{
+    .@"session.command",
+    .@"session.locate",
+    .@"session.list",
+    .@"session.snapshot",
+    .@"session.subscribe",
+    .@"agent.subscribe",
+    .@"viewer.open",
+    .@"viewer.sync",
+    .@"viewer.search",
+    .@"pane.acknowledge",
+    .@"conversation.list",
+    .@"conversation.acknowledge",
+    .@"pane.surface",
+    .@"server.reload",
+    .@"recovery.save",
+    .@"inference.configure",
 };
 
 pub fn require(v: std.json.Value, negotiated: ?u32) !void {
