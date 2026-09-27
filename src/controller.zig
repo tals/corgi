@@ -1795,7 +1795,7 @@ pub const Controller = struct {
             }
         };
         if (!release and button & 32 != 0 and button & 3 == 3 and button & 64 == 0) {
-            if (moved) {
+            if (moved and !s.resourceHoverContains(x, y)) {
                 var resource_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
                 const resource_hit = sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&resource_storage), x, y);
                 if (resource_hit == null or s.resourceDetail() != resource_hit.?.id) s.link_tooltip.move();
@@ -2472,12 +2472,19 @@ pub const Controller = struct {
         _ = s.resourceDetail() orelse return null;
         return @import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, s.resource_card.anchor);
     }
+    fn resourceHoverContains(s: *Self, x: u16, y: u16) bool {
+        const rect = s.resourceRect() orelse return false;
+        const side = s.sidebarView(&.{}).width;
+        // Bridge the resource row's right padding and sidebar divider so the
+        // pointer can reach the card one cell at a time, including diagonally.
+        return rect.contains(x, y) or (x >= side -| 2 and x < rect.x and y >= rect.y and y < rect.y + rect.h);
+    }
     fn linkTooltipReady(s: *Self) !bool {
         var target: ?@import("link_tooltip.zig").Target = null;
         if (s.pointer) |pointer| {
             if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
                 var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
-                if (s.resourceRect()) |rect| if (rect.contains(pointer.x, pointer.y)) return true;
+                if (s.resourceHoverContains(pointer.x, pointer.y)) return true;
                 if (sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
                     if (@import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, pointer.y) != null) {
                         target = .{ .pane = .none, .link = 0, .resource = ws.id };

@@ -140,8 +140,7 @@ pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources
     try at(w, rect.x + 2, rect.y + 13, text, "TOP PROCESSES", 20);
     const header = rect.y + 14;
     try right(w, rect.x + 2, header, muted, "PID", 6);
-    try at(w, rect.x + 10, header, muted, "PROCESS", 10);
-    try at(w, rect.x + 21, header, muted, "ACTIVITY", rect.w - 54);
+    try at(w, rect.x + 10, header, muted, "PROCESS", rect.w - 43);
     try right(w, rect.x + rect.w - 32, header, if (state.sort == .cpu) blue else muted, "CPU %", 7);
     try right(w, rect.x + rect.w - 24, header, if (state.sort == .memory) mint else muted, "GiB", 6);
     try right(w, rect.x + rect.w - 17, header, if (state.sort == .io) violet else muted, "R MB/s", 7);
@@ -154,13 +153,12 @@ pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources
         } else null;
         try right(w, rect.x + 2, y, muted, try std.fmt.bufPrint(&buf, "{d}", .{key.pid}), 6);
         if (proc) |p| {
-            try at(w, rect.x + 10, y, text, try std.fmt.bufPrint(&buf, "{s}{s}", .{ if (p.provider) |provider| (if (provider == .claude) "* " else "† ") else "", p.name }), 10);
-            try at(w, rect.x + 21, y, if (p.hint) muted else mint, try std.fmt.bufPrint(&buf, "{s}{s}", .{ if (p.hint) "~" else "", p.activity }), rect.w - 54);
+            try at(w, rect.x + 10, y, text, try std.fmt.bufPrint(&buf, "{s}{s}", .{ if (p.provider) |provider| (if (provider == .claude) "* " else "† ") else "", p.name }), rect.w - 43);
             try right(w, rect.x + rect.w - 32, y, blue, if (p.cpu) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{n}) else "", 7);
             try right(w, rect.x + rect.w - 24, y, mint, try std.fmt.bufPrint(&buf, "{d:.2}", .{@as(f64, @floatFromInt(p.memory)) / (1024 * 1024 * 1024)}), 6);
             try right(w, rect.x + rect.w - 17, y, violet, if (p.read) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{@as(f64, @floatFromInt(n)) / 1000000}) else "", 7);
             try right(w, rect.x + rect.w - 9, y, violet, if (p.written) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{@as(f64, @floatFromInt(n)) / 1000000}) else "", 7);
-        } else try at(w, rect.x + 21, y, muted, "Sample not available", rect.w - 54);
+        } else try at(w, rect.x + 10, y, muted, "Sample not available", rect.w - 43);
     }
     try at(w, rect.x + 2, rect.y + rect.h - 3, muted, "* Claude Code   † Codex", rect.w - 4);
     try at(w, rect.x + 2, rect.y + rect.h - 2, muted, try std.fmt.bufPrint(&buf, "{d} local processes / {s}{s} / {d} shown", .{ work.count, snapshot.memory_kind, if (work.partial) " / partial" else "", count }), rect.w - 4);

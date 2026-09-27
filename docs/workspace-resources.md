@@ -7,14 +7,13 @@ under the readings between workspaces. All three rows select the workspace on
 click, including when a resource card overlaps them on a narrow screen.
 
 Hover the resource row for 500 ms to open three framed history graphs and the
-process table. PID is separate from the executable name and three-word activity.
-Activity is derived from an existing agent state, or marked `~` when it is a
-process-name hint. No inference request is made. Click CPU, memory or I/O table
+process table, with separate PID and executable-name columns. No process activity
+descriptions or inference requests are generated. Click CPU, memory or I/O table
 headers to sort. Recognized agent executables carry `*` for Claude Code and `†`
 for Codex, with a plain legend below the table; raw executable names are retained.
-Idle agents say “Agent currently idle”; input requests say “Awaiting user response”.
-Entering the card freezes row identities while values keep
-updating. The card is local to that viewer and is hidden if all data is unavailable.
+The pointer can cross the sidebar divider into the card. Entering it freezes
+row identities while values keep updating. The card is local to that viewer
+and is hidden if all data is unavailable.
 
 One daemon worker samples every two seconds, or every second while any watched
 viewer has a resource card open. The worker uses native macOS process APIs or
@@ -40,5 +39,8 @@ Pane roots, native agent sessions, and their descendants are attributed by
 process ancestry. PID/start-time identity prevents deltas from crossing PID
 reuse or workspace changes. Short-lived processes between samples, detached or
 reparented processes, and remote/container workloads can escape attribution.
-Failed reads are treated as partial/unavailable data. No dedicated Linux cgroups
-are created by this feature.
+Workspace rates sum the available process deltas; new processes contribute after
+their second sample. A failed process read leaves partial totals from the other
+processes. A metric stays unavailable when no process has a valid reading, and
+only a confirmed empty workspace reports zero for every metric. No dedicated
+Linux cgroups are created by this feature.

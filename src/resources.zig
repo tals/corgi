@@ -29,8 +29,6 @@ pub const Process = struct {
     start: u64,
     name: []const u8,
     provider: ?@import("agents.zig").Provider = null,
-    activity: []const u8 = "Activity not known",
-    hint: bool = true,
     cpu: ?f64 = null,
     memory: u64 = 0,
     read: ?u64 = null,
@@ -62,6 +60,13 @@ pub const Work = struct {
     memory_pressure: bool = false,
     processes: []const Process = &.{},
     history: []const Point = &.{},
+
+    fn add(work: *Work, proc: Process) void {
+        work.memory = (work.memory orelse 0) +| proc.memory;
+        if (proc.cpu) |value| work.cpu = (work.cpu orelse 0) + value;
+        if (proc.read) |value| work.read = (work.read orelse 0) +| value;
+        if (proc.written) |value| work.written = (work.written orelse 0) +| value;
+    }
 };
 pub const Snapshot = struct {
     sampled_at: i64 = 0,
@@ -90,7 +95,7 @@ pub const Snapshot = struct {
         return result;
     }
 };
-const Root = struct { key: u64 = 0, pid: i32, start: ?u64 = null, workspace: WorkspaceId, agent_pid: i32 = 0, provider: ?@import("agents.zig").Provider = null, activity: []const u8 = "Activity not known" };
+const Root = struct { key: u64 = 0, pid: i32, start: ?u64 = null, workspace: WorkspaceId, agent_pid: i32 = 0, provider: ?@import("agents.zig").Provider = null };
 const Origin = struct { pid: i32, start: u64 };
 const Reading = struct { pid: i32, workspace: WorkspaceId, identity_start: u64, at: i64, value: native.Counters };
 const Alarm = struct {
@@ -186,11 +191,11 @@ pub const Tracker = struct {
         for (runtime.panes.items) |*p| {
             if (p.terminal.exited) continue;
             const ws = runtime.workspaces.owner(p.id) orelse continue;
-            roots.append(allocator, .{ .key = @as(u64, @intFromEnum(p.id)) * 2, .pid = p.terminal.pid, .workspace = ws.id, .agent_pid = p.detection.pid, .provider = p.agent().provider, .activity = agentActivity(p.agent()) }) catch return changed;
+            roots.append(allocator, .{ .key = @as(u64, @intFromEnum(p.id)) * 2, .pid = p.terminal.pid, .workspace = ws.id, .agent_pid = p.detection.pid, .provider = p.agent().provider }) catch return changed;
         }
         for (runtime.sessions.items) |*s| {
             if (s.exited or s.workspace_id == WorkspaceId.none) continue;
-            roots.append(allocator, .{ .key = @as(u64, @intFromEnum(s.id)) * 2 + 1, .pid = s.child.id, .workspace = s.workspace_id, .agent_pid = s.child.id, .provider = s.provider, .activity = agentActivity(s.agent()) }) catch return changed;
+            roots.append(allocator, .{ .key = @as(u64, @intFromEnum(s.id)) * 2 + 1, .pid = s.child.id, .workspace = s.workspace_id, .agent_pid = s.child.id, .provider = s.provider }) catch return changed;
         }
         t.roots = roots.toOwnedSlice(allocator) catch return changed;
         t.workspaces = works.toOwnedSlice(allocator) catch return changed;
@@ -244,7 +249,7 @@ pub const Tracker = struct {
         const health = try allocator.alloc(Health, t.workspaces.len);
         const lists = try allocator.alloc(std.ArrayList(Process), works.len);
         for (works, health, lists, t.workspaces) |*work, *h, *list, id| {
-            work.* = .{ .id = id, .known = true, .partial = inventory.truncated, .cpu = 0, .memory = 0, .read = 0, .written = 0 };
+            work.* = .{ .id = id, .known = true, .partial = inventory.truncated };
             h.* = .{ .id = id };
             for (t.batch.health) |old| if (old.id == id) {
                 h.* = old;
@@ -266,15 +271,10 @@ pub const Tracker = struct {
             try readings.append(allocator, reading);
             const rates = delta(previous.get(identity.pid), reading);
             var proc: Process = .{ .pid = identity.pid, .start = value.start, .name = try allocator.dupe(u8, std.mem.sliceTo(&identity.name, 0)), .cpu = rates.cpu, .memory = value.memory, .read = rates.read, .written = rates.written };
-            if (identity.pid == root.agent_pid) {
-                proc.activity = root.activity;
-                proc.provider = root.provider;
-                proc.hint = false;
-            } else proc.activity = processActivity(proc.name);
-            work.memory.? +|= value.memory;
-            work.cpu = if (work.cpu != null and proc.cpu != null) work.cpu.? + proc.cpu.? else null;
-            work.read = if (work.read != null and proc.read != null) work.read.? +| proc.read.? else null;
-            work.written = if (work.written != null and proc.written != null) work.written.? +| proc.written.? else null;
+            if (identity.pid == root.agent_pid) proc.provider = root.provider;
+            // A new process needs a baseline before it contributes rates.
+            // Preserve measurements from the rest of the workspace meanwhile.
+            work.add(proc);
             try lists[wi].append(allocator, proc);
         }
         for (works, health, lists) |*work, *h, *list| {
@@ -282,11 +282,13 @@ pub const Tracker = struct {
             for (roots) |root| if (root.workspace == work.id and (root.start == null or !index.contains(root.pid) or inventory.items[index.get(root.pid).?].start != root.start.?)) {
                 work.partial = true;
             };
-            if (work.partial) {
-                work.cpu = null;
-                work.memory = null;
-                work.read = null;
-                work.written = null;
+            // Failed reads leave partial totals from the processes we could
+            // sample. Only a confirmed empty workspace is a measured zero.
+            if (work.count == 0 and !work.partial) {
+                work.cpu = 0;
+                work.memory = 0;
+                work.read = 0;
+                work.written = 0;
             }
             const share = (work.cpu orelse 0) / @as(f64, @floatFromInt(@max(1, host.cores)));
             const cpu_high = !work.partial and host_cpu != null and host_cpu.? >= 90 and share >= 25;
@@ -350,22 +352,25 @@ fn delta(old: ?Reading, new: Reading) Rates {
     const ms: u64 = @intCast(new.at - prev.at);
     return .{ .cpu = if (new.value.cpu_ns >= prev.value.cpu_ns) @as(f64, @floatFromInt(new.value.cpu_ns - prev.value.cpu_ns)) / (@as(f64, @floatFromInt(ms)) * 10000) else null, .read = rate(prev.value.read, new.value.read, ms), .written = rate(prev.value.written, new.value.written, ms) };
 }
-fn agentActivity(agent: *const @import("agents.zig").Agent) []const u8 {
-    if (agent.attention == .needs_input) return "Awaiting user response";
-    if (agent.compacting) return "Compacting conversation context";
-    return switch (agent.state) {
-        .working => if (agent.tool_active) "Running agent tool" else "Processing agent request",
-        .idle => "Agent currently idle",
-        .blocked => "Awaiting user response",
-        .initializing => "Starting agent session",
-        .done => "Agent session ended",
-        else => "Activity not known",
-    };
-}
-fn processActivity(name: []const u8) []const u8 {
-    const pairs = .{ .{ "zig", "Running Zig compiler" }, .{ "clang", "Compiling native code" }, .{ "rustc", "Compiling Rust code" }, .{ "bun", "Running JavaScript code" }, .{ "node", "Running JavaScript code" }, .{ "python", "Running Python code" }, .{ "tsserver", "Serving TypeScript requests" }, .{ "git", "Running Git operation" }, .{ "zsh", "Running shell session" }, .{ "bash", "Running shell session" }, .{ "fish", "Running shell session" } };
-    inline for (pairs) |pair| if (std.mem.startsWith(u8, name, pair[0])) return pair[1];
-    return "Activity not known";
+
+test "new process baselines preserve established workspace rates" {
+    const established: Process = .{ .pid = 1, .start = 1, .name = "worker", .cpu = 45, .memory = 100, .read = 200, .written = 0 };
+    const newcomer: Process = .{ .pid = 2, .start = 2, .name = "child", .memory = 50 };
+    for ([_]bool{ false, true }) |first| {
+        var work: Work = .{ .id = WorkspaceId.first };
+        work.add(if (first) newcomer else established);
+        work.add(if (first) established else newcomer);
+        try std.testing.expectEqual(@as(?f64, 45), work.cpu);
+        try std.testing.expectEqual(@as(?u64, 150), work.memory);
+        try std.testing.expectEqual(@as(?u64, 200), work.read);
+        try std.testing.expectEqual(@as(?u64, 0), work.written);
+    }
+    var fresh: Work = .{ .id = WorkspaceId.first };
+    fresh.add(newcomer);
+    try std.testing.expectEqual(@as(?f64, null), fresh.cpu);
+    try std.testing.expectEqual(@as(?u64, null), fresh.read);
+    try std.testing.expectEqual(@as(?u64, null), fresh.written);
+    try std.testing.expectEqual(@as(?u64, 50), fresh.memory);
 }
 
 test "deltas ignore PID reuse, reassignment, first samples and counter resets" {
@@ -407,16 +412,6 @@ test "ownership chooses the nearest root and bounds ancestry cycles" {
     var reused = inventory;
     reused[1].start = 99;
     try std.testing.expectEqual(@as(?Root, null), owner(12, &reused, &index, &roots));
-}
-
-test "idle agent state is distinct from an input request" {
-    var agent: @import("agents.zig").Agent = .{ .provider = .claude, .state = .idle };
-    try std.testing.expectEqualStrings("Agent currently idle", agentActivity(&agent));
-    agent.attention = .needs_input;
-    try std.testing.expectEqualStrings("Awaiting user response", agentActivity(&agent));
-    agent.attention = .none;
-    agent.state = .blocked;
-    try std.testing.expectEqualStrings("Awaiting user response", agentActivity(&agent));
 }
 
 test "bounded process details retain leaders for every resource" {

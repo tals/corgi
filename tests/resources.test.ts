@@ -5,6 +5,44 @@ import { Viewer } from "./viewer_client";
 import { registerCase, shellJoin } from "./support";
 
 class Resources extends Runtime {
+  async test_process_churn_keeps_established_workspace_totals() {
+    const workspace = (await this.session()).workspaces[0].id;
+    const trigger = join(this.temp.name, "spawn-children");
+    const script = join(this.temp.name, "churn.ts");
+    writeFileSync(script, `
+      import { existsSync } from "node:fs";
+      setInterval(() => {
+        if (existsSync(${JSON.stringify(trigger)})) {
+          const child = Bun.spawn(["/bin/sleep", "0.9"], {
+            stdin: "ignore", stdout: "ignore", stderr: "ignore",
+          });
+          void child.exited;
+        }
+      }, 400);
+    `);
+    await this.command("pane.create", {
+      workspace, cwd: this.temp.name, command: shellJoin([process.execPath, script]),
+    });
+    await this.until(async () => {
+      const work = (await this.session()).resources.workspaces.find((w: any) => w.id === workspace);
+      return work?.count > 0 && work.cpu != null;
+    }, 8);
+    writeFileSync(trigger, "go");
+    let lastSample = 0, samples = 0, sawNewProcess = false;
+    await this.until(async () => {
+      const snapshot = (await this.session()).resources;
+      if (snapshot.sampled_at === lastSample) return false;
+      lastSample = snapshot.sampled_at;
+      const work = snapshot.workspaces.find((w: any) => w.id === workspace);
+      this.assertIsNotNone(work.cpu);
+      this.assertIsNotNone(work.read);
+      this.assertIsNotNone(work.written);
+      this.assertIsNotNone(work.memory);
+      sawNewProcess ||= work.processes.some((p: any) => p.name === "sleep" && p.cpu == null);
+      return ++samples >= 5 && sawNewProcess;
+    }, 14);
+  }
+
   async test_workspace_clicks_and_separators_preserve_resource_hover() {
     const first = (await this.session()).workspaces[0].id;
     await this.command("pane.create", {
@@ -82,11 +120,10 @@ class Resources extends Runtime {
     let work: any;
     await this.until(async () => {
       work = (await this.session()).resources.workspaces.find((w: any) => w.id === workspace);
-      return work?.processes.some((p: any) => !p.hint);
+      return work?.processes.some((p: any) => p.provider === "codex");
     }, 8);
-    const agent = work.processes.find((p: any) => !p.hint);
+    const agent = work.processes.find((p: any) => p.provider === "codex");
     this.assertEqual(agent.provider, "codex");
-    this.assertEqual(agent.activity.split(" ").length, 3);
     this.assertTrue(agent.memory > 0);
   }
 
@@ -123,8 +160,6 @@ class Resources extends Runtime {
     const sampled = work.processes.find((p: any) => p.pid === pid);
     this.assertTrue(sampled);
     this.assertTrue(sampled.cpu > 3 && sampled.cpu < 50);
-    this.assertEqual(sampled.activity.split(" ").length, 3);
-    this.assertTrue(sampled.hint);
     this.assertFalse(sample.workspaces.find((w: any) => w.id === other)?.processes.some((p: any) => p.pid === pid));
     this.assertTrue(work.history.length > 1);
     this.assertFalse(work.cpu_pressure);
@@ -142,16 +177,22 @@ class Resources extends Runtime {
       frame = (await viewer.poll()).data;
       return frame.includes("TOP PROCESSES") && frame.includes(String(pid));
     });
-    for (const label of ["PID", "PROCESS", "ACTIVITY", "R MB/s", "W MB/s", "memory", "disk I/O"])
+    for (const label of ["PID", "PROCESS", "R MB/s", "W MB/s", "memory", "disk I/O"])
       this.assertIn(label, frame);
+    this.assertNotIn("ACTIVITY", frame);
     this.assertNotIn("TOP PROCESSES", (await second.poll()).data);
     this.assertNotIn("--", frame);
     this.assertNotIn("100% =", frame);
     this.assertNotIn("process-name hint /", frame);
+    this.assertNotIn("Running JavaScript code", frame);
+    this.assertNotIn("Activity not known", frame);
     this.assertIn("* Claude Code   † Codex", frame);
-    // The pointer can enter the card; a header click stays in the overlay.
-    await viewer.input("\x1b[<35;70;12M");
-    this.assertIn("TOP PROCESSES", viewer.state.data);
+    // Cross the padding and divider, including diagonal movement, instead of
+    // teleporting from the trigger directly into the card.
+    for (const [column, row] of [[26, 5], [27, 6], [28, 7], [29, 8], [70, 12]]) {
+      await viewer.input(`\x1b[<35;${column};${row}M`);
+      this.assertIn("TOP PROCESSES", viewer.state.data);
+    }
     await viewer.input("\x1b[<0;88;19M");
     await viewer.input("\x1b[<0;88;19m");
     this.assertIn("TOP PROCESSES", viewer.state.data);
