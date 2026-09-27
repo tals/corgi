@@ -419,7 +419,7 @@ class ViewerScenarios extends Viewers {
       (await this.session()).panes.find((p: any) => p.id === right).name,
       "Logs",
     );
-    this.assertIn("Logs", (await b.poll()).data);
+    this.assertEqual((await b.poll()).pane, right);
     await a.input("\x1b[<2;85;5M\x1b[<2;85;5m");
     await a.input("s");
     this.assertEqual(a.state.pane, left);

@@ -665,7 +665,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     };
     await checkSize(80, 22);
     const [other, reader] = await this.viewer(60, 18);
-    await this.viewer_frame(reader, "^B commands", 60, 18);
+    await this.viewer_frame(reader, " + ", 60, 18);
     await checkSize(60, 16);
     await this.input("printf 'FIRST_VIEWER\\n'\r");
     await this.viewer_frame(reader, "FIRST_VIEWER", 60, 18);
@@ -682,7 +682,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     await this.input("printf 'STILL_CONNECTED\\n'\r");
     await this.frame_with("STILL_CONNECTED", 100, 30);
     const [third, thirdReader] = await this.viewer(50, 12);
-    await this.viewer_frame(thirdReader, "^B commands", 50, 12);
+    await this.viewer_frame(thirdReader, " + ", 50, 12);
     await checkSize(50, 10);
     await thirdReader.close();
     await third.close();
@@ -739,7 +739,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     const expected = "\x1b[13;9u\x1b[13;2u\x1b[106;5u";
     await this.until(() => readFileSync(logs[1], "utf8") === expected);
     await this.input("\x1b[98;5u");
-    await this.frame_with("commands");
+    this.assertTrue((await this.client!.poll()).prefix);
     await this.input("\x1b[27u");
     await this.frame_with("KEYS_READY");
     this.assertEqual(readFileSync(logs[1], "utf8"), expected);
@@ -938,14 +938,14 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.right_click_tab(screen, " 1 ");
     await this.frame_with("|New tab");
     await this.click(79, 23);
-    screen = await this.frame_with("^B commands");
+    screen = screen_text((await this.client!.poll()).data);
     this.assertNotIn("|New tab", screen.join("\n"));
     await this.right_click_tab(screen, " 1 ");
     await this.frame_with("|New tab");
     await this.input("\x1b");
     await sleep(0.1);
     await this.client!.poll();
-    screen = await this.frame_with("^B commands");
+    screen = screen_text((await this.client!.poll()).data);
     this.assertNotIn("|New tab", screen.join("\n"));
     await this.write({ op: "size", cols: 10, rows: 4 });
     screen = await this.frame_with(" 1 ", 10, 4);
@@ -1001,7 +1001,8 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
   }
   async test_wheel_and_right_drag_do_not_open_commands() {
     await this.attach();
-    await this.frame_with("^B commands");
+    const screen = await this.frame_with(" + ");
+    this.assertEqual(screen.at(-1)!.trim(), "");
     for (const modifiers of [0, 4, 8, 16, 28])
       for (const button of [64, 65, 66, 67, 34]) {
         await this.input(`\x1b[<${button | modifiers};40;10M`);
@@ -1077,7 +1078,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.click_text(menu, "Resize left");
     await this.frame_with("Resize panes", 100, 40);
     await this.input("\x1b");
-    await this.frame_with("^B commands", 100, 40);
+    this.assertFalse((await this.client!.poll()).prefix);
     await this.input("\x02?");
     menu = await this.frame_with("Keyboard shortcuts", 100, 40);
     const closeRow = menu.findIndex((row) => row.includes("Close / reopen"));
@@ -1086,7 +1087,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.input("\x02?");
     await this.frame_with("Keyboard shortcuts", 100, 40);
     await this.click(1, 1);
-    await this.frame_with("^B commands", 100, 40);
+    this.assertFalse((await this.client!.poll()).prefix);
     await this.input("printf '%s%s\\n' MENU_ CLOSED\r");
     const pane = (await this.focused()).id;
     await this.until(async () =>

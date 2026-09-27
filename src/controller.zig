@@ -2455,13 +2455,6 @@ pub const Controller = struct {
             return output.toOwnedSlice();
         }
         s.rememberAgent();
-        var native_blocked: usize = 0;
-        var native_finished: usize = 0;
-        for (s.runtime.sessions) |session| switch (session.attention) {
-            .needs_input => native_blocked += 1,
-            .finished => native_finished += 1,
-            .none => {},
-        };
         var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
         const entries = if (s.agent_picker != null) s.pickerEntries(&agent_storage) else s.sidebarEntries(&agent_storage);
         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
@@ -2480,8 +2473,6 @@ pub const Controller = struct {
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
             .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
             .copy_mode = s.copy_mode,
-            .native_blocked = native_blocked,
-            .native_finished = native_finished,
             .menu = s.menu(),
             .tab_menu = s.tab_menu,
             .port_menu = s.port_menu,

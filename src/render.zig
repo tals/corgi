@@ -21,8 +21,6 @@ pub const Ui = struct {
     message: []const u8,
     copy_mode: bool,
     copy_feedback: bool = false,
-    native_blocked: usize,
-    native_finished: usize,
     menu: ?commands.ResizeView = null,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
@@ -236,13 +234,6 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         for (0..side.width -| 1) |_| try w.writeAll("─");
         try w.writeAll("\x1b[0m");
     }
-    var blocked: usize = ui.native_blocked;
-    var finished: usize = ui.native_finished;
-    for (panes) |p| switch (p.agent.attention) {
-        .needs_input => blocked += 1,
-        .finished => finished += 1,
-        .none => {},
-    };
     try w.print("\x1b[{d};1H\x1b[0;38;2;125;132;143m", .{height});
     var status: [512]u8 = undefined;
     if (ui.confirm) {
@@ -251,19 +242,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     } else if (hovered_uri) |uri| {
         try sidebar.writeClipped(w, uri, width);
     } else {
-        var agent_label: [64]u8 = undefined;
-        var label: []const u8 = "corgi";
-        if (model.count > 0) for (panes) |p| {
-            if (p.id == view.selection.tabs[view.selection.active].focus and p.label.len > 0) {
-                label = p.label;
-                break;
-            }
-            if (p.id == view.selection.tabs[view.selection.active].focus) if (p.agent.provider) |provider| {
-                label = try std.fmt.bufPrint(&agent_label, "{t} {t}", .{ provider, p.agent.state });
-                break;
-            };
-        };
-        const text = if (ui.message.len > 0) ui.message else try std.fmt.bufPrint(&status, " {s}  ^B commands   ! {d} needs you  + {d} finished   ^B a attention", .{ if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else label, blocked, finished });
+        const text = if (ui.message.len > 0) ui.message else if (ui.copy_mode) " SCROLL  j/k move  y copy viewport  q exit" else "";
         try w.writeAll(text[0..@min(text.len, width)]);
     }
     try w.writeAll("\x1b[0m");
@@ -363,8 +342,6 @@ test "unread pointer follows the clickable workspace and respects overlays" {
             .pointer = .{ .x = case.x, .y = case.y },
             .message = "",
             .copy_mode = false,
-            .native_blocked = 0,
-            .native_finished = 0,
             .workspaces = &workspaces,
             .confirm = case.confirm,
             .sidebar_open = case.open,
@@ -449,7 +426,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     var model: layout.Model = .{};
     var selection: layout.Selection = .{};
     const view: layout.View = .{ .model = &model, .selection = &selection };
-    var ui: Ui = .{ .message = "", .copy_mode = false, .native_blocked = 0, .native_finished = 0, .corgi_badge = .image };
+    var ui: Ui = .{ .message = "", .copy_mode = false, .corgi_badge = .image };
     const shown = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(shown);
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[2J") == null);

@@ -487,7 +487,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
       await this.rpc({ op: "native.stop", session: ident });
     }
   }
-  async test_native_acknowledgement_refreshes_attached_frame() {
+  async test_native_acknowledgement_clears_attention_without_dropping_requests() {
     await this.open_pane({ cwd: this.temp.name, command: "sleep 30" });
     await this.attach();
     await this.get_type("frame");
@@ -503,14 +503,14 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
       session: ident,
       message: { id: 1, method: "test/approval" },
     });
-    await this.frame_with("! 1 needs you");
-    await this.rpc({ op: "native.events", session: ident });
-    const frame = await this.get_type("frame");
-    this.assertIn("! 0 needs you", frame.data);
-    this.assertEqual(
-      (await this.rpc({ op: "native.list" })).sessions[0].pending_requests,
-      1,
+    await this.until(async () =>
+      (await this.rpc({ op: "native.list" })).sessions[0].attention ===
+      "needs_input",
     );
+    await this.rpc({ op: "native.events", session: ident });
+    const session = (await this.rpc({ op: "native.list" })).sessions[0];
+    this.assertEqual(session.attention, "none");
+    this.assertEqual(session.pending_requests, 1);
   }
   async test_native_codex_discovers_path_without_override() {
     await this.run_cli("shutdown");

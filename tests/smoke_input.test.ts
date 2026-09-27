@@ -46,10 +46,10 @@ class SmokeInput extends Runtime {
       event: { hook_event_name: "SessionStart", session_id: "geometry" },
     });
     let frame = (await this.get_type("frame")).data;
-    while (!frame.includes("codex idle"))
+    while (!frame.includes("codex"))
       frame = (await this.get_type("frame")).data;
     this.assertIn("\x1b[2;30H\x1b[?25h", frame);
-    this.assertIn("codex idle", screen_text(frame)[23]);
+    this.assertTrue(screen_text(frame).some((row) => row.includes("codex")));
     await this.input("\x1b[<4;29;2M\x1b[<36;31;2M\x1b[<4;31;2m");
     frame = (await this.get_type("frame")).data;
     while (!frame.startsWith("\x1b]52;c;"))
