@@ -257,10 +257,12 @@ HOME and retain the original path in the pane's recovery banner.
 
 `src/state_migrations.zig` owns two independent, monotonically increasing schema
 versions: checkpoint **3** (shared runtime state) and handoff **2** (the live
-envelope containing clients and workers). Readers parse plain JSON, require an
-explicit supported version, apply each numbered migration in order, then decode
-current Zig types and validate/restore the state. Missing, invalid, and future
-versions fail explicitly; they are never treated as the current version.
+envelope containing clients and workers). Each version is derived from its
+ordered list of steps (`checkpoint_steps`, `handoff_steps`): appending a step is
+the version bump. Readers parse plain JSON, require an explicit supported
+version, apply each step in order, then decode current Zig types and
+validate/restore the state. Missing, invalid, and future versions fail
+explicitly; they are never treated as the current version.
 
 Checkpoint 1 → 2 introduces the conversation table. Checkpoint 2 → 3 normalizes
 the old `other` provider to `null` and promotes remaining inline identities into
@@ -269,21 +271,46 @@ that migration accepts either. Handoff 1 → 2 preserves inference launch counte
 in their new representation. Migrations touch only known schema fields; terminal
 data, native messages, and other opaque payloads remain unchanged.
 
-For a serialized schema change, bump the owning version, append a migration, and
-add an old-format fixture test through `state_migrations.decode`. Do not edit
-earlier steps or scatter historical parsing branches through runtime code. Tests
-must cover a current-format round trip, the upgrade, and rejection of future or
-malformed versions. For handoff changes, verify pane/client continuity and rollback
-in an isolated runtime as well. Provider enum strings are serialized names;
-removing or renaming them is a schema change.
+Steps operate on the JSON tree only. They must not decode into or import runtime
+types such as `agents.Agent` or `Provider`: those keep changing after a step is
+written, and an older step would then read or emit a newer shape. Steps copy
+subtrees rather than sharing them, so a later step that edits one place in the
+tree never edits another by accident.
 
-Cold recovery atomically rewrites a migrated snapshot only after restoration has
-succeeded. A decode, migration, or restoration failure leaves the source file
-unchanged. Live migration happens entirely inside the candidate before the
-ownership commit. Terminal fingerprints and update ABI checks still reject
-incompatible live runtimes; JSON migrations cannot repair a process or terminal
-engine incompatibility. Migrations run forward only: an older binary rejects a
-newer snapshot rather than silently dropping state.
+For a serialized schema change:
+
+1. Append a step to the owning list. Do not edit released steps or scatter
+   historical parsing branches through runtime code.
+2. Keep the previous version's fixture (`src/fixtures/checkpoint-vN.json`)
+   unchanged and test that it migrates and restores. Capture a fixture for the
+   new version from a real `checkpoint.capture`.
+3. Refresh the schema snapshot. `src/fixtures/checkpoint-vN.schema` and
+   `handoff-vN.schema` list every serialized field path and type; a unit test
+   fails when the Zig types no longer match the current version's snapshot.
+   Create the new version's file empty, then run
+   `CORGI_UPDATE_SCHEMA=1 ./scripts/zig build test`.
+
+Adding a field with a default needs no version bump, because readers ignore
+unknown fields and fill in defaults. It still changes the snapshot; refresh it
+in place. Renames, removals, and changes of type or meaning need a step. Types
+with their own `jsonStringify`/`jsonParse` (such as `layout.Model`) appear as a
+single line, so changes inside them are not caught by the snapshot. Tests must
+cover a current-format round trip, the upgrade, and rejection of future or
+malformed versions. For handoff changes, verify pane/client continuity and
+rollback in an isolated runtime as well. Provider enum strings are serialized
+names; removing or renaming them is a schema change.
+
+Cold recovery migrates only after restoration has succeeded. It first copies the
+original bytes to `<snapshot>.vN` (N is the version they were written with) and
+fails without touching anything if that copy cannot be made. It then rewrites
+the snapshot in the current format; a failed rewrite is logged and left to the
+next periodic save. A decode, migration, or restoration failure leaves the
+source file unchanged and writes no backup. Live migration happens entirely
+inside the candidate before the ownership commit. Terminal fingerprints and
+update ABI checks still reject incompatible live runtimes; JSON migrations
+cannot repair a process or terminal engine incompatibility. Migrations run
+forward only: an older binary rejects a newer snapshot rather than silently
+dropping state.
 
 ### Manual check
 

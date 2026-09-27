@@ -211,10 +211,15 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       this.assertIn(bad.version === 999 ? "UnsupportedStateVersion" : "InvalidCheckpoint", failed.stderr);
       this.assertEqual(readFileSync(saved, "utf8"), bytes);
     }
+    // Failed attempts leave no backup; a successful migration keeps the
+    // original bytes beside the upgraded file.
+    this.assertFalse(existsSync(`${saved}.v2`));
     writeFileSync(saved, JSON.stringify(original));
     await this.run_cli("start");
     this.assertEqual(JSON.parse(readFileSync(saved, "utf8")).version, 3);
     this.assertEqual(statSync(saved).mode & 0o777, 0o600);
+    this.assertEqual(readFileSync(`${saved}.v2`, "utf8"), JSON.stringify(original));
+    this.assertEqual(statSync(`${saved}.v2`).mode & 0o777, 0o600);
     this.assertEqual((await this.session()).panes[0].id, first);
     await this.until(async () => (await this.screen(first)).includes("MIGRATION_HISTORY"));
   }

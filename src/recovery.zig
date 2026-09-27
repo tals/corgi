@@ -58,11 +58,23 @@ pub fn load(r: *Runtime, socket: []const u8, executable: []const u8) !bool {
         return err;
     };
     if (parsed.migrated) {
-        // Restore/validation must succeed before replacing the user's source.
+        // Restore/validation must succeed before touching the user's source.
+        // Periodic saves overwrite it soon after, so keep the pre-migration
+        // bytes first: a migration that loses data quietly stays recoverable.
+        const backup = try std.fmt.allocPrint(a, "{s}.v{d}", .{ source, parsed.from });
+        defer a.free(backup);
+        atomicWrite(backup, bytes) catch |err| {
+            std.log.err("recovery snapshot {s} could not be backed up before migration ({s}); original file left unchanged", .{ source, @errorName(err) });
+            return err;
+        };
         // Serialize the migrated saved state, not newly spawned recovery shells.
-        const upgraded = try std.json.Stringify.valueAlloc(a, parsed.parsed.value, .{});
-        defer a.free(upgraded);
-        try atomicWrite(source, upgraded);
+        // Best effort: the next periodic save writes the current format anyway.
+        upgrade(source, parsed.parsed.value) catch |err| std.log.err("recovery snapshot {s} could not be rewritten after migration ({s})", .{ source, @errorName(err) });
     }
     return true;
+}
+fn upgrade(dest: []const u8, state: checkpoint.State) !void {
+    const bytes = try std.json.Stringify.valueAlloc(a, state, .{});
+    defer a.free(bytes);
+    try atomicWrite(dest, bytes);
 }

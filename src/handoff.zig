@@ -196,3 +196,9 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
     // All subsequent cleanup belongs to the new owner.
     try s.run();
 }
+
+test "saved handoff format matches its version" {
+    const name = std.fmt.comptimePrint("fixtures/handoff-v{d}.schema", .{migrations.handoff_version});
+    // The runtime checkpoint carries, and is checked against, its own version.
+    try migrations.expectSchema(Manifest, &.{cp.State}, "src/" ++ name, @embedFile(name));
+}
