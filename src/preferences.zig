@@ -24,8 +24,8 @@ pub const Preferences = struct {
     prefix: @import("keymap.zig").Prefix = .ctrl_b,
     onboarding_complete: bool = false,
     resources: Resources = .{},
-    /// Drifting Z's and the tail wag on sleeping corgis; off holds a still pose.
-    sleep_animation: bool = false,
+    /// Idle agents nap as corgis in the sidebar; off marks them with a faint Z.
+    sleeping_corgis: bool = true,
 };
 
 pub fn path() ![]const u8 {

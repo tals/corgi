@@ -100,8 +100,8 @@ pub const View = struct {
     workspace_offset: usize = 0,
     resources: Resources = .{},
     resource_hover: ?WorkspaceId = null,
-    /// Corgi setup: drifting Z's and the tail wag on sleeping corgis.
-    sleep_animation: bool = false,
+    /// Corgi setup: idle agents nap as corgis; off marks them with a faint Z.
+    sleeping_corgis: bool = true,
     pub fn middle(v: View) u16 {
         return (v.rows -| 1) / 2;
     }
@@ -418,7 +418,16 @@ pub const View = struct {
             if (e.target == .group) break true;
         } else false;
         var next_y: u16 = v.middle() + 2;
-        for (entries[v.offset..@min(entries.len, v.offset + v.capacity)], v.offset..) |e, absolute| {
+        const visible = entries[v.offset..@min(entries.len, v.offset + v.capacity)];
+        var sleepers: [max_entries]u64 = undefined;
+        var sleeping: usize = 0;
+        for (visible) |e| {
+            if (e.target == .group or e.state != .idle or e.exit != null) continue;
+            sleepers[sleeping] = animationKey(e);
+            sleeping += 1;
+        }
+        const dream = if (v.sleeping_corgis) corgi_animation.dreamer(sleepers[0..sleeping], now_ms) else null;
+        for (visible, v.offset..) |e, absolute| {
             const index = absolute - v.offset;
             var exit_buffer: [16384]u8 = undefined;
             var exit_writer = std.Io.Writer.fixed(&exit_buffer);
@@ -433,7 +442,7 @@ pub const View = struct {
             }
             const last_in_group = grouped and (absolute + 1 == entries.len or entries[absolute + 1].target == .group);
             const divider = !grouped and index + 1 < @min(entries.len - v.offset, v.capacity);
-            try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, frame_ms);
+            try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, frame_ms, dream);
             if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
         }
         if (v.search != null) {
@@ -445,7 +454,7 @@ pub const View = struct {
         }
         try w.writeAll("\x1b[0m");
     }
-    fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64) !void {
+    fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64, dream: ?corgi_animation.Dream) !void {
         const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
         const frame_index: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
         // Grouped rows select with the active workspace's tint; the rail stays unbroken.
@@ -476,7 +485,10 @@ pub const View = struct {
         const underline_x: u16 = if (dotted) 5 else 2;
         const compacting = e.state == .working and e.compacting;
         const waiting = e.state == .working and e.subagents.waiting and !compacting;
-        const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
+        // Without sleeping corgis, a faint Z marks an idle agent; unseen ones are brighter.
+        const napping = e.state == .idle and !v.sleeping_corgis;
+        const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else if (napping) "ᶻ" else "";
+        const activity_color = if (!napping) "\x1b[22;38;2;125;132;143m" else if (e.attention == .finished) "\x1b[22;38;2;108;112;134m" else "\x1b[22;38;2;70;74;88m";
         var name: [160]u8 = undefined;
         const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
         try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
@@ -486,7 +498,7 @@ pub const View = struct {
         // consuming another terminal row or changing the entry hit area.
         try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + underline_x, underline });
         try w.splatByteAll(' ', v.width - 1 - underline_x);
-        try w.print("\x1b[{d};{d}H{s}\x1b[22;38;2;125;132;143m{s}\x1b[{d};{d}H{s}\x1b[38;2;226;230;233m", .{ y + 2, x + 2, if (dotted) "\x1b[24m" else "", activity, y + 2, x + 5, if (dotted) underline else "" });
+        try w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}\x1b[38;2;226;230;233m", .{ y + 2, x + 2, if (dotted) "\x1b[24m" else "", activity_color, activity, y + 2, x + 5, if (dotted) underline else "" });
         var clean: [512]u8 = undefined;
         const detail = if (compacting) "Compacting…" else if (waiting) "Waiting on agents" else switch (e.state) {
             .working => e.activity,
@@ -499,23 +511,26 @@ pub const View = struct {
         const badge = subagentBadge(&badge_buf, e.subagents, e.children);
         const badge_width = displayWidth(badge);
         const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
-        const animation_seed: u64 = switch (e.target) {
-            .pane => |id| @as(u64, @intFromEnum(id)) * 17,
-            .native => |id| (@as(u64, @intFromEnum(id)) + 0x100000000) * 17,
-            .group => unreachable,
-        };
+        const animation_key = animationKey(e);
         const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
-        const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
-        const presentation = corgi_animation.observe(animation_seed, mode, now_ms);
+        const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle and v.sleeping_corgis) .asleep else .content;
+        const presentation = corgi_animation.observe(animation_key, mode, now_ms);
+        // Unseen and focused naps stay bright; only the list's dreamer puffs.
+        const sleep: corgi_animation.Sleep = .{
+            .background = if (e.focused) .{ 35, 40, 47 } else .{ 24, 27, 32 },
+            .bright = e.focused or e.attention == .finished,
+            .puff_ms = if (dream) |d| (if (d.key == animation_key) d.puff_ms else null) else null,
+        };
         if (mode != .content) {
-            try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working, v.sleep_animation);
+            try presentation.?.writeCorgi(w, detail_room, e.state == .working, sleep);
         } else {
             // Lifecycle signals (blocked/ended/etc.) must be immediate.
             // Interrupts already switch straight to the sleeping mode.
             if (e.state != .working) if (presentation) |p| p.skipReveal();
-            const text = directoryLabel(&clean, detail, null);
+            // No detail stays blank; directoryLabel would print "?" for it.
+            const text = if (detail.len == 0) "" else directoryLabel(&clean, detail, null);
             if (presentation != null and presentation.?.reveal_started_ms != null) {
-                try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working, v.sleep_animation);
+                try presentation.?.writeCorgi(w, detail_room, e.state == .working, sleep);
                 try w.print("\x1b[{d};{d}H\x1b[38;2;226;230;233m", .{ y + 2, x + 5 });
                 try writeRevealedDetail(w, text, detail_room, presentation.?.revealedColumns(detail_room, now_ms), presentation.?.revealPosition(detail_room, now_ms));
             } else try writeEllipsis(w, text, detail_room);
@@ -526,6 +541,13 @@ pub const View = struct {
         }
         try w.writeAll("\x1b[24;59m");
         if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H\x1b[48;2;137;180;250m \x1b[0m", .{ y + row + 1, x + 1 });
+    }
+    fn animationKey(e: Entry) u64 {
+        return switch (e.target) {
+            .pane => |id| @as(u64, @intFromEnum(id)) * 17,
+            .native => |id| (@as(u64, @intFromEnum(id)) + 0x100000000) * 17,
+            .group => unreachable,
+        };
     }
     fn drawGroup(v: View, w: *std.Io.Writer, e: Entry, y: u16) !void {
         const g = e.group;
@@ -1843,4 +1865,31 @@ test "closing card keeps its glyphs and geometry while all colors fade into the 
     output.clearRetainingCapacity();
     try writeExit(&output.writer, frame, 1);
     try std.testing.expectEqualStrings("\x1b[19;1H\x1b[0;48;2;24;27;32m \x1b[1;38;2;24;27;32mAgent\x1b[4;58:2::24:27:32m corgi", output.written());
+}
+
+test "only one sleeping corgi puffs at a time, and turning them off leaves a faint Z" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var entries: [4]Entry = undefined;
+    for (&entries, 1..) |*entry, id| entry.* = .{ .target = .{ .pane = @enumFromInt(id) }, .name = "Agent", .provider = .claude, .state = .idle, .attention = .none };
+    var view = View.init(100, 30, true, 0, entries.len);
+    view.scope_label = "Corgi";
+    var puffed = false;
+    var now: i64 = 0;
+    while (now < corgi_animation.dream_period_ms) : (now += 150) {
+        output.clearRetainingCapacity();
+        try view.drawAt(&output.writer, &entries, &.{}, now);
+        const letters = std.mem.count(u8, output.written(), "ᶻ") + std.mem.count(u8, output.written(), "z");
+        try std.testing.expect(letters <= 2);
+        puffed = puffed or letters > 0;
+    }
+    try std.testing.expect(puffed);
+    try std.testing.expectEqual(entries.len, std.mem.count(u8, output.written(), "~ᐯ◡ᴥ◡ᐯ"));
+    view.sleeping_corgis = false;
+    output.clearRetainingCapacity();
+    try view.drawAt(&output.writer, &entries, &.{}, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") == null);
+    try std.testing.expectEqual(entries.len, std.mem.count(u8, output.written(), "\x1b[22;38;2;70;74;88mᶻ"));
+    // Question marks outside escape sequences would be a placeholder label.
+    try std.testing.expectEqual(std.mem.count(u8, output.written(), "\x1b[?"), std.mem.count(u8, output.written(), "?"));
 }

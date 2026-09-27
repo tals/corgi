@@ -1,6 +1,6 @@
 //! Setup modal opened from the corgi badge (or Ctrl-B i), centered on screen.
 //! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
-//! resource and sleep animation choices update viewer preferences.
+//! resource and sleeping corgi choices update viewer preferences.
 const std = @import("std");
 const setup = @import("inference_setup.zig");
 const sidebar = @import("sidebar.zig");
@@ -16,7 +16,7 @@ pub const Choice = enum {
     memory,
     io,
     alerts,
-    sleep_animation,
+    sleeping_corgis,
     keyboard,
     import,
 
@@ -55,13 +55,14 @@ pub const Choice = enum {
             .memory => "Memory",
             .io => "I/O",
             .alerts => "Amber alerts",
-            .sleep_animation => "Sleep animation",
+            .sleeping_corgis => "Sleeping corgis",
             .keyboard => "Keyboard shortcuts",
             .import => "Import sessions",
         };
     }
 };
 const Resources = @import("preferences.zig").Resources;
+const corgi_animation = @import("corgi_animation.zig");
 const ghostty = @import("ghostty_integration.zig");
 const km = @import("keymap.zig");
 
@@ -106,8 +107,7 @@ const lines = [_]Line{
     .{ .toggles = &.{.alerts} },
     .spacer,
     .{ .heading = "Idle agents" },
-    .{ .option = .sleep_animation },
-    .{ .hint = "Drifting z's and a tail wag while the corgi naps" },
+    .{ .option = .sleeping_corgis },
     .spacer,
     .{ .heading = "Shortcuts & import" },
     .{ .option = .keyboard },
@@ -163,20 +163,23 @@ const mint = "\x1b[0;38;2;161;194;178;48;2;35;40;47m";
 const heading = "\x1b[1;38;2;161;194;178;48;2;35;40;47m";
 const yellow = "\x1b[0;38;2;232;190;115;48;2;35;40;47m";
 const keycap = "\x1b[1;38;2;24;27;32;48;2;161;194;178m";
-const Row = struct { text: []const u8, label: []const u8, accent: []const u8, quiet: []const u8, warn: []const u8 };
-const row_normal: Row = .{ .text = text, .label = text, .accent = mint, .quiet = panel, .warn = yellow };
+const Row = struct { text: []const u8, label: []const u8, accent: []const u8, quiet: []const u8, warn: []const u8, background: [3]u8 };
+const row_normal: Row = .{ .text = text, .label = text, .accent = mint, .quiet = panel, .warn = yellow, .background = .{ 35, 40, 47 } };
 const row_selected: Row = .{
     .text = "\x1b[0;38;2;201;224;211;48;2;47;64;59m",
     .label = "\x1b[1;38;2;226;230;233;48;2;47;64;59m",
     .accent = "\x1b[0;38;2;161;194;178;48;2;47;64;59m",
     .quiet = "\x1b[0;38;2;112;124;135;48;2;47;64;59m",
     .warn = "\x1b[0;38;2;232;190;115;48;2;47;64;59m",
+    .background = .{ 47, 64, 59 },
 };
 const shadow = "\x1b[0;48;2;12;14;17m";
 // Columns inside the frame, counted from its left border.
 const marker_x = 3;
 const label_x = 5;
 const summary_x = 18;
+/// The setup preview dreams more often than a sidebar list.
+const preview_period_ms = 6_000;
 
 pub const Menu = struct {
     selected: Choice,
@@ -184,7 +187,7 @@ pub const Menu = struct {
     preset: km.Preset = .corgi,
     prefix: km.Prefix = .ctrl_b,
     resources: Resources = .{},
-    sleep_animation: bool = false,
+    sleeping_corgis: bool = true,
 
     pub fn open(status: setup.Status) Menu {
         return .{ .selected = @enumFromInt(@intFromEnum(status.choice)) };
@@ -218,6 +221,9 @@ pub const Menu = struct {
         m.selected = @enumFromInt(if (next) @min(index + 1, @intFromEnum(Choice.import)) else index -| 1);
     }
     pub fn draw(m: *const Menu, w: *std.Io.Writer, status: setup.Status, cols: u16, rows: u16) !void {
+        return m.drawAt(w, status, cols, rows, std.time.milliTimestamp());
+    }
+    fn drawAt(m: *const Menu, w: *std.Io.Writer, status: setup.Status, cols: u16, rows: u16, now_ms: i64) !void {
         const b = bounds(cols, rows);
         if (!usable(b)) return;
         // Shadow one row below and two columns right, clipped to the screen.
@@ -250,7 +256,7 @@ pub const Menu = struct {
                 .heading => |label| try put(w, b, marker_x, y, heading, label),
                 .lead => |label| try put(w, b, marker_x, y, panel, label),
                 .hint => |label| try put(w, b, label_x, y, panel, label),
-                .option => |choice| try m.drawOption(w, b, y, choice, status),
+                .option => |choice| try m.drawOption(w, b, y, choice, status, now_ms),
                 .toggles => |choices| try m.drawToggles(w, b, y, choices),
                 .detail => {
                     var buffer: [96]u8 = undefined;
@@ -270,7 +276,7 @@ pub const Menu = struct {
         }
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
-    fn drawOption(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choice: Choice, status: setup.Status) !void {
+    fn drawOption(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choice: Choice, status: setup.Status, now_ms: i64) !void {
         const highlighted = choice == m.selected;
         const p = if (highlighted) row_selected else row_normal;
         const base = p.text;
@@ -289,7 +295,7 @@ pub const Menu = struct {
                 .failed => .{ .text = "config unreadable", .style = p.warn },
             },
             .readings => if (m.resources.enabled) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
-            .sleep_animation => if (m.sleep_animation) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
+            .sleeping_corgis => if (m.sleeping_corgis) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
             .keyboard => .{ .text = m.keysLabel(&right_buffer), .style = accent },
             .import => .{ .text = "→", .style = accent },
             else => .{ .text = if (choice.summarizer() and @intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = accent },
@@ -305,6 +311,18 @@ pub const Menu = struct {
         } else {
             try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + label_x + 1, label_style });
             try sidebar.writeEllipsis(w, choice.label(), right_x -| (label_x + 1));
+        }
+        if (choice == .sleeping_corgis) {
+            // A live preview beside the label: on, it puffs every few seconds;
+            // off, it naps dim and still.
+            const x = label_x + sidebar.displayWidth(choice.label()) + 2;
+            const elapsed: u64 = @intCast(@mod(now_ms, preview_period_ms));
+            try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + x + 1, base });
+            try corgi_animation.idle(w, @min(12, right_x -| (x + 1)), .{
+                .background = p.background,
+                .bright = m.sleeping_corgis,
+                .puff_ms = if (m.sleeping_corgis) elapsed else null,
+            });
         }
         if (right_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + right_x + 1, right.style, right.text });
     }
@@ -338,7 +356,7 @@ pub const Menu = struct {
                 .disabled => "Turn on",
                 .unavailable, .failed => null,
             },
-            .sleep_animation => if (m.sleep_animation) "Turn off" else "Turn on",
+            .sleeping_corgis => if (m.sleeping_corgis) "Turn off" else "Turn on",
             .keyboard, .import => "Open →",
             .readings, .cpu, .memory, .io, .alerts => |choice| {
                 var prefs = m.resources;
@@ -363,7 +381,7 @@ fn modelName(id: []const u8) []const u8 {
 
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleep_animation => unreachable,
+        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleeping_corgis => unreachable,
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
         else if (status.provider) |provider|
@@ -385,7 +403,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleep_animation => unreachable,
+        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleeping_corgis => unreachable,
         .auto => if (status.launches.codex + status.launches.claude == 0)
             "No agents yet this session; using your last one"
         else
@@ -409,8 +427,8 @@ test "setup modal is centered and its rows are clickable inside the frame" {
     try std.testing.expectEqual(auto + 3, rowOf(100, 30, .off).?);
     try std.testing.expect(rowOf(100, 30, .off).? < rowOf(100, 30, .ghostty).?);
     try std.testing.expect(rowOf(100, 30, .ghostty).? < rowOf(100, 30, .keyboard).?);
-    try std.testing.expect(rowOf(100, 30, .alerts).? < rowOf(100, 30, .sleep_animation).?);
-    try std.testing.expect(rowOf(100, 30, .sleep_animation).? < rowOf(100, 30, .keyboard).?);
+    try std.testing.expect(rowOf(100, 30, .alerts).? < rowOf(100, 30, .sleeping_corgis).?);
+    try std.testing.expect(rowOf(100, 30, .sleeping_corgis).? < rowOf(100, 30, .keyboard).?);
     try std.testing.expectEqual(rowOf(100, 30, .keyboard).? + 1, rowOf(100, 30, .import).?);
     try std.testing.expect(Menu.hit(100, 30, b.x + 6, b.y + 2) == null);
     try std.testing.expect(Menu.hit(100, 30, b.x, auto) == null);
@@ -465,18 +483,26 @@ test "resource toggles share a row, are clicked by column, and flip preferences"
     try std.testing.expect(!Choice.codex.applyResources(&prefs));
 }
 
-test "sleep animation row shows its state and offers the opposite" {
+test "sleeping corgis row shows its state, offers the opposite, and naps beside the label" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     var menu = Menu.open(.{});
-    menu.selected = .sleep_animation;
-    try menu.draw(&output.writer, .{}, 100, 40);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Sleep animation") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "○ Off") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
-    output.clearRetainingCapacity();
-    menu.sleep_animation = true;
-    try menu.draw(&output.writer, .{}, 100, 40);
+    menu.selected = .sleeping_corgis;
+    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Sleeping corgis") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "● On") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn off ]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "~ᐯ◡ᴥ◡ᐯ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") != null);
+    // Between puffs the preview rests without a Z.
+    output.clearRetainingCapacity();
+    try menu.drawAt(&output.writer, .{}, 100, 40, corgi_animation.puff_duration_ms);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
+    output.clearRetainingCapacity();
+    menu.sleeping_corgis = false;
+    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "○ Off") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "~ᐯ◡ᴥ◡ᐯ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
 }

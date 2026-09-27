@@ -113,7 +113,7 @@ pub const Controller = struct {
     resource_card: @import("resource_tooltip.zig").State = .{},
     resource_aim: ?@import("resource_tooltip.zig").Aim = null,
     resource_prefs: @import("preferences.zig").Resources = .{},
-    sleep_animation: bool = false,
+    sleeping_corgis: bool = true,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?@import("agent_drag.zig").Drag = null,
@@ -264,7 +264,7 @@ pub const Controller = struct {
         s.key_prefix = saved.prefix;
         s.sidebar_width = saved.sidebar_width;
         s.resource_prefs = saved.resources;
-        s.sleep_animation = saved.sleep_animation;
+        s.sleeping_corgis = saved.sleeping_corgis;
         if (!saved.onboarding_complete) s.onboarding = .{ .preset = saved.preset, .prefix = saved.prefix };
         s.agent_scope = switch (saved.agents) {
             .workspace => .workspace,
@@ -1122,7 +1122,7 @@ pub const Controller = struct {
         s.corgi_setup.?.preset = s.key_preset;
         s.corgi_setup.?.prefix = s.key_prefix;
         s.corgi_setup.?.resources = s.resource_prefs;
-        s.corgi_setup.?.sleep_animation = s.sleep_animation;
+        s.corgi_setup.?.sleeping_corgis = s.sleeping_corgis;
         s.dirty = true;
     }
     pub fn openOnboarding(s: *Self, mode: onboarding.Mode) void {
@@ -1151,11 +1151,11 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
-        if (choice == .sleep_animation) {
-            s.sleep_animation = !s.sleep_animation;
-            if (s.corgi_setup) |*setup| setup.sleep_animation = s.sleep_animation;
+        if (choice == .sleeping_corgis) {
+            s.sleeping_corgis = !s.sleeping_corgis;
+            if (s.corgi_setup) |*setup| setup.sleeping_corgis = s.sleeping_corgis;
             var saved = @import("preferences.zig").load();
-            saved.sleep_animation = s.sleep_animation;
+            saved.sleeping_corgis = s.sleeping_corgis;
             @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
             s.dirty = true;
             return;
@@ -1192,7 +1192,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
-            .ghostty, .keyboard, .import, .readings, .cpu, .memory, .io, .alerts, .sleep_animation => unreachable,
+            .ghostty, .keyboard, .import, .readings, .cpu, .memory, .io, .alerts, .sleeping_corgis => unreachable,
             .auto => "Auto (follows your agents)",
             .off => "Off",
             else => choice.provider().?.info().label,
@@ -2647,7 +2647,7 @@ pub const Controller = struct {
             .link_tooltip = tooltip_ready,
             .resources = s.runtime.resources,
             .resource_prefs = s.resource_prefs,
-            .sleep_animation = s.sleep_animation,
+            .sleeping_corgis = s.sleeping_corgis,
             .resource_hover = if (s.link_tooltip.target) |target| target.resource else null,
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
             .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and s.workspace_drag == null) s.git_hover else null,

@@ -61,9 +61,11 @@ do not discard a still-relevant result. The protocol sends stored activity text
 separately from lifecycle state. Hooks update tool indicators without replacing
 summaries with tool names or generic thinking labels. The client chooses status
 labels and animations from that state, including the sleeping corgi
-for idle agents. **Corgi setup → Idle agents → Sleep animation** adds drifting
-Z's and a tail wag to the sleeping corgi; it is off by default, holding a still
-pose, and saved in viewer preferences. While awaiting a first result, the activity text stays blank; the
+for idle agents. Sleepers you have seen are dim; unseen and focused ones stay
+bright. One corgi per list puffs a short Z every 11 seconds, so a long idle list
+has at most one moving thing. **Corgi setup → Idle agents → Sleeping corgis**
+turns them off, leaving a faint ᶻ where the activity icon goes; it is on by
+default and saved in viewer preferences. While awaiting a first result, the activity text stays blank; the
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
 Abstention is successful inference, so unchanged evidence is not retried and new
