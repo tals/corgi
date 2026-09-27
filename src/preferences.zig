@@ -7,6 +7,8 @@ const a = os.allocator;
 pub const Preferences = struct {
     /// The agent scope persists across viewer restarts.
     agents: enum { workspace, all } = .workspace,
+    /// The last dragged sidebar width seeds new viewers; open ones keep their own.
+    sidebar_width: u16 = 28,
     preset: @import("keymap.zig").Preset = .corgi,
     prefix: @import("keymap.zig").Prefix = .ctrl_b,
     onboarding_complete: bool = false,
@@ -55,6 +57,7 @@ fn readExisting(file: []const u8) ?Preferences {
     const parsed = std.json.parseFromSlice(Preferences, a, bytes, .{ .ignore_unknown_fields = true }) catch return null;
     defer parsed.deinit();
     var value = parsed.value;
+    value.sidebar_width = @max(value.sidebar_width, 20);
     value.preset = @import("keymap.zig").supportedPreset(value.preset);
     return value;
 }
@@ -81,6 +84,8 @@ test "preferences round trip and fall back to defaults" {
     try std.testing.expectEqual(Preferences{}, read(file));
     try write(file, .{ .agents = .all });
     try std.testing.expectEqual(Preferences{ .agents = .all }, read(file));
+    try write(file, .{ .sidebar_width = 44 });
+    try std.testing.expectEqual(@as(u16, 44), read(file).sidebar_width);
     try write(file, .{ .preset = .cmux, .onboarding_complete = true });
     try std.testing.expectEqual(if (@import("builtin").os.tag == .macos) @import("keymap.zig").Preset.cmux else .corgi, read(file).preset);
     try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{broken" });

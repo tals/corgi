@@ -507,7 +507,7 @@ class ViewerScenarios extends Viewers {
     );
   }
 
-  async test_sidebar_width_is_local_and_clamped() {
+  async test_sidebar_width_is_local_sticky_and_clamped() {
     const pane = await this.new(),
       a = await this.newViewer(),
       b = await this.newViewer();
@@ -517,6 +517,10 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await this.geometry())[pane][0], 60);
     this.assertIn("\x1b[1;41H", a.state.data);
     this.assertIn("\x1b[1;29H", b.state.data);
+    // New viewers start from the last dragged width; open ones keep their own.
+    const c = await this.newViewer();
+    await c.poll();
+    this.assertIn("\x1b[1;41H", c.state.data);
     await a.input("\x1b[<0;40;8M\x1b[<32;99;8M\x1b[<0;99;8m");
     this.assertEqual((await this.geometry())[pane][0], 20);
     await a.request({ op: "size", cols: 70, rows: 30 });

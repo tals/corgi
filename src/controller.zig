@@ -251,6 +251,7 @@ pub const Controller = struct {
         const saved = @import("preferences.zig").load();
         s.key_preset = saved.preset;
         s.key_prefix = saved.prefix;
+        s.sidebar_width = saved.sidebar_width;
         if (!saved.onboarding_complete) s.onboarding = .{ .preset = saved.preset, .prefix = saved.prefix };
         s.agent_scope = switch (saved.agents) {
             .workspace => .workspace,
@@ -1825,7 +1826,12 @@ pub const Controller = struct {
             return;
         }
         if (s.sidebar_drag) {
-            if (release) s.sidebar_drag = false else if (button == 32) {
+            if (release) {
+                s.sidebar_drag = false;
+                var saved = @import("preferences.zig").load();
+                saved.sidebar_width = s.sidebar_width;
+                @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
+            } else if (button == 32) {
                 s.sidebar_width = std.math.clamp(x +| 1, 20, @max(20, s.width -| 20));
                 s.dirty = true;
             }
