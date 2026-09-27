@@ -3,6 +3,7 @@ const std = @import("std");
 const common = @import("providers/common.zig");
 const field = common.field;
 const str = common.str;
+const Provider = @import("providers.zig").Provider;
 pub const Text = struct {
     bytes: [160]u8 = @splat(0),
     len: usize = 0,
@@ -59,8 +60,26 @@ fn resetCountdown(at: i64, now: i64, buf: []u8) []const u8 {
         std.fmt.bufPrint(buf, "{d}m", .{minutes}) catch "";
 }
 
-fn resetTimestamp(value: std.json.Value, codex: bool) ?i64 {
-    if (codex) {
+/// Where a provider's rate-limit response keeps its two usage windows.
+const Schema = struct {
+    windows: [2][]const u8,
+    used: []const u8,
+    /// Fixed window labels; null reads each window's duration.
+    labels: ?[2][]const u8,
+    reset: enum { unix_seconds, iso8601 },
+};
+fn schema(provider: Provider) Schema {
+    return switch (provider) {
+        .codex => .{ .windows = .{ "primary", "secondary" }, .used = "usedPercent", .labels = null, .reset = .unix_seconds },
+        .claude => .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .labels = .{ "5h", "7d" }, .reset = .iso8601 },
+    };
+}
+fn windowLabel(format: Schema, item: std.json.Value, i: usize, buf: []u8) []const u8 {
+    return if (format.labels) |labels| labels[i] else duration(item, buf);
+}
+
+fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
+    if (format.reset == .unix_seconds) {
         const at = field(value, "resetsAt");
         return if (at == .integer and at.integer > 0) at.integer else null;
     }
@@ -82,14 +101,15 @@ fn resetTimestamp(value: std.json.Value, codex: bool) ?i64 {
     return @divFloor(@import("transcript.zig").timestampMs(stamp) orelse return null, 1000) - offset;
 }
 
-pub fn resets(value: std.json.Value, codex: bool) Resets {
+pub fn resets(value: std.json.Value, provider: Provider) Resets {
+    const format = schema(provider);
     var result: Resets = .{};
-    const windows = [_]std.json.Value{ field(value, if (codex) "primary" else "five_hour"), field(value, if (codex) "secondary" else "seven_day") };
-    for (windows, 0..) |item, i| {
-        if (percent(field(item, if (codex) "usedPercent" else "utilization")) == null) continue;
-        result.at[i] = resetTimestamp(item, codex);
+    for (format.windows, 0..) |name, i| {
+        const item = field(value, name);
+        if (percent(field(item, format.used)) == null) continue;
+        result.at[i] = resetTimestamp(item, format);
         var buf: [32]u8 = undefined;
-        result.labels[i].set(if (codex) duration(item, &buf) else if (i == 0) "5h" else "7d");
+        result.labels[i].set(windowLabel(format, item, i, &buf));
     }
     return result;
 }
@@ -141,16 +161,16 @@ fn duration(value: std.json.Value, buf: []u8) []const u8 {
     return if (@mod(n, 1440) == 0) std.fmt.bufPrint(buf, "{d}d", .{@divExact(n, 1440)}) catch "Window" else if (@mod(n, 60) == 0) std.fmt.bufPrint(buf, "{d}h", .{@divExact(n, 60)}) catch "Window" else std.fmt.bufPrint(buf, "{d}m", .{n}) catch "Window";
 }
 
-pub fn usage(value: std.json.Value, codex: bool) Text {
+pub fn usage(value: std.json.Value, provider: Provider) Text {
+    const format = schema(provider);
     var first_buf: [64]u8 = undefined;
     var second_buf: [64]u8 = undefined;
     var first_label: [32]u8 = undefined;
     var second_label: [32]u8 = undefined;
-    const first = field(value, if (codex) "primary" else "five_hour");
-    const second = field(value, if (codex) "secondary" else "seven_day");
-    const key = if (codex) "usedPercent" else "utilization";
-    const one = window(first, key, if (codex) duration(first, &first_label) else "5h", &first_buf);
-    const two = window(second, key, if (codex) duration(second, &second_label) else "7d", &second_buf);
+    const first = field(value, format.windows[0]);
+    const second = field(value, format.windows[1]);
+    const one = window(first, format.used, windowLabel(format, first, 0, &first_label), &first_buf);
+    const two = window(second, format.used, windowLabel(format, second, 1, &second_label), &second_buf);
     var result: Text = .{};
     var buf: [160]u8 = undefined;
     result.set(std.fmt.bufPrint(&buf, "{s}{s}{s}", .{ one, if (one.len > 0 and two.len > 0) " / " else "", two }) catch "");
@@ -162,13 +182,13 @@ test "account usage distinguishes missing windows from zero and preserves durati
         \\{"primary":{"usedPercent":0,"windowDurationMins":300},"secondary":{"usedPercent":63,"windowDurationMins":10080}}
     , .{});
     defer parsed.deinit();
-    try std.testing.expectEqualStrings("5h 0% / 7d 63%", usage(parsed.value, true).text());
+    try std.testing.expectEqualStrings("5h 0% / 7d 63%", usage(parsed.value, .codex).text());
     const missing = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
         \\{"five_hour":null,"seven_day":{"utilization":42.3}}
     , .{});
     defer missing.deinit();
-    try std.testing.expectEqualStrings("7d 42%", usage(missing.value, false).text());
-    try std.testing.expectEqualStrings("", usage(.null, false).text());
+    try std.testing.expectEqualStrings("7d 42%", usage(missing.value, .claude).text());
+    try std.testing.expectEqualStrings("", usage(.null, .claude).text());
 }
 
 test "signed out and API accounts do not borrow subscription details" {
@@ -199,15 +219,15 @@ test "reset countdown rounds up and preserves window labels" {
         \\{"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":8200},"secondary":{"usedPercent":63,"windowDurationMins":10080,"resetsAt":273700}}
     , .{});
     defer codex.deinit();
-    const times = resets(codex.value, true);
+    const times = resets(codex.value, .codex);
     try std.testing.expectEqualStrings("5h 2h 15m / 7d 3d 4h", times.text(100).text());
     const claude = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
         \\{"five_hour":{"utilization":12,"resets_at":"2026-09-24T12:00:00.000000+00:00"},"seven_day":{"utilization":48,"resets_at":"2026-09-27T16:00:00Z"}}
     , .{});
     defer claude.deinit();
-    const claude_times = resets(claude.value, false);
+    const claude_times = resets(claude.value, .claude);
     const now = @divExact(@import("transcript.zig").timestampMs("2026-09-24T10:00:00Z").?, 1000);
     try std.testing.expectEqualStrings("5h 2h / 7d 3d 6h", claude_times.text(now).text());
-    const unknown = resets(.null, false);
+    const unknown = resets(.null, .claude);
     try std.testing.expectEqualStrings("", unknown.text(now).text());
 }

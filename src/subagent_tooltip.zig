@@ -450,7 +450,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
         const row = heading + 1 + i;
         const agent_status = status(item.agent, false);
         var fallback: [80]u8 = undefined;
-        const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{ @tagName(item.agent.provider), item.agent.session[0..@min(8, item.agent.session.len)] });
+        const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{ item.agent.providerName(), item.agent.session[0..@min(8, item.agent.session.len)] });
         try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, .text);
         try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, x + 4, base, agent_status.tone.ansi(), agent_status.icon });
     }
@@ -496,7 +496,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     root_agent.state = entry.state;
     const children_available = childrenAvailable(all, parent, std.time.microTimestamp());
     if (!children_available) root_agent.subagents = .{};
-    const name = if (entry.name.len > 0) entry.name else if (root_agent.name.len > 0) root_agent.name else @tagName(entry.provider);
+    const name = if (entry.name.len > 0) entry.name else if (root_agent.name.len > 0) root_agent.name else root_agent.providerName();
     const model = if (children_available) Model.init(all, parent) else Model{ .total = root.usage };
     const width: usize = @min(88, cols);
     const pending = root.timeline.points.len > 0;
@@ -526,12 +526,13 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         thinking()
     else
         activity(root_agent);
+    const provider = root_agent.providerName();
     const subtitle = if (timeline_nodes > 0)
-        @tagName(root_agent.provider)
-    else if (std.ascii.eqlIgnoreCase(name, @tagName(root_agent.provider)))
+        provider
+    else if (std.ascii.eqlIgnoreCase(name, provider))
         root_activity
     else
-        try std.fmt.bufPrint(&text, "{s} · {s}", .{ @tagName(root_agent.provider), root_activity });
+        try std.fmt.bufPrint(&text, "{s} · {s}", .{ provider, root_activity });
     try card.line(top + 1, subtitle, "", .muted, .muted);
     try card.tokenColumns(top + 2, null, false, .muted);
     try card.cell(top + 3, 0, card.textWidth(), "Total", .text, false);

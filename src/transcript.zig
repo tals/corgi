@@ -160,7 +160,7 @@ const Tail = struct {
         const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
         const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
         if (!resumed) {
-            if (agent.provider == .codex) try verifyCodexSession(file, agent.sessionId());
+            try verifySession(file, agent.provider orelse return error.NoProvider, agent.sessionId());
             t.partial.clearRetainingCapacity();
             t.offset = stat.size -| initial_tail;
             t.discard = t.offset > 0;
@@ -205,10 +205,18 @@ const Tail = struct {
         return found;
     }
 };
+/// A transcript that begins with an identity record must name this session.
+/// Shared by completion and usage readers.
+pub fn verifySession(file: std.fs.File, provider: agents.Provider, session: []const u8) !void {
+    switch (provider) {
+        .codex => try verifyCodexSession(file, session),
+        .claude => {},
+    }
+}
 // Session metadata contains instructions and can exceed 16 KiB. Read through
 // the first newline with a bounded allocation, rather than assuming one chunk
-// contains the whole identity record. Shared by completion and usage readers.
-pub fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
+// contains the whole identity record.
+fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
     const limit = 1024 * 1024;
     var header: std.ArrayList(u8) = .empty;
     defer header.deinit(a);
@@ -241,24 +249,27 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     // Historical tail records must never be mistaken for this Stop invocation.
     const stamp = timestampMs(agents.str(v, "timestamp")) orelse return null;
     if (stamp < @divTrunc(agent.last_seq, 1000)) return null;
-    if (agent.provider == .codex) {
-        if (!eq(agents.str(v, "type"), "event_msg") or agent.turn_len == 0) return null;
-        const p = v.object.get("payload") orelse return null;
-        if (!eq(agents.str(p, "turn_id"), agent.turnId())) return null;
-        const kind = agents.str(p, "type");
-        if (eq(kind, "turn_aborted")) return .interrupted;
-        if (!eq(kind, "task_complete") and !eq(kind, "turn_complete")) return null;
-        if (p.object.get("error")) |err| if (err != .null) return .failed;
-        return .completed;
-    }
-    if (agent.provider == .claude) {
-        // end_turn on an assistant message precedes Stop hooks. Only the
-        // post-turn system record is evidence; a stop_hook_summary is not.
-        if (!eq(agents.str(v, "sessionId"), agent.sessionId()) or !eq(agents.str(v, "type"), "system") or !eq(agents.str(v, "subtype"), "turn_duration")) return null;
-        if (v.object.get("isSidechain")) |side| if (side == .bool and side.bool) return null;
-        return .completed;
-    }
-    return null;
+    return switch (agent.provider orelse return null) {
+        .codex => codexCompletion(agent, v),
+        .claude => claudeCompletion(agent, v),
+    };
+}
+fn codexCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
+    if (!eq(agents.str(v, "type"), "event_msg") or agent.turn_len == 0) return null;
+    const p = v.object.get("payload") orelse return null;
+    if (!eq(agents.str(p, "turn_id"), agent.turnId())) return null;
+    const kind = agents.str(p, "type");
+    if (eq(kind, "turn_aborted")) return .interrupted;
+    if (!eq(kind, "task_complete") and !eq(kind, "turn_complete")) return null;
+    if (p.object.get("error")) |err| if (err != .null) return .failed;
+    return .completed;
+}
+fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
+    // end_turn on an assistant message precedes Stop hooks. Only the
+    // post-turn system record is evidence; a stop_hook_summary is not.
+    if (!eq(agents.str(v, "sessionId"), agent.sessionId()) or !eq(agents.str(v, "type"), "system") or !eq(agents.str(v, "subtype"), "turn_duration")) return null;
+    if (v.object.get("isSidechain")) |side| if (side == .bool and side.bool) return null;
+    return .completed;
 }
 pub fn timestampMs(s: []const u8) ?i64 {
     if (s.len < 20 or s[4] != '-' or s[7] != '-' or s[10] != 'T' or s[s.len - 1] != 'Z') return null;

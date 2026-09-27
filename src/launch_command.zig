@@ -1,5 +1,6 @@
 //! Saved shell source is never rewritten or evaluated for a preview.
 const std = @import("std");
+const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
 pub const capacity = 6;
 pub const max_length = 2048;
@@ -33,10 +34,9 @@ pub const Entry = struct {
     }
     pub fn label(e: *const Entry) []const u8 {
         if (e.name.len > 0) return e.name.text();
-        return switch (identify(e.text())) {
-            .codex => "Codex command",
-            .claude => "Claude command",
-            .other => "Shell command",
+        const provider = identify(e.text()) orelse return "Shell command";
+        return switch (provider) {
+            inline else => |known| comptime known.info().name ++ " command",
         };
     }
 };
@@ -61,32 +61,34 @@ pub fn flags() []const u8 {
 
 // A conservative label only. The actual shell owns expansions and execution,
 // and process discovery identifies the real provider after aliases/functions run.
-pub fn identify(source: []const u8) @import("agents.zig").Provider {
+pub fn identify(source: []const u8) ?Provider {
     var tokens: Tokens = .{ .source = source };
     var buffer: [max_length]u8 = undefined;
-    var word = tokens.next(&buffer) orelse return .other;
-    while (assignment(word)) word = tokens.next(&buffer) orelse return .other;
+    var word = tokens.next(&buffer) orelse return null;
+    while (assignment(word)) word = tokens.next(&buffer) orelse return null;
     if (std.mem.eql(u8, std.fs.path.basename(word), "env")) {
-        word = tokens.next(&buffer) orelse return .other;
+        word = tokens.next(&buffer) orelse return null;
         while (true) {
             if (std.mem.eql(u8, word, "-u") or std.mem.eql(u8, word, "--unset")) {
-                _ = tokens.next(&buffer) orelse return .other;
+                _ = tokens.next(&buffer) orelse return null;
             } else if (!assignment(word) and !std.mem.eql(u8, word, "-i") and !std.mem.eql(u8, word, "--ignore-environment") and !std.mem.eql(u8, word, "--")) break;
-            word = tokens.next(&buffer) orelse return .other;
+            word = tokens.next(&buffer) orelse return null;
         }
     }
-    if (std.mem.eql(u8, word, "command") or std.mem.eql(u8, word, "exec")) word = tokens.next(&buffer) orelse return .other;
+    if (std.mem.eql(u8, word, "command") or std.mem.eql(u8, word, "exec")) word = tokens.next(&buffer) orelse return null;
     const base = std.fs.path.basename(word);
     if (std.mem.eql(u8, base, "bunx")) {
-        word = tokens.next(&buffer) orelse return .other;
-        if (std.mem.eql(u8, word, "--bun")) word = tokens.next(&buffer) orelse return .other;
+        word = tokens.next(&buffer) orelse return null;
+        if (std.mem.eql(u8, word, "--bun")) word = tokens.next(&buffer) orelse return null;
     } else if (std.mem.eql(u8, base, "bun")) {
-        word = tokens.next(&buffer) orelse return .other;
-        if (!std.mem.eql(u8, word, "x")) return .other;
-        word = tokens.next(&buffer) orelse return .other;
+        word = tokens.next(&buffer) orelse return null;
+        if (!std.mem.eql(u8, word, "x")) return null;
+        word = tokens.next(&buffer) orelse return null;
     }
-    if (std.mem.eql(u8, word, "@openai/codex") or std.mem.startsWith(u8, word, "@openai/codex@")) return .codex;
-    if (std.mem.eql(u8, word, "@anthropic-ai/claude-code") or std.mem.startsWith(u8, word, "@anthropic-ai/claude-code@")) return .claude;
+    for (Provider.all) |provider| {
+        const package = provider.info().package;
+        if (std.mem.startsWith(u8, word, package) and (word.len == package.len or word[package.len] == '@')) return provider;
+    }
     return @import("detection.zig").identify(&.{word});
 }
 fn assignment(word: []const u8) bool {
@@ -134,11 +136,11 @@ test "command labels skip inline assignments and wrappers without changing sourc
         var entry: Entry = .{};
         try entry.set(source);
         try std.testing.expectEqualStrings(source, entry.text());
-        try std.testing.expectEqual(@import("agents.zig").Provider.claude, identify(source));
+        try std.testing.expectEqual(@as(?Provider, .claude), identify(source));
     }
-    try std.testing.expectEqual(@import("agents.zig").Provider.codex, identify("KEY=abc bun x @openai/codex"));
-    try std.testing.expectEqual(@import("agents.zig").Provider.other, identify("my-agent --fast"));
-    try std.testing.expectEqual(@import("agents.zig").Provider.other, identify("echo claude"));
+    try std.testing.expectEqual(@as(?Provider, .codex), identify("KEY=abc bun x @openai/codex"));
+    try std.testing.expectEqual(@as(?Provider, null), identify("my-agent --fast"));
+    try std.testing.expectEqual(@as(?Provider, null), identify("echo claude"));
 }
 
 /// Resolve simple shell aliases/wrapper functions only while adding/editing.
@@ -399,7 +401,7 @@ pub const Worker = struct {
 
 const Text = @import("account_preview.zig").Text;
 pub const Semantics = struct {
-    provider: @import("agents.zig").Provider = .other,
+    provider: ?Provider = null,
     suggested_name: Text = .{},
     model: Text = .{},
     account: Text = .{},
@@ -411,7 +413,8 @@ pub const Semantics = struct {
 /// overrides must never inherit the default account's email from the picker.
 pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
     var info: Semantics = .{ .provider = identify(source) };
-    info.default_account = info.provider != .other;
+    info.default_account = info.provider != null;
+    const facts = if (info.provider) |provider| provider.info() else null;
     var tokens: Tokens = .{ .source = source };
     var buffer: [max_length]u8 = undefined;
     var config: [max_length]u8 = undefined;
@@ -439,28 +442,29 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
             const equal = std.mem.indexOfScalar(u8, word, '=').?;
             const key = word[0..equal];
             const value = word[equal + 1 ..];
-            const codex = info.provider == .codex;
-            if (std.mem.eql(u8, key, if (codex) "CODEX_HOME" else "CLAUDE_CONFIG_DIR")) {
-                config_len = value.len;
-                @memcpy(config[0..config_len], value);
-                info.default_account = false;
-            } else if (std.mem.eql(u8, key, "HOME")) {
+            if (std.mem.eql(u8, key, "HOME")) {
                 home_len = value.len;
                 @memcpy(home[0..home_len], value);
                 info.default_account = false;
-            } else if (std.mem.eql(u8, key, if (codex) "OPENAI_API_KEY" else "ANTHROPIC_API_KEY") or (!codex and std.mem.eql(u8, key, "ANTHROPIC_AUTH_TOKEN"))) {
-                credential_override = true;
-                info.default_account = false;
-                info.account.set(if (value.len > 0) "API key - identity unavailable" else "Credential cleared - identity unknown");
-            } else if (!codex and std.mem.eql(u8, key, "CLAUDE_CODE_OAUTH_TOKEN")) {
-                credential_override = true;
-                info.default_account = false;
-                info.account.set("Explicit OAuth token - identity unknown");
-            } else if (std.mem.eql(u8, key, if (codex) "OPENAI_BASE_URL" else "ANTHROPIC_BASE_URL") or std.mem.startsWith(u8, key, "CLAUDE_CODE_USE_")) {
-                settings_override = true;
-                info.default_account = false;
-                info.account.set("External endpoint/provider - identity unknown");
-            } else if (std.mem.eql(u8, key, "ANTHROPIC_MODEL")) info.model.set(value);
+            } else if (facts) |known| {
+                if (std.mem.eql(u8, key, known.config_env)) {
+                    config_len = value.len;
+                    @memcpy(config[0..config_len], value);
+                    info.default_account = false;
+                } else if (envMatches(key, known.credential_env)) {
+                    credential_override = true;
+                    info.default_account = false;
+                    info.account.set(if (value.len > 0) "API key - identity unavailable" else "Credential cleared - identity unknown");
+                } else if (known.oauth_env != null and std.mem.eql(u8, key, known.oauth_env.?)) {
+                    credential_override = true;
+                    info.default_account = false;
+                    info.account.set("Explicit OAuth token - identity unknown");
+                } else if (envMatches(key, known.endpoint_env)) {
+                    settings_override = true;
+                    info.default_account = false;
+                    info.account.set("External endpoint/provider - identity unknown");
+                } else if (known.model_env != null and std.mem.eql(u8, key, known.model_env.?)) info.model.set(value);
+            }
             continue;
         }
         if (before_command and (std.mem.eql(u8, word, "command") or std.mem.eql(u8, word, "env"))) continue;
@@ -471,43 +475,60 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
         before_command = false;
         if (std.mem.eql(u8, word, "--model") or std.mem.eql(u8, word, "-m")) next_model = true;
         if (std.mem.startsWith(u8, word, "--model=")) info.model.set(word[8..]);
-        if (std.mem.eql(u8, word, "--profile") or std.mem.eql(u8, word, "-p") and info.provider == .codex) {
+        // Wrapper scripts may forward any agent's flag.
+        for (Provider.all) |provider| {
+            if ((info.provider == null or info.provider == provider) and std.mem.eql(u8, word, provider.info().yolo_flag)) yolo = true;
+        }
+        const known = facts orelse continue;
+        const profile = option(word, known.profile_flags);
+        const settings = option(word, known.settings_flags);
+        if (profile != .none or settings != .none) {
             settings_override = true;
             info.default_account = false;
-            next_profile = true;
         }
-        if (std.mem.startsWith(u8, word, "--profile=") or std.mem.eql(u8, word, "--settings") or std.mem.startsWith(u8, word, "--settings=") or (info.provider == .codex and (std.mem.eql(u8, word, "-c") or std.mem.startsWith(u8, word, "--config")))) {
-            settings_override = true;
-            info.default_account = false;
-            info.account.set("Custom settings - identity unknown");
-        }
-        if (std.mem.eql(u8, word, "--dangerously-skip-permissions") or std.mem.eql(u8, word, "--dangerously-bypass-approvals-and-sandbox")) yolo = true;
+        // A separate profile name follows; an inline one is opaque settings.
+        if (profile == .separate) next_profile = true;
+        if (profile == .inline_value or settings != .none) info.account.set("Custom settings - identity unknown");
     }
-    if (!info.default_account and !credential_override and !settings_override and info.provider != .other) {
+    if (facts) |known| if (!info.default_account and !credential_override and !settings_override) {
         var root: ?[]u8 = null;
         if (config_len > 0 and std.mem.indexOfAny(u8, config[0..config_len], "$~`") == null) {
             root = std.fs.path.resolve(os.allocator, &.{ cwd, config[0..config_len] }) catch null;
         } else if (home_len > 0 and std.mem.indexOfAny(u8, home[0..home_len], "$~`") == null) {
-            root = std.fs.path.resolve(os.allocator, &.{ cwd, home[0..home_len], if (info.provider == .codex) ".codex" else "." }) catch null;
+            root = std.fs.path.resolve(os.allocator, &.{ cwd, home[0..home_len], known.account_home }) catch null;
         }
         defer if (root) |value| os.allocator.free(value);
         info.account.set("Custom profile - identity unknown");
         if (root) |value| readIdentity(&info, value);
-    }
+    };
     if (!info.default_account and info.account.len == 0) info.account.set("Account cannot be determined");
     info.mode.set(if (yolo) "Skips permission checks" else "Provider permission settings");
     var label: [160]u8 = undefined;
-    const provider_name = switch (info.provider) {
-        .codex => "Codex",
-        .claude => "Claude Code",
-        .other => "Custom agent",
-    };
+    const provider_name = if (info.provider) |provider| provider.info().label else "Custom agent";
     info.suggested_name.set(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else "", if (info.model.len > 0) info.model.text() else "" }) catch provider_name);
     return info;
 }
+/// Whether `word` is one of `flags`, either alone or as `--flag=value`.
+fn option(word: []const u8, names: []const []const u8) enum { none, separate, inline_value } {
+    for (names) |flag| {
+        if (std.mem.eql(u8, word, flag)) return .separate;
+        if (std.mem.startsWith(u8, word, flag) and word.len > flag.len and word[flag.len] == '=') return .inline_value;
+    }
+    return .none;
+}
+/// Exact names, or `PREFIX_*` patterns.
+fn envMatches(key: []const u8, names: []const []const u8) bool {
+    for (names) |name| {
+        if (std.mem.endsWith(u8, name, "*")) {
+            if (std.mem.startsWith(u8, key, name[0 .. name.len - 1])) return true;
+        } else if (std.mem.eql(u8, key, name)) return true;
+    }
+    return false;
+}
 fn readIdentity(info: *Semantics, root: []const u8) void {
     const common = @import("providers/common.zig");
-    const path = std.fs.path.join(os.allocator, &.{ root, if (info.provider == .codex) "auth.json" else ".claude.json" }) catch return;
+    const provider = info.provider orelse return;
+    const path = std.fs.path.join(os.allocator, &.{ root, provider.info().account_file }) catch return;
     defer os.allocator.free(path);
     const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0) catch return;
     const file: std.fs.File = .{ .handle = fd };
@@ -522,9 +543,9 @@ fn readIdentity(info: *Semantics, root: []const u8) void {
     var decoded: [16384]u8 = undefined;
     var jwt_json: ?std.json.Parsed(std.json.Value) = null;
     defer if (jwt_json) |parsed| parsed.deinit();
-    if (info.provider == .claude) {
-        email = common.str(common.field(json.value, "oauthAccount"), "emailAddress");
-    } else {
+    switch (provider) {
+        .claude => email = common.str(common.field(json.value, "oauthAccount"), "emailAddress"),
+        .codex => {
         if (common.str(json.value, "OPENAI_API_KEY").len > 0) {
             info.account.set("Profile API key - identity unavailable");
             return;
@@ -538,7 +559,8 @@ fn readIdentity(info: *Semantics, root: []const u8) void {
         if (size > decoded.len) return;
         decoder.decode(decoded[0..size], payload) catch return;
         jwt_json = std.json.parseFromSlice(std.json.Value, os.allocator, decoded[0..size], .{}) catch return;
-        email = common.str(jwt_json.?.value, "email");
+            email = common.str(jwt_json.?.value, "email");
+        },
     }
     if (email.len > 0) {
         var text: [160]u8 = undefined;

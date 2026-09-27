@@ -107,9 +107,9 @@ fn resumeRef(value: Value) Resume {
     var out: Resume = .{};
     if (!equal(value, "kind", "id")) return out;
     const agent = textField(value, "agent");
-    out.provider = if (std.mem.eql(u8, agent, "codex")) .codex else if (std.mem.eql(u8, agent, "claude") or std.mem.eql(u8, agent, "claude-code")) .claude else .other;
+    out.provider = @import("providers.zig").Provider.named(agent);
     const id = textField(value, "value");
-    if (out.provider == .other or id.len == 0 or id.len > out.session.len or !std.unicode.utf8ValidateSlice(id)) return .{};
+    if (out.provider == null or id.len == 0 or id.len > out.session.len or !std.unicode.utf8ValidateSlice(id)) return .{};
     for (id) |ch| if (ch < 32 or ch == 127) return .{};
     @memcpy(out.session[0..id.len], id);
     out.len = id.len;
@@ -473,8 +473,8 @@ const Job = struct {
         if (pane_offset > std.math.maxInt(u32) - job.staged.workspaces.next_pane_id) return error.TooManyPanes;
         for (job.staged.panes.items) |*p| {
             p.id += pane_offset;
-            if (p.resume_hint.len > 0) {
-                const actor = try r.conversations.get(p.resume_hint.provider, p.resume_hint.session[0..p.resume_hint.len]);
+            if (p.resume_hint.provider) |provider| if (p.resume_hint.len > 0) {
+                const actor = try r.conversations.get(provider, p.resume_hint.session[0..p.resume_hint.len]);
                 if (actor.state.last_seq == 0 and actor.state.state == .unknown) {
                     actor.state.state = p.attachment.provisional.state;
                     // Source hooks keep their original environment. Treat the
@@ -483,7 +483,7 @@ const Job = struct {
                     actor.state.observation.source = .screen;
                 }
                 p.attachment.select(actor);
-            }
+            };
         }
         for (job.staged.workspaces.items.items) |*ws| {
             ws.id = r.workspaces.next_id;

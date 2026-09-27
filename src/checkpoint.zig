@@ -15,13 +15,13 @@ pub const Resume = struct {
     name: [160]u8 = @splat(0),
     name_len: usize = 0,
     touched_at: i64 = 0,
-    provider: agents.Provider = .other,
+    provider: ?agents.Provider = null,
     session: [160]u8 = .{0} ** 160,
     len: usize = 0,
     pub fn observe(r: *Resume, agent: *const agents.Agent) void {
-        if (agent.provider == .other) return;
+        const provider = agent.provider orelse return;
         if (agent.session_len > 0) {
-            if (r.provider != agent.provider or !std.mem.eql(u8, r.session[0..r.len], agent.sessionId())) {
+            if (r.provider != provider or !std.mem.eql(u8, r.session[0..r.len], agent.sessionId())) {
                 r.name_len = 0;
                 r.touched_at = 0;
             }
@@ -30,10 +30,10 @@ pub const Resume = struct {
                 r.name_len = agent.name_len;
             }
             r.touched_at = @max(r.touched_at, @max(agent.updated_at, @divTrunc(agent.changed_at, std.time.us_per_s)));
-            r.provider = agent.provider;
+            r.provider = provider;
             r.session = agent.session;
             r.len = agent.session_len;
-        } else if (r.provider == .other) r.provider = agent.provider;
+        } else if (r.provider == null) r.provider = provider;
     }
     pub fn banner(r: Resume, alloc: std.mem.Allocator, now: i64) ![]const u8 {
         var out: std.Io.Writer.Allocating = .init(alloc);
@@ -58,9 +58,10 @@ pub const Resume = struct {
         return out.toOwnedSlice();
     }
     pub fn command(r: Resume, alloc: std.mem.Allocator) ![]const u8 {
-        if (r.provider == .other or r.len == 0 or r.len > r.session.len) return alloc.dupe(u8, "");
+        const provider = r.provider orelse return alloc.dupe(u8, "");
+        if (r.len == 0 or r.len > r.session.len) return alloc.dupe(u8, "");
         for (r.session[0..r.len]) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
-        const argv = try @import("providers.zig").Backend.init(r.provider).resumeArgs(.{ .id = r.session[0..r.len] });
+        const argv = try provider.backend().resumeArgs(.{ .id = r.session[0..r.len] });
         var out: std.Io.Writer.Allocating = .init(alloc);
         errdefer out.deinit();
         try out.writer.print("{s} {s} '", .{ argv[0], argv[1] });
@@ -167,7 +168,7 @@ pub const Binding = struct {
 };
 pub const State = struct {
     link_labels: @import("link_labels.zig").Cache = .{},
-    last_agent: @import("agent_launcher.zig").Provider = .codex,
+    last_agent: agents.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
     agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),
@@ -256,9 +257,10 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.agent_hidden = state.agent_hidden;
     r.agent_commands = state.agent_commands;
     for (state.conversations) |saved| {
-        if (saved.id == 0 or saved.id >= state.next_conversation or r.conversations.byId(saved.id) != null or !validAgent(saved.agent) or saved.agent.provider == .other or saved.agent.session_len == 0 or
-            r.conversations.find(saved.agent.provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;
-        const actor = try r.conversations.get(saved.agent.provider, saved.agent.sessionId());
+        if (saved.id == 0 or saved.id >= state.next_conversation or r.conversations.byId(saved.id) != null or !validAgent(saved.agent) or saved.agent.session_len == 0) return error.InvalidCheckpoint;
+        const provider = saved.agent.provider orelse return error.InvalidCheckpoint;
+        if (r.conversations.find(provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;
+        const actor = try r.conversations.get(provider, saved.agent.sessionId());
         if (saved.status_inference.len > saved.status_inference.recent.len or saved.status_inference.previous.len > saved.status_inference.previous.bytes.len) return error.InvalidCheckpoint;
         for (saved.status_inference.recent) |entry| if (entry.len > entry.bytes.len) return error.InvalidCheckpoint;
         actor.status_inference = if (live) saved.status_inference else .{};
@@ -401,9 +403,10 @@ fn restoreBinding(registry: *conversations.Registry, saved: ?Binding, legacy: ag
         };
     } else {
         if (!validAgent(legacy)) return error.InvalidCheckpoint;
-        if (legacy.provider != .other and legacy.session_len > 0) {
-            const existing = registry.find(legacy.provider, legacy.sessionId());
-            const actor = existing orelse try registry.get(legacy.provider, legacy.sessionId());
+        const provider = if (legacy.session_len > 0) legacy.provider else null;
+        if (provider) |known| {
+            const existing = registry.find(known, legacy.sessionId());
+            const actor = existing orelse try registry.get(known, legacy.sessionId());
             if (existing == null) {
                 actor.state = legacy;
                 if (live) actor.restoreCompaction(null, std.time.microTimestamp());

@@ -3,8 +3,8 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
-pub const Provider = enum { codex, claude };
-/// Launcher rows: one per provider, then a plain terminal.
+pub const Provider = @import("providers.zig").Provider;
+/// Launcher rows: one per provider, then saved commands and a plain terminal.
 pub const Row = enum {
     codex,
     claude,
@@ -25,22 +25,28 @@ pub const Row = enum {
         return if (i >= @intFromEnum(Row.custom0) and i <= @intFromEnum(Row.custom5)) i - @intFromEnum(Row.custom0) else null;
     }
     pub fn agent(row: Row) ?Provider {
-        return switch (row) {
-            .codex => .codex,
-            .claude => .claude,
-            else => null,
-        };
+        const i = @intFromEnum(row);
+        return if (i < Provider.all.len) @enumFromInt(i) else null;
+    }
+    comptime {
+        for (Provider.all) |provider| std.debug.assert(std.mem.eql(u8, @tagName(provider), @tagName(Row.of(provider))));
     }
 };
+/// The agent a launcher key starts.
+pub fn keyAgent(byte: u8) ?Provider {
+    for (Provider.all) |provider| if (provider.info().launcher_key == byte) return provider;
+    return null;
+}
 const metadata = @import("account_preview.zig");
 const account_cache = @import("account_cache.zig");
 const usage_cell = @import("launcher_usage.zig");
 pub const Text = metadata.Text;
 pub const Option = struct { signed_in: ?bool = null, model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, usage_fetched_at: i64 = 0, usage_error: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
-pub const Preview = struct { pending: bool = true, options: [2]Option = @splat(.{}), installed: [2]bool = .{ true, true } };
-fn installed() [2]bool {
-    const discovery = @import("discovery.zig");
-    return .{ discovery.installed(.codex), discovery.installed(.claude) };
+pub const Preview = struct { pending: bool = true, options: [Provider.all.len]Option = @splat(.{}), installed: [Provider.all.len]bool = @splat(true) };
+fn installed() [Provider.all.len]bool {
+    var result: [Provider.all.len]bool = undefined;
+    for (Provider.all, &result) |provider, *found| found.* = @import("discovery.zig").installed(provider);
+    return result;
 }
 const Job = struct {
     cwd: [std.fs.max_path_bytes]u8 = undefined,
@@ -303,12 +309,12 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
                 cache.state.failed("invalid usage response");
                 if (std.json.parseFromSlice(std.json.Value, a, reply.body, .{})) |parsed| {
                     defer parsed.deinit();
-                    const usage = metadata.usage(parsed.value, false);
+                    const usage = metadata.usage(parsed.value, .claude);
                     if (usage.len > 0) {
                         cache.state.info.usage = usage;
                         cache.state.info.usage_fetched_at = std.time.timestamp();
                         cache.state.info.usage_error = .{};
-                        cache.state.info.resets = metadata.resets(parsed.value, false);
+                        cache.state.info.resets = metadata.resets(parsed.value, .claude);
                     }
                 } else |_| {}
             }
@@ -446,8 +452,8 @@ pub const Menu = struct {
     cwd: [std.fs.max_path_bytes]u8 = undefined,
     cwd_len: usize,
     selected: Row,
-    yolo: [2]bool = .{ false, false },
-    hidden: [2]bool = .{ false, false },
+    yolo: [Provider.all.len]bool = @splat(false),
+    hidden: [Provider.all.len]bool = @splat(false),
     managing: bool = false,
     editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .agent_command = 0 }, .selected = false },
     name_editor: @import("name_dialog.zig").Dialog = .{ .target = .{ .rename = 0 }, .selected = false },
@@ -470,15 +476,16 @@ pub const Menu = struct {
     prefix: bool = false,
     preview: Preview = .{},
     const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in" };
-    fn cells(m: *const Menu, index: usize) [6][]const u8 {
+    fn cells(m: *const Menu, provider: Provider) [6][]const u8 {
+        const index = @intFromEnum(provider);
         const option = &m.preview.options[index];
         return .{
-            if (index == 0) "Codex" else "Claude Code",
+            provider.info().label,
             if (m.yolo[index]) "✓" else "·",
             if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
-            if (m.trackable(@enumFromInt(index))) "Track usage" else if (option.usage.len > 0)
+            if (m.trackable(.of(provider))) "Track usage" else if (option.usage.len > 0)
                 (if (option.usage_fetched_at > 0 and std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age and !std.mem.eql(u8, option.usage.text(), "Metered")) "Unavailable" else option.usage.text())
             else if (m.preview.pending) "Reading…" else "Unavailable",
         };
@@ -486,22 +493,22 @@ pub const Menu = struct {
     fn customCells(m: *const Menu, index: usize) [6][]const u8 {
         const entry = &m.commands[index];
         const info = &entry.semantics;
-        const shared = info.default_account and info.provider != .other;
-        const provider: usize = if (info.provider == .claude) 1 else 0;
-        var values: [6][]const u8 = if (shared) m.cells(provider) else .{ "", "", "Default", "", "—", "—" };
+        const shared = if (info.default_account) info.provider else null;
+        var values: [6][]const u8 = if (shared) |provider| m.cells(provider) else .{ "", "", "Default", "", "—", "—" };
         values[0] = entry.label();
         values[1] = if (std.mem.eql(u8, info.mode.text(), "Skips permission checks")) "✓" else "·";
         if (info.model.len > 0) values[2] = info.model.text();
         values[3] = m.account(info);
         // Tracking actions belong to built-in rows; saved commands only show data.
-        if (shared and m.trackable(@enumFromInt(provider))) values[5] = "Unavailable";
+        if (shared) |provider| if (m.trackable(.of(provider))) {
+            values[5] = "Unavailable";
+        };
         return values;
     }
     fn usageCell(m: *const Menu, row: Row, text: []const u8) usage_cell.Cell {
         const provider = row.agent() orelse if (row.custom()) |i| blk: {
             const info = m.commands[i].semantics;
-            if (!info.default_account or info.provider == .other) break :blk null;
-            break :blk @as(?Provider, if (info.provider == .claude) .claude else .codex);
+            break :blk if (info.default_account) info.provider else null;
         } else null;
         if (std.mem.eql(u8, text, "Unavailable") or std.mem.eql(u8, text, "Rate limited")) {
             if (provider) |p| {
@@ -587,7 +594,7 @@ pub const Menu = struct {
         var usage_minimum = widths[5];
         for (std.enums.values(Row)) |row| {
             if (!m.shown(row) or (row.agent() == null and row.custom() == null)) continue;
-            const values = if (row.custom()) |i| m.customCells(i) else m.cells(@intFromEnum(row));
+            const values = if (row.custom()) |i| m.customCells(i) else m.cells(row.agent().?);
             for (values[0..5], widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(@import("sidebar.zig").displayWidth(text))));
             const cell = m.usageCell(row, values[5]);
             widths[5] = @max(widths[5], @as(u16, @intCast(cell.preferredWidth())));
@@ -714,11 +721,10 @@ pub const Menu = struct {
     }
     fn account(m: *const Menu, info: *const @import("launch_command.zig").Semantics) []const u8 {
         if (info.account.len > 0) return info.account.text();
-        if (info.default_account) {
-            const index: usize = if (info.provider == .claude) 1 else 0;
-            const option = &m.preview.options[index];
+        if (info.default_account) if (info.provider) |provider| {
+            const option = &m.preview.options[@intFromEnum(provider)];
             return if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading default account…" else "Default account · unavailable";
-        }
+        };
         return "Account unknown";
     }
     fn drawInput(w: *std.Io.Writer, editor: @import("name_dialog.zig").Dialog, placeholder: []const u8, x: u16, y: usize, width: u16, focused: bool) !void {
@@ -758,8 +764,8 @@ pub const Menu = struct {
             const row = m.rowAt(i).?;
             const custom = row.custom();
             const hidden = if (custom) |index| m.commands[index].hidden else m.hidden[@intFromEnum(row)];
-            const label = if (custom) |index| m.commands[index].label() else if (row == .codex) "Codex" else "Claude Code";
-            const info = if (custom) |index| m.commands[index].semantics else @import("launch_command.zig").Semantics{ .provider = if (row == .codex) .codex else .claude, .default_account = true };
+            const label = if (custom) |index| m.commands[index].label() else row.agent().?.info().label;
+            const info = if (custom) |index| m.commands[index].semantics else @import("launch_command.zig").Semantics{ .provider = row.agent().?, .default_account = true };
             const source = m.account(&info);
             try w.print("\x1b[{d};{d}H{s} [{s}]\x1b[{d};{d}H", .{ b.y + 5 + i, b.x + 2, if (m.selected == row) "›" else " ", if (hidden) " " else "✓", b.y + 5 + i, b.x + 10 });
             try sidebar.writeEllipsis(w, label, name_width - 2);
@@ -796,11 +802,7 @@ pub const Menu = struct {
             try w.print("\x1b[{d};{d}H", .{ field_y + 9, b.x + 4 });
             var summary: [512]u8 = undefined;
             const info = &m.resolution.semantics;
-            const provider = switch (info.provider) {
-                .codex => "Codex",
-                .claude => "Claude Code",
-                else => "Custom agent",
-            };
+            const provider = if (info.provider) |known| known.info().label else "Custom agent";
             try sidebar.writeEllipsis(w, if (resolved) std.fmt.bufPrint(&summary, "{s} · {s}", .{ provider, status }) catch status else status, b.w - 8);
             try w.print("\x1b[{d};{d}H{s}", .{ field_y + 10, b.x + 4, dim });
             if (resolved) {
@@ -886,7 +888,7 @@ pub const Menu = struct {
             if (m.managing) {
                 var line: [160]u8 = undefined;
                 const status = if (!m.preview.installed[i]) "Not installed" else if (m.preview.options[i].signed_in == false) "Not signed in" else if (m.hidden[i]) "Hidden" else "In picker";
-                const text = try std.fmt.bufPrint(&line, "{s} · {s}   [{s}]", .{ if (i == 0) "Codex" else "Claude Code", status, if (m.hidden[i]) "Add" else "Remove" });
+                const text = try std.fmt.bufPrint(&line, "{s} · {s}   [{s}]", .{ current.agent().?.info().label, status, if (m.hidden[i]) "Add" else "Remove" });
                 try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
                 try sidebar.writeEllipsis(w, text, b.w -| 6);
                 continue;
@@ -899,12 +901,12 @@ pub const Menu = struct {
                 continue;
             }
             var x: u16 = b.x + 4;
-            const values = if (current.custom()) |index| m.customCells(index) else m.cells(i);
+            const values = if (current.custom()) |index| m.customCells(index) else m.cells(current.agent().?);
             const yolo = std.mem.eql(u8, values[1], "✓");
             for (values, widths, 0..) |text, width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
-                if (column == 5 and m.trackable(@enumFromInt(i))) try w.writeAll("\x1b[4m");
+                if (column == 5 and m.trackable(current)) try w.writeAll("\x1b[4m");
                 if (column == 1 and yolo) try w.writeAll("\x1b[1;38;2;255;255;255m");
                 const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
                 if (column == 5) {
@@ -1054,11 +1056,11 @@ test "viewer expires a delivered usage reading after ten minutes" {
     const option = &menu.preview.options[0];
     option.usage.set("7d 48%");
     option.usage_fetched_at = std.time.timestamp() - 590;
-    try std.testing.expectEqualStrings("7d 48%", menu.cells(0)[5]);
+    try std.testing.expectEqualStrings("7d 48%", menu.cells(.codex)[5]);
     option.usage_fetched_at = std.time.timestamp() - metadata.usage_max_age;
-    try std.testing.expectEqualStrings("Unavailable", menu.cells(0)[5]);
+    try std.testing.expectEqualStrings("Unavailable", menu.cells(.codex)[5]);
     option.usage.set("Metered");
-    try std.testing.expectEqualStrings("Metered", menu.cells(0)[5]);
+    try std.testing.expectEqualStrings("Metered", menu.cells(.codex)[5]);
 }
 
 fn parseAccount(bytes: []const u8) Text {

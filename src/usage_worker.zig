@@ -11,7 +11,26 @@ const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 1024 * 1024;
-const Request = struct { actor: u32, workspace: u32, since: i64, agent: agents.Agent, child: bool = false, tracked_since: i64 = 0 };
+const Request = struct {
+    actor: u32,
+    workspace: u32,
+    since: i64,
+    agent: agents.Agent,
+    child: bool = false,
+    tracked_since: i64 = 0,
+    /// Requests come from conversation actors, which always have a provider.
+    fn provider(req: *const Request) agents.Provider {
+        return req.agent.provider.?;
+    }
+};
+/// Codex names sessions in its session index, so its metadata is useful
+/// before a transcript path is known and without new transcript records.
+fn indexedNames(provider: agents.Provider) bool {
+    return switch (provider) {
+        .codex => true,
+        .claude => false,
+    };
+}
 pub const Result = struct {
     actor: u32,
     workspace: u32,
@@ -33,25 +52,31 @@ pub const Result = struct {
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
         if (!eq(agent.sessionId(), result.session[0..result.session_len])) return false;
-        if (agent.provider == .claude) {
-            if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
-            // Hooks stamp activity_at, so an update from before the latest
-            // hook (or from an earlier turn) cannot replace a newer label.
-            if (agent.state == .working and !agent.activity_inferred and result.update.len > 0 and result.update_at > agent.activity_at) {
-                agent.setActivity(result.update.bytes[0..result.update.len]);
-                agent.activity_at = result.update_at;
-            }
-            // Hooks own Claude's turn id; transcript evidence only joins it.
-            const progress = result.progress orelse return false;
-            if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
-            if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
-            if (progress.commentary.len == 0 and progress.evidence.len == 0) return false;
-            // Claude writes text before most tools, so commentary-keyed labels
-            // would arrive stale. A label from this turn's slightly older
-            // evidence is still current; only a new turn invalidates it.
-            agent.activity_generation = std.hash.Wyhash.hash(0, agent.turnId());
-            return true;
+        switch (agent.provider orelse return false) {
+            .claude => return result.claudeFallback(agent),
+            .codex => return result.codexFallback(agent, now),
         }
+    }
+    fn claudeFallback(result: *const Result, agent: *agents.Agent) bool {
+        if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
+        // Hooks stamp activity_at, so an update from before the latest
+        // hook (or from an earlier turn) cannot replace a newer label.
+        if (agent.state == .working and !agent.activity_inferred and result.update.len > 0 and result.update_at > agent.activity_at) {
+            agent.setActivity(result.update.bytes[0..result.update.len]);
+            agent.activity_at = result.update_at;
+        }
+        // Hooks own Claude's turn id; transcript evidence only joins it.
+        const progress = result.progress orelse return false;
+        if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
+        if (!eq(agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+        if (progress.commentary.len == 0 and progress.evidence.len == 0) return false;
+        // Claude writes text before most tools, so commentary-keyed labels
+        // would arrive stale. A label from this turn's slightly older
+        // evidence is still current; only a new turn invalidates it.
+        agent.activity_generation = std.hash.Wyhash.hash(0, agent.turnId());
+        return true;
+    }
+    fn codexFallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
         if (!codex_files.available(agent, now)) return false;
         if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
         const progress = result.progress orelse return false;
@@ -95,7 +120,7 @@ pub const Worker = struct {
         w.requests.clearRetainingCapacity();
         for (runtime.conversations.items.items) |actor| {
             const agent = &actor.state;
-            if (agent.session_len == 0 or (agent.transcript_len == 0 and agent.provider != .codex)) continue;
+            if (agent.session_len == 0 or (agent.transcript_len == 0 and !indexedNames(actor.provider()))) continue;
             const ws = runtime.workspaces.get(actor.workspace) orelse continue;
             w.requests.append(a, .{ .actor = actor.id, .workspace = ws.id, .since = ws.away.since, .agent = agent.*, .child = actor.parent != null, .tracked_since = actor.tracked_since }) catch break;
         }
@@ -165,7 +190,7 @@ pub const Worker = struct {
                     break :blk usage.Counts{};
                 };
                 t.releaseFile();
-                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and req.agent.provider != .codex and t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0) continue;
+                if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or !eq(result.*.?.session[0..result.*.?.session_len], req.agent.sessionId())) {
@@ -174,18 +199,16 @@ pub const Worker = struct {
                     result.*.?.delta.add(delta);
                     result.*.?.model = t.model;
                     result.*.?.live = t.live.meter.view(std.time.milliTimestamp());
-                    if (req.agent.provider == .claude) {
-                        result.*.?.name = t.name;
-                        result.*.?.continued = t.continued;
-                        result.*.?.update = t.update;
-                        result.*.?.update_at = t.update_at;
-                        result.*.?.progress = t.progress.view();
-                        result.*.?.seq = req.agent.last_seq;
-                    }
-                    if (req.agent.provider == .codex) {
-                        result.*.?.progress = t.progress.view();
-                        result.*.?.name = index.name(req.agent.sessionId());
-                        result.*.?.seq = req.agent.last_seq;
+                    result.*.?.progress = t.progress.view();
+                    result.*.?.seq = req.agent.last_seq;
+                    switch (req.provider()) {
+                        .claude => {
+                            result.*.?.name = t.name;
+                            result.*.?.continued = t.continued;
+                            result.*.?.update = t.update;
+                            result.*.?.update_at = t.update_at;
+                        },
+                        .codex => result.*.?.name = index.name(req.agent.sessionId()),
                     }
                     if (eq(t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
                 }
@@ -245,7 +268,7 @@ pub const Tail = struct {
         const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
         const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
         if (!resumed) {
-            if (agent.provider == .codex) try @import("transcript.zig").verifyCodexSession(file, agent.sessionId());
+            try @import("transcript.zig").verifySession(file, req.provider(), agent.sessionId());
             t.initial_until = stat.size;
             t.offset = stat.size -| initial_tail;
             // Inspect only this known child's bounded prefix. Larger or older
@@ -255,27 +278,31 @@ pub const Tail = struct {
             const retained = t.live.meter;
             t.live = .{ .meter = retained };
             if (t.opened) t.live.meter.lose();
-            // Claude usage counts from when Corgi opens the transcript. Before
-            // any new message that is zero observed, not unknown coverage.
-            if (agent.provider == .claude and !t.live.meter.value.known) {
-                t.live.meter.value.known = true;
-                t.live.meter.value.since = std.time.milliTimestamp();
-            }
-            if (agent.provider == .codex) {
-                var header: [64 * 1024]u8 = undefined;
-                const n = try file.pread(&header, 0);
-                if (std.mem.indexOfScalar(u8, header[0..n], '\n')) |end| {
-                    const parsed = try std.json.parseFromSlice(std.json.Value, a, header[0..end], .{});
-                    defer parsed.deinit();
-                    t.live.header(parsed.value, req.child, req.tracked_since, catch_up);
-                } else if (req.child) t.live.meter.lose();
-            }
             t.opened = true;
             t.partial.clearRetainingCapacity();
             t.tracker = .{};
             t.progress = .{};
-            if (agent.provider == .codex) t.progress.bind(agent.turnId());
-            if (t.offset == 0 and agent.provider == .codex) t.tracker.beginCodex("codex");
+            switch (req.provider()) {
+                .claude => {
+                    // Usage counts from when Corgi opens the transcript. Before
+                    // any new message that is zero observed, not unknown coverage.
+                    if (!t.live.meter.value.known) {
+                        t.live.meter.value.known = true;
+                        t.live.meter.value.since = std.time.milliTimestamp();
+                    }
+                },
+                .codex => {
+                    var header: [64 * 1024]u8 = undefined;
+                    const n = try file.pread(&header, 0);
+                    if (std.mem.indexOfScalar(u8, header[0..n], '\n')) |end| {
+                        const parsed = try std.json.parseFromSlice(std.json.Value, a, header[0..end], .{});
+                        defer parsed.deinit();
+                        t.live.header(parsed.value, req.child, req.tracked_since, catch_up);
+                    } else if (req.child) t.live.meter.lose();
+                    t.progress.bind(agent.turnId());
+                    if (t.offset == 0) t.tracker.beginCodex("codex");
+                },
+            }
             t.discard = t.offset > 0;
         }
         t.file = file;
@@ -329,6 +356,33 @@ pub const Tail = struct {
         t.update.len = n;
         t.update_at = stamp * std.time.us_per_ms;
     }
+    /// One transcript record: tool progress, presentation metadata and usage.
+    fn record(t: *Tail, req: *const Request, value: std.json.Value, appended: bool, stamp: ?i64) usage.Counts {
+        const session = req.agent.sessionId();
+        switch (req.provider()) {
+            .claude => {
+                t.claudeRecord(session, value);
+                if (eq(agents.str(value, "sessionId"), session)) t.progress.ingestClaude(value, appended);
+                t.observeModel(usage.field(value, "message"));
+                const delta = t.tracker.transcript(.claude, session, value);
+                if (appended and delta.tokens_known) {
+                    t.live.meter.add(.{ .input = delta.input, .cached_input = delta.cached_input, .output = delta.output }, stamp orelse std.time.milliTimestamp());
+                }
+                return delta;
+            },
+            .codex => {
+                t.progress.ingest(value, appended);
+                t.observeModel(usage.field(value, "payload"));
+                const delta = t.tracker.transcript(.codex, session, value);
+                t.live.ingest(value, appended, std.time.milliTimestamp());
+                return delta;
+            },
+        }
+    }
+    fn observeModel(t: *Tail, message: std.json.Value) void {
+        const model_name = agents.str(message, "model");
+        if (model_name.len > 0) t.model.len = agents.clean(&t.model.bytes, model_name);
+    }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(req);
         const file = t.file.?;
@@ -343,8 +397,8 @@ pub const Tail = struct {
         return t.ingest(req, bytes[0..n], start_offset);
     }
     fn ingest(t: *Tail, req: *const Request, bytes: []const u8, start_offset: u64) !usage.Counts {
-        // Claude transcripts carry no turn id; evidence joins the hook's turn.
-        if (req.agent.provider == .claude) t.progress.bind(req.agent.turnId());
+        // Without turn ids in the transcript, evidence joins the hook's turn.
+        if (req.provider().info().prompt_turns) t.progress.bind(req.agent.turnId());
         var found: usage.Counts = .{};
         var start: usize = 0;
         while (start < bytes.len) {
@@ -362,26 +416,10 @@ pub const Tail = struct {
                 if (!t.discard) {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
-                        if (req.agent.provider == .codex) t.progress.ingest(parsed.value, start_offset + start > t.initial_until);
-                        if (req.agent.provider == .claude) {
-                            t.claudeRecord(req.agent.sessionId(), parsed.value);
-                            if (eq(agents.str(parsed.value, "sessionId"), req.agent.sessionId())) t.progress.ingestClaude(parsed.value, start_offset + start > t.initial_until);
-                        }
-                        const model_value = if (req.agent.provider == .codex)
-                            usage.field(parsed.value, "payload")
-                        else
-                            usage.field(parsed.value, "message");
-                        const model_name = agents.str(model_value, "model");
-                        if (model_name.len > 0) t.model.len = agents.clean(&t.model.bytes, model_name);
-                        const delta = t.tracker.transcript(req.agent.provider, req.agent.sessionId(), parsed.value);
-                        const stamp = @import("transcript.zig").timestampMs(agents.str(parsed.value, "timestamp"));
                         const appended = start_offset + start > t.initial_until;
-                        if (req.agent.provider == .codex) {
-                            t.live.ingest(parsed.value, appended, std.time.milliTimestamp());
-                        } else if (appended and delta.tokens_known) {
-                            t.live.meter.add(.{ .input = delta.input, .cached_input = delta.cached_input, .output = delta.output }, stamp orelse std.time.milliTimestamp());
-                        }
-                        if (start_offset + start > t.initial_until and stamp != null and stamp.? > req.since) found.add(delta);
+                        const stamp = @import("transcript.zig").timestampMs(agents.str(parsed.value, "timestamp"));
+                        const delta = t.record(req, parsed.value, appended, stamp);
+                        if (appended and stamp != null and stamp.? > req.since) found.add(delta);
                     } else |_| {
                         t.live.meter.lose();
                     }
@@ -458,8 +496,8 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     const padding: [24 * 1024]u8 = @splat('x');
     try file.writeAll(&padding);
     try file.writeAll("\"}}\n");
-    try @import("transcript.zig").verifyCodexSession(file, "large-session");
-    try std.testing.expectError(error.WrongSession, @import("transcript.zig").verifyCodexSession(file, "other-session"));
+    try @import("transcript.zig").verifySession(file, .codex, "large-session");
+    try std.testing.expectError(error.WrongSession, @import("transcript.zig").verifySession(file, .codex, "other-session"));
     const path = try tmp.dir.realpathAlloc(std.testing.allocator, "usage.jsonl");
     defer std.testing.allocator.free(path);
     var req: Request = .{ .actor = 1, .workspace = 1, .since = 1000, .agent = .{ .provider = .codex } };

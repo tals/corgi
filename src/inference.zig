@@ -24,9 +24,21 @@ pub fn recordExit(pid: c_int, _: c_int) void {
     };
 }
 
-pub const Provider = enum { codex, claude };
-/// User-facing provider setting; see inference_setup.zig.
-pub const Choice = enum { auto, codex, claude, off };
+pub const Provider = @import("providers.zig").Provider;
+/// User-facing provider setting; see inference_setup.zig. One tag per provider.
+pub const Choice = enum {
+    auto,
+    codex,
+    claude,
+    off,
+
+    pub fn provider(choice: Choice) ?Provider {
+        return std.meta.stringToEnum(Provider, @tagName(choice));
+    }
+    comptime {
+        for (Provider.all) |known| std.debug.assert(@hasField(Choice, @tagName(known)));
+    }
+};
 pub const Config = struct {
     provider: Provider = .codex,
     model: ?[]const u8 = null,
@@ -269,7 +281,7 @@ pub const Pool = struct {
                 if (child == null) break i;
             } else return error.TooManyHarnesses;
             slot.* = .{
-                .transport = .{ .id = 0, .provider = if (saved.config.provider == .codex) .codex else .claude, .cwd = try a.dupe(u8, "/tmp"), .child = std.process.Child.init(&.{}, a), .ready = s.ready, .exited = s.exited, .imported = true, .next_seq = s.next_seq },
+                .transport = .{ .id = 0, .provider = saved.config.provider, .cwd = try a.dupe(u8, "/tmp"), .child = std.process.Child.init(&.{}, a), .ready = s.ready, .exited = s.exited, .imported = true, .next_seq = s.next_seq },
                 .child_slot = child_slot,
                 .cursor = s.cursor,
                 .next_id = s.next_id,
@@ -349,8 +361,8 @@ pub const Pool = struct {
         };
         if (slot.*) |*s| {
             if (!matches(s, request) or s.turns >= 32) {
-                if (p.config.provider == .codex and s.conversations_created < 32) {
-                    // Fresh history does not require a fresh Codex process.
+                if (hostsThreads(p.config.provider) and s.conversations_created < 32) {
+                    // Fresh history does not require a fresh process.
                     if (s.thread_len > 0) {
                         const reply = try s.rpc("thread/unsubscribe", .{ .threadId = s.thread[0..s.thread_len] }, stopping, deadline);
                         reply.deinit();
@@ -452,17 +464,17 @@ pub const Pool = struct {
         const result = field(limits.value, "result");
         const bucket = field(field(result, "rateLimitsByLimitId"), "codex");
         const rates = if (bucket != .null) bucket else field(result, "rateLimits");
-        response.usage = metadata.usage(rates, true);
+        response.usage = metadata.usage(rates, .codex);
         if (response.usage.len == 0) response.usage_error.set("no usage returned");
-        response.resets = metadata.resets(rates, true);
+        response.resets = metadata.resets(rates, .codex);
         return response;
     }
     fn select(p: *Pool, request: Request) usize {
         for (&p.slots, 0..) |*slot, i| if (slot.*) |*s| {
             if (matches(s, request)) return i;
         };
-        // Reuse the anonymous Codex lane for repeated stateless requests.
-        if (request.conversation == null and p.config.provider == .codex) {
+        // Reuse the anonymous lane for repeated stateless requests.
+        if (request.conversation == null and hostsThreads(p.config.provider)) {
             for (p.slots, 0..) |slot, i| if (slot != null and slot.?.key == null) return i;
         }
         for (p.slots, 0..) |slot, i| if (slot == null) return i;
@@ -494,11 +506,20 @@ pub const Pool = struct {
         const child_slot = for (children, 0..) |child, i| {
             if (child == null) break i;
         } else return error.TooManyHarnesses;
-        const transport = try native.Session.startWithOptions(0, if (p.config.provider == .codex) .codex else .claude, "/tmp", .{ .args = args.items, .executable = p.config.executable, .inference = true });
+        const transport = try native.Session.startWithOptions(0, p.config.provider, "/tmp", .{ .args = args.items, .executable = p.config.executable, .inference = true });
         children[child_slot] = .{ .pid = transport.child.id };
         return .{ .transport = transport, .child_slot = child_slot, .key = key, .instructions = instructions, .schema = schema, .system_usage = &p.system_usage };
     }
 };
+
+/// One app-server process can start fresh threads, so a new conversation
+/// does not need a new process.
+fn hostsThreads(provider: Provider) bool {
+    return switch (provider) {
+        .codex => true,
+        .claude => false,
+    };
+}
 
 fn matches(s: *const Connection, r: Request) bool {
     return s.key != null and r.conversation != null and eq(s.key.?, r.conversation.?) and eq(s.instructions, r.instructions) and

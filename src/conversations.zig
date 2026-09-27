@@ -16,7 +16,7 @@ pub const Actor = struct {
     screen_compacting: bool = false,
     background_tasks: @import("background_tasks.zig").Inventory = .{},
     // Foreground tool calls and background processes have independent lifetimes.
-    codex_tool_active: bool = false,
+    transcript_tool_active: bool = false,
     workspace: u32 = 0,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,
@@ -32,22 +32,30 @@ pub const Actor = struct {
     native_usage: bool = false,
     native_meter: @import("live_usage.zig").Codex = .{},
 
+    /// The registry assigns a provider on creation; only a pane's provisional
+    /// agent state can lack one.
+    pub fn provider(actor: *const Actor) agents.Provider {
+        return actor.state.provider.?;
+    }
     pub fn usageView(actor: *const Actor, now: i64) @import("live_usage.zig").View {
         return if (actor.native_usage) actor.native_meter.meter.view(now) else actor.live_usage;
     }
 
     pub fn observeHook(actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const was_compacting = actor.state.compacting;
-        const ding = actor.state.observeHook(actor.state.provider, event, seq, watched, now) orelse return false;
+        const ding = actor.state.observeHook(actor.provider(), event, seq, watched, now) orelse return false;
         if (actor.state.last_seq == seq) actor.screen_compacting = false;
         if (event.model.len > 0) {
             actor.model.len = agents.clean(&actor.model.bytes, event.model);
             actor.model_from_hook = true;
         }
         actor.compactionChanged(was_compacting, now);
-        if (actor.state.provider == .claude) {
-            if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
-            if (event.kind == .session_end) actor.background_tasks = .{};
+        switch (actor.provider()) {
+            .claude => {
+                if (@import("background_tasks.zig").Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
+                if (event.kind == .session_end) actor.background_tasks = .{};
+            },
+            .codex => {},
         }
         actor.observed_at = @max(actor.observed_at, now);
         return ding;
@@ -77,10 +85,10 @@ pub const Actor = struct {
         actor.compactionChanged(false, now);
     }
 
-    /// The read-only Codex protocol reports working but has no compaction flag.
-    /// A live terminal status can supplement it without replacing lifecycle state.
+    /// Some protocols report working but have no compaction flag. A live
+    /// terminal status can supplement it without replacing lifecycle state.
     pub fn observeCompactionScreen(actor: *Actor, compacting: ?bool, now: i64) void {
-        if (actor.state.provider != .codex or actor.state.state != .working) return;
+        if (!actor.provider().info().screen.compaction_status or actor.state.state != .working) return;
         const active = compacting orelse return;
         const was_compacting = actor.state.compacting;
         if (active and !was_compacting) {
@@ -127,8 +135,8 @@ pub const Actor = struct {
         agent.observation.source = .protocol;
         agent.observation.pending_stop = false;
         const same_turn = std.mem.eql(u8, agent.turnId(), s.turn[0..s.turn_len]);
-        if (!same_turn or (s.state != .working and s.state != .blocked)) actor.codex_tool_active = false;
-        actor.refreshCodexTool();
+        if (!same_turn or (s.state != .working and s.state != .blocked)) actor.transcript_tool_active = false;
+        actor.refreshTranscriptTool();
         agent.tool_len = 0;
         if (!same_turn or old_state != s.state or s.state != .working) {
             agent.activity_len = 0;
@@ -148,14 +156,20 @@ pub const Actor = struct {
     }
     pub fn observeTools(actor: *Actor, progress: @import("activity_tools.zig").View) void {
         const agent = &actor.state;
-        if (agent.provider != .codex or !std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
-        actor.codex_tool_active = !progress.ended and progress.running > 0;
-        actor.refreshCodexTool();
+        // Codex tool hooks can end while unified-exec commands keep running;
+        // its transcript progress decides which tools are still active.
+        switch (actor.provider()) {
+            .codex => {},
+            .claude => return,
+        }
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
+        actor.transcript_tool_active = !progress.ended and progress.running > 0;
+        actor.refreshTranscriptTool();
     }
-    fn refreshCodexTool(actor: *Actor) void {
+    fn refreshTranscriptTool(actor: *Actor) void {
         const agent = &actor.state;
         agent.tool_active = (agent.state == .working or agent.state == .blocked) and
-            (actor.codex_tool_active or actor.background_tasks.len > 0);
+            (actor.transcript_tool_active or actor.background_tasks.len > 0);
     }
     pub fn authoritative(actor: *const Actor, now: i64) bool {
         if (actor.state.last_seq == 0) return false;
@@ -295,7 +309,7 @@ pub const Registry = struct {
         return null;
     }
     pub fn get(registry: *Registry, provider: agents.Provider, session: []const u8) !*Actor {
-        if (provider == .other or session.len == 0 or session.len > 160 or !std.unicode.utf8ValidateSlice(session)) return error.InvalidSession;
+        if (session.len == 0 or session.len > 160 or !std.unicode.utf8ValidateSlice(session)) return error.InvalidSession;
         for (session) |ch| if (ch < 32 or ch == 127) return error.InvalidSession;
         if (registry.find(provider, session)) |actor| return actor;
         if (registry.items.items.len == max_actors or registry.next_id == std.math.maxInt(u32)) return error.TooManyConversations;

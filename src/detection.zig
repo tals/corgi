@@ -7,26 +7,24 @@ const Provider = agents.Provider;
 const State = agents.State;
 pub const Job = struct { pid: c_int, provider: Provider };
 
-fn name(path: []const u8) Provider {
-    const base = std.fs.path.basename(path);
-    if (std.mem.eql(u8, base, "codex")) return .codex;
-    if (std.mem.eql(u8, base, "claude") or std.mem.eql(u8, base, "claude-code")) return .claude;
-    // Claude's daemon launches the versioned native binary directly.
-    if (std.mem.indexOf(u8, path, "/claude/versions/") != null) return .claude;
-    return .other;
+fn name(path: []const u8) ?Provider {
+    if (Provider.named(std.fs.path.basename(path))) |provider| return provider;
+    for (Provider.all) |provider| {
+        for (provider.info().install_markers) |marker| if (std.mem.indexOf(u8, path, marker) != null) return provider;
+    }
+    return null;
 }
 
 // Only executable/script positions count. `sh -c 'codex ...'`, `node -e
 // 'codex'`, and an editor opening a file named codex are not agents.
-pub fn identify(argv: []const []const u8) Provider {
-    if (argv.len == 0) return .other;
-    const direct = name(argv[0]);
-    if (direct != .other) return direct;
+pub fn identify(argv: []const []const u8) ?Provider {
+    if (argv.len == 0) return null;
+    if (name(argv[0])) |direct| return direct;
     const exe = std.fs.path.basename(argv[0]);
     const interpreter = std.mem.eql(u8, exe, "node") or std.mem.eql(u8, exe, "bun") or
         std.mem.eql(u8, exe, "sh") or std.mem.eql(u8, exe, "bash") or
         std.mem.eql(u8, exe, "zsh") or std.ascii.startsWithIgnoreCase(exe, "python");
-    if (!interpreter or argv.len < 2) return .other;
+    if (!interpreter or argv.len < 2) return null;
     var i: usize = 1;
     if (std.mem.eql(u8, exe, "bun") and std.mem.eql(u8, argv[i], "run")) i += 1;
     while (i < argv.len and argv[i].len > 0 and argv[i][0] == '-') : (i += 1) {
@@ -36,41 +34,41 @@ pub fn identify(argv: []const []const u8) Provider {
         }
         // Be conservative with interpreter flags that consume another argument.
         const bun_flag = std.mem.eql(u8, exe, "bun") and (std.mem.eql(u8, argv[i], "--bun") or std.mem.eql(u8, argv[i], "-b"));
-        if (!bun_flag and !std.mem.eql(u8, argv[i], "-u") and !std.mem.eql(u8, argv[i], "--no-warnings")) return .other;
+        if (!bun_flag and !std.mem.eql(u8, argv[i], "-u") and !std.mem.eql(u8, argv[i], "--no-warnings")) return null;
     }
     if (i < argv.len and std.mem.eql(u8, exe, "bun") and std.mem.eql(u8, argv[i], "run")) i += 1;
-    if (i >= argv.len) return .other;
+    if (i >= argv.len) return null;
     const script = argv[i];
-    const script_name = name(script);
-    if (script_name != .other) return script_name;
-    if (std.mem.endsWith(u8, script, "/@anthropic-ai/claude-code/cli.js")) return .claude;
-    if (std.mem.endsWith(u8, script, "/@openai/codex/bin/codex.js")) return .codex;
-    return .other;
+    if (name(script)) |script_name| return script_name;
+    for (Provider.all) |provider| {
+        for (provider.info().scripts) |suffix| if (std.mem.endsWith(u8, script, suffix)) return provider;
+    }
+    return null;
 }
 
-fn process(pid: c_int) Provider {
+fn process(pid: c_int) ?Provider {
     var bytes: [65536]u8 = undefined;
     var data: []const u8 = undefined;
     var max_args: usize = 64;
     if (@import("builtin").os.tag == .macos) {
         var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
         var len: usize = bytes.len;
-        if (c.sysctl(&mib, mib.len, &bytes, &len, null, 0) != 0 or len < @sizeOf(c_int)) return .other;
+        if (c.sysctl(&mib, mib.len, &bytes, &len, null, 0) != 0 or len < @sizeOf(c_int)) return null;
         const argc = std.mem.bytesToValue(c_int, bytes[0..@sizeOf(c_int)]);
-        if (argc <= 0) return .other;
+        if (argc <= 0) return null;
         max_args = @min(max_args, @as(usize, @intCast(argc)));
         data = bytes[@sizeOf(c_int)..len];
-        const end = std.mem.indexOfScalar(u8, data, 0) orelse return .other;
+        const end = std.mem.indexOfScalar(u8, data, 0) orelse return null;
         // The kernel starts with the executable path and alignment padding,
         // followed by argc NUL-separated arguments (then environment data).
         data = std.mem.trimStart(u8, data[end..], "\x00");
     } else if (@import("builtin").os.tag == .linux) {
         var path: [64]u8 = undefined;
-        const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}) catch return .other, .{}) catch return .other;
+        const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}) catch return null, .{}) catch return null;
         defer file.close();
-        const len = file.readAll(&bytes) catch return .other;
+        const len = file.readAll(&bytes) catch return null;
         data = bytes[0..len];
-    } else return .other;
+    } else return null;
     var argv: [64][]const u8 = undefined;
     var count: usize = 0;
     var it = std.mem.splitScalar(u8, data, 0);
@@ -199,16 +197,14 @@ fn parent(pid: c_int) ?c_int {
 pub fn foreground(fd: c_int) ?Job {
     const pgid = c.tcgetpgrp(fd);
     if (pgid <= 0) return null;
-    const leader = process(pgid);
-    if (leader != .other) return .{ .pid = pgid, .provider = leader };
+    if (process(pgid)) |leader| return .{ .pid = pgid, .provider = leader };
     if (@import("builtin").os.tag == .macos) {
         var pids: [128]c_int = undefined;
         const n = c.proc_listpids(c.PROC_PGRP_ONLY, @intCast(pgid), &pids, @sizeOf(@TypeOf(pids)));
         if (n <= 0) return null;
         for (pids[0..@min(pids.len, @as(usize, @intCast(n)) / @sizeOf(c_int))]) |pid| {
             if (pid <= 0 or pid == pgid) continue;
-            const provider = process(pid);
-            if (provider != .other) return .{ .pid = pid, .provider = provider };
+            if (process(pid)) |provider| return .{ .pid = pid, .provider = provider };
         }
     } else if (@import("builtin").os.tag == .linux) {
         var dir = std.fs.openDirAbsolute("/proc", .{ .iterate = true }) catch return null;
@@ -217,8 +213,7 @@ pub fn foreground(fd: c_int) ?Job {
         while (it.next() catch null) |entry| {
             const pid = std.fmt.parseInt(c_int, entry.name, 10) catch continue;
             if (pid == pgid or c.getpgid(pid) != pgid) continue;
-            const provider = process(pid);
-            if (provider != .other) return .{ .pid = pid, .provider = provider };
+            if (process(pid)) |provider| return .{ .pid = pid, .provider = provider };
         }
     }
     return null;
@@ -227,7 +222,8 @@ pub fn foreground(fd: c_int) ?Job {
 // Hook events are authoritative once received. The fallback only uses strong
 // UI signals, never inactivity or arbitrary mentions in an agent's response.
 pub fn screenState(provider: Provider, title: []const u8, screen: []const u8) ?State {
-    if (provider == .codex and std.mem.indexOf(u8, title, "Action Required") != null) return .blocked;
+    const signals = provider.info().screen;
+    if (signals.blocked_title) |blocked| if (std.mem.indexOf(u8, title, blocked) != null) return .blocked;
     const visible = std.mem.trimEnd(u8, screen, " \t\r\n");
     var start = visible.len;
     var lines: usize = 0;
@@ -243,11 +239,11 @@ pub fn screenState(provider: Provider, title: []const u8, screen: []const u8) ?S
     // Title spinners also run during startup, MCP connection and other UI
     // loading. They do not establish an active turn.
     if (has(text, "esc to interrupt")) return .working;
-    if (provider == .claude and std.mem.startsWith(u8, title, "✳ ")) return .idle;
-    if (provider == .codex) {
+    if (signals.idle_title) |idle| if (std.mem.startsWith(u8, title, idle)) return .idle;
+    if (signals.idle_prompt) |prompt| {
         var rows = std.mem.splitScalar(u8, text, '\n');
         while (rows.next()) |row| {
-            if (std.mem.startsWith(u8, std.mem.trimStart(u8, row, " "), "›")) return .idle;
+            if (std.mem.startsWith(u8, std.mem.trimStart(u8, row, " "), prompt)) return .idle;
         }
     }
     return null;
@@ -279,10 +275,10 @@ pub fn screenCompacting(screen: []const u8) ?bool {
     return null;
 }
 
-// Unified exec keeps Codex's status at "Working" while the command runs.
-// Its live status row carries a count, sometimes clipped by a narrow pane.
+// A live status row can count background terminals, sometimes clipped by a
+// narrow pane, while the lifecycle status stays "Working".
 fn screenToolActive(provider: Provider, screen: []const u8) bool {
-    if (provider != .codex) return false;
+    if (!provider.info().screen.background_status) return false;
     const visible = std.mem.trimEnd(u8, screen, " \t\r\n");
     var rows = std.mem.splitBackwardsScalar(u8, visible, '\n');
     var count: usize = 0;
@@ -414,18 +410,18 @@ pub const Tracker = struct {
 };
 
 test "identify actual executables and scripts, not arguments or shell text" {
-    try std.testing.expectEqual(Provider.codex, identify(&.{"/opt/bin/codex"}));
-    try std.testing.expectEqual(Provider.claude, identify(&.{ "node", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
-    try std.testing.expectEqual(Provider.claude, identify(&.{ "bun", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
-    try std.testing.expectEqual(Provider.codex, identify(&.{ "bun", "/a/node_modules/@openai/codex/bin/codex.js" }));
-    try std.testing.expectEqual(Provider.claude, identify(&.{ "bun", "run", "--bun", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
-    try std.testing.expectEqual(Provider.codex, identify(&.{ "python3", "/tmp/codex" }));
-    try std.testing.expectEqual(Provider.codex, identify(&.{ "/Frameworks/Python", "/tmp/codex" }));
-    try std.testing.expectEqual(Provider.other, identify(&.{ "sh", "-c", "codex" }));
-    try std.testing.expectEqual(Provider.other, identify(&.{ "node", "-e", "codex" }));
-    try std.testing.expectEqual(Provider.other, identify(&.{ "bun", "-e", "codex" }));
-    try std.testing.expectEqual(Provider.other, identify(&.{ "vim", "codex" }));
-    try std.testing.expectEqual(Provider.claude, identify(&.{ "/Users/a/.local/share/claude/versions/2.1.282", "--session-id", "x" }));
+    try std.testing.expectEqual(@as(?Provider, .codex), identify(&.{"/opt/bin/codex"}));
+    try std.testing.expectEqual(@as(?Provider, .claude), identify(&.{ "node", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
+    try std.testing.expectEqual(@as(?Provider, .claude), identify(&.{ "bun", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
+    try std.testing.expectEqual(@as(?Provider, .codex), identify(&.{ "bun", "/a/node_modules/@openai/codex/bin/codex.js" }));
+    try std.testing.expectEqual(@as(?Provider, .claude), identify(&.{ "bun", "run", "--bun", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
+    try std.testing.expectEqual(@as(?Provider, .codex), identify(&.{ "python3", "/tmp/codex" }));
+    try std.testing.expectEqual(@as(?Provider, .codex), identify(&.{ "/Frameworks/Python", "/tmp/codex" }));
+    try std.testing.expectEqual(@as(?Provider, null), identify(&.{ "sh", "-c", "codex" }));
+    try std.testing.expectEqual(@as(?Provider, null), identify(&.{ "node", "-e", "codex" }));
+    try std.testing.expectEqual(@as(?Provider, null), identify(&.{ "bun", "-e", "codex" }));
+    try std.testing.expectEqual(@as(?Provider, null), identify(&.{ "vim", "codex" }));
+    try std.testing.expectEqual(@as(?Provider, .claude), identify(&.{ "/Users/a/.local/share/claude/versions/2.1.282", "--session-id", "x" }));
 }
 
 test "compaction requires a live status row and ignores quoted or historical text" {
@@ -496,9 +492,9 @@ test "fallback debounces attention, yields to hooks, and clears exited agents" {
     for (0..4) |_| _ = tracker.update(&agent, job, "⠋ Task", "", false);
     try std.testing.expectEqual(State.blocked, agent.state);
     _ = tracker.update(&agent, null, "", "", false);
-    try std.testing.expectEqual(Provider.claude, agent.provider);
+    try std.testing.expectEqual(@as(?Provider, .claude), agent.provider);
     _ = tracker.update(&agent, null, "", "", false);
-    try std.testing.expectEqual(Provider.other, agent.provider);
+    try std.testing.expectEqual(@as(?Provider, null), agent.provider);
     try std.testing.expectEqual(@as(i64, 0), agent.last_seq);
 }
 

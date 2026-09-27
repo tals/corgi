@@ -255,10 +255,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 label = p.label;
                 break;
             }
-            if (p.id == view.selection.tabs[view.selection.active].focus and p.agent.provider != .other) {
-                label = try std.fmt.bufPrint(&agent_label, "{s} {s}", .{ @tagName(p.agent.provider), @tagName(p.agent.state) });
+            if (p.id == view.selection.tabs[view.selection.active].focus) if (p.agent.provider) |provider| {
+                label = try std.fmt.bufPrint(&agent_label, "{t} {t}", .{ provider, p.agent.state });
                 break;
-            }
+            };
         };
         const text = if (ui.message.len > 0) ui.message else try std.fmt.bufPrint(&status, " {s}  ^B commands   ! {d} needs you  + {d} finished   ^B a attention", .{ if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else label, blocked, finished });
         try w.writeAll(text[0..@min(text.len, width)]);

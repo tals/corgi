@@ -1,8 +1,8 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
-const providers = @import("providers.zig");
-pub fn hook(provider: []const u8, path: []const u8) !void {
+const Provider = @import("providers.zig").Provider;
+pub fn hook(provider: Provider, path: []const u8) !void {
     const pane = os.env("CORGI_PANE") orelse return;
     const id = std.fmt.parseInt(u32, pane, 10) catch return;
     var input: std.ArrayList(u8) = .empty;
@@ -15,28 +15,31 @@ pub fn hook(provider: []const u8, path: []const u8) !void {
     }
     const parsed = std.json.parseFromSlice(std.json.Value, a, input.items, .{}) catch return;
     defer parsed.deinit();
-    if (std.mem.eql(u8, provider, "codex")) {
+    switch (provider) {
         // Codex tools/subagents inherit the pane environment. Their sessions
         // must not take ownership of the parent terminal's sidebar entry.
-        if (os.env("CODEX_THREAD_ID")) |parent| {
+        .codex => if (os.env("CODEX_THREAD_ID")) |parent| {
             const session = @import("agents.zig").str(parsed.value, "session_id");
             if (parent.len > 0 and !std.mem.eql(u8, parent, session)) return;
-        }
+        },
+        .claude => {},
     }
     // Claude's background daemon inherits the environment of whichever pane
     // first spawned it, so CORGI_PANE does not identify its sessions' pane.
-    const background = std.mem.eql(u8, provider, "claude") and
-        (std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or @import("detection.zig").backgroundAncestor());
+    const background = switch (provider) {
+        .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or @import("detection.zig").backgroundAncestor(),
+        .codex => false,
+    };
     const fd = os.connect(path) catch return;
     defer _ = os.c.close(fd);
     try os.sendJson(fd, .{ .op = "hook", .provider = provider, .pane = id, .event = parsed.value, .seq = std.time.microTimestamp(), .background = background });
 }
-pub fn config(provider: []const u8, executable: []const u8) ![]u8 {
+pub fn config(provider: Provider, executable: []const u8) ![]u8 {
     const command = try hookCommand(provider, executable);
     defer a.free(command);
     return configCommand(provider, command);
 }
-fn configCommand(provider: []const u8, command: []const u8) ![]u8 {
+fn configCommand(provider: Provider, command: []const u8) ![]u8 {
     var hooks: std.json.ObjectMap = .init(a);
     defer {
         var it = hooks.iterator();
@@ -52,8 +55,7 @@ fn configCommand(provider: []const u8, command: []const u8) ![]u8 {
         }
         hooks.deinit();
     }
-    const kind = std.meta.stringToEnum(providers.Provider, provider) orelse return error.BadProvider;
-    for (try providers.Backend.init(kind).hookEvents()) |event| try addHook(&hooks, event, command);
+    for (provider.backend().hookEvents()) |event| try addHook(&hooks, event, command);
     var root: std.json.ObjectMap = .init(a);
     defer root.deinit();
     try root.put("hooks", .{ .object = hooks });
@@ -72,20 +74,20 @@ fn addHook(hooks: *std.json.ObjectMap, event: []const u8, command: []const u8) !
     try groups.append(.{ .object = group });
     try hooks.put(event, .{ .array = groups });
 }
-fn hookCommand(provider: []const u8, executable: []const u8) ![]u8 {
+fn hookCommand(provider: Provider, executable: []const u8) ![]u8 {
     const quoted = try shellQuote(executable);
     defer a.free(quoted);
-    return std.fmt.allocPrint(a, "{s} hook {s}", .{ quoted, provider });
+    return std.fmt.allocPrint(a, "{s} hook {t}", .{ quoted, provider });
 }
 // A stable definition survives moving/rebuilding Corgi and is a no-op in
 // ordinary terminals. The pane sets CORGI_BIN to its actual executable.
-fn installedCommand(provider: []const u8) ![]u8 {
-    return std.fmt.allocPrint(a, "if [ -n \"${{CORGI_PANE:-}}\" ] && [ -n \"${{CORGI_SOCKET:-}}\" ] && [ -x \"${{CORGI_BIN:-}}\" ]; then \"$CORGI_BIN\" hook {s}; fi", .{provider});
+fn installedCommand(provider: Provider) ![]u8 {
+    return std.fmt.allocPrint(a, "if [ -n \"${{CORGI_PANE:-}}\" ] && [ -n \"${{CORGI_SOCKET:-}}\" ] && [ -x \"${{CORGI_BIN:-}}\" ]; then \"$CORGI_BIN\" hook {t}; fi", .{provider});
 }
 
 /// Merge into the existing provider JSON; never replace other hook handlers.
 /// The arena owns both parsed data and appended entries until serialization.
-pub fn mergedConfig(allocator: std.mem.Allocator, provider: []const u8, existing: []const u8) !?[]u8 {
+pub fn mergedConfig(allocator: std.mem.Allocator, provider: Provider, existing: []const u8) !?[]u8 {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const mem = arena.allocator();
@@ -124,10 +126,10 @@ pub fn mergedConfig(allocator: std.mem.Allocator, provider: []const u8, existing
     return try std.json.Stringify.valueAlloc(allocator, root, .{ .whitespace = .indent_2 });
 }
 
-pub fn install(provider: []const u8) !void {
+pub fn install(provider: Provider) !void {
     const home_dir = os.env("HOME") orelse return;
-    const override = os.env(if (std.mem.eql(u8, provider, "codex")) "CODEX_HOME" else "CLAUDE_CONFIG_DIR");
-    const directory = if (override) |dir| try a.dupe(u8, dir) else try std.fs.path.join(a, &.{ home_dir, if (std.mem.eql(u8, provider, "codex")) ".codex" else ".claude" });
+    const info = provider.info();
+    const directory = if (os.env(info.config_env)) |dir| try a.dupe(u8, dir) else try std.fs.path.join(a, &.{ home_dir, info.config_dir });
     defer a.free(directory);
     var dir = std.fs.cwd().openDir(directory, .{}) catch |err| {
         if (err == error.FileNotFound) return;
@@ -138,7 +140,7 @@ pub fn install(provider: []const u8) !void {
     defer lock.close();
     if (!try lock.tryLock(.exclusive)) return error.HookSettingsBusy;
     defer lock.unlock();
-    const filename = if (std.mem.eql(u8, provider, "codex")) "hooks.json" else "settings.json";
+    const filename = info.hooks_file;
     // Don't replace a symlink, FIFO, or other user-managed indirection.
     const path = try std.fs.path.join(a, &.{ directory, filename });
     defer a.free(path);
@@ -179,12 +181,11 @@ pub fn shellQuote(text: []const u8) ![]u8 {
     try out.append(a, '\'');
     return out.toOwnedSlice(a);
 }
-pub fn launch(provider: []const u8, args: []const []const u8, executable: []const u8) !noreturn {
+pub fn launch(provider: Provider, args: []const []const u8, executable: []const u8) !noreturn {
     _ = executable;
     if (os.env("CORGI_PANE") == null) return error.LaunchInsideCorgi;
     var argv: std.ArrayList([]const u8) = .empty;
-    const provider_kind = std.meta.stringToEnum(@import("agents.zig").Provider, provider) orelse return error.BadProvider;
-    const binary = try @import("discovery.zig").resolve(provider_kind, null);
+    const binary = try @import("discovery.zig").resolve(provider, null);
     defer a.free(binary);
     try argv.append(a, binary);
     try argv.appendSlice(a, args);

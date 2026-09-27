@@ -4,9 +4,22 @@ const std = @import("std");
 const setup = @import("inference_setup.zig");
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
-pub const Choice = enum { auto, codex, claude, off, ghostty, onboarding };
+pub const Choice = enum {
+    auto,
+    codex,
+    claude,
+    off,
+    ghostty,
+    onboarding,
+
+    pub fn provider(choice: Choice) ?Provider {
+        return std.meta.stringToEnum(Provider, @tagName(choice));
+    }
+};
 const ghostty = @import("ghostty_integration.zig");
 
+const providers = @import("providers.zig");
+const Provider = providers.Provider;
 const options = [_]struct { choice: Choice, label: []const u8 }{
     .{ .choice = .auto, .label = "Auto" },
     .{ .choice = .codex, .label = "Codex" },
@@ -108,15 +121,17 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
         else if (status.provider) |provider|
             std.fmt.bufPrint(buffer, "{s} {s} · {s}", .{
                 if (status.locked) "Settled on" else "Following you →",
-                if (provider == .codex) "Codex" else "Claude",
-                modelName(if (provider == .codex) status.codex_model else status.claude_model),
+                provider.info().name,
+                modelName(providers.get(status.models, provider)),
             }) catch ""
         else
             "Follow the agents you run",
-        .codex => std.fmt.bufPrint(buffer, "{s} · your Codex login", .{modelName(status.codex_model)}) catch "",
-        .claude => std.fmt.bufPrint(buffer, "{s} · your Claude login", .{modelName(status.claude_model)}) catch "",
         // Mismatched eyes: every glyph stays one terminal column wide.
         .off => "ᐯoᴥ°ᐯ  no summaries, plain links",
+        .codex, .claude => {
+            const provider = choice.provider().?;
+            return std.fmt.bufPrint(buffer, "{s} · your {s} login", .{ modelName(providers.get(status.models, provider)), provider.info().name }) catch "";
+        },
     };
 }
 
@@ -124,12 +139,11 @@ fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
         .onboarding => "Choose shortcuts or bring existing work into Corgi",
         .ghostty => "Reload Ghostty with Cmd+Shift+, after changes",
-        .auto => if (status.codex_launches + status.claude_launches == 0)
+        .auto => if (status.launches.codex + status.launches.claude == 0)
             "No agents yet this session; using your last one"
         else
-            std.fmt.bufPrint(buffer, "Since start: claude {d}× · codex {d}×", .{ status.claude_launches, status.codex_launches }) catch "",
-        .codex => "Needs codex installed and signed in",
-        .claude => "Needs claude installed and signed in",
+            std.fmt.bufPrint(buffer, "Since start: claude {d}× · codex {d}×", .{ status.launches.claude, status.launches.codex }) catch "",
+        .codex, .claude => std.fmt.bufPrint(buffer, "Needs {s} installed and signed in", .{choice.provider().?.info().executables[0]}) catch "",
         .off => "Activity text stays blank; links say Open Link",
     };
 }
@@ -154,11 +168,11 @@ test "setup popover explains the automatic choice" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const menu = Menu.open(.{});
-    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .claude_launches = 3, .codex_launches = 1, .claude_model = "claude-haiku-4-5-20251001" }, 100, 30);
+    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .launches = .{ .claude = 3, .codex = 1 }, .models = .{ .claude = "claude-haiku-4-5-20251001" } }, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Following you → Claude · Haiku 4.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "claude 3× · codex 1×") != null);
     output.clearRetainingCapacity();
-    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .codex_model = "gpt-6-luna", .claude_model = "claude-haiku-4-5-20251001" }, 100, 30);
+    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" } }, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Settled on Codex · gpt-6-luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "gpt-6-luna · your Codex login") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Haiku 4.5 · your Claude login") != null);

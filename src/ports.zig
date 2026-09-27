@@ -104,7 +104,7 @@ fn workload(p: Process, root: Root) bool {
     for ([_][]const u8{ "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu" }) |shell| {
         if (eq(u8, name, shell)) return false;
     }
-    return @import("detection.zig").identify(&.{name}) == .other;
+    return @import("detection.zig").identify(&.{name}) == null;
 }
 fn browserResponse(status: ?u16) bool {
     const code = status orelse return false;

@@ -6,20 +6,30 @@ const std = @import("std");
 const os = @import("os.zig");
 const inference = @import("inference.zig");
 const a = os.allocator;
+const providers = @import("providers.zig");
 pub const Choice = inference.Choice;
-pub const Provider = inference.Provider;
+pub const Provider = providers.Provider;
 
 /// Agents detected in panes since the daemon started.
 pub const Launches = struct {
-    codex: u32 = 0,
-    claude: u32 = 0,
+    count: std.EnumArray(Provider, u32) = .initFill(0),
     latest: ?Provider = null,
     pub fn record(l: *Launches, provider: Provider) void {
-        switch (provider) {
-            .codex => l.codex +|= 1,
-            .claude => l.claude +|= 1,
-        }
+        l.count.getPtr(provider).* +|= 1;
         l.latest = provider;
+    }
+    /// The most launched provider. Ties go to the latest launch, then `fallback`.
+    pub fn favorite(l: *const Launches, fallback: Provider) Provider {
+        var best: u32 = 0;
+        for (l.count.values) |count| best = @max(best, count);
+        var leaders: usize = 0;
+        var leader = fallback;
+        for (Provider.all) |provider| if (l.count.get(provider) == best) {
+            leaders += 1;
+            leader = provider;
+        };
+        if (leaders == 1) return leader;
+        return l.latest orelse fallback;
     }
 };
 
@@ -31,11 +41,9 @@ pub const Status = struct {
     model: []const u8 = "",
     /// A harness has answered; `auto` keeps this provider until reconfigured.
     locked: bool = false,
-    codex_launches: u32 = 0,
-    claude_launches: u32 = 0,
+    launches: providers.Each(u32, 0) = .{},
     /// What each provider would use, so the setup screen can compare them.
-    codex_model: []const u8 = "",
-    claude_model: []const u8 = "",
+    models: providers.Each([]const u8, "") = .{},
 };
 
 /// `remembered` is the last agent from the saved checkpoint, used when no
@@ -43,19 +51,15 @@ pub const Status = struct {
 pub fn resolve(choice: Choice, launches: Launches, remembered: Provider) ?Provider {
     return switch (choice) {
         .off => null,
-        .codex => .codex,
-        .claude => .claude,
-        .auto => if (launches.codex > launches.claude) .codex else if (launches.claude > launches.codex) .claude else launches.latest orelse remembered,
+        .auto => launches.favorite(remembered),
+        else => choice.provider().?,
     };
 }
 
 pub fn model(provider: ?Provider) []const u8 {
     const value = provider orelse return "";
     if (os.env("CORGI_INFERENCE_MODEL") orelse os.env("CORGI_SUMMARY_MODEL")) |override| return override;
-    return switch (value) {
-        .codex => "gpt-6-luna",
-        .claude => "claude-haiku-4-5-20251001",
-    };
+    return value.info().summary_model;
 }
 
 /// Saved setup choice, then the environment, then `auto`. Unknown provider

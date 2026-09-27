@@ -38,7 +38,7 @@ class SmokeTerminal extends Runtime {
       await this.until(
         async () =>
           (await this.panes()).find((p: any) => p.id === pane)?.provider ===
-          "other",
+          null,
         8,
       );
     } catch (error) {

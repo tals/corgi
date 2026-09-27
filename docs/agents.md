@@ -13,11 +13,21 @@ the attachment, leaving A intact. Two attachments selecting A share its receipts
 and acknowledgements. Before identity is known, an attachment can hold provisional
 screen status. Replacing its foreground process clears its source associations.
 
-`providers.Backend` dispatches to concrete `Claude` and `Codex` integrations. These
-compose shared codecs and own hook/native envelope decoding, launch arguments,
-and typed resume arguments. Transport ownership stays in `native.Session` or the
-terminal pane. Screen detection and the read-only Codex observer remain separate
-sources; a future provider can reuse the sources it actually supports.
+`providers.Provider` names the agents Corgi integrates with; a pane running
+anything else has no provider (`null` in snapshots). Each provider's `info`
+(`src/providers/<name>.zig`) holds its static facts: executables and install
+locations, configuration and account files, credential variables, flags, and
+the few properties several modules share, such as `prompt_turns` and the
+terminal screen signals that detection reads. `providers.Backend` dispatches hook/native envelope decoding, launch
+and resume arguments, and title parsing. Per-provider values that viewers see,
+such as inference launch counts, use `providers.Each`, keyed by provider name.
+
+Formats that differ in code rather than data (transcript records, usage
+accounting, native protocols, rate-limit responses) use exhaustive `switch`
+statements, so adding a provider fails to compile until each one is handled.
+Transport ownership stays in `native.Session` or the terminal pane. Screen
+detection and the read-only Codex observer remain separate sources; a future
+provider can reuse the sources it actually supports.
 
 ## Observations and switching
 

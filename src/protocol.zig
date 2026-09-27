@@ -63,7 +63,8 @@ pub const Agent = struct {
     observation: agents.observation.State = .{},
     recent_activity: []const u8 = "",
     changed_at: i64 = 0,
-    provider: agents.Provider,
+    /// Null when the pane is not running a known agent.
+    provider: ?agents.Provider,
     state: agents.State,
     attention: agents.Attention,
     session: []const u8,
@@ -71,6 +72,10 @@ pub const Agent = struct {
     cwd: []const u8,
     tool_active: bool,
     compacting: bool = false,
+
+    pub fn providerName(agent: Agent) []const u8 {
+        return if (agent.provider) |provider| @tagName(provider) else "agent";
+    }
 };
 pub const Pane = struct {
     binding: u64 = 0,
@@ -123,7 +128,7 @@ pub const Snapshot = struct {
     inference: @import("inference_setup.zig").Status = .{},
     system_working: bool = false,
     system_usage: @import("live_usage.zig").View = .{},
-    last_agent: @import("agent_launcher.zig").Provider = .codex,
+    last_agent: agents.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
     agent_hidden: [2]bool = .{ false, false },
     agent_commands: [@import("launch_command.zig").capacity]@import("launch_command.zig").Entry = @splat(.{}),

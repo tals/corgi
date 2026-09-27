@@ -3,38 +3,13 @@
 const std = @import("std");
 const os = @import("os.zig");
 const agents = @import("agents.zig");
+const providers = @import("providers.zig");
 const Client = @import("codex_socket.zig").Client;
 const a = os.allocator;
 const max = @import("layout.zig").max_panes;
 const eq = std.mem.eql;
-pub const Prefix = struct {
-    bytes: [36]u8 = .{0} ** 36,
-    len: usize = 0,
-    pub fn text(p: *const Prefix) []const u8 {
-        return p.bytes[0..p.len];
-    }
-};
-// Codex's 32-character title field contains 29 UUID characters plus "...".
-// Accept only a complete UUID or that exact truncated form, not arbitrary text.
-pub fn titlePrefix(title: []const u8) ?Prefix {
-    var words = std.mem.tokenizeAny(u8, title, " |\t");
-    var found: ?Prefix = null;
-    while (words.next()) |word| {
-        const n: usize = if (word.len == 36) 36 else if (word.len == 32 and std.mem.endsWith(u8, word, "...")) 29 else continue;
-        var valid = true;
-        for (word[0..n], 0..) |ch, i| {
-            if (i == 8 or i == 13 or i == 18 or i == 23) {
-                if (ch != '-') valid = false;
-            } else if (!std.ascii.isHex(ch)) valid = false;
-        }
-        if (!valid) continue;
-        if (found != null) return null;
-        var p: Prefix = .{ .len = n };
-        @memcpy(p.bytes[0..n], word[0..n]);
-        found = p;
-    }
-    return found;
-}
+pub const Prefix = providers.SessionPrefix;
+pub const titlePrefix = providers.Codex.titleSession;
 pub const Request = struct { pane: u32 = 0, pid: c_int = 0, prefix: Prefix, actor: u32 = 0, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
     background_tasks: @import("background_tasks.zig").Inventory = .{},

@@ -143,7 +143,7 @@ pub const Session = struct {
         const bin = if (options.executable) |path| try a.dupe(u8, path) else try @import("discovery.zig").resolve(provider, cwd);
         defer a.free(bin);
         try argv.append(a, bin);
-        try argv.appendSlice(a, options.args orelse try providers.Backend.init(provider).nativeArgs());
+        try argv.appendSlice(a, options.args orelse providers.Backend.init(provider).nativeArgs());
         var child = std.process.Child.init(argv.items, a);
         var env = try std.process.getEnvMap(a);
         defer env.deinit();
@@ -170,9 +170,14 @@ pub const Session = struct {
         os.nonblock(child.stdin.?.handle);
         os.cloexec(child.stdout.?.handle);
         os.cloexec(child.stdin.?.handle);
-        var result: Session = .{ .id = id, .provider = provider, .cwd = directory, .child = child, .ready = provider == .claude, .attachment = .{ .provisional = .{ .provider = provider, .state = if (provider == .claude) .idle else .initializing } } };
+        // App-server protocols accept requests only after an initialize handshake.
+        const handshake = switch (provider) {
+            .codex => true,
+            .claude => false,
+        };
+        var result: Session = .{ .id = id, .provider = provider, .cwd = directory, .child = child, .ready = !handshake, .attachment = .{ .provisional = .{ .provider = provider, .state = if (handshake) .initializing else .idle } } };
         result.resume_hint.provider = provider;
-        if (provider == .codex) try result.queue(.{ .id = "__corgi_init", .method = "initialize", .params = .{ .clientInfo = .{ .name = "corgi", .version = "0.1.0" } } });
+        if (handshake) try result.queue(.{ .id = "__corgi_init", .method = "initialize", .params = .{ .clientInfo = .{ .name = "corgi", .version = "0.1.0" } } });
         return result;
     }
     pub fn destroy(s: *Session) void {
@@ -252,49 +257,77 @@ pub const Session = struct {
         }
     }
     fn observeTools(s: *Session, target: *agents.Agent, v: std.json.Value, params: std.json.Value, method: []const u8, kind: []const u8) !void {
-        if (s.provider == .codex and params == .object) {
-            const thread = agents.str(params, "threadId");
-            if (eq(method, "thread/tokenUsage/updated")) {
-                const usage = @import("usage.zig");
-                s.usage_pending.add(s.usage_tracker.codexNotification(thread, usage.field(params, "tokenUsage"), s.active_threads.contains(thread)));
-            }
-            if (eq(method, "item/started") or eq(method, "item/completed")) {
-                const item = params.object.get("item") orelse return;
-                const id = agents.str(item, "id");
-                if (eq(method, "item/completed")) {
-                    s.finishTool(id, thread);
-                } else {
-                    const item_kind = agents.str(item, "type");
-                    for ([_][]const u8{ "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "webSearch", "imageView", "imageGeneration" }) |tool_kind| {
-                        if (eq(item_kind, tool_kind)) {
-                            try s.startTool(target, id, thread, agents.str(params, "turnId"));
-                            break;
-                        }
+        switch (s.provider) {
+            .codex => try s.codexTools(target, params, method),
+            .claude => try s.claudeTools(target, v, kind),
+        }
+    }
+    /// Codex streams own usage accounting and report thread parents and roles.
+    fn codexThread(s: *Session, registry: *conversations.Registry, owner: *conversations.Actor, v: std.json.Value) void {
+        if (!owner.native_usage) {
+            // Once a native stream owns accounting, the file reader
+            // cannot charge the same requests a second time. Preserve
+            // observed totals, then baseline the first native sample.
+            owner.native_usage = true;
+            owner.native_meter.meter.value = owner.live_usage;
+            owner.native_meter.meter.value.recent_tokens = 0;
+            // Reload restores active turns but intentionally starts new
+            // meters. Their first report may replay the previous request.
+            owner.native_meter.baseline_next = owner.live_usage.known or s.active_threads.contains(owner.state.sessionId());
+            if (owner.native_meter.baseline_next) owner.native_meter.meter.value.partial = true;
+        }
+        const field = @import("usage.zig").field;
+        const thread = if (field(field(v, "params"), "thread") != .null) field(field(v, "params"), "thread") else field(field(v, "result"), "thread");
+        const parent_id = agents.str(thread, "parentThreadId");
+        if (registry.find(.codex, parent_id)) |parent| _ = registry.linkChild(parent, owner);
+        const role = agents.str(thread, "agentRole");
+        if (role.len > 0) owner.role_len = agents.clean(&owner.role, role);
+    }
+    fn codexTools(s: *Session, target: *agents.Agent, params: std.json.Value, method: []const u8) !void {
+        if (params != .object) return;
+        const thread = agents.str(params, "threadId");
+        if (eq(method, "thread/tokenUsage/updated")) {
+            const usage = @import("usage.zig");
+            s.usage_pending.add(s.usage_tracker.codexNotification(thread, usage.field(params, "tokenUsage"), s.active_threads.contains(thread)));
+        }
+        if (eq(method, "item/started") or eq(method, "item/completed")) {
+            const item = params.object.get("item") orelse return;
+            const id = agents.str(item, "id");
+            if (eq(method, "item/completed")) {
+                s.finishTool(id, thread);
+            } else {
+                const item_kind = agents.str(item, "type");
+                for ([_][]const u8{ "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "webSearch", "imageView", "imageGeneration" }) |tool_kind| {
+                    if (eq(item_kind, tool_kind)) {
+                        try s.startTool(target, id, thread, agents.str(params, "turnId"));
+                        break;
                     }
                 }
-            } else if (eq(method, "turn/completed")) {
-                const turn = agents.str(params.object.get("turn") orelse .null, "id");
-                s.clearTools(thread, if (turn.len > 0) turn else null);
             }
-        } else if (s.provider == .claude and v == .object) {
-            if (eq(kind, "result")) {
-                s.clearTools(target.sessionId(), null);
-                return;
-            }
-            if (!eq(kind, "assistant") and !eq(kind, "user")) return;
-            const message = v.object.get("message") orelse return;
-            if (message != .object) return;
-            if (eq(kind, "assistant")) {
-                var delta = s.usage_tracker.claudeMessage(message);
-                delta.tools = 0; // startTool owns native tool accounting.
-                s.usage_pending.add(delta);
-            }
-            const content = message.object.get("content") orelse return;
-            if (content != .array) return;
-            for (content.array.items) |block| {
-                const block_kind = agents.str(block, "type");
-                if (eq(block_kind, "tool_use")) try s.startTool(target, agents.str(block, "id"), target.sessionId(), "") else if (eq(block_kind, "tool_result")) s.finishTool(agents.str(block, "tool_use_id"), target.sessionId());
-            }
+        } else if (eq(method, "turn/completed")) {
+            const turn = agents.str(params.object.get("turn") orelse .null, "id");
+            s.clearTools(thread, if (turn.len > 0) turn else null);
+        }
+    }
+    fn claudeTools(s: *Session, target: *agents.Agent, v: std.json.Value, kind: []const u8) !void {
+        if (v != .object) return;
+        if (eq(kind, "result")) {
+            s.clearTools(target.sessionId(), null);
+            return;
+        }
+        if (!eq(kind, "assistant") and !eq(kind, "user")) return;
+        const message = v.object.get("message") orelse return;
+        if (message != .object) return;
+        if (eq(kind, "assistant")) {
+            var delta = s.usage_tracker.claudeMessage(message);
+            delta.tools = 0; // startTool owns native tool accounting.
+            s.usage_pending.add(delta);
+        }
+        const content = message.object.get("content") orelse return;
+        if (content != .array) return;
+        for (content.array.items) |block| {
+            const block_kind = agents.str(block, "type");
+            if (eq(block_kind, "tool_use")) try s.startTool(target, agents.str(block, "id"), target.sessionId(), "") else if (eq(block_kind, "tool_result")) s.finishTool(agents.str(block, "tool_use_id"), target.sessionId());
         }
     }
     fn queue(s: *Session, v: anytype) !void {
@@ -396,25 +429,9 @@ pub const Session = struct {
         }
         const actor = if (event.session.len > 0) try registry.get(s.provider, event.session) else s.attachment.actor;
         if (actor) |owner| {
-            if (s.provider == .codex) {
-                if (!owner.native_usage) {
-                    // Once a native stream owns accounting, the file reader
-                    // cannot charge the same requests a second time. Preserve
-                    // observed totals, then baseline the first native sample.
-                    owner.native_usage = true;
-                    owner.native_meter.meter.value = owner.live_usage;
-                    owner.native_meter.meter.value.recent_tokens = 0;
-                    // Reload restores active turns but intentionally starts new
-                    // meters. Their first report may replay the previous request.
-                    owner.native_meter.baseline_next = owner.live_usage.known or s.active_threads.contains(owner.state.sessionId());
-                    if (owner.native_meter.baseline_next) owner.native_meter.meter.value.partial = true;
-                }
-                const field = @import("usage.zig").field;
-                const thread = if (field(field(v, "params"), "thread") != .null) field(field(v, "params"), "thread") else field(field(v, "result"), "thread");
-                const parent_id = agents.str(thread, "parentThreadId");
-                if (registry.find(.codex, parent_id)) |parent| _ = registry.linkChild(parent, owner);
-                const role = agents.str(thread, "agentRole");
-                if (role.len > 0) owner.role_len = agents.clean(&owner.role, role);
+            switch (s.provider) {
+                .codex => s.codexThread(registry, owner, v),
+                .claude => {},
             }
             try s.remember(owner);
             owner.observed_at = std.time.microTimestamp();
@@ -439,8 +456,12 @@ pub const Session = struct {
                 };
             }
             const method = agents.str(v, "method");
-            const explicit_selection = eq(method, "thread/started") or
-                (s.provider == .codex and v == .object and v.object.contains("result") and event.session.len > 0);
+            // A response naming a thread (start/resume/fork) selects it too.
+            const response_selects = switch (s.provider) {
+                .codex => v == .object and v.object.contains("result") and event.session.len > 0,
+                .claude => false,
+            };
+            const explicit_selection = eq(method, "thread/started") or response_selects;
             if (s.attachment.actor == null or (explicit_selection and owner.parent == null)) s.attachment.select(owner);
             if (s.attachment.actor == owner) s.resume_hint.observe(&owner.state);
         }
@@ -456,8 +477,9 @@ pub const Session = struct {
         const completed_turn = reported_turn.len > 0 and target.finishedTurn(reported_turn);
         const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !eq(reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
-        if (actor) |owner| if (s.provider == .codex and eq(method, "thread/tokenUsage/updated")) {
-            owner.native_meter.native(@import("usage.zig").field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp());
+        if (actor) |owner| if (eq(method, "thread/tokenUsage/updated")) switch (s.provider) {
+            .codex => owner.native_meter.native(@import("usage.zig").field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
+            .claude => {},
         };
         if (event.request_id != null) {
             // Replayed protocol requests refer to the same pending operation.
@@ -491,10 +513,10 @@ pub const Session = struct {
             }
         } else if (event.phase == .completed) {
             const active_turn = s.active_threads.get(event.thread);
-            const matches = if (s.provider == .codex)
-                !stale_turn and ((active_turn != null and (active_turn.?.len == 0 or eq(active_turn.?, event.turn))) or target.state == .working or target.state == .blocked)
-            else
-                !target.finished_since_activity and (old == .working or old == .blocked);
+            const matches = switch (s.provider) {
+                .codex => !stale_turn and ((active_turn != null and (active_turn.?.len == 0 or eq(active_turn.?, event.turn))) or target.state == .working or target.state == .blocked),
+                .claude => !target.finished_since_activity and (old == .working or old == .blocked),
+            };
             if (active_turn != null and (event.turn.len == 0 or active_turn.?.len == 0 or eq(active_turn.?, event.turn))) {
                 if (s.active_threads.fetchRemove(event.thread)) |entry| {
                     a.free(entry.key);

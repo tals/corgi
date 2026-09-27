@@ -1,6 +1,7 @@
-//! Find an installed provider without requiring configuration. Codex package
-//! wrappers can be executable even when their native binary is missing, so
-//! automatic candidates must successfully identify themselves via --version.
+//! Find an installed provider without requiring configuration. Package
+//! wrappers can be executable even when their native binary is missing, so a
+//! provider with a `version_prefix` only accepts candidates whose --version
+//! output identifies them.
 const std = @import("std");
 const builtin = @import("builtin");
 const os = @import("os.zig");
@@ -10,53 +11,53 @@ const Provider = @import("agents.zig").Provider;
 
 /// The caller owns the result. Explicit overrides preserve execvp semantics.
 pub fn resolve(provider: Provider, cwd: ?[]const u8) ![]const u8 {
-    switch (provider) {
-        .claude => return a.dupe(u8, os.env("CORGI_CLAUDE_BIN") orelse "claude"),
-        .codex => if (os.env("CORGI_CODEX_BIN")) |path| {
-            if (path.len > 0) return a.dupe(u8, path);
-        },
-        .other => return error.BadProvider,
-    }
+    const info = provider.info();
+    const command = info.executables[0];
+    if (os.env(info.binary_env)) |path| if (path.len > 0 or info.version_prefix == null) return a.dupe(u8, path);
+    const version_prefix = info.version_prefix orelse return a.dupe(u8, command);
     const current = try std.process.getCwdAlloc(a);
     defer a.free(current);
     const base = try std.fs.path.resolve(a, &.{ current, cwd orelse current });
     defer a.free(base);
-    var finder: Finder = .{ .timer = try std.time.Timer.start() };
+    var finder: Finder = .{ .timer = try std.time.Timer.start(), .command = command, .version_prefix = version_prefix, .bundles = info.app_bundles };
     defer finder.deinit();
 
     if (os.env("PATH")) |path| {
         var dirs = std.mem.splitScalar(u8, path, ':');
         while (dirs.next()) |dir| {
-            const candidate = try std.fs.path.resolve(a, &.{ base, dir, "codex" });
+            const candidate = try std.fs.path.resolve(a, &.{ base, dir, command });
             defer a.free(candidate);
             if (try finder.candidate(candidate)) |found| return found;
         }
     }
     const user_home = os.env("HOME");
     if (user_home) |home_dir| {
-        for ([_][]const u8{ ".local/bin/codex", ".bun/bin/codex", ".npm-global/bin/codex", ".volta/bin/codex", ".cargo/bin/codex" }) |relative| {
+        for (info.home_paths) |relative| {
             const candidate = try std.fs.path.join(a, &.{ home_dir, relative });
             defer a.free(candidate);
             if (try finder.candidate(candidate)) |found| return found;
         }
-        if (builtin.os.tag == .macos) {
+        if (builtin.os.tag == .macos and info.app_bundles.len > 0) {
             const apps = try std.fs.path.join(a, &.{ home_dir, "Applications" });
             defer a.free(apps);
             if (try finder.applications(apps)) |found| return found;
         }
     }
-    for ([_][]const u8{ "/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex" }) |candidate| {
+    for (info.system_paths) |candidate| {
         if (try finder.candidate(candidate)) |found| return found;
     }
-    if (builtin.os.tag == .macos) {
+    if (builtin.os.tag == .macos and info.app_bundles.len > 0) {
         if (try finder.applications("/Applications")) |found| return found;
     }
-    return error.CodexNotFound;
+    return error.ProviderNotFound;
 }
 
 const Finder = struct {
     seen: std.StringHashMapUnmanaged(void) = .empty,
     timer: std.time.Timer,
+    command: []const u8,
+    version_prefix: []const u8,
+    bundles: []const []const u8,
     // Stay below the control client's three-second request timeout.
     const budget = 2 * std.time.ns_per_s;
 
@@ -66,7 +67,7 @@ const Finder = struct {
         f.seen.deinit(a);
     }
     fn candidate(f: *Finder, path: []const u8) !?[]const u8 {
-        // The pane-local `codex` symlink invokes Corgi's launcher. Probing it
+        // A pane-local agent symlink invokes Corgi's launcher. Probing it
         // would recurse back into discovery rather than identify a provider.
         const self = try std.fs.selfExePathAlloc(a);
         defer a.free(self);
@@ -88,12 +89,12 @@ const Finder = struct {
         if ((stat.mode & c.S_IFMT) != c.S_IFREG or c.access(z, c.X_OK) != 0) return null;
         const remaining = budget -| f.timer.read();
         if (remaining == 0) return null;
-        if (probe(path, @min(remaining, 750 * std.time.ns_per_ms))) return try a.dupe(u8, path);
+        if (probe(path, f.version_prefix, @min(remaining, 750 * std.time.ns_per_ms))) return try a.dupe(u8, path);
         return null;
     }
     fn applications(f: *Finder, root: []const u8) !?[]const u8 {
         // Prefer stable app names, then allow renamed/beta app bundles too.
-        for ([_][]const u8{ "Codex.app", "ChatGPT.app" }) |name| {
+        for (f.bundles) |name| {
             if (try f.bundle(root, name)) |found| return found;
         }
         var dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch return null;
@@ -117,13 +118,13 @@ const Finder = struct {
         return null;
     }
     fn bundle(f: *Finder, root: []const u8, name: []const u8) !?[]const u8 {
-        const path = try std.fs.path.join(a, &.{ root, name, "Contents/Resources/codex" });
+        const path = try std.fs.path.join(a, &.{ root, name, "Contents/Resources", f.command });
         defer a.free(path);
         return f.candidate(path);
     }
 };
 
-fn probe(path: []const u8, timeout_ns: u64) bool {
+fn probe(path: []const u8, prefix: []const u8, timeout_ns: u64) bool {
     var child = std.process.Child.init(&.{ path, "--version" }, a);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
@@ -162,33 +163,31 @@ fn probe(path: []const u8, timeout_ns: u64) bool {
                 const n = c.read(fd, output[len..].ptr, output.len - len);
                 if (n > 0) len += @intCast(n);
             }
-            return status == 0 and isVersion(output[0..len]);
+            return status == 0 and isVersion(output[0..len], prefix);
         }
         std.Thread.sleep(5 * std.time.ns_per_ms);
     }
     return false;
 }
-fn isVersion(output: []const u8) bool {
+fn isVersion(output: []const u8, prefix: []const u8) bool {
     const line = std.mem.trim(u8, output, " \t\r\n");
-    const prefix = "codex-cli ";
     return std.mem.startsWith(u8, line, prefix) and line.len > prefix.len and std.ascii.isDigit(line[prefix.len]);
 }
 test "Codex version validation rejects successful non-Codex programs" {
-    try std.testing.expect(isVersion("codex-cli 0.155.0-alpha.2.6\n"));
-    try std.testing.expect(!isVersion(""));
-    try std.testing.expect(!isVersion("codex-cli "));
-    try std.testing.expect(!isVersion("unrelated tool 1.0.0\n"));
-    try std.testing.expect(!isVersion("codex-cli missing native binary"));
+    const prefix = @import("providers.zig").Codex.info.version_prefix.?;
+    try std.testing.expect(isVersion("codex-cli 0.155.0-alpha.2.6\n", prefix));
+    try std.testing.expect(!isVersion("", prefix));
+    try std.testing.expect(!isVersion("codex-cli ", prefix));
+    try std.testing.expect(!isVersion("unrelated tool 1.0.0\n", prefix));
+    try std.testing.expect(!isVersion("codex-cli missing native binary", prefix));
 }
 
 /// Cheap, spawn-free presence check for the launcher. It never probes a
 /// candidate, so a broken Codex wrapper can still count as installed.
 pub fn installed(provider: Provider) bool {
-    const name: []const u8, const override = switch (provider) {
-        .codex => .{ "codex", "CORGI_CODEX_BIN" },
-        .claude => .{ "claude", "CORGI_CLAUDE_BIN" },
-        .other => return false,
-    };
+    const info = provider.info();
+    const name = info.executables[0];
+    const override = info.binary_env;
     const self = std.fs.selfExePathAlloc(a) catch return true;
     defer a.free(self);
     const self_real = std.fs.cwd().realpathAlloc(a, self) catch return true;
@@ -200,19 +199,21 @@ pub fn installed(provider: Provider) bool {
     };
     if (onPath(name, self_real)) return true;
     const home = os.env("HOME") orelse "";
-    const relatives: []const []const u8 = switch (provider) {
-        .codex => &.{ ".local/bin/codex", ".bun/bin/codex", ".npm-global/bin/codex", ".volta/bin/codex", ".cargo/bin/codex", "Applications/Codex.app/Contents/Resources/codex", "Applications/ChatGPT.app/Contents/Resources/codex" },
-        else => &.{ ".claude/local/claude", ".local/bin/claude", ".bun/bin/claude", ".npm-global/bin/claude", ".volta/bin/claude" },
-    };
-    if (home.len > 0) for (relatives) |relative| {
-        const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ home, relative }) catch continue;
+    if (home.len > 0) {
+        for (info.home_paths) |relative| {
+            const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ home, relative }) catch continue;
+            if (executable(path, self_real)) return true;
+        }
+        for (info.app_bundles) |bundle| {
+            const path = std.fmt.bufPrint(&buf, "{s}/Applications/{s}/Contents/Resources/{s}", .{ home, bundle, name }) catch continue;
+            if (executable(path, self_real)) return true;
+        }
+    }
+    for (info.system_paths) |path| if (executable(path, self_real)) return true;
+    for (info.app_bundles) |bundle| {
+        const path = std.fmt.bufPrint(&buf, "/Applications/{s}/Contents/Resources/{s}", .{ bundle, name }) catch continue;
         if (executable(path, self_real)) return true;
-    };
-    const absolutes: []const []const u8 = switch (provider) {
-        .codex => &.{ "/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex", "/Applications/Codex.app/Contents/Resources/codex", "/Applications/ChatGPT.app/Contents/Resources/codex" },
-        else => &.{ "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude" },
-    };
-    for (absolutes) |path| if (executable(path, self_real)) return true;
+    }
     return false;
 }
 fn onPath(name: []const u8, self_real: []const u8) bool {

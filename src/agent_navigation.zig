@@ -46,7 +46,8 @@ pub const Picker = struct {
 
     pub fn matches(p: *const Picker, entry: sidebar.Entry) bool {
         const query = p.query.name();
-        return contains(entry.name, query) or contains(@tagName(entry.provider), query) or
+        const provider = if (entry.provider) |known| @tagName(known) else "";
+        return contains(entry.name, query) or contains(provider, query) or
             contains(@tagName(entry.state), query) or contains(entry.cwd, query) or contains(entry.activity, query);
     }
     pub fn list(p: *const Picker, entries: []const sidebar.Entry, out: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {

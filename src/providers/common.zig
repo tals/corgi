@@ -19,6 +19,95 @@ pub const SessionRef = union(enum) {
     }
 };
 
+/// Static facts about an agent's CLI and files.
+pub const Info = struct {
+    /// Product name for launcher rows.
+    label: []const u8,
+    /// Short name for compact menus and sentences.
+    name: []const u8,
+    /// Launcher key that starts this agent.
+    launcher_key: u8,
+
+    // Process identification.
+    /// Executable basenames. The first is the command Corgi runs.
+    executables: []const []const u8,
+    /// Path fragments of versioned installs that run without a known basename.
+    install_markers: []const []const u8 = &.{},
+    /// Script paths run by node/bun, matched as suffixes.
+    scripts: []const []const u8 = &.{},
+    /// Package runners (`bunx`, `bun x`) name this package, optionally `@version`.
+    package: []const u8,
+
+    // Discovery.
+    /// Environment variable naming the executable to use.
+    binary_env: [:0]const u8,
+    /// Install locations relative to $HOME, then absolute ones.
+    home_paths: []const []const u8,
+    system_paths: []const []const u8,
+    /// macOS app bundles that embed the CLI at Contents/Resources/<command>.
+    app_bundles: []const []const u8 = &.{},
+    /// `--version` output prefix that proves a candidate works. Without one,
+    /// discovery leaves the lookup to PATH at exec time.
+    version_prefix: ?[]const u8 = null,
+
+    // Configuration and accounts.
+    /// Environment variable overriding the configuration directory, and its
+    /// default under $HOME.
+    config_env: [:0]const u8,
+    config_dir: []const u8,
+    /// Hook settings file inside the configuration directory.
+    hooks_file: []const u8,
+    /// File naming the signed-in account, and the directory holding it when
+    /// only HOME is overridden.
+    account_file: []const u8,
+    account_home: []const u8,
+    /// Environment variables that replace the default account's credentials.
+    credential_env: []const []const u8,
+    /// Environment variable holding an explicit OAuth token.
+    oauth_env: ?[]const u8 = null,
+    /// Environment variables (or `PREFIX_*` patterns) that change the endpoint
+    /// or backing provider.
+    endpoint_env: []const []const u8,
+    /// Environment variable selecting the model.
+    model_env: ?[]const u8 = null,
+    /// Flags selecting a named profile (taking a value) or custom settings.
+    profile_flags: []const []const u8,
+    settings_flags: []const []const u8,
+    /// Flag that skips permission prompts.
+    yolo_flag: []const u8,
+    /// Model Corgi uses for activity summaries on the user's login.
+    summary_model: []const u8,
+
+    // Lifecycle evidence.
+    /// Hooks and transcripts carry no turn id or commentary: prompt ids key
+    /// turns, and the current tool is the activity.
+    prompt_turns: bool = false,
+    screen: Screen = .{},
+};
+
+/// A session id, or the truncated prefix of one, shown in a terminal title.
+pub const SessionPrefix = struct {
+    bytes: [36]u8 = .{0} ** 36,
+    len: usize = 0,
+    pub fn text(p: *const SessionPrefix) []const u8 {
+        return p.bytes[0..p.len];
+    }
+};
+
+/// Terminal UI signals, used only when no hook or protocol evidence is current.
+pub const Screen = struct {
+    /// Title text shown while waiting for approval.
+    blocked_title: ?[]const u8 = null,
+    /// Title prefix shown while idle.
+    idle_title: ?[]const u8 = null,
+    /// A row starting with this composer marker means the agent is idle.
+    idle_prompt: ?[]const u8 = null,
+    /// The status row counts running background terminals.
+    background_status: bool = false,
+    /// Protocol state has no compaction flag; the status row supplies it.
+    compaction_status: bool = false,
+};
+
 pub const Hook = struct {
     kind: enum { session_start, prompt, tool_start, tool_finish, tool_failure, permission, notification, compact_start, compact_end, stop, interrupt, session_end },
     session: []const u8,

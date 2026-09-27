@@ -307,7 +307,7 @@ pub const Controller = struct {
             out[i].ports = s.runtime.ports;
             out[i].remote_links = s.remote_links;
             for (s.runtime.panes.items) |p| {
-                if (p.agent.provider == .other or ws.model.tabForPane(p.id) == null) continue;
+                if (p.agent.provider == null or ws.model.tabForPane(p.id) == null) continue;
                 out[i].agents += 1;
                 if (p.agent.state == .working) out[i].working += 1;
                 if (p.agent.state == .blocked or p.agent.attention == .needs_input) out[i].attention += 1;
@@ -338,14 +338,14 @@ pub const Controller = struct {
                 const folded = s.groupFolded(ws.id);
                 const here = ws.id == s.current().id;
                 // A folded header stands in for the focused agent it hides.
-                entries[count] = .{ .target = .{ .group = ws.id }, .name = ws.name, .provider = .codex, .state = .idle, .attention = .none, .focused = folded and here and s.focusedAgent() != null, .group = .{ .agents = total.agents, .working = total.working, .attention = total.attention, .folded = folded, .current = here } };
+                entries[count] = .{ .target = .{ .group = ws.id }, .name = ws.name, .provider = null, .state = .idle, .attention = .none, .focused = folded and here and s.focusedAgent() != null, .group = .{ .agents = total.agents, .working = total.working, .attention = total.attention, .folded = folded, .current = here } };
                 count += 1;
                 if (folded) continue;
             }
             const first_agent = count;
             for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
                 for (s.runtime.panes.items) |*p| {
-                    if (p.agent.provider == .other or ws.model.tabForPane(p.id) != tab_index or count == entries.len) continue;
+                    if (p.agent.provider == null or ws.model.tabForPane(p.id) != tab_index or count == entries.len) continue;
                     entries[count] = .{ .conversation = p.agent.conversation, .target = .{ .pane = p.id }, .name = if (p.label.len > 0) p.label else p.agent.name, .provider = p.agent.provider, .state = p.agent.state, .attention = p.agent.attention, .focused = s.native_notice == null and focus == p.id, .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, .tool_active = p.agent.tool_active, .compacting = p.agent.compacting, .subagents = p.agent.subagents, .unread = p.agent.observation.unread(), .activity = p.agent.activity };
                     count += 1;
                 }
@@ -382,7 +382,7 @@ pub const Controller = struct {
         const ws = &s.runtime.workspaces.items[workspace_index];
         for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
             for (s.runtime.panes.items) |p| {
-                if (p.agent.provider != .other and ws.model.tabForPane(p.id) == tab_index and p.agent.observation.unread())
+                if (p.agent.provider != null and ws.model.tabForPane(p.id) == tab_index and p.agent.observation.unread())
                     return .{ .pane = p.id };
             }
         }
@@ -424,7 +424,7 @@ pub const Controller = struct {
         if (s.native_notice) |id| {
             for (s.runtime.sessions) |session| if (session.id == id and session.workspace == s.current().id) return .{ .native = id };
         }
-        if (s.focused()) |p| if (p.agent.provider != .other) return .{ .pane = p.id };
+        if (s.focused()) |p| if (p.agent.provider != null) return .{ .pane = p.id };
         return null;
     }
     fn rememberAgent(s: *Self) void {
@@ -813,7 +813,7 @@ pub const Controller = struct {
         s.copy_feedback_until = std.time.milliTimestamp() + 2000;
         s.dirty = true;
     }
-    fn launchAgent(s: *Self, provider: ?@import("agent_launcher.zig").Provider) !void {
+    fn launchAgent(s: *Self, provider: ?agents.Provider) !void {
         var cwd: [std.fs.max_path_bytes]u8 = undefined;
         const dir = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
         if (dir.len > cwd.len) return error.NameTooLong;
@@ -962,7 +962,7 @@ pub const Controller = struct {
         }
         s.dirty = true;
     }
-    fn toggleLauncherYolo(s: *Self, provider: @import("agent_launcher.zig").Provider) !void {
+    fn toggleLauncherYolo(s: *Self, provider: agents.Provider) !void {
         const enabled = !s.runtime.agent_yolo[@intFromEnum(provider)];
         _ = try s.execute(.{ .@"agent.yolo" = .{ .provider = provider, .enabled = enabled } });
         if (s.agent_launcher) |*launch| {
@@ -1022,9 +1022,14 @@ pub const Controller = struct {
         }
         s.dirty = true;
     }
-    fn trackLauncherUsage(s: *Self, provider: @import("agent_launcher.zig").Provider) void {
+    fn trackLauncherUsage(s: *Self, provider: agents.Provider) void {
         const launch = if (s.agent_launcher) |*value| value else return;
-        if (provider != .claude or !launch.trackable(.of(provider))) return;
+        // Tracking asks for access to Claude's stored credentials.
+        switch (provider) {
+            .claude => {},
+            .codex => return,
+        }
+        if (!launch.trackable(.of(provider))) return;
         launch.pinned = true;
         const response = s.connection.call(.{ .op = "agent.track_usage", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len] }) catch return;
         defer response.deinit();
@@ -1129,9 +1134,8 @@ pub const Controller = struct {
         const label = switch (choice) {
             .ghostty, .onboarding => unreachable,
             .auto => "Auto (follows your agents)",
-            .codex => "Codex",
-            .claude => "Claude Code",
             .off => "Off",
+            else => choice.provider().?.info().label,
         };
         s.notice(std.fmt.bufPrint(&buffer, " Summaries and link names: {s}{s}", .{ label, if (saved) "" else " (not saved for next start)" }) catch "");
     }
@@ -1317,13 +1321,13 @@ pub const Controller = struct {
                     9 => s.moveLauncher(true, true),
                     'j', 14 => s.moveLauncher(true, false),
                     'k', 16 => s.moveLauncher(false, false),
-                    'c' => if (!launch.managing and launch.shown(.codex)) try s.launchAgent(.codex),
-                    'l' => if (!launch.managing and launch.shown(.claude)) try s.launchAgent(.claude),
                     '0'...'9' => if (launch.shortcutRow(byte)) |row| try s.launchRow(row),
                     't' => try s.launchRow(.terminal),
                     'y' => if (!launch.managing) if (launch.selected.agent()) |provider| try s.toggleLauncherYolo(provider),
                     'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected.agent().?),
-                    else => {},
+                    else => if (@import("agent_launcher.zig").keyAgent(byte)) |provider| {
+                        if (!launch.managing and launch.shown(.of(provider))) try s.launchAgent(provider);
+                    },
                 }
                 return;
             }
@@ -2238,7 +2242,7 @@ pub const Controller = struct {
             const term = s.pane(p.id).?.terminal;
             // Agent output keeps ordinary left-drag selection even when the
             // agent requests mouse reporting. Alt-click still reaches its UI.
-            const agent_selection = s.pane(p.id).?.agent.provider != .other and (button == 0 or button == 32);
+            const agent_selection = s.pane(p.id).?.agent.provider != null and (button == 0 or button == 32);
             // Links open on release in the pressed cell, so a drag that ends
             // on a link never opens it. Plain clicks only claim links when
             // they would otherwise start a selection; mouse-aware apps keep

@@ -9,6 +9,14 @@ pub const Subagents = struct {
     blocked: u32 = 0,
     waiting: bool = false,
 };
+/// Whether a PermissionRequest hook runs before automatic review, rather
+/// than meaning a person is being asked.
+fn permissionReview(provider: Provider) bool {
+    return switch (provider) {
+        .codex => true,
+        .claude => false,
+    };
+}
 pub const Agent = struct {
     subagents: Subagents = .{},
     name: [160]u8 = @splat(0),
@@ -23,7 +31,8 @@ pub const Agent = struct {
     finished_since_activity: bool = false,
     recent: [160]u8 = .{0} ** 160,
     recent_len: usize = 0,
-    provider: Provider = .other,
+    /// Null until a known agent is identified in the pane.
+    provider: ?Provider = null,
     state: State = .unknown,
     attention: Attention = .none,
     session: [160]u8 = .{0} ** 160,
@@ -160,7 +169,7 @@ pub const Agent = struct {
         // A conversation actor never changes identity. The attachment router
         // finds or creates a different actor when the provider selects a session.
         if (a.session_len > 0 and session.len > 0 and !eq(a.sessionId(), session)) return null;
-        if (a.provider != .other and a.provider != provider) return null;
+        if (a.provider != null and a.provider != provider) return null;
         // A repeated end signal must not revive a completed turn or replace
         // a newer turn currently running in the same session.
         if (event == .stop or event == .interrupt) {
@@ -179,7 +188,7 @@ pub const Agent = struct {
             .session_start, .stop, .interrupt => .idle,
             .tool_start => if (hook.asking) .blocked else .working,
             .prompt, .tool_finish, .tool_failure, .compact_start, .compact_end => .working,
-            .permission => if (provider == .codex) .working else .blocked,
+            .permission => if (permissionReview(provider)) .working else .blocked,
             .notification => .blocked,
             .session_end => .done,
         };
@@ -187,7 +196,7 @@ pub const Agent = struct {
         const turn = hook.turn;
         if (turn.len > 0 and turn.len <= a.turn.len) a.turn_len = clean(&a.turn, turn);
         a.last_seq = seq;
-        a.permission_review = if (event == .permission and provider == .codex) 0 else null;
+        a.permission_review = if (event == .permission and permissionReview(provider)) 0 else null;
         a.provider = provider;
         if (session.len > 0 and session.len <= a.session.len) {
             @memcpy(a.session[0..session.len], session);
@@ -228,8 +237,7 @@ pub const Agent = struct {
         // supplies activity text. Keep that summary through tool transitions.
         if (start or event == .prompt or event == .interrupt or event == .session_end)
             a.activity_len = 0;
-        // Claude has no commentary protocol; its current tool is the activity.
-        if (provider == .claude) {
+        if (provider.info().prompt_turns) {
             // Claude hooks carry no turn id. The prompt id keys inferred labels
             // only; Stop matching above deliberately stays turn-agnostic.
             const prompt = hook.prompt;

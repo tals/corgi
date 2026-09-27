@@ -1340,7 +1340,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     const pane = await this.focused();
     this.assertNotEqual(pane.id, 1);
     this.assertFalse(pane.exited);
-    this.assertEqual(pane.provider, "other");
+    this.assertEqual(pane.provider, null);
     this.assertEqual(realpathSync(pane.cwd), realpathSync(sub));
     this.assertIn(
       "SAVED_OUTPUT",

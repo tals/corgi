@@ -434,7 +434,7 @@ pub const Server = struct {
             const seq = number(v, "seq", std.time.microTimestamp());
             if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, provider, hook.?)) |actor| {
                 p.attachment.hook_seq = seq;
-                if (hook.?.kind == .session_start and provider != .other) s.runtime.last_agent = if (provider == .codex) .codex else .claude;
+                if (hook.?.kind == .session_start) s.runtime.last_agent = provider;
                 if (actor.workspace == 0 or s.runtime.workspaces.index(actor.workspace) == null) {
                     if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
                 }
@@ -461,7 +461,11 @@ pub const Server = struct {
     /// Claude's daemon while the pane's client keeps showing it. Its hooks
     /// cannot name that pane, so panes follow the transcript's continued-in.
     fn followContinuation(s: *Server, old: *@import("conversations.zig").Actor, session: []const u8) void {
-        if (old.state.provider != .claude or eq(session, old.state.sessionId())) return;
+        switch (old.provider()) {
+            .claude => {},
+            .codex => return,
+        }
+        if (eq(session, old.state.sessionId())) return;
         var followed = false;
         for (s.runtime.panes.items) |*p| {
             if (p.attachment.actor != old) continue;
@@ -502,12 +506,12 @@ pub const Server = struct {
     // Resuming a known conversation need not emit a hook before the first
     // prompt. OSC title identity can restore its attachment without observing
     // lifecycle, resetting receipts, or waiting for the app-server transport.
-    fn reattachCodex(s: *Server, p: *Pane, pid: c_int) void {
+    fn reattachFromTitle(s: *Server, p: *Pane, provider: agents.Provider, pid: c_int) void {
         if (p.attachment.actor != null or p.terminal.exited or pid <= 0 or p.terminal.title_pid != pid) return;
-        const prefix = @import("codex_observer.zig").titlePrefix(p.terminal.vt.getTitle() orelse "") orelse return;
+        const prefix = provider.backend().titleSession(p.terminal.vt.getTitle() orelse "") orelse return;
         var found: ?*@import("conversations.zig").Actor = null;
         for (s.runtime.conversations.items.items) |actor| {
-            if (actor.state.provider != .codex or actor.state.session_len != 36 or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.text())) continue;
+            if (actor.provider() != provider or actor.state.session_len != 36 or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.text())) continue;
             if (found != null) return; // A truncated UUID must resolve uniquely.
             found = actor;
         }
@@ -525,7 +529,7 @@ pub const Server = struct {
         const old_binding = p.attachment.generation;
         const previous_pid = p.detection.pid;
         if (before.provider != p.agent().provider or !eq(before.sessionId(), p.agent().sessionId())) {
-            if (p.agent().provider != .other) s.runtime.last_agent = if (p.agent().provider == .codex) .codex else .claude;
+            if (p.agent().provider) |provider| s.runtime.last_agent = provider;
         }
         p.resume_hint.observe(p.agent());
         if (job) |current| {
@@ -537,8 +541,14 @@ pub const Server = struct {
             }
             // Title selection belongs to the attachment. Losing a known title
             // makes screen attribution unknown, not the previous actor idle.
-            if (current.provider == .codex) {
-                const prefix = @import("codex_observer.zig").titlePrefix(p.terminal.vt.getTitle() orelse "");
+            // Codex titles name the session, so a resumed conversation can
+            // reattach before its first hook.
+            const title_identity = switch (current.provider) {
+                .codex => true,
+                .claude => false,
+            };
+            if (title_identity) {
+                const prefix = current.provider.backend().titleSession(p.terminal.vt.getTitle() orelse "");
                 const hash = if (prefix) |value| std.hash.Wyhash.hash(0, value.text()) else 0;
                 if (hash != p.attachment.selection_hash) {
                     if (p.attachment.actor) |actor| {
@@ -547,7 +557,7 @@ pub const Server = struct {
                     p.attachment.generation +%= 1;
                     p.attachment.selection_hash = hash;
                 }
-                s.reattachCodex(p, current.pid);
+                s.reattachFromTitle(p, current.provider, current.pid);
             }
         }
         const now = std.time.microTimestamp();
@@ -557,14 +567,18 @@ pub const Server = struct {
         p.attachment.provisional.last_seq = if (authoritative) 1 else 0;
         const review = p.agent().permission_review != null;
         // Claude has no interrupt hook; its screen is the only sign a hook-reported turn was aborted.
-        const settle = if (p.attachment.actor) |actor| authoritative and actor.state.provider == .claude and actor.state.state == .working and !actor.state.observation.pending_stop else false;
-        const compaction = p.agent().provider == .codex and p.agent().state == .working;
+        const interrupt_hook = if (p.attachment.actor) |actor| switch (actor.provider()) {
+            .codex => true,
+            .claude => false,
+        } else true;
+        const settle = if (p.attachment.actor) |actor| authoritative and !interrupt_hook and actor.state.state == .working and !actor.state.observation.pending_stop else false;
+        const compaction = if (p.agent().provider) |provider| provider.info().screen.compaction_status and p.agent().state == .working else false;
         const text = if (job != null and (!authoritative or review or settle or compaction)) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
         var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
         // Each new agent process counts once toward automatic inference selection.
-        if (job) |current| if (current.pid != previous_pid and current.provider != .other) if (s.summaries) |worker| {
-            worker.observeLaunch(if (current.provider == .codex) .codex else .claude);
+        if (job) |current| if (current.pid != previous_pid) if (s.summaries) |worker| {
+            worker.observeLaunch(current.provider);
         };
         if (previous_pid != 0 and p.detection.pid == 0) p.attachment.detach();
         if (p.attachment.actor) |actor| actor.screen(&p.attachment.provisional, ding, now);
@@ -646,11 +660,11 @@ pub const Server = struct {
             _ = try s.runtime.workspaces.add("", ".");
             try s.runtime.workspaces.save(state_path, s.initialWorkspace().id);
         }
-        if (s.inherited_listener == null) for ([_][]const u8{ "codex", "claude" }) |provider| {
+        if (s.inherited_listener == null) for (agents.Provider.all) |provider| {
             @import("integration.zig").install(provider) catch |err| {
-                std.log.warn("{s} hook setup: {s}; using automatic detection", .{ provider, @errorName(err) });
+                std.log.warn("{t} hook setup: {s}; using automatic detection", .{ provider, @errorName(err) });
                 var msg: [180]u8 = undefined;
-                s.notice(std.fmt.bufPrint(&msg, "{s} hooks: {s}; automatic detection is active", .{ provider, @errorName(err) }) catch "Hook setup failed; automatic detection is active");
+                s.notice(std.fmt.bufPrint(&msg, "{t} hooks: {s}; automatic detection is active", .{ provider, @errorName(err) }) catch "Hook setup failed; automatic detection is active");
             };
         };
         defer {
@@ -706,7 +720,7 @@ pub const Server = struct {
                     s.runtime.changed();
                 };
                 summaries.reconcile(s.runtime.conversations.items.items);
-                summaries.remember(if (s.runtime.last_agent == .codex) .codex else .claude);
+                summaries.remember(s.runtime.last_agent);
                 s.publishInference();
                 if (now - s.last_update_check >= 30 * std.time.ms_per_s) {
                     s.last_update_check = now;
@@ -1031,31 +1045,31 @@ test "local Codex reattachment requires current unambiguous identity and preserv
     const before = actor.state;
     terminal.feed("\x1b]2;" ++ id ++ "\x07");
     terminal.title_pid = 41;
-    s.reattachCodex(p, 42);
+    s.reattachFromTitle(p, .codex, 42);
     try std.testing.expect(p.attachment.actor == null);
     terminal.title_pid = 42;
-    s.reattachCodex(p, 42);
+    s.reattachFromTitle(p, .codex, 42);
     try std.testing.expectEqual(actor, p.attachment.actor.?);
     try std.testing.expectEqualDeep(before, actor.state);
     try std.testing.expect(p.attachment.knows(actor.id));
     const generation = p.attachment.generation;
-    s.reattachCodex(p, 42);
+    s.reattachFromTitle(p, .codex, 42);
     try std.testing.expectEqual(generation, p.attachment.generation);
 
     p.attachment.detach();
     _ = try s.runtime.conversations.get(.codex, "11111111-1111-4111-8111-111111111112");
     terminal.feed("\x1b]2;11111111-1111-4111-8111-11111...\x07");
     terminal.title_pid = 42;
-    s.reattachCodex(p, 42);
+    s.reattachFromTitle(p, .codex, 42);
     try std.testing.expect(p.attachment.actor == null);
     terminal.feed("\x1b]2;22222222-2222-4222-8222-222222222222\x07");
     terminal.title_pid = 42;
-    s.reattachCodex(p, 42);
+    s.reattachFromTitle(p, .codex, 42);
     try std.testing.expect(p.attachment.actor == null);
     terminal.feed("\x1b]2;" ++ id ++ "\x07");
     terminal.title_pid = 42;
     terminal.exited = true;
-    s.reattachCodex(p, 42);
+    s.reattachFromTitle(p, .codex, 42);
     try std.testing.expect(p.attachment.actor == null);
 }
 test "preview subscriptions schedule stale refreshes and publish completion without another request" {

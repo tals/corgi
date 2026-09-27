@@ -122,14 +122,19 @@ pub const Tracker = struct {
         return delta;
     }
     pub fn transcript(t: *Tracker, provider: agents.Provider, session: []const u8, value: std.json.Value) Counts {
-        if (provider == .claude) {
-            if (!eq(agents.str(value, "sessionId"), session)) return .{};
-            const side = field(value, "isSidechain");
-            if (side == .bool and side.bool) return .{};
-            if (eq(agents.str(value, "type"), "assistant")) return t.claudeMessage(field(value, "message"));
-            return .{};
-        }
-        if (provider != .codex) return .{};
+        return switch (provider) {
+            .claude => t.claudeTranscript(session, value),
+            .codex => t.codexTranscript(value),
+        };
+    }
+    fn claudeTranscript(t: *Tracker, session: []const u8, value: std.json.Value) Counts {
+        if (!eq(agents.str(value, "sessionId"), session)) return .{};
+        const side = field(value, "isSidechain");
+        if (side == .bool and side.bool) return .{};
+        if (eq(agents.str(value, "type"), "assistant")) return t.claudeMessage(field(value, "message"));
+        return .{};
+    }
+    fn codexTranscript(t: *Tracker, value: std.json.Value) Counts {
         const payload = field(value, "payload");
         const kind = agents.str(value, "type");
         const subtype = agents.str(payload, "type");

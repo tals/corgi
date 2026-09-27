@@ -6,6 +6,9 @@ const agents = @import("agents.zig");
 const integration = @import("integration.zig");
 const updates = @import("updates.zig");
 pub var build_id: [64]u8 = undefined;
+fn providerArg(name: []const u8) !agents.Provider {
+    return std.meta.stringToEnum(agents.Provider, name) orelse error.BadProvider;
+}
 pub fn main() void {
     run() catch |err| {
         if (err == error.IncompatibleViewerProtocol) {
@@ -38,7 +41,7 @@ fn run() !void {
     defer a.free(exe);
     if (eq(cmd, "__update-start")) return ensureServer(path, exe);
     if (eq(cmd, "update")) return updates.command(args[2..], path, exe);
-    if (eq(std.fs.path.basename(args[0]), "codex")) try integration.launch("codex", args[1..], exe);
+    if (std.meta.stringToEnum(agents.Provider, std.fs.path.basename(args[0]))) |provider| try integration.launch(provider, args[1..], exe);
     if (eq(cmd, "attach") and os.env("CORGI_PANE") != null) return error.NestedCorgi;
     if (eq(cmd, "serve") or eq(cmd, "__handoff") or eq(cmd, "dev")) {
         var file = try std.fs.openFileAbsolute(exe, .{});
@@ -78,7 +81,7 @@ fn run() !void {
     if (eq(cmd, "--version")) return os.writeAll(1, "corgi " ++ @import("corgi_options").release_version ++ " (" ++ @import("corgi_options").release_commit ++ ")\n");
     if (eq(cmd, "which")) {
         if (args.len != 3) return error.Usage;
-        const provider = std.meta.stringToEnum(agents.Provider, args[2]) orelse return error.BadProvider;
+        const provider = try providerArg(args[2]);
         const binary = try @import("discovery.zig").resolve(provider, null);
         defer a.free(binary);
         try os.writeAll(1, binary);
@@ -100,19 +103,19 @@ fn run() !void {
     }
     if (eq(cmd, "hook")) {
         if (args.len != 3) return error.Usage;
-        integration.hook(args[2], path) catch {};
+        integration.hook(providerArg(args[2]) catch return, path) catch {};
         return;
     }
     if (eq(cmd, "hooks")) {
         if (args.len != 3) return error.Usage;
-        const config = try integration.config(args[2], exe);
+        const config = try integration.config(try providerArg(args[2]), exe);
         defer a.free(config);
         try os.writeAll(1, config);
         return os.writeAll(1, "\n");
     }
     if (eq(cmd, "agent")) {
         if (args.len < 3) return error.Usage;
-        try integration.launch(args[2], args[3..], exe);
+        try integration.launch(try providerArg(args[2]), args[3..], exe);
     }
     if (eq(cmd, "native")) {
         if (args.len < 3) return error.Usage;

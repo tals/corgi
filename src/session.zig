@@ -1,5 +1,6 @@
 //! One typed command interface for shared session state. Selection belongs to viewers.
 const std = @import("std");
+const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
 const layout = @import("layout.zig");
 const runtime = @import("runtime.zig");
@@ -14,8 +15,8 @@ pub const Command = union(enum) {
     @"agent.command": struct { index: usize, command: []const u8, hidden: bool = false, name: ?[]const u8 = null, original: ?[]const u8 = null, semantics: ?@import("launch_command.zig").Semantics = null, resolve: bool = true, cwd: ?[]const u8 = null },
     @"agent.command.create": struct { workspace: u32, cwd: []const u8 = "", index: usize },
     @"agent.visibility": struct { hidden: [2]bool },
-    @"agent.yolo": struct { provider: @import("agent_launcher.zig").Provider, enabled: bool },
-    @"agent.create": struct { workspace: u32, cwd: []const u8 = "", provider: ?@import("agent_launcher.zig").Provider = null },
+    @"agent.yolo": struct { provider: Provider, enabled: bool },
+    @"agent.create": struct { workspace: u32, cwd: []const u8 = "", provider: ?Provider = null },
     @"pane.create": struct {
         workspace: u32,
         from: ?u32 = null,
@@ -178,10 +179,8 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
             const executable = try @import("integration.zig").shellQuote(ctx.executable);
             defer os.allocator.free(executable);
-            const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {s}{s}", .{ executable, @tagName(provider), if (!r.agent_yolo[@intFromEnum(provider)]) "" else switch (provider) {
-                .codex => " --dangerously-bypass-approvals-and-sandbox",
-                .claude => " --dangerously-skip-permissions",
-            } });
+            const yolo = r.agent_yolo[@intFromEnum(provider)];
+            const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {t}{s}{s}", .{ executable, provider, if (yolo) " " else "", if (yolo) provider.info().yolo_flag else "" });
             opts.command = command;
             const pane = try r.create(opts);
             r.last_agent = provider;

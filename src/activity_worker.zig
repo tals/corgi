@@ -120,7 +120,12 @@ pub const Worker = struct {
         w.mutex.lock();
         defer w.mutex.unlock();
         const provider = if (w.applied) w.active else setup.resolve(w.choice, w.launches, w.remembered);
-        return .{ .choice = w.choice, .provider = provider, .model = setup.model(provider), .locked = w.locked, .codex_launches = w.launches.codex, .claude_launches = w.launches.claude, .codex_model = setup.model(.codex), .claude_model = setup.model(.claude) };
+        var result: setup.Status = .{ .choice = w.choice, .provider = provider, .model = setup.model(provider), .locked = w.locked };
+        inline for (comptime std.enums.values(setup.Provider)) |known| {
+            @field(result.launches, @tagName(known)) = w.launches.count.get(known);
+            @field(result.models, @tagName(known)) = setup.model(known);
+        }
+        return result;
     }
     pub fn configure(w: *Worker, choice: setup.Choice) void {
         w.mutex.lock();
@@ -293,7 +298,7 @@ pub const Worker = struct {
         const actor = owner.id;
         const agent = &owner.state;
         if ((agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
-        var req: Request = .{ .actor = actor, .provider = agent.provider, .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation, .conversation = owner.status_inference, .name = agent.name, .name_len = agent.name_len };
+        var req: Request = .{ .actor = actor, .provider = owner.provider(), .session = agent.session, .session_len = agent.session_len, .turn = agent.turn, .turn_len = agent.turn_len, .evidence = evidence, .generation = agent.activity_generation, .conversation = owner.status_inference, .name = agent.name, .name_len = agent.name_len };
         for (panes) |pane| if (pane.attachment.actor == owner and req.panes_len < req.panes.len) {
             req.panes[req.panes_len] = pane.id;
             req.panes_len += 1;

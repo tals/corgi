@@ -189,7 +189,7 @@ pub const View = struct {
             var hint: [160]u8 = undefined;
             const launch = @import("launch_command.zig");
             const provider = launch.identify(d.name());
-            const text = try std.fmt.bufPrint(&hint, "{s} · {s} · empty saves delete", .{ std.fs.path.basename(launch.shell()), if (provider == .other) "resolved at launch" else @tagName(provider) });
+            const text = try std.fmt.bufPrint(&hint, "{s} · {s} · empty saves delete", .{ std.fs.path.basename(launch.shell()), if (provider) |known| @tagName(known) else "resolved at launch" });
             try w.print("\x1b[{d};{d}H{s}", .{ v.title_y + 2, v.x + 2, panel });
             try @import("sidebar.zig").writeEllipsis(w, text, v.width - 2);
         }

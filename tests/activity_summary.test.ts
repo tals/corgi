@@ -313,8 +313,8 @@ class SummaryCases extends Summaries {
       await this.rpc({ op: "inference.configure", protocol: 1, choice: "auto" })
     ).inference;
     this.assertEqual([status.choice, status.provider], ["auto", "codex"]);
-    this.assertGreaterEqual(status.codex_launches, 1);
-    this.assertEqual(status.claude_launches, 0);
+    this.assertGreaterEqual(status.launches.codex, 1);
+    this.assertEqual(status.launches.claude, 0);
   }
   async test_watched_workspace_still_collects_tools() {
     await this.attach();

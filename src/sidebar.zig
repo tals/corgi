@@ -21,7 +21,8 @@ pub const Entry = struct {
     exit: ?struct { frame_ms: i64, progress: f64 } = null,
     name: []const u8 = "",
     target: Target,
-    provider: agents.Provider,
+    /// Null for workspace group headers.
+    provider: ?agents.Provider,
     state: agents.State,
     attention: agents.Attention,
     focused: bool = false,
@@ -437,7 +438,7 @@ pub const View = struct {
         const waiting = e.state == .working and e.subagents.waiting and !compacting;
         const activity = if (waiting) "◷" else if (e.tool_active and (e.state == .working or e.state == .blocked)) "🔧" else if (e.state == .working) thinking_frames[frame_index] else "";
         var name: [160]u8 = undefined;
-        const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else @tagName(e.provider);
+        const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
         try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
         try writeEllipsis(w, provider, room);
         try w.writeAll("\x1b[22m");
