@@ -18,6 +18,29 @@ pub fn geometry(cols: u16, rows: u16, side: u16, anchor: u16) ?Rect {
     const h = @min(24, rows - 2);
     return .{ .x = @min(side, cols - w - 1), .y = @min(anchor, rows - h - 1), .w = w, .h = h };
 }
+/// Where the pointer left the resource row on its way to the card, and when it
+/// last moved inside the aim triangle.
+pub const Aim = struct { x: u16, y: u16, at: i64 = 0 };
+/// A pointer resting this long short of the card has stopped aiming for it.
+pub const aim_ms = 300;
+/// Amazon's mega-dropdown "menu aim": after the pointer leaves the resource
+/// row, cells inside the triangle from its exit point to the card's left edge
+/// are on the way to the card, even across other sidebar rows. Moves arrive a
+/// whole cell at a time and cells are about twice as tall as wide, so the apex
+/// sits two columns behind the exit point: a first step straight down still
+/// counts as aiming, a second does not.
+pub fn aimed(rect: Rect, from: Aim, x: u16, y: u16) bool {
+    const ax = @as(i32, from.x) - 2;
+    const ay: i32 = from.y;
+    const px: i32 = x;
+    const py: i32 = y;
+    const edge: i32 = rect.x;
+    if (px <= ax or px >= edge) return false;
+    const top = (@as(i32, rect.y) - ay) * (px - ax);
+    const bottom = (@as(i32, rect.y) + rect.h - 1 - ay) * (px - ax);
+    const slope = (py - ay) * (edge - ax);
+    return slope >= top and slope <= bottom;
+}
 const Key = struct { pid: i32, start: u64 };
 pub const State = struct {
     workspace: ?WorkspaceId = null,
@@ -171,6 +194,27 @@ test "resource card stays within terminal bounds" {
         try std.testing.expect(rect.x + rect.w < cols);
         try std.testing.expect(rect.y + rect.h < rows);
     };
+}
+
+test "aim triangle spans from the row exit to the card's left edge" {
+    const card: Rect = .{ .x = 28, .y = 4, .w = 82, .h = 24 };
+    const exit: Aim = .{ .x = 4, .y = 4 };
+    // A diagonal swing across the rows below stays on course.
+    for ([_][2]u16{ .{ 8, 7 }, .{ 14, 10 }, .{ 20, 13 }, .{ 27, 26 } }) |p| try std.testing.expect(aimed(card, exit, p[0], p[1]));
+    // One step straight down is cell noise; a second is not aiming.
+    try std.testing.expect(aimed(card, exit, 4, 5));
+    try std.testing.expect(!aimed(card, exit, 4, 6));
+    // Moving back, above the card or past its bottom corner leaves the triangle.
+    try std.testing.expect(!aimed(card, exit, 3, 5));
+    try std.testing.expect(!aimed(card, exit, 20, 3));
+    try std.testing.expect(!aimed(card, exit, 27, 28));
+    try std.testing.expect(!aimed(card, exit, 28, 10));
+    // A card lifted above the row, near the bottom of the screen, aims upward too.
+    const lifted: Rect = .{ .x = 28, .y = 10, .w = 82, .h = 24 };
+    try std.testing.expect(aimed(lifted, .{ .x = 4, .y = 30 }, 16, 24));
+    try std.testing.expect(!aimed(lifted, .{ .x = 4, .y = 30 }, 16, 36));
+    // A card that covers the exit point has nothing to aim across.
+    try std.testing.expect(!aimed(.{ .x = 2, .y = 4, .w = 82, .h = 24 }, exit, 3, 5));
 }
 
 test "process rows freeze by identity while their numbers can refresh" {

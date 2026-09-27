@@ -268,6 +268,26 @@ class Resources extends Runtime {
     this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
     await viewer.poll();
     await this.until(async () => (await this.session()).resources.interval_ms === 2000, 5);
+    // Menu aim: a diagonal swing toward the card crosses the next workspace's
+    // rows, including its resource row, without closing or switching the card.
+    await viewer.input("\x1b[<35;5;5M");
+    await viewer.advance(0.6);
+    await this.until(async () => (await viewer.poll()).data.includes("TOP PROCESSES"));
+    for (const [column, row] of [[9, 8], [15, 11], [21, 14], [41, 19]]) {
+      await viewer.input(`\x1b[<35;${column};${row}M`);
+      this.assertIn("TOP PROCESSES", viewer.state.data);
+      this.assertNotIn("quiet / resources", viewer.state.data);
+    }
+    // Resting short of the card hands the hover to what is underneath.
+    await viewer.input("\x1b[<35;5;5M");
+    await viewer.input("\x1b[<35;9;8M");
+    this.assertIn("TOP PROCESSES", viewer.state.data);
+    await viewer.advance(0.35);
+    this.assertNotIn("TOP PROCESSES", viewer.state.data);
+    await viewer.advance(0.6);
+    this.assertIn("quiet / resources", viewer.state.data);
+    await viewer.input("\x1b[<35;118;38M");
+    this.assertNotIn("TOP PROCESSES", viewer.state.data);
     await this.command("pane.close", { target: pane });
     await this.until(async () => !(await this.session()).resources.workspaces.some((w: any) => w.processes.some((p: any) => p.pid === pid)), 8);
   }

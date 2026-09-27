@@ -110,6 +110,7 @@ pub const Controller = struct {
     link_tooltip: @import("link_tooltip.zig").State = .{},
     git_hover: ?WorkspaceId = null,
     resource_card: @import("resource_tooltip.zig").State = .{},
+    resource_aim: ?@import("resource_tooltip.zig").Aim = null,
     resource_prefs: @import("preferences.zig").Resources = .{},
     sleep_animation: bool = false,
     ui_mouse_down: bool = false,
@@ -1820,6 +1821,7 @@ pub const Controller = struct {
         if (s.prefix and !release and button & 0xe0 == 0) s.closeMenu();
         if (s.workspace_chooser != null) return;
         const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
+        if (moved) s.aimResource(x, y);
         var resource_workspace_press = false;
         if (s.resourceRect()) |rect| if (rect.contains(x, y)) {
             // The card can cover workspace rows on narrower screens. A
@@ -2486,6 +2488,12 @@ pub const Controller = struct {
         try s.pollLauncher();
         s.pollScopeMenu();
         if (s.link_tooltip.due(@import("clock.zig").milliTimestamp())) s.dirty = true;
+        if (s.resource_aim) |aim| if (@import("clock.zig").milliTimestamp() - aim.at >= @import("resource_tooltip.zig").aim_ms) {
+            // The pointer stopped short of the card: what it rests on takes over.
+            s.resource_aim = null;
+            if (s.resourceDetail() != null) s.link_tooltip.move();
+            s.dirty = true;
+        };
         if (s.copy_feedback_until != 0 and std.time.milliTimestamp() >= s.copy_feedback_until) {
             s.copy_feedback_until = 0;
             s.dirty = true;
@@ -2512,12 +2520,40 @@ pub const Controller = struct {
         _ = s.resourceDetail() orelse return null;
         return @import("resource_tooltip.zig").geometry(s.width, s.height, s.sidebarView(&.{}).width, s.resource_card.anchor);
     }
-    fn resourceHoverContains(s: *Self, x: u16, y: u16) bool {
-        const rect = s.resourceRect() orelse return false;
+    fn resourceBridgeContains(s: *Self, rect: layout.Rect, x: u16, y: u16) bool {
         const side = s.sidebarView(&.{}).width;
         // Bridge the resource row's right padding and sidebar divider so the
         // pointer can reach the card one cell at a time, including diagonally.
         return rect.contains(x, y) or (x >= side -| 2 and x < rect.x and y >= rect.y and y < rect.y + rect.h);
+    }
+    fn resourceHoverContains(s: *Self, x: u16, y: u16) bool {
+        const rect = s.resourceRect() orelse return false;
+        if (s.resourceBridgeContains(rect, x, y)) return true;
+        const aim = s.resource_aim orelse return false;
+        return @import("resource_tooltip.zig").aimed(rect, aim, x, y);
+    }
+    /// Starts aiming when the pointer steps off the card's row toward the
+    /// card and keeps the card while each move stays inside the triangle.
+    fn aimResource(s: *Self, x: u16, y: u16) void {
+        const id = s.resourceDetail() orelse {
+            s.resource_aim = null;
+            return;
+        };
+        const rect = s.resourceRect().?;
+        var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
+        const entries = s.workspaceEntries(&storage);
+        const view = s.sidebarView(&.{});
+        const on_row = if (sidebar.resourceAt(view, entries, x, y)) |ws| ws.id == id else false;
+        if (on_row or s.resourceBridgeContains(rect, x, y)) {
+            s.resource_aim = null;
+            return;
+        }
+        if (s.pointer) |from| if (sidebar.resourceAt(view, entries, from.x, from.y)) |ws| if (ws.id == id) {
+            s.resource_aim = .{ .x = from.x, .y = from.y };
+        };
+        if (s.resource_aim) |*aim| {
+            if (@import("resource_tooltip.zig").aimed(rect, aim.*, x, y)) aim.at = @import("clock.zig").milliTimestamp() else s.resource_aim = null;
+        }
     }
     fn linkTooltipReady(s: *Self) !bool {
         var target: ?@import("link_tooltip.zig").Target = null;
