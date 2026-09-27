@@ -32,6 +32,7 @@ pub const Actor = struct {
     background_tasks: @import("background_tasks.zig").Inventory = .{},
     // Foreground tool calls and background processes have independent lifetimes.
     transcript_tool_active: bool = false,
+    prompt_watch: @import("detection.zig").PromptWatch = .{},
     workspace: WorkspaceId = .none,
     observed_at: i64 = 0,
     tracked_since: i64 = 0,

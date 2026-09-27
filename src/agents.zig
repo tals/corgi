@@ -283,6 +283,16 @@ pub const Agent = struct {
         if (!watched) a.attention = .needs_input;
         return true;
     }
+    /// Claude sends no hook when a person answers its prompt. Its screen ends
+    /// the block instead: the turn continues, or it was over or abandoned.
+    pub fn observeAnswer(a: *Agent, next: State, now: i64) void {
+        if (a.state != .blocked) return;
+        if (next == .working) {
+            a.state = .working;
+            a.changed_at = now;
+        } else a.abandonTurn(now);
+        a.attention = if (a.observation.unread()) .finished else .none;
+    }
 };
 /// A tool's own description, else a verb and its main argument.
 pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, target: []const u8) []const u8 {
@@ -371,6 +381,28 @@ test "Codex permission review only rings for a confirmed human prompt" {
     try std.testing.expect(!a.observePermissionPrompt(true, false, 9));
     try std.testing.expect(a.observeHook(.codex, .{ .kind = .tool_start, .session = "a", .asking = true }, 10, false, 10).?);
     try std.testing.expectEqual(State.blocked, a.state);
+}
+
+test "an answered Claude prompt ends its block without a hook" {
+    var a: Agent = .{};
+    _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "a", .tool = "Bash" }, 1, false, 1);
+    try std.testing.expect(a.observeHook(.claude, .{ .kind = .permission, .session = "a", .tool = "Bash" }, 2, false, 2).?);
+    try std.testing.expectEqual(Attention.needs_input, a.attention);
+    a.observeAnswer(.working, 3);
+    try std.testing.expectEqual(State.working, a.state);
+    try std.testing.expectEqual(Attention.none, a.attention);
+    try std.testing.expect(a.tool_active);
+    // Only a block ends this way.
+    a.observeAnswer(.idle, 4);
+    try std.testing.expectEqual(State.working, a.state);
+    // A dialog after the turn ended leaves the agent idle again.
+    _ = a.observeHook(.claude, .{ .kind = .notification, .session = "a", .permission_notification = true }, 5, false, 5);
+    try std.testing.expectEqual(State.blocked, a.state);
+    a.observeAnswer(.idle, 6);
+    try std.testing.expectEqual(State.idle, a.state);
+    try std.testing.expectEqual(Attention.none, a.attention);
+    try std.testing.expect(!a.tool_active);
+    try std.testing.expectEqual(@as(i64, 6), a.changed_at);
 }
 
 test "attention is edge triggered, sticky, ordered, and separate from activity" {

@@ -224,17 +224,8 @@ pub fn foreground(fd: c_int) ?Job {
 pub fn screenState(provider: Provider, title: []const u8, screen: []const u8) ?State {
     const signals = provider.info().screen;
     if (signals.blocked_title) |blocked| if (std.mem.indexOf(u8, title, blocked) != null) return .blocked;
-    const visible = std.mem.trimEnd(u8, screen, " \t\r\n");
-    var start = visible.len;
-    var lines: usize = 0;
-    while (start > 0 and lines < 8) {
-        start -= 1;
-        if (visible[start] == '\n') lines += 1;
-    }
     var lower: [8192]u8 = undefined;
-    const tail = visible[start..];
-    const text = lower[0..@min(tail.len, lower.len)];
-    for (text, tail[0..text.len]) |*out, ch| out.* = std.ascii.toLower(ch);
+    const text = lowerTail(&lower, screen);
     if ((has(text, "enter to confirm") and has(text, "esc to cancel")) or has(text, "enter to submit answer") or has(text, "enter to submit all")) return .blocked;
     // Title spinners also run during startup, MCP connection and other UI
     // loading. They do not establish an active turn.
@@ -250,6 +241,55 @@ pub fn screenState(provider: Provider, title: []const u8, screen: []const u8) ?S
 }
 fn has(text: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, text, needle) != null;
+}
+/// The last eight visible rows, lowercased, where status and key hints live.
+fn lowerTail(buffer: *[8192]u8, screen: []const u8) []const u8 {
+    const visible = std.mem.trimEnd(u8, screen, " \t\r\n");
+    var start = visible.len;
+    var lines: usize = 0;
+    while (start > 0 and lines < 8) {
+        start -= 1;
+        if (visible[start] == '\n') lines += 1;
+    }
+    const tail = visible[start..];
+    const text = buffer[0..@min(tail.len, buffer.len)];
+    for (text, tail[0..text.len]) |*out, ch| out.* = std.ascii.toLower(ch);
+    return text;
+}
+
+const Composer = enum { covered, open, unknown };
+/// Claude's composer is a `❯` input between two rules. Its prompts (tool
+/// permissions, questions, other dialogs) replace it until they are answered.
+fn claudeComposer(screen: []const u8) Composer {
+    var after_rule = false;
+    var input = false;
+    var found = false;
+    var rows = std.mem.splitScalar(u8, screen, '\n');
+    while (rows.next()) |row| {
+        if (rule(row)) {
+            if (input) found = true;
+            input = false;
+            after_rule = true;
+            continue;
+        }
+        // Wrapped input continues until the closing rule.
+        if (after_rule) input = std.mem.startsWith(u8, std.mem.trimStart(u8, row, " "), "❯");
+        after_rule = false;
+    }
+    if (!found) return .covered;
+    // Key hints mean something other than the composer has focus.
+    var lower: [8192]u8 = undefined;
+    const text = lowerTail(&lower, screen);
+    for ([_][]const u8{ "esc to cancel", "enter to select", "enter to confirm", "enter to submit" }) |hint| {
+        if (has(text, hint)) return .unknown;
+    }
+    return .open;
+}
+fn rule(row: []const u8) bool {
+    var rest = std.mem.trim(u8, row, " ");
+    if (rest.len < 10 * "─".len) return false;
+    while (std.mem.startsWith(u8, rest, "─")) rest = rest["─".len..];
+    return rest.len == 0;
 }
 
 /// Only the live status beside the interrupt hint establishes compaction.
@@ -322,6 +362,47 @@ fn interruptKey(bytes: []const u8) bool {
     }
     return false;
 }
+
+/// Claude sends no hook when a person answers a prompt, and a dialog outside
+/// a tool call is followed by no hook at all. A hook-reported block ends once
+/// its prompt has covered the composer and the composer is back: working if
+/// the turn goes on, otherwise idle. Only live screens hold this evidence, so
+/// it is not saved.
+pub const PromptWatch = struct {
+    seen: bool = false,
+    covered: u8 = 0,
+    open: u8 = 0,
+
+    pub fn answered(w: *PromptWatch, blocked: bool, screen: []const u8) ?State {
+        if (!blocked) {
+            w.* = .{};
+            return null;
+        }
+        // The blocking hook can arrive before its prompt is drawn, and a frame
+        // can be caught mid-redraw, so each side must hold for two polls.
+        switch (claudeComposer(screen)) {
+            .covered => {
+                w.covered +|= 1;
+                w.open = 0;
+                if (w.covered >= 2) w.seen = true;
+                return null;
+            },
+            .unknown => {
+                w.covered = 0;
+                w.open = 0;
+                return null;
+            },
+            .open => {
+                w.covered = 0;
+                if (!w.seen) return null;
+                w.open +|= 1;
+                if (w.open < 2) return null;
+                w.* = .{};
+                return if (screenState(.claude, "", screen) == .working) .working else .idle;
+            },
+        }
+    }
+};
 
 pub const Tracker = struct {
     pid: c_int = 0,
@@ -457,6 +538,48 @@ test "an interrupt key shortens the stable idle wait" {
     const late = 1000 + interrupt_key_window + 1;
     try std.testing.expect(!tracker.interrupted("✳ Task", idle, late));
     try std.testing.expect(!tracker.interrupted("✳ Task", idle, late + requested_interrupt_delay));
+}
+
+// Claude Code 2.1.283 screens, as rendered in both of its TUI modes.
+const claude_screens = struct {
+    const line = "─" ** 40;
+    const idle = "⏺ Done.\n\n" ++ line ++ "\n❯ \n" ++ line ++ "\n  ⏸ manual mode on · ? for shortcuts · ← 2 agents";
+    const typed = line ++ "\n❯ a long reply that\n  wraps\n" ++ line ++ "\n  ⏸ manual mode on";
+    const working = "✢ Honking… (1s · thinking)\n" ++ line ++ "\n❯ \n" ++ line ++ "\n  ⏸ manual mode on · esc to interrupt · ← 2 agents";
+    const permission = "⏺ Sleeping\n" ++ line ++ "\n Bash command\n\n   sleep 25\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and always allow\n   3. No\n\n Esc to cancel · Tab to amend";
+    const question = line ++ "\n ☐ Color\n\nPick a color\n\n❯ 1. Red\n  2. Blue\n  3. Type something.\n" ++ line ++ "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel";
+    // The option below the question's rule, selected, is not a composer.
+    const question_last = line ++ "\n ☐ Color\n\nPick a color\n\n  1. Red\n  2. Blue\n  3. Type something.\n" ++ line ++ "\n❯ 4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel";
+};
+
+test "Claude's prompts cover its composer" {
+    const s = claude_screens;
+    for ([_][]const u8{ s.idle, s.typed, s.working }) |screen| try std.testing.expectEqual(Composer.open, claudeComposer(screen));
+    for ([_][]const u8{ s.permission, s.question, s.question_last, "" }) |screen| try std.testing.expectEqual(Composer.covered, claudeComposer(screen));
+    // Key hints beside a composer mean something else has focus.
+    try std.testing.expectEqual(Composer.unknown, claudeComposer(s.line ++ "\n❯ make\n" ++ s.line ++ "\n  enter to select · esc to cancel"));
+}
+
+test "a hook-reported Claude block ends once its prompt was seen and answered" {
+    const s = claude_screens;
+    var t: PromptWatch = .{};
+    // The blocking hook can precede its prompt, and one frame may be mid-redraw.
+    try std.testing.expectEqual(null, t.answered(true, s.working));
+    try std.testing.expectEqual(null, t.answered(true, s.permission));
+    try std.testing.expectEqual(null, t.answered(true, s.working));
+    try std.testing.expectEqual(null, t.answered(true, s.working));
+    try std.testing.expectEqual(null, t.answered(true, s.permission));
+    try std.testing.expectEqual(null, t.answered(true, s.permission));
+    try std.testing.expectEqual(null, t.answered(true, s.working));
+    try std.testing.expectEqual(State.working, t.answered(true, s.working).?);
+    // A dialog after the turn leaves an idle composer.
+    for (0..2) |_| try std.testing.expectEqual(null, t.answered(true, s.question));
+    try std.testing.expectEqual(null, t.answered(true, s.typed));
+    try std.testing.expectEqual(State.idle, t.answered(true, s.idle).?);
+    // A block that a hook ends forgets its prompt.
+    for (0..2) |_| _ = t.answered(true, s.question);
+    try std.testing.expectEqual(null, t.answered(false, ""));
+    for (0..3) |_| try std.testing.expectEqual(null, t.answered(true, s.idle));
 }
 
 test "recognize interrupt keys in legacy and Kitty encodings" {

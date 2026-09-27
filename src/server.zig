@@ -1,6 +1,7 @@
 //! Daemon resource ownership, socket dispatch and background observation.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
+const Actor = @import("conversations.zig").Actor;
+const ActorId = Actor.Id;
 const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
@@ -430,7 +431,9 @@ pub const Server = struct {
                     // already follows (see continued-in handling); it never selects.
                     if (hook) |h| if (s.runtime.conversations.find(provider, h.session)) |actor| {
                         const now = std.time.microTimestamp();
+                        const from = Lifecycle.of(actor);
                         const ding = actor.observeHook(h, number(v, "seq", now), s.actorWatched(actor.id), now);
+                        logHook(actor, from, event, null);
                         s.attention(ding, actor.state.state);
                         s.runtime.changed();
                         s.dirty = true;
@@ -450,7 +453,9 @@ pub const Server = struct {
                         if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
                     }
                     const now = std.time.microTimestamp();
+                    const from = Lifecycle.of(actor);
                     const ding = actor.observeHook(hook.?, seq, s.actorWatched(actor.id), now);
+                    logHook(actor, from, event, p.id);
                     s.attention(ding, actor.state.state);
                     s.runtime.changed();
                     s.dirty = true;
@@ -621,8 +626,10 @@ pub const Server = struct {
             .claude => false,
         } else true;
         const settle = if (p.attachment.actor) |actor| authoritative and !interrupt_hook and actor.state.state == .working and !actor.state.observation.pending_stop else false;
+        // Nor does Claude report that a person answered its prompt.
+        const answering = if (p.attachment.actor) |actor| authoritative and !interrupt_hook and actor.state.state == .blocked else false;
         const compaction = if (p.agent().provider) |provider| provider.info().screen.compaction_status and p.agent().state == .working else false;
-        const text = if (job != null and (!authoritative or review or settle or compaction)) p.terminal.liveText() catch null else null;
+        const text = if (job != null and (!authoritative or review or settle or answering or compaction)) p.terminal.liveText() catch null else null;
         defer if (text) |bytes| a.free(bytes);
         var ding = p.detection.update(&p.attachment.provisional, job, p.terminal.vt.getTitle() orelse "", text orelse "", s.paneWatched(p.id));
         // Each new agent process counts once toward automatic inference selection.
@@ -636,10 +643,18 @@ pub const Server = struct {
         if (!settling) {
             p.detection.idle_since = 0;
         } else if (p.detection.interrupted(p.terminal.vt.getTitle() orelse "", text.?, now)) {
-            p.attachment.actor.?.state.abandonTurn(now);
+            const actor = p.attachment.actor.?;
+            const from = Lifecycle.of(actor);
+            actor.state.abandonTurn(now);
+            logState(actor, from, p.id, "screen", "interrupted");
             p.detection.idle_since = 0;
             p.detection.interrupt_key_at = 0;
         }
+        if (p.attachment.actor) |actor| if (actor.prompt_watch.answered(answering and text != null, text orelse "")) |next| {
+            const from = Lifecycle.of(actor);
+            actor.state.observeAnswer(next, now);
+            logState(actor, from, p.id, "screen", "prompt answered");
+        };
         if (job != null and review and text != null) {
             ding = p.agent().observePermissionPrompt(detection.screenState(.codex, p.terminal.vt.getTitle() orelse "", text.?) == .blocked, s.paneWatched(p.id), now) or ding;
         }
@@ -1070,6 +1085,39 @@ fn eq(x: []const u8, y: []const u8) bool {
 fn inode(path: []const u8) ?std.posix.ino_t {
     const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch return null;
     return stat.ino;
+}
+
+/// What a sidebar entry shows of an agent's lifecycle.
+const Lifecycle = struct {
+    state: agents.State,
+    attention: agents.Attention,
+    fn of(actor: *const Actor) Lifecycle {
+        return .{ .state = actor.state.state, .attention = actor.state.attention };
+    }
+};
+/// One line per lifecycle change, so a state that looks stuck can be traced
+/// to the hook or screen observation that set it.
+fn logState(actor: *const Actor, from: Lifecycle, pane: ?layout.PaneId, cause: []const u8, detail: []const u8) void {
+    const to = Lifecycle.of(actor);
+    if (std.meta.eql(from, to)) return;
+    std.log.scoped(.agent_state).info("{f}", .{std.json.fmt(.{
+        .actor = @intFromEnum(actor.id),
+        .pane = if (pane) |id| @intFromEnum(id) else null,
+        .session = actor.state.sessionId(),
+        .cause = cause,
+        .detail = detail,
+        .from = from.state,
+        .to = to.state,
+        .attention = to.attention,
+    }, .{})});
+}
+/// Background hooks have no pane.
+fn logHook(actor: *const Actor, from: Lifecycle, event: std.json.Value, pane: ?layout.PaneId) void {
+    const name = agents.str(event, "hook_event_name");
+    const notification = agents.str(event, "notification_type");
+    var buffer: [200]u8 = undefined;
+    const detail = std.fmt.bufPrint(&buffer, "{s} {s}", .{ name, if (notification.len > 0) notification else agents.str(event, "tool_name") }) catch name;
+    logState(actor, from, pane, "hook", std.mem.trimEnd(u8, detail, " "));
 }
 
 test "Codex selection rejects delayed ABA observations while detached actors remain addressable" {
