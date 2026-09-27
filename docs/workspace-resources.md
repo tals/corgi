@@ -36,13 +36,12 @@ ticks using the host timebase. Memory is summed physical footprint on macOS and
 summed RSS on Linux; it is an estimate, and shared mappings can overlap. Disk
 rates are attributed disk bytes, not logical file reads or network I/O.
 
-CPU turns amber after ten seconds with host utilization at least 90% and the
-workspace using at least 25% of host CPU capacity. It clears after thirty seconds
-below 75% host utilization or 15% workspace share. Memory turns amber after ten
-seconds of host memory pressure with at least 15% of host RAM attributed to the
-workspace, and clears after thirty seconds of normal pressure or less than 10%
-of RAM. These are conservative heuristics, not direct per-workspace stall
-measurements. High disk throughput does not trigger a pressure alert.
+The CPU reading turns a soft amber, and the card's status line reads "CPU busy",
+after ten seconds with host utilization at least 90% and the workspace using at
+least 25% of host CPU capacity. It clears after thirty seconds below 75% host
+utilization or 15% workspace share. This is a conservative heuristic, not a
+direct per-workspace stall measurement. Memory and disk throughput never alert;
+the card's host line reports the host's memory pressure level.
 
 Pane roots, native agent sessions, and their descendants are attributed by
 process ancestry. PID/start-time identity prevents deltas from crossing PID

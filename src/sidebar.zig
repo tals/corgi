@@ -693,9 +693,6 @@ pub fn resourceAt(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?
 fn resourceCardFits(v: View) bool {
     return resource_tooltip.geometry(v.cols, v.rows, v.width, 0) != null;
 }
-fn alerting(work: resources.Work, reading: usize) bool {
-    return (reading == 0 and work.cpu_pressure) or (reading == 1 and work.memory_pressure);
-}
 /// Whether the row shows CPU (0) or memory (1). Disk I/O is only in the hover card.
 fn shownReading(prefs: Resources, work: resources.Work, reading: usize) bool {
     const available = if (reading == 0) work.cpu != null else work.memory != null;
@@ -726,8 +723,8 @@ fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool
             try w.splatByteAll(' ', room);
             continue;
         }
-        const alert = alerting(work, i);
-        try w.writeAll(if (alert) "\x1b[1;38;2;249;226;175m" else normal);
+        // Only CPU alerts, in an amber softer than the working dot's.
+        try w.writeAll(if (i == 0 and work.cpu_pressure) "\x1b[22;38;2;214;190;140m" else normal);
         try w.writeAll(label);
         if (room >= 7) try w.writeByte(' ');
         const used: usize = label.len + @as(usize, if (room >= 7) 1 else 0);
@@ -771,7 +768,7 @@ test "resource readings turn off as a whole" {
     try drawResources(&output.writer, hot, view, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 182%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory 3.0G") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "249;226;175") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[22;38;2;214;190;140mCPU") != null);
     output.clearRetainingCapacity();
     // Narrower sidebars shorten labels rather than clipping values.
     try drawResources(&output.writer, hot, view.withWidth(26), false);

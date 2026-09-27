@@ -61,7 +61,6 @@ pub const Work = struct {
     read: ?u64 = null,
     written: ?u64 = null,
     cpu_pressure: bool = false,
-    memory_pressure: bool = false,
     processes: []const Process = &.{},
     history: []const Point = &.{},
 
@@ -128,7 +127,7 @@ const Alarm = struct {
         return alarm.active;
     }
 };
-const Health = struct { id: WorkspaceId, cpu: Alarm = .{}, memory: Alarm = .{} };
+const Health = struct { id: WorkspaceId, cpu: Alarm = .{} };
 const Batch = struct { view: Snapshot = .{}, readings: []const Reading = &.{}, host: native.Host = .{}, health: []const Health = &.{} };
 
 pub const Tracker = struct {
@@ -347,11 +346,7 @@ pub const Tracker = struct {
             const share = (work.cpu orelse 0) / @as(f64, @floatFromInt(@max(1, host.cores)));
             const cpu_high = !work.partial and host_cpu != null and host_cpu.? >= 90 and share >= 25;
             const cpu_low = work.cpu == null or host_cpu == null or host_cpu.? < 75 or share < 15;
-            const mem_share = if (host.memory > 0) @as(f64, @floatFromInt(work.memory orelse 0)) / @as(f64, @floatFromInt(host.memory)) else 0;
-            const mem_high = !work.partial and (host.pressure == .warning or host.pressure == .critical) and mem_share >= 0.15;
-            const mem_low = work.memory == null or host.pressure == .normal or host.pressure == .unknown or mem_share < 0.10;
             work.cpu_pressure = h.cpu.update(cpu_high, cpu_low, now) and work.cpu != null;
-            work.memory_pressure = h.memory.update(mem_high, mem_low, now) and work.memory != null;
             work.processes = try leaders(allocator, list.items);
             const old = t.current.workspace(work.id).history;
             const keep = @min(old.len, history_capacity - 1);

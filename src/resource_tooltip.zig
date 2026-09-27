@@ -10,7 +10,7 @@ const rule = "\x1b[38;2;67;80;99m";
 const blue = "\x1b[38;2;137;180;250m";
 const mint = "\x1b[38;2;148;226;213m";
 const violet = "\x1b[38;2;203;166;247m";
-const warm = "\x1b[38;2;249;226;175m";
+const warm = "\x1b[38;2;214;190;140m";
 
 pub fn geometry(cols: u16, rows: u16, side: u16, anchor: u16) ?Rect {
     if (cols < 68 or rows < 22) return null;
@@ -53,7 +53,7 @@ pub const State = struct {
         if (s.workspace != work.id) {
             s.workspace = work.id;
             s.count = 0;
-            s.sort = if (work.memory_pressure) .memory else .cpu;
+            s.sort = .cpu;
             s.frozen = false;
         }
         if (freeze and s.frozen and s.count > 0) return;
@@ -143,8 +143,6 @@ fn sample(point: resources.Point, metric: resources.Sort) ?f64 {
 fn statusText(work: resources.Work) []const u8 {
     if (!work.known) return "Sampling unavailable";
     if (work.partial) return "Partial process coverage";
-    if (work.cpu_pressure and work.memory_pressure) return "CPU busy + memory pressure";
-    if (work.memory_pressure) return "Memory pressure";
     if (work.cpu_pressure) return "CPU busy";
     return "";
 }
@@ -159,13 +157,13 @@ pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources
     var buf: [180]u8 = undefined;
     try box(w, rect, try std.fmt.bufPrint(&buf, " {s} / resources ", .{name}));
     const status = statusText(work);
-    try at(w, rect.x + 2, rect.y + 1, if (work.cpu_pressure or work.memory_pressure) warm else text, status, rect.w - 20);
+    try at(w, rect.x + 2, rect.y + 1, if (work.cpu_pressure) warm else text, status, rect.w - 20);
     try right(w, rect.x + rect.w - 16, rect.y + 1, muted, try std.fmt.bufPrint(&buf, "live / {d}s", .{snapshot.interval_ms / 1000}), 13);
     const gw = (rect.w - 6) / 3;
     inline for (.{ resources.Sort.cpu, resources.Sort.memory, resources.Sort.io }, 0..) |metric, i| {
         try graph(w, .{ .x = rect.x + 2 + @as(u16, i) * (gw + 1), .y = rect.y + 3, .w = gw, .h = 7 }, work, metric, switch (metric) {
-            .cpu => if (work.cpu_pressure) warm else blue,
-            .memory => if (work.memory_pressure) warm else mint,
+            .cpu => blue,
+            .memory => mint,
             .io => violet,
         });
     }
