@@ -29,6 +29,9 @@ pub fn open(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, soc
 }
 fn openMode(view: *View, cwd: []const u8, theme: @import("theme.zig").Theme, socket: []const u8, start_onboarding: bool) !u64 {
     view.remote_links = @import("ports.zig").sshViewer();
+    // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
+    // attaching viewer's environment: one daemon can serve both terminals.
+    view.iterm2_pointer = std.mem.eql(u8, os.env("TERM_PROGRAM") orelse "", "iTerm.app");
     view.loadPreferences();
     if (start_onboarding) view.openOnboarding();
     const opened = try view.connection.callViewer(.{ .op = "viewer.open", .protocol = 1, .viewer_protocol = viewer_version.version, .cwd = cwd, .theme = theme, .onboarding = view.onboarding != null });
@@ -138,8 +141,9 @@ pub fn run(fd: c_int, socket: []const u8, probe: *@import("theme.zig").Probe, in
         try probe.badge.upload(&image_output.writer, std.time.milliTimestamp());
         if (image_output.written().len > 0) try os.writeAll(1, image_output.written());
         const badge_mode = probe.badge.mode();
-        if (view.corgi_badge != badge_mode) {
+        if (view.corgi_badge != badge_mode or view.supports_kitty_graphics != probe.badge.supports_kitty_graphics) {
             view.corgi_badge = badge_mode;
+            view.supports_kitty_graphics = probe.badge.supports_kitty_graphics;
             view.dirty = true;
         }
         if (probe.changed) {

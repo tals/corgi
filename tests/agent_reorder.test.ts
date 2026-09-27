@@ -22,6 +22,18 @@ class AgentReorder extends Viewers {
   }
   async order() { return (await this.session()).workspaces[0].agent_order; }
 
+  async test_iterm2_drag_uses_open_hand_and_resets_after_release() {
+    await this.agents();
+    this.env.TERM_PROGRAM = 'iTerm.app';
+    const viewer = await this.newViewer();
+    await viewer.input(mouse(0, 6, 16) + mouse(32, 6, 21));
+    this.assertIn('\x1b]22;fleur\x1b\\', viewer.state.data);
+    this.assertEqual(this.labels(viewer), ['Agent-1', 'Agent-2', 'Agent-0']);
+    await viewer.input(mouse(0, 6, 21, true));
+    this.assertIn('\x1b]22;default\x1b\\', viewer.state.data);
+    this.assertNotIn('\x1b]22;fleur\x1b\\', viewer.state.data);
+  }
+
   async test_drag_order_is_shared_without_moving_tabs_and_survives_reload() {
     const [a, b, c] = await this.agents();
     const first = await this.newViewer(), second = await this.newViewer();

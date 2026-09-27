@@ -56,8 +56,8 @@ pub const Theme = struct {
     }
 };
 
-/// Remove only recognized host color replies from terminal input. Retain user
-/// keystrokes, fragmented replies, and literal OSC sequences in bracketed paste.
+/// Remove host color and graphics replies from terminal input. Retain user
+/// keystrokes, fragmented replies, and literal escape sequences in bracketed paste.
 pub const Probe = struct {
     theme: Theme = .{},
     badge: @import("corgi_badge.zig").State = .{},
@@ -89,11 +89,14 @@ pub const Probe = struct {
                 const badge_prefix = @import("corgi_badge.zig").reply_prefix;
                 if (std.mem.startsWith(u8, badge_prefix, sequence)) continue;
                 if (std.mem.startsWith(u8, sequence, badge_prefix)) {
-                    if (p.badge.accept(sequence)) {
+                    if (std.mem.endsWith(u8, sequence, "\x1b\\")) {
+                        // Even a wrong image ID is a host reply, not user input.
+                        // Only matching IDs may advance the badge state.
+                        _ = p.badge.accept(sequence);
                         p.len = 0;
                         continue;
                     }
-                    if (!std.mem.endsWith(u8, sequence, "\x1b\\") and p.len < p.pending.len) continue;
+                    if (p.len < p.pending.len) continue;
                 }
                 var partial = false;
                 var color = false;
@@ -175,12 +178,32 @@ test "badge replies are consumed across fragments but not inside pasted text" {
     var p: Probe = .{};
     var input: std.ArrayList(u8) = .empty;
     defer input.deinit(a);
-    const reply = @import("corgi_badge.zig").reply_prefix ++ ";OK\x1b\\";
+    const reply = @import("corgi_badge.zig").reply_prefix ++ "i=730031;OK\x1b\\";
     for ("x" ++ reply ++ "y") |byte| try p.feed(&.{byte}, &input);
     try std.testing.expectEqualStrings("xy", input.items);
     try std.testing.expect(p.badge.status == .supported);
     input.clearRetainingCapacity();
     const pasted = "\x1b[200~" ++ reply ++ "\x1b[201~";
     try p.feed(pasted, &input);
+    try std.testing.expectEqualStrings(pasted, input.items);
+}
+
+test "graphics replies never leak into input and only matching IDs confirm the badge" {
+    var p: Probe = .{};
+    var input: std.ArrayList(u8) = .empty;
+    defer input.deinit(a);
+    p.badge.status = .confirming;
+    const wrong = "\x1b_Gi=0;OK\x1b\\";
+    const reply = "\x1b_Gp=1,i=730031;OK\x1b\\";
+    for ("x" ++ wrong ++ "y") |byte| try p.feed(&.{byte}, &input);
+    try std.testing.expectEqualStrings("xy", input.items);
+    try std.testing.expect(p.badge.status == .confirming);
+    for (reply ++ "z") |byte| try p.feed(&.{byte}, &input);
+    try std.testing.expectEqualStrings("xyz", input.items);
+    try std.testing.expect(p.badge.mode() == .image);
+    try std.testing.expect(p.badge.supports_kitty_graphics);
+    input.clearRetainingCapacity();
+    const pasted = "\x1b[200~" ++ wrong ++ "\x1b[201~";
+    for (pasted) |byte| try p.feed(&.{byte}, &input);
     try std.testing.expectEqualStrings(pasted, input.items);
 }

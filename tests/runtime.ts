@@ -110,6 +110,8 @@ export class Runtime extends TestCase {
       // Test builds look for system installs here instead of /usr, /opt and /Applications.
       CORGI_TEST_SYSTEM_ROOT: join(this.temp.name, "system"),
       SHELL: "/bin/sh",
+      // Keep pointer expectations independent of the terminal running Bun.
+      TERM_PROGRAM: "ghostty",
     };
     delete this.env.CODEX_THREAD_ID;
     delete this.env.CORGI_PANE;

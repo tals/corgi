@@ -33,6 +33,39 @@ const hash = (path: string) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
 class SmokeTerminal extends Runtime {
+  async test_kitty_badge_confirms_chunked_upload_after_wrong_id_acknowledgement() {
+    const received = join(this.temp.name, "badge-input");
+    await this.open_pane({
+      command: `stty -echo; printf INPUT_READY; IFS= read -r line; printf %s "$line" > ${quote(received)}; sleep 30`,
+    });
+    const pty = await Pty.spawn([EXE, "attach"], {
+      env: this.env,
+      cwd: this.temp.name,
+      cols: 100,
+      rows: 30,
+    });
+    this.pty = pty;
+    await pty.waitFor("\x1b_Ga=q,i=730031");
+    await pty.waitFor("INPUT_READY");
+    pty.write("\x1b_Gi=730031;OK\x1b\\");
+    await pty.waitFor("\x1b_Gm=0;");
+    // Styling becomes available as soon as the capability probe succeeds.
+    await pty.waitFor("\x1b[0;38;2;137;180;250;48;2;34;44;58m▌");
+    const placement = "\x1b_Ga=p,i=730031,p=1,c=3,z=1,C=1,q=";
+    this.assertNotIn(placement + "1", pty.output);
+    // Simulate iTerm2's final-chunk acknowledgement, then its reordered
+    // placement response. The viewer must recover without another upload.
+    pty.write("\x1b_Gi=0;OK\x1b\\");
+    await pty.waitFor(placement + "0");
+    const offset = pty.output.length;
+    pty.write("\x1b_Gp=1,i=730031;OK\x1b\\");
+    await pty.waitFor((output) => output.slice(offset).includes(placement + "1"));
+    this.assertEqual(pty.output.split("\x1b_Ga=t,").length - 1, 1);
+    pty.write("badge-input-ok\r");
+    await this.until(() => existsSync(received));
+    this.assertEqual(file(received), "badge-input-ok");
+  }
+
   async assertAgentExited(pane: number) {
     try {
       await this.until(

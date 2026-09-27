@@ -12,6 +12,7 @@ pub const Ui = struct {
     key_preset: @import("keymap.zig").Preset = .corgi,
     key_prefix: @import("keymap.zig").Prefix = .ctrl_b,
     pointer: ?Pointer = null,
+    iterm2_pointer: bool = false,
     link_tooltip: bool = false,
     git_hover: ?u32 = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
@@ -34,6 +35,7 @@ pub const Ui = struct {
     confirm: bool = false,
     sidebar_open: bool = true,
     corgi_badge: @import("corgi_badge.zig").Mode = .none,
+    supports_kitty_graphics: bool = false,
     sidebar_width: u16 = 28,
     workspace_drop_y: ?u16 = null,
     dragged_agent: ?sidebar.Preview = null,
@@ -121,6 +123,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     const entries = if (ui.dragged_agent) |drag| drag.apply(ui.agents, &preview_storage) else ui.agents;
     var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset).withEntries(entries);
     side.corgi_badge = ui.corgi_badge;
+    side.supports_kitty_graphics = ui.supports_kitty_graphics;
     side.scope_label = ui.scope_label;
     side.dragged = if (ui.dragged_agent) |drag| drag.destination else null;
     // Mouse tracking modes replace one another. Disabling first makes the host
@@ -324,7 +327,15 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     if (ui.dragged_agent != null) try w.writeAll("\x1b[?25l");
     // Include the shape in each complete frame so reconnects and overlay changes
     // cannot leave the host pointer stuck on a previously hovered link.
-    try w.writeAll(if (ui.dragged_agent != null) "\x1b]22;grabbing\x1b\\" else if (link_pointer or hovered_uri != null) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\");
+    // iTerm2 has a pointing hand and an open hand, but no closed-hand shape.
+    // "default" also clears its override because unrecognized names reset it.
+    const shape = if (ui.dragged_agent != null)
+        (if (ui.iterm2_pointer) "fleur" else "grabbing")
+    else if (link_pointer or hovered_uri != null)
+        (if (ui.iterm2_pointer) "hand2" else "pointer")
+    else
+        "default";
+    try w.print("\x1b]22;{s}\x1b\\", .{shape});
     try w.writeAll("\x1b[?2026l");
     return out.toOwnedSlice();
 }

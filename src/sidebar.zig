@@ -82,6 +82,7 @@ pub const View = struct {
     /// Header scope: "all" or the workspace whose agents are listed.
     scope_label: []const u8 = "",
     corgi_badge: @import("corgi_badge.zig").Mode = .none,
+    supports_kitty_graphics: bool = false,
     cols: u16,
     rows: u16,
     width: u16,
@@ -283,7 +284,7 @@ pub const View = struct {
         // Kitty-graphics hosts (kitty, Ghostty, WezTerm) draw block elements to
         // fill the cell, so a half block joins into one bar. Elsewhere the font's
         // glyph can leave gaps between rows, so paint the whole cell instead.
-        const active_bar = if (v.corgi_badge == .image) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
+        const active_bar = if (v.supports_kitty_graphics) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
             const y: u16 = @intCast(2 + index * 3);
             const style = if (ws.active) active_name else panel;
@@ -429,7 +430,7 @@ pub const View = struct {
         // Within a group, a dotted line under the text separates agents. Only
         // Kitty-graphics hosts get it; elsewhere the style could degrade to a
         // solid underline, so those terminals get no separator at all.
-        const dotted = grouped and !last_in_group and v.corgi_badge == .image;
+        const dotted = grouped and !last_in_group and v.supports_kitty_graphics;
         const underline = if (ghost) "\x1b[4;58:2::137;180;250m" else if (dotted) "\x1b[4:4m\x1b[58:2::65:70:77m" else if (divider) "\x1b[4;58:2::65:70:77m" else "";
         // Dotted lines start under the name, leaving the guide and activity clear.
         const underline_x: u16 = if (dotted) 5 else 2;
@@ -813,15 +814,22 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
 }
 
-test "active workspace bar uses a half block only where block glyphs fill the cell" {
+test "active workspace bar follows graphics support independently of the badge" {
     const entries = [_]WorkspaceEntry{ .{ .id = 1, .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = 2, .name = "Project", .cwd = "/tmp", .active = true } };
-    for ([_]@import("corgi_badge.zig").Mode{ .image, .emoji, .none }) |mode| {
+    for ([_]struct { supported: bool, mode: @import("corgi_badge.zig").Mode }{
+        .{ .supported = true, .mode = .image },
+        .{ .supported = true, .mode = .emoji },
+        .{ .supported = true, .mode = .none },
+        .{ .supported = false, .mode = .emoji },
+        .{ .supported = false, .mode = .none },
+    }) |case| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
         var view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.len, 0);
-        view.corgi_badge = mode;
+        view.corgi_badge = case.mode;
+        view.supports_kitty_graphics = case.supported;
         try view.draw(&output.writer, &.{}, &entries);
-        const bar = if (mode == .image) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
+        const bar = if (case.supported) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
         for ([_][]const u8{ "\x1b[6;1H", "\x1b[7;1H", "\x1b[8;1H" }) |row| {
             var buf: [96]u8 = undefined;
             try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, bar })) != null);
@@ -1526,7 +1534,8 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4:4m") == null);
     output.clearRetainingCapacity();
     var rich = view;
-    rich.corgi_badge = .image;
+    rich.corgi_badge = .emoji;
+    rich.supports_kitty_graphics = true;
     try rich.draw(&output.writer, &entries, &.{});
     var dotted: [64]u8 = undefined;
     try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&dotted, "\x1b[{d};5H\x1b[4:4m", .{top + 3})) != null);

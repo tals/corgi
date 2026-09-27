@@ -69,6 +69,27 @@ class Links extends Runtime {
       (await viewer.input(`\x1b[<35;${x + 1};${y + 1}M`)).data,
     );
   }
+  async test_pointer_names_follow_each_viewers_terminal() {
+    const url = "https://example.com/pointer";
+    const pane = await this.new(`printf %s ${quote(url + "\r\n")}; exec /bin/sh`);
+    await this.until(async () =>
+      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes(url),
+    );
+    const ghostty = await Viewer.create(this);
+    this.env.TERM_PROGRAM = "iTerm.app";
+    const iterm = await Viewer.create(this);
+    for (const [viewer, shape] of [[ghostty, "pointer"], [iterm, "hand2"]] as const) {
+      const rows = screen_text(viewer.state.data, 100, 30);
+      const y = rows.findIndex((row) => row.includes(url));
+      const x = rows[y].indexOf(url);
+      this.assertIn(
+        `\x1b]22;${shape}\x1b\\`,
+        (await viewer.input(`\x1b[<35;${x + 1};${y + 1}M`)).data,
+      );
+      this.assertIn(`\x1b]22;${shape}\x1b\\`, (await viewer.poll()).data);
+      this.assertIn("\x1b]22;default\x1b\\", (await viewer.input("\x1b[<35;90;25M")).data);
+    }
+  }
   async test_plain_terminal_link_click_and_drag() {
     const opened = join(this.temp.name, "opened");
     this.opener(opened);
