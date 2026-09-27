@@ -184,6 +184,45 @@ class TmuxImport extends TestCase {
   async test_unzoomed_window() {
     await this.checkImport();
   }
+  async test_collapsed_workspace_expands_and_imports_hidden_terminals() {
+    for (let i = 1; i <= 5; i++) {
+      await this.tmux(
+        "new-window", "-d", "-t", "tmux-fixture", "-n", `extra-${i}`,
+        "/bin/sleep 120",
+      );
+    }
+    const v = await Viewer.create(this.fixture, 76, 26);
+    await v.input("\r1");
+    const rows = async () => screen_text((await v.poll()).data, 76, 26);
+    const text = async () => (await rows()).join("\n");
+    const click = async (label: string) => {
+      const screen = await rows();
+      const y = screen.findIndex((row) => row.includes(label));
+      this.assertTrue(y >= 0, `Missing ${label}`);
+      const x = [...screen[y].slice(0, screen[y].indexOf(label))].length;
+      await v.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
+    };
+    await this.fixture.until(async () => (await text()).includes("…5 more"));
+    this.assertIn("[x] tmux-fixture", await text());
+    this.assertNotIn("extra-1", await text());
+    await click("…5 more");
+    this.assertIn("Show less", await text());
+    this.assertIn("extra-1", await text());
+    this.assertIn("[x] tmux-fixture", await text());
+    await click("Show less");
+    this.assertIn("…5 more", await text());
+    await v.input("e");
+    this.assertIn("Show less", await text());
+    await v.input("E");
+    this.assertIn("…5 more", await text());
+    await v.input("\r");
+    await this.fixture.until(async () => (await text()).includes("You're ready to go"));
+    const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
+    const ws = snapshot.workspaces.find((w: any) => w.name === "tmux-fixture");
+    this.assertEqual(ws.model.tabs.length, 6);
+    this.assertEqual(snapshot.panes.filter((p: any) => p.workspace === ws.id).length, 8);
+    this.assertEqual((await this.tmux("list-panes", "-s", "-t", "tmux-fixture")).split("\n").length, 8);
+  }
   async test_zoomed_first_pane_imports_all_splits_without_changing_source() {
     await this.checkImport(this.left);
   }

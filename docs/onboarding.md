@@ -83,6 +83,11 @@ are independent of the selected shortcut preset. The display uses actual names
 and hierarchy. Browser links, resume suggestions and new shells have distinct
 annotations. Only live handoff displays PIDs.
 
+Each workspace initially previews up to three terminals. Click **…N more** to
+expand it and **Show less** to collapse it, or press **E** for the focused
+workspace. All terminals in a selected workspace are imported, including hidden
+ones; expanding does not change the selection or Herdr handoff session.
+
 Herdr is the initial import source when its executable is on `PATH` or a known
 Herdr socket exists. A source chosen manually stays selected when navigating back.
 Onboarding defers the starter shell; after a successful copy or handoff, an

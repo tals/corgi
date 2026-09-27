@@ -19,6 +19,7 @@ pub const State = struct {
     help: shortcut_help.State = .{},
     workers: [3]?*catalog.Worker = .{ null, null, null },
     selected: [256]bool = @splat(false),
+    expanded: [256]bool = @splat(false),
     cursor: usize = 0,
     scroll: usize = 0,
     reveal_cursor: bool = false,
@@ -65,6 +66,7 @@ pub const State = struct {
         s.cursor = 0;
         s.scroll = 0;
         s.selected = @splat(false);
+        s.expanded = @splat(false);
         s.selection_initialized = false;
         s.message_len = 0;
         s.scan();
@@ -231,6 +233,7 @@ pub const State = struct {
                         s.workers[@intFromEnum(s.source)] = null;
                     }
                     s.selected = @splat(false);
+                    s.expanded = @splat(false);
                     s.selection_initialized = false;
                     s.scan();
                 },
@@ -245,6 +248,7 @@ pub const State = struct {
                 ' ', 'x' => if (s.items().len > 0 and !s.activeHandoff()) {
                     s.selected[s.cursor] = !s.selected[s.cursor];
                 },
+                'e', 'E' => s.toggleExpanded(s.cursor),
                 9 => s.focus = (s.focus + 1) % 2,
                 13 => return s.begin(conn),
                 else => {},
@@ -270,6 +274,18 @@ pub const State = struct {
         if (s.source == .tmux) for (0..@min(3, s.items().len)) |i| {
             s.selected[i] = true;
         };
+    }
+    fn preview(s: *const State, ws: catalog.Workspace, index: usize) WorkspacePreview {
+        return WorkspacePreview.init(ws, s.step == .import, s.expanded[index]);
+    }
+    fn toggleExpanded(s: *State, index: usize) void {
+        const list = s.items();
+        if (index >= list.len or s.preview(list[index], index).toggle_row == null) return;
+        var row: usize = 0;
+        for (list[0..index], 0..) |ws, i| row += s.preview(ws, i).rows;
+        s.expanded[index] = !s.expanded[index];
+        s.scroll = row;
+        s.reveal_cursor = false;
     }
     pub fn sequence(s: *State, seq: []const u8, conn: *Connection) !bool {
         if (s.step == .keymap) {
@@ -317,15 +333,20 @@ pub const State = struct {
             if (ry < 11 or ry >= b.h - 5) return false;
             var row: usize = 0;
             for (s.items(), 0..) |ws, i| {
+                const preview_layout = s.preview(ws, i);
                 if (row >= s.scroll and ry == 11 + row - s.scroll) {
                     s.cursor = i;
                     if (!s.activeHandoff()) s.selected[i] = !s.selected[i];
                     break;
                 }
-                row += 1;
-                row += recoveryRows(ws);
-                for (ws.tabs) |tab| row += tabRows(tab);
-                row += 1;
+                if (preview_layout.toggle_row) |offset| {
+                    const toggle_row = row + offset;
+                    if (toggle_row >= s.scroll and ry == 11 + toggle_row - s.scroll) {
+                        s.toggleExpanded(i);
+                        break;
+                    }
+                }
+                row += preview_layout.rows;
             }
         }
         return false;
@@ -409,9 +430,7 @@ pub const State = struct {
                 for (s.items(), 0..) |ws, i| {
                     if (s.step != .import and !s.chosen(i)) continue;
                     if (i == s.cursor) cursor_row = row;
-                    row += 2;
-                    row += recoveryRows(ws);
-                    for (ws.tabs) |tab| row += tabRows(tab);
+                    row += s.preview(ws, i).rows;
                 }
                 const capacity: usize = b.h - 16;
                 if (s.step == .import and s.reveal_cursor) {
@@ -424,6 +443,7 @@ pub const State = struct {
                 var pane_number: usize = 0;
                 for (s.items(), 0..) |ws, i| {
                     if (s.step != .import and !s.chosen(i)) continue;
+                    const preview_layout = s.preview(ws, i);
                     var buf: [1024]u8 = undefined;
                     try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "{s}{s} {s}", .{ if (i == s.cursor and s.step == .import) "›" else " ", if (s.chosen(i)) "[x]" else "[ ]", short(ws.name) }), mint, "");
                     row += 1;
@@ -435,7 +455,15 @@ pub const State = struct {
                         try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}", .{ws.recovery_note}), yellow, "");
                         row += 1;
                     }
+                    if (preview_layout.toggle_row != null and preview_layout.hidden == 0) {
+                        try treeLine(w, b, row, s.scroll, "    ▾ Show less", mint, "");
+                        row += 1;
+                    }
+                    var remaining = preview_layout.pane_limit;
                     for (ws.tabs, 0..) |tab, tab_index| {
+                        if (remaining == 0) break;
+                        const visible = @min(remaining, tab.panes.len);
+                        remaining -= visible;
                         const last_tab = tab_index + 1 == ws.tabs.len;
                         const branch: []const u8 = if (last_tab) "└─" else "├─";
                         if (tab.panes.len == 1) {
@@ -449,7 +477,7 @@ pub const State = struct {
                         }
                         try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s} {s}", .{ branch, short(tab.name) }), text, "");
                         row += 1;
-                        for (tab.panes, 0..) |pane, pane_index| {
+                        for (tab.panes[0..visible], 0..) |pane, pane_index| {
                             var hint: [120]u8 = undefined;
                             const annotation = try paneAnnotation(s.source, s.activeHandoff(), pane, &hint);
                             try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}  {s} {s}{s}", .{ if (last_tab) " " else "│", if (pane_index + 1 == tab.panes.len) "└─" else "├─", if (s.step != .import and pane_number < s.progress.completed) "✓ " else "", short(pane.name) }), text, annotation);
@@ -457,12 +485,16 @@ pub const State = struct {
                             pane_number += 1;
                         }
                     }
+                    if (preview_layout.hidden > 0) {
+                        try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    …{d} more", .{preview_layout.hidden}), mint, "");
+                        row += 1;
+                    }
                     row += 1;
                 }
             },
         }
         if (s.message_len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message[0..s.message_len], yellow);
-        try put(w, b, 3, b.h - 3, if (s.step == .presets) "↑↓ choose · P prefix · ? keymap" else if (s.step == .keymap) "" else if (s.step == .import) if (s.source == .herdr) "Esc Back · Space select · H handoff" else "Esc Back · Space select" else if (s.step == .complete) "" else "Esc Back", dim);
+        try put(w, b, 3, b.h - 3, if (s.step == .presets) "↑↓ choose · P prefix · ? keymap" else if (s.step == .keymap) "" else if (s.step == .import) if (s.source == .herdr) "Esc · Space select · E expand · H handoff" else "Esc Back · Space select · E expand" else if (s.step == .complete) "" else "Esc Back", dim);
         const cta: []const u8 = switch (s.step) {
             .presets => "[ Enter Continue → ]",
             .keymap => "[ Enter Back ]",
@@ -608,9 +640,35 @@ fn drawSplitDiagram(w: *std.Io.Writer, b: Rect, down: bool) !void {
         for (0..3) |row| try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + row + 1, b.x + b.w / 2 + 1, panel, if (row == 0) "┬" else if (row == 2) "┴" else "│" });
     }
 }
-fn tabRows(tab: catalog.Tab) usize {
-    return if (tab.panes.len == 1) 1 else 1 + tab.panes.len;
-}
+// Counts and hit targets use the same pane budget as the rendered tree.
+const WorkspacePreview = struct {
+    pane_limit: usize,
+    hidden: usize,
+    rows: usize,
+    toggle_row: ?usize,
+
+    fn init(ws: catalog.Workspace, can_fold: bool, expanded: bool) WorkspacePreview {
+        var total: usize = 0;
+        for (ws.tabs) |tab| total += tab.panes.len;
+        const foldable = can_fold and total > 3;
+        const limit: usize = if (foldable and !expanded) 3 else std.math.maxInt(usize);
+        var remaining: usize = limit;
+        var details: usize = 0;
+        for (ws.tabs) |tab| {
+            if (remaining == 0) break;
+            const visible = @min(remaining, tab.panes.len);
+            remaining -= visible;
+            details += if (tab.panes.len == 1) 1 else 1 + visible;
+        }
+        const header = 1 + recoveryRows(ws);
+        return .{
+            .pane_limit = limit,
+            .hidden = total -| limit,
+            .rows = header + details + @intFromBool(foldable) + 1,
+            .toggle_row = if (foldable) header + (if (expanded) @as(usize, 0) else details) else null,
+        };
+    }
+};
 fn recoveryRows(ws: catalog.Workspace) usize {
     return if (ws.recovery == .full) 0 else if (ws.recovery == .workspace) 2 else 1;
 }
@@ -696,6 +754,66 @@ test "failed discovery does not claim the source has no sessions" {
     defer a.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "Couldn't read this source.") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "No available sessions found") == null);
+}
+
+test "workspace previews keep recovery rows and handoff selection aligned while expanding" {
+    const tabs: []const catalog.Tab = &.{
+        .{ .id = "t1", .name = "shell", .panes = &.{.{ .id = "1", .name = "one" }} },
+        .{ .id = "t2", .name = "split", .panes = &.{
+            .{ .id = "2", .name = "two" },  .{ .id = "3", .name = "three" },
+            .{ .id = "4", .name = "four" }, .{ .id = "5", .name = "five" },
+        } },
+        .{ .id = "t3", .name = "hidden-tab", .panes = &.{
+            .{ .id = "6", .name = "six" }, .{ .id = "7", .name = "seven" }, .{ .id = "8", .name = "eight" },
+        } },
+    };
+    var worker: catalog.Worker = .{ .arena = .init(a), .source = .herdr, .done = .init(true), .catalog = .{ .workspaces = &.{
+        .{ .id = "a", .name = "first", .tabs = tabs, .handoff = true, .session = 0, .recovery = .workspace, .recovery_note = "Recovery note" },
+        .{ .id = "b", .name = "second", .tabs = tabs, .handoff = true, .session = 1 },
+    } } };
+    defer worker.arena.deinit();
+    var state: State = .{ .step = .import, .source = .herdr };
+    state.workers[1] = &worker;
+    var conn: Connection = .{ .fd = -1 }; // Preview controls must not call RPC.
+    const initial = try state.frame(76, 26);
+    defer a.free(initial);
+    try std.testing.expect(std.mem.indexOf(u8, initial, "…5 more") != null);
+    try std.testing.expect(std.mem.indexOf(u8, initial, "hidden-tab") == null);
+    try std.testing.expect(std.mem.indexOf(u8, initial, "[ ] second") != null);
+    _ = try state.sequence("\x1b[6~", &conn);
+    const scrolled = try state.frame(76, 26);
+    defer a.free(scrolled);
+    // The second workspace's fold row is the final visible row after Page Down.
+    _ = try state.click(76, 26, 8, 20, &conn);
+    try std.testing.expect(state.expanded[1]);
+    try std.testing.expect(!state.expanded[0]);
+    try std.testing.expectEqual(@as(usize, 0), state.cursor);
+    try std.testing.expect(state.chosen(0) and !state.chosen(1));
+    const expanded = try state.frame(76, 26);
+    defer a.free(expanded);
+    try std.testing.expect(std.mem.indexOf(u8, expanded, "Show less") != null);
+    try std.testing.expect(std.mem.indexOf(u8, expanded, "hidden-tab") != null);
+    // Collapse stays directly under the workspace header, even for long lists.
+    _ = try state.click(76, 26, 8, 12, &conn);
+    try std.testing.expect(!state.expanded[1]);
+    try std.testing.expect(state.chosen(0) and !state.chosen(1));
+    const collapsed = try state.frame(76, 26);
+    defer a.free(collapsed);
+    // The second header remains selectable after collapsing and scroll clamping.
+    _ = try state.click(76, 26, 8, 14, &conn);
+    try std.testing.expectEqual(@as(usize, 1), state.cursor);
+    _ = try state.key('e', &conn);
+    try std.testing.expect(state.expanded[1]);
+    _ = try state.key('E', &conn);
+    try std.testing.expect(!state.expanded[1]);
+    try std.testing.expect(!state.chosen(0) and state.chosen(1));
+    state.step = .complete;
+    state.scroll = 0;
+    state.progress.completed = 8;
+    const completed = try state.frame(100, 34);
+    defer a.free(completed);
+    try std.testing.expect(std.mem.indexOf(u8, completed, "✓ eight") != null);
+    try std.testing.expect(std.mem.indexOf(u8, completed, "more") == null);
 }
 fn put(w: *std.Io.Writer, b: @import("layout.zig").Rect, x: usize, y: usize, str: []const u8, style: []const u8) !void {
     if (x >= b.w - 1 or y >= b.h - 1 and y != 0) return;
