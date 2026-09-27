@@ -42,7 +42,20 @@ const metadata = @import("account_preview.zig");
 const account_cache = @import("account_cache.zig");
 const usage_cell = @import("launcher_usage.zig");
 pub const Text = metadata.Text;
-pub const Option = struct { signed_in: ?bool = null, model: Text = .{}, source: Text = .{}, account: Text = .{}, plan: Text = .{}, usage: Text = .{}, usage_fetched_at: i64 = 0, usage_error: Text = .{}, resets: metadata.Resets = .{}, usage_needs_consent: bool = false };
+pub const Option = struct {
+    signed_in: ?bool = null,
+    model: Text = .{},
+    source: Text = .{},
+    account: Text = .{},
+    plan: Text = .{},
+    usage: Text = .{},
+    /// Metered usage never goes stale.
+    usage_metered: bool = false,
+    usage_fetched_at: i64 = 0,
+    usage_error: Text = .{},
+    resets: metadata.Resets = .{},
+    usage_needs_consent: bool = false,
+};
 pub const Preview = struct { pending: bool = true, options: [Provider.all.len]Option = @splat(.{}), installed: [Provider.all.len]bool = @splat(true) };
 fn installed() [Provider.all.len]bool {
     var result: [Provider.all.len]bool = undefined;
@@ -147,6 +160,7 @@ pub const Worker = struct {
                     result.options[0].account = account.account;
                     result.options[0].plan = account.plan;
                     result.options[0].usage = account.usage;
+                    result.options[0].usage_metered = account_cache.isMetered(account.usage.text());
                     result.options[0].usage_fetched_at = account.usage_fetched_at;
                     result.options[0].usage_error = account.usage_error;
                     result.options[0].resets = account.resets;
@@ -159,6 +173,7 @@ pub const Worker = struct {
                 result.options[1].account = account.account;
                 result.options[1].plan = account.plan;
                 result.options[1].usage = account.usage;
+                result.options[1].usage_metered = account_cache.isMetered(account.usage.text());
                 result.options[1].usage_fetched_at = account.usage_fetched_at;
                 result.options[1].usage_error = account.usage_error;
                 result.options[1].resets = account.resets;
@@ -260,8 +275,9 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     defer json.deinit();
     const common = @import("providers/common.zig");
     const oauth = common.field(json.value, "claudeAiOauth");
-    if (info.plan.len == 0) info.plan.set(common.str(oauth, "subscriptionType"));
-    if (std.mem.eql(u8, info.plan.text(), "max")) {
+    const subscription_type = common.str(oauth, "subscriptionType");
+    if (info.plan.len == 0) info.plan.set(subscription_type);
+    if (std.mem.eql(u8, subscription_type, "max")) {
         const tier = common.str(oauth, "rateLimitTier");
         if (std.mem.endsWith(u8, tier, "_max_5x")) info.plan.set("Max 5x") else if (std.mem.endsWith(u8, tier, "_max_20x")) info.plan.set("Max 20x");
     }
@@ -487,7 +503,7 @@ pub const Menu = struct {
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
             if (m.trackable(.of(provider))) "Track usage" else if (option.usage.len > 0)
-                (if (option.usage_fetched_at > 0 and std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age and !std.mem.eql(u8, option.usage.text(), "Metered")) "Unavailable" else option.usage.text())
+                (if (option.usage_fetched_at > 0 and std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age and !option.usage_metered) "Unavailable" else option.usage.text())
             else if (m.preview.pending) "Reading…" else "Unavailable",
         };
     }
@@ -497,7 +513,7 @@ pub const Menu = struct {
         const shared = if (info.default_account) info.provider else null;
         var values: [6][]const u8 = if (shared) |provider| m.cells(provider) else .{ "", "", "Default", "", "—", "—" };
         values[0] = entry.label();
-        values[1] = if (std.mem.eql(u8, info.mode.text(), "Skips permission checks")) "✓" else "·";
+        values[1] = if (info.yolo) "✓" else "·";
         if (info.model.len > 0) values[2] = info.model.text();
         values[3] = m.account(info);
         // Tracking actions belong to built-in rows; saved commands only show data.
@@ -511,13 +527,25 @@ pub const Menu = struct {
             const info = m.commands[i].semantics;
             break :blk if (info.default_account) info.provider else null;
         } else null;
-        if (std.mem.eql(u8, text, "Unavailable") or std.mem.eql(u8, text, "Rate limited")) {
-            if (provider) |p| {
-                const option = &m.preview.options[@intFromEnum(p)];
-                return usage_cell.Cell.unavailable(if (option.usage_error.len > 0) option.usage_error.text() else if (option.usage_fetched_at > 0) "last success 10m+ ago" else "no usage received");
-            }
+        if (provider) |p| {
+            const option = &m.preview.options[@intFromEnum(p)];
+            if (m.usageUnavailable(row, p, option)) return usage_cell.Cell.unavailable(if (option.usage_error.len > 0) option.usage_error.text() else if (option.usage_fetched_at > 0) "last success 10m+ ago" else "no usage received");
+            return usage_cell.Cell.init(text, option.resets, std.time.timestamp());
         }
-        return usage_cell.Cell.init(text, if (provider) |p| m.preview.options[@intFromEnum(p)].resets else .{}, std.time.timestamp());
+        return usage_cell.Cell.init(text, .{}, std.time.timestamp());
+    }
+    /// Mirrors how `cells`/`customCells` choose "Unavailable" or "Rate limited".
+    fn usageUnavailable(m: *const Menu, row: Row, provider: Provider, option: *const Option) bool {
+        const can_track = m.trackable(.of(provider));
+        // Built-in rows offer an actionable "Track usage" link instead; saved
+        // commands sharing that provider show unavailable data (no action).
+        if (row.custom() != null) {
+            if (can_track) return true;
+        } else if (can_track) return false;
+        if (option.usage.len == 0) return !m.preview.pending;
+        if (option.usage_metered) return false;
+        if (option.usage_fetched_at == 0) return true;
+        return std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age;
     }
     /// Management includes unavailable providers so preferences stay editable.
     pub fn shown(m: *const Menu, row: Row) bool {
@@ -808,7 +836,7 @@ pub const Menu = struct {
             try w.print("\x1b[{d};{d}H{s}", .{ field_y + 10, b.x + 4, dim });
             if (resolved) {
                 var detail: [340]u8 = undefined;
-                const mode = if (std.mem.eql(u8, info.mode.text(), "Provider permission settings")) "" else info.mode.text();
+                const mode = if (info.yolo) info.mode.text() else "";
                 const text = std.fmt.bufPrint(&detail, "{s}{s}{s}", .{ info.model.text(), if (info.model.len > 0 and mode.len > 0) " · " else "", mode }) catch "";
                 try sidebar.writeEllipsis(w, text, b.w - 26);
                 try w.print("\x1b[{d};{d}H[{s} command]", .{ field_y + 10, b.x + b.w - 17, if (m.show_command) "Hide" else "Show" });
@@ -903,7 +931,7 @@ pub const Menu = struct {
             }
             var x: u16 = b.x + 4;
             const values = if (current.custom()) |index| m.customCells(index) else m.cells(current.agent().?);
-            const yolo = std.mem.eql(u8, values[1], "✓");
+            const yolo = if (current.custom()) |index| m.commands[index].semantics.yolo else m.yolo[@intFromEnum(current.agent().?)];
             for (values, widths, 0..) |text, width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
@@ -1061,6 +1089,7 @@ test "viewer expires a delivered usage reading after ten minutes" {
     option.usage_fetched_at = std.time.timestamp() - metadata.usage_max_age;
     try std.testing.expectEqualStrings("Unavailable", menu.cells(.codex)[5]);
     option.usage.set("Metered");
+    option.usage_metered = true;
     try std.testing.expectEqualStrings("Metered", menu.cells(.codex)[5]);
 }
 

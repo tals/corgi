@@ -11,7 +11,7 @@ const Step = *const fn (Allocator, *Value) Error!void;
 const Error = Allocator.Error || error{InvalidCheckpoint};
 
 /// Index `n` upgrades version `n + 1` to `n + 2`.
-const checkpoint_steps = [_]Step{ checkpoint1To2, checkpoint2To3 };
+const checkpoint_steps = [_]Step{ checkpoint1To2, checkpoint2To3, checkpoint3To4 };
 const handoff_steps = [_]Step{handoff1To2};
 
 pub const checkpoint_version: u32 = checkpoint_steps.len + 1;
@@ -98,6 +98,47 @@ fn checkpoint2To3(alloc: Allocator, value: *Value) Error!void {
     for (try items(value, "conversations")) |*conversation| try optionalProvider(conversation, "agent");
     for (try items(value, "agent_commands")) |*command| try optionalProvider(command, "semantics");
     try promoteBindings(alloc, value);
+}
+
+fn checkpoint3To4(alloc: Allocator, value: *Value) Error!void {
+    // V3 only ever recorded yolo as `semantics.mode` display text. Recover the
+    // fact for any command whose text names the yolo mode; otherwise leave
+    // `yolo` unset, which decodes to its default of false.
+    _ = alloc;
+    for (try items(value, "agent_commands")) |*command| {
+        const fields = object(command) catch continue;
+        const semantics = fields.getPtr("semantics") orelse continue;
+        const info = object(semantics) catch continue;
+        if (modeIsYolo(info)) try info.put("yolo", .{ .bool = true });
+    }
+}
+
+/// A missing or malformed `mode` reports false rather than failing the step.
+fn modeIsYolo(info: *std.json.ObjectMap) bool {
+    const mode = info.getPtr("mode") orelse return false;
+    const fields = object(mode) catch return false;
+    const wanted = "Skips permission checks";
+    const len: usize = switch (fields.get("len") orelse return false) {
+        .integer => |n| std.math.cast(usize, n) orelse return false,
+        else => return false,
+    };
+    if (len != wanted.len) return false;
+    return switch (fields.get("bytes") orelse return false) {
+        // Fixed byte buffers serialize as a string, or as numbers when not UTF-8.
+        .string => |text| text.len >= len and std.mem.eql(u8, text[0..len], wanted),
+        .array => |list| array: {
+            if (list.items.len < len) break :array false;
+            for (list.items[0..len], wanted) |item, want| {
+                const byte: u8 = switch (item) {
+                    .integer => |n| std.math.cast(u8, n) orelse break :array false,
+                    else => break :array false,
+                };
+                if (byte != want) break :array false;
+            }
+            break :array true;
+        },
+        else => false,
+    };
 }
 
 /// Gives every pane and native session a binding. An inline identity with a
@@ -343,9 +384,9 @@ test "versions are checked before current enum decoding" {
     }
     try std.testing.expectError(error.MissingStateVersion, decode(Value, .checkpoint, std.testing.allocator, "{}"));
     // A current schema carrying obsolete values is corrupt, not another upgrade.
-    try std.testing.expectError(error.InvalidEnumTag, decode(T, .checkpoint, std.testing.allocator,
-        \\{"version":3,"provider":"other"}
-    ));
+    const current_json = try std.fmt.allocPrint(std.testing.allocator, "{{\"version\":{d},\"provider\":\"other\"}}", .{checkpoint_version});
+    defer std.testing.allocator.free(current_json);
+    try std.testing.expectError(error.InvalidEnumTag, decode(T, .checkpoint, std.testing.allocator, current_json));
 }
 
 test "provider migrations are scoped and accept both V2 representations" {
@@ -367,6 +408,26 @@ test "provider migrations are scoped and accept both V2 representations" {
     try std.testing.expectEqualStrings("other", session.get("events").?.array.items[0].object.get("provider").?.string);
     try std.testing.expectEqualStrings("other", root.get("payload").?.object.get("provider").?.string);
     try std.testing.expect(root.get("agent_commands").?.array.items[0].object.get("semantics").?.object.get("provider").? == .null);
+}
+
+test "yolo is recovered from the saved mode text and left alone otherwise" {
+    const json =
+        \\{"version":3,"agent_commands":[
+        \\ {"semantics":{"mode":{"bytes":"Skips permission checks","len":23}}},
+        \\ {"semantics":{"mode":{"bytes":"Provider permission settings","len":28}}},
+        \\ {"semantics":{"mode":{"bytes":[83,107,105,112,115],"len":23}}},
+        \\ {"semantics":{}},
+        \\ {}]}
+    ;
+    const decoded = try decode(Value, .checkpoint, std.testing.allocator, json);
+    defer decoded.deinit();
+    const commands = decoded.parsed.value.object.get("agent_commands").?.array.items;
+    try std.testing.expect(commands[0].object.get("semantics").?.object.get("yolo").?.bool);
+    try std.testing.expect(commands[1].object.get("semantics").?.object.get("yolo") == null);
+    // A byte-array `mode` shorter than the wanted text is malformed, not yolo.
+    try std.testing.expect(commands[2].object.get("semantics").?.object.get("yolo") == null);
+    try std.testing.expect(commands[3].object.get("semantics").?.object.get("yolo") == null);
+    try std.testing.expectEqual(@as(usize, 0), commands[4].object.count());
 }
 
 test "handoff and runtime versions migrate independently without losing launch counts" {

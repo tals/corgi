@@ -190,6 +190,7 @@ $.clients[].launch_preview?.preview.options[2].plan.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].plan.len: usize
 $.clients[].launch_preview?.preview.options[2].usage.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].usage.len: usize
+$.clients[].launch_preview?.preview.options[2].usage_metered: bool
 $.clients[].launch_preview?.preview.options[2].usage_fetched_at: i64
 $.clients[].launch_preview?.preview.options[2].usage_error.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].usage_error.len: usize

@@ -190,7 +190,7 @@ fn snapshotTree(a: Allocator, nodes: *Nodes, v: Value, panes: []const SourcePane
     }
     const children = list(v, "children");
     const direction = text(v, "direction");
-    const axis: layout.Axis = if (std.mem.eql(u8, direction, "horizontal")) .horizontal else if (std.mem.eql(u8, direction, "vertical")) .vertical else return error.InvalidImportLayout;
+    const axis = std.meta.stringToEnum(layout.Axis, direction) orelse return error.InvalidImportLayout;
     const share = number(field(v, "split")) orelse return error.InvalidImportLayout;
     if (children.len != 2 or share <= 0 or share >= 1) return error.InvalidImportLayout;
     try snapshotTree(a, nodes, children[0], panes, depth + 1);

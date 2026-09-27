@@ -406,6 +406,8 @@ pub const Semantics = struct {
     model: Text = .{},
     account: Text = .{},
     mode: Text = .{},
+    /// Skips the provider's permission checks; `mode` is its display text.
+    yolo: bool = false,
     default_account: bool = false,
 };
 
@@ -502,6 +504,7 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
         if (root) |value| readIdentity(&info, value);
     };
     if (!info.default_account and info.account.len == 0) info.account.set("Account cannot be determined");
+    info.yolo = yolo;
     info.mode.set(if (yolo) "Skips permission checks" else "Provider permission settings");
     var label: [160]u8 = undefined;
     const provider_name = if (info.provider) |provider| provider.info().label else "Custom agent";
@@ -546,19 +549,19 @@ fn readIdentity(info: *Semantics, root: []const u8) void {
     switch (provider) {
         .claude => email = common.str(common.field(json.value, "oauthAccount"), "emailAddress"),
         .codex => {
-        if (common.str(json.value, "OPENAI_API_KEY").len > 0) {
-            info.account.set("Profile API key - identity unavailable");
-            return;
-        }
-        const token = common.str(common.field(json.value, "tokens"), "id_token");
-        var parts = std.mem.splitScalar(u8, token, '.');
-        _ = parts.next();
-        const payload = parts.next() orelse return;
-        const decoder = std.base64.url_safe_no_pad.Decoder;
-        const size = decoder.calcSizeForSlice(payload) catch return;
-        if (size > decoded.len) return;
-        decoder.decode(decoded[0..size], payload) catch return;
-        jwt_json = std.json.parseFromSlice(std.json.Value, os.allocator, decoded[0..size], .{}) catch return;
+            if (common.str(json.value, "OPENAI_API_KEY").len > 0) {
+                info.account.set("Profile API key - identity unavailable");
+                return;
+            }
+            const token = common.str(common.field(json.value, "tokens"), "id_token");
+            var parts = std.mem.splitScalar(u8, token, '.');
+            _ = parts.next();
+            const payload = parts.next() orelse return;
+            const decoder = std.base64.url_safe_no_pad.Decoder;
+            const size = decoder.calcSizeForSlice(payload) catch return;
+            if (size > decoded.len) return;
+            decoder.decode(decoded[0..size], payload) catch return;
+            jwt_json = std.json.parseFromSlice(std.json.Value, os.allocator, decoded[0..size], .{}) catch return;
             email = common.str(jwt_json.?.value, "email");
         },
     }

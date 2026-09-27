@@ -2,6 +2,7 @@
 //! Layout produces cell rows before clipping, so both columns share one scroll.
 const std = @import("std");
 const a = @import("os.zig").allocator;
+const keys = @import("keys.zig");
 const km = @import("keymap.zig");
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
@@ -34,12 +35,15 @@ pub const State = struct {
         return false;
     }
     pub fn sequence(s: *State, seq: []const u8) void {
-        if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.move(false, 1);
-        if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.move(true, 1);
-        if (eq(seq, "\x1b[5~")) s.move(false, s.page_rows);
-        if (eq(seq, "\x1b[6~")) s.move(true, s.page_rows);
-        if (eq(seq, "\x1b[H") or eq(seq, "\x1bOH") or eq(seq, "\x1b[1~")) s.scroll = 0;
-        if (eq(seq, "\x1b[F") or eq(seq, "\x1bOF") or eq(seq, "\x1b[4~")) s.scroll = s.max_scroll;
+        switch (keys.parse(seq) orelse return) {
+            .up => s.move(false, 1),
+            .down => s.move(true, 1),
+            .page_up => s.move(false, s.page_rows),
+            .page_down => s.move(true, s.page_rows),
+            .home => s.scroll = 0,
+            .end => s.scroll = s.max_scroll,
+            else => {},
+        }
     }
     pub fn closeAt(cols: u16, rows: u16, x: u16, y: u16) bool {
         const b = bounds(cols, rows);
@@ -387,9 +391,6 @@ pub fn bounds(cols: u16, rows: u16) Rect {
     const width = @min(cols, 112);
     const height = @min(rows, 36);
     return .{ .x = (cols - width) / 2, .y = (rows - height) / 2, .w = width, .h = height };
-}
-fn eq(a_: []const u8, b: []const u8) bool {
-    return std.mem.eql(u8, a_, b);
 }
 fn color(style: Style) []const u8 {
     return switch (style) {

@@ -55,9 +55,9 @@ pub const Inventory = struct {
         if (value != .array) return null;
         var t: Inventory = .{ .observed_at = now };
         for (value.array.items) |item| {
-            if (!common.eq(common.str(item, "type"), "shell")) continue;
+            if (!std.mem.eql(u8, common.str(item, "type"), "shell")) continue;
             const status = common.str(item, "status");
-            if (common.eq(status, "completed") or common.eq(status, "failed") or common.eq(status, "killed")) continue;
+            if (std.mem.eql(u8, status, "completed") or std.mem.eql(u8, status, "failed") or std.mem.eql(u8, status, "killed")) continue;
             t.append(common.str(item, "id"), common.str(item, "description"), common.str(item, "command"));
         }
         return t;
@@ -73,7 +73,7 @@ pub const Inventory = struct {
 /// prose is useful, but is bounded too so it cannot dominate the tooltip.
 fn summarize(out: []u8, description: []const u8, command: []const u8, group: Group) usize {
     const prose = std.mem.trim(u8, description, " \t\r\n");
-    if (prose.len > 0 and !common.eq(prose, std.mem.trim(u8, command, " \t\r\n"))) {
+    if (prose.len > 0 and !std.mem.eql(u8, prose, std.mem.trim(u8, command, " \t\r\n"))) {
         var words = std.mem.tokenizeAny(u8, prose, " \t\r\n");
         var len: usize = 0;
         var count: usize = 0;
@@ -99,14 +99,14 @@ fn summarize(out: []u8, description: []const u8, command: []const u8, group: Gro
         .commands => blk: {
             var words = std.mem.tokenizeAny(u8, command, " \t\r\n");
             const exe = std.fs.path.basename(words.next() orelse "");
-            if (common.eq(exe, "rg") or common.eq(exe, "grep") or common.eq(exe, "find")) break :blk "Searching files";
-            if (common.eq(exe, "curl") or common.eq(exe, "wget")) break :blk "Fetching data";
-            if (common.eq(exe, "sleep") or common.eq(exe, "wait")) break :blk "Waiting";
-            if (common.eq(exe, "tail")) break :blk "Watching output";
-            if (common.eq(exe, "git")) break :blk "Running Git task";
+            if (std.mem.eql(u8, exe, "rg") or std.mem.eql(u8, exe, "grep") or std.mem.eql(u8, exe, "find")) break :blk "Searching files";
+            if (std.mem.eql(u8, exe, "curl") or std.mem.eql(u8, exe, "wget")) break :blk "Fetching data";
+            if (std.mem.eql(u8, exe, "sleep") or std.mem.eql(u8, exe, "wait")) break :blk "Waiting";
+            if (std.mem.eql(u8, exe, "tail")) break :blk "Watching output";
+            if (std.mem.eql(u8, exe, "git")) break :blk "Running Git task";
             if (std.mem.startsWith(u8, exe, "python")) break :blk "Running Python task";
-            if (common.eq(exe, "bun")) break :blk "Running Bun task";
-            if (common.eq(exe, "node")) break :blk "Running JavaScript task";
+            if (std.mem.eql(u8, exe, "bun")) break :blk "Running Bun task";
+            if (std.mem.eql(u8, exe, "node")) break :blk "Running JavaScript task";
             break :blk "Running shell task";
         },
     };
@@ -116,18 +116,18 @@ fn summarize(out: []u8, description: []const u8, command: []const u8, group: Gro
 fn classify(command: []const u8) Group {
     var words = std.mem.tokenizeAny(u8, command, " \t\r\n");
     const executable = std.fs.path.basename(words.next() orelse return .commands);
-    if (common.eq(executable, "pytest") or common.eq(executable, "jest") or common.eq(executable, "vitest")) return .tests;
+    if (std.mem.eql(u8, executable, "pytest") or std.mem.eql(u8, executable, "jest") or std.mem.eql(u8, executable, "vitest")) return .tests;
     // Inspect only the invocation prefix; arguments and quoted source text do
     // not turn an arbitrary command into a test or a server.
     for (0..2) |_| {
         const word = words.next() orelse break;
-        if (common.eq(word, "test") or (common.eq(word, "pytest") and std.mem.startsWith(u8, executable, "python"))) return .tests;
-        if (common.eq(word, "build")) {
-            if (common.eq(words.next() orelse "", "test")) return .tests;
+        if (std.mem.eql(u8, word, "test") or (std.mem.eql(u8, word, "pytest") and std.mem.startsWith(u8, executable, "python"))) return .tests;
+        if (std.mem.eql(u8, word, "build")) {
+            if (std.mem.eql(u8, words.next() orelse "", "test")) return .tests;
             return .builds;
         }
-        if (common.eq(word, "dev") or common.eq(word, "serve") or common.eq(word, "http.server")) return .servers;
-        if (!common.eq(word, "run") and !common.eq(word, "-m")) break;
+        if (std.mem.eql(u8, word, "dev") or std.mem.eql(u8, word, "serve") or std.mem.eql(u8, word, "http.server")) return .servers;
+        if (!std.mem.eql(u8, word, "run") and !std.mem.eql(u8, word, "-m")) break;
     }
     return .commands;
 }

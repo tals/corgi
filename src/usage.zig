@@ -2,6 +2,7 @@
 //! input and reasoning output; they are not estimates of cost or context size.
 const std = @import("std");
 const agents = @import("agents.zig");
+const rollout = @import("transcript.zig");
 pub const Counts = struct {
     tools: u64 = 0,
     input: u64 = 0,
@@ -43,9 +44,6 @@ pub fn field(v: std.json.Value, key: []const u8) std.json.Value {
 fn number(v: std.json.Value, key: []const u8) ?u64 {
     const n = field(v, key);
     return if (n == .integer and n.integer >= 0) @intCast(n.integer) else null;
-}
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
 }
 // Bounded deduplication for incremental append-only streams. We never replay
 // history into counters when opening/replacing a transcript.
@@ -117,7 +115,7 @@ pub const Tracker = struct {
         };
         const content = field(message, "content");
         if (content == .array) for (content.array.items) |block| {
-            if (eq(agents.str(block, "type"), "tool_use")) delta.tools +|= t.tool(agents.str(block, "id"));
+            if (std.mem.eql(u8, agents.str(block, "type"), "tool_use")) delta.tools +|= t.tool(agents.str(block, "id"));
         };
         return delta;
     }
@@ -128,25 +126,24 @@ pub const Tracker = struct {
         };
     }
     fn claudeTranscript(t: *Tracker, session: []const u8, value: std.json.Value) Counts {
-        if (!eq(agents.str(value, "sessionId"), session)) return .{};
+        if (!std.mem.eql(u8, agents.str(value, "sessionId"), session)) return .{};
         const side = field(value, "isSidechain");
         if (side == .bool and side.bool) return .{};
-        if (eq(agents.str(value, "type"), "assistant")) return t.claudeMessage(field(value, "message"));
+        if (std.mem.eql(u8, agents.str(value, "type"), "assistant")) return t.claudeMessage(field(value, "message"));
         return .{};
     }
     fn codexTranscript(t: *Tracker, value: std.json.Value) Counts {
         const payload = field(value, "payload");
-        const kind = agents.str(value, "type");
-        const subtype = agents.str(payload, "type");
-        if (eq(kind, "event_msg") and eq(subtype, "token_count")) return t.codexTokens("codex", field(field(payload, "info"), "total_token_usage"), false);
-        if (eq(kind, "response_item")) {
-            for ([_][]const u8{ "function_call", "custom_tool_call", "web_search_call", "local_shell_call" }) |tool_kind| {
-                if (eq(subtype, tool_kind)) {
-                    const id = agents.str(payload, "call_id");
-                    return .{ .tools = t.tool(if (id.len > 0) id else agents.str(payload, "id")) };
-                }
-            }
-        }
+        const kind = std.meta.stringToEnum(rollout.RolloutKind, agents.str(value, "type"));
+        const subtype = std.meta.stringToEnum(rollout.EventKind, agents.str(payload, "type"));
+        if (kind == .event_msg and subtype == .token_count) return t.codexTokens("codex", field(field(payload, "info"), "total_token_usage"), false);
+        if (kind == .response_item) switch (subtype orelse return .{}) {
+            .function_call, .custom_tool_call, .web_search_call, .local_shell_call => {
+                const id = agents.str(payload, "call_id");
+                return .{ .tools = t.tool(if (id.len > 0) id else agents.str(payload, "id")) };
+            },
+            else => {},
+        };
         return .{};
     }
 };

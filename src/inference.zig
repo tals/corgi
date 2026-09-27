@@ -8,7 +8,8 @@ const conversations = @import("conversations.zig");
 const common = @import("providers/common.zig");
 const field = common.field;
 const str = common.str;
-const eq = common.eq;
+const Codex = @import("providers/codex.zig").Codex;
+const Claude = @import("providers/claude.zig").Claude;
 const a = os.allocator;
 const mutex = &@import("git_status.zig").child_mutex;
 const capacity = 4;
@@ -453,7 +454,7 @@ pub const Pool = struct {
         const account = field(field(reply.value, "result"), "account");
         const metadata = @import("account_preview.zig");
         var response = metadata.codexAccount(account);
-        if (!eq(str(account, "type"), "chatgpt")) return response;
+        if (!std.mem.eql(u8, str(account, "type"), "chatgpt")) return response;
         // A limits failure must not discard the identity/plan we already read.
         const limits = slot.*.?.rpc("account/rateLimits/read", .{}, stopping, deadline) catch |err| {
             response.usage_error.set(if (err == error.Timeout) "request timed out" else "usage request failed");
@@ -523,8 +524,8 @@ fn hostsThreads(provider: Provider) bool {
 }
 
 fn matches(s: *const Connection, r: Request) bool {
-    return s.key != null and r.conversation != null and eq(s.key.?, r.conversation.?) and eq(s.instructions, r.instructions) and
-        ((s.schema == null and r.schema == null) or (s.schema != null and r.schema != null and eq(s.schema.?, r.schema.?)));
+    return s.key != null and r.conversation != null and std.mem.eql(u8, s.key.?, r.conversation.?) and std.mem.eql(u8, s.instructions, r.instructions) and
+        ((s.schema == null and r.schema == null) or (s.schema != null and r.schema != null and std.mem.eql(u8, s.schema.?, r.schema.?)));
 }
 
 fn codex(s: *Connection, config: Config, request: Request, stopping: *const std.atomic.Value(bool), deadline: i64) !Response {
@@ -569,16 +570,17 @@ fn codex(s: *Connection, config: Config, request: Request, stopping: *const std.
             defer parsed.deinit();
             const value = parsed.value;
             const params = field(value, "params");
-            if (!eq(str(params, "threadId"), s.thread[0..s.thread_len])) continue;
-            if (eq(str(value, "method"), "item/completed") and eq(str(params, "turnId"), turn)) {
+            if (!std.mem.eql(u8, str(params, "threadId"), s.thread[0..s.thread_len])) continue;
+            const method = std.meta.stringToEnum(Codex.Method, str(value, "method"));
+            if (method == .@"item/completed" and std.mem.eql(u8, str(params, "turnId"), turn)) {
                 const item = field(params, "item");
-                if (eq(str(item, "type"), "agentMessage")) {
+                if (std.mem.eql(u8, str(item, "type"), "agentMessage")) {
                     const phase = str(item, "phase");
-                    if (phase.len == 0 or eq(phase, "final_answer")) try response.set(str(item, "text"));
+                    if (phase.len == 0 or std.mem.eql(u8, phase, "final_answer")) try response.set(str(item, "text"));
                 }
             }
-            if (eq(str(value, "method"), "turn/completed") and eq(str(field(params, "turn"), "id"), turn)) {
-                if (!eq(str(field(params, "turn"), "status"), "completed")) return error.InferenceFailed;
+            if (method == .@"turn/completed" and std.mem.eql(u8, str(field(params, "turn"), "id"), turn)) {
+                if (!std.mem.eql(u8, str(field(params, "turn"), "status"), "completed")) return error.InferenceFailed;
                 return response;
             }
         }
@@ -598,8 +600,8 @@ fn claude(s: *Connection, request: Request, stopping: *const std.atomic.Value(bo
                 const parsed = try std.json.parseFromSlice(std.json.Value, a, event.line, .{});
                 defer parsed.deinit();
                 const response = field(parsed.value, "response");
-                if (eq(str(parsed.value, "type"), "control_response") and eq(str(response, "request_id"), "corgi-inference-init")) {
-                    if (!eq(str(response, "subtype"), "success")) return error.HarnessRejected;
+                if (std.meta.stringToEnum(Claude.MessageType, str(parsed.value, "type")) == .control_response and std.mem.eql(u8, str(response, "request_id"), "corgi-inference-init")) {
+                    if (!std.mem.eql(u8, str(response, "subtype"), "success")) return error.HarnessRejected;
                     ready = true;
                 }
             }
@@ -615,8 +617,8 @@ fn claude(s: *Connection, request: Request, stopping: *const std.atomic.Value(bo
             const parsed = try std.json.parseFromSlice(std.json.Value, a, event.line, .{});
             defer parsed.deinit();
             const value = parsed.value;
-            if (!eq(str(value, "type"), "result")) continue;
-            if (!eq(str(value, "subtype"), "success") or field(value, "is_error") == .bool and field(value, "is_error").bool) return error.InferenceFailed;
+            if (std.meta.stringToEnum(Claude.MessageType, str(value, "type")) != .result) continue;
+            if (!std.mem.eql(u8, str(value, "subtype"), "success") or field(value, "is_error") == .bool and field(value, "is_error").bool) return error.InferenceFailed;
             var response: Response = .{};
             if (request.schema != null) {
                 const structured = field(value, "structured_output");

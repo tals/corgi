@@ -698,7 +698,12 @@ const Job = struct {
                     p.resume_hint = resumeRef(field(entry.value_ptr.*, "agent_session"));
                     const status = textField(field(field(states[index], "agent_state"), "authority"), "state");
                     p.attachment.provisional.provider = p.resume_hint.provider;
-                    p.attachment.provisional.state = if (std.mem.eql(u8, status, "Working")) .working else if (std.mem.eql(u8, status, "Blocked")) .blocked else if (std.mem.eql(u8, status, "Idle")) .idle else .unknown;
+                    p.attachment.provisional.state = switch (std.meta.stringToEnum(HerdrStatus, status) orelse .unknown) {
+                        .Working => .working,
+                        .Blocked => .blocked,
+                        .Idle => .idle,
+                        .unknown => .unknown,
+                    };
                     p.attachment.provisional.observation.source = .screen;
                 }
             }
@@ -710,6 +715,11 @@ const Job = struct {
     }
 };
 
+// herdr's agent authority state, as reported in a snapshot's agent_state.
+const HerdrStatus = enum { Working, Blocked, Idle, unknown };
+// herdr terminal input_state mouse protocol mode/encoding.
+const MouseMode = enum { press, press_release, button_motion, any_motion, unknown };
+const MouseEncoding = enum { utf8, sgr, sgr_pixels, unknown };
 fn stateIndex(states: []Value, id: u32) ?usize {
     for (states, 0..) |state, i| if (number(field(state, "pane_id")) == id) return i;
     return null;
@@ -742,11 +752,20 @@ fn seedTerminal(t: *Terminal, state: Value) void {
     const modes = .{ .{ "alternate_screen", "\x1b[?1049h" }, .{ "application_cursor", "\x1b[?1h" }, .{ "bracketed_paste", "\x1b[?2004h" }, .{ "focus_reporting", "\x1b[?1004h" }, .{ "mouse_alternate_scroll", "\x1b[?1007h" }, .{ "modify_other_keys", "\x1b[>4;2m" }, .{ "color_scheme_reporting", "\x1b[?2031h" } };
     inline for (modes) |mode| if (yes(field(input, mode[0]))) t.feed(mode[1]);
     const mouse = textField(input, "mouse_protocol_mode");
-    const mouse_modes = .{ .{ "press", "\x1b[?9h" }, .{ "press_release", "\x1b[?1000h" }, .{ "button_motion", "\x1b[?1002h" }, .{ "any_motion", "\x1b[?1003h" } };
-    inline for (mouse_modes) |mode| if (std.mem.eql(u8, mouse, mode[0])) t.feed(mode[1]);
+    switch (std.meta.stringToEnum(MouseMode, mouse) orelse .unknown) {
+        .press => t.feed("\x1b[?9h"),
+        .press_release => t.feed("\x1b[?1000h"),
+        .button_motion => t.feed("\x1b[?1002h"),
+        .any_motion => t.feed("\x1b[?1003h"),
+        .unknown => {},
+    }
     const encoding = textField(input, "mouse_protocol_encoding");
-    const encodings = .{ .{ "utf8", "\x1b[?1005h" }, .{ "sgr", "\x1b[?1006h" }, .{ "sgr_pixels", "\x1b[?1016h" } };
-    inline for (encodings) |mode| if (std.mem.eql(u8, encoding, mode[0])) t.feed(mode[1]);
+    switch (std.meta.stringToEnum(MouseEncoding, encoding) orelse .unknown) {
+        .utf8 => t.feed("\x1b[?1005h"),
+        .sgr => t.feed("\x1b[?1006h"),
+        .sgr_pixels => t.feed("\x1b[?1016h"),
+        .unknown => {},
+    }
     const keyboard = textField(state, "keyboard_protocol_ansi");
     if (keyboard.len > 0) t.feed(keyboard) else {
         var buf: [40]u8 = undefined;

@@ -1,6 +1,5 @@
 const std = @import("std");
 const common = @import("common.zig");
-const eq = common.eq;
 const str = common.str;
 const field = common.field;
 
@@ -43,27 +42,45 @@ pub const Codex = struct {
     pub const hook_events = &.{ "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd", "PreCompact", "Interrupt", "PostCompact" };
     pub const native_args: []const []const u8 = &.{ "app-server", "--listen", "stdio://" };
 
+    /// JSON-RPC method names Codex's app-server protocol sends.
+    pub const Method = enum {
+        @"turn/started",
+        @"turn/completed",
+        @"thread/started",
+        @"thread/tokenUsage/updated",
+        @"item/started",
+        @"item/completed",
+        @"item/commandExecution/requestApproval",
+        @"item/fileChange/requestApproval",
+        @"item/tool/call",
+        @"item/tool/requestUserInput",
+    };
+    /// `item.type` values that occupy a thread until the item completes.
+    pub const ItemType = enum { commandExecution, fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall, webSearch, imageView, imageGeneration };
+
     pub fn hook(provider: Codex, value: std.json.Value) ?common.Hook {
         return provider.hooks.decode(value);
     }
     pub fn nativeEvent(_: Codex, value: std.json.Value) common.NativeEvent {
-        const method = str(value, "method");
+        const method_str = str(value, "method");
+        const method = std.meta.stringToEnum(Method, method_str);
         const params = field(value, "params");
         const thread = str(params, "threadId");
         const turn = field(params, "turn");
         const result = if (value == .object) value.object.get("result") orelse params else .null;
-        const status = str(turn, "status");
         return .{
             .session = if (thread.len > 0) thread else str(field(result, "thread"), "id"),
             .thread = thread,
             .turn = str(turn, "id"),
-            .phase = if (eq(method, "turn/started")) .working else if (eq(method, "turn/completed")) .completed else .none,
-            .outcome = if (eq(status, "interrupted")) .interrupted else if (eq(status, "failed")) .failed else .completed,
-            .request_id = if (method.len > 0 and value == .object) value.object.get("id") else null,
+            .phase = if (method == .@"turn/started") .working else if (method == .@"turn/completed") .completed else .none,
+            .outcome = std.meta.stringToEnum(common.Outcome, str(turn, "status")) orelse .completed,
+            // Any recognized-or-not method with an id is a request; unlike the
+            // dispatch above, this must not miss a future method.
+            .request_id = if (method_str.len > 0 and value == .object) value.object.get("id") else null,
             .response_id = if (value == .object and (value.object.contains("result") or value.object.contains("error"))) value.object.get("id") else null,
-            .initialize = eq(str(value, "id"), "__corgi_init"),
+            .initialize = std.mem.eql(u8, str(value, "id"), "__corgi_init"),
             .initialization_failed = value == .object and value.object.contains("error"),
-            .tool_request = eq(method, "item/commandExecution/requestApproval") or eq(method, "item/fileChange/requestApproval") or eq(method, "item/tool/call") or eq(method, "item/tool/requestUserInput"),
+            .tool_request = method == .@"item/commandExecution/requestApproval" or method == .@"item/fileChange/requestApproval" or method == .@"item/tool/call" or method == .@"item/tool/requestUserInput",
         };
     }
     // Codex's 32-character title field contains 29 UUID characters plus "...".

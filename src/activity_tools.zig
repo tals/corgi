@@ -4,7 +4,8 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
 const field = @import("usage.zig").field;
-const eq = std.mem.eql;
+const transcript = @import("transcript.zig");
+const Claude = @import("providers/claude.zig").Claude;
 pub const View = struct {
     commentary: summary.Text = .{},
     running: usize = 0,
@@ -39,7 +40,7 @@ pub const Tracker = struct {
     recent: [3]Call = @splat(.{}),
     dirty: bool = false,
     pub fn bind(t: *Tracker, turn: []const u8) void {
-        if (turn.len == 0 or turn.len > t.turn.len or eq(u8, turn, t.turn[0..t.turn_len])) return;
+        if (turn.len == 0 or turn.len > t.turn.len or std.mem.eql(u8, turn, t.turn[0..t.turn_len])) return;
         t.* = .{};
         @memcpy(t.turn[0..turn.len], turn);
         t.turn_len = turn.len;
@@ -68,26 +69,26 @@ pub const Tracker = struct {
         return out;
     }
     pub fn ingest(t: *Tracker, value: std.json.Value, live: bool) void {
-        const kind = agents.str(value, "type");
+        const kind = std.meta.stringToEnum(transcript.RolloutKind, agents.str(value, "type"));
         const payload = field(value, "payload");
-        const subtype = agents.str(payload, "type");
-        if (eq(u8, kind, "turn_context") or (eq(u8, kind, "event_msg") and eq(u8, subtype, "task_started"))) {
+        const subtype = std.meta.stringToEnum(transcript.EventKind, agents.str(payload, "type"));
+        if (kind == .turn_context or (kind == .event_msg and subtype == .task_started)) {
             t.bind(agents.str(payload, "turn_id"));
             return;
         }
-        if (eq(u8, kind, "event_msg") and (eq(u8, subtype, "task_complete") or eq(u8, subtype, "turn_complete") or eq(u8, subtype, "turn_aborted"))) {
+        if (kind == .event_msg and (subtype == .task_complete or subtype == .turn_complete or subtype == .turn_aborted)) {
             const turn = agents.str(payload, "turn_id");
-            if (turn.len == 0 or eq(u8, turn, t.turn[0..t.turn_len])) t.ended = true;
+            if (turn.len == 0 or std.mem.eql(u8, turn, t.turn[0..t.turn_len])) t.ended = true;
             return;
         }
-        if (!eq(u8, kind, "response_item") or t.turn_len == 0 or t.ended) return;
-        if (eq(u8, subtype, "message") and eq(u8, agents.str(payload, "role"), "assistant") and eq(u8, agents.str(payload, "phase"), "commentary")) {
+        if (kind != .response_item or t.turn_len == 0 or t.ended) return;
+        if (subtype == .message and std.mem.eql(u8, agents.str(payload, "role"), "assistant") and std.mem.eql(u8, agents.str(payload, "phase"), "commentary")) {
             const content = field(payload, "content");
             if (content == .array) {
                 t.commentary = .{};
                 t.commentary.append("Latest agent update: ");
                 for (content.array.items) |part| {
-                    if (eq(u8, agents.str(part, "type"), "output_text")) t.commentary.append(agents.str(part, "text"));
+                    if (std.mem.eql(u8, agents.str(part, "type"), "output_text")) t.commentary.append(agents.str(part, "text"));
                 }
                 t.dirty = true;
             }
@@ -98,16 +99,16 @@ pub const Tracker = struct {
         if (id.len == 0) return;
         const key = std.hash.Wyhash.hash(0, id) | 1;
         for (t.seen) |seen| if (seen == key) return;
-        if (eq(u8, subtype, "function_call_output") or eq(u8, subtype, "custom_tool_call_output")) {
+        if (subtype == .function_call_output or subtype == .custom_tool_call_output) {
             for (&t.pending) |*call| if (call.id == key) {
                 t.finish(call.*, live);
                 call.* = .{};
                 return;
             };
-        } else if (eq(u8, subtype, "function_call") or eq(u8, subtype, "custom_tool_call") or eq(u8, subtype, "local_shell_call") or eq(u8, subtype, "web_search_call")) {
+        } else if (subtype == .function_call or subtype == .custom_tool_call or subtype == .local_shell_call or subtype == .web_search_call) {
             var call: Call = .{ .id = key };
             const name = agents.str(payload, "name");
-            call.append(if (name.len > 0) name else subtype);
+            call.append(if (name.len > 0) name else @tagName(subtype.?));
             call.append(": ");
             const args = agents.str(payload, "arguments");
             const input = if (args.len > 0) args else agents.str(payload, "input");
@@ -120,8 +121,8 @@ pub const Tracker = struct {
                     } else input;
                     call.append(detail);
                 } else |_| call.append(input);
-            } else if (eq(u8, subtype, "web_search_call")) call.append(agents.str(field(payload, "action"), "query"));
-            if (eq(u8, subtype, "web_search_call") and eq(u8, agents.str(payload, "status"), "completed")) {
+            } else if (subtype == .web_search_call) call.append(agents.str(field(payload, "action"), "query"));
+            if (subtype == .web_search_call and std.mem.eql(u8, agents.str(payload, "status"), "completed")) {
                 t.finish(call, live);
                 return;
             }
@@ -143,23 +144,23 @@ pub const Tracker = struct {
         if (t.turn_len == 0 or t.ended) return;
         const side = field(value, "isSidechain");
         if (side == .bool and side.bool) return;
-        const kind = agents.str(value, "type");
-        if (eq(u8, kind, "system") and eq(u8, agents.str(value, "subtype"), "turn_duration")) {
+        const kind = std.meta.stringToEnum(transcript.ClaudeLine, agents.str(value, "type"));
+        if (kind == .system and std.mem.eql(u8, agents.str(value, "subtype"), "turn_duration")) {
             if (live) t.ended = true;
             return;
         }
         const content = field(field(value, "message"), "content");
         if (content != .array) return;
         for (content.array.items) |block| {
-            const block_type = agents.str(block, "type");
-            if (eq(u8, kind, "assistant") and eq(u8, block_type, "text")) {
+            const block_type = std.meta.stringToEnum(Claude.BlockType, agents.str(block, "type"));
+            if (kind == .assistant and block_type == .text) {
                 const text = std.mem.trim(u8, agents.str(block, "text"), " \t\r\n");
                 if (text.len == 0) continue;
                 t.commentary = .{};
                 t.commentary.append("Latest agent update: ");
                 t.commentary.append(text);
                 t.dirty = true;
-            } else if (eq(u8, kind, "assistant") and eq(u8, block_type, "tool_use")) {
+            } else if (kind == .assistant and block_type == .tool_use) {
                 const id = agents.str(block, "id");
                 if (id.len == 0) continue;
                 const key = std.hash.Wyhash.hash(0, id) | 1;
@@ -184,7 +185,7 @@ pub const Tracker = struct {
                 call.live = live or (slot.id == key and slot.live);
                 if (!std.meta.eql(slot.*, call) and call.live) t.dirty = true;
                 slot.* = call;
-            } else if (eq(u8, kind, "user") and eq(u8, block_type, "tool_result")) {
+            } else if (kind == .user and block_type == .tool_result) {
                 const id = agents.str(block, "tool_use_id");
                 if (id.len == 0) continue;
                 const key = std.hash.Wyhash.hash(0, id) | 1;

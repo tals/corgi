@@ -223,6 +223,8 @@ pub const Worker = struct {
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
+// Claude transcript record types relevant to titles, continuation and text.
+const RecordKind = enum { @"agent-name", @"custom-title", @"ai-title", assistant, @"continued-in", user, unknown };
 pub const Tail = struct {
     actor: ActorId = .none,
     session: [160]u8 = @splat(0),
@@ -315,20 +317,24 @@ pub const Tail = struct {
     /// Claude re-appends title records, so a bounded tail still finds them.
     /// A name the user chose outranks the generated title.
     fn claudeRecord(t: *Tail, session: []const u8, value: std.json.Value) void {
-        if (!eq(agents.str(value, "sessionId"), session)) return;
-        const kind = agents.str(value, "type");
-        const chosen = if (eq(kind, "agent-name")) agents.str(value, "agentName") else if (eq(kind, "custom-title")) agents.str(value, "customTitle") else "";
-        const generated = if (eq(kind, "ai-title")) agents.str(value, "aiTitle") else "";
+        if (!std.mem.eql(u8, agents.str(value, "sessionId"), session)) return;
+        const kind = std.meta.stringToEnum(RecordKind, agents.str(value, "type")) orelse .unknown;
+        const chosen = switch (kind) {
+            .@"agent-name" => agents.str(value, "agentName"),
+            .@"custom-title" => agents.str(value, "customTitle"),
+            else => "",
+        };
+        const generated = if (kind == .@"ai-title") agents.str(value, "aiTitle") else "";
         if (chosen.len > 0 and std.unicode.utf8ValidateSlice(chosen)) {
             t.name.len = agents.clean(&t.name.bytes, chosen);
             t.name_chosen = true;
         } else if (generated.len > 0 and !t.name_chosen and std.unicode.utf8ValidateSlice(generated)) {
             t.name.len = agents.clean(&t.name.bytes, generated);
         }
-        if (eq(kind, "assistant")) t.claudeText(value);
-        if (eq(kind, "continued-in")) {
+        if (kind == .assistant) t.claudeText(value);
+        if (kind == .@"continued-in") {
             t.continued.len = agents.clean(&t.continued.bytes, agents.str(value, "continuedInSessionId"));
-        } else if (eq(kind, "user") or eq(kind, "assistant")) {
+        } else if (kind == .user or kind == .assistant) {
             // Resuming the original conversation later makes it current again.
             t.continued.len = 0;
         }
@@ -365,7 +371,7 @@ pub const Tail = struct {
         switch (req.provider()) {
             .claude => {
                 t.claudeRecord(session, value);
-                if (eq(agents.str(value, "sessionId"), session)) t.progress.ingestClaude(value, appended);
+                if (std.mem.eql(u8, agents.str(value, "sessionId"), session)) t.progress.ingestClaude(value, appended);
                 t.observeModel(usage.field(value, "message"));
                 const delta = t.tracker.transcript(.claude, session, value);
                 if (appended and delta.tokens_known) {

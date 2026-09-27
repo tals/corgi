@@ -8,6 +8,26 @@ const max_jobs = @import("layout.zig").max_panes;
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 64 * 1024;
+/// Codex rollout JSONL record kinds (top-level `type`). Shared with
+/// activity_tools.zig and live_usage.zig, which read the same records.
+pub const RolloutKind = enum { session_meta, turn_context, event_msg, response_item };
+/// `payload.type` values seen on `event_msg` and `response_item` records.
+pub const EventKind = enum {
+    task_started,
+    task_complete,
+    turn_complete,
+    turn_aborted,
+    token_count,
+    message,
+    function_call,
+    function_call_output,
+    custom_tool_call,
+    custom_tool_call_output,
+    local_shell_call,
+    web_search_call,
+};
+/// Claude transcript line `type`.
+pub const ClaudeLine = enum { assistant, user, system };
 const Request = struct { actor: ActorId, agent: agents.Agent };
 pub const Result = struct { actor: ActorId, seq: i64, outcome: agents.observation.Outcome };
 
@@ -233,16 +253,14 @@ fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
             defer parsed.deinit();
             const v = parsed.value;
             const payload = if (v == .object) v.object.get("payload") orelse .null else .null;
-            if (!eq(agents.str(v, "type"), "session_meta") or !eq(agents.str(payload, "id"), session)) return error.WrongSession;
+            const kind = std.meta.stringToEnum(RolloutKind, agents.str(v, "type"));
+            if (kind != .session_meta or !std.mem.eql(u8, agents.str(payload, "id"), session)) return error.WrongSession;
             return;
         }
     }
     return error.NoIdentity;
 }
 
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
 fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.Outcome {
     const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch return null;
     defer parsed.deinit();
@@ -257,19 +275,22 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     };
 }
 fn codexCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
-    if (!eq(agents.str(v, "type"), "event_msg") or agent.turn_len == 0) return null;
+    if (std.meta.stringToEnum(RolloutKind, agents.str(v, "type")) != .event_msg or agent.turn_len == 0) return null;
     const p = v.object.get("payload") orelse return null;
-    if (!eq(agents.str(p, "turn_id"), agent.turnId())) return null;
-    const kind = agents.str(p, "type");
-    if (eq(kind, "turn_aborted")) return .interrupted;
-    if (!eq(kind, "task_complete") and !eq(kind, "turn_complete")) return null;
-    if (p.object.get("error")) |err| if (err != .null) return .failed;
-    return .completed;
+    if (!std.mem.eql(u8, agents.str(p, "turn_id"), agent.turnId())) return null;
+    const kind = std.meta.stringToEnum(EventKind, agents.str(p, "type")) orelse return null;
+    return switch (kind) {
+        .turn_aborted => .interrupted,
+        .task_complete, .turn_complete => if (p.object.get("error")) |err| (if (err != .null) .failed else .completed) else .completed,
+        else => null,
+    };
 }
 fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
     // end_turn on an assistant message precedes Stop hooks. Only the
     // post-turn system record is evidence; a stop_hook_summary is not.
-    if (!eq(agents.str(v, "sessionId"), agent.sessionId()) or !eq(agents.str(v, "type"), "system") or !eq(agents.str(v, "subtype"), "turn_duration")) return null;
+    if (!std.mem.eql(u8, agents.str(v, "sessionId"), agent.sessionId())) return null;
+    if (std.meta.stringToEnum(ClaudeLine, agents.str(v, "type")) != .system) return null;
+    if (!std.mem.eql(u8, agents.str(v, "subtype"), "turn_duration")) return null;
     if (v.object.get("isSidechain")) |side| if (side == .bool and side.bool) return null;
     return .completed;
 }

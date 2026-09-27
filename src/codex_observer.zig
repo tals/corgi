@@ -9,7 +9,6 @@ const Client = @import("codex_socket.zig").Client;
 const a = os.allocator;
 const layout = @import("layout.zig");
 const max = layout.max_panes;
-const eq = std.mem.eql;
 pub const Prefix = providers.SessionPrefix;
 pub const titlePrefix = providers.Codex.titleSession;
 pub const Request = struct { pane: layout.PaneId = .none, pid: c_int = 0, prefix: Prefix, actor: ActorId = .none, generation: u64 = 0, title_revision: u64 = 0 };
@@ -61,10 +60,14 @@ fn unique(ids: []const std.json.Value, prefix: *const Prefix) ?[36]u8 {
     }
     return found;
 }
+// Codex app-server thread `status.type` values.
+const ThreadStatus = enum { active, idle, notLoaded, systemError };
+// `status.activeFlags` entries that mean the thread needs a human.
+const ActiveFlag = enum { waitingOnApproval, waitingOnUserInput };
 fn needsInput(status: std.json.Value) bool {
     const flags = field(status, "activeFlags");
     if (flags == .array) for (flags.array.items) |flag| {
-        if (flag == .string and (eq(u8, flag.string, "waitingOnApproval") or eq(u8, flag.string, "waitingOnUserInput"))) return true;
+        if (flag == .string and std.meta.stringToEnum(ActiveFlag, flag.string) != null) return true;
     };
     return false;
 }
@@ -72,25 +75,26 @@ fn needsInput(status: std.json.Value) bool {
 // between states. A thread the daemon has not loaded (e.g. an old subagent of
 // a resumed session) or that stopped on a system error is not running.
 fn threadState(status: std.json.Value) agents.State {
-    const kind = agents.str(status, "type");
-    if (eq(u8, kind, "active")) return if (needsInput(status)) .blocked else .working;
-    if (eq(u8, kind, "idle") or eq(u8, kind, "notLoaded") or eq(u8, kind, "systemError")) return .idle;
-    return .unknown;
+    const kind = std.meta.stringToEnum(ThreadStatus, agents.str(status, "type")) orelse return .unknown;
+    return switch (kind) {
+        .active => if (needsInput(status)) .blocked else .working,
+        .idle, .notLoaded, .systemError => .idle,
+    };
 }
 const Children = struct { status: agents.Subagents = .{}, any: bool = false, entries: std.ArrayList(Child) = .empty };
 fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void {
     // Validate the relation even if an older daemon ignores the filter.
-    if (!eq(u8, agents.str(thread, "parentThreadId"), parent)) return;
+    if (!std.mem.eql(u8, agents.str(thread, "parentThreadId"), parent)) return;
     out.any = true;
     const status = field(thread, "status");
-    const kind = agents.str(status, "type");
+    const kind = std.meta.stringToEnum(ThreadStatus, agents.str(status, "type"));
     const id = agents.str(thread, "id");
-    for (out.entries.items) |entry| if (eq(u8, &entry.session, id)) return;
-    if (eq(u8, kind, "active")) {
+    for (out.entries.items) |entry| if (std.mem.eql(u8, &entry.session, id)) return;
+    if (kind == .active) {
         if (needsInput(status)) out.status.blocked +|= 1 else out.status.running +|= 1;
     }
     const parsed_id = titlePrefix(id) orelse return;
-    if (parsed_id.len != 36 or eq(u8, id, parent)) return;
+    if (parsed_id.len != 36 or std.mem.eql(u8, id, parent)) return;
     if (out.entries.items.len >= @import("conversations.zig").max_actors) return error.TooManyThreads;
     var child: Child = .{ .session = parsed_id.bytes, .state = threadState(status) };
     const name = agents.str(thread, "name");
@@ -128,12 +132,12 @@ fn children(client: *Client, session: []const u8) !Children {
     return error.TooManyThreads;
 }
 fn isActiveWait(entry: std.json.Value, turn: []const u8, session: []const u8) bool {
-    if (!eq(u8, agents.str(entry, "turnId"), turn)) return false;
+    if (!std.mem.eql(u8, agents.str(entry, "turnId"), turn)) return false;
     const item = field(entry, "item");
-    return eq(u8, agents.str(item, "type"), "collabAgentToolCall") and
-        eq(u8, agents.str(item, "tool"), "wait") and
-        eq(u8, agents.str(item, "status"), "inProgress") and
-        eq(u8, agents.str(item, "senderThreadId"), session);
+    return std.mem.eql(u8, agents.str(item, "type"), "collabAgentToolCall") and
+        std.mem.eql(u8, agents.str(item, "tool"), "wait") and
+        std.mem.eql(u8, agents.str(item, "status"), "inProgress") and
+        std.mem.eql(u8, agents.str(item, "senderThreadId"), session);
 }
 fn waiting(client: *Client, session: []const u8, turn: []const u8) !bool {
     var cursor: ?[]const u8 = null;
@@ -159,7 +163,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     const meta = try client.call("thread/read", .{ .threadId = &session, .includeTurns = false });
     defer meta.deinit();
     const thread = field(result(meta.value), "thread");
-    if (!eq(u8, agents.str(thread, "id"), &session)) return error.WrongThread;
+    if (!std.mem.eql(u8, agents.str(thread, "id"), &session)) return error.WrongThread;
     var state = threadState(field(thread, "status"));
     if (state == .unknown) state = .initializing;
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
@@ -184,8 +188,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
         if (id.len > 0 and id.len <= out.turn.len) {
             @memcpy(out.turn[0..id.len], id);
             out.turn_len = id.len;
-            const ts = agents.str(turn, "status");
-            out.outcome = if (eq(u8, ts, "completed")) .completed else if (eq(u8, ts, "interrupted")) .interrupted else if (eq(u8, ts, "failed")) .failed else null;
+            out.outcome = std.meta.stringToEnum(agents.observation.Outcome, agents.str(turn, "status"));
         }
     }
     // These optional reads must not suppress parent status/completion on older

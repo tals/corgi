@@ -27,14 +27,15 @@ test "V2 fixture migrates before typed decoding and restores unchanged terminal 
     try std.testing.expect(!current.migrated);
 }
 
-test "V3 fixture is current and restores as saved" {
-    // Captured by a V3 build. Keep it unchanged once V4 exists: it becomes
-    // the old-format input for the V3 -> V4 migration.
+test "V3 fixture migrates before typed decoding and restores unchanged terminal data" {
+    // Captured by a V3 build. Kept unchanged now that V4 exists: it is the
+    // old-format input for the V3 -> V4 migration.
     const migrations = @import("state_migrations.zig");
     const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v3.json"));
     defer decoded.deinit();
     try std.testing.expectEqual(@as(u32, 3), decoded.from);
-    try std.testing.expectEqual(migrations.checkpoint_version != 3, decoded.migrated);
+    try std.testing.expect(decoded.migrated);
+    try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
     var fresh: @import("runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v3.sock", "/tmp/corgi");
@@ -45,6 +46,46 @@ test "V3 fixture is current and restores as saved" {
     const text = try fresh.panes.items[0].terminal.text();
     defer a.free(text);
     try std.testing.expect(std.mem.indexOf(u8, text, "v3 history") != null);
+}
+
+test "V4 fixture is current and restores as saved" {
+    // Captured from the migrated V3 fixture (see the generator test below).
+    // Keep it unchanged once V5 exists: it becomes the old-format input for
+    // the V4 -> V5 migration.
+    const migrations = @import("state_migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v4.json"));
+    defer decoded.deinit();
+    try std.testing.expectEqual(@as(u32, 4), decoded.from);
+    try std.testing.expectEqual(migrations.checkpoint_version != 4, decoded.migrated);
+    var fresh: @import("runtime.zig").Runtime = .{};
+    defer fresh.deinit();
+    try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v4.sock", "/tmp/corgi");
+    try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
+    try std.testing.expectEqualStrings("v3-shared", fresh.panes.items[0].agent().sessionId());
+    try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
+    try std.testing.expect(fresh.panes.items[1].attachment.actor == null);
+    const text = try fresh.panes.items[0].terminal.text();
+    defer a.free(text);
+    try std.testing.expect(std.mem.indexOf(u8, text, "v3 history") != null);
+}
+
+test "generate the V4 fixture from the migrated V3 fixture (CORGI_UPDATE_FIXTURE=1 only)" {
+    // Not a real checkpoint.capture from a live daemon: the V3 fixture is
+    // migrated and restored, then re-captured, which exercises the same
+    // capture path a live build would. Run once with CORGI_UPDATE_FIXTURE=1
+    // whenever checkpoint-v4.json needs regenerating, then inspect the diff.
+    if (!std.process.hasEnvVarConstant("CORGI_UPDATE_FIXTURE")) return error.SkipZigTest;
+    const migrations = @import("state_migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v3.json"));
+    defer decoded.deinit();
+    var fresh: @import("runtime.zig").Runtime = .{};
+    defer fresh.deinit();
+    try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v3-to-v4.sock", "/tmp/corgi");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const captured = try cp.capture(arena.allocator(), &fresh, false);
+    const json = try std.json.Stringify.valueAlloc(arena.allocator(), captured, .{});
+    try std.fs.cwd().writeFile(.{ .sub_path = "src/fixtures/checkpoint-v4.json", .data = json });
 }
 
 test "saved checkpoint format matches its version" {

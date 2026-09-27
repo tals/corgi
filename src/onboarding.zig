@@ -2,6 +2,7 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
+const keys = @import("keys.zig");
 const km = @import("keymap.zig");
 const catalog = @import("import_catalog.zig");
 const sidebar = @import("sidebar.zig");
@@ -14,6 +15,8 @@ pub const Step = enum { presets, keymap, connect, import, progress, complete };
 /// on its own: no greeting, and finishing returns to Corgi instead of chaining.
 pub const Mode = enum { welcome, keyboard, import };
 pub const Progress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
+/// `Progress.phase` stays a string on the wire because it is also displayed.
+const Phase = enum { idle, connecting, receiving, preparing, committing, copying, complete, failed };
 pub const State = struct {
     preset: km.Preset = .corgi,
     prefix: km.Prefix = .ctrl_b,
@@ -61,6 +64,9 @@ pub const State = struct {
     fn setMessage(s: *State, msg: []const u8) void {
         s.message_len = @min(msg.len, s.message.len);
         @memcpy(s.message[0..s.message_len], msg[0..s.message_len]);
+    }
+    fn phase(s: *const State) ?Phase {
+        return std.meta.stringToEnum(Phase, s.progress.phase);
     }
     pub fn worker(s: *const State) ?*catalog.Worker {
         return s.workers[@intFromEnum(s.source)];
@@ -188,7 +194,7 @@ pub const State = struct {
         if (s.progress_data) |old| old.deinit();
         s.progress_data = parsed;
         s.progress = parsed.value;
-        if (std.mem.eql(u8, s.progress.phase, "complete")) s.step = .complete;
+        if (s.phase() == .complete) s.step = .complete;
         return true;
     }
     pub fn key(s: *State, byte: u8, conn: *Connection) !bool {
@@ -276,7 +282,7 @@ pub const State = struct {
                 else => {},
             },
             .progress => {
-                if (std.mem.eql(u8, s.progress.phase, "failed") and (byte == 27 or byte == 13)) {
+                if (s.phase() == .failed and (byte == 27 or byte == 13)) {
                     s.step = .import;
                     s.operation = 0;
                     s.setMessage(s.progress.message);
@@ -314,11 +320,14 @@ pub const State = struct {
             s.help.sequence(seq);
             return false;
         }
-        const up = std.mem.eql(u8, seq, "\x1b[A") or std.mem.eql(u8, seq, "\x1bOA");
-        const down = std.mem.eql(u8, seq, "\x1b[B") or std.mem.eql(u8, seq, "\x1bOB");
-        if (up or down) return s.key(if (up) 16 else 14, conn);
-        if (std.mem.eql(u8, seq, "\x1b[5~")) s.scroll -|= 5;
-        if (std.mem.eql(u8, seq, "\x1b[6~")) s.scroll += 5;
+        if (keys.parse(seq)) |k| switch (k) {
+            .up => return s.key(16, conn),
+            .down => return s.key(14, conn),
+            .page_up => s.scroll -|= 5,
+            .page_down => s.scroll += 5,
+            else => {},
+        };
+        // CSI-only, unlike keys.zig's arrows.
         if (s.step == .import and (std.mem.eql(u8, seq, "\x1b[C") or std.mem.eql(u8, seq, "\x1b[D"))) s.changeSource(catalog.available_sources[(@as(usize, @intFromEnum(s.source)) + if (seq[2] == 'C') @as(usize, 1) else catalog.available_sources.len - 1) % catalog.available_sources.len]);
         return false;
     }
@@ -437,7 +446,7 @@ pub const State = struct {
                 } else {
                     var buf: [120]u8 = undefined;
                     try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ s.progress.phase, s.progress.completed, s.progress.total }), mint);
-                    try put(w, b, 3, 8, if (s.step == .complete) "[✓] Complete" else if (std.mem.eql(u8, s.progress.phase, "failed")) "[!] Import stopped · Enter returns to selection" else "[···] Working", bright);
+                    try put(w, b, 3, 8, if (s.step == .complete) "[✓] Complete" else if (s.phase() == .failed) "[!] Import stopped · Enter returns to selection" else "[···] Working", bright);
                 }
                 if (s.cmuxConfused()) {
                     const y: usize = if (s.step == .import) 8 else 9;
@@ -526,7 +535,7 @@ pub const State = struct {
             .keymap => "[ Enter Back ]",
             .connect => "[ Enter Connect → ]",
             .import => if (s.selectionCount() == 0) (if (s.mode == .import) "[ Enter Close ]" else "[ Enter Skip import → ]") else if (s.activeHandoff()) "[ Enter Handoff → ]" else "[ Enter Import → ]",
-            .progress => if (std.mem.eql(u8, s.progress.phase, "failed")) "[ Enter Back ]" else "[ Importing… ]",
+            .progress => if (s.phase() == .failed) "[ Enter Back ]" else "[ Importing… ]",
             .complete => if (s.mode == .import) "[ Enter Done ]" else "[ Enter Open Corgi → ]",
         };
         try put(w, b, b.w -| 27, b.h - 3, cta, if (s.step == .presets and s.focus == 0) keycap else mint);

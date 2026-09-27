@@ -30,7 +30,7 @@ pub const Tracker = struct {
         try t.threads.put(a, key, .{});
     }
     pub fn ingest(t: *Tracker, v: std.json.Value, system: *System, now: i64) void {
-        if (common.eq(common.str(v, "method"), "thread/tokenUsage/updated")) {
+        if (std.mem.eql(u8, common.str(v, "method"), "thread/tokenUsage/updated")) {
             const params = common.field(v, "params");
             const previous = t.threads.getPtr(common.str(params, "threadId")) orelse return;
             const total = common.field(common.field(params, "tokenUsage"), "total");
@@ -49,7 +49,7 @@ pub const Tracker = struct {
             }
             system.meter.add(delta, now);
             system.reports +|= 1;
-        } else if (common.eq(common.str(v, "type"), "result")) {
+        } else if (std.mem.eql(u8, common.str(v, "type"), "result")) {
             // Claude streaming-input results carry this turn's main-loop usage.
             // Count results (including failures), not assistant blocks as well.
             // https://code.claude.com/docs/en/agent-sdk/cost-tracking

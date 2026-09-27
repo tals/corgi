@@ -125,7 +125,7 @@ pub const Session = struct {
     }
     fn syncTools(s: *const Session, target: *agents.Agent) void {
         target.tool_active = false;
-        for (s.active_tools.items) |tool| if (eq(tool.thread, target.sessionId())) {
+        for (s.active_tools.items) |tool| if (std.mem.eql(u8, tool.thread, target.sessionId())) {
             target.tool_active = true;
             return;
         };
@@ -241,7 +241,7 @@ pub const Session = struct {
     }
     fn startTool(s: *Session, target: *agents.Agent, id: []const u8, thread: []const u8, turn: []const u8) !void {
         if (id.len == 0 or id.len > 256 or thread.len > 256 or turn.len > 256) return;
-        for (s.active_tools.items) |tool| if (eq(tool.id, id) and eq(tool.thread, thread)) return;
+        for (s.active_tools.items) |tool| if (std.mem.eql(u8, tool.id, id) and std.mem.eql(u8, tool.thread, thread)) return;
         if (s.active_tools.items.len >= 128) return error.TooManyNativeTools;
         const owned_id = try a.dupe(u8, id);
         errdefer a.free(owned_id);
@@ -256,7 +256,7 @@ pub const Session = struct {
     }
     fn finishTool(s: *Session, id: []const u8, thread: []const u8) void {
         for (s.active_tools.items, 0..) |tool, i| {
-            if (eq(tool.id, id) and eq(tool.thread, thread)) {
+            if (std.mem.eql(u8, tool.id, id) and std.mem.eql(u8, tool.thread, thread)) {
                 s.active_tools.swapRemove(i).deinit();
                 return;
             }
@@ -266,12 +266,12 @@ pub const Session = struct {
         var i: usize = 0;
         while (i < s.active_tools.items.len) {
             const tool = s.active_tools.items[i];
-            if ((thread == null or eq(tool.thread, thread.?)) and (turn == null or eq(tool.turn, turn.?))) {
+            if ((thread == null or std.mem.eql(u8, tool.thread, thread.?)) and (turn == null or std.mem.eql(u8, tool.turn, turn.?))) {
                 s.active_tools.swapRemove(i).deinit();
             } else i += 1;
         }
     }
-    fn observeTools(s: *Session, target: *agents.Agent, v: std.json.Value, params: std.json.Value, method: []const u8, kind: []const u8) !void {
+    fn observeTools(s: *Session, target: *agents.Agent, v: std.json.Value, params: std.json.Value, method: ?providers.Codex.Method, kind: ?providers.Claude.MessageType) !void {
         switch (s.provider) {
             .codex => try s.codexTools(target, params, method),
             .claude => try s.claudeTools(target, v, kind),
@@ -298,42 +298,36 @@ pub const Session = struct {
         const role = agents.str(thread, "agentRole");
         if (role.len > 0) owner.role_len = agents.clean(&owner.role, role);
     }
-    fn codexTools(s: *Session, target: *agents.Agent, params: std.json.Value, method: []const u8) !void {
+    fn codexTools(s: *Session, target: *agents.Agent, params: std.json.Value, method: ?providers.Codex.Method) !void {
         if (params != .object) return;
         const thread = agents.str(params, "threadId");
-        if (eq(method, "thread/tokenUsage/updated")) {
+        if (method == .@"thread/tokenUsage/updated") {
             const usage = @import("usage.zig");
             s.usage_pending.add(s.usage_tracker.codexNotification(thread, usage.field(params, "tokenUsage"), s.active_threads.contains(thread)));
         }
-        if (eq(method, "item/started") or eq(method, "item/completed")) {
+        if (method == .@"item/started" or method == .@"item/completed") {
             const item = params.object.get("item") orelse return;
             const id = agents.str(item, "id");
-            if (eq(method, "item/completed")) {
+            if (method == .@"item/completed") {
                 s.finishTool(id, thread);
-            } else {
-                const item_kind = agents.str(item, "type");
-                for ([_][]const u8{ "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall", "webSearch", "imageView", "imageGeneration" }) |tool_kind| {
-                    if (eq(item_kind, tool_kind)) {
-                        try s.startTool(target, id, thread, agents.str(params, "turnId"));
-                        break;
-                    }
-                }
+            } else if (std.meta.stringToEnum(providers.Codex.ItemType, agents.str(item, "type")) != null) {
+                try s.startTool(target, id, thread, agents.str(params, "turnId"));
             }
-        } else if (eq(method, "turn/completed")) {
+        } else if (method == .@"turn/completed") {
             const turn = agents.str(params.object.get("turn") orelse .null, "id");
             s.clearTools(thread, if (turn.len > 0) turn else null);
         }
     }
-    fn claudeTools(s: *Session, target: *agents.Agent, v: std.json.Value, kind: []const u8) !void {
+    fn claudeTools(s: *Session, target: *agents.Agent, v: std.json.Value, kind: ?providers.Claude.MessageType) !void {
         if (v != .object) return;
-        if (eq(kind, "result")) {
+        if (kind == .result) {
             s.clearTools(target.sessionId(), null);
             return;
         }
-        if (!eq(kind, "assistant") and !eq(kind, "user")) return;
+        if (kind != .assistant and kind != .user) return;
         const message = v.object.get("message") orelse return;
         if (message != .object) return;
-        if (eq(kind, "assistant")) {
+        if (kind == .assistant) {
             var delta = s.usage_tracker.claudeMessage(message);
             delta.tools = 0; // startTool owns native tool accounting.
             s.usage_pending.add(delta);
@@ -341,8 +335,11 @@ pub const Session = struct {
         const content = message.object.get("content") orelse return;
         if (content != .array) return;
         for (content.array.items) |block| {
-            const block_kind = agents.str(block, "type");
-            if (eq(block_kind, "tool_use")) try s.startTool(target, agents.str(block, "id"), target.sessionId(), "") else if (eq(block_kind, "tool_result")) s.finishTool(agents.str(block, "tool_use_id"), target.sessionId());
+            switch (std.meta.stringToEnum(providers.Claude.BlockType, agents.str(block, "type")) orelse continue) {
+                .tool_use => try s.startTool(target, agents.str(block, "id"), target.sessionId(), ""),
+                .tool_result => s.finishTool(agents.str(block, "tool_use_id"), target.sessionId()),
+                .text => continue,
+            }
         }
     }
     fn queue(s: *Session, v: anytype) !void {
@@ -355,7 +352,7 @@ pub const Session = struct {
     pub fn send(s: *Session, _: *conversations.Registry, v: std.json.Value) !void {
         if (s.exited) return error.NativeExited;
         if (v != .object) return error.InvalidMessage;
-        if (eq(agents.str(v, "id"), "__corgi_init")) return error.ReservedRequestId;
+        if (std.mem.eql(u8, agents.str(v, "id"), "__corgi_init")) return error.ReservedRequestId;
         if (s.ready) try s.queue(v) else {
             const line = try std.json.Stringify.valueAlloc(a, v, .{});
             defer a.free(line);
@@ -433,6 +430,8 @@ pub const Session = struct {
         const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch return false;
         defer parsed.deinit();
         const v = parsed.value;
+        const method = std.meta.stringToEnum(providers.Codex.Method, agents.str(v, "method"));
+        const kind = std.meta.stringToEnum(providers.Claude.MessageType, agents.str(v, "type"));
         const event = providers.Backend.init(s.provider).nativeEvent(v);
         if (event.initialize) {
             if (event.initialization_failed) return error.NativeInitializeFailed;
@@ -470,13 +469,12 @@ pub const Session = struct {
                     tool.thread = try a.dupe(u8, owner.state.sessionId());
                 };
             }
-            const method = agents.str(v, "method");
             // A response naming a thread (start/resume/fork) selects it too.
             const response_selects = switch (s.provider) {
                 .codex => v == .object and v.object.contains("result") and event.session.len > 0,
                 .claude => false,
             };
-            const explicit_selection = eq(method, "thread/started") or response_selects;
+            const explicit_selection = method == .@"thread/started" or response_selects;
             if (s.attachment.actor == null or (explicit_selection and owner.parent == null)) s.attachment.select(owner);
             if (s.attachment.actor == owner) s.resume_hint.observe(&owner.state);
         }
@@ -485,14 +483,12 @@ pub const Session = struct {
         if (target.state == .unknown and s.ready) target.state = .idle;
         const old = target.state;
         var ding = false;
-        const method = agents.str(v, "method");
-        const kind = agents.str(v, "type");
         const params = if (v == .object) v.object.get("params") orelse .null else .null;
         const reported_turn = if (event.turn.len > 0) event.turn else agents.str(params, "turnId");
         const completed_turn = reported_turn.len > 0 and target.finishedTurn(reported_turn);
-        const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !eq(reported_turn, target.turnId()));
+        const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !std.mem.eql(u8, reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
-        if (actor) |owner| if (eq(method, "thread/tokenUsage/updated")) switch (s.provider) {
+        if (actor) |owner| if (method == .@"thread/tokenUsage/updated") switch (s.provider) {
             .codex => owner.native_meter.native(@import("usage.zig").field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
             .claude => {},
         };
@@ -529,10 +525,10 @@ pub const Session = struct {
         } else if (event.phase == .completed) {
             const active_turn = s.active_threads.get(event.thread);
             const matches = switch (s.provider) {
-                .codex => !stale_turn and ((active_turn != null and (active_turn.?.len == 0 or eq(active_turn.?, event.turn))) or target.state == .working or target.state == .blocked),
+                .codex => !stale_turn and ((active_turn != null and (active_turn.?.len == 0 or std.mem.eql(u8, active_turn.?, event.turn))) or target.state == .working or target.state == .blocked),
                 .claude => !target.finished_since_activity and (old == .working or old == .blocked),
             };
-            if (active_turn != null and (event.turn.len == 0 or active_turn.?.len == 0 or eq(active_turn.?, event.turn))) {
+            if (active_turn != null and (event.turn.len == 0 or active_turn.?.len == 0 or std.mem.eql(u8, active_turn.?, event.turn))) {
                 if (s.active_threads.fetchRemove(event.thread)) |entry| {
                     a.free(entry.key);
                     a.free(entry.value);
@@ -544,7 +540,7 @@ pub const Session = struct {
             target.state = .blocked;
             target.attention = .needs_input;
         }
-        if (!stale_turn and (event.phase != .none or event.request_id != null or eq(method, "item/started") or eq(method, "item/completed") or eq(kind, "user"))) s.syncTools(target);
+        if (!stale_turn and (event.phase != .none or event.request_id != null or method == .@"item/started" or method == .@"item/completed" or kind == .user)) s.syncTools(target);
         if (!stale_turn and (target.state != old or event.phase != .none or event.request_id != null)) {
             target.last_seq = std.time.microTimestamp();
             target.changed_at = target.last_seq;
@@ -564,11 +560,7 @@ pub const Session = struct {
 };
 fn sameId(x: std.json.Value, y: std.json.Value) bool {
     return std.meta.activeTag(x) == std.meta.activeTag(y) and
-        ((x == .string and eq(x.string, y.string)) or (x == .integer and x.integer == y.integer));
-}
-
-fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
+        ((x == .string and std.mem.eql(u8, x.string, y.string)) or (x == .integer and x.integer == y.integer));
 }
 
 fn testSession(provider: agents.Provider) !Session {

@@ -6,6 +6,12 @@ const a = os.allocator;
 const metadata = @import("account_preview.zig");
 pub const interval: i64 = 60;
 pub const cooldown: i64 = 5 * 60;
+/// The one place the producer's "Metered" text is read back; callers use the
+/// typed `Option.usage_metered` it feeds.
+pub fn isMetered(usage_text: []const u8) bool {
+    return std.mem.eql(u8, usage_text, "Metered");
+}
+
 pub const State = struct {
     info: metadata.Info = .{},
     next_usage: i64 = 0,
@@ -27,7 +33,7 @@ pub const State = struct {
         var result = s.info;
         if (s.rate_limited and result.usage_error.len == 0) result.usage_error.set("server returned 429");
         if (result.usage.len > 0) {
-            if (!std.mem.eql(u8, result.usage.text(), "Metered") and
+            if (!isMetered(result.usage.text()) and
                 (result.usage_fetched_at <= 0 or now -| result.usage_fetched_at >= metadata.usage_max_age))
             {
                 result.usage.set("Unavailable");

@@ -127,19 +127,35 @@ pub const Hook = struct {
     permission_notification: bool = false,
 };
 
+/// `hook_event_name` values Claude's and Codex's hook payloads carry.
+pub const HookEvent = enum { SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PreCompact, PostCompact, Stop, Interrupt, SessionEnd, Notification };
+/// `notification_type` values that surface as a hook, versus ones ignored
+/// (e.g. `idle_prompt`, which follows every finished turn after a minute).
+pub const NotificationType = enum { permission_prompt, elicitation_dialog };
+
 /// Claude and Codex currently share this hook envelope, not lifecycle state.
 pub const Hooks = struct {
     pub fn decode(_: Hooks, value: std.json.Value) ?Hook {
         if (value != .object or str(value, "agent_id").len != 0) return null;
-        const event = str(value, "hook_event_name");
+        const event = std.meta.stringToEnum(HookEvent, str(value, "hook_event_name")) orelse return null;
+        const notification = std.meta.stringToEnum(NotificationType, str(value, "notification_type"));
         const tool = str(value, "tool_name");
-        const kind: @FieldType(Hook, "kind") = if (eq(event, "SessionStart")) .session_start else if (eq(event, "UserPromptSubmit")) .prompt else if (eq(event, "PreToolUse")) .tool_start else if (eq(event, "PostToolUse")) .tool_finish else if (eq(event, "PostToolUseFailure")) .tool_failure else if (eq(event, "PermissionRequest")) .permission else if (eq(event, "PreCompact")) .compact_start else if (eq(event, "PostCompact")) .compact_end else if (eq(event, "Stop")) .stop else if (eq(event, "Interrupt")) .interrupt else if (eq(event, "SessionEnd")) .session_end else if (eq(event, "Notification")) blk: {
-            const notification = str(value, "notification_type");
-            // idle_prompt follows every finished turn after a minute ("waiting
-            // for your input"); Stop already made the agent idle, not blocked.
-            if (eq(notification, "permission_prompt") or eq(notification, "elicitation_dialog")) break :blk .notification;
-            return null;
-        } else return null;
+        const kind: @FieldType(Hook, "kind") = switch (event) {
+            .SessionStart => .session_start,
+            .UserPromptSubmit => .prompt,
+            .PreToolUse => .tool_start,
+            .PostToolUse => .tool_finish,
+            .PostToolUseFailure => .tool_failure,
+            .PermissionRequest => .permission,
+            .PreCompact => .compact_start,
+            .PostCompact => .compact_end,
+            .Stop => .stop,
+            .Interrupt => .interrupt,
+            .SessionEnd => .session_end,
+            // Stop already made the agent idle, not blocked; only a real
+            // permission or elicitation notification reopens it.
+            .Notification => if (notification != null) .notification else return null,
+        };
         return .{
             .kind = kind,
             .session = str(value, "session_id"),
@@ -152,8 +168,8 @@ pub const Hooks = struct {
             .description = str(field(value, "tool_input"), "description"),
             .background_tasks = field(value, "background_tasks"),
             .target = target(field(value, "tool_input")),
-            .asking = kind == .tool_start and (eq(tool, "AskUserQuestion") or eq(tool, "request_user_input")),
-            .permission_notification = kind == .notification and eq(str(value, "notification_type"), "permission_prompt"),
+            .asking = kind == .tool_start and (std.mem.eql(u8, tool, "AskUserQuestion") or std.mem.eql(u8, tool, "request_user_input")),
+            .permission_notification = kind == .notification and notification == .permission_prompt,
         };
     }
 };
@@ -186,10 +202,6 @@ pub fn str(v: std.json.Value, key: []const u8) []const u8 {
     const value = field(v, key);
     return if (value == .string) value.string else "";
 }
-pub fn eq(x: []const u8, y: []const u8) bool {
-    return std.mem.eql(u8, x, y);
-}
-
 test "idle notifications do not mark a finished agent as needing input" {
     const alloc = std.testing.allocator;
     const idle = try std.json.parseFromSlice(std.json.Value, alloc,

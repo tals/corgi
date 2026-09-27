@@ -82,6 +82,8 @@ fn str(v: std.json.Value, key: []const u8) []const u8 {
     const item = field(v, key);
     return if (item == .string) item.string else "";
 }
+// Codex thread/turn item kinds (`items[].type`) as returned by app-server reads.
+const ItemKind = enum { userMessage, agentMessage };
 // The summary view contains the first user message and latest assistant message.
 // Favor recent commentary over the original request when space is constrained.
 pub fn codex(turn: std.json.Value) Text {
@@ -90,7 +92,7 @@ pub fn codex(turn: std.json.Value) Text {
     if (items != .array) return out;
     var latest: []const u8 = "";
     for (items.array.items) |item| {
-        if (std.mem.eql(u8, str(item, "type"), "agentMessage")) latest = str(item, "text");
+        if (std.meta.stringToEnum(ItemKind, str(item, "type")) == .agentMessage) latest = str(item, "text");
     }
     if (latest.len > 0) {
         out.append("Latest agent update: ");
@@ -98,7 +100,7 @@ pub fn codex(turn: std.json.Value) Text {
         out.append("\n");
     }
     for (items.array.items) |item| {
-        if (!std.mem.eql(u8, str(item, "type"), "userMessage")) continue;
+        if (std.meta.stringToEnum(ItemKind, str(item, "type")) != .userMessage) continue;
         const content = field(item, "content");
         if (content != .array) continue;
         out.append("User request: ");

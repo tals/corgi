@@ -1,5 +1,6 @@
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations are RPC operations.
 const std = @import("std");
+const keys = @import("keys.zig");
 const keyboard = @import("keyboard.zig");
 const keymap = @import("keymap.zig");
 const onboarding = @import("onboarding.zig");
@@ -1677,8 +1678,9 @@ pub const Controller = struct {
                     }
                 }
             }
-            if (eq(seq, "\x1b[200~") or eq(seq, "\x1b[201~")) {
-                cl.paste = eq(seq, "\x1b[200~");
+            const parsed_key = keys.parse(seq);
+            if (parsed_key == .paste_start or parsed_key == .paste_end) {
+                cl.paste = parsed_key == .paste_start;
                 if (cl.paste) {
                     cl.paste_pane = if (!s.hasMenu() and s.name_dialog == null and s.confirm == .none) (if (s.focused()) |p| p.id else null) else null;
                     cl.paste_to_name = s.name_dialog != null;
@@ -1691,9 +1693,9 @@ pub const Controller = struct {
                 if (cl.paste_pane) |id| {
                     if (s.pane(id)) |p| try s.sendInput(p.terminal, seq);
                 }
-            } else if (eq(seq, "\x1b[I")) {
+            } else if (parsed_key == .focus_in) {
                 cl.watched = true;
-            } else if (eq(seq, "\x1b[O")) {
+            } else if (parsed_key == .focus_out) {
                 cl.watched = false;
                 s.pointer = null;
                 s.dirty = true;
@@ -1717,37 +1719,38 @@ pub const Controller = struct {
                         s.prefix = false;
                         try s.action("resize", value);
                     }
-                } else if (s.key_preset == .herdr and eq(seq, "\x1b[Z")) {
+                } else if (s.key_preset == .herdr and parsed_key == .shift_tab) {
                     try s.dispatchKey(keymap.cycle_prev);
                 } else if (s.help_visible) s.help.sequence(seq);
                 s.dirty = true;
             } else if (s.workspace_chooser != null) {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) try s.key(16) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) try s.key(14);
+                if (parsed_key == .up) try s.key(16) else if (parsed_key == .down) try s.key(14);
             } else if (s.agent_picker != null) {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) s.moveAgentPicker(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveAgentPicker(true) else s.agent_picker.?.query.sequence(seq);
+                if (parsed_key == .up or parsed_key == .shift_tab) s.moveAgentPicker(false) else if (parsed_key == .down) s.moveAgentPicker(true) else s.agent_picker.?.query.sequence(seq);
             } else if (s.corgi_setup) |*setup| {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA") or eq(seq, "\x1b[Z")) setup.move(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) setup.move(true);
+                if (parsed_key == .up or parsed_key == .shift_tab) setup.move(false) else if (parsed_key == .down) setup.move(true);
                 s.dirty = true;
             } else if (s.agent_launcher != null) {
+                // CSI-only on purpose: SS3 arrows reach the name field as input.
                 if (s.agent_launcher.?.managing and s.agent_launcher.?.selected == .add and !eq(seq, "\x1b[A") and !eq(seq, "\x1b[B") and !eq(seq, "\x1b[Z")) {
                     s.agent_launcher.?.input().sequence(seq);
                     s.dirty = true;
-                } else if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveLauncher(false, false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveLauncher(true, false) else if (eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.selectLauncher(s.agent_launcher.?.first()) else if (eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.selectLauncher(if (s.agent_launcher.?.managing) .manage else .terminal) else if (eq(seq, "\x1b[Z")) s.moveLauncher(false, true) else if (!s.agent_launcher.?.pinned) {
+                } else if (parsed_key == .up) s.moveLauncher(false, false) else if (parsed_key == .down) s.moveLauncher(true, false) else if (eq(seq, "\x1b[H") or eq(seq, "\x1b[1~")) s.selectLauncher(s.agent_launcher.?.first()) else if (eq(seq, "\x1b[F") or eq(seq, "\x1b[4~")) s.selectLauncher(if (s.agent_launcher.?.managing) .manage else .terminal) else if (parsed_key == .shift_tab) s.moveLauncher(false, true) else if (!s.agent_launcher.?.pinned) {
                     s.closeMenu();
                     if (s.focused()) |p| try s.sendInput(p.terminal, seq);
                 }
             } else if (s.port_menu != null) {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.movePortMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.movePortMenu(true);
+                if (parsed_key == .up) s.movePortMenu(false) else if (parsed_key == .down) s.movePortMenu(true);
             } else if (s.tab_menu != null) {
-                if (eq(seq, "\x1b[A") or eq(seq, "\x1bOA")) s.moveTabMenu(false) else if (eq(seq, "\x1b[B") or eq(seq, "\x1bOB")) s.moveTabMenu(true);
+                if (parsed_key == .up) s.moveTabMenu(false) else if (parsed_key == .down) s.moveTabMenu(true);
             } else if (s.menu() != null) {
-                if (eq(seq, "\x1b[5~")) s.pageMenu(false) else if (eq(seq, "\x1b[6~")) s.pageMenu(true);
+                if (parsed_key == .page_up) s.pageMenu(false) else if (parsed_key == .page_down) s.pageMenu(true);
             } else if (s.name_dialog) |*dialog| {
                 dialog.sequence(seq);
                 s.dirty = true;
             } else if (s.confirm != .none) {
                 // Dialog keys belong to Corgi, never to the shell beneath it.
-            } else if (s.copy_mode and eq(seq, "\x1b[5~")) s.scroll(-20) else if (s.copy_mode and eq(seq, "\x1b[6~")) s.scroll(20) else if (s.focused()) |p| try s.sendInput(p.terminal, seq);
+            } else if (s.copy_mode and parsed_key == .page_up) s.scroll(-20) else if (s.copy_mode and parsed_key == .page_down) s.scroll(20) else if (s.focused()) |p| try s.sendInput(p.terminal, seq);
             used += len;
         }
         std.mem.copyForwards(u8, cl.keybuf.items[0 .. cl.keybuf.items.len - used], cl.keybuf.items[used..]);
@@ -2193,7 +2196,7 @@ pub const Controller = struct {
             const response = try s.connection.request(.{ .op = "git.push", .protocol = 1, .workspace = ws.id, .ref = s.runtime.workspaces.items[index].git_ref });
             defer response.deinit();
             const err = agents.str(response.value, "err");
-            if (err.len > 0) s.notice(if (std.mem.eql(u8, err, "GitPreviewChanged")) "Branch, commits, or upstream changed. Review the preview and retry." else if (std.mem.eql(u8, err, "GitPushInProgress")) "A push is already running for this repository." else err);
+            if (err.len > 0) s.notice(if (std.mem.eql(u8, err, @errorName(error.GitPreviewChanged))) "Branch, commits, or upstream changed. Review the preview and retry." else if (std.mem.eql(u8, err, @errorName(error.GitPushInProgress))) "A push is already running for this repository." else err);
             try s.refresh();
             s.dirty = true;
             return;

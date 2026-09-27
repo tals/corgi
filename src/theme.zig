@@ -1,6 +1,7 @@
 const std = @import("std");
 const vt = @import("ghostty-vt");
 const os = @import("os.zig");
+const keys = @import("keys.zig");
 const a = os.allocator;
 
 /// The host's default colors and its configurable ANSI palette. Applications
@@ -37,20 +38,24 @@ pub const Theme = struct {
         for (t.palette) |entry| if (entry == null) return false;
         return true;
     }
+    const OscKind = enum { @"4", @"10", @"11" };
     fn accept(t: *Theme, body: []const u8) bool {
         var fields = std.mem.splitScalar(u8, body, ';');
-        const kind = fields.next() orelse return false;
+        const kind = std.meta.stringToEnum(OscKind, fields.next() orelse return false) orelse return false;
         const entry = fields.next() orelse return false;
-        if (std.mem.eql(u8, kind, "4")) {
-            const index = std.fmt.parseInt(u8, entry, 10) catch return false;
-            if (index >= t.palette.len) return false;
-            const rgb = fields.next() orelse return false;
-            if (fields.next() != null) return false;
-            t.palette[index] = vt.color.RGB.parse(rgb) catch return false;
-        } else {
-            if (fields.next() != null) return false;
-            const color = vt.color.RGB.parse(entry) catch return false;
-            if (std.mem.eql(u8, kind, "10")) t.foreground = color else if (std.mem.eql(u8, kind, "11")) t.background = color else return false;
+        switch (kind) {
+            .@"4" => {
+                const index = std.fmt.parseInt(u8, entry, 10) catch return false;
+                if (index >= t.palette.len) return false;
+                const rgb = fields.next() orelse return false;
+                if (fields.next() != null) return false;
+                t.palette[index] = vt.color.RGB.parse(rgb) catch return false;
+            },
+            .@"10", .@"11" => {
+                if (fields.next() != null) return false;
+                const color = vt.color.RGB.parse(entry) catch return false;
+                if (kind == .@"10") t.foreground = color else t.background = color;
+            },
         }
         return true;
     }
@@ -77,8 +82,8 @@ pub const Probe = struct {
             p.len += 1;
             p.touched = std.time.milliTimestamp();
             const sequence = p.pending[0..p.len];
-            const start = "\x1b[200~";
-            const end = "\x1b[201~";
+            const start = keys.paste_start;
+            const end = keys.paste_end;
             if (std.mem.eql(u8, sequence, start) or std.mem.eql(u8, sequence, end)) {
                 p.paste = std.mem.eql(u8, sequence, start);
                 try p.flush(input);
