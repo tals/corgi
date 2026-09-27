@@ -157,7 +157,7 @@ class Files extends Runtime {
       turn_id: "current",
     });
     await this.until(async () => (await this.state()).completed === 1);
-    await sleep(0.7);
+    await this.settle();
     this.assertEqual((await this.state()).completed, 1);
   }
   async test_app_server_preferred_then_files_resume() {
@@ -174,7 +174,7 @@ class Files extends Runtime {
     const protocolName = (await this.state()).name;
     this.assertEqual((await this.state()).activity, "Tracing pane focus");
     this.rename("File rename while connected");
-    await sleep(1.3);
+    await this.settle();
     this.assertEqual((await this.state()).name, protocolName);
     await this.sim.close();
     this.sim = null;
@@ -223,7 +223,7 @@ class Files extends Runtime {
     });
     await this.hook("UserPromptSubmit", "second", B);
     this.tools(3);
-    await sleep(1);
+    await this.settle();
     this.assertEqual((await this.state()).activity, "");
     this.assertEqual((await this.state()).completed, 0);
     await this.hook("SessionStart");

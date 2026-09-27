@@ -147,29 +147,29 @@ export class Titles extends Runtime {
     this.states[A] = "idle";
     this.turns[A] = ["new", "completed"];
     await this.until(async () => (await this.state()).completed === 1);
-    await sleep(1);
+    await this.settle();
     this.assertEqual((await this.state()).completed, 1);
     await this.title(B.slice(0, 29) + "...");
     await this.until(async () => (await this.state()).session === B);
     this.assertEqual((await this.state()).completed, 0);
     this.turns[A] = ["unrelated", "completed"];
-    await sleep(1);
+    await this.settle();
     this.assertEqual((await this.state()).completed, 0);
     this.assertEqual(this.errors, []);
   }
   async test_ambiguous_prefix_does_not_rebind() {
     this.ids.push(B.slice(0, -3) + "def");
     await this.title(B.slice(0, 29) + "...");
-    await sleep(1.5);
+    await this.settle();
     this.assertNotEqual((await this.state()).session, B);
     this.ids.pop();
     await this.until(async () => (await this.state()).session === B);
   }
   async test_missing_title_prevents_updates() {
     await this.title("shell");
-    await sleep(0.7);
+    await this.settle();
     this.turns[A] = ["after-title-gone", "completed"];
-    await sleep(1);
+    await this.settle();
     this.assertEqual((await this.state()).completed, 0);
   }
   async test_resumed_work_does_not_freeze_after_protocol_falls_back_to_screen() {
@@ -273,11 +273,11 @@ export class Titles extends Runtime {
       await this.until(
         async () => (await this.state()).subagents.running === 0,
       );
-      await sleep(0.7);
+      await this.settle();
       const before = this.methods.filter(
         (m: string) => m === "thread/items/list",
       ).length;
-      await sleep(0.7);
+      await this.settle();
       this.assertEqual(
         this.methods.filter((m: string) => m === "thread/items/list").length,
         before,
