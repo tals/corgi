@@ -69,7 +69,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset, .known = p.terminal.known };
         count += 1;
     }
-    const response = try view.connection.callViewer(.{ .op = "viewer.sync", .resource_detail = view.resourceDetail(), .resources = view.resource_prefs.mode != .off, .protocol = 1, .viewer_protocol = viewer_version.version, .session_hash = view.runtime.snapshot_hash, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
+    const response = try view.connection.callViewer(.{ .op = "viewer.sync", .resource_detail = view.resourceDetail(), .resources = view.resource_prefs.enabled, .protocol = 1, .viewer_protocol = viewer_version.version, .session_hash = view.runtime.snapshot_hash, .interests = interests[0..count], .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null, .watched = view.input_state.watched, .workspace = view.current().id, .ack = view.input_state.last_control, .active = view.input_state.active });
     view.input_state.active = false;
     defer response.deinit();
     const parsed = try std.json.parseFromValue(Response, a, response.value, .{ .ignore_unknown_fields = true });

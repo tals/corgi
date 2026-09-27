@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { registerCase, shellJoin } from "./support";
+import { registerCase, shellJoin, sleep } from "./support";
 
 class Resources extends Runtime {
   async test_process_churn_keeps_established_workspace_totals() {
@@ -71,7 +71,9 @@ class Resources extends Runtime {
       const resourceRow = frame.slice(resourceStart, frame.indexOf("\x1b[6;1H", resourceStart));
       this.assertIn("\x1b[4;58:2::65:70:77m", resourceRow);
       this.assertIn("\x1b[24;59m", resourceRow);
-      this.assertRegex(screen_text(frame, cols, 40)[4], /C .*M .*I /);
+      this.assertRegex(screen_text(frame, cols, 40)[4], /C .*M .*↕ /);
+      this.assertEqual(screen_text(frame, cols, 40)[4][25], "›");
+      this.assertNotIn("\x1b[48;2;48;57;70m", frame);
 
       // Every workspace row selects, including the previously inert third row.
       for (const row of [6, 7, 8]) {
@@ -85,8 +87,16 @@ class Resources extends Runtime {
       await viewer.input("\x1b[<35;5;4M");
       await viewer.advance(0.6);
       this.assertNotIn("TOP PROCESSES", viewer.state.data);
+      this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
       await viewer.input("\x1b[<35;5;5M");
       this.assertNotIn("TOP PROCESSES", viewer.state.data);
+      this.assertIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      // The end chevron belongs to the same hover target; the padding does not.
+      await viewer.input("\x1b[<35;26;5M");
+      this.assertIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      await viewer.input("\x1b[<35;27;5M");
+      this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      await viewer.input("\x1b[<35;5;5M");
       await viewer.advance(0.6);
       this.assertIn("TOP PROCESSES", viewer.state.data);
 
@@ -112,6 +122,58 @@ class Resources extends Runtime {
       this.assertEqual(viewer.state.workspace, second);
       await viewer.close();
     }
+
+    // A terminal too short for the card must not advertise hover details.
+    const quiet = await Viewer.create(this, 120, 20);
+    this.assertNotIn("›", screen_text(quiet.state.data, 120, 20)[4]);
+    await quiet.input("\x1b[<35;5;5M");
+    await quiet.advance(0.6);
+    this.assertNotIn("\x1b[48;2;48;57;70m", quiet.state.data);
+    this.assertNotIn("TOP PROCESSES", quiet.state.data);
+    await quiet.close();
+  }
+
+  async test_readings_off_removes_the_row_and_stops_sampling() {
+    const first = (await this.session()).workspaces[0].id;
+    await this.command("pane.create", {
+      workspace: first, cwd: this.temp.name, command: "/bin/sleep 300",
+    });
+    const second = (await this.command("workspace.create", {
+      name: "second", cwd: this.temp.name,
+    })).workspace;
+    await this.until(async () => (await this.session()).resources.sampled_at > 0, 8);
+    const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
+    writeFileSync(preferences, JSON.stringify({
+      onboarding_complete: true, resources: { enabled: false },
+    }));
+    const viewer = await Viewer.create(this, 120, 40);
+    await viewer.request({ op: "workspace", workspace: first });
+    // The daemon stops sampling and drops what it had.
+    await this.until(async () => {
+      await viewer.poll();
+      const resources = (await this.session()).resources;
+      return resources.sampled_at === 0 && resources.workspaces.length === 0;
+    }, 5);
+    const rows = screen_text(viewer.state.data, 120, 40);
+    // Two rows per workspace: the second workspace's name follows the first's status.
+    this.assertIn("second", rows[4]);
+    for (const row of rows.slice(0, 12)) this.assertFalse(/C .*M .*↕ /.test(row), row);
+    await viewer.input("\x1b[<0;5;6M");
+    await viewer.input("\x1b[<0;5;6m");
+    this.assertEqual(viewer.state.workspace, second);
+    await viewer.close();
+
+    // Sampling stays stopped after the last viewer detaches.
+    await sleep(2.5);
+    this.assertEqual((await this.session()).resources.sampled_at, 0);
+
+    writeFileSync(preferences, JSON.stringify({ onboarding_complete: true }));
+    const shown = await Viewer.create(this, 120, 40);
+    await this.until(async () => {
+      await shown.poll();
+      return (await this.session()).resources.sampled_at > 0;
+    }, 8);
+    await shown.close();
   }
 
   async test_native_agent_process_is_attributed_without_a_pane() {
@@ -168,8 +230,8 @@ class Resources extends Runtime {
     const second = await Viewer.create(this, 120, 40);
     let frame = (await viewer.poll()).data;
     const rows = screen_text(frame, 120, 40);
-    this.assertRegex(rows[4], /C .*M .*I /);
-    this.assertRegex(rows[7], /C .*M .*I /);
+    this.assertRegex(rows[4], /C .*M .*↕ /);
+    this.assertRegex(rows[7], /C .*M .*↕ /);
     await viewer.input("\x1b[<35;5;5M");
     this.assertNotIn("TOP PROCESSES", viewer.state.data);
     await viewer.advance(0.6);
@@ -192,6 +254,7 @@ class Resources extends Runtime {
     for (const [column, row] of [[26, 5], [27, 6], [28, 7], [29, 8], [70, 12]]) {
       await viewer.input(`\x1b[<35;${column};${row}M`);
       this.assertIn("TOP PROCESSES", viewer.state.data);
+      this.assertIn("\x1b[48;2;48;57;70m", viewer.state.data);
     }
     await viewer.input("\x1b[<0;88;19M");
     await viewer.input("\x1b[<0;88;19m");
@@ -202,6 +265,7 @@ class Resources extends Runtime {
     writeFileSync("/tmp/corgi-resource-screen.txt", screen_text(viewer.state.data, 120, 40).join("\n"));
     await viewer.input("\x1b[<35;118;38M");
     this.assertNotIn("TOP PROCESSES", viewer.state.data);
+    this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
     await viewer.poll();
     await this.until(async () => (await this.session()).resources.interval_ms === 2000, 5);
     await this.command("pane.close", { target: pane });

@@ -1,6 +1,6 @@
 //! Setup modal opened from the corgi badge (or Ctrl-B i), centered on screen.
 //! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
-//! resource choices update viewer preferences.
+//! resource and sleep animation choices update viewer preferences.
 const std = @import("std");
 const setup = @import("inference_setup.zig");
 const sidebar = @import("sidebar.zig");
@@ -11,14 +11,12 @@ pub const Choice = enum {
     claude,
     off,
     ghostty,
-    readings_always,
-    readings_busy,
-    readings_off,
+    readings,
     cpu,
     memory,
     io,
     alerts,
-    card,
+    sleep_animation,
     keyboard,
     import,
 
@@ -28,29 +26,19 @@ pub const Choice = enum {
     fn summarizer(choice: Choice) bool {
         return @intFromEnum(choice) <= @intFromEnum(Choice.off);
     }
-    fn readingMode(choice: Choice) ?Resources.Mode {
-        return switch (choice) {
-            .readings_always => .always,
-            .readings_busy => .busy,
-            .readings_off => .off,
-            else => null,
-        };
-    }
     fn toggle(choice: Choice, prefs: *Resources) ?*bool {
         return switch (choice) {
+            .readings => &prefs.enabled,
             .cpu => &prefs.cpu,
             .memory => &prefs.memory,
             .io => &prefs.io,
             .alerts => &prefs.alerts,
-            .card => &prefs.card,
             else => null,
         };
     }
     /// Applies a resource choice. False for choices that are not resource settings.
     pub fn applyResources(choice: Choice, prefs: *Resources) bool {
-        if (choice.readingMode()) |mode| {
-            prefs.mode = mode;
-        } else if (choice.toggle(prefs)) |value| {
+        if (choice.toggle(prefs)) |value| {
             value.* = !value.*;
         } else return false;
         return true;
@@ -60,15 +48,14 @@ pub const Choice = enum {
             .auto => "Auto",
             .codex => "Codex",
             .claude => "Claude",
-            .off, .readings_off => "Off",
+            .off => "Off",
             .ghostty => "Command-key integration",
-            .readings_always => "Always",
-            .readings_busy => "When busy",
+            .readings => "Resource readings",
             .cpu => "CPU",
             .memory => "Memory",
             .io => "I/O",
             .alerts => "Amber alerts",
-            .card => "Process card on hover",
+            .sleep_animation => "Sleep animation",
             .keyboard => "Keyboard shortcuts",
             .import => "Import sessions",
         };
@@ -114,11 +101,13 @@ const lines = [_]Line{
     .{ .hint = "Cmd+1-9, Cmd+T/W, Ctrl+Tab · reload with Cmd+Shift+," },
     .spacer,
     .{ .heading = "Workspace resources" },
-    .{ .option = .readings_always },
-    .{ .option = .readings_busy },
-    .{ .option = .readings_off },
+    .{ .option = .readings },
     .{ .toggles = &.{ .cpu, .memory, .io } },
-    .{ .toggles = &.{ .alerts, .card } },
+    .{ .toggles = &.{.alerts} },
+    .spacer,
+    .{ .heading = "Idle agents" },
+    .{ .option = .sleep_animation },
+    .{ .hint = "Drifting z's and a tail wag while the corgi naps" },
     .spacer,
     .{ .heading = "Shortcuts & import" },
     .{ .option = .keyboard },
@@ -195,6 +184,7 @@ pub const Menu = struct {
     preset: km.Preset = .corgi,
     prefix: km.Prefix = .ctrl_b,
     resources: Resources = .{},
+    sleep_animation: bool = false,
 
     pub fn open(status: setup.Status) Menu {
         return .{ .selected = @enumFromInt(@intFromEnum(status.choice)) };
@@ -298,14 +288,16 @@ pub const Menu = struct {
                 .unavailable => .{ .text = "local macOS only", .style = quiet },
                 .failed => .{ .text = "config unreadable", .style = p.warn },
             },
+            .readings => if (m.resources.enabled) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
+            .sleep_animation => if (m.sleep_animation) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
             .keyboard => .{ .text = m.keysLabel(&right_buffer), .style = accent },
             .import => .{ .text = "→", .style = accent },
             else => .{ .text = if (choice.summarizer() and @intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = accent },
         };
         const right_width = sidebar.displayWidth(right.text);
         const right_x = b.w - 4 - right_width;
-        if (choice.summarizer() or choice.readingMode() != null) {
-            const chosen = m.current(choice, status);
+        if (choice.summarizer()) {
+            const chosen = current(choice, status);
             try w.print("\x1b[{d};{d}H{s}{s} {s}{s}", .{ y + 1, b.x + label_x + 1, if (chosen) accent else quiet, if (chosen) "●" else "○", label_style, choice.label() });
             try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + summary_x + 1, base });
             var buffer: [96]u8 = undefined;
@@ -316,8 +308,7 @@ pub const Menu = struct {
         }
         if (right_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + right_x + 1, right.style, right.text });
     }
-    fn current(m: *const Menu, choice: Choice, status: setup.Status) bool {
-        if (choice.readingMode()) |mode| return mode == m.resources.mode;
+    fn current(choice: Choice, status: setup.Status) bool {
         return @intFromEnum(choice) == @intFromEnum(status.choice);
     }
     fn drawToggles(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choices: []const Choice) !void {
@@ -329,8 +320,7 @@ pub const Menu = struct {
         var x: u16 = toggle_x;
         var prefs = m.resources;
         for (choices) |choice| {
-            // Grayed while nothing is shown, and alerts while busy mode implies them.
-            const inert = prefs.mode == .off or (choice == .alerts and prefs.mode == .busy);
+            const inert = !prefs.enabled;
             const style = if (inert) p.quiet else if (choice == m.selected) p.label else p.text;
             try w.print("\x1b[{d};{d}H{s}[{s}] {s}", .{ y + 1, b.x + x + 1, style, if (choice.toggle(&prefs).?.*) "x" else " ", choice.label() });
             x += toggleWidth(choice) + toggle_gap;
@@ -348,12 +338,13 @@ pub const Menu = struct {
                 .disabled => "Turn on",
                 .unavailable, .failed => null,
             },
+            .sleep_animation => if (m.sleep_animation) "Turn off" else "Turn on",
             .keyboard, .import => "Open →",
-            .cpu, .memory, .io, .alerts, .card => |choice| {
+            .readings, .cpu, .memory, .io, .alerts => |choice| {
                 var prefs = m.resources;
                 return if (choice.toggle(&prefs).?.*) "Turn off" else "Turn on";
             },
-            else => |choice| if (m.current(choice, status))
+            else => |choice| if (current(choice, status))
                 "Keep"
             else
                 std.fmt.bufPrint(buffer, "Use {s}", .{choice.label()}) catch null,
@@ -372,10 +363,7 @@ fn modelName(id: []const u8) []const u8 {
 
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .readings_always => "Readings under every workspace",
-        .readings_busy => "Only amber CPU or memory alerts",
-        .readings_off => "Plain dividers; sampling paused",
-        .keyboard, .import, .ghostty, .cpu, .memory, .io, .alerts, .card => unreachable,
+        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleep_animation => unreachable,
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
         else if (status.provider) |provider|
@@ -397,7 +385,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty, .readings_always, .readings_busy, .readings_off, .cpu, .memory, .io, .alerts, .card => unreachable,
+        .keyboard, .import, .ghostty, .readings, .cpu, .memory, .io, .alerts, .sleep_animation => unreachable,
         .auto => if (status.launches.codex + status.launches.claude == 0)
             "No agents yet this session; using your last one"
         else
@@ -421,6 +409,8 @@ test "setup modal is centered and its rows are clickable inside the frame" {
     try std.testing.expectEqual(auto + 3, rowOf(100, 30, .off).?);
     try std.testing.expect(rowOf(100, 30, .off).? < rowOf(100, 30, .ghostty).?);
     try std.testing.expect(rowOf(100, 30, .ghostty).? < rowOf(100, 30, .keyboard).?);
+    try std.testing.expect(rowOf(100, 30, .alerts).? < rowOf(100, 30, .sleep_animation).?);
+    try std.testing.expect(rowOf(100, 30, .sleep_animation).? < rowOf(100, 30, .keyboard).?);
     try std.testing.expectEqual(rowOf(100, 30, .keyboard).? + 1, rowOf(100, 30, .import).?);
     try std.testing.expect(Menu.hit(100, 30, b.x + 6, b.y + 2) == null);
     try std.testing.expect(Menu.hit(100, 30, b.x, auto) == null);
@@ -461,15 +451,32 @@ test "setup modal explains the automatic choice" {
 test "resource toggles share a row, are clicked by column, and flip preferences" {
     const row = rowOf(100, 40, .cpu).?;
     try std.testing.expectEqual(row, rowOf(100, 40, .io).?);
-    try std.testing.expectEqual(row + 1, rowOf(100, 40, .card).?);
+    try std.testing.expectEqual(row + 1, rowOf(100, 40, .alerts).?);
     const b = Menu.bounds(100, 40);
     try std.testing.expectEqual(Choice.memory, Menu.hit(100, 40, b.x + toggle_x + toggleWidth(.cpu) + toggle_gap, row).?);
     try std.testing.expect(Menu.hit(100, 40, b.x + toggle_x + toggleWidth(.cpu), row) == null);
     var prefs: Resources = .{};
     try std.testing.expect(Choice.io.applyResources(&prefs));
     try std.testing.expect(!prefs.io);
-    try std.testing.expect(Choice.readings_busy.applyResources(&prefs));
-    try std.testing.expectEqual(Resources.Mode.busy, prefs.mode);
+    try std.testing.expect(Choice.readings.applyResources(&prefs));
+    try std.testing.expect(!prefs.enabled);
+    try std.testing.expect(Choice.readings.applyResources(&prefs));
+    try std.testing.expect(prefs.enabled);
     try std.testing.expect(!Choice.codex.applyResources(&prefs));
 }
 
+test "sleep animation row shows its state and offers the opposite" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var menu = Menu.open(.{});
+    menu.selected = .sleep_animation;
+    try menu.draw(&output.writer, .{}, 100, 40);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Sleep animation") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "○ Off") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
+    output.clearRetainingCapacity();
+    menu.sleep_animation = true;
+    try menu.draw(&output.writer, .{}, 100, 40);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "● On") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn off ]") != null);
+}

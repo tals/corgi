@@ -16,6 +16,9 @@ pub const Ui = struct {
     iterm2_pointer: bool = false,
     link_tooltip: bool = false,
     resources: @import("resources.zig").Snapshot = .{},
+    resource_prefs: @import("preferences.zig").Resources = .{},
+    sleep_animation: bool = false,
+    resource_hover: ?WorkspaceId = null,
     resource_card: ?@import("resource_tooltip.zig").State = null,
     git_hover: ?WorkspaceId = null,
     agent_launcher: ?@import("agent_launcher.zig").Menu = null,
@@ -140,10 +143,14 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var workspace_storage: [@import("workspace.zig").max_workspaces]sidebar.WorkspaceEntry = undefined;
     const workspaces = if (ui.dragged_workspace) |drag| drag.apply(sidebar.WorkspaceEntry, ui.workspaces, &workspace_storage) else ui.workspaces;
     const dragging = ui.dragged_agent != null or ui.dragged_workspace != null;
-    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset).withEntries(entries);
+    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width);
+    side.resources = ui.resource_prefs;
+    side = side.withWorkspaces(ui.workspaces.len, ui.workspace_offset).withEntries(entries);
     side.corgi_badge = ui.corgi_badge;
     side.supports_kitty_graphics = ui.supports_kitty_graphics;
     side.scope_label = ui.scope_label;
+    side.resource_hover = ui.resource_hover;
+    side.sleep_animation = ui.sleep_animation;
     side.dragged = if (ui.dragged_agent) |drag| drag.destination else null;
     side.dragged_workspace = if (ui.dragged_workspace) |drag| drag.destination else null;
     // Mouse tracking modes replace one another. Disabling first makes the host

@@ -4,19 +4,15 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 
-/// What the sidebar's third workspace row shows. `busy` keeps only amber
-/// pressure alerts; `off` restores the plain divider and pauses sampling
-/// once every attached viewer is off.
+/// Resource readings shown in the sidebar. Disabling removes the row and,
+/// once every attached viewer is off, stops the daemon's sampling.
 pub const Resources = struct {
-    pub const Mode = enum { always, busy, off };
-    mode: Mode = .always,
+    enabled: bool = true,
     cpu: bool = true,
     memory: bool = true,
     io: bool = true,
-    /// Amber CPU and memory pressure in `always` mode; `busy` always shows them.
+    /// Amber CPU and memory pressure.
     alerts: bool = true,
-    /// The history and process card on hover.
-    card: bool = true,
 };
 
 pub const Preferences = struct {
@@ -28,6 +24,8 @@ pub const Preferences = struct {
     prefix: @import("keymap.zig").Prefix = .ctrl_b,
     onboarding_complete: bool = false,
     resources: Resources = .{},
+    /// Drifting Z's and the tail wag on sleeping corgis; off holds a still pose.
+    sleep_animation: bool = false,
 };
 
 pub fn path() ![]const u8 {
@@ -102,6 +100,8 @@ test "preferences round trip and fall back to defaults" {
     try std.testing.expectEqual(Preferences{ .agents = .all }, read(file));
     try write(file, .{ .sidebar_width = 44 });
     try std.testing.expectEqual(@as(u16, 44), read(file).sidebar_width);
+    try write(file, .{ .resources = .{ .enabled = false, .io = false } });
+    try std.testing.expectEqual(Resources{ .enabled = false, .io = false }, read(file).resources);
     try write(file, .{ .preset = .cmux, .onboarding_complete = true });
     try std.testing.expectEqual(if (@import("builtin").os.tag == .macos) @import("keymap.zig").Preset.cmux else .corgi, read(file).preset);
     try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{broken" });

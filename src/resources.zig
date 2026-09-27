@@ -204,6 +204,26 @@ pub const Tracker = struct {
         t.thread = std.Thread.spawn(.{}, run, .{t}) catch null;
         return changed;
     }
+    /// Discards every reading once sampling is turned off, so snapshots carry
+    /// none and a later start measures afresh. True when readings were dropped.
+    pub fn stop(t: *Tracker) bool {
+        if (t.thread) |thread| {
+            if (!t.done.load(.acquire)) return false;
+            thread.join();
+            t.thread = null;
+        } else if (t.current.sampled_at == 0 and t.batch.readings.len == 0) return false;
+        t.arena.deinit();
+        t.arena = .init(a);
+        _ = t.pending_arena.reset(.free_all);
+        t.current = .{};
+        t.batch = .{};
+        t.pending = .{};
+        t.roots = &.{};
+        t.workspaces = &.{};
+        t.next_refresh = 0;
+        t.last_started = 0;
+        return true;
+    }
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
         t.sample() catch {

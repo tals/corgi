@@ -61,7 +61,9 @@ do not discard a still-relevant result. The protocol sends stored activity text
 separately from lifecycle state. Hooks update tool indicators without replacing
 summaries with tool names or generic thinking labels. The client chooses status
 labels and animations from that state, including the sleeping corgi
-for idle agents. While awaiting a first result, the activity text stays blank; the
+for idle agents. **Corgi setup → Idle agents → Sleep animation** adds drifting
+Z's and a tail wag to the sleeping corgi; it is off by default, holding a still
+pose, and saved in viewer preferences. While awaiting a first result, the activity text stays blank; the
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
 Abstention is successful inference, so unchanged evidence is not retried and new

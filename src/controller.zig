@@ -111,6 +111,7 @@ pub const Controller = struct {
     git_hover: ?WorkspaceId = null,
     resource_card: @import("resource_tooltip.zig").State = .{},
     resource_prefs: @import("preferences.zig").Resources = .{},
+    sleep_animation: bool = false,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?@import("agent_drag.zig").Drag = null,
@@ -221,9 +222,11 @@ pub const Controller = struct {
     }
     fn sidebarView(s: *Self, entries: []const sidebar.Entry) sidebar.View {
         const offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset;
-        var view = sidebar.View.init(s.width, s.height, s.sidebar_open, offset, entries.len).withSearch(s.agentSearch()).withWidth(s.sidebar_width).withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset).withEntries(entries);
-        view.scope_label = s.scopeLabel();
+        var view = sidebar.View.init(s.width, s.height, s.sidebar_open, offset, entries.len).withSearch(s.agentSearch()).withWidth(s.sidebar_width);
+        // Workspace rows, and so paging, depend on whether readings are shown.
         view.resources = s.resource_prefs;
+        view = view.withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset).withEntries(entries);
+        view.scope_label = s.scopeLabel();
         return view;
     }
     fn scopeLabel(s: *Self) []const u8 {
@@ -258,6 +261,7 @@ pub const Controller = struct {
         s.key_prefix = saved.prefix;
         s.sidebar_width = saved.sidebar_width;
         s.resource_prefs = saved.resources;
+        s.sleep_animation = saved.sleep_animation;
         if (!saved.onboarding_complete) s.onboarding = .{ .preset = saved.preset, .prefix = saved.prefix };
         s.agent_scope = switch (saved.agents) {
             .workspace => .workspace,
@@ -1115,6 +1119,7 @@ pub const Controller = struct {
         s.corgi_setup.?.preset = s.key_preset;
         s.corgi_setup.?.prefix = s.key_prefix;
         s.corgi_setup.?.resources = s.resource_prefs;
+        s.corgi_setup.?.sleep_animation = s.sleep_animation;
         s.dirty = true;
     }
     pub fn openOnboarding(s: *Self, mode: onboarding.Mode) void {
@@ -1139,6 +1144,15 @@ pub const Controller = struct {
             if (s.corgi_setup) |*setup| setup.resources = s.resource_prefs;
             var saved = @import("preferences.zig").load();
             saved.resources = s.resource_prefs;
+            @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
+            s.dirty = true;
+            return;
+        }
+        if (choice == .sleep_animation) {
+            s.sleep_animation = !s.sleep_animation;
+            if (s.corgi_setup) |*setup| setup.sleep_animation = s.sleep_animation;
+            var saved = @import("preferences.zig").load();
+            saved.sleep_animation = s.sleep_animation;
             @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
             s.dirty = true;
             return;
@@ -1175,7 +1189,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
-            .ghostty, .keyboard, .import, .readings_always, .readings_busy, .readings_off, .cpu, .memory, .io, .alerts, .card => unreachable,
+            .ghostty, .keyboard, .import, .readings, .cpu, .memory, .io, .alerts, .sleep_animation => unreachable,
             .auto => "Auto (follows your agents)",
             .off => "Off",
             else => choice.provider().?.info().label,
@@ -2487,7 +2501,7 @@ pub const Controller = struct {
         }
     }
     pub fn resourceDetail(s: *Self) ?WorkspaceId {
-        if (!s.link_tooltip.shown or s.link_tooltip.target == null) return null;
+        if (!s.resource_prefs.enabled or !s.link_tooltip.shown or s.link_tooltip.target == null) return null;
         const id = s.link_tooltip.target.?.resource orelse return null;
         if (s.runtime.workspaces.index(id) == null) return null;
         const work = s.runtime.resources.workspace(id);
@@ -2592,6 +2606,9 @@ pub const Controller = struct {
             .iterm2_pointer = s.iterm2_pointer,
             .link_tooltip = tooltip_ready,
             .resources = s.runtime.resources,
+            .resource_prefs = s.resource_prefs,
+            .sleep_animation = s.sleep_animation,
+            .resource_hover = if (s.link_tooltip.target) |target| target.resource else null,
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
             .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and s.workspace_drag == null) s.git_hover else null,
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],

@@ -57,6 +57,8 @@ pub const Server = struct {
     reload_requester: c_int = -1,
     last_recovery: i64 = 0,
     saved_revision: u64 = 0,
+    /// The attached viewers' resource preference, kept after they detach.
+    resource_readings: bool = true,
     fn publishInference(s: *Server) void {
         const worker = s.summaries orelse return;
         const status = worker.status();
@@ -980,9 +982,11 @@ pub const Server = struct {
                 sampled = sampled or client.resources;
                 resource_detail = resource_detail or (client.watched and client.resource_detail != null);
             };
-            // Pause sampling only when every attached viewer turned readings off;
-            // CLI snapshots without viewers still get fresh totals.
-            if ((sampled or !viewers) and s.runtime.resources.tick(&s.runtime, resource_detail)) s.dirty = true;
+            // Sample while any attached viewer shows readings. Without viewers,
+            // keep their last choice: CLI snapshots get fresh totals unless
+            // readings were turned off, which stops sampling entirely.
+            if (viewers) s.resource_readings = sampled;
+            if (if (s.resource_readings) s.runtime.resources.tick(&s.runtime, resource_detail) else s.runtime.resources.stop()) s.dirty = true;
             if (s.runtime.git_push.tick(&s.runtime.workspaces, &s.runtime.git_status)) s.dirty = true;
             if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
             if (s.runtime.ports.tick(&s.runtime)) {

@@ -197,11 +197,11 @@ pub const Presentation = struct {
         return @min(room, @as(usize, @intFromFloat(self.revealPosition(room, now_ms))));
     }
 
-    pub fn writeCorgi(self: Presentation, out: *std.Io.Writer, room: usize, seed: u64, focused: bool, working: bool) !void {
+    pub fn writeCorgi(self: Presentation, out: *std.Io.Writer, room: usize, seed: u64, focused: bool, working: bool, sleep_animation: bool) !void {
         const pose = self.last_corgi orelse return;
         if (pose.mode == .asleep and !working) {
             try out.writeAll("\x1b[38;2;108;112;134m");
-            try idle(out, room, pose.at_ms, seed, focused);
+            try idle(out, room, pose.at_ms, seed, focused, sleep_animation);
         } else {
             try out.writeAll("\x1b[38;2;249;226;175m");
             // If work starts while sleep is being covered, wake immediately.
@@ -247,16 +247,15 @@ pub fn observe(key: u64, mode: Mode, now_ms: i64) ?*Presentation {
     unreachable; // At most 80 entries are rendered by a sidebar.
 }
 
-/// Temporarily off: the sleeping corgi keeps its still face without drifting Z's.
-const sleep_zs_enabled = false;
-
 /// 4C: an eight-frame brightness handoff, alternating high/low every 1200 ms.
-pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: bool) !void {
+/// Without `animated` (the Corgi setup sleep animation), the corgi holds a
+/// still pose: no drifting Z's and no tail wag.
+pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: bool, animated: bool) !void {
     const face = [_][]const u8{ "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
     const travel = width -| 7;
     const elapsed: u64 = @intCast(@max(now_ms, 0));
     const tail_phase = (elapsed + (seed % 997) * 600) % 12000;
-    const tail: []const u8 = if (tail_phase >= 11000 and tail_phase < 11800 and
+    const tail: []const u8 = if (animated and tail_phase >= 11000 and tail_phase < 11800 and
         ((tail_phase - 11000) / 200) % 2 == 0) "-" else "~";
     // Leave a quiet sixteen-second pause between traversals.
     const phase = (elapsed + (seed % 997) * 600) % (travel * 1200 + 16000);
@@ -270,7 +269,7 @@ pub fn idle(out: *std.Io.Writer, width: usize, now_ms: i64, seed: u64, focused: 
             try out.writeAll(tail);
         } else if (col <= face.len) {
             try out.writeAll(face[col - 1]);
-        } else if (sleep_zs_enabled and col >= 7 and position < travel and
+        } else if (animated and col >= 7 and position < travel and
             (col - 7 == position or (col - 7 == position + 1 and shift > 0)))
         {
             const amount = if (col - 7 == position) 1 - shift else shift;
@@ -304,7 +303,6 @@ test "half-cell ball travel keeps the impact before the perk and preserves picku
 }
 
 test "sleeping Z crossfade keeps a still face without overflowing" {
-    if (!sleep_zs_enabled) return error.SkipZigTest;
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     for ([_]usize{ 0, 1, 5, 6, 7, 18, 22, 80, 256, 294, 512 }) |width| {
@@ -312,7 +310,7 @@ test "sleeping Z crossfade keeps a still face without overflowing" {
         var rested = false;
         for (0..(width + 20) * 8) |step| {
             output.clearRetainingCapacity();
-            try idle(&output.writer, width, @intCast(step * 150), 0, false);
+            try idle(&output.writer, width, @intCast(step * 150), 0, false, true);
             var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
             defer plain.deinit();
             var ansi = false;
@@ -417,20 +415,37 @@ test "half-cell fetch spans the full row without overlap or overflow" {
 }
 
 test "4C handoff lasts 1200 ms and alternates heights" {
-    if (!sleep_zs_enabled) return error.SkipZigTest;
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try idle(&output.writer, 22, 600, 0, false);
+    try idle(&output.writer, 22, 600, 0, false, true);
     // Halfway: both neighboring glyphs have half the original brightness.
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;66;70;83mᶻ") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;66;70;83mz") != null);
     output.clearRetainingCapacity();
-    try idle(&output.writer, 22, 1200, 0, false);
+    try idle(&output.writer, 22, 1200, 0, false, true);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;108;112;134mz") != null);
     output.clearRetainingCapacity();
-    try idle(&output.writer, 22, 600, 0, true);
+    try idle(&output.writer, 22, 600, 0, true, true);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;72;76;91mᶻ") != null);
+}
+
+test "sleep animation off holds a still tail and draws no Z's" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var wagged = false;
+    var drifted = false;
+    for (0..160) |step| {
+        const now: i64 = @intCast(step * 100);
+        output.clearRetainingCapacity();
+        try idle(&output.writer, 22, now, 0, false, true);
+        wagged = wagged or std.mem.startsWith(u8, output.written(), "-");
+        drifted = drifted or std.mem.indexOfAny(u8, output.written(), "z") != null;
+        output.clearRetainingCapacity();
+        try idle(&output.writer, 22, now, 0, false, false);
+        try std.testing.expectEqualStrings("~ᐯ◡ᴥ◡ᐯ" ++ " " ** 16, output.written());
+    }
+    try std.testing.expect(wagged and drifted);
 }
 
 test "content reveal preserves the old pose and cancels when a corgi returns" {

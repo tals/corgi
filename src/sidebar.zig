@@ -99,11 +99,20 @@ pub const View = struct {
     workspace_count: usize = 0,
     workspace_offset: usize = 0,
     resources: Resources = .{},
+    resource_hover: ?WorkspaceId = null,
+    /// Corgi setup: drifting Z's and the tail wag on sleeping corgis.
+    sleep_animation: bool = false,
     pub fn middle(v: View) u16 {
         return (v.rows -| 1) / 2;
     }
+    /// Name and status rows, plus the resource row unless readings are off.
+    pub fn workspaceRows(v: View) u16 {
+        return if (v.resources.enabled) 3 else 2;
+    }
+    /// Name and status rows end above the pager row; only a trailing
+    /// resource row may give way to it.
     pub fn workspaceCapacity(v: View) usize {
-        return @max(1, (v.middle() -| 3) / 3);
+        return @max(1, (v.middle() -| 4 + (v.workspaceRows() - 2)) / v.workspaceRows());
     }
     pub fn withWorkspaces(v: View, count: usize, offset: usize) View {
         var result = v;
@@ -209,8 +218,9 @@ pub const View = struct {
                 return .none;
             }
             if (y < 2 or y >= v.middle() - 2) return .none;
-            const index = (y - 2) / 3 + v.workspace_offset;
-            return if (index < v.workspace_count and (y - 2) / 3 < v.workspaceCapacity()) .{ .workspace = index } else .none;
+            const slot = (y - 2) / v.workspaceRows();
+            const index = slot + v.workspace_offset;
+            return if (index < v.workspace_count and slot < v.workspaceCapacity()) .{ .workspace = index } else .none;
         }
         if (y == v.rows - 2 and v.count > v.capacity) return if (x < v.width / 2) .previous else .next;
         if (y < v.middle() + 2 or y >= v.rows - 2) return .none;
@@ -235,14 +245,14 @@ pub const View = struct {
         }
         return .{ .index = end, .y = @intCast(top - 1) };
     }
-    /// `agentDrop` over the three-row workspace slots in the upper list.
+    /// `agentDrop` over the workspace slots in the upper list.
     pub fn workspaceDrop(v: View, x: u16, y: u16) ?Drop {
         if (v.width == 0 or x >= v.width - 1 or y < 2 or y >= v.middle() -| 2 or v.workspace_count == 0) return null;
         var top: usize = 2;
         const end = @min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
         for (v.workspace_offset..end) |i| {
-            if (y < top + 2) return .{ .index = i, .y = @intCast(top - 1) };
-            top += 3;
+            if (y < top + (v.workspaceRows() + 1) / 2) return .{ .index = i, .y = @intCast(top - 1) };
+            top += v.workspaceRows();
         }
         return .{ .index = end, .y = @intCast(top - 1) };
     }
@@ -265,7 +275,7 @@ pub const View = struct {
         return @max(10, displayWidth(compactCount(&buf, ws.unread)) + 9);
     }
     pub fn unreadHit(v: View, ws: WorkspaceEntry, x: u16, y: u16) bool {
-        if (ws.unread == 0 or y < 3 or (y - 2) % 3 != 1) return false;
+        if (ws.unread == 0 or y < 3 or (y - 2) % v.workspaceRows() != 1) return false;
         const range = v.unreadRange(ws);
         return x >= range.start and x < range.end;
     }
@@ -310,7 +320,7 @@ pub const View = struct {
         const ghost_meta = "\x1b[0;38;2;155;163;175;48;2;44;54;67m";
         const ghost_bar = if (v.supports_kitty_graphics) "\x1b[0;38;2;137;180;250;48;2;44;54;67m▌" else active_bar;
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
-            const y: u16 = @intCast(2 + index * 3);
+            const y: u16 = @intCast(2 + index * v.workspaceRows());
             const ghost = v.dragged_workspace == v.workspace_offset + index;
             const tinted = ws.active or ghost;
             const style = if (ghost) ghost_name else if (ws.active) active_name else panel;
@@ -334,7 +344,15 @@ pub const View = struct {
                 try w.print("\x1b[{d};1H{s}", .{ y + 2, meta });
                 try w.splatByteAll(' ', v.width - 1);
             }
-            try w.print("\x1b[{d};2H{s}", .{ y + 2, meta });
+            const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
+            // Without a resource row, the separator underlines the status row,
+            // text included, as between agents.
+            const rule = if (divider and v.workspaceRows() == 2) "\x1b[4;58:2::65:70:77m" else "";
+            try w.print("\x1b[{d};2H{s}{s}", .{ y + 2, meta, rule });
+            if (rule.len > 0) {
+                try w.splatByteAll(' ', v.width - 3);
+                try w.print("\x1b[{d};2H", .{y + 2});
+            }
             var metadata_buf: [96]u8 = undefined;
             var tools_buf: [24]u8 = undefined;
             const tools = compactCount(&tools_buf, ws.stats.tools);
@@ -368,19 +386,19 @@ pub const View = struct {
                 var unread_room = unread_width;
                 try statusPart(w, unread, "\x1b[1;38;2;148;226;213m", &unread_room);
             }
-            if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, meta, metadata });
+            if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ y + 2, v.width - 1 - metadata_width, meta, rule, metadata });
             if (ws.active) for ([_]u16{ y + 1, y + 2 }) |row| try w.print("\x1b[{d};1H{s}", .{ row, bar });
             try w.writeAll(panel);
-            if (y + 2 < v.middle() - 2) {
+            if (v.workspaceRows() == 3 and y + 2 < v.middle() - 2) {
                 if (tinted) {
                     try w.print("\x1b[{d};1H{s}", .{ y + 3, meta });
                     try w.splatByteAll(' ', v.width - 1);
                 }
                 try w.print("\x1b[{d};2H{s}", .{ y + 3, meta });
-                const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
                 if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
-                try drawResources(w, ws.resources, v.width - 3, v.resources);
+                try drawResources(w, ws.resources, v, v.resource_hover == ws.id);
                 try w.writeAll("\x1b[24;59m");
+                try w.writeAll(panel);
                 if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, bar, panel });
             }
         }
@@ -490,14 +508,14 @@ pub const View = struct {
         const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle) .asleep else .content;
         const presentation = corgi_animation.observe(animation_seed, mode, now_ms);
         if (mode != .content) {
-            try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+            try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working, v.sleep_animation);
         } else {
             // Lifecycle signals (blocked/ended/etc.) must be immediate.
             // Interrupts already switch straight to the sleeping mode.
             if (e.state != .working) if (presentation) |p| p.skipReveal();
             const text = directoryLabel(&clean, detail, null);
             if (presentation != null and presentation.?.reveal_started_ms != null) {
-                try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working);
+                try presentation.?.writeCorgi(w, detail_room, animation_seed, e.focused, e.state == .working, v.sleep_animation);
                 try w.print("\x1b[{d};{d}H\x1b[38;2;226;230;233m", .{ y + 2, x + 5 });
                 try writeRevealedDetail(w, text, detail_room, presentation.?.revealedColumns(detail_room, now_ms), presentation.?.revealPosition(detail_room, now_ms));
             } else try writeEllipsis(w, text, detail_room);
@@ -594,17 +612,20 @@ fn subagentBadge(buf: []u8, status: agents.Subagents, children: usize) []const u
 /// Resource hover stays on the third workspace row. Clicks and drags on that
 /// row select the workspace, just like its title and status rows.
 pub fn resourceAt(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?WorkspaceEntry {
-    if (v.width == 0 or x < 1 or x >= v.width - 2 or y < 4 or y >= v.middle() -| 2 or (y - 2) % 3 != 2) return null;
+    if (v.workspaceRows() < 3 or v.width == 0 or x < 1 or x >= v.width - 2 or y < 4 or y >= v.middle() -| 2 or (y - 2) % 3 != 2) return null;
     const i = (y - 2) / 3;
     if (i >= v.workspaceCapacity() or i + v.workspace_offset >= workspaces.len) return null;
     const ws = workspaces[i + v.workspace_offset];
-    if (!v.resources.card) return null;
+    if (!resourceCardFits(v)) return null;
     for (0..3) |reading| if (shownReading(v.resources, ws.resources, reading)) return ws;
     return null;
 }
 const Resources = @import("preferences.zig").Resources;
+fn resourceCardFits(v: View) bool {
+    return @import("resource_tooltip.zig").geometry(v.cols, v.rows, v.width, 0) != null;
+}
 fn alerting(prefs: Resources, work: @import("resources.zig").Work, reading: usize) bool {
-    if (!prefs.alerts and prefs.mode != .busy) return false;
+    if (!prefs.alerts) return false;
     return (reading == 0 and work.cpu_pressure) or (reading == 1 and work.memory_pressure);
 }
 /// Whether the row shows CPU (0), memory (1) or I/O (2) under these preferences.
@@ -619,30 +640,37 @@ fn shownReading(prefs: Resources, work: @import("resources.zig").Work, reading: 
         1 => prefs.memory,
         else => prefs.io,
     };
-    return available and enabled and switch (prefs.mode) {
-        .always => true,
-        .busy => alerting(prefs, work, reading),
-        .off => false,
-    };
+    return prefs.enabled and available and enabled;
 }
-fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, width: usize, prefs: Resources) !void {
+fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, v: View, hovered: bool) !void {
     const r = @import("resources.zig");
+    const width = v.width -| 3;
+    const prefs = v.resources;
+    const details = resourceCardFits(v) and width >= 2 and (shownReading(prefs, work, 0) or shownReading(prefs, work, 1) or shownReading(prefs, work, 2));
+    const hover = details and hovered;
+    const normal = if (hover) "\x1b[22;38;2;214;222;232m" else "\x1b[22;38;2;125;137;155m";
+    if (hover) try w.writeAll("\x1b[48;2;48;57;70m");
+    const readings_width = width - @as(usize, if (details) 2 else 0);
     var buffers: [3][32]u8 = undefined;
     const values = [_][]const u8{ r.cpuText(&buffers[0], work.cpu), r.memoryText(&buffers[1], work.memory), r.ioText(&buffers[2], if (work.read != null and work.written != null) work.read.? +| work.written.? else null) };
-    for (values, "CMI", 0..) |value, label, i| {
-        const room = if (i == 2) width - (width / 3) * 2 else width / 3;
+    for (values, [_][]const u8{ "C", "M", "↕" }, 0..) |value, label, i| {
+        const room = if (i == 2) readings_width - (readings_width / 3) * 2 else readings_width / 3;
         if (value.len == 0 or !shownReading(prefs, work, i)) {
             try w.splatByteAll(' ', room);
             continue;
         }
         const alert = alerting(prefs, work, i);
-        try w.writeAll(if (alert) "\x1b[1;38;2;249;226;175m" else "\x1b[22;38;2;125;137;155m");
-        try w.writeByte(label);
+        try w.writeAll(if (alert) "\x1b[1;38;2;249;226;175m" else normal);
+        try w.writeAll(label);
         if (room >= 7) try w.writeByte(' ');
         const used: usize = if (room >= 7) 2 else 1;
         try writeClipped(w, value, room -| used - @as(usize, if (i < 2) 1 else 0));
         const printed = used + @min(displayWidth(value), room -| used - @as(usize, if (i < 2) 1 else 0));
         try w.splatByteAll(' ', room -| printed);
+    }
+    if (details) {
+        try w.writeAll(normal);
+        try w.writeAll(" ›");
     }
     try w.writeAll("\x1b[22m");
 }
@@ -650,41 +678,81 @@ fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, width: 
 test "resource row omits unavailable metrics and preserves real zeros" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, 25, .{});
+    const view = View.init(100, 30, true, 0, 0);
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, view, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "--") == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') == null);
-    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'I') == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "›") == null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, 25, .{});
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, view, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 0%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "M 0M") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "I 0K/s") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕ 0K/s") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "›") != null);
 }
 
-test "resource preferences hide readings, keep only alerts when busy, and blank the row when off" {
+test "resource preferences hide individual readings and disable all readings" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const hot: @import("resources.zig").Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
-    try drawResources(&output.writer, hot, 25, .{ .io = false });
+    var view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+    view.resources.io = false;
+    try drawResources(&output.writer, hot, view, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
-    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'I') == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕") == null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, hot, 25, .{ .mode = .busy, .alerts = false });
+    view.resources = .{ .alerts = false };
+    try drawResources(&output.writer, hot, view, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
-    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') == null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "249;226;175") == null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, hot, 25, .{ .mode = .off });
+    view.resources.enabled = false;
+    try drawResources(&output.writer, hot, view, false);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
-    const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+    view.resources.enabled = true;
     const entries = [_]WorkspaceEntry{.{ .id = WorkspaceId.first, .name = "a", .cwd = "", .active = true, .resources = hot }};
     try std.testing.expect(resourceAt(view, &entries, 3, 4) != null);
     var quiet = view;
-    quiet.resources.card = false;
+    quiet.rows = 20;
     try std.testing.expect(resourceAt(quiet, &entries, 3, 4) == null);
     quiet = view;
-    quiet.resources.mode = .off;
+    quiet.resources.enabled = false;
     try std.testing.expect(resourceAt(quiet, &entries, 3, 4) == null);
+}
+
+test "readings off removes the resource row and moves the separator under the status" {
+    var view = View.init(100, 30, true, 0, 0);
+    view.resources.enabled = false;
+    const paged = view.withWorkspaces(8, 99);
+    try std.testing.expectEqual(@as(usize, 5), paged.workspaceCapacity());
+    try std.testing.expectEqual(@as(usize, 3), paged.workspace_offset);
+    try std.testing.expectEqual(Hit{ .workspace = 3 }, paged.hit(24, 2));
+    try std.testing.expectEqual(Hit{ .workspace = 3 }, paged.hit(24, 3));
+    try std.testing.expectEqual(Hit{ .workspace = 4 }, paged.hit(24, 4));
+    try std.testing.expectEqual(Hit{ .workspace = 7 }, paged.hit(24, 11));
+    try std.testing.expectEqual(Hit.workspace_next, paged.hit(24, 12));
+    try std.testing.expectEqual(@as(usize, 4), paged.workspaceDrop(5, 4).?.index);
+
+    const hot: @import("resources.zig").Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
+    const entries = [_]WorkspaceEntry{
+        .{ .id = WorkspaceId.first, .name = "first", .cwd = "", .active = false, .resources = hot, .stats = .{ .tools = 12 } },
+        .{ .id = @enumFromInt(2), .name = "second", .cwd = "", .active = true, .resources = hot },
+    };
+    view = view.withWorkspaces(entries.len, 0);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try view.draw(&output.writer, &.{}, &entries);
+    const frame = output.written();
+    try std.testing.expect(std.mem.indexOf(u8, frame, "C 182%") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;2H\x1b[0;38;2;155;163;175;48;2;24;27;32m\x1b[4;58:2::65:70:77m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;58:2::65:70:77m⚒12") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[5;2H\x1b[1;38;2;182;206;240;48;2;34;44;58msecond") != null);
+    // The last workspace has no separator.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[6;2H\x1b[0;38;2;155;163;175;48;2;34;44;58m\x1b[4;") == null);
+    try std.testing.expect(resourceAt(view, &entries, 3, 4) == null);
 }
 
 pub fn agentAt(v: View, entries: []const Entry, x: u16, y: u16) ?*const Entry {
@@ -1157,8 +1225,8 @@ pub fn urlCount(ws: WorkspaceEntry) usize {
     return count;
 }
 pub fn portWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?WorkspaceEntry {
-    if (v.width == 0 or x < 1 or y < 2 or y >= v.middle() - 2 or (y - 2) % 3 != 0) return null;
-    const offset = (y - 2) / 3;
+    if (v.width == 0 or x < 1 or y < 2 or y >= v.middle() - 2 or (y - 2) % v.workspaceRows() != 0) return null;
+    const offset = (y - 2) / v.workspaceRows();
     const index = v.workspace_offset + offset;
     if (offset >= v.workspaceCapacity() or index >= workspaces.len) return null;
     const ws = workspaces[index];
@@ -1447,7 +1515,7 @@ pub fn gitWorkspace(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16)
 }
 
 pub fn gitActionWorkspace(v: View, workspaces: []const WorkspaceEntry, expanded: ?WorkspaceId, x: u16, y: u16) ?WorkspaceEntry {
-    if (v.width == 0 or y < 2 or (y - 2) % 3 != 0) return null;
+    if (v.width == 0 or y < 2 or (y - 2) % v.workspaceRows() != 0) return null;
     const hit = v.hit(x, y);
     if (hit != .workspace or hit.workspace >= workspaces.len) return null;
     const ws = workspaces[hit.workspace];
@@ -1465,7 +1533,7 @@ pub fn drawGitAction(w: *std.Io.Writer, v: View, workspaces: []const WorkspaceEn
         const label = gitLabel(&buf, ws, true);
         if (label.len == 0) return;
         const color = if (ws.git_push.phase == .failed) "243;139;168" else "166;227;161";
-        try w.print("\x1b]8;;\x1b\\\x1b[{d};{d}H\x1b[0;1;38;2;{s};48;2;48;62;58m{s}\x1b[0m", .{ 3 + i * 3, v.width - 1 - displayWidth(label), color, label });
+        try w.print("\x1b]8;;\x1b\\\x1b[{d};{d}H\x1b[0;1;38;2;{s};48;2;48;62;58m{s}\x1b[0m", .{ 3 + i * v.workspaceRows(), v.width - 1 - displayWidth(label), color, label });
         return;
     }
 }

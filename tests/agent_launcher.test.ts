@@ -1262,14 +1262,32 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
       async () => (await this.session()).inference.choice === "off",
     );
     this.assertIsNone((await this.session()).inference.provider);
-    await this.clickText(view, "Only amber CPU or memory alerts", 100);
-    await this.until(async () => (await text()).includes("● When busy"));
+    const readSaved = () =>
+      JSON.parse(
+        readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"),
+      );
+    this.assertNotIn("When busy", await text());
+    this.assertNotIn("Process card on hover", await text());
+    await this.clickText(view, "Resource readings", 100);
+    await this.until(async () => readSaved().resources.enabled === false);
+    await this.until(async () => /Resource readings\s+○ Off/.test(await text()));
+    // Mouse motion selects the setup row before a keyboard activation.
+    const setupRows = screen_text((await view.poll()).data, 100, 40);
+    const resourceRow = setupRows.findIndex(row => row.includes("Resource readings"));
+    this.assertGreaterEqual(resourceRow, 0);
+    await view.input(`\x1b[<35;${setupRows[resourceRow].indexOf("Resource readings") + 1};${resourceRow + 1}M`);
+    await view.input("\r");
+    await this.until(async () => readSaved().resources.enabled === true);
+    await this.until(async () => /Resource readings\s+● On/.test(await text()));
     await this.clickText(view, "I/O", 100);
     await this.until(async () => (await text()).includes("[ ] I/O"));
-    const saved = JSON.parse(
-      readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"),
-    );
-    this.assertEqual(saved.resources.mode, "busy");
+    this.assertEqual(readSaved().sleep_animation, false);
+    await this.clickText(view, "Sleep animation", 100);
+    await this.until(async () => readSaved().sleep_animation === true);
+    const saved = readSaved();
+    this.assertEqual(saved.resources, {
+      enabled: true, cpu: true, memory: true, io: false, alerts: true,
+    });
     this.assertEqual(saved.resources.io, false);
     await view.input("\x1b");
     await this.until(async () => !(await text()).includes("Corgi setup"));

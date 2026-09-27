@@ -1,9 +1,11 @@
 # Workspace resources
 
 Each workspace's third sidebar row shows current CPU (`C`), physical memory
-(`M`), and disk read + write throughput (`I`). Unavailable metrics are omitted,
+(`M`), and disk read + write throughput (`↕`). Unavailable metrics are omitted,
 including their labels. A real zero is still displayed. A thin separator runs
-under the readings between workspaces. All three rows select the workspace on
+under the readings between workspaces. A trailing `›` marks rows with hover
+details, and the row immediately highlights on hover, staying highlighted while
+the pointer is in its card. All three rows select the workspace on
 click, including when a resource card overlaps them on a narrow screen.
 
 Hover the resource row for 500 ms to open three framed history graphs and the
@@ -21,6 +23,12 @@ Linux `/proc`, without starting `top`, `btop`, `ps`, or another helper. Normal
 viewer snapshots contain totals; process details and history are sent only for
 the requested workspace. Histories retain 48 samples, and a bounded union of the
 leading CPU, memory and I/O consumers is retained for sorting.
+
+Corgi setup has one on/off control for resource readings. Hover details are always
+available when readings are on; there is no separate hover setting. Off removes the
+row: each workspace takes two rows, with the separator under its status. Once no
+attached viewer shows readings, the worker stops and its readings are discarded.
+It stays stopped after those viewers detach, until a viewer shows readings again.
 
 CPU percentages use one core as 100%. macOS CPU counters are converted from Mach
 ticks using the host timebase. Memory is summed physical footprint on macOS and
