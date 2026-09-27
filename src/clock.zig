@@ -2,9 +2,11 @@
 //! add an offset that the `test.advance` operation moves forward, so tests
 //! can let a window pass without waiting. Other builds read the system clock.
 //!
-//! Only compare these readings with each other or with stamps from the past.
-//! Stamps other processes create (hook sequence numbers, transcript times)
-//! use the system clock and must not be ordered against a shifted reading.
+//! Use it only where every stamp being compared is also taken from this
+//! clock (a cooldown's deadline, a rescan's schedule). A window measured from
+//! system-clock stamps that keep being refreshed, such as protocol freshness
+//! against observation times or hook sequence numbers from other processes,
+//! would stay expired after an advance even though fresh evidence arrives.
 const std = @import("std");
 const enabled = @import("corgi_options").test_build;
 
