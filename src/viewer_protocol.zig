@@ -56,7 +56,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
         try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (eq(u8, op, "viewer.sync")) {
         if (!cl.viewer) return error.NotAttached;
-        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false, resource_detail: ?WorkspaceId = null };
+        const Request = struct { interests: []const @import("peer.zig").Interest, session_hash: ?u64 = null, focus: ?layout.PaneId = null, watched: bool = true, workspace: WorkspaceId = .none, ack: u64 = 0, active: bool = false, resource_detail: ?WorkspaceId = null, resources: bool = true };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const req = parsed.value;
@@ -84,6 +84,7 @@ pub fn handle(s: anytype, cl: anytype, v: std.json.Value) anyerror!bool {
             cl.view_focus = req.focus;
         };
         cl.watched = req.watched;
+        cl.resources = req.resources;
         cl.resource_detail = if (req.resource_detail) |id| if (s.runtime.workspaces.get(id) != null) id else null else null;
         if (req.active) {
             s.next_active += 1;

@@ -1,5 +1,6 @@
 //! Setup modal opened from the corgi badge (or Ctrl-B i), centered on screen.
-//! Viewer-owned; applying a choice sends `inference.configure` to the daemon.
+//! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
+//! resource choices update viewer preferences.
 const std = @import("std");
 const setup = @import("inference_setup.zig");
 const sidebar = @import("sidebar.zig");
@@ -10,6 +11,14 @@ pub const Choice = enum {
     claude,
     off,
     ghostty,
+    readings_always,
+    readings_busy,
+    readings_off,
+    cpu,
+    memory,
+    io,
+    alerts,
+    card,
     keyboard,
     import,
 
@@ -19,7 +28,53 @@ pub const Choice = enum {
     fn summarizer(choice: Choice) bool {
         return @intFromEnum(choice) <= @intFromEnum(Choice.off);
     }
+    fn readingMode(choice: Choice) ?Resources.Mode {
+        return switch (choice) {
+            .readings_always => .always,
+            .readings_busy => .busy,
+            .readings_off => .off,
+            else => null,
+        };
+    }
+    fn toggle(choice: Choice, prefs: *Resources) ?*bool {
+        return switch (choice) {
+            .cpu => &prefs.cpu,
+            .memory => &prefs.memory,
+            .io => &prefs.io,
+            .alerts => &prefs.alerts,
+            .card => &prefs.card,
+            else => null,
+        };
+    }
+    /// Applies a resource choice. False for choices that are not resource settings.
+    pub fn applyResources(choice: Choice, prefs: *Resources) bool {
+        if (choice.readingMode()) |mode| {
+            prefs.mode = mode;
+        } else if (choice.toggle(prefs)) |value| {
+            value.* = !value.*;
+        } else return false;
+        return true;
+    }
+    fn label(choice: Choice) []const u8 {
+        return switch (choice) {
+            .auto => "Auto",
+            .codex => "Codex",
+            .claude => "Claude",
+            .off, .readings_off => "Off",
+            .ghostty => "Command-key integration",
+            .readings_always => "Always",
+            .readings_busy => "When busy",
+            .cpu => "CPU",
+            .memory => "Memory",
+            .io => "I/O",
+            .alerts => "Amber alerts",
+            .card => "Process card on hover",
+            .keyboard => "Keyboard shortcuts",
+            .import => "Import sessions",
+        };
+    }
 };
+const Resources = @import("preferences.zig").Resources;
 const ghostty = @import("ghostty_integration.zig");
 const km = @import("keymap.zig");
 
@@ -27,7 +82,7 @@ const providers = @import("providers.zig");
 const Provider = providers.Provider;
 
 /// Rows inside the frame, top to bottom. Drawing and hit testing both walk
-/// this table; short terminals drop the spacers.
+/// this table; short terminals drop the spacers, then the hints.
 const Line = union(enum) {
     spacer,
     heading: []const u8,
@@ -36,6 +91,8 @@ const Line = union(enum) {
     /// Dim text aligned with row labels.
     hint: []const u8,
     option: Choice,
+    /// Checkboxes side by side on one row.
+    toggles: []const Choice,
     /// Requirements or status for the highlighted (or current) summarizer.
     detail,
     divider,
@@ -54,8 +111,14 @@ const lines = [_]Line{
     .spacer,
     .{ .heading = "Ghostty" },
     .{ .option = .ghostty },
-    .{ .hint = "Cmd+1-9, Cmd+T/W, Ctrl+Tab / Ctrl+Shift+Tab" },
-    .{ .hint = "Every Ghostty window · reload with Cmd+Shift+," },
+    .{ .hint = "Cmd+1-9, Cmd+T/W, Ctrl+Tab · reload with Cmd+Shift+," },
+    .spacer,
+    .{ .heading = "Workspace resources" },
+    .{ .option = .readings_always },
+    .{ .option = .readings_busy },
+    .{ .option = .readings_off },
+    .{ .toggles = &.{ .cpu, .memory, .io } },
+    .{ .toggles = &.{ .alerts, .card } },
     .spacer,
     .{ .heading = "Shortcuts & import" },
     .{ .option = .keyboard },
@@ -65,31 +128,43 @@ const lines = [_]Line{
     .divider,
     .footer,
 };
-const spacers = blk: {
-    var n = 0;
-    for (lines) |line| n += @intFromBool(line == .spacer);
-    break :blk n;
-};
-const full_height = lines.len + 2;
-const compact_height = full_height - spacers;
+const Density = enum { full, tight, minimal };
+fn kept(line: Line, density: Density) bool {
+    return switch (line) {
+        .spacer => density == .full,
+        .hint => density != .minimal,
+        else => true,
+    };
+}
+fn heightFor(density: Density) u16 {
+    var n: u16 = 2;
+    for (lines) |line| n += @intFromBool(kept(line, density));
+    return n;
+}
 const max_width = 64;
 const min_width = 48;
+// Toggle rows start under the radio labels.
+const toggle_x = label_x + 2;
+const toggle_gap = 3;
 
-fn compact(rows: u16) bool {
-    return rows < full_height;
+fn densityFor(rows: u16) Density {
+    return if (rows >= comptime heightFor(.full)) .full else if (rows >= comptime heightFor(.tight)) .tight else .minimal;
 }
 /// The line on `offset` rows below the top border.
 fn lineAt(rows: u16, offset: usize) ?Line {
     var n: usize = 0;
     for (lines) |line| {
-        if (compact(rows) and line == .spacer) continue;
+        if (!kept(line, densityFor(rows))) continue;
         if (n == offset) return line;
         n += 1;
     }
     return null;
 }
 fn usable(b: Rect) bool {
-    return b.w >= min_width and b.h >= compact_height;
+    return b.w >= min_width and b.h >= comptime heightFor(.minimal);
+}
+fn toggleWidth(choice: Choice) u16 {
+    return @intCast("[x] ".len + choice.label().len);
 }
 
 const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
@@ -112,20 +187,21 @@ const shadow = "\x1b[0;48;2;12;14;17m";
 // Columns inside the frame, counted from its left border.
 const marker_x = 3;
 const label_x = 5;
-const summary_x = 17;
+const summary_x = 18;
 
 pub const Menu = struct {
     selected: Choice,
     integration: ghostty.State = .unavailable,
     preset: km.Preset = .corgi,
     prefix: km.Prefix = .ctrl_b,
+    resources: Resources = .{},
 
     pub fn open(status: setup.Status) Menu {
         return .{ .selected = @enumFromInt(@intFromEnum(status.choice)) };
     }
     pub fn bounds(cols: u16, rows: u16) Rect {
         const w = @min(cols, max_width);
-        const h: u16 = @min(rows, if (compact(rows)) compact_height else full_height);
+        const h: u16 = @min(rows, heightFor(densityFor(rows)));
         return .{ .x = (cols - w) / 2, .y = (rows - h) / 2, .w = w, .h = h };
     }
     pub fn contains(cols: u16, rows: u16, x: u16, y: u16) bool {
@@ -136,6 +212,14 @@ pub const Menu = struct {
         if (!usable(b) or x <= b.x or x >= b.x + b.w - 1 or y <= b.y) return null;
         return switch (lineAt(rows, y - b.y - 1) orelse return null) {
             .option => |choice| choice,
+            .toggles => |choices| {
+                var start = b.x + toggle_x;
+                for (choices) |choice| {
+                    if (x >= start and x < start + toggleWidth(choice)) return choice;
+                    start += toggleWidth(choice) + toggle_gap;
+                }
+                return null;
+            },
             else => null,
         };
     }
@@ -177,10 +261,11 @@ pub const Menu = struct {
                 .lead => |label| try put(w, b, marker_x, y, panel, label),
                 .hint => |label| try put(w, b, label_x, y, panel, label),
                 .option => |choice| try m.drawOption(w, b, y, choice, status),
+                .toggles => |choices| try m.drawToggles(w, b, y, choices),
                 .detail => {
                     var buffer: [96]u8 = undefined;
-                    const current: Choice = @enumFromInt(@intFromEnum(status.choice));
-                    try put(w, b, summary_x, y, panel, detail(if (m.selected.summarizer()) m.selected else current, status, &buffer));
+                    const in_use: Choice = @enumFromInt(@intFromEnum(status.choice));
+                    try put(w, b, summary_x, y, panel, detail(if (m.selected.summarizer()) m.selected else in_use, status, &buffer));
                 },
                 .footer => {
                     try put(w, b, marker_x, y, panel, "↑↓ choose · esc close");
@@ -215,25 +300,41 @@ pub const Menu = struct {
             },
             .keyboard => .{ .text = m.keysLabel(&right_buffer), .style = accent },
             .import => .{ .text = "→", .style = accent },
-            else => .{ .text = if (@intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = accent },
+            else => .{ .text = if (choice.summarizer() and @intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = accent },
         };
         const right_width = sidebar.displayWidth(right.text);
         const right_x = b.w - 4 - right_width;
-        if (choice.summarizer()) {
-            const current = @intFromEnum(choice) == @intFromEnum(status.choice);
-            try w.print("\x1b[{d};{d}H{s}{s} {s}{s}", .{ y + 1, b.x + label_x + 1, if (current) accent else quiet, if (current) "●" else "○", label_style, labels[@intFromEnum(choice)] });
+        if (choice.summarizer() or choice.readingMode() != null) {
+            const chosen = m.current(choice, status);
+            try w.print("\x1b[{d};{d}H{s}{s} {s}{s}", .{ y + 1, b.x + label_x + 1, if (chosen) accent else quiet, if (chosen) "●" else "○", label_style, choice.label() });
             try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + summary_x + 1, base });
             var buffer: [96]u8 = undefined;
             try sidebar.writeEllipsis(w, summary(choice, status, &buffer), right_x -| (@as(usize, summary_x) + @intFromBool(right_width > 0) + 1));
         } else {
             try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + label_x + 1, label_style });
-            try sidebar.writeEllipsis(w, switch (choice) {
-                .ghostty => "Command-key integration",
-                .keyboard => "Keyboard shortcuts",
-                else => "Import sessions",
-            }, right_x -| (label_x + 1));
+            try sidebar.writeEllipsis(w, choice.label(), right_x -| (label_x + 1));
         }
         if (right_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + right_x + 1, right.style, right.text });
+    }
+    fn current(m: *const Menu, choice: Choice, status: setup.Status) bool {
+        if (choice.readingMode()) |mode| return mode == m.resources.mode;
+        return @intFromEnum(choice) == @intFromEnum(status.choice);
+    }
+    fn drawToggles(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choices: []const Choice) !void {
+        const highlighted = std.mem.indexOfScalar(Choice, choices, m.selected) != null;
+        const p = if (highlighted) row_selected else row_normal;
+        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + 2, p.text });
+        try w.splatByteAll(' ', b.w - 2);
+        if (highlighted) try w.print("\x1b[{d};{d}H{s}›", .{ y + 1, b.x + marker_x + 1, p.accent });
+        var x: u16 = toggle_x;
+        var prefs = m.resources;
+        for (choices) |choice| {
+            // Grayed while nothing is shown, and alerts while busy mode implies them.
+            const inert = prefs.mode == .off or (choice == .alerts and prefs.mode == .busy);
+            const style = if (inert) p.quiet else if (choice == m.selected) p.label else p.text;
+            try w.print("\x1b[{d};{d}H{s}[{s}] {s}", .{ y + 1, b.x + x + 1, style, if (choice.toggle(&prefs).?.*) "x" else " ", choice.label() });
+            x += toggleWidth(choice) + toggle_gap;
+        }
     }
     fn keysLabel(m: *const Menu, buffer: []u8) []const u8 {
         if (m.preset == .cmux) return "cmux · Cmd  →";
@@ -248,14 +349,17 @@ pub const Menu = struct {
                 .unavailable, .failed => null,
             },
             .keyboard, .import => "Open →",
-            else => |choice| if (@intFromEnum(choice) == @intFromEnum(status.choice))
+            .cpu, .memory, .io, .alerts, .card => |choice| {
+                var prefs = m.resources;
+                return if (choice.toggle(&prefs).?.*) "Turn off" else "Turn on";
+            },
+            else => |choice| if (m.current(choice, status))
                 "Keep"
             else
-                std.fmt.bufPrint(buffer, "Use {s}", .{labels[@intFromEnum(choice)]}) catch null,
+                std.fmt.bufPrint(buffer, "Use {s}", .{choice.label()}) catch null,
         };
     }
 };
-const labels = [_][]const u8{ "Auto", "Codex", "Claude", "Off" };
 
 fn put(w: *std.Io.Writer, b: Rect, x: u16, y: usize, style: []const u8, value: []const u8) !void {
     try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + x + 1, style });
@@ -268,7 +372,10 @@ fn modelName(id: []const u8) []const u8 {
 
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty => unreachable,
+        .readings_always => "Readings under every workspace",
+        .readings_busy => "Only amber CPU or memory alerts",
+        .readings_off => "Plain dividers; sampling paused",
+        .keyboard, .import, .ghostty, .cpu, .memory, .io, .alerts, .card => unreachable,
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
         else if (status.provider) |provider|
@@ -290,7 +397,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
-        .keyboard, .import, .ghostty => unreachable,
+        .keyboard, .import, .ghostty, .readings_always, .readings_busy, .readings_off, .cpu, .memory, .io, .alerts, .card => unreachable,
         .auto => if (status.launches.codex + status.launches.claude == 0)
             "No agents yet this session; using your last one"
         else
@@ -302,7 +409,7 @@ fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 
 fn rowOf(cols: u16, rows: u16, choice: Choice) ?u16 {
     const b = Menu.bounds(cols, rows);
-    for (b.y..b.y + b.h) |y| if (Menu.hit(cols, rows, b.x + 6, @intCast(y)) == choice) return @intCast(y);
+    for (b.y..b.y + b.h) |y| for (b.x..b.x + b.w) |x| if (Menu.hit(cols, rows, @intCast(x), @intCast(y)) == choice) return @intCast(y);
     return null;
 }
 
@@ -318,13 +425,13 @@ test "setup modal is centered and its rows are clickable inside the frame" {
     try std.testing.expect(Menu.hit(100, 30, b.x + 6, b.y + 2) == null);
     try std.testing.expect(Menu.hit(100, 30, b.x, auto) == null);
     // Short terminals drop spacer rows but keep every choice reachable.
-    for (std.enums.values(Choice)) |choice| try std.testing.expect(rowOf(80, compact_height, choice) != null);
+    for (std.enums.values(Choice)) |choice| try std.testing.expect(rowOf(80, heightFor(.minimal), choice) != null);
     var menu = Menu.open(.{ .choice = .claude });
     menu.move(true);
     try std.testing.expectEqual(Choice.off, menu.selected);
     menu.move(true);
     try std.testing.expectEqual(Choice.ghostty, menu.selected);
-    for (0..4) |_| menu.move(true);
+    for (0..20) |_| menu.move(true);
     try std.testing.expectEqual(Choice.import, menu.selected);
     menu.selected = .auto;
     menu.move(false);
@@ -351,4 +458,18 @@ test "setup modal explains the automatic choice" {
     try std.testing.expectEqual(@as(usize, 0), output.written().len);
 }
 
+test "resource toggles share a row, are clicked by column, and flip preferences" {
+    const row = rowOf(100, 40, .cpu).?;
+    try std.testing.expectEqual(row, rowOf(100, 40, .io).?);
+    try std.testing.expectEqual(row + 1, rowOf(100, 40, .card).?);
+    const b = Menu.bounds(100, 40);
+    try std.testing.expectEqual(Choice.memory, Menu.hit(100, 40, b.x + toggle_x + toggleWidth(.cpu) + toggle_gap, row).?);
+    try std.testing.expect(Menu.hit(100, 40, b.x + toggle_x + toggleWidth(.cpu), row) == null);
+    var prefs: Resources = .{};
+    try std.testing.expect(Choice.io.applyResources(&prefs));
+    try std.testing.expect(!prefs.io);
+    try std.testing.expect(Choice.readings_busy.applyResources(&prefs));
+    try std.testing.expectEqual(Resources.Mode.busy, prefs.mode);
+    try std.testing.expect(!Choice.codex.applyResources(&prefs));
+}
 

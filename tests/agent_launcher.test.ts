@@ -1254,19 +1254,23 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     await this.until(
       async () => (await this.session()).inference.choice === "claude",
     );
-    await this.until(async () =>
-      (await text()).includes("Summaries and link names: Claude Code"),
-    );
-    this.assertNotIn("Corgi setup", await text());
-    await view.input("\x02i");
+    // Choosing a setting keeps setup open; only Esc closes it.
     await this.until(async () => (await text()).includes("● Claude"));
-    await this.clickViewer(view, 5, 9);
+    this.assertIn("Corgi setup", await text());
+    await this.clickText(view, "no summaries, plain links", 100);
     await this.until(
       async () => (await this.session()).inference.choice === "off",
     );
     this.assertIsNone((await this.session()).inference.provider);
-    await view.input("\x02i");
-    await this.until(async () => (await text()).includes("Corgi setup"));
+    await this.clickText(view, "Only amber CPU or memory alerts", 100);
+    await this.until(async () => (await text()).includes("● When busy"));
+    await this.clickText(view, "I/O", 100);
+    await this.until(async () => (await text()).includes("[ ] I/O"));
+    const saved = JSON.parse(
+      readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"),
+    );
+    this.assertEqual(saved.resources.mode, "busy");
+    this.assertEqual(saved.resources.io, false);
     await view.input("\x1b");
     await this.until(async () => !(await text()).includes("Corgi setup"));
     this.assertEqual((await this.session()).inference.choice, "off");

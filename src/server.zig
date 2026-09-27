@@ -968,10 +968,17 @@ pub const Server = struct {
                 ci += 1;
             }
             s.followWorkspaceDirectories();
-            const resource_detail = for (s.clients.items) |client| {
-                if (client.viewer and !client.dead and client.watched and client.resource_detail != null) break true;
-            } else false;
-            if (s.runtime.resources.tick(&s.runtime, resource_detail)) s.dirty = true;
+            var resource_detail = false;
+            var viewers = false;
+            var sampled = false;
+            for (s.clients.items) |client| if (client.viewer and !client.dead) {
+                viewers = true;
+                sampled = sampled or client.resources;
+                resource_detail = resource_detail or (client.watched and client.resource_detail != null);
+            };
+            // Pause sampling only when every attached viewer turned readings off;
+            // CLI snapshots without viewers still get fresh totals.
+            if ((sampled or !viewers) and s.runtime.resources.tick(&s.runtime, resource_detail)) s.dirty = true;
             if (s.runtime.git_push.tick(&s.runtime.workspaces, &s.runtime.git_status)) s.dirty = true;
             if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
             if (s.runtime.ports.tick(&s.runtime)) {

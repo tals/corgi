@@ -36,6 +36,8 @@ pub const Client = struct {
     last_snapshot: i64 = 0,
     watched: bool = true,
     resource_detail: ?WorkspaceId = null,
+    /// False once this viewer's resource row is off; see `server.zig`.
+    resources: bool = true,
     dead: bool = false,
     touched: i64 = 0,
     pub fn queue(cl: *Client, value: anytype) !void {

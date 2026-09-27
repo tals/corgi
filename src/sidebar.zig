@@ -97,6 +97,7 @@ pub const View = struct {
     dragged: ?usize = null,
     workspace_count: usize = 0,
     workspace_offset: usize = 0,
+    resources: Resources = .{},
     pub fn middle(v: View) u16 {
         return (v.rows -| 1) / 2;
     }
@@ -359,7 +360,7 @@ pub const View = struct {
                 try w.print("\x1b[{d};2H{s}", .{ y + 3, meta });
                 const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
                 if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
-                try drawResources(w, ws.resources, v.width - 3);
+                try drawResources(w, ws.resources, v.width - 3, v.resources);
                 try w.writeAll("\x1b[24;59m");
                 if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, active_bar, panel });
             }
@@ -578,20 +579,44 @@ pub fn resourceAt(v: View, workspaces: []const WorkspaceEntry, x: u16, y: u16) ?
     const i = (y - 2) / 3;
     if (i >= v.workspaceCapacity() or i + v.workspace_offset >= workspaces.len) return null;
     const ws = workspaces[i + v.workspace_offset];
-    if (ws.resources.cpu == null and ws.resources.memory == null and ws.resources.read == null and ws.resources.written == null) return null;
-    return ws;
+    if (!v.resources.card) return null;
+    for (0..3) |reading| if (shownReading(v.resources, ws.resources, reading)) return ws;
+    return null;
 }
-fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, width: usize) !void {
+const Resources = @import("preferences.zig").Resources;
+fn alerting(prefs: Resources, work: @import("resources.zig").Work, reading: usize) bool {
+    if (!prefs.alerts and prefs.mode != .busy) return false;
+    return (reading == 0 and work.cpu_pressure) or (reading == 1 and work.memory_pressure);
+}
+/// Whether the row shows CPU (0), memory (1) or I/O (2) under these preferences.
+fn shownReading(prefs: Resources, work: @import("resources.zig").Work, reading: usize) bool {
+    const available = switch (reading) {
+        0 => work.cpu != null,
+        1 => work.memory != null,
+        else => work.read != null and work.written != null,
+    };
+    const enabled = switch (reading) {
+        0 => prefs.cpu,
+        1 => prefs.memory,
+        else => prefs.io,
+    };
+    return available and enabled and switch (prefs.mode) {
+        .always => true,
+        .busy => alerting(prefs, work, reading),
+        .off => false,
+    };
+}
+fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, width: usize, prefs: Resources) !void {
     const r = @import("resources.zig");
     var buffers: [3][32]u8 = undefined;
     const values = [_][]const u8{ r.cpuText(&buffers[0], work.cpu), r.memoryText(&buffers[1], work.memory), r.ioText(&buffers[2], if (work.read != null and work.written != null) work.read.? +| work.written.? else null) };
     for (values, "CMI", 0..) |value, label, i| {
         const room = if (i == 2) width - (width / 3) * 2 else width / 3;
-        if (value.len == 0) {
+        if (value.len == 0 or !shownReading(prefs, work, i)) {
             try w.splatByteAll(' ', room);
             continue;
         }
-        const alert = (i == 0 and work.cpu_pressure) or (i == 1 and work.memory_pressure);
+        const alert = alerting(prefs, work, i);
         try w.writeAll(if (alert) "\x1b[1;38;2;249;226;175m" else "\x1b[22;38;2;125;137;155m");
         try w.writeByte(label);
         if (room >= 7) try w.writeByte(' ');
@@ -606,16 +631,41 @@ fn drawResources(w: *std.Io.Writer, work: @import("resources.zig").Work, width: 
 test "resource row omits unavailable metrics and preserves real zeros" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, 25);
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, 25, .{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "--") == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'I') == null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, 25);
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, 25, .{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 0%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "M 0M") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "I 0K/s") != null);
+}
+
+test "resource preferences hide readings, keep only alerts when busy, and blank the row when off" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const hot: @import("resources.zig").Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
+    try drawResources(&output.writer, hot, 25, .{ .io = false });
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'I') == null);
+    output.clearRetainingCapacity();
+    try drawResources(&output.writer, hot, 25, .{ .mode = .busy, .alerts = false });
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') == null);
+    output.clearRetainingCapacity();
+    try drawResources(&output.writer, hot, 25, .{ .mode = .off });
+    try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
+    const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+    const entries = [_]WorkspaceEntry{.{ .id = WorkspaceId.first, .name = "a", .cwd = "", .active = true, .resources = hot }};
+    try std.testing.expect(resourceAt(view, &entries, 3, 4) != null);
+    var quiet = view;
+    quiet.resources.card = false;
+    try std.testing.expect(resourceAt(quiet, &entries, 3, 4) == null);
+    quiet = view;
+    quiet.resources.mode = .off;
+    try std.testing.expect(resourceAt(quiet, &entries, 3, 4) == null);
 }
 
 pub fn agentAt(v: View, entries: []const Entry, x: u16, y: u16) ?*const Entry {

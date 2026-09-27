@@ -110,6 +110,7 @@ pub const Controller = struct {
     link_tooltip: @import("link_tooltip.zig").State = .{},
     git_hover: ?WorkspaceId = null,
     resource_card: @import("resource_tooltip.zig").State = .{},
+    resource_prefs: @import("preferences.zig").Resources = .{},
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?@import("agent_drag.zig").Drag = null,
@@ -222,6 +223,7 @@ pub const Controller = struct {
         const offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset;
         var view = sidebar.View.init(s.width, s.height, s.sidebar_open, offset, entries.len).withSearch(s.agentSearch()).withWidth(s.sidebar_width).withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset).withEntries(entries);
         view.scope_label = s.scopeLabel();
+        view.resources = s.resource_prefs;
         return view;
     }
     fn scopeLabel(s: *Self) []const u8 {
@@ -255,6 +257,7 @@ pub const Controller = struct {
         s.key_preset = saved.preset;
         s.key_prefix = saved.prefix;
         s.sidebar_width = saved.sidebar_width;
+        s.resource_prefs = saved.resources;
         if (!saved.onboarding_complete) s.onboarding = .{ .preset = saved.preset, .prefix = saved.prefix };
         s.agent_scope = switch (saved.agents) {
             .workspace => .workspace,
@@ -1090,6 +1093,7 @@ pub const Controller = struct {
         s.corgi_setup.?.integration = if (s.remote_links) .unavailable else @import("ghostty_integration.zig").state();
         s.corgi_setup.?.preset = s.key_preset;
         s.corgi_setup.?.prefix = s.key_prefix;
+        s.corgi_setup.?.resources = s.resource_prefs;
         s.dirty = true;
     }
     pub fn openOnboarding(s: *Self, mode: onboarding.Mode) void {
@@ -1109,6 +1113,14 @@ pub const Controller = struct {
     fn applySetup(s: *Self, choice: @import("corgi_setup.zig").Choice) void {
         if (choice == .keyboard or choice == .import) {
             return s.openOnboarding(if (choice == .keyboard) .keyboard else .import);
+        }
+        if (choice.applyResources(&s.resource_prefs)) {
+            if (s.corgi_setup) |*setup| setup.resources = s.resource_prefs;
+            var saved = @import("preferences.zig").load();
+            saved.resources = s.resource_prefs;
+            @import("preferences.zig").save(saved) catch |err| s.notice(@errorName(err));
+            s.dirty = true;
+            return;
         }
         if (choice == .ghostty) {
             const integration = @import("ghostty_integration.zig");
@@ -1142,7 +1154,7 @@ pub const Controller = struct {
         const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
-            .ghostty, .keyboard, .import => unreachable,
+            .ghostty, .keyboard, .import, .readings_always, .readings_busy, .readings_off, .cpu, .memory, .io, .alerts, .card => unreachable,
             .auto => "Auto (follows your agents)",
             .off => "Off",
             else => choice.provider().?.info().label,

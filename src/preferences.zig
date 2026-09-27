@@ -4,6 +4,21 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 
+/// What the sidebar's third workspace row shows. `busy` keeps only amber
+/// pressure alerts; `off` restores the plain divider and pauses sampling
+/// once every attached viewer is off.
+pub const Resources = struct {
+    pub const Mode = enum { always, busy, off };
+    mode: Mode = .always,
+    cpu: bool = true,
+    memory: bool = true,
+    io: bool = true,
+    /// Amber CPU and memory pressure in `always` mode; `busy` always shows them.
+    alerts: bool = true,
+    /// The history and process card on hover.
+    card: bool = true,
+};
+
 pub const Preferences = struct {
     /// The agent scope persists across viewer restarts.
     agents: enum { workspace, all } = .workspace,
@@ -12,6 +27,7 @@ pub const Preferences = struct {
     preset: @import("keymap.zig").Preset = .corgi,
     prefix: @import("keymap.zig").Prefix = .ctrl_b,
     onboarding_complete: bool = false,
+    resources: Resources = .{},
 };
 
 pub fn path() ![]const u8 {
