@@ -633,7 +633,12 @@ class Discovery extends TestCase {
   async setUp() {
     this.temp = tempDir("corgi-discovery-");
     this.root = this.temp.name;
-    this.env = { ...process.env, HOME: this.root, PATH: "", CORGI_TEST_SYSTEM_ROOT: join(this.root, "system") };
+    this.env = {
+      ...process.env,
+      HOME: this.root,
+      PATH: "",
+      CORGI_TEST_SYSTEM_ROOT: join(this.root, "system"),
+    };
     delete this.env.CORGI_CODEX_BIN;
   }
   async tearDown() {

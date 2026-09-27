@@ -147,7 +147,9 @@ export class Runtime extends TestCase {
           await this.run_cli("shutdown");
         } catch (error) {
           const log = join(this.temp.name, "server.log");
-          const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-40).join("\n") : "(no server.log)";
+          const tail = existsSync(log)
+            ? readFileSync(log, "utf8").split("\n").slice(-40).join("\n")
+            : "(no server.log)";
           errors.push(new Error(`${error}\nserver.log tail:\n${tail}`));
         }
       await sleep(0.1);
@@ -174,7 +176,10 @@ export class Runtime extends TestCase {
   /** Lets `seconds` pass on the daemon's policy clock (cooldowns, retries, rescans) without waiting, and settles before and after. */
   async advance(seconds: number) {
     await this.settle();
-    const result = await this.rpc({ op: "test.advance", ms: Math.round(seconds * 1000) });
+    const result = await this.rpc({
+      op: "test.advance",
+      ms: Math.round(seconds * 1000),
+    });
     this.assertTrue(result.ok, JSON.stringify(result));
     await this.settle();
   }
@@ -243,7 +248,11 @@ export class Runtime extends TestCase {
     this.fail("condition timed out");
   }
   /** Like `until`, letting `step` seconds of policy-clock time pass between checks. */
-  async untilAdvancing<T>(step: number, predicate: () => T | Promise<T>, timeout = 10): Promise<T> {
+  async untilAdvancing<T>(
+    step: number,
+    predicate: () => T | Promise<T>,
+    timeout = 10,
+  ): Promise<T> {
     return this.until(async () => {
       const value = await predicate();
       if (!value) await this.advance(step);

@@ -626,4 +626,7 @@ class SummaryCases extends Summaries {
   }
 }
 registerCase("Summaries", SummaryCases, { inherited: false, concurrent: true });
-registerCase("ClaudeSummaries", ClaudeSummaries, { inherited: false, concurrent: true });
+registerCase("ClaudeSummaries", ClaudeSummaries, {
+  inherited: false,
+  concurrent: true,
+});

@@ -253,7 +253,9 @@ export class ClaudeSummaries extends Runtime {
     });
     await this.advance(8);
     await this.until(() =>
-      JSON.parse(lines(this.log).at(-1)!).evidence.includes("Find hook routing"),
+      JSON.parse(lines(this.log).at(-1)!).evidence.includes(
+        "Find hook routing",
+      ),
     );
     const call = JSON.parse(lines(this.log).at(-1)!);
     this.assertIn("Tracing how hooks reach panes", JSON.stringify(call));

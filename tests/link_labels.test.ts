@@ -92,7 +92,10 @@ class LinkLabels extends Runtime {
     this.assertEqual(lines(this.log).length, 1);
     this.assertEqual((await this.rpc({ op: "native.list" })).sessions, []);
     await this.command("pane.close", { target: pane });
-    await this.untilAdvancing(3, async () => (await this.endpoints()).length === 0);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.endpoints()).length === 0,
+    );
     this.assertNotIn("Open Finance", (await viewer.poll()).data);
   }
   async test_pending_dots_glimmer_then_resolve_without_changing_the_url() {
@@ -187,7 +190,10 @@ class LinkLabels extends Runtime {
     const { pane } = await this.start_server();
     await this.untilAdvancing(3, () => existsSync(this.log));
     await this.command("pane.close", { target: pane });
-    await this.untilAdvancing(3, async () => (await this.endpoints()).length === 0);
+    await this.untilAdvancing(
+      3,
+      async () => (await this.endpoints()).length === 0,
+    );
     await sleep(2.2);
     const viewer = await Viewer.create(this);
     this.assertNotIn("Open Stale App", (await viewer.poll()).data);

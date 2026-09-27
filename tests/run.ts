@@ -34,8 +34,7 @@ for (let i = 0; i < args.length; i++) {
     jobs = Number(args[++i]);
     if (!Number.isInteger(jobs) || jobs < 1)
       throw new Error(`${arg} requires a positive integer`);
-  }
-  else if (arg === "--corgi" || arg === "--herdr") {
+  } else if (arg === "--corgi" || arg === "--herdr") {
     const value = args[++i];
     if (!value) throw new Error(`${arg} requires a path`);
     env[arg === "--corgi" ? "CORGI_TEST_BIN" : "HERDR_TEST_BIN"] =
@@ -98,7 +97,13 @@ async function runSuite(suite: string) {
   // Parallel suites buffer their output so each prints as one block.
   const child = Bun.spawn(
     // Bounds overlap within suites whose cases are marked concurrent.
-    [process.execPath, "test", "--max-concurrency=4", resolve(import.meta.dir, suite), ...forwarded],
+    [
+      process.execPath,
+      "test",
+      "--max-concurrency=4",
+      resolve(import.meta.dir, suite),
+      ...forwarded,
+    ],
     {
       cwd: resolve(import.meta.dir, ".."),
       env,
