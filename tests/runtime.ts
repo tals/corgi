@@ -144,7 +144,9 @@ export class Runtime extends TestCase {
         try {
           await this.run_cli("shutdown");
         } catch (error) {
-          errors.push(error);
+          const log = join(this.temp.name, "server.log");
+          const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-40).join("\n") : "(no server.log)";
+          errors.push(new Error(`${error}\nserver.log tail:\n${tail}`));
         }
       await sleep(0.1);
       const log = join(this.temp.name, "server.log");

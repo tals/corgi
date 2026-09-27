@@ -14,8 +14,16 @@ export CORGI_TEST_BIN="$test_prefix/bin/corgi"
 bun run tests/run.ts
 ```
 
-The runner starts a separate Bun process for each suite, runs them sequentially,
-prints a pass/fail table, and exits nonzero when any suite fails. Each runtime
+The runner starts a separate Bun process for each suite and runs several at
+once (`--jobs N`, default half the cores up to 6; `--jobs 1` runs them one by
+one with live output). Parallel suites print their output when they finish.
+Durations from the previous run, kept in `.zig-cache/test-timings.json`, start
+the slowest suites first. It prints a pass/fail table and exits nonzero when
+any suite fails.
+
+Cases within a suite run one at a time unless the suite registers with
+`registerCase(..., { concurrent: true })`. Only mark suites whose cases share
+nothing beyond their own runtime and do not depend on tight timing. Each runtime
 uses a temporary home, provider settings, and socket; mock providers make no
 model requests. A test failure is not converted into a skip if Unix sockets or
 PTYs are unavailable in the execution environment.

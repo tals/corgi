@@ -347,6 +347,8 @@ export function registerCase(
     inherited?: boolean;
     skip?: boolean | string;
     skipTests?: Record<string, string>;
+    /** Cases share no state beyond their own runtime, so they may overlap. */
+    concurrent?: boolean;
   } = {},
 ) {
   const names = new Set<string>();
@@ -362,7 +364,11 @@ export function registerCase(
   describe(name, () => {
     for (const method of [...names].sort()) {
       const register =
-        options.skip || options.skipTests?.[method] ? test.skip : test;
+        options.skip || options.skipTests?.[method]
+          ? test.skip
+          : options.concurrent
+            ? test.concurrent
+            : test;
       register(
         method,
         async () => {
