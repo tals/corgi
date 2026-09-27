@@ -195,8 +195,17 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var hovered_uri: ?[]const u8 = null;
     var link_pointer = false;
     var workspace_uri: [256]u8 = undefined;
+    const card_rect: ?layout.Rect = if (!ui.link_tooltip or ui.agent_launcher != null or ui.corgi_setup != null or ui.pointer == null) null else if (ui.resource_card) |card|
+        @import("resource_tooltip.zig").geometry(width, height, side.width, card.anchor)
+    else
+        null;
+    // The card hides links beneath it. Workspace rows it covers still take
+    // presses, so they keep their own pointer.
+    const on_card = if (ui.pointer) |pointer| if (card_rect) |rect| rect.contains(pointer.x, pointer.y) and side.hit(pointer.x, pointer.y) != .workspace else false else false;
     if (ui.pointer) |pointer| {
-        if (ui.scope_menu != null) {
+        if (on_card) {
+            link_pointer = @import("resource_tooltip.zig").sortAt(card_rect.?, pointer.x, pointer.y) != null;
+        } else if (ui.scope_menu != null) {
             link_pointer = side.hit(pointer.x, pointer.y) == .agent_scope or sidebar.ScopeMenu.hit(side, width, height, pointer.x, pointer.y) != null;
         } else if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
             if (ui.port_menu) |menu| {
@@ -256,7 +265,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             const state = p.terminal.renderState();
             var hovered: ?u64 = null;
             if (ui.pointer) |pointer| {
-                if (r.contains(pointer.x, pointer.y) and ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
+                if (r.contains(pointer.x, pointer.y) and !on_card and ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm) {
                     for (p.terminal.hyperlinks()) |link| {
                         if (link.row == pointer.y - r.y and link.start <= pointer.x - r.x and pointer.x - r.x < link.end) {
                             hovered = link.id;
@@ -304,7 +313,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     };
     if (ui.link_tooltip and ui.agent_launcher == null and ui.corgi_setup == null) if (ui.pointer) |pointer| {
         if (ui.resource_card) |card| {
-            if (@import("resource_tooltip.zig").geometry(width, height, side.width, card.anchor)) |rect| {
+            if (card_rect) |rect| {
                 const name = for (ui.workspaces) |ws| {
                     if (ws.id == card.workspace) break ws.name;
                 } else "workspace";
@@ -377,8 +386,8 @@ test "unread pointer follows the clickable workspace and respects overlays" {
     var selection: layout.Selection = .{};
     const view: layout.View = .{ .model = &model, .selection = &selection };
     var workspaces = [_]sidebar.WorkspaceEntry{
-        .{ .id = 1, .name = "Read", .cwd = "/tmp", .active = true },
-        .{ .id = 2, .name = "Unread", .cwd = "/tmp", .active = false, .unread = 2 },
+        .{ .id = @enumFromInt(1), .name = "Read", .cwd = "/tmp", .active = true },
+        .{ .id = @enumFromInt(2), .name = "Unread", .cwd = "/tmp", .active = false, .unread = 2 },
     };
     const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.len, 0);
     const range = side.unreadRange(workspaces[1]);
@@ -400,6 +409,37 @@ test "unread pointer follows the clickable workspace and respects overlays" {
             .sidebar_open = case.open,
         });
         defer a.free(output);
+        try std.testing.expect(std.mem.indexOf(u8, output, if (case.hand) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\") != null);
+    }
+}
+
+test "resource card points only at its sortable column headers" {
+    var model: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &model, .selection = &selection };
+    var workspaces = [_]sidebar.WorkspaceEntry{.{ .id = WorkspaceId.first, .name = "Busy", .cwd = "/tmp", .active = true }};
+    const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.len, 0);
+    const rect = @import("resource_tooltip.zig").geometry(100, 30, side.width, 2).?;
+    const header = rect.y + 14;
+    const Case = struct { x: u16, y: u16, hand: bool = false };
+    for ([_]Case{
+        .{ .x = rect.x + rect.w - 32, .y = header, .hand = true },
+        .{ .x = rect.x + rect.w - 20, .y = header, .hand = true },
+        .{ .x = rect.x + rect.w - 3, .y = header, .hand = true },
+        .{ .x = rect.x + rect.w - 33, .y = header },
+        .{ .x = rect.x + rect.w - 2, .y = header },
+        .{ .x = rect.x + rect.w - 20, .y = header + 1 },
+    }) |case| {
+        const output = try frame(view, @as([]const Pane, &.{}), 100, 30, .{
+            .pointer = .{ .x = case.x, .y = case.y },
+            .link_tooltip = true,
+            .resource_card = .{ .workspace = workspaces[0].id, .anchor = 2 },
+            .message = "",
+            .copy_mode = false,
+            .workspaces = &workspaces,
+        });
+        defer a.free(output);
+        try std.testing.expect(std.mem.indexOf(u8, output, "TOP PROCESSES") != null);
         try std.testing.expect(std.mem.indexOf(u8, output, if (case.hand) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\") != null);
     }
 }
@@ -493,7 +533,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     defer a.free(usage_popup);
     try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Observed tokens") != null);
     try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Since Corgi started") == null);
-    try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Usage not reported yet") != null);
+    try std.testing.expect(std.mem.indexOf(u8, usage_popup, "— tokens") != null);
     ui.link_tooltip = false;
     ui.agent_launcher = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     const popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);

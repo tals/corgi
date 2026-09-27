@@ -364,6 +364,7 @@ test {
     _ = @import("resources.zig");
     _ = @import("resource_os.zig");
     _ = @import("resource_tooltip.zig");
+    _ = @import("render.zig");
     _ = @import("checkpoint_probe.zig");
     _ = @import("checkpoint_test.zig");
     _ = @import("state_migrations.zig");

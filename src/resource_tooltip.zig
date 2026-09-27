@@ -66,11 +66,18 @@ pub const State = struct {
         s.frozen = freeze;
     }
     pub fn click(s: *State, rect: Rect, x: u16, y: u16) void {
-        if (y != rect.y + 14) return;
-        if (x >= rect.x + rect.w - 17) s.sort = .io else if (x >= rect.x + rect.w - 24) s.sort = .memory else if (x >= rect.x + rect.w - 32) s.sort = .cpu else return;
+        s.sort = sortAt(rect, x, y) orelse return;
         s.frozen = false;
     }
 };
+/// The sortable column header under a cell, from "CPU %" through "W MB/s".
+/// Both disk columns sort by I/O.
+pub fn sortAt(rect: Rect, x: u16, y: u16) ?resources.Sort {
+    if (y != rect.y + 14 or x < rect.x + rect.w - 32 or x >= rect.x + rect.w - 2) return null;
+    if (x >= rect.x + rect.w - 17) return .io;
+    if (x >= rect.x + rect.w - 24) return .memory;
+    return .cpu;
+}
 
 fn at(w: *std.Io.Writer, x: usize, y: usize, color: []const u8, value: []const u8, width: usize) !void {
     try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 1, color });
