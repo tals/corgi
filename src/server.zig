@@ -527,16 +527,17 @@ pub const Server = struct {
     // prompt. OSC title identity can restore its attachment without observing
     // lifecycle, resetting receipts, or waiting for the app-server transport.
     /// Runs after each collection cycle. Once every worker has finished a pass
-    /// that began after the request, one more cycle collects its results.
+    /// that began after the request, one more cycle collects its results. A
+    /// ports scan in progress is applied first too.
     fn progressSettles(s: *Server) void {
         const w = s.workers orelse return;
         const passes = @import("passes.zig");
         var i: usize = 0;
         while (i < s.settles.items.len) {
             const pending = &s.settles.items[i];
-            if (!pending.collected) {
-                pending.collected = passes.reached(w.transcripts, pending.targets[0]) and
-                    passes.reached(w.usage, pending.targets[1]) and passes.reached(w.codex, pending.targets[2]);
+            if (!pending.collected or s.runtime.ports.busy()) {
+                pending.collected = pending.collected or (passes.reached(w.transcripts, pending.targets[0]) and
+                    passes.reached(w.usage, pending.targets[1]) and passes.reached(w.codex, pending.targets[2]));
                 i += 1;
                 continue;
             }

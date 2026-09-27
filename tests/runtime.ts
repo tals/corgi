@@ -171,11 +171,12 @@ export class Runtime extends TestCase {
     const result = await this.rpc({ op: "test.settle" });
     this.assertTrue(result.ok, JSON.stringify(result));
   }
-  /** Settles, then lets `seconds` pass on the daemon's policy clock (cooldowns, retries) without waiting for them. */
+  /** Lets `seconds` pass on the daemon's policy clock (cooldowns, retries, rescans) without waiting, and settles before and after. */
   async advance(seconds: number) {
     await this.settle();
     const result = await this.rpc({ op: "test.advance", ms: Math.round(seconds * 1000) });
     this.assertTrue(result.ok, JSON.stringify(result));
+    await this.settle();
   }
   async rpc(value: any) {
     await pump(this);
@@ -240,6 +241,14 @@ export class Runtime extends TestCase {
       await sleep(0.03);
     }
     this.fail("condition timed out");
+  }
+  /** Like `until`, letting `step` seconds of policy-clock time pass between checks. */
+  async untilAdvancing<T>(step: number, predicate: () => T | Promise<T>, timeout = 10): Promise<T> {
+    return this.until(async () => {
+      const value = await predicate();
+      if (!value) await this.advance(step);
+      return value;
+    }, timeout);
   }
   async panes() {
     const snapshot = await this.session();

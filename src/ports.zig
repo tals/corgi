@@ -301,6 +301,10 @@ pub const Tracker = struct {
         t.arena.deinit();
         t.pending_arena.deinit();
     }
+    /// A scan is running or its result has not been applied yet.
+    pub fn busy(t: *const Tracker) bool {
+        return t.thread != null;
+    }
     pub fn tick(t: *Tracker, runtime: anytype) bool {
         var changed = false;
         if (t.thread) |thread| {
@@ -321,7 +325,7 @@ pub const Tracker = struct {
                 changed = true;
             }
         }
-        const now = std.time.milliTimestamp();
+        const now = @import("clock.zig").milliTimestamp();
         if (now < t.next_refresh) return changed;
         t.next_refresh = now + 3000;
         _ = t.pending_arena.reset(.free_all);
@@ -354,7 +358,7 @@ pub const Tracker = struct {
         defer if (files) |text| a.free(text);
         const endpoints = if (files) |text| try sockets(allocator, text, list, t.roots, all) else &.{};
         var works: std.ArrayList(Work) = .empty;
-        const now = std.time.milliTimestamp();
+        const now = @import("clock.zig").milliTimestamp();
         for (t.roots) |root| {
             const exists = for (works.items) |w| {
                 if (w.id == root.workspace) break true;

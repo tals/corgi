@@ -62,13 +62,14 @@ class Ports extends Runtime {
     const info = JSON.parse(readFileSync(hosted.ready, "utf8"));
     this.fixturePid = info.pid;
     const ws = (await this.session()).workspaces[0].id;
-    await this.until(async () => {
+    // Each rescan probes a few endpoints; let rescans happen back to back.
+    await this.untilAdvancing(3, async () => {
       const endpoints = (await this.workspacePorts(ws)).endpoints ?? [];
       return (
         endpoints.length === 4 &&
         endpoints.filter((e: any) => e.scheme !== "unknown").length === 3
       );
-    }, 25);
+    });
     const work = await this.workspacePorts(ws);
     this.assertGreaterEqual(work.background, 1);
     const endpoints = Object.fromEntries(
@@ -207,10 +208,10 @@ class Ports extends Runtime {
     await this.until(() => existsSync(hosted.ready));
     const ports = JSON.parse(readFileSync(hosted.ready, "utf8"));
     const ws = (await this.session()).workspaces[0].id;
-    await this.until(async () => {
+    await this.untilAdvancing(3, async () => {
       const ends = (await this.workspacePorts(ws)).endpoints ?? [];
       return ends.length === 6 && ends.every((e: any) => e.probed_at > 0);
-    }, 25);
+    });
     const work = await this.workspacePorts(ws);
     this.assertEqual(work.background, 1);
     const endpoints = Object.fromEntries(
@@ -233,7 +234,7 @@ class Ports extends Runtime {
       this.assertNotIn(`http://localhost:${ports[status]}`, data);
       this.assertNotIn(`:${ports[status]}`, data);
     }
-    await Bun.sleep(3200);
+    await this.advance(3.2); // A later rescan keeps the recent probe.
     const cached = Object.fromEntries(
       (await this.workspacePorts(ws)).endpoints.map((e: any) => [e.port, e]),
     );
