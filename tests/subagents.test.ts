@@ -105,7 +105,7 @@ class Children extends Titles {
       x = rows[y].indexOf("↳2");
     await a.input(`\x1b[<35;${x + 1};${y + 1}M`);
     this.assertNotIn("Including subagents", a.state.data);
-    await sleep(0.6);
+    await a.advance(0.6);
     let frame = (await a.poll()).data;
     for (const text of [
       "Total",
@@ -135,7 +135,7 @@ class Children extends Titles {
     for (const hoverY of [y - 1, y]) {
       await a.input(`\x1b[<35;6;${hoverY + 1}M`);
       this.assertNotIn("Including subagents", a.state.data);
-      await sleep(0.6);
+      await a.advance(0.6);
       frame = (await a.poll()).data;
       for (const text of [
         "Total",
@@ -149,7 +149,7 @@ class Children extends Titles {
     rows = screen_text((await a.poll()).data, 64, 13);
     const smallY = rows.findIndex((r, i) => i > 6 && r.includes("codex"));
     await a.input(`\x1b[<35;6;${smallY + 1}M`);
-    await sleep(0.6);
+    await a.advance(0.6);
     const small = (await a.poll()).data;
     for (const text of ["Total", "+3 more", "Including subagents"])
       this.assertIn(text, small);
@@ -205,7 +205,7 @@ class Children extends Titles {
     let rows = screen_text((await viewer.poll()).data, 120, 40);
     const y = rows.findIndex((r, i) => i > 20 && r.includes("codex"));
     await viewer.input(`\x1b[<35;6;${y + 1}M`);
-    await sleep(0.6);
+    await viewer.advance(0.6);
     let frame = (await viewer.poll()).data;
     this.assertIn("Total", frame);
     for (const t of [
@@ -290,7 +290,7 @@ class NativeUsage extends Runtime {
     for (const hoverY of [y, y + 1]) {
       await a.input(`\x1b[<35;6;${hoverY + 1}M`);
       this.assertNotIn("Total", a.state.data);
-      await sleep(0.6);
+      await a.advance(0.6);
       frame = (await a.poll()).data;
       for (const t of ["Total", "🔧", "6.6k", "8.1k", "Tokens", "Cached"])
         this.assertIn(t, frame);
@@ -317,7 +317,7 @@ class NativeUsage extends Runtime {
     rows = screen_text((await a.poll()).data, 64, 13);
     const smallY = rows.findIndex((r, i) => i > 6 && r.includes("codex"));
     await a.input(`\x1b[<35;6;${smallY + 1}M`);
-    await sleep(0.6);
+    await a.advance(0.6);
     this.assertIn("Total", (await a.poll()).data);
     this.assertIn("6.6k", a.state.data);
     await a.input("x");

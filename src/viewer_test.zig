@@ -25,6 +25,8 @@ pub fn run(path: []const u8) !void {
         const value = parsed.value;
         const op = agents.str(value, "op");
         if (std.mem.eql(u8, op, "input")) try view.input(agents.str(value, "data"));
+        // Viewer-local delays (hover cards, command preview debounce).
+        if (std.mem.eql(u8, op, "advance")) @import("clock.zig").advance(value.object.get("ms").?.integer);
         if (std.mem.eql(u8, op, "action")) try view.action(agents.str(value, "name"), agents.str(value, "value"));
         if (std.mem.eql(u8, op, "focus")) try view.focusPane(try @import("protocol.zig").id(value, "pane"));
         if (std.mem.eql(u8, op, "workspace")) try view.switchWorkspace(try @import("protocol.zig").id(value, "workspace"));

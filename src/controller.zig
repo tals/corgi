@@ -877,7 +877,7 @@ pub const Controller = struct {
     fn previewInlineCommand(s: *Self, immediate: bool) void {
         const launch = if (s.agent_launcher) |*value| value else return;
         if (!launch.managing) return;
-        const now = std.time.milliTimestamp();
+        const now = @import("clock.zig").milliTimestamp();
         if (!std.mem.eql(u8, launch.draft.text(), launch.editor.name())) {
             launch.draft.set(launch.editor.name()) catch return;
             launch.draft_changed = now;
@@ -2390,7 +2390,7 @@ pub const Controller = struct {
         }
         try s.pollLauncher();
         s.pollScopeMenu();
-        if (s.link_tooltip.due(std.time.milliTimestamp())) s.dirty = true;
+        if (s.link_tooltip.due(@import("clock.zig").milliTimestamp())) s.dirty = true;
         if (s.copy_feedback_until != 0 and std.time.milliTimestamp() >= s.copy_feedback_until) {
             s.copy_feedback_until = 0;
             s.dirty = true;
@@ -2439,7 +2439,7 @@ pub const Controller = struct {
                 }
             }
         }
-        return s.link_tooltip.ready(target, std.time.milliTimestamp());
+        return s.link_tooltip.ready(target, @import("clock.zig").milliTimestamp());
     }
     pub fn frame(s: *Self) ![]u8 {
         if (s.onboarding) |*wizard| return wizard.frame(s.width, s.height);

@@ -79,6 +79,10 @@ export class Viewer {
   poll() {
     return this.request({ op: "poll" });
   }
+  /** Lets `seconds` pass on the viewer's clock (hover cards, debounce), then renders. */
+  advance(seconds: number) {
+    return this.request({ op: "advance", ms: Math.round(seconds * 1000) });
+  }
   focus(pane: number) {
     return this.request({ op: "focus", pane });
   }

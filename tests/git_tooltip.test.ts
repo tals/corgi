@@ -60,7 +60,7 @@ class GitTooltip extends Runtime {
     this.viewers.push(a, b);
     await a.input("\x1b[<35;25;3M");
     this.assertNotIn("14 unpushed commits", a.state.data);
-    await sleep(0.6);
+    await a.advance(0.6);
     const frame = (await a.poll()).data;
     for (const text of [
       "14 unpushed commits",
@@ -89,7 +89,7 @@ class GitTooltip extends Runtime {
     await a.input("\x1b[<35;5;3M");
     this.assertNotIn("14 unpushed commits", a.state.data);
     await a.input("\x1b[<35;25;3M");
-    await sleep(0.6);
+    await a.advance(0.6);
     this.assertIn("14 unpushed commits", (await a.poll()).data);
     await a.input("x");
     this.assertNotIn("14 unpushed commits", a.state.data);
@@ -98,7 +98,7 @@ class GitTooltip extends Runtime {
       async () => (await this.session()).workspaces[0].git_ahead === 0,
     );
     await a.input("\x1b[<35;24;3M");
-    await sleep(0.6);
+    await a.advance(0.6);
     this.assertNotIn("unpushed commits", (await a.poll()).data);
     this.assertEqual((await this.session()).workspaces[0].git_commits, []);
   }

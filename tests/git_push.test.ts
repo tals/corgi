@@ -98,7 +98,7 @@ class GitPush extends Runtime {
       await this.hover(5);
       this.assertNotIn("Push ↑1", this.row());
       await this.hover();
-      await sleep(0.6);
+      await this.gitViewer.advance(0.6);
       this.assertIn("ready to push", (await this.gitViewer.poll()).data);
       writeFileSync(
         "/tmp/corgi-git-push-hover.txt",

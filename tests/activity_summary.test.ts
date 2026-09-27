@@ -135,7 +135,7 @@ class SummaryCases extends Summaries {
       const initial = await rows();
       const y = initial.findIndex((r, i) => i > 15 && r.includes("codex"));
       await viewer.input(`\x1b[<35;6;${y + 1}M`);
-      await sleep(0.6);
+      await viewer.advance(0.6);
       this.assertTrue(
         (await rows()).some((r) => r.includes("now  ●  Compacting context")),
       );
@@ -513,7 +513,7 @@ class SummaryCases extends Summaries {
         (r, i) => i > Math.floor(rows / 2) && r.includes("codex"),
       );
       await viewer.input(`\x1b[<35;6;${y + 1}M`);
-      await sleep(0.6);
+      await viewer.advance(0.6);
       return (await viewer.poll()).data;
     };
     try {
@@ -573,7 +573,7 @@ class SummaryCases extends Summaries {
       );
       await viewer.request({ op: "badge", visible: true });
       await viewer.input("\x1b[<35;3;1M");
-      await sleep(0.6);
+      await viewer.advance(0.6);
       const overview = (await viewer.poll()).data;
       for (const t of [
         "Corgi (Activity summarizer)",
