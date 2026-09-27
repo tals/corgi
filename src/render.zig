@@ -38,7 +38,7 @@ pub const Ui = struct {
     corgi_badge: @import("corgi_badge.zig").Mode = .none,
     supports_kitty_graphics: bool = false,
     sidebar_width: u16 = 28,
-    workspace_drop_y: ?u16 = null,
+    dragged_workspace: ?sidebar.Preview = null,
     dragged_agent: ?sidebar.Preview = null,
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
@@ -136,12 +136,16 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     defer out.deinit();
     const w = &out.writer;
     var preview_storage: [sidebar.max_entries]sidebar.Entry = undefined;
-    const entries = if (ui.dragged_agent) |drag| drag.apply(ui.agents, &preview_storage) else ui.agents;
+    const entries = if (ui.dragged_agent) |drag| drag.apply(sidebar.Entry, ui.agents, &preview_storage) else ui.agents;
+    var workspace_storage: [@import("workspace.zig").max_workspaces]sidebar.WorkspaceEntry = undefined;
+    const workspaces = if (ui.dragged_workspace) |drag| drag.apply(sidebar.WorkspaceEntry, ui.workspaces, &workspace_storage) else ui.workspaces;
+    const dragging = ui.dragged_agent != null or ui.dragged_workspace != null;
     var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width).withWorkspaces(ui.workspaces.len, ui.workspace_offset).withEntries(entries);
     side.corgi_badge = ui.corgi_badge;
     side.supports_kitty_graphics = ui.supports_kitty_graphics;
     side.scope_label = ui.scope_label;
     side.dragged = if (ui.dragged_agent) |drag| drag.destination else null;
+    side.dragged_workspace = if (ui.dragged_workspace) |drag| drag.destination else null;
     // Mouse tracking modes replace one another. Disabling first makes the host
     // briefly switch to a text pointer on every redraw.
     try w.writeAll("\x1b[?1003h");
@@ -261,17 +265,12 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
     }
     try drawDividers(w, view, area);
-    try side.draw(w, entries, ui.workspaces);
+    try side.draw(w, entries, workspaces);
     if (ui.git_hover) |id| try sidebar.drawGitAction(w, side, ui.workspaces, id);
     if (ui.corgi_badge == .image) {
         try w.writeAll(@import("corgi_badge.zig").hide);
         if (side.width > 0 and ui.scope_menu == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try @import("corgi_badge.zig").place(w);
-    }
-    if (ui.workspace_drop_y) |y| {
-        try w.print("\x1b[{d};1H\x1b[1;38;2;161;194;178m", .{y + 1});
-        for (0..side.width -| 1) |_| try w.writeAll("─");
-        try w.writeAll("\x1b[0m");
     }
     if (ui.confirm) {
         var status: [512]u8 = undefined;
@@ -347,12 +346,12 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     if (ui.agent_launcher) |*launcher| try launcher.draw(w, width, height, side);
     if (ui.corgi_setup) |*setup| try setup.draw(w, ui.inference, width, height);
     try side.searchCursor(w);
-    if (ui.dragged_agent != null) try w.writeAll("\x1b[?25l");
+    if (dragging) try w.writeAll("\x1b[?25l");
     // Include the shape in each complete frame so reconnects and overlay changes
     // cannot leave the host pointer stuck on a previously hovered link.
     // iTerm2 has a pointing hand and an open hand, but no closed-hand shape.
     // "default" also clears its override because unrecognized names reset it.
-    const shape = if (ui.dragged_agent != null)
+    const shape = if (dragging)
         (if (ui.iterm2_pointer) "fleur" else "grabbing")
     else if (link_pointer or hovered_uri != null)
         (if (ui.iterm2_pointer) "hand2" else "pointer")

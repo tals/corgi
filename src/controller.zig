@@ -114,7 +114,7 @@ pub const Controller = struct {
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?@import("agent_drag.zig").Drag = null,
-    workspace_drag: ?struct { id: WorkspaceId, start_y: u16, before: ?WorkspaceId = null, drop_y: ?u16 = null, width: u16, height: u16, offset: usize, ids: [workspace.max_workspaces]WorkspaceId = undefined, count: usize = 0 } = null,
+    workspace_drag: ?@import("workspace_drag.zig").Drag = null,
     resize_mode: bool = false,
     copy_mode: bool = false,
     name_dialog: ?naming.Dialog = null,
@@ -306,6 +306,10 @@ pub const Controller = struct {
     }
     fn currentCwd(s: *Self) []const u8 {
         return s.inheritedCwd(s.current(), if (s.focused()) |p| p.id else null);
+    }
+    fn workspaceIds(s: *Self, out: *[workspace.max_workspaces]WorkspaceId) []WorkspaceId {
+        for (s.runtime.workspaces.items, 0..) |ws, i| out[i] = ws.id;
+        return out[0..s.runtime.workspaces.items.len];
     }
     pub fn workspaceEntries(s: *Self, out: *[workspace.max_workspaces]sidebar.WorkspaceEntry) []sidebar.WorkspaceEntry {
         for (s.runtime.workspaces.items, 0..) |*ws, i| {
@@ -1400,7 +1404,12 @@ pub const Controller = struct {
         }
 
         s.sidebar_drag = false;
-        s.workspace_drag = null;
+        if (s.workspace_drag) |*drag| {
+            drag.cancelled = true;
+            drag.drop = null;
+            drag.preview = null;
+            s.dirty = true;
+        }
         if (s.agent_drag) |*drag| {
             drag.cancelled = true;
             drag.drop = null;
@@ -1917,28 +1926,24 @@ pub const Controller = struct {
             return;
         }
         if (s.workspace_drag) |*drag| {
-            const side = s.sidebarView(&.{});
-            var valid = drag.width == s.width and drag.height == s.height and drag.offset == side.workspace_offset and drag.count == s.runtime.workspaces.items.len;
-            if (valid) for (s.runtime.workspaces.items, 0..) |ws, i| {
-                if (ws.id != drag.ids[i]) valid = false;
-            };
-            if (!valid) {
-                s.workspace_drag = null;
-                s.dirty = true;
-                return;
+            // Mirrors the agent drag: validate against current shared state.
+            if (release and button & 3 == 0) try s.refresh();
+            var ids_storage: [workspace.max_workspaces]WorkspaceId = undefined;
+            const ids = s.workspaceIds(&ids_storage);
+            var side = s.sidebarView(&.{});
+            if (!release and (button == 64 or button == 65) and drag.valid(side, ids)) {
+                s.workspace_offset = if (button == 64) side.workspace_offset -| 1 else @min(side.workspace_offset + 1, ids.len -| side.workspaceCapacity());
+                side = s.sidebarView(&.{});
+                drag.dragging = true;
             }
-            drag.before = null;
-            drag.drop_y = null;
-            if (valid and x < side.width and y >= 2 and y < side.middle() -| 2 and y != drag.start_y) {
-                const slot = @min(side.workspace_offset + (y - 2 + 1) / 3, s.runtime.workspaces.items.len);
-                drag.before = if (slot == s.runtime.workspaces.items.len) drag.id else if (s.runtime.workspaces.items[slot].id == drag.id) null else s.runtime.workspaces.items[slot].id;
-                if (drag.before != null) drag.drop_y = @intCast(2 + (slot - side.workspace_offset) * 3 -| 1);
-            }
-            if (release) {
+            if (!release and button == 32 and (x != drag.start_x or y != drag.start_y)) drag.dragging = true;
+            drag.update(side, ids, x, y);
+            if (release and button & 3 == 0) {
                 const saved = drag.*;
                 s.workspace_drag = null;
-                if (saved.before) |before| {
-                    try s.edit(.{ .@"workspace.move" = .{ .target = saved.id, .before = before } });
+                s.ui_mouse_down = false;
+                if (saved.before()) |before| {
+                    s.edit(.{ .@"workspace.move" = .{ .target = saved.ids[saved.source], .before = before } }) catch |err| s.notice(@errorName(err));
                 }
             }
             s.dirty = true;
@@ -2240,9 +2245,13 @@ pub const Controller = struct {
                                 }
                             }
                         } else {
-                            s.ui_mouse_down = false;
-                            s.workspace_drag = .{ .id = id, .start_y = y, .width = s.width, .height = s.height, .offset = s.workspace_offset, .count = s.runtime.workspaces.items.len };
-                            for (s.runtime.workspaces.items, 0..) |ws, i| s.workspace_drag.?.ids[i] = ws.id;
+                            var ids_storage: [workspace.max_workspaces]WorkspaceId = undefined;
+                            const ids = s.workspaceIds(&ids_storage);
+                            // Switching can scroll the list; capture the post-switch viewport.
+                            const view = s.sidebarView(&.{});
+                            if (view.workspace_offset == side.workspace_offset) if (std.mem.indexOfScalar(WorkspaceId, ids, id)) |at| {
+                                s.workspace_drag = .init(view, ids, at, x, y);
+                            };
                         }
                     },
                     .none => {},
@@ -2548,6 +2557,10 @@ pub const Controller = struct {
             s.git_hover = if (hit) |ws| ws.id else null;
         } else s.git_hover = null;
         if (s.agent_drag) |*drag| _ = drag.valid(s.sidebarView(entries), s.current().id);
+        if (s.workspace_drag) |*drag| {
+            var ids_storage: [workspace.max_workspaces]WorkspaceId = undefined;
+            _ = drag.valid(s.sidebarView(entries), s.workspaceIds(&ids_storage));
+        }
         const tooltip_ready = try s.linkTooltipReady();
         const detail = s.resourceDetail();
         if (detail) |id| {
@@ -2563,7 +2576,7 @@ pub const Controller = struct {
             .link_tooltip = tooltip_ready,
             .resources = s.runtime.resources,
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
-            .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null) s.git_hover else null,
+            .git_hover = if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and s.workspace_drag == null) s.git_hover else null,
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
             .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
             .copy_mode = s.copy_mode,
@@ -2584,7 +2597,7 @@ pub const Controller = struct {
             .corgi_badge = s.corgi_badge,
             .supports_kitty_graphics = s.supports_kitty_graphics,
             .sidebar_width = s.sidebar_width,
-            .workspace_drop_y = if (s.workspace_drag) |drag| drag.drop_y else null,
+            .dragged_workspace = if (s.workspace_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .dragged_agent = if (s.agent_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
             .agents = entries,

@@ -67,14 +67,14 @@ pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_option
 pub const Preview = struct {
     source: usize,
     destination: usize,
-    pub fn apply(p: Preview, entries: []const Entry, out: *[max_entries]Entry) []const Entry {
+    pub fn apply(p: Preview, comptime T: type, entries: []const T, out: []T) []const T {
         if (entries.len > out.len or p.source >= entries.len or p.destination >= entries.len) return entries;
         @memcpy(out[0..entries.len], entries);
         const item = out[p.source];
         if (p.source < p.destination) {
-            std.mem.copyForwards(Entry, out[p.source..p.destination], out[p.source + 1 .. p.destination + 1]);
+            std.mem.copyForwards(T, out[p.source..p.destination], out[p.source + 1 .. p.destination + 1]);
         } else {
-            std.mem.copyBackwards(Entry, out[p.destination + 1 .. p.source + 1], out[p.destination..p.source]);
+            std.mem.copyBackwards(T, out[p.destination + 1 .. p.source + 1], out[p.destination..p.source]);
         }
         out[p.destination] = item;
         return out[0..entries.len];
@@ -95,6 +95,7 @@ pub const View = struct {
     /// When set, rows are measured per entry: group headers take one row.
     entries: []const Entry = &.{},
     dragged: ?usize = null,
+    dragged_workspace: ?usize = null,
     workspace_count: usize = 0,
     workspace_offset: usize = 0,
     resources: Resources = .{},
@@ -234,6 +235,17 @@ pub const View = struct {
         }
         return .{ .index = end, .y = @intCast(top - 1) };
     }
+    /// `agentDrop` over the three-row workspace slots in the upper list.
+    pub fn workspaceDrop(v: View, x: u16, y: u16) ?Drop {
+        if (v.width == 0 or x >= v.width - 1 or y < 2 or y >= v.middle() -| 2 or v.workspace_count == 0) return null;
+        var top: usize = 2;
+        const end = @min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
+        for (v.workspace_offset..end) |i| {
+            if (y < top + 2) return .{ .index = i, .y = @intCast(top - 1) };
+            top += 3;
+        }
+        return .{ .index = end, .y = @intCast(top - 1) };
+    }
     pub fn unreadRange(v: View, ws: WorkspaceEntry) struct { start: usize, end: usize } {
         var buf: [40]u8 = undefined;
         const unread_width = unreadWidth(ws);
@@ -293,10 +305,17 @@ pub const View = struct {
         // fill the cell, so a half block joins into one bar. Elsewhere the font's
         // glyph can leave gaps between rows, so paint the whole cell instead.
         const active_bar = if (v.supports_kitty_graphics) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
+        // The dragged workspace uses the dragged agent row's tint.
+        const ghost_name = "\x1b[1;38;2;182;206;240;48;2;44;54;67m";
+        const ghost_meta = "\x1b[0;38;2;155;163;175;48;2;44;54;67m";
+        const ghost_bar = if (v.supports_kitty_graphics) "\x1b[0;38;2;137;180;250;48;2;44;54;67m▌" else active_bar;
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
             const y: u16 = @intCast(2 + index * 3);
-            const style = if (ws.active) active_name else panel;
-            const meta = if (ws.active) active_meta else panel;
+            const ghost = v.dragged_workspace == v.workspace_offset + index;
+            const tinted = ws.active or ghost;
+            const style = if (ghost) ghost_name else if (ws.active) active_name else panel;
+            const meta = if (ghost) ghost_meta else if (ws.active) active_meta else panel;
+            const bar = if (ghost) ghost_bar else active_bar;
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
             var label: [std.fs.max_path_bytes + 1]u8 = undefined;
@@ -311,7 +330,7 @@ pub const View = struct {
                 try drawPorts(w, ws, link.end - link.start, false);
             }
             if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;{s}m{s}", .{ y + 1, v.width - 1 - badge_width, if (ws.git_push.phase == .failed) "243;139;168" else "166;227;161", badge });
-            if (ws.active) {
+            if (tinted) {
                 try w.print("\x1b[{d};1H{s}", .{ y + 2, meta });
                 try w.splatByteAll(' ', v.width - 1);
             }
@@ -350,10 +369,10 @@ pub const View = struct {
                 try statusPart(w, unread, "\x1b[1;38;2;148;226;213m", &unread_room);
             }
             if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, v.width - 1 - metadata_width, meta, metadata });
-            if (ws.active) for ([_]u16{ y + 1, y + 2 }) |row| try w.print("\x1b[{d};1H{s}", .{ row, active_bar });
+            if (ws.active) for ([_]u16{ y + 1, y + 2 }) |row| try w.print("\x1b[{d};1H{s}", .{ row, bar });
             try w.writeAll(panel);
             if (y + 2 < v.middle() - 2) {
-                if (ws.active) {
+                if (tinted) {
                     try w.print("\x1b[{d};1H{s}", .{ y + 3, meta });
                     try w.splatByteAll(' ', v.width - 1);
                 }
@@ -362,7 +381,7 @@ pub const View = struct {
                 if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
                 try drawResources(w, ws.resources, v.width - 3, v.resources);
                 try w.writeAll("\x1b[24;59m");
-                if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, active_bar, panel });
+                if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, bar, panel });
             }
         }
         if (v.workspace_count > v.workspaceCapacity()) {

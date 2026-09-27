@@ -315,6 +315,8 @@ test {
     _ = @import("onboarding.zig");
     _ = @import("updates.zig");
     _ = @import("agent_navigation.zig");
+    _ = @import("agent_drag.zig");
+    _ = @import("workspace_drag.zig");
     _ = @import("link_tooltip.zig");
     _ = @import("resources.zig");
     _ = @import("resource_os.zig");

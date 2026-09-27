@@ -478,7 +478,12 @@ class ViewerScenarios extends Viewers {
     await b.request({ op: "workspace", workspace: second });
     await a.input("\x1b[<0;5;3M");
     await a.input("\x1b[<32;5;11M");
-    this.assertIn("─".repeat(27), a.state.data);
+    // The list previews the new order with the dragged row tinted, like agents.
+    const preview = screen_text(a.state.data, 100, 30);
+    this.assertIn("Second", preview[2]);
+    this.assertIn("Third", preview[5]);
+    this.assertIn("48;2;44;54;67m", a.state.data);
+    this.assertIn("\x1b]22;grabbing\x1b\\", a.state.data);
     await a.input("\x1b[<0;5;11m");
     this.assertEqual(
       (await this.session()).workspaces.map((w: any) => w.id),
@@ -501,6 +506,23 @@ class ViewerScenarios extends Viewers {
       [second, third, first],
     );
     await this.run_cli("reload", EXE);
+    this.assertEqual(
+      (await this.session()).workspaces.map((w: any) => w.id),
+      [second, third, first],
+    );
+  }
+
+  async test_workspace_scroll_while_dragging_reaches_offscreen_slots() {
+    await this.new();
+    const first = (await this.session()).workspaces[0].id;
+    const second = (await this.command("workspace.create", { name: "Second", cwd: this.temp.name })).workspace;
+    const third = (await this.command("workspace.create", { name: "Third", cwd: this.temp.name })).workspace;
+    // At 18 rows only one workspace fits, so the end slot needs scrolling.
+    const a = await this.newViewer(100, 18);
+    await a.input("\x1b[<0;5;3M\x1b[<32;5;6M");
+    for (let i = 0; i < 2; i++) await a.input("\x1b[<65;5;6M");
+    this.assertIn("48;2;44;54;67m", a.state.data);
+    await a.input("\x1b[<0;5;6m");
     this.assertEqual(
       (await this.session()).workspaces.map((w: any) => w.id),
       [second, third, first],

@@ -57,23 +57,24 @@ pub const Drag = struct {
 test "agent drop respects grouped boundaries, scrolling, and stale rows" {
     const entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .provider = .claude, .state = .idle, .attention = .none };
     var entries = [_]sidebar.Entry{entry} ** 6;
-    entries[0].target = .{ .group = 1 };
+    entries[0].target = .{ .group = @enumFromInt(1) };
     entries[2].target = .{ .pane = @enumFromInt(2) };
-    entries[3].target = .{ .group = 2 };
+    entries[3].target = .{ .group = @enumFromInt(2) };
     entries[4].target = .{ .pane = @enumFromInt(3) };
     entries[5].target = .{ .native = @enumFromInt(1) };
+    const ws: WorkspaceId = @enumFromInt(1);
     const view = sidebar.View.init(100, 30, true, 0, entries.len).withEntries(&entries);
-    var drag = Drag.init(view, 1, 5, 17, 1, 1);
+    var drag = Drag.init(view, 1, 5, 17, ws, ws);
     drag.dragging = true;
-    drag.update(view, 1, 5, 20);
+    drag.update(view, ws, 5, 20);
     try std.testing.expectEqual(@as(usize, 3), drag.drop.?.index);
     try std.testing.expectEqual(@as(u16, 20), drag.drop.?.y);
-    drag.update(view, 1, 5, 22);
+    drag.update(view, ws, 5, 22);
     try std.testing.expect(drag.drop == null);
-    drag.update(view, 1, 80, 20);
+    drag.update(view, ws, 80, 20);
     try std.testing.expect(drag.drop == null);
     const scrolled = sidebar.View.init(100, 18, true, 2, entries.len).withEntries(&entries);
     try std.testing.expectEqual(@as(usize, 2), scrolled.agentDrop(5, scrolled.middle() + 2).?.index);
     entries[2].exit = .{ .frame_ms = 0, .progress = 0.5 };
-    try std.testing.expect(!drag.valid(view, 1));
+    try std.testing.expect(!drag.valid(view, ws));
 }
