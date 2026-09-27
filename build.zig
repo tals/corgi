@@ -62,7 +62,8 @@ pub fn build(b: *std.Build) void {
     };
     if (b.args) |args| run.addArgs(args);
     b.step("run", "Run Corgi").dependOn(&run.step);
-    const tests = b.addTest(.{ .root_module = mod });
+    const test_filters = b.option([][]const u8, "test-filter", "Only run Zig tests whose names contain this; repeatable") orelse &.{};
+    const tests = b.addTest(.{ .root_module = mod, .filters = test_filters });
     b.step("test", "Test layouts, hooks, signaling and terminal behavior").dependOn(&b.addRunArtifact(tests).step);
 
     // Opt-in live eval driver shares the production prompt, parser and harness.

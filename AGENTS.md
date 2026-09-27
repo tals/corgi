@@ -4,6 +4,8 @@
 
 - **Build:** `./scripts/zig build`
 - **Unit tests:** `./scripts/zig build test`
+  - While iterating, run a subset with `-Dtest-filter=<substring>` (repeat
+    the flag for several). Run the full suite before finishing.
 - **Formatting:** `./scripts/zig fmt src`
 - **Other build configs to keep compiling:** `-Dviewer-test-driver=true`,
   `-Dtest-build=true -Dupdate-test-mode=true`
