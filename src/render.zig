@@ -196,9 +196,13 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null or
                     @import("corgi_badge.zig").hit(ui.corgi_badge, side.width, pointer.x, pointer.y);
                 switch (side.hit(pointer.x, pointer.y)) {
-                    .agent_scope, .agent_new, .agent_options => link_pointer = true,
+                    .toggle, .workspace_new, .workspace_previous, .workspace_next, .previous, .next, .agent_scope, .agent_new, .agent_options => link_pointer = true,
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
                     else => {},
+                }
+                if (pointer.y == 0 and pointer.x >= side.tabX()) {
+                    const add_x = side.tabX() + addTabX(view, width - side.tabX());
+                    link_pointer = link_pointer or (pointer.x >= add_x and pointer.x < add_x + 3);
                 }
                 hovered_uri = sidebar.portLink(side, ui.workspaces, pointer.x, pointer.y, &workspace_uri);
             }
@@ -207,6 +211,23 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     if (ui.corgi_setup != null) if (ui.pointer) |pointer| {
         link_pointer = @import("corgi_setup.zig").Menu.hit(width, height, pointer.x, pointer.y) != null;
     };
+    if (ui.pointer) |pointer| {
+        if (ui.menu) |menu| link_pointer = switch (menu.hit(pointer.x, pointer.y)) {
+            .command, .previous, .next => true,
+            .close => pointer.y == menu.y and pointer.x >= menu.x and pointer.x < menu.x + menu.width,
+            .none => false,
+        } else if (ui.tab_menu) |menu| {
+            link_pointer = menu.hit(width, height, pointer.x, pointer.y) != null;
+        } else if (ui.dialog) |dialog| {
+            const dialog_view = naming.View.init(width, height, dialog);
+            // Clicks outside the dialog also cancel; only the buttons point.
+            const inside = pointer.x >= dialog_view.x and pointer.x < dialog_view.x + dialog_view.width;
+            link_pointer = inside and pointer.y == dialog_view.buttons_y and dialog_view.hit(pointer.x, pointer.y) != .none;
+        } else if (ui.confirm) {
+            // " [ Close ]  [ Cancel ]": the gap between buttons stays plain.
+            link_pointer = pointer.y == height - 1 and ((pointer.x >= 1 and pointer.x < 10) or (pointer.x >= 12 and pointer.x < 22));
+        }
+    }
     if (ui.agent_launcher != null) if (ui.pointer) |pointer| {
         link_pointer = ui.agent_launcher.?.hit(width, height, side, pointer.x, pointer.y) != null or side.hit(pointer.x, pointer.y) == .agent_new or side.hit(pointer.x, pointer.y) == .agent_options;
     };
