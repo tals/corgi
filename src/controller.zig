@@ -185,7 +185,8 @@ pub const Controller = struct {
         s.navigation.workspace_id = id;
         s.visitWorkspace(id);
         s.revealWorkspace();
-        s.sidebar_offset = 0;
+        // "All" lists the same agents in every workspace; keep its scroll.
+        if (s.agent_scope == .workspace) s.sidebar_offset = 0;
         s.copy_mode = false;
         s.search_mode = false;
         s.selection = null;
