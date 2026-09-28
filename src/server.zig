@@ -958,11 +958,11 @@ pub const Server = struct {
                     if (!std.meta.eql(actor.context, result.context)) {
                         actor.context = result.context;
                         const model = result.context.model;
-                        s.runtime.conversations.compaction_points.learn(model.bytes[0..model.len], result.context.auto_compaction);
+                        s.runtime.conversations.compaction_points.learn(model.text(), result.context.auto_compaction);
                         s.dirty = true;
                         s.runtime.changed();
                     }
-                    if (result.continued.len > 0) s.followContinuation(actor, result.continued.bytes[0..result.continued.len]);
+                    if (result.continued.len > 0) s.followContinuation(actor, result.continued.text());
                     const before = actor.state;
                     if (result.progress) |progress| actor.observeTools(progress);
                     if (result.fallback(&actor.state, std.time.microTimestamp())) {
@@ -1364,8 +1364,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     var preview: agent_launcher.Preview = .{ .pending = false };
     preview.options[1].model.set("before");
     var worker: agent_launcher.Worker = .{};
-    worker.jobs[0] = .{ .len = 1, .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
-    worker.jobs[0].?.cwd[0] = '/';
+    worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
     var s: Server = .{ .socket = "", .executable = "", .launch_previews = &worker };
     var cl: Client = .{ .fd = -1, .launch_preview = .{ .len = 1, .preview = preview } };
     defer cl.output.deinit(a);

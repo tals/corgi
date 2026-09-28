@@ -38,6 +38,8 @@ const ghostty_integration = @import("ghostty_integration.zig");
 const subagent_tooltip = @import("subagent_tooltip.zig");
 const vt = @import("terminal.zig").vt;
 const Command = @import("session.zig").Command;
+const BoundedText = @import("bounded_text.zig").BoundedText;
+const Path = @import("bounded_text.zig").Path;
 const Effect = union(enum) {
     write_terminal: []const u8,
     open_url: []const u8,
@@ -65,8 +67,7 @@ const TabDrag = struct {
 const PortClick = struct {
     x: u16,
     y: u16,
-    url: [4096]u8,
-    len: usize,
+    url: BoundedText(4096) = .{},
     menu: ?WorkspaceId = null,
     pane: ?layout.PaneId = null,
     px: u16 = 0,
@@ -156,8 +157,7 @@ pub const Controller = struct {
     name_dialog: ?naming.Dialog = null,
     confirm: enum { none, pane, tab } = .none,
     confirm_tab: ?layout.TabId = null,
-    message: [512]u8 = .{0} ** 512,
-    message_len: usize = 0,
+    message: BoundedText(512) = .{},
     native_notice: ?NativeId = null,
     copy_feedback_until: i64 = 0,
     muted: bool = false,
@@ -227,7 +227,7 @@ pub const Controller = struct {
         s.cancelDividers();
         s.confirm = .none;
         s.confirm_tab = null;
-        s.message_len = 0;
+        s.message = .{};
         s.native_notice = null;
         s.rememberAgent();
         s.dirty = true;
@@ -491,7 +491,7 @@ pub const Controller = struct {
         s.search_mode = false;
         s.selection = null;
         s.cancelDividers();
-        s.message_len = 0;
+        s.message = .{};
         switch (target) {
             .pane => |id| {
                 try s.focusPane(id);
@@ -574,7 +574,7 @@ pub const Controller = struct {
         return if (s.model().count == 0) null else s.pane(s.nav().tab().focus);
     }
     pub fn notice(s: *Self, msg: []const u8) void {
-        s.message_len = agents.clean(&s.message, msg);
+        s.message = .ascii(msg);
         s.native_notice = null;
         s.dirty = true;
     }
@@ -726,7 +726,7 @@ pub const Controller = struct {
         if (s.model().count == 0) return;
         const tab = s.selectedTab();
         s.dismissName();
-        s.name_dialog = naming.Dialog.init(.{ .rename = tab.id }, tab.title());
+        s.name_dialog = naming.Dialog.init(.{ .rename = tab.id }, tab.title.text());
         s.prepareName();
     }
     fn prepareName(s: *Self) void {
@@ -795,7 +795,7 @@ pub const Controller = struct {
             s.agent_launcher.?.selected = .add;
             s.agent_launcher.?.normalize();
         }
-        s.message_len = 0;
+        s.message = .{};
     }
     fn create(s: *Self, split: ?layout.Axis, cwd: []const u8, command: ?[]const u8, title: []const u8) !layout.PaneId {
         const operation: Command = if (split) |axis|
@@ -855,7 +855,7 @@ pub const Controller = struct {
     /// Controller-level action names. Anything else is tried as a `navigation.Action`.
     pub const Action = enum { onboard, @"workspace-next", @"workspace-prev", new, sidebar, mute, @"undo-close", attention, split, zoom, close, @"close-tab" };
     pub fn action(s: *Self, name: []const u8, value: []const u8) !void {
-        s.message_len = 0;
+        s.message = .{};
         if (std.meta.stringToEnum(Action, name)) |act| switch (act) {
             .onboard => return s.openOnboarding(.welcome),
             .@"workspace-next", .@"workspace-prev" => {
@@ -941,7 +941,7 @@ pub const Controller = struct {
     }
     fn launchAgent(s: *Self, provider: ?agents.Provider) !void {
         var cwd: [std.fs.max_path_bytes]u8 = undefined;
-        const dir = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
+        const dir = if (s.agent_launcher) |*launch| launch.cwd.text() else s.currentCwd();
         if (dir.len > cwd.len) return error.NameTooLong;
         @memcpy(cwd[0..dir.len], dir);
         const len = dir.len;
@@ -964,7 +964,7 @@ pub const Controller = struct {
                 return;
             }
             if (!launch.managing) if (row.custom()) |index| {
-                const created = try s.execute(.{ .@"agent.command.create" = .{ .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len], .index = index } });
+                const created = try s.execute(.{ .@"agent.command.create" = .{ .workspace = launch.workspace, .cwd = launch.cwd.text(), .index = index } });
                 s.closeMenu();
                 try s.focusPane(created.pane);
                 s.dirty = true;
@@ -993,7 +993,7 @@ pub const Controller = struct {
         }
         if (row.agent()) |provider| return s.launchAgent(provider);
         var cwd: [std.fs.max_path_bytes]u8 = undefined;
-        const dir = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
+        const dir = if (s.agent_launcher) |*launch| launch.cwd.text() else s.currentCwd();
         if (dir.len > cwd.len) return error.NameTooLong;
         @memcpy(cwd[0..dir.len], dir);
         s.closeMenu();
@@ -1021,7 +1021,7 @@ pub const Controller = struct {
             .op = "agent.command.preview",
             .protocol = 1,
             .workspace = launch.workspace,
-            .cwd = launch.cwd[0..launch.cwd_len],
+            .cwd = launch.cwd.text(),
             .request = launch.request_id,
             .command = launch.draft.text(),
         }) catch return;
@@ -1125,10 +1125,9 @@ pub const Controller = struct {
     fn openLauncher(s: *Self, pinned: bool) void {
         s.closeMenu();
         const cwd = s.currentCwd();
-        if (cwd.len > std.fs.max_path_bytes) return;
         var launch: agent_launcher.Menu = .{
             .workspace = s.current().id,
-            .cwd_len = cwd.len,
+            .cwd = Path.init(cwd) catch return,
             .selected = s.launcher_selection orelse .of(s.runtime.last_agent),
             .last = s.runtime.last_agent,
             .yolo = s.runtime.agent_yolo,
@@ -1136,7 +1135,6 @@ pub const Controller = struct {
             .commands = s.runtime.agent_commands,
             .pinned = pinned,
         };
-        @memcpy(launch.cwd[0..cwd.len], cwd);
         launch.preview = s.launch_previews.current(cwd);
         launch.normalize();
         s.agent_launcher = launch;
@@ -1181,10 +1179,10 @@ pub const Controller = struct {
         }
         if (!launch.trackable(.of(provider))) return;
         launch.pinned = true;
-        const response = s.connection.call(.{ .op = "agent.track_usage", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd[0..launch.cwd_len] }) catch return;
+        const response = s.connection.call(.{ .op = "agent.track_usage", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd.text() }) catch return;
         defer response.deinit();
         launch.preview.pending = true;
-        s.launch_previews.pending(launch.cwd[0..launch.cwd_len]);
+        s.launch_previews.pending(launch.cwd.text());
         s.dirty = true;
     }
     fn pollLauncher(s: *Self) !void {
@@ -1218,10 +1216,10 @@ pub const Controller = struct {
         }
     }
     pub fn updateLaunchPreview(s: *Self) void {
-        const cwd = if (s.agent_launcher) |*launch| launch.cwd[0..launch.cwd_len] else s.currentCwd();
+        const cwd = if (s.agent_launcher) |*launch| launch.cwd.text() else s.currentCwd();
         if (!s.launch_previews.poll(s.current().id, cwd)) return;
         if (s.agent_launcher) |*launch| {
-            launch.preview = s.launch_previews.current(launch.cwd[0..launch.cwd_len]);
+            launch.preview = s.launch_previews.current(launch.cwd.text());
             launch.normalize();
         }
         s.dirty = true;
@@ -1591,11 +1589,11 @@ pub const Controller = struct {
         if (s.search_mode) {
             if (byte == 27) {
                 s.search_mode = false;
-                s.message_len = 0;
+                s.message = .{};
             } else if (byte == 13) {
                 s.search_mode = false;
                 s.search_skip = 0;
-                s.message_len = 0;
+                s.message = .{};
                 if (s.focused()) |p| if (!try p.terminal.search(s.search_text[0..s.search_len], 0)) s.notice(" No matches");
             } else if (byte == 127) {
                 s.search_len -|= 1;
@@ -1604,9 +1602,8 @@ pub const Controller = struct {
                 s.search_len += 1;
             }
             if (s.search_mode) {
-                s.message[0] = '/';
-                @memcpy(s.message[1 .. s.search_len + 1], s.search_text[0..s.search_len]);
-                s.message_len = s.search_len + 1;
+                s.message = .initTruncated("/");
+                s.message.append(s.search_text[0..s.search_len]);
             }
             s.dirty = true;
             return;
@@ -1616,7 +1613,7 @@ pub const Controller = struct {
             const target = s.confirm_tab;
             s.confirm = .none;
             s.confirm_tab = null;
-            s.message_len = 0;
+            s.message = .{};
             if (byte == 'y' or byte == 'Y') {
                 if (target) |id| s.nav().active = s.tabIndex(id) orelse return;
                 try s.action(if (pending == .pane) "close" else "close-tab", "");
@@ -2008,7 +2005,7 @@ pub const Controller = struct {
                             s.port_menu = .{ .workspace = id };
                             s.dirty = true;
                         } else {
-                            try s.queueEffect(.{ .open_url = try a.dupe(u8, click.url[0..click.len]) });
+                            try s.queueEffect(.{ .open_url = try a.dupe(u8, click.url.text()) });
                             s.closeMenu();
                         }
                     }
@@ -2024,11 +2021,8 @@ pub const Controller = struct {
             if (!release and button == 0) {
                 if (links.hit(ws, s.width, s.height, x, y)) |index| {
                     if (!s.remote_links) {
-                        var click: PortClick = .{ .x = x, .y = y, .url = undefined, .len = 0 };
-                        if (sidebar.workspaceUrl(ws, index, &click.url)) |url| {
-                            click.len = url.len;
-                            cl.port_click = click;
-                        }
+                        var buf: [@FieldType(PortClick, "url").capacity]u8 = undefined;
+                        if (sidebar.workspaceUrl(ws, index, &buf)) |url| cl.port_click = .{ .x = x, .y = y, .url = .initTruncated(url) };
                     }
                 } else s.closeMenu();
             }
@@ -2355,12 +2349,12 @@ pub const Controller = struct {
         if (!release and button == 0 and !resource_workspace_press) {
             var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
             if (sidebar.portWorkspace(side, s.workspaceEntries(&workspace_storage), x, y)) |ws| {
-                var click: PortClick = .{ .x = x, .y = y, .url = undefined, .len = 0 };
+                var click: PortClick = .{ .x = x, .y = y };
                 if (sidebar.urlCount(ws) > 1) {
                     click.menu = ws.id;
                 } else if (!s.remote_links) {
-                    const url = sidebar.workspaceUrl(ws, 0, &click.url) orelse return;
-                    click.len = url.len;
+                    var buf: [@TypeOf(click.url).capacity]u8 = undefined;
+                    click.url = .initTruncated(sidebar.workspaceUrl(ws, 0, &buf) orelse return);
                 } else return;
                 cl.port_click = click;
                 return;
@@ -2505,10 +2499,15 @@ pub const Controller = struct {
                 for (term.hyperlinks()) |link| {
                     if (link.row != y - p.rect.y or x - p.rect.x < link.start or x - p.rect.x >= link.end) continue;
                     if (!std.mem.startsWith(u8, link.uri, "http://") and !std.mem.startsWith(u8, link.uri, "https://")) continue;
-                    var click: PortClick = .{ .x = x, .y = y, .url = undefined, .len = link.uri.len, .pane = p.id, .px = x - p.rect.x, .py = y - p.rect.y, .drag_selects = plain_link };
-                    if (link.uri.len > click.url.len) continue;
-                    @memcpy(click.url[0..link.uri.len], link.uri);
-                    cl.port_click = click;
+                    cl.port_click = .{
+                        .x = x,
+                        .y = y,
+                        .url = @FieldType(PortClick, "url").init(link.uri) catch continue,
+                        .pane = p.id,
+                        .px = x - p.rect.x,
+                        .py = y - p.rect.y,
+                        .drag_selects = plain_link,
+                    };
                     return;
                 }
             }
@@ -2605,7 +2604,7 @@ pub const Controller = struct {
             s.copy_mode = false;
             s.search_mode = false;
             s.selection = null;
-            s.message_len = 0;
+            s.message = .{};
             s.native_notice = null;
         }
         s.reconcile();
@@ -2626,7 +2625,7 @@ pub const Controller = struct {
         if (s.confirm_tab) |id| if (s.tabIndex(id) == null) {
             s.confirm = .none;
             s.confirm_tab = null;
-            s.message_len = 0;
+            s.message = .{};
         };
         if (s.selection) |selection| if (s.pane(selection.pane) == null) {
             s.selection = null;
@@ -2804,7 +2803,7 @@ pub const Controller = struct {
             .resource_hover = if (s.link_tooltip.target) |target| target.resource else null,
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
             .git_hover = if (s.hoverIdle()) s.git_hover else null,
-            .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
+            .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message.text(),
             .copy_feedback = s.copy_feedback_until > clock.milliTimestamp(),
             .copy_mode = s.copy_mode,
             .menu = s.menu(),

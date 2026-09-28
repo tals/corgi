@@ -15,6 +15,7 @@ const launch_command = @import("launch_command.zig");
 const sidebar = @import("sidebar.zig");
 const layout = @import("layout.zig");
 const Terminal = @import("terminal.zig").Terminal;
+const Path = @import("bounded_text.zig").Path;
 const log = std.log.scoped(.agent_launcher);
 /// Launcher rows: one per provider, then saved commands and a plain terminal.
 pub const Row = enum {
@@ -74,8 +75,7 @@ fn installed() [Provider.all.len]bool {
     return result;
 }
 const Job = struct {
-    cwd: [std.fs.max_path_bytes]u8 = undefined,
-    len: usize = 0,
+    cwd: Path,
     preview: Preview = .{},
     queued: bool = true,
     request_access: bool = false,
@@ -110,14 +110,14 @@ pub const Worker = struct {
         return w.request(cwd, true);
     }
     fn request(w: *Worker, cwd: []const u8, request_access: bool) Preview {
-        if (cwd.len > std.fs.max_path_bytes) return .{};
+        const dir = Path.init(cwd) catch return .{};
         w.mutex.lock();
         defer w.mutex.unlock();
         const now = std.time.milliTimestamp();
         var oldest: usize = 0;
         for (&w.jobs, 0..) |*entry, i| {
             if (entry.*) |*job| {
-                if (std.mem.eql(u8, cwd, job.cwd[0..job.len])) {
+                if (std.mem.eql(u8, cwd, job.cwd.text())) {
                     job.used = now;
                     if (request_access and !job.accessing) {
                         job.request_access = true;
@@ -134,10 +134,9 @@ pub const Worker = struct {
                 if (w.jobs[oldest] != null and job.used < w.jobs[oldest].?.used) oldest = i;
             } else oldest = i;
         }
-        var job: Job = .{ .len = cwd.len, .used = now, .request_access = request_access };
+        var job: Job = .{ .cwd = dir, .used = now, .request_access = request_access };
         // Filesystem-only, so the first reply already hides missing providers.
         job.preview.installed = installed();
-        @memcpy(job.cwd[0..cwd.len], cwd);
         w.jobs[oldest] = job;
         w.wake.signal();
         return job.preview;
@@ -162,7 +161,7 @@ pub const Worker = struct {
             var result: Preview = .{ .pending = false, .installed = installed() };
             // Skip reads for missing providers; their rows are hidden.
             if (result.installed[0]) {
-                if (pool.configuredModel(job.cwd[0..job.len], &w.stopping)) |model| {
+                if (pool.configuredModel(job.cwd.text(), &w.stopping)) |model| {
                     result.options[0].model.set(model.text());
                     result.options[0].source.set("Effective Codex settings");
                 } else |_| result.options[0].source.set("Model resolved by Codex at startup");
@@ -177,8 +176,8 @@ pub const Worker = struct {
                 } else |_| result.options[0].usage_error.set("account read failed");
             }
             if (result.installed[1]) {
-                result.options[1] = claude(job.cwd[0..job.len]);
-                const account = claudeAccount(job.cwd[0..job.len], &w.stopping, job.request_access);
+                result.options[1] = claude(job.cwd.text());
+                const account = claudeAccount(job.cwd.text(), &w.stopping, job.request_access);
                 result.options[1].signed_in = account.signed_in;
                 result.options[1].account = account.account;
                 result.options[1].plan = account.plan;
@@ -189,7 +188,7 @@ pub const Worker = struct {
                 result.options[1].history = limit_history.update(.claude, account, &w.stopping);
             }
             w.mutex.lock();
-            if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd[0..current.len], job.cwd[0..job.len])) {
+            if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd.text(), job.cwd.text())) {
                 current.preview = result;
                 // A click may have queued access while a silent read was running.
                 current.preview.pending = current.queued;
@@ -475,8 +474,7 @@ fn applyModel(out: *Option, value: std.json.Value, source: []const u8) void {
 }
 pub const Menu = struct {
     workspace: WorkspaceId,
-    cwd: [std.fs.max_path_bytes]u8 = undefined,
-    cwd_len: usize,
+    cwd: Path = .{},
     selected: Row,
     yolo: [Provider.all.len]bool = @splat(false),
     hidden: [Provider.all.len]bool = @splat(false),
@@ -989,7 +987,7 @@ pub const Menu = struct {
         for (hints, 0..) |hint, i| hint_width += @intCast(3 + 1 + hint.label.len + @as(usize, if (i > 0) 2 else 0));
         const footer_row = b.y + b.h - 1;
         try w.print("\x1b[{d};{d}H{s}", .{ footer_row, b.x + 3, panel });
-        const directory = std.fs.path.basename(m.cwd[0..m.cwd_len]);
+        const directory = std.fs.path.basename(m.cwd.text());
         var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
         const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
         try sidebar.writeEllipsis(w, footer, b.w -| (hint_width + 6));
@@ -1015,7 +1013,7 @@ test "launch preview settings overlay and menu bounds" {
     applyModel(&result, parsed.value, "Project");
     try std.testing.expectEqualStrings("opus", result.model.text());
     const side = sidebar.View.init(80, 24, true, 0, 0);
-    const menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    const menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     const b = menu.bounds(80, 24, side);
     try std.testing.expect(b.x + b.w <= 80 and b.y + b.h <= 24);
     try std.testing.expectEqual(Row.codex, menu.hit(80, 24, side, b.x + 2, b.y + 2).?);
@@ -1035,7 +1033,7 @@ test "account preview shows identities or auth mode and never credential fields"
 }
 
 test "launcher fits long content and keeps usage hit targets aligned" {
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .claude, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .claude, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     menu.preview.options[0].model.set("a-long-model-name-that-needs-room");
     menu.preview.options[1].account.set("person.with.a.long.name@example.com");
@@ -1057,7 +1055,7 @@ test "launcher fits long content and keeps usage hit targets aligned" {
 }
 
 test "single-line limit groups survive narrow terminal rendering" {
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     const now = std.time.timestamp();
     menu.preview.options[0].limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48, .reset_at = now + 6 * 86400 + 18 * 3600 } } };
@@ -1106,7 +1104,7 @@ test "single-line limit groups survive narrow terminal rendering" {
 }
 
 test "viewer expires a delivered usage reading after ten minutes" {
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     const option = &menu.preview.options[0];
     option.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48 } } };
@@ -1130,7 +1128,7 @@ fn parseAccount(bytes: []const u8) Text {
 
 test "launcher hides providers that are not installed" {
     const side = sidebar.View.init(120, 24, true, 0, 0);
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.installed = .{ false, true };
     menu.normalize();
     try std.testing.expectEqual(Row.claude, menu.selected);
@@ -1152,7 +1150,7 @@ test "launcher hides providers that are not installed" {
 }
 
 test "signed-out and hidden agents remain editable in management" {
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.options[0].signed_in = false;
     menu.hidden[1] = true;
     menu.normalize();
@@ -1172,7 +1170,7 @@ test "signed-out and hidden agents remain editable in management" {
 }
 
 test "digit shortcuts enumerate visible agents and exclude terminal and management" {
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     try std.testing.expectEqual(Row.codex, menu.shortcutRow('0').?);
     try std.testing.expectEqual(Row.claude, menu.shortcutRow('1').?);
     try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('2'));
@@ -1189,7 +1187,7 @@ test "digit shortcuts enumerate visible agents and exclude terminal and manageme
 }
 
 test "custom picker cells preserve account scope and permission state" {
-    var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .custom0, .last = .claude, .pinned = true };
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .custom0, .last = .claude, .pinned = true };
     menu.preview.pending = false;
     menu.preview.options[1].account.set("personal@example.com");
     menu.preview.options[1].plan.set("Max");

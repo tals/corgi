@@ -1,6 +1,7 @@
 //! Shared, viewer-owned shortcut screen for onboarding and the prefix menu.
 //! Layout produces cell rows before clipping, so both columns share one scroll.
 const std = @import("std");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const a = @import("os.zig").allocator;
 const keys = @import("keys.zig");
 const km = @import("keymap.zig");
@@ -136,22 +137,19 @@ pub const State = struct {
 const Style = enum { text, bright, mint, dim, direct, keycap };
 const Part = struct {
     x: u16,
-    text: [192]u8 = undefined,
-    len: usize,
+    text: BoundedText(192),
     style: Style,
     action: ?u8 = null,
     fn value(p: *const Part) []const u8 {
-        return p.text[0..p.len];
+        return p.text.text();
     }
 };
 const Row = struct {
     parts: [8]Part = undefined,
     len: usize = 0,
     fn add(r: *Row, x: usize, value: []const u8, style: Style) void {
-        std.debug.assert(r.len < r.parts.len and value.len <= r.parts[0].text.len);
-        var part = Part{ .x = @intCast(x), .len = value.len, .style = style };
-        @memcpy(part.text[0..value.len], value);
-        r.parts[r.len] = part;
+        std.debug.assert(r.len < r.parts.len and value.len <= @FieldType(Part, "text").capacity);
+        r.parts[r.len] = .{ .x = @intCast(x), .text = .initTruncated(value), .style = style };
         r.len += 1;
     }
     fn command(r: *Row, x: usize, value: []const u8, style: Style, action: u8) void {

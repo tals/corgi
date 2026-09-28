@@ -13,6 +13,7 @@ const max = layout.max_panes;
 const background_tasks = @import("background_tasks.zig");
 const activity_summary = @import("activity_summary.zig");
 const passes = @import("passes.zig");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 pub const Prefix = providers.SessionPrefix;
 pub const titlePrefix = providers.Codex.titleSession;
 pub const Request = struct { pane: layout.PaneId = .none, pid: c_int = 0, prefix: Prefix, actor: ActorId = .none, generation: u64 = 0, title_revision: u64 = 0 };
@@ -29,8 +30,7 @@ pub const Snapshot = struct {
     state: agents.State,
     transcript: [std.fs.max_path_bytes]u8 = @splat(0),
     transcript_len: usize = 0,
-    turn: [128]u8 = .{0} ** 128,
-    turn_len: usize = 0,
+    turn: BoundedText(128) = .{},
     outcome: ?agents.observation.Outcome = null,
     observed_at: i64,
     updated_at: i64 = 0,
@@ -40,10 +40,8 @@ pub const Snapshot = struct {
 };
 pub const Child = struct {
     session: [36]u8,
-    name: [160]u8 = @splat(0),
-    name_len: usize = 0,
-    role: [80]u8 = @splat(0),
-    role_len: usize = 0,
+    name: BoundedText(160) = .{},
+    role: BoundedText(80) = .{},
     transcript: [std.fs.max_path_bytes]u8 = @splat(0),
     transcript_len: usize = 0,
     state: agents.State = .unknown,
@@ -102,8 +100,8 @@ fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void 
     if (out.entries.items.len >= conversations.max_actors) return error.TooManyThreads;
     var child: Child = .{ .session = parsed_id.bytes, .state = threadState(status) };
     const name = agents.str(thread, "name");
-    child.name_len = agents.clean(&child.name, if (name.len > 0) name else agents.str(thread, "agentNickname"));
-    child.role_len = agents.clean(&child.role, agents.str(thread, "agentRole"));
+    child.name = .ascii(if (name.len > 0) name else agents.str(thread, "agentNickname"));
+    child.role = .ascii(agents.str(thread, "agentRole"));
     const path = agents.str(thread, "path");
     if (std.fs.path.isAbsolute(path) and path.len <= child.transcript.len) {
         @memcpy(child.transcript[0..path.len], path);
@@ -189,11 +187,10 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
         const turn = data.array.items[0];
         out.evidence = activity_summary.codex(turn);
         const id = agents.str(turn, "id");
-        if (id.len > 0 and id.len <= out.turn.len) {
-            @memcpy(out.turn[0..id.len], id);
-            out.turn_len = id.len;
+        if (id.len > 0) if (@TypeOf(out.turn).init(id)) |value| {
+            out.turn = value;
             out.outcome = std.meta.stringToEnum(agents.observation.Outcome, agents.str(turn, "status"));
-        }
+        } else |_| {};
     }
     // These optional reads must not suppress parent status/completion on older
     // daemons or a failed page. Never publish a partial child count as exact.
@@ -203,7 +200,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
         out.evidence = .{};
         out.evidence.append("Currently running background tasks:\n");
         for (out.background_tasks.items[0..@min(4, out.background_tasks.len)]) |task| {
-            out.evidence.append(task.label[0..task.label_len]);
+            out.evidence.append(task.label.text());
             out.evidence.append("\n");
         }
         out.evidence.append(commentary.text());
@@ -213,8 +210,8 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     out.children = try child.entries.toOwnedSlice(a);
     out.children_complete = true;
     out.subagents = child.status;
-    if (child.any and state == .working and out.turn_len > 0 and out.outcome == null) {
-        out.subagents.waiting = waiting(client, &session, out.turn[0..out.turn_len]) catch false;
+    if (child.any and state == .working and out.turn.len > 0 and out.outcome == null) {
+        out.subagents.waiting = waiting(client, &session, out.turn.text()) catch false;
     }
     return out;
 }
@@ -287,7 +284,7 @@ pub const Worker = struct {
                 if (!p.terminal.exited and p.attachment.actor == actor) break true;
             } else false;
             if (selected) continue;
-            w.requests[w.count] = .{ .actor = actor.id, .prefix = .{ .bytes = actor.state.session[0..36].*, .len = 36 } };
+            w.requests[w.count] = .{ .actor = actor.id, .prefix = .initTruncated(actor.state.sessionId()) };
             w.count += 1;
         }
         if (actors.len > 0) w.cursor = (w.cursor + 1) % actors.len;

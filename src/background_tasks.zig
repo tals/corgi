@@ -2,6 +2,7 @@
 const std = @import("std");
 const common = @import("providers/common.zig");
 const clean = @import("agents.zig").clean;
+const BoundedText = @import("bounded_text.zig").BoundedText;
 pub const capacity = 32;
 pub const Group = enum {
     tests,
@@ -18,10 +19,8 @@ pub const Group = enum {
     }
 };
 pub const Task = struct {
-    id: [96]u8 = @splat(0),
-    id_len: usize = 0,
-    label: [256]u8 = @splat(0),
-    label_len: usize = 0,
+    id: BoundedText(96) = .{},
+    label: BoundedText(256) = .{},
     group: Group = .commands,
 };
 pub const View = struct {
@@ -40,15 +39,15 @@ pub const Inventory = struct {
 
     pub fn append(t: *Inventory, id: []const u8, description: []const u8, command: []const u8) void {
         if (id.len == 0 or id.len > 96 or (description.len == 0 and command.len == 0)) return;
-        for (t.items[0..t.len]) |item| if (std.mem.eql(u8, item.id[0..item.id_len], id)) return;
+        for (t.items[0..t.len]) |item| if (std.mem.eql(u8, item.id.text(), id)) return;
         if (t.len == capacity) {
             t.truncated = true;
             return;
         }
         const item = &t.items[t.len];
-        item.id_len = clean(&item.id, id);
-        item.group = classify(command);
-        item.label_len = summarize(&item.label, description, command, item.group);
+        var label: [@TypeOf(item.label).capacity]u8 = undefined;
+        const group = classify(command);
+        item.* = .{ .id = .ascii(id), .label = .initTruncated(label[0..summarize(&label, description, command, group)]), .group = group };
         t.len += 1;
     }
     pub fn claude(value: std.json.Value, now: i64) ?Inventory {
@@ -64,7 +63,7 @@ pub const Inventory = struct {
     }
     pub fn view(t: *const Inventory, allocator: std.mem.Allocator) !View {
         const items = try allocator.alloc(View.Item, t.len);
-        for (items, t.items[0..t.len]) |*out, *item| out.* = .{ .id = item.id[0..item.id_len], .label = item.label[0..item.label_len], .group = item.group };
+        for (items, t.items[0..t.len]) |*out, *item| out.* = .{ .id = item.id.text(), .label = item.label.text(), .group = item.group };
         return .{ .items = items, .observed_at = t.observed_at, .live = t.live, .truncated = t.truncated };
     }
 };
@@ -139,7 +138,7 @@ test "provider tasks retain identity, descriptions and bounded categories" {
     defer parsed.deinit();
     var t = Inventory.claude(parsed.value, 123).?;
     try std.testing.expectEqual(@as(usize, 1), t.len);
-    try std.testing.expectEqualStrings("Check parser", t.items[0].label[0..t.items[0].label_len]);
+    try std.testing.expectEqualStrings("Check parser", t.items[0].label.text());
     try std.testing.expectEqual(Group.tests, t.items[0].group);
     try std.testing.expect(!t.live);
     try std.testing.expectEqual(Group.tests, classify("./scripts/zig build test"));
@@ -170,6 +169,6 @@ test "task labels summarize commands and bound provider prose" {
         var id: [16]u8 = undefined;
         inventory.append(try std.fmt.bufPrint(&id, "{d}", .{i}), example[0], example[1]);
         const task = inventory.items[i];
-        try std.testing.expectEqualStrings(example[2], task.label[0..task.label_len]);
+        try std.testing.expectEqualStrings(example[2], task.label.text());
     }
 }

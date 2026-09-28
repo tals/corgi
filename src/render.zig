@@ -70,7 +70,7 @@ pub const Ui = struct {
 };
 pub fn tabWidth(tab: layout.Tab, index: usize) usize {
     const digits: usize = if (index + 1 >= 10) 2 else 1;
-    return @max(10, 2 + (if (tab.name_len > 0) @min(tab.title().len, 16) else digits));
+    return @max(10, 2 + (if (tab.title.len > 0) @min(tab.title.text().len, 16) else digits));
 }
 fn tabExtent(tab: layout.Tab, index: usize, first: usize, remaining: usize) usize {
     const width = tabWidth(tab, index);
@@ -188,10 +188,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         if (len == 0) break;
         try w.writeAll(if (i == view.selection.active) "\x1b[1;38;2;226;230;233;48;2;48;53;61m" else "\x1b[0;38;2;125;132;143;48;2;24;27;32m");
         var name: [96]u8 = undefined;
-        const text = if (tab.name_len == 0)
+        const text = if (tab.title.len == 0)
             try std.fmt.bufPrint(&name, "{d}", .{i + @as(usize, if (ui.key_preset == .tmux) 0 else 1)})
         else
-            tab.title()[0..@min(tab.title().len, 16)];
+            tab.title.text()[0..@min(tab.title.text().len, 16)];
         const text_len = @min(text.len, len);
         const padding = (len - text_len) / 2;
         try w.splatByteAll(' ', padding);
@@ -647,7 +647,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, usage_popup, "Since Corgi started") == null);
     try std.testing.expect(std.mem.indexOf(u8, usage_popup, "— tokens") != null);
     ui.link_tooltip = false;
-    ui.agent_launcher = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
+    ui.agent_launcher = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     const popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
     defer a.free(popup);
     try std.testing.expect(std.mem.indexOf(u8, popup, "New agent") != null);

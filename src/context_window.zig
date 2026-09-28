@@ -38,7 +38,7 @@ pub const Reading = struct {
                 r.used = input +| (number(usage, "cache_read_input_tokens") orelse 0) +| (number(usage, "cache_creation_input_tokens") orelse 0);
                 r.window = window;
                 r.at = stamp;
-                r.model.len = agents.clean(&r.model.bytes, model);
+                r.model = .ascii(model);
             },
             .system => {
                 if (!std.mem.eql(u8, agents.str(value, "subtype"), "compact_boundary")) return;
@@ -74,7 +74,7 @@ pub const Reading = struct {
             .used = r.used,
             .window = r.window,
             .at = r.at,
-            .compacts_at = if (r.auto_compaction > 0) r.auto_compaction else points.get(r.model.bytes[0..r.model.len]),
+            .compacts_at = if (r.auto_compaction > 0) r.auto_compaction else points.get(r.model.text()),
         };
     }
 };
@@ -111,18 +111,18 @@ pub const Points = struct {
     pub fn learn(p: *Points, model: []const u8, tokens: u64) void {
         if (model.len == 0 or tokens == 0) return;
         const slot = for (&p.entries) |*entry| {
-            if (std.mem.eql(u8, entry.model.bytes[0..entry.model.len], model)) break entry;
+            if (std.mem.eql(u8, entry.model.text(), model)) break entry;
         } else blk: {
             const entry = &p.entries[p.next];
             p.next = (p.next + 1) % p.entries.len;
             break :blk entry;
         };
-        slot.model.len = agents.clean(&slot.model.bytes, model);
+        slot.model = .ascii(model);
         slot.tokens = tokens;
     }
     pub fn get(p: *const Points, model: []const u8) u64 {
         if (model.len == 0) return 0;
-        for (p.entries) |entry| if (std.mem.eql(u8, entry.model.bytes[0..entry.model.len], model)) return entry.tokens;
+        for (p.entries) |entry| if (std.mem.eql(u8, entry.model.text(), model)) return entry.tokens;
         return 0;
     }
 };
@@ -148,7 +148,7 @@ test "claude counts the latest main-chain call's input side against its model wi
     );
     try std.testing.expectEqual(@as(u64, 252758), r.used);
     try std.testing.expectEqual(@as(u64, 1_000_000), r.window);
-    try std.testing.expectEqualStrings("claude-opus-5-5", r.model.bytes[0..r.model.len]);
+    try std.testing.expectEqualStrings("claude-opus-5-5", r.model.text());
     // Subagent and synthetic error records leave the reading alone.
     try feed(&r, .claude,
         \\{"type":"assistant","isSidechain":true,"timestamp":"2026-09-27T17:29:30.000Z","message":{"model":"claude-opus-5-5","usage":{"input_tokens":9,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
@@ -203,7 +203,7 @@ test "codex reads the last call and the reported window, ignoring null info" {
 test "pressure follows a learned compaction point shared by model" {
     var points: Points = .{};
     var r: Reading = .{ .used = 300_000, .window = 1_000_000, .at = 1 };
-    r.model.len = agents.clean(&r.model.bytes, "claude-opus-5-5");
+    r.model = .ascii("claude-opus-5-5");
     try std.testing.expectEqual(@as(f64, 0.3), r.view(&points).pressure().?);
     points.learn("claude-opus-5-5", 400_000);
     try std.testing.expectEqual(@as(f64, 0.75), r.view(&points).pressure().?);

@@ -10,6 +10,7 @@ const activity_timeline = @import("activity_timeline.zig");
 const background_tasks = @import("background_tasks.zig");
 const detection = @import("detection.zig");
 const codex_files = @import("codex_files.zig");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const live_usage = @import("live_usage.zig");
 const context_window = @import("context_window.zig");
 const codex_observer = @import("codex_observer.zig");
@@ -50,8 +51,7 @@ pub const Actor = struct {
     tracked_since: i64 = 0,
     child_refresh: bool = false,
     children_observed_at: i64 = 0,
-    role: [80]u8 = @splat(0),
-    role_len: usize = 0,
+    role: BoundedText(80) = .{},
     model: codex_files.Name = .{},
     // Hooks report the current model on every event; a bounded transcript
     // tail can miss the once-per-turn record, so it only fills gaps.
@@ -75,7 +75,7 @@ pub const Actor = struct {
         const ding = actor.state.observeHook(actor.provider(), event, seq, watched, now) orelse return false;
         if (actor.state.last_seq == seq) actor.screen_compacting = false;
         if (event.model.len > 0) {
-            actor.model.len = agents.clean(&actor.model.bytes, event.model);
+            actor.model = .ascii(event.model);
             actor.model_from_hook = true;
         }
         actor.compactionChanged(was_compacting, now);
@@ -163,7 +163,7 @@ pub const Actor = struct {
         agent.protocol_at = now;
         agent.observation.source = .protocol;
         agent.observation.pending_stop = false;
-        const same_turn = std.mem.eql(u8, agent.turnId(), s.turn[0..s.turn_len]);
+        const same_turn = std.mem.eql(u8, agent.turnId(), s.turn.text());
         if (!same_turn or (s.state != .working and s.state != .blocked)) actor.transcript_tool_active = false;
         actor.refreshTranscriptTool();
         agent.tool_len = 0;
@@ -174,8 +174,8 @@ pub const Actor = struct {
         }
         agent.activity_generation = s.evidence.hash();
         var ding = false;
-        if (s.turn_len > 0) {
-            agent.setTurn(s.turn[0..s.turn_len]);
+        if (s.turn.len > 0) {
+            agent.setTurn(s.turn.text());
             if (s.outcome) |outcome| ding = agent.recordCompletion(agent.turnId(), outcome, .protocol, binding) and outcome == .completed and !watched;
         }
         agent.attention = if (s.state == .blocked and !watched) .needs_input else if (agent.observation.unread()) .finished else .none;
@@ -190,7 +190,7 @@ pub const Actor = struct {
             .codex => {},
             .claude => return,
         }
-        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return;
         actor.transcript_tool_active = !progress.ended and progress.running > 0;
         actor.refreshTranscriptTool();
     }
@@ -235,13 +235,11 @@ test "Codex tools survive snapshots but never leak into another turn" {
         .request = .{ .prefix = .{} },
         .session = "01901234-1234-1234-1234-123456789abc".*,
         .state = .working,
-        .turn_len = 1,
+        .turn = .initTruncated("a"),
         .observed_at = 1,
     };
-    snap.turn[0] = 'a';
     _ = actor.observeSnapshot(snap, true, 0);
-    var tools: activity_tools.View = .{ .turn_len = 1, .running = 1 };
-    tools.turn[0] = 'a';
+    var tools: activity_tools.View = .{ .turn = .initTruncated("a"), .running = 1 };
     actor.observeTools(tools);
     snap.observed_at += 1;
     _ = actor.observeSnapshot(snap, true, 0);
@@ -258,7 +256,7 @@ test "Codex tools survive snapshots but never leak into another turn" {
     _ = actor.observeSnapshot(snap, true, 0);
     try std.testing.expect(!actor.state.tool_active);
     snap.state = .working;
-    snap.turn[0] = 'b';
+    snap.turn = .initTruncated("b");
     snap.background_tasks = .{};
     snap.observed_at += 1;
     _ = actor.observeSnapshot(snap, true, 0);
@@ -383,14 +381,11 @@ pub const Registry = struct {
                 continue;
             };
             if (!registry.linkChild(parent, child)) continue;
-            if (meta.role_len > 0) {
-                child.role = meta.role;
-                child.role_len = meta.role_len;
-            }
+            if (meta.role.len > 0) child.role = meta.role;
             const state = &child.state;
             if (snapshot.observed_at <= state.metadata_protocol_at) continue;
             if (state.state != meta.state or state.updated_at != meta.updated_at or state.last_seq == 0) child.child_refresh = true;
-            if (meta.name_len > 0) state.setName(meta.name[0..meta.name_len]);
+            if (meta.name.len > 0) state.setName(meta.name.text());
             if (meta.transcript_len > 0) {
                 state.transcript = meta.transcript;
                 state.transcript_len = meta.transcript_len;
@@ -674,15 +669,14 @@ test "snapshot baseline and completion receipts are idempotent" {
         .request = .{ .pane = @enumFromInt(1), .pid = 1, .prefix = .{} },
         .session = "01901234-1234-1234-1234-123456789abc".*,
         .state = .idle,
-        .turn_len = 1,
+        .turn = .initTruncated("a"),
         .outcome = .completed,
         .observed_at = 1,
     };
-    s.turn[0] = 'a';
     try std.testing.expect(!actor.observeSnapshot(s, false, 0));
     try std.testing.expectEqual(@as(u64, 0), actor.state.observation.completed);
     try std.testing.expect(!actor.state.observation.unread());
-    s.turn[0] = 'b';
+    s.turn = .initTruncated("b");
     s.observed_at = 2;
     try std.testing.expect(actor.observeSnapshot(s, false, 0));
     try std.testing.expect(!actor.observeSnapshot(s, false, 0));
@@ -694,8 +688,7 @@ test "snapshot baseline and completion receipts are idempotent" {
 test "a snapshot completion records history without overriding active or blocked state" {
     for ([_]agents.State{ .working, .blocked }) |state| {
         var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
-        var s: codex_observer.Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .turn_len = 1, .observed_at = 1 };
-        s.turn[0] = 'a';
+        var s: codex_observer.Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .turn = .initTruncated("a"), .observed_at = 1 };
         try std.testing.expect(!actor.observeSnapshot(s, false, 0));
         // Thread status and turn history are read separately. The listed turn
         // may already be complete while the thread has moved on to more work.
@@ -737,13 +730,13 @@ test "delayed hook endings and transcript confirmations cannot stop resumed work
 test "hook models replace the transcript model and survive events without one" {
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex } };
     _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-astra" }, 1, false, 10);
-    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.bytes[0..actor.model.len]);
+    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.text());
     try std.testing.expect(actor.model_from_hook);
     _ = actor.observeHook(.{ .kind = .tool_start, .session = "a", .tool = "Bash" }, 2, false, 20);
-    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.bytes[0..actor.model.len]);
+    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.text());
     _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-luna" }, 3, false, 30);
-    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.bytes[0..actor.model.len]);
+    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.text());
     // Another session's hook is rejected and cannot change the model.
     _ = actor.observeHook(.{ .kind = .prompt, .session = "b", .model = "gpt-6-sol" }, 4, false, 40);
-    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.bytes[0..actor.model.len]);
+    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.text());
 }

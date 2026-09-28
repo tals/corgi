@@ -5,15 +5,13 @@ const sidebar = @import("sidebar.zig");
 const ActorId = @import("conversations.zig").Actor.Id;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const PaneId = @import("layout.zig").PaneId;
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const capacity = sidebar.max_entries;
 const Stored = struct {
     entry: sidebar.Entry = undefined,
-    name: [160]u8 = undefined,
-    activity: [512]u8 = undefined,
-    cwd: [std.fs.max_path_bytes]u8 = undefined,
-    name_len: usize = 0,
-    activity_len: usize = 0,
-    cwd_len: usize = 0,
+    name: BoundedText(160) = .{},
+    activity: BoundedText(512) = .{},
+    cwd: BoundedText(std.fs.max_path_bytes) = .{},
     at_ms: i64 = 0,
     closing_ms: ?i64 = null,
     unbound_ms: ?i64 = null,
@@ -21,17 +19,11 @@ const Stored = struct {
     occupied: bool = false,
     seen: bool = false,
 
-    fn copy(buffer: []u8, text: []const u8) usize {
-        var n = @min(buffer.len, text.len);
-        while (n > 0 and !std.unicode.utf8ValidateSlice(text[0..n])) n -= 1;
-        @memcpy(buffer[0..n], text[0..n]);
-        return n;
-    }
     fn capture(self: *Stored, entry: sidebar.Entry, now_ms: i64) void {
         self.entry = entry;
-        self.name_len = copy(&self.name, entry.name);
-        self.activity_len = copy(&self.activity, entry.activity);
-        self.cwd_len = copy(&self.cwd, entry.cwd);
+        self.name = .initTruncated(entry.name);
+        self.activity = .initTruncated(entry.activity);
+        self.cwd = .initTruncated(entry.cwd);
         self.at_ms = now_ms;
         self.closing_ms = null;
         self.unbound_ms = null;
@@ -40,9 +32,9 @@ const Stored = struct {
     }
     fn view(self: *const Stored, now_ms: i64) sidebar.Entry {
         var entry = self.entry;
-        entry.name = self.name[0..self.name_len];
-        entry.activity = self.activity[0..self.activity_len];
-        entry.cwd = self.cwd[0..self.cwd_len];
+        entry.name = self.name.text();
+        entry.activity = self.activity.text();
+        entry.cwd = self.cwd.text();
         if (self.closing_ms) |start| entry.exit = .{
             .frame_ms = self.at_ms,
             .progress = @as(f64, @floatFromInt(std.math.clamp(now_ms - start, 0, State.duration_ms))) / State.duration_ms,

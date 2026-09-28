@@ -8,12 +8,12 @@ const transcript = @import("transcript.zig");
 const Claude = @import("providers/claude.zig").Claude;
 const os = @import("os.zig");
 const a = os.allocator;
+const BoundedText = @import("bounded_text.zig").BoundedText;
 pub const View = struct {
     commentary: summary.Text = .{},
     running: usize = 0,
     ended: bool = false,
-    turn: [160]u8 = @splat(0),
-    turn_len: usize = 0,
+    turn: BoundedText(160) = .{},
     completed: u64 = 0,
     evidence: summary.Text = .{},
 };
@@ -150,8 +150,7 @@ fn shortPath(path: []const u8) []const u8 {
 }
 pub const Tracker = struct {
     commentary: summary.Text = .{},
-    turn: [160]u8 = @splat(0),
-    turn_len: usize = 0,
+    turn: BoundedText(160) = .{},
     ended: bool = false,
     completed: u64 = 0,
     pending: [64]Call = @splat(.{}),
@@ -161,14 +160,11 @@ pub const Tracker = struct {
     recent: [3]Call = @splat(.{}),
     dirty: bool = false,
     pub fn bind(t: *Tracker, turn: []const u8) void {
-        if (turn.len == 0 or turn.len > t.turn.len or std.mem.eql(u8, turn, t.turn[0..t.turn_len])) return;
-        t.* = .{};
-        @memcpy(t.turn[0..turn.len], turn);
-        t.turn_len = turn.len;
-        t.dirty = true;
+        if (turn.len == 0 or std.mem.eql(u8, turn, t.turn.text())) return;
+        t.* = .{ .turn = @TypeOf(t.turn).init(turn) catch return, .dirty = true };
     }
     pub fn view(t: *const Tracker) View {
-        var out: View = .{ .turn = t.turn, .turn_len = t.turn_len, .completed = t.completed, .commentary = t.commentary, .ended = t.ended };
+        var out: View = .{ .turn = t.turn, .completed = t.completed, .commentary = t.commentary, .ended = t.ended };
         var active: usize = 0;
         if (!t.ended) for (t.pending) |call| {
             if (call.id == 0) continue;
@@ -200,10 +196,10 @@ pub const Tracker = struct {
         }
         if (kind == .event_msg and (subtype == .task_complete or subtype == .turn_complete or subtype == .turn_aborted)) {
             const turn = agents.str(payload, "turn_id");
-            if (turn.len == 0 or std.mem.eql(u8, turn, t.turn[0..t.turn_len])) t.ended = true;
+            if (turn.len == 0 or std.mem.eql(u8, turn, t.turn.text())) t.ended = true;
             return;
         }
-        if (kind != .response_item or t.turn_len == 0 or t.ended) return;
+        if (kind != .response_item or t.turn.len == 0 or t.ended) return;
         if (subtype == .message and std.mem.eql(u8, agents.str(payload, "role"), "assistant") and std.mem.eql(u8, agents.str(payload, "phase"), "commentary")) {
             const content = field(payload, "content");
             if (content == .array) {
@@ -270,7 +266,7 @@ pub const Tracker = struct {
     /// Claude records carry no turn id; the caller binds the hook turn. Text
     /// is commentary, and a tool completes when its tool_result arrives.
     pub fn ingestClaude(t: *Tracker, value: std.json.Value, live: bool) void {
-        if (t.turn_len == 0 or t.ended) return;
+        if (t.turn.len == 0 or t.ended) return;
         const side = field(value, "isSidechain");
         if (side == .bool and side.bool) return;
         const kind = std.meta.stringToEnum(transcript.ClaudeLine, agents.str(value, "type"));

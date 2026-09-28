@@ -186,7 +186,7 @@ pub const Runtime = struct {
         var opts = fallback;
         if (r.workspaces.get(saved.workspace_id) != null) opts.workspace = saved.workspace_id;
         opts.cwd = saved.cwd;
-        opts.title = saved.tab.title();
+        opts.title = saved.tab.title.text();
         const id = try r.create(opts);
         const p = r.pane(id).?;
         p.label = saved.label;

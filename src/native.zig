@@ -314,7 +314,7 @@ pub const Session = struct {
         const parent_id = agents.str(thread, "parentThreadId");
         if (registry.find(.codex, parent_id)) |parent| _ = registry.linkChild(parent, owner);
         const role = agents.str(thread, "agentRole");
-        if (role.len > 0) owner.role_len = agents.clean(&owner.role, role);
+        if (role.len > 0) owner.role = .ascii(role);
     }
     fn codexTools(s: *Session, target: *agents.Agent, params: std.json.Value, method: ?providers.Codex.Method) !void {
         if (params != .object) return;
@@ -649,7 +649,7 @@ test "native children retain parent selection and own usage across duplicate sou
     const child = registry.find(.codex, "child").?;
     try std.testing.expectEqual(parent, transport.attachment.actor.?);
     try std.testing.expectEqual(parent.id, child.parent.?);
-    try std.testing.expectEqualStrings("Explorer", child.role[0..child.role_len]);
+    try std.testing.expectEqualStrings("Explorer", child.role.text());
     _ = try transport.ingest(&registry,
         \\{"method":"turn/started","params":{"threadId":"child","turn":{"id":"work"}}}
     );
@@ -829,15 +829,14 @@ test "native events snapshots and hooks share exactly one receipt regardless of 
             }, .{});
             defer std.testing.allocator.free(completion);
             if (native_first) try std.testing.expectEqual(outcome == .completed, try transport.ingest(&registry, completion));
-            var snapshot: codex_observer.Snapshot = .{
+            const snapshot: codex_observer.Snapshot = .{
                 .request = .{ .prefix = .{} },
                 .session = session.*,
                 .state = .idle,
-                .turn_len = 1,
+                .turn = .initTruncated("t"),
                 .outcome = outcome,
                 .observed_at = actor.state.last_seq + 1,
             };
-            snapshot.turn[0] = 't';
             try std.testing.expectEqual(!native_first and outcome == .completed, actor.observeSnapshot(snapshot, false, 0));
             try std.testing.expect(!try transport.ingest(&registry, completion));
             try std.testing.expect(!actor.observeHook(.{ .kind = .stop, .session = session, .turn = "t" }, actor.state.last_seq + 1, false, actor.observed_at + 1));

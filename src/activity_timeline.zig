@@ -6,14 +6,14 @@
 const std = @import("std");
 const summary = @import("activity_summary.zig");
 const usage = @import("live_usage.zig");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 
 pub const Point = struct { at: i64, label: summary.Label, usage: usage.View };
 pub const Timeline = struct {
     points: [4]Point = undefined,
     len: usize = 0,
     baseline: usage.View = .{ .known = true },
-    turn: [160]u8 = @splat(0),
-    turn_len: usize = 0,
+    turn: BoundedText(160) = .{},
     open: bool = true,
 
     pub fn pending(t: *const Timeline, current: usage.View) usage.View {
@@ -51,7 +51,7 @@ pub const Timeline = struct {
         const interval = t.pending(current);
         const at = if (t.len > 0) @max(now, t.points[t.len - 1].at) else now;
         if (t.len > 0) t.points[t.len - 1].usage = interval;
-        if (t.open and t.len > 0 and std.mem.eql(u8, turn, t.turn[0..t.turn_len]) and std.mem.eql(u8, label.text(), t.points[t.len - 1].label.text())) {
+        if (t.open and t.len > 0 and std.mem.eql(u8, turn, t.turn.text()) and std.mem.eql(u8, label.text(), t.points[t.len - 1].label.text())) {
             // Repeated summaries continue the same interval and start time.
         } else {
             if (t.len == t.points.len) {
@@ -63,8 +63,7 @@ pub const Timeline = struct {
             t.points[t.len] = .{ .at = at, .label = label, .usage = if (t.len == 0) interval else if (!t.open) t.observedDelta(current) else .{ .known = current.known } };
             t.len += 1;
         }
-        t.turn_len = @min(turn.len, t.turn.len);
-        @memcpy(t.turn[0..t.turn_len], turn[0..t.turn_len]);
+        t.turn = .initTruncated(turn);
         t.open = true;
         t.advanceBaseline(current);
     }

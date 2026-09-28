@@ -7,6 +7,7 @@ const c = os.c;
 const git = @import("git_status.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const clock = @import("clock.zig");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 
 /// Shared with controller.zig's gitPushMessage, whichever side rejected the push.
 pub const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
@@ -15,11 +16,10 @@ pub const View = struct { phase: Phase = .idle, message: []const u8 = "" };
 pub const State = struct {
     phase: Phase = .idle,
     operation: u64 = 0,
-    message: [2048]u8 = @splat(0),
-    len: usize = 0,
+    message: BoundedText(2048) = .{},
     until: i64 = 0,
     pub fn view(s: *const State) View {
-        return .{ .phase = s.phase, .message = s.message[0..s.len] };
+        return .{ .phase = s.phase, .message = s.message.text() };
     }
 };
 pub const RefView = struct {
@@ -36,38 +36,25 @@ pub const RefView = struct {
     }
 };
 pub const Ref = struct {
-    root: [std.fs.max_path_bytes]u8 = @splat(0),
-    root_len: usize = 0,
-    head: [64]u8 = @splat(0),
-    head_len: usize = 0,
-    branch: [1024]u8 = @splat(0),
-    branch_len: usize = 0,
-    remote: [1024]u8 = @splat(0),
-    remote_len: usize = 0,
-    destination: [1024]u8 = @splat(0),
-    destination_len: usize = 0,
+    root: BoundedText(std.fs.max_path_bytes) = .{},
+    head: BoundedText(64) = .{},
+    branch: BoundedText(1024) = .{},
+    remote: BoundedText(1024) = .{},
+    destination: BoundedText(1024) = .{},
+    /// Empty when any part does not fit.
     pub fn init(root: []const u8, head: []const u8, branch: []const u8, remote: []const u8, destination: []const u8) Ref {
-        var result: Ref = .{};
-        if (root.len > result.root.len or head.len > result.head.len or branch.len > result.branch.len or remote.len > result.remote.len or destination.len > result.destination.len) return result;
-        @memcpy(result.root[0..root.len], root);
-        @memcpy(result.head[0..head.len], head);
-        @memcpy(result.branch[0..branch.len], branch);
-        @memcpy(result.remote[0..remote.len], remote);
-        @memcpy(result.destination[0..destination.len], destination);
-        result.root_len = root.len;
-        result.head_len = head.len;
-        result.branch_len = branch.len;
-        result.remote_len = remote.len;
-        result.destination_len = destination.len;
-        return result;
+        return exact(root, head, branch, remote, destination) catch .{};
+    }
+    fn exact(root: []const u8, head: []const u8, branch: []const u8, remote: []const u8, destination: []const u8) error{TooLong}!Ref {
+        return .{ .root = try .init(root), .head = try .init(head), .branch = try .init(branch), .remote = try .init(remote), .destination = try .init(destination) };
     }
     pub fn view(r: *const Ref) RefView {
         return .{
-            .root = r.root[0..r.root_len],
-            .head = r.head[0..r.head_len],
-            .branch = r.branch[0..r.branch_len],
-            .remote = r.remote[0..r.remote_len],
-            .destination = r.destination[0..r.destination_len],
+            .root = r.root.text(),
+            .head = r.head.text(),
+            .branch = r.branch.text(),
+            .remote = r.remote.text(),
+            .destination = r.destination.text(),
         };
     }
 };
@@ -159,7 +146,7 @@ const Job = struct {
         defer j.done.store(true, .release);
         j.push() catch |err| {
             j.result.phase = .failed;
-            if (j.result.len == 0) j.result.len = git.clean(&j.result.message, switch (err) {
+            if (j.result.message.len == 0) j.result.message = git.cleaned(@TypeOf(j.result.message), switch (err) {
                 error.GitPreviewChanged => preview_changed,
                 error.NoPushDestination => "No remote tracking branch. Configure an upstream in your terminal, then retry.",
                 error.TimedOut => "Push timed out. Check authentication and the remote in your terminal, then retry.",
@@ -260,7 +247,7 @@ const Job = struct {
                 if (status != 0) {
                     if (pushing) {
                         const message = if (errors.items.len > 0) errors.items else output.items;
-                        j.result.len = git.clean(&j.result.message, std.mem.trim(u8, message, " \t\r\n"));
+                        j.result.message = git.cleaned(@TypeOf(j.result.message), std.mem.trim(u8, message, " \t\r\n"));
                     }
                     return error.GitPushFailed;
                 }

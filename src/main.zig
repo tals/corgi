@@ -409,6 +409,7 @@ test {
     _ = @import("agents.zig");
     _ = @import("background_tasks.zig");
     _ = @import("base64.zig");
+    _ = @import("bounded_text.zig");
     _ = @import("checkpoint.zig");
     _ = @import("checkpoint_probe.zig");
     _ = @import("checkpoint_test.zig");

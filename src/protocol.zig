@@ -254,10 +254,10 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         for (ws.git_commits.items[0..ws.git_commits.len], commits) |*commit, *dest| {
             dest.* = .{
                 .timestamp = commit.timestamp,
-                .hash = commit.hash[0..commit.hash_len],
-                .subject = commit.subject[0..commit.subject_len],
-                .author = commit.author[0..commit.author_len],
-                .date = commit.date[0..commit.date_len],
+                .hash = commit.hash.text(),
+                .subject = commit.subject.text(),
+                .author = commit.author.text(),
+                .date = commit.date.text(),
             };
         }
         out.* = .{
@@ -329,9 +329,9 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .workspace = actor.workspace,
             .observed_at = actor.observed_at,
             .attachments = attachments,
-            .role = actor.role[0..actor.role_len],
+            .role = actor.role.text(),
             .background_tasks = try actor.background_tasks.view(allocator),
-            .model = actor.model.bytes[0..actor.model.len],
+            .model = actor.model.text(),
             .usage = current_usage,
             .context = actor.context.view(&r.conversations.compaction_points),
             .timeline = .{ .points = points, .pending = actor.activity_timeline.pending(current_usage) },

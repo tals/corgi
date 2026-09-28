@@ -1,6 +1,7 @@
 //! Borrowed, normalized provider facts. Parsing never mutates conversation state.
 const std = @import("std");
 pub const Outcome = @import("../observation.zig").Outcome;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 
 pub const SessionRef = union(enum) {
     id: []const u8,
@@ -86,13 +87,7 @@ pub const Info = struct {
 };
 
 /// A session id, or the truncated prefix of one, shown in a terminal title.
-pub const SessionPrefix = struct {
-    bytes: [36]u8 = .{0} ** 36,
-    len: usize = 0,
-    pub fn text(p: *const SessionPrefix) []const u8 {
-        return p.bytes[0..p.len];
-    }
-};
+pub const SessionPrefix = BoundedText(36);
 
 /// Terminal UI signals, used only when no hook or protocol evidence is current.
 pub const Screen = struct {

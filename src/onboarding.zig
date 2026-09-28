@@ -1,5 +1,6 @@
 //! A cell-based, viewer-owned wizard. Its bounds depend only on terminal size.
 const std = @import("std");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const os = @import("os.zig");
 const a = os.allocator;
 const keys = @import("keys.zig");
@@ -37,8 +38,7 @@ pub const State = struct {
     focus: u8 = 0,
     progress: Progress = .{},
     progress_data: ?std.json.Parsed(Progress) = null,
-    message: [256]u8 = @splat(0),
-    message_len: usize = 0,
+    message: BoundedText(256) = .{},
     last_poll: i64 = 0,
     blink_closed: bool = false,
     scan_finished: bool = false,
@@ -65,8 +65,7 @@ pub const State = struct {
         s.setMessage(@errorName(err));
     }
     fn setMessage(s: *State, msg: []const u8) void {
-        s.message_len = @min(msg.len, s.message.len);
-        @memcpy(s.message[0..s.message_len], msg[0..s.message_len]);
+        s.message = .initTruncated(msg);
     }
     fn phase(s: *const State) ?Phase {
         return std.meta.stringToEnum(Phase, s.progress.phase);
@@ -94,7 +93,7 @@ pub const State = struct {
         s.selected = @splat(false);
         s.expanded = @splat(false);
         s.selection_initialized = false;
-        s.message_len = 0;
+        s.message = .{};
         s.scan();
     }
     fn enterKeymap(s: *State) void {
@@ -172,7 +171,7 @@ pub const State = struct {
         }
         s.step = .progress;
         s.scroll = 0;
-        s.message_len = 0;
+        s.message = .{};
         s.progress = .{ .phase = "connecting" };
         s.last_poll = 0;
         return false;
@@ -211,7 +210,7 @@ pub const State = struct {
     pub fn key(s: *State, byte: u8, conn: *Connection) !bool {
         if (s.step == .import) s.selectDefaults();
         s.preset = km.supportedPreset(s.preset);
-        s.message_len = 0;
+        s.message = .{};
         switch (s.step) {
             .presets => switch (byte) {
                 'j', 14 => s.preset = km.available_presets[(@as(usize, @intFromEnum(s.preset)) + 1) % km.available_presets.len],
@@ -563,7 +562,7 @@ pub const State = struct {
                 }
             },
         }
-        if (s.message_len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message[0..s.message_len], yellow);
+        if (s.message.len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message.text(), yellow);
         try put(w, b, 3, b.h - 3, footerHint(s), dim);
         const cta: []const u8 = switch (s.step) {
             .presets => if (s.mode == .keyboard and s.preset != .cmux) "[ Enter Save ]" else "[ Enter Continue → ]",

@@ -243,7 +243,9 @@ $.closed[].screen.exited: bool
 $.closed[].screen.exit_status: i32
 $.closed[].screen.initial_input: optional
 $.closed[].screen.initial_input?: string
-$.closed[].tab: custom layout.Tab
+$.closed[].tab.id: u32
+$.closed[].tab.root: u8
+$.closed[].tab.title: custom bounded_text.BoundedText(80)
 $.closed[].workspace_id: u32
 $.sessions[].binding.actor: u32
 $.sessions[].binding.generation: u64

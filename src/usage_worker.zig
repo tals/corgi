@@ -63,17 +63,17 @@ pub const Result = struct {
         }
     }
     fn claudeFallback(result: *const Result, agent: *agents.Agent) bool {
-        if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
+        if (result.name.len > 0) agent.setName(result.name.text());
         // Hooks stamp activity_at, so an update from before the latest
         // hook (or from an earlier turn) cannot replace a newer label.
         if (agent.state == .working and !agent.activity_inferred and result.update.len > 0 and result.update_at > agent.activity_at) {
-            agent.setActivity(result.update.bytes[0..result.update.len]);
+            agent.setActivity(result.update.text());
             agent.activity_at = result.update_at;
         }
         // Hooks own Claude's turn id; transcript evidence only joins it.
         const progress = result.progress orelse return false;
-        if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
-        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+        if (agent.state != .working or progress.ended or progress.turn.len == 0) return false;
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return false;
         if (progress.commentary.len == 0 and progress.evidence.len == 0) return false;
         // Claude writes text before most tools, so commentary-keyed labels
         // would arrive stale. A label from this turn's slightly older
@@ -83,12 +83,12 @@ pub const Result = struct {
     }
     fn codexFallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
         if (!codex_files.available(agent, now)) return false;
-        if (result.name.len > 0) agent.setName(result.name.bytes[0..result.name.len]);
+        if (result.name.len > 0) agent.setName(result.name.text());
         const progress = result.progress orelse return false;
-        if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
+        if (agent.state != .working or progress.ended or progress.turn.len == 0) return false;
         // A late file read cannot supply a turn after a newer hook arrived.
-        if (agent.turn_len == 0 and agent.last_seq == result.seq) agent.setTurn(progress.turn[0..progress.turn_len]);
-        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return false;
+        if (agent.turn_len == 0 and agent.last_seq == result.seq) agent.setTurn(progress.turn.text());
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return false;
         agent.activity_generation = progress.commentary.hash();
         return true;
     }
@@ -186,7 +186,7 @@ pub const Worker = struct {
                         _ = watchers.remove(req.actor);
                         continue;
                     };
-                    tail.* = .{ .actor = req.actor, .session = req.agent.session, .session_len = req.agent.session_len };
+                    tail.* = .{ .actor = req.actor };
                     entry.value_ptr.* = tail;
                 }
                 const t = entry.value_ptr.*;
@@ -230,7 +230,7 @@ pub const Worker = struct {
                         },
                         .codex => result.*.?.name = index.name(req.agent.sessionId()),
                     }
-                    if (std.mem.eql(u8, t.progress.turn[0..t.progress.turn_len], req.agent.turnId())) t.progress.dirty = false;
+                    if (std.mem.eql(u8, t.progress.turn.text(), req.agent.turnId())) t.progress.dirty = false;
                 }
                 w.mutex.unlock();
             }
@@ -241,8 +241,6 @@ pub const Worker = struct {
 const RecordKind = enum { @"agent-name", @"custom-title", @"ai-title", assistant, @"continued-in", user, unknown };
 pub const Tail = struct {
     actor: ActorId = .none,
-    session: [160]u8 = @splat(0),
-    session_len: usize = 0,
     initial_until: u64 = 0,
     tracker: usage.Tracker = .{},
     progress: activity_tools.Tracker = .{},
@@ -343,17 +341,17 @@ pub const Tail = struct {
         };
         const generated = if (kind == .@"ai-title") agents.str(value, "aiTitle") else "";
         if (chosen.len > 0 and std.unicode.utf8ValidateSlice(chosen)) {
-            t.name.len = agents.clean(&t.name.bytes, chosen);
+            t.name = .ascii(chosen);
             t.name_chosen = true;
         } else if (generated.len > 0 and !t.name_chosen and std.unicode.utf8ValidateSlice(generated)) {
-            t.name.len = agents.clean(&t.name.bytes, generated);
+            t.name = .ascii(generated);
         }
         if (kind == .assistant) t.claudeText(value);
         if (kind == .@"continued-in") {
-            t.continued.len = agents.clean(&t.continued.bytes, agents.str(value, "continuedInSessionId"));
+            t.continued = .ascii(agents.str(value, "continuedInSessionId"));
         } else if (kind == .user or kind == .assistant) {
             // Resuming the original conversation later makes it current again.
-            t.continued.len = 0;
+            t.continued = .{};
         }
     }
     /// Text Claude writes between tools is its only commentary. Thinking is
@@ -376,10 +374,7 @@ pub const Tail = struct {
             }
         }
         if (latest.len == 0) return;
-        var n = @min(latest.len, t.update.bytes.len);
-        while (n > 0 and !std.unicode.utf8ValidateSlice(latest[0..n])) n -= 1;
-        @memcpy(t.update.bytes[0..n], latest[0..n]);
-        t.update.len = n;
+        t.update = .initTruncated(latest);
         t.update_at = stamp * std.time.us_per_ms;
     }
     /// One transcript record: tool progress, presentation metadata and usage.
@@ -411,7 +406,7 @@ pub const Tail = struct {
     }
     fn observeModel(t: *Tail, message: std.json.Value) void {
         const model_name = agents.str(message, "model");
-        if (model_name.len > 0) t.model.len = agents.clean(&t.model.bytes, model_name);
+        if (model_name.len > 0) t.model = .ascii(model_name);
     }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(req);
@@ -490,7 +485,7 @@ test "file metadata prefers fresh protocol and rejects other turns" {
     agent.session_len = agents.clean(&agent.session, "session");
     agent.turn_len = agents.clean(&agent.turn, "current");
     var progress: activity_tools.View = .{};
-    progress.turn_len = agents.clean(&progress.turn, "current");
+    progress.turn = .ascii("current");
     progress.commentary.append("Tracing pane focus");
     var result: Result = .{
         .actor = @enumFromInt(1),
@@ -500,7 +495,7 @@ test "file metadata prefers fresh protocol and rejects other turns" {
         .progress = progress,
         .seq = 10,
     };
-    result.name.len = agents.clean(&result.name.bytes, "File title");
+    result.name = .ascii("File title");
     agent.setName("Protocol title");
     agent.metadata_protocol_at = 100;
     try std.testing.expect(!result.fallback(&agent, 101));
@@ -511,7 +506,7 @@ test "file metadata prefers fresh protocol and rejects other turns" {
     try std.testing.expectEqualStrings("File title", agent.displayName());
     try std.testing.expectEqual(agents.State.working, agent.state);
     try std.testing.expectEqual(@as(u64, 0), agent.observation.completed);
-    result.progress.?.turn_len = agents.clean(&result.progress.?.turn, "old");
+    result.progress.?.turn = .ascii("old");
     try std.testing.expect(!result.fallback(&agent, 6_000_000));
     agent.turn_len = 0;
     try std.testing.expect(!result.fallback(&agent, 6_000_000));
@@ -561,10 +556,10 @@ test "usage tail retains the latest reported model across unrelated records" {
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .codex } };
     _ = try tail.ingest(&req, "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6\"}}\n", 0);
     _ = try tail.ingest(&req, "{\"type\":\"event_msg\",\"payload\":{}}\n", 0);
-    try std.testing.expectEqualStrings("gpt-6", tail.model.bytes[0..tail.model.len]);
+    try std.testing.expectEqualStrings("gpt-6", tail.model.text());
     req.agent.provider = .claude;
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-4-6\"}}\n", 0);
-    try std.testing.expectEqualStrings("claude-opus-4-6", tail.model.bytes[0..tail.model.len]);
+    try std.testing.expectEqualStrings("claude-opus-4-6", tail.model.text());
 }
 
 test "Claude transcripts supply chosen names over generated titles and report continuations" {
@@ -575,12 +570,12 @@ test "Claude transcripts supply chosen names over generated titles and report co
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Other session\",\"sessionId\":\"b\"}\n", 0);
     try std.testing.expectEqual(@as(usize, 0), tail.name.len);
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Generated\",\"sessionId\":\"a\"}\n", 0);
-    try std.testing.expectEqualStrings("Generated", tail.name.bytes[0..tail.name.len]);
+    try std.testing.expectEqualStrings("Generated", tail.name.text());
     _ = try tail.ingest(&req, "{\"type\":\"agent-name\",\"agentName\":\"Chosen\",\"sessionId\":\"a\"}\n", 0);
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Regenerated\",\"sessionId\":\"a\"}\n", 0);
-    try std.testing.expectEqualStrings("Chosen", tail.name.bytes[0..tail.name.len]);
+    try std.testing.expectEqualStrings("Chosen", tail.name.text());
     _ = try tail.ingest(&req, "{\"type\":\"continued-in\",\"sessionId\":\"a\",\"continuedInSessionId\":\"c\"}\n", 0);
-    try std.testing.expectEqualStrings("c", tail.continued.bytes[0..tail.continued.len]);
+    try std.testing.expectEqualStrings("c", tail.continued.text());
     _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"a\",\"message\":{}}\n", 0);
     try std.testing.expectEqual(@as(usize, 0), tail.continued.len);
 
@@ -597,9 +592,9 @@ test "Claude text updates apply only when newer than the latest hook" {
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
     req.agent.session_len = agents.clean(&req.agent.session, "a");
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"},{\"type\":\"text\",\"text\":\"\\n## Checking the parser\\nmore\"}]}}\n", 0);
-    try std.testing.expectEqualStrings("Checking the parser", tail.update.bytes[0..tail.update.len]);
+    try std.testing.expectEqualStrings("Checking the parser", tail.update.text());
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"isSidechain\":true,\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Subagent text\"}]}}\n", 0);
-    try std.testing.expectEqualStrings("Checking the parser", tail.update.bytes[0..tail.update.len]);
+    try std.testing.expectEqualStrings("Checking the parser", tail.update.text());
 
     var agent: agents.Agent = .{ .provider = .claude, .state = .working, .activity_at = 3 * std.time.us_per_s };
     agent.session_len = agents.clean(&agent.session, "a");

@@ -9,24 +9,21 @@ const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const clock = @import("clock.zig");
 const Failure = @import("failure.zig").Failure;
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const log = std.log.scoped(.git_status);
 pub const Commit = struct {
-    hash: [12]u8 = @splat(0),
-    hash_len: u8 = 0,
-    subject: [240]u8 = @splat(0),
-    subject_len: u16 = 0,
-    author: [80]u8 = @splat(0),
-    author_len: u8 = 0,
+    hash: BoundedText(12) = .{},
+    subject: BoundedText(240) = .{},
+    author: BoundedText(80) = .{},
     timestamp: i64 = 0,
-    date: [16]u8 = @splat(0),
-    date_len: u8 = 0,
+    date: BoundedText(16) = .{},
 };
 pub const Commits = struct {
     items: [12]Commit = @splat(.{}),
     len: u8 = 0,
 };
 // Commit metadata is untrusted terminal text. Keep valid UTF-8 and remove controls.
-pub fn clean(dest: []u8, source: []const u8) usize {
+pub fn clean(dest: []u8, source: []const u8) []const u8 {
     var used: usize = 0;
     var rest = source;
     while (rest.len > 0) {
@@ -39,7 +36,12 @@ pub fn clean(dest: []u8, source: []const u8) usize {
         used += size;
         rest = rest[@min(n, rest.len)..];
     }
-    return used;
+    return dest[0..used];
+}
+/// `source` cleaned into `T`, a `BoundedText`.
+pub fn cleaned(comptime T: type, source: []const u8) T {
+    var buf: [T.capacity]u8 = undefined;
+    return .initTruncated(clean(&buf, source));
 }
 fn parseCommits(raw: []const u8) Commits {
     var result: Commits = .{};
@@ -51,11 +53,13 @@ fn parseCommits(raw: []const u8) Commits {
         const timestamp = fields.next() orelse break;
         const subject = fields.next() orelse break;
         const item = &result.items[result.len];
-        item.hash_len = @intCast(clean(&item.hash, std.mem.trim(u8, hash, "\r\n")));
-        item.author_len = @intCast(clean(&item.author, author));
-        item.timestamp = std.fmt.parseInt(i64, timestamp, 10) catch 0;
-        item.date_len = @intCast(clean(&item.date, date));
-        item.subject_len = @intCast(clean(&item.subject, subject));
+        item.* = .{
+            .hash = cleaned(@FieldType(Commit, "hash"), std.mem.trim(u8, hash, "\r\n")),
+            .author = cleaned(@FieldType(Commit, "author"), author),
+            .timestamp = std.fmt.parseInt(i64, timestamp, 10) catch 0,
+            .date = cleaned(@FieldType(Commit, "date"), date),
+            .subject = cleaned(@FieldType(Commit, "subject"), subject),
+        };
         result.len += 1;
     }
     return result;
@@ -343,8 +347,8 @@ test "upstream counts follow commits and packed refs, deduplicate subdirectories
     try std.testing.expectEqual(@as(?u64, 1), try tracker.refresh(root, 7000));
     try std.testing.expectEqual(@as(u8, 1), tracker.cache.get(root).?.commits.len);
     const commit = tracker.cache.get(root).?.commits.items[0];
-    try std.testing.expectEqualStrings("ahead", commit.subject[0..commit.subject_len]);
-    try std.testing.expectEqualStrings("Corgi Test", commit.author[0..commit.author_len]);
+    try std.testing.expectEqualStrings("ahead", commit.subject.text());
+    try std.testing.expectEqualStrings("Corgi Test", commit.author.text());
     // A sentinel proves the unchanged-ref path reuses the cached count.
     tracker.cache.getPtr(root).?.ahead = 42;
     try std.testing.expectEqual(@as(?u64, 42), try tracker.refresh(root, 10000));
@@ -381,6 +385,6 @@ test "commit metadata strips terminal controls and preserves Unicode" {
     const commits = parseCommits("abc1234\x00Zoë\x00" ++ "2026-09-23 08:30\x001790166600\x00fix 日本語\x1b[31m\x00\n");
     try std.testing.expectEqual(@as(u8, 1), commits.len);
     const item = commits.items[0];
-    try std.testing.expectEqualStrings("Zoë", item.author[0..item.author_len]);
-    try std.testing.expectEqualStrings("fix 日本語 [31m", item.subject[0..item.subject_len]);
+    try std.testing.expectEqualStrings("Zoë", item.author.text());
+    try std.testing.expectEqualStrings("fix 日本語 [31m", item.subject.text());
 }

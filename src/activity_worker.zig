@@ -447,7 +447,7 @@ pub const Worker = struct {
         w.wake.signal();
     }
     pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: activity_tools.View) void {
-        if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return;
+        if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return;
         w.mutex.lock();
         defer w.mutex.unlock();
         for (w.slots) |*entry| if (entry.*) |*slot| {

@@ -98,9 +98,7 @@ pub const Codex = struct {
             }
             if (!valid) continue;
             if (found != null) return null;
-            var p: common.SessionPrefix = .{ .len = n };
-            @memcpy(p.bytes[0..n], word[0..n]);
-            found = p;
+            found = .initTruncated(word[0..n]);
         }
         return found;
     }

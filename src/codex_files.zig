@@ -2,13 +2,11 @@
 //! Never selects a pane or supplies lifecycle/completion observations.
 const std = @import("std");
 const agents = @import("agents.zig");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const os = @import("os.zig");
 const a = os.allocator;
 
-pub const Name = struct {
-    bytes: [160]u8 = @splat(0),
-    len: usize = 0,
-};
+pub const Name = BoundedText(160);
 
 pub const Index = struct {
     bytes: []const u8 = "",
@@ -45,7 +43,7 @@ pub const Index = struct {
             if (!std.mem.eql(u8, agents.str(parsed.value, "id"), session)) continue;
             const value = agents.str(parsed.value, "thread_name");
             if (value.len == 0 or !std.unicode.utf8ValidateSlice(value)) continue;
-            out.len = agents.clean(&out.bytes, value);
+            out = .ascii(value);
         }
         return out;
     }
@@ -63,6 +61,6 @@ test "index selects exact identity and latest complete name" {
             "{\"id\":\"a\",\"thread_name\":\"Partial\"}",
     };
     const name = index.name("a");
-    try std.testing.expectEqualStrings("Investigate missing session details", name.bytes[0..name.len]);
+    try std.testing.expectEqualStrings("Investigate missing session details", name.text());
     try std.testing.expectEqual(@as(usize, 0), index.name("missing").len);
 }

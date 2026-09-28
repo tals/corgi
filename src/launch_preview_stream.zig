@@ -5,13 +5,13 @@ const os = @import("os.zig");
 const a = os.allocator;
 const Preview = @import("agent_launcher.zig").Preview;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const Path = @import("bounded_text.zig").Path;
 
 pub const Stream = struct {
     socket: []const u8 = "",
     fd: ?c_int = null,
     input: std.ArrayList(u8) = .empty,
-    cwd: [std.fs.max_path_bytes]u8 = undefined,
-    len: usize = 0,
+    cwd: Path = .{},
     workspace: WorkspaceId = .none,
     preview: Preview = .{},
     received: bool = false,
@@ -29,7 +29,7 @@ pub const Stream = struct {
     }
 
     pub fn current(s: *const Stream, cwd: []const u8) Preview {
-        if (std.mem.eql(u8, cwd, s.cwd[0..s.len])) return s.preview;
+        if (std.mem.eql(u8, cwd, s.cwd.text())) return s.preview;
         // Provider visibility survives a directory change; model settings don't.
         var result: Preview = .{ .installed = s.preview.installed };
         for (&result.options, s.preview.options) |*option, previous| option.signed_in = previous.signed_in;
@@ -37,19 +37,19 @@ pub const Stream = struct {
     }
 
     pub fn pending(s: *Stream, cwd: []const u8) void {
-        if (std.mem.eql(u8, cwd, s.cwd[0..s.len])) s.preview.pending = true;
+        if (std.mem.eql(u8, cwd, s.cwd.text())) s.preview.pending = true;
     }
 
     /// Subscribe only when the directory changes or the connection is lost.
     /// Otherwise this only drains pushed messages; it sends no requests.
     pub fn poll(s: *Stream, workspace: WorkspaceId, cwd: []const u8) bool {
-        if (s.socket.len == 0 or cwd.len > s.cwd.len) return false;
+        if (s.socket.len == 0) return false;
+        const dir = Path.init(cwd) catch return false;
         var changed = false;
-        if (s.workspace != workspace or !std.mem.eql(u8, cwd, s.cwd[0..s.len])) {
+        if (s.workspace != workspace or !std.mem.eql(u8, cwd, s.cwd.text())) {
             const initial = s.current(cwd);
             s.disconnect();
-            @memcpy(s.cwd[0..cwd.len], cwd);
-            s.len = cwd.len;
+            s.cwd = dir;
             s.workspace = workspace;
             s.preview = initial;
             s.received = false;
@@ -105,7 +105,7 @@ pub const Stream = struct {
         const parsed = try std.json.parseFromSlice(Message, a, bytes, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const message = parsed.value;
-        if (!std.mem.eql(u8, message.type, "agent.preview") or !std.mem.eql(u8, message.cwd, s.cwd[0..s.len])) return false;
+        if (!std.mem.eql(u8, message.type, "agent.preview") or !std.mem.eql(u8, message.cwd, s.cwd.text())) return false;
         var preview = message.preview;
         if (preview.pending) {
             if (s.received) {
@@ -135,9 +135,8 @@ test "preview stream handles partial and consecutive messages and ignores old di
     const bufsize: c_int = 1 << 20;
     _ = os.c.setsockopt(pair[0], os.c.SOL_SOCKET, os.c.SO_RCVBUF, &bufsize, @sizeOf(c_int));
     _ = os.c.setsockopt(pair[1], os.c.SOL_SOCKET, os.c.SO_SNDBUF, &bufsize, @sizeOf(c_int));
-    var stream: Stream = .{ .fd = pair[0], .len = 2 };
+    var stream: Stream = .{ .fd = pair[0], .cwd = .initTruncated("/a") };
     defer stream.deinit();
-    @memcpy(stream.cwd[0..2], "/a");
     var preview: Preview = .{ .pending = false };
     preview.options[0].model.set("initial");
     const first = try std.json.Stringify.valueAlloc(a, .{ .type = "agent.preview", .cwd = "/a", .preview = preview }, .{});

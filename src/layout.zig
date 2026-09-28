@@ -1,4 +1,5 @@
 const std = @import("std");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 
 pub const max_panes = 64;
 pub const max_borders = max_panes + 3;
@@ -37,30 +38,14 @@ pub const Node = union(enum) { pane: PaneId, split: Split };
 pub const Tab = struct {
     id: TabId,
     root: u8,
-    name: [80]u8 = .{0} ** 80,
-    name_len: usize = 0, // Zero means unnamed; its number is derived from its current position.
-    const Data = struct { id: TabId, root: u8, title: []const u8 };
-    pub fn jsonStringify(t: Tab, writer: anytype) !void {
-        try writer.write(Data{ .id = t.id, .root = t.root, .title = t.title() });
-    }
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Tab {
-        return fromData(try std.json.innerParse(Data, allocator, source, options));
-    }
-    pub fn jsonParseFromValue(allocator: std.mem.Allocator, value: std.json.Value, options: std.json.ParseOptions) !Tab {
-        return fromData(try std.json.innerParseFromValue(Data, allocator, value, options));
-    }
-    fn fromData(data: Data) Tab {
-        var tab: Tab = .{ .id = data.id, .root = data.root };
-        tab.rename(data.title);
-        return tab;
-    }
-    pub fn title(t: *const Tab) []const u8 {
-        return t.name[0..t.name_len];
-    }
+    /// Empty means unnamed; its number is derived from its current position.
+    title: BoundedText(80) = .{},
     pub fn rename(t: *Tab, name: []const u8) void {
+        var buf: [80]u8 = undefined;
         const trimmed = std.mem.trim(u8, name, " ");
-        t.name_len = @min(trimmed.len, t.name.len);
-        for (trimmed[0..t.name_len], 0..) |ch, i| t.name[i] = if (ch >= 32 and ch < 127) ch else '_';
+        const len = @min(trimmed.len, buf.len);
+        for (trimmed[0..len], buf[0..len]) |ch, *out| out.* = if (ch >= 32 and ch < 127) ch else '_';
+        t.title = .initTruncated(buf[0..len]);
     }
 };
 pub const Placement = struct { id: PaneId, rect: Rect };
@@ -92,7 +77,7 @@ pub const Model = struct {
         @memcpy(model.tabs[0..data.tabs.len], data.tabs);
         var visited: [max_nodes]bool = @splat(false);
         for (data.tabs, 0..) |tab, i| {
-            if (tab.id == TabId.none or tab.name_len > tab.name.len) return error.UnexpectedToken;
+            if (tab.id == TabId.none) return error.UnexpectedToken;
             for (data.tabs[0..i]) |other| if (other.id == tab.id) return error.UnexpectedToken;
             try model.validateTree(tab.root, &visited);
         }

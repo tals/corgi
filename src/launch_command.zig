@@ -6,6 +6,7 @@ const detection = @import("detection.zig");
 const git_status = @import("git_status.zig");
 const common = @import("providers/common.zig");
 const Text = @import("account_preview.zig").Text;
+const Path = @import("bounded_text.zig").Path;
 const log = std.log.scoped(.launch_command);
 pub const capacity = 6;
 pub const max_length = 2048;
@@ -331,8 +332,7 @@ pub const Worker = struct {
     const Job = struct {
         id: u64,
         source: Entry,
-        cwd: [std.fs.max_path_bytes]u8 = undefined,
-        cwd_len: usize,
+        cwd: Path,
         result: Resolution = .{},
         queued: bool = true,
     };
@@ -358,15 +358,14 @@ pub const Worker = struct {
         os.allocator.destroy(w);
     }
     pub fn request(w: *Worker, id: u64, source: []const u8, cwd: []const u8) !Resolution {
-        if (cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
+        const dir = Path.init(cwd) catch return error.InvalidDirectory;
         w.mutex.lock();
         defer w.mutex.unlock();
         for (w.jobs) |entry| if (entry) |job| {
-            if (job.id == id and std.mem.eql(u8, job.source.text(), source) and std.mem.eql(u8, job.cwd[0..job.cwd_len], cwd)) return job.result;
+            if (job.id == id and std.mem.eql(u8, job.source.text(), source) and std.mem.eql(u8, job.cwd.text(), cwd)) return job.result;
         };
-        var job: Job = .{ .id = id, .source = .{}, .cwd_len = cwd.len };
+        var job: Job = .{ .id = id, .source = .{}, .cwd = dir };
         try job.source.set(source);
-        @memcpy(job.cwd[0..cwd.len], cwd);
         w.jobs[w.next] = job;
         w.next = (w.next + 1) % w.jobs.len;
         w.wake.signal();
@@ -390,16 +389,16 @@ pub const Worker = struct {
             w.jobs[index].?.queued = false;
             w.mutex.unlock();
             var result: Resolution = .{ .pending = false };
-            if (resolve(job.source.text(), job.cwd[0..job.cwd_len], os.allocator)) |source| {
+            if (resolve(job.source.text(), job.cwd.text(), os.allocator)) |source| {
                 defer os.allocator.free(source);
                 result.command.set(source) catch |err| result.error_message.set(@errorName(err));
-                result.semantics = analyze(source, job.cwd[0..job.cwd_len]);
+                result.semantics = analyze(source, job.cwd.text());
             } else |err| result.error_message.set(@errorName(err));
             w.mutex.lock();
             if (w.jobs[index]) |*current| {
                 const matches = current.id == job.id and
                     std.mem.eql(u8, current.source.text(), job.source.text()) and
-                    std.mem.eql(u8, current.cwd[0..current.cwd_len], job.cwd[0..job.cwd_len]);
+                    std.mem.eql(u8, current.cwd.text(), job.cwd.text());
                 if (matches) current.result = result;
             }
             w.mutex.unlock();
