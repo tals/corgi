@@ -65,3 +65,21 @@ and assertion intent from the original suites.
 
 PTY restoration checks compare `stty -g` snapshots on the same reusable
 terminal before and after the client, including control characters and speeds.
+
+## Waiting
+
+A test waits on the daemon, never on the time it might take:
+
+- To assert that something happened, `until()` it. `until` re-checks when the
+  daemon pushes a changed session, and at least every 100 ms.
+- To assert that something did not happen, `settle()` first, then assert.
+  `settle` returns once the daemon's workers have read everything written so
+  far. A hook RPC is handled before it replies, so an assertion right after
+  one needs no wait.
+- To let a policy window pass (cooldowns, rescans, hover cards), `advance()`
+  the daemon's clock, or a viewer's with `viewer.advance()`.
+- `sleep()` is for real-time behavior only, such as escape-key timing or a
+  real child process, with a comment saying which.
+
+`sleep_budget.test.ts` caps the number of sleeps in `tests/*.ts`. Lower its
+budget when you remove one; a new sleep has to raise it.
