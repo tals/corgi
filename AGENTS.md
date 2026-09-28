@@ -128,8 +128,10 @@ exactly which version changed and whether there is a migration, or that none
 changed and why. Say "unchanged" only where a reader would wonder, such as a
 refactor of serialized types.
 
-**One change per commit.** Split unrelated changes when you can; otherwise the
-second one gets an "Also:" line.
+**One logical change per commit.** A fix or feature is one commit even when it
+touches several components, such as the hook client, the daemon and the docs;
+don't split it by component. Split unrelated changes when you can; otherwise
+the second one gets an "Also:" line.
 
 ```
 protocol: send usage limits as data, not text
