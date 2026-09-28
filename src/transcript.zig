@@ -4,6 +4,7 @@ const std = @import("std");
 const conversations = @import("conversations.zig");
 const ActorId = conversations.Actor.Id;
 const agents = @import("agents.zig");
+const common = @import("providers/common.zig");
 const os = @import("os.zig");
 const a = os.allocator;
 const max_jobs = @import("layout.zig").max_panes;
@@ -31,7 +32,7 @@ pub const EventKind = enum {
     web_search_call,
 };
 /// Claude transcript line `type`.
-pub const ClaudeLine = enum { assistant, user, system };
+pub const ClaudeLine = enum { assistant, user, system, attachment };
 const Request = struct { actor: ActorId, agent: agents.Agent };
 pub const Result = struct { actor: ActorId, seq: i64, outcome: agents.observation.Outcome };
 
@@ -300,10 +301,20 @@ fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.obser
     // end_turn on an assistant message precedes Stop hooks. Only the
     // post-turn system record is evidence; a stop_hook_summary is not.
     if (!std.mem.eql(u8, agents.str(v, "sessionId"), agent.sessionId())) return null;
-    if (std.meta.stringToEnum(ClaudeLine, agents.str(v, "type")) != .system) return null;
-    if (!std.mem.eql(u8, agents.str(v, "subtype"), "turn_duration")) return null;
     if (v.object.get("isSidechain")) |side| if (side == .bool and side.bool) return null;
-    return .completed;
+    return switch (std.meta.stringToEnum(ClaudeLine, agents.str(v, "type")) orelse return null) {
+        .system => if (std.mem.eql(u8, agents.str(v, "subtype"), "turn_duration")) .completed else null,
+        // Esc during Stop hooks cancels them, and no turn_duration follows.
+        // A hook that timed out is cancelled too, but its turn goes on.
+        .attachment => blk: {
+            const hook = common.field(v, "attachment");
+            if (!std.mem.eql(u8, agents.str(hook, "type"), "hook_cancelled")) break :blk null;
+            if (std.meta.stringToEnum(common.HookEvent, agents.str(hook, "hookEvent")) != .Stop) break :blk null;
+            const timed_out = common.field(hook, "timedOut");
+            break :blk if (timed_out == .bool and !timed_out.bool) .interrupted else null;
+        },
+        .assistant, .user => null,
+    };
 }
 pub fn timestampMs(s: []const u8) ?i64 {
     if (s.len < 20 or s[4] != '-' or s[7] != '-' or s[10] != 'T' or s[s.len - 1] != 'Z') return null;
@@ -340,6 +351,24 @@ test "completion requires matching turn, fresh timestamp and complete JSONL reco
     agent.last_seq = 3000000;
     try std.testing.expectEqual(null, completion(&agent, good));
     try std.testing.expectEqual(@as(?i64, 0), timestampMs("1970-01-01T00:00:00.000Z"));
+}
+
+test "Claude Stop hooks cancelled by Esc end the turn as interrupted" {
+    var agent: agents.Agent = .{ .provider = .claude, .last_seq = 1000000 };
+    agent.session_len = agents.clean(&agent.session, "s");
+    const record = "{{\"type\":\"attachment\",\"sessionId\":\"s\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"attachment\":{{\"type\":\"hook_cancelled\",\"hookEvent\":\"{s}\",\"timedOut\":{s}}}}}";
+    const cases = [_]struct { line: []const u8, outcome: ?agents.observation.Outcome }{
+        .{ .line = std.fmt.comptimePrint(record, .{ "Stop", "false" }), .outcome = .interrupted },
+        // A Stop hook that timed out is cancelled too, but its turn goes on.
+        .{ .line = std.fmt.comptimePrint(record, .{ "Stop", "true" }), .outcome = null },
+        .{ .line = std.fmt.comptimePrint(record, .{ "PostToolUse", "false" }), .outcome = null },
+        .{ .line = "{\"type\":\"system\",\"subtype\":\"turn_duration\",\"sessionId\":\"s\",\"timestamp\":\"1970-01-01T00:00:02.000Z\"}", .outcome = .completed },
+        .{ .line = "{\"type\":\"system\",\"subtype\":\"stop_hook_summary\",\"sessionId\":\"s\",\"timestamp\":\"1970-01-01T00:00:02.000Z\"}", .outcome = null },
+    };
+    for (cases) |case| try std.testing.expectEqual(case.outcome, completion(&agent, case.line));
+    // A cancellation from before this Stop belongs to an earlier turn.
+    agent.last_seq = 3000000;
+    try std.testing.expectEqual(null, completion(&agent, cases[0].line));
 }
 
 test "completion scheduling retains detached actors and fairly batches beyond pane capacity" {

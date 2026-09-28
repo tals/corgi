@@ -50,7 +50,7 @@ pub const Reading = struct {
                 r.used = number(meta, "postTokens") orelse 0;
                 r.at = stamp;
             },
-            .user => {},
+            .user, .attachment => {},
         }
     }
 
