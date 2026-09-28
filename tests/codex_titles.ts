@@ -176,7 +176,9 @@ export class Titles extends Runtime {
     this.assertEqual((await this.state()).state, "idle");
     this.ids = [];
     await this.attachment.send("screen:idle");
-    await this.until(async () => (await this.state()).source === "screen", 9);
+    // Protocol evidence stays authoritative for five seconds.
+    await this.advance(5);
+    await this.until(async () => (await this.state()).source === "screen");
     await this.attachment.send("screen:working");
     await this.until(async () => (await this.state()).state === "working");
     await this.attachment.send("screen:idle");
