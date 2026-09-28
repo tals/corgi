@@ -54,6 +54,7 @@ $.conversations[].agent.transcript: bytes[1024]
 $.conversations[].agent.transcript_len: usize
 $.conversations[].agent.turn: bytes[160]
 $.conversations[].agent.turn_len: usize
+$.conversations[].agent.turn_epoch: u32
 $.conversations[].agent.last_finished_turn: bytes[160]
 $.conversations[].agent.last_finished_turn_len: usize
 $.conversations[].agent.finished_since_activity: bool
@@ -127,6 +128,7 @@ $.panes[].binding.provisional.transcript: bytes[1024]
 $.panes[].binding.provisional.transcript_len: usize
 $.panes[].binding.provisional.turn: bytes[160]
 $.panes[].binding.provisional.turn_len: usize
+$.panes[].binding.provisional.turn_epoch: u32
 $.panes[].binding.provisional.last_finished_turn: bytes[160]
 $.panes[].binding.provisional.last_finished_turn_len: usize
 $.panes[].binding.provisional.finished_since_activity: bool
@@ -182,6 +184,7 @@ $.panes[].agent.transcript: bytes[1024]
 $.panes[].agent.transcript_len: usize
 $.panes[].agent.turn: bytes[160]
 $.panes[].agent.turn_len: usize
+$.panes[].agent.turn_epoch: u32
 $.panes[].agent.last_finished_turn: bytes[160]
 $.panes[].agent.last_finished_turn_len: usize
 $.panes[].agent.finished_since_activity: bool
@@ -258,6 +261,7 @@ $.sessions[].binding.provisional.transcript: bytes[1024]
 $.sessions[].binding.provisional.transcript_len: usize
 $.sessions[].binding.provisional.turn: bytes[160]
 $.sessions[].binding.provisional.turn_len: usize
+$.sessions[].binding.provisional.turn_epoch: u32
 $.sessions[].binding.provisional.last_finished_turn: bytes[160]
 $.sessions[].binding.provisional.last_finished_turn_len: usize
 $.sessions[].binding.provisional.finished_since_activity: bool

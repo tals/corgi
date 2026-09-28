@@ -945,7 +945,6 @@ pub const Server = struct {
                 usage.take(&activity);
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
-                    if (!std.mem.eql(u8, actor.state.sessionId(), result.session[0..result.session_len])) continue;
                     if (!actor.model_from_hook and result.model.len > 0 and !std.meta.eql(actor.model, result.model)) {
                         actor.model = result.model;
                         s.dirty = true;

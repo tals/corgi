@@ -26,6 +26,9 @@ pub const Agent = struct {
     transcript_len: usize = 0,
     turn: [160]u8 = .{0} ** 160,
     turn_len: usize = 0,
+    /// Bumped by `setTurn` whenever `turn` changes. Starts at 1 so a request
+    /// restored without one (0) is stale.
+    turn_epoch: u32 = 1,
     last_finished_turn: [160]u8 = .{0} ** 160,
     last_finished_turn_len: usize = 0,
     finished_since_activity: bool = false,
@@ -84,7 +87,9 @@ pub const Agent = struct {
         const receipts = a.observation;
         const recent = a.recent;
         const recent_len = a.recent_len;
+        const epoch = a.turn_epoch;
         a.* = .{};
+        a.turn_epoch = epoch +% 1;
         a.observation.completed = receipts.completed;
         a.observation.read = receipts.read;
         a.recent = recent;
@@ -103,6 +108,15 @@ pub const Agent = struct {
     pub fn turnId(a: *const Agent) []const u8 {
         return a.turn[0..a.turn_len];
     }
+    /// The one writer of `turn`, so "the turn changed" is one event.
+    pub fn setTurn(a: *Agent, turn: []const u8) void {
+        var next: [160]u8 = undefined;
+        const len = clean(&next, turn);
+        if (std.mem.eql(u8, next[0..len], a.turnId())) return;
+        @memcpy(a.turn[0..len], next[0..len]);
+        a.turn_len = len;
+        a.turn_epoch +%= 1;
+    }
     pub fn transcriptPath(a: *const Agent) []const u8 {
         return a.transcript[0..a.transcript_len];
     }
@@ -114,7 +128,7 @@ pub const Agent = struct {
     }
     pub fn beginTurn(a: *Agent, turn: []const u8) void {
         a.permission_review = null;
-        if (turn.len > 0) a.turn_len = clean(&a.turn, turn);
+        if (turn.len > 0) a.setTurn(turn);
         a.finished_since_activity = false;
         a.observation.pending_stop = false;
         a.state = .working;
@@ -194,7 +208,7 @@ pub const Agent = struct {
         };
         if (start or next == .working or next == .blocked) a.finished_since_activity = false;
         const turn = hook.turn;
-        if (turn.len > 0 and turn.len <= a.turn.len) a.turn_len = clean(&a.turn, turn);
+        if (turn.len > 0 and turn.len <= a.turn.len) a.setTurn(turn);
         a.last_seq = seq;
         a.permission_review = if (event == .permission and permissionReview(provider)) 0 else null;
         a.provider = provider;
@@ -242,7 +256,7 @@ pub const Agent = struct {
             // only; Stop matching above deliberately stays turn-agnostic.
             const prompt = hook.prompt;
             if (prompt.len > 0 and prompt.len <= a.turn.len and !std.mem.eql(u8, prompt, a.turnId())) {
-                a.turn_len = clean(&a.turn, prompt);
+                a.setTurn(prompt);
                 a.activity_inferred = false;
             }
             if (start or event == .prompt) a.activity_inferred = false;
@@ -481,6 +495,23 @@ test "conversation state rejects identity replacement and uses a controlled cloc
     try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
     try std.testing.expect(!agent.confirmStop(13, .completed, 900));
     try std.testing.expectEqual(@as(u64, 1), agent.observation.completed);
+}
+
+test "the turn epoch moves only when the turn changes" {
+    var a: Agent = .{};
+    a.setTurn("t1");
+    const first = a.turn_epoch;
+    a.setTurn("t1");
+    _ = a.observeHook(.codex, .{ .kind = .tool_start, .session = "s", .turn = "t1" }, 1, false, 1);
+    try std.testing.expectEqual(first, a.turn_epoch);
+    a.beginTurn("t2");
+    try std.testing.expectEqual(first +% 1, a.turn_epoch);
+    // A turn that changes and changes back is still a new turn.
+    a.setTurn("t1");
+    try std.testing.expectEqual(first +% 2, a.turn_epoch);
+    a.reset();
+    try std.testing.expectEqual(first +% 3, a.turn_epoch);
+    try std.testing.expectEqualStrings("", a.turnId());
 }
 
 test "Claude tool hooks label activity from descriptions or main arguments" {

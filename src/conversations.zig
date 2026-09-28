@@ -174,8 +174,7 @@ pub const Actor = struct {
         agent.activity_generation = s.evidence.hash();
         var ding = false;
         if (s.turn_len > 0) {
-            @memcpy(agent.turn[0..s.turn_len], s.turn[0..s.turn_len]);
-            agent.turn_len = s.turn_len;
+            agent.setTurn(s.turn[0..s.turn_len]);
             if (s.outcome) |outcome| ding = agent.recordCompletion(agent.turnId(), outcome, .protocol, binding) and outcome == .completed and !watched;
         }
         agent.attention = if (s.state == .blocked and !watched) .needs_input else if (agent.observation.unread()) .finished else .none;

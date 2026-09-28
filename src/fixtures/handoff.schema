@@ -27,6 +27,7 @@ $.summaries?.slots[].slot.request.conversation.previous.bytes: bytes[80]
 $.summaries?.slots[].slot.request.conversation.previous.len: usize
 $.summaries?.slots[].slot.request.generation: u64
 $.summaries?.slots[].slot.request.completed_tools: u64
+$.summaries?.slots[].slot.request.turn_epoch: u32
 $.summaries?.slots[].slot.commentary.bytes: bytes[2048]
 $.summaries?.slots[].slot.commentary.len: usize
 $.summaries?.slots[].slot.tool_evidence.bytes: bytes[2048]
@@ -62,6 +63,7 @@ $.summaries?.slots[].slot.result?.request.conversation.previous.bytes: bytes[80]
 $.summaries?.slots[].slot.result?.request.conversation.previous.len: usize
 $.summaries?.slots[].slot.result?.request.generation: u64
 $.summaries?.slots[].slot.result?.request.completed_tools: u64
+$.summaries?.slots[].slot.result?.request.turn_epoch: u32
 $.summaries?.slots[].slot.result?.label: optional
 $.summaries?.slots[].slot.result?.label?.bytes: bytes[80]
 $.summaries?.slots[].slot.result?.label?.len: usize

@@ -45,10 +45,9 @@ pub const Request = struct {
     conversation: summary.Conversation = .{},
     generation: u64 = 0,
     completed_tools: u64 = 0,
+    turn_epoch: u32 = 0,
     pub fn sameTurn(r: *const Request, other: *const Request) bool {
-        return r.actor == other.actor and r.provider == other.provider and
-            std.mem.eql(u8, r.session[0..r.session_len], other.session[0..other.session_len]) and
-            std.mem.eql(u8, r.turn[0..r.turn_len], other.turn[0..other.turn_len]);
+        return r.actor == other.actor and r.turn_epoch == other.turn_epoch;
     }
 };
 pub const Result = struct {
@@ -79,8 +78,7 @@ pub const Result = struct {
     }
     fn stale(r: *const Result, agent: *const agents.Agent) ?backend.Discard {
         if (agent.state != .working) return .not_working;
-        if (agent.provider != r.request.provider or !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len])) return .session_changed;
-        if (!std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len])) return .turn_changed;
+        if (agent.turn_epoch != r.request.turn_epoch) return .turn_changed;
         if (agent.activity_generation != r.request.generation) return .evidence_changed;
         return null;
     }
@@ -415,6 +413,7 @@ pub const Worker = struct {
             .session_len = agent.session_len,
             .turn = agent.turn,
             .turn_len = agent.turn_len,
+            .turn_epoch = agent.turn_epoch,
             .evidence = evidence,
             .generation = agent.activity_generation,
             .conversation = owner.status_inference,
@@ -452,9 +451,7 @@ pub const Worker = struct {
         w.mutex.lock();
         defer w.mutex.unlock();
         for (w.slots) |*entry| if (entry.*) |*slot| {
-            if (slot.request.actor != actor or
-                !std.mem.eql(u8, slot.request.session[0..slot.request.session_len], agent.sessionId()) or
-                !std.mem.eql(u8, slot.request.turn[0..slot.request.turn_len], agent.turnId())) continue;
+            if (slot.request.actor != actor or slot.request.turn_epoch != agent.turn_epoch) continue;
             // Cumulative counts survive watched-workspace counter resets. If a
             // transcript is replaced, restart the count instead of replaying it.
             if (progress.completed < slot.request.completed_tools) {
@@ -473,8 +470,7 @@ pub const Worker = struct {
         for (w.slots) |*slot| if (slot.*) |s| {
             const found = for (actors) |actor| {
                 if (actor.id == s.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and
-                    std.mem.eql(u8, actor.state.sessionId(), s.request.session[0..s.request.session_len]) and
-                    std.mem.eql(u8, actor.state.turnId(), s.request.turn[0..s.request.turn_len]))
+                    actor.state.turn_epoch == s.request.turn_epoch)
                 {
                     slot.*.?.active = actor.state.state == .working;
                     slot.*.?.request.conversation = actor.status_inference;
@@ -619,10 +615,10 @@ pub const Worker = struct {
 };
 
 test "late results cannot overwrite another turn or changed evidence" {
-    var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session_len = 1, .turn_len = 1 } };
+    var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session_len = 1 } };
     const agent = &actor.state;
     agent.session[0] = 's';
-    agent.turn[0] = 't';
+    agent.setTurn("t");
     var text: summary.Text = .{};
     text.append("Checking input");
     agent.activity_generation = text.hash();
@@ -633,17 +629,22 @@ test "late results cannot overwrite another turn or changed evidence" {
         .session_len = 1,
         .turn = agent.turn,
         .turn_len = 1,
+        .turn_epoch = agent.turn_epoch,
         .evidence = text,
         .generation = text.hash(),
     }, .label = summary.Label.parse("Checking input").? };
     try std.testing.expect(r.apply(&actor));
-    agent.turn[0] = 'u';
-    try std.testing.expect(!r.apply(&actor));
-    agent.turn[0] = 't';
     agent.activity_generation +%= 1;
     try std.testing.expect(!r.apply(&actor));
     agent.activity_generation = text.hash();
     agent.state = .idle;
+    try std.testing.expect(!r.apply(&actor));
+    agent.state = .working;
+    try std.testing.expect(r.apply(&actor));
+    agent.beginTurn("u");
+    try std.testing.expect(!r.apply(&actor));
+    // Returning to the old id is still a later turn.
+    agent.setTurn("t");
     try std.testing.expect(!r.apply(&actor));
 }
 
@@ -712,7 +713,7 @@ test "summary slots belong to conversations shared by multiple or detached attac
     defer registry.deinit();
     const actor = try registry.get(.codex, "shared");
     actor.state.state = .working;
-    actor.state.turn_len = agents.clean(&actor.state.turn, "turn-1");
+    actor.state.setTurn("turn-1");
     var first: conversations.Attachment = .{};
     var second: conversations.Attachment = .{};
     first.select(actor);
@@ -743,7 +744,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     defer registry.deinit();
     const actor = try registry.get(.codex, "shared");
     actor.state.state = .working;
-    actor.state.turn_len = agents.clean(&actor.state.turn, "turn-1");
+    actor.state.setTurn("turn-1");
     var evidence: summary.Text = .{};
     evidence.append("Tracing focus changes");
     actor.state.activity_generation = evidence.hash();
@@ -760,7 +761,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     worker.reconcile(registry.items.items);
     try std.testing.expect(worker.slots[0] == null);
     actor.state.state = .working;
-    actor.state.turn_len = agents.clean(&actor.state.turn, "turn-2");
+    actor.state.setTurn("turn-2");
     worker.submit(actor, evidence, &.{});
     const second = worker.slots[0].?.request;
     var key1: [32]u8 = undefined;
@@ -787,6 +788,7 @@ test "inference completing during compaction waits to resume its timeline phase"
         .session_len = 0,
         .turn = actor.state.turn,
         .turn_len = 0,
+        .turn_epoch = actor.state.turn_epoch,
         .evidence = .{},
     }, .label = summary.Label.parse("Running tests").? };
     try std.testing.expect(result.apply(&actor));

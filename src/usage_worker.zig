@@ -42,8 +42,6 @@ pub const Result = struct {
     actor: ActorId,
     workspace: WorkspaceId,
     since: i64,
-    session: [160]u8,
-    session_len: usize,
     delta: usage.Counts,
     progress: ?activity_tools.View = null,
     name: codex_files.Name = .{},
@@ -59,7 +57,6 @@ pub const Result = struct {
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
-        if (!std.mem.eql(u8, agent.sessionId(), result.session[0..result.session_len])) return false;
         switch (agent.provider orelse return false) {
             .claude => return result.claudeFallback(agent),
             .codex => return result.codexFallback(agent, now),
@@ -90,9 +87,7 @@ pub const Result = struct {
         const progress = result.progress orelse return false;
         if (agent.state != .working or progress.ended or progress.turn_len == 0) return false;
         // A late file read cannot supply a turn after a newer hook arrived.
-        if (agent.turn_len == 0 and agent.last_seq == result.seq) {
-            agent.turn_len = agents.clean(&agent.turn, progress.turn[0..progress.turn_len]);
-        }
+        if (agent.turn_len == 0 and agent.last_seq == result.seq) agent.setTurn(progress.turn[0..progress.turn_len]);
         if (!std.mem.eql(u8, agent.turnId(), progress.turn[0..progress.turn_len])) return false;
         agent.activity_generation = progress.commentary.hash();
         return true;
@@ -217,10 +212,8 @@ pub const Worker = struct {
                     t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.context.at == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
-                    if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or
-                        !std.mem.eql(u8, result.*.?.session[0..result.*.?.session_len], req.agent.sessionId()))
-                    {
-                        result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .session = req.agent.session, .session_len = req.agent.session_len, .delta = .{} };
+                    if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace) {
+                        result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .delta = .{} };
                     }
                     result.*.?.delta.add(delta);
                     result.*.?.model = t.model;
@@ -492,7 +485,7 @@ test "usage tail frames records, ignores history and advances baselines while wa
     try std.testing.expect(!(try tail.ingest(&req, later, 0)).any());
 }
 
-test "file metadata prefers fresh protocol and rejects other sessions and turns" {
+test "file metadata prefers fresh protocol and rejects other turns" {
     var agent: agents.Agent = .{ .provider = .codex, .state = .working, .last_seq = 10 };
     agent.session_len = agents.clean(&agent.session, "session");
     agent.turn_len = agents.clean(&agent.turn, "current");
@@ -503,8 +496,6 @@ test "file metadata prefers fresh protocol and rejects other sessions and turns"
         .actor = @enumFromInt(1),
         .workspace = @enumFromInt(1),
         .since = 0,
-        .session = agent.session,
-        .session_len = agent.session_len,
         .delta = .{},
         .progress = progress,
         .seq = 10,
@@ -527,10 +518,6 @@ test "file metadata prefers fresh protocol and rejects other sessions and turns"
     result.seq = agent.last_seq;
     result.progress.?.ended = true;
     try std.testing.expect(!result.fallback(&agent, 6_000_000));
-    result.session[0] = 'X';
-    result.name.len = agents.clean(&result.name.bytes, "Wrong title");
-    try std.testing.expect(!result.fallback(&agent, 6_000_000));
-    try std.testing.expectEqualStrings("File title", agent.displayName());
 }
 
 test "real file usage reader accepts large Codex metadata and counts later activity" {
@@ -599,12 +586,8 @@ test "Claude transcripts supply chosen names over generated titles and report co
 
     var agent: agents.Agent = .{ .provider = .claude };
     agent.session_len = agents.clean(&agent.session, "a");
-    var result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .session = agent.session, .session_len = agent.session_len, .delta = .{}, .name = tail.name };
+    const result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .delta = .{}, .name = tail.name };
     try std.testing.expect(!result.fallback(&agent, 0));
-    try std.testing.expectEqualStrings("Chosen", agent.displayName());
-    result.session[0] = 'x';
-    result.name.len = agents.clean(&result.name.bytes, "Wrong");
-    _ = result.fallback(&agent, 0);
     try std.testing.expectEqualStrings("Chosen", agent.displayName());
 }
 
@@ -620,12 +603,10 @@ test "Claude text updates apply only when newer than the latest hook" {
 
     var agent: agents.Agent = .{ .provider = .claude, .state = .working, .activity_at = 3 * std.time.us_per_s };
     agent.session_len = agents.clean(&agent.session, "a");
-    var result: Result = .{
+    const result: Result = .{
         .actor = @enumFromInt(1),
         .workspace = @enumFromInt(1),
         .since = 0,
-        .session = agent.session,
-        .session_len = agent.session_len,
         .delta = .{},
         .update = tail.update,
         .update_at = tail.update_at,
