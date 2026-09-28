@@ -1,12 +1,15 @@
-//! "Now" for policy timers (cooldowns, retries, evidence windows). Test builds
-//! add an offset that the `test.advance` operation moves forward, so tests
-//! can let a window pass without waiting. Other builds read the system clock.
+//! "Now" for policy timers (cooldowns, retries, evidence windows, the
+//! viewer's hover cards and copy feedback). Test builds add an offset that
+//! the `test.advance` operation (or the viewer test driver's `advance`) moves
+//! forward, so tests can let a window pass without waiting. Other builds read
+//! the system clock.
 //!
 //! Use it only where every stamp being compared is also taken from this
 //! clock (a cooldown's deadline, a rescan's schedule). A window measured from
-//! system-clock stamps that keep being refreshed, such as protocol freshness
-//! against observation times or hook sequence numbers from other processes,
-//! would stay expired after an advance even though fresh evidence arrives.
+//! system-clock stamps that keep being refreshed, such as hook sequence
+//! numbers from other processes, would stay expired after an advance even
+//! though fresh evidence arrives. Stamp such evidence from this clock when
+//! the daemon applies it instead, as `Agent.protocol_at` does.
 const std = @import("std");
 const enabled = @import("corgi_options").test_build;
 

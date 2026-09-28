@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Viewers } from "./viewers";
-import { registerCase, shellJoin, sleep, writeExecutable } from "./support";
+import { registerCase, shellJoin, writeExecutable } from "./support";
 
 class Selection extends Viewers {
   async test_agent_drag_copies_when_application_enables_mouse() {
@@ -80,7 +80,7 @@ process.stdin.resume();
     this.assertIn("Copied to clipboard", a.state.data);
     this.assertIn("NEW_OUTPUT", a.state.data);
     this.assertNotIn("Copied to clipboard", (await b.poll()).data);
-    await sleep(2.1);
+    await a.advance(2.1);
     this.assertEqual((await a.poll()).data, (await b.poll()).data);
   }
 }

@@ -936,7 +936,7 @@ pub const Controller = struct {
         _ = std.base64.standard.Encoder.encode(encoded, text);
         const osc = try std.fmt.allocPrint(a, "\x1b]52;c;{s}\x07", .{encoded});
         try s.queueEffect(.{ .write_terminal = osc });
-        s.copy_feedback_until = std.time.milliTimestamp() + 2000;
+        s.copy_feedback_until = clock.milliTimestamp() + 2000;
         s.dirty = true;
     }
     fn launchAgent(s: *Self, provider: ?agents.Provider) !void {
@@ -2647,7 +2647,7 @@ pub const Controller = struct {
             if (s.resourceDetail() != null) s.link_tooltip.move();
             s.dirty = true;
         };
-        if (s.copy_feedback_until != 0 and std.time.milliTimestamp() >= s.copy_feedback_until) {
+        if (s.copy_feedback_until != 0 and clock.milliTimestamp() >= s.copy_feedback_until) {
             s.copy_feedback_until = 0;
             s.dirty = true;
         }
@@ -2805,7 +2805,7 @@ pub const Controller = struct {
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
             .git_hover = if (s.hoverIdle()) s.git_hover else null,
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message[0..s.message_len],
-            .copy_feedback = s.copy_feedback_until > std.time.milliTimestamp(),
+            .copy_feedback = s.copy_feedback_until > clock.milliTimestamp(),
             .copy_mode = s.copy_mode,
             .menu = s.menu(),
             .tab_menu = s.tab_menu,
