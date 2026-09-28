@@ -50,7 +50,6 @@ pub const Ui = struct {
     agent_search: ?sidebar.Search = null,
     tab_drop_x: ?u16 = null,
     dialog: ?naming.Dialog = null,
-    confirm: bool = false,
     sidebar_open: bool = true,
     corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
@@ -139,7 +138,7 @@ pub fn tabDrop(view: layout.View, width: u16, x: u16) ?TabDrop {
 /// No modal overlay, menu, or dialog is covering the panes.
 fn noOverlay(ui: Ui) bool {
     return ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and
-        ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null and !ui.confirm;
+        ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null;
 }
 fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointer: ?Pointer) !void {
     const text = std.mem.trimLeft(u8, raw, " ");
@@ -228,7 +227,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             link_pointer = resource_tooltip.sortAt(card_rect.?, pointer.x, pointer.y) != null;
         } else if (ui.scope_menu != null) {
             link_pointer = side.hit(pointer.x, pointer.y) == .agent_scope or sidebar.ScopeMenu.hit(side, width, height, pointer.x, pointer.y) != null;
-        } else if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null and !ui.confirm) {
+        } else if (ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.dialog == null) {
             if (ui.port_menu) |menu| {
                 for (ui.workspaces) |ws| {
                     if (ws.id != menu.workspace) continue;
@@ -270,9 +269,6 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             // Clicks outside the dialog also cancel; only the buttons point.
             const inside = pointer.x >= dialog_view.x and pointer.x < dialog_view.x + dialog_view.width;
             link_pointer = inside and pointer.y == dialog_view.buttons_y and dialog_view.hit(pointer.x, pointer.y) != .none;
-        } else if (ui.confirm) {
-            // " [ Close ]  [ Cancel ]": the gap between buttons stays plain.
-            link_pointer = pointer.y == height - 1 and ((pointer.x >= 1 and pointer.x < 10) or (pointer.x >= 12 and pointer.x < 22));
         }
     }
     if (ui.agent_launcher != null) if (ui.pointer) |pointer| {
@@ -312,16 +308,8 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try corgi_badge.place(w);
     }
-    if (ui.confirm) {
-        var status: [512]u8 = undefined;
-        const text = try std.fmt.bufPrint(&status, " [ Close ]  [ Cancel ] {s}", .{ui.message});
-        try w.print("\x1b[{d};1H\x1b[0;38;2;125;132;143m", .{height});
-        try w.writeAll(text[0..@min(text.len, width)]);
-        try w.writeAll("\x1b[0m");
-    } else {
-        const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
-        try writeChip(w, text, width, height, ui.pointer);
-    }
+    const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
+    try writeChip(w, text, width, height, ui.pointer);
     if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and noOverlay(ui)) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id) {
@@ -412,13 +400,12 @@ test "unread pointer follows the clickable workspace and respects overlays" {
     };
     const side = sidebar.View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.len, 0);
     const range = side.unreadRange(workspaces[1]);
-    const Case = struct { x: u16, y: u16 = 6, confirm: bool = false, open: bool = true, hand: bool = false };
+    const Case = struct { x: u16, y: u16 = 6, open: bool = true, hand: bool = false };
     for ([_]Case{
         .{ .x = @intCast(range.start), .hand = true },
         .{ .x = @intCast(range.end - 1), .hand = true },
         .{ .x = @intCast(range.end) },
         .{ .x = @intCast(range.start), .y = 3 },
-        .{ .x = @intCast(range.start), .confirm = true },
         .{ .x = @intCast(range.start), .open = false },
     }) |case| {
         const output = try frame(view, @as([]const Pane, &.{}), 100, 30, .{
@@ -426,7 +413,6 @@ test "unread pointer follows the clickable workspace and respects overlays" {
             .message = "",
             .copy_mode = false,
             .workspaces = &workspaces,
-            .confirm = case.confirm,
             .sidebar_open = case.open,
         });
         defer a.free(output);

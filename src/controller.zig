@@ -155,8 +155,6 @@ pub const Controller = struct {
     resize_mode: bool = false,
     copy_mode: bool = false,
     name_dialog: ?naming.Dialog = null,
-    confirm: enum { none, pane, tab } = .none,
-    confirm_tab: ?layout.TabId = null,
     message: BoundedText(512) = .{},
     native_notice: ?NativeId = null,
     copy_feedback_until: i64 = 0,
@@ -225,8 +223,6 @@ pub const Controller = struct {
         s.search_mode = false;
         s.selection = null;
         s.cancelDividers();
-        s.confirm = .none;
-        s.confirm_tab = null;
         s.message = .{};
         s.native_notice = null;
         s.rememberAgent();
@@ -331,7 +327,7 @@ pub const Controller = struct {
         if (s.scope_menu) |open| {
             const inside = if (s.pointer) |p| sidebar.ScopeMenu.bounds(side, s.width, s.height).contains(p.x, p.y) else false;
             if (side.width == 0 or (!open.pinned and !on_label and !inside)) s.closeMenu();
-        } else if (on_label and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and s.confirm == .none and !s.ui_mouse_down and !s.copy_mode) {
+        } else if (on_label and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and !s.ui_mouse_down and !s.copy_mode) {
             s.openScopeMenu(false);
         }
     }
@@ -751,16 +747,8 @@ pub const Controller = struct {
         s.dirty = true;
         if (save) if (s.name_dialog) |*dialog| {
             switch (dialog.target) {
-                .agent_command => |index| {
-                    if (dialog.overflow) {
-                        dialog.failed = true;
-                        return;
-                    }
-                    _ = s.execute(.{ .@"agent.command" = .{ .index = index, .command = dialog.name(), .hidden = s.runtime.agent_commands[index].hidden } }) catch {
-                        dialog.failed = true;
-                        return;
-                    };
-                },
+                // The launcher edits saved commands in its own dialog.
+                .agent_command => {},
                 .pane => |id| s.renamePane(id, dialog.name()) catch {
                     dialog.failed = true;
                     return;
@@ -791,14 +779,7 @@ pub const Controller = struct {
                 },
             }
         };
-        const command_dialog = if (s.name_dialog) |dialog| dialog.target == .agent_command else false;
         s.dismissName();
-        if (command_dialog) {
-            s.openLauncher(true);
-            s.agent_launcher.?.managing = true;
-            s.agent_launcher.?.selected = .add;
-            s.agent_launcher.?.normalize();
-        }
         s.message = .{};
     }
     fn create(s: *Self, split: ?layout.Axis, cwd: []const u8, command: ?[]const u8, title: []const u8) !layout.PaneId {
@@ -1215,7 +1196,7 @@ pub const Controller = struct {
                 return;
             }
             launch.last = s.runtime.last_agent;
-        } else if (on_button and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and s.confirm == .none and !s.ui_mouse_down and !s.copy_mode) {
+        } else if (on_button and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and !s.ui_mouse_down and !s.copy_mode) {
             s.openLauncher(false);
         }
     }
@@ -1246,8 +1227,6 @@ pub const Controller = struct {
         if (s.onboarding != null) return;
         s.dismissName();
         s.closeMenu();
-        s.confirm = .none;
-        s.confirm_tab = null;
         s.copy_mode = false;
         s.search_mode = false;
         s.selection = null;
@@ -1611,19 +1590,6 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
-        if (s.confirm != .none) {
-            const pending = s.confirm;
-            const target = s.confirm_tab;
-            s.confirm = .none;
-            s.confirm_tab = null;
-            s.message = .{};
-            if (byte == 'y' or byte == 'Y') {
-                if (target) |id| s.nav().active = s.tabIndex(id) orelse return;
-                try s.action(if (pending == .pane) "close" else "close-tab", "");
-            }
-            s.dirty = true;
-            return;
-        }
         if (s.name_dialog) |*dialog| {
             switch (dialog.key(byte)) {
                 .save => s.finishName(true),
@@ -1740,7 +1706,7 @@ pub const Controller = struct {
                 s.dirty = true;
                 break;
             }
-            if (!cl.paste and rest[1] != '[' and rest[1] != 'O' and (s.hasMenu() or s.name_dialog != null or s.confirm != .none)) {
+            if (!cl.paste and rest[1] != '[' and rest[1] != 'O' and (s.hasMenu() or s.name_dialog != null)) {
                 try s.key(27);
                 used += 1;
                 continue;
@@ -1778,7 +1744,7 @@ pub const Controller = struct {
                     // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
                     try key_event.encode(&encoded.writer, .{});
                     const legacy = encoded.written();
-                    const owned = s.hasMenu() or s.name_dialog != null or s.confirm != .none or s.copy_mode or s.search_mode;
+                    const owned = s.hasMenu() or s.name_dialog != null or s.copy_mode or s.search_mode;
                     if (owned or (legacy.len == 1 and (legacy[0] == keymap.prefixByte(s.key_prefix) or (legacy[0] == 20 and s.key_preset == .corgi)))) {
                         seq = legacy;
                     } else if (s.focused()) |p| {
@@ -1801,7 +1767,7 @@ pub const Controller = struct {
             if (parsed_key == .paste_start or parsed_key == .paste_end) {
                 cl.paste = parsed_key == .paste_start;
                 if (cl.paste) {
-                    cl.paste_pane = if (!s.hasMenu() and s.name_dialog == null and s.confirm == .none) (if (s.focused()) |p| p.id else null) else null;
+                    cl.paste_pane = if (!s.hasMenu() and s.name_dialog == null) (if (s.focused()) |p| p.id else null) else null;
                     cl.paste_to_name = s.name_dialog != null;
                     cl.paste_to_picker = s.agent_picker != null;
                 }
@@ -1879,8 +1845,6 @@ pub const Controller = struct {
             } else if (s.name_dialog) |*dialog| {
                 dialog.sequence(seq);
                 s.dirty = true;
-            } else if (s.confirm != .none) {
-                // Dialog keys belong to Corgi, never to the shell beneath it.
             } else if (s.copy_mode and parsed_key == .page_up) s.scroll(-20) else if (s.copy_mode and parsed_key == .page_down) s.scroll(20) else if (s.focused()) |p| try s.sendInput(p.terminal, seq);
             used += len;
         }
@@ -1898,7 +1862,7 @@ pub const Controller = struct {
         if (drag.workspace_id != s.current().id or drag.width != s.width or
             drag.tabs_x != tabs_x or drag.count != m.count or
             drag.first != render.tabStart(s.layoutView(), s.width - tabs_x -| 3) or
-            s.hasMenu() or s.name_dialog != null or s.confirm != .none)
+            s.hasMenu() or s.name_dialog != null)
             drag.cancelled = true;
         for (m.tabs[0..m.count], 0..) |tab, i| {
             if (i >= drag.count or drag.ids[i] != tab.id) drag.cancelled = true;
@@ -2211,9 +2175,7 @@ pub const Controller = struct {
                     return;
                 }
                 const hit = side.hit(x, y);
-                if (s.agent_launcher.?.visibilityHit(s.width, s.height, side, x, y)) |index| {
-                    try s.toggleCommandVisibility(index);
-                } else if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| {
+                if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| {
                     try s.toggleLauncherYolo(provider);
                 } else if (s.agent_launcher.?.usageHit(s.width, s.height, side, x, y)) |provider| {
                     s.trackLauncherUsage(provider);
@@ -2259,7 +2221,7 @@ pub const Controller = struct {
                 s.closeMenu();
             } else return;
         }
-        if (!release and button == 2 and y == 0 and s.name_dialog == null and s.confirm == .none) {
+        if (!release and button == 2 and y == 0 and s.name_dialog == null) {
             if (x >= tabs_x) if (render.tabAt(s.layoutView(), tabs_width, x - tabs_x)) |index| {
                 s.ui_mouse_down = true;
                 s.openTabMenu(index, x);
@@ -2315,13 +2277,6 @@ pub const Controller = struct {
                     .none => {},
                 }
                 s.dirty = true;
-            }
-            return;
-        }
-        if (s.confirm != .none) {
-            if (!release and button == 0) {
-                s.ui_mouse_down = true;
-                try s.key(if (y == s.height - 1 and x < 10) 'y' else 'n');
             }
             return;
         }
@@ -2625,11 +2580,6 @@ pub const Controller = struct {
         if (s.tab_menu) |context| if (s.tabMenuStale(context)) {
             s.tab_menu = null;
         };
-        if (s.confirm_tab) |id| if (s.tabIndex(id) == null) {
-            s.confirm = .none;
-            s.confirm_tab = null;
-            s.message = .{};
-        };
         if (s.selection) |selection| if (s.pane(selection.pane) == null) {
             s.selection = null;
         };
@@ -2657,7 +2607,7 @@ pub const Controller = struct {
         if (cl.attached and cl.keybuf.items.len > 0 and std.time.milliTimestamp() - cl.escape_at > @as(i64, if (cl.paste or cl.keybuf.items.len == 1) 40 else 1000)) {
             if (cl.paste) {
                 if (cl.paste_pane) |id| if (s.pane(id)) |p| try s.sendInput(p.terminal, cl.keybuf.items);
-            } else if (cl.keybuf.items.len == 1 and cl.keybuf.items[0] == 27) try s.key(27) else if (!s.hasMenu() and s.name_dialog == null and s.confirm == .none) {
+            } else if (cl.keybuf.items.len == 1 and cl.keybuf.items[0] == 27) try s.key(27) else if (!s.hasMenu() and s.name_dialog == null) {
                 if (s.focused()) |p| try s.sendInput(p.terminal, cl.keybuf.items);
             }
             cl.keybuf.clearRetainingCapacity();
@@ -2712,12 +2662,12 @@ pub const Controller = struct {
     }
     /// No modal, drag, or selection is claiming the pointer right now.
     fn hoverIdle(s: *Self) bool {
-        return !s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and s.workspace_drag == null;
+        return !s.hasMenu() and s.menu() == null and s.name_dialog == null and !s.copy_mode and s.selection == null and s.workspace_drag == null;
     }
     fn linkTooltipReady(s: *Self) !bool {
         var target: ?link_tooltip.Target = null;
         if (s.pointer) |pointer| {
-            if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and s.confirm == .none and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
+            if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
                 var storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
                 if (s.resourceHoverContains(pointer.x, pointer.y)) return true;
                 if (sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
@@ -2821,7 +2771,6 @@ pub const Controller = struct {
             .inference = s.runtime.inference,
             .tab_drop_x = s.tabDropX(),
             .dialog = s.name_dialog,
-            .confirm = s.confirm != .none,
             .sidebar_open = s.sidebar_open,
             .corgi_badge = s.corgi_badge,
             .supports_kitty_graphics = s.supports_kitty_graphics,

@@ -690,13 +690,6 @@ pub const Menu = struct {
         if (index >= manage_index) return null;
         return m.rowAt(index);
     }
-    pub fn visibilityHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?usize {
-        if (!m.managing) return null;
-        const row = m.hit(cols, rows, side, x, y) orelse return null;
-        const index = row.custom() orelse return null;
-        const b = m.bounds(cols, rows, side);
-        return if (x < b.x + 9) index else null;
-    }
     fn providerHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Provider {
         if (m.managing) return null;
         return (m.hit(cols, rows, side, x, y) orelse return null).agent();
@@ -741,14 +734,6 @@ pub const Menu = struct {
         }
         m.selected = .add;
         m.pinned = true;
-    }
-    pub fn fieldWidth(b: layout.Rect) u16 {
-        return b.w -| 17;
-    }
-    pub fn fieldOffset(m: *const Menu, width: u16) usize {
-        var offset = m.editor.cursor -| (width -| 1);
-        while (offset < m.editor.cursor and m.editor.text[offset] & 0xc0 == 0x80) offset += 1;
-        return offset;
     }
     pub fn input(m: *Menu) *name_dialog.Dialog {
         return if (m.name_focused) &m.name_editor else &m.editor;
