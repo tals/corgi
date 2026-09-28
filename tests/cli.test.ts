@@ -170,16 +170,7 @@ class AgentCli extends Runtime {
       2,
     );
     await this.cli(["tab", "new"], { error: "MissingWorkspace" });
-    const one = await this.new(),
-      before = await this.topology();
-    for (const args of [
-      ["pane", "move", one.pane, "--new-tab", "--below", one.pane],
-      ["pane", "split", one.pane, "--right", "--up"],
-      ["pane", "split", one.pane, "--right", "--unknown"],
-      ["tab", "rename", one.tab, "--clear", "oops"],
-    ])
-      this.assertEqual(await this.cli(args, { error: "Usage" }), 2);
-    this.assertEqual(await this.topology(), before);
+    const one = await this.new();
     await this.cli(["pane", "send", one.pane, "--stdin", "--enter"], {
       stdin: "printf 'cli_marker_123\\n'",
     });
@@ -192,7 +183,6 @@ class AgentCli extends Runtime {
     await this.cli(["pane", "keys", one.pane, "enter", "invalid-key"], {
       error: "InvalidKey",
     });
-    await this.cli(["focus", one.pane], { error: "Usage" });
     await this.cli(["focus", one.pane, "--viewer", 999], { error: "NoViewer" });
   }
   async test_viewers_keep_selection_and_explicit_focus() {
@@ -265,7 +255,7 @@ class AgentCli extends Runtime {
       "MissingField",
     );
   }
-  async test_command_options_launch_processes_and_reject_unused_flags() {
+  async test_command_options_launch_processes() {
     const one = (
       await this.cli([
         "tab",
@@ -296,15 +286,6 @@ class AgentCli extends Runtime {
         "SPLIT_COMMAND_OK",
       ),
     );
-    const before = await this.topology();
-    for (const args of [
-      ["pane", "resize", one.pane, "--width", "50%", "--height", "50%"],
-      ["tab", "move", one.tab, "--before", two.tab, "--workspace", 1],
-      ["tab", "new", "--workspace", 1, "--name", "one", "--name", "two"],
-      ["pane", "close", one.pane, "--cwd", this.temp.name],
-    ])
-      await this.cli(args, { error: "Usage" });
-    this.assertEqual(await this.topology(), before);
   }
   async test_workspace_commands_share_validation_and_error_output() {
     const created = (
@@ -319,13 +300,13 @@ class AgentCli extends Runtime {
       "Renamed",
     );
     const before = (await this.snapshot()).workspaces;
-    await this.cli(
-      ["workspace", "edit", workspace, "--name", "Oops", "--clear"],
-      { error: "Usage" },
+    this.assertEqual(
+      await this.cli(
+        ["workspace", "close", workspace, "--cwd", this.temp.name],
+        { error: "Usage" },
+      ),
+      2,
     );
-    await this.cli(["workspace", "close", workspace, "--cwd", this.temp.name], {
-      error: "Usage",
-    });
     this.assertEqual((await this.snapshot()).workspaces, before);
     await this.cli(["workspace", "close", workspace], {
       error: "WorkspaceNotEmpty",

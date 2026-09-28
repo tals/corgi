@@ -10,7 +10,18 @@ const protocol = @import("protocol.zig");
 const rpc = @import("rpc.zig");
 const agents = @import("agents.zig");
 
-const Group = enum { tab, pane, workspace, current, list, focus, @"--skill" };
+const Group = enum {
+    tab,
+    pane,
+    workspace,
+    current,
+    list,
+    focus,
+    @"--skill",
+    fn nested(g: Group) bool {
+        return g == .tab or g == .pane or g == .workspace;
+    }
+};
 const Action = enum {
     list,
     current,
@@ -80,52 +91,25 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
         if (args.len != 2) return error.Usage;
         return os.writeAll(1, @embedFile("corgi-skill.md"));
     }
-    const has_subaction = group == .tab or group == .pane or group == .workspace;
-    if (has_subaction and args.len == 2) return os.writeAll(1, help);
+    if (group.nested() and args.len == 2) return os.writeAll(1, help);
     for (args[2..]) |arg| if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return os.writeAll(1, help);
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const mem = arena.allocator();
-    const raw_action = if (has_subaction) try std.fmt.allocPrint(mem, "{s}.{s}", .{ args[1], args[2] }) else args[1];
-    const mapped_action = if (std.mem.eql(u8, raw_action, "workspace.list")) "list" else raw_action;
-    const action = std.meta.stringToEnum(Action, mapped_action);
     const caller = if (os.env("CORGI_PANE")) |value| std.fmt.parseInt(u32, value, 10) catch 0 else 0;
-    var start: usize = if (has_subaction) 3 else 2;
-    var current = false;
-    var target: u32 = 0;
-    if (action != .list and action != .current and action != .@"tab.new" and action != .@"workspace.new") {
-        if (start == args.len) return error.Usage;
-        current = std.mem.eql(u8, args[start], "current");
-        if (current and group == .workspace) return error.Usage;
-        target = if (current) caller else try id(args[start]);
-        if (current and caller == 0) return error.NoCallerPane;
-        start += 1;
-    }
-    var parsed = try Args.parse(mem, args[start..]);
-    const text_mode = try parsed.flag("--text");
-    const viewer = if (action == .focus)
-        try id(try parsed.required("--viewer"))
-    else if (action == .@"workspace.switch")
-        if (try parsed.option("--viewer")) |value| try id(value) else @as(?u32, null)
-    else
-        null;
-    var command: ?session.Command = switch (action orelse return error.Usage) {
-        .list, .current, .focus, .@"workspace.switch" => null,
-        else => |value| try parseCommand(value, target, &parsed),
-    };
-    try parsed.end();
-    if (action == .current and caller == 0) return error.NoCallerPane;
-    if (command) |cmd| if (cmd == .@"pane.create" and cmd.@"pane.create".workspace == WorkspaceId.none and caller == 0) return error.MissingWorkspace;
+    var invocation = try parse(mem, args[1..], caller);
+    const action = invocation.action;
+    const target = invocation.target;
 
     const fd = try os.connect(path);
     defer _ = os.c.close(fd);
-    if ((current and group == .tab) or (action == .@"tab.new" and caller != 0)) {
+    if ((invocation.current and group == .tab) or (action == .@"tab.new" and caller != 0)) {
         const located = try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller });
         defer located.deinit();
         const here = located.value.object.get("result") orelse return error.InvalidResponse;
         const tab = try protocol.typedId(layout.TabId, here, "tab");
         const workspace = try protocol.typedId(WorkspaceId, here, "workspace");
-        switch (command.?) {
+        switch (invocation.command.?) {
             .@"tab.rename" => |*q| q.target = tab,
             .@"tab.move" => |*q| q.target = tab,
             .@"tab.merge" => |*q| q.target = tab,
@@ -137,23 +121,69 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
             else => unreachable,
         }
     }
-    const response = if (command) |cmd|
+    const response = if (invocation.command) |cmd|
         try call(fd, .{ .op = "session.command", .protocol = 1, .command = cmd })
     else if (action == .list)
         try call(fd, .{ .op = "session.list", .protocol = 1 })
     else if (action == .current)
         try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller })
     else if (action == .@"workspace.switch")
-        if (viewer) |selected| try call(fd, .{ .op = "workspace.switch", .workspace = target, .viewer = selected }) else try call(fd, .{ .op = "workspace.switch", .workspace = target })
+        if (invocation.viewer) |selected| try call(fd, .{ .op = "workspace.switch", .workspace = target, .viewer = selected }) else try call(fd, .{ .op = "workspace.switch", .workspace = target })
     else
-        try call(fd, .{ .op = "focus", .pane = target, .viewer = viewer });
+        try call(fd, .{ .op = "focus", .pane = target, .viewer = invocation.viewer });
     defer response.deinit();
-    if (text_mode) {
+    if (invocation.text_mode) {
         if (response.value.object.get("result")) |result| if (result.object.get("text")) |text| if (text == .string) return os.writeAll(1, text.string);
     }
-    const output = try std.json.Stringify.valueAlloc(mem, response.value, .{ .whitespace = if (text_mode) .indent_2 else .minified });
+    const output = try std.json.Stringify.valueAlloc(mem, response.value, .{ .whitespace = if (invocation.text_mode) .indent_2 else .minified });
     try os.writeAll(1, output);
     try os.writeAll(1, "\n");
+}
+
+/// A command line checked and parsed before anything connects to the daemon.
+const Invocation = struct {
+    action: Action,
+    target: u32 = 0,
+    current: bool = false,
+    text_mode: bool = false,
+    viewer: ?u32 = null,
+    command: ?session.Command = null,
+};
+
+/// `words` starts at the group (`pane`, `list`, ...).
+fn parse(mem: std.mem.Allocator, words: []const [:0]const u8, caller: u32) !Invocation {
+    const group = std.meta.stringToEnum(Group, words[0]) orelse return error.Usage;
+    if (group.nested() and words.len == 1) return error.Usage;
+    const raw_action = if (group.nested()) try std.fmt.allocPrint(mem, "{s}.{s}", .{ words[0], words[1] }) else words[0];
+    const mapped_action = if (std.mem.eql(u8, raw_action, "workspace.list")) "list" else raw_action;
+    const action = std.meta.stringToEnum(Action, mapped_action);
+    var start: usize = if (group.nested()) 2 else 1;
+    var current = false;
+    var target: u32 = 0;
+    if (action != .list and action != .current and action != .@"tab.new" and action != .@"workspace.new") {
+        if (start == words.len) return error.Usage;
+        current = std.mem.eql(u8, words[start], "current");
+        if (current and group == .workspace) return error.Usage;
+        target = if (current) caller else try id(words[start]);
+        if (current and caller == 0) return error.NoCallerPane;
+        start += 1;
+    }
+    var parsed = try Args.parse(mem, words[start..]);
+    const text_mode = try parsed.flag("--text");
+    const viewer = if (action == .focus)
+        try id(try parsed.required("--viewer"))
+    else if (action == .@"workspace.switch")
+        if (try parsed.option("--viewer")) |value| try id(value) else @as(?u32, null)
+    else
+        null;
+    const command: ?session.Command = switch (action orelse return error.Usage) {
+        .list, .current, .focus, .@"workspace.switch" => null,
+        else => |value| try parseCommand(value, target, &parsed),
+    };
+    try parsed.end();
+    if (action == .current and caller == 0) return error.NoCallerPane;
+    if (command) |cmd| if (cmd == .@"pane.create" and cmd.@"pane.create".workspace == WorkspaceId.none and caller == 0) return error.MissingWorkspace;
+    return .{ .action = action.?, .target = target, .current = current, .text_mode = text_mode, .viewer = viewer, .command = command };
 }
 
 fn parseCommand(action: Action, target: u32, args: *Args) !session.Command {
@@ -242,7 +272,7 @@ const Args = struct {
     mem: std.mem.Allocator,
     options: std.StringHashMap(?[]const u8),
     positional: std.ArrayList([]const u8) = .empty,
-    fn parse(mem: std.mem.Allocator, values: []const [:0]u8) !Args {
+    fn parse(mem: std.mem.Allocator, values: []const [:0]const u8) !Args {
         var result: Args = .{ .mem = mem, .options = .init(mem) };
         var literal = false;
         var i: usize = 0;
@@ -326,4 +356,92 @@ pub fn failure(code: []const u8, status: u8) !void {
     try os.writeAll(2, out);
     try os.writeAll(2, "\n");
     std.process.exit(status);
+}
+
+test "command lines are rejected before connecting" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const Case = struct { words: []const [:0]const u8, caller: u32 = 0, err: anyerror = error.Usage };
+    for ([_]Case{
+        .{ .words = &.{ "pane", "split" } },
+        .{ .words = &.{ "pane", "split", "0", "--right" } },
+        .{ .words = &.{ "pane", "split", "x", "--right" }, .err = error.InvalidCharacter },
+        .{ .words = &.{ "pane", "split", "current", "--right" }, .err = error.NoCallerPane },
+        .{ .words = &.{ "pane", "split", "3" } },
+        .{ .words = &.{ "pane", "split", "3", "--right", "--up" } },
+        .{ .words = &.{ "pane", "split", "3", "--right", "--unknown" } },
+        .{ .words = &.{ "pane", "split", "3", "--right", "--unknown", "value" } },
+        .{ .words = &.{ "pane", "split", "3", "--right", "--right" } },
+        .{ .words = &.{ "pane", "move", "3" } },
+        .{ .words = &.{ "pane", "move", "3", "--new-tab", "--below", "3" } },
+        .{ .words = &.{ "pane", "move", "3", "--right-of", "0" } },
+        .{ .words = &.{ "pane", "swap", "3" } },
+        .{ .words = &.{ "pane", "resize", "3", "--width", "50%", "--height", "50%" } },
+        .{ .words = &.{ "pane", "resize", "3", "--width", "50" } },
+        .{ .words = &.{ "pane", "resize", "3", "--width", "95%" } },
+        .{ .words = &.{ "pane", "close", "3", "--cwd", "/tmp" } },
+        .{ .words = &.{ "pane", "read", "3", "--lines", "0" } },
+        .{ .words = &.{ "pane", "send", "3" } },
+        .{ .words = &.{ "pane", "keys", "3" } },
+        .{ .words = &.{ "pane", "keys", "3", "enter", "invalid-key" }, .err = error.InvalidKey },
+        .{ .words = &.{ "pane", "bogus", "3" } },
+        .{ .words = &.{ "tab", "new" }, .err = error.MissingWorkspace },
+        .{ .words = &.{ "tab", "new", "--workspace", "1", "--name", "one", "--name", "two" } },
+        .{ .words = &.{ "tab", "rename", "4", "--clear", "oops" } },
+        .{ .words = &.{ "tab", "move", "4", "--before", "6", "--workspace", "1" } },
+        .{ .words = &.{ "tab", "merge", "4" } },
+        .{ .words = &.{ "workspace", "edit", "2", "--name", "Oops", "--clear" } },
+        .{ .words = &.{ "workspace", "close", "2", "--cwd", "/tmp" } },
+        .{ .words = &.{ "workspace", "close", "current" }, .caller = 3 },
+        .{ .words = &.{ "focus", "3" } },
+        .{ .words = &.{"current"}, .err = error.NoCallerPane },
+        .{ .words = &.{ "list", "extra" } },
+        .{ .words = &.{ "list", "--text", "--text" } },
+    }) |case| {
+        errdefer std.debug.print("rejected: {f}\n", .{std.json.fmt(case.words, .{})});
+        try std.testing.expectError(case.err, parse(arena.allocator(), case.words, case.caller));
+    }
+}
+
+test "command lines parse to the request the daemon receives" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const tmp = try std.fs.realpathAlloc(arena.allocator(), "/tmp");
+    const Case = struct {
+        words: []const [:0]const u8,
+        caller: u32 = 0,
+        want: Invocation,
+    };
+    for ([_]Case{
+        .{ .words = &.{ "list", "--text" }, .want = .{ .action = .list, .text_mode = true } },
+        .{ .words = &.{ "workspace", "list" }, .want = .{ .action = .list } },
+        .{ .words = &.{"current"}, .caller = 5, .want = .{ .action = .current } },
+        .{ .words = &.{ "focus", "3", "--viewer", "9" }, .want = .{ .action = .focus, .target = 3, .viewer = 9 } },
+        .{ .words = &.{ "workspace", "switch", "2" }, .want = .{ .action = .@"workspace.switch", .target = 2 } },
+        .{ .words = &.{ "tab", "new", "--workspace", "2", "--name", "Build", "--command", "make" }, .want = .{ .action = .@"tab.new", .command = .{ .@"pane.create" = .{ .workspace = @enumFromInt(2), .title = "Build", .command = "make" } } } },
+        .{ .words = &.{ "tab", "new" }, .caller = 5, .want = .{ .action = .@"tab.new", .command = .{ .@"pane.create" = .{ .workspace = .none } } } },
+        .{ .words = &.{ "tab", "rename", "4", "Backend" }, .want = .{ .action = .@"tab.rename", .target = 4, .command = .{ .@"tab.rename" = .{ .target = @enumFromInt(4), .name = "Backend" } } } },
+        .{ .words = &.{ "tab", "rename", "4", "--clear" }, .want = .{ .action = .@"tab.rename", .target = 4, .command = .{ .@"tab.rename" = .{ .target = @enumFromInt(4), .name = "" } } } },
+        .{ .words = &.{ "tab", "move", "4", "--after", "6" }, .want = .{ .action = .@"tab.move", .target = 4, .command = .{ .@"tab.move" = .{ .target = @enumFromInt(4), .destination = .{ .after = @enumFromInt(6) } } } } },
+        .{ .words = &.{ "tab", "move", "4", "--workspace", "2" }, .want = .{ .action = .@"tab.move", .target = 4, .command = .{ .@"tab.move" = .{ .target = @enumFromInt(4), .destination = .{ .workspace = @enumFromInt(2) } } } } },
+        .{ .words = &.{ "tab", "merge", "4", "--below", "7" }, .want = .{ .action = .@"tab.merge", .target = 4, .command = .{ .@"tab.merge" = .{ .target = @enumFromInt(4), .other = @enumFromInt(7), .direction = .down } } } },
+        .{ .words = &.{ "tab", "close", "4" }, .want = .{ .action = .@"tab.close", .target = 4, .command = .{ .@"tab.close" = .{ .target = @enumFromInt(4) } } } },
+        .{ .words = &.{ "pane", "split", "3", "--left", "--command", "make" }, .want = .{ .action = .@"pane.split", .target = 3, .command = .{ .@"pane.split" = .{ .target = @enumFromInt(3), .direction = .left, .command = "make" } } } },
+        .{ .words = &.{ "pane", "move", "3", "--left-of", "7" }, .want = .{ .action = .@"pane.move", .target = 3, .command = .{ .@"pane.move" = .{ .target = @enumFromInt(3), .destination = .{ .beside = .{ .other = @enumFromInt(7), .direction = .left } } } } } },
+        .{ .words = &.{ "pane", "move", "3", "--new-tab", "--name", "Logs" }, .want = .{ .action = .@"pane.move", .target = 3, .command = .{ .@"pane.move" = .{ .target = @enumFromInt(3), .destination = .{ .new_tab = "Logs" } } } } },
+        .{ .words = &.{ "pane", "swap", "3", "7" }, .want = .{ .action = .@"pane.swap", .target = 3, .command = .{ .@"pane.swap" = .{ .target = @enumFromInt(3), .other = @enumFromInt(7) } } } },
+        .{ .words = &.{ "pane", "resize", "3", "--height", "60%" }, .want = .{ .action = .@"pane.resize", .target = 3, .command = .{ .@"pane.resize" = .{ .target = @enumFromInt(3), .axis = .vertical, .ratio = 600 } } } },
+        .{ .words = &.{ "pane", "close", "3" }, .want = .{ .action = .@"pane.close", .target = 3, .command = .{ .@"pane.close" = .{ .target = @enumFromInt(3) } } } },
+        .{ .words = &.{ "pane", "send", "3", "--enter", "--", "--literal" }, .want = .{ .action = .@"pane.send", .target = 3, .command = .{ .@"pane.send" = .{ .target = @enumFromInt(3), .text = "--literal", .enter = true } } } },
+        .{ .words = &.{ "pane", "keys", "3", "ctrl+c", "enter" }, .want = .{ .action = .@"pane.keys", .target = 3, .command = .{ .@"pane.keys" = .{ .target = @enumFromInt(3), .text = "ctrl+c enter" } } } },
+        .{ .words = &.{ "workspace", "new", "Project", "--cwd", "/tmp" }, .want = .{ .action = .@"workspace.new", .command = .{ .@"workspace.create" = .{ .name = "Project", .cwd = tmp } } } },
+        .{ .words = &.{ "workspace", "edit", "2", "--clear", "--cwd", "/tmp" }, .want = .{ .action = .@"workspace.edit", .target = 2, .command = .{ .@"workspace.edit" = .{ .target = @enumFromInt(2), .name = "", .cwd = tmp } } } },
+        .{ .words = &.{ "workspace", "close", "2" }, .want = .{ .action = .@"workspace.close", .target = 2, .command = .{ .@"workspace.close" = .{ .target = @enumFromInt(2) } } } },
+    }) |case| {
+        errdefer std.debug.print("accepted: {f}\n", .{std.json.fmt(case.words, .{})});
+        try std.testing.expectEqualDeep(case.want, try parse(arena.allocator(), case.words, case.caller));
+    }
+    const read = try parse(arena.allocator(), &.{ "pane", "read", "current", "--lines", "10", "--text" }, 5);
+    try std.testing.expect(read.current and read.text_mode);
+    try std.testing.expectEqualDeep(session.Command{ .@"pane.read" = .{ .target = @enumFromInt(5), .lines = 10 } }, read.command.?);
 }
