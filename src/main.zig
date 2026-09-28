@@ -380,6 +380,11 @@ test {
     _ = @import("workspace_drag.zig");
     _ = @import("link_tooltip.zig");
     _ = @import("resources.zig");
+    _ = @import("activity_prompt.zig");
+    _ = @import("claude_credentials.zig");
+    _ = @import("launch_preview_stream.zig");
+    _ = @import("sidebar_rows.zig");
+    _ = @import("sound.zig");
     _ = @import("resource_os.zig");
     _ = @import("resource_tooltip.zig");
     _ = @import("render.zig");

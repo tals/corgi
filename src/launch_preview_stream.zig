@@ -128,6 +128,13 @@ test "preview stream handles partial and consecutive messages and ignores old di
     var pair: [2]c_int = undefined;
     if (os.c.socketpair(os.c.AF_UNIX, os.c.SOCK_STREAM, 0, &pair) != 0) return error.SocketPairFailed;
     defer _ = os.c.close(pair[1]);
+    // A preview message serializes the full fixed-size Text buffers (about
+    // 10 KB), well past the platform's default socket buffer; grow both
+    // ends so a full write never blocks waiting for this single-threaded
+    // test to get around to draining it.
+    const bufsize: c_int = 1 << 20;
+    _ = os.c.setsockopt(pair[0], os.c.SOL_SOCKET, os.c.SO_RCVBUF, &bufsize, @sizeOf(c_int));
+    _ = os.c.setsockopt(pair[1], os.c.SOL_SOCKET, os.c.SO_SNDBUF, &bufsize, @sizeOf(c_int));
     var stream: Stream = .{ .fd = pair[0], .len = 2 };
     defer stream.deinit();
     @memcpy(stream.cwd[0..2], "/a");

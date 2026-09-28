@@ -4,6 +4,7 @@ const std = @import("std");
 const sidebar = @import("sidebar.zig");
 const ActorId = @import("conversations.zig").Actor.Id;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const PaneId = @import("layout.zig").PaneId;
 const capacity = sidebar.max_entries;
 const Stored = struct {
     entry: sidebar.Entry = undefined,
@@ -153,11 +154,11 @@ test "end hook and disappearance share one frozen exit without changing adjacent
     try std.testing.expect(shown[0].exit != null);
     shown = rows.update(@enumFromInt(1), live[1..], &out, 130);
     try std.testing.expectEqual(@as(usize, 2), shown.len);
-    try std.testing.expectEqual(@as(u32, 2), shown[1].target.pane);
+    try std.testing.expectEqual(@as(PaneId, @enumFromInt(2)), shown[1].target.pane);
     try std.testing.expectEqual(@as(f64, 0.5), shown[0].exit.?.progress);
     shown = rows.update(@enumFromInt(1), live[1..], &out, 250);
     try std.testing.expectEqual(@as(usize, 1), shown.len);
-    try std.testing.expectEqual(@as(u32, 2), shown[0].target.pane);
+    try std.testing.expectEqual(@as(PaneId, @enumFromInt(2)), shown[0].target.pane);
     shown = rows.update(@enumFromInt(2), &.{}, &out, 260);
     try std.testing.expectEqual(@as(usize, 0), shown.len);
 }
@@ -165,9 +166,9 @@ test "end hook and disappearance share one frozen exit without changing adjacent
 test "lost terminal binding holds the label until exit or a real replacement" {
     var rows: State = .{};
     var out: [capacity]sidebar.Entry = undefined;
-    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = 42, .provider = .codex, .state = .idle, .attention = .none, .name = "Stable name" };
+    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(42), .provider = .codex, .state = .idle, .attention = .none, .name = "Stable name" };
     _ = rows.update(@enumFromInt(1), &.{entry}, &out, 0);
-    entry.conversation = 0;
+    entry.conversation = ActorId.none;
     entry.name = "";
     entry.state = .initializing;
     var shown = rows.update(@enumFromInt(1), &.{entry}, &out, 10);
@@ -175,25 +176,25 @@ test "lost terminal binding holds the label until exit or a real replacement" {
     shown = rows.update(@enumFromInt(1), &.{}, &out, 510);
     try std.testing.expectEqualStrings("Stable name", shown[0].name);
     try std.testing.expect(shown[0].exit != null);
-    entry.conversation = 43;
+    entry.conversation = @enumFromInt(43);
     entry.name = "New session";
     shown = rows.update(@enumFromInt(1), &.{entry}, &out, 520);
     try std.testing.expect(shown[0].exit == null);
     try std.testing.expectEqualStrings("New session", shown[0].name);
-    entry.conversation = 0;
+    entry.conversation = ActorId.none;
     _ = rows.update(@enumFromInt(1), &.{entry}, &out, 530);
     shown = rows.update(@enumFromInt(1), &.{entry}, &out, 1180);
-    try std.testing.expectEqual(@as(u32, 0), shown[0].conversation);
+    try std.testing.expectEqual(ActorId.none, shown[0].conversation);
 }
 
 test "pane removal fades once while ended natives stay visible and same-workspace reordering stays live" {
     var rows: State = .{};
     var out: [capacity]sidebar.Entry = undefined;
     const pane: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .provider = .codex, .state = .idle, .attention = .none };
-    var native: sidebar.Entry = .{ .target = .{ .native = 1 }, .provider = .claude, .state = .working, .attention = .none };
+    var native: sidebar.Entry = .{ .target = .{ .native = @enumFromInt(1) }, .provider = .claude, .state = .working, .attention = .none };
     _ = rows.update(@enumFromInt(1), &.{ pane, native }, &out, 0);
     var shown = rows.update(@enumFromInt(1), &.{ native, pane }, &out, 10);
-    try std.testing.expectEqual(sidebar.Target{ .native = 1 }, shown[0].target);
+    try std.testing.expectEqual(sidebar.Target{ .native = @enumFromInt(1) }, shown[0].target);
     native.state = .done;
     shown = rows.update(@enumFromInt(1), &.{native}, &out, 20);
     try std.testing.expectEqual(@as(usize, 2), shown.len);
