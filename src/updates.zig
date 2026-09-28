@@ -12,6 +12,23 @@ const atomicWrite = @import("recovery.zig").atomicWrite;
 const recoveryPath = @import("recovery.zig").path;
 const Connection = @import("rpc.zig").Connection;
 pub const abi = std.fmt.comptimePrint("1-{x}", .{opts.terminal_checkpoint_abi});
+/// What this binary is and where it checks for the next one.
+pub const Release = struct {
+    version: []const u8,
+    commit: []const u8,
+    feed_url: []const u8,
+    public_key: []const u8,
+    /// Allows http://127.0.0.1 feeds. Never set in a published build.
+    test_mode: bool,
+
+    pub const built: Release = .{
+        .version = opts.release_version,
+        .commit = opts.release_commit,
+        .feed_url = opts.update_url,
+        .public_key = opts.update_public_key,
+        .test_mode = opts.update_test_mode,
+    };
+};
 const platform = switch (builtin.os.tag) {
     .macos => "macos-aarch64",
     else => "linux-x86_64",
@@ -71,23 +88,24 @@ fn executable(root: []const u8, ver: []const u8) ![]u8 {
     _ = try version(ver);
     return std.fs.path.join(a, &.{ root, "releases", ver, "corgi" });
 }
-fn managed(exe: []const u8) !?[]u8 {
-    if (opts.update_url.len == 0 or opts.update_public_key.len != 64) return null;
+fn managed(rel: Release, exe: []const u8) !?[]u8 {
+    if (rel.feed_url.len == 0 or rel.public_key.len != 64) return null;
     const dir = std.fs.path.dirname(exe) orelse return null;
     const releases = std.fs.path.dirname(dir) orelse return null;
     if (!std.mem.eql(u8, std.fs.path.basename(releases), "releases")) return null;
     const root = std.fs.path.dirname(releases) orelse return null;
-    if (!std.mem.eql(u8, std.fs.path.basename(dir), opts.release_version) or !exists(root, "current")) return null;
+    if (!std.mem.eql(u8, std.fs.path.basename(dir), rel.version) or !exists(root, "current")) return null;
     try os.privateDirectory(root);
     return try a.dupe(u8, root);
 }
 /// The downloaded release newer than this build, which the next launch activates.
 pub fn stagedVersion(exe: []const u8, buf: []u8) ?[]const u8 {
-    const root = (managed(exe) catch return null) orelse return null;
+    const rel: Release = .built;
+    const root = (managed(rel, exe) catch return null) orelse return null;
     defer a.free(root);
     const bytes = (read(root, "staged") catch return null) orelse return null;
     defer a.free(bytes);
-    const newer = (version(bytes) catch return null).order(version(opts.release_version) catch return null) == .gt;
+    const newer = (version(bytes) catch return null).order(version(rel.version) catch return null) == .gt;
     if (!newer or bytes.len > buf.len) return null;
     @memcpy(buf[0..bytes.len], bytes);
     return buf[0..bytes.len];
@@ -121,13 +139,13 @@ fn lock(root: []const u8, name: []const u8, wait: bool) !?std.fs.File {
     }
     return file;
 }
-fn parse(bytes: []const u8) !std.json.Parsed(Manifest) {
+fn parse(rel: Release, bytes: []const u8) !std.json.Parsed(Manifest) {
     const envelope = try std.json.parseFromSlice(Envelope, a, bytes, .{});
     defer envelope.deinit();
     var pk: [32]u8 = undefined;
     var signature: [64]u8 = undefined;
-    if (opts.update_public_key.len != 64 or envelope.value.signature.len != 128) return error.BadUpdateSignature;
-    _ = try std.fmt.hexToBytes(&pk, opts.update_public_key);
+    if (rel.public_key.len != 64 or envelope.value.signature.len != 128) return error.BadUpdateSignature;
+    _ = try std.fmt.hexToBytes(&pk, rel.public_key);
     _ = try std.fmt.hexToBytes(&signature, envelope.value.signature);
     const Ed = std.crypto.sign.Ed25519;
     try Ed.Signature.fromBytes(signature).verify(envelope.value.payload, try Ed.PublicKey.fromBytes(pk));
@@ -137,7 +155,7 @@ fn parse(bytes: []const u8) !std.json.Parsed(Manifest) {
     _ = try version(m.value.version);
     const t = m.value.target();
     if (t.size == 0 or t.size > max_binary or t.sha256.len != 64) return error.InvalidUpdateTarget;
-    if (!std.mem.startsWith(u8, t.url, "https://") and !(opts.update_test_mode and std.mem.startsWith(u8, t.url, "http://127.0.0.1:"))) return error.InsecureUpdateURL;
+    if (!std.mem.startsWith(u8, t.url, "https://") and !(rel.test_mode and std.mem.startsWith(u8, t.url, "http://127.0.0.1:"))) return error.InsecureUpdateURL;
     return m;
 }
 fn run(argv: []const []const u8) !void {
@@ -146,10 +164,10 @@ fn run(argv: []const []const u8) !void {
     defer a.free(result.stderr);
     if (result.term != .Exited or result.term.Exited != 0) return error.UpdateSubprocessFailed;
 }
-fn fetch(url: []const u8, dest: []const u8, limit: u64) !void {
+fn fetch(rel: Release, url: []const u8, dest: []const u8, limit: u64) !void {
     const size = try std.fmt.allocPrint(a, "{d}", .{limit});
     defer a.free(size);
-    const proto = if (opts.update_test_mode) "=http,https" else "=https";
+    const proto = if (rel.test_mode) "=http,https" else "=https";
     try run(&.{
         "curl",          "--disable",  "--fail",            "--silent",
         "--show-error",  "--location", "--proto",           proto,
@@ -175,18 +193,18 @@ fn verifyFile(path: []const u8, t: Target) !void {
     defer f.close();
     if ((try f.stat()).size != t.size or !std.mem.eql(u8, &(try hashFile(path)), t.sha256)) return error.UpdateChecksumMismatch;
 }
-fn feed(root: []const u8, download: bool, explicit: bool) !void {
+fn feed(rel: Release, root: []const u8, download: bool, explicit: bool) !void {
     const guard = (try lock(root, "download.lock", explicit)) orelse return;
     defer guard.close();
     const temp = try join(root, "feed.tmp");
     defer a.free(temp);
     defer std.fs.cwd().deleteFile(temp) catch {};
-    const url = try std.fmt.allocPrint(a, "{s}/channels/stable.json", .{opts.update_url});
+    const url = try std.fmt.allocPrint(a, "{s}/channels/stable.json", .{rel.feed_url});
     defer a.free(url);
-    try fetch(url, temp, 1024 * 1024);
+    try fetch(rel, url, temp, 1024 * 1024);
     const bytes = try std.fs.cwd().readFileAlloc(a, temp, 1024 * 1024);
     defer a.free(bytes);
-    const m = try parse(bytes);
+    const m = try parse(rel, bytes);
     defer m.deinit();
     const current = (try read(root, "current")) orelse return error.MissingInstalledVersion;
     defer a.free(current);
@@ -209,7 +227,7 @@ fn feed(root: []const u8, download: bool, explicit: bool) !void {
         const partial = try join(dir, "download.tmp");
         defer a.free(partial);
         defer std.fs.cwd().deleteFile(partial) catch {};
-        try fetch(m.value.target().url, partial, m.value.target().size);
+        try fetch(rel, m.value.target().url, partial, m.value.target().size);
         try verifyFile(partial, m.value.target());
         var f = try std.fs.cwd().openFile(partial, .{ .mode = .read_write });
         defer f.close();
@@ -338,7 +356,7 @@ fn confirmRestart(socket: []const u8) !?bool {
     return std.mem.eql(u8, std.mem.trim(u8, line, "\r\n"), "restart");
 }
 // Returns the executable compatible with the runtime (or selected installation).
-fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rollback: bool) ![]u8 {
+fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, explicit: bool, rollback: bool) ![]u8 {
     const guard = try lock(root, "activation.lock", explicit);
     defer if (guard) |g| g.close();
     var h = try hello(socket);
@@ -364,7 +382,7 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
     // Bootstrap installs also retain their signed manifest, permitting rollback.
     const bytes = (try read(dir, "manifest.json")) orelse return error.MissingReleaseManifest;
     defer a.free(bytes);
-    const m = try parse(bytes);
+    const m = try parse(rel, bytes);
     defer m.deinit();
     if (!std.mem.eql(u8, m.value.version, candidate)) return error.WrongReleaseManifest;
     try verifyFile(target, m.value.target());
@@ -451,9 +469,10 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
     return old_exe;
 }
 pub fn startup(socket: []const u8, exe: []const u8, cmd: []const u8, skip: bool) !void {
-    const root = (try managed(exe)) orelse return;
+    const rel: Release = .built;
+    const root = (try managed(rel, exe)) orelse return;
     defer a.free(root);
-    const target = select(root, socket, !skip and !exists(root, "auto-off"), false, false) catch |err| {
+    const target = select(rel, root, socket, !skip and !exists(root, "auto-off"), false, false) catch |err| {
         recordError(root, err);
         // Network and local staging failures must never prevent attachment.
         if (try hello(socket)) |h| {
@@ -467,7 +486,8 @@ pub fn startup(socket: []const u8, exe: []const u8, cmd: []const u8, skip: bool)
     if (!std.mem.eql(u8, target, exe)) try reexec(target, cmd);
 }
 pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !void {
-    const root = (try managed(exe)) orelse {
+    const rel: Release = .built;
+    const root = (try managed(rel, exe)) orelse {
         try os.writeAll(2, "This is a development or unmanaged build. Install a release to enable updates.\n");
         return error.UnmanagedInstallation;
     };
@@ -499,16 +519,16 @@ pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !v
     }
     const rollback = args.len == 1 and cmd == .rollback;
     if (args.len > 1 or (args.len == 1 and !rollback and cmd != .@"--check" and cmd != .@"--download-only")) return error.Usage;
-    if (!rollback) try feed(root, args.len == 0 or cmd == .@"--download-only", true);
+    if (!rollback) try feed(rel, root, args.len == 0 or cmd == .@"--download-only", true);
     if (args.len == 1 and !rollback) return;
     if (rollback and !exists(root, "previous")) return error.NoPreviousRelease;
-    const target = try select(root, socket, true, true, rollback);
+    const target = try select(rel, root, socket, true, true, rollback);
     defer a.free(target);
     try os.writeAll(1, "Corgi is ready.\n");
     // Existing compatible viewers stay connected; new viewers use this version.
 }
 pub fn background(socket: []const u8, exe: []const u8) !void {
-    const root = (try managed(exe)) orelse return;
+    const root = (try managed(.built, exe)) orelse return;
     defer a.free(root);
     if (exists(root, "auto-off")) return;
     const pid = c.fork();
@@ -526,10 +546,8 @@ pub fn background(socket: []const u8, exe: []const u8) !void {
     var status: c_int = 0;
     _ = c.waitpid(pid, &status, 0);
 }
-fn worker(socket: []const u8) !void {
-    const exe = try std.fs.selfExePathAlloc(a);
-    defer a.free(exe);
-    const root = (try managed(exe)) orelse return;
+fn worker(rel: Release, exe: []const u8, socket: []const u8) !void {
+    const root = (try managed(rel, exe)) orelse return;
     defer a.free(root);
     // One worker per runtime: downloads themselves share an installation lock.
     // This allows one runtime to exit without stranding another's update checks.
@@ -543,7 +561,7 @@ fn worker(socket: []const u8) !void {
         h.deinit();
         const now = std.time.timestamp();
         if (now >= next) {
-            feed(root, true, false) catch |err| recordError(root, err);
+            feed(rel, root, true, false) catch |err| recordError(root, err);
             next = now + 3600 + std.crypto.random.intRangeLessThan(i64, 0, 300);
         }
         std.Thread.sleep(30 * std.time.ns_per_s);
@@ -553,30 +571,33 @@ pub fn internal(args: []const []const u8) !bool {
     if (args.len < 2) return false;
     const Internal = enum { @"__update-worker", @"__update-info", __install };
     const cmd = std.meta.stringToEnum(Internal, args[1]) orelse return false;
+    const exe = try std.fs.selfExePathAlloc(a);
+    defer a.free(exe);
+    const rel: Release = .built;
     switch (cmd) {
         .@"__update-worker" => {
             if (args.len != 3) return false;
-            try worker(args[2]);
+            try worker(rel, exe, args[2]);
         },
         .@"__update-info" => {
             const bytes = try std.json.Stringify.valueAlloc(a, .{
-                .version = opts.release_version,
-                .commit = opts.release_commit,
+                .version = rel.version,
+                .commit = rel.commit,
                 .update_abi = abi,
                 .platform = platform,
-                .test_mode = opts.update_test_mode,
+                .test_mode = rel.test_mode,
             }, .{});
             defer a.free(bytes);
             try os.writeAll(1, bytes);
         },
         .__install => {
             if (args.len != 5) return false;
-            try install(args[2], args[3], args[4]);
+            try install(rel, exe, args[2], args[3], args[4]);
         },
     }
     return true;
 }
-fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
+fn install(rel: Release, exe: []const u8, root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
     if (!std.fs.path.isAbsolute(root) or !std.fs.path.isAbsolute(bin)) return error.AbsoluteInstallPathRequired;
     try os.privateDirectory(root);
     const guard = (try lock(root, "activation.lock", true)).?;
@@ -584,13 +605,11 @@ fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
     if (exists(root, "current")) return error.AlreadyInstalled;
     const bytes = try std.fs.cwd().readFileAlloc(a, manifest_path, 1024 * 1024);
     defer a.free(bytes);
-    const m = try parse(bytes);
+    const m = try parse(rel, bytes);
     defer m.deinit();
-    if (!std.mem.eql(u8, m.value.version, opts.release_version) or !std.mem.eql(u8, m.value.commit, opts.release_commit)) return error.WrongReleaseManifest;
-    const exe = try std.fs.selfExePathAlloc(a);
-    defer a.free(exe);
+    if (!std.mem.eql(u8, m.value.version, rel.version) or !std.mem.eql(u8, m.value.commit, rel.commit)) return error.WrongReleaseManifest;
     try verifyFile(exe, m.value.target());
-    const dest = try executable(root, opts.release_version);
+    const dest = try executable(root, rel.version);
     defer a.free(dest);
     const dir = std.fs.path.dirname(dest).?;
     try os.privateDirectory(dir);
@@ -611,8 +630,8 @@ fn install(root: []const u8, bin: []const u8, manifest_path: []const u8) !void {
     defer file.close();
     try file.writeAll(launcher);
     try file.sync();
-    try write(root, "current", opts.release_version);
-    std.debug.print("Installed Corgi {s} at {s}\nAdd its directory to PATH if needed, then run corgi.\n", .{ opts.release_version, bin });
+    try write(root, "current", rel.version);
+    std.debug.print("Installed Corgi {s} at {s}\nAdd its directory to PATH if needed, then run corgi.\n", .{ rel.version, bin });
 }
 test "release versions cannot escape installation paths" {
     try std.testing.expectError(error.InvalidReleaseVersion, version("../../bin"));
@@ -625,4 +644,86 @@ test "timestamp releases sort by UTC date and time" {
     const second = try version("20260925T003013Z-123456abcdef");
     try std.testing.expect(first.order(second) == .lt);
     try std.testing.expectError(error.InvalidReleaseVersion, version("20260925T003012Z-../../abcdef"));
+}
+
+fn testRelease(key: *const [64]u8) Release {
+    return .{ .version = "1.2.3", .commit = "abc", .feed_url = "https://example.invalid", .public_key = key, .test_mode = false };
+}
+
+fn signedManifest(signer: std.crypto.sign.Ed25519.KeyPair, schema: u32, url: []const u8) ![]u8 {
+    const t: Target = .{ .url = url, .sha256 = "0" ** 64, .size = 1 };
+    const payload = try std.json.Stringify.valueAlloc(a, Manifest{
+        .schema_version = schema,
+        .version = "1.2.4",
+        .commit = "abc",
+        .update_abi = abi,
+        .targets = .{ .@"macos-aarch64" = t, .@"linux-x86_64" = t },
+    }, .{});
+    defer a.free(payload);
+    const signature = std.fmt.bytesToHex((try signer.sign(payload, null)).toBytes(), .lower);
+    return std.json.Stringify.valueAlloc(a, Envelope{ .payload = payload, .signature = &signature }, .{});
+}
+
+test "manifests verify against the release's key" {
+    const signer = std.crypto.sign.Ed25519.KeyPair.generate();
+    const key = std.fmt.bytesToHex(signer.public_key.toBytes(), .lower);
+    const other = std.fmt.bytesToHex(std.crypto.sign.Ed25519.KeyPair.generate().public_key.toBytes(), .lower);
+    const bytes = try signedManifest(signer, 1, "https://example.invalid/corgi");
+    defer a.free(bytes);
+    const m = try parse(testRelease(&key), bytes);
+    defer m.deinit();
+    try std.testing.expectEqualStrings("1.2.4", m.value.version);
+    try std.testing.expectError(error.SignatureVerificationFailed, parse(testRelease(&other), bytes));
+    var unkeyed = testRelease(&key);
+    unkeyed.public_key = "";
+    try std.testing.expectError(error.BadUpdateSignature, parse(unkeyed, bytes));
+    const future = try signedManifest(signer, 2, "https://example.invalid/corgi");
+    defer a.free(future);
+    try std.testing.expectError(error.UnknownUpdateSchema, parse(testRelease(&key), future));
+}
+
+test "local http targets need test mode" {
+    const signer = std.crypto.sign.Ed25519.KeyPair.generate();
+    const key = std.fmt.bytesToHex(signer.public_key.toBytes(), .lower);
+    const local = try signedManifest(signer, 1, "http://127.0.0.1:9/corgi");
+    defer a.free(local);
+    var rel = testRelease(&key);
+    try std.testing.expectError(error.InsecureUpdateURL, parse(rel, local));
+    rel.test_mode = true;
+    const m = try parse(rel, local);
+    m.deinit();
+    const remote = try signedManifest(signer, 1, "http://example.invalid/corgi");
+    defer a.free(remote);
+    try std.testing.expectError(error.InsecureUpdateURL, parse(rel, remote));
+}
+
+test "only an installed release with a feed is managed" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const base = try tmp.dir.realpathAlloc(a, ".");
+    defer a.free(base);
+    const root = try join(base, "install");
+    defer a.free(root);
+    try os.privateDirectory(root);
+    const exe = try std.fs.path.join(a, &.{ root, "releases", "1.2.3", "corgi" });
+    defer a.free(exe);
+    const key = "0" ** 64;
+    const rel = testRelease(key);
+    try std.testing.expect(try managed(rel, exe) == null);
+    try write(root, "current", "1.2.3");
+    const found = (try managed(rel, exe)).?;
+    defer a.free(found);
+    try std.testing.expectEqualStrings(root, found);
+    var other = rel;
+    other.version = "1.2.4";
+    try std.testing.expect(try managed(other, exe) == null);
+    var unfed = rel;
+    unfed.feed_url = "";
+    try std.testing.expect(try managed(unfed, exe) == null);
+    var unkeyed = rel;
+    unkeyed.public_key = "";
+    try std.testing.expect(try managed(unkeyed, exe) == null);
+    const loose = try std.fs.path.join(a, &.{ root, "1.2.3", "corgi" });
+    defer a.free(loose);
+    try std.testing.expect(try managed(rel, loose) == null);
 }
