@@ -50,6 +50,9 @@ pub const Agent = struct {
     activity_inferred: bool = false,
     // Independent of lifecycle hooks, which also advance last_seq.
     metadata_protocol_at: i64 = 0,
+    /// When the daemon last applied protocol evidence, in clock.zig
+    /// microseconds. Freshness reads this; ordering reads `last_seq`.
+    protocol_at: i64 = 0,
     tool: [160]u8 = .{0} ** 160,
     tool_len: usize = 0,
     tool_active: bool = false,

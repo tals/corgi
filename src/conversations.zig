@@ -130,7 +130,7 @@ pub const Actor = struct {
     }
     // Initial attachment establishes a baseline; historic completions never ring.
     // Repeated polls and reconnects cannot duplicate a completion for the same turn.
-    pub fn observeSnapshot(actor: *Actor, s: codex_observer.Snapshot, watched: bool) bool {
+    pub fn observeSnapshot(actor: *Actor, s: codex_observer.Snapshot, watched: bool, now: i64) bool {
         const agent = &actor.state;
         if (s.observed_at <= agent.last_seq) return false;
         actor.child_refresh = false;
@@ -160,6 +160,7 @@ pub const Actor = struct {
         agent.permission_review = null;
         agent.subagents = s.subagents;
         agent.last_seq = s.observed_at;
+        agent.protocol_at = now;
         agent.observation.source = .protocol;
         agent.observation.pending_stop = false;
         const same_turn = std.mem.eql(u8, agent.turnId(), s.turn[0..s.turn_len]);
@@ -203,7 +204,7 @@ pub const Actor = struct {
         return switch (actor.state.observation.source) {
             .hook, .transcript => true,
             // Metadata-only hooks must not refresh an older protocol snapshot.
-            .protocol => now - actor.state.last_seq <= 5 * std.time.us_per_s,
+            .protocol => now - actor.state.protocol_at <= 5 * std.time.us_per_s,
             .unknown, .screen => false,
         };
     }
@@ -238,29 +239,29 @@ test "Codex tools survive snapshots but never leak into another turn" {
         .observed_at = 1,
     };
     snap.turn[0] = 'a';
-    _ = actor.observeSnapshot(snap, true);
+    _ = actor.observeSnapshot(snap, true, 0);
     var tools: activity_tools.View = .{ .turn_len = 1, .running = 1 };
     tools.turn[0] = 'a';
     actor.observeTools(tools);
     snap.observed_at += 1;
-    _ = actor.observeSnapshot(snap, true);
+    _ = actor.observeSnapshot(snap, true, 0);
     try std.testing.expect(actor.state.tool_active);
     tools.running = 0;
     actor.observeTools(tools);
     try std.testing.expect(!actor.state.tool_active);
     snap.background_tasks.append("build", "", "zig build");
     snap.observed_at += 1;
-    _ = actor.observeSnapshot(snap, true);
+    _ = actor.observeSnapshot(snap, true, 0);
     try std.testing.expect(actor.state.tool_active);
     snap.state = .idle;
     snap.observed_at += 1;
-    _ = actor.observeSnapshot(snap, true);
+    _ = actor.observeSnapshot(snap, true, 0);
     try std.testing.expect(!actor.state.tool_active);
     snap.state = .working;
     snap.turn[0] = 'b';
     snap.background_tasks = .{};
     snap.observed_at += 1;
-    _ = actor.observeSnapshot(snap, true);
+    _ = actor.observeSnapshot(snap, true, 0);
     tools.running = 1;
     actor.observeTools(tools);
     try std.testing.expect(!actor.state.tool_active);
@@ -611,6 +612,7 @@ test "screen fallback keeps following work after a structured observation expire
     defer registry.deinit();
     const actor = try registry.get(.codex, "resumed");
     actor.state.last_seq = 100;
+    actor.state.protocol_at = 100;
     actor.observed_at = 100;
     actor.state.state = .idle;
     actor.state.observation.source = .protocol;
@@ -636,6 +638,7 @@ test "ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
     const actor = try registry.get(.codex, "resumed");
     actor.state.state = .idle;
     actor.state.last_seq = 100;
+    actor.state.protocol_at = 100;
     actor.observed_at = 100;
     actor.state.observation.source = .protocol;
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
@@ -656,6 +659,15 @@ test "ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
     try std.testing.expect(!actor.authoritative(6 * std.time.us_per_s));
 }
 
+test "protocol authority ages on the daemon clock, not the observer's stamp" {
+    var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
+    const s: codex_observer.Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .observed_at = 1 };
+    const applied = 50 * std.time.us_per_s;
+    _ = actor.observeSnapshot(s, true, applied);
+    try std.testing.expect(actor.authoritative(applied + 5 * std.time.us_per_s));
+    try std.testing.expect(!actor.authoritative(applied + 5 * std.time.us_per_s + 1));
+}
+
 test "snapshot baseline and completion receipts are idempotent" {
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
     var s: codex_observer.Snapshot = .{
@@ -667,15 +679,15 @@ test "snapshot baseline and completion receipts are idempotent" {
         .observed_at = 1,
     };
     s.turn[0] = 'a';
-    try std.testing.expect(!actor.observeSnapshot(s, false));
+    try std.testing.expect(!actor.observeSnapshot(s, false, 0));
     try std.testing.expectEqual(@as(u64, 0), actor.state.observation.completed);
     try std.testing.expect(!actor.state.observation.unread());
     s.turn[0] = 'b';
     s.observed_at = 2;
-    try std.testing.expect(actor.observeSnapshot(s, false));
-    try std.testing.expect(!actor.observeSnapshot(s, false));
+    try std.testing.expect(actor.observeSnapshot(s, false, 0));
+    try std.testing.expect(!actor.observeSnapshot(s, false, 0));
     s.observed_at += 1;
-    try std.testing.expect(!actor.observeSnapshot(s, false));
+    try std.testing.expect(!actor.observeSnapshot(s, false, 0));
     try std.testing.expectEqual(@as(u64, 1), actor.state.observation.completed);
 }
 
@@ -684,19 +696,19 @@ test "a snapshot completion records history without overriding active or blocked
         var actor: Actor = .{ .id = @enumFromInt(1), .state = .{} };
         var s: codex_observer.Snapshot = .{ .request = .{ .prefix = .{} }, .session = "01901234-1234-1234-1234-123456789abc".*, .state = .working, .turn_len = 1, .observed_at = 1 };
         s.turn[0] = 'a';
-        try std.testing.expect(!actor.observeSnapshot(s, false));
+        try std.testing.expect(!actor.observeSnapshot(s, false, 0));
         // Thread status and turn history are read separately. The listed turn
         // may already be complete while the thread has moved on to more work.
         s.state = state;
         s.outcome = .completed;
         s.observed_at = 2;
-        try std.testing.expect(actor.observeSnapshot(s, false));
+        try std.testing.expect(actor.observeSnapshot(s, false, 0));
         try std.testing.expectEqual(state, actor.state.state);
         try std.testing.expectEqual(@as(u64, 1), actor.state.observation.completed);
         try std.testing.expectEqual(if (state == .blocked) agents.Attention.needs_input else .finished, actor.state.attention);
         actor.acknowledge(1, null);
         s.observed_at = 3;
-        try std.testing.expect(!actor.observeSnapshot(s, true));
+        try std.testing.expect(!actor.observeSnapshot(s, true, 0));
         try std.testing.expect(!actor.state.observation.unread());
         try std.testing.expectEqual(state, actor.state.state);
     }

@@ -838,7 +838,7 @@ test "native events snapshots and hooks share exactly one receipt regardless of 
                 .observed_at = actor.state.last_seq + 1,
             };
             snapshot.turn[0] = 't';
-            try std.testing.expectEqual(!native_first and outcome == .completed, actor.observeSnapshot(snapshot, false));
+            try std.testing.expectEqual(!native_first and outcome == .completed, actor.observeSnapshot(snapshot, false, 0));
             try std.testing.expect(!try transport.ingest(&registry, completion));
             try std.testing.expect(!actor.observeHook(.{ .kind = .stop, .session = session, .turn = "t" }, actor.state.last_seq + 1, false, actor.observed_at + 1));
             try std.testing.expect(!actor.state.observation.pending_stop);

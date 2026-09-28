@@ -703,7 +703,7 @@ pub const Server = struct {
                 s.reattachFromTitle(p, current.provider, current.pid);
             }
         }
-        const now = std.time.microTimestamp();
+        const now = clock.microTimestamp();
         // Detection owns only provisional screen state. It cannot reset an
         // actor when a process exits or another session occupies the pane.
         const authoritative = if (p.attachment.actor) |actor| actor.authoritative(now) else false;
@@ -881,7 +881,7 @@ pub const Server = struct {
                         log.warn("tracking Codex session: {}", .{err});
                         continue;
                     }) orelse continue;
-                    const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id));
+                    const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id), clock.microTimestamp());
                     if (actor.parent == null) s.attention(ding, actor.state.state);
                     s.runtime.conversations.observeChildren(actor, snap);
                     summaries.submit(actor, snap.evidence, s.runtime.panes.items);
