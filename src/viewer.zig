@@ -138,7 +138,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
 // Called only after the frame has been written. Receipts refer to the
 // snapshot displayed, never whatever completion happens to be latest remotely.
 pub fn presented(view: *View) !void {
-    if (!view.input_state.watched or view.onboarding != null or view.workspace_chooser != null) return;
+    if (!view.input_state.watched or view.coversPanes()) return;
     var places: [layout.max_panes]layout.Placement = undefined;
     for (view.layoutView().placements(view.area(), &places)) |place| {
         const p = view.runtime.pane(place.id) orelse continue;

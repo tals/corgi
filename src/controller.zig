@@ -685,6 +685,10 @@ pub const Controller = struct {
         s.prefix = true;
         s.help = .{ .command_mode = true };
     }
+    /// Whether a full-screen view hides every pane, so nothing on them was seen.
+    pub fn coversPanes(s: *const Self) bool {
+        return s.onboarding != null or (s.prefix and s.help_visible) or s.workspace_chooser != null;
+    }
     fn openHelp(s: *Self) void {
         s.beginPrefix();
         s.help_visible = true;
@@ -2863,4 +2867,15 @@ test "the tab menu starts a prefix only with the configured prefix key" {
     try s.key(1);
     try std.testing.expect(s.prefix);
     try std.testing.expect(s.tab_menu == null);
+}
+
+test "the full-screen help covers the panes, a prefix alone does not" {
+    var s: Controller = .{ .connection = undefined, .executable = "" };
+    try std.testing.expect(!s.coversPanes());
+    s.beginPrefix();
+    try std.testing.expect(!s.coversPanes());
+    s.openHelp();
+    try std.testing.expect(s.coversPanes());
+    s.closeMenu();
+    try std.testing.expect(!s.coversPanes());
 }
