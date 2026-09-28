@@ -150,7 +150,9 @@ pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
     wake: std.Thread.Condition = .{},
     stopping: std.atomic.Value(bool) = .init(false),
-    slots: []?Slot,
+    /// Allocated while a conversation is working or blocked. Inference runs
+    /// unlocked and re-reads its slot by index: `reconcile` may destroy it.
+    slots: [max_slots]?*Slot = @splat(null),
     thread: ?std.Thread = null,
     pausing: bool = false,
     paused: bool = false,
@@ -203,7 +205,7 @@ pub const Worker = struct {
         w.applied = false;
         w.locked = false;
         // Failures under the previous provider should not delay the new one.
-        for (w.slots) |*entry| if (entry.*) |*slot| if (slot.retry) {
+        for (w.slots) |entry| if (entry) |slot| if (slot.retry) {
             slot.next = 0;
         };
         w.wake.signal();
@@ -272,17 +274,20 @@ pub const Worker = struct {
         out.* = w.link_results;
         w.link_results = @splat(null);
     }
-    fn init(implementation: backend.Backend) !Worker {
-        const slots = try a.alloc(?Slot, max_slots);
-        @memset(slots, null);
-        return .{ .slots = slots, .implementation = implementation, .observed_at = clock.milliTimestamp() };
+    fn init(implementation: backend.Backend) Worker {
+        return .{ .implementation = implementation, .observed_at = clock.milliTimestamp() };
+    }
+    fn freeSlots(w: *Worker) void {
+        for (&w.slots) |*entry| if (entry.*) |slot| {
+            a.destroy(slot);
+            entry.* = null;
+        };
     }
     pub fn start(choice: setup.Choice) !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
-        w.* = try init(.{});
+        w.* = init(.{});
         w.choice = choice;
-        errdefer a.free(w.slots);
         w.thread = try std.Thread.spawn(.{}, run, .{w});
         return w;
     }
@@ -317,7 +322,7 @@ pub const Worker = struct {
         defer w.mutex.unlock();
         if (!w.paused) return error.InferenceBusy;
         var slots: std.ArrayList(Checkpoint.Entry) = .empty;
-        for (w.slots, 0..) |slot, i| if (slot) |entry| try slots.append(alloc, .{ .index = i, .slot = entry });
+        for (w.slots, 0..) |entry, i| if (entry) |slot| try slots.append(alloc, .{ .index = i, .slot = slot.* });
         var link_requests: std.ArrayList(Checkpoint.LinkRequest) = .empty;
         for (w.link_requests) |entry| if (entry) |request| try link_requests.append(alloc, .{
             .slot = request.slot,
@@ -348,7 +353,7 @@ pub const Worker = struct {
     pub fn restore(saved: Checkpoint) !*Worker {
         if (saved.slots.len > max_slots or saved.link_requests.len > links.capacity or saved.cursor >= max_slots or saved.link_cursor >= links.capacity) return error.InvalidCheckpoint;
         const w = try a.create(Worker);
-        w.* = try init(.{});
+        w.* = init(.{});
         w.choice = saved.choice;
         w.launches = saved.launches;
         w.remembered = saved.remembered;
@@ -364,7 +369,9 @@ pub const Worker = struct {
             if (entry.index >= w.slots.len or w.slots[entry.index] != null) return error.InvalidCheckpoint;
             try validateRequest(entry.slot.request);
             if (entry.slot.result) |result| try validateRequest(result.request);
-            w.slots[entry.index] = entry.slot;
+            const slot = try a.create(Slot);
+            slot.* = entry.slot;
+            w.slots[entry.index] = slot;
         }
         for (saved.link_requests) |request| {
             if (request.slot >= links.capacity or request.evidence.len > @sizeOf(@FieldType(links.Request, "evidence")) or w.link_requests[request.slot] != null) return error.InvalidCheckpoint;
@@ -391,7 +398,7 @@ pub const Worker = struct {
         w.wake.signal();
         w.mutex.unlock();
         w.thread.?.join();
-        a.free(w.slots);
+        w.freeSlots();
         a.destroy(w);
     }
     pub fn submit(w: *Worker, owner: *const conversations.Actor, evidence: summary.Text, panes: []const runtime.Pane) void {
@@ -416,29 +423,33 @@ pub const Worker = struct {
         w.mutex.lock();
         defer w.mutex.unlock();
         if (w.choice == .off) return;
-        const slot = for (w.slots) |*s| {
-            if (s.*) |v| {
-                if (v.request.actor == actor) break s;
-            }
-        } else for (w.slots) |*s| {
-            if (s.* == null) break s;
-        } else return;
-        if (slot.* == null or !slot.*.?.request.sameTurn(&req)) slot.* = .{ .request = req };
-        slot.*.?.request.panes = req.panes;
-        slot.*.?.request.panes_len = req.panes_len;
-        slot.*.?.request.name = req.name;
-        slot.*.?.request.conversation = owner.status_inference;
-        slot.*.?.active = agent.state == .working;
-        slot.*.?.commentary = evidence;
-        slot.*.?.request.generation = agent.activity_generation;
-        slot.*.?.combine();
+        const slot = for (w.slots) |entry| {
+            if (entry) |s| if (s.request.actor == actor) break s;
+        } else created: {
+            const empty = for (&w.slots) |*entry| {
+                if (entry.* == null) break entry;
+            } else return;
+            const s = a.create(Slot) catch return;
+            s.* = .{ .request = req };
+            empty.* = s;
+            break :created s;
+        };
+        if (!slot.request.sameTurn(&req)) slot.* = .{ .request = req };
+        slot.request.panes = req.panes;
+        slot.request.panes_len = req.panes_len;
+        slot.request.name = req.name;
+        slot.request.conversation = owner.status_inference;
+        slot.active = agent.state == .working;
+        slot.commentary = evidence;
+        slot.request.generation = agent.activity_generation;
+        slot.combine();
         w.wake.signal();
     }
     pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: activity_tools.View) void {
         if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return;
         w.mutex.lock();
         defer w.mutex.unlock();
-        for (w.slots) |*entry| if (entry.*) |*slot| {
+        for (w.slots) |entry| if (entry) |slot| {
             if (slot.request.actor != actor or slot.request.turn_epoch != agent.turn_epoch) continue;
             // Cumulative counts survive watched-workspace counter resets. If a
             // transcript is replaced, restart the count instead of replaying it.
@@ -455,19 +466,20 @@ pub const Worker = struct {
     pub fn reconcile(w: *Worker, actors: anytype) void {
         w.mutex.lock();
         defer w.mutex.unlock();
-        for (w.slots) |*slot| if (slot.*) |s| {
+        for (&w.slots) |*entry| if (entry.*) |slot| {
             const found = for (actors) |actor| {
-                if (actor.id == s.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and
-                    actor.state.turn_epoch == s.request.turn_epoch)
+                if (actor.id == slot.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and
+                    actor.state.turn_epoch == slot.request.turn_epoch)
                 {
-                    slot.*.?.active = actor.state.state == .working;
-                    slot.*.?.request.conversation = actor.status_inference;
+                    slot.active = actor.state.state == .working;
+                    slot.request.conversation = actor.status_inference;
                     break true;
                 }
             } else false;
             if (found) continue;
-            if (s.result) |result| backend.outcome(result.number, .not_working);
-            slot.* = null;
+            if (slot.result) |result| backend.outcome(result.number, .not_working);
+            a.destroy(slot);
+            entry.* = null;
         };
     }
     pub fn take(w: *Worker, out: *[max]?Result) void {
@@ -475,7 +487,7 @@ pub const Worker = struct {
         defer w.mutex.unlock();
         out.* = @splat(null);
         var count: usize = 0;
-        for (w.slots) |*s| if (s.*) |*slot| {
+        for (w.slots) |entry| if (entry) |slot| {
             if (slot.result == null) continue;
             if (count == out.len) break;
             out[count] = slot.result;
@@ -547,7 +559,7 @@ pub const Worker = struct {
             }
             const index = selected.?;
             w.prefer_links = true;
-            const slot = &w.slots[index].?;
+            const slot = w.slots[index].?;
             const request = slot.request;
             const tools_since_last = request.completed_tools -| slot.attempted_tools;
             slot.attempt(now);
@@ -576,7 +588,7 @@ pub const Worker = struct {
             // A removed slot means the agent stopped working in this turn.
             var discard: ?backend.Discard = .not_working;
             var superseded: u64 = 0;
-            if (w.slots[index]) |*s| {
+            if (w.slots[index]) |s| {
                 if (!s.request.sameTurn(&request)) {
                     discard = .turn_changed;
                 } else if (attempt.decision) |decision| {
@@ -705,15 +717,11 @@ test "summary slots belong to conversations shared by multiple or detached attac
     second.select(actor);
     const worker = try std.testing.allocator.create(Worker);
     defer std.testing.allocator.destroy(worker);
-    worker.* = try Worker.init(.{});
-    defer a.free(worker.slots);
+    worker.* = Worker.init(.{});
+    defer worker.freeSlots();
     worker.submit(first.actor.?, .{}, &.{});
     worker.submit(second.actor.?, .{}, &.{});
-    var count: usize = 0;
-    for (worker.slots) |slot| if (slot != null) {
-        count += 1;
-    };
-    try std.testing.expectEqual(@as(usize, 1), count);
+    try std.testing.expectEqual(@as(usize, 1), testSlots(worker));
     first.detach();
     second.detach();
     worker.reconcile(registry.items.items);
@@ -722,6 +730,36 @@ test "summary slots belong to conversations shared by multiple or detached attac
     actor.state.state = .idle;
     worker.reconcile(registry.items.items);
     try std.testing.expect(worker.slots[0] == null);
+}
+
+fn testSlots(w: *const Worker) usize {
+    var count: usize = 0;
+    for (w.slots) |slot| if (slot != null) {
+        count += 1;
+    };
+    return count;
+}
+
+test "summary slots exist only while their conversation is working" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const stays = try registry.get(.codex, "stays");
+    const stops = try registry.get(.codex, "stops");
+    for ([_]*conversations.Actor{ stays, stops }) |actor| {
+        actor.state.state = .working;
+        actor.state.setTurn("turn-1");
+    }
+    var worker = Worker.init(.{});
+    // `stop` frees slots the same way. Under -Dcheck-leaks a leaked slot fails the test.
+    defer worker.freeSlots();
+    try std.testing.expectEqual(@as(usize, 0), testSlots(&worker));
+    worker.submit(stays, .{}, &.{});
+    worker.submit(stops, .{}, &.{});
+    try std.testing.expectEqual(@as(usize, 2), testSlots(&worker));
+    stops.state.state = .idle;
+    worker.reconcile(registry.items.items);
+    try std.testing.expectEqual(@as(usize, 1), testSlots(&worker));
+    try std.testing.expectEqual(stays.id, worker.slots[0].?.request.actor);
 }
 
 test "actor inference context survives turns and detachment but rejects stale results" {
@@ -735,8 +773,8 @@ test "actor inference context survives turns and detachment but rejects stale re
     actor.state.activity_generation = summary.hash(&evidence);
     const worker = try std.testing.allocator.create(Worker);
     defer std.testing.allocator.destroy(worker);
-    worker.* = try Worker.init(.{});
-    defer a.free(worker.slots);
+    worker.* = Worker.init(.{});
+    defer worker.freeSlots();
     worker.submit(actor, evidence, &.{});
     const first = worker.slots[0].?.request;
     const result: Result = .{ .request = first, .label = summary.parseLabel("Tracing pane focus").? };
@@ -786,9 +824,13 @@ fn validateRequest(request: Request) !void {
 }
 
 test "worker live checkpoint preserves queued link evidence and unconsumed results" {
-    var worker = try Worker.init(.{});
-    defer a.free(worker.slots);
+    var worker = Worker.init(.{});
+    defer worker.freeSlots();
     worker.paused = true;
+    worker.slots[2] = try a.create(Slot);
+    const slot = worker.slots[2].?;
+    slot.* = .{ .request = .{ .actor = @enumFromInt(6), .provider = .codex, .session = .{}, .turn = .{}, .evidence = testText("Tracing focus") } };
+    slot.result = .{ .request = slot.request, .label = summary.parseLabel("Tracing pane focus") };
     const key: links.Key = .{ .workspace = @enumFromInt(1), .pane = @enumFromInt(3), .pid = 7, .port = 3000, .scheme = .http, .address = 9 };
     const evidence = "{\"terminal\":\"Finance dashboard ready\"}";
     var request: links.Request = .{ .slot = 4, .generation = 8, .key = key, .len = evidence.len };
@@ -803,7 +845,7 @@ test "worker live checkpoint preserves queued link evidence and unconsumed resul
     const restored = try Worker.restore(parsed.value);
     defer {
         restored.implementation.deinit();
-        a.free(restored.slots);
+        restored.freeSlots();
         a.destroy(restored);
     }
     const pending = restored.link_requests[4].?;
@@ -816,4 +858,8 @@ test "worker live checkpoint preserves queued link evidence and unconsumed resul
     restored.takeLinks(&results);
     try std.testing.expect(results[5] == null);
     try std.testing.expect(restored.link_requests[4] != null);
+    var summaries: [max]?Result = undefined;
+    restored.take(&summaries);
+    try std.testing.expectEqualStrings("Tracing pane focus", summaries[0].?.label.?.text());
+    try std.testing.expectEqualStrings("Tracing focus", restored.slots[2].?.request.evidence.text());
 }
