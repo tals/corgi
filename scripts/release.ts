@@ -213,7 +213,10 @@ async function main() {
       // Rebuilding a prepared version could change timestamped macOS signatures.
       if (await Bun.file(join(out, "prepared.json")).exists()) throw new Error("Release already prepared. Use --publish-only to resume, or choose another version.");
       await runCommand(["./scripts/zig", "build", "test"]);
-      await runCommand(["bun", "test", "tests/release.test.ts", "tests/updates.test.ts"]);
+      // The updater suite runs copies of a test build as two releases.
+      const testPrefix = join(source, "zig-out/test");
+      await runCommand(["./scripts/zig", "build", "-Dcodesign=false", "-Doptimize=ReleaseSafe", "-Dviewer-test-driver=true", "--prefix", testPrefix]);
+      await command(source, { ...env, CORGI_TEST_BIN: join(testPrefix, "bin/corgi") }, ["bun", "test", "tests/release.test.ts", "tests/updates.test.ts"]);
       await mkdir(out, { recursive: true });
       const binaries: Record<string, { url: string; sha256: string; size: number }> = {};
       for (const target of targets) {
