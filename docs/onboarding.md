@@ -73,7 +73,8 @@ for the source programs. Copy mode uses Corgi's existing selection and clipboard
 cmux shortcuts require host forwarding. The connection screen can install a
 managed Ghostty config block on a local macOS Ghostty viewer. It discloses that
 the bindings apply throughout Ghostty and replace host actions; a Ghostty config
-reload is still required. Other terminals can use the portable Herdr preset.
+reload is still required. Finishing onboarding with another preset or prefix
+rewrites an installed block to match. Other terminals can use the portable Herdr preset.
 Command-key forwarding is not claimed to have been observed or verified.
 
 ## Imports

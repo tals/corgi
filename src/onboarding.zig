@@ -247,7 +247,7 @@ pub const State = struct {
                 },
                 13 => {
                     if (ghosttyHost()) {
-                        try ghostty_integration.setCmux();
+                        try ghostty_integration.sync(.{ .preset = .cmux, .prefix = s.prefix });
                         if (s.mode == .keyboard) return true;
                         s.enterImport();
                         s.setMessage("Reload Ghostty: Cmd+Shift+, to apply Command keys.");

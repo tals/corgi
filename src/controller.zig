@@ -1275,7 +1275,8 @@ pub const Controller = struct {
                 s.notice(" Could not read Ghostty config; no changes made");
                 return;
             }
-            ghostty_integration.setEnabled(integration_state != .enabled) catch |err| {
+            const settings: ghostty_integration.Keys = .{ .preset = s.key_preset, .prefix = s.key_prefix };
+            ghostty_integration.sync(if (integration_state == .enabled) null else settings) catch |err| {
                 var message: [160]u8 = undefined;
                 s.notice(std.fmt.bufPrint(&message, " Ghostty integration: {s}", .{@errorName(err)}) catch "Ghostty config update failed");
                 return;
@@ -1328,6 +1329,8 @@ pub const Controller = struct {
         };
         s.key_preset = saved.preset;
         s.key_prefix = saved.prefix;
+        // An enabled Ghostty block types the old prefix and keys until re-rendered.
+        const reload = !s.remote_links and (ghostty_integration.refresh(.{ .preset = saved.preset, .prefix = saved.prefix }) catch false);
         const target = wizard.progress.workspace;
         const mode = wizard.mode;
         wizard.deinit();
@@ -1337,7 +1340,11 @@ pub const Controller = struct {
             s.notice(if (saved.preset == .cmux)
                 " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
             else
-                std.fmt.bufPrint(&message, " Shortcuts: {s} · prefix {s}", .{ keymap.name(saved.preset), if (saved.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A" }) catch "");
+                std.fmt.bufPrint(&message, " Shortcuts: {s} · prefix {s}{s}", .{
+                    keymap.name(saved.preset),
+                    if (saved.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A",
+                    if (reload) ". Reload Ghostty: Cmd+Shift+," else "",
+                }) catch "");
         } else if (target) |id| {
             try s.refresh();
             try s.switchWorkspace(id);

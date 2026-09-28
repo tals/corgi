@@ -2,6 +2,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const os = @import("os.zig");
+const keymap = @import("keymap.zig");
 const a = os.allocator;
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
 const end = "# END CORGI GHOSTTY INTEGRATION\n";
@@ -61,10 +62,10 @@ pub fn state() State {
     defer a.free(bytes);
     return if ((block(bytes) catch return .failed) != null) .enabled else .disabled;
 }
-fn transform(allocator: std.mem.Allocator, bytes: []const u8, enable: bool) ![]u8 {
-    return transformMode(allocator, bytes, enable, false);
-}
-fn transformMode(allocator: std.mem.Allocator, bytes: []const u8, enable: bool, cmux: bool) ![]u8 {
+/// The settings a block is written for.
+pub const Keys = struct { preset: keymap.Preset, prefix: keymap.Prefix };
+/// `bytes` with the block for `keys`, or without any block when null.
+fn transform(allocator: std.mem.Allocator, bytes: []const u8, keys: ?Keys) ![]u8 {
     const existing = try block(bytes);
     var out: std.Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
@@ -72,10 +73,10 @@ fn transformMode(allocator: std.mem.Allocator, bytes: []const u8, enable: bool, 
         try out.writer.writeAll(bytes[0..b.start]);
         try out.writer.writeAll(bytes[b.stop..]);
     } else try out.writer.writeAll(bytes);
-    if (enable) {
+    if (keys) |k| {
         if (out.written().len > 0 and out.written()[out.written().len - 1] != '\n') try out.writer.writeByte('\n');
         try out.writer.writeAll(begin);
-        if (cmux) {
+        if (k.preset == .cmux) {
             try out.writer.writeAll("# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n");
             const Binding = struct { host: []const u8, cp: u21, mods: u8 };
             const bindings = [_]Binding{
@@ -97,28 +98,44 @@ fn transformMode(allocator: std.mem.Allocator, bytes: []const u8, enable: bool, 
             }
             for ("hjkl") |key| try out.writer.print("keybind = ctrl+shift+{c}=text:\\x1b[{d};6u\n", .{ key, key });
         } else {
-            try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\nkeybind = cmd+t=text:\\x02A\nkeybind = cmd+w=text:\\x02X\nkeybind = ctrl+tab=text:\\x02n\nkeybind = ctrl+shift+tab=text:\\x02p\n");
-            for (1..10) |i| try out.writer.print("keybind = cmd+{d}=text:\\x02{d}\nkeybind = cmd+digit_{d}=text:\\x02{d}\n", .{ i, i, i, i });
+            // Each host key types the prefix and whatever key the preset
+            // uses for the action.
+            try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\n");
+            const prefix = keymap.prefixByte(k.prefix);
+            const Host = struct { host: []const u8, action: u8 };
+            for ([_]Host{ .{ .host = "cmd+t", .action = 'c' }, .{ .host = "cmd+w", .action = 'X' }, .{ .host = "ctrl+tab", .action = 'n' }, .{ .host = "ctrl+shift+tab", .action = 'p' } }) |host| {
+                const key = keymap.shortcut(k.preset, host.action) orelse continue;
+                try out.writer.print("keybind = {s}=text:\\x{x:0>2}{c}\n", .{ host.host, prefix, key });
+            }
+            for (1..10) |i| {
+                const key = keymap.shortcut(k.preset, '0' + @as(u8, @intCast(i))) orelse continue;
+                try out.writer.print("keybind = cmd+{d}=text:\\x{x:0>2}{c}\nkeybind = cmd+digit_{d}=text:\\x{x:0>2}{c}\n", .{ i, prefix, key, i, prefix, key });
+            }
         }
         try out.writer.writeAll(end);
     }
     return allocator.dupe(u8, out.written());
 }
-pub fn setEnabled(enable: bool) !void {
-    return setMode(enable, false);
+/// Writes the block for `keys`, or removes it when null. An unchanged file
+/// is not rewritten.
+pub fn sync(keys: ?Keys) !void {
+    _ = try apply(keys, false);
 }
-pub fn setCmux() !void {
-    return setMode(true, true);
+/// Re-renders a block already there after the preset or prefix changed, so
+/// it stops typing the old keys; never adds one. Returns whether it changed.
+pub fn refresh(keys: Keys) !bool {
+    return apply(keys, true);
 }
-fn setMode(enable: bool, cmux: bool) !void {
+fn apply(keys: ?Keys, existing_only: bool) !bool {
     if (!available()) return error.LocalMacOSOnly;
     const file = try path();
     defer a.free(file);
     const bytes = try read(file);
     defer a.free(bytes);
-    const updated = try transformMode(a, bytes, enable, cmux);
+    if (existing_only and try block(bytes) == null) return false;
+    const updated = try transform(a, bytes, keys);
     defer a.free(updated);
-    if (std.mem.eql(u8, bytes, updated)) return;
+    if (std.mem.eql(u8, bytes, updated)) return false;
     try std.fs.cwd().makePath(std.fs.path.dirname(file).?);
     const stat = std.fs.cwd().statFile(file) catch |err| blk: {
         if (err == error.FileNotFound) break :blk null;
@@ -132,11 +149,13 @@ fn setMode(enable: bool, cmux: bool) !void {
     try atomic.file_writer.interface.writeAll(updated);
     try atomic.file_writer.file.sync();
     try atomic.finish();
+    return true;
 }
 
 test "integration preserves custom bindings, covers physical digits, and is reversible" {
     const original = "# My settings\nkeybind = cmd+1=goto_tab:1\nfont-size = 14\n";
-    const enabled = try transform(std.testing.allocator, original, true);
+    const keys: Keys = .{ .preset = .corgi, .prefix = .ctrl_b };
+    const enabled = try transform(std.testing.allocator, original, keys);
     defer std.testing.allocator.free(enabled);
     try std.testing.expect(std.mem.startsWith(u8, enabled, original));
     for (1..10) |i| {
@@ -144,11 +163,38 @@ test "integration preserves custom bindings, covers physical digits, and is reve
         const binding = try std.fmt.bufPrint(&buf, "keybind = cmd+digit_{d}=text:\\x02{d}\n", .{ i, i });
         try std.testing.expect(std.mem.indexOf(u8, enabled, binding) != null);
     }
-    const again = try transform(std.testing.allocator, enabled, true);
+    const again = try transform(std.testing.allocator, enabled, keys);
     defer std.testing.allocator.free(again);
     try std.testing.expectEqualStrings(enabled, again);
-    const disabled = try transform(std.testing.allocator, enabled, false);
+    const disabled = try transform(std.testing.allocator, enabled, null);
     defer std.testing.allocator.free(disabled);
     try std.testing.expectEqualStrings(original, disabled);
-    try std.testing.expectError(error.InvalidIntegrationBlock, transform(std.testing.allocator, begin, false));
+    try std.testing.expectError(error.InvalidIntegrationBlock, transform(std.testing.allocator, begin, null));
+}
+
+test "re-rendering a block replaces the old prefix and keeps other settings" {
+    const original = "font-size = 14\n";
+    const old = try transform(std.testing.allocator, original, .{ .preset = .corgi, .prefix = .ctrl_b });
+    defer std.testing.allocator.free(old);
+    const updated = try transform(std.testing.allocator, old, .{ .preset = .corgi, .prefix = .ctrl_a });
+    defer std.testing.allocator.free(updated);
+    try std.testing.expect(std.mem.startsWith(u8, updated, original));
+    try std.testing.expect(std.mem.indexOf(u8, updated, "\\x02") == null);
+    try std.testing.expect(std.mem.indexOf(u8, updated, "keybind = cmd+t=text:\\x01c\n") != null);
+    try std.testing.expect(std.mem.count(u8, updated, begin) == 1);
+}
+
+test "the block types the chosen prefix and each preset's keys" {
+    const Case = struct { keys: Keys, lines: []const []const u8, absent: []const []const u8 = &.{} };
+    for ([_]Case{
+        .{ .keys = .{ .preset = .corgi, .prefix = .ctrl_a }, .lines = &.{ "keybind = cmd+t=text:\\x01c\n", "keybind = cmd+3=text:\\x013\n" }, .absent = &.{"\\x02"} },
+        .{ .keys = .{ .preset = .tmux, .prefix = .ctrl_b }, .lines = &.{ "keybind = cmd+1=text:\\x020\n", "keybind = cmd+w=text:\\x02&\n", "keybind = cmd+digit_9=text:\\x028\n" } },
+        .{ .keys = .{ .preset = .herdr, .prefix = .ctrl_b }, .lines = &.{ "keybind = cmd+t=text:\\x02c\n", "keybind = cmd+w=text:\\x02X\n" } },
+        .{ .keys = .{ .preset = .cmux, .prefix = .ctrl_a }, .lines = &.{"keybind = cmd+t=text:\\x1b[116;9u\n"}, .absent = &.{ "\\x01", "\\x02" } },
+    }) |case| {
+        const block_text = try transform(std.testing.allocator, "", case.keys);
+        defer std.testing.allocator.free(block_text);
+        for (case.lines) |line| try std.testing.expect(std.mem.indexOf(u8, block_text, line) != null);
+        for (case.absent) |text| try std.testing.expect(std.mem.indexOf(u8, block_text, text) == null);
+    }
 }

@@ -14,7 +14,7 @@ are also hidden. Unknown status (including blocked Keychain access) stays visibl
 so usage-access controls remain reachable. A pinned
 popover supports Up/Down, Tab/Shift-Tab, Home/End, Enter, and Escape.
 Below the providers, a `New terminal` row opens a plain shell tab in the same
-directory; press t in the popover to open one directly. Pressing Cmd+T (Ctrl-B A) or Ctrl+T again
+directory; press t in the popover to open one directly. Pressing Cmd+T (the prefix, then c) or Ctrl+T again
 while the popover is open also opens a terminal. It does not change the
 remembered provider.
 Arrow keys stop at the first/last row; Tab cycles. Navigation keys also activate
