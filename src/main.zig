@@ -292,13 +292,22 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
     const log_path = try std.fmt.allocPrintSentinel(a, "{s}/server.log", .{parent}, 0);
     defer a.free(log_path);
     const log_start = if (std.fs.cwd().statFile(log_path)) |st| st.size else |_| 0;
+    // The first child reports the daemon's pid, so a daemon that exits while
+    // starting is reported at once instead of after the whole wait.
+    var started: [2]c_int = undefined;
+    if (c.pipe(&started) != 0) return error.ForkFailed;
+    defer _ = c.close(started[0]);
     const pid = c.fork();
-    if (pid < 0) return error.ForkFailed;
     if (pid == 0) {
         _ = c.setsid();
         const grandchild = c.fork();
         if (grandchild < 0) c._exit(127);
-        if (grandchild > 0) c._exit(0);
+        if (grandchild > 0) {
+            _ = c.write(started[1], &grandchild, @sizeOf(c.pid_t));
+            c._exit(0);
+        }
+        _ = c.close(started[0]);
+        _ = c.close(started[1]);
         const log = c.open(log_path, c.O_WRONLY | c.O_CREAT | c.O_APPEND, @as(c_uint, 0o600));
         const devnull = c.open("/dev/null", c.O_RDONLY);
         _ = c.dup2(devnull, 0);
@@ -309,13 +318,19 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
         _ = c.close(lock.handle);
         os.exec(&.{ exe, "serve" }) catch c._exit(127);
     }
+    _ = c.close(started[1]);
+    if (pid < 0) return error.ForkFailed;
     var status: c_int = 0;
     _ = c.waitpid(pid, &status, 0);
-    for (0..100) |_| {
+    var daemon: c.pid_t = 0;
+    if (c.read(started[0], &daemon, @sizeOf(c.pid_t)) != @sizeOf(c.pid_t)) daemon = 0;
+    // A loaded machine can take seconds to bind the socket.
+    for (0..500) |_| {
         if (os.connect(path)) |fd| {
             _ = c.close(fd);
             return;
         } else |_| {}
+        if (daemon > 0 and c.kill(daemon, 0) != 0) break;
         std.Thread.sleep(20 * std.time.ns_per_ms);
     }
     reportServerLog(log_path, log_start);
