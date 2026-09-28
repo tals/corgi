@@ -83,6 +83,14 @@ export function layout_tree(workspace: any, tab = 0): any {
   }
   return tree(model.tabs[tab].root);
 }
+function running(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 export class Runtime extends TestCase {
   temp!: ReturnType<typeof tempDir>;
   path!: string;
@@ -149,19 +157,25 @@ export class Runtime extends TestCase {
       errors.push(error);
     }
     if (this.env) {
-      this.#disconnect();
-      if (this.started || existsSync(this.path))
+      const log = join(this.temp.name, "server.log");
+      if (this.started || existsSync(this.path)) {
+        // server.log is complete once the daemon has exited, which is after
+        // shutdown returns. It may already be gone.
+        const pid = await this.rpc({ op: "hello", protocol: 1 }).then(
+          (hello) => hello.server_pid as number,
+          () => 0,
+        );
         try {
           await this.run_cli("shutdown");
         } catch (error) {
-          const log = join(this.temp.name, "server.log");
           const tail = existsSync(log)
             ? readFileSync(log, "utf8").split("\n").slice(-40).join("\n")
             : "(no server.log)";
           errors.push(new Error(`${error}\nserver.log tail:\n${tail}`));
         }
-      await sleep(0.1);
-      const log = join(this.temp.name, "server.log");
+        if (pid) await this.until(() => !running(pid), 5).catch(() => {});
+      }
+      this.#disconnect();
       if (existsSync(log))
         try {
           this.assertNotIn("panic:", readFileSync(log, "utf8"));
