@@ -46,21 +46,17 @@ pub const Client = struct {
     /// Queue one reply line. A client whose reply cannot be queued (too much
     /// pending output, or no memory) is disconnected; the daemon keeps serving.
     pub fn queue(cl: *Client, value: anytype) void {
-        const data = std.json.Stringify.valueAlloc(a, value, .{}) catch {
-            cl.dead = true;
-            return;
-        };
-        defer a.free(data);
-        if (cl.output.items.len + data.len > 4 * 1024 * 1024) {
-            cl.dead = true;
-            return;
-        }
-        cl.output.ensureUnusedCapacity(a, data.len + 1) catch {
-            cl.dead = true;
-            return;
-        };
-        cl.output.appendSliceAssumeCapacity(data);
-        cl.output.appendAssumeCapacity('\n');
+        // Serialize in place: a session snapshot is hundreds of KB, and a
+        // separate buffer would be allocated, copied and freed every sync.
+        const start = cl.output.items.len;
+        var out: std.Io.Writer.Allocating = .fromArrayList(a, &cl.output);
+        defer cl.output = out.toArrayList();
+        const written = if (std.json.Stringify.value(value, .{}, &out.writer)) out.writer.writeByte('\n') else |err| err;
+        if (written) {
+            if (out.writer.end <= 4 * 1024 * 1024) return;
+        } else |_| {}
+        out.writer.end = start;
+        cl.dead = true;
     }
     pub fn deinit(cl: *Client) void {
         viewer_protocol.clearControls(cl);
@@ -70,3 +66,17 @@ pub const Client = struct {
         cl.output.deinit(a);
     }
 };
+
+test "replies queue as lines and an oversized one drops the client without a partial line" {
+    var cl: Client = .{ .fd = -1 };
+    defer cl.output.deinit(a);
+    cl.queue(.{ .ok = true });
+    cl.queue(.{ .n = 1 });
+    try std.testing.expectEqualStrings("{\"ok\":true}\n{\"n\":1}\n", cl.output.items);
+    const big = try a.alloc(u8, 4 * 1024 * 1024);
+    defer a.free(big);
+    @memset(big, 'x');
+    cl.queue(.{ .text = big });
+    try std.testing.expect(cl.dead);
+    try std.testing.expectEqualStrings("{\"ok\":true}\n{\"n\":1}\n", cl.output.items);
+}
