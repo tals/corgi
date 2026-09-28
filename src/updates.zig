@@ -28,6 +28,24 @@ pub const Release = struct {
         .public_key = opts.update_public_key,
         .test_mode = opts.update_test_mode,
     };
+
+    /// The release of the binary at `exe`. A test build at `releases/<v>/corgi`
+    /// is release <v>, and takes its feed from CORGI_TEST_UPDATE_URL and
+    /// CORGI_TEST_UPDATE_KEY, so one binary can play two versions.
+    pub fn of(exe: []const u8) Release {
+        if (!opts.test_build) return built;
+        var r = built;
+        const dir = std.fs.path.dirname(exe) orelse return r;
+        if (std.fs.path.dirname(dir)) |releases| if (std.mem.eql(u8, std.fs.path.basename(releases), "releases")) {
+            r.version = std.fs.path.basename(dir);
+        };
+        if (os.env("CORGI_TEST_UPDATE_URL")) |url| {
+            r.feed_url = url;
+            r.test_mode = true;
+        }
+        if (os.env("CORGI_TEST_UPDATE_KEY")) |key| r.public_key = key;
+        return r;
+    }
 };
 const platform = switch (builtin.os.tag) {
     .macos => "macos-aarch64",
@@ -99,8 +117,7 @@ fn managed(rel: Release, exe: []const u8) !?[]u8 {
     return try a.dupe(u8, root);
 }
 /// The downloaded release newer than this build, which the next launch activates.
-pub fn stagedVersion(exe: []const u8, buf: []u8) ?[]const u8 {
-    const rel: Release = .built;
+pub fn stagedVersion(rel: Release, exe: []const u8, buf: []u8) ?[]const u8 {
     const root = (managed(rel, exe) catch return null) orelse return null;
     defer a.free(root);
     const bytes = (read(root, "staged") catch return null) orelse return null;
@@ -469,7 +486,7 @@ fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, expli
     return old_exe;
 }
 pub fn startup(socket: []const u8, exe: []const u8, cmd: []const u8, skip: bool) !void {
-    const rel: Release = .built;
+    const rel: Release = .of(exe);
     const root = (try managed(rel, exe)) orelse return;
     defer a.free(root);
     const target = select(rel, root, socket, !skip and !exists(root, "auto-off"), false, false) catch |err| {
@@ -486,7 +503,7 @@ pub fn startup(socket: []const u8, exe: []const u8, cmd: []const u8, skip: bool)
     if (!std.mem.eql(u8, target, exe)) try reexec(target, cmd);
 }
 pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !void {
-    const rel: Release = .built;
+    const rel: Release = .of(exe);
     const root = (try managed(rel, exe)) orelse {
         try os.writeAll(2, "This is a development or unmanaged build. Install a release to enable updates.\n");
         return error.UnmanagedInstallation;
@@ -528,7 +545,7 @@ pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !v
     // Existing compatible viewers stay connected; new viewers use this version.
 }
 pub fn background(socket: []const u8, exe: []const u8) !void {
-    const root = (try managed(.built, exe)) orelse return;
+    const root = (try managed(.of(exe), exe)) orelse return;
     defer a.free(root);
     if (exists(root, "auto-off")) return;
     const pid = c.fork();
@@ -573,7 +590,7 @@ pub fn internal(args: []const []const u8) !bool {
     const cmd = std.meta.stringToEnum(Internal, args[1]) orelse return false;
     const exe = try std.fs.selfExePathAlloc(a);
     defer a.free(exe);
-    const rel: Release = .built;
+    const rel: Release = .of(exe);
     switch (cmd) {
         .@"__update-worker" => {
             if (args.len != 3) return false;
@@ -726,4 +743,14 @@ test "only an installed release with a feed is managed" {
     const loose = try std.fs.path.join(a, &.{ root, "1.2.3", "corgi" });
     defer a.free(loose);
     try std.testing.expect(try managed(rel, loose) == null);
+}
+
+test "only test builds take their release from the path and environment" {
+    try os.setenv("CORGI_TEST_UPDATE_KEY", "f" ** 64);
+    defer _ = c.unsetenv("CORGI_TEST_UPDATE_KEY");
+    const rel: Release = .of("/tmp/x/releases/9.9.9/corgi");
+    try std.testing.expectEqualStrings(if (opts.test_build) "9.9.9" else opts.release_version, rel.version);
+    try std.testing.expectEqualStrings(if (opts.test_build) "f" ** 64 else opts.update_public_key, rel.public_key);
+    const loose: Release = .of("/tmp/x/bin/corgi");
+    try std.testing.expectEqualStrings(opts.release_version, loose.version);
 }

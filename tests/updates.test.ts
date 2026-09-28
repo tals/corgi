@@ -1,10 +1,11 @@
-// Real release binaries and isolated runtimes; no host installation is touched.
+// Copies of the test binary play two releases in isolated runtimes; no host
+// installation is touched. A test build at releases/<v>/corgi is release <v>.
 import { beforeAll, afterAll, beforeEach, afterEach, test, expect } from "bun:test";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { Pty, deadline } from "./support";
+import { EXE, Pty, deadline } from "./support";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
 const keys = generateKeyPairSync("ed25519");
 const publicKey = Buffer.from(keys.publicKey.export({ type: "spki", format: "der" })).subarray(-32).toString("hex");
@@ -31,6 +32,8 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
   return new Response("missing", { status: 404 });
 } });
 const url = `http://127.0.0.1:${server.port}`;
+const feedEnv = { CORGI_TEST_UPDATE_URL: url, CORGI_TEST_UPDATE_KEY: publicKey };
+const fixture = (v: string) => join(base, "releases", v, "corgi");
 let home: string, root: string, bin: string, env: Record<string, string>, socket: string;
 async function exec(argv: string[], extraEnv = env, ok = true) {
   const p = Bun.spawn(argv, { env: extraEnv, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
@@ -45,27 +48,27 @@ async function waitFor(fn: () => Promise<boolean>) {
   throw new Error("Timed out");
 }
 beforeAll(async () => {
+  const binary = await readFile(EXE);
   for (const v of ["1.0.0", "1.0.1"]) {
-    const prefix = join(base, "build-" + v);
-    console.log(`Building updater fixture ${v}…`);
-    await exec(["./scripts/zig", "build", "-Dcodesign=false", "-Doptimize=Debug", `-Drelease-version=${v}`, `-Dupdate-url=${url}`, `-Dupdate-public-key=${publicKey}`, "-Dupdate-test-mode=true", "--prefix", prefix], process.env as Record<string, string>);
-    const binary = await readFile(join(prefix, "bin/corgi"));
+    await mkdir(dirname(fixture(v)), { recursive: true });
+    await writeFile(fixture(v), binary, { mode: 0o755 });
     binaries.set(v, binary);
-    const info = JSON.parse((await exec([join(prefix, "bin/corgi"), "__update-info"], process.env as Record<string, string>)).out);
+    const info = JSON.parse((await exec([fixture(v), "__update-info"], { ...process.env, ...feedEnv } as Record<string, string>)).out);
+    if (info.version !== v || !info.test_mode) throw new Error(`${EXE} is not a -Dtest-build binary; set CORGI_TEST_BIN (see tests/README.md)`);
     const target = { url: `${url}/releases/${v}/corgi`, sha256: sha(binary), size: binary.length };
     const payload = JSON.stringify({ schema_version: 1, commit: info.commit, version: v, update_abi: info.update_abi, targets: { "macos-aarch64": target, "linux-x86_64": target } });
     manifests.set(v, JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), keys.privateKey).toString("hex") }));
   }
-}, 600_000);
+}, 30_000);
 beforeEach(async () => {
   latest = "1.0.1"; invalid = corrupt = unavailable = badAbi = false; requests = 0;
   home = await mkdtemp("/tmp/cu-");
   root = join(home, "install"); bin = join(home, "bin/corgi"); socket = join(home, "runtime/control.sock");
-  env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), CODEX_HOME: join(home, ".codex"), CLAUDE_CONFIG_DIR: join(home, ".claude"), CORGI_SOCKET: socket, SHELL: "/bin/sh", CORGI_PANE: "" } as Record<string, string>;
+  env = { ...process.env, HOME: home, XDG_STATE_HOME: join(home, "state"), CODEX_HOME: join(home, ".codex"), CLAUDE_CONFIG_DIR: join(home, ".claude"), CORGI_SOCKET: socket, SHELL: "/bin/sh", CORGI_PANE: "", ...feedEnv } as Record<string, string>;
   delete env.CORGI_PANE;
   const manifest = join(home, "manifest.json");
   await writeFile(manifest, manifests.get("1.0.0")!);
-  await exec([join(base, "build-1.0.0/bin/corgi"), "__install", root, bin, manifest]);
+  await exec([fixture("1.0.0"), "__install", root, bin, manifest]);
   await cli(["update", "auto", "off"]);
 }, 30_000);
 afterEach(async () => {

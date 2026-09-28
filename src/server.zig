@@ -69,6 +69,7 @@ pub const Server = struct {
     clients: std.ArrayList(Client) = .empty,
     socket: []const u8,
     executable: []const u8,
+    release: updates.Release = .built,
     theme: Theme = .{},
     dirty: bool = true,
     quit: bool = false,
@@ -253,7 +254,7 @@ pub const Server = struct {
                     .server_pid = c.getpid(),
                     .build_id = &main.build_id,
                     .executable = s.executable,
-                    .release_version = options.release_version,
+                    .release_version = s.release.version,
                     .update_abi = updates.abi,
                 });
             },
@@ -756,6 +757,7 @@ pub const Server = struct {
         s.attention(ding, p.agent().state);
     }
     pub fn run(s: *Server) !void {
+        s.release = .of(s.executable);
         s.command_previews = try launch_command.Worker.start();
         defer {
             s.command_previews.?.stop();
@@ -896,7 +898,7 @@ pub const Server = struct {
                 if (now - s.last_update_check >= 30 * std.time.ms_per_s) {
                     s.last_update_check = now;
                     var scratch: [64]u8 = undefined;
-                    const found = updates.stagedVersion(s.executable, &scratch) orelse "";
+                    const found = updates.stagedVersion(s.release, s.executable, &scratch) orelse "";
                     if (!std.mem.eql(u8, found, s.runtime.staged_version)) {
                         @memcpy(s.staged_buf[0..found.len], found);
                         s.runtime.staged_version = s.staged_buf[0..found.len];
