@@ -110,10 +110,10 @@ six body lines.
 a subsystem, such as `protocol`, `viewer`, `daemon`, `sidebar`, `launcher`,
 `claude`, `codex`, `inference`, `resources`, `saved-state`, `tests`, `build`
 or `docs`. A change that spans several takes the one it affects most, never
-`[refactor]`. A change says what is true now; an addition starts with a verb:
+`[refactor]`. Write the summary as an imperative, like Ghostty's subjects:
 
 ```
-[viewer] shared panes follow the last-used viewer's size
+[viewer] size shared panes for the last-used viewer
 [build] add -Dtest-filter to run a subset of unit tests
 ```
 
@@ -132,7 +132,7 @@ refactor of serialized types.
 second one gets an "Also:" line.
 
 ```
-[protocol] usage limits are structured instead of text
+[protocol] send usage limits as data, not text
 
 The daemon used to send usage as "5h 12% / 7d 48%", and the launcher
 parsed that back into state. Now it sends the structured limits.
