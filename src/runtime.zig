@@ -89,6 +89,13 @@ pub const Runtime = struct {
         r.revision +%= 1;
     }
 
+    /// The handoff committed: inherited processes are ours to stop.
+    pub fn adopt(r: *Runtime) void {
+        for (r.panes.items) |p| p.terminal.owner = .runtime;
+        for (r.closed.items) |p| p.terminal.owner = .runtime;
+        for (r.sessions.items) |*s| s.owner = .runtime;
+    }
+
     pub fn deinit(r: *Runtime) void {
         r.resources.deinit();
         r.ports.deinit();

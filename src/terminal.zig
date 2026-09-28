@@ -19,6 +19,9 @@ pub const Terminal = struct {
     links: hyperlink.Snapshot = .{},
     fd: c_int = -1,
     pid: c_int = -1,
+    /// A handoff candidate holds duplicates of fds and pids the source daemon
+    /// still owns. Only `Runtime.adopt` makes them ours to signal.
+    owner: Owner = .runtime,
     title_pid: c_int = 0,
     title_prefix: ?codex_observer.Prefix = null,
     title_revision: u64 = 0,
@@ -31,6 +34,8 @@ pub const Terminal = struct {
     imported: bool = false,
     redraw_pending: bool = false,
     redraw_restore_at: ?i64 = null,
+
+    pub const Owner = enum { runtime, candidate };
 
     pub fn applyTheme(t: *Terminal, theme: Theme) void {
         theme.apply(&t.vt);
@@ -156,7 +161,7 @@ pub const Terminal = struct {
     pub fn stop(t: *Terminal) void {
         t.endSynchronizedOutput();
         if (t.fd >= 0) _ = c.close(t.fd);
-        if (t.pid > 0 and !t.exited) {
+        if (t.owner == .runtime and t.pid > 0 and !t.exited) {
             _ = c.kill(-t.pid, c.SIGHUP);
             _ = c.kill(t.pid, c.SIGHUP);
         }
@@ -222,6 +227,7 @@ pub const Terminal = struct {
     /// Called only by the owning runtime, after handoff commits. Give the app
     /// time to observe a changed size before restoring the real dimensions.
     pub fn refreshRedraw(t: *Terminal, now: i64) void {
+        std.debug.assert(t.owner == .runtime);
         if (t.fd < 0 or t.exited) {
             t.redraw_pending = false;
             t.redraw_restore_at = null;

@@ -9,6 +9,7 @@ const conversations = @import("conversations.zig");
 const providers = @import("providers.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const checkpoint = @import("checkpoint.zig");
+const Terminal = @import("terminal.zig").Terminal;
 const usage = @import("usage.zig");
 const discovery = @import("discovery.zig");
 const codex_observer = @import("codex_observer.zig");
@@ -44,6 +45,9 @@ pub const Session = struct {
     provider: agents.Provider,
     cwd: []const u8,
     child: std.process.Child,
+    /// A handoff candidate holds a duplicate of the pid the source daemon
+    /// still owns. Only `Runtime.adopt` makes it ours to signal.
+    owner: Terminal.Owner = .runtime,
     ready: bool = false,
     imported: bool = false,
     resume_hint: checkpoint.Resume = .{},
@@ -212,7 +216,7 @@ pub const Session = struct {
     pub fn destroy(s: *Session) void {
         s.releaseRequests();
         a.free(s.cwd);
-        if (!s.exited) {
+        if (s.owner == .runtime and !s.exited) {
             _ = c.kill(-s.child.id, c.SIGKILL);
             var exit_status: c_int = 0;
             _ = c.waitpid(s.child.id, &exit_status, 0);
@@ -866,4 +870,36 @@ test "Claude results without turn IDs deduplicate until the next activity" {
         ));
         try std.testing.expectEqual(@as(u64, completed), transport.agent().observation.completed);
     }
+}
+
+test "a restored candidate session does not signal its process until adopted" {
+    var ready: [2]c_int = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), c.pipe(&ready));
+    defer _ = c.close(ready[0]);
+    const pid = c.fork();
+    if (pid == 0) {
+        // Confirm the process group exists before the parent can rely on
+        // `kill(-pid, ...)` reaching it: fork alone does not order the two.
+        _ = c.setpgid(0, 0);
+        _ = c.write(ready[1], "x", 1);
+        while (true) _ = c.pause();
+    }
+    _ = c.close(ready[1]);
+    try std.testing.expect(pid > 0);
+    var byte: [1]u8 = undefined;
+    try std.testing.expectEqual(@as(isize, 1), c.read(ready[0], &byte, 1));
+    defer _ = c.waitpid(pid, null, 0);
+    defer _ = c.kill(pid, c.SIGKILL);
+    var candidate = try testSession(.codex);
+    candidate.child.id = pid;
+    candidate.owner = .candidate;
+    candidate.destroy();
+    // destroy() never signals a process this daemon has not committed to own.
+    try std.testing.expectEqual(@as(c_int, 0), c.waitpid(pid, null, c.WNOHANG));
+    var adopted = try testSession(.codex);
+    adopted.child.id = pid;
+    adopted.owner = .runtime;
+    // destroy() itself reaps an owned process before returning.
+    adopted.destroy();
+    try std.testing.expect(c.kill(pid, 0) != 0);
 }

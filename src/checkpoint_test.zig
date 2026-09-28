@@ -307,6 +307,28 @@ test "redraw cycle changes PTY dimensions only after activation and restores the
     try std.testing.expectEqual(@as(u16, 40), ws.ws_col);
     try std.testing.expect(t.redraw_restore_at == null);
 }
+test "a restored candidate terminal does not signal its process until adopted" {
+    const os = @import("os.zig");
+    const c = os.c;
+    const pid = c.fork();
+    if (pid == 0) {
+        _ = c.setpgid(0, 0);
+        while (true) _ = c.pause();
+    }
+    try std.testing.expect(pid > 0);
+    defer _ = c.waitpid(pid, null, 0);
+    defer _ = c.kill(pid, c.SIGKILL);
+    const screen: cp.Screen = .{ .cols = 10, .rows = 2, .data = "", .pid = pid, .fd = -1, .exited = false };
+    const candidate = try screen.restore(true);
+    try std.testing.expectEqual(Terminal.Owner.candidate, candidate.owner);
+    candidate.destroy();
+    // stop() never signals a process this daemon has not committed to own.
+    try std.testing.expectEqual(@as(c_int, 0), c.waitpid(pid, null, c.WNOHANG));
+    const adopted = try screen.restore(true);
+    adopted.owner = .runtime;
+    adopted.destroy();
+    try std.testing.expectEqual(pid, c.waitpid(pid, null, 0));
+}
 test "resume command quotes session text as one shell argument" {
     var hint: cp.Resume = .{ .provider = .codex };
     hint.len = @import("agents.zig").clean(&hint.session, "session'with quote");

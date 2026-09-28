@@ -262,6 +262,7 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         defer a.free(commit);
         if (!std.mem.eql(u8, commit, "commit")) return error.ReloadNotCommitted;
         _ = c.close(control_fd);
+        s.runtime.adopt();
     }
     // All subsequent cleanup belongs to the new owner.
     try s.run();

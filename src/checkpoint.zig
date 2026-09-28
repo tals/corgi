@@ -115,12 +115,13 @@ pub const Screen = struct {
         const t = try Terminal.create(screen.cols, screen.rows);
         // Snapshot queries must not reach the still-owned PTY during preparation.
         t.restoring = true;
+        defer t.restoring = false;
         t.feed(bytes);
-        t.restoring = false;
         if (live) {
             if (screen.initial_input) |command| try t.prefill(command);
             t.fd = screen.fd;
             t.pid = screen.pid;
+            t.owner = .candidate;
             t.exited = screen.exited;
             t.exit_status = screen.exit_status;
             t.imported = true;
@@ -423,6 +424,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         if (n.members.len == 0) if (s.attachment.actor) |actor| try s.members.append(a, actor);
         s.requests_released = s.exited;
         s.child.id = n.pid;
+        if (live) s.owner = .candidate;
         if (live and n.stdin >= 0) {
             s.child.stdin = .{ .handle = n.stdin };
             os.cloexec(n.stdin);

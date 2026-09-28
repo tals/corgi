@@ -674,8 +674,8 @@ const Job = struct {
             errdefer terminal.destroy();
             terminal.applyTheme(job.theme);
             terminal.restoring = true;
+            defer terminal.restoring = false;
             seedTerminal(terminal, state);
-            terminal.restoring = false;
             const cwd = try a.dupe(u8, "/");
             errdefer a.free(cwd);
             try job.staged.panes.append(a, .{ .id = @enumFromInt(i + 1), .terminal = terminal, .cwd = cwd });
