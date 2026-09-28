@@ -76,21 +76,28 @@ class Observations extends Runtime {
     this.append();
     await this.until(async () => (await this.state()).completed === this.turn);
   }
+  /** Settles after a write to a transcript the daemon may already have read. */
+  async settleTranscript() {
+    // A tail re-reads its transcript at most every 250 ms of real time, and a
+    // settle pass skips a tail inside that wait.
+    await sleep(0.3);
+    await this.settle();
+  }
 
   async test_provisional_stop_partial_record_and_unread_survives_new_work() {
     this.turn = 1;
     await this.hook("UserPromptSubmit");
     await this.hook("Stop");
-    await sleep(0.35);
+    await this.settle();
     this.assertEqual(
       [(await this.state()).state, (await this.state()).unread],
       ["working", false],
     );
     this.append("task_complete", "old");
-    await sleep(0.3);
+    await this.settleTranscript();
     this.assertFalse((await this.state()).unread);
     this.append("task_complete", null, true);
-    await sleep(0.3);
+    await this.settleTranscript();
     this.assertFalse((await this.state()).unread);
     appendFileSync(this.log, "\n");
     await this.until(async () => (await this.state()).unread);
@@ -106,7 +113,7 @@ class Observations extends Runtime {
   async test_duplicate_stop_does_not_revive_finished_or_replace_newer_turn() {
     await this.finish();
     await this.hook("Stop");
-    await sleep(0.3);
+    await this.settle();
     this.assertEqual(
       [(await this.state()).state, (await this.state()).completed],
       ["idle", 1],
@@ -114,7 +121,7 @@ class Observations extends Runtime {
     this.turn = 2;
     await this.hook("UserPromptSubmit");
     await this.hook("Stop", "codex", { turn_id: "1" });
-    await sleep(0.3);
+    await this.settle();
     this.assertEqual((await this.state()).state, "working");
     this.assertFalse((await this.state()).pending_stop);
     this.assertEqual((await this.state()).completed, 1);
@@ -136,7 +143,7 @@ class Observations extends Runtime {
     await this.hook("UserPromptSubmit");
     await this.hook("PreToolUse", "codex", { tool_name: "Bash" });
     await this.hook("PermissionRequest", "codex", { tool_name: "Bash" });
-    await sleep(0.7);
+    await this.settle();
     this.assertEqual(
       [(await this.state()).state, (await this.state()).attention],
       ["working", "none"],
@@ -217,14 +224,14 @@ class Observations extends Runtime {
     await this.hook("Stop");
     await this.hook("PreToolUse", "codex", { tool_name: "Bash" });
     this.append();
-    await sleep(0.4);
+    await this.settleTranscript();
     this.assertFalse((await this.state()).unread);
     await this.hook("Stop");
     this.append();
     await this.until(async () => (await this.state()).unread);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     this.assertEqual((await this.state()).completed, 1);
-    await sleep(0.4);
+    await this.settle();
     this.assertEqual((await this.state()).completed, 1);
   }
   async test_bad_identity_symlink_and_oversized_record() {
@@ -236,14 +243,14 @@ class Observations extends Runtime {
     );
     await this.hook("Stop");
     this.append();
-    await sleep(0.4);
+    await this.settleTranscript();
     this.assertFalse((await this.state()).unread);
     await this.hook("UserPromptSubmit");
     const target = join(this.temp.name, "transcript.actual");
     renameSync(this.log, target);
     symlinkSync(target, this.log);
     await this.hook("Stop");
-    await sleep(0.35);
+    await this.settle();
     this.assertFalse((await this.state()).unread);
     unlinkSync(this.log);
     renameSync(target, this.log);
@@ -310,8 +317,12 @@ class Observations extends Runtime {
     await event("turn/started", "two");
     await this.until(async () => (await snapshot()).state === "working");
     this.assertEqual((await snapshot()).observation.read, 0);
+    const seq = async () =>
+      (await this.rpc({ op: "native.events", session: ident })).next_seq;
+    const before = await seq();
     await event("turn/completed", "one", "completed");
-    await sleep(0.1);
+    // The stale completion goes through the provider process, not a worker.
+    await this.until(async () => (await seq()) > before);
     this.assertEqual((await snapshot()).state, "working");
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     await event("turn/completed", "two", "interrupted");
@@ -337,19 +348,19 @@ class Observations extends Runtime {
       );
     write("assistant", "end_turn");
     write("system", "stop_hook_summary");
-    await sleep(0.4);
+    await this.settleTranscript();
     this.assertFalse((await this.state()).unread);
     write("system", "turn_duration");
     await this.until(async () => (await this.state()).unread);
     await this.hook("Stop", "claude");
-    await sleep(0.35);
+    await this.settle();
     this.assertEqual(
       [(await this.state()).state, (await this.state()).completed],
       ["idle", 1],
     );
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     await this.hook("Stop", "claude");
-    await sleep(0.35);
+    await this.settle();
     this.assertEqual(
       [(await this.state()).state, (await this.state()).completed],
       ["idle", 1],
