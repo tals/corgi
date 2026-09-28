@@ -64,6 +64,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
             active: bool = false,
             resource_detail: ?WorkspaceId = null,
             resources: bool = true,
+            resources_hash: ?u64 = null,
         };
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
@@ -118,15 +119,20 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         }
         // Snapshot fields include time-dependent usage and metadata updated by
         // independent workers. Compare the actual payload, not just layout revision.
-        var snapshot = try protocol.viewerSnapshot(allocator, &s.runtime);
-        snapshot.resources = try snapshot.resources.forViewer(allocator, cl.resource_detail);
-        const session = try std.json.Stringify.valueAlloc(allocator, snapshot, .{});
+        const session = try std.json.Stringify.valueAlloc(allocator, try protocol.viewerSnapshot(allocator, &s.runtime), .{});
         const session_hash = std.hash.Wyhash.hash(0, session);
+        // Readings change every few seconds while the session stays put, and
+        // each viewer asks for its own detail, so they have their own hash.
+        const usage = try s.runtime.resources.current.forViewer(allocator, cl.resource_detail);
+        const readings = try std.json.Stringify.valueAlloc(allocator, usage, .{});
+        const resources_hash = std.hash.Wyhash.hash(0, readings);
         cl.queue(.{
             .type = "view",
             .viewer_protocol = viewer_version.version,
-            .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session },
+            .session = if (req.session_hash == session_hash) @as(?RawJson, null) else RawJson{ .bytes = session },
             .session_hash = session_hash,
+            .resources = if (req.resources_hash == resources_hash) @as(?RawJson, null) else RawJson{ .bytes = readings },
+            .resources_hash = resources_hash,
             .surfaces = frames.items,
             .bell_seq = s.bell_seq,
             .bell_kind = s.last_bell_kind,
@@ -162,9 +168,9 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     }
 }
 
-const SnapshotJson = struct {
+const RawJson = struct {
     bytes: []const u8,
-    pub fn jsonStringify(self: SnapshotJson, writer: *std.json.Stringify) !void {
+    pub fn jsonStringify(self: RawJson, writer: *std.json.Stringify) !void {
         try writer.beginWriteRaw();
         try writer.writer.writeAll(self.bytes);
         writer.endWriteRaw();

@@ -160,9 +160,12 @@ Viewer open/sync exchanges carry `viewer_protocol: 3`, separately from runtime
 incompatible replacement server makes the viewer restore its terminal and exit
 with a reattach explanation; handoff does not upgrade existing viewer processes.
 
-Sync requests include the last session hash and each pane's applied surface
-stamp. Unchanged metadata returns `session: null`; unchanged panes are omitted
-from `surfaces`. Surface stamps cover terminal identity, output revision, and
+Sync requests include the last session hash, the last resources hash and each
+pane's applied surface stamp. Unchanged metadata returns `session: null` and
+unchanged readings `resources: null`; unchanged panes are omitted from
+`surfaces`. The viewer's session leaves out resource readings, the runtime
+revision and sub-5 s freshness, so its hash moves only when something shown
+changes. Surface stamps cover terminal identity, output revision, and
 requested scroll offset. Handoff imports get new identities, forcing refresh.
 Viewers acknowledge a stamp only after applying it, so held selections cannot
 lose output. Local UI animations continue independently of surface updates.

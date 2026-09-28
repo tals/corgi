@@ -38,7 +38,7 @@ function parseWire(line: string) {
 
 function wireRequest(value: Record<string, any>) {
   return JSON.stringify(value, (key, item) =>
-    (key === "identity" || key === "session_hash") && typeof item === "string" && /^\d{16,}$/.test(item)
+    (key === "identity" || key === "session_hash" || key === "resources_hash") && typeof item === "string" && /^\d{16,}$/.test(item)
       ? `__RAW_U64_${item}__` : item,
   ).replace(/"__RAW_U64_(\d+)__"/g, "$1");
 }
@@ -49,6 +49,7 @@ class WireViewer {
   cols: number;
   rows: number;
   session_hash: any = null;
+  resources_hash: any = null;
   known: any = null;
   frame: any = null;
   session: any = null;
@@ -84,6 +85,7 @@ class WireViewer {
     const reply = await this.call({
       op: "viewer.sync",
       session_hash: this.session_hash,
+      resources_hash: this.resources_hash,
       interests: [
         {
           pane: this.pane,
@@ -97,6 +99,7 @@ class WireViewer {
       ...options,
     });
     this.session_hash = reply.session_hash;
+    this.resources_hash = reply.resources_hash;
     if (reply.session != null) this.session = reply.session;
     if (accept && reply.surfaces.length) {
       this.frame = reply.surfaces[0];

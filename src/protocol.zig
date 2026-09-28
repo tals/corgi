@@ -253,8 +253,9 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
 }
 /// A viewer syncs every 30 ms and gets a new session only when this copy's
 /// hash changes. It leaves out what moves while nothing shown changes: the
-/// revision, which every PTY read bumps, and freshness stamps finer than
-/// `stamp_bucket`, which the viewer only compares against a window.
+/// revision, which every PTY read bumps, freshness stamps finer than
+/// `stamp_bucket`, which the viewer only compares against a window, and
+/// resources, which `viewer.sync` sends beside the session.
 pub fn viewerSnapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
     return build(allocator, r, true);
 }
@@ -370,7 +371,7 @@ fn build(allocator: std.mem.Allocator, r: *runtime.Runtime, viewer: bool) !Snaps
         .system_working = r.system_working,
         .server_pid = os.c.getpid(),
         .ports = try r.link_labels.snapshot(allocator, r.ports.current),
-        .resources = r.resources.current,
+        .resources = if (viewer) .{} else r.resources.current,
         .revision = if (viewer) 0 else r.revision,
         .last_agent = r.last_agent,
         .agent_yolo = r.agent_yolo,
@@ -416,8 +417,10 @@ test "a viewer's snapshot stays byte-stable while only output and stamps move" {
     defer arena.deinit();
     const alloc = arena.allocator();
     const before = try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{});
-    // A PTY read bumps the revision; a later observation lands in the same bucket.
+    // A PTY read bumps the revision; a later observation lands in the same
+    // bucket; resource readings travel separately.
     r.changed();
+    r.resources.current.cores = 8;
     actor.observed_at += std.time.us_per_s;
     actor.children_observed_at = actor.observed_at;
     try std.testing.expectEqualStrings(before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{}));

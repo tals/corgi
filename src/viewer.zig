@@ -25,6 +25,8 @@ const Response = struct {
     controls: []const peer.Control,
     session: std.json.Value,
     session_hash: u64,
+    resources: std.json.Value = .null,
+    resources_hash: u64 = 0,
     surfaces: []const surface.View,
     bell_seq: u64,
     bell_kind: agents.Attention,
@@ -92,6 +94,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         .protocol = 1,
         .viewer_protocol = viewer_version.version,
         .session_hash = view.runtime.snapshot_hash,
+        .resources_hash = view.runtime.resources_hash,
         .interests = interests[0..count],
         .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null,
         .watched = view.input_state.watched,
@@ -106,6 +109,8 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     const reply = parsed.value;
     if (reply.session != .null) try view.receiveSnapshot(reply.session);
     view.runtime.snapshot_hash = reply.session_hash;
+    if (reply.resources != .null) try view.runtime.receiveResources(reply.resources);
+    view.runtime.resources_hash = reply.resources_hash;
     view.input_state.viewer_id = reply.viewer;
     for (reply.controls) |control| {
         if (control.seq <= view.input_state.last_control) continue;

@@ -177,6 +177,9 @@ pub const Runtime = struct {
     system_usage: live_usage.View = .{},
     ports: ports.Snapshot = .{},
     resources: resources.Snapshot = .{},
+    /// Owns `resources`, which arrive beside the session with their own hash.
+    resources_parsed: ?std.json.Parsed(resources.Snapshot) = null,
+    resources_hash: ?u64 = null,
     closed_panes: usize = 0,
     last_agent: providers.Provider = .codex,
     agent_yolo: providers.Each(bool, false) = .{},
@@ -190,6 +193,13 @@ pub const Runtime = struct {
         for (r.panes.items) |p| p.terminal.destroy();
         r.panes.deinit(a);
         if (r.snapshot) |snapshot| snapshot.deinit();
+        if (r.resources_parsed) |parsed| parsed.deinit();
+    }
+    pub fn receiveResources(r: *Runtime, value: std.json.Value) !void {
+        const parsed = try std.json.parseFromValue(resources.Snapshot, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true });
+        if (r.resources_parsed) |previous| previous.deinit();
+        r.resources_parsed = parsed;
+        r.resources = parsed.value;
     }
     pub fn receive(r: *Runtime, conn: *Connection, value: std.json.Value) !void {
         // Own the decoded snapshot. Metadata is used directly; only terminal
@@ -235,7 +245,6 @@ pub const Runtime = struct {
         r.system_usage = snapshot.system_usage;
         r.system_working = snapshot.system_working;
         r.ports = snapshot.ports;
-        r.resources = snapshot.resources;
         r.last_agent = snapshot.last_agent;
         r.agent_yolo = snapshot.agent_yolo;
         r.agent_hidden = snapshot.agent_hidden;
