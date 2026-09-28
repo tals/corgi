@@ -7,6 +7,7 @@ const std = @import("std");
 const metadata = @import("account_preview.zig");
 const account_cache = @import("account_cache.zig");
 const Provider = @import("providers.zig").Provider;
+const Failure = @import("failure.zig").Failure;
 const log = std.log.scoped(.limit_history);
 
 pub const cells = 11;
@@ -53,7 +54,7 @@ pub const State = struct {
 };
 
 const Store = account_cache.Locked(State, "limit-history");
-var last_error: ?anyerror = null;
+var failure: Failure = .{};
 
 /// Records an account's latest reading and returns its sparks. Only the
 /// launcher worker thread calls this.
@@ -64,9 +65,7 @@ pub fn update(provider: Provider, info: metadata.Info, stopping: *const std.atom
     };
     if (info.usage_fetched_at <= 0) return none;
     return store(provider, info.account.text(), windows, info.usage_fetched_at, stopping) catch |err| {
-        const repeat = if (last_error) |previous| previous == err else false;
-        if (!repeat) log.warn("limit history update failed: {}", .{err});
-        last_error = err;
+        if (failure.changed(err)) log.warn("limit history update failed: {}", .{err});
         return none;
     };
 }
@@ -77,7 +76,7 @@ fn store(provider: Provider, account: []const u8, windows: [2]?metadata.Window, 
     const before = file.state;
     const sparks = file.state.record(windows, at);
     if (!std.meta.eql(before, file.state)) try file.save();
-    last_error = null;
+    _ = failure.clear();
     return sparks;
 }
 

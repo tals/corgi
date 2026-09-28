@@ -7,6 +7,7 @@ const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const detection = @import("detection.zig");
 const git_status = @import("git_status.zig");
 const clock = @import("clock.zig");
+const Failure = @import("failure.zig").Failure;
 const a = os.allocator;
 const c = os.c;
 const net = @cImport({
@@ -314,10 +315,6 @@ fn probe(endpoint: Endpoint, stopping: *const std.atomic.Value(bool)) Probe {
     return .{};
 }
 
-/// Whether a recurring failure repeats the last one logged.
-fn same(last: ?anyerror, err: anyerror) bool {
-    return if (last) |previous| previous == err else false;
-}
 pub const Tracker = struct {
     arena: std.heap.ArenaAllocator = .init(a),
     current: Snapshot = .{},
@@ -329,8 +326,9 @@ pub const Tracker = struct {
     stopping: std.atomic.Value(bool) = .init(false),
     next_refresh: i64 = 0,
     // Scans repeat every few seconds; warn once per distinct failure.
-    scan_error: ?anyerror = null,
-    interfaces_error: ?anyerror = null,
+    scan_failure: Failure = .{},
+    interfaces_failure: Failure = .{},
+    thread_failure: Failure = .{},
     pub fn deinit(t: *Tracker) void {
         t.stopping.store(true, .release);
         if (t.thread) |thread| thread.join();
@@ -376,20 +374,20 @@ pub const Tracker = struct {
         t.pending = .{};
         t.done.store(false, .release);
         t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
-            log.warn("spawn scan thread failed: {}", .{err});
+            if (t.thread_failure.changed(err)) log.warn("spawn scan thread failed: {}", .{err});
             break :blk null;
         };
+        if (t.thread != null) _ = t.thread_failure.clear();
         return changed;
     }
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
         t.scan() catch |err| {
-            if (!same(t.scan_error, err)) log.warn("port/process scan failed: {}", .{err});
-            t.scan_error = err;
+            if (t.scan_failure.changed(err)) log.warn("port/process scan failed: {}", .{err});
             t.pending = .{};
             return;
         };
-        t.scan_error = null;
+        _ = t.scan_failure.clear();
     }
     fn scan(t: *Tracker) !void {
         const allocator = t.pending_arena.allocator();
@@ -397,11 +395,10 @@ pub const Tracker = struct {
         defer a.free(ps);
         const list = try processes(allocator, ps);
         const all = if (interfaces(allocator)) |found| blk: {
-            t.interfaces_error = null;
+            _ = t.interfaces_failure.clear();
             break :blk found;
         } else |err| blk: {
-            if (!same(t.interfaces_error, err)) log.warn("network interface enumeration failed: {}", .{err});
-            t.interfaces_error = err;
+            if (t.interfaces_failure.changed(err)) log.warn("network interface enumeration failed: {}", .{err});
             break :blk &.{};
         };
         const files = command(&.{ "lsof", "-nP", "-iTCP", "-iUDP", "-FpcftPnT" }, &t.stopping, true);

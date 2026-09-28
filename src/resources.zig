@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 const os = @import("os.zig");
 const native = @import("resource_os.zig");
 const clock = @import("clock.zig");
+const Failure = @import("failure.zig").Failure;
 const a = os.allocator;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Provider = @import("agents.zig").Provider;
@@ -146,7 +147,8 @@ pub const Tracker = struct {
     next_refresh: i64 = 0,
     last_started: i64 = 0,
     // Samples repeat every few seconds; warn once per distinct failure.
-    sample_error: ?anyerror = null,
+    sample_failure: Failure = .{},
+    thread_failure: Failure = .{},
     interval_ms: u32 = 2000,
 
     pub fn deinit(t: *Tracker) void {
@@ -219,9 +221,10 @@ pub const Tracker = struct {
         t.pending = .{};
         t.done.store(false, .release);
         t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
-            log.warn("spawn sample thread failed: {}", .{err});
+            if (t.thread_failure.changed(err)) log.warn("spawn sample thread failed: {}", .{err});
             break :blk null;
         };
+        if (t.thread != null) _ = t.thread_failure.clear();
         return changed;
     }
     /// Discards every reading once sampling is turned off, so snapshots carry
@@ -247,14 +250,13 @@ pub const Tracker = struct {
     fn run(t: *Tracker) void {
         defer t.done.store(true, .release);
         t.sample() catch |err| {
-            const repeated = if (t.sample_error) |previous| previous == err else false;
-            if (err != error.Stopped and !repeated) log.warn("resource sample failed: {}", .{err});
-            t.sample_error = err;
+            const changed = t.sample_failure.changed(err);
+            if (err != error.Stopped and changed) log.warn("resource sample failed: {}", .{err});
             // Never retain stale values as a healthy zero after sampling fails.
             t.pending = .{ .view = .{ .sampled_at = clock.milliTimestamp(), .interval_ms = t.interval_ms } };
             return;
         };
-        t.sample_error = null;
+        _ = t.sample_failure.clear();
     }
     fn sample(t: *Tracker) !void {
         const allocator = t.pending_arena.allocator();

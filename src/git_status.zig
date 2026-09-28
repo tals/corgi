@@ -8,6 +8,7 @@ const PushRef = @import("git_push.zig").Ref;
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const clock = @import("clock.zig");
+const Failure = @import("failure.zig").Failure;
 const log = std.log.scoped(.git_status);
 pub const Commit = struct {
     hash: [12]u8 = @splat(0),
@@ -74,6 +75,10 @@ pub const Tracker = struct {
     next_refresh: i64 = 0,
     jobs: std.ArrayList(Job) = .empty,
     cache: std.StringHashMapUnmanaged(Cache) = .empty,
+    // Scans and git spawns repeat every few seconds; warn once per distinct failure.
+    alloc_failure: Failure = .{},
+    thread_failure: Failure = .{},
+    spawn_failure: Failure = .{},
     const Job = struct { id: WorkspaceId, cwd: []const u8, ahead: ?u64 = null, commits: Commits = .{}, ref: PushRef = .{} };
     const Cache = struct { refs: []const u8, ahead: ?u64, seen: i64, commits: Commits = .{}, ref: PushRef = .{} };
 
@@ -122,21 +127,23 @@ pub const Tracker = struct {
         t.next_refresh = now + 3000;
         for (store.items.items) |ws| {
             const cwd = a.dupe(u8, ws.cwd) catch |err| {
-                log.warn("git scan alloc failed: {}", .{err});
+                if (t.alloc_failure.changed(err)) log.warn("git scan alloc failed: {}", .{err});
                 break;
             };
             t.jobs.append(a, .{ .id = ws.id, .cwd = cwd }) catch |err| {
-                log.warn("git scan alloc failed: {}", .{err});
+                if (t.alloc_failure.changed(err)) log.warn("git scan alloc failed: {}", .{err});
                 a.free(cwd);
                 break;
             };
+            _ = t.alloc_failure.clear();
         }
         t.done.store(false, .release);
         t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
-            log.warn("git tracker thread spawn failed: {}", .{err});
+            if (t.thread_failure.changed(err)) log.warn("git tracker thread spawn failed: {}", .{err});
             t.clearJobs();
             break :blk null;
         };
+        if (t.thread != null) _ = t.thread_failure.clear();
         return changed;
     }
     fn run(t: *Tracker) void {
@@ -187,17 +194,17 @@ pub const Tracker = struct {
         if (t.cache.get(key)) |cached| {
             if (cached.seen == now or (cached.refs.len == 0 and now - cached.seen < 30000)) return cachedResult(cached, commits, ref);
         }
-        const refs = command(root, &.{ "rev-parse", "--verify", "HEAD" }) orelse return t.save(key, "", null, now);
+        const refs = command(root, &.{ "rev-parse", "--verify", "HEAD" }, &t.spawn_failure) orelse return t.save(key, "", null, now);
         defer a.free(refs);
-        const branch = command(root, &.{ "symbolic-ref", "--quiet", "HEAD" }) orelse return t.save(key, refs, null, now);
+        const branch = command(root, &.{ "symbolic-ref", "--quiet", "HEAD" }, &t.spawn_failure) orelse return t.save(key, refs, null, now);
         defer a.free(branch);
-        const tracking = command(root, &.{ "for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", branch }) orelse return t.save(key, refs, null, now);
+        const tracking = command(root, &.{ "for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", branch }, &t.spawn_failure) orelse return t.save(key, refs, null, now);
         defer a.free(tracking);
         var fields = std.mem.splitScalar(u8, tracking, 0);
         const remote = fields.next() orelse "";
         const destination = fields.next() orelse "";
         ref.* = PushRef.init(key, refs, branch, remote, destination);
-        const upstream = command(root, &.{ "rev-parse", "--verify", "@{upstream}" }) orelse return t.save(key, refs, null, now);
+        const upstream = command(root, &.{ "rev-parse", "--verify", "@{upstream}" }, &t.spawn_failure) orelse return t.save(key, refs, null, now);
         defer a.free(upstream);
         const fingerprint = try std.fmt.allocPrint(a, "{s}..{s}", .{ upstream, refs });
         defer a.free(fingerprint);
@@ -208,11 +215,11 @@ pub const Tracker = struct {
                 return cachedResult(cached.*, commits, ref);
             }
         }
-        const count = command(root, &.{ "rev-list", "--count", fingerprint }) orelse return t.save(key, fingerprint, null, now);
+        const count = command(root, &.{ "rev-list", "--count", fingerprint }, &t.spawn_failure) orelse return t.save(key, fingerprint, null, now);
         defer a.free(count);
         const ahead = std.fmt.parseInt(u64, count, 10) catch null;
         if (ahead != null and ahead.? > 0) {
-            if (command(root, &.{ "log", "--no-show-signature", "--no-decorate", "--encoding=UTF-8", "--date=format:%Y-%m-%d %H:%M", "--format=%h%x00%an%x00%ad%x00%at%x00%s%x00", "-12", fingerprint, "--" })) |output| {
+            if (command(root, &.{ "log", "--no-show-signature", "--no-decorate", "--encoding=UTF-8", "--date=format:%Y-%m-%d %H:%M", "--format=%h%x00%an%x00%ad%x00%at%x00%s%x00", "-12", fingerprint, "--" }, &t.spawn_failure)) |output| {
                 defer a.free(output);
                 commits.* = parseCommits(output);
             }
@@ -239,7 +246,7 @@ pub const Tracker = struct {
 
 // No shell, network fetch, index scan, or unbounded child wait. A slow checkout
 // cannot freeze input; wrappers and their descendants get a two-second deadline.
-fn command(cwd: []const u8, args: []const []const u8) ?[]const u8 {
+fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?[]const u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(a);
     argv.appendSlice(a, &.{ "git", "--no-optional-locks", "-C", cwd }) catch return null;
@@ -252,9 +259,10 @@ fn command(cwd: []const u8, args: []const []const u8) ?[]const u8 {
     child_mutex.lock();
     child.spawn() catch |err| {
         child_mutex.unlock();
-        log.warn("git spawn failed: {}", .{err});
+        if (spawn_failure.changed(err)) log.warn("git spawn failed: {}", .{err});
         return null;
     };
+    _ = spawn_failure.clear();
     child_pid = child.id;
     child_status = null;
     child_mutex.unlock();
@@ -304,7 +312,8 @@ fn command(cwd: []const u8, args: []const []const u8) ?[]const u8 {
 }
 
 fn testGit(cwd: []const u8, args: []const []const u8) !void {
-    const result = command(cwd, args) orelse return error.GitFailed;
+    var spawn_failure: Failure = .{};
+    const result = command(cwd, args, &spawn_failure) orelse return error.GitFailed;
     a.free(result);
 }
 
