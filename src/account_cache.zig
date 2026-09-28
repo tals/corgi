@@ -127,6 +127,8 @@ pub fn response(bytes: []const u8, now: i64) Response {
 fn retryAt(value: []const u8, now: i64) ?i64 {
     if (std.fmt.parseInt(u32, value, 10)) |seconds| return now + seconds else |_| {}
     const c = @cImport({
+        // glibc declares strptime and timegm only for GNU sources.
+        @cDefine("_GNU_SOURCE", {});
         @cInclude("time.h");
     });
     const terminated = a.dupeZ(u8, value) catch return null;
