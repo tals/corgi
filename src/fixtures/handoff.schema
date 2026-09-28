@@ -35,6 +35,11 @@ $.summaries?.slots[].slot.next: i64
 $.summaries?.slots[].slot.attempted_tools: u64
 $.summaries?.slots[].slot.attempted_evidence: optional
 $.summaries?.slots[].slot.attempted_evidence?: u64
+$.summaries?.slots[].slot.attempted_commentary: optional
+$.summaries?.slots[].slot.attempted_commentary?: u64
+$.summaries?.slots[].slot.attempted_at: i64
+$.summaries?.slots[].slot.tools_changed_at: i64
+$.summaries?.slots[].slot.tools_pending_since: i64
 $.summaries?.slots[].slot.retry: bool
 $.summaries?.slots[].slot.active: bool
 $.summaries?.slots[].slot.result: optional
@@ -60,6 +65,7 @@ $.summaries?.slots[].slot.result?.request.completed_tools: u64
 $.summaries?.slots[].slot.result?.label: optional
 $.summaries?.slots[].slot.result?.label?.bytes: bytes[80]
 $.summaries?.slots[].slot.result?.label?.len: usize
+$.summaries?.slots[].slot.result?.number: u64
 $.summaries?.link_requests[].slot: usize
 $.summaries?.link_requests[].generation: u64
 $.summaries?.link_requests[].key.workspace: u32

@@ -65,8 +65,21 @@ class SummaryCases extends Summaries {
     this.assertEqual(request.context.source.panes, [this.pane]);
     this.assertEqual(request.context.source.session, A);
     this.assertEqual(request.context.turn, "active");
+    this.assertIsNone(request.fresh_input);
     this.assertEqual(JSON.parse(result.output), { label: raw });
     this.assertEqual(result.status, "validated");
+    this.assertTrue(result.fresh_conversation);
+    this.assertEqual(result.usage, {
+      input: 1000,
+      cached_input: 600,
+      output: 10,
+    });
+    await this.until(() =>
+      this.summary_logs().some((r: any) => r.event === "outcome"),
+    );
+    const outcome = this.summary_logs().find((r: any) => r.event === "outcome");
+    this.assertEqual(outcome.context.request, request.context.request);
+    this.assertEqual([outcome.status, outcome.reason], ["applied", null]);
   }
   async test_summary_log_identifies_inference_error() {
     writeFileSync(this.control, JSON.stringify({ delay: 0, fail: true }));
@@ -244,6 +257,34 @@ class SummaryCases extends Summaries {
     );
     this.assertIn("zig build test", JSON.parse(this.calls()[1]).evidence);
   }
+  async test_tool_burst_is_summarized_once_it_goes_quiet() {
+    await this.start_turn("active", false);
+    await this.until(() => this.calls().length === 1);
+    await this.until(
+      async () => (await this.state()).activity === "Tracing pane focus",
+    );
+    this.tools(1, "rg first src");
+    await this.advance(5);
+    this.tools(1, "rg second src");
+    // The cooldown has passed, but the burst is still going.
+    await this.advance(3.5);
+    this.assertEqual(this.calls().length, 1);
+    await this.advance(2);
+    await this.until(() => this.calls().length === 2);
+    this.assertIn("rg second src", JSON.parse(this.calls()[1]).evidence);
+  }
+  async test_polling_the_same_command_is_not_summarized_again() {
+    await this.start_turn("active", false);
+    await this.until(() => this.calls().length === 1);
+    this.tools(1, "lavish-axi poll");
+    await this.advance(9);
+    await this.until(() => this.calls().length === 2);
+    for (let i = 0; i < 3; i++) {
+      this.tools(1, "lavish-axi poll");
+      await this.advance(9);
+    }
+    this.assertEqual(this.calls().length, 2);
+  }
   async test_new_turn_reuses_actor_conversation_without_waiting_for_tools() {
     await this.start_turn("active", false);
     await this.until(() => this.calls().length === 1);
@@ -252,10 +293,11 @@ class SummaryCases extends Summaries {
     );
     await this.start_turn("second", false);
     await this.until(() => this.calls().length === 2);
-    const second = JSON.parse(this.calls()[1]);
-    this.assertEqual(second.turn, "second");
-    this.assertEqual(second.previous, "Tracing pane focus");
-    this.assertIn("Tracing pane focus", second.history[0]);
+    const [first, second] = this.calls().map((call) => JSON.parse(call));
+    // Turns are short tags; the live conversation already holds the first label.
+    this.assertEqual(second.turn.length, 8);
+    this.assertNotEqual(second.turn, first.turn);
+    this.assertEqual(Object.keys(second), ["provider", "turn", "evidence"]);
     const sessions = lines(this.log + ".sessions").map((v) => JSON.parse(v));
     this.assertEqual(sessions[0].pid, sessions[1].pid);
     this.assertEqual(sessions[0].thread, sessions[1].thread);
@@ -299,6 +341,11 @@ class SummaryCases extends Summaries {
       async () => (await this.state()).activity === "Running tests",
     );
     this.assertEqual(lines(this.log + ".processes").length, 2);
+    // A new harness starts a new conversation, so the agent's history comes along.
+    this.assertIn(
+      "Tracing pane focus",
+      JSON.parse(this.calls().at(-1)!).history[0],
+    );
     this.assertEqual(
       (
         await this.rpc({
@@ -369,6 +416,14 @@ class SummaryCases extends Summaries {
       (c: any) => c.agent.session === A,
     );
     this.assertEqual(actor.timeline.points, []);
+    await this.until(() =>
+      this.summary_logs().some((r: any) => r.event === "outcome"),
+    );
+    const outcome = this.summary_logs().find((r: any) => r.event === "outcome");
+    this.assertEqual(
+      [outcome.status, outcome.reason],
+      ["discarded", "not_working"],
+    );
   }
   async test_bad_backend_output_falls_back_without_retry_loop() {
     writeFileSync(

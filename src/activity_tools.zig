@@ -15,18 +15,137 @@ pub const View = struct {
     completed: u64 = 0,
     evidence: summary.Text = .{},
 };
+/// Tool lines name the work; the summarizer never needs whole scripts. Details
+/// keep their first line within this many bytes, and an ellipsis marks a cut.
+const detail_limit = 120;
+const ellipsis = "…";
 const Call = struct {
     id: u64 = 0,
     live: bool = false,
     bytes: [240]u8 = @splat(0),
     len: usize = 0,
-    fn append(call: *Call, text: []const u8) void {
-        var n = @min(text.len, call.bytes.len - call.len);
-        while (n > 0 and !std.unicode.utf8ValidateSlice(text[0..n])) n -= 1;
-        @memcpy(call.bytes[call.len..][0..n], text[0..n]);
+    fn text(call: *const Call) []const u8 {
+        return call.bytes[0..call.len];
+    }
+    fn append(call: *Call, value: []const u8) void {
+        var n = @min(value.len, call.bytes.len - call.len);
+        while (n > 0 and !std.unicode.utf8ValidateSlice(value[0..n])) n -= 1;
+        @memcpy(call.bytes[call.len..][0..n], value[0..n]);
         call.len += n;
     }
+    /// The first line of `value`, such as a description or a shell command
+    /// whose heredoc body is dropped.
+    fn detail(call: *Call, value: []const u8) void {
+        const start = call.len;
+        const trimmed = std.mem.trim(u8, value, " \t\r\n");
+        const line = trimmed[0 .. std.mem.indexOfAny(u8, trimmed, "\r\n") orelse trimmed.len];
+        call.append(std.mem.trimEnd(u8, line, " \t"));
+        call.bound(start, line.len < trimmed.len);
+    }
+    fn bound(call: *Call, start: usize, dropped: bool) void {
+        if (call.len > start + detail_limit) {
+            var n = start + detail_limit - ellipsis.len;
+            while (n > start and !std.unicode.utf8ValidateSlice(call.bytes[start..n])) n -= 1;
+            call.len = n;
+        } else if (!dropped) return;
+        call.append(ellipsis);
+    }
+    /// Codex code mode wraps tool calls in JavaScript, for example
+    /// `text(await tools.exec_command({cmd:"rg x",max_output_tokens:4000}))`.
+    /// Keep the commands and patched files; drop the wrapper.
+    fn script(call: *Call, code: []const u8) bool {
+        const start = call.len;
+        var found = false;
+        var rest = code;
+        while (std.mem.indexOf(u8, rest, "tools.")) |at| {
+            if (call.len >= start + detail_limit) break;
+            rest = rest[at + "tools.".len ..];
+            var n: usize = 0;
+            while (n < rest.len and (std.ascii.isAlphanumeric(rest[n]) or rest[n] == '_')) n += 1;
+            if (n == 0) continue;
+            const name = rest[0..n];
+            rest = rest[n..];
+            const args = rest[0 .. std.mem.indexOf(u8, rest, "tools.") orelse rest.len];
+            if (found) call.append("; ");
+            found = true;
+            if (std.mem.eql(u8, name, "exec_command")) {
+                if (scriptString(args, "cmd")) |cmd| call.appendScriptLine(cmd) else call.append(name);
+            } else if (std.mem.eql(u8, name, "apply_patch")) {
+                call.append("apply_patch ");
+                _ = call.patchFiles(args);
+            } else call.append(name);
+        }
+        if (found) call.bound(start, std.mem.indexOf(u8, rest, "tools.") != null);
+        return found;
+    }
+    /// The first line of a JavaScript string body, unescaped.
+    fn appendScriptLine(call: *Call, raw: []const u8) void {
+        var line: [detail_limit + 8]u8 = undefined;
+        var n: usize = 0;
+        var i: usize = 0;
+        while (i < raw.len and n < line.len) : (i += 1) {
+            var char = raw[i];
+            if (char == '\n') break;
+            if (char == '\\' and i + 1 < raw.len) {
+                i += 1;
+                char = switch (raw[i]) {
+                    'n', 'r' => break,
+                    't' => ' ',
+                    else => raw[i],
+                };
+            }
+            line[n] = char;
+            n += 1;
+        }
+        call.append(std.mem.trim(u8, line[0..n], " "));
+    }
+    /// Files named by an apply_patch body, raw or escaped inside a script.
+    fn patchFiles(call: *Call, patch: []const u8) bool {
+        var found = false;
+        var rest = patch;
+        while (std.mem.indexOf(u8, rest, "*** ")) |at| {
+            rest = rest[at + "*** ".len ..];
+            const verb = for ([_][]const u8{ "Update File: ", "Add File: ", "Delete File: " }) |candidate| {
+                if (std.mem.startsWith(u8, rest, candidate)) break candidate;
+            } else continue;
+            rest = rest[verb.len..];
+            const end = std.mem.indexOfAny(u8, rest, "\\\n\"'`") orelse rest.len;
+            if (found) call.append(", ");
+            call.append(shortPath(rest[0..end]));
+            found = true;
+            rest = rest[end..];
+        }
+        return found;
+    }
 };
+/// The body of the JavaScript string assigned to `key` in an object literal.
+fn scriptString(args: []const u8, key: []const u8) ?[]const u8 {
+    var from: usize = 0;
+    while (std.mem.indexOfPos(u8, args, from, key)) |at| {
+        from = at + key.len;
+        var i = from;
+        if (i < args.len and args[i] == '"') i += 1;
+        while (i < args.len and args[i] == ' ') i += 1;
+        if (i >= args.len or args[i] != ':') continue;
+        i += 1;
+        while (i < args.len and args[i] == ' ') i += 1;
+        if (i >= args.len or std.mem.indexOfScalar(u8, "\"'`", args[i]) == null) continue;
+        const quote = args[i];
+        const body = args[i + 1 ..];
+        var end: usize = 0;
+        while (end < body.len and body[end] != quote) : (end += 1) {
+            if (body[end] == '\\') end += 1;
+        }
+        return body[0..@min(end, body.len)];
+    }
+    return null;
+}
+/// The last two components of a path; the project prefix is noise.
+fn shortPath(path: []const u8) []const u8 {
+    const last = std.mem.lastIndexOfScalar(u8, path, '/') orelse return path;
+    const parent = std.mem.lastIndexOfScalar(u8, path[0..last], '/') orelse return path;
+    return path[parent + 1 ..];
+}
 pub const Tracker = struct {
     commentary: summary.Text = .{},
     turn: [160]u8 = @splat(0),
@@ -52,7 +171,8 @@ pub const Tracker = struct {
         if (!t.ended) for (t.pending) |call| {
             if (call.id == 0) continue;
             out.running += 1;
-            if (!call.live) continue;
+            // Polling reruns the latest completed call; showing it again adds nothing.
+            if (!call.live or std.mem.eql(u8, call.text(), t.recent[2].text())) continue;
             if (active == 0) out.evidence.append("Currently running tools (not yet completed):\n");
             if (active < 4) {
                 out.evidence.append(call.bytes[0..call.len]);
@@ -119,9 +239,16 @@ pub const Tracker = struct {
                         const text = agents.str(parsed.value, key_name);
                         if (text.len > 0) break text;
                     } else input;
-                    call.append(detail);
-                } else |_| call.append(input);
-            } else if (subtype == .web_search_call) call.append(agents.str(field(payload, "action"), "query"));
+                    call.detail(detail);
+                } else |_| {
+                    // Custom tools take raw text: patches and code-mode scripts.
+                    const start = call.len;
+                    const patch = std.mem.startsWith(u8, std.mem.trimStart(u8, input, " \t\r\n"), "*** Begin Patch");
+                    if (patch and call.patchFiles(input)) {
+                        call.bound(start, false);
+                    } else if (!call.script(input)) call.detail(input);
+                }
+            } else if (subtype == .web_search_call) call.detail(agents.str(field(payload, "action"), "query"));
             if (subtype == .web_search_call and std.mem.eql(u8, agents.str(payload, "status"), "completed")) {
                 t.finish(call, live);
                 return;
@@ -172,7 +299,7 @@ pub const Tracker = struct {
                 for ([_][]const u8{ "description", "command", "file_path", "pattern", "query", "url", "prompt" }) |name| {
                     const detail = agents.str(input, name);
                     if (detail.len == 0) continue;
-                    call.append(detail);
+                    call.detail(if (std.mem.eql(u8, name, "file_path")) shortPath(detail) else detail);
                     break;
                 }
                 const slot = for (&t.pending) |*pending| {
@@ -202,10 +329,13 @@ pub const Tracker = struct {
         t.next_seen = (t.next_seen + 1) % t.seen.len;
         if (!live) return;
         t.completed +|= 1;
-        t.recent[0] = t.recent[1];
-        t.recent[1] = t.recent[2];
-        t.recent[2] = call;
         t.dirty = true;
+        // A repeated call (polling) keeps one entry, so the evidence holds still.
+        if (!std.mem.eql(u8, t.recent[2].text(), call.text())) {
+            t.recent[0] = t.recent[1];
+            t.recent[1] = t.recent[2];
+        }
+        t.recent[2] = call;
     }
 };
 
@@ -317,4 +447,74 @@ test "running tools publish stable evidence before completion for both providers
         try std.testing.expect(std.mem.indexOf(u8, finished.evidence.text(), "Currently running tools") == null);
         try std.testing.expect(std.mem.indexOf(u8, finished.evidence.text(), "Recent completed tools") != null);
     }
+}
+
+fn testCall(name: []const u8) Call {
+    var call: Call = .{ .id = 1 };
+    call.append(name);
+    call.append(": ");
+    return call;
+}
+
+test "tool lines keep the command and drop wrappers, scripts and patch bodies" {
+    var call = testCall("exec");
+    try std.testing.expect(call.script(
+        \\text((await tools.exec_command({cmd:"sed -n '1,220p' tests/support.ts",workdir:"/Users/tal/dev/personal/corgi",max_output_tokens:8000})).output)
+    ));
+    try std.testing.expectEqualStrings("exec: sed -n '1,220p' tests/support.ts", call.text());
+
+    call = testCall("exec");
+    try std.testing.expect(call.script(
+        \\const r = await Promise.allSettled([
+        \\  tools.exec_command({cmd:"rg -n \"focus|blur\" src",max_output_tokens:4000}),
+        \\  tools.apply_patch("*** Begin Patch\n*** Update File: /Users/tal/dev/personal/corgi/src/resources.zig\n@@\n-  old\n+  new\n*** End Patch"),
+        \\  tools.write_stdin({session_id:17169,chars:""})
+        \\]);
+    ));
+    try std.testing.expectEqualStrings("exec: rg -n \"focus|blur\" src; apply_patch src/resources.zig; write_stdin", call.text());
+
+    call = testCall("exec_command");
+    call.detail("python3 - <<'EOF'\nprint('long script')\nEOF");
+    try std.testing.expectEqualStrings("exec_command: python3 - <<'EOF'…", call.text());
+
+    call = testCall("apply_patch");
+    const start = call.len;
+    try std.testing.expect(call.patchFiles("*** Begin Patch\n*** Add File: /repo/docs/notes.md\n+hi\n*** Delete File: /repo/src/old.zig\n*** End Patch"));
+    call.bound(start, false);
+    try std.testing.expectEqualStrings("apply_patch: docs/notes.md, src/old.zig", call.text());
+
+    call = testCall("Bash");
+    call.detail("rg " ++ "x" ** 200);
+    try std.testing.expect(std.mem.endsWith(u8, call.text(), ellipsis));
+    try std.testing.expectEqual(@as(usize, "Bash: ".len + detail_limit), call.len);
+}
+
+test "polling the same call leaves the evidence unchanged" {
+    const alloc = std.testing.allocator;
+    var t: Tracker = .{};
+    t.bind("turn");
+    var before: u64 = 0;
+    for (0..3) |i| {
+        var id: [8]u8 = undefined;
+        const call_id = try std.fmt.bufPrint(&id, "poll-{d}", .{i});
+        const start = try std.fmt.allocPrint(alloc,
+            \\{{"type":"response_item","payload":{{"type":"function_call","call_id":"{s}","name":"exec_command","arguments":"{{\"cmd\":\"lavish-axi poll\"}}"}}}}
+        , .{call_id});
+        defer alloc.free(start);
+        const done = try std.fmt.allocPrint(alloc,
+            \\{{"type":"response_item","payload":{{"type":"function_call_output","call_id":"{s}","output":"no feedback"}}}}
+        , .{call_id});
+        defer alloc.free(done);
+        const start_value = try std.json.parseFromSlice(std.json.Value, alloc, start, .{});
+        defer start_value.deinit();
+        const done_value = try std.json.parseFromSlice(std.json.Value, alloc, done, .{});
+        defer done_value.deinit();
+        t.ingest(start_value.value, true);
+        if (i > 0) try std.testing.expectEqual(before, t.view().evidence.hash());
+        t.ingest(done_value.value, true);
+        before = t.view().evidence.hash();
+    }
+    try std.testing.expectEqual(@as(u64, 3), t.completed);
+    const evidence = t.view().evidence.text();
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, evidence, "lavish-axi poll"));
 }

@@ -42,16 +42,23 @@ pub fn main() !void {
             if (stopping.load(.acquire)) return error.Cancelled;
             // Match the production evidence bound; never silently evaluate more context.
             if (step.evidence.len > 2048) return error.EvidenceTooLong;
+            // As in production, history accompanies only a newly created conversation.
             var history: [4][]const u8 = undefined;
             for (context.recent[0..context.len], 0..) |*entry, i| history[i] = entry.text();
-            const input: backend.Input = .{ .provider = args[1], .evidence = step.evidence, .previous = context.previous.text(), .turn = step.turn, .history = history[0..context.len] };
-            const json = try std.json.Stringify.valueAlloc(a, input, .{});
+            const tag = contract.turnTag(step.turn);
+            const live: backend.Input = .{ .provider = args[1], .turn = &tag, .evidence = step.evidence };
+            var fresh = live;
+            fresh.history = history[0..context.len];
+            const json = try contract.content(a, live);
             defer a.free(json);
+            const fresh_json = if (context.len > 0) try contract.content(a, fresh) else null;
+            defer if (fresh_json) |value| a.free(value);
             const started = std.time.milliTimestamp();
-            const response = impl.pool.infer(.{ .instructions = contract.instructions, .schema = contract.schema, .content = json, .conversation = scenario.id }, &stopping) catch |err| {
-                try emit(.{ .id = step.id, .status = "error", .err = @errorName(err), .raw = @as(?[]const u8, null), .label = @as(?[]const u8, null), .elapsed_ms = std.time.milliTimestamp() - started, .input = input });
+            const response = impl.pool.infer(.{ .instructions = contract.instructions, .schema = contract.schema, .content = json, .fresh_content = fresh_json, .conversation = scenario.id }, &stopping) catch |err| {
+                try emit(.{ .id = step.id, .status = "error", .err = @errorName(err), .raw = @as(?[]const u8, null), .label = @as(?[]const u8, null), .elapsed_ms = std.time.milliTimestamp() - started, .input = live });
                 continue;
             };
+            const input = if (response.fresh and fresh_json != null) fresh else live;
             const decision = contract.parse(a, response.text()) catch |err| {
                 try emit(.{ .id = step.id, .status = "invalid", .err = @errorName(err), .raw = response.text(), .label = @as(?[]const u8, null), .elapsed_ms = std.time.milliTimestamp() - started, .input = input });
                 continue;

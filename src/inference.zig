@@ -61,10 +61,18 @@ pub const Request = struct {
     /// Optional JSON Schema. The returned text is JSON when this is supplied;
     /// callers still validate their task's semantics (e.g. exactly four words).
     schema: ?[]const u8 = null,
+    /// Sent instead of `content` when this request starts the native
+    /// conversation (first use, eviction, rotation or failure recovery), so
+    /// callers can restore context that a live conversation already holds.
+    fresh_content: ?[]const u8 = null,
 };
 pub const Response = struct {
     bytes: [output_limit]u8 = undefined,
     len: usize = 0,
+    /// Whether this request started the native conversation.
+    fresh: bool = false,
+    /// Usage reported for this request alone.
+    usage: live_usage.Tokens = .{},
     pub fn text(r: *const Response) []const u8 {
         return r.bytes[0..r.len];
     }
@@ -359,7 +367,8 @@ pub const Pool = struct {
     pub fn infer(p: *Pool, request: Request, stopping: *const std.atomic.Value(bool)) !Response {
         if (p.config.disabled) return error.Disabled;
         if (stopping.load(.acquire)) return error.Cancelled;
-        if (request.instructions.len + request.content.len > 512 * 1024) return error.InputTooLarge;
+        const fresh_len = if (request.fresh_content) |value| value.len else 0;
+        if (request.instructions.len + @max(request.content.len, fresh_len) > 512 * 1024) return error.InputTooLarge;
         if (request.schema) |schema| {
             if (schema.len > 32768) return error.InputTooLarge;
             const parsed = try std.json.parseFromSlice(std.json.Value, a, schema, .{});
@@ -407,7 +416,13 @@ pub const Pool = struct {
         const s = &slot.*.?;
         p.clock += 1;
         s.used = p.clock;
+        const fresh = s.turns == 0;
+        var sent = request;
+        if (fresh) if (request.fresh_content) |value| {
+            sent.content = value;
+        };
         const reports = p.system_usage.reports;
+        const before = p.system_usage.meter.value.tokens;
         errdefer |err| p.system_usage.markPartial("{s} inference failed ({s} usage report): {s}; conversation {s}, turn {d}", .{
             @tagName(p.config.provider),
             if (p.system_usage.reports == reports) "no" else "with",
@@ -415,9 +430,9 @@ pub const Pool = struct {
             request.conversation orelse "-",
             s.turns,
         });
-        const response = switch (p.config.provider) {
-            .codex => try codex(s, p.config, request, stopping, deadline),
-            .claude => try claude(s, request, stopping, deadline),
+        var response = switch (p.config.provider) {
+            .codex => try codex(s, p.config, sent, stopping, deadline),
+            .claude => try claude(s, sent, stopping, deadline),
         };
         if (response.len == 0) return error.EmptyOutput;
         if (request.schema != null) {
@@ -426,6 +441,9 @@ pub const Pool = struct {
         }
         if (p.system_usage.reports == reports)
             p.system_usage.markPartial("{s} turn completed without a usage report; conversation {s}, turn {d}", .{ @tagName(p.config.provider), request.conversation orelse "-", s.turns });
+        const after = p.system_usage.meter.value.tokens;
+        inline for (std.meta.fields(live_usage.Tokens)) |f| @field(response.usage, f.name) = @field(after, f.name) -| @field(before, f.name);
+        response.fresh = fresh;
         s.turns += 1;
         p.started = true;
         return response;
@@ -736,6 +754,26 @@ test "native inference reuses each harness conversation and keeps targets separa
         try std.testing.expectEqual(@as(i64, 3), try fixtureValue(&third, "turn"));
         try std.testing.expectEqual(@as(u64, 4040), pool.system_usage.meter.value.tokens.total());
         try std.testing.expectEqual(@as(u64, 2400), pool.system_usage.meter.value.tokens.cached_input);
+        for ([_]bool{ first.fresh, second.fresh, other.fresh, third.fresh }, [_]bool{ true, false, true, false }) |got, want|
+            try std.testing.expectEqual(want, got);
+        for ([_]Response{ first, second, other, third }) |response|
+            try std.testing.expectEqual(live_usage.Tokens{ .input = 1000, .cached_input = 600, .output = 10 }, response.usage);
+    }
+}
+
+test "fresh content replaces content only when the conversation starts" {
+    for ([_]Provider{ .codex, .claude }) |provider| {
+        var pool = try fixturePool(provider);
+        defer a.free(pool.config.executable.?);
+        defer pool.deinit();
+        var stopping: std.atomic.Value(bool) = .init(false);
+        // The fixture rejects "oversize", so each call shows which text was sent.
+        const request: Request = .{ .instructions = "Return JSON", .content = "oversize", .fresh_content = "snapshot", .conversation = "pane-a" };
+        const first = try pool.infer(request, &stopping);
+        try std.testing.expect(first.fresh);
+        try std.testing.expectError(error.OutputTooLarge, pool.infer(request, &stopping));
+        // The failure destroyed the conversation, so the next request restores it.
+        try std.testing.expect((try pool.infer(request, &stopping)).fresh);
     }
 }
 

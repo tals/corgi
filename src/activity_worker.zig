@@ -17,6 +17,18 @@ const inference = @import("inference.zig");
 const live_usage = @import("live_usage.zig");
 const runtime = @import("runtime.zig");
 const activity_tools = @import("activity_tools.zig");
+/// Per-agent spacing between summaries.
+const cooldown_ms = 8000;
+/// A burst of tool calls is summarized once it has been quiet this long, and
+/// at the latest this long after its first unsummarized change. Commentary
+/// changes wait only for the cooldown.
+const tool_quiet_ms = 5000;
+const tool_wait_ms = 30000;
+const retry_ms = 60000;
+/// With no viewer attached for `away_after_ms`, each agent is summarized at
+/// most once per `away_interval_ms`; attaching restores normal timing.
+const away_after_ms = 5 * std.time.ms_per_min;
+const away_interval_ms = std.time.ms_per_min;
 pub const Request = struct {
     actor: ActorId,
     provider: agents.Provider,
@@ -41,13 +53,16 @@ pub const Request = struct {
 pub const Result = struct {
     request: Request,
     label: ?summary.Label,
+    /// The summary log's request number, for its outcome record.
+    number: u64 = 0,
     pub fn apply(r: *const Result, actor: *conversations.Actor) bool {
         if (actor.id != r.request.actor) return false;
         const agent = &actor.state;
-        if (agent.state != .working or agent.provider != r.request.provider or
-            !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len]) or
-            !std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len]) or
-            agent.activity_generation != r.request.generation) return false;
+        if (r.stale(agent)) |reason| {
+            backend.outcome(r.number, reason);
+            return false;
+        }
+        backend.outcome(r.number, null);
         const label = r.label orelse {
             agent.activity_len = 0;
             agent.activity_inferred = false;
@@ -61,6 +76,13 @@ pub const Result = struct {
         if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), label, actor.usageView(now), now);
         return true;
     }
+    fn stale(r: *const Result, agent: *const agents.Agent) ?backend.Discard {
+        if (agent.state != .working) return .not_working;
+        if (agent.provider != r.request.provider or !std.mem.eql(u8, agent.sessionId(), r.request.session[0..r.request.session_len])) return .session_changed;
+        if (!std.mem.eql(u8, agent.turnId(), r.request.turn[0..r.request.turn_len])) return .turn_changed;
+        if (agent.activity_generation != r.request.generation) return .evidence_changed;
+        return null;
+    }
 };
 const Slot = struct {
     request: Request,
@@ -69,16 +91,45 @@ const Slot = struct {
     next: i64 = 0,
     attempted_tools: u64 = 0,
     attempted_evidence: ?u64 = null,
+    attempted_commentary: ?u64 = null,
+    attempted_at: i64 = 0,
+    /// Last tool evidence change, and the first one not yet summarized (0 when none).
+    tools_changed_at: i64 = 0,
+    tools_pending_since: i64 = 0,
     retry: bool = false,
     active: bool = true,
     result: ?Result = null,
-    fn ready(s: *const Slot, now: i64) bool {
-        return s.active and now >= s.next and s.request.evidence.len > 0 and
-            (s.retry or s.attempted_evidence == null or s.attempted_evidence.? != s.request.evidence.hash() or s.request.completed_tools > s.attempted_tools);
+    fn ready(s: *const Slot, now: i64, away: bool) bool {
+        if (!s.active or now < s.next or s.request.evidence.len == 0) return false;
+        if (s.retry) return true;
+        const attempted = s.attempted_evidence orelse return true;
+        // Repeating the same calls leaves the evidence, and so the label, unchanged.
+        if (attempted == s.request.evidence.hash()) return false;
+        if (away and now - s.attempted_at < away_interval_ms) return false;
+        if (s.attempted_commentary != s.commentary.hash()) return true;
+        return now - s.tools_changed_at >= tool_quiet_ms or now - s.tools_pending_since >= tool_wait_ms;
     }
     fn combine(s: *Slot) void {
         s.request.evidence = s.tool_evidence;
         s.request.evidence.append(s.commentary.text());
+    }
+    fn updateTools(s: *Slot, evidence: summary.Text, now: i64) void {
+        if (!std.mem.eql(u8, s.tool_evidence.text(), evidence.text())) {
+            s.tools_changed_at = now;
+            if (s.tools_pending_since == 0) s.tools_pending_since = now;
+        }
+        s.tool_evidence = evidence;
+        s.combine();
+    }
+    /// Record that the current evidence is being summarized.
+    fn attempt(s: *Slot, now: i64) void {
+        s.attempted_tools = s.request.completed_tools;
+        s.attempted_evidence = s.request.evidence.hash();
+        s.attempted_commentary = s.commentary.hash();
+        s.attempted_at = now;
+        s.tools_pending_since = 0;
+        s.retry = false;
+        s.next = now + cooldown_ms;
     }
 };
 pub const Checkpoint = struct {
@@ -125,6 +176,14 @@ pub const Worker = struct {
     active: ?setup.Provider = null,
     applied: bool = false,
     locked: bool = false,
+    /// Last time a viewer was attached. Live-only: a new daemon starts observed.
+    observed_at: i64 = 0,
+    /// The server reports each pass that has an attached viewer.
+    pub fn observe(w: *Worker, now: i64) void {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.observed_at = now;
+    }
     /// Viewers and the link cache read this; the pool itself is worker-owned.
     pub fn off(w: *Worker) bool {
         w.mutex.lock();
@@ -221,7 +280,7 @@ pub const Worker = struct {
     fn init(implementation: backend.Backend) !Worker {
         const slots = try a.alloc(?Slot, max_slots);
         @memset(slots, null);
-        return .{ .slots = slots, .implementation = implementation };
+        return .{ .slots = slots, .implementation = implementation, .observed_at = clock.milliTimestamp() };
     }
     pub fn start(choice: setup.Choice) !*Worker {
         const w = try a.create(Worker);
@@ -396,14 +455,13 @@ pub const Worker = struct {
                 !std.mem.eql(u8, slot.request.session[0..slot.request.session_len], agent.sessionId()) or
                 !std.mem.eql(u8, slot.request.turn[0..slot.request.turn_len], agent.turnId())) continue;
             // Cumulative counts survive watched-workspace counter resets. If a
-            // transcript is replaced, seed a fresh wave instead of replaying it.
+            // transcript is replaced, restart the count instead of replaying it.
             if (progress.completed < slot.request.completed_tools) {
                 slot.attempted_tools = 0;
                 slot.retry = false;
             }
             slot.request.completed_tools = progress.completed;
-            slot.tool_evidence = progress.evidence;
-            slot.combine();
+            slot.updateTools(progress.evidence, clock.milliTimestamp());
             w.wake.signal();
             return;
         };
@@ -422,7 +480,9 @@ pub const Worker = struct {
                     break true;
                 }
             } else false;
-            if (!found) slot.* = null;
+            if (found) continue;
+            if (s.result) |result| backend.outcome(result.number, .not_working);
+            slot.* = null;
         };
     }
     pub fn take(w: *Worker, out: *[max]?Result) void {
@@ -471,9 +531,10 @@ pub const Worker = struct {
                 continue;
             }
             const now = clock.milliTimestamp();
+            const away = now - w.observed_at >= away_after_ms;
             const selected: ?usize = if (now < w.next_global) null else for (0..max_slots) |n| {
                 const i = (w.cursor + n) % max_slots;
-                if (w.slots[i]) |s| if (s.ready(now)) break i;
+                if (w.slots[i]) |s| if (s.ready(now, away)) break i;
             } else null;
             const selected_link: ?usize = if (now < w.next_global) null else for (0..links.capacity) |n| {
                 const i = (w.link_cursor + n) % links.capacity;
@@ -501,12 +562,10 @@ pub const Worker = struct {
             }
             const index = selected.?;
             w.prefer_links = true;
-            const request = w.slots[index].?.request;
-            const previous = request.conversation.previous;
-            w.slots[index].?.attempted_tools = request.completed_tools;
-            w.slots[index].?.attempted_evidence = request.evidence.hash();
-            w.slots[index].?.retry = false;
-            w.slots[index].?.next = now + 8000;
+            const slot = &w.slots[index].?;
+            const request = slot.request;
+            const tools_since_last = request.completed_tools -| slot.attempted_tools;
+            slot.attempt(now);
             w.cursor = (index + 1) % max_slots;
             w.next_global = now + 1000;
             w.mutex.unlock();
@@ -514,34 +573,46 @@ pub const Worker = struct {
             const key = request.conversation.key(request.actor, &key_buffer);
             var history: [4][]const u8 = undefined;
             for (request.conversation.recent[0..request.conversation.len], 0..) |*entry, i| history[i] = entry.text();
-            const label = w.implementation.infer(.{
+            const turn = request.turn[0..request.turn_len];
+            const attempt = w.implementation.infer(.{
                 .provider = @tagName(request.provider),
+                .turn = &summary.turnTag(turn),
                 .evidence = request.evidence.text(),
-                .previous = previous.text(),
-                .turn = request.turn[0..request.turn_len],
                 .history = history[0..request.conversation.len],
-            }, key, .{
+            }, turn, key, .{
                 .actor = request.actor,
                 .panes = request.panes[0..request.panes_len],
                 .agent_name = request.name[0..request.name_len],
                 .session = request.session[0..request.session_len],
+                .tools_since_last = tools_since_last,
             }, &w.stopping);
             w.mutex.lock();
             w.system_meter = w.implementation.pool.system_usage.meter;
+            // A removed slot means the agent stopped working in this turn.
+            var discard: ?backend.Discard = .not_working;
+            var superseded: u64 = 0;
             if (w.slots[index]) |*s| {
-                if (s.request.sameTurn(&request)) {
-                    if (label) |value| {
-                        // New tool completions must not starve a busy agent of
-                        // summaries. Reject only a changed commentary generation;
-                        // later tool waves remain queued behind the cooldown.
-                        if (s.request.generation == request.generation) s.result = .{ .request = request, .label = value.label };
+                if (!s.request.sameTurn(&request)) {
+                    discard = .turn_changed;
+                } else if (attempt.decision) |decision| {
+                    // New tool completions must not starve a busy agent of
+                    // summaries. Reject only a changed commentary generation;
+                    // later tool waves remain queued behind the cooldown.
+                    if (s.request.generation != request.generation) {
+                        discard = .evidence_changed;
                     } else {
-                        s.retry = true;
-                        s.next = clock.milliTimestamp() + 60000;
+                        if (s.result) |old| superseded = old.number;
+                        s.result = .{ .request = request, .label = decision.label, .number = attempt.request };
+                        discard = null;
                     }
+                } else {
+                    s.retry = true;
+                    s.next = clock.milliTimestamp() + retry_ms;
                 }
             }
             w.mutex.unlock();
+            if (superseded != 0) backend.outcome(superseded, .superseded);
+            if (attempt.decision != null) if (discard) |reason| backend.outcome(attempt.request, reason);
         }
     }
 };
@@ -575,29 +646,64 @@ test "late results cannot overwrite another turn or changed evidence" {
     try std.testing.expect(!r.apply(&actor));
 }
 
-test "fresh evidence triggers inference without a tool threshold and coalesces during cooldown" {
+fn testText(value: []const u8) summary.Text {
+    var text: summary.Text = .{};
+    text.append(value);
+    return text;
+}
+
+test "commentary refreshes after the cooldown and tool bursts wait until quiet" {
     var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
-    try std.testing.expect(!s.ready(0));
-    s.request.evidence.append("Planning the fix");
-    try std.testing.expect(s.ready(0));
-    s.attempted_evidence = s.request.evidence.hash();
-    s.next = 8000;
-    try std.testing.expect(!s.ready(9000));
-    s.request.evidence.append(" with tests");
-    try std.testing.expect(!s.ready(7999));
-    try std.testing.expect(s.ready(8000));
-    s.attempted_evidence = s.request.evidence.hash();
-    // Even identical commands can represent new progress.
-    s.request.completed_tools = 1;
-    try std.testing.expect(s.ready(8000));
-    s.attempted_tools = 1;
-    try std.testing.expect(!s.ready(9000));
+    try std.testing.expect(!s.ready(0, false));
+    s.commentary = testText("Planning the fix");
+    s.combine();
+    // The first evidence in a turn needs no tool threshold.
+    try std.testing.expect(s.ready(0, false));
+    s.attempt(0);
+    try std.testing.expect(!s.ready(9000, false));
+    s.commentary = testText("Adding the tests");
+    s.combine();
+    try std.testing.expect(!s.ready(cooldown_ms - 1, false));
+    try std.testing.expect(s.ready(cooldown_ms, false));
+    s.attempt(10_000);
+    // A tool-only change waits for the burst to go quiet...
+    s.updateTools(testText("exec: rg focus src\n"), 11_000);
+    s.updateTools(testText("exec: rg focus src\nexec: zig build test\n"), 17_000);
+    try std.testing.expect(!s.ready(21_999, false));
+    try std.testing.expect(s.ready(22_000, false));
+    s.attempt(22_000);
+    // ...but a burst that never pauses still refreshes after the maximum wait.
+    var at: i64 = 23_000;
+    var flip = false;
+    while (at < 23_000 + tool_wait_ms) : (at += 2000) {
+        flip = !flip;
+        s.updateTools(testText(if (flip) "exec: a\n" else "exec: b\n"), at);
+        try std.testing.expect(!s.ready(at, false));
+    }
+    try std.testing.expect(s.ready(at, false));
+    s.attempt(at);
+    // Repeating the summarized calls changes nothing.
+    s.updateTools(s.tool_evidence, at + 1000);
+    try std.testing.expect(!s.ready(at + tool_wait_ms, false));
     s.retry = true;
-    s.next = 60000;
-    try std.testing.expect(!s.ready(59999));
-    try std.testing.expect(s.ready(60000));
+    s.next = at + retry_ms;
+    try std.testing.expect(!s.ready(at + retry_ms - 1, false));
+    try std.testing.expect(s.ready(at + retry_ms, false));
     s.active = false;
-    try std.testing.expect(!s.ready(60000));
+    try std.testing.expect(!s.ready(at + retry_ms, false));
+}
+
+test "without a viewer each agent is summarized at most once a minute" {
+    var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
+    s.commentary = testText("Planning the fix");
+    s.combine();
+    try std.testing.expect(s.ready(0, true));
+    s.attempt(0);
+    s.commentary = testText("Adding the tests");
+    s.combine();
+    try std.testing.expect(s.ready(cooldown_ms, false));
+    try std.testing.expect(!s.ready(away_interval_ms - 1, true));
+    try std.testing.expect(s.ready(away_interval_ms, true));
 }
 
 test "summary slots belong to conversations shared by multiple or detached attachments" {

@@ -46,9 +46,17 @@ pub const Label = struct {
         return result;
     }
 };
-/// Actor-owned bounded context. Native harnesses are a disposable cache; this
-/// checkpoint survives turn changes, detachment, eviction and harness failures.
-/// Live daemon handoff preserves it; cold recovery starts fresh context.
+/// Short, stable stand-in for a provider turn ID in model input. It only has to
+/// tell turns apart; a full UUID costs several times the tokens.
+pub fn turnTag(turn: []const u8) [8]u8 {
+    return std.fmt.hex(@as(u32, @truncate(std.hash.Wyhash.hash(0, turn))));
+}
+
+/// Actor-owned bounded context. The live native conversation already holds
+/// earlier snapshots, so this is sent only when that conversation is created
+/// again (first use, eviction, rotation or a harness failure). It survives turn
+/// changes and detachment; live daemon handoff preserves it, cold recovery
+/// starts fresh context.
 pub const Conversation = struct {
     recent: [4]Text = @splat(.{}),
     len: usize = 0,
@@ -65,7 +73,7 @@ pub const Conversation = struct {
         const entry = &c.recent[c.len];
         entry.* = .{};
         entry.append("Turn: ");
-        entry.append(turn);
+        entry.append(&turnTag(turn));
         entry.append("\nActivity: ");
         entry.append(label.text());
         entry.append("\nEvidence: ");

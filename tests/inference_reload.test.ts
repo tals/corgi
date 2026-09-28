@@ -54,12 +54,8 @@ class InferenceReload extends Summaries {
       [second.pid, second.thread, second.turn],
       [first.pid, first.thread, 2],
     );
-    const request = JSON.parse(this.calls()[1]);
-    this.assertTrue(
-      request.history,
-      "actor background context did not survive",
-    );
-    this.assertIn("Tracing pane focus", request.history[0]);
+    // The same live conversation continues, so recovery history is not resent.
+    this.assertEqual(JSON.parse(this.calls()[1]).history, undefined);
     const beforePid = (await this.session()).server_pid;
     const candidate = join(this.temp.name, "reject-after-inference-import");
     writeFileSync(

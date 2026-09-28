@@ -35,8 +35,8 @@ summary; native sessions are not summarized.
 The prompt targets 2–3 words; short labels of up to six words are also accepted
 instead of leaving the activity blank. Longer labels and control characters are rejected.
 The summarizer can explicitly abstain with a null label when current evidence is
-insufficient. A bare user request or stale history does not establish current
-work. Abstention clears activity text and shows the working animation; it never
+insufficient; a quoted `"null"` label also counts as abstention. A bare user
+request or stale history does not establish current work. Abstention clears activity text and shows the working animation; it never
 changes the agent's lifecycle or implies that the user must provide input.
 
 For Codex, pending transcript tool calls and live background tasks also drive the
@@ -44,16 +44,27 @@ wrench icon. A yielded build keeps the wrench until the process finishes, even
 after its launch call returns. Background task descriptions join summary evidence.
 
 The first inference runs as soon as nonempty evidence is available, including
-commentary without tools or a tool start without commentary. Changed evidence,
-including tool starts and completions,
-queues a refresh, with an eight-second cooldown and a one-second global minimum
-between calls. Updates coalesce to the latest snapshot during the cooldown;
-unchanged polls do not query inference. Duplicate call IDs and historical
-transcript records do not advance tool progress. Up to 64 pending calls and 256
-completed IDs are retained. Evidence includes at most four live pending tools
-and short descriptions of the latest three completions; tool outputs are not
-sent to the summarizer. Missing transcripts
-no longer prevent commentary-based summaries.
+commentary without tools or a tool start without commentary. Changed commentary
+queues a refresh after an eight-second per-agent cooldown. Tool-only changes also
+wait until the tool evidence has been unchanged for five seconds, or at most 30
+seconds after the first change not yet summarized, so a burst of calls is
+summarized once; a tool still running when the burst goes quiet is summarized as
+running. Calls are at least one second apart. Updates coalesce to the latest
+snapshot, and unchanged evidence never queries inference, however many calls
+completed. Repeating the latest completed call, as polling does, keeps a single
+entry, and its rerun is not listed as running, so polling leaves the evidence
+unchanged. Duplicate call IDs and historical transcript records do not advance
+tool progress. Up to 64 pending calls and 256 completed IDs are retained.
+Evidence includes at most four live pending tools and the latest three distinct
+completions; tool outputs are not sent to the summarizer. Each tool line keeps
+the first line of its description or command, at most 120 bytes, with an
+ellipsis marking a cut: heredoc bodies and scripts are dropped, Codex code-mode
+wrappers are reduced to their commands and patched files, and file paths keep
+their last two components. Missing transcripts no longer prevent
+commentary-based summaries.
+
+With no viewer attached for five minutes, each agent is summarized at most once
+a minute; attaching a viewer restores the normal schedule.
 
 A single background worker coalesces updates. Results are checked against the
 session, turn and commentary generation; more tool completions during inference
@@ -69,16 +80,24 @@ default and saved in viewer preferences. While awaiting a first result, the acti
 working indicator remains visible. Failures keep the activity text blank or retain
 the last valid label and retry after 60 seconds.
 Abstention is successful inference, so unchanged evidence is not retried and new
-evidence uses the normal eight-second cooldown. See [activity evals](../evals/README.md)
+evidence follows the normal schedule. See [activity evals](../evals/README.md)
 for repeatable live Haiku/Luna checks and scorecards.
 
 Every summary attempt writes JSON request/result records under `activity_summary`
 in the runtime's private `server.log`. Records correlate by daemon PID and request
 number and identify the actor, attached pane IDs, agent name, session, and turn.
-The request contains the exact instructions and serialized input sent to inference;
-the result contains the exact returned text and validation result or error reason.
-An inference failure records a null output and its error. Detached actors have an
-empty pane list. These diagnostics include private conversation evidence, like
+The request contains the exact instructions and serialized `input`; when the
+agent has remembered context, `fresh_input` is the variant with history that is
+sent instead if the native conversation has to be created. Its
+`context.source.tools_since_last` counts tool calls completed since the agent's
+previous attempt. The result contains the exact returned text and validation
+result or error reason, `fresh_conversation` (which input was sent), and `usage`:
+the input, cached input and output tokens reported for that request alone. An
+inference failure records a null output and its error. For each decision, a later
+`outcome` record with the same PID and request number says whether it was
+`applied` or `discarded`, and why: `not_working`, `session_changed`,
+`turn_changed`, `evidence_changed`, or `superseded` by a newer result. Detached
+actors have an empty pane list. These diagnostics include private conversation evidence, like
 recovery snapshots, and remain local to the runtime log.
 
 Compaction takes priority over inferred activity and records a `Compacting context`
@@ -124,14 +143,19 @@ honored. Environment settings take effect when the server starts; a reload
 preserves the existing server environment, and launch counts restart.
 
 The shared `src/inference.zig` module accepts instructions, bounded content, an
-optional JSON Schema, and an optional conversation key. It returns bounded UTF-8
-text (JSON for schema requests); callers validate task-specific semantics such
-as word counts. Each actor owns one status-inference conversation, keyed by its
+optional JSON Schema, an optional conversation key, and optional content to send
+instead when the request creates that conversation. It returns bounded UTF-8
+text (JSON for schema requests), whether the conversation was new, and the
+request's own token usage; callers validate task-specific semantics such as word
+counts. Each actor owns one status-inference conversation, keyed by its
 stable actor ID rather than its current turn or pane. Accepted results checkpoint
 the last four bounded evidence/label pairs on the actor. This context survives
 turn changes, detachment, and harness eviction, and accompanies current evidence
-when a native conversation must be recreated. New snapshots explicitly replace
-prior activity; history is background context only. The daemon applies results
+only when a native conversation must be created (first use, eviction, rotation,
+or failure). A live conversation already holds earlier snapshots, so its
+requests carry just the provider, an eight-character turn tag and the evidence.
+New snapshots explicitly replace prior activity; history is background context
+only. The daemon applies results
 to the actor after checking its current session, turn, and evidence generation;
 workers receive value snapshots and never mutate actors.
 

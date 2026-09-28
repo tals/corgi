@@ -2,7 +2,15 @@
 const std = @import("std");
 const summary = @import("activity_summary.zig");
 pub const Context = summary.Conversation;
-pub const Input = struct { provider: []const u8, evidence: []const u8, previous: []const u8, turn: []const u8, history: []const []const u8 };
+pub const turnTag = summary.turnTag;
+/// `turn` is a `summary.turnTag`. `history` is recovery context for a newly
+/// created native conversation; a live one already holds earlier snapshots.
+pub const Input = struct { provider: []const u8, turn: []const u8, evidence: []const u8, history: ?[]const []const u8 = null };
+
+/// The model-facing JSON, omitting absent history.
+pub fn content(allocator: std.mem.Allocator, input: Input) ![]u8 {
+    return std.json.Stringify.valueAlloc(allocator, input, .{ .emit_null_optional_fields = false });
+}
 
 pub const instructions =
     \\Describe the agent's CURRENT concrete work in plain language. Return JSON with exactly one field, "label": a concise activity string or null.
@@ -26,18 +34,33 @@ pub fn parse(allocator: std.mem.Allocator, raw: []const u8) !Decision {
     const value = parsed.value;
     if (value != .object or value.object.count() != 1) return error.InvalidDecision;
     const label = value.object.get("label") orelse return error.InvalidDecision;
-    return .{ .label = switch (label) {
-        .null => null,
-        .string => |text| try summary.Label.validate(text),
-        else => return error.InvalidDecision,
-    } };
+    return .{
+        .label = switch (label) {
+            .null => null,
+            // Models sometimes quote the null they meant; that is still abstention.
+            .string => |text| if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, text, " \t\r\n"), "null")) null else try summary.Label.validate(text),
+            else => return error.InvalidDecision,
+        },
+    };
 }
 
 test "abstention is a valid decision distinct from invalid output" {
     try std.testing.expect((try parse(std.testing.allocator, "{\"label\":null}")).label == null);
+    try std.testing.expect((try parse(std.testing.allocator, "{\"label\":\"null\"}")).label == null);
+    try std.testing.expect((try parse(std.testing.allocator, "{\"label\":\" Null \"}")).label == null);
     const decision = try parse(std.testing.allocator, "{\"label\":\"Running tests\"}");
     try std.testing.expectEqualStrings("Running tests", decision.label.?.text());
     for ([_][]const u8{ "{}", "null", "{\"label\":false}", "{\"label\":null,\"reason\":\"unknown\"}" }) |raw|
         try std.testing.expectError(error.InvalidDecision, parse(std.testing.allocator, raw));
     try std.testing.expectError(error.EmptyLabel, parse(std.testing.allocator, "{\"label\":\"\"}"));
+}
+
+test "history is sent only when supplied" {
+    const alloc = std.testing.allocator;
+    const live = try content(alloc, .{ .provider = "codex", .turn = "0a1b2c3d", .evidence = "Running tests" });
+    defer alloc.free(live);
+    try std.testing.expectEqualStrings("{\"provider\":\"codex\",\"turn\":\"0a1b2c3d\",\"evidence\":\"Running tests\"}", live);
+    const fresh = try content(alloc, .{ .provider = "codex", .turn = "0a1b2c3d", .evidence = "Running tests", .history = &.{"Activity: Tracing focus"} });
+    defer alloc.free(fresh);
+    try std.testing.expect(std.mem.endsWith(u8, fresh, ",\"history\":[\"Activity: Tracing focus\"]}"));
 }

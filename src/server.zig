@@ -876,6 +876,10 @@ pub const Server = struct {
                     s.runtime.changed();
                 };
                 summaries.reconcile(s.runtime.conversations.items.items);
+                for (s.clients.items) |client| if (client.viewer and !client.dead) {
+                    summaries.observe(clock.milliTimestamp());
+                    break;
+                };
                 summaries.remember(s.runtime.last_agent);
                 s.publishInference();
                 if (now - s.last_update_check >= 30 * std.time.ms_per_s) {
