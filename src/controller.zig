@@ -63,6 +63,16 @@ const TabDrag = struct {
     cancelled: bool = false,
     drop: ?render.TabDrop = null,
 };
+/// A paste goes to the text field that owned the keyboard when it began, or
+/// to the focused pane when none did.
+const Paste = union(enum) {
+    pane: layout.PaneId,
+    launcher,
+    picker,
+    name,
+    /// A menu without a text field owns the keyboard: drop the text.
+    discard,
+};
 /// A pressed link or port row, tracked until release confirms it wasn't a drag.
 const PortClick = struct {
     x: u16,
@@ -84,10 +94,8 @@ const InputState = struct {
     /// shared panes for the viewer that was used most recently.
     active: bool = false,
     port_click: ?PortClick = null,
-    paste: bool = false,
-    paste_pane: ?layout.PaneId = null,
-    paste_to_name: bool = false,
-    paste_to_picker: bool = false,
+    /// Where the bracketed paste in progress goes; null outside a paste.
+    paste: ?Paste = null,
     tab_drag: ?TabDrag = null,
     divider: ?struct { hit: layout.View.Divider, area: layout.Rect, cancelled: bool = false } = null,
     keybuf: std.ArrayList(u8) = .empty,
@@ -1672,6 +1680,31 @@ pub const Controller = struct {
             p.agent.attention = .none;
         }
     }
+    /// The keyboard's owner when a paste begins, in `key`'s order.
+    fn pasteTarget(s: *Self) Paste {
+        if (s.agent_launcher) |*launch| return if (launch.managing and launch.selected == .add) .launcher else .discard;
+        if (s.agent_picker != null) return .picker;
+        if (s.name_dialog != null) return .name;
+        if (s.hasMenu()) return .discard;
+        return if (s.focused()) |p| .{ .pane = p.id } else .discard;
+    }
+    fn pastePane(s: *Self) ?*Pane {
+        const target = s.input_state.paste orelse return null;
+        return if (target == .pane) s.pane(target.pane) else null;
+    }
+    fn pasteByte(s: *Self, target: Paste, byte: u8) !void {
+        switch (target) {
+            .pane => |id| if (s.pane(id)) |p| try s.sendInput(p.terminal, &.{byte}),
+            // Its owner can close mid-paste, when a snapshot removes the target.
+            .launcher => if (s.agent_launcher) |*launch| {
+                if (launch.name_focused) launch.name_customized = true;
+                launch.input().pasteByte(byte);
+            },
+            .picker => if (s.agent_picker != null and byte >= 32 and byte < 127) try s.key(byte),
+            .name => if (s.name_dialog) |*dialog| dialog.pasteByte(byte),
+            .discard => {},
+        }
+    }
     pub fn input(s: *Self, data: []const u8) !void {
         const cl = &s.input_state;
         if (data.len > 0) cl.active = true;
@@ -1686,18 +1719,7 @@ pub const Controller = struct {
             if (rest[0] != 27) {
                 s.link_tooltip.cancel();
                 s.dirty = true;
-                if (cl.paste) {
-                    if (s.agent_launcher != null and s.agent_launcher.?.managing and s.agent_launcher.?.selected == .add) {
-                        if (s.agent_launcher.?.name_focused) s.agent_launcher.?.name_customized = true;
-                        s.agent_launcher.?.input().pasteByte(rest[0]);
-                    } else if (cl.paste_to_picker and s.agent_picker != null) {
-                        if (rest[0] >= 32 and rest[0] < 127) try s.key(rest[0]);
-                    } else if (cl.paste_to_name and s.name_dialog != null) {
-                        s.name_dialog.?.pasteByte(rest[0]);
-                    } else if (cl.paste_pane) |id| {
-                        if (s.pane(id)) |p| try s.sendInput(p.terminal, rest[0..1]);
-                    }
-                } else try s.key(rest[0]);
+                if (cl.paste) |target| try s.pasteByte(target, rest[0]) else try s.key(rest[0]);
                 used += 1;
                 continue;
             }
@@ -1706,7 +1728,7 @@ pub const Controller = struct {
                 s.dirty = true;
                 break;
             }
-            if (!cl.paste and rest[1] != '[' and rest[1] != 'O' and (s.hasMenu() or s.name_dialog != null)) {
+            if (cl.paste == null and rest[1] != '[' and rest[1] != 'O' and (s.hasMenu() or s.name_dialog != null)) {
                 try s.key(27);
                 used += 1;
                 continue;
@@ -1724,7 +1746,7 @@ pub const Controller = struct {
             }
             var encoded: std.Io.Writer.Allocating = .init(a);
             defer encoded.deinit();
-            if (!cl.paste) {
+            if (cl.paste == null) {
                 if (keyboard.decode(seq)) |key_event| {
                     if (s.onboarding == null and s.name_dialog == null and s.workspace_chooser == null and (s.prefix or !s.hasMenu())) {
                         if (keymap.modified(s.key_preset, s.prefix, key_event)) |binding| {
@@ -1765,19 +1787,12 @@ pub const Controller = struct {
             }
             const parsed_key = keys.parse(seq);
             if (parsed_key == .paste_start or parsed_key == .paste_end) {
-                cl.paste = parsed_key == .paste_start;
-                if (cl.paste) {
-                    cl.paste_pane = if (!s.hasMenu() and s.name_dialog == null) (if (s.focused()) |p| p.id else null) else null;
-                    cl.paste_to_name = s.name_dialog != null;
-                    cl.paste_to_picker = s.agent_picker != null;
-                }
-                if (cl.paste_pane) |id| {
-                    if (s.pane(id)) |p| if (p.terminal.emulator().*.modes.get(.bracketed_paste)) try s.sendInput(p.terminal, seq);
-                }
-            } else if (cl.paste) {
-                if (cl.paste_pane) |id| {
-                    if (s.pane(id)) |p| try s.sendInput(p.terminal, seq);
-                }
+                if (parsed_key == .paste_start) cl.paste = s.pasteTarget();
+                // The markers reach only an application that asked for them.
+                if (s.pastePane()) |p| if (p.terminal.emulator().*.modes.get(.bracketed_paste)) try s.sendInput(p.terminal, seq);
+                if (parsed_key == .paste_end) cl.paste = null;
+            } else if (cl.paste != null) {
+                if (s.pastePane()) |p| try s.sendInput(p.terminal, seq);
             } else if (parsed_key == .focus_in) {
                 cl.watched = true;
             } else if (parsed_key == .focus_out) {
@@ -2604,9 +2619,9 @@ pub const Controller = struct {
             s.dirty = true;
         }
         const cl = &s.input_state;
-        if (cl.attached and cl.keybuf.items.len > 0 and std.time.milliTimestamp() - cl.escape_at > @as(i64, if (cl.paste or cl.keybuf.items.len == 1) 40 else 1000)) {
-            if (cl.paste) {
-                if (cl.paste_pane) |id| if (s.pane(id)) |p| try s.sendInput(p.terminal, cl.keybuf.items);
+        if (cl.attached and cl.keybuf.items.len > 0 and std.time.milliTimestamp() - cl.escape_at > @as(i64, if (cl.paste != null or cl.keybuf.items.len == 1) 40 else 1000)) {
+            if (cl.paste != null) {
+                if (s.pastePane()) |p| try s.sendInput(p.terminal, cl.keybuf.items);
             } else if (cl.keybuf.items.len == 1 and cl.keybuf.items[0] == 27) try s.key(27) else if (!s.hasMenu() and s.name_dialog == null) {
                 if (s.focused()) |p| try s.sendInput(p.terminal, cl.keybuf.items);
             }
@@ -2827,4 +2842,23 @@ test "the full-screen help covers the panes, a prefix alone does not" {
     try std.testing.expect(s.coversPanes());
     s.closeMenu();
     try std.testing.expect(!s.coversPanes());
+}
+
+test "a paste goes to the field that owned the keyboard when it began" {
+    var s: Controller = .{ .connection = undefined, .executable = "" };
+    defer s.input_state.deinit();
+    s.input_state.attached = true;
+    s.name_dialog = naming.Dialog.init(.{ .rename = @enumFromInt(1) }, "");
+    try s.input("\x1b[200~ab\x1b[201~");
+    try std.testing.expectEqualStrings("ab", s.name_dialog.?.name());
+    try std.testing.expect(s.input_state.paste == null);
+    // The launcher takes keys before a dialog it was opened over.
+    s.agent_launcher = .{ .workspace = @enumFromInt(1), .selected = .add, .last = .codex, .pinned = true, .managing = true };
+    try std.testing.expect(s.pasteTarget() == .launcher);
+    s.agent_launcher.?.selected = .codex;
+    try std.testing.expect(s.pasteTarget() == .discard);
+    s.agent_launcher = null;
+    s.name_dialog = null;
+    s.beginPrefix();
+    try std.testing.expect(s.pasteTarget() == .discard);
 }
