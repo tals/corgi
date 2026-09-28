@@ -40,8 +40,9 @@ inside fields, signatures or bodies. Alias a module by its file name
 (`const launch_command = @import("launch_command.zig");`), or alias the type
 (`const Actor = @import("conversations.zig").Actor;`). Rename an alias only
 when a local, parameter or declaration (such as a method) would clash with it
-(Zig reports shadowing or "ambiguous reference"); struct fields never do. Don't bulk-replace `@import("x.zig").` with sed: it also rewrites the
-alias line into `const x = x;`.
+(Zig reports shadowing or "ambiguous reference"); struct fields never do. Don't
+bulk-replace `@import("x.zig").` with sed: it also rewrites the alias line into
+`const x = x;`.
 
 **Strings are parsed once, at the boundary.**
 - A closed set of names (ops, commands, actions, provider event types) is an
@@ -68,7 +69,12 @@ checks"`). Compare error names with `@errorName(error.X)`, not typed copies.
 `enum(u32) { _, pub const none ... }` (`Actor.Id`, `layout.PaneId`,
 `Workspace.Id`, ...). `none` is a declaration, not a tag, so JSON keeps plain
 numbers; compare with `PaneId.none` (`.none` only works where the type is
-known).
+known). Declare an ID inside the type it identifies (`Workspace.Id`), or as
+`FooId` in a module named for something else (`layout.PaneId`); never
+`workspace.WorkspaceId`. Unlike Ghostty's local integer IDs, these cross most
+modules, so other files alias a nested one as `FooId`
+(`const WorkspaceId = @import("workspace.zig").Workspace.Id;`), an exception
+to the import alias rule.
 
 **Logging.**
 - Daemon modules use `const log = std.log.scoped(.module);`, and write
