@@ -193,6 +193,7 @@ fn discard(r: *Runtime, wid: WorkspaceId) void {
         i -= 1;
         if (model.tabForPane(r.panes.items[i].id) != null) {
             const pane = r.panes.orderedRemove(i);
+            r.stopShell(pane.terminal);
             pane.terminal.destroy();
             a.free(pane.cwd);
         }

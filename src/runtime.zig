@@ -67,6 +67,8 @@ pub const Runtime = struct {
     workspaces: workspace.Store = .{},
     panes: std.ArrayList(Pane) = .empty,
     closed: std.ArrayList(ClosedPane) = .empty,
+    /// Shells `stopShell` signalled that are not yet collected.
+    stopped: std.ArrayList(c_int) = .empty,
     sessions: std.ArrayList(native.Session) = .empty,
     next_session: NativeId = .first,
     last_agent: agents.Provider = .codex,
@@ -109,6 +111,7 @@ pub const Runtime = struct {
         r.panes.deinit(a);
         for (r.closed.items) |p| p.deinit();
         r.closed.deinit(a);
+        r.stopped.deinit(a);
         for (r.sessions.items) |*session| session.destroy();
         r.sessions.deinit(a);
         r.workspaces.deinit();
@@ -165,18 +168,37 @@ pub const Runtime = struct {
         const owner = r.workspaces.owner(id) orelse return error.NoPane;
         const previous = owner.model.tabs[owner.model.tabForPane(id).?];
         try r.closed.ensureUnusedCapacity(a, 1);
+        try r.stopped.ensureUnusedCapacity(a, 1);
         try owner.model.close(id);
         owner.model.revision +%= 1;
         for (r.panes.items, 0..) |*p, i| if (p.id == id) {
             p.refreshCwd();
             _ = p.terminal.read();
-            p.terminal.stop();
+            _ = p.terminal.reap();
+            r.stopShell(p.terminal);
             if (r.closed.items.len == 8) r.closed.orderedRemove(0).deinit();
             r.closed.appendAssumeCapacity(.{ .label = p.label, .terminal = p.terminal, .cwd = p.cwd, .tab = previous, .workspace_id = owner.id });
             _ = r.panes.orderedRemove(i);
             break;
         };
         r.changed();
+    }
+
+    /// Signal a pane's shell, keeping its pid until `reapStopped` collects it.
+    pub fn stopShell(r: *Runtime, t: *Terminal) void {
+        if (t.owner == .runtime and !t.imported and !t.exited and t.pid > 0)
+            r.stopped.append(a, t.pid) catch {};
+        t.stop();
+    }
+
+    /// Collect stopped shells without blocking. ECHILD means it is already gone.
+    pub fn reapStopped(r: *Runtime) void {
+        var i: usize = 0;
+        while (i < r.stopped.items.len) {
+            if (os.c.waitpid(r.stopped.items[i], null, os.c.WNOHANG) == 0) {
+                i += 1;
+            } else _ = r.stopped.swapRemove(i);
+        }
     }
 
     pub fn restore(r: *Runtime, fallback: Create) !layout.PaneId {
@@ -230,3 +252,26 @@ pub const Runtime = struct {
         r.changed();
     }
 };
+
+test "reapStopped collects exited shells and forgets processes that are not ours" {
+    var r: Runtime = .{};
+    defer r.stopped.deinit(a);
+    const exited = os.c.fork();
+    if (exited < 0) return error.ForkFailed;
+    if (exited == 0) os.c._exit(0);
+    const running = os.c.fork();
+    if (running < 0) return error.ForkFailed;
+    if (running == 0) {
+        while (true) _ = os.c.pause();
+    }
+    defer _ = os.c.waitpid(running, null, 0);
+    defer _ = os.c.kill(running, os.c.SIGKILL);
+    var info: os.c.siginfo_t = undefined;
+    // Wait for the exit without collecting it.
+    try std.testing.expectEqual(@as(c_int, 0), os.c.waitid(os.c.P_PID, @intCast(exited), &info, os.c.WEXITED | os.c.WNOWAIT));
+    // Pid 1 is never our child.
+    try r.stopped.appendSlice(a, &.{ exited, 1, running });
+    r.reapStopped();
+    try std.testing.expectEqualSlices(c_int, &.{running}, r.stopped.items);
+    try std.testing.expect(os.c.waitpid(exited, null, os.c.WNOHANG) < 0);
+}

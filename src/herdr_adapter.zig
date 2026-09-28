@@ -246,6 +246,7 @@ pub fn copy(r: *Runtime, source: SourceSession, selected: []const []const u8, de
     errdefer {
         while (r.panes.items.len > old_panes) {
             const p = r.panes.pop().?;
+            r.stopShell(p.terminal);
             p.terminal.destroy();
             a.free(p.cwd);
         }

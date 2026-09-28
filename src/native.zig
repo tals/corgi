@@ -247,6 +247,14 @@ pub const Session = struct {
         s.attachment.provisional.state = .done;
         s.clearTools(null, null);
     }
+    /// True once, when our own child exits. An imported process belongs to
+    /// another parent; `poll` sees its exit as EOF.
+    pub fn reap(s: *Session) bool {
+        if (s.exited or s.imported or s.child.id <= 0) return false;
+        if (c.waitpid(s.child.id, null, c.WNOHANG) != s.child.id) return false;
+        s.markExited();
+        return true;
+    }
     pub fn toolActive(s: *const Session) bool {
         if (s.exited) return false;
         if (s.active_tools.items.len > 0) return true;
@@ -899,4 +907,23 @@ test "a restored candidate session does not signal its process until adopted" {
     // destroy() itself reaps an owned process before returning.
     adopted.destroy();
     try std.testing.expect(c.kill(pid, 0) != 0);
+}
+
+test "reap collects our own process and leaves an imported one to its parent" {
+    const pid = c.fork();
+    if (pid < 0) return error.ForkFailed;
+    if (pid == 0) c._exit(0);
+    var session = try testSession(.codex);
+    defer session.destroy();
+    session.child.id = pid;
+    var info: c.siginfo_t = undefined;
+    // Wait for the exit without collecting it.
+    try std.testing.expectEqual(@as(c_int, 0), c.waitid(c.P_PID, @intCast(pid), &info, c.WEXITED | c.WNOWAIT));
+    session.imported = true;
+    try std.testing.expect(!session.reap());
+    try std.testing.expect(!session.exited);
+    session.imported = false;
+    try std.testing.expect(session.reap());
+    try std.testing.expect(session.exited);
+    try std.testing.expect(!session.reap());
 }

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { daemons, stopOthers } from "../scripts/stop-other-daemons";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { quote, registerCase } from "./support";
+import { Runtime } from "./runtime";
 
 describe("development daemon cleanup", () => {
   test("identifies only same-user servers, including reloaded daemons and paths with spaces", () => {
@@ -90,3 +92,32 @@ describe("development daemon cleanup", () => {
     }
   });
 });
+
+/** Pids of `parent`'s children, zombies included. */
+function childrenOf(parent: number) {
+  const rows = Bun.spawnSync(["ps", "-A", "-o", "pid=,ppid="]).stdout.toString().trim().split("\n");
+  return new Set(rows.map((row) => row.trim().split(/\s+/).map(Number)).filter(([, ppid]) => ppid === parent).map(([pid]) => pid));
+}
+
+class DaemonChildren extends Runtime {
+  async test_closed_and_exited_panes_leave_no_zombie_shells() {
+    const daemon = (await this.rpc({ op: "hello", protocol: 1 })).server_pid;
+    const shells: number[] = [];
+    const closing: number[] = [];
+    for (const [name, rest] of [["one", "exec sleep 60"], ["two", "exec sleep 60"], ["exits", "exit 3"]]) {
+      const file = join(this.temp.name, `${name}.pid`);
+      const { pane } = await this.open_pane({ command: `echo $$ > ${quote(file)}; ${rest}` });
+      if (rest !== "exit 3") closing.push(pane);
+      shells.push(Number(await this.until(() => existsSync(file) && readFileSync(file, "utf8").trim())));
+    }
+    for (const shell of shells) this.assertTrue(shell > 0);
+    for (const pane of closing) await this.command("pane.close", { target: pane });
+    // A zombie is still a child; a collected shell is gone from the list.
+    await this.until(() => {
+      const children = childrenOf(daemon);
+      return shells.every((pid) => !children.has(pid));
+    }, 10);
+  }
+}
+
+registerCase("daemon children", DaemonChildren, { timeout: 60_000 });

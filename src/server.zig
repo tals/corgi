@@ -864,6 +864,10 @@ pub const Server = struct {
                     s.runtime.changed();
                     if (!p.terminal.vt.modes.get(.synchronized_output)) s.dirty = true;
                 }
+                if (p.terminal.reap()) {
+                    s.runtime.changed();
+                    s.dirty = true;
+                }
             }
             const now = std.time.milliTimestamp();
             if (now - s.last_detection >= 250 or s.settles.items.len > 0) {
@@ -1029,30 +1033,11 @@ pub const Server = struct {
                     }) catch unreachable);
                 }
             }
-            // Reap closed panes too, forwarding Git exits to its worker.
-            git_status.child_mutex.lock();
-            while (true) {
-                var status: c_int = 0;
-                const pid = c.waitpid(-1, &status, c.WNOHANG);
-                if (pid <= 0) break;
-                git_status.recordExit(pid, status);
-                s.runtime.git_push.recordExit(pid, status);
-                inference.recordExit(pid, status);
-                agent_launcher.recordExit(pid, status);
-                launch_command.recordExit(pid, status);
-                ports.recordExit(pid, status);
-                for (s.runtime.panes.items) |*p| if (p.terminal.pid == pid) {
-                    p.terminal.exited = true;
-                    p.terminal.exit_status = status;
-                    s.dirty = true;
-                };
-                for (s.runtime.sessions.items) |*session| if (session.child.id == pid) {
-                    session.markExited();
-                    s.dirty = true;
-                };
-            }
-            git_status.child_mutex.unlock();
-            // Both Terminal.read and the general child reaper can detect exit.
+            // Each child is reaped by its owner; workers wait for their own.
+            for (s.runtime.sessions.items) |*session| if (session.reap()) {
+                s.dirty = true;
+            };
+            s.runtime.reapStopped();
             // Remove in a separate pass so adjacent exits aren't skipped.
             var pi: usize = 0;
             while (pi < s.runtime.panes.items.len) {

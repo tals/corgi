@@ -326,19 +326,23 @@ pub const Terminal = struct {
             t.feed(bytes[0..@intCast(n)]);
             dirty = true;
         }
-        if (!t.exited) {
-            var status: c_int = 0;
-            if (c.waitpid(t.pid, &status, c.WNOHANG) == t.pid or
-                (t.imported and c.kill(t.pid, 0) != 0 and std.posix.errno(-1) == .SRCH))
-            {
-                t.exited = true;
-                t.exit_status = status;
-                dirty = true;
-            }
-        }
         if (!t.exited) t.fillInput();
         if (t.expireSynchronizedOutput(std.time.milliTimestamp())) dirty = true;
         return dirty;
+    }
+    /// True once, when the shell exits. Only this reaps our own shell; an
+    /// imported shell belongs to another parent and is probed instead.
+    pub fn reap(t: *Terminal) bool {
+        if (t.exited or t.pid <= 0) return false;
+        var status: c_int = 0;
+        const gone = if (t.imported)
+            c.kill(t.pid, 0) != 0 and std.posix.errno(-1) == .SRCH
+        else
+            c.waitpid(t.pid, &status, c.WNOHANG) == t.pid;
+        if (!gone) return false;
+        t.exited = true;
+        t.exit_status = status;
+        return true;
     }
     /// Detection reads the active screen independently of viewer scrollback.
     pub fn liveText(t: *Terminal) ![]u8 {
@@ -476,6 +480,24 @@ test "terminal reports host colors and keeps application overrides" {
     t.feed("\x1b]111\x1b\\\x1b]104;2\x1b\\");
     try std.testing.expectEqual(theme.background.?, t.vt.colors.background.get().?);
     try std.testing.expectEqual(theme.palette[2].?, t.vt.colors.palette.current[2]);
+}
+
+test "reap collects the terminal's own shell once and nothing for a stopped one" {
+    const t = try Terminal.create(20, 4);
+    defer t.destroy();
+    // A stopped terminal's pid is -1, which waitpid would take as any child.
+    try std.testing.expect(!t.reap());
+    const pid = c.fork();
+    if (pid < 0) return error.ForkFailed;
+    if (pid == 0) c._exit(3);
+    t.pid = pid;
+    var info: c.siginfo_t = undefined;
+    // Wait for the exit without collecting it.
+    try std.testing.expectEqual(@as(c_int, 0), c.waitid(c.P_PID, @intCast(pid), &info, c.WEXITED | c.WNOWAIT));
+    try std.testing.expect(t.reap());
+    try std.testing.expect(t.exited);
+    try std.testing.expectEqual(@as(c_int, 3 << 8), t.exit_status);
+    try std.testing.expect(!t.reap());
 }
 
 test {
