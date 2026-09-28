@@ -9,6 +9,7 @@ const viewer_version = @import("viewer_version.zig");
 const herdr_adapter = @import("herdr_adapter.zig");
 const claude_credentials = @import("claude_credentials.zig");
 const rpc = @import("rpc.zig");
+const protocol = @import("protocol.zig");
 const client = @import("client.zig");
 const cli = @import("cli.zig");
 const options = @import("corgi_options");
@@ -261,7 +262,7 @@ fn request(path: []const u8, value: anytype) !void {
     defer parsed.deinit();
     const err = agents.str(parsed.value, "err");
     if (err.len > 0) {
-        if (std.meta.stringToEnum(rpc.Rejection, err) == .AmbiguousViewer) return error.AmbiguousViewer;
+        if (std.meta.stringToEnum(protocol.Rejection, err) == .AmbiguousViewer) return error.AmbiguousViewer;
         std.debug.print("{s}\n", .{err});
         return error.ServerRejected;
     }

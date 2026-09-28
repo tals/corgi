@@ -23,6 +23,19 @@ const resources = @import("resources.zig");
 
 pub const version: u32 = 1;
 
+/// Error names in a reply's `err` that clients branch on. Other names are
+/// shown to the user as they are. Renaming one of these is a protocol change.
+pub const Rejection = enum {
+    StaleLayout,
+    NoPane,
+    UnsupportedViewerProtocol,
+    UnsupportedProtocol,
+    ProtocolRequired,
+    AmbiguousViewer,
+    GitPreviewChanged,
+    GitPushInProgress,
+};
+
 /// Every op the server accepts as the wire `"op"` field. Tag names are the
 /// exact wire strings (`@tagName` round-trips through `parse`).
 pub const Op = enum {

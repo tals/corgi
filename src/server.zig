@@ -1228,6 +1228,23 @@ test "the daemon loop body has no try: one client's or pane's error must not end
     }
 }
 
+test "every protocol.Rejection can still be returned by a request" {
+    // Server.request's own inferred error set is anyerror today: it dispatches
+    // into onboarding_import/herdr_adapter/layout.copyTree, which still return
+    // anyerror! (reliability-06-wire-errors step 5, not done). Once those are
+    // named, @typeInfo(E).error_set stops being null and this starts checking
+    // each name for real; until then it only proves the set still resolves.
+    const E = @typeInfo(@typeInfo(@TypeOf(Server.request)).@"fn".return_type.?).error_union.error_set;
+    const set = @typeInfo(E).error_set orelse return;
+    inline for (@typeInfo(protocol.Rejection).@"enum".fields) |f| {
+        comptime var found = false;
+        inline for (set) |e| {
+            if (comptime std.mem.eql(u8, e.name, f.name)) found = true;
+        }
+        if (!found) @compileError("protocol.Rejection." ++ f.name ++ " is no longer returned by Server.request");
+    }
+}
+
 /// What a sidebar entry shows of an agent's lifecycle.
 const Lifecycle = struct {
     state: agents.State,

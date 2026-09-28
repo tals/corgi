@@ -8,6 +8,8 @@ const git = @import("git_status.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const clock = @import("clock.zig");
 
+/// Shared with controller.zig's gitPushMessage, whichever side rejected the push.
+pub const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
 pub const Phase = enum { idle, pushing, succeeded, failed };
 pub const View = struct { phase: Phase = .idle, message: []const u8 = "" };
 pub const State = struct {
@@ -158,7 +160,7 @@ const Job = struct {
         j.push() catch |err| {
             j.result.phase = .failed;
             if (j.result.len == 0) j.result.len = git.clean(&j.result.message, switch (err) {
-                error.GitPreviewChanged => "Branch, commits, or upstream changed. Review the refreshed preview and retry.",
+                error.GitPreviewChanged => preview_changed,
                 error.NoPushDestination => "No remote tracking branch. Configure an upstream in your terminal, then retry.",
                 error.TimedOut => "Push timed out. Check authentication and the remote in your terminal, then retry.",
                 else => @errorName(err),

@@ -57,7 +57,9 @@ pub fn decode(comptime T: type, kind: Kind, allocator: Allocator, bytes: []const
     return .{ .parsed = .{ .arena = json.arena, .value = value }, .from = from, .migrated = migrated };
 }
 
-fn version(value: *Value, current: u32) !*Value {
+/// Why a saved state cannot be read; a reload candidate reports these by name.
+pub const VersionError = error{ MissingStateVersion, InvalidStateVersion, UnsupportedStateVersion };
+fn version(value: *Value, current: u32) (VersionError || error{InvalidCheckpoint})!*Value {
     const field = (try object(value)).getPtr("version") orelse return error.MissingStateVersion;
     if (field.* != .integer or field.integer < 1) return error.InvalidStateVersion;
     if (field.integer > current) return error.UnsupportedStateVersion;

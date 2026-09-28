@@ -4,15 +4,7 @@ const os = @import("os.zig");
 const a = os.allocator;
 const agents = @import("agents.zig");
 const viewer_version = @import("viewer_version.zig");
-/// Error strings the server sends back in the "err" field of a response.
-pub const Rejection = enum {
-    StaleLayout,
-    NoPane,
-    UnsupportedViewerProtocol,
-    UnsupportedProtocol,
-    ProtocolRequired,
-    AmbiguousViewer,
-};
+const Rejection = @import("protocol.zig").Rejection;
 pub const Connection = struct {
     fd: c_int,
     pub fn request(conn: *Connection, value: anytype) !std.json.Parsed(std.json.Value) {

@@ -17,6 +17,7 @@ const agent_navigation = @import("agent_navigation.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const protocol = @import("protocol.zig");
+const git_push = @import("git_push.zig");
 const NativeId = @import("native.zig").Session.Id;
 const mirror = @import("mirror.zig");
 const rpc = @import("rpc.zig");
@@ -2848,7 +2849,9 @@ fn direction(key: u8) ?[]const u8 {
     };
 }
 fn gitPushMessage(err: []const u8) []const u8 {
-    if (std.mem.eql(u8, err, @errorName(error.GitPreviewChanged))) return "Branch, commits, or upstream changed. Review the preview and retry.";
-    if (std.mem.eql(u8, err, @errorName(error.GitPushInProgress))) return "A push is already running for this repository.";
-    return err;
+    return switch (std.meta.stringToEnum(protocol.Rejection, err) orelse return err) {
+        .GitPreviewChanged => git_push.preview_changed,
+        .GitPushInProgress => "A push is already running for this repository.",
+        else => err,
+    };
 }

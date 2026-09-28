@@ -173,8 +173,8 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     defer a.free(ready);
     if (!std.mem.eql(u8, ready, "ready")) {
         log.err("reload candidate: {s}", .{ready});
-        inline for (.{ error.UnsupportedStateVersion, error.MissingStateVersion, error.InvalidStateVersion }) |failure| {
-            if (std.mem.eql(u8, ready, @errorName(failure))) return failure;
+        inline for (@typeInfo(migrations.VersionError).error_set.?) |e| {
+            if (std.mem.eql(u8, ready, e.name)) return @field(migrations.VersionError, e.name);
         }
         return error.ReloadCandidateFailed;
     }
