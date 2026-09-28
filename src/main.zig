@@ -17,6 +17,13 @@ const handoff = @import("handoff.zig");
 const Server = @import("server.zig").Server;
 const viewer_test = @import("viewer_test.zig");
 pub var build_id: [64]u8 = undefined;
+/// A no-op in the daemon, CLI and hook, where client.cleanup has nothing to
+/// restore; in the viewer it leaves the terminal usable instead of raw.
+pub const panic = std.debug.FullPanic(restoreThenPanic);
+fn restoreThenPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    client.cleanup();
+    std.debug.defaultPanic(msg, first_trace_addr);
+}
 fn providerArg(name: []const u8) !agents.Provider {
     return std.meta.stringToEnum(agents.Provider, name) orelse error.BadProvider;
 }

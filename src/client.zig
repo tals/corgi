@@ -8,7 +8,7 @@ const viewer = @import("viewer.zig");
 var keyboard_enabled = false;
 var cursor_blink_saved = false;
 var restore: ?c.struct_termios = null;
-fn cleanup() void {
+pub fn cleanup() void {
     if (restore) |*term| {
         _ = c.tcsetattr(0, c.TCSAFLUSH, term);
         if (keyboard_enabled) {
