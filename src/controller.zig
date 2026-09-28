@@ -1581,8 +1581,7 @@ pub const Controller = struct {
                 'c' => try s.tabMenuAction('c'),
                 'T', 'r' => try s.tabMenuAction('T'),
                 'X', 'x' => try s.tabMenuAction('X'),
-                2 => s.beginPrefix(),
-                else => {},
+                else => if (byte == keymap.prefixByte(s.key_prefix)) s.beginPrefix(),
             }
             return;
         }
@@ -2853,4 +2852,15 @@ fn gitPushMessage(err: []const u8) []const u8 {
         .GitPushInProgress => "A push is already running for this repository.",
         else => err,
     };
+}
+
+test "the tab menu starts a prefix only with the configured prefix key" {
+    var s: Controller = .{ .connection = undefined, .executable = "", .key_prefix = .ctrl_a };
+    s.tab_menu = .{ .tab = 1, .anchor_x = 0 };
+    try s.key(2);
+    try std.testing.expect(!s.prefix);
+    try std.testing.expect(s.tab_menu != null);
+    try s.key(1);
+    try std.testing.expect(s.prefix);
+    try std.testing.expect(s.tab_menu == null);
 }
