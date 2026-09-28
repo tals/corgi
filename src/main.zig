@@ -370,7 +370,8 @@ const help =
     \\
 ;
 test {
-    // Every file under src/, sorted.
+    // Every file under src/, sorted. "every source file is in the test root"
+    // below fails when one is missing.
     _ = @import("account_cache.zig");
     _ = @import("account_preview.zig");
     _ = @import("activity_prompt.zig");
@@ -482,4 +483,22 @@ test {
     _ = @import("viewer_version.zig");
     _ = @import("workspace.zig");
     _ = @import("workspace_drag.zig");
+}
+
+test "every source file is in the test root" {
+    const root = @embedFile("main.zig");
+    var dir = try std.fs.cwd().openDir("src", .{ .iterate = true });
+    defer dir.close();
+    var walker = try dir.walk(std.testing.allocator);
+    defer walker.deinit();
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        if (std.mem.eql(u8, entry.path, "main.zig")) continue;
+        var buf: [256]u8 = undefined;
+        const line = try std.fmt.bufPrint(&buf, "_ = @import(\"{s}\");", .{entry.path});
+        if (std.mem.indexOf(u8, root, line) == null) {
+            std.debug.print("missing from the test root in main.zig: {s}\n", .{entry.path});
+            return error.UnlistedSourceFile;
+        }
+    }
 }
