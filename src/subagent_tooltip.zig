@@ -384,7 +384,7 @@ fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversat
 pub const Release = struct { running: []const u8 = "", commit: []const u8 = "", staged: []const u8 = "" };
 /// Account limits for the pane beside Top agents, from the launcher preview.
 pub const Accounts = struct {
-    options: [agents.Provider.all.len]agent_launcher.Option = @splat(.{}),
+    options: agents.providers.Each(agent_launcher.Option, .{}) = .{},
     /// The provider the activity summarizer runs on.
     system: ?agents.Provider = null,
     /// Unix seconds; zero reads the clock.
@@ -394,7 +394,7 @@ pub const Accounts = struct {
     const min_cols = 124;
 
     fn any(accounts: Accounts) bool {
-        for (accounts.options) |option| switch (option.limits) {
+        for (agents.Provider.all) |provider| switch (accounts.options.getPtrConst(provider).limits) {
             .windows, .metered => return true,
             .none, .rate_limited => {},
         };
@@ -564,7 +564,7 @@ const Section = struct {
     count: usize = 0,
 
     fn option(section: Section, accounts: Accounts) ?agent_launcher.Option {
-        return accounts.options[@intFromEnum(section.provider orelse return null)];
+        return accounts.options.get(section.provider orelse return null);
     }
     /// Limit windows by length, shortest first.
     fn windowOrder(section: Section, accounts: Accounts) [2]?usize {
@@ -1194,7 +1194,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
 
 fn testAccounts(now: i64) Accounts {
     var accounts: Accounts = .{ .system = .codex, .now = now };
-    const claude = &accounts.options[@intFromEnum(agents.Provider.claude)];
+    const claude = accounts.options.getPtr(.claude);
     claude.account = .ascii("work@acme.dev");
     claude.plan = .ascii("max");
     claude.usage_fetched_at = now;
@@ -1203,7 +1203,7 @@ fn testAccounts(now: i64) Accounts {
         .{ .minutes = 10080, .used = 63, .reset_at = now + 3 * 86400 + 16 * 3600 },
     } };
     claude.history[0] = .{ 5, 13, 24, 35, null, 61, 73, 86, 100, 100, null };
-    const codex = &accounts.options[@intFromEnum(agents.Provider.codex)];
+    const codex = accounts.options.getPtr(.codex);
     codex.account = .ascii("me@home.dev");
     codex.usage_fetched_at = now;
     codex.limits = .{ .windows = .{ .{ .minutes = 10080, .used = 84, .reset_at = now + 5 * 86400 + 14 * 3600 }, null } };

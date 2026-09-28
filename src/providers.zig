@@ -23,14 +23,42 @@ pub const Provider = enum {
         };
     }
 };
-/// One `T` per provider, serialized as an object keyed by provider name.
+/// One `T` per provider, serialized as an object keyed by provider name, so
+/// saved state survives adding or reordering providers. A provider missing
+/// from saved JSON takes `default`.
 pub fn Each(comptime T: type, comptime default: T) type {
-    return std.enums.EnumFieldStruct(Provider, T, default);
-}
-/// The value of an `Each` that belongs to `provider`.
-pub fn get(each: anytype, provider: Provider) @typeInfo(@TypeOf(each)).@"struct".fields[0].type {
-    return switch (provider) {
-        inline else => |known| @field(each, @tagName(known)),
+    return struct {
+        const Self = @This();
+        /// What this writes as JSON; the schema snapshot shows its shape.
+        pub const Json = std.enums.EnumFieldStruct(Provider, T, default);
+        values: std.EnumArray(Provider, T) = .initFill(default),
+
+        pub fn init(named: Json) Self {
+            return .{ .values = .initDefault(default, named) };
+        }
+        pub fn get(e: Self, provider: Provider) T {
+            return e.values.get(provider);
+        }
+        pub fn getPtr(e: *Self, provider: Provider) *T {
+            return e.values.getPtr(provider);
+        }
+        pub fn getPtrConst(e: *const Self, provider: Provider) *const T {
+            return e.values.getPtrConst(provider);
+        }
+        pub fn set(e: *Self, provider: Provider, value: T) void {
+            e.values.set(provider, value);
+        }
+        pub fn jsonStringify(e: *const Self, jw: *std.json.Stringify) !void {
+            var named: Json = .{};
+            inline for (comptime std.enums.values(Provider)) |p| @field(named, @tagName(p)) = e.get(p);
+            try jw.write(named);
+        }
+        pub fn jsonParse(alloc: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Self {
+            return .init(try std.json.innerParse(Json, alloc, source, options));
+        }
+        pub fn jsonParseFromValue(alloc: std.mem.Allocator, source: std.json.Value, options: std.json.ParseOptions) !Self {
+            return .init(try std.json.innerParseFromValue(Json, alloc, source, options));
+        }
     };
 }
 pub const Claude = @import("providers/claude.zig").Claude;
@@ -89,6 +117,19 @@ pub const Backend = union(Provider) {
         };
     }
 };
+
+test "per-provider values are keyed by name and a missing provider takes the default" {
+    const Flags = Each(bool, false);
+    var flags: Flags = .{};
+    flags.set(.claude, true);
+    const json = try std.json.Stringify.valueAlloc(std.testing.allocator, flags, .{});
+    defer std.testing.allocator.free(json);
+    try std.testing.expectEqualStrings("{\"codex\":false,\"claude\":true}", json);
+    const parsed = try std.json.parseFromSlice(Flags, std.testing.allocator, "{\"claude\":true}", .{});
+    defer parsed.deinit();
+    try std.testing.expect(!parsed.value.get(.codex) and parsed.value.get(.claude));
+    try std.testing.expectError(error.UnknownField, std.json.parseFromSlice(Flags, std.testing.allocator, "{\"other\":true}", .{}));
+}
 
 test "native adapters keep provider envelopes separate and identify concrete conversations" {
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,

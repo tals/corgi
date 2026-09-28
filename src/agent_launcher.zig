@@ -3,7 +3,8 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
-pub const Provider = @import("providers.zig").Provider;
+const providers = @import("providers.zig");
+pub const Provider = providers.Provider;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const discovery = @import("discovery.zig");
 const inference = @import("inference.zig");
@@ -68,10 +69,10 @@ pub const Option = struct {
     /// Readings across each limit window, in the order of `limits.windows`.
     history: [2]limit_history.Spark = limit_history.none,
 };
-pub const Preview = struct { pending: bool = true, options: [Provider.all.len]Option = @splat(.{}), installed: [Provider.all.len]bool = @splat(true) };
-fn installed() [Provider.all.len]bool {
-    var result: [Provider.all.len]bool = undefined;
-    for (Provider.all, &result) |provider, *found| found.* = discovery.installed(provider);
+pub const Preview = struct { pending: bool = true, options: providers.Each(Option, .{}) = .{}, installed: providers.Each(bool, true) = .{} };
+fn installed() providers.Each(bool, true) {
+    var result: providers.Each(bool, true) = .{};
+    for (Provider.all) |provider| result.set(provider, discovery.installed(provider));
     return result;
 }
 const Job = struct {
@@ -160,32 +161,34 @@ pub const Worker = struct {
             w.mutex.unlock();
             var result: Preview = .{ .pending = false, .installed = installed() };
             // Skip reads for missing providers; their rows are hidden.
-            if (result.installed[0]) {
+            if (result.installed.get(.codex)) {
+                const codex = result.options.getPtr(.codex);
                 if (pool.configuredModel(job.cwd.text(), &w.stopping)) |model| {
-                    result.options[0].model = .ascii(model.text());
-                    result.options[0].source = .ascii("Effective Codex settings");
-                } else |_| result.options[0].source = .ascii("Model resolved by Codex at startup");
+                    codex.model = .ascii(model.text());
+                    codex.source = .ascii("Effective Codex settings");
+                } else |_| codex.source = .ascii("Model resolved by Codex at startup");
                 if (codexAccount(&pool, &w.stopping)) |account| {
-                    result.options[0].signed_in = account.signed_in;
-                    result.options[0].account = account.account;
-                    result.options[0].plan = account.plan;
-                    result.options[0].limits = account.limits;
-                    result.options[0].usage_fetched_at = account.usage_fetched_at;
-                    result.options[0].usage_error = account.usage_error;
-                    result.options[0].history = limit_history.update(.codex, account, &w.stopping);
-                } else |_| result.options[0].usage_error = .ascii("account read failed");
+                    codex.signed_in = account.signed_in;
+                    codex.account = account.account;
+                    codex.plan = account.plan;
+                    codex.limits = account.limits;
+                    codex.usage_fetched_at = account.usage_fetched_at;
+                    codex.usage_error = account.usage_error;
+                    codex.history = limit_history.update(.codex, account, &w.stopping);
+                } else |_| codex.usage_error = .ascii("account read failed");
             }
-            if (result.installed[1]) {
-                result.options[1] = claude(job.cwd.text());
+            if (result.installed.get(.claude)) {
+                const option = result.options.getPtr(.claude);
+                option.* = claude(job.cwd.text());
                 const account = claudeAccount(job.cwd.text(), &w.stopping, job.request_access);
-                result.options[1].signed_in = account.signed_in;
-                result.options[1].account = account.account;
-                result.options[1].plan = account.plan;
-                result.options[1].limits = account.limits;
-                result.options[1].usage_fetched_at = account.usage_fetched_at;
-                result.options[1].usage_error = account.usage_error;
-                result.options[1].usage_needs_consent = account.usage_needs_consent;
-                result.options[1].history = limit_history.update(.claude, account, &w.stopping);
+                option.signed_in = account.signed_in;
+                option.account = account.account;
+                option.plan = account.plan;
+                option.limits = account.limits;
+                option.usage_fetched_at = account.usage_fetched_at;
+                option.usage_error = account.usage_error;
+                option.usage_needs_consent = account.usage_needs_consent;
+                option.history = limit_history.update(.claude, account, &w.stopping);
             }
             w.mutex.lock();
             if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd.text(), job.cwd.text())) {
@@ -476,8 +479,8 @@ pub const Menu = struct {
     workspace: WorkspaceId,
     cwd: Path = .{},
     selected: Row,
-    yolo: [Provider.all.len]bool = @splat(false),
-    hidden: [Provider.all.len]bool = @splat(false),
+    yolo: providers.Each(bool, false) = .{},
+    hidden: providers.Each(bool, false) = .{},
     managing: bool = false,
     editor: name_dialog.Dialog = .{ .target = .{ .agent_command = 0 }, .selected = false },
     name_editor: name_dialog.Dialog = .{ .target = .{ .rename = @enumFromInt(0) }, .selected = false },
@@ -502,11 +505,10 @@ pub const Menu = struct {
     const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in" };
     /// The text columns; `usageCell` draws the last one.
     fn cells(m: *const Menu, provider: Provider) [5][]const u8 {
-        const index = @intFromEnum(provider);
-        const option = &m.preview.options[index];
+        const option = m.preview.options.getPtrConst(provider);
         return .{
             provider.info().label,
-            if (m.yolo[index]) "✓" else "·",
+            if (m.yolo.get(provider)) "✓" else "·",
             if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
@@ -529,7 +531,7 @@ pub const Menu = struct {
             break :blk if (info.default_account) info.provider else null;
         } else null;
         const p = provider orelse return .status("—");
-        const option = &m.preview.options[@intFromEnum(p)];
+        const option = m.preview.options.getPtrConst(p);
         // Built-in rows offer an actionable "Track usage" link instead; saved
         // commands sharing that provider show unavailable data (no action).
         if (m.trackable(.of(p))) return if (row.custom() == null) .status("Track usage") else unavailableCell(option);
@@ -557,8 +559,8 @@ pub const Menu = struct {
         if (row.custom()) |index| return m.commands[index].command.len > 0 and (m.managing or !m.commands[index].hidden);
         if (row == .terminal) return !m.managing;
         if (m.managing) return true;
-        const index = @intFromEnum(row.agent().?);
-        return m.preview.installed[index] and !m.hidden[index] and m.preview.options[index].signed_in != false;
+        const provider = row.agent().?;
+        return m.preview.installed.get(provider) and !m.hidden.get(provider) and m.preview.options.get(provider).signed_in != false;
     }
     pub fn emptyCommand(m: *const Menu) ?usize {
         for (m.commands, 0..) |entry, i| if (entry.command.len == 0) return i;
@@ -710,7 +712,7 @@ pub const Menu = struct {
     pub fn trackable(m: *const Menu, row: Row) bool {
         if (m.managing) return false;
         const provider = row.agent() orelse return false;
-        return !m.preview.pending and m.preview.options[@intFromEnum(provider)].usage_needs_consent;
+        return !m.preview.pending and m.preview.options.get(provider).usage_needs_consent;
     }
     pub fn usageHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Provider {
         const provider = m.providerHit(cols, rows, side, x, y) orelse return null;
@@ -754,7 +756,7 @@ pub const Menu = struct {
     fn account(m: *const Menu, info: *const launch_command.Semantics) []const u8 {
         if (info.account.len > 0) return info.account.text();
         if (info.default_account) if (info.provider) |provider| {
-            const option = &m.preview.options[@intFromEnum(provider)];
+            const option = m.preview.options.getPtrConst(provider);
             return if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading default account…" else "Default account · unavailable";
         };
         return "Account unknown";
@@ -793,7 +795,7 @@ pub const Menu = struct {
         for (0..n) |i| {
             const row = m.rowAt(i).?;
             const custom = row.custom();
-            const hidden = if (custom) |index| m.commands[index].hidden else m.hidden[@intFromEnum(row)];
+            const hidden = if (custom) |index| m.commands[index].hidden else m.hidden.get(row.agent().?);
             const label = if (custom) |index| m.commands[index].label() else row.agent().?.info().label;
             const info = if (custom) |index| m.commands[index].semantics else launch_command.Semantics{ .provider = row.agent().?, .default_account = true };
             const source = m.account(&info);
@@ -902,7 +904,6 @@ pub const Menu = struct {
         }
         for (0..m.count()) |visible| {
             const current = m.rowAt(visible).?;
-            const i = @intFromEnum(current);
             const selected = current == m.selected;
             const row = b.y + 3 + visible + @as(usize, if (current == .manage) 2 else 0);
             if (current == .manage) {
@@ -932,8 +933,9 @@ pub const Menu = struct {
             }
             if (m.managing) {
                 var line: [160]u8 = undefined;
-                const status = if (!m.preview.installed[i]) "Not installed" else if (m.preview.options[i].signed_in == false) "Not signed in" else if (m.hidden[i]) "Hidden" else "In picker";
-                const text = try std.fmt.bufPrint(&line, "{s} · {s}   [{s}]", .{ current.agent().?.info().label, status, if (m.hidden[i]) "Add" else "Remove" });
+                const provider = current.agent().?;
+                const status = if (!m.preview.installed.get(provider)) "Not installed" else if (m.preview.options.get(provider).signed_in == false) "Not signed in" else if (m.hidden.get(provider)) "Hidden" else "In picker";
+                const text = try std.fmt.bufPrint(&line, "{s} · {s}   [{s}]", .{ provider.info().label, status, if (m.hidden.get(provider)) "Add" else "Remove" });
                 try w.print("\x1b[{d};{d}H", .{ row, b.x + 4 });
                 try sidebar.writeEllipsis(w, text, b.w -| 6);
                 continue;
@@ -947,7 +949,7 @@ pub const Menu = struct {
             }
             var x: u16 = b.x + 4;
             const values = if (current.custom()) |index| m.customCells(index) else m.cells(current.agent().?);
-            const yolo = if (current.custom()) |index| m.commands[index].semantics.yolo else m.yolo[@intFromEnum(current.agent().?)];
+            const yolo = if (current.custom()) |index| m.commands[index].semantics.yolo else m.yolo.get(current.agent().?);
             for (widths, 0..) |width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
@@ -970,7 +972,7 @@ pub const Menu = struct {
                 "add"
             else if (m.selected.custom() != null)
                 "edit"
-            else if (m.hidden[@intFromEnum(m.selected)])
+            else if (m.selected.agent() != null and m.hidden.get(m.selected.agent().?))
                 "add"
             else
                 "remove";
@@ -1035,9 +1037,9 @@ test "account preview shows identities or auth mode and never credential fields"
 test "launcher fits long content and keeps usage hit targets aligned" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .claude, .last = .codex, .pinned = true };
     menu.preview.pending = false;
-    menu.preview.options[0].model = .ascii("a-long-model-name-that-needs-room");
-    menu.preview.options[1].account = .ascii("person.with.a.long.name@example.com");
-    menu.preview.options[1].usage_needs_consent = true;
+    menu.preview.options.getPtr(.codex).model = .ascii("a-long-model-name-that-needs-room");
+    menu.preview.options.getPtr(.claude).account = .ascii("person.with.a.long.name@example.com");
+    menu.preview.options.getPtr(.claude).usage_needs_consent = true;
     const widths = menu.columns(200);
     try std.testing.expectEqual(@as(u16, 35), widths[2]);
     try std.testing.expectEqual(@as(u16, 37), widths[3]);
@@ -1058,12 +1060,12 @@ test "single-line limit groups survive narrow terminal rendering" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     const now = std.time.timestamp();
-    menu.preview.options[0].limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48, .reset_at = now + 6 * 86400 + 18 * 3600 } } };
-    menu.preview.options[1].limits = .{ .windows = .{
+    menu.preview.options.getPtr(.codex).limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48, .reset_at = now + 6 * 86400 + 18 * 3600 } } };
+    menu.preview.options.getPtr(.claude).limits = .{ .windows = .{
         .{ .minutes = 300, .used = 17, .reset_at = now + 99 * 60 },
         .{ .minutes = 10080, .used = 35, .reset_at = now + 86400 + 15 * 3600 },
     } };
-    for (&menu.preview.options) |*option| {
+    for (&menu.preview.options.values.values) |*option| {
         option.usage_fetched_at = now;
         option.account = .ascii("toasty.tal@gmail.com");
         option.model = .ascii("gpt-6-astra");
@@ -1106,7 +1108,7 @@ test "single-line limit groups survive narrow terminal rendering" {
 test "viewer expires a delivered usage reading after ten minutes" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
-    const option = &menu.preview.options[0];
+    const option = menu.preview.options.getPtr(.codex);
     option.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48 } } };
     option.usage_fetched_at = std.time.timestamp() - 590;
     try std.testing.expectEqual(@as(usize, 1), menu.usageCell(.codex).len);
@@ -1129,7 +1131,7 @@ fn parseAccount(bytes: []const u8) Text {
 test "launcher hides providers that are not installed" {
     const side = sidebar.View.init(120, 24, true, 0, 0);
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
-    menu.preview.installed = .{ false, true };
+    menu.preview.installed = .init(.{ .codex = false });
     menu.normalize();
     try std.testing.expectEqual(Row.claude, menu.selected);
     const b = menu.bounds(120, 24, side);
@@ -1143,7 +1145,7 @@ test "launcher hides providers that are not installed" {
     try std.testing.expectEqual(Row.manage, menu.selected);
     menu.move(true, true);
     try std.testing.expectEqual(Row.claude, menu.selected);
-    menu.preview.installed = .{ false, false };
+    menu.preview.installed = .init(.{ .codex = false, .claude = false });
     menu.normalize();
     try std.testing.expectEqual(Row.terminal, menu.selected);
     try std.testing.expectEqual(Row.terminal, menu.first());
@@ -1151,8 +1153,8 @@ test "launcher hides providers that are not installed" {
 
 test "signed-out and hidden agents remain editable in management" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
-    menu.preview.options[0].signed_in = false;
-    menu.hidden[1] = true;
+    menu.preview.options.getPtr(.codex).signed_in = false;
+    menu.hidden.set(.claude, true);
     menu.normalize();
     try std.testing.expectEqual(Row.terminal, menu.selected);
     try std.testing.expect(!menu.shown(.codex) and !menu.shown(.claude));
@@ -1165,7 +1167,7 @@ test "signed-out and hidden agents remain editable in management" {
     try std.testing.expect(!menu.shown(.custom0));
     menu.commands[0].hidden = false;
     try std.testing.expect(menu.shown(.custom0));
-    menu.preview.options[0].signed_in = null;
+    menu.preview.options.getPtr(.codex).signed_in = null;
     try std.testing.expect(menu.shown(.codex));
 }
 
@@ -1174,11 +1176,11 @@ test "digit shortcuts enumerate visible agents and exclude terminal and manageme
     try std.testing.expectEqual(Row.codex, menu.shortcutRow('0').?);
     try std.testing.expectEqual(Row.claude, menu.shortcutRow('1').?);
     try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('2'));
-    menu.hidden[0] = true;
+    menu.hidden.set(.codex, true);
     try menu.commands[3].set("claude --model opus");
     try std.testing.expectEqual(Row.claude, menu.shortcutRow('0').?);
     try std.testing.expectEqual(Row.custom3, menu.shortcutRow('1').?);
-    menu.preview.options[1].signed_in = false;
+    menu.preview.options.getPtr(.claude).signed_in = false;
     try std.testing.expectEqual(Row.custom3, menu.shortcutRow('0').?);
     menu.commands[3].hidden = true;
     try std.testing.expectEqual(@as(?Row, null), menu.shortcutRow('0'));
@@ -1189,9 +1191,9 @@ test "digit shortcuts enumerate visible agents and exclude terminal and manageme
 test "custom picker cells preserve account scope and permission state" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .custom0, .last = .claude, .pinned = true };
     menu.preview.pending = false;
-    menu.preview.options[1].account = .ascii("personal@example.com");
-    menu.preview.options[1].plan = .ascii("Max");
-    menu.preview.options[1].model = .ascii("opus");
+    menu.preview.options.getPtr(.claude).account = .ascii("personal@example.com");
+    menu.preview.options.getPtr(.claude).plan = .ascii("Max");
+    menu.preview.options.getPtr(.claude).model = .ascii("opus");
     try menu.commands[0].set("claude --dangerously-skip-permissions");
     menu.commands[0].semantics = launch_command.analyze(menu.commands[0].text(), "/tmp");
     var values = menu.customCells(0);

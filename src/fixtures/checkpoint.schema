@@ -11,8 +11,10 @@ $.link_labels.entries[64]?.pending: bool
 $.link_labels.entries[64]?.name: custom bounded_text.BoundedText(32)
 $.link_labels.generation: u64
 $.last_agent: enum codex claude
-$.agent_yolo[2]: bool
-$.agent_hidden[2]: bool
+$.agent_yolo.codex: bool
+$.agent_yolo.claude: bool
+$.agent_hidden.codex: bool
+$.agent_hidden.claude: bool
 $.agent_commands[6].command: custom bounded_text.BoundedText(2048)
 $.agent_commands[6].original: custom bounded_text.BoundedText(2048)
 $.agent_commands[6].hidden: bool

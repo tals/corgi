@@ -1,5 +1,6 @@
 //! One typed command interface for shared session state. Selection belongs to viewers.
 const std = @import("std");
+const providers = @import("providers.zig");
 const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
 const pane_label = @import("pane_label.zig");
@@ -35,7 +36,7 @@ pub const Command = union(enum) {
         cwd: ?[]const u8 = null,
     },
     @"agent.command.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", index: usize },
-    @"agent.visibility": struct { hidden: [2]bool },
+    @"agent.visibility": struct { hidden: providers.Each(bool, false) },
     @"agent.yolo": struct { provider: Provider, enabled: bool },
     @"agent.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", provider: ?Provider = null },
     @"pane.create": struct {
@@ -190,7 +191,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             return .{};
         },
         .@"agent.yolo" => |q| {
-            r.agent_yolo[@intFromEnum(q.provider)] = q.enabled;
+            r.agent_yolo.set(q.provider, q.enabled);
             r.changed();
             return .{};
         },
@@ -199,7 +200,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
             const executable = try integration.shellQuote(ctx.executable);
             defer os.allocator.free(executable);
-            const yolo = r.agent_yolo[@intFromEnum(provider)];
+            const yolo = r.agent_yolo.get(provider);
             const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {t}{s}{s}", .{
                 executable,
                 provider,

@@ -4,6 +4,7 @@ const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const Preview = @import("agent_launcher.zig").Preview;
+const Provider = @import("providers.zig").Provider;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Path = @import("bounded_text.zig").Path;
 
@@ -32,7 +33,7 @@ pub const Stream = struct {
         if (std.mem.eql(u8, cwd, s.cwd.text())) return s.preview;
         // Provider visibility survives a directory change; model settings don't.
         var result: Preview = .{ .installed = s.preview.installed };
-        for (&result.options, s.preview.options) |*option, previous| option.signed_in = previous.signed_in;
+        for (Provider.all) |provider| result.options.getPtr(provider).signed_in = s.preview.options.get(provider).signed_in;
         return result;
     }
 
@@ -113,8 +114,9 @@ pub const Stream = struct {
                 preview.pending = true;
                 preview.installed = message.preview.installed;
             }
-            for (&preview.options, s.preview.options) |*option, previous| {
-                if (option.signed_in == null) option.signed_in = previous.signed_in;
+            for (Provider.all) |provider| {
+                const option = preview.options.getPtr(provider);
+                if (option.signed_in == null) option.signed_in = s.preview.options.get(provider).signed_in;
             }
         }
         const changed = !std.meta.eql(s.preview, preview);
@@ -131,7 +133,7 @@ test "preview stream handles partial and consecutive messages and ignores old di
     var stream: Stream = .{ .fd = pair[0], .cwd = .initTruncated("/a") };
     defer stream.deinit();
     var preview: Preview = .{ .pending = false };
-    preview.options[0].model = .ascii("initial");
+    preview.options.getPtr(.codex).model = .ascii("initial");
     const first = try std.json.Stringify.valueAlloc(a, .{ .type = "agent.preview", .cwd = "/a", .preview = preview }, .{});
     defer a.free(first);
     try os.writeAll(pair[1], first[0..100]);
@@ -139,16 +141,16 @@ test "preview stream handles partial and consecutive messages and ignores old di
     try os.writeAll(pair[1], first[100..]);
     try os.writeAll(pair[1], "\n");
     try std.testing.expect(try stream.drain());
-    try std.testing.expectEqualStrings("initial", stream.current("/a").options[0].model.text());
-    preview.options[0].model = .ascii("updated");
+    try std.testing.expectEqualStrings("initial", stream.current("/a").options.get(.codex).model.text());
+    preview.options.getPtr(.codex).model = .ascii("updated");
     try os.sendJson(pair[1], .{ .type = "agent.preview", .cwd = "/a", .preview = preview });
-    preview.options[0].model = .ascii("wrong directory");
+    preview.options.getPtr(.codex).model = .ascii("wrong directory");
     try os.sendJson(pair[1], .{ .type = "agent.preview", .cwd = "/b", .preview = preview });
     try std.testing.expect(try stream.drain());
-    try std.testing.expectEqualStrings("updated", stream.current("/a").options[0].model.text());
-    try std.testing.expectEqual(@as(usize, 0), stream.current("/b").options[0].model.len);
+    try std.testing.expectEqualStrings("updated", stream.current("/a").options.get(.codex).model.text());
+    try std.testing.expectEqual(@as(usize, 0), stream.current("/b").options.get(.codex).model.len);
     try os.sendJson(pair[1], .{ .type = "agent.preview", .cwd = "/a", .preview = Preview{} });
     try std.testing.expect(try stream.drain());
     try std.testing.expect(stream.preview.pending);
-    try std.testing.expectEqualStrings("updated", stream.preview.options[0].model.text());
+    try std.testing.expectEqualStrings("updated", stream.preview.options.getPtr(.codex).model.text());
 }

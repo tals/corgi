@@ -1360,7 +1360,7 @@ test "local Codex reattachment requires current unambiguous identity and preserv
 }
 test "preview subscriptions schedule stale refreshes and publish completion without another request" {
     var preview: agent_launcher.Preview = .{ .pending = false };
-    preview.options[1].model = .ascii("before");
+    preview.options.getPtr(.claude).model = .ascii("before");
     var worker: agent_launcher.Worker = .{};
     worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
     var s: Server = .{ .socket = "", .executable = "", .launch_previews = &worker };
@@ -1369,18 +1369,18 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     s.publishLaunchPreview(&cl);
     try std.testing.expect(worker.jobs[0].?.queued);
     try std.testing.expect(cl.launch_preview.?.preview.pending);
-    try std.testing.expectEqualStrings("before", cl.launch_preview.?.preview.options[1].model.text());
+    try std.testing.expectEqualStrings("before", cl.launch_preview.?.preview.options.get(.claude).model.text());
     cl.output.clearRetainingCapacity();
     cl.launch_preview.?.checked = 0;
     worker.jobs[0].?.updated = std.time.milliTimestamp();
     worker.jobs[0].?.preview.pending = false;
-    worker.jobs[0].?.preview.options[1].model = .ascii("after");
+    worker.jobs[0].?.preview.options.getPtr(.claude).model = .ascii("after");
     s.publishLaunchPreview(&cl);
     const message = try std.json.parseFromSlice(std.json.Value, a, cl.output.items, .{});
     defer message.deinit();
     try std.testing.expectEqualStrings("agent.preview", agents.str(message.value, "type"));
     try std.testing.expect(!cl.launch_preview.?.preview.pending);
-    try std.testing.expectEqualStrings("after", cl.launch_preview.?.preview.options[1].model.text());
+    try std.testing.expectEqualStrings("after", cl.launch_preview.?.preview.options.get(.claude).model.text());
     cl.output.clearRetainingCapacity();
     cl.launch_preview.?.checked = 0;
     s.publishLaunchPreview(&cl);

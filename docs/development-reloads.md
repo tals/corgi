@@ -277,8 +277,11 @@ only whether usage was metered; windows return with the next preview.
 Checkpoint 4 → 5 and handoff 3 → 4 save text as plain strings. Earlier versions
 wrote each fixed buffer whole, NUL padding included, beside its length; the
 steps cut each buffer at that length, never at a NUL, because writers left
-stale bytes past it. Checkpoint 4 → 5 also drops each pane's copy of its agent,
-which restore never read. Migrations touch only known schema fields; terminal data, native messages, and other
+stale bytes past it. The same steps name each provider's settings (YOLO,
+hidden agents, launcher options, inference launch counts) instead of listing
+them in enum order, so adding or reordering a provider cannot shift them.
+Checkpoint 4 → 5 also drops each pane's copy of its agent, which restore never
+read. Migrations touch only known schema fields; terminal data, native messages, and other
 opaque payloads remain unchanged.
 
 Steps operate on the JSON tree only. They must not decode into or import runtime
@@ -303,7 +306,8 @@ Adding a field with a default needs no version bump, because readers ignore
 unknown fields and fill in defaults. It still changes the snapshot; refresh it
 as well. Renames, removals, and changes of type or meaning need a step. Types
 with their own `jsonStringify`/`jsonParse` (such as `layout.Model`) appear as a
-single line, so changes inside them are not caught by the snapshot. Text is
+single line, so changes inside them are not caught by the snapshot, unless they
+declare `Json`, the type they write, as `providers.Each` does. Text is
 `BoundedText(N)`, which saves as a plain string; its line names N, so a
 capacity change shows up. Growing N needs no step; shrinking it does. Saved
 paths use one fixed capacity on every platform, so any build reads another's

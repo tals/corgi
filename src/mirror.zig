@@ -179,8 +179,8 @@ pub const Runtime = struct {
     resources: resources.Snapshot = .{},
     closed_panes: usize = 0,
     last_agent: providers.Provider = .codex,
-    agent_yolo: [2]bool = .{ false, false },
-    agent_hidden: [2]bool = .{ false, false },
+    agent_yolo: providers.Each(bool, false) = .{},
+    agent_hidden: providers.Each(bool, false) = .{},
     agent_commands: [launch_command.capacity]launch_command.Entry = @splat(.{}),
     pub fn pane(r: *Runtime, id: layout.PaneId) ?*Pane {
         for (r.panes.items) |*p| if (p.id == id) return p;

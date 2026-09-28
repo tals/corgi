@@ -982,7 +982,7 @@ pub const Controller = struct {
             if (launch.managing) {
                 if (row.agent()) |provider| {
                     var hidden = s.runtime.agent_hidden;
-                    hidden[@intFromEnum(provider)] = !hidden[@intFromEnum(provider)];
+                    hidden.set(provider, !hidden.get(provider));
                     _ = try s.execute(.{ .@"agent.visibility" = .{ .hidden = hidden } });
                     s.agent_launcher.?.hidden = hidden;
                     s.agent_launcher.?.pinned = true;
@@ -1086,7 +1086,7 @@ pub const Controller = struct {
         };
         if (launch.edit_provider) |provider| {
             var visibility = s.runtime.agent_hidden;
-            visibility[@intFromEnum(provider)] = true;
+            visibility.set(provider, true);
             _ = try s.execute(.{ .@"agent.visibility" = .{ .hidden = visibility } });
             launch.hidden = visibility;
         }
@@ -1104,10 +1104,10 @@ pub const Controller = struct {
         s.dirty = true;
     }
     fn toggleLauncherYolo(s: *Self, provider: agents.Provider) !void {
-        const enabled = !s.runtime.agent_yolo[@intFromEnum(provider)];
+        const enabled = !s.runtime.agent_yolo.get(provider);
         _ = try s.execute(.{ .@"agent.yolo" = .{ .provider = provider, .enabled = enabled } });
         if (s.agent_launcher) |*launch| {
-            launch.yolo[@intFromEnum(provider)] = enabled;
+            launch.yolo.set(provider, enabled);
             launch.selected = .of(provider);
             launch.pinned = true;
         }

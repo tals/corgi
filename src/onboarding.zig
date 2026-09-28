@@ -28,7 +28,7 @@ pub const State = struct {
     source: catalog.Source = .tmux,
     source_initialized: bool = false,
     help: shortcut_help.State = .{},
-    workers: [3]?*catalog.Worker = .{ null, null, null },
+    workers: std.EnumArray(catalog.Source, ?*catalog.Worker) = .initFill(null),
     selected: [256]bool = @splat(false),
     expanded: [256]bool = @splat(false),
     cursor: usize = 0,
@@ -58,7 +58,7 @@ pub const State = struct {
         return true;
     }
     pub fn deinit(s: *State) void {
-        for (s.workers) |entry| if (entry) |w| w.deinit();
+        for (s.workers.values) |entry| if (entry) |w| w.deinit();
         if (s.progress_data) |data| data.deinit();
     }
     pub fn fail(s: *State, err: anyerror) void {
@@ -71,7 +71,7 @@ pub const State = struct {
         return std.meta.stringToEnum(Phase, s.progress.phase);
     }
     pub fn worker(s: *const State) ?*catalog.Worker {
-        return s.workers[@intFromEnum(s.source)];
+        return s.workers.get(s.source);
     }
     pub fn items(s: *const State) []const catalog.Workspace {
         const w = s.worker() orelse return &.{};
@@ -79,10 +79,10 @@ pub const State = struct {
     }
     fn scan(s: *State) void {
         s.scan_finished = false;
-        if (s.worker() == null) s.workers[@intFromEnum(s.source)] = catalog.Worker.start(s.source) catch |err| {
+        if (s.worker() == null) s.workers.set(s.source, catalog.Worker.start(s.source) catch |err| {
             s.fail(err);
             return;
-        };
+        });
     }
     fn changeSource(s: *State, source: catalog.Source) void {
         if (!std.mem.containsAtLeast(catalog.Source, catalog.available_sources, 1, &.{source})) return;
@@ -268,7 +268,7 @@ pub const State = struct {
                     if (s.worker()) |w| {
                         if (!w.done.load(.acquire)) return false;
                         w.deinit();
-                        s.workers[@intFromEnum(s.source)] = null;
+                        s.workers.set(s.source, null);
                     }
                     s.selected = @splat(false);
                     s.expanded = @splat(false);
@@ -822,7 +822,7 @@ test "tmux selects at most three recent groups once per discovery" {
     } } };
     defer worker.arena.deinit();
     var state: State = .{ .step = .import };
-    state.workers[0] = &worker;
+    state.workers.set(.tmux, &worker);
     state.selectDefaults();
     try std.testing.expectEqualSlices(bool, &.{ true, true, true, false }, state.selected[0..4]);
     state.selected[0] = false;
@@ -840,7 +840,7 @@ test "failed discovery does not claim the source has no sessions" {
     };
     defer worker.arena.deinit();
     var state: State = .{ .step = .import };
-    state.workers[0] = &worker;
+    state.workers.set(.tmux, &worker);
     const output = try state.frame(76, 26);
     defer a.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "Couldn't read this source.") != null);
@@ -864,7 +864,7 @@ test "workspace previews keep recovery rows and handoff selection aligned while 
     } } };
     defer worker.arena.deinit();
     var state: State = .{ .step = .import, .source = .herdr };
-    state.workers[1] = &worker;
+    state.workers.set(.herdr, &worker);
     var conn: Connection = .{ .fd = -1 }; // Preview controls must not call RPC.
     const initial = try state.frame(76, 26);
     defer a.free(initial);

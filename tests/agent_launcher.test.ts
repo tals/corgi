@@ -150,7 +150,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\x02a");
     await this.clickText(view, "Manage agents");
     await this.clickText(view, "Codex");
-    this.assertEqual((await this.session()).agent_hidden, [true, false]);
+    this.assertEqual((await this.session()).agent_hidden, {
+      codex: true,
+      claude: false,
+    });
     await this.clickText(view, "Paste a command");
     const source =
       "FOO=123 claude code --whatever 'two words' --prompt '" +
@@ -182,7 +185,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\r");
     await this.waitSaved(0, changed);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
-    this.assertEqual((await this.session()).agent_hidden, [true, false]);
+    this.assertEqual((await this.session()).agent_hidden, {
+      codex: true,
+      claude: false,
+    });
     const entry = (await this.session()).agent_commands[0];
     this.assertEqual(entry.command, changed);
     this.assertFalse(entry.hidden);
@@ -215,7 +221,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("codex --model example");
     await this.clickText(view, "[Save]");
     await this.waitSaved(1, "codex --model example");
-    this.assertTrue((await this.session()).agent_hidden[0]);
+    this.assertTrue((await this.session()).agent_hidden.codex);
     this.assertEqual(
       (await this.session()).agent_commands[1].command,
       "codex --model example",
@@ -311,7 +317,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
         })
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
-    this.assertFalse((await preview()).options[1].signed_in);
+    this.assertFalse((await preview()).options.claude.signed_in);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
     await this.until(
@@ -565,14 +571,23 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const rows = screen_text((await view.poll()).data, 120, 30);
     const y = rows.findIndex((row) => row.includes("Codex"));
     await this.clickViewer(view, rows[y].indexOf("·") + 1, y + 1);
-    this.assertEqual((await this.session()).agent_yolo, [true, false]);
+    this.assertEqual((await this.session()).agent_yolo, {
+      codex: true,
+      claude: false,
+    });
     this.assertEqual((await this.session()).panes.length, 1);
     this.assertIn("New agent", (await view.poll()).data);
     await view.input("j");
     await view.input("y");
-    this.assertEqual((await this.session()).agent_yolo, [true, true]);
+    this.assertEqual((await this.session()).agent_yolo, {
+      codex: true,
+      claude: true,
+    });
     await view.input("y");
-    this.assertEqual((await this.session()).agent_yolo, [true, false]);
+    this.assertEqual((await this.session()).agent_yolo, {
+      codex: true,
+      claude: false,
+    });
     await view.input("k");
     await view.input("a");
     await this.until(() => existsSync(this.launches));
@@ -581,7 +596,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       JSON.parse(lines(this.launches)[0]).args,
     );
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
-    this.assertEqual((await this.session()).agent_yolo, [true, false]);
+    this.assertEqual((await this.session()).agent_yolo, {
+      codex: true,
+      claude: false,
+    });
     await this.command("agent.yolo", { provider: "claude", enabled: true });
     await this.command("agent.create", {
       workspace: this.ws,
@@ -630,7 +648,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       this.assertEqual(initial.type, "agent.preview");
       while (initial.preview.pending) initial = await client.read(12000);
       this.assertEqual(initial.cwd, this.launchDir);
-      this.assertEqual(initial.preview.options[1].model, "opus");
+      this.assertEqual(initial.preview.options.claude.model, "opus");
       await sleep(5.2);
       const settings = join(this.launchDir, ".claude/settings.json");
       mkdirSync(join(this.launchDir, ".claude"));
@@ -638,10 +656,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
       let update = await client.read(12000);
       while (update.preview.pending) {
-        this.assertEqual(update.preview.options[1].model, "opus");
+        this.assertEqual(update.preview.options.claude.model, "opus");
         update = await client.read(12000);
       }
-      this.assertEqual(update.preview.options[1].model, "sonnet");
+      this.assertEqual(update.preview.options.claude.model, "sonnet");
       const other = join(this.temp.name, "other");
       mkdirSync(other);
       client.send({
@@ -653,7 +671,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       update = await client.read(12000);
       while (update.preview.pending) update = await client.read(12000);
       this.assertEqual(update.cwd, other);
-      this.assertEqual(update.preview.options[1].model, "opus");
+      this.assertEqual(update.preview.options.claude.model, "opus");
     } finally {
       client.close();
     }
@@ -794,7 +812,9 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
       async () => (await this.session()).panes.length === before + 1,
     );
     this.assertEqual((await this.session()).last_agent, "claude");
-    await this.command("agent.visibility", { hidden: [true, false] });
+    await this.command("agent.visibility", {
+      hidden: { codex: true, claude: false },
+    });
     await this.command("agent.command", {
       index: 0,
       command: "sleep 120",
@@ -952,7 +972,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
         })
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
-    const option = (await preview()).options[1];
+    const option = (await preview()).options.claude;
     this.assertEqual(option.plan, "max");
     this.assertEqual(windows(option), claudeWindows);
     this.assertNotIn("fixture-token", JSON.stringify(await preview()));
@@ -1000,7 +1020,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
         })
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
-    return (await preview()).options[1];
+    return (await preview()).options.claude;
   }
   async test_account_requests_shared_across_directories_reload_and_credentials() {
     const [log] = this.accountCacheFixture();
@@ -1220,7 +1240,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
       "interactive",
       "silent",
     ]);
-    this.assertTrue((await preview()).options[1].usage_needs_consent);
+    this.assertTrue((await preview()).options.claude.usage_needs_consent);
     this.assertFalse(existsSync(this.launches));
   }
   async test_already_authorized_usage_loads_silently() {
@@ -1300,7 +1320,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
         })
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
-    const result = (await preview()).options[1];
+    const result = (await preview()).options.claude;
     this.assertEqual(result.model, "sonnet");
     this.assertIn("Local settings", result.source);
   }

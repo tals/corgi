@@ -191,8 +191,8 @@ pub const Worker = struct {
         const provider = if (w.applied) w.active else setup.resolve(w.choice, w.launches, w.remembered);
         var result: setup.Status = .{ .choice = w.choice, .provider = provider, .model = setup.model(provider), .locked = w.locked };
         inline for (comptime std.enums.values(setup.Provider)) |known| {
-            @field(result.launches, @tagName(known)) = w.launches.count.get(known);
-            @field(result.models, @tagName(known)) = setup.model(known);
+            result.launches.set(known, w.launches.count.get(known));
+            result.models.set(known, setup.model(known));
         }
         return result;
     }

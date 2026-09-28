@@ -424,13 +424,13 @@ test "activities finish whole loops within budget and rest for at least ten seco
 }
 
 test "random starts cover all routines and redraws do not reroll decisions" {
-    var seen = [_]bool{false} ** 3;
+    var seen: std.EnumSet(Routine) = .initEmpty();
     var resumed = false;
     var stayed_idle = false;
     for (0..100) |seed| {
         var playback: Playback = .{ .random = .init(seed) };
         playback.update(true, 0);
-        seen[@intFromEnum(playback.routine)] = true;
+        seen.insert(playback.routine);
         playback.enter(.idle, 0);
         playback.update(true, Playback.minimum_idle_ms);
         resumed = resumed or playback.routine != .idle;
@@ -440,7 +440,7 @@ test "random starts cover all routines and redraws do not reroll decisions" {
         sparse.update(true, Playback.minimum_idle_ms + Playback.retry_ms - 1);
         try std.testing.expectEqualDeep(sparse, playback);
     }
-    try std.testing.expect(seen[0] and seen[1] and seen[2]);
+    try std.testing.expect(seen.eql(.initFull()));
     try std.testing.expect(resumed and stayed_idle);
 }
 

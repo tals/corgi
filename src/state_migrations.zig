@@ -304,8 +304,9 @@ fn handoff2To3(alloc: Allocator, value: *Value) Error!void {
 }
 
 fn checkpoint4To5(alloc: Allocator, value: *Value) Error!void {
-    // V4 wrote each text as its whole fixed buffer beside a length. V5
-    // writes the text alone.
+    // V4 wrote each text as its whole fixed buffer beside a length, and
+    // per-provider settings as arrays in enum order. V5 writes the text alone
+    // and names each provider.
     for (try items(value, "conversations")) |*conversation| {
         const fields = try object(conversation);
         if (fields.getPtr("agent")) |agent| try agentText(alloc, agent);
@@ -334,6 +335,8 @@ fn checkpoint4To5(alloc: Allocator, value: *Value) Error!void {
         if (entry.* != .null) try wrappedText(alloc, (try object(entry)).getPtr("name"));
     };
     for (try items(value, "agent_commands")) |*command| try commandText(alloc, command);
+    try byProvider(alloc, (try object(value)).getPtr("agent_yolo"), .bool);
+    try byProvider(alloc, (try object(value)).getPtr("agent_hidden"), .bool);
 }
 
 /// An agent as V4 wrote it: each text beside its `_len`.
@@ -364,8 +367,15 @@ fn recentText(alloc: Allocator, recent: *Value) Error!void {
 
 fn handoff3To4(alloc: Allocator, value: *Value) Error!void {
     // V3 wrote summary and launcher text as whole fixed buffers beside a
-    // length. V4 writes the text alone. `runtime` has its own steps.
+    // length, and per-provider values as arrays in provider enum order. V4
+    // writes the text alone and names each provider. `runtime` has its own
+    // steps.
     if ((try object(value)).getPtr("summaries")) |summaries| if (summaries.* != .null) {
+        if ((try object(summaries)).getPtr("launches")) |launches| if ((try object(launches)).getPtr("count")) |count| {
+            // A std.EnumArray: `{"values": [codex, claude]}`.
+            count.* = (try object(count)).get("values") orelse return error.InvalidCheckpoint;
+            try byProvider(alloc, count, .integer);
+        };
         for (try items(summaries, "slots")) |*entry| {
             if ((try object(entry)).getPtr("slot")) |slot| try slotText(alloc, slot);
         }
@@ -383,6 +393,8 @@ fn handoff3To4(alloc: Allocator, value: *Value) Error!void {
             const texts = try object(option);
             inline for (.{ "model", "source", "account", "plan", "usage_error" }) |key| try wrappedText(alloc, texts.getPtr(key));
         }
+        try byProvider(alloc, (try object(preview)).getPtr("options"), .object);
+        try byProvider(alloc, (try object(preview)).getPtr("installed"), .bool);
     }
 }
 
@@ -446,6 +458,21 @@ fn pairedText(alloc: Allocator, fields: *std.json.ObjectMap, key: []const u8, le
     _ = fields.swapRemove(len_key);
 }
 
+/// Per-provider values were arrays in the provider enum's order of the time,
+/// codex then claude. Naming them keeps a later provider or order from
+/// shifting them.
+fn byProvider(alloc: Allocator, field: ?*Value, comptime tag: std.meta.Tag(Value)) Error!void {
+    const list = field orelse return;
+    const names = [_][]const u8{ "codex", "claude" };
+    if (list.* != .array or list.array.items.len > names.len) return error.InvalidCheckpoint;
+    var named: std.json.ObjectMap = .init(alloc);
+    for (list.array.items, names[0..list.array.items.len]) |item, name| {
+        if (item != tag) return error.InvalidCheckpoint;
+        try named.put(name, item);
+    }
+    list.* = .{ .object = named };
+}
+
 /// One line per serialized leaf path, as std.json writes `T`. A snapshot of
 /// this text catches a saved-format change that forgot its version bump.
 /// Types in `sealed` have their own version and appear as a single line.
@@ -456,6 +483,8 @@ pub fn schema(comptime T: type, comptime sealed: []const type) []const u8 {
 
 fn shape(comptime T: type, comptime path: []const u8, comptime sealed: []const type) []const u8 {
     inline for (sealed) |S| if (T == S) return path ++ ": versioned " ++ @typeName(T) ++ "\n";
+    // A type that names the shape its own JSON writes shows that shape.
+    if (@typeInfo(T) == .@"struct" and @hasDecl(T, "Json")) return shape(T.Json, path, sealed);
     const custom = switch (@typeInfo(T)) {
         .@"struct", .@"enum", .@"union" => std.meta.hasFn(T, "jsonStringify") or std.meta.hasFn(T, "jsonParse"),
         else => false,
@@ -636,13 +665,13 @@ test "handoff keeps only the metered fact from launcher usage text" {
     );
     defer decoded.deinit();
     const client = decoded.parsed.value.object.get("clients").?.array.items[0];
-    const options = client.object.get("launch_preview").?.object.get("preview").?.object.get("options").?.array.items;
-    const metered = try std.json.parseFromValue(account_preview.Limits, std.testing.allocator, options[0].object.get("limits").?, .{});
+    const options = client.object.get("launch_preview").?.object.get("preview").?.object.get("options").?.object;
+    const metered = try std.json.parseFromValue(account_preview.Limits, std.testing.allocator, options.get("codex").?.object.get("limits").?, .{});
     defer metered.deinit();
     try std.testing.expect(metered.value == .metered);
-    try std.testing.expect(options[1].object.get("limits") == null);
-    try std.testing.expectEqual(@as(i64, 9), options[1].object.get("usage_fetched_at").?.integer);
-    for (options) |option| for ([_][]const u8{ "usage", "usage_metered", "resets" }) |key|
+    try std.testing.expect(options.get("claude").?.object.get("limits") == null);
+    try std.testing.expectEqual(@as(i64, 9), options.get("claude").?.object.get("usage_fetched_at").?.integer);
+    for (options.values()) |option| for ([_][]const u8{ "usage", "usage_metered", "resets" }) |key|
         try std.testing.expect(!option.object.contains(key));
 }
 
@@ -744,7 +773,7 @@ test "fixed text is cut at its saved length, never at a NUL" {
     }
 }
 
-test "checkpoint 4 to 5 writes text alone" {
+test "checkpoint 4 to 5 writes text alone and names providers" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -786,19 +815,44 @@ test "checkpoint 4 to 5 writes text alone" {
         \\  {"id":2,"binding":{"actor":0,"provisional":{"tool":"Read"}}}],
         \\ "closed":[{"label":"gone","workspace_id":1}],
         \\ "link_labels":{"entries":[null,{"name":"docs","pending":false}],"generation":0},
-        \\ "agent_yolo":[true,false],"agent_hidden":[false,true],
+        \\ "agent_yolo":{"codex":true,"claude":false},"agent_hidden":{"codex":false,"claude":true},
         \\ "agent_commands":[{"command":"codex --yolo","original":"cx","hidden":true,"name":"Fast",
         \\  "semantics":{"provider":"codex","suggested_name":"fast","model":"gpt","account":"","mode":"Skips permission checks","yolo":true,"default_account":false}}]}
     , root);
 }
 
-test "handoff 3 to 4 writes summary and launcher text alone" {
+test "provider arrays hold at most one bool per historical provider" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    var short = try std.json.parseFromSliceLeaky(Value, alloc,
+        \\{"version":4,"agent_yolo":[true],"agent_hidden":[]}
+    , .{});
+    try checkpoint4To5(alloc, &short);
+    try expectJson(
+        \\{"version":4,"agent_yolo":{"codex":true},"agent_hidden":{}}
+    , short);
+    for ([_][]const u8{
+        \\{"agent_yolo":[true,false,true]}
+        ,
+        \\{"agent_yolo":[1,0]}
+        ,
+        \\{"agent_yolo":null}
+        ,
+        \\{"agent_hidden":{"codex":true}}
+    }) |json| {
+        var bad = try std.json.parseFromSliceLeaky(Value, alloc, json, .{});
+        try std.testing.expectError(error.InvalidCheckpoint, checkpoint4To5(alloc, &bad));
+    }
+}
+
+test "handoff 3 to 4 writes summary and launcher text alone and names providers" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
     var root = try std.json.parseFromSliceLeaky(Value, alloc,
         \\{"version":3,"runtime":{"version":4,"panes":[{"label":{"bytes":"keep\u0000","len":4}}]},
-        \\ "summaries":{"next_request":3,"slots":[
+        \\ "summaries":{"next_request":3,"launches":{"count":{"values":[7,4]},"latest":"claude"},"slots":[
         \\  {"index":0,"slot":{
         \\   "request":{"actor":1,"provider":"codex","session":"s1\u0000","session_len":2,"turn":"t1\u0000","turn_len":2,
         \\    "evidence":{"bytes":"ran tests\u0000","len":9},"panes":[4,0],"panes_len":1,"name":"Fix\u0000","name_len":3,
@@ -826,7 +880,7 @@ test "handoff 3 to 4 writes summary and launcher text alone" {
     try handoff3To4(alloc, &root);
     try expectJson(
         \\{"version":3,"runtime":{"version":4,"panes":[{"label":{"bytes":"keep\u0000","len":4}}]},
-        \\ "summaries":{"next_request":3,"slots":[
+        \\ "summaries":{"next_request":3,"launches":{"count":{"codex":7,"claude":4},"latest":"claude"},"slots":[
         \\  {"index":0,"slot":{
         \\   "request":{"actor":1,"provider":"codex","session":"s1","turn":"t1","evidence":"ran tests","panes":[4,0],"panes_len":1,"name":"Fix",
         \\    "conversation":{"recent":["one",""],"len":1,"previous":"Idle"}},
@@ -838,11 +892,11 @@ test "handoff 3 to 4 writes summary and launcher text alone" {
         \\  "link_results":[null,{"slot":0,"name":"docs"},{"slot":1,"name":null}]},
         \\ "clients":[
         \\  {"fd":3,"launch_preview":{"cwd":"/tmp","checked":5,"preview":{"pending":false,
-        \\   "options":[
-        \\    {"signed_in":true,"model":"gpt","source":"config","account":"a@b","plan":"pro","limits":{"metered":{}},
+        \\   "options":{
+        \\    "codex":{"signed_in":true,"model":"gpt","source":"config","account":"a@b","plan":"pro","limits":{"metered":{}},
         \\     "usage_fetched_at":9,"usage_error":"","usage_needs_consent":false},
-        \\    {"signed_in":null,"model":"opus","source":"","account":"","plan":"max","usage_error":"timed out"}],
-        \\   "installed":[true,false]}}},
+        \\    "claude":{"signed_in":null,"model":"opus","source":"","account":"","plan":"max","usage_error":"timed out"}},
+        \\   "installed":{"codex":true,"claude":false}}}},
         \\  {"fd":4,"launch_preview":null},
         \\  {"fd":5}]}
     , root);
@@ -855,6 +909,10 @@ test "handoff 3 to 4 writes summary and launcher text alone" {
         try handoff3To4(alloc, &empty);
         try expectJson(json, empty);
     }
+    var three = try std.json.parseFromSliceLeaky(Value, alloc,
+        \\{"clients":[{"launch_preview":{"preview":{"options":[{},{},{}]}}}]}
+    , .{});
+    try std.testing.expectError(error.InvalidCheckpoint, handoff3To4(alloc, &three));
 }
 
 test "the V4 fixture migrates to text without padding" {

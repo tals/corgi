@@ -326,7 +326,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
             std.fmt.bufPrint(buffer, "{s} {s} · {s}", .{
                 if (status.locked) "Settled on" else "Following you →",
                 provider.info().name,
-                modelName(providers.get(status.models, provider)),
+                modelName(status.models.get(provider)),
             }) catch ""
         else
             "Follow the agents you run",
@@ -334,7 +334,7 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
         .off => "ᐯoᴥ°ᐯ  no summaries, plain links",
         .codex, .claude => {
             const provider = choice.provider().?;
-            return std.fmt.bufPrint(buffer, "{s} · your {s} login", .{ modelName(providers.get(status.models, provider)), provider.info().name }) catch "";
+            return std.fmt.bufPrint(buffer, "{s} · your {s} login", .{ modelName(status.models.get(provider)), provider.info().name }) catch "";
         },
     };
 }
@@ -342,10 +342,10 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
         .keyboard, .import, .ghostty, .readings, .sleeping_corgis => unreachable,
-        .auto => if (status.launches.codex + status.launches.claude == 0)
+        .auto => if (status.launches.get(.codex) + status.launches.get(.claude) == 0)
             "No agents yet this session; using your last one"
         else
-            std.fmt.bufPrint(buffer, "Since start: claude {d}× · codex {d}×", .{ status.launches.claude, status.launches.codex }) catch "",
+            std.fmt.bufPrint(buffer, "Since start: claude {d}× · codex {d}×", .{ status.launches.get(.claude), status.launches.get(.codex) }) catch "",
         .codex, .claude => std.fmt.bufPrint(buffer, "Needs {s} installed and signed in", .{choice.provider().?.info().executables[0]}) catch "",
         .off => "Activity text stays blank; links say Open Link",
     };
@@ -388,12 +388,12 @@ test "setup modal explains the automatic choice" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const menu = Menu.open(.{});
-    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .launches = .{ .claude = 3, .codex = 1 }, .models = .{ .claude = "claude-haiku-4-5-20251001" } }, 100, 30);
+    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .launches = .init(.{ .claude = 3, .codex = 1 }), .models = .init(.{ .claude = "claude-haiku-4-5-20251001" }) }, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Following you → Claude · Haiku 4.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "claude 3× · codex 1×") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Keep ]") != null);
     output.clearRetainingCapacity();
-    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" } }, 100, 30);
+    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .init(.{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" }) }, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Settled on Codex · gpt-6-luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "gpt-6-luna · your Codex login") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Haiku 4.5 · your Claude login") != null);

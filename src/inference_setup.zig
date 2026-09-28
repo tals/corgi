@@ -13,7 +13,7 @@ pub const Provider = providers.Provider;
 
 /// Agents detected in panes since the daemon started.
 pub const Launches = struct {
-    count: std.EnumArray(Provider, u32) = .initFill(0),
+    count: providers.Each(u32, 0) = .{},
     latest: ?Provider = null,
     pub fn record(l: *Launches, provider: Provider) void {
         l.count.getPtr(provider).* +|= 1;
@@ -22,7 +22,7 @@ pub const Launches = struct {
     /// The most launched provider. Ties go to the latest launch, then `fallback`.
     pub fn favorite(l: *const Launches, fallback: Provider) Provider {
         var best: u32 = 0;
-        for (l.count.values) |count| best = @max(best, count);
+        for (Provider.all) |provider| best = @max(best, l.count.get(provider));
         var leaders: usize = 0;
         var leader = fallback;
         for (Provider.all) |provider| if (l.count.get(provider) == best) {

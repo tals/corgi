@@ -124,7 +124,8 @@ $.summaries?.pool.system_usage.meter.buckets[5].tokens: u64
 $.summaries?.pool.system_usage.reports: u64
 $.summaries?.next_request: u64
 $.summaries?.choice: enum auto codex claude off
-$.summaries?.launches.count.values[2]: u32
+$.summaries?.launches.count.codex: u32
+$.summaries?.launches.count.claude: u32
 $.summaries?.launches.latest: optional
 $.summaries?.launches.latest?: enum codex claude
 $.summaries?.remembered: enum codex claude
@@ -169,28 +170,50 @@ $.clients[].subscribed: bool
 $.clients[].launch_preview: optional
 $.clients[].launch_preview?.cwd: custom bounded_text.BoundedText(10240)
 $.clients[].launch_preview?.preview.pending: bool
-$.clients[].launch_preview?.preview.options[2].signed_in: optional
-$.clients[].launch_preview?.preview.options[2].signed_in?: bool
-$.clients[].launch_preview?.preview.options[2].model: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options[2].source: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options[2].account: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options[2].plan: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options[2].limits: one of
-$.clients[].launch_preview?.preview.options[2].limits|none: {}
-$.clients[].launch_preview?.preview.options[2].limits|metered: {}
-$.clients[].launch_preview?.preview.options[2].limits|rate_limited: {}
-$.clients[].launch_preview?.preview.options[2].limits|windows[2]: optional
-$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.minutes: optional
-$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.minutes?: i64
-$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.used: u8
-$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.reset_at: optional
-$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.reset_at?: i64
-$.clients[].launch_preview?.preview.options[2].usage_fetched_at: i64
-$.clients[].launch_preview?.preview.options[2].usage_error: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options[2].usage_needs_consent: bool
-$.clients[].launch_preview?.preview.options[2].history[2][11]: optional
-$.clients[].launch_preview?.preview.options[2].history[2][11]?: u8
-$.clients[].launch_preview?.preview.installed[2]: bool
+$.clients[].launch_preview?.preview.options.codex.signed_in: optional
+$.clients[].launch_preview?.preview.options.codex.signed_in?: bool
+$.clients[].launch_preview?.preview.options.codex.model: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.codex.source: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.codex.account: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.codex.plan: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.codex.limits: one of
+$.clients[].launch_preview?.preview.options.codex.limits|none: {}
+$.clients[].launch_preview?.preview.options.codex.limits|metered: {}
+$.clients[].launch_preview?.preview.options.codex.limits|rate_limited: {}
+$.clients[].launch_preview?.preview.options.codex.limits|windows[2]: optional
+$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.minutes: optional
+$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.minutes?: i64
+$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.used: u8
+$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.reset_at: optional
+$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.reset_at?: i64
+$.clients[].launch_preview?.preview.options.codex.usage_fetched_at: i64
+$.clients[].launch_preview?.preview.options.codex.usage_error: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.codex.usage_needs_consent: bool
+$.clients[].launch_preview?.preview.options.codex.history[2][11]: optional
+$.clients[].launch_preview?.preview.options.codex.history[2][11]?: u8
+$.clients[].launch_preview?.preview.options.claude.signed_in: optional
+$.clients[].launch_preview?.preview.options.claude.signed_in?: bool
+$.clients[].launch_preview?.preview.options.claude.model: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.claude.source: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.claude.account: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.claude.plan: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.claude.limits: one of
+$.clients[].launch_preview?.preview.options.claude.limits|none: {}
+$.clients[].launch_preview?.preview.options.claude.limits|metered: {}
+$.clients[].launch_preview?.preview.options.claude.limits|rate_limited: {}
+$.clients[].launch_preview?.preview.options.claude.limits|windows[2]: optional
+$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.minutes: optional
+$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.minutes?: i64
+$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.used: u8
+$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.reset_at: optional
+$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.reset_at?: i64
+$.clients[].launch_preview?.preview.options.claude.usage_fetched_at: i64
+$.clients[].launch_preview?.preview.options.claude.usage_error: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.claude.usage_needs_consent: bool
+$.clients[].launch_preview?.preview.options.claude.history[2][11]: optional
+$.clients[].launch_preview?.preview.options.claude.history[2][11]?: u8
+$.clients[].launch_preview?.preview.installed.codex: bool
+$.clients[].launch_preview?.preview.installed.claude: bool
 $.clients[].launch_preview?.checked: i64
 $.clients[].snapshot_revision: optional
 $.clients[].snapshot_revision?: u64
