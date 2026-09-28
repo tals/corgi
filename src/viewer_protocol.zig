@@ -118,7 +118,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         }
         // Snapshot fields include time-dependent usage and metadata updated by
         // independent workers. Compare the actual payload, not just layout revision.
-        var snapshot = try protocol.snapshot(allocator, &s.runtime);
+        var snapshot = try protocol.viewerSnapshot(allocator, &s.runtime);
         snapshot.resources = try snapshot.resources.forViewer(allocator, cl.resource_detail);
         const session = try std.json.Stringify.valueAlloc(allocator, snapshot, .{});
         const session_hash = std.hash.Wyhash.hash(0, session);

@@ -177,7 +177,6 @@ pub const Runtime = struct {
     system_usage: live_usage.View = .{},
     ports: ports.Snapshot = .{},
     resources: resources.Snapshot = .{},
-    revision: u64 = 0,
     closed_panes: usize = 0,
     last_agent: providers.Provider = .codex,
     agent_yolo: [2]bool = .{ false, false },
@@ -241,7 +240,6 @@ pub const Runtime = struct {
         r.agent_yolo = snapshot.agent_yolo;
         r.agent_hidden = snapshot.agent_hidden;
         r.agent_commands = snapshot.agent_commands;
-        r.revision = snapshot.revision;
         r.closed_panes = snapshot.closed_panes;
     }
 };

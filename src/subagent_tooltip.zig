@@ -15,6 +15,9 @@ const agent_launcher = @import("agent_launcher.zig");
 const metadata = @import("account_preview.zig");
 const limit_history = @import("limit_history.zig");
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
+/// How long an observation counts as current: 10 s, plus up to one bucket
+/// by which the snapshot rounds its stamps down.
+const fresh_window = 10 * std.time.us_per_s + protocol.stamp_bucket;
 const Tone = enum {
     text,
     title,
@@ -86,12 +89,12 @@ pub fn childCount(all: []const protocol.Conversation, parent: ActorId) usize {
 pub fn childrenAvailable(all: []const protocol.Conversation, parent: ActorId, now: i64) bool {
     const root = find(all, parent) orelse return false;
     const age = now - root.children_observed_at;
-    if (root.children_observed_at <= 0 or age < 0 or age > 10 * std.time.us_per_s) return false;
+    if (root.children_observed_at <= 0 or age < 0 or age > fresh_window) return false;
     // Omit the whole section when child status cannot be presented reliably.
     for (all) |child| {
         if (!descendant(all, child, parent)) continue;
         const child_age = now - child.observed_at;
-        if (child.agent.state == .unknown or child.observed_at <= 0 or child_age < 0 or child_age > 10 * std.time.us_per_s) return false;
+        if (child.agent.state == .unknown or child.observed_at <= 0 or child_age < 0 or child_age > fresh_window) return false;
     }
     return true;
 }
@@ -207,7 +210,7 @@ const Card = struct {
     fn backgroundTasks(card: Card, row: usize, tasks: background.View, budget: usize) !usize {
         if (budget < 2 or tasks.items.len == 0) return 0;
         const age = std.time.microTimestamp() - tasks.observed_at;
-        const live = tasks.live and age >= 0 and age <= 10 * std.time.us_per_s;
+        const live = tasks.live and age >= 0 and age <= fresh_window;
         try card.line(row, "Background commands", if (live) "Running" else "Last reported", .group, .muted);
         const shown = @min(tasks.items.len, budget - 1 - @as(usize, @intFromBool(tasks.items.len + 1 > budget or tasks.truncated)));
         var offset: usize = 1;
@@ -368,7 +371,7 @@ fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversat
         else => return false,
     }
     const age = now - item.observed_at;
-    if (item.observed_at <= 0 or age < 0 or age > 10 * std.time.us_per_s) return false;
+    if (item.observed_at <= 0 or age < 0 or age > fresh_window) return false;
     var parent = item.parent;
     for (0..@min(max, all.len)) |_| {
         const ancestor = find(all, parent orelse return false) orelse return false;
@@ -1109,7 +1112,7 @@ test "overview excludes detached history and shows Corgi activity" {
         .{ .id = @enumFromInt(2), .agent = agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
         .{ .id = @enumFromInt(3), .parent = @enumFromInt(1), .observed_at = now, .agent = agent },
         .{ .id = @enumFromInt(4), .parent = @enumFromInt(2), .observed_at = now, .agent = agent },
-        .{ .id = @enumFromInt(5), .parent = @enumFromInt(1), .observed_at = now - 11 * std.time.us_per_s, .agent = agent },
+        .{ .id = @enumFromInt(5), .parent = @enumFromInt(1), .observed_at = now - fresh_window - 1, .agent = agent },
         .{ .id = @enumFromInt(6), .attachments = 1, .agent = agent },
     };
     all[0].agent.state = .idle;
@@ -1337,7 +1340,7 @@ test "unavailable or stale child discovery makes no subagent claims" {
         .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .agent = agent, .role = "Explorer" },
     };
     var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .codex, .state = .working, .attention = .none };
-    for ([_]i64{ 0, now - 11 * std.time.us_per_s }) |stamp| {
+    for ([_]i64{ 0, now - fresh_window - 1 }) |stamp| {
         all[0].children_observed_at = stamp;
         entry.subagents = agent.subagents;
         presentChildren(&entry, &all, now);
@@ -1352,7 +1355,7 @@ test "unavailable or stale child discovery makes no subagent claims" {
     }
     all[0].children_observed_at = now;
     for (0..3) |case| {
-        all[1].observed_at = if (case == 0) 0 else if (case == 1) now - 11 * std.time.us_per_s else now;
+        all[1].observed_at = if (case == 0) 0 else if (case == 1) now - fresh_window - 1 else now;
         all[1].agent.state = if (case == 2) .unknown else .working;
         entry.subagents = agent.subagents;
         presentChildren(&entry, &all, now);
@@ -1406,7 +1409,7 @@ test "background command rows group tasks and bound overflow without claiming st
     try std.testing.expectEqual(@as(usize, 4), try card.backgroundTasks(0, tasks, 4));
     const frame = output.written();
     try std.testing.expect(std.mem.indexOf(u8, frame, "Tests · Parser tests").? < std.mem.indexOf(u8, frame, "Servers · bun run dev").?);
-    tasks.observed_at -= 11 * std.time.us_per_s;
+    tasks.observed_at -= fresh_window + 1;
     var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer small.deinit();
     try std.testing.expectEqual(@as(usize, 3), try (Card{ .w = &small.writer, .x = 0, .width = 40 }).backgroundTasks(0, tasks, 3));

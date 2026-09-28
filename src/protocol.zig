@@ -248,6 +248,20 @@ fn agentView(state: *const agents.Agent, conversation: ActorId) Agent {
 /// Allocate containers in a request arena; strings borrow the runtime until
 /// serialization completes. Process resources remain in the runtime.
 pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
+    return build(allocator, r, false);
+}
+/// A viewer syncs every 30 ms and gets a new session only when this copy's
+/// hash changes. It leaves out what moves while nothing shown changes: the
+/// revision, which every PTY read bumps, and freshness stamps finer than
+/// `stamp_bucket`, which the viewer only compares against a window.
+pub fn viewerSnapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
+    return build(allocator, r, true);
+}
+pub const stamp_bucket = 5 * std.time.us_per_s;
+fn coarse(stamp: i64) i64 {
+    return if (stamp <= 0) stamp else @divFloor(stamp, stamp_bucket) * stamp_bucket;
+}
+fn build(allocator: std.mem.Allocator, r: *runtime.Runtime, viewer: bool) !Snapshot {
     const workspaces = try allocator.alloc(Workspace, r.workspaces.items.items.len);
     for (r.workspaces.items.items, workspaces) |*ws, *out| {
         const commits = try allocator.alloc(GitCommit, ws.git_commits.len);
@@ -338,6 +352,11 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .children_observed_at = actor.children_observed_at,
             .agent = agentView(&actor.state, actor.id),
         };
+        if (viewer) {
+            out.observed_at = coarse(out.observed_at);
+            out.children_observed_at = coarse(out.children_observed_at);
+            out.background_tasks.observed_at = coarse(out.background_tasks.observed_at);
+        }
     }
     return .{
         .conversations = conversations,
@@ -351,7 +370,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
         .server_pid = os.c.getpid(),
         .ports = try r.link_labels.snapshot(allocator, r.ports.current),
         .resources = r.resources.current,
-        .revision = r.revision,
+        .revision = if (viewer) 0 else r.revision,
         .last_agent = r.last_agent,
         .agent_yolo = r.agent_yolo,
         .agent_hidden = r.agent_hidden,
@@ -383,4 +402,25 @@ test "shared arrangement round trip is independent of viewer selection" {
     try std.testing.expectEqual(first, selection.tab().focus);
     try std.testing.expectEqual(@as(usize, 1), selection.active);
     try std.testing.expect(selection.tab().zoom);
+}
+
+test "a viewer's snapshot stays byte-stable while only output and stamps move" {
+    var r: runtime.Runtime = .{};
+    defer r.deinit();
+    _ = try r.workspaces.add("stable", "/tmp");
+    const actor = try r.conversations.get(.codex, "stable");
+    actor.observed_at = 10 * std.time.us_per_s + 1;
+    actor.children_observed_at = actor.observed_at;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const before = try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{});
+    // A PTY read bumps the revision; a later observation lands in the same bucket.
+    r.changed();
+    actor.observed_at += std.time.us_per_s;
+    actor.children_observed_at = actor.observed_at;
+    try std.testing.expectEqualStrings(before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{}));
+    try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try snapshot(alloc, &r), .{})));
+    actor.observed_at += stamp_bucket;
+    try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{})));
 }
