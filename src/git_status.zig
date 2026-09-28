@@ -108,19 +108,7 @@ pub const Tracker = struct {
             if (!t.done.load(.acquire)) return false;
             thread.join();
             t.thread = null;
-            for (t.jobs.items) |job| {
-                const ws = store.get(job.id) orelse continue;
-                if (!std.mem.eql(u8, ws.cwd, job.cwd)) continue;
-                changed = changed or ws.git_ahead != job.ahead;
-                changed = changed or !std.meta.eql(ws.git_ref, job.ref);
-                if (!ws.git_ref.view().sameBranch(job.ref.view())) ws.git_push = .{};
-                if (!std.meta.eql(ws.git_ref, job.ref) and ws.git_push.phase == .failed) ws.git_push = .{};
-                ws.git_ref = job.ref;
-                changed = changed or !std.meta.eql(ws.git_commits, job.commits);
-                ws.git_ahead = job.ahead;
-                ws.git_commits = job.commits;
-            }
-            t.clearJobs();
+            changed = t.apply(store);
         }
         const now = clock.milliTimestamp();
         if (now < t.next_refresh) return changed;
@@ -144,6 +132,24 @@ pub const Tracker = struct {
             break :blk null;
         };
         if (t.thread != null) _ = t.thread_failure.clear();
+        return changed;
+    }
+    /// Copies finished scans onto workspaces still in the scanned directory.
+    fn apply(t: *Tracker, store: *workspace.Store) bool {
+        var changed = false;
+        for (t.jobs.items) |job| {
+            const ws = store.get(job.id) orelse continue;
+            if (!std.mem.eql(u8, ws.cwd, job.cwd)) continue;
+            changed = changed or ws.git_ahead != job.ahead;
+            changed = changed or !std.meta.eql(ws.git_ref, job.ref);
+            if (!ws.git_ref.view().sameBranch(job.ref.view())) ws.git_push = .{};
+            if (!std.meta.eql(ws.git_ref, job.ref) and ws.git_push.phase == .failed) ws.git_push = .{};
+            ws.git_ref = job.ref;
+            changed = changed or !std.meta.eql(ws.git_commits, job.commits);
+            ws.git_ahead = job.ahead;
+            ws.git_commits = job.commits;
+        }
+        t.clearJobs();
         return changed;
     }
     fn run(t: *Tracker) void {
@@ -367,14 +373,7 @@ test "background result cannot follow a workspace into a different directory" {
     var tracker: Tracker = .{};
     defer tracker.deinit();
     try tracker.jobs.append(a, .{ .id = id, .cwd = try a.dupe(u8, "/old"), .ahead = 8 });
-    tracker.thread = try std.Thread.spawn(.{}, struct {
-        fn finish(t: *Tracker) void {
-            t.done.store(true, .release);
-        }
-    }.finish, .{&tracker});
-    while (!tracker.done.load(.acquire)) std.Thread.sleep(std.time.ns_per_ms);
-    tracker.next_refresh = std.math.maxInt(i64);
-    try std.testing.expect(!tracker.tick(&store));
+    try std.testing.expect(!tracker.apply(&store));
     try std.testing.expect(store.get(id).?.git_ahead == null);
 }
 
