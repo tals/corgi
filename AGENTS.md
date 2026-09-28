@@ -100,3 +100,44 @@ around them, and don't narrate the refactor that produced the code.
 by the schema snapshots in `src/fixtures/`. A new field with a default only
 needs a refreshed snapshot. A rename, removal or change of meaning needs a
 migration step; see `docs/development-reloads.md`.
+
+## Commit messages
+
+Keep them short enough to read in `git log`: a subject and usually three to
+six body lines.
+
+**Subject.** `[area] summary`, lowercase after the tag, no period. The area is
+a subsystem, such as `protocol`, `viewer`, `daemon`, `sidebar`, `launcher`,
+`claude`, `codex`, `inference`, `resources`, `saved-state`, `tests`, `build`
+or `docs`. A change that spans several takes the one it affects most, never
+`[refactor]`. A change says what is true now; an addition starts with a verb:
+
+```
+[viewer] shared panes follow the last-used viewer's size
+[build] add -Dtest-filter to run a subset of unit tests
+```
+
+**Body.** How it was, what was wrong with that, how it is now. Name the
+component ("The daemon used to send…"), not "we". Give one concrete string or
+number. Leave out how it works; the diff shows that. Name only identifiers
+someone will type: flags, ops, env vars.
+
+**Compatibility.** When something crosses a boundary (the wire protocol, the
+viewer protocol, checkpoints, handoffs or preferences), a second paragraph says
+exactly which version changed and whether there is a migration, or that none
+changed and why. Say "unchanged" only where a reader would wonder, such as a
+refactor of serialized types.
+
+**One change per commit.** Split unrelated changes when you can; otherwise the
+second one gets an "Also:" line.
+
+```
+[protocol] usage limits are structured instead of text
+
+The daemon used to send usage as "5h 12% / 7d 48%", and the launcher
+parsed that back into state. Now it sends the structured limits.
+
+The protocol version stays 1: the field was renamed, so a viewer and
+daemon on different versions show no usage instead of failing.
+Handoff version 2 -> 3, with a migration.
+```
