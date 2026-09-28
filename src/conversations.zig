@@ -15,6 +15,8 @@ const context_window = @import("context_window.zig");
 const codex_observer = @import("codex_observer.zig");
 const activity_tools = @import("activity_tools.zig");
 const os = @import("os.zig");
+const Failure = @import("failure.zig").Failure;
+const log = std.log.scoped(.conversations);
 
 pub const max_actors = 1024;
 pub const Actor = struct {
@@ -320,6 +322,7 @@ pub const Registry = struct {
     items: std.ArrayList(*Actor) = .empty,
     next_id: Actor.Id = .first,
     compaction_points: context_window.Points = .{},
+    full_failure: Failure = .{},
 
     pub fn deinit(registry: *Registry) void {
         for (registry.items.items) |actor| registry.allocator.destroy(actor);
@@ -375,7 +378,10 @@ pub const Registry = struct {
         }
         parent.children_observed_at = snapshot.observed_at;
         for (snapshot.children) |meta| {
-            const child = registry.get(.codex, &meta.session) catch continue;
+            const child = registry.get(.codex, &meta.session) catch |err| {
+                if (registry.full_failure.changed(err)) log.warn("dropping Codex subagents: {}", .{err});
+                continue;
+            };
             if (!registry.linkChild(parent, child)) continue;
             if (meta.role_len > 0) {
                 child.role = meta.role;

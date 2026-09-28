@@ -43,6 +43,7 @@ const clock = @import("clock.zig");
 const integration = @import("integration.zig");
 const handoff = @import("handoff.zig");
 const Terminal = @import("terminal.zig").Terminal;
+const Failure = @import("failure.zig").Failure;
 const log = std.log.scoped(.server);
 pub const Server = struct {
     const Pane = runtime.Pane;
@@ -86,6 +87,8 @@ pub const Server = struct {
     reload_requester: c_int = -1,
     last_recovery: i64 = 0,
     saved_revision: u64 = 0,
+    recovery_failure: Failure = .{},
+    workspace_save_failure: Failure = .{},
     /// The attached viewers' resource preference, kept after they detach.
     resource_readings: bool = true,
     fn publishInference(s: *Server) void {
@@ -110,7 +113,11 @@ pub const Server = struct {
             return;
         };
         defer a.free(path);
-        s.runtime.workspaces.save(path, s.initialWorkspace().id) catch |err| log.err("saving workspaces: {}", .{err});
+        s.runtime.workspaces.save(path, s.initialWorkspace().id) catch |err| {
+            if (s.workspace_save_failure.changed(err)) log.err("saving workspaces: {}", .{err});
+            return;
+        };
+        if (s.workspace_save_failure.clear()) log.info("workspace save succeeded again", .{});
     }
     fn rememberImportStarter(s: *Server) void {
         s.import_starter = null;
@@ -1186,10 +1193,13 @@ pub const Server = struct {
             if ((now - s.last_recovery >= 2000 and s.saved_revision != s.runtime.revision) or s.quit) {
                 s.last_recovery = now;
                 recovery.save(&s.runtime, s.socket) catch |err| {
-                    log.err("saving recovery: {}", .{err});
-                    s.notice(" Could not save recovery snapshot; see server.log");
+                    if (s.recovery_failure.changed(err)) {
+                        log.err("saving recovery: {}", .{err});
+                        s.notice(" Could not save recovery snapshot; see server.log");
+                    }
                     continue;
                 };
+                if (s.recovery_failure.clear()) log.info("recovery snapshot saved again", .{});
                 s.saved_revision = s.runtime.revision;
             }
         }
