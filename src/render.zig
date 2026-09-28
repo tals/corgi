@@ -518,10 +518,10 @@ fn drawDividers(w: *std.Io.Writer, view: layout.View, area: layout.Rect) !void {
                 var up = false;
                 var down = false;
                 for (borders) |other| {
-                    if (x > area.x and other.rect.contains(@intCast(x - 1), @intCast(y))) left = true;
-                    if (x + 1 < area.x + area.w and other.rect.contains(@intCast(x + 1), @intCast(y))) right = true;
-                    if (y > area.y and other.rect.contains(@intCast(x), @intCast(y - 1))) up = true;
-                    if (y + 1 < area.y + area.h and other.rect.contains(@intCast(x), @intCast(y + 1))) down = true;
+                    if (x > area.x and other.rect.contains(x - 1, y)) left = true;
+                    if (x + 1 < area.x + area.w and other.rect.contains(x + 1, y)) right = true;
+                    if (y > area.y and other.rect.contains(x, y - 1)) up = true;
+                    if (y + 1 < area.y + area.h and other.rect.contains(x, y + 1)) down = true;
                 }
                 try w.writeAll(dividerGlyph(up, down, left, right, border.axis == .horizontal));
             }

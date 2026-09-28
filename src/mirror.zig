@@ -81,8 +81,10 @@ pub const Terminal = struct {
         const response = try t.conn.call(.{ .op = "viewer.search", .protocol = 1, .pane = t.id, .needle = needle, .skip = skip });
         defer response.deinit();
         const offset = response.value.object.get("offset") orelse return false;
-        if (offset == .null) return false;
-        t.offset = @intCast(offset.integer);
+        t.offset = switch (offset) {
+            .integer => |n| std.math.cast(usize, n) orelse return false,
+            else => return false,
+        };
         // A match on the current viewport still needs its selection applied.
         t.known = null;
         if (response.value.object.get("match")) |match| if (match != .null) {

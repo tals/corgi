@@ -28,8 +28,8 @@ pub const Rect = struct {
     y: u16 = 0,
     w: u16 = 0,
     h: u16 = 0,
-    pub fn contains(r: Rect, x: u16, y: u16) bool {
-        return x >= r.x and y >= r.y and x < r.x + r.w and y < r.y + r.h;
+    pub fn contains(r: Rect, x: usize, y: usize) bool {
+        return x >= r.x and y >= r.y and x < @as(usize, r.x) + r.w and y < @as(usize, r.y) + r.h;
     }
 };
 pub const Split = struct { axis: Axis, first: u8, second: u8, ratio: u16 = 500 };
