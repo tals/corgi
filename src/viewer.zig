@@ -55,7 +55,10 @@ fn openMode(view: *View, cwd: []const u8, theme: Theme, socket: []const u8, star
     try view.refresh();
     view.launch_previews.socket = socket;
     view.updateLaunchPreview();
-    return @intCast(opened.value.object.get("bell_seq").?.integer);
+    return switch (opened.value.object.get("bell_seq") orelse .null) {
+        .integer => |n| std.math.cast(u64, n) orelse return error.InvalidResponse,
+        else => return error.InvalidResponse,
+    };
 }
 pub fn deinit(view: *View) void {
     view.launch_previews.deinit();

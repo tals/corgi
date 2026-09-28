@@ -189,7 +189,8 @@ pub const Controller = struct {
     fn execute(s: *Self, command: Command) !Created {
         const response = try s.connection.call(.{ .op = "session.command", .protocol = 1, .command = command });
         defer response.deinit();
-        const parsed = try std.json.parseFromValue(Created, a, response.value.object.get("result").?, .{ .ignore_unknown_fields = true });
+        const raw_result = response.value.object.get("result") orelse return error.InvalidResponse;
+        const parsed = try std.json.parseFromValue(Created, a, raw_result, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const result = parsed.value;
         try s.refresh();

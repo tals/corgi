@@ -928,7 +928,10 @@ fn compactCount(buf: []u8, value: u64) []const u8 {
 }
 
 pub fn displayWidth(text: []const u8) usize {
-    var it = (std.unicode.Utf8View.init(text) catch unreachable).iterator();
+    // Text arrives through std.json, which never yields invalid UTF-8
+    // strings; count bytes if that ever changes.
+    const view = std.unicode.Utf8View.init(text) catch return text.len;
+    var it = view.iterator();
     var width: usize = 0;
     while (it.nextCodepoint()) |cp| width += vt.unicode.codepointWidth(cp);
     return width;
@@ -996,8 +999,9 @@ fn writeDirectory(w: *std.Io.Writer, path: []const u8, room: usize) !void {
     // A single oversized filename still keeps its end and complete codepoints.
     var width = displayWidth(tail);
     while (tail.len > 0 and width > room - prefix.len - 1) {
-        const n = std.unicode.utf8ByteSequenceLength(tail[0]) catch unreachable;
-        width -= vt.unicode.codepointWidth(std.unicode.utf8Decode(tail[0..n]) catch unreachable);
+        // Same proof as displayWidth above.
+        const n = std.unicode.utf8ByteSequenceLength(tail[0]) catch 1;
+        width -= vt.unicode.codepointWidth(std.unicode.utf8Decode(tail[0..n]) catch 0);
         tail = tail[n..];
     }
     try w.writeAll("…");

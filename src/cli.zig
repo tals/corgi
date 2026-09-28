@@ -122,7 +122,7 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
     if ((current and group == .tab) or (action == .@"tab.new" and caller != 0)) {
         const located = try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller });
         defer located.deinit();
-        const here = located.value.object.get("result").?;
+        const here = located.value.object.get("result") orelse return error.InvalidResponse;
         const tab = try protocol.typedId(layout.TabId, here, "tab");
         const workspace = try protocol.typedId(WorkspaceId, here, "workspace");
         switch (command.?) {

@@ -373,7 +373,10 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
     defer if (deferred) |d| a.free(d);
     if (h) |v| {
         safe = std.mem.eql(u8, agents.str(v.value, "update_abi"), m.value.update_abi);
-        const pid = v.value.object.get("server_pid").?.integer;
+        const pid = switch (v.value.object.get("server_pid") orelse .null) {
+            .integer => |n| n,
+            else => return error.UpdateRuntimeChanged,
+        };
         deferred = try deferName(socket, pid);
         if (!explicit) if (try read(root, deferred.?)) |d| {
             defer a.free(d);
@@ -405,7 +408,15 @@ fn select(root: []const u8, socket: []const u8, allow: bool, explicit: bool, rol
         // The prompt may have been left open while the runtime changed.
         const fresh = (try hello(socket)) orelse return error.UpdateRuntimeChanged;
         defer fresh.deinit();
-        if (fresh.value.object.get("server_pid").?.integer != h.?.value.object.get("server_pid").?.integer) return error.UpdateRuntimeChanged;
+        const fresh_pid = switch (fresh.value.object.get("server_pid") orelse .null) {
+            .integer => |n| n,
+            else => return error.UpdateRuntimeChanged,
+        };
+        const stale_pid = switch (h.?.value.object.get("server_pid") orelse .null) {
+            .integer => |n| n,
+            else => return error.UpdateRuntimeChanged,
+        };
+        if (fresh_pid != stale_pid) return error.UpdateRuntimeChanged;
         // Backup the recovery file before the explicitly destructive operation.
         const saved = try rpc(socket, .{ .op = "recovery.save", .protocol = 1 });
         saved.deinit();
