@@ -45,8 +45,12 @@ pub const Agent = struct {
     activity_at: i64 = 0,
     // An inferred label outranks direct labels for the rest of its turn.
     activity_inferred: bool = false,
-    // Independent of lifecycle hooks, which also advance last_seq.
+    // Orders protocol metadata, independent of lifecycle hooks, which also
+    // advance last_seq.
     metadata_protocol_at: i64 = 0,
+    /// When the daemon last applied protocol metadata, in clock.zig
+    /// microseconds. The file-name window reads this.
+    metadata_at: i64 = 0,
     /// When the daemon last applied protocol evidence, in clock.zig
     /// microseconds. Freshness reads this; ordering reads `last_seq`.
     protocol_at: i64 = 0,

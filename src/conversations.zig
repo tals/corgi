@@ -146,6 +146,7 @@ pub const Actor = struct {
         actor.background_tasks = s.background_tasks;
         agent.updated_at = s.updated_at;
         agent.metadata_protocol_at = s.observed_at;
+        agent.metadata_at = now;
         if (s.name.len > 0) agent.name = s.name;
         const old_state = agent.state;
         const was_compacting = agent.compacting;
@@ -358,7 +359,7 @@ pub const Registry = struct {
         child.tracked_since = parent.tracked_since;
         return true;
     }
-    pub fn observeChildren(registry: *Registry, parent: *Actor, snapshot: codex_observer.Snapshot) void {
+    pub fn observeChildren(registry: *Registry, parent: *Actor, snapshot: codex_observer.Snapshot, now: i64) void {
         if (snapshot.observed_at <= parent.children_observed_at) return;
         if (!snapshot.children_complete) {
             // Retain known identities and usage, but stop claiming a current
@@ -382,6 +383,7 @@ pub const Registry = struct {
             state.state = meta.state;
             state.updated_at = meta.updated_at;
             state.metadata_protocol_at = snapshot.observed_at;
+            state.metadata_at = now;
             child.observed_at = @max(child.observed_at, snapshot.observed_at);
         }
     }
@@ -650,6 +652,24 @@ test "protocol authority ages on the daemon clock, not the observer's stamp" {
     _ = actor.observeSnapshot(s, true, applied);
     try std.testing.expect(actor.authoritative(applied + 5 * std.time.us_per_s));
     try std.testing.expect(!actor.authoritative(applied + 5 * std.time.us_per_s + 1));
+}
+
+test "child metadata is ordered by the observer's stamp and aged on the daemon clock" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const session = "01901234-1234-1234-1234-123456789abc";
+    const parent = try registry.get(.codex, session);
+    const children = [_]codex_observer.Child{.{ .session = "01901234-1234-1234-1234-123456789abd".*, .name = .ascii("Child"), .state = .working }};
+    var s: codex_observer.Snapshot = .{ .request = .{ .prefix = .{} }, .session = session.*, .state = .working, .children = &children, .children_complete = true, .observed_at = 10 };
+    const applied = 50 * std.time.us_per_s;
+    registry.observeChildren(parent, s, applied);
+    const child = registry.find(.codex, &children[0].session).?;
+    try std.testing.expectEqual(@as(i64, 10), child.state.metadata_protocol_at);
+    try std.testing.expectEqual(applied, child.state.metadata_at);
+    // An older snapshot neither reorders nor refreshes the metadata.
+    s.observed_at = 9;
+    registry.observeChildren(parent, s, applied + 1);
+    try std.testing.expectEqual(applied, child.state.metadata_at);
 }
 
 test "snapshot baseline and completion receipts are idempotent" {

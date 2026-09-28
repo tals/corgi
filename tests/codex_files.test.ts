@@ -179,9 +179,10 @@ class Files extends Runtime {
     await this.sim.close();
     this.sim = null;
     await this.hook("PreToolUse");
+    // Protocol metadata keeps its name for five seconds.
+    await this.advance(5);
     await this.until(
       async () => (await this.state()).name === "File rename while connected",
-      9,
     );
     this.assertEqual((await this.state()).activity, "Tracing pane focus");
     this.assertEqual((await this.state()).completed, 0);

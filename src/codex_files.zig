@@ -50,7 +50,20 @@ pub const Index = struct {
 };
 
 pub fn available(agent: *const agents.Agent, now: i64) bool {
-    return agent.provider == .codex and (agent.metadata_protocol_at == 0 or now - agent.metadata_protocol_at > 5 * std.time.us_per_s);
+    return agent.provider == .codex and (agent.metadata_at == 0 or now - agent.metadata_at > 5 * std.time.us_per_s);
+}
+
+test "file names wait five seconds after protocol metadata, on the daemon clock" {
+    var agent: agents.Agent = .{ .provider = .codex };
+    try std.testing.expect(available(&agent, 0));
+    const applied = 50 * std.time.us_per_s;
+    agent.metadata_at = applied;
+    // The observer's ordering stamp does not age the window.
+    agent.metadata_protocol_at = 1;
+    try std.testing.expect(!available(&agent, applied + 5 * std.time.us_per_s));
+    try std.testing.expect(available(&agent, applied + 5 * std.time.us_per_s + 1));
+    agent.provider = .claude;
+    try std.testing.expect(!available(&agent, applied + 6 * std.time.us_per_s));
 }
 
 test "index selects exact identity and latest complete name" {

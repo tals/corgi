@@ -881,9 +881,10 @@ pub const Server = struct {
                         log.warn("tracking Codex session: {}", .{err});
                         continue;
                     }) orelse continue;
-                    const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id), clock.microTimestamp());
+                    const applied = clock.microTimestamp();
+                    const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id), applied);
                     if (actor.parent == null) s.attention(ding, actor.state.state);
-                    s.runtime.conversations.observeChildren(actor, snap);
+                    s.runtime.conversations.observeChildren(actor, snap, applied);
                     summaries.submit(actor, snap.evidence, s.runtime.panes.items);
                     s.dirty = true;
                     s.runtime.changed();
@@ -965,7 +966,7 @@ pub const Server = struct {
                     if (result.continued.len > 0) s.followContinuation(actor, result.continued.text());
                     const before = actor.state;
                     if (result.progress) |progress| actor.observeTools(progress);
-                    if (result.fallback(&actor.state, std.time.microTimestamp())) {
+                    if (result.fallback(&actor.state, clock.microTimestamp())) {
                         summaries.submit(actor, result.progress.?.commentary, s.runtime.panes.items);
                     }
                     if (!std.meta.eql(before, actor.state)) {

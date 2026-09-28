@@ -498,7 +498,7 @@ test "file metadata prefers fresh protocol and rejects other turns" {
     };
     result.name = .ascii("File title");
     agent.setName("Protocol title");
-    agent.metadata_protocol_at = 100;
+    agent.metadata_at = 100;
     try std.testing.expect(!result.fallback(&agent, 101));
     try std.testing.expectEqualStrings("Protocol title", agent.displayName());
     // Hooks advance last_seq but must not keep protocol metadata fresh.
