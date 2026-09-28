@@ -6,36 +6,38 @@ const account_cache = @import("account_cache.zig");
 
 pub const Cell = struct {
     const Window = struct {
-        label: []const u8 = "",
+        label: metadata.Text = .{},
         used: u8 = 0,
         reset: metadata.Text = .{},
 
         fn width(window: Window) usize {
-            return sidebar.displayWidth(window.label) + 1 + percentWidth(window.used) + 3 + window.reset.len;
+            return sidebar.displayWidth(window.label.text()) + 1 + percentWidth(window.used) + 3 + window.reset.len;
         }
     };
     windows: [2]Window = .{ .{}, .{} },
     len: usize = 0,
     fallback: metadata.Text = .{},
 
-    pub fn init(usage: []const u8, resets: metadata.Resets, now: i64) Cell {
-        var fallback: metadata.Text = .{};
-        fallback.len = @min(usage.len, fallback.bytes.len);
-        @memcpy(fallback.bytes[0..fallback.len], usage[0..fallback.len]);
-        var cell: Cell = .{ .fallback = fallback };
-        var parts = std.mem.splitSequence(u8, usage, " / ");
-        while (parts.next()) |part| {
-            const space = std.mem.lastIndexOfScalar(u8, part, ' ') orelse return .{ .fallback = fallback };
-            if (space == 0 or !std.mem.endsWith(u8, part, "%") or cell.len == cell.windows.len) return .{ .fallback = fallback };
-            const used = std.fmt.parseInt(u8, part[space + 1 .. part.len - 1], 10) catch return .{ .fallback = fallback };
-            if (used > 100) return .{ .fallback = fallback };
-            const window = &cell.windows[cell.len];
-            window.label = part[0..space];
-            window.used = used;
-            var buffer: [48]u8 = undefined;
-            window.reset.set(resets.countdown(window.label, now, &buffer) orelse "unknown");
+    pub fn init(windows: [2]?metadata.Window, now: i64) Cell {
+        var cell: Cell = .{};
+        for (windows) |maybe| {
+            const window = maybe orelse continue;
+            const out = &cell.windows[cell.len];
+            var label: [16]u8 = undefined;
+            out.label.set(window.label(&label));
+            out.used = window.used;
+            var reset: [48]u8 = undefined;
+            out.reset.set(window.countdown(now, &reset) orelse "unknown");
             cell.len += 1;
         }
+        return cell;
+    }
+
+    /// Copied raw: `Text.set` would blank the "…" and "—" in statuses.
+    pub fn status(text: []const u8) Cell {
+        var cell: Cell = .{};
+        cell.fallback.len = @min(text.len, cell.fallback.bytes.len);
+        @memcpy(cell.fallback.bytes[0..cell.fallback.len], text[0..cell.fallback.len]);
         return cell;
     }
 
@@ -69,7 +71,7 @@ pub const Cell = struct {
             var plain = std.Io.Writer.fixed(&buffer);
             for (cell.windows[0..cell.len], 0..) |window, i| {
                 if (i > 0) try plain.writeAll(" │ ");
-                try plain.print("{s} {d}% · {s}", .{ window.label, window.used, window.reset.text() });
+                try plain.print("{s} {d}% · {s}", .{ window.label.text(), window.used, window.reset.text() });
             }
             try sidebar.writeEllipsis(w, plain.buffered(), width);
             return;
@@ -78,7 +80,7 @@ pub const Cell = struct {
         const bar_width: usize = if (extra >= 3) @min(6, extra - 1) else 0;
         for (cell.windows[0..cell.len], 0..) |window, i| {
             if (i > 0) try w.writeAll("\x1b[38;2;83;97;106m │ ");
-            try w.print("{s}\x1b[1;38;2;169;200;184m{s}{s} ", .{ row_style, window.label, row_style });
+            try w.print("{s}\x1b[1;38;2;169;200;184m{s}{s} ", .{ row_style, window.label.text(), row_style });
             const color = if (window.used >= 100) "237;163;152" else if (window.used >= 80) "229;195;139" else "169;200;184";
             if (bar_width > 0) {
                 const filled = (bar_width * window.used + 50) / 100;
@@ -100,32 +102,29 @@ fn percentWidth(used: u8) usize {
     return if (used >= 100) 4 else if (used >= 10) 3 else 2;
 }
 
-test "usage groups omit absent limits and match resets by label" {
-    var resets: metadata.Resets = .{ .at = .{ 8200, 273700 } };
-    resets.labels[0].set("5h");
-    resets.labels[1].set("7d");
-    const cell = Cell.init("7d 48%", resets, 100);
+test "usage groups omit absent limits and show each window's reset" {
+    const cell = Cell.init(.{ null, .{ .minutes = 10080, .used = 48, .reset_at = 273700 } }, 100);
     try std.testing.expectEqual(@as(usize, 1), cell.len);
-    try std.testing.expectEqualStrings("7d", cell.windows[0].label);
+    try std.testing.expectEqualStrings("7d", cell.windows[0].label.text());
     try std.testing.expectEqualStrings("3d 4h", cell.windows[0].reset.text());
-    const zero = Cell.init("5h 0% / 7d 100%", resets, 100);
+    const zero = Cell.init(.{ .{ .minutes = 300, .used = 0, .reset_at = 8200 }, .{ .minutes = 10080, .used = 100, .reset_at = 273700 } }, 100);
     try std.testing.expectEqual(@as(usize, 2), zero.len);
     try std.testing.expectEqual(@as(u8, 0), zero.windows[0].used);
     try std.testing.expectEqualStrings("2h 15m", zero.windows[0].reset.text());
-    const other = Cell.init("1d 12%", resets, 100);
-    try std.testing.expectEqualStrings("1d", other.windows[0].label);
+    const other = Cell.init(.{ .{ .minutes = 1440, .used = 12 }, null }, 100);
+    try std.testing.expectEqualStrings("1d", other.windows[0].label.text());
     try std.testing.expectEqualStrings("unknown", other.windows[0].reset.text());
 }
 
 test "cached readings have no extra indicator and statuses remain readable" {
     var state: account_cache.State = .{};
     var info: metadata.Info = .{ .signed_in = true };
-    info.usage.set("5h 12% / 7d 48%");
+    info.limits = .{ .windows = .{ .{ .minutes = 300, .used = 12 }, .{ .minutes = 10080, .used = 48 } } };
     state.update(info, 1000);
-    const fresh = Cell.init(info.usage.text(), info.resets, 1100);
+    const fresh = Cell.init(info.limits.windows, 1100);
     state.update(.{ .signed_in = true }, 1100);
     const retained = state.display(1100);
-    const cached = Cell.init(retained.usage.text(), retained.resets, 1100);
+    const cached = Cell.init(retained.limits.windows, 1100);
     try std.testing.expectEqual(@as(usize, 2), cached.len);
     try std.testing.expectEqual(fresh.preferredWidth(), cached.preferredWidth());
     for ([_]usize{ 25, fresh.minimumWidth(), fresh.preferredWidth() }) |width| {
@@ -138,15 +137,15 @@ test "cached readings have no extra indicator and statuses remain readable" {
         try std.testing.expectEqualStrings(b_writer.buffered(), a_writer.buffered());
         try std.testing.expect(std.mem.indexOf(u8, a_writer.buffered(), "cached") == null);
     }
-    for ([_][]const u8{ "Reading…", "Track usage", "Metered", "Rate limited", "Unavailable", "5h 101%" }) |status| {
-        const cell = Cell.init(status, .{}, 100);
+    for ([_][]const u8{ "Reading…", "Track usage", "Metered", "—" }) |text| {
+        const cell = Cell.status(text);
         try std.testing.expectEqual(@as(usize, 0), cell.len);
-        try std.testing.expectEqualStrings(status, cell.fallback.text());
+        try std.testing.expectEqualStrings(text, cell.fallback.text());
     }
 }
 
 test "text-only usage fits both limits without bars and clips within its cell" {
-    const cell = Cell.init("5h 0% / 7d 100%", .{}, 100);
+    const cell = Cell.init(.{ .{ .minutes = 300, .used = 0 }, .{ .minutes = 10080, .used = 100 } }, 100);
     var buffer: [2048]u8 = undefined;
     var w = std.Io.Writer.fixed(&buffer);
     try cell.write(&w, cell.minimumWidth(), "\x1b[0m");

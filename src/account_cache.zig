@@ -7,11 +7,6 @@ const metadata = @import("account_preview.zig");
 const log = std.log.scoped(.account_cache);
 pub const interval: i64 = 60;
 pub const cooldown: i64 = 5 * 60;
-/// The one place the producer's "Metered" text is read back; callers use the
-/// typed `Option.usage_metered` it feeds.
-pub fn isMetered(usage_text: []const u8) bool {
-    return std.mem.eql(u8, usage_text, "Metered");
-}
 
 pub const State = struct {
     info: metadata.Info = .{},
@@ -22,26 +17,25 @@ pub const State = struct {
     pub fn update(s: *State, fresh: metadata.Info, now: i64) void {
         const previous = s.info;
         s.info = fresh;
-        if (fresh.usage.len > 0) {
+        if (fresh.limits != .none) {
             s.info.usage_fetched_at = now;
-        } else if (fresh.signed_in == true and previous.usage.len > 0) {
-            s.info.usage = previous.usage;
-            s.info.resets = previous.resets;
+        } else if (fresh.signed_in == true and previous.limits != .none) {
+            s.info.limits = previous.limits;
             s.info.usage_fetched_at = previous.usage_fetched_at;
         }
     }
+    /// Viewers hide expired windows themselves; this only explains why.
     pub fn display(s: State, now: i64) metadata.Info {
         var result = s.info;
         if (s.rate_limited and result.usage_error.len == 0) result.usage_error.set("server returned 429");
-        if (result.usage.len > 0) {
-            if (!isMetered(result.usage.text()) and
-                (result.usage_fetched_at <= 0 or now -| result.usage_fetched_at >= metadata.usage_max_age))
-            {
-                result.usage.set("Unavailable");
-                result.resets = .{};
-                if (result.usage_error.len == 0) result.usage_error.set(if (result.usage_fetched_at <= 0) "fetch time unknown" else "last success 10m+ ago");
-            }
-        } else if (s.rate_limited) result.usage.set("Rate limited");
+        switch (result.limits) {
+            .windows => if (metadata.expired(result.usage_fetched_at, now) and result.usage_error.len == 0)
+                result.usage_error.set(if (result.usage_fetched_at <= 0) "fetch time unknown" else "last success 10m+ ago"),
+            .none => if (s.rate_limited) {
+                result.limits = .rate_limited;
+            },
+            .metered, .rate_limited => {},
+        }
         return result;
     }
 
@@ -153,50 +147,51 @@ test "partial account refresh retains usage until a fresh reading or sign-out" {
     var state: State = .{};
     var fresh: metadata.Info = .{ .signed_in = true };
     fresh.account.set("user@example.com");
-    fresh.usage.set("5h 12%");
-    fresh.resets.at[0] = 1700001000;
+    fresh.limits = .{ .windows = .{ .{ .minutes = 300, .used = 12, .reset_at = 1700001000 }, null } };
     state.update(fresh, 1000);
-    fresh.usage = .{};
-    fresh.resets = .{};
+    fresh.limits = .none;
     state.update(fresh, 1100);
-    try std.testing.expectEqualStrings("5h 12%", state.display(1100).usage.text());
+    try std.testing.expectEqual(@as(u8, 12), state.display(1100).limits.windows[0].?.used);
     try std.testing.expectEqual(@as(i64, 1000), state.info.usage_fetched_at);
-    try std.testing.expectEqual(@as(?i64, 1700001000), state.info.resets.at[0]);
-    fresh.usage.set("5h 14%");
+    try std.testing.expectEqual(@as(?i64, 1700001000), state.info.limits.windows[0].?.reset_at);
+    fresh.limits = .{ .windows = .{ .{ .minutes = 300, .used = 14 }, null } };
     state.update(fresh, 1200);
     try std.testing.expectEqual(@as(i64, 1200), state.info.usage_fetched_at);
-    try std.testing.expectEqualStrings("5h 14%", state.info.usage.text());
+    try std.testing.expectEqual(@as(u8, 14), state.info.limits.windows[0].?.used);
     state.update(.{ .signed_in = false }, 1300);
-    try std.testing.expectEqual(@as(usize, 0), state.info.usage.len);
+    try std.testing.expect(state.info.limits == .none);
 }
 
 test "usage age follows successful fetches and expires at ten minutes" {
     var state: State = .{};
     var fresh: metadata.Info = .{ .signed_in = true };
-    fresh.usage.set("7d 48%");
-    fresh.resets.at[1] = 90000;
+    fresh.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48, .reset_at = 90000 } } };
     state.update(fresh, 1000);
     state.rate_limited = true;
     state.next_usage = 2000;
     state.update(.{ .signed_in = true }, 1500);
-    try std.testing.expectEqualStrings("7d 48%", state.display(1599).usage.text());
-    try std.testing.expectEqualStrings("Unavailable", state.display(1600).usage.text());
-    try std.testing.expectEqual(@as(?i64, null), state.display(1600).resets.at[1]);
-    try std.testing.expectEqualStrings("7d 48%", state.info.usage.text());
+    const recent = state.display(1599);
+    try std.testing.expectEqual(@as(u8, 48), recent.limits.windows[1].?.used);
+    try std.testing.expect(!metadata.expired(recent.usage_fetched_at, 1599));
+    // Retained for the viewer, which hides it once expired.
+    const old = state.display(1600);
+    try std.testing.expect(old.limits == .windows);
+    try std.testing.expect(metadata.expired(old.usage_fetched_at, 1600));
     try std.testing.expectEqual(@as(i64, 1000), state.info.usage_fetched_at);
     state.update(fresh, 1601);
-    try std.testing.expectEqualStrings("7d 48%", state.display(1601).usage.text());
+    try std.testing.expect(!metadata.expired(state.display(1601).usage_fetched_at, 1601));
     state.info.usage_fetched_at = 0;
-    try std.testing.expectEqualStrings("Unavailable", state.display(1601).usage.text());
+    state.rate_limited = false;
+    try std.testing.expectEqualStrings("fetch time unknown", state.display(1601).usage_error.text());
 }
 
 test "usage failures preserve recent readings and give stale readings a reason" {
     var state: State = .{};
     var fresh: metadata.Info = .{ .signed_in = true };
-    fresh.usage.set("7d 48%");
+    fresh.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48 } } };
     state.update(fresh, 1000);
     state.failedResponse(429);
-    try std.testing.expectEqualStrings("7d 48%", state.display(1100).usage.text());
+    try std.testing.expectEqual(@as(u8, 48), state.display(1100).limits.windows[1].?.used);
     try std.testing.expectEqualStrings("server returned 429", state.display(1600).usage_error.text());
     state.failedResponse(503);
     try std.testing.expectEqualStrings("server returned 503", state.display(1600).usage_error.text());
@@ -205,4 +200,9 @@ test "usage failures preserve recent readings and give stale readings a reason" 
     state.update(fresh, 1601);
     try std.testing.expectEqual(@as(usize, 0), state.info.usage_error.len);
     try std.testing.expectEqualStrings("last success 10m+ ago", state.display(2201).usage_error.text());
+    var empty: State = .{};
+    empty.failedResponse(429);
+    try std.testing.expect(empty.display(1000).limits == .rate_limited);
+    empty.failedResponse(503);
+    try std.testing.expect(empty.display(1000).limits == .none);
 }

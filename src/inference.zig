@@ -486,9 +486,8 @@ pub const Pool = struct {
         const result = field(limits.value, "result");
         const bucket = field(field(result, "rateLimitsByLimitId"), "codex");
         const rates = if (bucket != .null) bucket else field(result, "rateLimits");
-        response.usage = metadata.usage(rates, .codex);
-        if (response.usage.len == 0) response.usage_error.set("no usage returned");
-        response.resets = metadata.resets(rates, .codex);
+        response.limits = metadata.limits(rates, .codex);
+        if (response.limits == .none) response.usage_error.set("no usage returned");
         return response;
     }
     fn select(p: *Pool, request: Request) usize {

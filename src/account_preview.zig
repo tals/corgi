@@ -21,40 +21,46 @@ pub const Info = struct {
     signed_in: ?bool = null,
     account: Text = .{},
     plan: Text = .{},
-    usage: Text = .{},
+    limits: Limits = .none,
     usage_fetched_at: i64 = 0,
     usage_error: Text = .{},
-    resets: Resets = .{},
     usage_needs_consent: bool = false,
 };
 
-pub const Resets = struct {
-    at: [2]?i64 = .{ null, null },
-    labels: [2]Text = .{ .{}, .{} },
+/// A usage reading as reported; the launcher derives its text.
+pub const Limits = union(enum) {
+    none,
+    /// API keys and external providers bill per token; never stale.
+    metered,
+    /// The provider refused a reading and none was retained.
+    rate_limited,
+    windows: [2]?Window,
+};
 
-    pub fn countdown(r: Resets, label: []const u8, now: i64, buffer: []u8) ?[]const u8 {
-        for (r.at, r.labels) |at, name| {
-            if (std.mem.eql(u8, name.text(), label)) {
-                if (at) |stamp| return resetCountdown(stamp, now, buffer);
-            }
-        }
-        return null;
+pub const Window = struct {
+    /// Null when the provider does not report the window's length.
+    minutes: ?i64 = null,
+    /// Whole percent used, 0 through 100.
+    used: u8 = 0,
+    reset_at: ?i64 = null,
+
+    pub fn label(w: Window, buf: []u8) []const u8 {
+        const n = w.minutes orelse return "Window";
+        if (n <= 0) return "Window";
+        if (@mod(n, 1440) == 0) return std.fmt.bufPrint(buf, "{d}d", .{@divExact(n, 1440)}) catch "Window";
+        if (@mod(n, 60) == 0) return std.fmt.bufPrint(buf, "{d}h", .{@divExact(n, 60)}) catch "Window";
+        return std.fmt.bufPrint(buf, "{d}m", .{n}) catch "Window";
     }
 
-    pub fn text(r: *const Resets, now: i64) Text {
-        var result: Text = .{};
-        var buf: [160]u8 = undefined;
-        var writer = std.Io.Writer.fixed(&buf);
-        for (r.at, r.labels) |at, label| {
-            const stamp = at orelse continue;
-            if (writer.end > 0) writer.writeAll(" / ") catch break;
-            var countdown_text: [48]u8 = undefined;
-            writer.print("{s} {s}", .{ label.text(), resetCountdown(stamp, now, &countdown_text) }) catch break;
-        }
-        result.set(writer.buffered());
-        return result;
+    pub fn countdown(w: Window, now: i64, buf: []u8) ?[]const u8 {
+        return resetCountdown(w.reset_at orelse return null, now, buf);
     }
 };
+
+/// Whether a reading fetched at `fetched_at` is too old to show.
+pub fn expired(fetched_at: i64, now: i64) bool {
+    return fetched_at <= 0 or now -| fetched_at >= usage_max_age;
+}
 
 fn resetCountdown(at: i64, now: i64, buf: []u8) []const u8 {
     const seconds = at -| now;
@@ -79,18 +85,20 @@ fn resetCountdown(at: i64, now: i64, buf: []u8) []const u8 {
 const Schema = struct {
     windows: [2][]const u8,
     used: []const u8,
-    /// Fixed window labels; null reads each window's duration.
-    labels: ?[2][]const u8,
+    /// Fixed window lengths; null reads each window's reported duration.
+    minutes: ?[2]i64,
     reset: enum { unix_seconds, iso8601 },
 };
 fn schema(provider: Provider) Schema {
     return switch (provider) {
-        .codex => .{ .windows = .{ "primary", "secondary" }, .used = "usedPercent", .labels = null, .reset = .unix_seconds },
-        .claude => .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .labels = .{ "5h", "7d" }, .reset = .iso8601 },
+        .codex => .{ .windows = .{ "primary", "secondary" }, .used = "usedPercent", .minutes = null, .reset = .unix_seconds },
+        .claude => .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .minutes = .{ 300, 10080 }, .reset = .iso8601 },
     };
 }
-fn windowLabel(format: Schema, item: std.json.Value, i: usize, buf: []u8) []const u8 {
-    return if (format.labels) |labels| labels[i] else duration(item, buf);
+fn windowMinutes(format: Schema, item: std.json.Value, i: usize) ?i64 {
+    if (format.minutes) |minutes| return minutes[i];
+    const reported = field(item, "windowDurationMins");
+    return if (reported == .integer and reported.integer > 0) reported.integer else null;
 }
 
 fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
@@ -116,17 +124,15 @@ fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
     return @divFloor(transcript.timestampMs(stamp) orelse return null, 1000) - offset;
 }
 
-pub fn resets(value: std.json.Value, provider: Provider) Resets {
+pub fn limits(value: std.json.Value, provider: Provider) Limits {
     const format = schema(provider);
-    var result: Resets = .{};
-    for (format.windows, 0..) |name, i| {
+    var windows: [2]?Window = .{ null, null };
+    for (format.windows, &windows, 0..) |name, *window, i| {
         const item = field(value, name);
-        if (percent(field(item, format.used)) == null) continue;
-        result.at[i] = resetTimestamp(item, format);
-        var buf: [32]u8 = undefined;
-        result.labels[i].set(windowLabel(format, item, i, &buf));
+        const used = percent(field(item, format.used)) orelse continue;
+        window.* = .{ .minutes = windowMinutes(format, item, i), .used = @intFromFloat(@round(used)), .reset_at = resetTimestamp(item, format) };
     }
-    return result;
+    return if (windows[0] == null and windows[1] == null) .none else .{ .windows = windows };
 }
 
 pub fn codexAccount(value: std.json.Value) Info {
@@ -136,7 +142,7 @@ pub fn codexAccount(value: std.json.Value) Info {
     const api = std.mem.eql(u8, str(value, "type"), "apiKey");
     info.account.set(if (api) "API key" else if (email.len > 0) email else if (value == .null) "Not signed in" else "Signed in");
     info.plan.set(if (api) "API" else str(value, "planType"));
-    if (api) info.usage.set("Metered");
+    if (api) info.limits = .metered;
     return info;
 }
 
@@ -150,7 +156,7 @@ pub fn claudeAccount(value: std.json.Value) Info {
     info.account.set(if (!logged.bool) "Not signed in" else if (api) "API key" else if (email.len > 0) email else "Signed in");
     if (logged.bool) {
         info.plan.set(if (api) "API" else str(value, "subscriptionType"));
-        if (api) info.usage.set("Metered");
+        if (api) info.limits = .metered;
     }
     return info;
 }
@@ -164,48 +170,27 @@ fn percent(value: std.json.Value) ?f64 {
     return if (std.math.isFinite(n) and n >= 0 and n <= 100) n else null;
 }
 
-fn window(value: std.json.Value, key: []const u8, label: []const u8, buf: []u8) []const u8 {
-    const used = percent(field(value, key)) orelse return "";
-    return std.fmt.bufPrint(buf, "{s} {d:.0}%", .{ label, used }) catch "";
-}
-
-fn duration(value: std.json.Value, buf: []u8) []const u8 {
-    const minutes = field(value, "windowDurationMins");
-    if (minutes != .integer or minutes.integer <= 0) return "Window";
-    const n = minutes.integer;
-    if (@mod(n, 1440) == 0) return std.fmt.bufPrint(buf, "{d}d", .{@divExact(n, 1440)}) catch "Window";
-    if (@mod(n, 60) == 0) return std.fmt.bufPrint(buf, "{d}h", .{@divExact(n, 60)}) catch "Window";
-    return std.fmt.bufPrint(buf, "{d}m", .{n}) catch "Window";
-}
-
-pub fn usage(value: std.json.Value, provider: Provider) Text {
-    const format = schema(provider);
-    var first_buf: [64]u8 = undefined;
-    var second_buf: [64]u8 = undefined;
-    var first_label: [32]u8 = undefined;
-    var second_label: [32]u8 = undefined;
-    const first = field(value, format.windows[0]);
-    const second = field(value, format.windows[1]);
-    const one = window(first, format.used, windowLabel(format, first, 0, &first_label), &first_buf);
-    const two = window(second, format.used, windowLabel(format, second, 1, &second_label), &second_buf);
-    var result: Text = .{};
-    var buf: [160]u8 = undefined;
-    result.set(std.fmt.bufPrint(&buf, "{s}{s}{s}", .{ one, if (one.len > 0 and two.len > 0) " / " else "", two }) catch "");
-    return result;
-}
-
 test "account usage distinguishes missing windows from zero and preserves durations" {
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
         \\{"primary":{"usedPercent":0,"windowDurationMins":300},"secondary":{"usedPercent":63,"windowDurationMins":10080}}
     , .{});
     defer parsed.deinit();
-    try std.testing.expectEqualStrings("5h 0% / 7d 63%", usage(parsed.value, .codex).text());
+    const codex = limits(parsed.value, .codex).windows;
+    var buf: [16]u8 = undefined;
+    try std.testing.expectEqual(@as(u8, 0), codex[0].?.used);
+    try std.testing.expectEqualStrings("5h", codex[0].?.label(&buf));
+    try std.testing.expectEqual(@as(u8, 63), codex[1].?.used);
+    try std.testing.expectEqualStrings("7d", codex[1].?.label(&buf));
     const missing = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
         \\{"five_hour":null,"seven_day":{"utilization":42.3}}
     , .{});
     defer missing.deinit();
-    try std.testing.expectEqualStrings("7d 42%", usage(missing.value, .claude).text());
-    try std.testing.expectEqualStrings("", usage(.null, .claude).text());
+    const claude = limits(missing.value, .claude).windows;
+    try std.testing.expectEqual(@as(?Window, null), claude[0]);
+    try std.testing.expectEqual(@as(u8, 42), claude[1].?.used);
+    try std.testing.expectEqualStrings("7d", claude[1].?.label(&buf));
+    try std.testing.expect(limits(.null, .claude) == .none);
+    try std.testing.expectEqualStrings("Window", (Window{}).label(&buf));
 }
 
 test "signed out and API accounts do not borrow subscription details" {
@@ -223,10 +208,10 @@ test "signed out and API accounts do not borrow subscription details" {
     const info = codexAccount(api.value);
     try std.testing.expectEqualStrings("API key", info.account.text());
     try std.testing.expectEqualStrings("API", info.plan.text());
-    try std.testing.expectEqualStrings("Metered", info.usage.text());
+    try std.testing.expect(info.limits == .metered);
 }
 
-test "reset countdown rounds up and preserves window labels" {
+test "reset countdown rounds up and belongs to its window" {
     var buf: [48]u8 = undefined;
     try std.testing.expectEqualStrings("now", resetCountdown(99, 100, &buf));
     try std.testing.expectEqualStrings("1m", resetCountdown(101, 100, &buf));
@@ -236,15 +221,16 @@ test "reset countdown rounds up and preserves window labels" {
         \\{"primary":{"usedPercent":0,"windowDurationMins":300,"resetsAt":8200},"secondary":{"usedPercent":63,"windowDurationMins":10080,"resetsAt":273700}}
     , .{});
     defer codex.deinit();
-    const times = resets(codex.value, .codex);
-    try std.testing.expectEqualStrings("5h 2h 15m / 7d 3d 4h", times.text(100).text());
+    const codex_windows = limits(codex.value, .codex).windows;
+    try std.testing.expectEqualStrings("2h 15m", codex_windows[0].?.countdown(100, &buf).?);
+    try std.testing.expectEqualStrings("3d 4h", codex_windows[1].?.countdown(100, &buf).?);
     const claude = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
         \\{"five_hour":{"utilization":12,"resets_at":"2026-09-24T12:00:00.000000+00:00"},"seven_day":{"utilization":48,"resets_at":"2026-09-27T16:00:00Z"}}
     , .{});
     defer claude.deinit();
-    const claude_times = resets(claude.value, .claude);
+    const claude_windows = limits(claude.value, .claude).windows;
     const now = @divExact(transcript.timestampMs("2026-09-24T10:00:00Z").?, 1000);
-    try std.testing.expectEqualStrings("5h 2h / 7d 3d 6h", claude_times.text(now).text());
-    const unknown = resets(.null, .claude);
-    try std.testing.expectEqualStrings("", unknown.text(now).text());
+    try std.testing.expectEqualStrings("2h", claude_windows[0].?.countdown(now, &buf).?);
+    try std.testing.expectEqualStrings("3d 6h", claude_windows[1].?.countdown(now, &buf).?);
+    try std.testing.expectEqual(@as(?[]const u8, null), (Window{ .used = 48 }).countdown(now, &buf));
 }

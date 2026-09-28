@@ -188,16 +188,19 @@ $.clients[].launch_preview?.preview.options[2].account.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].account.len: usize
 $.clients[].launch_preview?.preview.options[2].plan.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].plan.len: usize
-$.clients[].launch_preview?.preview.options[2].usage.bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].usage.len: usize
-$.clients[].launch_preview?.preview.options[2].usage_metered: bool
+$.clients[].launch_preview?.preview.options[2].limits: one of
+$.clients[].launch_preview?.preview.options[2].limits|none: {}
+$.clients[].launch_preview?.preview.options[2].limits|metered: {}
+$.clients[].launch_preview?.preview.options[2].limits|rate_limited: {}
+$.clients[].launch_preview?.preview.options[2].limits|windows[2]: optional
+$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.minutes: optional
+$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.minutes?: i64
+$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.used: u8
+$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.reset_at: optional
+$.clients[].launch_preview?.preview.options[2].limits|windows[2]?.reset_at?: i64
 $.clients[].launch_preview?.preview.options[2].usage_fetched_at: i64
 $.clients[].launch_preview?.preview.options[2].usage_error.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].usage_error.len: usize
-$.clients[].launch_preview?.preview.options[2].resets.at[2]: optional
-$.clients[].launch_preview?.preview.options[2].resets.at[2]?: i64
-$.clients[].launch_preview?.preview.options[2].resets.labels[2].bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].resets.labels[2].len: usize
 $.clients[].launch_preview?.preview.options[2].usage_needs_consent: bool
 $.clients[].launch_preview?.preview.installed[2]: bool
 $.clients[].launch_preview?.checked: i64

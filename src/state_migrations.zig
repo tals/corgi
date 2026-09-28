@@ -6,6 +6,7 @@ const Value = std.json.Value;
 const inference_setup = @import("inference_setup.zig");
 const providers = @import("providers.zig");
 const agents = @import("agents.zig");
+const account_preview = @import("account_preview.zig");
 
 /// A migration rewrites one version's JSON tree into the next version's. Steps
 /// see only JSON: they must not decode into runtime types, which keep changing
@@ -15,7 +16,7 @@ const Error = Allocator.Error || error{InvalidCheckpoint};
 
 /// Index `n` upgrades version `n + 1` to `n + 2`.
 const checkpoint_steps = [_]Step{ checkpoint1To2, checkpoint2To3, checkpoint3To4 };
-const handoff_steps = [_]Step{handoff1To2};
+const handoff_steps = [_]Step{ handoff1To2, handoff2To3 };
 
 pub const checkpoint_version: u32 = checkpoint_steps.len + 1;
 pub const handoff_version: u32 = handoff_steps.len + 1;
@@ -279,6 +280,27 @@ fn handoff1To2(alloc: Allocator, value: *Value) Error!void {
     _ = fields.swapRemove("claude");
 }
 
+fn handoff2To3(alloc: Allocator, value: *Value) Error!void {
+    // V2 kept launcher usage as display text. Only `usage_metered` carries over
+    // without reading that text back; windows return with the next preview.
+    for (try items(value, "clients")) |*client| {
+        const saved = (try object(client)).getPtr("launch_preview") orelse continue;
+        if (saved.* == .null) continue;
+        const preview = (try object(saved)).getPtr("preview") orelse continue;
+        for (try items(preview, "options")) |*option| {
+            const fields = try object(option);
+            if (fields.get("usage_metered")) |metered| if (metered == .bool and metered.bool) {
+                var limits: Value = .{ .object = .init(alloc) };
+                try limits.object.put("metered", .{ .object = .init(alloc) });
+                try fields.put("limits", limits);
+            };
+            _ = fields.swapRemove("usage");
+            _ = fields.swapRemove("usage_metered");
+            _ = fields.swapRemove("resets");
+        }
+    }
+}
+
 /// One line per serialized leaf path, as std.json writes `T`. A snapshot of
 /// this text catches a saved-format change that forgot its version bump.
 /// Types in `sealed` have their own version and appear as a single line.
@@ -457,6 +479,26 @@ test "handoff and runtime versions migrate independently without losing launch c
     try std.testing.expectError(error.UnsupportedStateVersion, decode(T, .handoff, std.testing.allocator,
         \\{"version":2,"runtime":{"version":99},"summaries":{}}
     ));
+}
+
+test "handoff keeps only the metered fact from launcher usage text" {
+    const decoded = try decode(Value, .handoff, std.testing.allocator,
+        \\{"version":2,"runtime":{"version":4},"clients":[
+        \\ {"launch_preview":{"preview":{"options":[
+        \\  {"usage":{"bytes":"Metered","len":7},"usage_metered":true,"resets":{}},
+        \\  {"usage":{"bytes":"5h 12%","len":6},"usage_metered":false,"resets":{"at":[100,null]},"usage_fetched_at":9}]}}},
+        \\ {"launch_preview":null}]}
+    );
+    defer decoded.deinit();
+    const client = decoded.parsed.value.object.get("clients").?.array.items[0];
+    const options = client.object.get("launch_preview").?.object.get("preview").?.object.get("options").?.array.items;
+    const metered = try std.json.parseFromValue(account_preview.Limits, std.testing.allocator, options[0].object.get("limits").?, .{});
+    defer metered.deinit();
+    try std.testing.expect(metered.value == .metered);
+    try std.testing.expect(options[1].object.get("limits") == null);
+    try std.testing.expectEqual(@as(i64, 9), options[1].object.get("usage_fetched_at").?.integer);
+    for (options) |option| for ([_][]const u8{ "usage", "usage_metered", "resets" }) |key|
+        try std.testing.expect(!option.object.contains(key));
 }
 
 test "legacy panes and native sessions share one migrated conversation" {

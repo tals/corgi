@@ -256,7 +256,7 @@ HOME and retain the original path in the pane's recovery banner.
 ### Saved-state migrations
 
 `src/state_migrations.zig` owns two independent, monotonically increasing schema
-versions: checkpoint **4** (shared runtime state) and handoff **2** (the live
+versions: checkpoint **4** (shared runtime state) and handoff **3** (the live
 envelope containing clients and workers). Each version is derived from its
 ordered list of steps (`checkpoint_steps`, `handoff_steps`): appending a step is
 the version bump. Readers parse plain JSON, require an explicit supported
@@ -271,7 +271,9 @@ that migration accepts either. Checkpoint 3 → 4 recovers `agent_commands[].
 semantics.yolo` from the saved `mode` display text: `mode` was the only
 serialized fact before `yolo` existed, so an older command that skipped
 permission checks would otherwise restore as `yolo: false`. Handoff 1 → 2
-preserves inference launch counters in their new representation. Migrations
+preserves inference launch counters in their new representation. Handoff 2 → 3
+replaces each client's saved launcher usage text with typed `limits`, keeping
+only whether usage was metered; windows return with the next preview. Migrations
 touch only known schema fields; terminal data, native messages, and other
 opaque payloads remain unchanged.
 

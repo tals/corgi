@@ -59,12 +59,9 @@ pub const Option = struct {
     source: Text = .{},
     account: Text = .{},
     plan: Text = .{},
-    usage: Text = .{},
-    /// Metered usage never goes stale.
-    usage_metered: bool = false,
+    limits: metadata.Limits = .none,
     usage_fetched_at: i64 = 0,
     usage_error: Text = .{},
-    resets: metadata.Resets = .{},
     usage_needs_consent: bool = false,
 };
 pub const Preview = struct { pending: bool = true, options: [Provider.all.len]Option = @splat(.{}), installed: [Provider.all.len]bool = @splat(true) };
@@ -170,11 +167,9 @@ pub const Worker = struct {
                     result.options[0].signed_in = account.signed_in;
                     result.options[0].account = account.account;
                     result.options[0].plan = account.plan;
-                    result.options[0].usage = account.usage;
-                    result.options[0].usage_metered = account_cache.isMetered(account.usage.text());
+                    result.options[0].limits = account.limits;
                     result.options[0].usage_fetched_at = account.usage_fetched_at;
                     result.options[0].usage_error = account.usage_error;
-                    result.options[0].resets = account.resets;
                 } else |_| result.options[0].usage_error.set("account read failed");
             }
             if (result.installed[1]) {
@@ -183,11 +178,9 @@ pub const Worker = struct {
                 result.options[1].signed_in = account.signed_in;
                 result.options[1].account = account.account;
                 result.options[1].plan = account.plan;
-                result.options[1].usage = account.usage;
-                result.options[1].usage_metered = account_cache.isMetered(account.usage.text());
+                result.options[1].limits = account.limits;
                 result.options[1].usage_fetched_at = account.usage_fetched_at;
                 result.options[1].usage_error = account.usage_error;
-                result.options[1].resets = account.resets;
                 result.options[1].usage_needs_consent = account.usage_needs_consent;
             }
             w.mutex.lock();
@@ -242,7 +235,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
         info.signed_in = true;
         info.account.set("API key");
         info.plan.set("API");
-        info.usage.set("Metered");
+        info.limits = .metered;
         info.usage_error = .{};
         return info;
     }
@@ -256,7 +249,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
         if (std.mem.eql(u8, os.env(name) orelse "", "1")) {
             info.signed_in = true;
             info.account.set("External provider");
-            info.usage.set("Metered");
+            info.limits = .metered;
             info.usage_error = .{};
             return info;
         }
@@ -337,12 +330,11 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
                 cache.state.failed("invalid usage response");
                 if (std.json.parseFromSlice(std.json.Value, a, reply.body, .{})) |parsed| {
                     defer parsed.deinit();
-                    const usage = metadata.usage(parsed.value, .claude);
-                    if (usage.len > 0) {
-                        cache.state.info.usage = usage;
+                    const limits = metadata.limits(parsed.value, .claude);
+                    if (limits != .none) {
+                        cache.state.info.limits = limits;
                         cache.state.info.usage_fetched_at = std.time.timestamp();
                         cache.state.info.usage_error = .{};
-                        cache.state.info.resets = metadata.resets(parsed.value, .claude);
                     }
                 } else |_| {}
             }
@@ -505,7 +497,8 @@ pub const Menu = struct {
     prefix: bool = false,
     preview: Preview = .{},
     const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in" };
-    fn cells(m: *const Menu, provider: Provider) [6][]const u8 {
+    /// The text columns; `usageCell` draws the last one.
+    fn cells(m: *const Menu, provider: Provider) [5][]const u8 {
         const index = @intFromEnum(provider);
         const option = &m.preview.options[index];
         return .{
@@ -514,58 +507,45 @@ pub const Menu = struct {
             if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
-            if (m.trackable(.of(provider))) "Track usage" else if (option.usage.len > 0)
-                (if (option.usage_fetched_at > 0 and std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age and !option.usage_metered) "Unavailable" else option.usage.text())
-            else if (m.preview.pending) "Reading…" else "Unavailable",
         };
     }
-    fn customCells(m: *const Menu, index: usize) [6][]const u8 {
+    fn customCells(m: *const Menu, index: usize) [5][]const u8 {
         const entry = &m.commands[index];
         const info = &entry.semantics;
         const shared = if (info.default_account) info.provider else null;
-        var values: [6][]const u8 = if (shared) |provider| m.cells(provider) else .{ "", "", "Default", "", "—", "—" };
+        var values: [5][]const u8 = if (shared) |provider| m.cells(provider) else .{ "", "", "Default", "", "—" };
         values[0] = entry.label();
         values[1] = if (info.yolo) "✓" else "·";
         if (info.model.len > 0) values[2] = info.model.text();
         values[3] = m.account(info);
-        // Tracking actions belong to built-in rows; saved commands only show data.
-        if (shared) |provider| if (m.trackable(.of(provider))) {
-            values[5] = "Unavailable";
-        };
         return values;
     }
-    fn usageCell(m: *const Menu, row: Row, text: []const u8) usage_cell.Cell {
+    fn usageCell(m: *const Menu, row: Row) usage_cell.Cell {
         const provider = row.agent() orelse if (row.custom()) |i| blk: {
             const info = m.commands[i].semantics;
             break :blk if (info.default_account) info.provider else null;
         } else null;
-        if (provider) |p| {
-            const option = &m.preview.options[@intFromEnum(p)];
-            if (m.usageUnavailable(row, p, option)) {
-                const reason = if (option.usage_error.len > 0)
-                    option.usage_error.text()
-                else if (option.usage_fetched_at > 0)
-                    "last success 10m+ ago"
-                else
-                    "no usage received";
-                return usage_cell.Cell.unavailable(reason);
-            }
-            return usage_cell.Cell.init(text, option.resets, std.time.timestamp());
-        }
-        return usage_cell.Cell.init(text, .{}, std.time.timestamp());
-    }
-    /// Mirrors how `cells`/`customCells` choose "Unavailable" or "Rate limited".
-    fn usageUnavailable(m: *const Menu, row: Row, provider: Provider, option: *const Option) bool {
-        const can_track = m.trackable(.of(provider));
+        const p = provider orelse return .status("—");
+        const option = &m.preview.options[@intFromEnum(p)];
         // Built-in rows offer an actionable "Track usage" link instead; saved
         // commands sharing that provider show unavailable data (no action).
-        if (row.custom() != null) {
-            if (can_track) return true;
-        } else if (can_track) return false;
-        if (option.usage.len == 0) return !m.preview.pending;
-        if (option.usage_metered) return false;
-        if (option.usage_fetched_at == 0) return true;
-        return std.time.timestamp() -| option.usage_fetched_at >= metadata.usage_max_age;
+        if (m.trackable(.of(p))) return if (row.custom() == null) .status("Track usage") else unavailableCell(option);
+        const now = std.time.timestamp();
+        return switch (option.limits) {
+            .none => if (m.preview.pending) .status("Reading…") else unavailableCell(option),
+            .metered => .status("Metered"),
+            .rate_limited => unavailableCell(option),
+            .windows => |windows| if (metadata.expired(option.usage_fetched_at, now)) unavailableCell(option) else .init(windows, now),
+        };
+    }
+    fn unavailableCell(option: *const Option) usage_cell.Cell {
+        const reason = if (option.usage_error.len > 0)
+            option.usage_error.text()
+        else if (option.usage_fetched_at > 0)
+            "last success 10m+ ago"
+        else
+            "no usage received";
+        return .unavailable(reason);
     }
     /// Management includes unavailable providers so preferences stay editable.
     pub fn shown(m: *const Menu, row: Row) bool {
@@ -644,8 +624,8 @@ pub const Menu = struct {
         for (std.enums.values(Row)) |row| {
             if (!m.shown(row) or (row.agent() == null and row.custom() == null)) continue;
             const values = if (row.custom()) |i| m.customCells(i) else m.cells(row.agent().?);
-            for (values[0..5], widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(sidebar.displayWidth(text))));
-            const cell = m.usageCell(row, values[5]);
+            for (values, widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(sidebar.displayWidth(text))));
+            const cell = m.usageCell(row);
             widths[5] = @max(widths[5], @as(u16, @intCast(cell.preferredWidth())));
             usage_minimum = @max(usage_minimum, @as(u16, @intCast(cell.minimumWidth())));
         }
@@ -965,15 +945,15 @@ pub const Menu = struct {
             var x: u16 = b.x + 4;
             const values = if (current.custom()) |index| m.customCells(index) else m.cells(current.agent().?);
             const yolo = if (current.custom()) |index| m.commands[index].semantics.yolo else m.yolo[@intFromEnum(current.agent().?)];
-            for (values, widths, 0..) |text, width, column| {
+            for (widths, 0..) |width, column| {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
                 if (column == 5 and m.trackable(current)) try w.writeAll("\x1b[4m");
                 if (column == 1 and yolo) try w.writeAll("\x1b[1;38;2;255;255;255m");
                 const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
                 if (column == 5) {
-                    try m.usageCell(current, text).write(w, room, style);
-                } else try sidebar.writeEllipsis(w, text, room);
+                    try m.usageCell(current).write(w, room, style);
+                } else try sidebar.writeEllipsis(w, values[column], room);
                 try w.writeAll("\x1b[24m");
                 if (column == 1 and yolo) try w.writeAll(style);
                 x += width;
@@ -1074,14 +1054,12 @@ test "launcher fits long content and keeps usage hit targets aligned" {
 test "single-line limit groups survive narrow terminal rendering" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
-    menu.preview.options[0].usage.set("7d 48%");
-    menu.preview.options[1].usage.set("5h 17% / 7d 35%");
     const now = std.time.timestamp();
-    menu.preview.options[0].resets.at[1] = now + 6 * 86400 + 18 * 3600;
-    menu.preview.options[0].resets.labels[1].set("7d");
-    menu.preview.options[1].resets.at = .{ now + 99 * 60, now + 86400 + 15 * 3600 };
-    menu.preview.options[1].resets.labels[0].set("5h");
-    menu.preview.options[1].resets.labels[1].set("7d");
+    menu.preview.options[0].limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48, .reset_at = now + 6 * 86400 + 18 * 3600 } } };
+    menu.preview.options[1].limits = .{ .windows = .{
+        .{ .minutes = 300, .used = 17, .reset_at = now + 99 * 60 },
+        .{ .minutes = 10080, .used = 35, .reset_at = now + 86400 + 15 * 3600 },
+    } };
     for (&menu.preview.options) |*option| {
         option.usage_fetched_at = now;
         option.account.set("toasty.tal@gmail.com");
@@ -1126,14 +1104,17 @@ test "viewer expires a delivered usage reading after ten minutes" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .cwd_len = 0, .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
     const option = &menu.preview.options[0];
-    option.usage.set("7d 48%");
+    option.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48 } } };
     option.usage_fetched_at = std.time.timestamp() - 590;
-    try std.testing.expectEqualStrings("7d 48%", menu.cells(.codex)[5]);
+    try std.testing.expectEqual(@as(usize, 1), menu.usageCell(.codex).len);
     option.usage_fetched_at = std.time.timestamp() - metadata.usage_max_age;
-    try std.testing.expectEqualStrings("Unavailable", menu.cells(.codex)[5]);
-    option.usage.set("Metered");
-    option.usage_metered = true;
-    try std.testing.expectEqualStrings("Metered", menu.cells(.codex)[5]);
+    try std.testing.expectEqualStrings("Unavailable · last success 10m+ ago", menu.usageCell(.codex).fallback.text());
+    option.limits = .metered;
+    try std.testing.expectEqualStrings("Metered", menu.usageCell(.codex).fallback.text());
+    option.limits = .rate_limited;
+    option.usage_fetched_at = 0;
+    option.usage_error.set("server returned 429");
+    try std.testing.expectEqualStrings("Unavailable · server returned 429", menu.usageCell(.codex).fallback.text());
 }
 
 fn parseAccount(bytes: []const u8) Text {
@@ -1219,5 +1200,5 @@ test "custom picker cells preserve account scope and permission state" {
     values = menu.customCells(0);
     try std.testing.expectEqualStrings("work@example.com (cached)", values[3]);
     try std.testing.expectEqualStrings("—", values[4]);
-    try std.testing.expectEqualStrings("—", values[5]);
+    try std.testing.expectEqualStrings("—", menu.usageCell(.custom0).fallback.text());
 }
