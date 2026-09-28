@@ -109,6 +109,10 @@ export class Lines {
       else this.lines.push(line);
     }
   }
+  /** Drops complete lines nobody has read; returns whether there were any. */
+  discard() {
+    return this.lines.splice(0).length > 0;
+  }
   end(error = new Error("Stream ended before the next line")) {
     this.ended = error;
     for (const waiter of this.waiting.splice(0)) waiter.reject(error);

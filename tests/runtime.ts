@@ -97,6 +97,7 @@ export class Runtime extends TestCase {
   #calls: JsonSocket | null = null;
   #callsSent = 0;
   #callQueue: Promise<unknown> = Promise.resolve();
+  #changes: JsonSocket | null = null;
   async setUp() {
     this.temp = tempDir();
     this.path = join(this.temp.name, "control.sock");
@@ -173,13 +174,37 @@ export class Runtime extends TestCase {
       throw new AggregateError(errors, "Runtime cleanup failed");
   }
   async run_cli(...args: string[]) {
-    // A daemon that stops takes the kept connection with it.
+    // A daemon that stops takes the kept connections with it.
     if (args[0] === "shutdown") this.#disconnect();
     return (await run([EXE, ...args], { env: this.env })).stdout;
   }
   #disconnect() {
     this.#calls?.close();
     this.#calls = null;
+    this.#changes?.close();
+    this.#changes = null;
+  }
+  /** Resolves when the daemon pushes a changed session, or after `ms`. */
+  async #changed(ms: number) {
+    const end = performance.now() + ms;
+    try {
+      if (!this.#changes || this.#changes.closed) {
+        const socket = await JsonSocket.connect(this.path);
+        // Another wait may have subscribed meanwhile.
+        if (this.#changes && !this.#changes.closed) socket.close();
+        else {
+          socket.send({ op: "session.subscribe", protocol: 1 });
+          this.#changes = socket;
+        }
+      }
+      // A push is only a wakeup: skip parsing it, and pushes since the last
+      // wait mean the state has already changed.
+      const lines = this.#changes.lines;
+      if (!lines.discard()) await lines.next(ms);
+      return;
+    } catch {}
+    // No daemon to subscribe to (stopped or restarting): wait out the rest.
+    await sleep(Math.max(0, end - performance.now()) / 1000);
   }
   async #connection() {
     // The daemon drops a connection 5 s after its last request; replace it
@@ -293,7 +318,7 @@ export class Runtime extends TestCase {
       await pump(this);
       const value = await predicate();
       if (value) return value;
-      await sleep(0.03);
+      await this.#changed(100);
     }
     this.fail("condition timed out");
   }
