@@ -541,6 +541,92 @@ fn touchesPane(r: layout.Rect, x: usize, y: usize) bool {
         y + 1 >= r.y and y <= @as(usize, r.y) + r.h;
 }
 
+const TestCell = struct { glyph: u21 = 0, highlighted: bool = false };
+/// The cells drawDividers paints on a 100x30 screen.
+fn testDividerCells(view: layout.View, area: layout.Rect) ![30][100]TestCell {
+    var out: Buffer = .init(std.testing.allocator);
+    defer out.deinit();
+    try drawDividers(&out.writer, view, area);
+    var cells: [30][100]TestCell = @splat(@splat(.{}));
+    var x: usize = 0;
+    var y: usize = 0;
+    var highlighted = false;
+    var rest = out.written();
+    while (rest.len > 0) {
+        if (rest[0] == 0x1b) {
+            const end = std.mem.indexOfAny(u8, rest, "Hm").?;
+            const params = rest[2..end];
+            if (rest[end] == 'H') {
+                var it = std.mem.splitScalar(u8, params, ';');
+                y = try std.fmt.parseInt(usize, it.next().?, 10) - 1;
+                x = try std.fmt.parseInt(usize, it.next().?, 10) - 1;
+            } else highlighted = std.mem.eql(u8, params, "1;38;2;161;194;178");
+            rest = rest[end + 1 ..];
+            continue;
+        }
+        const len = try std.unicode.utf8ByteSequenceLength(rest[0]);
+        cells[y][x] = .{ .glyph = try std.unicode.utf8Decode(rest[0..len]), .highlighted = highlighted };
+        x += 1;
+        rest = rest[len..];
+    }
+    return cells;
+}
+fn expectOutline(cells: *const [30][100]TestCell, highlighted: []const [2]u16, plain: []const [2]u16) !void {
+    for ([_][]const [2]u16{ highlighted, plain }, [_]bool{ true, false }) |points, expected| for (points) |p| {
+        errdefer std.debug.print("cell {d},{d}\n", .{ p[0], p[1] });
+        try std.testing.expect(cells[p[1]][p[0]].glyph != 0);
+        try std.testing.expectEqual(expected, cells[p[1]][p[0]].highlighted);
+    };
+}
+
+test "focus outline includes the outer edges and corners of the focused pane" {
+    const area: layout.Rect = .{ .x = 28, .y = 1, .w = 72, .h = 29 };
+    var m: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &m, .selection = &selection };
+    const left = try m.newTab("");
+    const right = try m.split(left, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, left);
+    var cells = try testDividerCells(view, area);
+    try expectOutline(&cells, &.{ .{ 28, 1 }, .{ 40, 1 }, .{ 40, 29 }, .{ 28, 10 }, .{ 63, 10 }, .{ 63, 1 }, .{ 63, 29 } }, &.{ .{ 90, 1 }, .{ 99, 10 } });
+    try std.testing.expectEqual(@as(u21, '┌'), cells[1][28].glyph);
+    try std.testing.expectEqual(@as(u21, '└'), cells[29][28].glyph);
+    try std.testing.expectEqual(@as(u21, '┬'), cells[1][63].glyph);
+    var placements: [layout.max_panes]layout.Placement = undefined;
+    const split = view.placements(area, &placements);
+    try std.testing.expectEqualDeep(layout.Rect{ .x = 29, .y = 2, .w = 34, .h = 27 }, split[0].rect);
+    try std.testing.expectEqualDeep(layout.Rect{ .x = 64, .y = 2, .w = 35, .h = 27 }, split[1].rect);
+
+    try selection.focus(&m, right);
+    cells = try testDividerCells(view, area);
+    try expectOutline(&cells, &.{ .{ 99, 1 }, .{ 90, 1 }, .{ 90, 29 }, .{ 99, 10 }, .{ 63, 10 } }, &.{.{ 28, 10 }});
+    // The outer frame is not a divider, so pressing it starts no drag.
+    try std.testing.expect(view.dividerAt(area, 89, 1) == null);
+    selection.tab().zoom = true;
+    try std.testing.expectEqualDeep(area, view.placements(area, &placements)[0].rect);
+    cells = try testDividerCells(view, area);
+    try std.testing.expectEqual(@as(u21, 0), cells[1][99].glyph);
+}
+
+test "focus outline follows stacked and nested splits" {
+    const area: layout.Rect = .{ .x = 28, .y = 1, .w = 72, .h = 29 };
+    var m: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &m, .selection = &selection };
+    const top = try m.newTab("");
+    const bottom = try m.split(top, .vertical);
+    selection.reconcile(&m);
+    try selection.focus(&m, bottom);
+    var cells = try testDividerCells(view, area);
+    try expectOutline(&cells, &.{ .{ 28, 20 }, .{ 99, 20 }, .{ 50, 29 }, .{ 50, 15 } }, &.{ .{ 50, 1 }, .{ 28, 5 } });
+    const right = try m.split(bottom, .horizontal);
+    selection.reconcile(&m);
+    try selection.focus(&m, right);
+    cells = try testDividerCells(view, area);
+    try expectOutline(&cells, &.{ .{ 99, 20 }, .{ 90, 29 }, .{ 90, 15 }, .{ 63, 20 }, .{ 63, 15 } }, &.{ .{ 40, 29 }, .{ 28, 20 } });
+}
+
 test "badge redraw preserves cached pixels and shifts only the workspace heading" {
     var model: layout.Model = .{};
     var selection: layout.Selection = .{};
