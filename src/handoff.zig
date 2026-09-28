@@ -185,19 +185,24 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
 }
 pub fn importAndRun(socket: []const u8, executable: []const u8, state_fd: c_int, control_fd: c_int) noreturn {
     _ = c.signal(c.SIGPIPE, os.sig_ignore);
-    importInner(socket, executable, state_fd, control_fd) catch |err| {
+    var s: Server = undefined;
+    importInner(&s, socket, executable, state_fd, control_fd) catch |err| {
         os.writeAll(control_fd, @errorName(err)) catch {};
         os.writeAll(control_fd, "\n") catch {};
         // Never kill processes or close their PTYs through runtime destructors
         // before ownership has committed. _exit only closes our duplicates.
         c._exit(1);
     };
+    // Committed: control_fd is closed and its number may already be reused.
+    s.run() catch |err| {
+        log.err("daemon stopped after reload: {}", .{err});
+        std.process.exit(1);
+    };
     c._exit(0);
 }
-fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, control_fd: c_int) !void {
+fn importInner(s: *Server, socket: []const u8, executable: []const u8, state_fd: c_int, control_fd: c_int) !void {
     os.cloexec(state_fd);
     os.cloexec(control_fd);
-    var s: Server = undefined;
     {
         const file: std.fs.File = .{ .handle = state_fd };
         const bytes = try file.readToEndAlloc(a, 256 * 1024 * 1024);
@@ -208,7 +213,7 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         const m = parsed.parsed.value;
         if (m.update_abi) |abi| if (!std.mem.eql(u8, abi, updates.abi)) return error.IncompatibleCheckpoint;
         if (m.terminal_abi != options.terminal_checkpoint_abi or m.clients.len > 32) return error.IncompatibleCheckpoint;
-        s = .{
+        s.* = .{
             .preferred_workspace = m.preferred_workspace,
             .socket = socket,
             .executable = executable,
@@ -256,7 +261,10 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
             try s.clients.append(a, cl);
         }
         // Queue success only in the candidate, before readiness (allocation can fail).
-        for (s.clients.items) |*cl| if (cl.fd == m.requester) try cl.queue(.{ .ok = true, .server_pid = c.getpid(), .panes = s.runtime.panes.items.len });
+        for (s.clients.items) |*cl| if (cl.fd == m.requester) {
+            cl.queue(.{ .ok = true, .server_pid = c.getpid(), .panes = s.runtime.panes.items.len });
+            if (cl.dead) return error.ReloadReplyFailed;
+        };
         try os.writeAll(control_fd, "ready\n");
         const commit = try os.readLine(control_fd, 32);
         defer a.free(commit);
@@ -264,8 +272,6 @@ fn importInner(socket: []const u8, executable: []const u8, state_fd: c_int, cont
         _ = c.close(control_fd);
         s.runtime.adopt();
     }
-    // All subsequent cleanup belongs to the new owner.
-    try s.run();
 }
 
 test "saved handoff format matches its version" {

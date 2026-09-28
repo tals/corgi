@@ -18,7 +18,7 @@ const Op = protocol.Op;
 
 pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     if ((op == .@"viewer.open" or op == .@"viewer.sync") and !viewer_version.compatible(v)) {
-        try cl.queue(.{ .err = "UnsupportedViewerProtocol", .viewer_protocol = viewer_version.version });
+        cl.queue(.{ .err = "UnsupportedViewerProtocol", .viewer_protocol = viewer_version.version });
         return;
     }
     try protocol.require(v, cl.protocol_version);
@@ -51,7 +51,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         cl.view_workspace = s.initialWorkspace().id;
         cl.protocol_version = 1;
         if (first) s.updateTheme(v);
-        try cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
+        cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
     } else if (op == .@"viewer.sync") {
         if (!cl.viewer) return error.NotAttached;
         const Request = struct {
@@ -122,7 +122,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         snapshot.resources = try snapshot.resources.forViewer(allocator, cl.resource_detail);
         const session = try std.json.Stringify.valueAlloc(allocator, snapshot, .{});
         const session_hash = std.hash.Wyhash.hash(0, session);
-        try cl.queue(.{
+        cl.queue(.{
             .type = "view",
             .viewer_protocol = viewer_version.version,
             .session = if (req.session_hash == session_hash) @as(?SnapshotJson, null) else SnapshotJson{ .bytes = session },
@@ -140,7 +140,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         const parsed = try std.json.parseFromValue(Request, a, v, .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
         const result = try p.terminal.search(parsed.value.needle, parsed.value.skip);
-        try cl.queue(.{ .ok = true, .offset = result.offset, .match = result.match });
+        cl.queue(.{ .ok = true, .offset = result.offset, .match = result.match });
     } else if (op == .@"pane.acknowledge") {
         const p = s.runtime.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
         const through = if (v.object.get("through")) |value| if (value == .integer and value.integer >= 0) @as(u64, @intCast(value.integer)) else return error.InvalidAcknowledgement else 0;
@@ -158,7 +158,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
             s.runtime.changed();
             s.dirty = true;
         }
-        try cl.queue(.{ .ok = true });
+        cl.queue(.{ .ok = true });
     }
 }
 
@@ -226,7 +226,7 @@ pub fn routeControl(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     if (op == .@"viewer.list") {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
-        try cl.queue(.{ .ok = true, .viewers = try viewers(s, arena.allocator()) });
+        cl.queue(.{ .ok = true, .viewers = try viewers(s, arena.allocator()) });
         return;
     }
     const target = try targetViewer(s, v) orelse return error.NoViewer;
@@ -246,7 +246,7 @@ pub fn routeControl(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         _ = try s.runtime.getWorkspace(id);
         try enqueue(target, .{ .kind = .workspace, .id = @intFromEnum(id) });
     }
-    try cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
+    cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
 }
 
 fn enqueue(cl: *Client, value: peer.Control) !void {

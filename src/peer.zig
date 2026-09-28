@@ -43,15 +43,24 @@ pub const Client = struct {
     resources: bool = true,
     dead: bool = false,
     touched: i64 = 0,
-    pub fn queue(cl: *Client, value: anytype) !void {
-        const data = try std.json.Stringify.valueAlloc(a, value, .{});
+    /// Queue one reply line. A client whose reply cannot be queued (too much
+    /// pending output, or no memory) is disconnected; the daemon keeps serving.
+    pub fn queue(cl: *Client, value: anytype) void {
+        const data = std.json.Stringify.valueAlloc(a, value, .{}) catch {
+            cl.dead = true;
+            return;
+        };
         defer a.free(data);
         if (cl.output.items.len + data.len > 4 * 1024 * 1024) {
             cl.dead = true;
             return;
         }
-        try cl.output.appendSlice(a, data);
-        try cl.output.append(a, '\n');
+        cl.output.ensureUnusedCapacity(a, data.len + 1) catch {
+            cl.dead = true;
+            return;
+        };
+        cl.output.appendSliceAssumeCapacity(data);
+        cl.output.appendAssumeCapacity('\n');
     }
     pub fn deinit(cl: *Client) void {
         viewer_protocol.clearControls(cl);

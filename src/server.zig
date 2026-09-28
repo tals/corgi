@@ -208,12 +208,12 @@ pub const Server = struct {
     fn queueSession(s: *Server, cl: *Client) !void {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
-        try cl.queue(try protocol.snapshot(arena.allocator(), &s.runtime));
+        cl.queue(try protocol.snapshot(arena.allocator(), &s.runtime));
         cl.snapshot_revision = s.runtime.revision;
         cl.last_snapshot = std.time.milliTimestamp();
     }
 
-    fn publishLaunchPreview(s: *Server, cl: *Client) !void {
+    fn publishLaunchPreview(s: *Server, cl: *Client) void {
         const subscription = if (cl.launch_preview) |*value| value else return;
         const worker = s.launch_previews orelse return;
         const now = std.time.milliTimestamp();
@@ -228,7 +228,7 @@ pub const Server = struct {
             preview.pending = true;
         }
         if (std.meta.eql(preview, subscription.preview)) return;
-        try cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
+        cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
         subscription.preview = preview;
     }
 
@@ -239,7 +239,7 @@ pub const Server = struct {
             .hello => {
                 try protocol.require(v, null);
                 cl.protocol_version = protocol.version;
-                try cl.queue(.{
+                cl.queue(.{
                     .type = "hello",
                     .protocol = protocol.version,
                     .capabilities = protocol.capabilities,
@@ -258,7 +258,7 @@ pub const Server = struct {
                 defer parsed.deinit();
                 try s.runtime.git_push.start(&s.runtime.workspaces, parsed.value.workspace, parsed.value.ref);
                 s.dirty = true;
-                try cl.queue(.{ .ok = true });
+                cl.queue(.{ .ok = true });
             },
             .@"onboarding.status", .@"onboarding.handoff", .@"onboarding.copy" => {
                 try protocol.require(v, cl.protocol_version);
@@ -268,7 +268,7 @@ pub const Server = struct {
                 if (op == .@"onboarding.status") {
                     if (id == s.handoff_operation and id != 0) {
                         const status = s.herdr_import.status();
-                        try cl.queue(.{ .ok = true, .progress = .{
+                        cl.queue(.{ .ok = true, .progress = .{
                             .phase = @tagName(status.phase),
                             .completed = status.completed,
                             .total = status.total,
@@ -276,14 +276,14 @@ pub const Server = struct {
                             .message = status.message,
                         } });
                     } else if (id == s.onboarding_copy.operation and id != 0) {
-                        try cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
+                        cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
                     } else return error.NoImport;
                     return;
                 }
                 if (id == 0) return error.InvalidImport;
                 // Retrying an acknowledged/lost start response must not duplicate work.
                 if ((op == .@"onboarding.handoff" and id == s.handoff_operation) or (op == .@"onboarding.copy" and id == s.onboarding_copy.operation)) {
-                    try cl.queue(.{ .ok = true });
+                    cl.queue(.{ .ok = true });
                     return;
                 }
                 if (s.reload_executable != null or s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
@@ -296,7 +296,7 @@ pub const Server = struct {
                     try s.onboarding_copy.start(v, id);
                 }
                 s.rememberImportStarter();
-                try cl.queue(.{ .ok = true });
+                cl.queue(.{ .ok = true });
             },
             .@"server.reload" => {
                 try protocol.require(v, cl.protocol_version);
@@ -313,7 +313,7 @@ pub const Server = struct {
                 try recovery.save(&s.runtime, s.socket);
                 const path = try recovery.path(s.socket);
                 defer a.free(path);
-                try cl.queue(.{ .ok = true, .path = path });
+                cl.queue(.{ .ok = true, .path = path });
             },
             .@"agent.command.preview" => {
                 try protocol.require(v, cl.protocol_version);
@@ -323,7 +323,7 @@ pub const Server = struct {
                 if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
                 const id = try protocol.id(v, "request");
                 const worker = s.command_previews orelse return error.Unavailable;
-                try cl.queue(.{ .ok = true, .resolution = try worker.request(id, agents.str(v, "command"), cwd) });
+                cl.queue(.{ .ok = true, .resolution = try worker.request(id, agents.str(v, "command"), cwd) });
             },
             .@"agent.preview", .@"agent.track_usage", .@"agent.subscribe" => {
                 try protocol.require(v, cl.protocol_version);
@@ -337,8 +337,8 @@ pub const Server = struct {
                 if (subscribe) {
                     cl.launch_preview = .{ .len = cwd.len, .preview = preview, .checked = std.time.milliTimestamp() };
                     @memcpy(cl.launch_preview.?.cwd[0..cwd.len], cwd);
-                    try cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
-                } else try cl.queue(.{ .ok = true, .preview = preview });
+                    cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
+                } else cl.queue(.{ .ok = true, .preview = preview });
             },
             .@"inference.configure" => {
                 try protocol.require(v, cl.protocol_version);
@@ -351,7 +351,7 @@ pub const Server = struct {
                     break :blk true;
                 } else |_| false;
                 s.publishInference();
-                try cl.queue(.{ .ok = true, .saved = saved, .inference = s.runtime.inference });
+                cl.queue(.{ .ok = true, .saved = saved, .inference = s.runtime.inference });
             },
             .@"session.command" => {
                 try protocol.require(v, cl.protocol_version);
@@ -359,7 +359,7 @@ pub const Server = struct {
                 defer arena.deinit();
                 const parsed = try std.json.parseFromValue(session_command.Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
                 const result = try s.execute(parsed.value, arena.allocator());
-                try cl.queue(.{ .ok = true, .result = result });
+                cl.queue(.{ .ok = true, .result = result });
             },
             .@"viewer.open", .@"viewer.sync", .@"viewer.search", .@"pane.acknowledge" => {
                 try viewer_protocol.handle(s, cl, v, op);
@@ -369,13 +369,13 @@ pub const Server = struct {
             },
             .@"session.locate" => {
                 try protocol.require(v, cl.protocol_version);
-                try cl.queue(.{ .ok = true, .result = try session_command.location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
+                cl.queue(.{ .ok = true, .result = try session_command.location(&s.runtime, try protocol.typedId(layout.PaneId, v, "pane")) });
             },
             .@"session.list" => {
                 try protocol.require(v, cl.protocol_version);
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                try cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try viewer_protocol.viewers(s, arena.allocator()) });
+                cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try viewer_protocol.viewers(s, arena.allocator()) });
             },
             .@"session.snapshot", .@"session.subscribe" => {
                 try protocol.require(v, cl.protocol_version);
@@ -388,7 +388,7 @@ pub const Server = struct {
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
                 const snapshot = try protocol.snapshot(arena.allocator(), &s.runtime);
-                try cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
+                cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
             },
             .@"conversation.acknowledge" => {
                 try protocol.require(v, cl.protocol_version);
@@ -399,7 +399,7 @@ pub const Server = struct {
                 actor.acknowledge(@intCast(through.integer), if (stamp != null and stamp.? == .integer) stamp.?.integer else null);
                 s.runtime.changed();
                 s.dirty = true;
-                try cl.queue(.{ .ok = true });
+                cl.queue(.{ .ok = true });
             },
             .@"pane.surface" => {
                 try protocol.require(v, cl.protocol_version);
@@ -408,7 +408,7 @@ pub const Server = struct {
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
                 const captured = try surface.capture(arena.allocator(), id, p.terminal);
-                try cl.queue(.{ .type = "surface", .protocol = protocol.version, .server_pid = c.getpid(), .revision = s.runtime.revision, .surface = captured });
+                cl.queue(.{ .type = "surface", .protocol = protocol.version, .server_pid = c.getpid(), .revision = s.runtime.revision, .surface = captured });
             },
             .@"native.start" => {
                 if (s.runtime.sessions.items.len >= 16) return error.TooManyNativeSessions;
@@ -421,7 +421,7 @@ pub const Server = struct {
                 s.runtime.sessions.appendAssumeCapacity(session);
                 s.runtime.next_session = s.runtime.next_session.next();
                 s.dirty = true;
-                try cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
+                cl.queue(.{ .ok = true, .session = session.id, .provider = provider });
             },
             .@"native.list" => {
                 const Info = struct {
@@ -456,7 +456,7 @@ pub const Server = struct {
                     .active_tools = session.active_tools.items.len,
                     .next_seq = session.next_seq,
                 });
-                try cl.queue(.{ .ok = true, .sessions = info.items });
+                cl.queue(.{ .ok = true, .sessions = info.items });
             },
             .@"native.stop", .@"native.send", .@"native.events" => {
                 const id: NativeId = @enumFromInt(std.math.cast(u32, number(v, "session", 0)) orelse return error.NoNativeSession);
@@ -466,11 +466,11 @@ pub const Server = struct {
                         .@"native.stop" => {
                             session.destroy();
                             _ = s.runtime.sessions.orderedRemove(index);
-                            try cl.queue(.{ .ok = true });
+                            cl.queue(.{ .ok = true });
                         },
                         .@"native.send" => {
                             try session.send(&s.runtime.conversations, v.object.get("message") orelse return error.InvalidMessage);
-                            try cl.queue(.{ .ok = true });
+                            cl.queue(.{ .ok = true });
                         },
                         .@"native.events" => {
                             const after = std.math.cast(u64, number(v, "after", 0)) orelse 0;
@@ -479,7 +479,7 @@ pub const Server = struct {
                             for (session.events.items) |event| if (event.seq > after) try events.append(a, event);
                             const requests = try session.approvalLines(a);
                             defer a.free(requests);
-                            try cl.queue(.{
+                            cl.queue(.{
                                 .ok = true,
                                 .events = events.items,
                                 .pending_requests = requests,
@@ -500,7 +500,7 @@ pub const Server = struct {
                     if (viewer.fd == cl.fd) s.updateTheme(v);
                     break;
                 };
-                if (cl.viewer) try cl.queue(.{ .ok = true });
+                if (cl.viewer) cl.queue(.{ .ok = true });
             },
             .hook => {
                 const provider = std.meta.stringToEnum(agents.Provider, agents.str(v, "provider")) orelse return error.BadProvider;
@@ -519,7 +519,7 @@ pub const Server = struct {
                         s.runtime.changed();
                         s.dirty = true;
                     };
-                    try cl.queue(.{ .ok = true });
+                    cl.queue(.{ .ok = true });
                     return;
                 }
                 const p = s.pane(try protocol.typedId(layout.PaneId, v, "pane")) orelse return error.NoPane;
@@ -541,13 +541,13 @@ pub const Server = struct {
                     s.runtime.changed();
                     s.dirty = true;
                 };
-                try cl.queue(.{ .ok = true });
+                cl.queue(.{ .ok = true });
             },
-            .ping => try cl.queue(.{ .ok = true, .version = "0.1.0" }),
+            .ping => cl.queue(.{ .ok = true, .version = "0.1.0" }),
             .shutdown => {
                 if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
                 s.quit = true;
-                try cl.queue(.{ .ok = true });
+                cl.queue(.{ .ok = true });
             },
             .@"test.settle" => {
                 if (!options.test_build) return error.UnknownOperation;
@@ -561,7 +561,7 @@ pub const Server = struct {
                 if (ms != .integer or ms.integer < 0) return error.InvalidField;
                 clock.advance(ms.integer);
                 if (s.summaries) |worker| worker.poke();
-                try cl.queue(.{ .ok = true });
+                cl.queue(.{ .ok = true });
             },
         }
     }
@@ -638,7 +638,7 @@ pub const Server = struct {
                 continue;
             }
             if (s.summaries) |summaries| summaries.poke();
-            for (s.clients.items) |*cl| if (cl.fd == pending.fd) cl.queue(.{ .ok = true }) catch {};
+            for (s.clients.items) |*cl| if (cl.fd == pending.fd) cl.queue(.{ .ok = true });
             _ = s.settles.swapRemove(i);
         }
     }
@@ -867,7 +867,11 @@ pub const Server = struct {
                 codex.take(&snapshots);
                 for (snapshots) |entry| if (entry) |snap| {
                     defer snap.deinit();
-                    const actor = try s.codexActor(snap) orelse continue;
+                    const actor = (s.codexActor(snap) catch |err| {
+                        // A full registry must not end the daemon; see conversations.max_actors.
+                        log.warn("tracking Codex session: {}", .{err});
+                        continue;
+                    }) orelse continue;
                     const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id));
                     if (actor.parent == null) s.attention(ding, actor.state.state);
                     s.runtime.conversations.observeChildren(actor, snap);
@@ -1010,12 +1014,13 @@ pub const Server = struct {
                     s.bell = true;
                     if (s.bell_kind != .needs_input) s.bell_kind = session.attention();
                     var msg: [160]u8 = undefined;
-                    s.notice(try std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{
+                    // Sized for the longest provider name, two u32s and the longest state tag.
+                    s.notice(std.fmt.bufPrint(&msg, " {s} native session {d}: {s}  |  corgi native events {d}", .{
                         @tagName(session.provider),
                         @intFromEnum(session.id),
                         @tagName(session.status()),
                         @intFromEnum(session.id),
-                    }));
+                    }) catch unreachable);
                 }
             }
             // Reap closed panes too, forwarding Git exits to its worker.
@@ -1045,8 +1050,12 @@ pub const Server = struct {
             // Remove in a separate pass so adjacent exits aren't skipped.
             var pi: usize = 0;
             while (pi < s.runtime.panes.items.len) {
-                if (s.runtime.panes.items[pi].terminal.exited and !s.herdr_import.locked() and !s.onboarding_copy.busy()) {
-                    try s.close(s.runtime.panes.items[pi].id);
+                const p = &s.runtime.panes.items[pi];
+                if (p.terminal.exited and !s.herdr_import.locked() and !s.onboarding_copy.busy()) {
+                    s.close(p.id) catch |err| {
+                        log.warn("removing exited pane {d}: {}", .{ @intFromEnum(p.id), err });
+                        pi += 1; // Leave it for the next pass rather than spin.
+                    };
                 } else pi += 1;
             }
             var ci: usize = 0;
@@ -1057,7 +1066,9 @@ pub const Server = struct {
                 if (n == 0) cl.dead = true;
                 if (n > 0) {
                     cl.touched = std.time.milliTimestamp();
-                    try cl.input.appendSlice(a, bytes[0..@intCast(n)]);
+                    cl.input.appendSlice(a, bytes[0..@intCast(n)]) catch {
+                        cl.dead = true;
+                    };
                     if (cl.input.items.len > 1024 * 1024) cl.dead = true;
                 }
                 if (cl.input.items.len > 0) {
@@ -1065,13 +1076,13 @@ pub const Server = struct {
                     while (!cl.dead) {
                         const newline = std.mem.indexOfScalarPos(u8, cl.input.items, consumed, '\n') orelse break;
                         const parsed = std.json.parseFromSlice(std.json.Value, a, cl.input.items[consumed..newline], .{ .max_value_len = 1024 * 1024 }) catch {
-                            try cl.queue(.{ .ok = false, .err = "InvalidJson" });
+                            cl.queue(.{ .ok = false, .err = "InvalidJson" });
                             consumed = newline + 1;
                             continue;
                         };
                         defer parsed.deinit();
                         s.request(cl, parsed.value) catch |err| {
-                            try cl.queue(.{ .ok = false, .err = @errorName(err) });
+                            cl.queue(.{ .ok = false, .err = @errorName(err) });
                         };
                         consumed = newline + 1;
                         if (s.reload_executable != null and s.reload_requester == cl.fd) break;
@@ -1083,7 +1094,7 @@ pub const Server = struct {
                 if (cl.dead) {
                     cl.deinit();
                     _ = s.clients.orderedRemove(ci);
-                    try viewer_protocol.resize(s);
+                    viewer_protocol.resize(s) catch |err| log.warn("resizing panes: {}", .{err});
                     continue;
                 }
                 ci += 1;
@@ -1131,11 +1142,14 @@ pub const Server = struct {
                 s.last_bell = std.time.milliTimestamp();
             }
             for (s.clients.items) |*cl| {
-                try s.publishLaunchPreview(cl);
+                s.publishLaunchPreview(cl);
                 if (cl.subscribed and !cl.dead and cl.output.items.len == 0 and
                     cl.snapshot_revision != s.runtime.revision and std.time.milliTimestamp() - cl.last_snapshot >= 30)
                 {
-                    try s.queueSession(cl);
+                    s.queueSession(cl) catch |err| {
+                        log.warn("snapshot for client {d}: {}", .{ cl.fd, err });
+                        cl.dead = true;
+                    };
                 }
             }
             for (s.clients.items) |*cl| {
@@ -1155,13 +1169,15 @@ pub const Server = struct {
                     if (s.clients.items.len == 32) _ = c.close(client_fd) else {
                         os.nonblock(client_fd);
                         os.cloexec(client_fd);
-                        try s.clients.append(a, .{ .fd = client_fd, .touched = std.time.milliTimestamp() });
+                        s.clients.append(a, .{ .fd = client_fd, .touched = std.time.milliTimestamp() }) catch {
+                            _ = c.close(client_fd);
+                        };
                     }
                 }
             }
             if (!s.quit) if (s.reload_executable) |executable| {
                 handoff.replace(s, fd, executable, s.reload_requester) catch |err| {
-                    for (s.clients.items) |*cl| if (cl.fd == s.reload_requester) try cl.queue(.{ .ok = false, .err = @errorName(err) });
+                    for (s.clients.items) |*cl| if (cl.fd == s.reload_requester) cl.queue(.{ .ok = false, .err = @errorName(err) });
                     a.free(executable);
                     s.reload_executable = null;
                     s.notice(@errorName(err));
@@ -1182,6 +1198,24 @@ pub const Server = struct {
 fn inode(path: []const u8) ?std.posix.ino_t {
     const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch return null;
     return stat.ino;
+}
+
+test "the daemon loop body has no try: one client's or pane's error must not end run()" {
+    const src = @embedFile("server.zig");
+    const marker = "while (!s.quit) {";
+    const start = (std.mem.indexOf(u8, src, marker) orelse return error.LoopMarkerNotFound) + marker.len;
+    const end = std.mem.indexOf(u8, src[start..], "\n    }\n};").? + start;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, src[0..end], start + i, "try")) |at| {
+        const before = if (at == 0) 0 else src[at - 1];
+        const after = src[at + 3];
+        const word = (std.ascii.isAlphanumeric(before) or before == '_') or (std.ascii.isAlphanumeric(after) or after == '_');
+        if (!word) {
+            std.debug.print("try inside the daemon loop body at byte {d}\n", .{at});
+            return error.TryInLoopBody;
+        }
+        i = at - start + 3;
+    }
 }
 
 /// What a sidebar entry shows of an agent's lifecycle.
@@ -1312,7 +1346,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     var cl: Client = .{ .fd = -1, .launch_preview = .{ .len = 1, .preview = preview } };
     defer cl.output.deinit(a);
     cl.launch_preview.?.cwd[0] = '/';
-    try s.publishLaunchPreview(&cl);
+    s.publishLaunchPreview(&cl);
     try std.testing.expect(worker.jobs[0].?.queued);
     try std.testing.expect(cl.launch_preview.?.preview.pending);
     try std.testing.expectEqualStrings("before", cl.launch_preview.?.preview.options[1].model.text());
@@ -1321,7 +1355,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     worker.jobs[0].?.updated = std.time.milliTimestamp();
     worker.jobs[0].?.preview.pending = false;
     worker.jobs[0].?.preview.options[1].model.set("after");
-    try s.publishLaunchPreview(&cl);
+    s.publishLaunchPreview(&cl);
     const message = try std.json.parseFromSlice(std.json.Value, a, cl.output.items, .{});
     defer message.deinit();
     try std.testing.expectEqualStrings("agent.preview", agents.str(message.value, "type"));
@@ -1329,7 +1363,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     try std.testing.expectEqualStrings("after", cl.launch_preview.?.preview.options[1].model.text());
     cl.output.clearRetainingCapacity();
     cl.launch_preview.?.checked = 0;
-    try s.publishLaunchPreview(&cl);
+    s.publishLaunchPreview(&cl);
     try std.testing.expectEqual(@as(usize, 0), cl.output.items.len);
 }
 
