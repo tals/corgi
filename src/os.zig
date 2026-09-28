@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const corgi_options = @import("corgi_options");
 pub const c = @cImport({
     @cInclude("unistd.h");
     @cInclude("pwd.h");
@@ -20,7 +21,9 @@ pub const c = @cImport({
     } else @cInclude("pty.h");
 });
 pub fn sig_ignore(_: c_int) callconv(.c) void {}
-pub const allocator = std.heap.c_allocator;
+/// Process allocator. Under -Dcheck-leaks, tests get the leak-checking
+/// allocator instead; a passing suite with it on means no more leaks to fix.
+pub const allocator = if (builtin.is_test and corgi_options.check_leaks) std.testing.allocator else std.heap.c_allocator;
 pub fn writeAll(fd: c_int, bytes: []const u8) !void {
     var offset: usize = 0;
     while (offset < bytes.len) {

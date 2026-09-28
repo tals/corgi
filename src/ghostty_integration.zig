@@ -2,7 +2,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const os = @import("os.zig");
-const a = std.heap.page_allocator;
+const a = os.allocator;
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
 const end = "# END CORGI GHOSTTY INTEGRATION\n";
 pub const State = enum { unavailable, disabled, enabled, failed };

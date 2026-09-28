@@ -3,7 +3,7 @@
 const std = @import("std");
 const agents = @import("agents.zig");
 const os = @import("os.zig");
-const a = std.heap.c_allocator;
+const a = os.allocator;
 
 pub const Name = struct {
     bytes: [160]u8 = @splat(0),

@@ -14,6 +14,7 @@ const live_usage = @import("live_usage.zig");
 const context_window = @import("context_window.zig");
 const codex_observer = @import("codex_observer.zig");
 const activity_tools = @import("activity_tools.zig");
+const os = @import("os.zig");
 
 pub const max_actors = 1024;
 pub const Actor = struct {
@@ -315,7 +316,7 @@ pub const Attachment = struct {
 };
 
 pub const Registry = struct {
-    allocator: std.mem.Allocator = std.heap.c_allocator,
+    allocator: std.mem.Allocator = os.allocator,
     items: std.ArrayList(*Actor) = .empty,
     next_id: Actor.Id = .first,
     compaction_points: context_window.Points = .{},

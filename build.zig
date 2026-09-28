@@ -38,6 +38,7 @@ pub fn build(b: *std.Build) void {
     options.addOption([]const u8, "update_url", b.option([]const u8, "update-url", "HTTPS update feed base URL") orelse "");
     options.addOption([]const u8, "update_public_key", b.option([]const u8, "update-public-key", "Ed25519 public key, hex") orelse "");
     options.addOption(bool, "update_test_mode", b.option(bool, "update-test-mode", "Allow local HTTP update fixtures (never publish)") orelse false);
+    options.addOption(bool, "check_leaks", b.option(bool, "check-leaks", "Unit tests use the leak-checking allocator everywhere") orelse false);
     mod.addOptions("corgi_options", options);
     const exe = b.addExecutable(.{ .name = "corgi", .root_module = mod });
     const native_macos = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;

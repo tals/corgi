@@ -6,6 +6,8 @@ const summary = @import("activity_summary.zig");
 const field = @import("usage.zig").field;
 const transcript = @import("transcript.zig");
 const Claude = @import("providers/claude.zig").Claude;
+const os = @import("os.zig");
+const a = os.allocator;
 pub const View = struct {
     commentary: summary.Text = .{},
     running: usize = 0,
@@ -233,7 +235,7 @@ pub const Tracker = struct {
             const args = agents.str(payload, "arguments");
             const input = if (args.len > 0) args else agents.str(payload, "input");
             if (input.len > 0) {
-                if (std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, input, .{})) |parsed| {
+                if (std.json.parseFromSlice(std.json.Value, a, input, .{})) |parsed| {
                     defer parsed.deinit();
                     const detail = for ([_][]const u8{ "description", "cmd", "command", "code", "query" }) |key_name| {
                         const text = agents.str(parsed.value, key_name);

@@ -86,7 +86,7 @@ fn process(pid: c_int) ?Provider {
 /// detached from the terminal. Only the pane's foreground Claude owns
 /// CORGI_PANE, so find the hook's nearest Claude process and check it.
 pub fn backgroundAncestor() bool {
-    const a = std.heap.c_allocator;
+    const a = os.allocator;
     // Daemon-hosted sessions carry large environments; 64 KiB is not enough.
     const bytes = a.alloc(u8, 1024 * 1024) catch return false;
     defer a.free(bytes);
