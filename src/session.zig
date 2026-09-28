@@ -458,3 +458,136 @@ pub fn logicalKey(name: []const u8) !keyboard.Key {
     if (key.len == 1 and key[0] >= 32 and key[0] < 127) return .{ .codepoint = key[0], .mods = mods };
     return error.InvalidKey;
 }
+
+const test_context: Context = .{ .socket = "", .executable = "", .theme = .{} };
+/// Adds a tab, or splits `split` to the right, as Runtime.create does, without a process.
+fn testPane(r: *Runtime, workspace: WorkspaceId, split: ?PaneId) !PaneId {
+    const ws = try r.getWorkspace(workspace);
+    ws.model.next_id = r.workspaces.next_pane_id;
+    const id = if (split) |target| try ws.model.split(target, .horizontal) else try ws.model.newTab("");
+    r.workspaces.next_pane_id = ws.model.next_id;
+    return id;
+}
+/// Every workspace's tabs and nodes.
+fn testTopology(r: *Runtime) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    for (r.workspaces.items.items) |ws| try out.writer.print("{d} {f}\n", .{ @intFromEnum(ws.id), std.json.fmt(ws.model, .{}) });
+    return out.toOwnedSlice();
+}
+
+test "moving a pane or tab into a full workspace fails and changes nothing" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const full = try r.workspaces.add("full", "/tmp");
+    const other = try r.workspaces.add("other", "/tmp");
+    const one = try testPane(&r, full, null);
+    const split = try testPane(&r, full, one);
+    var lone = one;
+    for (1..layout.max_tabs) |_| lone = try testPane(&r, full, null);
+    const outside = (try location(&r, try testPane(&r, other, null))).tab;
+    const before = try testTopology(&r);
+    defer std.testing.allocator.free(before);
+    const next_pane_id = r.workspaces.next_pane_id;
+    const revision = r.revision;
+    const alloc = std.testing.allocator;
+    try std.testing.expectError(error.TooManyTabs, execute(&r, test_context, .{ .@"pane.move" = .{ .target = split, .destination = .{ .new_tab = "" } } }, alloc));
+    try std.testing.expectError(error.TooManyTabs, execute(&r, test_context, .{ .@"tab.move" = .{ .target = outside, .destination = .{ .workspace = full } } }, alloc));
+    try std.testing.expectError(error.TooManyTabs, execute(&r, test_context, .{ .@"tab.move" = .{ .target = outside, .destination = .{ .after = (try location(&r, one)).tab } } }, alloc));
+    const after = try testTopology(&r);
+    defer std.testing.allocator.free(after);
+    try std.testing.expectEqualStrings(before, after);
+    try std.testing.expectEqual(next_pane_id, r.workspaces.next_pane_id);
+    try std.testing.expectEqual(revision, r.revision);
+    // A pane alone in its tab frees that tab as it moves.
+    const moved = try execute(&r, test_context, .{ .@"pane.move" = .{ .target = lone, .destination = .{ .new_tab = "Logs" } } }, alloc);
+    try std.testing.expectEqual(@as(u32, @intFromEnum(next_pane_id)), @intFromEnum(moved.tab));
+    try std.testing.expectEqual(next_pane_id.next(), r.workspaces.next_pane_id);
+    try std.testing.expectEqual(layout.max_tabs, r.workspaces.get(full).?.model.count);
+}
+
+test "a tab cannot merge into itself, and missing destinations change nothing" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const ws = try r.workspaces.add("", "/tmp");
+    const one = try testPane(&r, ws, null);
+    const split = try testPane(&r, ws, one);
+    const two = try testPane(&r, ws, null);
+    const tab = (try location(&r, one)).tab;
+    const missing: PaneId = @enumFromInt(999999);
+    const before = try testTopology(&r);
+    defer std.testing.allocator.free(before);
+    const alloc = std.testing.allocator;
+    try std.testing.expectError(error.InvalidDestination, execute(&r, test_context, .{ .@"tab.merge" = .{ .target = tab, .other = split } }, alloc));
+    try std.testing.expectError(error.InvalidDestination, execute(&r, test_context, .{ .@"pane.move" = .{ .target = split, .destination = .{ .beside = .{ .other = split } } } }, alloc));
+    try std.testing.expectError(error.NoPane, execute(&r, test_context, .{ .@"pane.move" = .{ .target = one, .destination = .{ .beside = .{ .other = missing } } } }, alloc));
+    try std.testing.expectError(error.NoPane, execute(&r, test_context, .{ .@"pane.move" = .{ .target = missing, .destination = .{ .new_tab = "" } } }, alloc));
+    try std.testing.expectError(error.NoPane, execute(&r, test_context, .{ .@"pane.swap" = .{ .target = one, .other = missing } }, alloc));
+    try std.testing.expectError(error.NoTab, execute(&r, test_context, .{ .@"tab.move" = .{ .target = tab, .destination = .{ .before = @enumFromInt(999999) } } }, alloc));
+    try std.testing.expectError(error.NoWorkspace, execute(&r, test_context, .{ .@"tab.move" = .{ .target = tab, .destination = .{ .workspace = @enumFromInt(99) } } }, alloc));
+    try std.testing.expectError(error.NoSplit, execute(&r, test_context, .{ .@"pane.resize" = .{ .target = two, .axis = .horizontal, .ratio = 600 } }, alloc));
+    try std.testing.expectError(error.InvalidRatio, execute(&r, test_context, .{ .@"pane.resize" = .{ .target = one, .axis = .horizontal, .ratio = 50 } }, alloc));
+    const after = try testTopology(&r);
+    defer std.testing.allocator.free(after);
+    try std.testing.expectEqualStrings(before, after);
+}
+
+test "merging a tab moves its whole tree beside a pane in any workspace" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const home = try r.workspaces.add("", "/tmp");
+    const away = try r.workspaces.add("", "/tmp");
+    const left = try testPane(&r, home, null);
+    const right = try testPane(&r, home, left);
+    const target = try testPane(&r, home, null);
+    const kept = (try location(&r, target)).tab;
+    const alloc = std.testing.allocator;
+    const merged = try execute(&r, test_context, .{ .@"tab.merge" = .{ .target = (try location(&r, left)).tab, .other = target } }, alloc);
+    try std.testing.expectEqualDeep(Result{ .pane = left, .tab = kept, .workspace = home }, merged);
+    const m = &r.workspaces.get(home).?.model;
+    try std.testing.expectEqual(1, m.count);
+    const root = m.nodes[m.tabs[0].root].?.split;
+    try std.testing.expectEqual(layout.Axis.horizontal, root.axis);
+    try std.testing.expectEqual(target, m.firstPane(root.first));
+    const moved = m.nodes[root.second].?.split;
+    try std.testing.expectEqual(left, m.firstPane(moved.first));
+    try std.testing.expectEqual(right, m.firstPane(moved.second));
+
+    const lone = try testPane(&r, away, null);
+    const revisions = .{ m.revision, r.workspaces.get(away).?.model.revision };
+    const joined = try execute(&r, test_context, .{ .@"tab.merge" = .{ .target = (try location(&r, lone)).tab, .other = right, .direction = .down } }, alloc);
+    try std.testing.expectEqualDeep(Result{ .pane = lone, .tab = kept, .workspace = home }, joined);
+    try std.testing.expectEqual(0, r.workspaces.get(away).?.model.count);
+    const below = m.nodes[moved.second].?.split;
+    try std.testing.expectEqual(layout.Axis.vertical, below.axis);
+    try std.testing.expectEqual(right, m.firstPane(below.first));
+    try std.testing.expectEqual(lone, m.firstPane(below.second));
+    try std.testing.expectEqual(revisions[0] + 1, m.revision);
+    try std.testing.expectEqual(revisions[1] + 1, r.workspaces.get(away).?.model.revision);
+}
+
+test "swapping panes exchanges their places, across workspaces too" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const home = try r.workspaces.add("", "/tmp");
+    const away = try r.workspaces.add("", "/tmp");
+    const left = try testPane(&r, home, null);
+    const right = try testPane(&r, home, left);
+    const other = try testPane(&r, away, null);
+    const tab = (try location(&r, left)).tab;
+    const alloc = std.testing.allocator;
+    _ = try execute(&r, test_context, .{ .@"pane.swap" = .{ .target = left, .other = right } }, alloc);
+    const m = &r.workspaces.get(home).?.model;
+    const root = m.nodes[m.tabs[0].root].?.split;
+    try std.testing.expectEqual(right, m.firstPane(root.first));
+    try std.testing.expectEqual(left, m.firstPane(root.second));
+
+    const revisions = .{ m.revision, r.workspaces.get(away).?.model.revision };
+    const swapped = try execute(&r, test_context, .{ .@"pane.swap" = .{ .target = left, .other = other } }, alloc);
+    try std.testing.expectEqualDeep(try location(&r, left), swapped);
+    try std.testing.expectEqual(away, swapped.workspace);
+    try std.testing.expectEqualDeep(Result{ .pane = other, .tab = tab, .workspace = home }, try location(&r, other));
+    try std.testing.expectEqual(other, m.firstPane(root.second));
+    try std.testing.expectEqual(revisions[0] + 1, m.revision);
+    try std.testing.expectEqual(revisions[1] + 1, r.workspaces.get(away).?.model.revision);
+}

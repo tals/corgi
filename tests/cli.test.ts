@@ -338,16 +338,6 @@ class AgentCli extends Runtime {
       (await this.snapshot()).workspaces.map((w: any) => w.id),
     );
   }
-  async test_full_tab_capacity_rolls_back() {
-    const one = await this.new(),
-      split = (await this.cli(["pane", "split", one.pane, "--right"])).result;
-    for (let i = 0; i < 23; i++) await this.new();
-    const before = await this.topology();
-    await this.cli(["pane", "move", split.pane, "--new-tab"], {
-      error: "TooManyTabs",
-    });
-    this.assertEqual(await this.topology(), before);
-  }
   async test_daemon_has_no_implicit_focus_or_geometry() {
     const one = await this.new(),
       two = await this.new(),
