@@ -794,7 +794,7 @@ pub const Server = struct {
         }
         _ = c.signal(c.SIGPIPE, os.sig_ignore);
         const fd = s.inherited_listener orelse try os.listen(s.socket);
-        const socket_inode = inode(s.socket);
+        const socket_path: os.SocketPath = .claim(s.socket);
         defer s.runtime.deinit();
         defer s.herdr_import.deinit();
         defer s.onboarding_copy.deinit();
@@ -832,7 +832,7 @@ pub const Server = struct {
         // shutdown replied may already own this path.
         defer {
             _ = c.close(fd);
-            if (socket_inode != null and inode(s.socket) == socket_inode) std.fs.cwd().deleteFile(s.socket) catch {};
+            socket_path.release();
         }
         while (!s.quit) {
             const handed_off = s.herdr_import.tick(&s.runtime);
@@ -1205,10 +1205,6 @@ pub const Server = struct {
         }
     }
 };
-fn inode(path: []const u8) ?std.posix.ino_t {
-    const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch return null;
-    return stat.ino;
-}
 
 test "the daemon loop body has no try: one client's or pane's error must not end run()" {
     const src = @embedFile("server.zig");

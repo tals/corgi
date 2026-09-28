@@ -108,6 +108,42 @@ pub fn listen(path: []const u8) !c_int {
     nonblock(fd);
     return fd;
 }
+/// The daemon's socket path, deleted on release only if it is still the
+/// socket this daemon bound. A successor may already own the path.
+pub const SocketPath = struct {
+    path: []const u8,
+    inode: ?std.posix.ino_t,
+
+    pub fn claim(path: []const u8) SocketPath {
+        return .{ .path = path, .inode = inodeOf(path) };
+    }
+    pub fn release(p: SocketPath) void {
+        const bound = p.inode orelse return;
+        if (inodeOf(p.path) == bound) std.fs.cwd().deleteFile(p.path) catch {};
+    }
+};
+fn inodeOf(path: []const u8) ?std.posix.ino_t {
+    const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch return null;
+    return stat.ino;
+}
+test "release leaves a successor's socket in place" {
+    var buf: [64]u8 = undefined;
+    const path = try std.fmt.bufPrint(&buf, "/tmp/corgi-socketpath-test-{d}.sock", .{c.getpid()});
+    std.fs.cwd().deleteFile(path) catch {};
+    (try std.fs.cwd().createFile(path, .{})).close();
+    defer std.fs.cwd().deleteFile(path) catch {};
+
+    const claimed = SocketPath.claim(path);
+    // A successor already replaced the file at this path.
+    try std.fs.cwd().deleteFile(path);
+    (try std.fs.cwd().createFile(path, .{})).close();
+    claimed.release();
+    (try std.fs.cwd().openFile(path, .{})).close(); // still there
+
+    const reclaimed = SocketPath.claim(path);
+    reclaimed.release();
+    try std.testing.expectError(error.FileNotFound, std.fs.cwd().openFile(path, .{}));
+}
 pub fn sendJson(fd: c_int, value: anytype) !void {
     const data = try std.json.Stringify.valueAlloc(allocator, value, .{});
     defer allocator.free(data);
