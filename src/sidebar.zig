@@ -1233,22 +1233,28 @@ fn portPending(ws: WorkspaceEntry) bool {
     for (0..urlCount(ws)) |i| if (workspaceUrlPending(ws, i)) return true;
     return false;
 }
-fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
-    const count = urlCount(ws);
+/// The link button's name, or null while inference is still naming it.
+fn portName(ws: WorkspaceEntry) ?[]const u8 {
     var name = workspaceUrlName(ws, 0);
     // A common name is useful for duplicate app endpoints; distinct apps keep
     // the generic chooser label and their individual names inside the menu.
-    for (1..@max(1, count)) |i| if (!std.mem.eql(u8, name, workspaceUrlName(ws, i))) {
+    for (1..@max(1, urlCount(ws))) |i| if (!std.mem.eql(u8, name, workspaceUrlName(ws, i))) {
         name = "";
         break;
     };
-    if (name.len == 0) name = if (portPending(ws)) "..." else "Link";
+    if (name.len > 0) return name;
+    return if (portPending(ws)) null else "Link";
+}
+fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
+    const count = urlCount(ws);
+    const name = portName(ws) orelse "...";
     return if (count == 1) std.fmt.bufPrint(buf, "Open {s} ↗", .{name}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "Open {s} ↗ {d}", .{ name, count }) catch "Open Link ↗";
 }
-/// Keep all three dots in place; only their blue intensity travels gently.
-/// Quantized to 80ms so idle viewers do not emit a different frame every poll.
-fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, pending: bool, now_ms: i64) !void {
-    if (!pending or !std.mem.startsWith(u8, label, "Open ...")) return writeClipped(w, label, width);
+/// A label still `naming` its link starts "Open ...". Keep all three dots in
+/// place; only their blue intensity travels gently. Quantized to 80ms so idle
+/// viewers do not emit a different frame every poll.
+fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, naming: bool, now_ms: i64) !void {
+    if (!naming) return writeClipped(w, label, width);
     try writeClipped(w, "Open ", width);
     for (0..@min(3, width -| 5)) |i| {
         const phase = @mod(@divFloor(now_ms, 80) * 80 - @as(i64, @intCast(i)) * 160, 1800);
@@ -1319,7 +1325,7 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
     }
     if (writer) |w| {
         try w.writeAll("\x1b[4;38;2;137;180;250m");
-        try writePortLabel(w, label, width, portPending(ws), std.time.milliTimestamp());
+        try writePortLabel(w, label, width, portName(ws) == null, std.time.milliTimestamp());
         if (count == 1) try w.writeAll("\x1b]8;;\x1b\\");
         try w.writeAll("\x1b[24;38;2;155;163;175m");
         if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
@@ -1429,9 +1435,9 @@ pub const PortMenu = struct {
             });
             const name = workspaceUrlName(ws, index);
             var label_buf: [384]u8 = undefined;
-            const pending = workspaceUrlPending(ws, index);
-            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else if (pending) try std.fmt.bufPrint(&label_buf, "Open ... · {s}", .{url}) else url;
-            try writePortLabel(w, label, rect.w - 4, pending, std.time.milliTimestamp());
+            const naming = name.len == 0 and workspaceUrlPending(ws, index);
+            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else if (naming) try std.fmt.bufPrint(&label_buf, "Open ... · {s}", .{url}) else url;
+            try writePortLabel(w, label, rect.w - 4, naming, std.time.milliTimestamp());
             try w.writeAll("\x1b]8;;\x1b\\");
         }
     }
@@ -1521,6 +1527,26 @@ test "inferred link names share clipped hit geometry and name chooser destinatio
     try (PortMenu{ .workspace = @enumFromInt(1) }).draw(&out.writer, ws, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open Finance Dashboard · http://localhost:3000") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open API Docs · http://localhost:3001") != null);
+}
+
+test "only a link still being named animates its placeholder dots" {
+    var endpoints = [_]ports.Endpoint{
+        .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .label_pending = true, .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 },
+    };
+    var works = [_]ports.Work{.{ .id = @enumFromInt(1), .endpoints = &endpoints }};
+    const ws: WorkspaceEntry = .{ .id = @enumFromInt(1), .name = "test", .cwd = "/tmp", .active = true, .ports = .{ .workspaces = &works } };
+    var buf: [96]u8 = undefined;
+    try std.testing.expect(portName(ws) == null);
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try writePortLabel(&out.writer, portLabel(ws, &buf), 40, portName(ws) == null, 0);
+    try std.testing.expect(std.mem.startsWith(u8, out.written(), "Open \x1b[38;2;"));
+    try std.testing.expect(std.mem.endsWith(u8, out.written(), " ↗"));
+    endpoints[0] = .{ .pid = 12, .pane = @enumFromInt(1), .name = "web", .label = "Docs", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 };
+    try std.testing.expectEqualStrings("Docs", portName(ws).?);
+    out.clearRetainingCapacity();
+    try writePortLabel(&out.writer, portLabel(ws, &buf), 40, portName(ws) == null, 0);
+    try std.testing.expectEqualStrings("Open Docs ↗", out.written());
 }
 
 test "corgi frames occupy one column per glyph in the terminal" {
