@@ -11,6 +11,7 @@ const background_tasks = @import("background_tasks.zig");
 const detection = @import("detection.zig");
 const codex_files = @import("codex_files.zig");
 const live_usage = @import("live_usage.zig");
+const context_window = @import("context_window.zig");
 const codex_observer = @import("codex_observer.zig");
 const activity_tools = @import("activity_tools.zig");
 
@@ -53,6 +54,7 @@ pub const Actor = struct {
     // tail can miss the once-per-turn record, so it only fills gaps.
     model_from_hook: bool = false,
     live_usage: live_usage.View = .{},
+    context: context_window.Reading = .{},
     native_usage: bool = false,
     native_meter: live_usage.Codex = .{},
 
@@ -316,6 +318,7 @@ pub const Registry = struct {
     allocator: std.mem.Allocator = std.heap.c_allocator,
     items: std.ArrayList(*Actor) = .empty,
     next_id: Actor.Id = .first,
+    compaction_points: context_window.Points = .{},
 
     pub fn deinit(registry: *Registry) void {
         for (registry.items.items) |actor| registry.allocator.destroy(actor);

@@ -455,6 +455,10 @@ pub const Controller = struct {
         for (entries[0..count]) |*entry| {
             if (entry.target == .group) continue;
             subagent_tooltip.presentChildren(entry, s.runtime.conversations, std.time.microTimestamp());
+            for (s.runtime.conversations) |conversation| if (conversation.id == entry.conversation) {
+                entry.context = conversation.context;
+                break;
+            };
         }
         return entries[0..count];
     }

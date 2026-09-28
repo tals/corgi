@@ -14,6 +14,7 @@ const agent_order = @import("agent_order.zig");
 const git_push = @import("git_push.zig");
 const usage = @import("usage.zig");
 const live_usage = @import("live_usage.zig");
+const context_window = @import("context_window.zig");
 const background_tasks = @import("background_tasks.zig");
 const inference_setup = @import("inference_setup.zig");
 const launch_command = @import("launch_command.zig");
@@ -183,6 +184,7 @@ pub const Conversation = struct {
     attachments: u32 = 0,
     role: []const u8 = "",
     usage: live_usage.View = .{},
+    context: context_window.View = .{},
     children_observed_at: i64 = 0,
     agent: Agent,
 };
@@ -318,6 +320,7 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
             .background_tasks = try actor.background_tasks.view(allocator),
             .model = actor.model.bytes[0..actor.model.len],
             .usage = current_usage,
+            .context = actor.context.view(&r.conversations.compaction_points),
             .timeline = .{ .points = points, .pending = actor.activity_timeline.pending(current_usage) },
             .children_observed_at = actor.children_observed_at,
             .agent = agentView(&actor.state, actor.id),

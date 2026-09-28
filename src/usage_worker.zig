@@ -8,6 +8,7 @@ const usage = @import("usage.zig");
 const activity_tools = @import("activity_tools.zig");
 const codex_files = @import("codex_files.zig");
 const live_usage = @import("live_usage.zig");
+const context_window = @import("context_window.zig");
 const transcript = @import("transcript.zig");
 const passes = @import("passes.zig");
 const a = std.heap.c_allocator;
@@ -48,6 +49,7 @@ pub const Result = struct {
     seq: i64 = 0,
     model: codex_files.Name = .{},
     live: live_usage.View = .{},
+    context: context_window.Reading = .{},
     // A Claude conversation moved to a background session under this id.
     continued: codex_files.Name = .{},
     // Claude's latest text update and its transcript time in microseconds.
@@ -211,7 +213,7 @@ pub const Worker = struct {
                 };
                 t.releaseFile();
                 if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and
-                    t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0) continue;
+                    t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.context.at == 0) continue;
                 w.mutex.lock();
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace or
@@ -222,6 +224,7 @@ pub const Worker = struct {
                     result.*.?.delta.add(delta);
                     result.*.?.model = t.model;
                     result.*.?.live = t.live.meter.view(std.time.milliTimestamp());
+                    result.*.?.context = t.context;
                     result.*.?.progress = t.progress.view();
                     result.*.?.seq = req.agent.last_seq;
                     switch (req.provider()) {
@@ -257,6 +260,7 @@ pub const Tail = struct {
     discard: bool = false,
     model: codex_files.Name = .{},
     live: live_usage.Codex = .{},
+    context: context_window.Reading = .{},
     opened: bool = false,
     name: codex_files.Name = .{},
     name_chosen: bool = false,
@@ -304,6 +308,8 @@ pub const Tail = struct {
             t.partial.clearRetainingCapacity();
             t.tracker = .{};
             t.progress = .{};
+            // A new file is read again from its tail, which ends at the latest level.
+            t.context = .{};
             switch (req.provider()) {
                 .claude => {
                     // Usage counts from when Corgi opens the transcript. Before
@@ -388,7 +394,10 @@ pub const Tail = struct {
         switch (req.provider()) {
             .claude => {
                 t.claudeRecord(session, value);
-                if (std.mem.eql(u8, agents.str(value, "sessionId"), session)) t.progress.ingestClaude(value, appended);
+                if (std.mem.eql(u8, agents.str(value, "sessionId"), session)) {
+                    t.progress.ingestClaude(value, appended);
+                    t.context.claude(value);
+                }
                 t.observeModel(usage.field(value, "message"));
                 const delta = t.tracker.transcript(.claude, session, value);
                 if (appended and delta.tokens_known) {
@@ -401,6 +410,7 @@ pub const Tail = struct {
                 t.observeModel(usage.field(value, "payload"));
                 const delta = t.tracker.transcript(.codex, session, value);
                 t.live.ingest(value, appended, std.time.milliTimestamp());
+                t.context.codex(value);
                 return delta;
             },
         }
@@ -629,4 +639,17 @@ test "Claude text updates apply only when newer than the latest hook" {
     agent.state = .idle;
     _ = result.fallback(&agent, 0);
     try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+}
+
+test "usage tail reads context from its own session, history included" {
+    var tail: Tail = .{};
+    defer tail.close();
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
+    req.agent.session_len = agents.clean(&req.agent.session, "a");
+    // Unlike usage, a level in the initial tail is already current.
+    tail.initial_until = 1 << 20;
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{\"id\":\"m1\",\"model\":\"claude-opus-5-5\",\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":40000,\"cache_creation_input_tokens\":1000,\"output_tokens\":9}}}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"b\",\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"id\":\"m2\",\"model\":\"claude-opus-5-5\",\"usage\":{\"input_tokens\":7}}}\n", 0);
+    try std.testing.expectEqual(@as(u64, 41002), tail.context.used);
+    try std.testing.expectEqual(@as(u64, 1_000_000), tail.context.window);
 }

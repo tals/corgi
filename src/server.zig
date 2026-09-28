@@ -943,6 +943,13 @@ pub const Server = struct {
                         s.dirty = true;
                         s.runtime.changed();
                     }
+                    if (!std.meta.eql(actor.context, result.context)) {
+                        actor.context = result.context;
+                        const model = result.context.model;
+                        s.runtime.conversations.compaction_points.learn(model.bytes[0..model.len], result.context.auto_compaction);
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
                     if (result.continued.len > 0) s.followContinuation(actor, result.continued.bytes[0..result.continued.len]);
                     const before = actor.state;
                     if (result.progress) |progress| actor.observeTools(progress);

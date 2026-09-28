@@ -13,6 +13,7 @@ const ports = @import("ports.zig");
 const git_push = @import("git_push.zig");
 const protocol = @import("protocol.zig");
 const usage = @import("usage.zig");
+const context_window = @import("context_window.zig");
 const corgi_badge = @import("corgi_badge.zig");
 const resource_tooltip = @import("resource_tooltip.zig");
 const preferences = @import("preferences.zig");
@@ -49,6 +50,7 @@ pub const Entry = struct {
     activity: []const u8 = "",
     group: Group = .{},
     subagents: agents.Subagents = .{},
+    context: context_window.View = .{},
 
     pub fn orderTarget(e: Entry) ?agent_order.Target {
         return switch (e.target) {
@@ -497,7 +499,9 @@ pub const View = struct {
         const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
         const frame_index: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
         // Grouped rows select with the active workspace's tint; the rail stays unbroken.
-        const bg = if (ghost) "\x1b[48;2;44;54;67m" else if (!e.focused) "\x1b[48;2;24;27;32m" else if (grouped) selected_bg else "\x1b[48;2;35;40;47m";
+        const row_bg: [3]u8 = if (ghost) .{ 44, 54, 67 } else if (!e.focused) .{ 24, 27, 32 } else if (grouped) .{ 34, 44, 58 } else .{ 35, 40, 47 };
+        var bg_buf: [24]u8 = undefined;
+        const bg = std.fmt.bufPrint(&bg_buf, "\x1b[48;2;{d};{d};{d}m", .{ row_bg[0], row_bg[1], row_bg[2] }) catch unreachable;
         for (0..2) |row| {
             if (y + row >= v.rows - 2) break;
             try w.print("\x1b[{d};{d}H\x1b[0m{s}", .{ y + row + 1, x + 1, bg });
@@ -530,9 +534,13 @@ pub const View = struct {
         const activity_color = if (!napping) "\x1b[22;38;2;125;132;143m" else if (e.attention == .finished) "\x1b[22;38;2;108;112;134m" else "\x1b[22;38;2;70;74;88m";
         var name: [160]u8 = undefined;
         const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
+        var figure_buf: [8]u8 = undefined;
+        const figure = contextFigure(&figure_buf, e, compacting, row_bg);
+        const figure_width = if (figure) |f| displayWidth(f.text) else 0;
         try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
-        try writeEllipsis(w, provider, room);
+        try writeEllipsis(w, provider, room -| (figure_width + @as(usize, if (figure_width > 0) 1 else 0)));
         try w.writeAll("\x1b[22m");
+        if (figure) |f| try w.print("\x1b[{d};{d}H\x1b[38;2;{d};{d};{d}m{s}", .{ y + 1, x + v.width - 1 - figure_width, f.color[0], f.color[1], f.color[2], f.text });
         // Underline the existing second row, including its padding, without
         // consuming another terminal row or changing the entry hit area.
         try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + underline_x, underline });
@@ -589,6 +597,19 @@ pub const View = struct {
         }
         try w.writeAll("\x1b[24;59m");
         if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H\x1b[48;2;137;180;250m \x1b[0m", .{ y + row + 1, x + 1 });
+    }
+    /// Context appears on the name line only near compaction: from 70% of the
+    /// way, amber, then red from 85%. It dims while the agent compacts.
+    fn contextFigure(buf: []u8, e: Entry, compacting: bool, background: [3]u8) ?struct { text: []const u8, color: [3]u8 } {
+        if (e.state == .done) return null;
+        const pressure = e.context.pressure() orelse return null;
+        if (pressure < 0.7) return null;
+        const text = std.fmt.bufPrint(buf, "{d}%", .{@min(e.context.percent(), 999)}) catch unreachable;
+        const tone: [3]u8 = if (pressure < 0.85) .{ 250, 179, 135 } else .{ 243, 139, 168 };
+        if (!compacting) return .{ .text = text, .color = tone };
+        var dim: [3]u8 = undefined;
+        for (&dim, tone, background) |*out, t, b| out.* = @intCast((@as(u16, t) * 2 + @as(u16, b) * 3) / 5);
+        return .{ .text = text, .color = dim };
     }
     fn animationKey(e: Entry) u64 {
         return switch (e.target) {
@@ -1970,4 +1991,28 @@ test "only one sleeping corgi puffs at a time, and turning them off leaves a fai
     try std.testing.expectEqual(entries.len, std.mem.count(u8, output.written(), "\x1b[22;38;2;70;74;88mᶻ"));
     // Question marks outside escape sequences would be a placeholder label.
     try std.testing.expectEqual(std.mem.count(u8, output.written(), "\x1b[?"), std.mem.count(u8, output.written(), "?"));
+}
+
+test "context shows on the name line only near compaction and dims while compacting" {
+    const entries = [_]Entry{
+        .{ .target = .{ .pane = @enumFromInt(1) }, .name = "migrate checkpoints", .provider = .codex, .state = .working, .attention = .none, .context = .{ .used = 190_000, .window = 258_400, .at = 1 } },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .name = "api refactor", .provider = .codex, .state = .working, .attention = .none, .context = .{ .used = 120_000, .window = 258_400, .at = 1 } },
+        .{ .target = .{ .pane = @enumFromInt(3) }, .name = "release notes", .provider = .claude, .state = .working, .attention = .none, .compacting = true, .context = .{ .used = 380_000, .window = 1_000_000, .compacts_at = 400_000, .at = 1 } },
+    };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try View.init(100, 30, true, 0, entries.len).draw(&output.writer, &entries, &.{});
+    const host = try terminal.Terminal.create(100, 30);
+    defer host.destroy();
+    host.feed(output.written());
+    const text = try host.text();
+    defer a.free(text);
+    // 74% of the window is 74% of the way: amber, and the name gives way.
+    try std.testing.expect(std.mem.indexOf(u8, text, "migrate checkpoin… 74%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;250;179;135m74%") != null);
+    // 46% of the way shows nothing.
+    try std.testing.expect(std.mem.indexOf(u8, text, "api refactor") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "46%") == null);
+    // 38% of a 1M window is 95% of the way to a learned 400k: red, faded toward the row.
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;111;71;86m38%") != null);
 }

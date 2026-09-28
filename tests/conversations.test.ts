@@ -445,6 +445,49 @@ class ClaudeConversations extends Runtime {
       "blocked",
     );
   }
+  async test_context_follows_the_latest_call_and_shares_automatic_compaction() {
+    const call = (session: string, id: string, cached: number) =>
+      this.record(session, {
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        message: {
+          id,
+          model: "claude-opus-5-5",
+          usage: {
+            input_tokens: 2,
+            cache_read_input_tokens: cached,
+            cache_creation_input_tokens: 1000,
+            output_tokens: 10,
+          },
+        },
+      });
+    await this.hook("context", "SessionStart");
+    await this.hook("context", "UserPromptSubmit");
+    call("context", "m1", 300000);
+    await this.until(
+      async () => (await this.actor("context"))?.context?.used === 301002,
+    );
+    const first = (await this.actor("context")).context;
+    this.assertEqual(first.window, 1000000);
+    this.assertEqual(first.compacts_at, 0);
+    this.record("context", {
+      type: "system",
+      subtype: "compact_boundary",
+      timestamp: new Date().toISOString(),
+      compactMetadata: { trigger: "auto", preTokens: 400000, postTokens: 9000 },
+    });
+    await this.until(
+      async () => (await this.actor("context")).context.used === 9000,
+    );
+    this.assertEqual((await this.actor("context")).context.compacts_at, 400000);
+    // Another conversation on the same model measures against that point.
+    call("other", "m2", 100000);
+    await this.hook("other", "SessionStart");
+    await this.until(
+      async () => (await this.actor("other"))?.context?.compacts_at === 400000,
+    );
+    this.assertEqual((await this.actor("other")).context.used, 101002);
+  }
   async test_second_attachment_does_not_reset_existing_conversation() {
     await this.hook("shared-claude", "SessionStart");
     await this.hook("shared-claude", "UserPromptSubmit");

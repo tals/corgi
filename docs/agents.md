@@ -131,6 +131,37 @@ Meters and five minute buckets live only in memory and reset on daemon restart o
 reload. There is no historical ledger, pricing database, or archived-session scan.
 Child discovery is Codex-first; recursive Claude child discovery is not included.
 
+## Context
+
+An agent's sidebar row shows how full its context window is only when that
+matters. Once the agent is 70% of the way to compaction, its name line ends with
+the share of the window, such as `74%`, and the name clips to make room. The
+figure is amber, and red from 85% of the way. While the agent compacts it dims;
+afterwards the smaller context is below the threshold and the figure goes away.
+Ended sessions never show one.
+
+The figure is the number Claude's statusline and Codex's footer show, taken
+from the latest model call in the transcript. For Claude that is the last
+main-chain assistant message's input tokens plus cache reads and writes; for
+Codex, the last `token_count` event's `last_token_usage.total_tokens` against its
+`model_context_window`. Subagent and synthetic error records are skipped. Claude
+transcripts do not name the window, so Corgi follows Claude Code's model
+families: newer models are 1M, older ones 200k unless the model id ends in
+`[1m]`. Environment overrides such as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` are not
+seen. The level changes once per model call, so a large tool result counts from
+the next response.
+
+The way to compaction is measured against where the model last compacted on its
+own. Claude marks those compactions in its transcript (`compact_boundary` with
+`trigger: auto`), and Corgi keeps that size per model, in memory, for every
+conversation on it. Until one is seen, and always for Codex, whose rollouts do
+not say what started a compaction, the measure is the whole window. Codex already
+reports an effective window, and compacted at 81–89% of it in observed sessions.
+
+After a reload or restart each transcript's tail supplies the level again, so it
+is not saved. `conversation.list` and `session.snapshot` expose it as `context`
+on each conversation: `used`, `window`, `compacts_at` (0 until learned) and `at`.
+
 ## Tests and simulation
 
 Zig tests exercise reducers with supplied timestamps, shared acknowledgement,

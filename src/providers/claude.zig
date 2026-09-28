@@ -63,6 +63,21 @@ pub const Claude = struct {
     pub fn titleSession(_: []const u8) ?common.SessionPrefix {
         return null;
     }
+    /// Model families Claude Code runs with a 1M window without a `[1m]` suffix.
+    const native_1m = [_][]const u8{ "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-mythos-5" };
+    /// The context window Claude Code gives a transcript's model id. Zero for
+    /// anything else, such as the `<synthetic>` model of error records.
+    pub fn contextWindow(model: []const u8) u64 {
+        if (!std.mem.startsWith(u8, model, "claude-")) return 0;
+        if (std.mem.endsWith(u8, model, "[1m]")) return 1_000_000;
+        for (native_1m) |family| {
+            if (!std.mem.startsWith(u8, model, family)) continue;
+            // "claude-opus-5" must not claim a future "claude-opus-55".
+            if (model.len > family.len and std.ascii.isDigit(model[family.len])) continue;
+            return 1_000_000;
+        }
+        return 200_000;
+    }
     pub fn resumeArgs(_: Claude, ref: common.SessionRef) ![3][]const u8 {
         if (ref != .id or !ref.valid()) return error.InvalidSessionRef;
         return .{ "claude", "--resume", ref.id };
