@@ -66,6 +66,26 @@ and assertion intent from the original suites.
 PTY restoration checks compare `stty -g` snapshots on the same reusable
 terminal before and after the client, including control characters and speeds.
 
+## Which tier
+
+Write a Zig unit test when the behavior is a decision or a data transform:
+layout and session edits, argument parsing, protocol encoding, render output
+for a given view, provider event interpretation, state migrations, error and
+rollback paths. Build the state in the test, as `session.zig` builds
+workspace models without shells and `cli.zig` parses command lines without a
+daemon. Use `std.testing.allocator` and `std.testing.tmpDir`, and pass `now`
+in rather than sleeping or starting threads.
+
+Write a Bun case when the behavior crosses a process, PTY or socket: the CLI
+reaching the daemon, a viewer attaching, a reload handing off live shells, a
+provider hook arriving, terminal bytes reaching a pane. One case per path is
+enough; the decisions behind it have unit tests.
+
+When a Bun case asserts many variants of one decision (capacity limits,
+glyph shapes, every usage error), move the variants into a unit test and
+keep one Bun case that proves the path. Delete a Bun case only when unit
+tests cover what it asserted and another case still covers its path.
+
 ## Waiting
 
 A test waits on the daemon, never on the time it might take:

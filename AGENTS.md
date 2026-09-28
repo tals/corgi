@@ -11,6 +11,7 @@
   `-Dtest-build=true -Dupdate-test-mode=true`
 - **Integration tests:** see `tests/README.md`. Parallel runs are flaky under
   load; rerun a failing suite with `--jobs 1` before investigating.
+- **Unit or Bun test:** decisions are unit tests; see `tests/README.md`.
 
 ## Zig toolchain
 
