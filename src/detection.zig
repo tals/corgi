@@ -82,7 +82,9 @@ fn process(pid: c_int) ?Provider {
 
 /// Claude runs hooks without its internal session variables, and its
 /// background daemon hands CORGI_PANE from one pane to every session it
-/// hosts. The hook's own Claude process is marked, so find the nearest one.
+/// hosts. So does a `claude -p` that an agent's tool starts, but tools run
+/// detached from the terminal. Only the pane's foreground Claude owns
+/// CORGI_PANE, so find the hook's nearest Claude process and check it.
 pub fn backgroundAncestor() bool {
     const a = std.heap.c_allocator;
     // Daemon-hosted sessions carry large environments; 64 KiB is not enough.
@@ -93,7 +95,7 @@ pub fn backgroundAncestor() bool {
         if (pid <= 1) return false;
         if (processBlock(pid, bytes)) |block| if (block.claude()) {
             for (block.env.items[0..block.env.len]) |entry| if (std.mem.eql(u8, entry, "CLAUDE_CODE_SESSION_KIND=bg")) return true;
-            return false;
+            return backgroundJob(pid);
         };
         pid = parent(pid) orelse return false;
     }
@@ -176,10 +178,23 @@ fn processBlock(pid: c_int, bytes: []u8) ?Block {
 }
 
 fn parent(pid: c_int) ?c_int {
+    return (jobInfo(pid) orelse return null).ppid;
+}
+
+/// Whether the process is known to run outside its terminal's foreground
+/// job, including without a controlling terminal at all.
+fn backgroundJob(pid: c_int) bool {
+    const info = jobInfo(pid) orelse return false;
+    return info.tpgid <= 0 or info.pgid != info.tpgid;
+}
+
+const JobInfo = struct { ppid: c_int, pgid: c_int, tpgid: c_int };
+
+fn jobInfo(pid: c_int) ?JobInfo {
     if (builtin.os.tag == .macos) {
         var info: c.proc_bsdinfo = undefined;
         if (c.proc_pidinfo(pid, c.PROC_PIDTBSDINFO, 0, &info, @sizeOf(c.proc_bsdinfo)) != @sizeOf(c.proc_bsdinfo)) return null;
-        return @intCast(info.pbi_ppid);
+        return .{ .ppid = @intCast(info.pbi_ppid), .pgid = @intCast(info.pbi_pgid), .tpgid = @intCast(info.e_tpgid) };
     } else if (builtin.os.tag == .linux) {
         var path: [64]u8 = undefined;
         var bytes: [1024]u8 = undefined;
@@ -188,9 +203,12 @@ fn parent(pid: c_int) ?c_int {
         const stat = bytes[0 .. file.readAll(&bytes) catch return null];
         // The command name may contain spaces; fields resume after its ')'.
         const close = std.mem.lastIndexOfScalar(u8, stat, ')') orelse return null;
-        var fields = std.mem.tokenizeScalar(u8, stat[close + 1 ..], ' ');
-        _ = fields.next();
-        return std.fmt.parseInt(c_int, fields.next() orelse return null, 10) catch null;
+        // After the state: ppid pgrp session tty_nr tpgid (-1 without a terminal).
+        var it = std.mem.tokenizeScalar(u8, stat[close + 1 ..], ' ');
+        _ = it.next();
+        var fields: [5]c_int = undefined;
+        for (&fields) |*field| field.* = std.fmt.parseInt(c_int, it.next() orelse return null, 10) catch return null;
+        return .{ .ppid = fields[0], .pgid = fields[1], .tpgid = fields[4] };
     }
     return null;
 }
@@ -666,4 +684,37 @@ test "process ancestry, arguments and initial environment are readable" {
     var found = false;
     for (block.env.items[0..block.env.len]) |item| found = found or std.mem.eql(u8, item, wanted);
     try std.testing.expect(found);
+}
+
+test "a detached process is a background job and a terminal's foreground is not" {
+    var byte: [1]u8 = undefined;
+    var ready: [2]c_int = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), c.pipe(&ready));
+    defer _ = c.close(ready[0]);
+    // Agent tools start commands like this, in a new session without a terminal.
+    const detached = c.fork();
+    if (detached == 0) {
+        _ = c.setsid();
+        _ = c.write(ready[1], "x", 1);
+        while (true) _ = c.pause();
+    }
+    _ = c.close(ready[1]);
+    if (detached < 0) return error.ForkFailed;
+    defer _ = c.waitpid(detached, null, 0);
+    defer _ = c.kill(detached, c.SIGKILL);
+    try std.testing.expectEqual(@as(isize, 1), c.read(ready[0], &byte, 1));
+    try std.testing.expect(backgroundJob(detached));
+
+    var fd: c_int = undefined;
+    const leader = c.forkpty(&fd, null, null, null);
+    if (leader == 0) {
+        _ = c.write(1, "x", 1);
+        while (true) _ = c.pause();
+    }
+    if (leader < 0) return error.ForkFailed;
+    defer _ = c.close(fd);
+    defer _ = c.waitpid(leader, null, 0);
+    defer _ = c.kill(leader, c.SIGKILL);
+    try std.testing.expectEqual(@as(isize, 1), c.read(fd, &byte, 1));
+    try std.testing.expect(!backgroundJob(leader));
 }

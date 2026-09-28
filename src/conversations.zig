@@ -406,7 +406,13 @@ pub const Registry = struct {
             return actor;
         }
         const actor = registry.find(provider, session) orelse return null;
-        return if (binding.knows(actor.id)) actor else null;
+        if (!binding.knows(actor.id)) return null;
+        // A live process no longer shows an ended conversation, so a known one
+        // that is still active takes the pane back.
+        if (event.kind != .session_end) if (binding.actor) |selected| {
+            if (selected != actor and selected.state.state == .done) binding.select(actor);
+        };
+        return actor;
     }
 };
 
@@ -512,6 +518,42 @@ test "known background hooks route to their actor and process replacement revoke
     try std.testing.expectEqualStrings("b", binding.agent().sessionId());
     binding.detach();
     try std.testing.expectEqual(null, try registry.routeHook(&binding, .claude, event_hook));
+}
+
+test "a known conversation's live hook replaces an ended selection" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var binding: Attachment = .{};
+    const start = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"SessionStart","session_id":"child"}
+    , .{});
+    defer start.deinit();
+    const end = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"SessionEnd","session_id":"child"}
+    , .{});
+    defer end.deinit();
+    const prompt = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"parent"}
+    , .{});
+    defer prompt.deinit();
+    const other = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"other"}
+    , .{});
+    defer other.deinit();
+    const backend = providers.Backend.init(.claude);
+    const parent = try registry.get(.claude, "parent");
+    binding.select(parent);
+    // A session that took the pane over, then ended while the parent lives on.
+    const child = (try registry.routeHook(&binding, .claude, backend.hook(start.value).?)).?;
+    _ = child.observeHook(backend.hook(end.value).?, 1, false, 100);
+    try std.testing.expectEqual(agents.State.done, child.state.state);
+    _ = try registry.routeHook(&binding, .claude, backend.hook(end.value).?);
+    try std.testing.expectEqual(child, binding.actor.?);
+    _ = try registry.get(.claude, "other");
+    try std.testing.expectEqual(null, try registry.routeHook(&binding, .claude, backend.hook(other.value).?));
+    try std.testing.expectEqual(child, binding.actor.?);
+    try std.testing.expectEqual(parent, (try registry.routeHook(&binding, .claude, backend.hook(prompt.value).?)).?);
+    try std.testing.expectEqual(parent, binding.actor.?);
 }
 
 test "a second attachment does not erase a stop awaiting transcript confirmation" {

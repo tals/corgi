@@ -28,7 +28,8 @@ pub fn hook(provider: Provider, path: []const u8) !void {
         .claude => {},
     }
     // Claude's background daemon inherits the environment of whichever pane
-    // first spawned it, so CORGI_PANE does not identify its sessions' pane.
+    // first spawned it, and so does a `claude -p` an agent runs from a tool.
+    // CORGI_PANE identifies neither session's pane.
     const background = switch (provider) {
         .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or detection.backgroundAncestor(),
         .codex => false,

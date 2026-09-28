@@ -32,7 +32,11 @@ provider can reuse the sources it actually supports.
 ## Observations and switching
 
 - Hooks select on `SessionStart`. Later events for a conversation known to that
-  attachment update that actor without changing selection. A first hook can also
+  attachment update that actor without changing selection, unless the selected
+  conversation has ended; then any event but `SessionEnd` selects it. Claude
+  processes outside their terminal's foreground job, such as daemon-hosted
+  sessions or a `claude -p` an agent runs from a tool, inherit `CORGI_PANE` but
+  never select. A first hook can also
   establish identity on a fresh attachment before process detection identifies
   the provider. After process replacement, this requires fresh provider detection
   or a `SessionStart` hook.
