@@ -64,6 +64,7 @@ pub const Ui = struct {
     release: subagent_tooltip.Release = .{},
     system_working: bool = false,
     system_usage: live_usage.View = .{},
+    accounts: subagent_tooltip.Accounts = .{},
     workspaces: []const sidebar.WorkspaceEntry = &.{},
     workspace_offset: usize = 0,
 };
@@ -340,7 +341,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 try resource_tooltip.draw(w, rect, name, ui.resources, card);
             }
         } else if (corgi_badge.hit(ui.corgi_badge, side.width, pointer.x, pointer.y)) {
-            try subagent_tooltip.drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, ui.release, width, height);
+            try subagent_tooltip.drawOverview(w, ui.conversations, ui.system_usage, ui.system_working, ui.system_model, ui.release, ui.accounts, width, height);
         } else if (sidebar.gitActionWorkspace(side, ui.workspaces, ui.git_hover, pointer.x, pointer.y)) |ws| {
             try sidebar.drawGitTooltip(w, ws, width, height, pointer.x, pointer.y);
         } else if (sidebar.agentAt(side, ui.agents, pointer.x, pointer.y)) |entry| {

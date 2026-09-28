@@ -151,3 +151,8 @@ retries, profile reads, and reloads do not renew it. At ten minutes old, usage s
 `Unavailable · server returned 429`, an expired access token, or an invalid response.
 Recent cached values keep their normal presentation even when a refresh fails.
 A credential change uses a separate cache.
+Each usage reading is also filed into a per-account history under
+`$XDG_STATE_HOME/corgi/limit-history` (or `~/.local/state/corgi/limit-history`),
+keyed by provider and account rather than credential, so token refreshes keep it.
+It holds the latest reading in each eleventh of a window and feeds the usage
+overview's limit sparks; previews carry it as `history`.

@@ -99,6 +99,21 @@ and `usage` on each conversation. Tokens mean input plus output; cached input is
 a subset of input, not an extra charge. These are observed tokens, not prices or
 subscription-quota percentages.
 
+Hovering the corgi badge opens the usage overview: observed tokens, then the top
+agents. In terminals at least 124 columns wide, the card grows to 122 columns and
+adds a Limits pane on the right. Each account gets a rule across the card, and its
+agents sit under it, level with the account's limits: one line per window (5h,
+7d), shortest first, with an 11-cell spark from the window's start to its reset,
+the percent used and the time until the reset. Bars use the launcher's colors
+(amber from 80%, red at 100%) and share one baseline: time left in the window is a
+dim floor, and a slot with no reading is a gray bar at the previous reading's
+level, since usage only rises within a window, or the floor before the first
+reading. Accounts sort fullest first and keep their section with no
+agents running. Agents belong to their provider's signed-in account and the
+activity summarizer to its inference provider's; agents started under another
+`CLAUDE_CONFIG_DIR` or `CODEX_HOME` are counted under that default account.
+Narrower terminals, and accounts with no readings, keep the single-table card.
+
 Accounting reads known session files incrementally or uses native notifications,
 with one source per conversation. A newly discovered child's initial file is
 read from the start only up to 2 MiB. Earlier token records count only if the

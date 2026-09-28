@@ -50,50 +50,58 @@ pub const State = struct {
         s.rate_limited = status == 429;
     }
 };
-pub const Cache = struct {
-    file: std.fs.File,
-    state: State = .{},
-    pub fn open(provider: []const u8, identity: []const u8, stopping: *const std.atomic.Value(bool)) !Cache {
-        const home = os.env("HOME") orelse return error.NoHome;
-        const root = if (os.env("XDG_STATE_HOME")) |state|
-            try std.fs.path.join(a, &.{ state, "corgi", "account-previews" })
-        else
-            try std.fs.path.join(a, &.{ home, ".local", "state", "corgi", "account-previews" });
-        defer a.free(root);
-        try std.fs.cwd().makePath(root);
-        var digest: [32]u8 = undefined;
-        std.crypto.hash.sha2.Sha256.hash(identity, &digest, .{});
-        const name = try std.fmt.allocPrint(a, "{s}/{s}-{s}.json", .{ root, provider, std.fmt.bytesToHex(digest, .lower) });
-        defer a.free(name);
-        const file = try std.fs.cwd().createFile(name, .{ .read = true, .truncate = false, .mode = 0o600 });
-        errdefer file.close();
-        const deadline = std.time.milliTimestamp() + 10000;
-        while (!try file.tryLock(.exclusive)) {
-            if (stopping.load(.acquire) or std.time.milliTimestamp() >= deadline) return error.CacheBusy;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+pub const Cache = Locked(State, "account-previews");
+
+/// A private JSON state file under `dir`, named by `kind` and a fingerprint of
+/// an identity, and held under an exclusive lock while open.
+pub fn Locked(comptime T: type, comptime dir: []const u8) type {
+    return struct {
+        const Self = @This();
+        file: std.fs.File,
+        state: T = .{},
+        pub fn open(kind: []const u8, identity: []const u8, stopping: *const std.atomic.Value(bool)) !Self {
+            const home = os.env("HOME") orelse return error.NoHome;
+            const root = if (os.env("XDG_STATE_HOME")) |state|
+                try std.fs.path.join(a, &.{ state, "corgi", dir })
+            else
+                try std.fs.path.join(a, &.{ home, ".local", "state", "corgi", dir });
+            defer a.free(root);
+            try std.fs.cwd().makePath(root);
+            var digest: [32]u8 = undefined;
+            std.crypto.hash.sha2.Sha256.hash(identity, &digest, .{});
+            const name = try std.fmt.allocPrint(a, "{s}/{s}-{s}.json", .{ root, kind, std.fmt.bytesToHex(digest, .lower) });
+            defer a.free(name);
+            const file = try std.fs.cwd().createFile(name, .{ .read = true, .truncate = false, .mode = 0o600 });
+            errdefer file.close();
+            const deadline = std.time.milliTimestamp() + 10000;
+            while (!try file.tryLock(.exclusive)) {
+                if (stopping.load(.acquire) or std.time.milliTimestamp() >= deadline) return error.CacheBusy;
+                std.Thread.sleep(10 * std.time.ns_per_ms);
+            }
+            var result: Self = .{ .file = file };
+            const bytes = try file.readToEndAlloc(a, 16384);
+            defer a.free(bytes);
+            if (bytes.len == 0) return result;
+            if (std.json.parseFromSlice(T, a, bytes, .{ .ignore_unknown_fields = true })) |parsed| {
+                defer parsed.deinit();
+                result.state = parsed.value;
+            } else |err| log.warn("discarding unreadable {s} {s} file: {}", .{ kind, dir, err });
+            return result;
         }
-        var result: Cache = .{ .file = file };
-        const bytes = try file.readToEndAlloc(a, 16384);
-        defer a.free(bytes);
-        if (std.json.parseFromSlice(State, a, bytes, .{ .ignore_unknown_fields = true })) |parsed| {
-            defer parsed.deinit();
-            result.state = parsed.value;
-        } else |err| log.warn("discarding unreadable {s} account cache: {}", .{ provider, err });
-        return result;
-    }
-    pub fn save(cache: *Cache) !void {
-        const bytes = try std.json.Stringify.valueAlloc(a, cache.state, .{});
-        defer a.free(bytes);
-        try cache.file.seekTo(0);
-        try cache.file.writeAll(bytes);
-        try cache.file.setEndPos(bytes.len);
-        try cache.file.sync();
-    }
-    pub fn close(cache: *Cache) void {
-        cache.file.unlock();
-        cache.file.close();
-    }
-};
+        pub fn save(self: *Self) !void {
+            const bytes = try std.json.Stringify.valueAlloc(a, self.state, .{});
+            defer a.free(bytes);
+            try self.file.seekTo(0);
+            try self.file.writeAll(bytes);
+            try self.file.setEndPos(bytes.len);
+            try self.file.sync();
+        }
+        pub fn close(self: *Self) void {
+            self.file.unlock();
+            self.file.close();
+        }
+    };
+}
 
 pub const Response = struct { status: u16 = 0, retry_at: ?i64 = null, body: []const u8 = "" };
 pub fn response(bytes: []const u8, now: i64) Response {

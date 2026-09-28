@@ -51,6 +51,7 @@ pub fn keyAgent(byte: u8) ?Provider {
 }
 const metadata = @import("account_preview.zig");
 const account_cache = @import("account_cache.zig");
+const limit_history = @import("limit_history.zig");
 const usage_cell = @import("launcher_usage.zig");
 pub const Text = metadata.Text;
 pub const Option = struct {
@@ -63,6 +64,8 @@ pub const Option = struct {
     usage_fetched_at: i64 = 0,
     usage_error: Text = .{},
     usage_needs_consent: bool = false,
+    /// Readings across each limit window, in the order of `limits.windows`.
+    history: [2]limit_history.Spark = limit_history.none,
 };
 pub const Preview = struct { pending: bool = true, options: [Provider.all.len]Option = @splat(.{}), installed: [Provider.all.len]bool = @splat(true) };
 fn installed() [Provider.all.len]bool {
@@ -170,6 +173,7 @@ pub const Worker = struct {
                     result.options[0].limits = account.limits;
                     result.options[0].usage_fetched_at = account.usage_fetched_at;
                     result.options[0].usage_error = account.usage_error;
+                    result.options[0].history = limit_history.update(.codex, account, &w.stopping);
                 } else |_| result.options[0].usage_error.set("account read failed");
             }
             if (result.installed[1]) {
@@ -182,6 +186,7 @@ pub const Worker = struct {
                 result.options[1].usage_fetched_at = account.usage_fetched_at;
                 result.options[1].usage_error = account.usage_error;
                 result.options[1].usage_needs_consent = account.usage_needs_consent;
+                result.options[1].history = limit_history.update(.claude, account, &w.stopping);
             }
             w.mutex.lock();
             if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd[0..current.len], job.cwd[0..job.len])) {

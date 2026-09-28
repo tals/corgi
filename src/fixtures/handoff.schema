@@ -208,6 +208,8 @@ $.clients[].launch_preview?.preview.options[2].usage_fetched_at: i64
 $.clients[].launch_preview?.preview.options[2].usage_error.bytes: bytes[160]
 $.clients[].launch_preview?.preview.options[2].usage_error.len: usize
 $.clients[].launch_preview?.preview.options[2].usage_needs_consent: bool
+$.clients[].launch_preview?.preview.options[2].history[2][11]: optional
+$.clients[].launch_preview?.preview.options[2].history[2][11]?: u8
 $.clients[].launch_preview?.preview.installed[2]: bool
 $.clients[].launch_preview?.checked: i64
 $.clients[].snapshot_revision: optional

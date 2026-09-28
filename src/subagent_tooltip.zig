@@ -11,6 +11,9 @@ const background = @import("background_tasks.zig");
 const prices = @import("model_prices.zig");
 const updates = @import("updates.zig");
 const agents = @import("agents.zig");
+const agent_launcher = @import("agent_launcher.zig");
+const metadata = @import("account_preview.zig");
+const limit_history = @import("limit_history.zig");
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
 const Tone = enum {
     text,
@@ -25,6 +28,13 @@ const Tone = enum {
     blocked,
     idle,
     group,
+    /// Limit windows, in the launcher's usage colors.
+    limit,
+    unobserved,
+    remaining,
+    usage_ok,
+    usage_high,
+    usage_full,
     fn ansi(tone: Tone) []const u8 {
         return switch (tone) {
             .text => "\x1b[38;2;205;214;244m",
@@ -39,6 +49,12 @@ const Tone = enum {
             .blocked => "\x1b[38;2;243;139;168m",
             .idle => "\x1b[38;2;166;227;161m",
             .group => "\x1b[1;38;2;180;190;254m",
+            .limit => "\x1b[1;38;2;169;200;184m",
+            .unobserved => "\x1b[38;2;96;106;118m",
+            .remaining => "\x1b[38;2;56;60;78m",
+            .usage_ok => "\x1b[38;2;169;200;184m",
+            .usage_high => "\x1b[1;38;2;229;195;139m",
+            .usage_full => "\x1b[1;38;2;237;163;152m",
         };
     }
 };
@@ -363,16 +379,107 @@ fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversat
 }
 /// The runtime's release and any newer one downloaded for the next launch.
 pub const Release = struct { running: []const u8 = "", commit: []const u8 = "", staged: []const u8 = "" };
-pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, release: Release, cols: u16, rows: u16) !void {
+/// Account limits for the pane beside Top agents, from the launcher preview.
+pub const Accounts = struct {
+    options: [agents.Provider.all.len]agent_launcher.Option = @splat(.{}),
+    /// The provider the activity summarizer runs on.
+    system: ?agents.Provider = null,
+    /// Unix seconds; zero reads the clock.
+    now: i64 = 0,
+
+    /// The card only grows to hold the pane in terminals this wide.
+    const min_cols = 124;
+
+    fn any(accounts: Accounts) bool {
+        for (accounts.options) |option| switch (option.limits) {
+            .windows, .metered => return true,
+            .none, .rate_limited => {},
+        };
+        return false;
+    }
+};
+const Ranked = struct {
+    conversation: ?*const protocol.Conversation = null,
+    value: usage.View,
+    model: []const u8,
+    // Uncached input plus output in reference-model tokens; raw for unknown models.
+    equivalent: u64 = 0,
+};
+/// The first `shown` rows, keeping Corgi's own row in place of the last
+/// visible agent if needed.
+fn visible(out: []Ranked, ranked: []const Ranked, shown: usize) []Ranked {
+    @memcpy(out[0..shown], ranked[0..shown]);
+    const system_index = for (ranked, 0..) |item, i| {
+        if (item.conversation == null) break i;
+    } else unreachable;
+    if (system_index >= shown) out[shown - 1] = ranked[system_index];
+    return out[0..shown];
+}
+fn overviewBox(w: *std.Io.Writer, x: usize, y: usize, width: usize, height: usize) !void {
+    for (0..height) |row| {
+        try w.print("\x1b[{d};{d}H{s}{s}", .{ y + row + 1, x + 1, base, Tone.border.ansi() });
+        try w.writeAll(if (row == 0) "╭" else if (row == height - 1) "╰" else "│");
+        for (0..width - 2) |_| try w.writeAll(if (row == 0 or row == height - 1) "─" else " ");
+        try w.writeAll(if (row == 0) "╮" else if (row == height - 1) "╯" else "│");
+    }
+}
+fn overviewAgent(card: Card, row: usize, ranked_row: Ranked, reference: ?prices.Price, system_working: bool) !void {
+    var tokens: [64]u8 = undefined;
+    var equivalent_text: [48]u8 = undefined;
+    const model = if (ranked_row.model.len == 0)
+        "—"
+    else
+        ranked_row.model;
+    const equivalent = if (reference == null)
+        ""
+    else if (!ranked_row.value.known)
+        "—"
+    else if (prices.lookup(ranked_row.model) == null)
+        "?"
+    else
+        try std.fmt.bufPrint(&equivalent_text, "{s}{s}", .{ if (ranked_row.value.partial) "≥" else "", compact(&tokens, ranked_row.equivalent) });
+    const item = ranked_row.conversation orelse return card.overviewRow(
+        row,
+        if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
+        model,
+        ranked_row.value,
+        equivalent,
+        if (system_working) .working else .idle,
+    );
+    const agent_status = status(item.agent, false);
+    var text: [512]u8 = undefined;
+    var fallback: [80]u8 = undefined;
+    const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{
+        item.agent.providerName(),
+        item.agent.session[0..@min(8, item.agent.session.len)],
+    });
+    try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, .text);
+    try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, agent_status.tone.ansi(), agent_status.icon });
+}
+fn overviewFooter(card: Card, row: usize, hidden: usize, release: Release) !void {
+    var text: [64]u8 = undefined;
+    const more = if (hidden > 0) try std.fmt.bufPrint(&text, "... {d} more agents", .{hidden}) else "";
+    var running_buf: [64]u8 = undefined;
+    var staged_buf: [64]u8 = undefined;
+    var version_text: [160]u8 = undefined;
+    const running = updates.label(&running_buf, release.running, release.commit);
+    const staged = updates.label(&staged_buf, release.staged, "");
+    // Prefer the most complete version text that still leaves room for the agent count.
+    const room = (card.width - 6) -| (if (more.len > 0) sidebar.displayWidth(more) + 2 else 0);
+    const candidates = if (staged.len > 0) [_][]const u8{
+        try std.fmt.bufPrint(&version_text, "↑ Update {s} ready · relaunch Corgi", .{staged}),
+        "↑ Update ready · relaunch Corgi",
+        "↑ Update ready",
+    } else [_][]const u8{ if (running.len > 0) try std.fmt.bufPrint(&version_text, "Corgi {s}", .{running}) else "", running, "" };
+    const version_line = for (candidates) |candidate| {
+        if (sidebar.displayWidth(candidate) <= room) break candidate;
+    } else "";
+    try card.line(row, more, version_line, .muted, if (staged.len > 0) .idle else .muted);
+}
+pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, release: Release, accounts: Accounts, cols: u16, rows: u16) !void {
     if (cols < 40 or rows < 13) return;
     var total: usage.View = system_usage;
-    const Row = struct {
-        conversation: ?*const protocol.Conversation = null,
-        value: usage.View,
-        model: []const u8,
-        // Uncached input plus output in reference-model tokens; raw for unknown models.
-        equivalent: u64 = 0,
-    };
+    const Row = Ranked;
     var ranked: [max + 1]Row = undefined;
     ranked[0] = .{ .value = system_usage, .model = system_model };
     var count: usize = 1;
@@ -413,86 +520,263 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     }.less);
     // This total is observed runtime usage, rather than full session history.
     total.partial = false;
+    const shown: usize = @min(@min(10, count), rows - 9);
+    var reference_heading: [32]u8 = undefined;
+    const reference_label = if (reference) |price| try std.fmt.bufPrint(&reference_heading, "≈{s}", .{price.label}) else "";
+    if (cols >= Accounts.min_cols and accounts.any()) {
+        const overview: Overview = .{ .total = total, .reference = reference, .reference_label = reference_label, .system_working = system_working, .release = release };
+        if (try drawAccounts(w, ranked[0..count], shown, overview, accounts, cols, rows)) return;
+    }
     const width: usize = @min(88, cols);
     const x: usize = @min(1, cols - width);
     const y: usize = 2;
-    const shown: usize = @min(@min(10, count), rows - 9);
     const height: usize = 6 + shown;
-    // Keep Corgi's own row in the same list, replacing the last visible agent if needed.
-    const system_index = for (ranked[0..count], 0..) |item, i| {
-        if (item.conversation == null) break i;
-    } else unreachable;
-    if (system_index >= shown) ranked[shown - 1] = ranked[system_index];
+    var picked: [10]Row = undefined;
+    const rows_shown = visible(&picked, ranked[0..count], shown);
     try w.writeAll("\x1b7\x1b]8;;\x1b\\");
-    for (0..height) |row| {
-        try w.print("\x1b[{d};{d}H{s}{s}", .{ y + row + 1, x + 1, base, Tone.border.ansi() });
-        try w.writeAll(if (row == 0) "╭" else if (row == height - 1) "╰" else "│");
-        for (0..width - 2) |_| try w.writeAll(if (row == 0 or row == height - 1) "─" else " ");
-        try w.writeAll(if (row == 0) "╮" else if (row == height - 1) "╯" else "│");
-    }
+    try overviewBox(w, x, y, width, height);
     const card: Card = .{ .w = w, .x = x, .width = width };
-    var text: [512]u8 = undefined;
     var tokens: [64]u8 = undefined;
     try card.line(y + 1, "Observed tokens", overviewTokens(&tokens, total), .title, .tokens);
     const heading = y + 3;
-    const footer = y + height - 2;
-    var reference_heading: [32]u8 = undefined;
-    const reference_label = if (reference) |price| try std.fmt.bufPrint(&reference_heading, "≈{s}", .{price.label}) else "";
     try card.overviewRow(heading, "Top agents", "Model", null, reference_label, .text);
-    var equivalent_text: [48]u8 = undefined;
-    for (ranked[0..shown], 0..) |ranked_row, i| {
-        const model = if (ranked_row.model.len == 0)
-            "—"
+    for (rows_shown, 0..) |ranked_row, i| try overviewAgent(card, heading + 1 + i, ranked_row, reference, system_working);
+    try overviewFooter(card, y + height - 2, count - shown, release);
+    try w.writeAll("\x1b[0m\x1b8");
+}
+
+/// What both overview layouts draw besides the agent rows.
+const Overview = struct {
+    total: usage.View,
+    reference: ?prices.Price,
+    reference_label: []const u8,
+    system_working: bool,
+    release: Release,
+};
+/// One account's rule and the rows under it: its agents on the left and its
+/// limits in the pane on the right.
+const Section = struct {
+    provider: ?agents.Provider,
+    rows: [10]usize = undefined,
+    count: usize = 0,
+
+    fn option(section: Section, accounts: Accounts) ?agent_launcher.Option {
+        return accounts.options[@intFromEnum(section.provider orelse return null)];
+    }
+    /// Limit windows by length, shortest first.
+    fn windowOrder(section: Section, accounts: Accounts) [2]?usize {
+        const limits = switch ((section.option(accounts) orelse return .{ null, null }).limits) {
+            .windows => |windows| windows,
+            else => return .{ null, null },
+        };
+        var order: [2]?usize = .{ null, null };
+        var n: usize = 0;
+        for (limits, 0..) |window, i| if (window != null) {
+            order[n] = i;
+            n += 1;
+        };
+        if (n == 2 and (limits[1].?.minutes orelse 0) < (limits[0].?.minutes orelse 0)) order = .{ 1, 0 };
+        return order;
+    }
+    fn paneRows(section: Section, accounts: Accounts) usize {
+        if (section.provider == null) return 0;
+        const order = section.windowOrder(accounts);
+        return @max(1, @as(usize, @intFromBool(order[0] != null)) + @intFromBool(order[1] != null));
+    }
+    fn height(section: Section, accounts: Accounts) usize {
+        return 1 + @max(1, section.count, section.paneRows(accounts));
+    }
+    /// Limited and nearly full accounts first; metered and unread ones last.
+    fn urgency(section: Section, accounts: Accounts, now: i64) i32 {
+        const option_value = section.option(accounts) orelse return -1;
+        if (metadata.expired(option_value.usage_fetched_at, now)) return 0;
+        const limits = switch (option_value.limits) {
+            .windows => |windows| windows,
+            else => return 0,
+        };
+        var most: i32 = 0;
+        for (limits) |window| if (window) |value| {
+            most = @max(most, @as(i32, value.used) + 1);
+        };
+        return most;
+    }
+};
+/// Groups the visible rows by account. Accounts with limits keep a section
+/// even with no agents running, since other clients use them too.
+fn byAccount(out: *[agents.Provider.all.len + 1]Section, rows_shown: []const Ranked, accounts: Accounts, now: i64) []Section {
+    var n: usize = 0;
+    for (agents.Provider.all) |provider| {
+        out[n] = .{ .provider = provider };
+        n += 1;
+    }
+    out[n] = .{ .provider = null };
+    n += 1;
+    for (rows_shown, 0..) |row, i| {
+        const provider = if (row.conversation) |item| item.agent.provider else accounts.system;
+        const section = &out[if (provider) |value| @intFromEnum(value) else agents.Provider.all.len];
+        section.rows[section.count] = i;
+        section.count += 1;
+    }
+    var kept: usize = 0;
+    for (out[0..n]) |section| {
+        const shows = if (section.option(accounts)) |value| value.limits == .windows or value.limits == .metered else false;
+        if (section.count == 0 and !shows) continue;
+        out[kept] = section;
+        kept += 1;
+    }
+    const Order = struct {
+        accounts: Accounts,
+        now: i64,
+        fn less(order: @This(), lhs: Section, rhs: Section) bool {
+            return lhs.urgency(order.accounts, order.now) > rhs.urgency(order.accounts, order.now);
+        }
+    };
+    std.sort.insertion(Section, out[0..kept], Order{ .accounts = accounts, .now = now }, Order.less);
+    return out[0..kept];
+}
+/// The overview with a limits pane: the Top agents table is unchanged on the
+/// left, and each account's rule crosses both panes so its limits sit level
+/// with its agents. Returns false when the rows do not fit the terminal.
+fn drawAccounts(w: *std.Io.Writer, ranked: []const Ranked, most: usize, overview: Overview, accounts: Accounts, cols: u16, rows: u16) !bool {
+    const now = if (accounts.now != 0) accounts.now else std.time.timestamp();
+    var picked: [10]Ranked = undefined;
+    var storage: [agents.Provider.all.len + 1]Section = undefined;
+    var shown = most;
+    var rows_shown: []Ranked = undefined;
+    var sections: []Section = undefined;
+    var height: usize = undefined;
+    while (true) : (shown -= 1) {
+        rows_shown = visible(&picked, ranked, shown);
+        sections = byAccount(&storage, rows_shown, accounts, now);
+        height = 6;
+        for (sections) |section| height += section.height(accounts);
+        if (height + 3 <= rows) break;
+        if (shown == 1) return false;
+    }
+    const width: usize = 122;
+    const x: usize = @min(1, cols - width);
+    const y: usize = 2;
+    // The pane divider's column, and the pane's offset within the card.
+    const divider = x + 87;
+    const pane: usize = 87;
+    try w.writeAll("\x1b7\x1b]8;;\x1b\\");
+    try overviewBox(w, x, y, width, height);
+    try w.print("\x1b[{d};{d}H{s}{s}┴", .{ y + height, divider + 1, base, Tone.border.ansi() });
+    const full: Card = .{ .w = w, .x = x, .width = width };
+    const table: Card = .{ .w = w, .x = x, .width = 88 };
+    var tokens: [64]u8 = undefined;
+    try full.line(y + 1, "Observed tokens", overviewTokens(&tokens, overview.total), .title, .tokens);
+    const heading = y + 3;
+    try table.overviewRow(heading, "Top agents", "Model", null, overview.reference_label, .text);
+    try full.cell(heading, pane, 6, "Limits", .text, false);
+    try full.cell(heading, pane + 9, 20, "↻ resets in", .muted, true);
+    var row = heading + 1;
+    for (sections, 0..) |section, i| {
+        try accountRule(full, row, section, accounts, divider, i == 0);
+        const order = section.windowOrder(accounts);
+        const body = section.height(accounts) - 1;
+        for (0..body) |line| {
+            const at = row + 1 + line;
+            try w.print("\x1b[{d};{d}H{s}{s}│", .{ at + 1, divider + 1, base, Tone.border.ansi() });
+            if (line < section.count) try overviewAgent(table, at, rows_shown[section.rows[line]], overview.reference, overview.system_working);
+            const value = section.option(accounts) orelse continue;
+            if (line < 2) if (order[line]) |index| {
+                try limitLine(full, at, pane, value.limits.windows[index].?, value.history[index], !metadata.expired(value.usage_fetched_at, now), now);
+                continue;
+            };
+            if (line == 0) try full.cell(at, pane, 29, limitsMessage(value), .muted, false);
+        }
+        row += 1 + body;
+    }
+    try w.print("\x1b[{d};{d}H{s}{s}│", .{ row + 1, divider + 1, base, Tone.border.ansi() });
+    try overviewFooter(table, row, ranked.len - shown, overview.release);
+    try w.writeAll("\x1b[0m\x1b8");
+    return true;
+}
+/// A rule across the whole card naming the account, crossing the divider.
+fn accountRule(card: Card, row: usize, section: Section, accounts: Accounts, divider: usize, first: bool) !void {
+    const w = card.w;
+    try w.print("\x1b[{d};{d}H{s}{s}├", .{ row + 1, card.x + 1, base, Tone.border.ansi() });
+    for (0..card.width - 2) |_| try w.writeAll("─");
+    try w.writeAll("┤");
+    try w.print("\x1b[{d};{d}H{s}", .{ row + 1, divider + 1, if (first) "┬" else "┼" });
+    var label: [256]u8 = undefined;
+    const option = section.option(accounts);
+    const name = if (section.provider) |provider|
+        if (option != null and option.?.account.len > 0)
+            try std.fmt.bufPrint(&label, "{s} {s}", .{ provider.info().name, option.?.account.text() })
         else
-            ranked_row.model;
-        const equivalent = if (reference == null)
-            ""
-        else if (!ranked_row.value.known)
-            "—"
-        else if (prices.lookup(ranked_row.model) == null)
-            "?"
+            provider.info().name
+    else
+        "Other agents";
+    try w.print("\x1b[{d};{d}H{s}{s} ", .{ row + 1, card.x + 3, base, Tone.border.ansi() });
+    try w.print("{s}{s}", .{ base, Tone.group.ansi() });
+    try sidebar.writeEllipsis(w, name, 60);
+    if (option) |value| if (value.plan.len > 0) {
+        try w.print("{s}{s} · ", .{ base, Tone.muted.ansi() });
+        try sidebar.writeEllipsis(w, value.plan.text(), 16);
+    };
+    try w.print("{s} ", .{base});
+}
+fn limitsMessage(option: agent_launcher.Option) []const u8 {
+    return switch (option.limits) {
+        .metered => "metered · no limit",
+        .rate_limited => "Unavailable · server returned 429",
+        .none, .windows => if (option.usage_error.len > 0)
+            "Unavailable"
+        else if (option.signed_in == false)
+            "Not signed in"
         else
-            try std.fmt.bufPrint(&equivalent_text, "{s}{s}", .{ if (ranked_row.value.partial) "≥" else "", compact(&tokens, ranked_row.equivalent) });
-        if (ranked_row.conversation == null) {
-            try card.overviewRow(
-                heading + 1 + i,
-                if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
-                model,
-                ranked_row.value,
-                equivalent,
-                if (system_working) .working else .idle,
-            );
+            "Reading…",
+    };
+}
+const blocks = [_][]const u8{ "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█" };
+fn block(used: u8) []const u8 {
+    return blocks[std.math.clamp((@as(usize, used) * 8 + 50) / 100, 1, 8) - 1];
+}
+/// One window across the pane: its label, a spark from the window's start to
+/// its reset, the percent used, and the time until the reset. Every cell sits
+/// on one baseline: time left is a dim floor, and a slot with no reading is a
+/// gray bar at the last reading's level (usage only rises within a window), or
+/// the floor before the first reading.
+fn limitLine(card: Card, row: usize, pane: usize, window: metadata.Window, spark: limit_history.Spark, fresh: bool, now: i64) !void {
+    var label: [16]u8 = undefined;
+    try card.cell(row, pane, 2, window.label(&label), if (fresh) .limit else .muted, false);
+    const elapsed = elapsedCells(window, now);
+    var last: ?u8 = null;
+    for (0..limit_history.cells) |i| {
+        const at = pane + 3 + i;
+        if (i >= elapsed) {
+            try card.cell(row, at, 1, "▁", .remaining, false);
             continue;
         }
-        const item = ranked_row.conversation.?;
-        const row = heading + 1 + i;
-        const agent_status = status(item.agent, false);
-        var fallback: [80]u8 = undefined;
-        const name = if (item.agent.name.len > 0) item.agent.name else try std.fmt.bufPrint(&fallback, "{s} · {s}", .{
-            item.agent.providerName(),
-            item.agent.session[0..@min(8, item.agent.session.len)],
-        });
-        try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, .text);
-        try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, x + 4, base, agent_status.tone.ansi(), agent_status.icon });
+        // The current slot shows the latest reading even before it is recorded.
+        const reading = spark[i] orelse (if (fresh and i + 1 == elapsed) window.used else null);
+        const value = reading orelse {
+            try card.cell(row, at, 1, if (last) |previous| block(previous) else "▁", .unobserved, false);
+            continue;
+        };
+        last = value;
+        try card.cell(row, at, 1, block(value), if (fresh) usageTone(value) else .unobserved, false);
     }
-    const more = if (shown < count) try std.fmt.bufPrint(&text, "... {d} more agents", .{count - shown}) else "";
-    var running_buf: [64]u8 = undefined;
-    var staged_buf: [64]u8 = undefined;
-    var version_text: [160]u8 = undefined;
-    const running = updates.label(&running_buf, release.running, release.commit);
-    const staged = updates.label(&staged_buf, release.staged, "");
-    // Prefer the most complete version text that still leaves room for the agent count.
-    const room = (width - 6) -| (if (more.len > 0) sidebar.displayWidth(more) + 2 else 0);
-    const candidates = if (staged.len > 0) [_][]const u8{
-        try std.fmt.bufPrint(&version_text, "↑ Update {s} ready · relaunch Corgi", .{staged}),
-        "↑ Update ready · relaunch Corgi",
-        "↑ Update ready",
-    } else [_][]const u8{ if (running.len > 0) try std.fmt.bufPrint(&version_text, "Corgi {s}", .{running}) else "", running, "" };
-    const version_line = for (candidates) |candidate| {
-        if (sidebar.displayWidth(candidate) <= room) break candidate;
-    } else "";
-    try card.line(footer, more, version_line, .muted, if (staged.len > 0) .idle else .muted);
-    try w.writeAll("\x1b[0m\x1b8");
+    var percent: [8]u8 = undefined;
+    try card.cell(row, pane + 15, 4, try std.fmt.bufPrint(&percent, "{d}%", .{window.used}), if (!fresh) .muted else if (window.used >= 80) usageTone(window.used) else .title, true);
+    var countdown: [48]u8 = undefined;
+    var reset: [64]u8 = undefined;
+    const status_text = if (!fresh) "stale" else try std.fmt.bufPrint(&reset, "↻ {s}", .{window.countdown(now, &countdown) orelse "unknown"});
+    try card.cell(row, pane + 20, 9, status_text, .muted, false);
+}
+fn usageTone(used: u8) Tone {
+    return if (used >= 100) .usage_full else if (used >= 80) .usage_high else .usage_ok;
+}
+/// Spark cells that cover time already passed in the window.
+fn elapsedCells(window: metadata.Window, now: i64) usize {
+    const minutes = window.minutes orelse return 0;
+    const reset = window.reset_at orelse return 0;
+    if (minutes <= 0) return 0;
+    const span = minutes * 60;
+    const into = std.math.clamp(now - (reset - span), 0, span);
+    return @intCast(std.math.divCeil(i64, into * limit_history.cells, span) catch 0);
 }
 
 pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sidebar.Entry, cols: u16, rows: u16, px: u16, py: u16) !void {
@@ -659,7 +943,7 @@ test "idle children stay hidden while active descendants and usage remain" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Visible grandchild") != null);
     var overview: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer overview.deinit();
-    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", .{}, 100, 30);
+    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", .{}, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Hidden child") == null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Visible parent") != null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "50 tokens") != null);
@@ -684,7 +968,7 @@ test "role groups aggregate each descendant once and exclude other trees" {
     try std.testing.expect(!model.total.partial);
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "960 tokens") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi (Activity summarizer)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Top agents") != null);
@@ -839,7 +1123,7 @@ test "overview excludes detached history and shows Corgi activity" {
     for ([_]bool{ false, true }) |working| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
-        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", .{}, 100, 30);
+        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", .{}, .{}, 100, 30);
         const frame = output.written();
         for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
@@ -864,7 +1148,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     const system: usage.View = .{ .known = true, .tokens = .{ .input = 50 } };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", .{}, 100, 30);
+    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", .{}, .{}, 100, 30);
     const frame = output.written();
     try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6-luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6") != null);
@@ -876,7 +1160,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "Unreported task") != null);
     var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer small.deinit();
-    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", .{}, 64, 13);
+    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", .{}, .{}, 64, 13);
     // Narrow cards clip the label; the Corgi prefix stays visible.
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "○ Corgi") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Largest") != null);
@@ -886,7 +1170,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     all[0].usage.tokens = .{ .input = 10000, .cached_input = 9990 };
     var sorted: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer sorted.deinit();
-    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", .{}, 100, 30);
+    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", .{}, .{}, 100, 30);
     const sorted_frame = sorted.written();
     try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Child task").? < std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").?);
     try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").? < std.mem.indexOf(u8, sorted_frame, "Parent task").?);
@@ -898,11 +1182,129 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     }
     var capped: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer capped.deinit();
-    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", .{}, 100, 30);
+    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", .{}, .{}, 100, 30);
     try std.testing.expectEqual(@as(usize, 9), std.mem.count(u8, capped.written(), "Ranked task"));
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "Corgi (Activity summarizer)"));
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "25") != null);
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "... 3 more agents") != null);
+}
+
+fn testAccounts(now: i64) Accounts {
+    var accounts: Accounts = .{ .system = .codex, .now = now };
+    const claude = &accounts.options[@intFromEnum(agents.Provider.claude)];
+    claude.account.set("work@acme.dev");
+    claude.plan.set("max");
+    claude.usage_fetched_at = now;
+    claude.limits = .{ .windows = .{
+        .{ .minutes = 300, .used = 100, .reset_at = now + 42 * 60 },
+        .{ .minutes = 10080, .used = 63, .reset_at = now + 3 * 86400 + 16 * 3600 },
+    } };
+    claude.history[0] = .{ 5, 13, 24, 35, null, 61, 73, 86, 100, 100, null };
+    const codex = &accounts.options[@intFromEnum(agents.Provider.codex)];
+    codex.account.set("me@home.dev");
+    codex.usage_fetched_at = now;
+    codex.limits = .{ .windows = .{ .{ .minutes = 10080, .used = 84, .reset_at = now + 5 * 86400 + 14 * 3600 }, null } };
+    return accounts;
+}
+
+test "wide terminals put each account's limits beside its agents" {
+    const now = std.time.timestamp();
+    const claude_agent: protocol.Agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "c", .activity = "", .cwd = "", .tool_active = false };
+    var codex_agent = claude_agent;
+    codex_agent.provider = .codex;
+    var all = [_]protocol.Conversation{
+        .{ .id = @enumFromInt(1), .attachments = 1, .agent = claude_agent, .usage = .{ .known = true, .tokens = .{ .input = 900 } } },
+        .{ .id = @enumFromInt(2), .attachments = 1, .agent = codex_agent, .usage = .{ .known = true, .tokens = .{ .input = 500 } } },
+    };
+    all[0].agent.name = "Claude task";
+    all[1].agent.name = "Codex task";
+    const accounts = testAccounts(now);
+    var wide: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer wide.deinit();
+    try drawOverview(&wide.writer, &all, .{}, false, "gpt-6-luna", .{}, accounts, 130, 40);
+    const frame = wide.written();
+    for ([_][]const u8{ "Limits", "Claude work@acme.dev", "Codex me@home.dev", "100%", "↻ 42m", "84%", "┬", "┼", "┴" }) |text| {
+        try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
+    }
+    // The full 5h window sorts first, and each account's agents follow its rule.
+    const claude_rule = std.mem.indexOf(u8, frame, "Claude work@acme.dev").?;
+    const codex_rule = std.mem.indexOf(u8, frame, "Codex me@home.dev").?;
+    try std.testing.expect(claude_rule < std.mem.indexOf(u8, frame, "Claude task").?);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "Claude task").? < codex_rule);
+    try std.testing.expect(codex_rule < std.mem.indexOf(u8, frame, "Codex task").?);
+    // The summarizer runs on the Codex account.
+    try std.testing.expect(codex_rule < std.mem.indexOf(u8, frame, "Corgi (Activity summarizer)").?);
+    var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer narrow.deinit();
+    try drawOverview(&narrow.writer, &all, .{}, false, "gpt-6-luna", .{}, accounts, 100, 40);
+    try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "Limits") == null);
+    try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "Claude task") != null);
+}
+
+test "accounts without agents keep their limits and short terminals fall back" {
+    const now = std.time.timestamp();
+    const none: [0]protocol.Conversation = .{};
+    const accounts = testAccounts(now);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try drawOverview(&output.writer, &none, .{}, false, "gpt-6-luna", .{}, accounts, 130, 40);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Claude work@acme.dev") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "63%") != null);
+    var short: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer short.deinit();
+    try drawOverview(&short.writer, &none, .{}, false, "gpt-6-luna", .{}, accounts, 130, 13);
+    try std.testing.expect(std.mem.indexOf(u8, short.written(), "Limits") == null);
+    try std.testing.expect(std.mem.indexOf(u8, short.written(), "Top agents") != null);
+}
+
+fn expectSparkCell(line: []const u8, i: usize, glyph: []const u8, tone: Tone) !void {
+    var buf: [128]u8 = undefined;
+    // limitLine draws row 5, pane offset 87, spark from pane + 3, on a card at x = 0.
+    const expected = try std.fmt.bufPrint(&buf, "\x1b[6;{d}H{s}{s}{s}", .{ 4 + 87 + 3 + i, base, tone.ansi(), glyph });
+    try std.testing.expect(std.mem.indexOf(u8, line, expected) != null);
+}
+
+test "sparks ghost unobserved slots and floor the time left" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    const now: i64 = 1_000_000;
+    // 200 of 300 minutes have passed: 8 of 11 cells.
+    const window: metadata.Window = .{ .minutes = 300, .used = 52, .reset_at = now + 100 * 60 };
+    const spark: limit_history.Spark = .{ 4, 11, null, null, 33, 45, null, null, null, null, null };
+    try limitLine(.{ .w = &output.writer, .x = 0, .width = 122 }, 5, 87, window, spark, true, now);
+    const line = output.written();
+    try expectSparkCell(line, 0, "▁", .usage_ok);
+    try expectSparkCell(line, 1, "▁", .usage_ok);
+    // Missed slots show a gray bar at the last reading's level.
+    try expectSparkCell(line, 2, "▁", .unobserved);
+    try expectSparkCell(line, 3, "▁", .unobserved);
+    try expectSparkCell(line, 4, "▃", .usage_ok);
+    try expectSparkCell(line, 5, "▄", .usage_ok);
+    try expectSparkCell(line, 6, "▄", .unobserved);
+    // The current slot shows the latest reading before history records it.
+    try expectSparkCell(line, 7, "▄", .usage_ok);
+    for (8..11) |i| try expectSparkCell(line, i, "▁", .remaining);
+    try std.testing.expect(std.mem.indexOf(u8, line, "┈") == null);
+    try std.testing.expect(std.mem.indexOf(u8, line, "52%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, line, "↻ 1h 40m") != null);
+
+    // Before the first reading, missed slots are the gray floor.
+    var first: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer first.deinit();
+    const early: metadata.Window = .{ .minutes = 300, .used = 40, .reset_at = now + 220 * 60 };
+    try limitLine(.{ .w = &first.writer, .x = 0, .width = 122 }, 5, 87, early, @splat(null), true, now);
+    try expectSparkCell(first.written(), 0, "▁", .unobserved);
+    try expectSparkCell(first.written(), 1, "▁", .unobserved);
+    try expectSparkCell(first.written(), 2, "▃", .usage_ok);
+    try expectSparkCell(first.written(), 3, "▁", .remaining);
+
+    var stale: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer stale.deinit();
+    try limitLine(.{ .w = &stale.writer, .x = 0, .width = 122 }, 5, 87, window, spark, false, now);
+    try std.testing.expect(std.mem.indexOf(u8, stale.written(), "stale") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stale.written(), "↻") == null);
+    try expectSparkCell(stale.written(), 5, "▄", .unobserved);
+    try expectSparkCell(stale.written(), 7, "▄", .unobserved);
 }
 
 test "overview ranks by tokens of the priciest listed model" {
@@ -917,7 +1319,7 @@ test "overview ranks by tokens of the priciest listed model" {
     all[2].agent.name = "Unpriced task";
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, .{}, 100, 30);
     const frame = output.written();
     // Haiku 42k raw is 8.4k in Opus tokens, below Opus's own 11k.
     try std.testing.expect(std.mem.indexOf(u8, frame, "Opus task").? < std.mem.indexOf(u8, frame, "Haiku task").?);
@@ -1017,17 +1419,17 @@ test "overview footer shows the running release and a staged update" {
     const all = [_]protocol.Conversation{.{ .id = @enumFromInt(1), .attachments = 1, .agent = agent }};
     var current: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer current.deinit();
-    try drawOverview(&current.writer, &all, .{}, false, "", .{ .running = "20260925T183012Z-be82c7b9090a", .commit = "be82c7b9090a5f7e" }, 100, 30);
+    try drawOverview(&current.writer, &all, .{}, false, "", .{ .running = "20260925T183012Z-be82c7b9090a", .commit = "be82c7b9090a5f7e" }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, current.written(), "Corgi 2026-09-25 · be82c7b") != null);
     try std.testing.expect(std.mem.indexOf(u8, current.written(), "Update") == null);
     var ready: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer ready.deinit();
     const release: Release = .{ .running = "20260925T183012Z-be82c7b9090a", .staged = "20260926T090000Z-a1b2c3d4e5f6" };
-    try drawOverview(&ready.writer, &all, .{}, false, "", release, 100, 30);
+    try drawOverview(&ready.writer, &all, .{}, false, "", release, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, ready.written(), "↑ Update 2026-09-26 · a1b2c3d ready · relaunch Corgi") != null);
     var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer narrow.deinit();
-    try drawOverview(&narrow.writer, &all, .{}, false, "", release, 40, 13);
+    try drawOverview(&narrow.writer, &all, .{}, false, "", release, .{}, 40, 13);
     try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "↑ Update ready · relaunch Corgi") != null);
 }
 
@@ -1036,6 +1438,6 @@ test "overview footer names a development build's commit" {
     const all = [_]protocol.Conversation{.{ .id = @enumFromInt(1), .attachments = 1, .agent = agent }};
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi 0.1.0-dev · 0123abc-dirty") != null);
 }

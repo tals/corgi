@@ -2827,6 +2827,7 @@ pub const Controller = struct {
             .release = .{ .running = s.runtime.release_version, .commit = s.runtime.release_commit, .staged = s.runtime.staged_version },
             .system_usage = s.runtime.system_usage,
             .system_working = s.runtime.system_working,
+            .accounts = .{ .options = s.launch_previews.preview.options, .system = s.runtime.inference.provider },
             .workspaces = s.workspaceEntries(&workspace_storage),
             .workspace_offset = s.workspace_offset,
         });

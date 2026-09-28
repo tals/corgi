@@ -403,6 +403,7 @@ test {
     _ = @import("transcript.zig");
     _ = @import("usage.zig");
     _ = @import("live_usage.zig");
+    _ = @import("limit_history.zig");
     _ = @import("subagent_tooltip.zig");
     _ = @import("preferences.zig");
     _ = @import("usage_worker.zig");
