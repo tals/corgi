@@ -27,10 +27,11 @@ pub const State = struct {
     /// Viewers hide expired windows themselves; this only explains why.
     pub fn display(s: State, now: i64) metadata.Info {
         var result = s.info;
-        if (s.rate_limited and result.usage_error.len == 0) result.usage_error.set("server returned 429");
+        if (s.rate_limited and result.usage_error.len == 0) result.usage_error = .ascii("server returned 429");
         switch (result.limits) {
-            .windows => if (metadata.expired(result.usage_fetched_at, now) and result.usage_error.len == 0)
-                result.usage_error.set(if (result.usage_fetched_at <= 0) "fetch time unknown" else "last success 10m+ ago"),
+            .windows => if (metadata.expired(result.usage_fetched_at, now) and result.usage_error.len == 0) {
+                result.usage_error = .ascii(if (result.usage_fetched_at <= 0) "fetch time unknown" else "last success 10m+ ago");
+            },
             .none => if (s.rate_limited) {
                 result.limits = .rate_limited;
             },
@@ -41,7 +42,7 @@ pub const State = struct {
 
     pub fn failed(s: *State, reason: []const u8) void {
         s.rate_limited = false;
-        s.info.usage_error.set(reason);
+        s.info.usage_error = .ascii(reason);
     }
 
     pub fn failedResponse(s: *State, status: u16) void {
@@ -154,7 +155,7 @@ test "HTTP retry gate honors seconds and dates with a one-minute floor" {
 test "partial account refresh retains usage until a fresh reading or sign-out" {
     var state: State = .{};
     var fresh: metadata.Info = .{ .signed_in = true };
-    fresh.account.set("user@example.com");
+    fresh.account = .ascii("user@example.com");
     fresh.limits = .{ .windows = .{ .{ .minutes = 300, .used = 12, .reset_at = 1700001000 }, null } };
     state.update(fresh, 1000);
     fresh.limits = .none;

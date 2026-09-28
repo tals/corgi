@@ -162,9 +162,9 @@ pub const Worker = struct {
             // Skip reads for missing providers; their rows are hidden.
             if (result.installed[0]) {
                 if (pool.configuredModel(job.cwd.text(), &w.stopping)) |model| {
-                    result.options[0].model.set(model.text());
-                    result.options[0].source.set("Effective Codex settings");
-                } else |_| result.options[0].source.set("Model resolved by Codex at startup");
+                    result.options[0].model = .ascii(model.text());
+                    result.options[0].source = .ascii("Effective Codex settings");
+                } else |_| result.options[0].source = .ascii("Model resolved by Codex at startup");
                 if (codexAccount(&pool, &w.stopping)) |account| {
                     result.options[0].signed_in = account.signed_in;
                     result.options[0].account = account.account;
@@ -173,7 +173,7 @@ pub const Worker = struct {
                     result.options[0].usage_fetched_at = account.usage_fetched_at;
                     result.options[0].usage_error = account.usage_error;
                     result.options[0].history = limit_history.update(.codex, account, &w.stopping);
-                } else |_| result.options[0].usage_error.set("account read failed");
+                } else |_| result.options[0].usage_error = .ascii("account read failed");
             }
             if (result.installed[1]) {
                 result.options[1] = claude(job.cwd.text());
@@ -234,25 +234,25 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     // Never invoke `claude auth status` here: the CLI can perform its own
     // prompt-capable Keychain read outside our helper's interaction guard.
     var info: metadata.Info = .{};
-    info.usage_error.set("credentials unavailable");
+    info.usage_error = .ascii("credentials unavailable");
     if (os.env("ANTHROPIC_API_KEY") != null or os.env("ANTHROPIC_AUTH_TOKEN") != null) {
         info.signed_in = true;
-        info.account.set("API key");
-        info.plan.set("API");
+        info.account = .ascii("API key");
+        info.plan = .ascii("API");
         info.limits = .metered;
         info.usage_error = .{};
         return info;
     }
     if (os.env("CLAUDE_CODE_OAUTH_TOKEN") != null) {
         info.signed_in = true;
-        info.account.set("OAuth token");
-        info.usage_error.set("token usage unsupported");
+        info.account = .ascii("OAuth token");
+        info.usage_error = .ascii("token usage unsupported");
         return info;
     }
     for ([_][:0]const u8{ "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY" }) |name| {
         if (std.mem.eql(u8, os.env(name) orelse "", "1")) {
             info.signed_in = true;
-            info.account.set("External provider");
+            info.account = .ascii("External provider");
             info.limits = .metered;
             info.usage_error = .{};
             return info;
@@ -272,10 +272,10 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     const credentials = common.str(response_json.value, "credentials");
     if (credentials.len == 0) {
         if (info.usage_needs_consent) {
-            info.account.set("Access required");
+            info.account = .ascii("Access required");
         } else {
             info.signed_in = false;
-            info.account.set("Not signed in");
+            info.account = .ascii("Not signed in");
         }
         return info;
     }
@@ -283,10 +283,10 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     defer json.deinit();
     const oauth = common.field(json.value, "claudeAiOauth");
     const subscription_type = common.str(oauth, "subscriptionType");
-    if (info.plan.len == 0) info.plan.set(subscription_type);
+    if (info.plan.len == 0) info.plan = .ascii(subscription_type);
     if (std.mem.eql(u8, subscription_type, "max")) {
         const tier = common.str(oauth, "rateLimitTier");
-        if (std.mem.endsWith(u8, tier, "_max_5x")) info.plan.set("Max 5x") else if (std.mem.endsWith(u8, tier, "_max_20x")) info.plan.set("Max 20x");
+        if (std.mem.endsWith(u8, tier, "_max_5x")) info.plan = .ascii("Max 5x") else if (std.mem.endsWith(u8, tier, "_max_20x")) info.plan = .ascii("Max 20x");
     }
     const token = common.str(oauth, "accessToken");
     if (token.len == 0) {
@@ -299,7 +299,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     // Restrict header syntax; the token goes through stdin, never process argv.
     for (token) |ch| if (!std.ascii.isAlphanumeric(ch) and ch != '-' and ch != '_' and ch != '.') return info;
     var cache = account_cache.Cache.open("claude", token, stopping) catch {
-        info.usage_error.set("cache read failed");
+        info.usage_error = .ascii("cache read failed");
         return info;
     };
     defer cache.close();
@@ -359,7 +359,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
                     for ([_][]const u8{ "emailAddress", "email_address", "email" }) |key| {
                         const email = common.str(account, key);
                         if (email.len > 0) {
-                            cache.state.info.account.set(email);
+                            cache.state.info.account = .ascii(email);
                             break;
                         }
                     }
@@ -367,7 +367,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
             }
         }
     }
-    if (cache.state.info.account.len == 0) cache.state.info.account.set("Signed in");
+    if (cache.state.info.account.len == 0) cache.state.info.account = .ascii("Signed in");
     cache.save() catch |err| log.warn("claude account cache save failed: {}", .{err});
     return cache.state.display(std.time.timestamp());
 }
@@ -438,7 +438,7 @@ fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stoppi
 }
 fn claude(cwd: []const u8) Option {
     var result: Option = .{};
-    result.source.set("Account default / provider selection");
+    result.source = .ascii("Account default / provider selection");
     const home = os.env("HOME") orelse "";
     const root = os.env("CLAUDE_CONFIG_DIR") orelse std.fs.path.join(a, &.{ home, ".claude" }) catch return result;
     defer if (os.env("CLAUDE_CONFIG_DIR") == null) a.free(root);
@@ -446,8 +446,8 @@ fn claude(cwd: []const u8) Option {
     readModel(&result, cwd, ".claude/settings.json", "Project settings (if trusted)");
     readModel(&result, cwd, ".claude/settings.local.json", "Local settings (if trusted)");
     if (os.env("ANTHROPIC_MODEL")) |model| if (model.len > 0) {
-        result.model.set(model);
-        result.source.set("ANTHROPIC_MODEL");
+        result.model = .ascii(model);
+        result.source = .ascii("ANTHROPIC_MODEL");
     };
     readModel(&result, "/Library/Application Support/ClaudeCode", "managed-settings.json", "Managed settings");
     return result;
@@ -469,8 +469,8 @@ fn readModel(out: *Option, root: []const u8, relative: []const u8, source: []con
 fn applyModel(out: *Option, value: std.json.Value, source: []const u8) void {
     const model = agents.str(value, "model");
     if (model.len == 0) return;
-    out.model.set(model);
-    out.source.set(source);
+    out.model = .ascii(model);
+    out.source = .ascii(source);
 }
 pub const Menu = struct {
     workspace: WorkspaceId,
@@ -554,14 +554,14 @@ pub const Menu = struct {
     pub fn shown(m: *const Menu, row: Row) bool {
         if (row == .manage) return true;
         if (row == .add) return m.managing;
-        if (row.custom()) |index| return m.commands[index].len > 0 and (m.managing or !m.commands[index].hidden);
+        if (row.custom()) |index| return m.commands[index].command.len > 0 and (m.managing or !m.commands[index].hidden);
         if (row == .terminal) return !m.managing;
         if (m.managing) return true;
         const index = @intFromEnum(row.agent().?);
         return m.preview.installed[index] and !m.hidden[index] and m.preview.options[index].signed_in != false;
     }
     pub fn emptyCommand(m: *const Menu) ?usize {
-        for (m.commands, 0..) |entry, i| if (entry.len == 0) return i;
+        for (m.commands, 0..) |entry, i| if (entry.command.len == 0) return i;
         return null;
     }
     pub fn countRows(m: *const Menu) usize {
@@ -1035,8 +1035,8 @@ test "account preview shows identities or auth mode and never credential fields"
 test "launcher fits long content and keeps usage hit targets aligned" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .claude, .last = .codex, .pinned = true };
     menu.preview.pending = false;
-    menu.preview.options[0].model.set("a-long-model-name-that-needs-room");
-    menu.preview.options[1].account.set("person.with.a.long.name@example.com");
+    menu.preview.options[0].model = .ascii("a-long-model-name-that-needs-room");
+    menu.preview.options[1].account = .ascii("person.with.a.long.name@example.com");
     menu.preview.options[1].usage_needs_consent = true;
     const widths = menu.columns(200);
     try std.testing.expectEqual(@as(u16, 35), widths[2]);
@@ -1065,9 +1065,9 @@ test "single-line limit groups survive narrow terminal rendering" {
     } };
     for (&menu.preview.options) |*option| {
         option.usage_fetched_at = now;
-        option.account.set("toasty.tal@gmail.com");
-        option.model.set("gpt-6-astra");
-        option.plan.set("pro");
+        option.account = .ascii("toasty.tal@gmail.com");
+        option.model = .ascii("gpt-6-astra");
+        option.plan = .ascii("pro");
     }
     for ([_]u16{ 60, 80, 100, 124 }) |cols| {
         const side = sidebar.View.init(cols, 24, true, 0, 0);
@@ -1116,7 +1116,7 @@ test "viewer expires a delivered usage reading after ten minutes" {
     try std.testing.expectEqualStrings("Metered", menu.usageCell(.codex).fallback.text());
     option.limits = .rate_limited;
     option.usage_fetched_at = 0;
-    option.usage_error.set("server returned 429");
+    option.usage_error = .ascii("server returned 429");
     try std.testing.expectEqualStrings("Unavailable · server returned 429", menu.usageCell(.codex).fallback.text());
 }
 
@@ -1189,9 +1189,9 @@ test "digit shortcuts enumerate visible agents and exclude terminal and manageme
 test "custom picker cells preserve account scope and permission state" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .custom0, .last = .claude, .pinned = true };
     menu.preview.pending = false;
-    menu.preview.options[1].account.set("personal@example.com");
-    menu.preview.options[1].plan.set("Max");
-    menu.preview.options[1].model.set("opus");
+    menu.preview.options[1].account = .ascii("personal@example.com");
+    menu.preview.options[1].plan = .ascii("Max");
+    menu.preview.options[1].model = .ascii("opus");
     try menu.commands[0].set("claude --dangerously-skip-permissions");
     menu.commands[0].semantics = launch_command.analyze(menu.commands[0].text(), "/tmp");
     var values = menu.customCells(0);
@@ -1199,7 +1199,7 @@ test "custom picker cells preserve account scope and permission state" {
     try std.testing.expectEqualStrings("✓", values[1]);
     try std.testing.expectEqualStrings("Max", values[4]);
     menu.commands[0].semantics.default_account = false;
-    menu.commands[0].semantics.account.set("work@example.com (cached)");
+    menu.commands[0].semantics.account = .ascii("work@example.com (cached)");
     values = menu.customCells(0);
     try std.testing.expectEqualStrings("work@example.com (cached)", values[3]);
     try std.testing.expectEqualStrings("—", values[4]);

@@ -4,6 +4,10 @@ pub const State = enum { unknown, initializing, idle, working, blocked, done };
 pub const Attention = enum { none, finished, needs_input };
 pub const providers = @import("providers.zig");
 pub const Provider = providers.Provider;
+const bounded_text = @import("bounded_text.zig");
+/// Agent text: names, ids, labels.
+pub const Text = bounded_text.BoundedText(160);
+pub const Path = bounded_text.Path;
 pub const Subagents = struct {
     running: u32 = 0,
     blocked: u32 = 0,
@@ -19,29 +23,22 @@ fn permissionReview(provider: Provider) bool {
 }
 pub const Agent = struct {
     subagents: Subagents = .{},
-    name: [160]u8 = @splat(0),
-    name_len: usize = 0,
+    name: Text = .{},
     observation: observation.State = .{},
-    transcript: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
-    transcript_len: usize = 0,
-    turn: [160]u8 = .{0} ** 160,
-    turn_len: usize = 0,
+    transcript: Path = .{},
+    turn: Text = .{},
     /// Bumped by `setTurn` whenever `turn` changes. Starts at 1 so a request
     /// restored without one (0) is stale.
     turn_epoch: u32 = 1,
-    last_finished_turn: [160]u8 = .{0} ** 160,
-    last_finished_turn_len: usize = 0,
+    last_finished_turn: Text = .{},
     finished_since_activity: bool = false,
-    recent: [160]u8 = .{0} ** 160,
-    recent_len: usize = 0,
+    recent: Text = .{},
     /// Null until a known agent is identified in the pane.
     provider: ?Provider = null,
     state: State = .unknown,
     attention: Attention = .none,
-    session: [160]u8 = .{0} ** 160,
-    session_len: usize = 0,
-    activity: [160]u8 = .{0} ** 160,
-    activity_len: usize = 0,
+    session: Text = .{},
+    activity: Text = .{},
     activity_generation: u64 = 0,
     // Last lifecycle evidence for Claude's direct activity. A delayed
     // transcript update must not replace a label from a newer hook.
@@ -53,50 +50,43 @@ pub const Agent = struct {
     /// When the daemon last applied protocol evidence, in clock.zig
     /// microseconds. Freshness reads this; ordering reads `last_seq`.
     protocol_at: i64 = 0,
-    tool: [160]u8 = .{0} ** 160,
-    tool_len: usize = 0,
+    tool: Text = .{},
     tool_active: bool = false,
     // Codex runs PermissionRequest hooks before automatic review. Only an
     // actual prompt (or a protocol waiting flag) establishes human attention.
     permission_review: ?u8 = null,
     compacting: bool = false,
-    cwd: [std.fs.max_path_bytes]u8 = .{0} ** std.fs.max_path_bytes,
-    cwd_len: usize = 0,
+    cwd: Path = .{},
     last_seq: i64 = 0,
     changed_at: i64 = 0,
     updated_at: i64 = 0,
     pub fn setName(a: *Agent, value: []const u8) void {
-        var n = @min(value.len, a.name.len);
-        while (n > 0 and !std.unicode.utf8ValidateSlice(value[0..n])) n -= 1;
-        @memcpy(a.name[0..n], value[0..n]);
-        a.name_len = n;
+        a.name = .initTruncated(value);
     }
     pub fn displayName(a: *const Agent) []const u8 {
-        return a.name[0..a.name_len];
+        return a.name.text();
     }
     pub fn setActivity(a: *Agent, value: []const u8) void {
-        a.activity_len = firstLine(&a.activity, value);
+        a.activity = firstLine(value);
     }
     pub fn sessionId(a: *const Agent) []const u8 {
-        return a.session[0..a.session_len];
+        return a.session.text();
     }
     pub fn toolLabel(a: *const Agent) []const u8 {
-        return a.tool[0..a.tool_len];
+        return a.tool.text();
     }
     pub fn directory(a: *const Agent) []const u8 {
-        return a.cwd[0..a.cwd_len];
+        return a.cwd.text();
     }
     pub fn reset(a: *Agent) void {
         const receipts = a.observation;
         const recent = a.recent;
-        const recent_len = a.recent_len;
         const epoch = a.turn_epoch;
         a.* = .{};
         a.turn_epoch = epoch +% 1;
         a.observation.completed = receipts.completed;
         a.observation.read = receipts.read;
         a.recent = recent;
-        a.recent_len = recent_len;
         a.attention = if (a.observation.unread()) .finished else .none;
     }
     pub fn acknowledge(a: *Agent) void {
@@ -109,25 +99,23 @@ pub const Agent = struct {
         a.attention = if (a.observation.unread()) .finished else .none;
     }
     pub fn turnId(a: *const Agent) []const u8 {
-        return a.turn[0..a.turn_len];
+        return a.turn.text();
     }
     /// The one writer of `turn`, so "the turn changed" is one event.
     pub fn setTurn(a: *Agent, turn: []const u8) void {
-        var next: [160]u8 = undefined;
-        const len = clean(&next, turn);
-        if (std.mem.eql(u8, next[0..len], a.turnId())) return;
-        @memcpy(a.turn[0..len], next[0..len]);
-        a.turn_len = len;
+        const next: Text = .ascii(turn);
+        if (std.mem.eql(u8, next.text(), a.turnId())) return;
+        a.turn = next;
         a.turn_epoch +%= 1;
     }
     pub fn transcriptPath(a: *const Agent) []const u8 {
-        return a.transcript[0..a.transcript_len];
+        return a.transcript.text();
     }
     pub fn recentLabel(a: *const Agent) []const u8 {
-        return a.recent[0..a.recent_len];
+        return a.recent.text();
     }
     pub fn finishedTurn(a: *const Agent, turn: []const u8) bool {
-        return if (turn.len > 0) std.mem.eql(u8, turn, a.last_finished_turn[0..a.last_finished_turn_len]) else a.finished_since_activity;
+        return if (turn.len > 0) std.mem.eql(u8, turn, a.last_finished_turn.text()) else a.finished_since_activity;
     }
     pub fn beginTurn(a: *Agent, turn: []const u8) void {
         a.permission_review = null;
@@ -141,22 +129,22 @@ pub const Agent = struct {
     /// A baseline remembers the turn but creates neither a receipt nor a chime.
     pub fn recordCompletion(a: *Agent, turn: []const u8, outcome: observation.Outcome, source: observation.Source, baseline: bool) bool {
         if (a.finishedTurn(turn)) return false;
-        a.last_finished_turn_len = clean(&a.last_finished_turn, turn);
+        a.last_finished_turn = .ascii(turn);
         if (baseline) return false;
         a.observation.finish(outcome, source);
         a.attention = .finished;
         return true;
     }
     pub fn endTurn(a: *Agent, turn: []const u8, outcome: observation.Outcome, source: observation.Source, now: i64) bool {
-        if (turn.len > 0 and a.turn_len > 0 and !std.mem.eql(u8, turn, a.turnId())) return false;
+        if (turn.len > 0 and a.turn.len > 0 and !std.mem.eql(u8, turn, a.turnId())) return false;
         const recorded = a.recordCompletion(if (turn.len > 0) turn else a.turnId(), outcome, source, false);
         a.finished_since_activity = true;
         a.permission_review = null;
         a.observation.pending_stop = false;
         a.state = .idle;
         a.compacting = false;
-        a.activity_len = 0;
-        a.tool_len = 0;
+        a.activity = .{};
+        a.tool = .{};
         a.tool_active = false;
         if (recorded) a.changed_at = now;
         return recorded and outcome == .completed;
@@ -167,8 +155,8 @@ pub const Agent = struct {
         a.permission_review = null;
         a.state = .idle;
         a.compacting = false;
-        a.activity_len = 0;
-        a.tool_len = 0;
+        a.activity = .{};
+        a.tool = .{};
         a.tool_active = false;
         a.changed_at = now;
     }
@@ -185,19 +173,16 @@ pub const Agent = struct {
         const reported_turn = hook.turn;
         // A conversation actor never changes identity. The attachment router
         // finds or creates a different actor when the provider selects a session.
-        if (a.session_len > 0 and session.len > 0 and !std.mem.eql(u8, a.sessionId(), session)) return null;
+        if (a.session.len > 0 and session.len > 0 and !std.mem.eql(u8, a.sessionId(), session)) return null;
         if (a.provider != null and a.provider != provider) return null;
         // A repeated end signal must not revive a completed turn or replace
         // a newer turn currently running in the same session.
         if (event == .stop or event == .interrupt) {
             if (a.finishedTurn(reported_turn)) return null;
-            if (reported_turn.len > 0 and a.turn_len > 0 and !std.mem.eql(u8, reported_turn, a.turnId())) return null;
+            if (reported_turn.len > 0 and a.turn.len > 0 and !std.mem.eql(u8, reported_turn, a.turnId())) return null;
         }
         const path = hook.transcript;
-        if (std.fs.path.isAbsolute(path) and path.len <= a.transcript.len) {
-            @memcpy(a.transcript[0..path.len], path);
-            a.transcript_len = path.len;
-        }
+        if (std.fs.path.isAbsolute(path)) a.transcript = Path.init(path) catch a.transcript;
         // Another attachment may announce the same conversation. Refresh its
         // transcript without resetting an active turn or pending confirmation.
         if (start and a.state != .unknown and a.state != .done) return false;
@@ -211,14 +196,11 @@ pub const Agent = struct {
         };
         if (start or next == .working or next == .blocked) a.finished_since_activity = false;
         const turn = hook.turn;
-        if (turn.len > 0 and turn.len <= a.turn.len) a.setTurn(turn);
+        if (turn.len > 0 and turn.len <= Text.capacity) a.setTurn(turn);
         a.last_seq = seq;
         a.permission_review = if (event == .permission and permissionReview(provider)) 0 else null;
         a.provider = provider;
-        if (session.len > 0 and session.len <= a.session.len) {
-            @memcpy(a.session[0..session.len], session);
-            a.session_len = session.len;
-        }
+        if (session.len > 0) a.session = Text.init(session) catch a.session;
         const old = a.state;
         a.observation.source = .hook;
         a.observation.pending_stop = event == .stop;
@@ -227,45 +209,42 @@ pub const Agent = struct {
         a.compacting = event == .compact_start;
         const tool = hook.tool;
         const cwd = hook.cwd;
-        if (start) a.cwd_len = 0;
-        if (std.fs.path.isAbsolute(cwd) and cwd.len <= a.cwd.len) {
-            @memcpy(a.cwd[0..cwd.len], cwd);
-            a.cwd_len = cwd.len;
-        }
+        if (start) a.cwd = .{};
+        if (std.fs.path.isAbsolute(cwd)) a.cwd = Path.init(cwd) catch a.cwd;
         if (event == .tool_start or event == .permission) {
             a.tool_active = true;
-            if (tool.len > 0) a.tool_len = clean(&a.tool, tool);
+            if (tool.len > 0) a.tool = .ascii(tool);
         } else if (hook.permission_notification) {
             a.tool_active = true;
         } else if (event == .tool_finish or event == .tool_failure) {
             if (tool.len == 0 or std.mem.eql(u8, tool, a.toolLabel())) {
-                a.tool_len = 0;
+                a.tool = .{};
                 a.tool_active = false;
             }
         } else if (next != .blocked) {
-            a.tool_len = 0;
+            a.tool = .{};
             a.tool_active = false;
         }
         if (event == .tool_finish or event == .tool_failure) {
-            var detail: [160]u8 = undefined;
-            a.recent_len = clean(&a.recent, std.fmt.bufPrint(&detail, "{s}: {s}", .{ if (event == .tool_failure) "failed" else "used", tool }) catch tool);
+            var detail: [Text.capacity]u8 = undefined;
+            a.recent = .ascii(std.fmt.bufPrint(&detail, "{s}: {s}", .{ if (event == .tool_failure) "failed" else "used", tool }) catch tool);
         }
         // Hooks update lifecycle and tool indicators; only the summary worker
         // supplies activity text. Keep that summary through tool transitions.
         if (start or event == .prompt or event == .interrupt or event == .session_end)
-            a.activity_len = 0;
+            a.activity = .{};
         if (provider.info().prompt_turns) {
             // Claude hooks carry no turn id. The prompt id keys inferred labels
             // only; Stop matching above deliberately stays turn-agnostic.
             const prompt = hook.prompt;
-            if (prompt.len > 0 and prompt.len <= a.turn.len and !std.mem.eql(u8, prompt, a.turnId())) {
+            if (prompt.len > 0 and prompt.len <= Text.capacity and !std.mem.eql(u8, prompt, a.turnId())) {
                 a.setTurn(prompt);
                 a.activity_inferred = false;
             }
             if (start or event == .prompt) a.activity_inferred = false;
             a.activity_at = now;
             if (event == .tool_start and !hook.asking and !a.activity_inferred) {
-                var label: [160]u8 = undefined;
+                var label: [Text.capacity]u8 = undefined;
                 a.setActivity(toolActivity(&label, hook.tool, hook.description, hook.target));
             }
         }
@@ -355,12 +334,12 @@ pub fn toolActivity(buffer: []u8, tool: []const u8, description: []const u8, tar
     return buffer[0..n];
 }
 /// First line only, cut on a codepoint boundary, without control bytes.
-fn firstLine(out: []u8, value: []const u8) usize {
+fn firstLine(value: []const u8) Text {
     const line = std.mem.trim(u8, value[0 .. std.mem.indexOfScalar(u8, value, '\n') orelse value.len], " \t\r");
-    var n = @min(line.len, out.len);
-    while (n > 0 and !std.unicode.utf8ValidateSlice(line[0..n])) n -= 1;
-    for (line[0..n], 0..) |ch, i| out[i] = if (ch < 32 or ch == 127) ' ' else ch;
-    return n;
+    var buf: [Text.capacity]u8 = undefined;
+    const n = @min(line.len, buf.len);
+    for (line[0..n], buf[0..n]) |ch, *out| out.* = if (ch < 32 or ch == 127) ' ' else ch;
+    return .initTruncated(buf[0..n]);
 }
 pub fn str(v: std.json.Value, key: []const u8) []const u8 {
     if (v != .object) return "";
@@ -441,7 +420,7 @@ test "attention is edge triggered, sticky, ordered, and separate from activity" 
 }
 test "stale-session hooks cannot corrupt parent state" {
     var a: Agent = .{};
-    a.session_len = clean(&a.session, "parent");
+    a.session = .ascii("parent");
     try std.testing.expectEqual(null, a.observeHook(.codex, .{ .kind = .stop, .session = "child" }, 10, false, 10));
     try std.testing.expectEqual(State.unknown, a.state);
 }
@@ -450,20 +429,20 @@ test "working hooks leave activity empty for the viewer animation" {
     var agent: Agent = .{};
     _ = agent.observeHook(.codex, .{ .kind = .prompt, .session = "parent" }, 1, false, 1);
     try std.testing.expectEqual(State.working, agent.state);
-    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity.len);
     _ = agent.observeHook(.codex, .{ .kind = .tool_start, .session = "parent", .tool = "Bash" }, 2, false, 2);
     try std.testing.expect(agent.tool_active);
-    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity.len);
     _ = agent.observeHook(.codex, .{ .kind = .tool_finish, .session = "parent", .tool = "Bash" }, 3, false, 3);
     try std.testing.expectEqual(State.working, agent.state);
-    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
-    agent.activity_len = clean(&agent.activity, "Tracing pane focus");
+    try std.testing.expectEqual(@as(usize, 0), agent.activity.len);
+    agent.activity = .ascii("Tracing pane focus");
     _ = agent.observeHook(.codex, .{ .kind = .tool_start, .session = "parent", .tool = "Bash", .description = "Run command" }, 4, false, 4);
-    try std.testing.expectEqualStrings("Tracing pane focus", agent.activity[0..agent.activity_len]);
+    try std.testing.expectEqualStrings("Tracing pane focus", agent.activity.text());
     _ = agent.observeHook(.codex, .{ .kind = .tool_finish, .session = "parent", .tool = "Bash" }, 5, false, 5);
-    try std.testing.expectEqualStrings("Tracing pane focus", agent.activity[0..agent.activity_len]);
+    try std.testing.expectEqualStrings("Tracing pane focus", agent.activity.text());
     _ = agent.observeHook(.codex, .{ .kind = .prompt, .session = "parent" }, 6, false, 6);
-    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity.len);
 }
 
 test "compaction remains set until a subsequent lifecycle hook" {
@@ -472,7 +451,7 @@ test "compaction remains set until a subsequent lifecycle hook" {
     for ([_]@FieldType(providers.Hook, "kind"){ .compact_end, .tool_start, .interrupt, .stop, .session_end }) |event| {
         _ = agent.observeHook(.codex, .{ .kind = .compact_start, .session = "parent" }, seq, false, seq);
         agent.subagents.waiting = true;
-        agent.activity_len = clean(&agent.activity, "Old summary");
+        agent.activity = .ascii("Old summary");
         try std.testing.expect(agent.compacting);
         _ = agent.observeHook(.codex, .{ .kind = event, .session = "parent" }, seq + 1, false, seq + 1);
         try std.testing.expect(!agent.compacting);
@@ -530,23 +509,23 @@ test "Claude tool hooks label activity from descriptions or main arguments" {
 
     var a: Agent = .{};
     _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 1, false, 10);
-    try std.testing.expectEqual(@as(usize, 0), a.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), a.activity.len);
     _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Grep", .target = "routeHook" }, 2, false, 20);
-    try std.testing.expectEqualStrings("Searching for routeHook", a.activity[0..a.activity_len]);
+    try std.testing.expectEqualStrings("Searching for routeHook", a.activity.text());
     try std.testing.expectEqual(@as(i64, 20), a.activity_at);
     // Finishing a tool keeps its label until newer evidence arrives.
     _ = a.observeHook(.claude, .{ .kind = .tool_finish, .session = "s", .tool = "Grep" }, 3, false, 30);
-    try std.testing.expectEqualStrings("Searching for routeHook", a.activity[0..a.activity_len]);
+    try std.testing.expectEqualStrings("Searching for routeHook", a.activity.text());
     // An undescribed command clears the label, leaving only the tool indicator.
     _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .tool = "Bash", .target = "zig build test --summary all" }, 4, false, 40);
-    try std.testing.expectEqual(@as(usize, 0), a.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), a.activity.len);
     try std.testing.expect(a.tool_active);
     // Codex activity still comes only from its summaries.
     var codex: Agent = .{};
     _ = codex.observeHook(.codex, .{ .kind = .tool_start, .session = "c", .tool = "Bash", .description = "Run tests" }, 1, false, 10);
-    try std.testing.expectEqual(@as(usize, 0), codex.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), codex.activity.len);
     a.setActivity("First line\x1b[2J\nsecond");
-    try std.testing.expectEqualStrings("First line [2J", a.activity[0..a.activity_len]);
+    try std.testing.expectEqualStrings("First line [2J", a.activity.text());
 }
 
 test "Claude prompt ids key inferred labels without gating Stop" {
@@ -554,16 +533,16 @@ test "Claude prompt ids key inferred labels without gating Stop" {
     _ = a.observeHook(.claude, .{ .kind = .prompt, .session = "s", .prompt = "p1" }, 1, false, 10);
     try std.testing.expectEqualStrings("p1", a.turnId());
     _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .prompt = "p1", .tool = "Read", .target = "/a/b.zig" }, 2, false, 20);
-    try std.testing.expectEqualStrings("Reading b.zig", a.activity[0..a.activity_len]);
+    try std.testing.expectEqualStrings("Reading b.zig", a.activity.text());
     // Once inferred, direct tool labels stop replacing it for this turn.
     a.setActivity("Tracing hook routing");
     a.activity_inferred = true;
     _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .prompt = "p1", .tool = "Read", .target = "/a/c.zig" }, 3, false, 30);
-    try std.testing.expectEqualStrings("Tracing hook routing", a.activity[0..a.activity_len]);
+    try std.testing.expectEqualStrings("Tracing hook routing", a.activity.text());
     // A mid-turn prompt id change moves the label key and allows direct labels again.
     _ = a.observeHook(.claude, .{ .kind = .tool_start, .session = "s", .prompt = "p2", .tool = "Read", .target = "/a/d.zig" }, 4, false, 40);
     try std.testing.expectEqualStrings("p2", a.turnId());
-    try std.testing.expectEqualStrings("Reading d.zig", a.activity[0..a.activity_len]);
+    try std.testing.expectEqualStrings("Reading d.zig", a.activity.text());
     // Stop carries no turn id, so it is never rejected as another turn's.
     try std.testing.expect(a.observeHook(.claude, .{ .kind = .stop, .session = "s", .prompt = "p1" }, 5, false, 50) != null);
     try std.testing.expect(a.observation.pending_stop);

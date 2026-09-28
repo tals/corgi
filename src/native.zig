@@ -474,11 +474,9 @@ pub const Session = struct {
             if (s.attachment.actor == null) {
                 if (owner.state.state == .unknown) {
                     const session = owner.state.session;
-                    const session_len = owner.state.session_len;
                     owner.state = s.attachment.provisional;
                     owner.state.provider = s.provider;
                     owner.state.session = session;
-                    owner.state.session_len = session_len;
                 }
                 s.attachment.provisional = .{ .provider = s.provider, .state = if (s.ready) .idle else .initializing };
                 for (s.approvals.items) |*pending| if (pending.actor == null) {
@@ -507,7 +505,7 @@ pub const Session = struct {
         const params = if (v == .object) v.object.get("params") orelse .null else .null;
         const reported_turn = if (event.turn.len > 0) event.turn else agents.str(params, "turnId");
         const completed_turn = reported_turn.len > 0 and target.finishedTurn(reported_turn);
-        const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn_len > 0 and !std.mem.eql(u8, reported_turn, target.turnId()));
+        const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn.len > 0 and !std.mem.eql(u8, reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
         if (actor) |owner| if (method == .@"thread/tokenUsage/updated") switch (s.provider) {
             .codex => owner.native_meter.native(usage.field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),

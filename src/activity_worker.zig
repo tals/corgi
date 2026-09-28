@@ -33,15 +33,12 @@ const away_interval_ms = std.time.ms_per_min;
 pub const Request = struct {
     actor: ActorId,
     provider: agents.Provider,
-    session: [160]u8,
-    session_len: usize,
-    turn: [160]u8,
-    turn_len: usize,
+    session: agents.Text,
+    turn: agents.Text,
     evidence: summary.Text,
     panes: [max]layout.PaneId = @splat(.none),
     panes_len: usize = 0,
-    name: [160]u8 = @splat(0),
-    name_len: usize = 0,
+    name: agents.Text = .{},
     conversation: summary.Conversation = .{},
     generation: u64 = 0,
     completed_tools: u64 = 0,
@@ -64,12 +61,11 @@ pub const Result = struct {
         }
         backend.outcome(r.number, null);
         const label = r.label orelse {
-            agent.activity_len = 0;
+            agent.activity = .{};
             agent.activity_inferred = false;
             return true;
         };
-        @memcpy(agent.activity[0..label.len], label.text());
-        agent.activity_len = label.len;
+        agent.activity = .initTruncated(label.text());
         agent.activity_inferred = true;
         actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), label);
         const now = std.time.milliTimestamp();
@@ -103,9 +99,9 @@ const Slot = struct {
         if (s.retry) return true;
         const attempted = s.attempted_evidence orelse return true;
         // Repeating the same calls leaves the evidence, and so the label, unchanged.
-        if (attempted == s.request.evidence.hash()) return false;
+        if (attempted == summary.hash(&s.request.evidence)) return false;
         if (away and now - s.attempted_at < away_interval_ms) return false;
-        if (s.attempted_commentary != s.commentary.hash()) return true;
+        if (s.attempted_commentary != summary.hash(&s.commentary)) return true;
         return now - s.tools_changed_at >= tool_quiet_ms or now - s.tools_pending_since >= tool_wait_ms;
     }
     fn combine(s: *Slot) void {
@@ -123,8 +119,8 @@ const Slot = struct {
     /// Record that the current evidence is being summarized.
     fn attempt(s: *Slot, now: i64) void {
         s.attempted_tools = s.request.completed_tools;
-        s.attempted_evidence = s.request.evidence.hash();
-        s.attempted_commentary = s.commentary.hash();
+        s.attempted_evidence = summary.hash(&s.request.evidence);
+        s.attempted_commentary = summary.hash(&s.commentary);
         s.attempted_at = now;
         s.tools_pending_since = 0;
         s.retry = false;
@@ -367,11 +363,7 @@ pub const Worker = struct {
         for (saved.slots) |entry| {
             if (entry.index >= w.slots.len or w.slots[entry.index] != null) return error.InvalidCheckpoint;
             try validateRequest(entry.slot.request);
-            if (entry.slot.commentary.len > entry.slot.commentary.bytes.len or entry.slot.tool_evidence.len > entry.slot.tool_evidence.bytes.len) return error.InvalidCheckpoint;
-            if (entry.slot.result) |result| {
-                try validateRequest(result.request);
-                if (result.label) |label| if (label.len > label.bytes.len) return error.InvalidCheckpoint;
-            }
+            if (entry.slot.result) |result| try validateRequest(result.request);
             w.slots[entry.index] = entry.slot;
         }
         for (saved.link_requests) |request| {
@@ -405,20 +397,17 @@ pub const Worker = struct {
     pub fn submit(w: *Worker, owner: *const conversations.Actor, evidence: summary.Text, panes: []const runtime.Pane) void {
         const actor = owner.id;
         const agent = &owner.state;
-        if ((agent.state != .working and agent.state != .blocked) or agent.turn_len == 0) return;
+        if ((agent.state != .working and agent.state != .blocked) or agent.turn.len == 0) return;
         var req: Request = .{
             .actor = actor,
             .provider = owner.provider(),
             .session = agent.session,
-            .session_len = agent.session_len,
             .turn = agent.turn,
-            .turn_len = agent.turn_len,
             .turn_epoch = agent.turn_epoch,
             .evidence = evidence,
             .generation = agent.activity_generation,
             .conversation = owner.status_inference,
             .name = agent.name,
-            .name_len = agent.name_len,
         };
         for (panes) |pane| if (pane.attachment.actor == owner and req.panes_len < req.panes.len) {
             req.panes[req.panes_len] = pane.id;
@@ -438,7 +427,6 @@ pub const Worker = struct {
         slot.*.?.request.panes = req.panes;
         slot.*.?.request.panes_len = req.panes_len;
         slot.*.?.request.name = req.name;
-        slot.*.?.request.name_len = req.name_len;
         slot.*.?.request.conversation = owner.status_inference;
         slot.*.?.active = agent.state == .working;
         slot.*.?.commentary = evidence;
@@ -570,7 +558,7 @@ pub const Worker = struct {
             const key = request.conversation.key(request.actor, &key_buffer);
             var history: [4][]const u8 = undefined;
             for (request.conversation.recent[0..request.conversation.len], 0..) |*entry, i| history[i] = entry.text();
-            const turn = request.turn[0..request.turn_len];
+            const turn = request.turn.text();
             const attempt = w.implementation.infer(.{
                 .provider = @tagName(request.provider),
                 .turn = &summary.turnTag(turn),
@@ -579,8 +567,8 @@ pub const Worker = struct {
             }, turn, key, .{
                 .actor = request.actor,
                 .panes = request.panes[0..request.panes_len],
-                .agent_name = request.name[0..request.name_len],
-                .session = request.session[0..request.session_len],
+                .agent_name = request.name.text(),
+                .session = request.session.text(),
                 .tools_since_last = tools_since_last,
             }, &w.stopping);
             w.mutex.lock();
@@ -615,28 +603,25 @@ pub const Worker = struct {
 };
 
 test "late results cannot overwrite another turn or changed evidence" {
-    var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session_len = 1 } };
+    var actor: conversations.Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working, .session = .initTruncated("s") } };
     const agent = &actor.state;
-    agent.session[0] = 's';
     agent.setTurn("t");
     var text: summary.Text = .{};
     text.append("Checking input");
-    agent.activity_generation = text.hash();
+    agent.activity_generation = summary.hash(&text);
     const r: Result = .{ .request = .{
         .actor = @enumFromInt(1),
         .provider = .codex,
         .session = agent.session,
-        .session_len = 1,
         .turn = agent.turn,
-        .turn_len = 1,
         .turn_epoch = agent.turn_epoch,
         .evidence = text,
-        .generation = text.hash(),
-    }, .label = summary.Label.parse("Checking input").? };
+        .generation = summary.hash(&text),
+    }, .label = summary.parseLabel("Checking input").? };
     try std.testing.expect(r.apply(&actor));
     agent.activity_generation +%= 1;
     try std.testing.expect(!r.apply(&actor));
-    agent.activity_generation = text.hash();
+    agent.activity_generation = summary.hash(&text);
     agent.state = .idle;
     try std.testing.expect(!r.apply(&actor));
     agent.state = .working;
@@ -655,7 +640,7 @@ fn testText(value: []const u8) summary.Text {
 }
 
 test "commentary refreshes after the cooldown and tool bursts wait until quiet" {
-    var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
+    var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = .{}, .turn = .{}, .evidence = .{} } };
     try std.testing.expect(!s.ready(0, false));
     s.commentary = testText("Planning the fix");
     s.combine();
@@ -696,7 +681,7 @@ test "commentary refreshes after the cooldown and tool bursts wait until quiet" 
 }
 
 test "without a viewer each agent is summarized at most once a minute" {
-    var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = @splat(0), .session_len = 0, .turn = @splat(0), .turn_len = 0, .evidence = .{} } };
+    var s: Slot = .{ .request = .{ .actor = @enumFromInt(1), .provider = .codex, .session = .{}, .turn = .{}, .evidence = .{} } };
     s.commentary = testText("Planning the fix");
     s.combine();
     try std.testing.expect(s.ready(0, true));
@@ -747,14 +732,14 @@ test "actor inference context survives turns and detachment but rejects stale re
     actor.state.setTurn("turn-1");
     var evidence: summary.Text = .{};
     evidence.append("Tracing focus changes");
-    actor.state.activity_generation = evidence.hash();
+    actor.state.activity_generation = summary.hash(&evidence);
     const worker = try std.testing.allocator.create(Worker);
     defer std.testing.allocator.destroy(worker);
     worker.* = try Worker.init(.{});
     defer a.free(worker.slots);
     worker.submit(actor, evidence, &.{});
     const first = worker.slots[0].?.request;
-    const result: Result = .{ .request = first, .label = summary.Label.parse("Tracing pane focus").? };
+    const result: Result = .{ .request = first, .label = summary.parseLabel("Tracing pane focus").? };
     try std.testing.expect(result.apply(actor));
     try std.testing.expectEqual(@as(usize, 1), actor.activity_timeline.len);
     actor.state.state = .idle;
@@ -784,13 +769,11 @@ test "inference completing during compaction waits to resume its timeline phase"
     const result: Result = .{ .request = .{
         .actor = @enumFromInt(1),
         .provider = .codex,
-        .session = actor.state.session,
-        .session_len = 0,
-        .turn = actor.state.turn,
-        .turn_len = 0,
+        .session = .{},
+        .turn = .{},
         .turn_epoch = actor.state.turn_epoch,
         .evidence = .{},
-    }, .label = summary.Label.parse("Running tests").? };
+    }, .label = summary.parseLabel("Running tests").? };
     try std.testing.expect(result.apply(&actor));
     try std.testing.expectEqual(@as(usize, 1), actor.activity_timeline.len);
     try std.testing.expectEqualStrings("Compacting context", actor.activity_timeline.points[0].label.text());
@@ -799,11 +782,7 @@ test "inference completing during compaction waits to resume its timeline phase"
 }
 
 fn validateRequest(request: Request) !void {
-    if (request.session_len > request.session.len or request.turn_len > request.turn.len or
-        request.evidence.len > request.evidence.bytes.len or request.panes_len > request.panes.len or
-        request.name_len > request.name.len or request.conversation.len > request.conversation.recent.len or
-        request.conversation.previous.len > request.conversation.previous.bytes.len) return error.InvalidCheckpoint;
-    for (request.conversation.recent) |entry| if (entry.len > entry.bytes.len) return error.InvalidCheckpoint;
+    if (request.panes_len > request.panes.len or request.conversation.len > request.conversation.recent.len) return error.InvalidCheckpoint;
 }
 
 test "worker live checkpoint preserves queued link evidence and unconsumed results" {
@@ -815,7 +794,7 @@ test "worker live checkpoint preserves queued link evidence and unconsumed resul
     var request: links.Request = .{ .slot = 4, .generation = 8, .key = key, .len = evidence.len };
     @memcpy(request.evidence[0..request.len], evidence);
     worker.link_requests[4] = request;
-    worker.link_results[5] = .{ .slot = 5, .generation = 9, .key = key, .name = links.Name.parse("Finance") };
+    worker.link_results[5] = .{ .slot = 5, .generation = 9, .key = key, .name = links.parseName("Finance") };
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const saved = try worker.capture(arena.allocator());

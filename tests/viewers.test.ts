@@ -1254,7 +1254,7 @@ process.stdin.resume();
     const client = await JsonSocket.connect(this.path);
     try {
       const call = (request: any) =>
-        client.request({ protocol: 1, viewer_protocol: 2, ...request });
+        client.request({ protocol: 1, viewer_protocol: 3, ...request });
       await call({ op: "viewer.open", cwd: this.temp.name });
       await call({
         op: "viewer.sync",

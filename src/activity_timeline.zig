@@ -87,8 +87,8 @@ pub const Timeline = struct {
 
 test "checkpoints partition own usage, coalesce repeated labels, and remain bounded" {
     var timeline: Timeline = .{};
-    const reading = summary.Label.parse("Reading source").?;
-    const testing = summary.Label.parse("Running tests").?;
+    const reading = summary.parseLabel("Reading source").?;
+    const testing = summary.parseLabel("Running tests").?;
     var current: usage.View = .{ .known = true, .tokens = .{ .input = 100, .cached_input = 60, .output = 20 } };
     timeline.checkpoint("a", reading, current, 1000);
     current.tokens.add(.{ .input = 30, .cached_input = 10, .output = 5 });
@@ -112,8 +112,8 @@ test "checkpoints partition own usage, coalesce repeated labels, and remain boun
 
 test "only intervals containing a loss or regression are partial" {
     var timeline: Timeline = .{};
-    const label = summary.Label.parse("Reading source").?;
-    const other = summary.Label.parse("Running tests").?;
+    const label = summary.parseLabel("Reading source").?;
+    const other = summary.parseLabel("Running tests").?;
     // Nothing observed yet is zero, not a gap in coverage.
     timeline.checkpoint("a", label, .{}, 1);
     timeline.checkpoint("a", label, .{ .known = true, .tokens = .{ .input = 100 } }, 2);
@@ -142,8 +142,8 @@ test "only intervals containing a loss or regression are partial" {
 
 test "activity transitions charge the previous phase and pending retains repeated summaries" {
     var timeline: Timeline = .{};
-    const reviewing = summary.Label.parse("Reviewing pending changes").?;
-    const inspecting = summary.Label.parse("Inspecting repository changes").?;
+    const reviewing = summary.parseLabel("Reviewing pending changes").?;
+    const inspecting = summary.parseLabel("Inspecting repository changes").?;
     timeline.checkpoint("turn", reviewing, .{}, 1000);
     var current: usage.View = .{ .known = true, .tokens = .{ .input = 21500, .cached_input = 12800 } };
     timeline.checkpoint("turn", inspecting, current, 2000);
@@ -164,12 +164,12 @@ test "activity transitions charge the previous phase and pending retains repeate
 
 test "usage after a finished compaction belongs to the next named phase" {
     var timeline: Timeline = .{};
-    timeline.checkpoint("turn", summary.Label.parse("Compacting context").?, .{}, 1000);
+    timeline.checkpoint("turn", summary.parseLabel("Compacting context").?, .{}, 1000);
     var current: usage.View = .{ .known = true, .tokens = .{ .input = 10 } };
     timeline.finish(current);
     current.tokens.input = 20;
     try std.testing.expectEqual(@as(u64, 10), timeline.pending(current).tokens.input);
-    timeline.checkpoint("turn", summary.Label.parse("Running tests").?, current, 2000);
+    timeline.checkpoint("turn", summary.parseLabel("Running tests").?, current, 2000);
     try std.testing.expectEqual(@as(u64, 10), timeline.points[0].usage.tokens.input);
     try std.testing.expectEqual(@as(u64, 10), timeline.pending(current).tokens.input);
     current.tokens.input = 30;

@@ -38,7 +38,7 @@ pub fn parse(allocator: std.mem.Allocator, raw: []const u8) !Decision {
         .label = switch (label) {
             .null => null,
             // Models sometimes quote the null they meant; that is still abstention.
-            .string => |text| if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, text, " \t\r\n"), "null")) null else try summary.Label.validate(text),
+            .string => |text| if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, text, " \t\r\n"), "null")) null else try summary.validateLabel(text),
             else => return error.InvalidDecision,
         },
     };

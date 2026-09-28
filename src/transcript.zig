@@ -68,7 +68,7 @@ pub const Worker = struct {
         w.requests.clearRetainingCapacity();
         for (actors) |actor| {
             const agent = &actor.state;
-            if (!agent.observation.pending_stop or agent.transcript_len == 0 or agent.session_len == 0) continue;
+            if (!agent.observation.pending_stop or agent.transcript.len == 0 or agent.session.len == 0) continue;
             w.requests.append(a, .{ .actor = actor.id, .agent = agent.* }) catch |err| {
                 log.warn("queuing completion request: {}", .{err});
                 break;
@@ -287,7 +287,7 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     };
 }
 fn codexCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
-    if (std.meta.stringToEnum(RolloutKind, agents.str(v, "type")) != .event_msg or agent.turn_len == 0) return null;
+    if (std.meta.stringToEnum(RolloutKind, agents.str(v, "type")) != .event_msg or agent.turn.len == 0) return null;
     const p = v.object.get("payload") orelse return null;
     if (!std.mem.eql(u8, agents.str(p, "turn_id"), agent.turnId())) return null;
     const kind = std.meta.stringToEnum(EventKind, agents.str(p, "type")) orelse return null;
@@ -339,15 +339,15 @@ fn leap(y: usize) bool {
 
 test "completion requires matching turn, fresh timestamp and complete JSONL record" {
     var agent: agents.Agent = .{ .provider = .codex, .last_seq = 1000000 };
-    agent.turn_len = agents.clean(&agent.turn, "current");
+    agent.turn = .ascii("current");
     const good = "{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"current\"}}";
     var tail: Tail = .{};
     defer tail.close();
     try std.testing.expectEqual(null, try tail.ingest(&agent, good));
     try std.testing.expectEqual(agents.observation.Outcome.completed, (try tail.ingest(&agent, "\n")).?);
-    agent.turn_len = agents.clean(&agent.turn, "new");
+    agent.turn = .ascii("new");
     try std.testing.expectEqual(null, completion(&agent, good));
-    agent.turn_len = agents.clean(&agent.turn, "current");
+    agent.turn = .ascii("current");
     agent.last_seq = 3000000;
     try std.testing.expectEqual(null, completion(&agent, good));
     try std.testing.expectEqual(@as(?i64, 0), timestampMs("1970-01-01T00:00:00.000Z"));
@@ -355,7 +355,7 @@ test "completion requires matching turn, fresh timestamp and complete JSONL reco
 
 test "Claude Stop hooks cancelled by Esc end the turn as interrupted" {
     var agent: agents.Agent = .{ .provider = .claude, .last_seq = 1000000 };
-    agent.session_len = agents.clean(&agent.session, "s");
+    agent.session = .ascii("s");
     const record = "{{\"type\":\"attachment\",\"sessionId\":\"s\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"attachment\":{{\"type\":\"hook_cancelled\",\"hookEvent\":\"{s}\",\"timedOut\":{s}}}}}";
     const cases = [_]struct { line: []const u8, outcome: ?agents.observation.Outcome }{
         .{ .line = std.fmt.comptimePrint(record, .{ "Stop", "false" }), .outcome = .interrupted },
@@ -381,7 +381,7 @@ test "completion scheduling retains detached actors and fairly batches beyond pa
         var name: [32]u8 = undefined;
         const actor = try registry.get(.claude, try std.fmt.bufPrint(&name, "session-{d}", .{i}));
         actor.state.observation.pending_stop = true;
-        actor.state.transcript_len = agents.clean(&actor.state.transcript, "/tmp/transcript.jsonl");
+        actor.state.transcript = .ascii("/tmp/transcript.jsonl");
         attachment.select(actor);
     }
     attachment.detach();

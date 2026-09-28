@@ -23,36 +23,30 @@ const link_labels = @import("link_labels.zig");
 const launch_command = @import("launch_command.zig");
 const state_migrations = @import("state_migrations.zig");
 pub const Resume = struct {
-    name: [160]u8 = @splat(0),
-    name_len: usize = 0,
+    name: agents.Text = .{},
     touched_at: i64 = 0,
     provider: ?agents.Provider = null,
-    session: [160]u8 = .{0} ** 160,
-    len: usize = 0,
+    session: agents.Text = .{},
     pub fn observe(r: *Resume, agent: *const agents.Agent) void {
         const provider = agent.provider orelse return;
-        if (agent.session_len > 0) {
-            if (r.provider != provider or !std.mem.eql(u8, r.session[0..r.len], agent.sessionId())) {
-                r.name_len = 0;
+        if (agent.session.len > 0) {
+            if (r.provider != provider or !std.mem.eql(u8, r.session.text(), agent.sessionId())) {
+                r.name = .{};
                 r.touched_at = 0;
             }
-            if (agent.name_len > 0) {
-                r.name = agent.name;
-                r.name_len = agent.name_len;
-            }
+            if (agent.name.len > 0) r.name = agent.name;
             r.touched_at = @max(r.touched_at, @max(agent.updated_at, @divTrunc(agent.changed_at, std.time.us_per_s)));
             r.provider = provider;
             r.session = agent.session;
-            r.len = agent.session_len;
         } else if (r.provider == null) r.provider = provider;
     }
     pub fn banner(r: Resume, alloc: std.mem.Allocator, now: i64) ![]const u8 {
         var out: std.Io.Writer.Allocating = .init(alloc);
         errdefer out.deinit();
         try out.writer.writeAll("\x1b[0m\r\n\r\n");
-        if (r.name_len > 0 and r.name_len <= r.name.len) {
+        if (r.name.len > 0) {
             try out.writer.writeAll("# ");
-            for (r.name[0..r.name_len]) |ch| try out.writer.writeByte(if (ch < 32 or ch == 127) ' ' else ch);
+            for (r.name.text()) |ch| try out.writer.writeByte(if (ch < 32 or ch == 127) ' ' else ch);
             try out.writer.writeAll("\r\n");
         }
         if (r.touched_at > 0) {
@@ -70,9 +64,9 @@ pub const Resume = struct {
     }
     pub fn command(r: Resume, alloc: std.mem.Allocator) ![]const u8 {
         const provider = r.provider orelse return alloc.dupe(u8, "");
-        if (r.len == 0 or r.len > r.session.len) return alloc.dupe(u8, "");
-        for (r.session[0..r.len]) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
-        const argv = try provider.backend().resumeArgs(.{ .id = r.session[0..r.len] });
+        if (r.session.len == 0) return alloc.dupe(u8, "");
+        for (r.session.text()) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
+        const argv = try provider.backend().resumeArgs(.{ .id = r.session.text() });
         var out: std.Io.Writer.Allocating = .init(alloc);
         errdefer out.deinit();
         try out.writer.print("{s} {s} '", .{ argv[0], argv[1] });
@@ -137,7 +131,6 @@ pub const Pane = struct {
     id: layout.PaneId,
     cwd: []const u8,
     screen: Screen,
-    agent: agents.Agent = .{},
     detection: detection.Tracker = .{},
     resume_hint: Resume = .{},
 };
@@ -229,7 +222,7 @@ fn historicalAgent(agent: agents.Agent) agents.Agent {
     result.permission_review = null;
     result.subagents = .{};
     result.observation.pending_stop = false;
-    result.transcript_len = 0;
+    result.transcript = .{};
     return result;
 }
 pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State {
@@ -254,7 +247,6 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
             .cwd = p.cwd,
             .screen = try Screen.capture(alloc, p.terminal, live),
             .binding = try captureBinding(alloc, &p.attachment, live),
-            .agent = if (live) p.agent().* else historicalAgent(p.agent().*),
             .detection = if (live) p.detection else .{},
             .resume_hint = p.resume_hint,
         };
@@ -357,12 +349,11 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.agent_commands = state.agent_commands;
     for (state.conversations) |saved| {
         if (saved.id == ActorId.none or @intFromEnum(saved.id) >= @intFromEnum(state.next_conversation) or r.conversations.byId(saved.id) != null or
-            !validAgent(saved.agent) or saved.agent.session_len == 0) return error.InvalidCheckpoint;
+            !validAgent(saved.agent) or saved.agent.session.len == 0) return error.InvalidCheckpoint;
         const provider = saved.agent.provider orelse return error.InvalidCheckpoint;
         if (r.conversations.find(provider, saved.agent.sessionId()) != null) return error.InvalidCheckpoint;
         const actor = try r.conversations.get(provider, saved.agent.sessionId());
-        if (saved.status_inference.len > saved.status_inference.recent.len or saved.status_inference.previous.len > saved.status_inference.previous.bytes.len) return error.InvalidCheckpoint;
-        for (saved.status_inference.recent) |entry| if (entry.len > entry.bytes.len) return error.InvalidCheckpoint;
+        if (saved.status_inference.len > saved.status_inference.recent.len) return error.InvalidCheckpoint;
         actor.status_inference = if (live) saved.status_inference else .{};
         actor.id = saved.id;
         actor.state = if (live) saved.agent else historicalAgent(saved.agent);
@@ -376,10 +367,8 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         if (parent == actor.id or r.conversations.byId(parent) == null) return error.InvalidCheckpoint;
     };
     for (state.panes) |p| {
-        if (p.label.len > p.label.bytes.len or p.id == layout.PaneId.none or @intFromEnum(p.id) >= @intFromEnum(state.next_pane) or r.pane(p.id) != null or r.workspaces.owner(p.id) == null or
-            !std.fs.path.isAbsolute(p.cwd) or p.resume_hint.len > p.resume_hint.session.len or p.agent.session_len > 160 or p.agent.cwd_len > p.agent.cwd.len or
-            p.agent.transcript_len > p.agent.transcript.len or p.agent.turn_len > 160 or
-            p.agent.last_finished_turn_len > 160 or p.agent.recent_len > 160 or p.agent.observation.read > p.agent.observation.completed) return error.InvalidCheckpoint;
+        if (p.id == layout.PaneId.none or @intFromEnum(p.id) >= @intFromEnum(state.next_pane) or r.pane(p.id) != null or r.workspaces.owner(p.id) == null or
+            !std.fs.path.isAbsolute(p.cwd)) return error.InvalidCheckpoint;
         const t = try p.screen.restore(live);
         try r.panes.append(a, .{
             .id = p.id,
@@ -393,11 +382,10 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     }
     for (r.workspaces.items.items) |w| for (w.model.nodes) |maybe| if (maybe) |n| if (n == .pane and r.pane(n.pane) == null) return error.InvalidCheckpoint;
     for (state.closed) |p| {
-        if (p.label.len > p.label.bytes.len) return error.InvalidCheckpoint;
         try r.closed.append(a, .{ .label = p.label, .terminal = try p.screen.restore(false), .cwd = try a.dupe(u8, p.cwd), .tab = p.tab, .workspace_id = p.workspace_id });
     }
     for (state.sessions) |n| {
-        if (n.resume_hint.len > 160 or n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or
+        if (n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or
             r.workspaces.index(n.workspace_id) == null) return error.InvalidCheckpoint;
         var s: native.Session = .{
             .usage_tracker = if (live) n.usage_tracker else .{},
@@ -523,9 +511,7 @@ fn captureBinding(alloc: std.mem.Allocator, binding: *const conversations.Attach
     };
 }
 fn validAgent(agent: agents.Agent) bool {
-    return agent.session_len <= agent.session.len and agent.name_len <= agent.name.len and agent.cwd_len <= agent.cwd.len and
-        agent.transcript_len <= agent.transcript.len and agent.turn_len <= agent.turn.len and agent.last_finished_turn_len <= agent.last_finished_turn.len and
-        agent.activity_len <= agent.activity.len and agent.tool_len <= agent.tool.len and agent.recent_len <= agent.recent.len and agent.observation.read <= agent.observation.completed;
+    return agent.observation.read <= agent.observation.completed;
 }
 fn restoreBinding(registry: *conversations.Registry, value: Binding, live: bool) !conversations.Attachment {
     var binding: conversations.Attachment = .{};

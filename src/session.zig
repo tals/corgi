@@ -2,6 +2,7 @@
 const std = @import("std");
 const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
+const pane_label = @import("pane_label.zig");
 const layout = @import("layout.zig");
 const runtime = @import("runtime.zig");
 const Runtime = runtime.Runtime;
@@ -166,18 +167,18 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             defer if (q.resolve and q.command.len > 0) alloc.free(source);
             try r.agent_commands[q.index].set(source);
             if (q.original) |original| try r.agent_commands[q.index].setOriginal(original) else if (q.resolve) try r.agent_commands[q.index].setOriginal(q.command);
-            if (q.name) |name| r.agent_commands[q.index].name.set(name);
+            if (q.name) |name| r.agent_commands[q.index].name = .ascii(name);
             if (source.len == 0) r.agent_commands[q.index] = .{} else {
                 r.agent_commands[q.index].semantics = q.semantics orelse launch_command.analyze(source, q.cwd orelse ".");
             }
-            r.agent_commands[q.index].hidden = r.agent_commands[q.index].len > 0 and q.hidden;
+            r.agent_commands[q.index].hidden = r.agent_commands[q.index].command.len > 0 and q.hidden;
             r.changed();
             return .{};
         },
         .@"agent.command.create" => |q| {
             if (q.index >= r.agent_commands.len) return error.InvalidCommand;
             const entry = &r.agent_commands[q.index];
-            if (entry.len == 0) return error.InvalidCommand;
+            if (entry.command.len == 0) return error.InvalidCommand;
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
             opts.command = entry.text();
             opts.interactive_command = true;
@@ -347,7 +348,7 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
     const representative = if (tab_op) src.firstPane(src.tabs[index].root) else pane_target;
     switch (cmd) {
         .@"tab.rename" => |q| src.tabs[index].rename(q.name),
-        .@"pane.rename" => |q| (r.pane(pane_target) orelse return error.NoPane).label.set(q.name),
+        .@"pane.rename" => |q| (r.pane(pane_target) orelse return error.NoPane).label = pane_label.label(q.name),
         .@"split.resize" => |q| src.resize(pane_target, q.direction),
         .@"pane.resize" => |q| {
             if (q.ratio < 100 or q.ratio > 900) return error.InvalidRatio;

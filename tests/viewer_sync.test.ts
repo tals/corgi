@@ -69,7 +69,7 @@ class WireViewer {
     this.client.close();
   }
   async call(request: Record<string, any>) {
-    this.client.socket.write(wireRequest({ protocol: 1, viewer_protocol: 2, ...request }) + "\n");
+    this.client.socket.write(wireRequest({ protocol: 1, viewer_protocol: 3, ...request }) + "\n");
     const line = await this.client.lines.next(5000);
     this.response_bytes = Buffer.byteLength(line) + 1;
     const reply = parseWire(line);

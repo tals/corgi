@@ -9,7 +9,6 @@ test "V2 fixture migrates before typed decoding and restores unchanged terminal 
     defer decoded.deinit();
     try std.testing.expect(decoded.migrated);
     try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
-    try std.testing.expectEqual(null, decoded.parsed.value.panes[0].agent.provider);
     try std.testing.expectEqual(null, decoded.parsed.value.panes[0].binding.provisional.provider);
     try std.testing.expectEqual(null, decoded.parsed.value.panes[0].resume_hint.provider);
     var fresh: @import("runtime.zig").Runtime = .{};
@@ -48,18 +47,42 @@ test "V3 fixture migrates before typed decoding and restores unchanged terminal 
     try std.testing.expect(std.mem.indexOf(u8, text, "v3 history") != null);
 }
 
-test "V4 fixture is current and restores as saved" {
-    // Captured from the migrated V3 fixture (see the generator test below).
-    // Keep it unchanged once V5 exists: it becomes the old-format input for
-    // the V4 -> V5 migration.
+test "V4 fixture migrates before typed decoding and restores unchanged terminal data" {
+    // Captured from the migrated V3 fixture. Kept unchanged now that V5
+    // exists: it is the old-format input for the V4 -> V5 migration.
     const migrations = @import("state_migrations.zig");
     const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v4.json"));
     defer decoded.deinit();
     try std.testing.expectEqual(@as(u32, 4), decoded.from);
-    try std.testing.expectEqual(migrations.checkpoint_version != 4, decoded.migrated);
+    try std.testing.expect(decoded.migrated);
+    try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
     var fresh: @import("runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v4.sock", "/tmp/corgi");
+    try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
+    try std.testing.expectEqualStrings("v3-shared", fresh.panes.items[0].agent().sessionId());
+    try std.testing.expectEqualStrings("v3-shared", fresh.panes.items[0].resume_hint.session.text());
+    try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
+    try std.testing.expect(fresh.panes.items[1].attachment.actor == null);
+    const text = try fresh.panes.items[0].terminal.text();
+    defer a.free(text);
+    try std.testing.expect(std.mem.indexOf(u8, text, "v3 history") != null);
+}
+
+test "V5 fixture is current and restores as saved" {
+    // Captured from the migrated V4 fixture (see the generator test below).
+    // Keep it unchanged once V6 exists: it becomes the old-format input for
+    // the V5 -> V6 migration.
+    const migrations = @import("state_migrations.zig");
+    const bytes = @embedFile("fixtures/checkpoint-v5.json");
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\\u0000") == null);
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqual(@as(u32, 5), decoded.from);
+    try std.testing.expectEqual(migrations.checkpoint_version != 5, decoded.migrated);
+    var fresh: @import("runtime.zig").Runtime = .{};
+    defer fresh.deinit();
+    try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v5.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
     try std.testing.expectEqualStrings("v3-shared", fresh.panes.items[0].agent().sessionId());
     try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
@@ -69,23 +92,23 @@ test "V4 fixture is current and restores as saved" {
     try std.testing.expect(std.mem.indexOf(u8, text, "v3 history") != null);
 }
 
-test "generate the V4 fixture from the migrated V3 fixture (CORGI_UPDATE_FIXTURE=1 only)" {
-    // Not a real checkpoint.capture from a live daemon: the V3 fixture is
+test "generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE=1 only)" {
+    // Not a real checkpoint.capture from a live daemon: the V4 fixture is
     // migrated and restored, then re-captured, which exercises the same
     // capture path a live build would. Run once with CORGI_UPDATE_FIXTURE=1
-    // whenever checkpoint-v4.json needs regenerating, then inspect the diff.
+    // whenever checkpoint-v5.json needs regenerating, then inspect the diff.
     if (!std.process.hasEnvVarConstant("CORGI_UPDATE_FIXTURE")) return error.SkipZigTest;
     const migrations = @import("state_migrations.zig");
-    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v3.json"));
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v4.json"));
     defer decoded.deinit();
     var fresh: @import("runtime.zig").Runtime = .{};
     defer fresh.deinit();
-    try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v3-to-v4.sock", "/tmp/corgi");
+    try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v4-to-v5.sock", "/tmp/corgi");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const captured = try cp.capture(arena.allocator(), &fresh, false);
     const json = try std.json.Stringify.valueAlloc(arena.allocator(), captured, .{});
-    try std.fs.cwd().writeFile(.{ .sub_path = "src/fixtures/checkpoint-v4.json", .data = json });
+    try std.fs.cwd().writeFile(.{ .sub_path = "src/fixtures/checkpoint-v5.json", .data = json });
 }
 
 test "saved checkpoint format matches its version" {
@@ -128,7 +151,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
     const shared = try original.conversations.get(.claude, "shared");
     shared.workspace = workspace;
     shared.state.state = .blocked;
-    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("activity_summary.zig").Label.parse("Explaining cursor visibility").?);
+    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("activity_summary.zig").parseLabel("Explaining cursor visibility").?);
     shared.state.observation.finish(.completed, .hook);
     const detached = try original.conversations.get(.codex, "detached");
     detached.parent = shared.id;
@@ -179,36 +202,28 @@ test "conversation checkpoint restores shared bindings and detached unread state
 }
 
 test "legacy pane checkpoint migrates identity into an actor" {
+    // V1 kept identity on each pane's agent, before conversations and
+    // bindings. The V4 fixture's panes still carry that copy, so dropping
+    // what V2 and V3 added gives a V1 checkpoint.
     const Runtime = @import("runtime.zig").Runtime;
-    var original: Runtime = .{};
-    defer original.deinit();
-    const workspace = try original.workspaces.add("legacy", "/tmp");
-    const ws = try original.getWorkspace(workspace);
-    const id = try ws.model.newTab("");
-    original.workspaces.next_pane_id = ws.model.next_id;
-    const terminal = try Terminal.create(20, 4);
-    terminal.exited = true;
-    var provisional: @import("agents.zig").Agent = .{ .provider = .claude, .state = .idle };
-    provisional.session_len = @import("agents.zig").clean(&provisional.session, "legacy-session");
-    provisional.observation.finish(.completed, .hook);
-    try original.panes.append(a, .{ .id = id, .terminal = terminal, .cwd = try a.dupe(u8, "/tmp"), .attachment = .{ .provisional = provisional } });
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    var saved = try cp.capture(arena.allocator(), &original, true);
-    saved.version = 1;
-    const original_json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
-    var tree = try std.json.parseFromSlice(std.json.Value, arena.allocator(), original_json, .{});
+    var tree = try std.json.parseFromSlice(std.json.Value, a, @embedFile("fixtures/checkpoint-v4.json"), .{});
     defer tree.deinit();
-    tree.value.object.getPtr("panes").?.array.items[0].object.getPtr("binding").?.* = .null;
-    const json = try std.json.Stringify.valueAlloc(arena.allocator(), tree.value, .{});
-    const decoded = try @import("state_migrations.zig").decode(cp.State, .checkpoint, arena.allocator(), json);
+    const root = &tree.value.object;
+    root.getPtr("version").?.* = .{ .integer = 1 };
+    _ = root.swapRemove("conversations");
+    _ = root.swapRemove("next_conversation");
+    for (root.getPtr("panes").?.array.items) |*pane| pane.object.getPtr("binding").?.* = .null;
+    const json = try std.json.Stringify.valueAlloc(a, tree.value, .{});
+    defer a.free(json);
+    const decoded = try @import("state_migrations.zig").decode(cp.State, .checkpoint, std.testing.allocator, json);
     defer decoded.deinit();
     var fresh: Runtime = .{};
     defer fresh.deinit();
-    try cp.restore(&fresh, decoded.parsed.value, true, "/tmp/unused-legacy-test.sock", "/tmp/corgi");
+    try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-legacy-test.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
-    try std.testing.expectEqualStrings("legacy-session", fresh.panes.items[0].agent().sessionId());
+    try std.testing.expectEqualStrings("v3-shared", fresh.panes.items[0].agent().sessionId());
     try std.testing.expect(fresh.panes.items[0].agent().observation.unread());
+    try std.testing.expect(fresh.panes.items[1].attachment.actor == null);
 }
 
 test "live compaction restores its clearing source including older checkpoints" {
@@ -331,7 +346,7 @@ test "a restored candidate terminal does not signal its process until adopted" {
 }
 test "resume command quotes session text as one shell argument" {
     var hint: cp.Resume = .{ .provider = .codex };
-    hint.len = @import("agents.zig").clean(&hint.session, "session'with quote");
+    hint.session = .ascii("session'with quote");
     const command = try hint.command(a);
     defer a.free(command);
     try std.testing.expectEqualStrings("codex resume 'session'\\''with quote'", command);
@@ -357,7 +372,7 @@ test "live checkpoint size depends on retained state not output volume" {
 
 test "recovery metadata survives observation and clears on session switch" {
     var agent: @import("agents.zig").Agent = .{ .provider = .codex, .updated_at = 1000 };
-    agent.session_len = @import("agents.zig").clean(&agent.session, "first");
+    agent.session = .ascii("first");
     agent.setName("A session\nwith controls\x1b");
     var hint: cp.Resume = .{};
     hint.observe(&agent);
@@ -365,11 +380,11 @@ test "recovery metadata survives observation and clears on session switch" {
     defer a.free(banner);
     try std.testing.expect(std.mem.indexOf(u8, banner, "# A session with controls ") != null);
     try std.testing.expect(std.mem.indexOf(u8, banner, "# Last active 2 minutes ago") != null);
-    agent.session_len = @import("agents.zig").clean(&agent.session, "second");
-    agent.name_len = 0;
+    agent.session = .ascii("second");
+    agent.name = .{};
     agent.updated_at = 0;
     hint.observe(&agent);
-    try std.testing.expectEqual(@as(usize, 0), hint.name_len);
+    try std.testing.expectEqual(@as(usize, 0), hint.name.len);
     try std.testing.expectEqual(@as(i64, 0), hint.touched_at);
 }
 test "recovery never prefills selection or control characters" {
@@ -377,8 +392,7 @@ test "recovery never prefills selection or control characters" {
     const missing = try hint.command(a);
     defer a.free(missing);
     try std.testing.expectEqualStrings("", missing);
-    @memcpy(hint.session[0..4], "a\nbc");
-    hint.len = 4;
+    hint.session = .initTruncated("a\nbc");
     const unsafe = try hint.command(a);
     defer a.free(unsafe);
     try std.testing.expectEqualStrings("", unsafe);
@@ -396,7 +410,7 @@ test "link cache and spent inference attempts survive live checkpoints only" {
         .generation = i + 1,
         .attempted = true,
         .pending = i == 1,
-        .name = if (i == 0) links.Name.parse("Finance").? else .{},
+        .name = if (i == 0) links.parseName("Finance").? else .{},
     };
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -418,7 +432,7 @@ test "link cache and spent inference attempts survive live checkpoints only" {
         }
     }
     var invalid = original.link_labels;
-    invalid.entries[0].?.name.len = 33;
+    invalid.entries[0].?.name = .initTruncated("Too many words here");
     try std.testing.expectError(error.InvalidCheckpoint, links.Cache.restore(invalid));
     invalid = original.link_labels;
     invalid.entries[0].?.generation = 4;

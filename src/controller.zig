@@ -1013,7 +1013,7 @@ pub const Controller = struct {
             launch.save_requested = false;
             s.dirty = true;
         }
-        if (launch.draft.len == 0 or launch.editor.overflow or !launch.resolution.pending) return;
+        if (launch.draft.command.len == 0 or launch.editor.overflow or !launch.resolution.pending) return;
         if (!immediate and now - launch.draft_changed < 350) return;
         if (now - launch.resolution_checked < 100) return;
         launch.resolution_checked = now;
@@ -1079,7 +1079,7 @@ pub const Controller = struct {
             .name = if (launch.name_editor.name().len > 0) launch.name_editor.name() else launch.resolution.semantics.suggested_name.text(),
             .semantics = launch.resolution.semantics,
         } }) catch {
-            launch.save_error.set("Could not resolve shorthand. Paste its underlying command.");
+            launch.save_error = .ascii("Could not resolve shorthand. Paste its underlying command.");
             launch.editor.failed = true;
             s.dirty = true;
             return;

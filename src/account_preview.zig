@@ -6,16 +6,7 @@ const str = common.str;
 const Provider = @import("providers.zig").Provider;
 const agents = @import("agents.zig");
 const transcript = @import("transcript.zig");
-pub const Text = struct {
-    bytes: [160]u8 = @splat(0),
-    len: usize = 0,
-    pub fn set(t: *Text, value: []const u8) void {
-        t.len = agents.clean(&t.bytes, value);
-    }
-    pub fn text(t: *const Text) []const u8 {
-        return t.bytes[0..t.len];
-    }
-};
+pub const Text = agents.Text;
 pub const usage_max_age: i64 = 10 * 60;
 pub const Info = struct {
     signed_in: ?bool = null,
@@ -140,8 +131,8 @@ pub fn codexAccount(value: std.json.Value) Info {
     info.signed_in = value != .null;
     const email = str(value, "email");
     const api = std.mem.eql(u8, str(value, "type"), "apiKey");
-    info.account.set(if (api) "API key" else if (email.len > 0) email else if (value == .null) "Not signed in" else "Signed in");
-    info.plan.set(if (api) "API" else str(value, "planType"));
+    info.account = .ascii(if (api) "API key" else if (email.len > 0) email else if (value == .null) "Not signed in" else "Signed in");
+    info.plan = .ascii(if (api) "API" else str(value, "planType"));
     if (api) info.limits = .metered;
     return info;
 }
@@ -153,9 +144,9 @@ pub fn claudeAccount(value: std.json.Value) Info {
     info.signed_in = logged.bool;
     const api = std.mem.eql(u8, str(value, "authMethod"), "api_key");
     const email = str(value, "email");
-    info.account.set(if (!logged.bool) "Not signed in" else if (api) "API key" else if (email.len > 0) email else "Signed in");
+    info.account = .ascii(if (!logged.bool) "Not signed in" else if (api) "API key" else if (email.len > 0) email else "Signed in");
     if (logged.bool) {
-        info.plan.set(if (api) "API" else str(value, "subscriptionType"));
+        info.plan = .ascii(if (api) "API" else str(value, "subscriptionType"));
         if (api) info.limits = .metered;
     }
     return info;

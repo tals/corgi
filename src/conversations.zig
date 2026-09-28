@@ -95,7 +95,7 @@ pub const Actor = struct {
         const ms = @divFloor(now, std.time.us_per_ms);
         if (!actor.state.compacting) actor.activity_timeline.finish(actor.usageView(ms));
         var label: activity_summary.Label = .{};
-        const text = if (actor.state.compacting) "Compacting context" else actor.state.activity[0..actor.state.activity_len];
+        const text = if (actor.state.compacting) "Compacting context" else actor.state.activity.text();
         if (text.len == 0) return;
         label.len = @min(text.len, label.bytes.len);
         while (!std.unicode.utf8ValidateSlice(text[0..label.len])) label.len -= 1;
@@ -135,25 +135,18 @@ pub const Actor = struct {
         if (s.observed_at <= agent.last_seq) return false;
         actor.child_refresh = false;
         const binding = agent.last_seq == 0;
-        if (agent.session_len != 0 and !std.mem.eql(u8, agent.sessionId(), &s.session)) return false;
+        if (agent.session.len != 0 and !std.mem.eql(u8, agent.sessionId(), &s.session)) return false;
         if (binding) {
             agent.reset();
             agent.provider = .codex;
-            @memcpy(agent.session[0..36], &s.session);
-            agent.session_len = 36;
+            agent.session = .initTruncated(&s.session);
         }
-        if (s.transcript_len > 0) {
-            agent.transcript = s.transcript;
-            agent.transcript_len = s.transcript_len;
-        }
+        if (s.transcript.len > 0) agent.transcript = s.transcript;
         actor.observed_at = @max(actor.observed_at, s.observed_at);
         actor.background_tasks = s.background_tasks;
         agent.updated_at = s.updated_at;
         agent.metadata_protocol_at = s.observed_at;
-        if (s.name_len > 0) {
-            agent.name = s.name;
-            agent.name_len = s.name_len;
-        }
+        if (s.name.len > 0) agent.name = s.name;
         const old_state = agent.state;
         const was_compacting = agent.compacting;
         agent.state = s.state;
@@ -166,13 +159,13 @@ pub const Actor = struct {
         const same_turn = std.mem.eql(u8, agent.turnId(), s.turn.text());
         if (!same_turn or (s.state != .working and s.state != .blocked)) actor.transcript_tool_active = false;
         actor.refreshTranscriptTool();
-        agent.tool_len = 0;
+        agent.tool = .{};
         if (!same_turn or old_state != s.state or s.state != .working) {
-            agent.activity_len = 0;
+            agent.activity = .{};
             agent.compacting = false;
             actor.screen_compacting = false;
         }
-        agent.activity_generation = s.evidence.hash();
+        agent.activity_generation = activity_summary.hash(&s.evidence);
         var ding = false;
         if (s.turn.len > 0) {
             agent.setTurn(s.turn.text());
@@ -337,15 +330,14 @@ pub const Registry = struct {
         return null;
     }
     pub fn get(registry: *Registry, provider: agents.Provider, session: []const u8) !*Actor {
-        if (session.len == 0 or session.len > 160 or !std.unicode.utf8ValidateSlice(session)) return error.InvalidSession;
+        if (session.len == 0 or !std.unicode.utf8ValidateSlice(session)) return error.InvalidSession;
         for (session) |ch| if (ch < 32 or ch == 127) return error.InvalidSession;
         if (registry.find(provider, session)) |actor| return actor;
         if (registry.items.items.len == max_actors or @intFromEnum(registry.next_id) == std.math.maxInt(u32)) return error.TooManyConversations;
         const actor = try registry.allocator.create(Actor);
         errdefer registry.allocator.destroy(actor);
-        actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider }, .tracked_since = std.time.milliTimestamp() };
-        @memcpy(actor.state.session[0..session.len], session);
-        actor.state.session_len = session.len;
+        const id = agents.Text.init(session) catch return error.InvalidSession;
+        actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider, .session = id }, .tracked_since = std.time.milliTimestamp() };
         try registry.items.append(registry.allocator, actor);
         registry.next_id = registry.next_id.next();
         return actor;
@@ -386,10 +378,7 @@ pub const Registry = struct {
             if (snapshot.observed_at <= state.metadata_protocol_at) continue;
             if (state.state != meta.state or state.updated_at != meta.updated_at or state.last_seq == 0) child.child_refresh = true;
             if (meta.name.len > 0) state.setName(meta.name.text());
-            if (meta.transcript_len > 0) {
-                state.transcript = meta.transcript;
-                state.transcript_len = meta.transcript_len;
-            }
+            if (meta.transcript.len > 0) state.transcript = meta.transcript;
             state.state = meta.state;
             state.updated_at = meta.updated_at;
             state.metadata_protocol_at = snapshot.observed_at;
@@ -444,10 +433,10 @@ test "child links cannot cross providers reparent or form cycles" {
 test "compaction hooks partition usage and preserve the summary through repeated or stale events" {
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex, .state = .working } };
     actor.state.setActivity("Reading source");
-    actor.activity_timeline.checkpoint("", activity_summary.Label.parse("Reading source").?, .{}, 1);
+    actor.activity_timeline.checkpoint("", activity_summary.parseLabel("Reading source").?, .{}, 1);
     actor.live_usage = .{ .known = true, .tokens = .{ .input = 100 } };
     _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 1, true, 2000);
-    try std.testing.expectEqualStrings("Reading source", actor.state.activity[0..actor.state.activity_len]);
+    try std.testing.expectEqualStrings("Reading source", actor.state.activity.text());
     try std.testing.expectEqualStrings("Compacting context", actor.activity_timeline.points[1].label.text());
     try std.testing.expectEqual(@as(u64, 100), actor.activity_timeline.points[0].usage.tokens.input);
     _ = actor.observeHook(.{ .kind = .compact_start, .session = "" }, 2, true, 3000);
@@ -643,13 +632,13 @@ test "ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
     var hook = providers.Backend.init(.codex).hook(parsed.value).?;
     _ = actor.observeHook(hook, 99, false, 4 * std.time.us_per_s);
     try std.testing.expectEqual(@as(i64, 100), actor.observed_at);
-    try std.testing.expectEqual(@as(usize, 0), actor.state.transcript_len);
+    try std.testing.expectEqual(@as(usize, 0), actor.state.transcript.len);
     hook.session = "wrong-session";
     _ = actor.observeHook(hook, 101, false, 4 * std.time.us_per_s);
     try std.testing.expectEqual(@as(i64, 100), actor.observed_at);
     hook.session = "resumed";
     _ = actor.observeHook(hook, 101, false, 4 * std.time.us_per_s);
-    try std.testing.expectEqualStrings("/tmp/new-path", actor.state.transcript[0..actor.state.transcript_len]);
+    try std.testing.expectEqualStrings("/tmp/new-path", actor.state.transcript.text());
     try std.testing.expectEqual(@as(i64, 4 * std.time.us_per_s), actor.observed_at);
     try std.testing.expect(!actor.authoritative(6 * std.time.us_per_s));
 }

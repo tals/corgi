@@ -10,28 +10,20 @@ $.summaries: optional
 $.summaries?.slots[].index: usize
 $.summaries?.slots[].slot.request.actor: u32
 $.summaries?.slots[].slot.request.provider: enum codex claude
-$.summaries?.slots[].slot.request.session: bytes[160]
-$.summaries?.slots[].slot.request.session_len: usize
-$.summaries?.slots[].slot.request.turn: bytes[160]
-$.summaries?.slots[].slot.request.turn_len: usize
-$.summaries?.slots[].slot.request.evidence.bytes: bytes[2048]
-$.summaries?.slots[].slot.request.evidence.len: usize
+$.summaries?.slots[].slot.request.session: custom bounded_text.BoundedText(160)
+$.summaries?.slots[].slot.request.turn: custom bounded_text.BoundedText(160)
+$.summaries?.slots[].slot.request.evidence: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.request.panes[64]: u32
 $.summaries?.slots[].slot.request.panes_len: usize
-$.summaries?.slots[].slot.request.name: bytes[160]
-$.summaries?.slots[].slot.request.name_len: usize
-$.summaries?.slots[].slot.request.conversation.recent[4].bytes: bytes[2048]
-$.summaries?.slots[].slot.request.conversation.recent[4].len: usize
+$.summaries?.slots[].slot.request.name: custom bounded_text.BoundedText(160)
+$.summaries?.slots[].slot.request.conversation.recent[4]: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.request.conversation.len: usize
-$.summaries?.slots[].slot.request.conversation.previous.bytes: bytes[80]
-$.summaries?.slots[].slot.request.conversation.previous.len: usize
+$.summaries?.slots[].slot.request.conversation.previous: custom bounded_text.BoundedText(80)
 $.summaries?.slots[].slot.request.generation: u64
 $.summaries?.slots[].slot.request.completed_tools: u64
 $.summaries?.slots[].slot.request.turn_epoch: u32
-$.summaries?.slots[].slot.commentary.bytes: bytes[2048]
-$.summaries?.slots[].slot.commentary.len: usize
-$.summaries?.slots[].slot.tool_evidence.bytes: bytes[2048]
-$.summaries?.slots[].slot.tool_evidence.len: usize
+$.summaries?.slots[].slot.commentary: custom bounded_text.BoundedText(2048)
+$.summaries?.slots[].slot.tool_evidence: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.next: i64
 $.summaries?.slots[].slot.attempted_tools: u64
 $.summaries?.slots[].slot.attempted_evidence: optional
@@ -46,27 +38,20 @@ $.summaries?.slots[].slot.active: bool
 $.summaries?.slots[].slot.result: optional
 $.summaries?.slots[].slot.result?.request.actor: u32
 $.summaries?.slots[].slot.result?.request.provider: enum codex claude
-$.summaries?.slots[].slot.result?.request.session: bytes[160]
-$.summaries?.slots[].slot.result?.request.session_len: usize
-$.summaries?.slots[].slot.result?.request.turn: bytes[160]
-$.summaries?.slots[].slot.result?.request.turn_len: usize
-$.summaries?.slots[].slot.result?.request.evidence.bytes: bytes[2048]
-$.summaries?.slots[].slot.result?.request.evidence.len: usize
+$.summaries?.slots[].slot.result?.request.session: custom bounded_text.BoundedText(160)
+$.summaries?.slots[].slot.result?.request.turn: custom bounded_text.BoundedText(160)
+$.summaries?.slots[].slot.result?.request.evidence: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.result?.request.panes[64]: u32
 $.summaries?.slots[].slot.result?.request.panes_len: usize
-$.summaries?.slots[].slot.result?.request.name: bytes[160]
-$.summaries?.slots[].slot.result?.request.name_len: usize
-$.summaries?.slots[].slot.result?.request.conversation.recent[4].bytes: bytes[2048]
-$.summaries?.slots[].slot.result?.request.conversation.recent[4].len: usize
+$.summaries?.slots[].slot.result?.request.name: custom bounded_text.BoundedText(160)
+$.summaries?.slots[].slot.result?.request.conversation.recent[4]: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.result?.request.conversation.len: usize
-$.summaries?.slots[].slot.result?.request.conversation.previous.bytes: bytes[80]
-$.summaries?.slots[].slot.result?.request.conversation.previous.len: usize
+$.summaries?.slots[].slot.result?.request.conversation.previous: custom bounded_text.BoundedText(80)
 $.summaries?.slots[].slot.result?.request.generation: u64
 $.summaries?.slots[].slot.result?.request.completed_tools: u64
 $.summaries?.slots[].slot.result?.request.turn_epoch: u32
 $.summaries?.slots[].slot.result?.label: optional
-$.summaries?.slots[].slot.result?.label?.bytes: bytes[80]
-$.summaries?.slots[].slot.result?.label?.len: usize
+$.summaries?.slots[].slot.result?.label?: custom bounded_text.BoundedText(80)
 $.summaries?.slots[].slot.result?.number: u64
 $.summaries?.link_requests[].slot: usize
 $.summaries?.link_requests[].generation: u64
@@ -87,8 +72,7 @@ $.summaries?.link_results[64]?.key.port: u16
 $.summaries?.link_results[64]?.key.scheme: enum unknown http https
 $.summaries?.link_results[64]?.key.address: u64
 $.summaries?.link_results[64]?.name: optional
-$.summaries?.link_results[64]?.name?.bytes: bytes[32]
-$.summaries?.link_results[64]?.name?.len: usize
+$.summaries?.link_results[64]?.name?: custom bounded_text.BoundedText(32)
 $.summaries?.pool.config.provider: enum codex claude
 $.summaries?.pool.config.model: optional
 $.summaries?.pool.config.model?: string
@@ -183,19 +167,14 @@ $.clients[].protocol_version: optional
 $.clients[].protocol_version?: u32
 $.clients[].subscribed: bool
 $.clients[].launch_preview: optional
-$.clients[].launch_preview?.cwd: bytes[1024]
-$.clients[].launch_preview?.len: usize
+$.clients[].launch_preview?.cwd: custom bounded_text.BoundedText(10240)
 $.clients[].launch_preview?.preview.pending: bool
 $.clients[].launch_preview?.preview.options[2].signed_in: optional
 $.clients[].launch_preview?.preview.options[2].signed_in?: bool
-$.clients[].launch_preview?.preview.options[2].model.bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].model.len: usize
-$.clients[].launch_preview?.preview.options[2].source.bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].source.len: usize
-$.clients[].launch_preview?.preview.options[2].account.bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].account.len: usize
-$.clients[].launch_preview?.preview.options[2].plan.bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].plan.len: usize
+$.clients[].launch_preview?.preview.options[2].model: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options[2].source: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options[2].account: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options[2].plan: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options[2].limits: one of
 $.clients[].launch_preview?.preview.options[2].limits|none: {}
 $.clients[].launch_preview?.preview.options[2].limits|metered: {}
@@ -207,8 +186,7 @@ $.clients[].launch_preview?.preview.options[2].limits|windows[2]?.used: u8
 $.clients[].launch_preview?.preview.options[2].limits|windows[2]?.reset_at: optional
 $.clients[].launch_preview?.preview.options[2].limits|windows[2]?.reset_at?: i64
 $.clients[].launch_preview?.preview.options[2].usage_fetched_at: i64
-$.clients[].launch_preview?.preview.options[2].usage_error.bytes: bytes[160]
-$.clients[].launch_preview?.preview.options[2].usage_error.len: usize
+$.clients[].launch_preview?.preview.options[2].usage_error: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options[2].usage_needs_consent: bool
 $.clients[].launch_preview?.preview.options[2].history[2][11]: optional
 $.clients[].launch_preview?.preview.options[2].history[2][11]?: u8

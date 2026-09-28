@@ -85,7 +85,7 @@ class ViewerCompatibility extends Runtime {
   assert_explanation(code: number | null, output: string) {
     this.assertEqual(code, 1, output);
     this.assertIn("this viewer is incompatible with the server", output);
-    this.assertIn("requires viewer protocol 2", output);
+    this.assertIn("requires viewer protocol 3", output);
     this.assertIn(
       "Reattach using the same Corgi version as the server",
       output,
@@ -94,7 +94,7 @@ class ViewerCompatibility extends Runtime {
     this.assertNotIn("panic:", output);
   }
   async test_server_rejects_open_before_creating_or_attaching() {
-    for (const version of [null, 1, 3, -1, "2"]) {
+    for (const version of [null, 2, 4, -1, "3"]) {
       const request: any = {
         op: "viewer.open",
         protocol: 1,
@@ -103,7 +103,7 @@ class ViewerCompatibility extends Runtime {
       if (version !== null) request.viewer_protocol = version;
       const result = await this.raw_rpc(request);
       this.assertEqual(result.err, "UnsupportedViewerProtocol");
-      this.assertEqual(result.viewer_protocol, 2);
+      this.assertEqual(result.viewer_protocol, 3);
     }
     this.assertEqual((await this.session()).panes, []);
     this.assertEqual((await this.raw_rpc({ op: "viewer.list" })).viewers, []);
@@ -115,23 +115,23 @@ class ViewerCompatibility extends Runtime {
         client.request({ protocol: 1, ...request });
       const opened = await call({
         op: "viewer.open",
-        viewer_protocol: 2,
+        viewer_protocol: 3,
         onboarding: true,
       });
-      this.assertEqual(opened.viewer_protocol, 2);
+      this.assertEqual(opened.viewer_protocol, 3);
       const oldPid = (await this.session()).server_pid;
       await this.run_cli("reload", EXE);
       this.assertNotEqual((await this.session()).server_pid, oldPid);
       const rejected = await call({
         op: "viewer.sync",
-        viewer_protocol: 3,
+        viewer_protocol: 4,
         interests: "different format",
       });
       this.assertEqual(rejected.err, "UnsupportedViewerProtocol");
-      this.assertEqual(rejected.viewer_protocol, 2);
+      this.assertEqual(rejected.viewer_protocol, 3);
       const accepted = await call({
         op: "viewer.sync",
-        viewer_protocol: 2,
+        viewer_protocol: 3,
         interests: [],
       });
       this.assertEqual(accepted.type, "view");
@@ -144,9 +144,9 @@ class ViewerCompatibility extends Runtime {
       originalEnv = this.env;
     const replies = [
       {},
-      { viewer_protocol: 3 },
-      { viewer_protocol: "2" },
-      { err: "UnsupportedViewerProtocol", viewer_protocol: 3 },
+      { viewer_protocol: 4 },
+      { viewer_protocol: "3" },
+      { err: "UnsupportedViewerProtocol", viewer_protocol: 4 },
       { err: "UnsupportedProtocol" },
     ];
     for (const reply of replies) {
@@ -179,7 +179,7 @@ class ViewerCompatibility extends Runtime {
     pty.start([EXE, "--no-update"], { env, cwd: this.temp.name });
     await this.until(() => proxy.synced);
     await this.run_cli("reload", EXE);
-    proxy.sync_reply = { viewer_protocol: 3 };
+    proxy.sync_reply = { viewer_protocol: 4 };
     const code = await pty.proc.exited;
     this.assert_explanation(code, pty.output);
     this.assertLess(

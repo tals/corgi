@@ -438,7 +438,7 @@ test "running tools publish stable evidence before completion for both providers
         t.dirty = false;
         if (provider == 0) t.ingest(start.value, true) else t.ingestClaude(start.value, true);
         try std.testing.expect(!t.dirty);
-        try std.testing.expectEqual(running.evidence.hash(), t.view().evidence.hash());
+        try std.testing.expectEqual(summary.hash(&running.evidence), summary.hash(&t.view().evidence));
         if (provider == 0) t.ingest(done.value, true) else t.ingestClaude(done.value, true);
         try std.testing.expect(t.dirty);
         const finished = t.view();
@@ -508,9 +508,9 @@ test "polling the same call leaves the evidence unchanged" {
         const done_value = try std.json.parseFromSlice(std.json.Value, alloc, done, .{});
         defer done_value.deinit();
         t.ingest(start_value.value, true);
-        if (i > 0) try std.testing.expectEqual(before, t.view().evidence.hash());
+        if (i > 0) try std.testing.expectEqual(before, summary.hash(&t.view().evidence));
         t.ingest(done_value.value, true);
-        before = t.view().evidence.hash();
+        before = summary.hash(&t.view().evidence);
     }
     try std.testing.expectEqual(@as(u64, 3), t.completed);
     const evidence = t.view().evidence.text();

@@ -128,17 +128,10 @@ test "preview stream handles partial and consecutive messages and ignores old di
     var pair: [2]c_int = undefined;
     if (os.c.socketpair(os.c.AF_UNIX, os.c.SOCK_STREAM, 0, &pair) != 0) return error.SocketPairFailed;
     defer _ = os.c.close(pair[1]);
-    // A preview message serializes the full fixed-size Text buffers (about
-    // 10 KB), well past the platform's default socket buffer; grow both
-    // ends so a full write never blocks waiting for this single-threaded
-    // test to get around to draining it.
-    const bufsize: c_int = 1 << 20;
-    _ = os.c.setsockopt(pair[0], os.c.SOL_SOCKET, os.c.SO_RCVBUF, &bufsize, @sizeOf(c_int));
-    _ = os.c.setsockopt(pair[1], os.c.SOL_SOCKET, os.c.SO_SNDBUF, &bufsize, @sizeOf(c_int));
     var stream: Stream = .{ .fd = pair[0], .cwd = .initTruncated("/a") };
     defer stream.deinit();
     var preview: Preview = .{ .pending = false };
-    preview.options[0].model.set("initial");
+    preview.options[0].model = .ascii("initial");
     const first = try std.json.Stringify.valueAlloc(a, .{ .type = "agent.preview", .cwd = "/a", .preview = preview }, .{});
     defer a.free(first);
     try os.writeAll(pair[1], first[0..100]);
@@ -147,9 +140,9 @@ test "preview stream handles partial and consecutive messages and ignores old di
     try os.writeAll(pair[1], "\n");
     try std.testing.expect(try stream.drain());
     try std.testing.expectEqualStrings("initial", stream.current("/a").options[0].model.text());
-    preview.options[0].model.set("updated");
+    preview.options[0].model = .ascii("updated");
     try os.sendJson(pair[1], .{ .type = "agent.preview", .cwd = "/a", .preview = preview });
-    preview.options[0].model.set("wrong directory");
+    preview.options[0].model = .ascii("wrong directory");
     try os.sendJson(pair[1], .{ .type = "agent.preview", .cwd = "/b", .preview = preview });
     try std.testing.expect(try stream.drain());
     try std.testing.expectEqualStrings("updated", stream.current("/a").options[0].model.text());

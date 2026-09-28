@@ -23,6 +23,81 @@ import {
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
 
+// Rewrites current state the way the previous build wrote it (checkpoint 4,
+// handoff 3), because a relabeled current file isn't a valid old one. It
+// inverts checkpoint4To5 and handoff3To4, and is source text because
+// candidate() pastes it into a separate script.
+const DOWNGRADE = `
+const size = s => Buffer.byteLength(s, 'utf8');
+const copy = v => v === null || typeof v !== 'object' || JSON.isRawJSON(v) ? v
+  : Array.isArray(v) ? v.map(copy) : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, copy(x)]));
+function paired(o, key, len = key + '_len') {
+  if (typeof o?.[key] === 'string') o[len] = size(o[key]);
+}
+function wrapped(o, key) {
+  if (typeof o?.[key] === 'string') o[key] = { bytes: o[key], len: size(o[key]) };
+}
+function byProvider(o, key) {
+  const v = o?.[key];
+  if (v && typeof v === 'object' && !Array.isArray(v)) o[key] = [v.codex, v.claude];
+}
+function agentV4(a) {
+  for (const key of ['name', 'transcript', 'turn', 'last_finished_turn', 'recent', 'session', 'activity', 'tool', 'cwd'])
+    paired(a, key);
+}
+function recentV4(r) {
+  if (Array.isArray(r?.recent)) r.recent.forEach((_, i) => wrapped(r.recent, i));
+  wrapped(r, 'previous');
+}
+function checkpointV4(state) {
+  for (const c of state.conversations ?? []) { agentV4(c.agent); recentV4(c.status_inference); }
+  for (const e of [...state.panes ?? [], ...state.sessions ?? []]) {
+    agentV4(e.binding?.provisional);
+    paired(e.resume_hint, 'name');
+    paired(e.resume_hint, 'session', 'len');
+  }
+  for (const p of state.panes ?? []) {
+    const actor = p.binding?.actor;
+    p.agent = copy(actor ? state.conversations.find(c => c.id === actor).agent : p.binding?.provisional);
+    wrapped(p, 'label');
+  }
+  for (const p of state.closed ?? []) wrapped(p, 'label');
+  for (const e of state.link_labels?.entries ?? []) wrapped(e, 'name');
+  for (const c of state.agent_commands ?? []) {
+    if ('command' in c) { c.bytes = c.command; delete c.command; }
+    paired(c, 'bytes', 'len');
+    paired(c, 'original');
+    wrapped(c, 'name');
+    for (const key of ['suggested_name', 'model', 'account', 'mode']) wrapped(c.semantics, key);
+  }
+  byProvider(state, 'agent_yolo');
+  byProvider(state, 'agent_hidden');
+}
+function requestV3(r) {
+  for (const key of ['session', 'turn', 'name']) paired(r, key);
+  wrapped(r, 'evidence');
+  recentV4(r?.conversation);
+}
+function handoffV3(m) {
+  for (const { slot } of m.summaries?.slots ?? []) {
+    requestV3(slot?.request);
+    wrapped(slot, 'commentary');
+    wrapped(slot, 'tool_evidence');
+    requestV3(slot?.result?.request);
+    wrapped(slot?.result, 'label');
+  }
+  for (const r of m.summaries?.link_results ?? []) wrapped(r, 'name');
+  for (const { launch_preview: saved } of m.clients ?? []) {
+    paired(saved, 'cwd', 'len');
+    const preview = saved?.preview;
+    byProvider(preview, 'options');
+    byProvider(preview, 'installed');
+    for (const o of preview?.options ?? [])
+      for (const key of ['model', 'source', 'account', 'plan', 'usage_error']) wrapped(o, key);
+  }
+}
+`;
+
 class Reloads extends Runtime {
   async new(command = "exec /bin/sh", title = "") {
     return (
@@ -158,7 +233,9 @@ libc.symbols.lseek(fd, 0n, 0);
   async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
     const first = await this.new(), viewer = await Viewer.create(this);
     const before = await this.session();
-    const executable = this.candidate(`
+    const executable = this.candidate(`${DOWNGRADE}
+handoffV3(m);
+checkpointV4(m.runtime);
 m.version = 1;
 m.runtime.version = 2;
 for (const p of m.runtime.panes) {
@@ -181,7 +258,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     await this.until(async () => (await this.screen(first)).includes("MIGRATED_ALIVE"));
     const saved = (await this.rpc({ op: "recovery.save", protocol: 1 })).path;
     const state = JSON.parse(readFileSync(saved, "utf8"));
-    this.assertEqual(state.version, 4);
+    this.assertEqual(state.version, 5);
     this.assertEqual(state.panes[0].binding.provisional.provider, null);
     await this.reload();
     this.assertEqual((await viewer.poll()).pane, first);
@@ -196,6 +273,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       try { process.kill(before.server_pid, 0); return false; } catch { return true; }
     });
     const original = JSON.parse(readFileSync(saved, "utf8"));
+    new Function("state", `${DOWNGRADE}checkpointV4(state);`)(original);
     original.version = 2;
     original.panes[0].agent.provider = "other";
     original.panes[0].binding.provisional.provider = "other";
@@ -216,7 +294,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertFalse(existsSync(`${saved}.v2`));
     writeFileSync(saved, JSON.stringify(original));
     await this.run_cli("start");
-    this.assertEqual(JSON.parse(readFileSync(saved, "utf8")).version, 4);
+    this.assertEqual(JSON.parse(readFileSync(saved, "utf8")).version, 5);
     this.assertEqual(statSync(saved).mode & 0o777, 0o600);
     this.assertEqual(readFileSync(`${saved}.v2`, "utf8"), JSON.stringify(original));
     this.assertEqual(statSync(`${saved}.v2`).mode & 0o777, 0o600);

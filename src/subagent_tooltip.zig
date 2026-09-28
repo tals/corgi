@@ -1195,8 +1195,8 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
 fn testAccounts(now: i64) Accounts {
     var accounts: Accounts = .{ .system = .codex, .now = now };
     const claude = &accounts.options[@intFromEnum(agents.Provider.claude)];
-    claude.account.set("work@acme.dev");
-    claude.plan.set("max");
+    claude.account = .ascii("work@acme.dev");
+    claude.plan = .ascii("max");
     claude.usage_fetched_at = now;
     claude.limits = .{ .windows = .{
         .{ .minutes = 300, .used = 100, .reset_at = now + 42 * 60 },
@@ -1204,7 +1204,7 @@ fn testAccounts(now: i64) Accounts {
     } };
     claude.history[0] = .{ 5, 13, 24, 35, null, 61, 73, 86, 100, 100, null };
     const codex = &accounts.options[@intFromEnum(agents.Provider.codex)];
-    codex.account.set("me@home.dev");
+    codex.account = .ascii("me@home.dev");
     codex.usage_fetched_at = now;
     codex.limits = .{ .windows = .{ .{ .minutes = 10080, .used = 84, .reset_at = now + 5 * 86400 + 14 * 3600 }, null } };
     return accounts;

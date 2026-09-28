@@ -24,31 +24,24 @@ pub const Cell = struct {
             const window = maybe orelse continue;
             const out = &cell.windows[cell.len];
             var label: [16]u8 = undefined;
-            out.label.set(window.label(&label));
+            out.label = .ascii(window.label(&label));
             out.used = window.used;
             var reset: [48]u8 = undefined;
-            out.reset.set(window.countdown(now, &reset) orelse "unknown");
+            out.reset = .ascii(window.countdown(now, &reset) orelse "unknown");
             cell.len += 1;
         }
         return cell;
     }
 
-    /// Copied raw: `Text.set` would blank the "…" and "—" in statuses.
+    /// Not `ascii`, which would blank the "…" and "—" in statuses.
     pub fn status(text: []const u8) Cell {
-        var cell: Cell = .{};
-        cell.fallback.len = @min(text.len, cell.fallback.bytes.len);
-        @memcpy(cell.fallback.bytes[0..cell.fallback.len], text[0..cell.fallback.len]);
-        return cell;
+        return .{ .fallback = .initTruncated(text) };
     }
 
     pub fn unavailable(reason: []const u8) Cell {
-        var cell: Cell = .{};
-        const text = std.fmt.bufPrint(&cell.fallback.bytes, "Unavailable · {s}", .{reason}) catch {
-            cell.fallback.set("Unavailable");
-            return cell;
-        };
-        cell.fallback.len = text.len;
-        return cell;
+        var buf: [metadata.Text.capacity]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, "Unavailable · {s}", .{reason}) catch "Unavailable";
+        return .{ .fallback = .initTruncated(text) };
     }
 
     pub fn minimumWidth(cell: Cell) usize {

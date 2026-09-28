@@ -7,36 +7,32 @@ const git_status = @import("git_status.zig");
 const common = @import("providers/common.zig");
 const Text = @import("account_preview.zig").Text;
 const Path = @import("bounded_text.zig").Path;
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const log = std.log.scoped(.launch_command);
 pub const capacity = 6;
 pub const max_length = 2048;
+pub const Command = BoundedText(max_length);
 pub const Entry = struct {
-    bytes: [max_length]u8 = @splat(0),
-    len: usize = 0,
-    original: [max_length]u8 = @splat(0),
-    original_len: usize = 0,
+    command: Command = .{},
+    /// What the user typed, when it was resolved into `command`.
+    original: Command = .{},
     hidden: bool = false,
     name: Text = .{},
     semantics: Semantics = .{},
 
     pub fn text(e: *const Entry) []const u8 {
-        return e.bytes[0..@min(e.len, e.bytes.len)];
+        return e.command.text();
     }
     pub fn inputText(e: *const Entry) []const u8 {
-        return if (e.original_len > 0) e.original[0..@min(e.original_len, e.original.len)] else e.text();
+        return if (e.original.len > 0) e.original.text() else e.text();
     }
     pub fn setOriginal(e: *Entry, source: []const u8) !void {
-        if (source.len > e.original.len) return error.InvalidCommand;
-        e.original = @splat(0);
-        @memcpy(e.original[0..source.len], source);
-        e.original_len = source.len;
+        e.original = Command.init(source) catch return error.InvalidCommand;
     }
     pub fn set(e: *Entry, source: []const u8) !void {
         const value = std.mem.trim(u8, source, " \t\r\n");
-        if (value.len > e.bytes.len or std.mem.indexOfScalar(u8, value, 0) != null) return error.InvalidCommand;
-        e.bytes = @splat(0);
-        @memcpy(e.bytes[0..value.len], value);
-        e.len = value.len;
+        if (std.mem.indexOfScalar(u8, value, 0) != null) return error.InvalidCommand;
+        e.command = Command.init(value) catch return error.InvalidCommand;
     }
     pub fn label(e: *const Entry) []const u8 {
         if (e.name.len > 0) return e.name.text();
@@ -391,9 +387,11 @@ pub const Worker = struct {
             var result: Resolution = .{ .pending = false };
             if (resolve(job.source.text(), job.cwd.text(), os.allocator)) |source| {
                 defer os.allocator.free(source);
-                result.command.set(source) catch |err| result.error_message.set(@errorName(err));
+                result.command.set(source) catch |err| {
+                    result.error_message = .ascii(@errorName(err));
+                };
                 result.semantics = analyze(source, job.cwd.text());
-            } else |err| result.error_message.set(@errorName(err));
+            } else |err| result.error_message = .ascii(@errorName(err));
             w.mutex.lock();
             if (w.jobs[index]) |*current| {
                 const matches = current.id == job.id and
@@ -437,12 +435,12 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
     var yolo = false;
     while (tokens.next(&buffer)) |word| {
         if (next_model) {
-            info.model.set(word);
+            info.model = .ascii(word);
             next_model = false;
             continue;
         }
         if (next_profile) {
-            info.account.set("Profile selected; identity unknown");
+            info.account = .ascii("Profile selected; identity unknown");
             next_profile = false;
             continue;
         }
@@ -462,16 +460,16 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
                 } else if (envMatches(key, known.credential_env)) {
                     credential_override = true;
                     info.default_account = false;
-                    info.account.set(if (value.len > 0) "API key - identity unavailable" else "Credential cleared - identity unknown");
+                    info.account = .ascii(if (value.len > 0) "API key - identity unavailable" else "Credential cleared - identity unknown");
                 } else if (known.oauth_env != null and std.mem.eql(u8, key, known.oauth_env.?)) {
                     credential_override = true;
                     info.default_account = false;
-                    info.account.set("Explicit OAuth token - identity unknown");
+                    info.account = .ascii("Explicit OAuth token - identity unknown");
                 } else if (envMatches(key, known.endpoint_env)) {
                     settings_override = true;
                     info.default_account = false;
-                    info.account.set("External endpoint/provider - identity unknown");
-                } else if (known.model_env != null and std.mem.eql(u8, key, known.model_env.?)) info.model.set(value);
+                    info.account = .ascii("External endpoint/provider - identity unknown");
+                } else if (known.model_env != null and std.mem.eql(u8, key, known.model_env.?)) info.model = .ascii(value);
             }
             continue;
         }
@@ -482,7 +480,7 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
         }
         before_command = false;
         if (std.mem.eql(u8, word, "--model") or std.mem.eql(u8, word, "-m")) next_model = true;
-        if (std.mem.startsWith(u8, word, "--model=")) info.model.set(word[8..]);
+        if (std.mem.startsWith(u8, word, "--model=")) info.model = .ascii(word[8..]);
         // Wrapper scripts may forward any agent's flag.
         for (Provider.all) |provider| {
             if ((info.provider == null or info.provider == provider) and std.mem.eql(u8, word, provider.info().yolo_flag)) yolo = true;
@@ -496,7 +494,7 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
         }
         // A separate profile name follows; an inline one is opaque settings.
         if (profile == .separate) next_profile = true;
-        if (profile == .inline_value or settings != .none) info.account.set("Custom settings - identity unknown");
+        if (profile == .inline_value or settings != .none) info.account = .ascii("Custom settings - identity unknown");
     }
     if (facts) |known| if (!info.default_account and !credential_override and !settings_override) {
         var root: ?[]u8 = null;
@@ -512,15 +510,15 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
             };
         }
         defer if (root) |value| os.allocator.free(value);
-        info.account.set("Custom profile - identity unknown");
+        info.account = .ascii("Custom profile - identity unknown");
         if (root) |value| readIdentity(&info, value);
     };
-    if (!info.default_account and info.account.len == 0) info.account.set("Account cannot be determined");
+    if (!info.default_account and info.account.len == 0) info.account = .ascii("Account cannot be determined");
     info.yolo = yolo;
-    info.mode.set(if (yolo) "Skips permission checks" else "Provider permission settings");
+    info.mode = .ascii(if (yolo) "Skips permission checks" else "Provider permission settings");
     var label: [160]u8 = undefined;
     const provider_name = if (info.provider) |provider| provider.info().label else "Custom agent";
-    info.suggested_name.set(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else "", if (info.model.len > 0) info.model.text() else "" }) catch provider_name);
+    info.suggested_name = .ascii(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else "", if (info.model.len > 0) info.model.text() else "" }) catch provider_name);
     return info;
 }
 /// Whether `word` is one of `flags`, either alone or as `--flag=value`.
@@ -561,7 +559,7 @@ fn readIdentity(info: *Semantics, root: []const u8) void {
         .claude => email = common.str(common.field(json.value, "oauthAccount"), "emailAddress"),
         .codex => {
             if (common.str(json.value, "OPENAI_API_KEY").len > 0) {
-                info.account.set("Profile API key - identity unavailable");
+                info.account = .ascii("Profile API key - identity unavailable");
                 return;
             }
             const token = common.str(common.field(json.value, "tokens"), "id_token");
@@ -578,7 +576,7 @@ fn readIdentity(info: *Semantics, root: []const u8) void {
     }
     if (email.len > 0) {
         var text: [160]u8 = undefined;
-        info.account.set(std.fmt.bufPrint(&text, "{s} (cached)", .{email}) catch "Cached profile identity");
+        info.account = .ascii(std.fmt.bufPrint(&text, "{s} (cached)", .{email}) catch "Cached profile identity");
     }
 }
 

@@ -6,6 +6,7 @@ const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const agents = @import("agents.zig");
 const usage = @import("usage.zig");
 const activity_tools = @import("activity_tools.zig");
+const activity_summary = @import("activity_summary.zig");
 const codex_files = @import("codex_files.zig");
 const live_usage = @import("live_usage.zig");
 const context_window = @import("context_window.zig");
@@ -87,9 +88,9 @@ pub const Result = struct {
         const progress = result.progress orelse return false;
         if (agent.state != .working or progress.ended or progress.turn.len == 0) return false;
         // A late file read cannot supply a turn after a newer hook arrived.
-        if (agent.turn_len == 0 and agent.last_seq == result.seq) agent.setTurn(progress.turn.text());
+        if (agent.turn.len == 0 and agent.last_seq == result.seq) agent.setTurn(progress.turn.text());
         if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return false;
-        agent.activity_generation = progress.commentary.hash();
+        agent.activity_generation = activity_summary.hash(&progress.commentary);
         return true;
     }
 };
@@ -124,7 +125,7 @@ pub const Worker = struct {
         w.requests.clearRetainingCapacity();
         for (runtime.conversations.items.items) |actor| {
             const agent = &actor.state;
-            if (agent.session_len == 0 or (agent.transcript_len == 0 and !indexedNames(actor.provider()))) continue;
+            if (agent.session.len == 0 or (agent.transcript.len == 0 and !indexedNames(actor.provider()))) continue;
             const ws = runtime.workspaces.get(actor.workspace) orelse continue;
             w.requests.append(a, .{
                 .actor = actor.id,
@@ -461,7 +462,7 @@ test "usage tail frames records, ignores history and advances baselines while wa
     var tail: Tail = .{};
     defer tail.close();
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 1000, .agent = .{ .provider = .codex } };
-    req.agent.session_len = agents.clean(&req.agent.session, "session");
+    req.agent.session = .ascii("session");
     const baseline = "{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:00.000Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"output_tokens\":10}}}}\n";
     try std.testing.expect(!(try tail.ingest(&req, baseline, 0)).any());
     const call = "{\"type\":\"response_item\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"function_call\",\"call_id\":\"call1\"}}";
@@ -482,8 +483,8 @@ test "usage tail frames records, ignores history and advances baselines while wa
 
 test "file metadata prefers fresh protocol and rejects other turns" {
     var agent: agents.Agent = .{ .provider = .codex, .state = .working, .last_seq = 10 };
-    agent.session_len = agents.clean(&agent.session, "session");
-    agent.turn_len = agents.clean(&agent.turn, "current");
+    agent.session = .ascii("session");
+    agent.turn = .ascii("current");
     var progress: activity_tools.View = .{};
     progress.turn = .ascii("current");
     progress.commentary.append("Tracing pane focus");
@@ -508,7 +509,7 @@ test "file metadata prefers fresh protocol and rejects other turns" {
     try std.testing.expectEqual(@as(u64, 0), agent.observation.completed);
     result.progress.?.turn = .ascii("old");
     try std.testing.expect(!result.fallback(&agent, 6_000_000));
-    agent.turn_len = 0;
+    agent.turn = .{};
     try std.testing.expect(!result.fallback(&agent, 6_000_000));
     result.seq = agent.last_seq;
     result.progress.?.ended = true;
@@ -529,9 +530,8 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     const path = try tmp.dir.realpathAlloc(std.testing.allocator, "usage.jsonl");
     defer std.testing.allocator.free(path);
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 1000, .agent = .{ .provider = .codex } };
-    req.agent.session_len = agents.clean(&req.agent.session, "large-session");
-    @memcpy(req.agent.transcript[0..path.len], path);
-    req.agent.transcript_len = path.len;
+    req.agent.session = .ascii("large-session");
+    req.agent.transcript = try .init(path);
     var tail: Tail = .{};
     defer tail.close();
     try std.testing.expect(!(try tail.poll(&req)).any());
@@ -566,7 +566,7 @@ test "Claude transcripts supply chosen names over generated titles and report co
     var tail: Tail = .{};
     defer tail.close();
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
-    req.agent.session_len = agents.clean(&req.agent.session, "a");
+    req.agent.session = .ascii("a");
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Other session\",\"sessionId\":\"b\"}\n", 0);
     try std.testing.expectEqual(@as(usize, 0), tail.name.len);
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Generated\",\"sessionId\":\"a\"}\n", 0);
@@ -580,7 +580,7 @@ test "Claude transcripts supply chosen names over generated titles and report co
     try std.testing.expectEqual(@as(usize, 0), tail.continued.len);
 
     var agent: agents.Agent = .{ .provider = .claude };
-    agent.session_len = agents.clean(&agent.session, "a");
+    agent.session = .ascii("a");
     const result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .delta = .{}, .name = tail.name };
     try std.testing.expect(!result.fallback(&agent, 0));
     try std.testing.expectEqualStrings("Chosen", agent.displayName());
@@ -590,14 +590,14 @@ test "Claude text updates apply only when newer than the latest hook" {
     var tail: Tail = .{};
     defer tail.close();
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
-    req.agent.session_len = agents.clean(&req.agent.session, "a");
+    req.agent.session = .ascii("a");
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{\"content\":[{\"type\":\"thinking\",\"thinking\":\"\"},{\"type\":\"text\",\"text\":\"\\n## Checking the parser\\nmore\"}]}}\n", 0);
     try std.testing.expectEqualStrings("Checking the parser", tail.update.text());
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"isSidechain\":true,\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Subagent text\"}]}}\n", 0);
     try std.testing.expectEqualStrings("Checking the parser", tail.update.text());
 
     var agent: agents.Agent = .{ .provider = .claude, .state = .working, .activity_at = 3 * std.time.us_per_s };
-    agent.session_len = agents.clean(&agent.session, "a");
+    agent.session = .ascii("a");
     const result: Result = .{
         .actor = @enumFromInt(1),
         .workspace = @enumFromInt(1),
@@ -607,22 +607,22 @@ test "Claude text updates apply only when newer than the latest hook" {
         .update_at = tail.update_at,
     };
     _ = result.fallback(&agent, 0);
-    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity.len);
     agent.activity_at = 1 * std.time.us_per_s;
     _ = result.fallback(&agent, 0);
-    try std.testing.expectEqualStrings("Checking the parser", agent.activity[0..agent.activity_len]);
-    agent.activity_len = 0;
+    try std.testing.expectEqualStrings("Checking the parser", agent.activity.text());
+    agent.activity = .{};
     agent.activity_at = 0;
     agent.state = .idle;
     _ = result.fallback(&agent, 0);
-    try std.testing.expectEqual(@as(usize, 0), agent.activity_len);
+    try std.testing.expectEqual(@as(usize, 0), agent.activity.len);
 }
 
 test "usage tail reads context from its own session, history included" {
     var tail: Tail = .{};
     defer tail.close();
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
-    req.agent.session_len = agents.clean(&req.agent.session, "a");
+    req.agent.session = .ascii("a");
     // Unlike usage, a level in the initial tail is already current.
     tail.initial_until = 1 << 20;
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{\"id\":\"m1\",\"model\":\"claude-opus-5-5\",\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":40000,\"cache_creation_input_tokens\":1000,\"output_tokens\":9}}}\n", 0);

@@ -6,28 +6,21 @@ const layout = @import("layout.zig");
 const inference = @import("inference.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const a = @import("os.zig").allocator;
+const BoundedText = @import("bounded_text.zig").BoundedText;
 pub const capacity = 64;
-pub const Name = struct {
-    bytes: [32]u8 = @splat(0),
-    len: usize = 0,
-    pub fn text(n: *const Name) []const u8 {
-        return n.bytes[0..n.len];
-    }
-    pub fn parse(value: []const u8) ?Name {
-        var clean = std.mem.trim(u8, value, " \t\r\n\"");
-        if (std.mem.startsWith(u8, clean, "Open ")) clean = clean[5..];
-        if (clean.len == 0 or clean.len > 32 or !std.unicode.utf8ValidateSlice(clean)) return null;
-        var words = std.mem.tokenizeScalar(u8, clean, ' ');
-        var count: usize = 0;
-        while (words.next()) |_| count += 1;
-        if (count > 3) return null;
-        var it = (std.unicode.Utf8View.init(clean) catch return null).iterator();
-        while (it.nextCodepoint()) |cp| if (cp < 32 or (cp >= 127 and cp <= 159)) return null;
-        var result: Name = .{ .len = clean.len };
-        @memcpy(result.bytes[0..clean.len], clean);
-        return result;
-    }
-};
+pub const Name = BoundedText(32);
+pub fn parseName(value: []const u8) ?Name {
+    var clean = std.mem.trim(u8, value, " \t\r\n\"");
+    if (std.mem.startsWith(u8, clean, "Open ")) clean = clean[5..];
+    if (clean.len == 0 or !std.unicode.utf8ValidateSlice(clean)) return null;
+    var words = std.mem.tokenizeScalar(u8, clean, ' ');
+    var count: usize = 0;
+    while (words.next()) |_| count += 1;
+    if (count > 3) return null;
+    var it = (std.unicode.Utf8View.init(clean) catch return null).iterator();
+    while (it.nextCodepoint()) |cp| if (cp < 32 or (cp >= 127 and cp <= 159)) return null;
+    return Name.init(clean) catch null;
+}
 pub const Key = struct {
     workspace: WorkspaceId,
     pane: layout.PaneId,
@@ -87,7 +80,7 @@ pub fn infer(pool: *inference.Pool, request: Request, stopping: *const std.atomi
         // Every endpoint is independent; the Codex adapter can reuse its
         // stateless process without carrying another endpoint's history.
     }, stopping) catch return .{ .slot = request.slot, .generation = request.generation, .key = request.key, .name = null };
-    return .{ .slot = request.slot, .generation = request.generation, .key = request.key, .name = Name.parse(response.text()) };
+    return .{ .slot = request.slot, .generation = request.generation, .key = request.key, .name = parseName(response.text()) };
 }
 const Entry = struct {
     key: Key,
@@ -97,8 +90,7 @@ const Entry = struct {
     name: Name = .{},
 };
 pub fn validateName(name: Name) !void {
-    if (name.len > name.bytes.len) return error.InvalidCheckpoint;
-    if (name.len != 0 and Name.parse(name.text()) == null) return error.InvalidCheckpoint;
+    if (name.len != 0 and parseName(name.text()) == null) return error.InvalidCheckpoint;
 }
 pub const Cache = struct {
     entries: [capacity]?Entry = @splat(null),
@@ -223,14 +215,14 @@ fn clipped(value: []const u8, limit: usize) []const u8 {
 }
 
 test "link guesses are bounded display names and stale endpoint results cannot apply" {
-    try std.testing.expectEqualStrings("Finance", Name.parse("Open Finance").?.text());
-    try std.testing.expect(Name.parse("Bad\x1b[2J") == null);
-    try std.testing.expect(Name.parse("Here are too many words") == null);
+    try std.testing.expectEqualStrings("Finance", parseName("Open Finance").?.text());
+    try std.testing.expect(parseName("Bad\x1b[2J") == null);
+    try std.testing.expect(parseName("Here are too many words") == null);
     var cache: Cache = .{};
     const endpoint: ports.Endpoint = .{ .pid = 2, .pane = @enumFromInt(3), .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000 };
     const key = Key.of(@enumFromInt(1), endpoint);
     cache.entries[0] = .{ .key = key, .generation = 2, .pending = true };
-    var result: Result = .{ .slot = 0, .key = key, .generation = 1, .name = Name.parse("Finance") };
+    var result: Result = .{ .slot = 0, .key = key, .generation = 1, .name = parseName("Finance") };
     try std.testing.expect(!cache.apply(result, 0));
     result.generation = 2;
     result.key.pid = 4;
@@ -301,7 +293,7 @@ const CacheFixture = struct {
 };
 
 test "endpoint naming survives failed probes and missing scans without spending another inference" {
-    for ([_]?Name{ Name.parse("Finance"), Name.parse("Link"), null }) |answer| {
+    for ([_]?Name{ parseName("Finance"), parseName("Link"), null }) |answer| {
         var cache: Cache = .{};
         var f: CacheFixture = .{};
         var endpoints = [_]ports.Endpoint{.{ .pid = 2, .pane = @enumFromInt(3), .name = "bun", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .scheme = .http, .http_status = 200 }};

@@ -495,7 +495,7 @@ pub const Pool = struct {
         if (!std.mem.eql(u8, str(account, "type"), "chatgpt")) return response;
         // A limits failure must not discard the identity/plan we already read.
         const limits = slot.*.?.rpc("account/rateLimits/read", .{}, stopping, deadline) catch |err| {
-            response.usage_error.set(if (err == error.Timeout) "request timed out" else "usage request failed");
+            response.usage_error = .ascii(if (err == error.Timeout) "request timed out" else "usage request failed");
             slot.*.?.close();
             slot.* = null;
             return response;
@@ -505,7 +505,7 @@ pub const Pool = struct {
         const bucket = field(field(result, "rateLimitsByLimitId"), "codex");
         const rates = if (bucket != .null) bucket else field(result, "rateLimits");
         response.limits = metadata.limits(rates, .codex);
-        if (response.limits == .none) response.usage_error.set("no usage returned");
+        if (response.limits == .none) response.usage_error = .ascii("no usage returned");
         return response;
     }
     fn select(p: *Pool, request: Request) usize {

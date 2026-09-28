@@ -31,9 +31,6 @@ function content(path: string) {
 function lines(path: string) {
   return content(path).trim().split("\n");
 }
-function fixed(value: any): string {
-  return value.bytes.slice(0, value.len);
-}
 /** An account's usage windows as [minutes, used] pairs. */
 function windows(info: any): unknown {
   return info.limits.windows?.map((w: any) => w && [w.minutes, w.used]);
@@ -144,7 +141,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
   async waitSaved(index: number, source: string) {
     await this.until(async () => {
       if (this.viewers.length) await this.viewers.at(-1)!.poll();
-      return fixed((await this.session()).agent_commands[index]) === source;
+      return (await this.session()).agent_commands[index].command === source;
     });
   }
 
@@ -165,7 +162,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.waitSaved(0, source.trim());
     this.assertFalse(existsSync(this.launches));
     this.assertEqual(
-      fixed((await this.session()).agent_commands[0]),
+      (await this.session()).agent_commands[0].command,
       source.trim(),
     );
     await this.managerAction(view, "Claude Code", "[✓]");
@@ -187,12 +184,12 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     this.assertEqual((await this.session()).agent_hidden, [true, false]);
     const entry = (await this.session()).agent_commands[0];
-    this.assertEqual(fixed(entry), changed);
+    this.assertEqual(entry.command, changed);
     this.assertFalse(entry.hidden);
     await this.managerAction(view, "Claude Code", "[✓]");
     await this.managerAction(view, "Claude Code", "[Edit]");
     await view.input("\x03\r");
-    this.assertEqual((await this.session()).agent_commands[0].len, 0);
+    this.assertEqual((await this.session()).agent_commands[0].command, "");
     this.assertFalse((await this.session()).agent_commands[0].hidden);
     await this.clickText(view, "Paste a command");
     await view.input("replacement-agent\r");
@@ -210,7 +207,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.clickText(view, "[Add]");
     await this.waitSaved(0, "FOO=123 claude --model sonnet");
     this.assertEqual(
-      (await this.session()).agent_commands[0].len,
+      (await this.session()).agent_commands[0].command.length,
       "FOO=123 claude --model sonnet".length,
     );
     this.assertFalse(existsSync(this.launches));
@@ -220,7 +217,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.waitSaved(1, "codex --model example");
     this.assertTrue((await this.session()).agent_hidden[0]);
     this.assertEqual(
-      fixed((await this.session()).agent_commands[1]),
+      (await this.session()).agent_commands[1].command,
       "codex --model example",
     );
     this.assertIn("Paste a command", (await view.poll()).data);
@@ -249,7 +246,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.clickText(view, "[Add]");
     await this.waitSaved(0, source);
     const entry = (await this.session()).agent_commands[0];
-    this.assertEqual(fixed(entry.name), "Team assistant");
+    this.assertEqual(entry.name, "Team assistant");
     this.assertIn("Team assistant", (await view.poll()).data);
     await this.managerAction(view, "Team assistant", "[✓]");
     this.assertEqual((await this.session()).agent_commands[0].name, entry.name);
@@ -257,13 +254,13 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\tRenamed assistant\r");
     await this.until(async () => {
       await view.poll();
-      return (await this.session()).agent_commands[0].name.bytes.startsWith(
+      return (await this.session()).agent_commands[0].name.startsWith(
         "Renamed assistant",
       );
     });
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     this.assertTrue(
-      (await this.session()).agent_commands[0].name.bytes.startsWith(
+      (await this.session()).agent_commands[0].name.startsWith(
         "Renamed assistant",
       ),
     );
@@ -361,7 +358,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const source = "FOO='123 with spaces' myagent --whatever 'two words'";
     await this.command("agent.command", { index: 0, command: source });
     this.assertFalse(existsSync(result));
-    const saved = fixed((await this.session()).agent_commands[0]);
+    const saved = (await this.session()).agent_commands[0].command;
     this.assertNotIn("myagent", saved);
     this.assertNotIn("launchit", saved);
     writeFileSync(
@@ -416,14 +413,14 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       "command claude --allow-dangerously-skip-permissions --dangerously-skip-permissions";
     await this.waitSaved(0, expanded);
     const entry = (await this.session()).agent_commands[0];
-    this.assertEqual(fixed(entry), expanded);
+    this.assertEqual(entry.command, expanded);
     this.assertIn("Claude Code", (await view.poll()).data);
     writeFileSync(config, "function cc\n false\nend\n");
     await this.managerAction(view, "Claude Code", "[✓]");
     await this.managerAction(view, "Claude Code", "[ ]");
     this.assertEqual(
-      (await this.session()).agent_commands[0].bytes,
-      entry.bytes,
+      (await this.session()).agent_commands[0].command,
+      entry.command,
     );
     this.assertFalse(existsSync(this.launches));
   }
@@ -451,7 +448,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     );
     await this.clickText(view, "[Show command]");
     this.assertIn("command claude --model original", (await view.poll()).data);
-    this.assertEqual((await this.session()).agent_commands[0].len, 0);
+    this.assertEqual((await this.session()).agent_commands[0].command, "");
     const before = content(log);
     writeFileSync(config, prefix + "alias cc 'claude --model changed'\n");
     await sleep(0.4);
@@ -474,7 +471,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.waitSaved(0, "command claude --model original");
     this.assertEqual(content(log), before);
     await this.managerAction(view, "Frozen assistant", "[Delete]");
-    this.assertEqual((await this.session()).agent_commands[0].len, 0);
+    this.assertEqual((await this.session()).agent_commands[0].command, "");
     this.assertNotIn("[Delete]", (await view.poll()).data);
     this.assertFalse(existsSync(this.launches));
     writeFileSync(
@@ -489,7 +486,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     });
     await view.input("\x15codex --model latest\r");
     await this.waitSaved(0, "codex --model latest");
-    this.assertNotIn("stale", (await this.session()).agent_commands[0].bytes);
+    this.assertNotIn("stale", (await this.session()).agent_commands[0].command);
   }
   async test_preview_launch_last_choice_and_reload() {
     const view = await Viewer.create(this, 140, 30);
@@ -633,10 +630,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       this.assertEqual(initial.type, "agent.preview");
       while (initial.preview.pending) initial = await client.read(12000);
       this.assertEqual(initial.cwd, this.launchDir);
-      this.assertEqual(
-        initial.preview.options[1].model.bytes.slice(0, 4),
-        "opus",
-      );
+      this.assertEqual(initial.preview.options[1].model, "opus");
       await sleep(5.2);
       const settings = join(this.launchDir, ".claude/settings.json");
       mkdirSync(join(this.launchDir, ".claude"));
@@ -644,16 +638,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
       let update = await client.read(12000);
       while (update.preview.pending) {
-        this.assertEqual(
-          update.preview.options[1].model.bytes.slice(0, 4),
-          "opus",
-        );
+        this.assertEqual(update.preview.options[1].model, "opus");
         update = await client.read(12000);
       }
-      this.assertEqual(
-        update.preview.options[1].model.bytes.slice(0, 6),
-        "sonnet",
-      );
+      this.assertEqual(update.preview.options[1].model, "sonnet");
       const other = join(this.temp.name, "other");
       mkdirSync(other);
       client.send({
@@ -665,10 +653,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       update = await client.read(12000);
       while (update.preview.pending) update = await client.read(12000);
       this.assertEqual(update.cwd, other);
-      this.assertEqual(
-        update.preview.options[1].model.bytes.slice(0, 4),
-        "opus",
-      );
+      this.assertEqual(update.preview.options[1].model, "opus");
     } finally {
       client.close();
     }
@@ -968,7 +953,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
     const option = (await preview()).options[1];
-    this.assertEqual(fixed(option.plan), "max");
+    this.assertEqual(option.plan, "max");
     this.assertEqual(windows(option), claudeWindows);
     this.assertNotIn("fixture-token", JSON.stringify(await preview()));
     this.assertTrue(option.limits.windows.every((w: any) => w.reset_at !== null));
@@ -1061,10 +1046,10 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     writeFileSync(cache, JSON.stringify(state));
     writeFileSync(mode, "limited");
     const option = await this.directoryPreview("limited");
-    this.assertEqual(fixed(option.account), "claude@example.com");
+    this.assertEqual(option.account, "claude@example.com");
     this.assertEqual(windows(option), claudeWindows);
     this.assertEqual(option.usage_fetched_at, fetchedAt);
-    this.assertEqual(fixed(option.usage_error), "server returned 429");
+    this.assertEqual(option.usage_error, "server returned 429");
     this.assertEqual(json(cache).info.usage_fetched_at, fetchedAt);
     this.assertGreaterEqual(json(cache).next_usage, Date.now() / 1000 + 115);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
@@ -1080,7 +1065,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     const stale = await this.directoryPreview("stale");
     this.assertEqual(windows(stale), claudeWindows);
     this.assertEqual(stale.usage_fetched_at, aged.info.usage_fetched_at);
-    this.assertEqual(fixed(stale.usage_error), "server returned 429");
+    this.assertEqual(stale.usage_error, "server returned 429");
     this.assertEqual(windows(json(cache).info), claudeWindows);
     this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 2);
 
@@ -1099,7 +1084,7 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     this.assertEqual(windows(refreshed), claudeWindows);
     this.assertGreaterEqual(refreshed.usage_fetched_at, fetchedAt);
     this.assertEqual(json(cache).info.usage_fetched_at, refreshed.usage_fetched_at);
-    this.assertEqual(fixed(refreshed.usage_error), "");
+    this.assertEqual(refreshed.usage_error, "");
 
     const credentials = join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json");
     const expired = json(credentials);
@@ -1109,16 +1094,16 @@ console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoin
     const expiredToken = await this.directoryPreview("expired-token");
     this.assertEqual(windows(expiredToken), claudeWindows);
     this.assertEqual(expiredToken.usage_fetched_at, refreshed.usage_fetched_at);
-    this.assertEqual(fixed(expiredToken.usage_error), "access token expired");
+    this.assertEqual(expiredToken.usage_error, "access token expired");
     this.assertEqual(lines(log).length, requests);
   }
   async test_first_usage_429_still_fetches_profile() {
     const [log, mode] = this.accountCacheFixture();
     writeFileSync(mode, "limited");
     const option = await this.directoryPreview("limited-first");
-    this.assertEqual(fixed(option.account), "claude@example.com");
+    this.assertEqual(option.account, "claude@example.com");
     this.assertEqual(option.limits, { rate_limited: {} });
-    this.assertEqual(fixed(option.usage_error), "server returned 429");
+    this.assertEqual(option.usage_error, "server returned 429");
     await this.directoryPreview("another-directory");
     this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 1);
     const view = await Viewer.create(this, 120, 30);
@@ -1316,8 +1301,8 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
     const result = (await preview()).options[1];
-    this.assertEqual(fixed(result.model), "sonnet");
-    this.assertIn("Local settings", fixed(result.source));
+    this.assertEqual(result.model, "sonnet");
+    this.assertIn("Local settings", result.source);
   }
 }
 

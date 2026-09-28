@@ -1,6 +1,7 @@
 //! Daemon-side copy transactions. Source processes are never signalled.
 const std = @import("std");
 const os = @import("os.zig");
+const pane_label = @import("pane_label.zig");
 const a = os.allocator;
 const catalog = @import("import_catalog.zig");
 const herdr = @import("herdr_adapter.zig");
@@ -97,7 +98,7 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
                     try t.prefill(p.restart_command);
                 }
             }
-            if (kind == .cmux) r.pane(id).?.label.set(p.name);
+            if (kind == .cmux) r.pane(id).?.label = pane_label.label(p.name);
             ids[i] = id;
             if (first == null) first = id;
             if (p.url.len > 0) {

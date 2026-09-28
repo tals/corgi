@@ -3,7 +3,7 @@
 //! with a build that speaks a different viewer protocol.
 const std = @import("std");
 
-pub const version: u32 = 2;
+pub const version: u32 = 3;
 
 pub fn compatible(value: std.json.Value) bool {
     if (value != .object) return false;

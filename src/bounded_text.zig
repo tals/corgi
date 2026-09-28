@@ -4,9 +4,10 @@
 //! a plain string.
 const std = @import("std");
 
-/// A path in saved or sent state. Fixed rather than `std.fs.max_path_bytes`
-/// (1024 on macOS, 4096 on Linux), so every build accepts the same state.
-pub const Path = BoundedText(1024);
+/// A path in saved or sent state. Fixed, and above every platform's
+/// `std.fs.max_path_bytes` (1024 on macOS, 4096 on Linux), so every build
+/// accepts the same state and none rejects a path its OS allows.
+pub const Path = BoundedText(10 * 1024);
 
 pub fn BoundedText(comptime n: usize) type {
     return struct {

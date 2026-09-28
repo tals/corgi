@@ -23,13 +23,11 @@ pub const Snapshot = struct {
     children_complete: bool = false,
     subagents: agents.Subagents = .{},
     evidence: activity_summary.Text = .{},
-    name: [160]u8 = @splat(0),
-    name_len: usize = 0,
+    name: agents.Text = .{},
     request: Request,
     session: [36]u8,
     state: agents.State,
-    transcript: [std.fs.max_path_bytes]u8 = @splat(0),
-    transcript_len: usize = 0,
+    transcript: agents.Path = .{},
     turn: BoundedText(128) = .{},
     outcome: ?agents.observation.Outcome = null,
     observed_at: i64,
@@ -42,8 +40,7 @@ pub const Child = struct {
     session: [36]u8,
     name: BoundedText(160) = .{},
     role: BoundedText(80) = .{},
-    transcript: [std.fs.max_path_bytes]u8 = @splat(0),
-    transcript_len: usize = 0,
+    transcript: agents.Path = .{},
     state: agents.State = .unknown,
     updated_at: i64 = 0,
 };
@@ -103,10 +100,7 @@ fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void 
     child.name = .ascii(if (name.len > 0) name else agents.str(thread, "agentNickname"));
     child.role = .ascii(agents.str(thread, "agentRole"));
     const path = agents.str(thread, "path");
-    if (std.fs.path.isAbsolute(path) and path.len <= child.transcript.len) {
-        @memcpy(child.transcript[0..path.len], path);
-        child.transcript_len = path.len;
-    }
+    if (std.fs.path.isAbsolute(path)) child.transcript = agents.Path.init(path) catch .{};
     const updated = field(thread, "updatedAt");
     if (updated == .integer) child.updated_at = updated.integer;
     try out.entries.append(a, child);
@@ -171,15 +165,9 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
     const updated = field(thread, "updatedAt");
     if (updated == .integer and updated.integer > 0) out.updated_at = updated.integer;
-    var named: agents.Agent = .{};
-    named.setName(agents.str(thread, "name"));
-    out.name = named.name;
-    out.name_len = named.name_len;
+    out.name = .initTruncated(agents.str(thread, "name"));
     const path = agents.str(thread, "path");
-    if (std.fs.path.isAbsolute(path) and path.len <= out.transcript.len) {
-        @memcpy(out.transcript[0..path.len], path);
-        out.transcript_len = path.len;
-    }
+    if (std.fs.path.isAbsolute(path)) out.transcript = agents.Path.init(path) catch .{};
     const turns = try client.call("thread/turns/list", .{ .threadId = &session, .limit = 1, .sortDirection = "desc", .itemsView = "summary" });
     defer turns.deinit();
     const data = field(result(turns.value), "data");
@@ -278,7 +266,7 @@ pub const Worker = struct {
         for (0..actors.len) |offset| {
             if (w.count == max) break;
             const actor = actors[(w.cursor + offset) % actors.len];
-            if (actor.state.provider != .codex or actor.state.session_len != 36 or
+            if (actor.state.provider != .codex or actor.state.session.len != 36 or
                 (actor.state.state != .working and actor.state.state != .blocked and !actor.child_refresh)) continue;
             const selected = for (runtime.panes.items) |p| {
                 if (!p.terminal.exited and p.attachment.actor == actor) break true;

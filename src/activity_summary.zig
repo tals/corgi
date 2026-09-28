@@ -2,50 +2,29 @@
 //! supply evidence; inference backends never need to understand their protocols.
 const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
-pub const Text = struct {
-    bytes: [2048]u8 = @splat(0),
-    len: usize = 0,
-    pub fn text(t: *const Text) []const u8 {
-        return t.bytes[0..t.len];
-    }
-    pub fn append(t: *Text, value: []const u8) void {
-        var n = @min(value.len, t.bytes.len - t.len);
-        while (n > 0 and !std.unicode.utf8ValidateSlice(value[0..n])) n -= 1;
-        @memcpy(t.bytes[t.len..][0..n], value[0..n]);
-        t.len += n;
-    }
-    pub fn hash(t: *const Text) u64 {
-        return std.hash.Wyhash.hash(0, t.text());
-    }
-};
-pub const Label = struct {
-    bytes: [80]u8 = @splat(0),
-    len: usize = 0,
-    pub fn text(t: *const Label) []const u8 {
-        return t.bytes[0..t.len];
-    }
-    pub fn parse(value: []const u8) ?Label {
-        return validate(value) catch null;
-    }
-    pub fn validate(value: []const u8) !Label {
-        const clean = std.mem.trim(u8, value, " \t\r\n\"");
-        if (clean.len == 0) return error.EmptyLabel;
-        if (clean.len > 80) return error.LabelTooLong;
-        if (!std.unicode.utf8ValidateSlice(clean)) return error.InvalidUtf8;
-        var words = std.mem.tokenizeScalar(u8, clean, ' ');
-        var count: usize = 0;
-        while (words.next()) |_| count += 1;
-        // Two or three words is a prompt target, not a reason to hide a useful
-        // short label and leave the animation up for a minute.
-        if (count < 2 or count > 6) return error.InvalidWordCount;
-        var it = (try std.unicode.Utf8View.init(clean)).iterator();
-        while (it.nextCodepoint()) |cp| if (cp < 32 or (cp >= 127 and cp <= 159)) return error.ControlCharacter;
-        var result: Label = .{};
-        @memcpy(result.bytes[0..clean.len], clean);
-        result.len = clean.len;
-        return result;
-    }
-};
+const BoundedText = @import("bounded_text.zig").BoundedText;
+pub const Text = BoundedText(2048);
+pub fn hash(t: *const Text) u64 {
+    return std.hash.Wyhash.hash(0, t.text());
+}
+pub const Label = BoundedText(80);
+pub fn parseLabel(value: []const u8) ?Label {
+    return validateLabel(value) catch null;
+}
+pub fn validateLabel(value: []const u8) !Label {
+    const clean = std.mem.trim(u8, value, " \t\r\n\"");
+    if (clean.len == 0) return error.EmptyLabel;
+    if (!std.unicode.utf8ValidateSlice(clean)) return error.InvalidUtf8;
+    var words = std.mem.tokenizeScalar(u8, clean, ' ');
+    var count: usize = 0;
+    while (words.next()) |_| count += 1;
+    // Two or three words is a prompt target, not a reason to hide a useful
+    // short label and leave the animation up for a minute.
+    if (count < 2 or count > 6) return error.InvalidWordCount;
+    var it = (try std.unicode.Utf8View.init(clean)).iterator();
+    while (it.nextCodepoint()) |cp| if (cp < 32 or (cp >= 127 and cp <= 159)) return error.ControlCharacter;
+    return Label.init(clean) catch error.LabelTooLong;
+}
 /// Short, stable stand-in for a provider turn ID in model input. It only has to
 /// tell turns apart; a full UUID costs several times the tokens.
 pub fn turnTag(turn: []const u8) [8]u8 {
@@ -128,11 +107,11 @@ test "bounded commentary evidence and strict labels" {
     const evidence = codex(parsed.value);
     try std.testing.expect(std.mem.startsWith(u8, evidence.text(), "Latest agent update: Tracing focus changes"));
     try std.testing.expect(std.mem.indexOf(u8, evidence.text(), "User request: Fix tabs") != null);
-    try std.testing.expect(Label.parse("Tracing focus changes") != null);
-    try std.testing.expect(Label.parse("Running\ncommands") == null);
-    try std.testing.expect(Label.parse("Tracing tool activity code") != null);
-    try std.testing.expect(Label.parse("Inspecting logs and summary behavior") != null);
-    try std.testing.expect(Label.parse("Checking tool calls and background builds") != null);
-    try std.testing.expect(Label.parse("This label has far too many words") == null);
-    try std.testing.expect(Label.parse("\x1b[2J bad") == null);
+    try std.testing.expect(parseLabel("Tracing focus changes") != null);
+    try std.testing.expect(parseLabel("Running\ncommands") == null);
+    try std.testing.expect(parseLabel("Tracing tool activity code") != null);
+    try std.testing.expect(parseLabel("Inspecting logs and summary behavior") != null);
+    try std.testing.expect(parseLabel("Checking tool calls and background builds") != null);
+    try std.testing.expect(parseLabel("This label has far too many words") == null);
+    try std.testing.expect(parseLabel("\x1b[2J bad") == null);
 }

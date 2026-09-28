@@ -155,7 +155,7 @@ Viewer operations are:
   shared viewport. Selection and clipboard formatting remain local.
 - `viewer.list`: inspect IDs and last reported selections for targeting CLI actions.
 
-Viewer open/sync exchanges carry `viewer_protocol: 2`, separately from runtime
+Viewer open/sync exchanges carry `viewer_protocol: 3`, separately from runtime
 `protocol: 1`. The viewer checks every reply before decoding its payload. An
 incompatible replacement server makes the viewer restore its terminal and exit
 with a reattach explanation; handoff does not upgrade existing viewer processes.
@@ -256,7 +256,7 @@ HOME and retain the original path in the pane's recovery banner.
 ### Saved-state migrations
 
 `src/state_migrations.zig` owns two independent, monotonically increasing schema
-versions: checkpoint **4** (shared runtime state) and handoff **3** (the live
+versions: checkpoint **5** (shared runtime state) and handoff **4** (the live
 envelope containing clients and workers). Each version is derived from its
 ordered list of steps (`checkpoint_steps`, `handoff_steps`): appending a step is
 the version bump. Readers parse plain JSON, require an explicit supported
@@ -273,8 +273,12 @@ serialized fact before `yolo` existed, so an older command that skipped
 permission checks would otherwise restore as `yolo: false`. Handoff 1 → 2
 preserves inference launch counters in their new representation. Handoff 2 → 3
 replaces each client's saved launcher usage text with typed `limits`, keeping
-only whether usage was metered; windows return with the next preview. Migrations
-touch only known schema fields; terminal data, native messages, and other
+only whether usage was metered; windows return with the next preview.
+Checkpoint 4 → 5 and handoff 3 → 4 save text as plain strings. Earlier versions
+wrote each fixed buffer whole, NUL padding included, beside its length; the
+steps cut each buffer at that length, never at a NUL, because writers left
+stale bytes past it. Checkpoint 4 → 5 also drops each pane's copy of its agent,
+which restore never read. Migrations touch only known schema fields; terminal data, native messages, and other
 opaque payloads remain unchanged.
 
 Steps operate on the JSON tree only. They must not decode into or import runtime
@@ -299,7 +303,11 @@ Adding a field with a default needs no version bump, because readers ignore
 unknown fields and fill in defaults. It still changes the snapshot; refresh it
 as well. Renames, removals, and changes of type or meaning need a step. Types
 with their own `jsonStringify`/`jsonParse` (such as `layout.Model`) appear as a
-single line, so changes inside them are not caught by the snapshot. Tests must
+single line, so changes inside them are not caught by the snapshot. Text is
+`BoundedText(N)`, which saves as a plain string; its line names N, so a
+capacity change shows up. Growing N needs no step; shrinking it does. Saved
+paths use one fixed capacity on every platform, so any build reads another's
+files. Tests must
 cover a current-format round trip, the upgrade, and rejection of future or
 malformed versions. For handoff changes, verify pane/client continuity and
 rollback in an isolated runtime as well. Provider enum strings are serialized

@@ -227,7 +227,7 @@ pub const Server = struct {
         const now = std.time.milliTimestamp();
         if (cl.dead or cl.output.items.len != 0 or now - subscription.checked < 100) return;
         subscription.checked = now;
-        const cwd = subscription.cwd[0..subscription.len];
+        const cwd = subscription.cwd.text();
         var preview = worker.preview(cwd);
         // A replacement daemon starts with an empty worker cache. Keep the
         // subscriber's last values visible until the fresh read completes.
@@ -340,11 +340,11 @@ pub const Server = struct {
                 const ws = try s.runtime.getWorkspace(try protocol.typedId(WorkspaceId, v, "workspace"));
                 const requested = agents.str(v, "cwd");
                 const cwd = if (requested.len > 0) requested else ws.cwd;
-                if (!std.fs.path.isAbsolute(cwd) or cwd.len > std.fs.max_path_bytes) return error.InvalidDirectory;
+                if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
+                const dir = agents.Path.init(cwd) catch return error.InvalidDirectory;
                 const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else agent_launcher.Preview{};
                 if (subscribe) {
-                    cl.launch_preview = .{ .len = cwd.len, .preview = preview, .checked = std.time.milliTimestamp() };
-                    @memcpy(cl.launch_preview.?.cwd[0..cwd.len], cwd);
+                    cl.launch_preview = .{ .cwd = dir, .preview = preview, .checked = std.time.milliTimestamp() };
                     cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
                 } else cl.queue(.{ .ok = true, .preview = preview });
             },
@@ -452,7 +452,7 @@ pub const Server = struct {
                 for (s.runtime.sessions.items) |session| try info.append(a, .{
                     .id = session.id,
                     .pid = session.child.id,
-                    .session_id = session.resume_hint.session[0..session.resume_hint.len],
+                    .session_id = session.resume_hint.session.text(),
                     .provider = session.provider,
                     .ready = session.ready,
                     .exited = session.exited,
@@ -600,12 +600,10 @@ pub const Server = struct {
                 // The continuation is usually mid-turn; hooks refine it later.
                 next.state.state = if (old.state.state == .done) .idle else old.state.state;
                 next.state.cwd = old.state.cwd;
-                next.state.cwd_len = old.state.cwd_len;
                 const dir = std.fs.path.dirname(old.state.transcriptPath()) orelse "";
-                var path: [std.fs.max_path_bytes]u8 = undefined;
+                var path: [agents.Path.capacity]u8 = undefined;
                 if (dir.len > 0) if (std.fmt.bufPrint(&path, "{s}/{s}.jsonl", .{ dir, session })) |value| {
-                    @memcpy(next.state.transcript[0..value.len], value);
-                    next.state.transcript_len = value.len;
+                    next.state.transcript = .initTruncated(value);
                 } else |_| {};
             }
             p.attachment.select(next);
@@ -655,7 +653,7 @@ pub const Server = struct {
         const prefix = provider.backend().titleSession(p.terminal.vt.getTitle() orelse "") orelse return;
         var found: ?*Actor = null;
         for (s.runtime.conversations.items.items) |actor| {
-            if (actor.provider() != provider or actor.state.session_len != 36 or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.text())) continue;
+            if (actor.provider() != provider or actor.state.session.len != 36 or !std.mem.startsWith(u8, actor.state.sessionId(), prefix.text())) continue;
             if (found != null) return; // A truncated UUID must resolve uniquely.
             found = actor;
         }
@@ -1362,13 +1360,12 @@ test "local Codex reattachment requires current unambiguous identity and preserv
 }
 test "preview subscriptions schedule stale refreshes and publish completion without another request" {
     var preview: agent_launcher.Preview = .{ .pending = false };
-    preview.options[1].model.set("before");
+    preview.options[1].model = .ascii("before");
     var worker: agent_launcher.Worker = .{};
     worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
     var s: Server = .{ .socket = "", .executable = "", .launch_previews = &worker };
-    var cl: Client = .{ .fd = -1, .launch_preview = .{ .len = 1, .preview = preview } };
+    var cl: Client = .{ .fd = -1, .launch_preview = .{ .cwd = .initTruncated("/"), .preview = preview } };
     defer cl.output.deinit(a);
-    cl.launch_preview.?.cwd[0] = '/';
     s.publishLaunchPreview(&cl);
     try std.testing.expect(worker.jobs[0].?.queued);
     try std.testing.expect(cl.launch_preview.?.preview.pending);
@@ -1377,7 +1374,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     cl.launch_preview.?.checked = 0;
     worker.jobs[0].?.updated = std.time.milliTimestamp();
     worker.jobs[0].?.preview.pending = false;
-    worker.jobs[0].?.preview.options[1].model.set("after");
+    worker.jobs[0].?.preview.options[1].model = .ascii("after");
     s.publishLaunchPreview(&cl);
     const message = try std.json.parseFromSlice(std.json.Value, a, cl.output.items, .{});
     defer message.deinit();

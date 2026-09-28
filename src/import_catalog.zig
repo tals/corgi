@@ -82,7 +82,7 @@ pub const Worker = struct {
                     var tabs: std.ArrayList(Tab) = .empty;
                     for (ws.tabs) |tab| {
                         var panes: std.ArrayList(Pane) = .empty;
-                        for (tab.panes) |p| try panes.append(alloc, .{ .id = p.id, .name = p.name, .cwd = p.cwd, .pid = p.pid, .resume_available = p.resume_hint.len > 0 });
+                        for (tab.panes) |p| try panes.append(alloc, .{ .id = p.id, .name = p.name, .cwd = p.cwd, .pid = p.pid, .resume_available = p.resume_hint.session.len > 0 });
                         try tabs.append(alloc, .{ .id = tab.id, .name = tab.name, .panes = try panes.toOwnedSlice(alloc) });
                     }
                     try list.append(alloc, .{

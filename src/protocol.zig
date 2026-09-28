@@ -238,7 +238,7 @@ fn agentView(state: *const agents.Agent, conversation: ActorId) Agent {
         .recent_activity = state.recentLabel(),
         .name = state.displayName(),
         .session = state.sessionId(),
-        .activity = state.activity[0..state.activity_len],
+        .activity = state.activity.text(),
         .cwd = state.directory(),
         .tool_active = state.tool_active,
         .compacting = state.compacting,

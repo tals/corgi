@@ -374,7 +374,7 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
   async test_rejected_handoff_rolls_back_and_can_retry() {
     await this.corgi({
       op: "viewer.open",
-      viewer_protocol: 2,
+      viewer_protocol: 3,
       onboarding: true,
       cwd: this.root,
     });

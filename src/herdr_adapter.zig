@@ -2,6 +2,7 @@
 //! Herdr. The importer owns no process until Herdr sends `committed`.
 const std = @import("std");
 const os = @import("os.zig");
+const pane_label = @import("pane_label.zig");
 const c = os.c;
 const a = os.allocator;
 const Value = std.json.Value;
@@ -113,10 +114,9 @@ fn resumeRef(value: Value) Resume {
     const agent = textField(value, "agent");
     out.provider = providers.Provider.named(agent);
     const id = textField(value, "value");
-    if (out.provider == null or id.len == 0 or id.len > out.session.len or !std.unicode.utf8ValidateSlice(id)) return .{};
+    if (out.provider == null or id.len == 0 or !std.unicode.utf8ValidateSlice(id)) return .{};
     for (id) |ch| if (ch < 32 or ch == 127) return .{};
-    @memcpy(out.session[0..id.len], id);
-    out.len = id.len;
+    out.session = @TypeOf(out.session).init(id) catch return .{};
     return out;
 }
 
@@ -315,7 +315,7 @@ fn copyTab(r: *Runtime, tab: SourceTab, defaults: Runtime.Create) !void {
         const id = try r.create(opts);
         ids[i] = id;
         const pane = r.pane(id).?;
-        pane.label.set(source.name);
+        pane.label = pane_label.label(source.name);
         pane.resume_hint = source.resume_hint;
         const command = try source.resume_hint.command(a);
         defer a.free(command);
@@ -491,8 +491,8 @@ const Job = struct {
         if (pane_offset > std.math.maxInt(u32) - @intFromEnum(job.staged.workspaces.next_pane_id)) return error.TooManyPanes;
         for (job.staged.panes.items) |*p| {
             p.id = @enumFromInt(@intFromEnum(p.id) + pane_offset);
-            if (p.resume_hint.provider) |provider| if (p.resume_hint.len > 0) {
-                const actor = try r.conversations.get(provider, p.resume_hint.session[0..p.resume_hint.len]);
+            if (p.resume_hint.provider) |provider| if (p.resume_hint.session.len > 0) {
+                const actor = try r.conversations.get(provider, p.resume_hint.session.text());
                 if (actor.state.last_seq == 0 and actor.state.state == .unknown) {
                     actor.state.state = p.attachment.provisional.state;
                     // Source hooks keep their original environment. Treat the
@@ -713,7 +713,7 @@ const Job = struct {
                     const owned_cwd = try a.dupe(u8, pane_cwd);
                     a.free(p.cwd);
                     p.cwd = owned_cwd;
-                    p.label.set(textField(entry.value_ptr.*, "label"));
+                    p.label = pane_label.label(textField(entry.value_ptr.*, "label"));
                     p.resume_hint = resumeRef(field(entry.value_ptr.*, "agent_session"));
                     const status = textField(field(field(states[index], "agent_state"), "authority"), "state");
                     p.attachment.provisional.provider = p.resume_hint.provider;
