@@ -5,7 +5,6 @@ const os = @import("os.zig");
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const detection = @import("detection.zig");
-const git_status = @import("git_status.zig");
 const clock = @import("clock.zig");
 const Failure = @import("failure.zig").Failure;
 const a = os.allocator;
@@ -223,40 +222,20 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
     return result.toOwnedSlice(allocator);
 }
 
-// Share the daemon reaper's lock, but keep this worker's child slot separate.
-const mutex = &git_status.child_mutex;
-var child_pid: c_int = 0;
-var child_status: ?c_int = null;
-pub fn recordExit(pid: c_int, status: c_int) void {
-    if (pid == child_pid) {
-        child_status = status;
-    }
-}
 fn command(argv: []const []const u8, stopping: *const std.atomic.Value(bool), allow_empty: bool) ?[]const u8 {
     var child = std.process.Child.init(argv, a);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
     child.pgid = 0;
-    mutex.lock();
-    child.spawn() catch {
-        mutex.unlock();
-        return null;
-    };
-    child_pid = child.id;
-    child_status = null;
-    mutex.unlock();
-    var reaped = false;
+    child.spawn() catch return null;
+    var exit_status: ?c_int = null;
     defer {
-        mutex.lock();
-        defer mutex.unlock();
-        if (!reaped and child_status == null) {
+        if (exit_status == null) {
             _ = c.kill(-child.id, c.SIGKILL);
             var status: c_int = 0;
             _ = c.waitpid(child.id, &status, 0);
         }
-        child_pid = 0;
-        child_status = null;
         if (child.stdout) |file| file.close();
     }
     child.waitForSpawn() catch return null;
@@ -270,22 +249,17 @@ fn command(argv: []const []const u8, stopping: *const std.atomic.Value(bool), al
         const n = c.read(fd, &buf, buf.len);
         if (n > 0) output.appendSlice(a, buf[0..@intCast(n)]) catch return null;
         if (output.items.len > 4 * 1024 * 1024) return null;
-        mutex.lock();
-        var status: c_int = 0;
-        const exited = if (child_status) |saved| blk: {
-            status = saved;
-            break :blk true;
-        } else c.waitpid(child.id, &status, c.WNOHANG) == child.id;
-        if (exited) {
-            reaped = true;
-            child_status = status;
+        if (exit_status == null) {
+            var status: c_int = 0;
+            if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) exit_status = status;
         }
-        mutex.unlock();
-        if (exited and n <= 0) {
+        // Drain what the child wrote before it exited.
+        if (n > 0) continue;
+        if (exit_status) |status| {
             if (status != 0 and !(allow_empty and status == 256 and output.items.len == 0)) return null;
             return output.toOwnedSlice(a) catch null;
         }
-        if (n <= 0) std.Thread.sleep(5 * std.time.ns_per_ms);
+        std.Thread.sleep(5 * std.time.ns_per_ms);
     }
     return null;
 }

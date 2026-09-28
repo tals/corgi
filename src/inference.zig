@@ -11,7 +11,6 @@ const str = common.str;
 const Codex = @import("providers/codex.zig").Codex;
 const Claude = @import("providers/claude.zig").Claude;
 const a = os.allocator;
-const mutex = &@import("git_status.zig").child_mutex;
 const capacity = 4;
 const inference_usage = @import("inference_usage.zig");
 const output_limit = 8192;
@@ -19,13 +18,13 @@ const binary = @import("base64.zig");
 const live_usage = @import("live_usage.zig");
 const metadata = @import("account_preview.zig");
 
-// The server's general reaper and the worker serialize all child ownership.
-// Store PIDs, never pointers into movable pool slots.
-var children: [capacity + 1]?struct { pid: c_int, exited: bool = false } = @splat(null);
-pub fn recordExit(pid: c_int, _: c_int) void {
-    for (&children) |*child| if (child.*) |*entry| {
-        if (entry.pid == pid) entry.exited = true;
-    };
+// Every pool's harnesses share one cap: the summary pool's connections
+// plus the launcher's metadata harness.
+var harnesses: std.atomic.Value(usize) = .init(0);
+fn claimHarness() error{TooManyHarnesses}!void {
+    if (harnesses.fetchAdd(1, .monotonic) < capacity + 1) return;
+    _ = harnesses.fetchSub(1, .monotonic);
+    return error.TooManyHarnesses;
 }
 
 pub const Provider = @import("providers.zig").Provider;
@@ -87,7 +86,6 @@ pub const Response = struct {
 const Connection = struct {
     transport: native.Session,
     registry: conversations.Registry = .{ .allocator = a },
-    child_slot: usize,
     cursor: u64 = 0,
     next_id: u64 = 1,
     thread: [160]u8 = undefined,
@@ -104,11 +102,8 @@ const Connection = struct {
 
     fn close(s: *Connection) void {
         s.usage_tracker.deinit();
-        mutex.lock();
-        if (children[s.child_slot].?.exited) s.transport.markExited();
         s.transport.destroy();
-        children[s.child_slot] = null;
-        mutex.unlock();
+        _ = harnesses.fetchSub(1, .monotonic);
         s.registry.deinit();
         if (s.key) |key| a.free(key);
         a.free(s.instructions);
@@ -143,13 +138,7 @@ const Connection = struct {
         }
     }
     fn idle(s: *Connection) !void {
-        mutex.lock();
-        const exited = s.transport.exited or children[s.child_slot].?.exited;
-        var status: c_int = 0;
-        const reaped = if (exited) true else os.c.waitpid(s.transport.child.id, &status, os.c.WNOHANG) == s.transport.child.id;
-        if (reaped) children[s.child_slot].?.exited = true;
-        mutex.unlock();
-        if (reaped) return error.HarnessExited;
+        if (s.transport.exited or s.transport.reap()) return error.HarnessExited;
         std.Thread.sleep(10 * std.time.ns_per_ms);
     }
     fn rpc(s: *Connection, method: []const u8, params: anytype, stopping: *const std.atomic.Value(bool), deadline: i64) !std.json.Parsed(std.json.Value) {
@@ -240,8 +229,6 @@ pub const Pool = struct {
     pub fn capture(p: *Pool, alloc: std.mem.Allocator) !Checkpoint {
         if (p.working.load(.acquire)) return error.InferenceBusy;
         var saved: Checkpoint = .{ .config = p.config, .clock = p.clock, .started = p.started, .system_usage = p.system_usage };
-        mutex.lock();
-        defer mutex.unlock();
         for (&p.slots, &saved.slots) |*slot, *out| if (slot.*) |*s| {
             const transport = &s.transport;
             if (transport.approvals.items.len != 0 or transport.active_tools.items.len != 0 or transport.active_threads.count() != 0) return error.InferenceBusy;
@@ -255,7 +242,7 @@ pub const Pool = struct {
                 .pid = transport.child.id,
                 .stdin = if (transport.child.stdin) |file| file.handle else -1,
                 .stdout = if (transport.child.stdout) |file| file.handle else -1,
-                .exited = transport.exited or children[s.child_slot].?.exited,
+                .exited = transport.exited,
                 .ready = transport.ready,
                 .input = try binary.encode(alloc, transport.input.items),
                 .output = try binary.encode(alloc, transport.output.items),
@@ -293,9 +280,7 @@ pub const Pool = struct {
                 s.turns > 32 or s.conversations_created > 32 or
                 s.cursor >= s.next_seq or s.usage_cursor >= s.next_seq;
             if (invalid) return error.InvalidCheckpoint;
-            const child_slot = for (children, 0..) |child, i| {
-                if (child == null) break i;
-            } else return error.TooManyHarnesses;
+            try claimHarness();
             slot.* = .{
                 .transport = .{
                     .id = NativeId.none,
@@ -307,7 +292,6 @@ pub const Pool = struct {
                     .imported = true,
                     .next_seq = s.next_seq,
                 },
-                .child_slot = child_slot,
                 .cursor = s.cursor,
                 .next_id = s.next_id,
                 .thread_len = s.thread.len,
@@ -328,7 +312,6 @@ pub const Pool = struct {
             transport.child.stdout = .{ .handle = s.stdout };
             os.cloexec(s.stdin);
             os.cloexec(s.stdout);
-            children[child_slot] = .{ .pid = s.pid, .exited = s.exited };
             transport.input = .fromOwnedSlice(try binary.decode(a, s.input));
             transport.output = .fromOwnedSlice(try binary.decode(a, s.output));
             transport.deferred = .fromOwnedSlice(try binary.decode(a, s.deferred));
@@ -449,8 +432,8 @@ pub const Pool = struct {
         return response;
     }
     /// Read launch configuration without starting a thread or making an inference.
-    /// Used by a separate serial metadata worker; its one process has a reserved
-    /// child-registration slot alongside the four inference connections.
+    /// Used by a separate serial metadata worker; its one process fits under the
+    /// harness cap alongside the four inference connections.
     pub fn configuredModel(p: *Pool, cwd: []const u8, stopping: *const std.atomic.Value(bool)) !Response {
         const slot = &p.slots[0];
         const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
@@ -582,14 +565,10 @@ pub const Pool = struct {
                 if (request.schema) |value| try args.appendSlice(a, &.{ "--json-schema", value });
             },
         }
-        mutex.lock();
-        defer mutex.unlock();
-        const child_slot = for (children, 0..) |child, i| {
-            if (child == null) break i;
-        } else return error.TooManyHarnesses;
+        try claimHarness();
+        errdefer _ = harnesses.fetchSub(1, .monotonic);
         const transport = try native.Session.startWithOptions(NativeId.none, p.config.provider, "/tmp", .{ .args = args.items, .executable = p.config.executable, .inference = true });
-        children[child_slot] = .{ .pid = transport.child.id };
-        return .{ .transport = transport, .child_slot = child_slot, .key = key, .instructions = instructions, .schema = schema, .system_usage = &p.system_usage };
+        return .{ .transport = transport, .key = key, .instructions = instructions, .schema = schema, .system_usage = &p.system_usage };
     }
 };
 
@@ -737,6 +716,15 @@ fn fixtureValue(response: *const Response, key: []const u8) !i64 {
     return value.integer;
 }
 
+test "harnesses from every pool share one cap" {
+    const before = harnesses.load(.monotonic);
+    defer harnesses.store(before, .monotonic);
+    harnesses.store(capacity, .monotonic);
+    try claimHarness();
+    try std.testing.expectError(error.TooManyHarnesses, claimHarness());
+    try std.testing.expectEqual(capacity + 1, harnesses.load(.monotonic));
+}
+
 test "native inference reuses each harness conversation and keeps targets separate" {
     for ([_]Provider{ .codex, .claude }) |provider| {
         var pool = try fixturePool(provider);
@@ -860,7 +848,7 @@ test "live inference checkpoint continues the same process and conversation" {
         const pid = os.c.fork();
         if (pid < 0) return error.ForkFailed;
         if (pid == 0) {
-            children = @splat(null);
+            harnesses.store(0, .monotonic);
             const parsed = std.json.parseFromSlice(Checkpoint, a, json, .{}) catch os.c._exit(1);
             var imported: Pool = .{ .config = .{} };
             imported.restore(parsed.value) catch os.c._exit(2);

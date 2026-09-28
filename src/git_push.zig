@@ -74,12 +74,6 @@ pub const Manager = struct {
             slot.* = null;
         };
     }
-    /// Called by the general reaper while holding git.child_mutex.
-    pub fn recordExit(m: *Manager, pid: c_int, status: c_int) void {
-        for (m.jobs) |slot| if (slot) |job| {
-            if (job.pid == pid) job.exit_status = status;
-        };
-    }
     pub fn start(m: *Manager, store: anytype, id: WorkspaceId, expected: RefView) !void {
         const ws = store.get(id) orelse return error.NoWorkspace;
         const ref = ws.git_ref.view();
@@ -138,8 +132,6 @@ const Job = struct {
     thread: ?std.Thread = null,
     done: std.atomic.Value(bool) = .init(false),
     stopping: std.atomic.Value(bool) = .init(false),
-    pid: c_int = 0,
-    exit_status: ?c_int = null,
     result: State = .{},
 
     fn run(j: *Job) void {
@@ -198,27 +190,14 @@ const Job = struct {
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
         child.pgid = 0;
-        git.child_mutex.lock();
-        child.spawn() catch |err| {
-            git.child_mutex.unlock();
-            return err;
-        };
-        j.pid = child.id;
-        j.exit_status = null;
-        git.child_mutex.unlock();
+        try child.spawn();
         var reaped = false;
         defer {
-            git.child_mutex.lock();
-            defer git.child_mutex.unlock();
             if (!reaped) {
                 _ = c.kill(-child.id, c.SIGKILL);
-                if (j.exit_status == null) {
-                    var status: c_int = 0;
-                    _ = c.waitpid(child.id, &status, 0);
-                }
+                var status: c_int = 0;
+                _ = c.waitpid(child.id, &status, 0);
             }
-            j.pid = 0;
-            j.exit_status = null;
             if (child.stdout) |file| file.close();
             if (child.stderr) |file| file.close();
         }
@@ -234,13 +213,7 @@ const Job = struct {
             try drain(child.stdout.?.handle, &output);
             try drain(child.stderr.?.handle, &errors);
             var status: c_int = 0;
-            git.child_mutex.lock();
-            const exited = if (j.exit_status) |saved| blk: {
-                status = saved;
-                break :blk true;
-            } else c.waitpid(child.id, &status, c.WNOHANG) == child.id;
-            git.child_mutex.unlock();
-            if (exited) {
+            if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) {
                 reaped = true;
                 try drain(child.stdout.?.handle, &output);
                 try drain(child.stderr.?.handle, &errors);

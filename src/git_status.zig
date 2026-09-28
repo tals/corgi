@@ -64,14 +64,6 @@ fn parseCommits(raw: []const u8) Commits {
     }
     return result;
 }
-// The server's general reaper may collect a Git child before its worker does.
-pub var child_mutex: std.Thread.Mutex = .{};
-var child_pid: c_int = 0;
-var child_status: ?c_int = null;
-pub fn recordExit(pid: c_int, status: c_int) void {
-    if (pid == child_pid) child_status = status;
-}
-
 pub const Tracker = struct {
     thread: ?std.Thread = null,
     done: std.atomic.Value(bool) = .init(false),
@@ -266,27 +258,18 @@ fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
     child.pgid = 0;
-    child_mutex.lock();
     child.spawn() catch |err| {
-        child_mutex.unlock();
         if (spawn_failure.changed(err)) log.warn("git spawn failed: {}", .{err});
         return null;
     };
     _ = spawn_failure.clear();
-    child_pid = child.id;
-    child_status = null;
-    child_mutex.unlock();
     var reaped = false;
     defer {
-        child_mutex.lock();
-        defer child_mutex.unlock();
-        if (!reaped and child_status == null) {
+        if (!reaped) {
             _ = c.kill(-child.id, c.SIGKILL);
             var status: c_int = 0;
             _ = c.waitpid(child.id, &status, 0);
         }
-        child_pid = 0;
-        child_status = null;
         if (child.stdout) |file| file.close();
     }
     child.waitForSpawn() catch return null;
@@ -300,13 +283,7 @@ fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?
         const n = c.read(fd, buf[len..].ptr, buf.len - len);
         if (n > 0) len += @intCast(n);
         var status: c_int = 0;
-        child_mutex.lock();
-        const exited = if (child_status) |saved| blk: {
-            status = saved;
-            break :blk true;
-        } else c.waitpid(child.id, &status, c.WNOHANG) == child.id;
-        child_mutex.unlock();
-        if (exited) {
+        if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) {
             reaped = true;
             if (status != 0) return null;
             if (len < buf.len) {

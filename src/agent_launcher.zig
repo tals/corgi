@@ -8,7 +8,6 @@ pub const Provider = providers.Provider;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const discovery = @import("discovery.zig");
 const inference = @import("inference.zig");
-const git_status = @import("git_status.zig");
 const common = @import("providers/common.zig");
 const agents = @import("agents.zig");
 const name_dialog = @import("name_dialog.zig");
@@ -202,13 +201,6 @@ pub const Worker = struct {
         }
     }
 };
-const child_mutex = &git_status.child_mutex;
-var auth_pid: c_int = 0;
-var auth_status: ?c_int = null;
-// Called by the daemon reaper while holding child_mutex.
-pub fn recordExit(pid: c_int, status: c_int) void {
-    if (pid == auth_pid) auth_status = status;
-}
 fn codexAccount(pool: *inference.Pool, stopping: *const std.atomic.Value(bool)) !metadata.Info {
     const root = os.env("CODEX_HOME") orelse try std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".codex" });
     defer if (os.env("CODEX_HOME") == null) a.free(root);
@@ -374,7 +366,6 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     cache.save() catch |err| log.warn("claude account cache save failed: {}", .{err});
     return cache.state.display(std.time.timestamp());
 }
-// Serial metadata worker owns this child slot, including the daemon's reaper.
 fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stopping: *const std.atomic.Value(bool), timeout_ms: u32) ?[]u8 {
     var child = std.process.Child.init(argv, a);
     child.cwd = cwd;
@@ -382,25 +373,14 @@ fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stoppi
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
     child.pgid = 0;
-    child_mutex.lock();
-    child.spawn() catch {
-        child_mutex.unlock();
-        return null;
-    };
-    auth_pid = child.id;
-    auth_status = null;
-    child_mutex.unlock();
+    child.spawn() catch return null;
     var reaped = false;
     defer {
-        child_mutex.lock();
-        defer child_mutex.unlock();
-        if (!reaped and auth_status == null) {
+        if (!reaped) {
             _ = os.c.kill(-child.id, os.c.SIGKILL);
             var status: c_int = 0;
             _ = os.c.waitpid(child.id, &status, 0);
         }
-        auth_pid = 0;
-        auth_status = null;
         if (child.stdin) |file| file.close();
         if (child.stdout) |file| file.close();
     }
@@ -420,13 +400,7 @@ fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stoppi
         const n = os.c.read(fd, output[len..].ptr, output.len - len);
         if (n > 0) len += @intCast(n);
         var status: c_int = 0;
-        child_mutex.lock();
-        const exited = if (auth_status) |saved| blk: {
-            status = saved;
-            break :blk true;
-        } else os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id;
-        child_mutex.unlock();
-        if (exited) {
+        if (os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id) {
             reaped = true;
             if (len < output.len) {
                 const tail = os.c.read(fd, output[len..].ptr, output.len - len);

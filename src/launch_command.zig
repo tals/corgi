@@ -3,7 +3,6 @@ const std = @import("std");
 const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
 const detection = @import("detection.zig");
-const git_status = @import("git_status.zig");
 const common = @import("providers/common.zig");
 const Text = @import("account_preview.zig").Text;
 const Path = @import("bounded_text.zig").Path;
@@ -147,17 +146,7 @@ test "command labels skip inline assignments and wrappers without changing sourc
 
 /// Resolve simple shell aliases/wrapper functions only while adding/editing.
 /// Introspection never invokes the supplied command or the function body.
-var resolve_mutex: std.Thread.Mutex = .{};
-var lookup_pid: os.c.pid_t = 0;
-var lookup_status: ?c_int = null;
-pub fn recordExit(pid: os.c.pid_t, status: c_int) void {
-    if (pid == lookup_pid) lookup_status = status;
-}
-
 pub fn resolve(source: []const u8, cwd: ?[]const u8, allocator: std.mem.Allocator) ![]u8 {
-    const serial = &resolve_mutex;
-    serial.lock();
-    defer serial.unlock();
     var current = try allocator.dupe(u8, source);
     errdefer allocator.free(current);
     var expanded = false;
@@ -231,32 +220,20 @@ fn definitionOf(name: []const u8, cwd: ?[]const u8, deadline: i64, allocator: st
     defer allocator.free(query);
     const script = try std.fmt.allocPrint(allocator, "printf '\\036CORGI_BEGIN\\n'; {s} 2>/dev/null; printf '\\036CORGI_END\\n'", .{query});
     defer allocator.free(script);
-    const mutex = &git_status.child_mutex;
     var child = std.process.Child.init(&.{ chosen, flags(), script }, allocator);
     child.cwd = cwd;
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
     child.pgid = 0;
-    mutex.lock();
-    child.spawn() catch |err| {
-        mutex.unlock();
-        return err;
-    };
-    lookup_pid = child.id;
-    lookup_status = null;
-    mutex.unlock();
+    try child.spawn();
     var reaped = false;
     defer {
-        mutex.lock();
-        defer mutex.unlock();
-        if (!reaped and lookup_status == null) {
+        if (!reaped) {
             _ = os.c.kill(-child.id, os.c.SIGKILL);
             var status: c_int = 0;
             _ = os.c.waitpid(child.id, &status, 0);
         }
-        lookup_pid = 0;
-        lookup_status = null;
         if (child.stdout) |file| file.close();
     }
     try child.waitForSpawn();
@@ -268,10 +245,7 @@ fn definitionOf(name: []const u8, cwd: ?[]const u8, deadline: i64, allocator: st
         const n = os.c.read(child.stdout.?.handle, output[len..].ptr, output.len - len);
         if (n > 0) len += @intCast(n);
         var status: c_int = 0;
-        mutex.lock();
-        const exited = lookup_status != null or os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id;
-        mutex.unlock();
-        if (exited) {
+        if (os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id) {
             reaped = true;
             const tail = os.c.read(child.stdout.?.handle, output[len..].ptr, output.len - len);
             if (tail > 0) len += @intCast(tail);
