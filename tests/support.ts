@@ -133,13 +133,20 @@ export class Lines {
 export class JsonSocket {
   socket!: Socket;
   lines = new Lines();
+  closed = false;
   static async connect(path: string) {
     const client = new JsonSocket();
     client.socket = createConnection(path);
     client.socket.setEncoding("utf8");
     client.socket.on("data", (chunk) => client.lines.feed(String(chunk)));
-    client.socket.on("end", () => client.lines.end());
-    client.socket.on("error", (error) => client.lines.end(error));
+    client.socket.on("end", () => {
+      client.closed = true;
+      client.lines.end();
+    });
+    client.socket.on("error", (error) => {
+      client.closed = true;
+      client.lines.end(error);
+    });
     try {
       await deadline(
         new Promise<void>((resolve, reject) => {
@@ -166,6 +173,7 @@ export class JsonSocket {
     return this.read();
   }
   close() {
+    this.closed = true;
     this.socket.destroy();
     this.lines.end();
   }

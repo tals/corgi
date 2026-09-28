@@ -93,6 +93,10 @@ export class Runtime extends TestCase {
   proc: any = null;
   pty: any = null;
   private started = false;
+  // Private names: subclasses define their own `calls()` and `call()`.
+  #calls: JsonSocket | null = null;
+  #callsSent = 0;
+  #callQueue: Promise<unknown> = Promise.resolve();
   async setUp() {
     this.temp = tempDir();
     this.path = join(this.temp.name, "control.sock");
@@ -144,6 +148,7 @@ export class Runtime extends TestCase {
       errors.push(error);
     }
     if (this.env) {
+      this.#disconnect();
       if (this.started || existsSync(this.path))
         try {
           await this.run_cli("shutdown");
@@ -168,7 +173,50 @@ export class Runtime extends TestCase {
       throw new AggregateError(errors, "Runtime cleanup failed");
   }
   async run_cli(...args: string[]) {
+    // A daemon that stops takes the kept connection with it.
+    if (args[0] === "shutdown") this.#disconnect();
     return (await run([EXE, ...args], { env: this.env })).stdout;
+  }
+  #disconnect() {
+    this.#calls?.close();
+    this.#calls = null;
+  }
+  async #connection() {
+    // The daemon drops a connection 5 s after its last request; replace it
+    // before then so a request never races the close.
+    if (
+      !this.#calls ||
+      this.#calls.closed ||
+      performance.now() - this.#callsSent > 4000
+    ) {
+      this.#disconnect();
+      this.#calls = await JsonSocket.connect(this.path);
+    }
+    this.#callsSent = performance.now();
+    return this.#calls;
+  }
+  /** Like `corgi rpc`: a reply with `err` throws. Calls share one kept connection, in order. */
+  #call(value: any): Promise<any> {
+    const result = this.#callQueue.then(async () => {
+      // The replacement daemon answers a reload, so it gets a connection of its own.
+      const kept = value.op !== "server.reload";
+      const socket = kept
+        ? await this.#connection()
+        : await JsonSocket.connect(this.path);
+      let reply: any;
+      try {
+        socket.send(value);
+        reply = await socket.read(8000);
+      } finally {
+        // A late reply must not answer the next request.
+        if (!kept || reply === undefined) socket.close();
+      }
+      if (reply.err)
+        throw new Error(`rpc ${JSON.stringify(value)}: ${reply.err}`);
+      return reply;
+    });
+    this.#callQueue = result.catch(() => {});
+    return result;
   }
   /** Waits until the daemon's workers have read everything written so far and it has applied their results (test builds only). */
   async settle() {
@@ -187,7 +235,7 @@ export class Runtime extends TestCase {
   }
   async rpc(value: any) {
     await pump(this);
-    const result = JSON.parse(await this.run_cli("rpc", JSON.stringify(value)));
+    const result = await this.#call(value);
     await pump(this);
     return result;
   }
