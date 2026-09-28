@@ -103,8 +103,8 @@ migration step; see `docs/development-reloads.md`.
 
 ## Commit messages
 
-Keep them short enough to read in `git log`: a subject and usually three to
-six body lines.
+Write for someone skimming `git log`: a subject, then a few short paragraphs
+of plain sentences.
 
 **Subject.** `area: summary`, lowercase after the colon, no period. The area is
 a subsystem, such as `protocol`, `viewer`, `daemon`, `sidebar`, `launcher`,
@@ -117,13 +117,25 @@ viewer: size shared panes for the last-used viewer
 build: add -Dtest-filter to run a subset of unit tests
 ```
 
-**Body.** How it was, what was wrong with that, how it is now. Name the
-component ("The daemon used to send…"), not "we". Give one concrete string or
-number. Leave out how it works; the diff shows that. Name only identifiers
-someone will type: flags, ops, env vars.
+**Body.** Say how it was and what was wrong with that. Then start a new
+paragraph with how it is now, and stop there. Name the component ("The
+daemon used to send…"), not "we". Keep each paragraph to a few short lines;
+when one runs long, cut detail rather than packing it tighter.
+
+Keep only what a reader needs to follow the change. Leave out:
+- how the old or the new code works; the diff shows that. Say the sidebar
+  flickered, not the redraw order that made it flicker
+- counts and sizes: files, call sites, tests, casts, bytes
+- lists of the files or functions touched
+- identifiers nobody will type (keep flags, ops, env vars)
+- the problem restated as a benefit ("so the launcher no longer parses it")
+- the same point said twice
+
+When it makes the change concrete, quote one thing the user saw, such as the
+text "5h 12% / 7d 48%".
 
 **Compatibility.** When something crosses a boundary (the wire protocol, the
-viewer protocol, checkpoints, handoffs or preferences), a second paragraph says
+viewer protocol, checkpoints, handoffs or preferences), a final paragraph says
 exactly which version changed and whether there is a migration, or that none
 changed and why. Say "unchanged" only where a reader would wonder, such as a
 refactor of serialized types.
@@ -137,7 +149,9 @@ the second one gets an "Also:" line.
 protocol: send usage limits as data, not text
 
 The daemon used to send usage as "5h 12% / 7d 48%", and the launcher
-parsed that back into state. Now it sends the structured limits.
+parsed that back into state.
+
+Now it sends the structured limits.
 
 The protocol version stays 1: the field was renamed, so a viewer and
 daemon on different versions show no usage instead of failing.
