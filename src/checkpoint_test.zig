@@ -90,7 +90,7 @@ test "generate the V4 fixture from the migrated V3 fixture (CORGI_UPDATE_FIXTURE
 
 test "saved checkpoint format matches its version" {
     const migrations = @import("state_migrations.zig");
-    const name = std.fmt.comptimePrint("fixtures/checkpoint-v{d}.schema", .{migrations.checkpoint_version});
+    const name = "fixtures/checkpoint.schema";
     try migrations.expectSchema(cp.State, &.{}, "src/" ++ name, @embedFile(name));
 }
 

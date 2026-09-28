@@ -288,15 +288,14 @@ For a serialized schema change:
 2. Keep the previous version's fixture (`src/fixtures/checkpoint-vN.json`)
    unchanged and test that it migrates and restores. Capture a fixture for the
    new version from a real `checkpoint.capture`.
-3. Refresh the schema snapshot. `src/fixtures/checkpoint-vN.schema` and
-   `handoff-vN.schema` list every serialized field path and type; a unit test
-   fails when the Zig types no longer match the current version's snapshot.
-   Create the new version's file empty, then run
-   `CORGI_UPDATE_SCHEMA=1 ./scripts/zig build test`.
+3. Refresh the schema snapshot with `CORGI_UPDATE_SCHEMA=1 ./scripts/zig build
+   test`. `src/fixtures/checkpoint.schema` and `handoff.schema` list every
+   serialized field path and type of the current version; a unit test fails
+   when the Zig types no longer match. Only the current snapshot is kept.
 
 Adding a field with a default needs no version bump, because readers ignore
 unknown fields and fill in defaults. It still changes the snapshot; refresh it
-in place. Renames, removals, and changes of type or meaning need a step. Types
+as well. Renames, removals, and changes of type or meaning need a step. Types
 with their own `jsonStringify`/`jsonParse` (such as `layout.Model`) appear as a
 single line, so changes inside them are not caught by the snapshot. Tests must
 cover a current-format round trip, the upgrade, and rejection of future or
