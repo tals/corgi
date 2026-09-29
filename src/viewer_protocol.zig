@@ -16,6 +16,7 @@ const Client = peer.Client;
 const Server = @import("server.zig").Server;
 const WorkspaceId = workspace.Workspace.Id;
 const Op = protocol.Op;
+const Action = @import("action.zig").Action;
 
 pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     if ((op == .@"viewer.open" or op == .@"viewer.sync") and !viewer_version.compatible(v)) {
@@ -232,6 +233,7 @@ pub fn routeControl(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     const target = try targetViewer(s, v) orelse return error.NoViewer;
     if (target.controls.items.len >= 64) return error.ViewerBusy;
     if (op == .action) {
+        _ = try Action.parse(agents.str(v, "name"), agents.str(v, "value"));
         const name = try a.dupe(u8, agents.str(v, "name"));
         errdefer a.free(name);
         const value = try a.dupe(u8, agents.str(v, "value"));
