@@ -71,10 +71,10 @@ pub const Action = union(enum) {
             .@"workspace-next", .@"workspace-prev", .@"new-workspace", .@"edit-workspace" => false,
             .@"close-workspace", .@"choose-workspace", .@"goto-workspace" => false,
             .@"new-agent", .@"find-agent", .@"next-agent", .@"prev-agent", .@"last-agent" => false,
-            .setup, .help, .relaunch => false,
+            .setup, .help, .detach, .relaunch => false,
             .split, .zoom, .close, .@"close-tab", .@"rename-tab", .rename, .@"move-tab", .@"break" => true,
             .resize, .@"resize-mode", .focus, .swap, .@"next-pane", .@"prev-pane" => true,
-            .next, .prev, .tab, .join, .@"copy-mode", .paste, .detach => true,
+            .next, .prev, .tab, .join, .@"copy-mode", .paste => true,
         };
     }
 
