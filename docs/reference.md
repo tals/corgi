@@ -118,7 +118,7 @@ Regression suite: `bun test tests/cli.test.ts` uses isolated sockets and provide
 
 ## Tabs and panes
 
-`prefix` means press Ctrl-B (or your configured prefix), release, then the next
+`prefix` means press Ctrl+B (or your configured prefix), release, then the next
 key. The prefix alone waits silently. **`prefix ?` opens the full shortcut
 screen used in onboarding.**
 Press a displayed shortcut or click its label/key to run the action. Esc, Enter,
@@ -131,34 +131,69 @@ scroll except in tmux, where they focus panes. Below 60 columns the columns
 stack. Action keys retain their usual meaning: for example, Corgi j/k focus panes
 and q detaches. The prefix and Back control stay visible.
 
-Click **+** after the visible tabs, choose **New tab** from a menu, or press `prefix c` to open the **new tab** dialog. The empty name field previews the new tab's position as a number. Save (Enter) creates an unnamed tab in the workspace default directory unless you type a custom name; Cancel (Escape or clicking outside) creates nothing. Unnamed tabs store no name: their displayed numbers are recomputed as tabs move or close. The + button remains visible when tabs overflow. The CLI/control API still creates tabs immediately, unnamed unless an explicit title is supplied.
+Click **+** after the visible tabs, choose **New tab** from a menu, or press `prefix c` to open the agent picker, which starts an agent or a terminal in a new tab. Unnamed tabs store no name: their displayed numbers are recomputed as tabs move or close. The + button remains visible when tabs overflow. The CLI/control API creates tabs immediately, unnamed unless an explicit title is supplied.
 
 Headers show either the custom name or the automatic number, centered in a minimum width of 10 columns. Narrow terminals clip the active tab as needed while keeping **+** accessible.
 
-**Rename tab** uses the same bordered dialog. Type to replace the selection, or move the cursor with Left/Right, Home/End and edit with Backspace/Delete. Ctrl-C, Ctrl-U, or **Clear** empties the field; saving an empty field removes the custom name and restores automatic numbering. The number shown in an empty field is a preview, not saved text. A number you explicitly type is a custom name and stays fixed. Save, Clear, and Cancel are clickable. Cancel leaves the existing name unchanged.
+**Rename tab** opens a bordered dialog. Type to replace the selection, or move the cursor with Left/Right, Home/End and edit with Backspace/Delete. Ctrl-C, Ctrl-U, or **Clear** empties the field; saving an empty field removes the custom name and restores automatic numbering. The number shown in an empty field is a preview, not saved text. A number you explicitly type is a custom name and stays fixed. Save, Clear, and Cancel are clickable. Cancel leaves the existing name unchanged.
 
-Right-click a tab title for Herdr's tab menu: **New tab**, **Rename**, and **Close**. Actions target the clicked tab; opening or dismissing the menu does not switch tabs. Click a row, or use Up/Down (or j/k) and Enter. Escape or a click outside dismisses it. New tab uses the workspace default directory and prompts for a name; Close immediately ends all of that tab's panes.
+Right-click a tab title for Herdr's tab menu: **New tab**, **Rename**, and **Close**. Actions target the clicked tab; opening or dismissing the menu does not switch tabs. Click a row, or use Up/Down (or j/k) and Enter. Escape or a click outside dismisses it. New tab opens the agent picker; Close immediately ends all of that tab's panes.
 
-| Action | Key |
-| --- | --- |
-| New tab | `prefix c` |
-| Split right / down | `prefix v` / `prefix -` |
-| Focus left / down / up / right | `prefix h/j/k/l` |
-| Swap in a direction | `prefix H/J/K/L` |
-| Zoom / unzoom | `prefix z` |
-| Resize mode | `prefix r`, then `h/j/k/l`; any other key exits |
-| Next / previous tab | `prefix n/p` |
-| Jump to tab | `prefix 1–9` |
-| Rename tab | `prefix T` |
-| Close pane / tab | `prefix x` / `prefix X` |
-| Reopen last closed pane | `prefix u` |
-| Break pane into its own tab | `prefix !` |
-| Scroll/copy mode | `prefix [` |
-| Jump to attention | `prefix f` |
-| Mute / unmute sounds | `prefix m` |
-| Detach, keep processes alive | `prefix q` |
-| Help | `prefix ?` |
-| Send literal Ctrl-B | `prefix Ctrl-B` |
+Every shortcut of every preset, as `corgi keys` prints it. `prefix` is the
+prefix key, released before the next one; a key without it is held with its
+modifiers. cmux's held keys need [host forwarding](onboarding.md#keys). In resize mode, `h/j/k/l` resize and any other key
+exits. Pressing the prefix twice sends it to the pane, so with the Ctrl+A
+prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
+
+| Action | Corgi | tmux | Herdr | cmux |
+| --- | --- | --- | --- | --- |
+| New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `prefix c` | `Cmd+T`, `prefix c` |
+| Next tab | `prefix n` | `prefix n` | `prefix n` | `Cmd+Shift+]`, `prefix n` |
+| Previous tab | `prefix p` | `prefix p` | `prefix p` | `Cmd+Shift+[`, `prefix p` |
+| Select tab | `prefix 1–9` | `prefix 0–9` | `prefix 1–9` | `Ctrl+1–9`, `prefix 1–9` |
+| Rename tab | `prefix T`, `prefix ,` | `prefix ,` | `prefix T` | `Cmd+R`, `prefix T`, `prefix ,` |
+| Close tab | `prefix X` | `prefix &` | `prefix X` | `prefix X` |
+| New workspace | `prefix w` | `prefix N` | `prefix N` | `Cmd+N`, `prefix w` |
+| Edit workspace | `prefix W` | `prefix $` | `prefix W` | `Cmd+Shift+R`, `prefix W` |
+| Next workspace | `prefix }` | `prefix }` | `prefix }` | `prefix }` |
+| Previous workspace | `prefix {` | `prefix {` | `prefix {` | `prefix {` |
+| Choose workspace |  | `prefix s` | `prefix w`, `prefix g` | `Cmd+P` |
+| Select workspace |  |  |  | `Cmd+1–9` |
+| Close workspace |  |  | `prefix D` | `Cmd+Shift+W` |
+| Find agent | `prefix g` | `prefix G` | `prefix f` | `Cmd+Shift+P`, `prefix g` |
+| Next agent | `prefix ]` |  |  | `prefix ]` |
+| Previous agent | `prefix [` |  |  | `prefix [` |
+| Last visited agent | `prefix Tab` |  |  | `prefix Tab` |
+| Jump to attention | `prefix f` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
+| New agent | `prefix a`, `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix a`, `prefix A`, `prefix Ctrl+A` |
+| Mute / unmute sounds | `prefix m` | `prefix m` | `prefix m` | `prefix m` |
+| Focus left | `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix h` |
+| Focus down | `prefix j` | `prefix ↓` | `prefix j` | `Cmd+Opt+↓`, `prefix j` |
+| Focus up | `prefix k` | `prefix ↑` | `prefix k` | `Cmd+Opt+↑`, `prefix k` |
+| Focus right | `prefix l` | `prefix →` | `prefix l` | `Cmd+Opt+→`, `prefix l` |
+| Swap left | `prefix H` |  | `prefix H` | `prefix H` |
+| Swap down | `prefix J` |  | `prefix J` | `prefix J` |
+| Swap up | `prefix K` |  | `prefix K` | `prefix K` |
+| Swap right | `prefix L` |  | `prefix L` | `prefix L` |
+| Next pane |  | `prefix o` | `prefix Tab` |  |
+| Previous pane |  |  | `prefix Shift+Tab` |  |
+| Split right | `prefix v`, `prefix %` | `prefix %` | `prefix v` | `Cmd+D`, `prefix v`, `prefix %` |
+| Split down | `prefix -`, `prefix "` | `prefix "` | `prefix -` | `Cmd+Shift+D`, `prefix -`, `prefix "` |
+| Resize mode | `prefix r` |  | `prefix r` | `prefix r` |
+| Resize left |  | `prefix Ctrl+←` |  | `Ctrl+Shift+H` |
+| Resize down |  | `prefix Ctrl+↓` |  | `Ctrl+Shift+J` |
+| Resize up |  | `prefix Ctrl+↑` |  | `Ctrl+Shift+K` |
+| Resize right |  | `prefix Ctrl+→` |  | `Ctrl+Shift+L` |
+| Zoom / unzoom pane | `prefix z` | `prefix z` | `prefix z` | `Cmd+Shift+Enter`, `prefix z` |
+| Move pane to a new tab | `prefix !` | `prefix !` | `prefix !` | `prefix !` |
+| Close pane | `prefix x` | `prefix x` | `prefix x` | `Cmd+W`, `prefix x` |
+| Reopen last closed pane | `prefix u` | `prefix u` | `prefix u` | `prefix u` |
+| Scroll / copy mode | `prefix s` | `prefix [` | `prefix [` | `Cmd+Shift+M`, `prefix s` |
+| Paste copied text |  | `prefix ]` |  |  |
+| Detach | `prefix q`, `prefix d` | `prefix d` | `prefix q` | `prefix q`, `prefix d` |
+| Toggle sidebar | `prefix b` | `prefix b` | `prefix b` | `Cmd+B`, `prefix b` |
+| Setup | `prefix i`, `prefix C` | `prefix C` | `prefix s` | `Cmd+,`, `prefix i`, `prefix C` |
+| All shortcuts | `prefix ?` | `prefix ?` | `prefix ?` | `prefix ?` |
 
 Right-click a pane for its own context menu: rename, clear name, swap with the previously focused pane, split right/down, zoom, or close. Opening the menu does not change focus. Pane names are shared, survive reload/recovery and reopening closed panes, and appear in the focused-pane status line and agent sidebar. An empty name restores the default label. Hold Shift while right-clicking to open the menu over a mouse-aware application.
 

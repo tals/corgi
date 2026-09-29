@@ -57,6 +57,77 @@ pub const Compact = struct {
 pub fn compact(b: Binding) Compact {
     return .{ .binding = b };
 }
+/// Prints what `corgi keys` shows and the docs keep: a Markdown table with
+/// a row per action and a column per preset. Digit runs share a cell.
+pub fn writeTable(w: *std.Io.Writer, presets: []const Preset) !void {
+    try w.writeAll("| Action |");
+    for (presets) |preset| try w.print(" {s} |", .{keymap.name(preset)});
+    try w.writeAll("\n| --- |");
+    for (presets) |_| try w.writeAll(" --- |");
+    try w.writeByte('\n');
+    // Every action any listed preset binds, in the union's order.
+    var rows: [128]Action = undefined;
+    var count: usize = 0;
+    inline for (@typeInfo(Action).@"union".fields) |field| {
+        const values: []const Action = switch (@typeInfo(field.type)) {
+            .void => &.{@unionInit(Action, field.name, {})},
+            .@"enum" => |e| comptime blk: {
+                var all: [e.fields.len]Action = undefined;
+                for (e.fields, &all) |f, *act| act.* = @unionInit(Action, field.name, @enumFromInt(f.value));
+                const done = all;
+                break :blk &done;
+            },
+            .int => &.{@unionInit(Action, field.name, 1)},
+            else => &.{},
+        };
+        for (values) |act| {
+            for (presets) |preset| if (cell(preset, act) != null) {
+                rows[count] = act;
+                count += 1;
+                break;
+            };
+        }
+    }
+    for (rows[0..count]) |act| {
+        try w.print("| {s} |", .{act.title()});
+        for (presets) |preset| {
+            try w.writeByte(' ');
+            try writeCell(w, preset, act);
+            try w.writeAll(" |");
+        }
+        try w.writeByte('\n');
+    }
+}
+/// Whether a binding belongs in `act`'s row: numbered actions share one.
+fn sameRow(b: Binding, act: Action) bool {
+    return switch (act) {
+        .tab, .@"goto-workspace" => std.meta.activeTag(b.action) == std.meta.activeTag(act),
+        else => std.meta.eql(b.action, act),
+    };
+}
+fn cell(preset: Preset, act: Action) ?Binding {
+    for (table(preset)) |b| if (sameRow(b, act)) return b;
+    return null;
+}
+fn writeCell(w: *std.Io.Writer, preset: Preset, act: Action) !void {
+    const list = table(preset);
+    var written = false;
+    var i: usize = 0;
+    while (i < list.len) : (i += 1) {
+        const b = list[i];
+        if (!sameRow(b, act)) continue;
+        // A run of digits with consecutive numbers: `prefix 1–9`.
+        var last = i;
+        while (last + 1 < list.len and sameRow(list[last + 1], act) and list[last + 1].key == list[last].key + 1 and
+            list[last + 1].mods == b.mods and list[last + 1].prefixed == b.prefixed) last += 1;
+        if (written) try w.writeAll(", ");
+        written = true;
+        try w.print("`{s}{f}", .{ if (b.prefixed) "prefix " else "", b });
+        if (last > i) try w.print("–{u}", .{list[last].key});
+        try w.writeByte('`');
+        i = last;
+    }
+}
 /// Whether a key reaches the viewer as one byte, not a sequence.
 fn plain(key: u21, mods: Mods) bool {
     return key < 0x80 and mods == Mods{};
@@ -357,10 +428,11 @@ test "keys are spelled the way the help screen shows them" {
     }
 }
 
-test "every preset has keys for a new tab and for help after the prefix" {
+test "every preset has keys for a new tab, help and detach after the prefix" {
     for (std.enums.values(Preset)) |preset| {
         try std.testing.expect(first(preset, .new, true) != null);
         try std.testing.expect(first(preset, .help, true) != null);
+        try std.testing.expect(first(preset, .detach, true) != null);
     }
 }
 
@@ -377,6 +449,22 @@ test "compact spellings for the onboarding cards" {
         var buf: [32]u8 = undefined;
         try std.testing.expectEqualStrings(case.text, try std.fmt.bufPrint(&buf, "{f}", .{compact(case.binding)}));
     }
+}
+
+test "the shortcut table lists each preset's keys" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try writeTable(&out.writer, &.{ .corgi, .tmux, .cmux });
+    const text = out.written();
+    try std.testing.expect(std.mem.startsWith(u8, text, "| Action | Corgi | tmux | cmux |\n| --- | --- | --- | --- |\n"));
+    for ([_][]const u8{
+        "| New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `Cmd+T`, `prefix c` |\n",
+        "| Split right | `prefix v`, `prefix %` | `prefix %` | `Cmd+D`, `prefix v`, `prefix %` |\n",
+        "| Select tab | `prefix 1–9` | `prefix 0–9` | `Ctrl+1–9`, `prefix 1–9` |\n",
+        "| Select workspace |  |  | `Cmd+1–9` |\n",
+        "| Resize up |  | `prefix Ctrl+↑` | `Ctrl+Shift+K` |\n",
+    }) |row| try std.testing.expect(std.mem.indexOf(u8, text, row) != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "Relaunch") == null);
 }
 
 test "keys that arrive as bytes" {

@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, EXE, layout_tree, Viewer } from "./runtime";
 import { registerCase, run } from "./support";
@@ -150,6 +150,19 @@ class AgentCli extends Runtime {
     this.assertEqual((await this.snapshot()).panes.length, 1);
     await this.cli(["tab", "close", one.tab]);
     this.assertEqual((await this.snapshot()).panes, []);
+  }
+  async test_docs_show_the_current_shortcuts() {
+    const table = (await run([EXE, "keys"])).stdout;
+    this.assertIn("| New tab (agent picker) |", table);
+    const reference = readFileSync(
+      join(import.meta.dir, "../docs/reference.md"),
+      "utf8",
+    );
+    this.assertIn(
+      table,
+      reference,
+      "docs/reference.md is stale: paste in the table `corgi keys` prints",
+    );
   }
   async test_discovery_errors_and_terminal_io() {
     for (const args of [

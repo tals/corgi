@@ -55,19 +55,9 @@ Corgi is selected initially. Ctrl+B and Ctrl+A prefixes are supported; press the
 chosen prefix twice to send that byte to the child. New-tab actions open the
 Corgi agent/terminal picker. Ctrl+T is intercepted only by the Corgi preset.
 
-| Action | Corgi | tmux | Herdr | cmux |
-| --- | --- | --- | --- | --- |
-| New tab / agent picker | P c | P c | P c | Cmd+T |
-| Split right / down | P v / - | P % / " | P v / - | Cmd+D / Cmd+Shift+D |
-| Focus pane | P hjkl | P arrows | P hjkl | Cmd+Option+arrows |
-| Next / previous tab | P n / p | P n / p | P n / p | Cmd+Shift+] / [ |
-| Copy mode | P s | P [ | P [ | Cmd+Shift+M |
-| Setup | P C / i | P C | P s | Cmd+, |
-| Detach | P q | P d | P q | P q |
-
-`P` means the selected prefix. tmux tab numbering starts at zero; other presets
-start at one. The full-keymap screen includes workspace, resize, agent and
-navigation additions. These are Corgi action mappings, not command interpreters
+[Tabs and panes](reference.md#tabs-and-panes) lists every key of every preset,
+and `corgi keys` prints the same table. tmux tab numbering starts at zero; other
+presets start at one. These are Corgi action mappings, not command interpreters
 for the source programs. Copy mode uses Corgi's existing selection and clipboard.
 
 cmux shortcuts require host forwarding. The connection screen can install a

@@ -11,12 +11,15 @@ const claude_credentials = @import("claude_credentials.zig");
 const rpc = @import("rpc.zig");
 const protocol = @import("protocol.zig");
 const client = @import("client.zig");
+const preferences = @import("preferences.zig");
 const cli = @import("cli.zig");
 const options = @import("corgi_options");
 const discovery = @import("discovery.zig");
 const handoff = @import("handoff.zig");
 const Server = @import("server.zig").Server;
 const viewer_test = @import("viewer_test.zig");
+const keymap = @import("keymap.zig");
+const bindings = @import("bindings.zig");
 /// A no-op in the daemon, CLI and hook, where client.cleanup has nothing to
 /// restore; in the viewer it leaves the terminal usable instead of raw.
 pub const panic = std.debug.FullPanic(restoreThenPanic);
@@ -55,6 +58,7 @@ const Command = enum {
     help,
     @"--version",
     which,
+    keys,
     @"__viewer-test",
     reload,
     checkpoint,
@@ -75,7 +79,11 @@ pub fn main() void {
         if (err == error.IncompatibleViewerProtocol) {
             std.debug.print("corgi: this viewer is incompatible with the server (requires viewer protocol {d}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n", .{viewer_version.version});
         } else if (err == error.AmbiguousViewer) {
-            std.debug.print("corgi: multiple viewers are focused on this pane. Detach the intended viewer with Ctrl-B q and run ./go.sh from its terminal.\n", .{});
+            const prefs = preferences.load();
+            std.debug.print("corgi: multiple viewers are focused on this pane. Detach the intended viewer with {s} {f} and run ./go.sh from its terminal.\n", .{
+                keymap.prefixName(prefs.prefix),
+                bindings.first(prefs.preset, .detach, true).?,
+            });
         } else if (err == error.NestedCorgi) {
             std.debug.print("corgi: cannot attach inside a Corgi pane; detach first or use another terminal.\n", .{});
         } else {
@@ -143,6 +151,18 @@ fn run() !void {
         return os.writeAll(1, cli.help);
     }
     if (command == .@"--version") return os.writeAll(1, "corgi " ++ options.release_version ++ " (" ++ options.release_commit ++ ")\n");
+    if (command == .keys) {
+        if (args.len > 3) return error.Usage;
+        var chosen: [1]keymap.Preset = undefined;
+        const presets: []const keymap.Preset = if (args.len == 3) blk: {
+            chosen[0] = std.meta.stringToEnum(keymap.Preset, args[2]) orelse return error.Usage;
+            break :blk &chosen;
+        } else std.enums.values(keymap.Preset);
+        var out: std.Io.Writer.Allocating = .init(a);
+        defer out.deinit();
+        try bindings.writeTable(&out.writer, presets);
+        return os.writeAll(1, out.written());
+    }
     if (command == .which) {
         if (args.len != 3) return error.Usage;
         const provider = try providerArg(args[2]);
@@ -391,6 +411,7 @@ const help =
     \\  corgi agent claude|codex ...   optional discovered-binary launcher
     \\  corgi hooks claude|codex       print hook configuration
     \\  corgi which codex             show automatically selected executable
+    \\  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux
     \\  corgi native start PROVIDER [--workspace ID]
     \\  corgi native list              list native sessions
     \\  corgi native send ID JSON      provider request / approval response
@@ -401,11 +422,7 @@ const help =
     \\  corgi checkpoint               save recovery context now
     \\  corgi shutdown                terminate runtime and its panes
     \\
-    \\Keys: Ctrl-B opens a clickable command menu; then c tab, v/- split,
-    \\hjkl focus, HJKL swap, z zoom,
-    \\r resize, T rename, n/p tabs, 1–9 jump, x close, X close tab,
-    \\g find agent, [/] previous/next agent, Tab last agent (current workspace),
-    \\u undo close, s scroll/copy, a attention, b agent sidebar, m mute, q detach, ? help.
+    \\Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.
     \\
     \\CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees.
     \\
