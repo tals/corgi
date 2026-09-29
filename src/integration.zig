@@ -138,9 +138,11 @@ pub fn mergedConfig(allocator: std.mem.Allocator, provider: Provider, existing: 
 }
 
 pub fn install(provider: Provider) !void {
-    const home_dir = os.env("HOME") orelse return;
     const info = provider.info();
-    const directory = if (os.env(info.config_env)) |dir| try a.dupe(u8, dir) else try std.fs.path.join(a, &.{ home_dir, info.config_dir });
+    const directory = info.configDir(a) catch |err| switch (err) {
+        error.NoHome => return,
+        error.OutOfMemory => |e| return e,
+    };
     defer a.free(directory);
     var dir = std.fs.cwd().openDir(directory, .{}) catch |err| {
         if (err == error.FileNotFound) return;

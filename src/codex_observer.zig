@@ -228,9 +228,8 @@ pub const Worker = struct {
     thread: ?std.Thread = null,
     socket: []const u8,
     pub fn start() !*Worker {
-        const home = os.env("HOME") orelse return error.NoHome;
-        const root = os.env("CODEX_HOME") orelse try std.fs.path.join(a, &.{ home, ".codex" });
-        defer if (os.env("CODEX_HOME") == null) a.free(root);
+        const root = try Codex.info.configDir(a);
+        defer a.free(root);
         const path = try std.fs.path.join(a, &.{ root, "app-server-control/app-server-control.sock" });
         errdefer a.free(path);
         const w = try a.create(Worker);

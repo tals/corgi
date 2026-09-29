@@ -338,13 +338,23 @@ fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
 fn detail(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
         .keyboard, .import, .ghostty, .readings, .sleeping_corgis => unreachable,
-        .auto => if (status.launches.get(.codex) + status.launches.get(.claude) == 0)
-            "No agents yet this session; using your last one"
-        else
-            std.fmt.bufPrint(buffer, "Since start: claude {d}× · codex {d}×", .{ status.launches.get(.claude), status.launches.get(.codex) }) catch "",
+        .auto => launchCounts(status, buffer),
         .codex, .claude => std.fmt.bufPrint(buffer, "Needs {s} installed and signed in", .{choice.provider().?.info().executables[0]}) catch "",
         .off => "Activity text stays blank; links say Open Link",
     };
+}
+
+/// Launches per provider since the daemon started, in launcher order.
+fn launchCounts(status: setup.Status, buffer: []u8) []const u8 {
+    var total: u32 = 0;
+    for (Provider.all) |provider| total +|= status.launches.get(provider);
+    if (total == 0) return "No agents yet this session; using your last one";
+    var out: std.Io.Writer = .fixed(buffer);
+    out.writeAll("Since start:") catch return "";
+    for (Provider.all, 0..) |provider, i| {
+        out.print("{s} {s} {d}×", .{ if (i == 0) "" else " ·", provider.info().executables[0], status.launches.get(provider) }) catch return "";
+    }
+    return out.buffered();
 }
 
 fn rowOf(cols: u16, rows: u16, choice: Choice) ?u16 {
@@ -386,7 +396,7 @@ test "setup modal explains the automatic choice" {
     const menu = Menu.open(.{});
     try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .launches = .init(.{ .claude = 3, .codex = 1 }), .models = .init(.{ .claude = "claude-haiku-4-5-20251001" }) }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Following you → Claude · Haiku 4.5") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "claude 3× · codex 1×") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Since start: codex 1× · claude 3×") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Keep ]") != null);
     output.clearRetainingCapacity();
     try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .init(.{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" }) }, .{}, 100, 30);

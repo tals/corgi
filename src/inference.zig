@@ -515,52 +515,14 @@ pub const Pool = struct {
         errdefer if (schema) |v| a.free(v);
         var args: std.ArrayList([]const u8) = .empty;
         defer args.deinit(a);
+        const info = p.config.provider.info();
+        try args.appendSlice(a, info.native_args);
+        try args.appendSlice(a, info.inference_args);
+        // Codex takes these per thread over RPC; Claude takes them per process.
         switch (p.config.provider) {
-            .codex => try args.appendSlice(a, &.{
-                "app-server",
-                "--listen",
-                "stdio://",
-                "-c",
-                "features.shell_tool=false",
-                "-c",
-                "features.apps=false",
-                "-c",
-                "features.memories=false",
-                "-c",
-                "features.hooks=false",
-                "-c",
-                "features.plugins=false",
-                "-c",
-                "features.code_mode=false",
-                "-c",
-                "features.skip_host_skill_discovery=true",
-                "-c",
-                "agents.enabled=false",
-                "-c",
-                "project_doc_max_bytes=0",
-                "-c",
-                "web_search=\"disabled\"",
-            }),
+            .codex => {},
             .claude => {
-                try args.appendSlice(a, &.{
-                    "--print",
-                    "--verbose",
-                    "--input-format",
-                    "stream-json",
-                    "--output-format",
-                    "stream-json",
-                    "--permission-prompt-tool",
-                    "stdio",
-                    "--safe-mode",
-                    "--strict-mcp-config",
-                    "--mcp-config",
-                    "{\"mcpServers\":{}}",
-                    "--tools",
-                    "",
-                    "--no-session-persistence",
-                    "--system-prompt",
-                    request.instructions,
-                });
+                try args.appendSlice(a, &.{ "--system-prompt", request.instructions });
                 if (p.config.model) |model| try args.appendSlice(a, &.{ "--model", model });
                 if (request.schema) |value| try args.appendSlice(a, &.{ "--json-schema", value });
             },

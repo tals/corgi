@@ -121,34 +121,8 @@ pub const Worker = struct {
             w.mutex.unlock();
             var result: Preview = .{ .pending = false, .installed = installed() };
             // Skip reads for missing providers; their rows are hidden.
-            if (result.installed.get(.codex)) {
-                const codex = result.options.getPtr(.codex);
-                if (pool.configuredModel(job.cwd.text(), &w.stopping)) |model| {
-                    codex.model = .ascii(model.text());
-                    codex.source = .ascii("Effective Codex settings");
-                } else |_| codex.source = .ascii("Model resolved by Codex at startup");
-                if (codexAccount(&pool, &w.stopping)) |account| {
-                    codex.signed_in = account.signed_in;
-                    codex.account = account.account;
-                    codex.plan = account.plan;
-                    codex.limits = account.limits;
-                    codex.usage_fetched_at = account.usage_fetched_at;
-                    codex.usage_error = account.usage_error;
-                    codex.history = limit_history.update(.codex, account, &w.stopping);
-                } else |_| codex.usage_error = .ascii("account read failed");
-            }
-            if (result.installed.get(.claude)) {
-                const option = result.options.getPtr(.claude);
-                option.* = claude(job.cwd.text());
-                const account = claudeAccount(job.cwd.text(), &w.stopping, job.request_access);
-                option.signed_in = account.signed_in;
-                option.account = account.account;
-                option.plan = account.plan;
-                option.limits = account.limits;
-                option.usage_fetched_at = account.usage_fetched_at;
-                option.usage_error = account.usage_error;
-                option.usage_needs_consent = account.usage_needs_consent;
-                option.history = limit_history.update(.claude, account, &w.stopping);
+            for (Provider.all) |provider| {
+                if (result.installed.get(provider)) result.options.set(provider, option(provider, &pool, &job, &w.stopping));
             }
             w.mutex.lock();
             if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd.text(), job.cwd.text())) {
@@ -162,9 +136,41 @@ pub const Worker = struct {
         }
     }
 };
+/// One provider's launcher row: the model it would run and its account.
+fn option(provider: Provider, pool: *inference.Pool, job: *const Job, stopping: *const std.atomic.Value(bool)) Option {
+    const cwd = job.cwd.text();
+    var result = switch (provider) {
+        .codex => codexModel(pool, cwd, stopping),
+        .claude => claudeModel(cwd),
+    };
+    const account = switch (provider) {
+        .codex => codexAccount(pool, stopping) catch {
+            result.usage_error = .ascii("account read failed");
+            return result;
+        },
+        .claude => claudeAccount(cwd, stopping, job.request_access),
+    };
+    result.signed_in = account.signed_in;
+    result.account = account.account;
+    result.plan = account.plan;
+    result.limits = account.limits;
+    result.usage_fetched_at = account.usage_fetched_at;
+    result.usage_error = account.usage_error;
+    result.usage_needs_consent = account.usage_needs_consent;
+    result.history = limit_history.update(provider, account, stopping);
+    return result;
+}
+fn codexModel(pool: *inference.Pool, cwd: []const u8, stopping: *const std.atomic.Value(bool)) Option {
+    var result: Option = .{};
+    if (pool.configuredModel(cwd, stopping)) |model| {
+        result.model = .ascii(model.text());
+        result.source = .ascii("Effective Codex settings");
+    } else |_| result.source = .ascii("Model resolved by Codex at startup");
+    return result;
+}
 fn codexAccount(pool: *inference.Pool, stopping: *const std.atomic.Value(bool)) !metadata.Info {
-    const root = os.env("CODEX_HOME") orelse try std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".codex" });
-    defer if (os.env("CODEX_HOME") == null) a.free(root);
+    const root = try providers.Codex.info.configDir(a);
+    defer a.free(root);
     const path = try std.fs.path.join(a, &.{ root, "auth.json" });
     defer a.free(path);
     const auth = std.fs.cwd().readFileAlloc(a, path, 65536) catch try a.dupe(u8, root);
@@ -374,13 +380,13 @@ fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stoppi
     }
     return null;
 }
-fn claude(cwd: []const u8) Option {
+fn claudeModel(cwd: []const u8) Option {
     var result: Option = .{};
     result.source = .ascii("Account default / provider selection");
-    const home = os.env("HOME") orelse "";
-    const root = os.env("CLAUDE_CONFIG_DIR") orelse std.fs.path.join(a, &.{ home, ".claude" }) catch return result;
-    defer if (os.env("CLAUDE_CONFIG_DIR") == null) a.free(root);
-    readModel(&result, root, "settings.json", "User settings");
+    if (providers.Claude.info.configDir(a)) |root| {
+        defer a.free(root);
+        readModel(&result, root, "settings.json", "User settings");
+    } else |_| {}
     readModel(&result, cwd, ".claude/settings.json", "Project settings (if trusted)");
     readModel(&result, cwd, ".claude/settings.local.json", "Local settings (if trusted)");
     if (os.env("ANTHROPIC_MODEL")) |model| if (model.len > 0) {

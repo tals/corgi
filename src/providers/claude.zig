@@ -19,6 +19,10 @@ pub const Claude = struct {
         .binary_env = "CORGI_CLAUDE_BIN",
         .home_paths = &.{ ".claude/local/claude", ".local/bin/claude", ".bun/bin/claude", ".npm-global/bin/claude", ".volta/bin/claude" },
         .system_paths = &.{ "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude" },
+        .native_args = &.{ "--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio" },
+        // The harness has no tools, MCP servers or saved sessions.
+        .inference_args = &.{ "--safe-mode", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--tools", "", "--no-session-persistence" },
+        .resume_args = .{ "claude", "--resume" },
         .config_env = "CLAUDE_CONFIG_DIR",
         .config_dir = ".claude",
         .hooks_file = "settings.json",
@@ -32,12 +36,12 @@ pub const Claude = struct {
         .settings_flags = &.{"--settings"},
         .yolo_flag = "--dangerously-skip-permissions",
         .summary_model = "claude-haiku-4-5-20251001",
+        .limits = .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .minutes = .{ 300, 10080 }, .reset = .iso8601 },
         .prompt_turns = true,
         .screen = .{ .idle_title = "✳ " },
     };
 
     pub const hook_events = &.{ "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd", "PreCompact", "Notification", "PostToolUseFailure" };
-    pub const native_args: []const []const u8 = &.{ "--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio" };
 
     /// Claude's stream-json envelope kind (the `type` field).
     pub const MessageType = enum { assistant, user, result, control_request, control_response };
@@ -97,10 +101,6 @@ pub const Claude = struct {
             return 1_000_000;
         }
         return 200_000;
-    }
-    pub fn resumeArgs(_: Claude, ref: common.SessionRef) ![3][]const u8 {
-        if (ref != .id or !ref.valid()) return error.InvalidSessionRef;
-        return .{ "claude", "--resume", ref.id };
     }
 };
 

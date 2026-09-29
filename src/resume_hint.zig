@@ -47,7 +47,7 @@ pub const ResumeHint = struct {
         const provider = r.provider orelse return alloc.dupe(u8, "");
         if (r.session.len == 0) return alloc.dupe(u8, "");
         for (r.session.text()) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
-        const argv = try provider.backend().resumeArgs(.{ .id = r.session.text() });
+        const argv = try provider.info().resumeArgs(.{ .id = r.session.text() });
         var out: std.Io.Writer.Allocating = .init(alloc);
         errdefer out.deinit();
         try out.writer.print("{s} {s} '", .{ argv[0], argv[1] });

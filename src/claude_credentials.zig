@@ -4,20 +4,20 @@ const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("corgi_options");
 const os = @import("os.zig");
+const Claude = @import("providers/claude.zig").Claude;
 const a = os.allocator;
 
 pub const Interaction = enum { silent, interactive };
 const ReadError = error{ Unavailable, NeedsConsent };
 
 fn read(interaction: Interaction) ReadError![]u8 {
-    const home = os.env("HOME") orelse return error.Unavailable;
-    if (builtin.os.tag == .macos and os.env("CLAUDE_CONFIG_DIR") == null) {
+    if (builtin.os.tag == .macos and os.env(Claude.info.config_env) == null) {
         if (keychain(interaction)) |bytes| return bytes else |err| {
             if (err == error.NeedsConsent) return err;
         }
     }
-    const root = os.env("CLAUDE_CONFIG_DIR") orelse std.fs.path.join(a, &.{ home, ".claude" }) catch return error.Unavailable;
-    defer if (os.env("CLAUDE_CONFIG_DIR") == null) a.free(root);
+    const root = Claude.info.configDir(a) catch return error.Unavailable;
+    defer a.free(root);
     const path = std.fs.path.join(a, &.{ root, ".credentials.json" }) catch return error.Unavailable;
     defer a.free(path);
     if (std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0)) |fd| {

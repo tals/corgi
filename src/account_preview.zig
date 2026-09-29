@@ -71,27 +71,13 @@ fn resetCountdown(at: i64, now: i64, buf: []u8) []const u8 {
     return std.fmt.bufPrint(buf, "{d}m", .{minutes}) catch "";
 }
 
-/// Where a provider's rate-limit response keeps its two usage windows.
-const Schema = struct {
-    windows: [2][]const u8,
-    used: []const u8,
-    /// Fixed window lengths; null reads each window's reported duration.
-    minutes: ?[2]i64,
-    reset: enum { unix_seconds, iso8601 },
-};
-fn schema(provider: Provider) Schema {
-    return switch (provider) {
-        .codex => .{ .windows = .{ "primary", "secondary" }, .used = "usedPercent", .minutes = null, .reset = .unix_seconds },
-        .claude => .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .minutes = .{ 300, 10080 }, .reset = .iso8601 },
-    };
-}
-fn windowMinutes(format: Schema, item: std.json.Value, i: usize) ?i64 {
+fn windowMinutes(format: common.LimitsFormat, item: std.json.Value, i: usize) ?i64 {
     if (format.minutes) |minutes| return minutes[i];
     const reported = field(item, "windowDurationMins");
     return if (reported == .integer and reported.integer > 0) reported.integer else null;
 }
 
-fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
+fn resetTimestamp(value: std.json.Value, format: common.LimitsFormat) ?i64 {
     if (format.reset == .unix_seconds) {
         const at = field(value, "resetsAt");
         return if (at == .integer and at.integer > 0) at.integer else null;
@@ -115,7 +101,7 @@ fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
 }
 
 pub fn limits(value: std.json.Value, provider: Provider) Limits {
-    const format = schema(provider);
+    const format = provider.info().limits;
     var windows: [2]?Window = .{ null, null };
     for (format.windows, &windows, 0..) |name, *window, i| {
         const item = field(value, name);

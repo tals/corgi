@@ -205,7 +205,7 @@ pub const Session = struct {
         const bin = if (options.executable) |path| try a.dupe(u8, path) else try discovery.resolve(provider, cwd);
         defer a.free(bin);
         try argv.append(a, bin);
-        try argv.appendSlice(a, options.args orelse providers.Backend.init(provider).nativeArgs());
+        try argv.appendSlice(a, options.args orelse provider.info().native_args);
         var child = std.process.Child.init(argv.items, a);
         var env = try std.process.getEnvMap(a);
         defer env.deinit();

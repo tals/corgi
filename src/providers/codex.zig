@@ -17,6 +17,21 @@ pub const Codex = struct {
         .binary_env = "CORGI_CODEX_BIN",
         .home_paths = &.{ ".local/bin/codex", ".bun/bin/codex", ".npm-global/bin/codex", ".volta/bin/codex", ".cargo/bin/codex" },
         .system_paths = &.{ "/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex" },
+        .native_args = &.{ "app-server", "--listen", "stdio://" },
+        // The harness has no tools, hooks, memories or project docs.
+        .inference_args = &.{
+            "-c", "features.shell_tool=false",
+            "-c", "features.apps=false",
+            "-c", "features.memories=false",
+            "-c", "features.hooks=false",
+            "-c", "features.plugins=false",
+            "-c", "features.code_mode=false",
+            "-c", "features.skip_host_skill_discovery=true",
+            "-c", "agents.enabled=false",
+            "-c", "project_doc_max_bytes=0",
+            "-c", "web_search=\"disabled\"",
+        },
+        .resume_args = .{ "codex", "resume" },
         .app_bundles = &.{ "Codex.app", "ChatGPT.app" },
         // Package wrappers stay executable when their native binary is missing.
         .version_prefix = "codex-cli ",
@@ -31,6 +46,7 @@ pub const Codex = struct {
         .settings_flags = &.{ "--settings", "-c", "--config" },
         .yolo_flag = "--dangerously-bypass-approvals-and-sandbox",
         .summary_model = "gpt-6-luna",
+        .limits = .{ .windows = .{ "primary", "secondary" }, .used = "usedPercent", .minutes = null, .reset = .unix_seconds },
         .screen = .{
             .blocked_title = "Action Required",
             .idle_prompt = "›",
@@ -41,7 +57,6 @@ pub const Codex = struct {
     };
 
     pub const hook_events = &.{ "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd", "PreCompact", "Interrupt", "PostCompact" };
-    pub const native_args: []const []const u8 = &.{ "app-server", "--listen", "stdio://" };
 
     /// JSON-RPC method names Codex's app-server protocol sends.
     pub const Method = enum {
@@ -133,10 +148,6 @@ pub const Codex = struct {
             found = .initTruncated(word[0..n]);
         }
         return found;
-    }
-    pub fn resumeArgs(_: Codex, ref: common.SessionRef) ![3][]const u8 {
-        if (ref != .id or !ref.valid()) return error.InvalidSessionRef;
-        return .{ "codex", "resume", ref.id };
     }
 };
 

@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Outcome = @import("../observation.zig").Outcome;
 const BoundedText = @import("../bounded_text.zig").BoundedText;
 const json = @import("../json.zig");
+const os = @import("../os.zig");
 
 pub const SessionRef = union(enum) {
     id: []const u8,
@@ -52,6 +53,14 @@ pub const Info = struct {
     /// discovery leaves the lookup to PATH at exec time.
     version_prefix: ?[]const u8 = null,
 
+    // Commands.
+    /// argv after the executable for a native JSONL session, and what
+    /// Corgi's own inference harness adds to it.
+    native_args: []const []const u8,
+    inference_args: []const []const u8,
+    /// argv before the session id that resumes a conversation.
+    resume_args: [2][]const u8,
+
     // Configuration and accounts.
     /// Environment variable overriding the configuration directory, and its
     /// default under $HOME.
@@ -79,12 +88,34 @@ pub const Info = struct {
     yolo_flag: []const u8,
     /// Model Corgi uses for activity summaries on the user's login.
     summary_model: []const u8,
+    /// Where the rate-limit response keeps its two usage windows.
+    limits: LimitsFormat,
 
     // Lifecycle evidence.
     /// Hooks and transcripts carry no turn id or commentary: prompt ids key
     /// turns, and the current tool is the activity.
     prompt_turns: bool = false,
     screen: Screen = .{},
+
+    /// `config_env` when set, else `config_dir` under $HOME. The caller owns it.
+    pub fn configDir(info: *const Info, alloc: std.mem.Allocator) error{ NoHome, OutOfMemory }![]u8 {
+        if (os.env(info.config_env)) |dir| return alloc.dupe(u8, dir);
+        return std.fs.path.join(alloc, &.{ os.env("HOME") orelse return error.NoHome, info.config_dir });
+    }
+    /// The argv that resumes the conversation `ref` names.
+    pub fn resumeArgs(info: *const Info, ref: SessionRef) error{InvalidSessionRef}![3][]const u8 {
+        if (ref != .id or !ref.valid()) return error.InvalidSessionRef;
+        return .{ info.resume_args[0], info.resume_args[1], ref.id };
+    }
+};
+
+/// Where a provider's rate-limit response keeps its two usage windows.
+pub const LimitsFormat = struct {
+    windows: [2][]const u8,
+    used: []const u8,
+    /// Fixed window lengths; null reads each window's reported duration.
+    minutes: ?[2]i64,
+    reset: enum { unix_seconds, iso8601 },
 };
 
 /// A session id, or the truncated prefix of one, shown in a terminal title.

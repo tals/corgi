@@ -93,11 +93,6 @@ pub const Backend = union(Provider) {
     pub fn responseId(backend: Backend, value: std.json.Value) ?std.json.Value {
         return backend.nativeEvent(value).response_id;
     }
-    pub fn nativeArgs(backend: Backend) []const []const u8 {
-        return switch (backend) {
-            inline else => |provider| @TypeOf(provider).native_args,
-        };
-    }
     pub fn hookEvents(backend: Backend) []const []const u8 {
         return switch (backend) {
             inline else => |provider| @TypeOf(provider).hook_events,
@@ -107,11 +102,6 @@ pub const Backend = union(Provider) {
     pub fn titleSession(backend: Backend, title: []const u8) ?SessionPrefix {
         return switch (backend) {
             inline else => |provider| @TypeOf(provider).titleSession(title),
-        };
-    }
-    pub fn resumeArgs(backend: Backend, ref: SessionRef) ![3][]const u8 {
-        return switch (backend) {
-            inline else => |provider| provider.resumeArgs(ref),
         };
     }
 };
@@ -159,10 +149,11 @@ test "native request matching preserves string and integer identifiers" {
 }
 
 test "resume plans are typed argv and reject invalid or unsupported session references" {
-    const args = try Backend.init(.claude).resumeArgs(.{ .id = "id'with quote" });
+    const args = try Provider.claude.info().resumeArgs(.{ .id = "id'with quote" });
+    try std.testing.expectEqualStrings("--resume", args[1]);
     try std.testing.expectEqualStrings("id'with quote", args[2]);
-    try std.testing.expectError(error.InvalidSessionRef, Backend.init(.claude).resumeArgs(.{ .path = "/tmp/session.jsonl" }));
-    try std.testing.expectError(error.InvalidSessionRef, Backend.init(.codex).resumeArgs(.{ .id = "a\nb" }));
+    try std.testing.expectError(error.InvalidSessionRef, Provider.claude.info().resumeArgs(.{ .path = "/tmp/session.jsonl" }));
+    try std.testing.expectError(error.InvalidSessionRef, Provider.codex.info().resumeArgs(.{ .id = "a\nb" }));
 }
 
 test "shared hook codec preserves permission context and rejects child observations" {

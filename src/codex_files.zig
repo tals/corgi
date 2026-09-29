@@ -4,6 +4,7 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const BoundedText = @import("bounded_text.zig").BoundedText;
 const os = @import("os.zig");
+const Codex = @import("providers/codex.zig").Codex;
 const a = os.allocator;
 
 pub const Name = BoundedText(160);
@@ -19,9 +20,9 @@ pub const Index = struct {
         const now = std.time.milliTimestamp();
         if (now < index.next_read) return;
         index.next_read = now + 1000;
-        const home = os.env("HOME") orelse return;
-        const root = os.env("CODEX_HOME");
-        const path = if (root) |dir| std.fs.path.join(a, &.{ dir, "session_index.jsonl" }) catch return else std.fs.path.join(a, &.{ home, ".codex", "session_index.jsonl" }) catch return;
+        const root = Codex.info.configDir(a) catch return;
+        defer a.free(root);
+        const path = std.fs.path.join(a, &.{ root, "session_index.jsonl" }) catch return;
         defer a.free(path);
         const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0) catch return;
         const file: std.fs.File = .{ .handle = fd };
