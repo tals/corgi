@@ -1423,9 +1423,7 @@ pub const Controller = struct {
                     if (bracketed) try s.sendInput(p.terminal, "\x1b[201~");
                 }
             },
-            245 => if (s.model().count > 9) {
-                s.nav().active = 9;
-            },
+            245 => try s.perform(.{ .tab = 10 }),
             else => {},
         }
     }
