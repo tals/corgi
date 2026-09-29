@@ -193,6 +193,32 @@ pub const NativeEvent = struct {
 
 pub const field = json.field;
 pub const str = json.str;
+/// RFC 3339 UTC (`2026-09-24T10:00:00.123Z`) to Unix milliseconds.
+pub fn timestampMs(s: []const u8) ?i64 {
+    if (s.len < 20 or s[4] != '-' or s[7] != '-' or s[10] != 'T' or s[s.len - 1] != 'Z') return null;
+    const year = std.fmt.parseInt(u16, s[0..4], 10) catch return null;
+    const month = std.fmt.parseInt(u8, s[5..7], 10) catch return null;
+    const day = std.fmt.parseInt(u8, s[8..10], 10) catch return null;
+    const hour = std.fmt.parseInt(u8, s[11..13], 10) catch return null;
+    const minute = std.fmt.parseInt(u8, s[14..16], 10) catch return null;
+    const second = std.fmt.parseInt(u8, s[17..19], 10) catch return null;
+    if (year < 1970 or year > 2200 or month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59) return null;
+    var days: i64 = 0;
+    for (1970..year) |y| days += if (leap(y)) @as(i64, 366) else 365;
+    const months = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    for (0..month - 1) |m| days += months[m] + @as(u8, if (m == 1 and leap(year)) 1 else 0);
+    days += day - 1;
+    const ms: i64 = if (s.len >= 24 and s[19] == '.') std.fmt.parseInt(u16, s[20..23], 10) catch return null else 0;
+    return ((days * 24 + hour) * 3600 + @as(i64, minute) * 60 + second) * 1000 + ms;
+}
+fn leap(y: usize) bool {
+    return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0);
+}
+test "RFC 3339 UTC timestamps become Unix milliseconds" {
+    try std.testing.expectEqual(@as(?i64, 0), timestampMs("1970-01-01T00:00:00.000Z"));
+    try std.testing.expectEqual(@as(?i64, 1_790_244_000_123), timestampMs("2026-09-24T10:00:00.123Z"));
+    try std.testing.expectEqual(@as(?i64, null), timestampMs("2026-09-24T10:00:00+02:00"));
+}
 test "idle notifications do not mark a finished agent as needing input" {
     const alloc = std.testing.allocator;
     const idle = try std.json.parseFromSlice(std.json.Value, alloc,

@@ -24,6 +24,7 @@ const activity_worker = @import("activity_worker.zig");
 const transcript = @import("transcript.zig");
 const usage_worker = @import("usage_worker.zig");
 const codex_observer = @import("codex_observer.zig");
+const Codex = @import("providers.zig").Codex;
 const session_command = @import("session.zig");
 const git_push = @import("git_push.zig");
 const recovery = @import("recovery.zig");
@@ -159,7 +160,7 @@ pub const Server = struct {
             s.runtime.conversations.byId(snap.request.actor) orelse return null
         else blk: {
             const p = s.pane(snap.request.pane) orelse return null;
-            const prefix = codex_observer.titlePrefix(p.terminal.vt.getTitle() orelse "") orelse return null;
+            const prefix = Codex.titleSession(p.terminal.vt.getTitle() orelse "") orelse return null;
             if (p.terminal.exited or p.detection.missing != 0 or p.detection.pid != snap.request.pid or
                 p.terminal.title_pid != snap.request.pid or p.terminal.title_revision != snap.request.title_revision or
                 p.attachment.generation != snap.request.generation or !std.mem.eql(u8, prefix.text(), snap.request.prefix.text())) return null;
@@ -1270,7 +1271,7 @@ test "Codex selection rejects delayed ABA observations while detached actors rem
         .request = .{
             .pane = @enumFromInt(1),
             .pid = 42,
-            .prefix = codex_observer.titlePrefix(id).?,
+            .prefix = Codex.titleSession(id).?,
             .generation = p.attachment.generation,
             .title_revision = terminal.title_revision,
         },

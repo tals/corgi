@@ -57,6 +57,23 @@ pub const Codex = struct {
     };
     /// `item.type` values that occupy a thread until the item completes.
     pub const ItemType = enum { commandExecution, fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall, webSearch, imageView, imageGeneration };
+    /// Rollout JSONL record kinds (top-level `type`).
+    pub const RolloutKind = enum { session_meta, turn_context, event_msg, response_item };
+    /// `payload.type` values seen on `event_msg` and `response_item` records.
+    pub const EventKind = enum {
+        task_started,
+        task_complete,
+        turn_complete,
+        turn_aborted,
+        token_count,
+        message,
+        function_call,
+        function_call_output,
+        custom_tool_call,
+        custom_tool_call_output,
+        local_shell_call,
+        web_search_call,
+    };
 
     pub fn hook(provider: Codex, value: std.json.Value) ?common.Hook {
         return provider.hooks.decode(value);

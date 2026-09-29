@@ -69,6 +69,7 @@ pub const Hook = common.Hook;
 pub const NativeEvent = common.NativeEvent;
 pub const Info = common.Info;
 pub const SessionPrefix = common.SessionPrefix;
+pub const timestampMs = common.timestampMs;
 
 pub const Backend = union(Provider) {
     codex: Codex,

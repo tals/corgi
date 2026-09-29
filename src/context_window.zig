@@ -4,8 +4,9 @@
 const std = @import("std");
 const agents = @import("agents.zig");
 const field = @import("usage.zig").field;
-const transcript = @import("transcript.zig");
+const common = @import("providers/common.zig");
 const Claude = @import("providers/claude.zig").Claude;
+const Codex = @import("providers/codex.zig").Codex;
 const Name = @import("codex_files.zig").Name;
 
 /// What the usage worker last read from one transcript.
@@ -23,8 +24,8 @@ pub const Reading = struct {
     auto_compaction: u64 = 0,
 
     pub fn claude(r: *Reading, value: std.json.Value) void {
-        const stamp = transcript.timestampMs(agents.str(value, "timestamp")) orelse return;
-        switch (std.meta.stringToEnum(transcript.ClaudeLine, agents.str(value, "type")) orelse return) {
+        const stamp = common.timestampMs(agents.str(value, "timestamp")) orelse return;
+        switch (std.meta.stringToEnum(Claude.TranscriptLine, agents.str(value, "type")) orelse return) {
             .assistant => {
                 const side = field(value, "isSidechain");
                 if (side == .bool and side.bool) return;
@@ -55,10 +56,10 @@ pub const Reading = struct {
     }
 
     pub fn codex(r: *Reading, value: std.json.Value) void {
-        if (std.meta.stringToEnum(transcript.RolloutKind, agents.str(value, "type")) != .event_msg) return;
+        if (std.meta.stringToEnum(Codex.RolloutKind, agents.str(value, "type")) != .event_msg) return;
         const payload = field(value, "payload");
-        if (std.meta.stringToEnum(transcript.EventKind, agents.str(payload, "type")) != .token_count) return;
-        const stamp = transcript.timestampMs(agents.str(value, "timestamp")) orelse return;
+        if (std.meta.stringToEnum(Codex.EventKind, agents.str(payload, "type")) != .token_count) return;
+        const stamp = common.timestampMs(agents.str(value, "timestamp")) orelse return;
         // Rate-limit-only events carry a null info.
         const info = field(payload, "info");
         const window = number(info, "model_context_window") orelse return;

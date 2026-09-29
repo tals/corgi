@@ -14,9 +14,9 @@ const background_tasks = @import("background_tasks.zig");
 const activity_summary = @import("activity_summary.zig");
 const passes = @import("passes.zig");
 const BoundedText = @import("bounded_text.zig").BoundedText;
-pub const Prefix = providers.SessionPrefix;
-pub const titlePrefix = providers.Codex.titleSession;
-pub const Request = struct { pane: layout.PaneId = .none, pid: c_int = 0, prefix: Prefix, actor: ActorId = .none, generation: u64 = 0, title_revision: u64 = 0 };
+const SessionPrefix = providers.SessionPrefix;
+const Codex = providers.Codex;
+pub const Request = struct { pane: layout.PaneId = .none, pid: c_int = 0, prefix: SessionPrefix, actor: ActorId = .none, generation: u64 = 0, title_revision: u64 = 0 };
 pub const Snapshot = struct {
     background_tasks: background_tasks.Inventory = .{},
     children: []const Child = &.{},
@@ -50,7 +50,7 @@ fn field(v: std.json.Value, key: []const u8) std.json.Value {
 fn result(v: std.json.Value) std.json.Value {
     return field(v, "result");
 }
-fn unique(ids: []const std.json.Value, prefix: *const Prefix) ?[36]u8 {
+fn unique(ids: []const std.json.Value, prefix: *const SessionPrefix) ?[36]u8 {
     var found: ?[36]u8 = null;
     for (ids) |id| {
         if (id != .string or id.string.len != 36 or !std.mem.startsWith(u8, id.string, prefix.text())) continue;
@@ -92,7 +92,7 @@ fn countChild(out: *Children, thread: std.json.Value, parent: []const u8) !void 
     if (kind == .active) {
         if (needsInput(status)) out.status.blocked +|= 1 else out.status.running +|= 1;
     }
-    const parsed_id = titlePrefix(id) orelse return;
+    const parsed_id = Codex.titleSession(id) orelse return;
     if (parsed_id.len != 36 or std.mem.eql(u8, id, parent)) return;
     if (out.entries.items.len >= conversations.max_actors) return error.TooManyThreads;
     var child: Child = .{ .session = parsed_id.bytes, .state = threadState(status) };
@@ -255,7 +255,7 @@ pub const Worker = struct {
         w.count = 0;
         for (runtime.panes.items) |p| {
             if (p.terminal.exited or p.agent().provider != .codex or p.detection.pid <= 0 or p.detection.missing != 0 or p.terminal.title_pid != p.detection.pid) continue;
-            const prefix = titlePrefix(p.terminal.vt.getTitle() orelse "") orelse continue;
+            const prefix = Codex.titleSession(p.terminal.vt.getTitle() orelse "") orelse continue;
             w.requests[w.count] = .{ .pane = p.id, .pid = p.detection.pid, .prefix = prefix, .generation = p.attachment.generation, .title_revision = p.terminal.title_revision };
             w.count += 1;
             if (w.count == max) break;
@@ -349,13 +349,13 @@ pub const Worker = struct {
 
 test "title UUID parsing handles truncation and refuses ambiguity" {
     const id = "01901234-1234-1234-1234-123456789abc";
-    try std.testing.expectEqualStrings(id, titlePrefix("codex | " ++ id ++ " | Ready").?.text());
-    try std.testing.expectEqualStrings(id[0..29], titlePrefix("codex | 01901234-1234-1234-1234-12345...").?.text());
-    try std.testing.expect(titlePrefix("project 01901234") == null);
-    try std.testing.expect(titlePrefix(id ++ " " ++ id) == null);
+    try std.testing.expectEqualStrings(id, Codex.titleSession("codex | " ++ id ++ " | Ready").?.text());
+    try std.testing.expectEqualStrings(id[0..29], Codex.titleSession("codex | 01901234-1234-1234-1234-12345...").?.text());
+    try std.testing.expect(Codex.titleSession("project 01901234") == null);
+    try std.testing.expect(Codex.titleSession(id ++ " " ++ id) == null);
     const parsed = try std.json.parseFromSlice(std.json.Value, a, "[\"01901234-1234-1234-1234-123456789abc\",\"01901234-1234-1234-1234-123456789def\"]", .{});
     defer parsed.deinit();
-    var prefix = titlePrefix("01901234-1234-1234-1234-12345...").?;
+    var prefix = Codex.titleSession("01901234-1234-1234-1234-12345...").?;
     try std.testing.expect(unique(parsed.value.array.items, &prefix) == null);
 }
 test "unloaded child threads read as idle" {

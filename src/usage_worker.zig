@@ -11,6 +11,7 @@ const codex_files = @import("codex_files.zig");
 const live_usage = @import("live_usage.zig");
 const context_window = @import("context_window.zig");
 const transcript = @import("transcript.zig");
+const providers = @import("providers.zig");
 const passes = @import("passes.zig");
 const os = @import("os.zig");
 const a = os.allocator;
@@ -360,7 +361,7 @@ pub const Tail = struct {
     fn claudeText(t: *Tail, value: std.json.Value) void {
         const side = usage.field(value, "isSidechain");
         if (side == .bool and side.bool) return;
-        const stamp = transcript.timestampMs(agents.str(value, "timestamp")) orelse return;
+        const stamp = providers.timestampMs(agents.str(value, "timestamp")) orelse return;
         const content = usage.field(usage.field(value, "message"), "content");
         if (content != .array) return;
         var latest: []const u8 = "";
@@ -443,7 +444,7 @@ pub const Tail = struct {
                     if (std.json.parseFromSlice(std.json.Value, a, t.partial.items, .{})) |parsed| {
                         defer parsed.deinit();
                         const appended = start_offset + start > t.initial_until;
-                        const stamp = transcript.timestampMs(agents.str(parsed.value, "timestamp"));
+                        const stamp = providers.timestampMs(agents.str(parsed.value, "timestamp"));
                         const delta = t.record(req, parsed.value, appended, stamp);
                         if (appended and stamp != null and stamp.? > req.since) found.add(delta);
                     } else |_| {

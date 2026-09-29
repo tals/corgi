@@ -4,8 +4,8 @@ const std = @import("std");
 const agents = @import("agents.zig");
 const summary = @import("activity_summary.zig");
 const field = @import("usage.zig").field;
-const transcript = @import("transcript.zig");
 const Claude = @import("providers/claude.zig").Claude;
+const Codex = @import("providers/codex.zig").Codex;
 const os = @import("os.zig");
 const a = os.allocator;
 const BoundedText = @import("bounded_text.zig").BoundedText;
@@ -187,9 +187,9 @@ pub const Tracker = struct {
         return out;
     }
     pub fn ingest(t: *Tracker, value: std.json.Value, live: bool) void {
-        const kind = std.meta.stringToEnum(transcript.RolloutKind, agents.str(value, "type"));
+        const kind = std.meta.stringToEnum(Codex.RolloutKind, agents.str(value, "type"));
         const payload = field(value, "payload");
-        const subtype = std.meta.stringToEnum(transcript.EventKind, agents.str(payload, "type"));
+        const subtype = std.meta.stringToEnum(Codex.EventKind, agents.str(payload, "type"));
         if (kind == .turn_context or (kind == .event_msg and subtype == .task_started)) {
             t.bind(agents.str(payload, "turn_id"));
             return;
@@ -269,7 +269,7 @@ pub const Tracker = struct {
         if (t.turn.len == 0 or t.ended) return;
         const side = field(value, "isSidechain");
         if (side == .bool and side.bool) return;
-        const kind = std.meta.stringToEnum(transcript.ClaudeLine, agents.str(value, "type"));
+        const kind = std.meta.stringToEnum(Claude.TranscriptLine, agents.str(value, "type"));
         if (kind == .system and std.mem.eql(u8, agents.str(value, "subtype"), "turn_duration")) {
             if (live) t.ended = true;
             return;

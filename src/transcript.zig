@@ -5,6 +5,8 @@ const conversations = @import("conversations.zig");
 const ActorId = conversations.Actor.Id;
 const agents = @import("agents.zig");
 const common = @import("providers/common.zig");
+const Claude = @import("providers/claude.zig").Claude;
+const Codex = @import("providers/codex.zig").Codex;
 const os = @import("os.zig");
 const a = os.allocator;
 const max_jobs = @import("layout.zig").max_panes;
@@ -13,26 +15,6 @@ const log = std.log.scoped(.transcript);
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;
 const record_limit = 64 * 1024;
-/// Codex rollout JSONL record kinds (top-level `type`). Shared with
-/// activity_tools.zig and live_usage.zig, which read the same records.
-pub const RolloutKind = enum { session_meta, turn_context, event_msg, response_item };
-/// `payload.type` values seen on `event_msg` and `response_item` records.
-pub const EventKind = enum {
-    task_started,
-    task_complete,
-    turn_complete,
-    turn_aborted,
-    token_count,
-    message,
-    function_call,
-    function_call_output,
-    custom_tool_call,
-    custom_tool_call_output,
-    local_shell_call,
-    web_search_call,
-};
-/// Claude transcript line `type`.
-pub const ClaudeLine = enum { assistant, user, system, attachment };
 const Request = struct { actor: ActorId, agent: agents.Agent };
 pub const Result = struct { actor: ActorId, seq: i64, outcome: agents.observation.Outcome };
 
@@ -265,7 +247,7 @@ fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
             defer parsed.deinit();
             const v = parsed.value;
             const payload = if (v == .object) v.object.get("payload") orelse .null else .null;
-            const kind = std.meta.stringToEnum(RolloutKind, agents.str(v, "type"));
+            const kind = std.meta.stringToEnum(Codex.RolloutKind, agents.str(v, "type"));
             if (kind != .session_meta or !std.mem.eql(u8, agents.str(payload, "id"), session)) return error.WrongSession;
             return;
         }
@@ -279,7 +261,7 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     const v = parsed.value;
     if (v != .object) return null;
     // Historical tail records must never be mistaken for this Stop invocation.
-    const stamp = timestampMs(agents.str(v, "timestamp")) orelse return null;
+    const stamp = common.timestampMs(agents.str(v, "timestamp")) orelse return null;
     if (stamp < @divTrunc(agent.last_seq, 1000)) return null;
     return switch (agent.provider orelse return null) {
         .codex => codexCompletion(agent, v),
@@ -287,10 +269,10 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     };
 }
 fn codexCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
-    if (std.meta.stringToEnum(RolloutKind, agents.str(v, "type")) != .event_msg or agent.turn.len == 0) return null;
+    if (std.meta.stringToEnum(Codex.RolloutKind, agents.str(v, "type")) != .event_msg or agent.turn.len == 0) return null;
     const p = v.object.get("payload") orelse return null;
     if (!std.mem.eql(u8, agents.str(p, "turn_id"), agent.turnId())) return null;
-    const kind = std.meta.stringToEnum(EventKind, agents.str(p, "type")) orelse return null;
+    const kind = std.meta.stringToEnum(Codex.EventKind, agents.str(p, "type")) orelse return null;
     return switch (kind) {
         .turn_aborted => .interrupted,
         .task_complete, .turn_complete => if (p.object.get("error")) |err| (if (err != .null) .failed else .completed) else .completed,
@@ -302,7 +284,7 @@ fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.obser
     // post-turn system record is evidence; a stop_hook_summary is not.
     if (!std.mem.eql(u8, agents.str(v, "sessionId"), agent.sessionId())) return null;
     if (v.object.get("isSidechain")) |side| if (side == .bool and side.bool) return null;
-    return switch (std.meta.stringToEnum(ClaudeLine, agents.str(v, "type")) orelse return null) {
+    return switch (std.meta.stringToEnum(Claude.TranscriptLine, agents.str(v, "type")) orelse return null) {
         .system => if (std.mem.eql(u8, agents.str(v, "subtype"), "turn_duration")) .completed else null,
         // Esc during Stop hooks cancels them, and no turn_duration follows.
         // A hook that timed out is cancelled too, but its turn goes on.
@@ -315,26 +297,6 @@ fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.obser
         },
         .assistant, .user => null,
     };
-}
-pub fn timestampMs(s: []const u8) ?i64 {
-    if (s.len < 20 or s[4] != '-' or s[7] != '-' or s[10] != 'T' or s[s.len - 1] != 'Z') return null;
-    const year = std.fmt.parseInt(u16, s[0..4], 10) catch return null;
-    const month = std.fmt.parseInt(u8, s[5..7], 10) catch return null;
-    const day = std.fmt.parseInt(u8, s[8..10], 10) catch return null;
-    const hour = std.fmt.parseInt(u8, s[11..13], 10) catch return null;
-    const minute = std.fmt.parseInt(u8, s[14..16], 10) catch return null;
-    const second = std.fmt.parseInt(u8, s[17..19], 10) catch return null;
-    if (year < 1970 or year > 2200 or month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59) return null;
-    var days: i64 = 0;
-    for (1970..year) |y| days += if (leap(y)) @as(i64, 366) else 365;
-    const months = [_]u8{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-    for (0..month - 1) |m| days += months[m] + @as(u8, if (m == 1 and leap(year)) 1 else 0);
-    days += day - 1;
-    const ms: i64 = if (s.len >= 24 and s[19] == '.') std.fmt.parseInt(u16, s[20..23], 10) catch return null else 0;
-    return ((days * 24 + hour) * 3600 + @as(i64, minute) * 60 + second) * 1000 + ms;
-}
-fn leap(y: usize) bool {
-    return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0);
 }
 
 test "completion requires matching turn, fresh timestamp and complete JSONL record" {
@@ -350,7 +312,6 @@ test "completion requires matching turn, fresh timestamp and complete JSONL reco
     agent.turn = .ascii("current");
     agent.last_seq = 3000000;
     try std.testing.expectEqual(null, completion(&agent, good));
-    try std.testing.expectEqual(@as(?i64, 0), timestampMs("1970-01-01T00:00:00.000Z"));
 }
 
 test "Claude Stop hooks cancelled by Esc end the turn as interrupted" {

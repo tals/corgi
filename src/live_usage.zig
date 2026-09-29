@@ -4,7 +4,7 @@
 const std = @import("std");
 const agents = @import("agents.zig");
 const field = @import("usage.zig").field;
-const transcript = @import("transcript.zig");
+const providers = @import("providers.zig");
 
 pub const Tokens = struct {
     input: u64 = 0,
@@ -83,15 +83,15 @@ pub const Codex = struct {
         t.child = child;
         const payload = field(value, "payload");
         t.owned_from = number(payload, "subagent_history_start_ordinal");
-        const created = transcript.timestampMs(agents.str(payload, "timestamp")) orelse
-            transcript.timestampMs(agents.str(value, "timestamp"));
+        const created = providers.timestampMs(agents.str(payload, "timestamp")) orelse
+            providers.timestampMs(agents.str(value, "timestamp"));
         t.catch_up = child and complete_prefix and t.owned_from != null and created != null and tracked_since > 0 and created.? >= tracked_since;
         if (child and (!t.catch_up or t.owned_from == null)) t.meter.lose();
     }
     pub fn ingest(t: *Codex, value: std.json.Value, appended: bool, now: i64) void {
-        if (std.meta.stringToEnum(transcript.RolloutKind, agents.str(value, "type")) != .event_msg) return;
+        if (std.meta.stringToEnum(providers.Codex.RolloutKind, agents.str(value, "type")) != .event_msg) return;
         const payload = field(value, "payload");
-        if (std.meta.stringToEnum(transcript.EventKind, agents.str(payload, "type")) != .token_count) return;
+        if (std.meta.stringToEnum(providers.Codex.EventKind, agents.str(payload, "type")) != .token_count) return;
         const ordinal = number(value, "ordinal");
         if (t.owned_from) |boundary| {
             if (ordinal == null) {
@@ -107,7 +107,7 @@ pub const Codex = struct {
         const info = field(payload, "info");
         const total = parseTokens(field(info, "total_token_usage"), false) orelse return;
         const last = parseTokens(field(info, "last_token_usage"), false);
-        const stamp = transcript.timestampMs(agents.str(value, "timestamp")) orelse now;
+        const stamp = providers.timestampMs(agents.str(value, "timestamp")) orelse now;
         t.sample(total, last, appended or t.catch_up, @min(stamp, now));
     }
     pub fn native(t: *Codex, value: std.json.Value, active: bool, now: i64) void {

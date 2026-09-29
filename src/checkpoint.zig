@@ -23,61 +23,7 @@ const activity_summary = @import("activity_summary.zig");
 const link_labels = @import("link_labels.zig");
 const launch_command = @import("launch_command.zig");
 const state_migrations = @import("state_migrations.zig");
-pub const Resume = struct {
-    name: agents.Text = .{},
-    touched_at: i64 = 0,
-    provider: ?agents.Provider = null,
-    session: agents.Text = .{},
-    pub fn observe(r: *Resume, agent: *const agents.Agent) void {
-        const provider = agent.provider orelse return;
-        if (agent.session.len > 0) {
-            if (r.provider != provider or !std.mem.eql(u8, r.session.text(), agent.sessionId())) {
-                r.name = .{};
-                r.touched_at = 0;
-            }
-            if (agent.name.len > 0) r.name = agent.name;
-            r.touched_at = @max(r.touched_at, @max(agent.updated_at, @divTrunc(agent.changed_at, std.time.us_per_s)));
-            r.provider = provider;
-            r.session = agent.session;
-        } else if (r.provider == null) r.provider = provider;
-    }
-    pub fn banner(r: Resume, alloc: std.mem.Allocator, now: i64) ![]const u8 {
-        var out: std.Io.Writer.Allocating = .init(alloc);
-        errdefer out.deinit();
-        try out.writer.writeAll("\x1b[0m\r\n\r\n");
-        if (r.name.len > 0) {
-            try out.writer.writeAll("# ");
-            for (r.name.text()) |ch| try out.writer.writeByte(if (ch < 32 or ch == 127) ' ' else ch);
-            try out.writer.writeAll("\r\n");
-        }
-        if (r.touched_at > 0) {
-            const seconds = @max(0, now - r.touched_at);
-            try out.writer.writeAll("\x1b[2m# Last active ");
-            if (seconds < 60) try out.writer.writeAll("just now") else {
-                const unit: i64 = if (seconds < 3600) 60 else if (seconds < 86400) 3600 else 86400;
-                const label: []const u8 = if (unit == 60) "minute" else if (unit == 3600) "hour" else "day";
-                const count = @divTrunc(seconds, unit);
-                try out.writer.print("{d} {s}{s} ago", .{ count, label, if (count == 1) "" else "s" });
-            }
-            try out.writer.writeAll("\x1b[0m\r\n");
-        }
-        return out.toOwnedSlice();
-    }
-    pub fn command(r: Resume, alloc: std.mem.Allocator) ![]const u8 {
-        const provider = r.provider orelse return alloc.dupe(u8, "");
-        if (r.session.len == 0) return alloc.dupe(u8, "");
-        for (r.session.text()) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
-        const argv = try provider.backend().resumeArgs(.{ .id = r.session.text() });
-        var out: std.Io.Writer.Allocating = .init(alloc);
-        errdefer out.deinit();
-        try out.writer.print("{s} {s} '", .{ argv[0], argv[1] });
-        for (argv[2]) |ch| {
-            if (ch == '\'') try out.writer.writeAll("'\\''") else try out.writer.writeByte(ch);
-        }
-        try out.writer.writeByte('\'');
-        return out.toOwnedSlice();
-    }
-};
+const ResumeHint = @import("resume_hint.zig").ResumeHint;
 pub const Screen = struct {
     cols: u16,
     rows: u16,
@@ -133,7 +79,7 @@ pub const Pane = struct {
     cwd: []const u8,
     screen: Screen,
     detection: detection.Tracker = .{},
-    resume_hint: Resume = .{},
+    resume_hint: ResumeHint = .{},
 };
 pub const Closed = struct { label: pane_label.Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: WorkspaceId };
 pub const Workspace = struct {
@@ -171,7 +117,7 @@ pub const Native = struct {
     tools: []const native.Tool,
     next_seq: u64,
     journal_bytes: usize,
-    resume_hint: Resume,
+    resume_hint: ResumeHint,
 };
 pub const Conversation = struct {
     status_inference: activity_summary.Conversation = .{},

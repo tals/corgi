@@ -498,6 +498,7 @@ test {
     _ = @import("resource_os.zig");
     _ = @import("resource_tooltip.zig");
     _ = @import("resources.zig");
+    _ = @import("resume_hint.zig");
     _ = @import("rpc.zig");
     _ = @import("runtime.zig");
     _ = @import("server.zig");

@@ -57,10 +57,10 @@ bulk-replace `@import("x.zig").` with sed: it also rewrites the alias line into
 - A single check stays inline: `std.mem.eql(u8, x, "chatgpt")`. No
   one-value enums, and no local `fn eq` helpers.
 - Each vocabulary has one home: `protocol.Op`, `keys.Key`,
-  `providers/codex.zig` (`Method`, `ItemType`), `providers/claude.zig`
-  (`MessageType`, `BlockType`), `providers/common.zig` (`HookEvent`),
-  `transcript.zig` (`RolloutKind`, `EventKind`, `ClaudeLine`). Extend these
-  rather than redefining a local copy.
+  `providers/codex.zig` (`Method`, `ItemType`, `RolloutKind`, `EventKind`),
+  `providers/claude.zig` (`MessageType`, `BlockType`, `TranscriptLine`),
+  `providers/common.zig` (`HookEvent`). Extend these rather than redefining
+  a local copy.
 
 **Never read display text back as state.** Keep an enum or bool and derive the
 label from it (`Semantics.yolo`, not `mode.text() == "Skips permission

@@ -14,7 +14,7 @@ const Theme = @import("theme.zig").Theme;
 const pane_label = @import("pane_label.zig");
 const conversations = @import("conversations.zig");
 const detection = @import("detection.zig");
-const checkpoint = @import("checkpoint.zig");
+const ResumeHint = @import("resume_hint.zig").ResumeHint;
 const launch_command = @import("launch_command.zig");
 const inference_setup = @import("inference_setup.zig");
 const live_usage = @import("live_usage.zig");
@@ -32,7 +32,7 @@ pub const Pane = struct {
 
     detection: detection.Tracker = .{},
     cwd: []const u8,
-    resume_hint: checkpoint.Resume = .{},
+    resume_hint: ResumeHint = .{},
 
     pub fn agent(p: *const Pane) *agents.Agent {
         return p.attachment.agent();

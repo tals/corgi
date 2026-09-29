@@ -344,13 +344,6 @@ test "a restored candidate terminal does not signal its process until adopted" {
     adopted.destroy();
     try std.testing.expectEqual(pid, c.waitpid(pid, null, 0));
 }
-test "resume command quotes session text as one shell argument" {
-    var hint: cp.Resume = .{ .provider = .codex };
-    hint.session = .ascii("session'with quote");
-    const command = try hint.command(a);
-    defer a.free(command);
-    try std.testing.expectEqualStrings("codex resume 'session'\\''with quote'", command);
-}
 
 test "live checkpoint size depends on retained state not output volume" {
     const old = try Terminal.create(40, 6);
@@ -368,34 +361,6 @@ test "live checkpoint size depends on retained state not output volume" {
     const text = try fresh.text();
     defer a.free(text);
     try std.testing.expect(std.mem.indexOf(u8, text, "retained content") != null);
-}
-
-test "recovery metadata survives observation and clears on session switch" {
-    var agent: @import("agents.zig").Agent = .{ .provider = .codex, .updated_at = 1000 };
-    agent.session = .ascii("first");
-    agent.setName("A session\nwith controls\x1b");
-    var hint: cp.Resume = .{};
-    hint.observe(&agent);
-    const banner = try hint.banner(a, 1120);
-    defer a.free(banner);
-    try std.testing.expect(std.mem.indexOf(u8, banner, "# A session with controls ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, banner, "# Last active 2 minutes ago") != null);
-    agent.session = .ascii("second");
-    agent.name = .{};
-    agent.updated_at = 0;
-    hint.observe(&agent);
-    try std.testing.expectEqual(@as(usize, 0), hint.name.len);
-    try std.testing.expectEqual(@as(i64, 0), hint.touched_at);
-}
-test "recovery never prefills selection or control characters" {
-    var hint: cp.Resume = .{ .provider = .codex };
-    const missing = try hint.command(a);
-    defer a.free(missing);
-    try std.testing.expectEqualStrings("", missing);
-    hint.session = .initTruncated("a\nbc");
-    const unsafe = try hint.command(a);
-    defer a.free(unsafe);
-    try std.testing.expectEqualStrings("", unsafe);
 }
 
 test "link cache and spent inference attempts survive live checkpoints only" {

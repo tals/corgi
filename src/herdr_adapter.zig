@@ -11,14 +11,14 @@ const Terminal = @import("terminal.zig").Terminal;
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
-const Resume = @import("checkpoint.zig").Resume;
+const ResumeHint = @import("resume_hint.zig").ResumeHint;
 const Theme = @import("theme.zig").Theme;
 const builtin = @import("builtin");
 const providers = @import("providers.zig");
 const detection = @import("detection.zig");
 const max_manifest = 16 * 1024 * 1024;
 
-pub const SourcePane = struct { id: []const u8, name: []const u8, cwd: []const u8, pid: ?i32 = null, resume_hint: Resume = .{} };
+pub const SourcePane = struct { id: []const u8, name: []const u8, cwd: []const u8, pid: ?i32 = null, resume_hint: ResumeHint = .{} };
 pub const SourceTab = struct { id: []const u8, name: []const u8, panes: []const SourcePane, root: Value };
 pub const SourceWorkspace = struct { id: []const u8, name: []const u8, cwd: []const u8, tabs: []const SourceTab };
 pub const SourceSession = struct { socket: []const u8, name: []const u8, live_handoff: bool, workspaces: []const SourceWorkspace };
@@ -108,8 +108,8 @@ fn rpc(alloc: std.mem.Allocator, socket: []const u8, method: []const u8, params:
     return result;
 }
 
-fn resumeRef(value: Value) Resume {
-    var out: Resume = .{};
+fn resumeRef(value: Value) ResumeHint {
+    var out: ResumeHint = .{};
     if (!equal(value, "kind", "id")) return out;
     const agent = textField(value, "agent");
     out.provider = providers.Provider.named(agent);

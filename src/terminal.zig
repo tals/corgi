@@ -5,7 +5,7 @@ const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
 const hyperlink = @import("hyperlinks.zig");
-const codex_observer = @import("codex_observer.zig");
+const providers = @import("providers.zig");
 const detection = @import("detection.zig");
 const launch_command = @import("launch_command.zig");
 const Theme = @import("theme.zig").Theme;
@@ -23,7 +23,7 @@ pub const Terminal = struct {
     /// still owns. Only `Runtime.adopt` makes them ours to signal.
     owner: Owner = .runtime,
     title_pid: c_int = 0,
-    title_prefix: ?codex_observer.Prefix = null,
+    title_prefix: ?providers.SessionPrefix = null,
     title_revision: u64 = 0,
     exited: bool = false,
     exit_status: c_int = 0,
@@ -70,7 +70,7 @@ pub const Terminal = struct {
     }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
-        const prefix = codex_observer.titlePrefix(t.vt.getTitle() orelse "");
+        const prefix = providers.Codex.titleSession(t.vt.getTitle() orelse "");
         if (!std.meta.eql(t.title_prefix, prefix)) {
             t.title_revision +%= 1;
             t.title_prefix = prefix;

@@ -42,6 +42,8 @@ pub const Claude = struct {
     pub const MessageType = enum { assistant, user, result, control_request, control_response };
     /// A message's content block kind (the block's `type` field).
     pub const BlockType = enum { text, tool_use, tool_result };
+    /// A transcript JSONL line's `type`.
+    pub const TranscriptLine = enum { assistant, user, system, attachment };
 
     pub fn hook(provider: Claude, value: std.json.Value) ?common.Hook {
         return provider.hooks.decode(value);

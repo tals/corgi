@@ -5,7 +5,6 @@ const field = common.field;
 const str = common.str;
 const Provider = @import("providers.zig").Provider;
 const agents = @import("agents.zig");
-const transcript = @import("transcript.zig");
 pub const Text = agents.Text;
 pub const usage_max_age: i64 = 10 * 60;
 pub const Info = struct {
@@ -112,7 +111,7 @@ fn resetTimestamp(value: std.json.Value, format: Schema) ?i64 {
         if (tail[0] == '-') offset = -offset;
         stamp = std.fmt.bufPrint(&normalized, "{s}Z", .{raw[0 .. raw.len - 6]}) catch return null;
     }
-    return @divFloor(transcript.timestampMs(stamp) orelse return null, 1000) - offset;
+    return @divFloor(common.timestampMs(stamp) orelse return null, 1000) - offset;
 }
 
 pub fn limits(value: std.json.Value, provider: Provider) Limits {
@@ -220,7 +219,7 @@ test "reset countdown rounds up and belongs to its window" {
     , .{});
     defer claude.deinit();
     const claude_windows = limits(claude.value, .claude).windows;
-    const now = @divExact(transcript.timestampMs("2026-09-24T10:00:00Z").?, 1000);
+    const now = @divExact(common.timestampMs("2026-09-24T10:00:00Z").?, 1000);
     try std.testing.expectEqualStrings("2h", claude_windows[0].?.countdown(now, &buf).?);
     try std.testing.expectEqualStrings("3d 6h", claude_windows[1].?.countdown(now, &buf).?);
     try std.testing.expectEqual(@as(?[]const u8, null), (Window{ .used = 48 }).countdown(now, &buf));

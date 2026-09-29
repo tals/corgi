@@ -2,7 +2,7 @@
 //! input and reasoning output; they are not estimates of cost or context size.
 const std = @import("std");
 const agents = @import("agents.zig");
-const rollout = @import("transcript.zig");
+const Codex = @import("providers/codex.zig").Codex;
 const json = @import("json.zig");
 pub const Counts = struct {
     tools: u64 = 0,
@@ -133,8 +133,8 @@ pub const Tracker = struct {
     }
     fn codexTranscript(t: *Tracker, value: std.json.Value) Counts {
         const payload = field(value, "payload");
-        const kind = std.meta.stringToEnum(rollout.RolloutKind, agents.str(value, "type"));
-        const subtype = std.meta.stringToEnum(rollout.EventKind, agents.str(payload, "type"));
+        const kind = std.meta.stringToEnum(Codex.RolloutKind, agents.str(value, "type"));
+        const subtype = std.meta.stringToEnum(Codex.EventKind, agents.str(payload, "type"));
         if (kind == .event_msg and subtype == .token_count) return t.codexTokens("codex", field(field(payload, "info"), "total_token_usage"), false);
         if (kind == .response_item) switch (subtype orelse return .{}) {
             .function_call, .custom_tool_call, .web_search_call, .local_shell_call => {
