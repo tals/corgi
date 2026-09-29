@@ -79,7 +79,7 @@ fn addHook(hooks: *std.json.ObjectMap, event: []const u8, command: []const u8) !
     try hooks.put(event, .{ .array = groups });
 }
 fn hookCommand(provider: Provider, executable: []const u8) ![]u8 {
-    const quoted = try shellQuote(executable);
+    const quoted = try os.shellQuote(a, executable);
     defer a.free(quoted);
     return std.fmt.allocPrint(a, "{s} hook {t}", .{ quoted, provider });
 }
@@ -178,13 +178,6 @@ pub fn install(provider: Provider) !void {
     }
     try output.finish();
 }
-pub fn shellQuote(text: []const u8) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    try out.append(a, '\'');
-    for (text) |ch| if (ch == '\'') try out.appendSlice(a, "'\\''") else try out.append(a, ch);
-    try out.append(a, '\'');
-    return out.toOwnedSlice(a);
-}
 pub fn launch(provider: Provider, args: []const []const u8, executable: []const u8) !noreturn {
     _ = executable;
     if (os.env("CORGI_PANE") == null) return error.LaunchInsideCorgi;
@@ -194,9 +187,4 @@ pub fn launch(provider: Provider, args: []const []const u8, executable: []const 
     try argv.append(a, binary);
     try argv.appendSlice(a, args);
     return os.exec(argv.items);
-}
-test "shell quoting protects binary paths containing shell syntax" {
-    const result = try shellQuote("/tmp/a'b$(echo bad)/corgi");
-    defer a.free(result);
-    try std.testing.expectEqualStrings("'/tmp/a'\\''b$(echo bad)/corgi'", result);
 }

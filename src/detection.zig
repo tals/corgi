@@ -49,35 +49,8 @@ pub fn identify(argv: []const []const u8) ?Provider {
 
 fn process(pid: c_int) ?Provider {
     var bytes: [65536]u8 = undefined;
-    var data: []const u8 = undefined;
-    var max_args: usize = 64;
-    if (builtin.os.tag == .macos) {
-        var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
-        var len: usize = bytes.len;
-        if (c.sysctl(&mib, mib.len, &bytes, &len, null, 0) != 0 or len < @sizeOf(c_int)) return null;
-        const argc = std.mem.bytesToValue(c_int, bytes[0..@sizeOf(c_int)]);
-        if (argc <= 0) return null;
-        max_args = @min(max_args, @as(usize, @intCast(argc)));
-        data = bytes[@sizeOf(c_int)..len];
-        const end = std.mem.indexOfScalar(u8, data, 0) orelse return null;
-        // The kernel starts with the executable path and alignment padding,
-        // followed by argc NUL-separated arguments (then environment data).
-        data = std.mem.trimStart(u8, data[end..], "\x00");
-    } else if (builtin.os.tag == .linux) {
-        var path: [64]u8 = undefined;
-        const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}) catch return null, .{}) catch return null;
-        defer file.close();
-        const len = file.readAll(&bytes) catch return null;
-        data = bytes[0..len];
-    } else return null;
-    var argv: [64][]const u8 = undefined;
-    var count: usize = 0;
-    var it = std.mem.splitScalar(u8, data, 0);
-    while (count < max_args) {
-        argv[count] = it.next() orelse break;
-        count += 1;
-    }
-    return identify(argv[0..count]);
+    const p = os.processArgs(pid, &bytes, .{}) orelse return null;
+    return identify(p.args());
 }
 
 /// Claude runs hooks without its internal session variables, and its
@@ -93,124 +66,31 @@ pub fn backgroundAncestor() bool {
     var pid: c_int = c.getppid();
     for (0..8) |_| {
         if (pid <= 1) return false;
-        if (processBlock(pid, bytes)) |block| if (block.claude()) {
-            for (block.env.items[0..block.env.len]) |entry| if (std.mem.eql(u8, entry, "CLAUDE_CODE_SESSION_KIND=bg")) return true;
+        if (os.processArgs(pid, bytes, .{ .env = true })) |p| if (claudeProcess(&p)) {
+            for (p.environ()) |entry| if (std.mem.eql(u8, entry, "CLAUDE_CODE_SESSION_KIND=bg")) return true;
             return backgroundJob(pid);
         };
-        pid = parent(pid) orelse return false;
+        pid = (os.processJob(pid) orelse return false).ppid;
     }
     return false;
 }
 
-const Block = struct {
-    exec: []const u8 = "",
-    argv: [64][]const u8 = undefined,
-    argc: usize = 0,
-    env: struct { items: [512][]const u8 = undefined, len: usize = 0 } = .{},
-    /// Claude retitles its processes ("claude bg-spare" as one argv[0]),
-    /// so also trust the executable path and argv[0]'s first word.
-    fn claude(b: *const Block) bool {
-        if (name(b.exec) == .claude) return true;
-        if (b.argc == 0) return false;
-        if (identify(b.argv[0..b.argc]) == .claude) return true;
-        const first = b.argv[0][0 .. std.mem.indexOfScalar(u8, b.argv[0], ' ') orelse b.argv[0].len];
-        return name(first) == .claude;
-    }
-};
-
-/// Arguments and initial environment of a same-user process.
-fn processBlock(pid: c_int, bytes: []u8) ?Block {
-    var out: Block = .{};
-    var argc: usize = 0;
-    var data: []const u8 = undefined;
-    if (builtin.os.tag == .macos) {
-        var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
-        var len: usize = bytes.len;
-        if (c.sysctl(&mib, mib.len, bytes.ptr, &len, null, 0) != 0 or len < @sizeOf(c_int)) return null;
-        const count = std.mem.bytesToValue(c_int, bytes[0..@sizeOf(c_int)]);
-        if (count <= 0) return null;
-        argc = @intCast(count);
-        data = bytes[@sizeOf(c_int)..len];
-        // Executable path, alignment padding, then argv and the environment.
-        const end = std.mem.indexOfScalar(u8, data, 0) orelse return null;
-        out.exec = data[0..end];
-        data = std.mem.trimStart(u8, data[end..], "\x00");
-    } else if (builtin.os.tag == .linux) {
-        var path: [64]u8 = undefined;
-        // The executable path lives past the argument and environment halves.
-        const reserve = std.fs.max_path_bytes;
-        if (std.posix.readlink(std.fmt.bufPrint(&path, "/proc/{d}/exe", .{pid}) catch return null, bytes[bytes.len - reserve ..])) |exe| out.exec = exe else |_| {}
-        const cmdline = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}) catch return null, .{}) catch return null;
-        defer cmdline.close();
-        const half = (bytes.len - reserve) / 2;
-        const args = bytes[0 .. cmdline.readAll(bytes[0..half]) catch return null];
-        var args_it = std.mem.splitScalar(u8, std.mem.trimEnd(u8, args, "\x00"), 0);
-        while (args_it.next()) |arg| {
-            if (out.argc == out.argv.len) break;
-            out.argv[out.argc] = arg;
-            out.argc += 1;
-        }
-        const environ = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/environ", .{pid}) catch return null, .{}) catch return null;
-        defer environ.close();
-        const env = bytes[half .. half + (environ.readAll(bytes[half .. bytes.len - reserve]) catch return null)];
-        var env_it = std.mem.splitScalar(u8, env, 0);
-        while (env_it.next()) |entry| {
-            if (entry.len == 0 or out.env.len == out.env.items.len) continue;
-            out.env.items[out.env.len] = entry;
-            out.env.len += 1;
-        }
-        return if (out.argc > 0) out else null;
-    } else return null;
-    var it = std.mem.splitScalar(u8, data, 0);
-    while (it.next()) |item| {
-        if (out.argc < argc and out.argc < out.argv.len) {
-            out.argv[out.argc] = item;
-            out.argc += 1;
-        } else if (out.argc >= argc) {
-            if (item.len == 0) break;
-            if (out.env.len < out.env.items.len) {
-                out.env.items[out.env.len] = item;
-                out.env.len += 1;
-            }
-        } else break;
-    }
-    return if (out.argc > 0) out else null;
-}
-
-fn parent(pid: c_int) ?c_int {
-    return (jobInfo(pid) orelse return null).ppid;
+/// Claude retitles its processes ("claude bg-spare" as one argv[0]),
+/// so also trust the executable path and argv[0]'s first word.
+fn claudeProcess(p: *const os.ProcessArgs) bool {
+    if (name(p.exe) == .claude) return true;
+    const argv = p.args();
+    if (argv.len == 0) return false;
+    if (identify(argv) == .claude) return true;
+    const first = argv[0][0 .. std.mem.indexOfScalar(u8, argv[0], ' ') orelse argv[0].len];
+    return name(first) == .claude;
 }
 
 /// Whether the process is known to run outside its terminal's foreground
 /// job, including without a controlling terminal at all.
 fn backgroundJob(pid: c_int) bool {
-    const info = jobInfo(pid) orelse return false;
+    const info = os.processJob(pid) orelse return false;
     return info.tpgid <= 0 or info.pgid != info.tpgid;
-}
-
-const JobInfo = struct { ppid: c_int, pgid: c_int, tpgid: c_int };
-
-fn jobInfo(pid: c_int) ?JobInfo {
-    if (builtin.os.tag == .macos) {
-        var info: c.proc_bsdinfo = undefined;
-        if (c.proc_pidinfo(pid, c.PROC_PIDTBSDINFO, 0, &info, @sizeOf(c.proc_bsdinfo)) != @sizeOf(c.proc_bsdinfo)) return null;
-        return .{ .ppid = @intCast(info.pbi_ppid), .pgid = @intCast(info.pbi_pgid), .tpgid = @intCast(info.e_tpgid) };
-    } else if (builtin.os.tag == .linux) {
-        var path: [64]u8 = undefined;
-        var bytes: [1024]u8 = undefined;
-        const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/stat", .{pid}) catch return null, .{}) catch return null;
-        defer file.close();
-        const stat = bytes[0 .. file.readAll(&bytes) catch return null];
-        // The command name may contain spaces; fields resume after its ')'.
-        const close = std.mem.lastIndexOfScalar(u8, stat, ')') orelse return null;
-        // After the state: ppid pgrp session tty_nr tpgid (-1 without a terminal).
-        var it = std.mem.tokenizeScalar(u8, stat[close + 1 ..], ' ');
-        _ = it.next();
-        var fields: [5]c_int = undefined;
-        for (&fields) |*field| field.* = std.fmt.parseInt(c_int, it.next() orelse return null, 10) catch return null;
-        return .{ .ppid = fields[0], .pgid = fields[1], .tpgid = fields[4] };
-    }
-    return null;
 }
 
 pub fn foreground(fd: c_int) ?Job {
@@ -672,18 +552,15 @@ test "Codex fallback tracks tools without a lifecycle state transition" {
     try std.testing.expect(!agent.tool_active);
 }
 
-test "process ancestry, arguments and initial environment are readable" {
-    try std.testing.expectEqual(c.getppid(), parent(c.getpid()).?);
-    const bytes = try std.testing.allocator.alloc(u8, 1024 * 1024);
-    defer std.testing.allocator.free(bytes);
-    const block = processBlock(c.getpid(), bytes).?;
-    try std.testing.expect(block.argc > 0);
-    const home = std.posix.getenv("HOME") orelse return error.SkipZigTest;
-    var entry: [4096]u8 = undefined;
-    const wanted = try std.fmt.bufPrint(&entry, "HOME={s}", .{home});
-    var found = false;
-    for (block.env.items[0..block.env.len]) |item| found = found or std.mem.eql(u8, item, wanted);
-    try std.testing.expect(found);
+test "a retitled Claude process is still Claude" {
+    var p: os.ProcessArgs = .{ .exe = "/usr/bin/node" };
+    p.argv[0] = "claude bg-spare";
+    p.argc = 1;
+    try std.testing.expect(claudeProcess(&p));
+    p.argv[0] = "node";
+    try std.testing.expect(!claudeProcess(&p));
+    p.exe = "/opt/claude/bin/claude";
+    try std.testing.expect(claudeProcess(&p));
 }
 
 test "a detached process is a background job and a terminal's foreground is not" {

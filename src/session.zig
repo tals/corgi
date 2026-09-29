@@ -16,7 +16,6 @@ const Theme = @import("theme.zig").Theme;
 const ordering = @import("agent_order.zig");
 const launch_command = @import("launch_command.zig");
 const terminal = @import("terminal.zig");
-const integration = @import("integration.zig");
 const PaneTarget = struct { target: PaneId };
 const TabTarget = struct { target: TabId };
 const PaneRename = struct { target: PaneId, name: []const u8 };
@@ -198,7 +197,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         .@"agent.create" => |q| {
             const provider = q.provider orelse r.last_agent;
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
-            const executable = try integration.shellQuote(ctx.executable);
+            const executable = try os.shellQuote(os.allocator, ctx.executable);
             defer os.allocator.free(executable);
             const yolo = r.agent_yolo.get(provider);
             const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {t}{s}{s}", .{

@@ -1,8 +1,6 @@
 //! Best-effort restart suggestions from foreground argv, never shell history.
 const std = @import("std");
 const os = @import("os.zig");
-const c = os.c;
-const builtin = @import("builtin");
 const Terminal = @import("terminal.zig").Terminal;
 
 pub fn foregroundPid(processes: []const u8, pane_pid: i32) ?i32 {
@@ -20,41 +18,10 @@ pub fn command(alloc: std.mem.Allocator, pid: i32) ![]const u8 {
     // Read argv boundaries from the OS. `ps args` loses quoting and empty args.
     const bytes = try os.allocator.alloc(u8, 1024 * 1024);
     defer os.allocator.free(bytes);
-    var data: []const u8 = undefined;
-    var argc: ?usize = null;
-    if (builtin.os.tag == .macos) {
-        var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
-        var len = bytes.len;
-        if (c.sysctl(&mib, mib.len, bytes.ptr, &len, null, 0) != 0 or len < @sizeOf(c_int)) return "";
-        const count = std.mem.bytesToValue(c_int, bytes[0..@sizeOf(c_int)]);
-        if (count <= 0 or count > 256) return "";
-        argc = @intCast(count);
-        data = bytes[@sizeOf(c_int)..len];
-        const end = std.mem.indexOfScalar(u8, data, 0) orelse return "";
-        data = std.mem.trimStart(u8, data[end..], "\x00");
-    } else if (builtin.os.tag == .linux) {
-        var path: [64]u8 = undefined;
-        const file = std.fs.cwd().openFile(try std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}), .{}) catch return "";
-        defer file.close();
-        const len = file.readAll(bytes) catch return "";
-        if (len == 0 or len == bytes.len or bytes[len - 1] != 0) return "";
-        data = bytes[0 .. len - 1];
-    } else return "";
-    var args: [256][]const u8 = undefined;
-    var count: usize = 0;
-    var parts = std.mem.splitScalar(u8, data, 0);
-    while (parts.next()) |arg| {
-        if (count == (argc orelse args.len)) {
-            if (argc == null) return "";
-            break;
-        }
-        args[count] = arg;
-        count += 1;
-    }
-    if (argc) |expected| {
-        if (count != expected) return "";
-    }
-    return quote(alloc, args[0..count]);
+    const p = os.processArgs(pid, bytes, .{}) orelse return "";
+    // A truncated or rewritten argv would resume the wrong command.
+    if (!p.complete) return "";
+    return quote(alloc, p.args());
 }
 
 pub fn quote(alloc: std.mem.Allocator, args: []const []const u8) ![]const u8 {
@@ -64,22 +31,12 @@ pub fn quote(alloc: std.mem.Allocator, args: []const []const u8) ![]const u8 {
         // A shell prompt or a shell pipeline cannot be reconstructed from argv.
         if (std.mem.eql(u8, exe, shell)) return "";
     }
-    var out: std.Io.Writer.Allocating = .init(alloc);
-    defer out.deinit();
-    for (args, 0..) |arg, i| {
-        if (!std.unicode.utf8ValidateSlice(arg)) return "";
-        if (i > 0) try out.writer.writeByte(' ');
-        if (arg.len == 0) try out.writer.writeAll("''");
-        for (arg) |ch| {
-            if (ch < 32 or ch == 127) return "";
-            // Unquoted escapes work in fish as well as POSIX shells, including
-            // literal backslashes, quotes and expansion syntax in arguments.
-            if (!std.ascii.isAlphanumeric(ch) and std.mem.indexOfScalar(u8, "_@%+:,./-", ch) == null and ch < 128) try out.writer.writeByte('\\');
-            try out.writer.writeByte(ch);
-        }
-        if (out.written().len > 2048) return "";
+    const line = try os.shellEscape(alloc, args) orelse return "";
+    if (line.len > 2048) {
+        alloc.free(line);
+        return "";
     }
-    return out.toOwnedSlice();
+    return line;
 }
 
 /// Keep recent lines within their JSON-escaped byte budget and valid UTF-8.

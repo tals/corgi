@@ -532,9 +532,9 @@ const Job = struct {
         const listener = try os.listen(bridge_path);
         defer _ = c.close(listener);
         const script = try std.fmt.allocPrint(alloc, "#!/bin/sh\nexec {s} __herdr_import {s} {s} \"$@\"\n", .{
-            try shellQuote(alloc, job.executable),
-            try shellQuote(alloc, bridge_path),
-            try shellQuote(alloc, token),
+            try os.shellQuote(alloc, job.executable),
+            try os.shellQuote(alloc, bridge_path),
+            try os.shellQuote(alloc, token),
         });
         {
             const file = try std.fs.cwd().createFile(launcher, .{ .mode = 0o700, .exclusive = true });
@@ -813,25 +813,9 @@ fn seedTerminal(t: *Terminal, state: Value) void {
     }
 }
 
-fn shellQuote(alloc: std.mem.Allocator, value: []const u8) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    try out.append(alloc, '\'');
-    for (value) |ch| if (ch == '\'') try out.appendSlice(alloc, "'\\''") else try out.append(alloc, ch);
-    try out.append(alloc, '\'');
-    return out.toOwnedSlice(alloc);
-}
-
 fn corgiProcess(pid: i32, executable: []const u8) bool {
     var bytes: [std.fs.max_path_bytes]u8 = undefined;
-    const path = if (builtin.os.tag == .macos) blk: {
-        const n = c.proc_pidpath(pid, &bytes, bytes.len);
-        if (n <= 0) return false;
-        break :blk std.mem.sliceTo(bytes[0..@intCast(n)], 0);
-    } else blk: {
-        var link: [64]u8 = undefined;
-        const filename = std.fmt.bufPrint(&link, "/proc/{d}/exe", .{pid}) catch return false;
-        break :blk std.posix.readlink(filename, &bytes) catch return false;
-    };
+    const path = os.processPath(pid, &bytes) orelse return false;
     return std.mem.eql(u8, path, executable) or std.mem.eql(u8, std.fs.path.basename(path), "corgi");
 }
 fn acceptBridge(listener: i32, request: i32, cancel: *std.atomic.Value(bool)) !i32 {

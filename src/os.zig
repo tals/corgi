@@ -64,6 +64,207 @@ pub fn processCwd(pid: c_int) ?[]u8 {
         return allocator.dupe(u8, dir) catch null;
     }
 }
+/// A same-user process's arguments, and on request its executable path
+/// and initial environment. Slices borrow the caller's buffer.
+pub const ProcessArgs = struct {
+    argv: [256][]const u8 = undefined,
+    argc: usize = 0,
+    exe: []const u8 = "",
+    env: [512][]const u8 = undefined,
+    env_len: usize = 0,
+    /// Every argument the kernel counted fit in `argv`. On Linux, false
+    /// also when the buffer cut the command line short or the process
+    /// rewrote it.
+    complete: bool = false,
+
+    pub fn args(p: *const ProcessArgs) []const []const u8 {
+        return p.argv[0..p.argc];
+    }
+    pub fn environ(p: *const ProcessArgs) []const []const u8 {
+        return p.env[0..p.env_len];
+    }
+    fn addEnv(p: *ProcessArgs, entry: []const u8) void {
+        if (entry.len == 0 or p.env_len == p.env.len) return;
+        p.env[p.env_len] = entry;
+        p.env_len += 1;
+    }
+};
+/// Null when the process is gone, not ours, or has no arguments, and on
+/// macOS when its arguments and environment don't fit in `buf`.
+/// `.env = true` also reads the executable path and environment.
+pub fn processArgs(pid: c_int, buf: []u8, want: struct { env: bool = false }) ?ProcessArgs {
+    var out: ProcessArgs = .{};
+    if (builtin.os.tag == .macos) {
+        var mib = [_]c_int{ c.CTL_KERN, c.KERN_PROCARGS2, pid };
+        var len: usize = buf.len;
+        if (c.sysctl(&mib, mib.len, buf.ptr, &len, null, 0) != 0 or len < @sizeOf(c_int)) return null;
+        // The kernel fills a buffer too small for the area with bytes from
+        // elsewhere in it, not its start.
+        if (len == buf.len) return null;
+        const reported = std.mem.bytesToValue(c_int, buf[0..@sizeOf(c_int)]);
+        if (reported <= 0) return null;
+        const argc: usize = @intCast(reported);
+        var data: []const u8 = buf[@sizeOf(c_int)..len];
+        // Executable path, alignment padding, then argv and the environment.
+        const end = std.mem.indexOfScalar(u8, data, 0) orelse return null;
+        if (want.env) out.exe = data[0..end];
+        data = std.mem.trimStart(u8, data[end..], "\x00");
+        var it = std.mem.splitScalar(u8, data, 0);
+        var seen: usize = 0;
+        while (seen < argc) : (seen += 1) {
+            const arg = it.next() orelse break;
+            if (out.argc == out.argv.len) continue;
+            out.argv[out.argc] = arg;
+            out.argc += 1;
+        }
+        out.complete = out.argc == argc;
+        if (want.env and seen == argc) while (it.next()) |entry| {
+            if (entry.len == 0) break;
+            out.addEnv(entry);
+        };
+    } else if (builtin.os.tag == .linux) {
+        var path: [64]u8 = undefined;
+        var area = buf;
+        if (want.env) {
+            // The executable path lives past the argument and environment halves.
+            if (buf.len <= std.fs.max_path_bytes) return null;
+            area = buf[0 .. buf.len - std.fs.max_path_bytes];
+            out.exe = processPath(pid, buf[area.len..][0..std.fs.max_path_bytes]) orelse "";
+            area = area[0 .. area.len / 2];
+        }
+        const cmdline = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/cmdline", .{pid}) catch return null, .{}) catch return null;
+        defer cmdline.close();
+        const len = cmdline.readAll(area) catch return null;
+        if (len == 0) return null;
+        // Arguments end in NUL unless the buffer cut them short or the
+        // process rewrote them.
+        const whole = len < area.len and area[len - 1] == 0;
+        var it = std.mem.splitScalar(u8, area[0..if (whole) len - 1 else len], 0);
+        while (it.next()) |arg| {
+            if (out.argc == out.argv.len) break;
+            out.argv[out.argc] = arg;
+            out.argc += 1;
+        } else out.complete = whole;
+        if (want.env) {
+            const rest = buf[area.len .. buf.len - std.fs.max_path_bytes];
+            const environ = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/environ", .{pid}) catch return null, .{}) catch return null;
+            defer environ.close();
+            var env_it = std.mem.splitScalar(u8, rest[0 .. environ.readAll(rest) catch return null], 0);
+            while (env_it.next()) |entry| out.addEnv(entry);
+        }
+    } else return null;
+    return out;
+}
+test "a process's own arguments, executable and environment are readable" {
+    const buf = try std.testing.allocator.alloc(u8, 1024 * 1024);
+    defer std.testing.allocator.free(buf);
+    const bare = processArgs(c.getpid(), buf, .{}).?;
+    try std.testing.expect(bare.argc > 0);
+    try std.testing.expect(bare.complete);
+    try std.testing.expectEqualStrings("", bare.exe);
+    try std.testing.expectEqual(@as(usize, 0), bare.env_len);
+
+    const full = processArgs(c.getpid(), buf, .{ .env = true }).?;
+    try std.testing.expect(full.complete);
+    try std.testing.expect(full.exe.len > 0);
+    try std.testing.expectEqualStrings(std.mem.span(std.os.argv[0]), full.args()[0]);
+    const home = std.posix.getenv("HOME") orelse return error.SkipZigTest;
+    var entry: [4096]u8 = undefined;
+    const wanted = try std.fmt.bufPrint(&entry, "HOME={s}", .{home});
+    var found = false;
+    for (full.environ()) |item| found = found or std.mem.eql(u8, item, wanted);
+    try std.testing.expect(found);
+
+    // A buffer one byte short of the command line leaves it incomplete on
+    // Linux and unreadable on macOS.
+    var used: usize = 0;
+    for (bare.args()) |arg| used += arg.len + 1;
+    const cut = processArgs(c.getpid(), buf[0 .. used - 1], .{});
+    if (builtin.os.tag == .macos) try std.testing.expect(cut == null) else try std.testing.expect(!cut.?.complete);
+}
+/// The executable a process runs, as the kernel resolved it.
+pub fn processPath(pid: c_int, buf: *[std.fs.max_path_bytes]u8) ?[]const u8 {
+    if (builtin.os.tag == .macos) {
+        const n = c.proc_pidpath(pid, buf, buf.len);
+        if (n <= 0) return null;
+        return std.mem.sliceTo(buf[0..@intCast(n)], 0);
+    } else if (builtin.os.tag == .linux) {
+        var link: [64]u8 = undefined;
+        const path = std.fmt.bufPrint(&link, "/proc/{d}/exe", .{pid}) catch return null;
+        return std.posix.readlink(path, buf) catch null;
+    }
+    return null;
+}
+/// A process's parent, its process group, and its terminal's foreground
+/// group (`tpgid` is not positive without a controlling terminal).
+pub const ProcessJob = struct { ppid: c_int, pgid: c_int, tpgid: c_int };
+pub fn processJob(pid: c_int) ?ProcessJob {
+    if (builtin.os.tag == .macos) {
+        var info: c.proc_bsdinfo = undefined;
+        if (c.proc_pidinfo(pid, c.PROC_PIDTBSDINFO, 0, &info, @sizeOf(c.proc_bsdinfo)) != @sizeOf(c.proc_bsdinfo)) return null;
+        return .{ .ppid = @intCast(info.pbi_ppid), .pgid = @intCast(info.pbi_pgid), .tpgid = @intCast(info.e_tpgid) };
+    } else if (builtin.os.tag == .linux) {
+        var path: [64]u8 = undefined;
+        var bytes: [1024]u8 = undefined;
+        const file = std.fs.cwd().openFile(std.fmt.bufPrint(&path, "/proc/{d}/stat", .{pid}) catch return null, .{}) catch return null;
+        defer file.close();
+        const stat = bytes[0 .. file.readAll(&bytes) catch return null];
+        // The command name may contain spaces; fields resume after its ')'.
+        const close = std.mem.lastIndexOfScalar(u8, stat, ')') orelse return null;
+        // After the state: ppid pgrp session tty_nr tpgid (-1 without a terminal).
+        var it = std.mem.tokenizeScalar(u8, stat[close + 1 ..], ' ');
+        _ = it.next();
+        var fields: [5]c_int = undefined;
+        for (&fields) |*field| field.* = std.fmt.parseInt(c_int, it.next() orelse return null, 10) catch return null;
+        return .{ .ppid = fields[0], .pgid = fields[1], .tpgid = fields[4] };
+    }
+    return null;
+}
+test "a process's parent and executable are readable" {
+    try std.testing.expectEqual(c.getppid(), processJob(c.getpid()).?.ppid);
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var self: [std.fs.max_path_bytes]u8 = undefined;
+    try std.testing.expectEqualStrings(try std.fs.selfExePath(&self), processPath(c.getpid(), &buf).?);
+}
+/// POSIX single-quoted form of `text`.
+pub fn shellQuote(alloc: std.mem.Allocator, text: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    try out.append(alloc, '\'');
+    for (text) |ch| if (ch == '\'') try out.appendSlice(alloc, "'\\''") else try out.append(alloc, ch);
+    try out.append(alloc, '\'');
+    return out.toOwnedSlice(alloc);
+}
+/// `args` as one command line, backslash-escaped so fish reads it the same
+/// as POSIX shells do. Null when an argument is not UTF-8 or holds a
+/// control byte, which no quoting makes safe to type.
+pub fn shellEscape(alloc: std.mem.Allocator, args: []const []const u8) !?[]u8 {
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    defer out.deinit();
+    for (args, 0..) |arg, i| {
+        if (!std.unicode.utf8ValidateSlice(arg)) return null;
+        if (i > 0) try out.writer.writeByte(' ');
+        if (arg.len == 0) try out.writer.writeAll("''");
+        for (arg) |ch| {
+            if (ch < 32 or ch == 127) return null;
+            // Unquoted escapes work in fish as well as POSIX shells, including
+            // literal backslashes, quotes and expansion syntax in arguments.
+            if (!std.ascii.isAlphanumeric(ch) and std.mem.indexOfScalar(u8, "_@%+:,./-", ch) == null and ch < 128) try out.writer.writeByte('\\');
+            try out.writer.writeByte(ch);
+        }
+    }
+    return try out.toOwnedSlice();
+}
+test "shell quoting protects arguments containing shell syntax" {
+    const alloc = std.testing.allocator;
+    const quoted = try shellQuote(alloc, "/tmp/a'b$(echo bad)/corgi");
+    defer alloc.free(quoted);
+    try std.testing.expectEqualStrings("'/tmp/a'\\''b$(echo bad)/corgi'", quoted);
+    const escaped = (try shellEscape(alloc, &.{ "tig", "a b", "a'b", "a\\b", "$(touch nope)", "" })).?;
+    defer alloc.free(escaped);
+    try std.testing.expectEqualStrings("tig a\\ b a\\'b a\\\\b \\$\\(touch\\ nope\\) ''", escaped);
+    try std.testing.expectEqual(null, try shellEscape(alloc, &.{ "tig", "bad\rcommand" }));
+    try std.testing.expectEqual(null, try shellEscape(alloc, &.{ "tig", "bad\xffcommand" }));
+}
 pub fn exec(args: []const []const u8) !noreturn {
     const pointers = try allocator.allocSentinel(?[*:0]const u8, args.len, null);
     for (args, 0..) |arg, i| pointers[i] = (try allocator.dupeZ(u8, arg)).ptr;
