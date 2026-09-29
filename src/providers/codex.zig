@@ -1,5 +1,6 @@
 const std = @import("std");
 const common = @import("common.zig");
+const json = @import("../json.zig");
 const str = common.str;
 const field = common.field;
 
@@ -74,6 +75,20 @@ pub const Codex = struct {
         local_shell_call,
         web_search_call,
     };
+    /// A rollout line's envelope; field names are the wire keys.
+    pub const Rollout = struct {
+        type: ?RolloutKind = null,
+        timestamp: []const u8 = "",
+        payload: std.json.Value = .null,
+
+        pub fn decode(v: std.json.Value) Rollout {
+            return json.decode(Rollout, v);
+        }
+        /// The kind of an `event_msg` or `response_item` payload.
+        pub fn payloadType(r: Rollout) ?EventKind {
+            return std.meta.stringToEnum(EventKind, str(r.payload, "type"));
+        }
+    };
 
     pub fn hook(provider: Codex, value: std.json.Value) ?common.Hook {
         return provider.hooks.decode(value);
@@ -124,3 +139,21 @@ pub const Codex = struct {
         return .{ "codex", "resume", ref.id };
     }
 };
+
+test "rollout lines decode their envelope and payload kind" {
+    const alloc = std.testing.allocator;
+    const event = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"event_msg","timestamp":"t","payload":{"type":"token_count"}}
+    , .{});
+    defer event.deinit();
+    const rollout = Codex.Rollout.decode(event.value);
+    try std.testing.expectEqual(Codex.RolloutKind.event_msg, rollout.type.?);
+    try std.testing.expectEqualStrings("t", rollout.timestamp);
+    try std.testing.expectEqual(Codex.EventKind.token_count, rollout.payloadType().?);
+    const other = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"compacted","payload":"summary"}
+    , .{});
+    defer other.deinit();
+    try std.testing.expectEqual(null, Codex.Rollout.decode(other.value).type);
+    try std.testing.expectEqual(null, Codex.Rollout.decode(other.value).payloadType());
+}

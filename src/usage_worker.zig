@@ -239,8 +239,6 @@ pub const Worker = struct {
         }
     }
 };
-// Claude transcript record types relevant to titles, continuation and text.
-const RecordKind = enum { @"agent-name", @"custom-title", @"ai-title", assistant, @"continued-in", user, unknown };
 pub const Tail = struct {
     actor: ActorId = .none,
     initial_until: u64 = 0,
@@ -334,8 +332,9 @@ pub const Tail = struct {
     /// Claude re-appends title records, so a bounded tail still finds them.
     /// A name the user chose outranks the generated title.
     fn claudeRecord(t: *Tail, session: []const u8, value: std.json.Value) void {
-        if (!std.mem.eql(u8, agents.str(value, "sessionId"), session)) return;
-        const kind = std.meta.stringToEnum(RecordKind, agents.str(value, "type")) orelse .unknown;
+        const line = providers.Claude.Line.decode(value) orelse return;
+        if (!std.mem.eql(u8, line.sessionId, session)) return;
+        const kind = line.type orelse return;
         const chosen = switch (kind) {
             .@"agent-name" => agents.str(value, "agentName"),
             .@"custom-title" => agents.str(value, "customTitle"),
@@ -348,7 +347,7 @@ pub const Tail = struct {
         } else if (generated.len > 0 and !t.name_chosen and std.unicode.utf8ValidateSlice(generated)) {
             t.name = .ascii(generated);
         }
-        if (kind == .assistant) t.claudeText(value);
+        if (kind == .assistant) t.claudeText(line);
         if (kind == .@"continued-in") {
             t.continued = .ascii(agents.str(value, "continuedInSessionId"));
         } else if (kind == .user or kind == .assistant) {
@@ -358,18 +357,16 @@ pub const Tail = struct {
     }
     /// Text Claude writes between tools is its only commentary. Thinking is
     /// stored without content, so it cannot supply activity.
-    fn claudeText(t: *Tail, value: std.json.Value) void {
-        const side = usage.field(value, "isSidechain");
-        if (side == .bool and side.bool) return;
-        const stamp = providers.timestampMs(agents.str(value, "timestamp")) orelse return;
-        const content = usage.field(usage.field(value, "message"), "content");
+    fn claudeText(t: *Tail, line: providers.Claude.Line) void {
+        const stamp = providers.timestampMs(line.timestamp) orelse return;
+        const content = usage.field(line.message, "content");
         if (content != .array) return;
         var latest: []const u8 = "";
         for (content.array.items) |part| {
-            if (!std.mem.eql(u8, agents.str(part, "type"), "text")) continue;
-            var lines = std.mem.tokenizeScalar(u8, agents.str(part, "text"), '\n');
-            while (lines.next()) |line| {
-                const text = std.mem.trim(u8, line, " \t\r#*->`_");
+            if (std.meta.stringToEnum(providers.Claude.BlockType, agents.str(part, "type")) != .text) continue;
+            var rows = std.mem.tokenizeScalar(u8, agents.str(part, "text"), '\n');
+            while (rows.next()) |row| {
+                const text = std.mem.trim(u8, row, " \t\r#*->`_");
                 if (text.len == 0) continue;
                 latest = text;
                 break;
@@ -576,6 +573,9 @@ test "Claude transcripts supply chosen names over generated titles and report co
     _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Regenerated\",\"sessionId\":\"a\"}\n", 0);
     try std.testing.expectEqualStrings("Chosen", tail.name.text());
     _ = try tail.ingest(&req, "{\"type\":\"continued-in\",\"sessionId\":\"a\",\"continuedInSessionId\":\"c\"}\n", 0);
+    try std.testing.expectEqualStrings("c", tail.continued.text());
+    // A subagent's line is not a resume.
+    _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"a\",\"isSidechain\":true,\"message\":{}}\n", 0);
     try std.testing.expectEqualStrings("c", tail.continued.text());
     _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"a\",\"message\":{}}\n", 0);
     try std.testing.expectEqual(@as(usize, 0), tail.continued.len);

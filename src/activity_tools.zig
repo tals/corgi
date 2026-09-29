@@ -187,9 +187,10 @@ pub const Tracker = struct {
         return out;
     }
     pub fn ingest(t: *Tracker, value: std.json.Value, live: bool) void {
-        const kind = std.meta.stringToEnum(Codex.RolloutKind, agents.str(value, "type"));
-        const payload = field(value, "payload");
-        const subtype = std.meta.stringToEnum(Codex.EventKind, agents.str(payload, "type"));
+        const rollout = Codex.Rollout.decode(value);
+        const kind = rollout.type;
+        const payload = rollout.payload;
+        const subtype = rollout.payloadType();
         if (kind == .turn_context or (kind == .event_msg and subtype == .task_started)) {
             t.bind(agents.str(payload, "turn_id"));
             return;
@@ -267,14 +268,13 @@ pub const Tracker = struct {
     /// is commentary, and a tool completes when its tool_result arrives.
     pub fn ingestClaude(t: *Tracker, value: std.json.Value, live: bool) void {
         if (t.turn.len == 0 or t.ended) return;
-        const side = field(value, "isSidechain");
-        if (side == .bool and side.bool) return;
-        const kind = std.meta.stringToEnum(Claude.TranscriptLine, agents.str(value, "type"));
-        if (kind == .system and std.mem.eql(u8, agents.str(value, "subtype"), "turn_duration")) {
+        const line = Claude.Line.decode(value) orelse return;
+        const kind = line.type;
+        if (kind == .system and std.mem.eql(u8, line.subtype, "turn_duration")) {
             if (live) t.ended = true;
             return;
         }
-        const content = field(field(value, "message"), "content");
+        const content = field(line.message, "content");
         if (content != .array) return;
         for (content.array.items) |block| {
             const block_type = std.meta.stringToEnum(Claude.BlockType, agents.str(block, "type"));

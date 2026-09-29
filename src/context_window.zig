@@ -24,17 +24,15 @@ pub const Reading = struct {
     auto_compaction: u64 = 0,
 
     pub fn claude(r: *Reading, value: std.json.Value) void {
-        const stamp = common.timestampMs(agents.str(value, "timestamp")) orelse return;
-        switch (std.meta.stringToEnum(Claude.TranscriptLine, agents.str(value, "type")) orelse return) {
+        const line = Claude.Line.decode(value) orelse return;
+        const stamp = common.timestampMs(line.timestamp) orelse return;
+        switch (line.type orelse return) {
             .assistant => {
-                const side = field(value, "isSidechain");
-                if (side == .bool and side.bool) return;
-                const message = field(value, "message");
-                const model = agents.str(message, "model");
+                const model = agents.str(line.message, "model");
                 // Also skips "<synthetic>" error records, which report no usage.
                 const window = Claude.contextWindow(model);
                 if (window == 0) return;
-                const usage = field(message, "usage");
+                const usage = field(line.message, "usage");
                 const input = number(usage, "input_tokens") orelse return;
                 r.used = input +| (number(usage, "cache_read_input_tokens") orelse 0) +| (number(usage, "cache_creation_input_tokens") orelse 0);
                 r.window = window;
@@ -42,7 +40,7 @@ pub const Reading = struct {
                 r.model = .ascii(model);
             },
             .system => {
-                if (!std.mem.eql(u8, agents.str(value, "subtype"), "compact_boundary")) return;
+                if (!std.mem.eql(u8, line.subtype, "compact_boundary")) return;
                 const meta = field(value, "compactMetadata");
                 if (std.mem.eql(u8, agents.str(meta, "trigger"), "auto")) {
                     if (number(meta, "preTokens")) |tokens| r.auto_compaction = tokens;
@@ -51,17 +49,16 @@ pub const Reading = struct {
                 r.used = number(meta, "postTokens") orelse 0;
                 r.at = stamp;
             },
-            .user, .attachment => {},
+            else => {},
         }
     }
 
     pub fn codex(r: *Reading, value: std.json.Value) void {
-        if (std.meta.stringToEnum(Codex.RolloutKind, agents.str(value, "type")) != .event_msg) return;
-        const payload = field(value, "payload");
-        if (std.meta.stringToEnum(Codex.EventKind, agents.str(payload, "type")) != .token_count) return;
-        const stamp = common.timestampMs(agents.str(value, "timestamp")) orelse return;
+        const rollout = Codex.Rollout.decode(value);
+        if (rollout.type != .event_msg or rollout.payloadType() != .token_count) return;
+        const stamp = common.timestampMs(rollout.timestamp) orelse return;
         // Rate-limit-only events carry a null info.
-        const info = field(payload, "info");
+        const info = field(rollout.payload, "info");
         const window = number(info, "model_context_window") orelse return;
         const last = field(info, "last_token_usage");
         r.used = number(last, "total_tokens") orelse
@@ -155,9 +152,13 @@ test "claude counts the latest main-chain call's input side against its model wi
         \\{"type":"assistant","isSidechain":true,"timestamp":"2026-09-27T17:29:30.000Z","message":{"model":"claude-opus-5-5","usage":{"input_tokens":9,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
     );
     try feed(&r, .claude,
+        \\{"type":"system","subtype":"compact_boundary","isSidechain":true,"timestamp":"2026-09-27T17:29:30.500Z","compactMetadata":{"trigger":"auto","preTokens":150000,"postTokens":9000}}
+    );
+    try feed(&r, .claude,
         \\{"type":"assistant","timestamp":"2026-09-27T17:29:31.000Z","message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
     );
     try std.testing.expectEqual(@as(u64, 252758), r.used);
+    try std.testing.expectEqual(@as(u64, 0), r.auto_compaction);
     try feed(&r, .claude,
         \\{"type":"assistant","timestamp":"2026-09-27T17:30:00.000Z","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":40000}}}
     );

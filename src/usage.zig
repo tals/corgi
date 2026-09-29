@@ -2,6 +2,7 @@
 //! input and reasoning output; they are not estimates of cost or context size.
 const std = @import("std");
 const agents = @import("agents.zig");
+const Claude = @import("providers/claude.zig").Claude;
 const Codex = @import("providers/codex.zig").Codex;
 const json = @import("json.zig");
 pub const Counts = struct {
@@ -114,7 +115,7 @@ pub const Tracker = struct {
         };
         const content = field(message, "content");
         if (content == .array) for (content.array.items) |block| {
-            if (std.mem.eql(u8, agents.str(block, "type"), "tool_use")) delta.tools +|= t.tool(agents.str(block, "id"));
+            if (std.meta.stringToEnum(Claude.BlockType, agents.str(block, "type")) == .tool_use) delta.tools +|= t.tool(agents.str(block, "id"));
         };
         return delta;
     }
@@ -125,16 +126,15 @@ pub const Tracker = struct {
         };
     }
     fn claudeTranscript(t: *Tracker, session: []const u8, value: std.json.Value) Counts {
-        if (!std.mem.eql(u8, agents.str(value, "sessionId"), session)) return .{};
-        const side = field(value, "isSidechain");
-        if (side == .bool and side.bool) return .{};
-        if (std.mem.eql(u8, agents.str(value, "type"), "assistant")) return t.claudeMessage(field(value, "message"));
-        return .{};
+        const line = Claude.Line.decode(value) orelse return .{};
+        if (!std.mem.eql(u8, line.sessionId, session) or line.type != .assistant) return .{};
+        return t.claudeMessage(line.message);
     }
     fn codexTranscript(t: *Tracker, value: std.json.Value) Counts {
-        const payload = field(value, "payload");
-        const kind = std.meta.stringToEnum(Codex.RolloutKind, agents.str(value, "type"));
-        const subtype = std.meta.stringToEnum(Codex.EventKind, agents.str(payload, "type"));
+        const rollout = Codex.Rollout.decode(value);
+        const payload = rollout.payload;
+        const kind = rollout.type;
+        const subtype = rollout.payloadType();
         if (kind == .event_msg and subtype == .token_count) return t.codexTokens("codex", field(field(payload, "info"), "total_token_usage"), false);
         if (kind == .response_item) switch (subtype orelse return .{}) {
             .function_call, .custom_tool_call, .web_search_call, .local_shell_call => {

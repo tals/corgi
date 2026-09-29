@@ -1,5 +1,6 @@
 const std = @import("std");
 const common = @import("common.zig");
+const json = @import("../json.zig");
 const str = common.str;
 const field = common.field;
 
@@ -42,8 +43,25 @@ pub const Claude = struct {
     pub const MessageType = enum { assistant, user, result, control_request, control_response };
     /// A message's content block kind (the block's `type` field).
     pub const BlockType = enum { text, tool_use, tool_result };
-    /// A transcript JSONL line's `type`.
-    pub const TranscriptLine = enum { assistant, user, system, attachment };
+    /// A transcript JSONL line's `type`. The dashed kinds name the
+    /// conversation or the session it continued in.
+    pub const TranscriptLine = enum { assistant, user, system, attachment, @"agent-name", @"custom-title", @"ai-title", @"continued-in" };
+    /// A transcript line's envelope; field names are the wire keys.
+    pub const Line = struct {
+        type: ?TranscriptLine = null,
+        subtype: []const u8 = "",
+        sessionId: []const u8 = "",
+        timestamp: []const u8 = "",
+        isSidechain: bool = false,
+        message: std.json.Value = .null,
+
+        /// Null for a subagent's line: it belongs to the subagent, never to
+        /// the session.
+        pub fn decode(v: std.json.Value) ?Line {
+            const line = json.decode(Line, v);
+            return if (line.isSidechain) null else line;
+        }
+    };
 
     pub fn hook(provider: Claude, value: std.json.Value) ?common.Hook {
         return provider.hooks.decode(value);
@@ -85,3 +103,26 @@ pub const Claude = struct {
         return .{ "claude", "--resume", ref.id };
     }
 };
+
+test "transcript lines decode their envelope and drop subagent lines" {
+    const alloc = std.testing.allocator;
+    const own = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"assistant","sessionId":"s","timestamp":"t","message":{"model":"m"}}
+    , .{});
+    defer own.deinit();
+    const line = Claude.Line.decode(own.value).?;
+    try std.testing.expectEqual(Claude.TranscriptLine.assistant, line.type.?);
+    try std.testing.expectEqualStrings("s", line.sessionId);
+    try std.testing.expectEqualStrings("t", line.timestamp);
+    try std.testing.expectEqualStrings("m", str(line.message, "model"));
+    const other = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"file-history-snapshot","isSidechain":false}
+    , .{});
+    defer other.deinit();
+    try std.testing.expectEqual(null, Claude.Line.decode(other.value).?.type);
+    const subagent = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"assistant","sessionId":"s","isSidechain":true}
+    , .{});
+    defer subagent.deinit();
+    try std.testing.expect(Claude.Line.decode(subagent.value) == null);
+}

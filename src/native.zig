@@ -13,9 +13,48 @@ const Terminal = @import("terminal.zig").Terminal;
 const usage = @import("usage.zig");
 const discovery = @import("discovery.zig");
 const codex_observer = @import("codex_observer.zig");
+const BoundedText = @import("bounded_text.zig").BoundedText;
 const log = std.log.scoped(.native);
 pub const Event = struct { seq: u64, line: []const u8 };
-pub const PendingRequest = struct { line: []const u8, actor: ?*conversations.Actor };
+/// A request the provider waits on a reply to. `line` is what the checkpoint
+/// saves; the rest is decoded from it once.
+pub const PendingRequest = struct {
+    line: []const u8,
+    actor: ?*conversations.Actor,
+    /// Null when no reply can name it (the id is not a string or integer).
+    id: ?RequestId,
+    tool: bool,
+
+    /// Copies `line`.
+    pub fn init(provider: agents.Provider, line: []const u8, actor: ?*conversations.Actor) !PendingRequest {
+        const parsed = try std.json.parseFromSlice(std.json.Value, a, line, .{});
+        defer parsed.deinit();
+        const event = providers.Backend.init(provider).nativeEvent(parsed.value);
+        return .{
+            .line = try a.dupe(u8, line),
+            .actor = actor,
+            .id = if (event.request_id) |id| .init(id) else null,
+            .tool = event.tool_request,
+        };
+    }
+};
+/// A JSON-RPC or control request id; both providers use strings or integers.
+pub const RequestId = union(enum) {
+    int: i64,
+    /// Longer ids compare by their first 96 bytes.
+    text: BoundedText(96),
+
+    pub fn init(v: std.json.Value) ?RequestId {
+        return switch (v) {
+            .integer => |n| .{ .int = n },
+            .string => |text| .{ .text = .initTruncated(text) },
+            else => null,
+        };
+    }
+    pub fn eql(id: RequestId, other: ?RequestId) bool {
+        return if (other) |known| std.meta.eql(id, known) else false;
+    }
+};
 pub const Tool = struct {
     id: []const u8,
     thread: []const u8,
@@ -142,10 +181,7 @@ pub const Session = struct {
         };
         for (s.approvals.items) |request| {
             const request_target = if (request.actor) |actor| &actor.state else &s.attachment.provisional;
-            if (request_target != target) continue;
-            const parsed = std.json.parseFromSlice(std.json.Value, a, request.line, .{}) catch continue;
-            defer parsed.deinit();
-            if (providers.Backend.init(s.provider).nativeEvent(parsed.value).tool_request) {
+            if (request.tool and request_target == target) {
                 target.tool_active = true;
                 return;
             }
@@ -258,11 +294,7 @@ pub const Session = struct {
     pub fn toolActive(s: *const Session) bool {
         if (s.exited) return false;
         if (s.active_tools.items.len > 0) return true;
-        for (s.approvals.items) |request| {
-            const parsed = std.json.parseFromSlice(std.json.Value, a, request.line, .{}) catch continue;
-            defer parsed.deinit();
-            if (providers.Backend.init(s.provider).nativeEvent(parsed.value).tool_request) return true;
-        }
+        for (s.approvals.items) |request| if (request.tool) return true;
         return false;
     }
     fn startTool(s: *Session, target: *agents.Agent, id: []const u8, thread: []const u8, turn: []const u8) !void {
@@ -387,31 +419,26 @@ pub const Session = struct {
         }
         // The pending request supplies its immutable conversation binding. A
         // response to A must never clear B's attention after a selection change.
-        const response_id = providers.Backend.init(s.provider).responseId(v);
-        if (response_id) |id| {
-            var i: usize = 0;
-            while (i < s.approvals.items.len) {
-                const parsed = try std.json.parseFromSlice(std.json.Value, a, s.approvals.items[i].line, .{});
-                defer parsed.deinit();
-                if (providers.Backend.init(s.provider).requestId(parsed.value)) |pending_id| {
-                    if (sameId(id, pending_id)) {
-                        const actor = s.approvals.items[i].actor;
-                        const target = if (actor) |owner| &owner.state else &s.attachment.provisional;
-                        a.free(s.approvals.orderedRemove(i).line);
-                        if (actor) |owner| owner.pending_native_requests -|= 1;
-                        if (!s.hasApproval(actor)) {
-                            target.attention = if (target.observation.unread()) .finished else .none;
-                            target.state = .working;
-                        } else {
-                            target.state = .blocked;
-                            target.attention = .needs_input;
-                        }
-                        s.syncTools(target);
-                        continue;
-                    }
-                }
+        const response_id = providers.Backend.init(s.provider).responseId(v) orelse return;
+        const id = RequestId.init(response_id) orelse return;
+        var i: usize = 0;
+        while (i < s.approvals.items.len) {
+            if (!id.eql(s.approvals.items[i].id)) {
                 i += 1;
+                continue;
             }
+            const actor = s.approvals.items[i].actor;
+            const target = if (actor) |owner| &owner.state else &s.attachment.provisional;
+            a.free(s.approvals.orderedRemove(i).line);
+            if (actor) |owner| owner.pending_native_requests -|= 1;
+            if (!s.hasApproval(actor)) {
+                target.attention = if (target.observation.unread()) .finished else .none;
+                target.state = .working;
+            } else {
+                target.state = .blocked;
+                target.attention = .needs_input;
+            }
+            s.syncTools(target);
         }
     }
     pub fn flush(s: *Session) void {
@@ -459,8 +486,11 @@ pub const Session = struct {
         };
         defer parsed.deinit();
         const v = parsed.value;
-        const method = std.meta.stringToEnum(providers.Codex.Method, agents.str(v, "method"));
-        const kind = std.meta.stringToEnum(providers.Claude.MessageType, agents.str(v, "type"));
+        // Each provider's messages use only its own vocabulary.
+        const method: ?providers.Codex.Method, const kind: ?providers.Claude.MessageType = switch (s.provider) {
+            .codex => .{ std.meta.stringToEnum(providers.Codex.Method, agents.str(v, "method")), null },
+            .claude => .{ null, std.meta.stringToEnum(providers.Claude.MessageType, agents.str(v, "type")) },
+        };
         const event = providers.Backend.init(s.provider).nativeEvent(v);
         if (event.initialize) {
             if (event.initialization_failed) return error.NativeInitializeFailed;
@@ -519,20 +549,16 @@ pub const Session = struct {
             .codex => owner.native_meter.native(usage.field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
             .claude => {},
         };
-        if (event.request_id != null) {
+        if (event.request_id) |request_id| {
+            const id = RequestId.init(request_id);
             // Replayed protocol requests refer to the same pending operation.
             const duplicate = for (s.approvals.items) |pending| {
-                if (pending.actor != actor) continue;
-                const decoded = try std.json.parseFromSlice(std.json.Value, a, pending.line, .{});
-                defer decoded.deinit();
-                if (providers.Backend.init(s.provider).requestId(decoded.value)) |id| {
-                    if (sameId(event.request_id.?, id)) break true;
-                }
+                if (pending.actor == actor and id != null and id.?.eql(pending.id)) break true;
             } else false;
             if (!duplicate) {
                 if (s.approvals.items.len >= 64) return error.TooManyNativeRequests;
                 try s.approvals.ensureUnusedCapacity(a, 1);
-                s.approvals.appendAssumeCapacity(.{ .line = try a.dupe(u8, line), .actor = actor });
+                s.approvals.appendAssumeCapacity(.{ .line = try a.dupe(u8, line), .actor = actor, .id = id, .tool = event.tool_request });
                 if (actor) |owner| owner.pending_native_requests += 1;
             }
             target.beginTurn("");
@@ -585,10 +611,6 @@ pub const Session = struct {
         return ding;
     }
 };
-fn sameId(x: std.json.Value, y: std.json.Value) bool {
-    return std.meta.activeTag(x) == std.meta.activeTag(y) and
-        ((x == .string and std.mem.eql(u8, x.string, y.string)) or (x == .integer and x.integer == y.integer));
-}
 
 fn testSession(provider: agents.Provider) !Session {
     return .{
@@ -729,6 +751,22 @@ test "native approval replies target their original conversation and duplicates 
     try std.testing.expectEqual(agents.Attention.needs_input, transport.attention());
     try std.testing.expectEqual(@as(usize, 1), transport.approvals.items.len);
     try std.testing.expectEqualStrings("b", transport.agent().sessionId());
+}
+
+test "restored requests decode their id and tool once" {
+    const claude: PendingRequest = try .init(.claude,
+        \\{"type":"control_request","request_id":"9","request":{"subtype":"can_use_tool"}}
+    , null);
+    defer a.free(claude.line);
+    try std.testing.expect(claude.tool);
+    try std.testing.expect(RequestId.init(.{ .string = "9" }).?.eql(claude.id));
+    try std.testing.expect(!RequestId.init(.{ .integer = 9 }).?.eql(claude.id));
+    const codex: PendingRequest = try .init(.codex,
+        \\{"id":null,"method":"item/fileChange/requestApproval","params":{"threadId":"a"}}
+    , null);
+    defer a.free(codex.line);
+    try std.testing.expect(codex.tool and codex.id == null);
+    try std.testing.expect(!RequestId.init(.{ .integer = 0 }).?.eql(codex.id));
 }
 
 test "native duplicate sources share receipts and stale completions preserve the newer turn" {

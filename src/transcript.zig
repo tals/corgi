@@ -245,10 +245,8 @@ fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
         if (end != null) {
             const parsed = try std.json.parseFromSlice(std.json.Value, a, header.items, .{});
             defer parsed.deinit();
-            const v = parsed.value;
-            const payload = if (v == .object) v.object.get("payload") orelse .null else .null;
-            const kind = std.meta.stringToEnum(Codex.RolloutKind, agents.str(v, "type"));
-            if (kind != .session_meta or !std.mem.eql(u8, agents.str(payload, "id"), session)) return error.WrongSession;
+            const rollout = Codex.Rollout.decode(parsed.value);
+            if (rollout.type != .session_meta or !std.mem.eql(u8, agents.str(rollout.payload, "id"), session)) return error.WrongSession;
             return;
         }
     }
@@ -269,23 +267,22 @@ fn completion(agent: *const agents.Agent, line: []const u8) ?agents.observation.
     };
 }
 fn codexCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
-    if (std.meta.stringToEnum(Codex.RolloutKind, agents.str(v, "type")) != .event_msg or agent.turn.len == 0) return null;
-    const p = v.object.get("payload") orelse return null;
-    if (!std.mem.eql(u8, agents.str(p, "turn_id"), agent.turnId())) return null;
-    const kind = std.meta.stringToEnum(Codex.EventKind, agents.str(p, "type")) orelse return null;
-    return switch (kind) {
+    const rollout = Codex.Rollout.decode(v);
+    if (rollout.type != .event_msg or agent.turn.len == 0) return null;
+    if (!std.mem.eql(u8, agents.str(rollout.payload, "turn_id"), agent.turnId())) return null;
+    return switch (rollout.payloadType() orelse return null) {
         .turn_aborted => .interrupted,
-        .task_complete, .turn_complete => if (p.object.get("error")) |err| (if (err != .null) .failed else .completed) else .completed,
+        .task_complete, .turn_complete => if (common.field(rollout.payload, "error") != .null) .failed else .completed,
         else => null,
     };
 }
 fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.observation.Outcome {
     // end_turn on an assistant message precedes Stop hooks. Only the
     // post-turn system record is evidence; a stop_hook_summary is not.
-    if (!std.mem.eql(u8, agents.str(v, "sessionId"), agent.sessionId())) return null;
-    if (v.object.get("isSidechain")) |side| if (side == .bool and side.bool) return null;
-    return switch (std.meta.stringToEnum(Claude.TranscriptLine, agents.str(v, "type")) orelse return null) {
-        .system => if (std.mem.eql(u8, agents.str(v, "subtype"), "turn_duration")) .completed else null,
+    const line = Claude.Line.decode(v) orelse return null;
+    if (!std.mem.eql(u8, line.sessionId, agent.sessionId())) return null;
+    return switch (line.type orelse return null) {
+        .system => if (std.mem.eql(u8, line.subtype, "turn_duration")) .completed else null,
         // Esc during Stop hooks cancels them, and no turn_duration follows.
         // A hook that timed out is cancelled too, but its turn goes on.
         .attachment => blk: {
@@ -295,7 +292,7 @@ fn claudeCompletion(agent: *const agents.Agent, v: std.json.Value) ?agents.obser
             const timed_out = common.field(hook, "timedOut");
             break :blk if (timed_out == .bool and !timed_out.bool) .interrupted else null;
         },
-        .assistant, .user => null,
+        else => null,
     };
 }
 

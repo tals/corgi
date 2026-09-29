@@ -90,9 +90,6 @@ pub const Backend = union(Provider) {
             inline else => |provider| provider.nativeEvent(value),
         };
     }
-    pub fn requestId(backend: Backend, value: std.json.Value) ?std.json.Value {
-        return backend.nativeEvent(value).request_id;
-    }
     pub fn responseId(backend: Backend, value: std.json.Value) ?std.json.Value {
         return backend.nativeEvent(value).response_id;
     }
@@ -155,10 +152,10 @@ test "native request matching preserves string and integer identifiers" {
         \\{"type":"control_response","response":{"request_id":"request-a"}}
     , .{});
     defer reply.deinit();
-    try std.testing.expectEqual(@as(i64, 42), Backend.init(.codex).requestId(request.value).?.integer);
+    try std.testing.expectEqual(@as(i64, 42), Backend.init(.codex).nativeEvent(request.value).request_id.?.integer);
     try std.testing.expectEqualStrings("request-a", Backend.init(.claude).responseId(reply.value).?.string);
     try std.testing.expect(Backend.init(.codex).responseId(reply.value) == null);
-    try std.testing.expect(Backend.init(.claude).requestId(.null) == null);
+    try std.testing.expect(Backend.init(.claude).nativeEvent(.null).request_id == null);
 }
 
 test "resume plans are typed argv and reject invalid or unsupported session references" {

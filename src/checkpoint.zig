@@ -378,7 +378,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             for (n.approvals, 0..) |line, i| {
                 const id = if (n.approval_actors.len > 0) n.approval_actors[i] else if (s.attachment.actor) |actor| actor.id else ActorId.none;
                 const actor = if (id != ActorId.none) r.conversations.byId(id) orelse return error.InvalidCheckpoint else null;
-                try s.approvals.append(a, .{ .line = try a.dupe(u8, line), .actor = actor });
+                try s.approvals.append(a, try .init(n.provider, line, actor));
                 if (!s.exited) if (actor) |owner| {
                     owner.pending_native_requests += 1;
                 };
