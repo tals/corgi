@@ -16,6 +16,7 @@ const Server = @import("server.zig").Server;
 const WorkspaceId = workspace.Workspace.Id;
 const Request = protocol.Request;
 const Action = @import("action.zig").Action;
+const migrations = @import("state_migrations.zig");
 
 pub fn open(s: *Server, cl: *Client, q: Request.Open) !void {
     if (cl.subscribed or cl.launch_preview != null or cl.viewer) return error.AlreadyAttached;
@@ -273,3 +274,17 @@ test "a viewer reads the view the daemon writes" {
     try std.testing.expectEqual(@as(u32, 3), read.value.viewer);
     try std.testing.expect(read.value.detach);
 }
+
+test "the viewer wire matches viewer_version.version" {
+    const name = "fixtures/viewer.schema";
+    // A view's session and readings are protocol.version's (protocol.schema).
+    try migrations.expectWireSchema(Wire, &.{ protocol.Snapshot, resources.Snapshot }, "src/" ++ name, @embedFile(name), "viewer_version.version");
+}
+
+/// What a viewer sends and reads in the requests its protocol version guards.
+const Wire = struct {
+    open: Request.Open,
+    opened: protocol.Opened,
+    sync: Request.Sync,
+    view: View,
+};

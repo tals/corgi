@@ -1,0 +1,636 @@
+$.requests: one of
+$.requests|hello: {}
+$.requests|session.command.command: one of
+$.requests|session.command.command|agent.move.workspace: u32
+$.requests|session.command.command|agent.move.target: one of
+$.requests|session.command.command|agent.move.target|pane: u32
+$.requests|session.command.command|agent.move.target|native: u32
+$.requests|session.command.command|agent.move.before: optional
+$.requests|session.command.command|agent.move.before?: one of
+$.requests|session.command.command|agent.move.before?|pane: u32
+$.requests|session.command.command|agent.move.before?|native: u32
+$.requests|session.command.command|agent.command.index: usize
+$.requests|session.command.command|agent.command.command: string
+$.requests|session.command.command|agent.command.hidden: bool
+$.requests|session.command.command|agent.command.name: optional
+$.requests|session.command.command|agent.command.name?: string
+$.requests|session.command.command|agent.command.original: optional
+$.requests|session.command.command|agent.command.original?: string
+$.requests|session.command.command|agent.command.semantics: optional
+$.requests|session.command.command|agent.command.semantics?.provider: optional
+$.requests|session.command.command|agent.command.semantics?.provider?: enum codex claude
+$.requests|session.command.command|agent.command.semantics?.suggested_name: custom bounded_text.BoundedText(160)
+$.requests|session.command.command|agent.command.semantics?.model: custom bounded_text.BoundedText(160)
+$.requests|session.command.command|agent.command.semantics?.account: custom bounded_text.BoundedText(160)
+$.requests|session.command.command|agent.command.semantics?.mode: custom bounded_text.BoundedText(160)
+$.requests|session.command.command|agent.command.semantics?.yolo: bool
+$.requests|session.command.command|agent.command.semantics?.default_account: bool
+$.requests|session.command.command|agent.command.resolve: bool
+$.requests|session.command.command|agent.command.cwd: optional
+$.requests|session.command.command|agent.command.cwd?: string
+$.requests|session.command.command|agent.command.create.workspace: u32
+$.requests|session.command.command|agent.command.create.cwd: string
+$.requests|session.command.command|agent.command.create.index: usize
+$.requests|session.command.command|agent.visibility.hidden.codex: bool
+$.requests|session.command.command|agent.visibility.hidden.claude: bool
+$.requests|session.command.command|agent.yolo.provider: enum codex claude
+$.requests|session.command.command|agent.yolo.enabled: bool
+$.requests|session.command.command|agent.create.workspace: u32
+$.requests|session.command.command|agent.create.cwd: string
+$.requests|session.command.command|agent.create.provider: optional
+$.requests|session.command.command|agent.create.provider?: enum codex claude
+$.requests|session.command.command|pane.create.workspace: u32
+$.requests|session.command.command|pane.create.from: optional
+$.requests|session.command.command|pane.create.from?: u32
+$.requests|session.command.command|pane.create.cwd: string
+$.requests|session.command.command|pane.create.command: optional
+$.requests|session.command.command|pane.create.command?: string
+$.requests|session.command.command|pane.create.title: string
+$.requests|session.command.command|pane.split.target: u32
+$.requests|session.command.command|pane.split.direction: enum left down up right
+$.requests|session.command.command|pane.split.cwd: string
+$.requests|session.command.command|pane.split.command: optional
+$.requests|session.command.command|pane.split.command?: string
+$.requests|session.command.command|pane.split.title: string
+$.requests|session.command.command|pane.close.target: u32
+$.requests|session.command.command|tab.close.target: u32
+$.requests|session.command.command|pane.restore.workspace: u32
+$.requests|session.command.command|workspace.create.name: string
+$.requests|session.command.command|workspace.create.cwd: string
+$.requests|session.command.command|workspace.edit.target: u32
+$.requests|session.command.command|workspace.edit.name: optional
+$.requests|session.command.command|workspace.edit.name?: string
+$.requests|session.command.command|workspace.edit.cwd: optional
+$.requests|session.command.command|workspace.edit.cwd?: string
+$.requests|session.command.command|workspace.close.target: u32
+$.requests|session.command.command|workspace.close.close_contents: bool
+$.requests|session.command.command|workspace.move.target: u32
+$.requests|session.command.command|workspace.move.before: u32
+$.requests|session.command.command|pane.rename.target: u32
+$.requests|session.command.command|pane.rename.name: string
+$.requests|session.command.command|tab.rename.target: u32
+$.requests|session.command.command|tab.rename.name: string
+$.requests|session.command.command|pane.swap.target: u32
+$.requests|session.command.command|pane.swap.other: u32
+$.requests|session.command.command|pane.resize.target: u32
+$.requests|session.command.command|pane.resize.axis: enum horizontal vertical
+$.requests|session.command.command|pane.resize.ratio: u16
+$.requests|session.command.command|split.resize.target: u32
+$.requests|session.command.command|split.resize.direction: enum left down up right
+$.requests|session.command.command|split.ratio.target: u32
+$.requests|session.command.command|split.ratio.other: u32
+$.requests|session.command.command|split.ratio.ratio: u16
+$.requests|session.command.command|split.ratio.expected: u64
+$.requests|session.command.command|pane.move.target: u32
+$.requests|session.command.command|pane.move.destination: one of
+$.requests|session.command.command|pane.move.destination|beside.other: u32
+$.requests|session.command.command|pane.move.destination|beside.direction: enum left down up right
+$.requests|session.command.command|pane.move.destination|new_tab: string
+$.requests|session.command.command|tab.move.target: u32
+$.requests|session.command.command|tab.move.destination: one of
+$.requests|session.command.command|tab.move.destination|before: u32
+$.requests|session.command.command|tab.move.destination|after: u32
+$.requests|session.command.command|tab.move.destination|workspace: u32
+$.requests|session.command.command|tab.merge.target: u32
+$.requests|session.command.command|tab.merge.other: u32
+$.requests|session.command.command|tab.merge.direction: enum left down up right
+$.requests|session.command.command|pane.read.target: u32
+$.requests|session.command.command|pane.read.lines: usize
+$.requests|session.command.command|pane.read.view: enum history screen
+$.requests|session.command.command|pane.send.target: u32
+$.requests|session.command.command|pane.send.text: string
+$.requests|session.command.command|pane.send.enter: bool
+$.requests|session.command.command|pane.keys.target: u32
+$.requests|session.command.command|pane.keys.text: string
+$.requests|session.command.command|pane.input.target: u32
+$.requests|session.command.command|pane.input.data: string
+$.requests|session.locate.pane: u32
+$.requests|session.list: {}
+$.requests|session.snapshot: {}
+$.requests|session.subscribe: {}
+$.requests|agent.subscribe.workspace: u32
+$.requests|agent.subscribe.cwd: string
+$.requests|viewer.open: versioned protocol.Request.Open
+$.requests|viewer.sync: versioned protocol.Request.Sync
+$.requests|viewer.search.pane: u32
+$.requests|viewer.search.needle: string
+$.requests|viewer.search.skip: usize
+$.requests|pane.acknowledge.pane: u32
+$.requests|pane.acknowledge.session: string
+$.requests|pane.acknowledge.through: u64
+$.requests|pane.acknowledge.binding: optional
+$.requests|pane.acknowledge.binding?: u64
+$.requests|pane.acknowledge.conversation: optional
+$.requests|pane.acknowledge.conversation?: u32
+$.requests|pane.acknowledge.attention_at: optional
+$.requests|pane.acknowledge.attention_at?: i64
+$.requests|conversation.list: {}
+$.requests|conversation.acknowledge.conversation: u32
+$.requests|conversation.acknowledge.through: u64
+$.requests|conversation.acknowledge.attention_at: optional
+$.requests|conversation.acknowledge.attention_at?: i64
+$.requests|pane.surface.pane: u32
+$.requests|server.reload.executable: string
+$.requests|recovery.save: {}
+$.requests|inference.configure.choice: enum auto codex claude off
+$.requests|git.push.workspace: u32
+$.requests|git.push.ref.root: string
+$.requests|git.push.ref.head: string
+$.requests|git.push.ref.branch: string
+$.requests|git.push.ref.remote: string
+$.requests|git.push.ref.destination: string
+$.requests|onboarding.status.operation: u64
+$.requests|onboarding.handoff.operation: u64
+$.requests|onboarding.handoff.viewer_pgid: i32
+$.requests|onboarding.handoff.socket: string
+$.requests|onboarding.copy.operation: u64
+$.requests|onboarding.copy.source: enum tmux herdr cmux
+$.requests|onboarding.copy.workspaces[].id: string
+$.requests|onboarding.copy.workspaces[].name: string
+$.requests|onboarding.copy.workspaces[].cwd: string
+$.requests|onboarding.copy.workspaces[].socket: string
+$.requests|onboarding.copy.workspaces[].session: usize
+$.requests|onboarding.copy.workspaces[].activity: i64
+$.requests|onboarding.copy.workspaces[].handoff: bool
+$.requests|onboarding.copy.workspaces[].recovery: enum full layout partial workspace
+$.requests|onboarding.copy.workspaces[].recovery_note: string
+$.requests|onboarding.copy.workspaces[].tabs[].id: string
+$.requests|onboarding.copy.workspaces[].tabs[].name: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].id: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].name: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].cwd: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].pid: optional
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].pid?: i32
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].url: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].x: u16
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].y: u16
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].w: u16
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].h: u16
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].resume_available: bool
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].history: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].screen: string
+$.requests|onboarding.copy.workspaces[].tabs[].panes[].restart_command: string
+$.requests|onboarding.copy.workspaces[].tabs[].nodes[]: one of
+$.requests|onboarding.copy.workspaces[].tabs[].nodes[]|pane: usize
+$.requests|onboarding.copy.workspaces[].tabs[].nodes[]|split.axis: enum horizontal vertical
+$.requests|onboarding.copy.workspaces[].tabs[].nodes[]|split.ratio: u16
+$.requests|onboarding.copy.workspaces[].tabs[].nodes[]|split.first: usize
+$.requests|onboarding.copy.workspaces[].tabs[].nodes[]|split.second: usize
+$.requests|onboarding.copy.herdr_session: optional
+$.requests|onboarding.copy.herdr_session?.socket: string
+$.requests|onboarding.copy.herdr_session?.name: string
+$.requests|onboarding.copy.herdr_session?.live_handoff: bool
+$.requests|onboarding.copy.herdr_session?.workspaces[].id: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].name: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].cwd: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].id: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].name: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].id: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].name: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].cwd: string
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].pid: optional
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].pid?: i32
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.name: custom bounded_text.BoundedText(160)
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.touched_at: i64
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.provider: optional
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.provider?: enum codex claude
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].root: any
+$.requests|onboarding.copy.selected[]: string
+$.requests|agent.command.preview.workspace: u32
+$.requests|agent.command.preview.cwd: string
+$.requests|agent.command.preview.request: u64
+$.requests|agent.command.preview.command: string
+$.requests|agent.preview.workspace: u32
+$.requests|agent.preview.cwd: string
+$.requests|agent.track_usage.workspace: u32
+$.requests|agent.track_usage.cwd: string
+$.requests|viewer.list: {}
+$.requests|action.name: string
+$.requests|action.value: string
+$.requests|action.viewer: optional
+$.requests|action.viewer?: u32
+$.requests|action.pane: optional
+$.requests|action.pane?: u32
+$.requests|focus.pane: u32
+$.requests|focus.viewer: optional
+$.requests|focus.viewer?: u32
+$.requests|workspace.switch.workspace: u32
+$.requests|workspace.switch.viewer: optional
+$.requests|workspace.switch.viewer?: u32
+$.requests|native.start.provider: enum codex claude
+$.requests|native.start.cwd: string
+$.requests|native.start.workspace: optional
+$.requests|native.start.workspace?: u32
+$.requests|native.list: {}
+$.requests|native.stop.session: u32
+$.requests|native.send.session: u32
+$.requests|native.send.message: any
+$.requests|native.events.session: u32
+$.requests|native.events.after: u64
+$.requests|theme.theme: optional
+$.requests|theme.theme?.foreground: optional
+$.requests|theme.theme?.foreground?.r: u8
+$.requests|theme.theme?.foreground?.g: u8
+$.requests|theme.theme?.foreground?.b: u8
+$.requests|theme.theme?.background: optional
+$.requests|theme.theme?.background?.r: u8
+$.requests|theme.theme?.background?.g: u8
+$.requests|theme.theme?.background?.b: u8
+$.requests|theme.theme?.palette[16]: optional
+$.requests|theme.theme?.palette[16]?.r: u8
+$.requests|theme.theme?.palette[16]?.g: u8
+$.requests|theme.theme?.palette[16]?.b: u8
+$.requests|hook.provider: enum codex claude
+$.requests|hook.event: any
+$.requests|hook.pane: u32
+$.requests|hook.seq: optional
+$.requests|hook.seq?: i64
+$.requests|hook.background: bool
+$.requests|ping: {}
+$.requests|shutdown: {}
+$.requests|test.settle: {}
+$.requests|test.advance.ms: i64
+$.snapshot.release_version: string
+$.snapshot.release_commit: string
+$.snapshot.staged_version: string
+$.snapshot.system_model: string
+$.snapshot.inference.choice: enum auto codex claude off
+$.snapshot.inference.provider: optional
+$.snapshot.inference.provider?: enum codex claude
+$.snapshot.inference.model: string
+$.snapshot.inference.locked: bool
+$.snapshot.inference.launches.codex: u32
+$.snapshot.inference.launches.claude: u32
+$.snapshot.inference.models.codex: string
+$.snapshot.inference.models.claude: string
+$.snapshot.system_working: bool
+$.snapshot.system_usage.tokens.input: u64
+$.snapshot.system_usage.tokens.cached_input: u64
+$.snapshot.system_usage.tokens.output: u64
+$.snapshot.system_usage.known: bool
+$.snapshot.system_usage.partial: bool
+$.snapshot.system_usage.losses: u32
+$.snapshot.system_usage.since: i64
+$.snapshot.system_usage.updated_at: i64
+$.snapshot.system_usage.recent_tokens: u64
+$.snapshot.last_agent: enum codex claude
+$.snapshot.agent_yolo.codex: bool
+$.snapshot.agent_yolo.claude: bool
+$.snapshot.agent_hidden.codex: bool
+$.snapshot.agent_hidden.claude: bool
+$.snapshot.agent_commands[6].command: custom bounded_text.BoundedText(2048)
+$.snapshot.agent_commands[6].original: custom bounded_text.BoundedText(2048)
+$.snapshot.agent_commands[6].hidden: bool
+$.snapshot.agent_commands[6].name: custom bounded_text.BoundedText(160)
+$.snapshot.agent_commands[6].semantics.provider: optional
+$.snapshot.agent_commands[6].semantics.provider?: enum codex claude
+$.snapshot.agent_commands[6].semantics.suggested_name: custom bounded_text.BoundedText(160)
+$.snapshot.agent_commands[6].semantics.model: custom bounded_text.BoundedText(160)
+$.snapshot.agent_commands[6].semantics.account: custom bounded_text.BoundedText(160)
+$.snapshot.agent_commands[6].semantics.mode: custom bounded_text.BoundedText(160)
+$.snapshot.agent_commands[6].semantics.yolo: bool
+$.snapshot.agent_commands[6].semantics.default_account: bool
+$.snapshot.conversations[].background_tasks.items[].id: string
+$.snapshot.conversations[].background_tasks.items[].label: string
+$.snapshot.conversations[].background_tasks.items[].group: enum tests builds servers commands
+$.snapshot.conversations[].background_tasks.observed_at: i64
+$.snapshot.conversations[].background_tasks.live: bool
+$.snapshot.conversations[].background_tasks.truncated: bool
+$.snapshot.conversations[].id: u32
+$.snapshot.conversations[].timeline.points[].at: i64
+$.snapshot.conversations[].timeline.points[].activity: string
+$.snapshot.conversations[].timeline.points[].usage.tokens.input: u64
+$.snapshot.conversations[].timeline.points[].usage.tokens.cached_input: u64
+$.snapshot.conversations[].timeline.points[].usage.tokens.output: u64
+$.snapshot.conversations[].timeline.points[].usage.known: bool
+$.snapshot.conversations[].timeline.points[].usage.partial: bool
+$.snapshot.conversations[].timeline.points[].usage.losses: u32
+$.snapshot.conversations[].timeline.points[].usage.since: i64
+$.snapshot.conversations[].timeline.points[].usage.updated_at: i64
+$.snapshot.conversations[].timeline.points[].usage.recent_tokens: u64
+$.snapshot.conversations[].timeline.pending.tokens.input: u64
+$.snapshot.conversations[].timeline.pending.tokens.cached_input: u64
+$.snapshot.conversations[].timeline.pending.tokens.output: u64
+$.snapshot.conversations[].timeline.pending.known: bool
+$.snapshot.conversations[].timeline.pending.partial: bool
+$.snapshot.conversations[].timeline.pending.losses: u32
+$.snapshot.conversations[].timeline.pending.since: i64
+$.snapshot.conversations[].timeline.pending.updated_at: i64
+$.snapshot.conversations[].timeline.pending.recent_tokens: u64
+$.snapshot.conversations[].model: string
+$.snapshot.conversations[].parent: optional
+$.snapshot.conversations[].parent?: u32
+$.snapshot.conversations[].workspace: u32
+$.snapshot.conversations[].observed_at: i64
+$.snapshot.conversations[].attachments: u32
+$.snapshot.conversations[].role: string
+$.snapshot.conversations[].usage.tokens.input: u64
+$.snapshot.conversations[].usage.tokens.cached_input: u64
+$.snapshot.conversations[].usage.tokens.output: u64
+$.snapshot.conversations[].usage.known: bool
+$.snapshot.conversations[].usage.partial: bool
+$.snapshot.conversations[].usage.losses: u32
+$.snapshot.conversations[].usage.since: i64
+$.snapshot.conversations[].usage.updated_at: i64
+$.snapshot.conversations[].usage.recent_tokens: u64
+$.snapshot.conversations[].context.used: u64
+$.snapshot.conversations[].context.window: u64
+$.snapshot.conversations[].context.compacts_at: u64
+$.snapshot.conversations[].context.at: i64
+$.snapshot.conversations[].children_observed_at: i64
+$.snapshot.conversations[].agent.conversation: u32
+$.snapshot.conversations[].agent.subagents.running: u32
+$.snapshot.conversations[].agent.subagents.blocked: u32
+$.snapshot.conversations[].agent.subagents.waiting: bool
+$.snapshot.conversations[].agent.name: string
+$.snapshot.conversations[].agent.observation.source: enum unknown screen hook transcript protocol
+$.snapshot.conversations[].agent.observation.pending_stop: bool
+$.snapshot.conversations[].agent.observation.completed: u64
+$.snapshot.conversations[].agent.observation.read: u64
+$.snapshot.conversations[].agent.observation.outcome: enum completed interrupted failed
+$.snapshot.conversations[].agent.recent_activity: string
+$.snapshot.conversations[].agent.changed_at: i64
+$.snapshot.conversations[].agent.provider: optional
+$.snapshot.conversations[].agent.provider?: enum codex claude
+$.snapshot.conversations[].agent.state: enum unknown initializing idle working blocked done
+$.snapshot.conversations[].agent.attention: enum none finished needs_input
+$.snapshot.conversations[].agent.session: string
+$.snapshot.conversations[].agent.activity: string
+$.snapshot.conversations[].agent.cwd: string
+$.snapshot.conversations[].agent.tool_active: bool
+$.snapshot.conversations[].agent.compacting: bool
+$.snapshot.ports.processes_available: bool
+$.snapshot.ports.ports_available: bool
+$.snapshot.ports.workspaces[].id: u32
+$.snapshot.ports.workspaces[].background: usize
+$.snapshot.ports.workspaces[].endpoints[].label: string
+$.snapshot.ports.workspaces[].endpoints[].label_pending: bool
+$.snapshot.ports.workspaces[].endpoints[].pid: i32
+$.snapshot.ports.workspaces[].endpoints[].pane: u32
+$.snapshot.ports.workspaces[].endpoints[].name: string
+$.snapshot.ports.workspaces[].endpoints[].transport: enum tcp udp
+$.snapshot.ports.workspaces[].endpoints[].bind_address: string
+$.snapshot.ports.workspaces[].endpoints[].port: u16
+$.snapshot.ports.workspaces[].endpoints[].ipv6: bool
+$.snapshot.ports.workspaces[].endpoints[].interfaces[].name: string
+$.snapshot.ports.workspaces[].endpoints[].interfaces[].address: string
+$.snapshot.ports.workspaces[].endpoints[].interfaces[].kind: enum loopback tailscale vpn network
+$.snapshot.ports.workspaces[].endpoints[].interfaces[].ipv6: bool
+$.snapshot.ports.workspaces[].endpoints[].scheme: enum unknown http https
+$.snapshot.ports.workspaces[].endpoints[].http_status: optional
+$.snapshot.ports.workspaces[].endpoints[].http_status?: u16
+$.snapshot.ports.workspaces[].endpoints[].probed_at: i64
+$.snapshot.resources.sampled_at: i64
+$.snapshot.resources.interval_ms: u32
+$.snapshot.resources.host_cpu: optional
+$.snapshot.resources.host_cpu?: f64
+$.snapshot.resources.host_memory: u64
+$.snapshot.resources.cores: u32
+$.snapshot.resources.memory_pressure: enum unknown normal warning critical
+$.snapshot.resources.memory_kind: string
+$.snapshot.resources.workspaces[].id: u32
+$.snapshot.resources.workspaces[].known: bool
+$.snapshot.resources.workspaces[].partial: bool
+$.snapshot.resources.workspaces[].count: usize
+$.snapshot.resources.workspaces[].cpu: optional
+$.snapshot.resources.workspaces[].cpu?: f64
+$.snapshot.resources.workspaces[].memory: optional
+$.snapshot.resources.workspaces[].memory?: u64
+$.snapshot.resources.workspaces[].read: optional
+$.snapshot.resources.workspaces[].read?: u64
+$.snapshot.resources.workspaces[].written: optional
+$.snapshot.resources.workspaces[].written?: u64
+$.snapshot.resources.workspaces[].cpu_pressure: bool
+$.snapshot.resources.workspaces[].processes[].pid: i32
+$.snapshot.resources.workspaces[].processes[].start: u64
+$.snapshot.resources.workspaces[].processes[].name: string
+$.snapshot.resources.workspaces[].processes[].provider: optional
+$.snapshot.resources.workspaces[].processes[].provider?: enum codex claude
+$.snapshot.resources.workspaces[].processes[].cpu: optional
+$.snapshot.resources.workspaces[].processes[].cpu?: f64
+$.snapshot.resources.workspaces[].processes[].memory: u64
+$.snapshot.resources.workspaces[].processes[].read: optional
+$.snapshot.resources.workspaces[].processes[].read?: u64
+$.snapshot.resources.workspaces[].processes[].written: optional
+$.snapshot.resources.workspaces[].processes[].written?: u64
+$.snapshot.resources.workspaces[].history[].at: i64
+$.snapshot.resources.workspaces[].history[].cpu: optional
+$.snapshot.resources.workspaces[].history[].cpu?: f64
+$.snapshot.resources.workspaces[].history[].memory: optional
+$.snapshot.resources.workspaces[].history[].memory?: u64
+$.snapshot.resources.workspaces[].history[].io: optional
+$.snapshot.resources.workspaces[].history[].io?: u64
+$.snapshot.type: string
+$.snapshot.protocol: u32
+$.snapshot.server_pid: i32
+$.snapshot.revision: u64
+$.snapshot.workspaces[].id: u32
+$.snapshot.workspaces[].name: string
+$.snapshot.workspaces[].custom_name: string
+$.snapshot.workspaces[].cwd: string
+$.snapshot.workspaces[].model: custom layout.Model
+$.snapshot.workspaces[].agent_order[]: one of
+$.snapshot.workspaces[].agent_order[]|pane: u32
+$.snapshot.workspaces[].agent_order[]|native: u32
+$.snapshot.workspaces[].git_commits[].timestamp: i64
+$.snapshot.workspaces[].git_commits[].hash: string
+$.snapshot.workspaces[].git_commits[].subject: string
+$.snapshot.workspaces[].git_commits[].author: string
+$.snapshot.workspaces[].git_commits[].date: string
+$.snapshot.workspaces[].git_ahead: optional
+$.snapshot.workspaces[].git_ahead?: u64
+$.snapshot.workspaces[].git_ref.root: string
+$.snapshot.workspaces[].git_ref.head: string
+$.snapshot.workspaces[].git_ref.branch: string
+$.snapshot.workspaces[].git_ref.remote: string
+$.snapshot.workspaces[].git_ref.destination: string
+$.snapshot.workspaces[].git_push.phase: enum idle pushing succeeded failed
+$.snapshot.workspaces[].git_push.message: string
+$.snapshot.workspaces[].stats.tools: u64
+$.snapshot.workspaces[].stats.input: u64
+$.snapshot.workspaces[].stats.cached_input: u64
+$.snapshot.workspaces[].stats.output: u64
+$.snapshot.workspaces[].stats.tokens_known: bool
+$.snapshot.panes[].binding: u64
+$.snapshot.panes[].name: string
+$.snapshot.panes[].id: u32
+$.snapshot.panes[].workspace: u32
+$.snapshot.panes[].tab: u32
+$.snapshot.panes[].cwd: string
+$.snapshot.panes[].pid: i32
+$.snapshot.panes[].cols: u16
+$.snapshot.panes[].rows: u16
+$.snapshot.panes[].exited: bool
+$.snapshot.panes[].agent.conversation: u32
+$.snapshot.panes[].agent.subagents.running: u32
+$.snapshot.panes[].agent.subagents.blocked: u32
+$.snapshot.panes[].agent.subagents.waiting: bool
+$.snapshot.panes[].agent.name: string
+$.snapshot.panes[].agent.observation.source: enum unknown screen hook transcript protocol
+$.snapshot.panes[].agent.observation.pending_stop: bool
+$.snapshot.panes[].agent.observation.completed: u64
+$.snapshot.panes[].agent.observation.read: u64
+$.snapshot.panes[].agent.observation.outcome: enum completed interrupted failed
+$.snapshot.panes[].agent.recent_activity: string
+$.snapshot.panes[].agent.changed_at: i64
+$.snapshot.panes[].agent.provider: optional
+$.snapshot.panes[].agent.provider?: enum codex claude
+$.snapshot.panes[].agent.state: enum unknown initializing idle working blocked done
+$.snapshot.panes[].agent.attention: enum none finished needs_input
+$.snapshot.panes[].agent.session: string
+$.snapshot.panes[].agent.activity: string
+$.snapshot.panes[].agent.cwd: string
+$.snapshot.panes[].agent.tool_active: bool
+$.snapshot.panes[].agent.compacting: bool
+$.snapshot.native_sessions[].agent: optional
+$.snapshot.native_sessions[].agent?.conversation: u32
+$.snapshot.native_sessions[].agent?.subagents.running: u32
+$.snapshot.native_sessions[].agent?.subagents.blocked: u32
+$.snapshot.native_sessions[].agent?.subagents.waiting: bool
+$.snapshot.native_sessions[].agent?.name: string
+$.snapshot.native_sessions[].agent?.observation.source: enum unknown screen hook transcript protocol
+$.snapshot.native_sessions[].agent?.observation.pending_stop: bool
+$.snapshot.native_sessions[].agent?.observation.completed: u64
+$.snapshot.native_sessions[].agent?.observation.read: u64
+$.snapshot.native_sessions[].agent?.observation.outcome: enum completed interrupted failed
+$.snapshot.native_sessions[].agent?.recent_activity: string
+$.snapshot.native_sessions[].agent?.changed_at: i64
+$.snapshot.native_sessions[].agent?.provider: optional
+$.snapshot.native_sessions[].agent?.provider?: enum codex claude
+$.snapshot.native_sessions[].agent?.state: enum unknown initializing idle working blocked done
+$.snapshot.native_sessions[].agent?.attention: enum none finished needs_input
+$.snapshot.native_sessions[].agent?.session: string
+$.snapshot.native_sessions[].agent?.activity: string
+$.snapshot.native_sessions[].agent?.cwd: string
+$.snapshot.native_sessions[].agent?.tool_active: bool
+$.snapshot.native_sessions[].agent?.compacting: bool
+$.snapshot.native_sessions[].observation.source: enum unknown screen hook transcript protocol
+$.snapshot.native_sessions[].observation.pending_stop: bool
+$.snapshot.native_sessions[].observation.completed: u64
+$.snapshot.native_sessions[].observation.read: u64
+$.snapshot.native_sessions[].observation.outcome: enum completed interrupted failed
+$.snapshot.native_sessions[].id: u32
+$.snapshot.native_sessions[].workspace: u32
+$.snapshot.native_sessions[].provider: enum codex claude
+$.snapshot.native_sessions[].cwd: string
+$.snapshot.native_sessions[].ready: bool
+$.snapshot.native_sessions[].exited: bool
+$.snapshot.native_sessions[].state: enum unknown initializing idle working blocked done
+$.snapshot.native_sessions[].attention: enum none finished needs_input
+$.snapshot.native_sessions[].tool_active: bool
+$.snapshot.native_sessions[].compacting: bool
+$.snapshot.closed_panes: usize
+$.replies.hello.type: string
+$.replies.hello.protocol: u32
+$.replies.hello.capabilities[]: string
+$.replies.hello.server_pid: i32
+$.replies.hello.build_id: string
+$.replies.hello.executable: string
+$.replies.hello.release_version: string
+$.replies.hello.update_abi: string
+$.replies.session.command.result.pane: u32
+$.replies.session.command.result.tab: u32
+$.replies.session.command.result.workspace: u32
+$.replies.session.command.result.text: optional
+$.replies.session.command.result.text?: string
+$.replies.session.command.result.closed_panes[]: u32
+$.replies.session.locate.result.pane: u32
+$.replies.session.locate.result.tab: u32
+$.replies.session.locate.result.workspace: u32
+$.replies.session.locate.result.text: optional
+$.replies.session.locate.result.text?: string
+$.replies.session.locate.result.closed_panes[]: u32
+$.replies.session.snapshot: any
+$.replies.viewer.open: versioned protocol.Opened
+$.replies.viewer.sync: versioned protocol.View(json.dynamic.Value,json.dynamic.Value)
+$.replies.viewer.search.offset: optional
+$.replies.viewer.search.offset?: usize
+$.replies.viewer.search.match: optional
+$.replies.viewer.search.match?.x: u16
+$.replies.viewer.search.match?.y: u16
+$.replies.viewer.search.match?.end_x: u16
+$.replies.viewer.search.match?.end_y: u16
+$.replies.inference.configure.saved: bool
+$.replies.inference.configure.inference.choice: enum auto codex claude off
+$.replies.inference.configure.inference.provider: optional
+$.replies.inference.configure.inference.provider?: enum codex claude
+$.replies.inference.configure.inference.model: string
+$.replies.inference.configure.inference.locked: bool
+$.replies.inference.configure.inference.launches.codex: u32
+$.replies.inference.configure.inference.launches.claude: u32
+$.replies.inference.configure.inference.models.codex: string
+$.replies.inference.configure.inference.models.claude: string
+$.replies.onboarding.status.progress.phase: enum idle connecting receiving preparing committing copying complete failed
+$.replies.onboarding.status.progress.completed: usize
+$.replies.onboarding.status.progress.total: usize
+$.replies.onboarding.status.progress.workspace: optional
+$.replies.onboarding.status.progress.workspace?: u32
+$.replies.onboarding.status.progress.message: string
+$.replies.agent.command.preview.resolution.semantics.provider: optional
+$.replies.agent.command.preview.resolution.semantics.provider?: enum codex claude
+$.replies.agent.command.preview.resolution.semantics.suggested_name: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.semantics.model: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.semantics.account: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.semantics.mode: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.semantics.yolo: bool
+$.replies.agent.command.preview.resolution.semantics.default_account: bool
+$.replies.agent.command.preview.resolution.pending: bool
+$.replies.agent.command.preview.resolution.command.command: custom bounded_text.BoundedText(2048)
+$.replies.agent.command.preview.resolution.command.original: custom bounded_text.BoundedText(2048)
+$.replies.agent.command.preview.resolution.command.hidden: bool
+$.replies.agent.command.preview.resolution.command.name: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.command.semantics.provider: optional
+$.replies.agent.command.preview.resolution.command.semantics.provider?: enum codex claude
+$.replies.agent.command.preview.resolution.command.semantics.suggested_name: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.command.semantics.model: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.command.semantics.account: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.command.semantics.mode: custom bounded_text.BoundedText(160)
+$.replies.agent.command.preview.resolution.command.semantics.yolo: bool
+$.replies.agent.command.preview.resolution.command.semantics.default_account: bool
+$.replies.agent.command.preview.resolution.error_message: custom bounded_text.BoundedText(160)
+$.launch_preview.pending: bool
+$.launch_preview.options.codex.signed_in: optional
+$.launch_preview.options.codex.signed_in?: bool
+$.launch_preview.options.codex.model: custom bounded_text.BoundedText(160)
+$.launch_preview.options.codex.source: custom bounded_text.BoundedText(160)
+$.launch_preview.options.codex.account: custom bounded_text.BoundedText(160)
+$.launch_preview.options.codex.plan: custom bounded_text.BoundedText(160)
+$.launch_preview.options.codex.limits: one of
+$.launch_preview.options.codex.limits|none: {}
+$.launch_preview.options.codex.limits|metered: {}
+$.launch_preview.options.codex.limits|rate_limited: {}
+$.launch_preview.options.codex.limits|windows[2]: optional
+$.launch_preview.options.codex.limits|windows[2]?.minutes: optional
+$.launch_preview.options.codex.limits|windows[2]?.minutes?: i64
+$.launch_preview.options.codex.limits|windows[2]?.used: u8
+$.launch_preview.options.codex.limits|windows[2]?.reset_at: optional
+$.launch_preview.options.codex.limits|windows[2]?.reset_at?: i64
+$.launch_preview.options.codex.usage_fetched_at: i64
+$.launch_preview.options.codex.usage_error: custom bounded_text.BoundedText(160)
+$.launch_preview.options.codex.usage_needs_consent: bool
+$.launch_preview.options.codex.history[2][11]: optional
+$.launch_preview.options.codex.history[2][11]?: u8
+$.launch_preview.options.claude.signed_in: optional
+$.launch_preview.options.claude.signed_in?: bool
+$.launch_preview.options.claude.model: custom bounded_text.BoundedText(160)
+$.launch_preview.options.claude.source: custom bounded_text.BoundedText(160)
+$.launch_preview.options.claude.account: custom bounded_text.BoundedText(160)
+$.launch_preview.options.claude.plan: custom bounded_text.BoundedText(160)
+$.launch_preview.options.claude.limits: one of
+$.launch_preview.options.claude.limits|none: {}
+$.launch_preview.options.claude.limits|metered: {}
+$.launch_preview.options.claude.limits|rate_limited: {}
+$.launch_preview.options.claude.limits|windows[2]: optional
+$.launch_preview.options.claude.limits|windows[2]?.minutes: optional
+$.launch_preview.options.claude.limits|windows[2]?.minutes?: i64
+$.launch_preview.options.claude.limits|windows[2]?.used: u8
+$.launch_preview.options.claude.limits|windows[2]?.reset_at: optional
+$.launch_preview.options.claude.limits|windows[2]?.reset_at?: i64
+$.launch_preview.options.claude.usage_fetched_at: i64
+$.launch_preview.options.claude.usage_error: custom bounded_text.BoundedText(160)
+$.launch_preview.options.claude.usage_needs_consent: bool
+$.launch_preview.options.claude.history[2][11]: optional
+$.launch_preview.options.claude.history[2][11]?: u8
+$.launch_preview.installed.codex: bool
+$.launch_preview.installed.claude: bool

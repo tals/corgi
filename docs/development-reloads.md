@@ -22,6 +22,21 @@ The Unix socket accepts newline-delimited JSON. Session requests require either
 The hello reply reports `protocol`, `server_pid`, and supported operation names.
 Unsupported versions are rejected before performing operations.
 
+The daemon and its clients can be different builds during an update or a
+handoff, so unit tests pin the wire: `src/fixtures/protocol.schema` lists every
+field path of the requests, the session snapshot, the replies clients decode
+and the launcher previews `agent.subscribe` pushes, and
+`src/fixtures/viewer.schema` those of `viewer.open` and `viewer.sync`. A
+field with a default added or removed only needs a refreshed snapshot
+(`CORGI_UPDATE_SCHEMA=1 ./scripts/zig build test`), noted in the commit. A
+rename, an added or removed required field or a changed type bumps
+`protocol.version` or `viewer_version.version`. So does any field change inside
+a `session.command` command, even one with a default: commands reject unknown
+fields, and clients write defaulted fields. Requests that `protocol.check`
+leaves at `.none` (hooks, `action`, `focus`, `workspace.switch`, `theme`,
+`native.*`) carry no version, so a bump doesn't turn older senders away; they
+may only gain or lose fields with defaults.
+
 Examples (these inspect/control the selected `CORGI_SOCKET`):
 
 ```sh

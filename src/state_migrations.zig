@@ -78,6 +78,8 @@ pub fn schema(comptime T: type, comptime sealed: []const type) []const u8 {
 
 fn shape(comptime T: type, comptime path: []const u8, comptime sealed: []const type) []const u8 {
     inline for (sealed) |S| if (T == S) return path ++ ": versioned " ++ @typeName(T) ++ "\n";
+    // Payloads a provider or a command defines (hook events, native messages).
+    if (T == std.json.Value) return path ++ ": any\n";
     // A type that names the shape its own JSON writes shows that shape.
     if (@typeInfo(T) == .@"struct" and @hasDecl(T, "Json")) return shape(T.Json, path, sealed);
     const custom = switch (@typeInfo(T)) {
@@ -125,25 +127,44 @@ fn shape(comptime T: type, comptime path: []const u8, comptime sealed: []const t
 /// Fails when `T` no longer matches `path`'s snapshot. With
 /// CORGI_UPDATE_SCHEMA=1 it rewrites the snapshot instead.
 pub fn expectSchema(comptime T: type, comptime sealed: []const type, comptime path: []const u8, snapshot: []const u8) !void {
-    const actual = schema(T, sealed);
+    return expectShape(schema(T, sealed), path, snapshot, "saved",
+        \\If old files still decode unchanged (a field with a default was added),
+        \\refresh it with CORGI_UPDATE_SCHEMA=1. Otherwise bump the version with a
+        \\migration and an old-format fixture first; see docs/development-reloads.md.
+    );
+}
+
+/// `expectSchema` for what crosses the socket, which the version named by
+/// `guard` covers: a daemon and its clients may be different builds.
+pub fn expectWireSchema(comptime T: type, comptime sealed: []const type, comptime path: []const u8, snapshot: []const u8, comptime guard: []const u8) !void {
+    return expectShape(schema(T, sealed), path, snapshot, "wire",
+        \\If older peers still decode it (a field with a default was added or
+        \\removed outside a session.command command, which rejects unknown fields),
+        \\refresh it with CORGI_UPDATE_SCHEMA=1 and say so in the commit.
+        \\Otherwise bump
+    ++ " `" ++ guard ++ "`.\n" ++
+        \\Requests that protocol.check leaves at .none carry no version, so a bump
+        \\doesn't turn older senders away: change those only compatibly.
+    );
+}
+
+fn expectShape(actual: []const u8, comptime path: []const u8, snapshot: []const u8, comptime format: []const u8, comptime advice: []const u8) !void {
     if (std.process.hasEnvVarConstant("CORGI_UPDATE_SCHEMA")) {
         try std.fs.cwd().writeFile(.{ .sub_path = path, .data = actual });
         return;
     }
     if (std.mem.eql(u8, actual, snapshot)) return;
-    std.debug.print(
-        \\{s} no longer matches the saved format.
-        \\If old files still decode unchanged (a field with a default was added),
-        \\refresh it with CORGI_UPDATE_SCHEMA=1. Otherwise bump the version with a
-        \\migration and an old-format fixture first; see docs/development-reloads.md.
-        \\
-    , .{path});
+    std.debug.print("{s} no longer matches the " ++ format ++ " format.\n" ++ advice ++ "\n", .{path});
     try std.testing.expectEqualStrings(snapshot, actual);
 }
 
 fn object(value: *Value) !*std.json.ObjectMap {
     if (value.* != .object) return error.InvalidCheckpoint;
     return &value.object;
+}
+
+test "a schema shows a JSON value a provider or command defines as any" {
+    try std.testing.expectEqualStrings("$.event: any\n$.seq: optional\n$.seq?: i64\n", schema(struct { event: Value, seq: ?i64 }, &.{}));
 }
 
 test "migration steps import only std" {

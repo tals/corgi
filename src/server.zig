@@ -29,6 +29,7 @@ const session_command = @import("session.zig");
 const recovery = @import("recovery.zig");
 const inference_setup = @import("inference_setup.zig");
 const viewer_protocol = @import("viewer_protocol.zig");
+const migrations = @import("state_migrations.zig");
 const viewer_version = @import("viewer_version.zig");
 const surface = @import("surface.zig");
 const passes = @import("passes.zig");
@@ -1177,6 +1178,32 @@ test "the daemon loop body has no try: one client's or pane's error must not end
         i = at - start + 3;
     }
 }
+
+test "the runtime wire matches protocol.version" {
+    const name = "fixtures/protocol.schema";
+    // The viewer protocol version covers viewer.open and viewer.sync (viewer.schema).
+    const viewer = [_]type{ protocol.Request.Open, protocol.Request.Sync, protocol.Reply(.@"viewer.open"), protocol.Reply(.@"viewer.sync") };
+    try migrations.expectWireSchema(Wire, &viewer, "src/" ++ name, @embedFile(name), "protocol.version");
+}
+
+/// What a client of `protocol.version` sends and reads.
+const Wire = struct {
+    requests: protocol.Request,
+    snapshot: protocol.Snapshot,
+    replies: Replies,
+    /// What `agent.subscribe` pushes; the viewer's launcher decodes it.
+    launch_preview: launch_preview.Preview,
+};
+/// One field per op whose reply says more than `ok`.
+const Replies = replies: {
+    var fields: []const std.builtin.Type.StructField = &.{};
+    for (std.enums.values(protocol.Op)) |op| {
+        const R = protocol.Reply(op);
+        if (@typeInfo(R) == .@"struct" and @typeInfo(R).@"struct".fields.len == 0) continue;
+        fields = fields ++ [_]std.builtin.Type.StructField{.{ .name = @tagName(op), .type = R, .default_value_ptr = null, .is_comptime = false, .alignment = @alignOf(R) }};
+    }
+    break :replies @Type(.{ .@"struct" = .{ .layout = .auto, .fields = fields, .decls = &.{}, .is_tuple = false } });
+};
 
 test "every protocol.Rejection can still be returned by a request" {
     // Server.request's own inferred error set is anyerror today: it dispatches
