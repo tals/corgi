@@ -4,13 +4,11 @@ const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const layout = @import("layout.zig");
-const runtime = @import("runtime.zig");
+const surface = @import("surface.zig");
 const agents = @import("agents.zig");
 const providers = @import("providers.zig");
 const native = @import("native.zig");
 const NativeId = native.Session.Id;
-const os = @import("os.zig");
-const options = @import("corgi_options");
 const agent_order = @import("agent_order.zig");
 const git_push = @import("git_push.zig");
 const usage = @import("usage.zig");
@@ -226,163 +224,110 @@ pub const Snapshot = struct {
     native_sessions: []const Native,
     closed_panes: usize,
 };
+/// The `onboarding.status` reply. `phase` stays a string because it is also displayed.
+pub const OnboardingProgress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
+/// A pane a viewer shows, at its size. The daemon sizes each pane for the
+/// most recently used viewer showing it.
+pub const Interest = struct { pane: layout.PaneId, cols: u16, rows: u16, offset: ?usize = null, known: ?surface.Stamp = null };
+/// A request queued for one viewer, delivered in `viewer.sync` until acknowledged by `seq`.
+pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
+const PaneTarget = struct { target: layout.PaneId };
+const TabTarget = struct { target: layout.TabId };
+const PaneRename = struct { target: layout.PaneId, name: []const u8 };
+const TabRename = struct { target: layout.TabId, name: []const u8 };
+pub const Beside = struct { other: layout.PaneId, direction: layout.Direction = .right };
+pub const Destination = union(enum) { before: layout.TabId, after: layout.TabId, workspace: WorkspaceId };
+/// The `session.command` request: one edit to shared session state.
+pub const Command = union(enum) {
+    @"agent.move": struct { workspace: WorkspaceId, target: agent_order.Target, before: ?agent_order.Target = null },
+    @"agent.command": struct {
+        index: usize,
+        command: []const u8,
+        hidden: bool = false,
+        name: ?[]const u8 = null,
+        original: ?[]const u8 = null,
+        semantics: ?launch_command.Semantics = null,
+        resolve: bool = true,
+        cwd: ?[]const u8 = null,
+    },
+    @"agent.command.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", index: usize },
+    @"agent.visibility": struct { hidden: providers.Each(bool, false) },
+    @"agent.yolo": struct { provider: providers.Provider, enabled: bool },
+    @"agent.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", provider: ?providers.Provider = null },
+    @"pane.create": struct {
+        workspace: WorkspaceId,
+        from: ?layout.PaneId = null,
+        cwd: []const u8 = "",
+        command: ?[]const u8 = null,
+        title: []const u8 = "",
+    },
+    @"pane.split": struct {
+        target: layout.PaneId,
+        direction: layout.Direction = .right,
+        cwd: []const u8 = "",
+        command: ?[]const u8 = null,
+        title: []const u8 = "",
+    },
+    @"pane.close": PaneTarget,
+    @"tab.close": TabTarget,
+    @"pane.restore": struct { workspace: WorkspaceId },
+    @"workspace.create": struct { name: []const u8 = "", cwd: []const u8 },
+    @"workspace.edit": struct {
+        target: WorkspaceId,
+        name: ?[]const u8 = null,
+        cwd: ?[]const u8 = null,
+    },
+    @"workspace.close": struct { target: WorkspaceId, close_contents: bool = false },
+    @"workspace.move": struct { target: WorkspaceId, before: WorkspaceId },
+    @"pane.rename": PaneRename,
+    @"tab.rename": TabRename,
+    @"pane.swap": struct { target: layout.PaneId, other: layout.PaneId },
+    @"pane.resize": struct {
+        target: layout.PaneId,
+        axis: layout.Axis,
+        ratio: u16,
+    },
+    @"split.resize": struct { target: layout.PaneId, direction: layout.Direction },
+    @"split.ratio": struct {
+        target: layout.PaneId,
+        other: layout.PaneId,
+        ratio: u16,
+        expected: u64,
+    },
+    @"pane.move": struct {
+        target: layout.PaneId,
+        destination: union(enum) { beside: Beside, new_tab: []const u8 },
+    },
+    @"tab.move": struct { target: layout.TabId, destination: Destination },
+    @"tab.merge": struct {
+        target: layout.TabId,
+        other: layout.PaneId,
+        direction: layout.Direction = .right,
+    },
+    @"pane.read": struct {
+        target: layout.PaneId,
+        lines: usize = 100,
+        view: enum { history, screen } = .history,
+    },
+    @"pane.send": struct {
+        target: layout.PaneId,
+        text: []const u8,
+        enter: bool = false,
+    },
+    @"pane.keys": struct { target: layout.PaneId, text: []const u8 },
+    @"pane.input": struct { target: layout.PaneId, data: []const u8 },
+};
+/// The `session.command` reply: where the edit landed.
+pub const Result = struct {
+    pane: layout.PaneId = .none,
+    tab: layout.TabId = .none,
+    workspace: WorkspaceId = .none,
+    text: ?[]const u8 = null,
+    closed_panes: []const layout.PaneId = &.{},
+};
 
-fn agentView(state: *const agents.Agent, conversation: ActorId) Agent {
-    return .{
-        .conversation = conversation,
-        .subagents = state.subagents,
-        .changed_at = state.changed_at,
-        .provider = state.provider,
-        .state = state.state,
-        .attention = state.attention,
-        .observation = state.observation,
-        .recent_activity = state.recentLabel(),
-        .name = state.displayName(),
-        .session = state.sessionId(),
-        .activity = state.activity.text(),
-        .cwd = state.directory(),
-        .tool_active = state.tool_active,
-        .compacting = state.compacting,
-    };
-}
-
-/// Allocate containers in a request arena; strings borrow the runtime until
-/// serialization completes. Process resources remain in the runtime.
-pub fn snapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
-    return build(allocator, r, false);
-}
-/// A viewer syncs every 30 ms and gets a new session only when this copy's
-/// hash changes. It leaves out what moves while nothing shown changes: the
-/// revision, which every PTY read bumps, freshness stamps finer than
-/// `stamp_bucket`, which the viewer only compares against a window, and
-/// resources, which `viewer.sync` sends beside the session.
-pub fn viewerSnapshot(allocator: std.mem.Allocator, r: *runtime.Runtime) !Snapshot {
-    return build(allocator, r, true);
-}
+/// Freshness stamps in a viewer's snapshot are rounded down to this.
 pub const stamp_bucket = 5 * std.time.us_per_s;
-fn coarse(stamp: i64) i64 {
-    return if (stamp <= 0) stamp else @divFloor(stamp, stamp_bucket) * stamp_bucket;
-}
-fn build(allocator: std.mem.Allocator, r: *runtime.Runtime, viewer: bool) !Snapshot {
-    const workspaces = try allocator.alloc(Workspace, r.workspaces.items.items.len);
-    for (r.workspaces.items.items, workspaces) |*ws, *out| {
-        const commits = try allocator.alloc(GitCommit, ws.git_commits.len);
-        for (ws.git_commits.items[0..ws.git_commits.len], commits) |*commit, *dest| {
-            dest.* = .{
-                .timestamp = commit.timestamp,
-                .hash = commit.hash.text(),
-                .subject = commit.subject.text(),
-                .author = commit.author.text(),
-                .date = commit.date.text(),
-            };
-        }
-        out.* = .{
-            .agent_order = ws.agent_order.slice(),
-            .git_commits = commits,
-            .id = ws.id,
-            .name = ws.name(),
-            .cwd = ws.cwd,
-            .custom_name = ws.customName(),
-            .git_ahead = ws.git_ahead,
-            .git_ref = ws.git_ref.view(),
-            .git_push = ws.git_push.view(),
-            .stats = ws.away.counts,
-            .model = ws.model,
-        };
-    }
-    const panes = try allocator.alloc(Pane, r.panes.items.len);
-    for (r.panes.items, panes) |*p, *out| {
-        const owner = r.workspaces.owner(p.id) orelse return error.NoWorkspace;
-        const tab = owner.model.tabForPane(p.id) orelse return error.NoTab;
-        out.* = .{
-            .id = p.id,
-            .binding = p.attachment.generation,
-            .name = p.label.text(),
-            .workspace = owner.id,
-            .tab = owner.model.tabs[tab].id,
-            .cwd = p.cwd,
-            .pid = p.terminal.pid,
-            .cols = p.terminal.vt.cols,
-            .rows = p.terminal.vt.rows,
-            .exited = p.terminal.exited,
-            .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else .none),
-        };
-    }
-    const sessions = try allocator.alloc(Native, r.sessions.items.len);
-    for (r.sessions.items, sessions) |*session, *out| out.* = .{
-        .agent = agentView(session.attachment.agent(), if (session.attachment.actor) |actor| actor.id else .none),
-        .id = session.id,
-        .workspace = session.workspace_id,
-        .provider = session.provider,
-        .cwd = session.cwd,
-        .ready = session.ready,
-        .exited = session.exited,
-        .state = session.status(),
-        .attention = session.attention(),
-        .observation = session.observation(),
-        .tool_active = session.toolActive(),
-    };
-    const conversations = try allocator.alloc(Conversation, r.conversations.items.items.len);
-    for (r.conversations.items.items, conversations) |actor, *out| {
-        const current_usage = actor.usageView(std.time.milliTimestamp());
-        const points = try allocator.alloc(Conversation.ActivityPoint, actor.activity_timeline.len);
-        for (actor.activity_timeline.points[0..actor.activity_timeline.len], points) |*point, *dst| {
-            dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage };
-        }
-        var attachments: u32 = 0;
-        for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {
-            attachments += 1;
-        };
-        for (r.sessions.items) |native_session| if (!native_session.exited) {
-            for (native_session.members.items) |member| if (member == actor) {
-                attachments += 1;
-                break;
-            };
-        };
-        out.* = .{
-            .id = actor.id,
-            .parent = actor.parent,
-            .workspace = actor.workspace,
-            .observed_at = actor.observed_at,
-            .attachments = attachments,
-            .role = actor.role.text(),
-            .background_tasks = try actor.background_tasks.view(allocator),
-            .model = actor.model.text(),
-            .usage = current_usage,
-            .context = actor.context.view(&r.conversations.compaction_points),
-            .timeline = .{ .points = points, .pending = actor.activity_timeline.pending(current_usage) },
-            .children_observed_at = actor.children_observed_at,
-            .agent = agentView(&actor.state, actor.id),
-        };
-        if (viewer) {
-            out.observed_at = coarse(out.observed_at);
-            out.children_observed_at = coarse(out.children_observed_at);
-            out.background_tasks.observed_at = coarse(out.background_tasks.observed_at);
-        }
-    }
-    return .{
-        .conversations = conversations,
-        .release_version = options.release_version,
-        .release_commit = options.release_commit,
-        .staged_version = r.staged_version,
-        .system_model = r.system_model,
-        .inference = r.inference,
-        .system_usage = r.system_usage,
-        .system_working = r.system_working,
-        .server_pid = os.c.getpid(),
-        .ports = try r.link_labels.snapshot(allocator, r.ports.current),
-        .resources = if (viewer) .{} else r.resources.current,
-        .revision = if (viewer) 0 else r.revision,
-        .last_agent = r.last_agent,
-        .agent_yolo = r.agent_yolo,
-        .agent_hidden = r.agent_hidden,
-        .agent_commands = r.agent_commands,
-        .workspaces = workspaces,
-        .panes = panes,
-        .native_sessions = sessions,
-        .closed_panes = r.closed.items.len,
-    };
-}
 
 test "shared arrangement round trip is independent of viewer selection" {
     var original: layout.Model = .{};
@@ -404,27 +349,4 @@ test "shared arrangement round trip is independent of viewer selection" {
     try std.testing.expectEqual(first, selection.tab().focus);
     try std.testing.expectEqual(@as(usize, 1), selection.active);
     try std.testing.expect(selection.tab().zoom);
-}
-
-test "a viewer's snapshot stays byte-stable while only output and stamps move" {
-    var r: runtime.Runtime = .{};
-    defer r.deinit();
-    _ = try r.workspaces.add("stable", "/tmp");
-    const actor = try r.conversations.get(.codex, "stable");
-    actor.observed_at = 10 * std.time.us_per_s + 1;
-    actor.children_observed_at = actor.observed_at;
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-    const before = try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{});
-    // A PTY read bumps the revision; a later observation lands in the same
-    // bucket; resource readings travel separately.
-    r.changed();
-    r.resources.current.cores = 8;
-    actor.observed_at += std.time.us_per_s;
-    actor.children_observed_at = actor.observed_at;
-    try std.testing.expectEqualStrings(before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{}));
-    try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try snapshot(alloc, &r), .{})));
-    actor.observed_at += stamp_bucket;
-    try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{})));
 }

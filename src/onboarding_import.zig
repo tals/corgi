@@ -11,11 +11,11 @@ const import_layout = @import("import_layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const tmux_resume = @import("tmux_resume.zig");
+const OnboardingProgress = @import("protocol.zig").OnboardingProgress;
 pub const Plan = struct { source: catalog.Source, workspaces: []const catalog.Workspace, herdr_session: ?herdr.SourceSession = null, selected: []const []const u8 = &.{} };
-pub const Progress = @import("onboarding.zig").Progress;
 pub const Job = struct {
     plan: ?std.json.Parsed(Plan) = null,
-    progress: Progress = .{},
+    progress: OnboardingProgress = .{},
     index: usize = 0,
     created: [workspace.max_workspaces]WorkspaceId = undefined,
     count: usize = 0,

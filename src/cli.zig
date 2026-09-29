@@ -2,11 +2,11 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
-const session = @import("session.zig");
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Store = @import("workspace.zig").Store;
 const protocol = @import("protocol.zig");
+const keys = @import("keys.zig");
 const rpc = @import("rpc.zig");
 const agents = @import("agents.zig");
 
@@ -147,7 +147,7 @@ const Invocation = struct {
     current: bool = false,
     text_mode: bool = false,
     viewer: ?u32 = null,
-    command: ?session.Command = null,
+    command: ?protocol.Command = null,
 };
 
 /// `words` starts at the group (`pane`, `list`, ...).
@@ -176,7 +176,7 @@ fn parse(mem: std.mem.Allocator, words: []const [:0]const u8, caller: u32) !Invo
         if (try parsed.option("--viewer")) |value| try id(value) else @as(?u32, null)
     else
         null;
-    const command: ?session.Command = switch (action orelse return error.Usage) {
+    const command: ?protocol.Command = switch (action orelse return error.Usage) {
         .list, .current, .focus, .@"workspace.switch" => null,
         else => |value| try parseCommand(value, target, &parsed),
     };
@@ -186,7 +186,7 @@ fn parse(mem: std.mem.Allocator, words: []const [:0]const u8, caller: u32) !Invo
     return .{ .action = action.?, .target = target, .current = current, .text_mode = text_mode, .viewer = viewer, .command = command };
 }
 
-fn parseCommand(action: Action, target: u32, args: *Args) !session.Command {
+fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
     return switch (action) {
         .@"tab.new" => .{ .@"pane.create" = .{
             .workspace = if (try args.option("--workspace")) |value| @enumFromInt(try id(value)) else .none,
@@ -258,7 +258,7 @@ fn parseCommand(action: Action, target: u32, args: *Args) !session.Command {
         } },
         .@"pane.keys" => blk: {
             if (args.positional.items.len == 0) return error.Usage;
-            for (args.positional.items) |key| _ = try session.logicalKey(key);
+            for (args.positional.items) |key| _ = try keys.logicalKey(key);
             const text = try std.mem.join(args.mem, " ", args.positional.items);
             args.positional.clearRetainingCapacity();
             break :blk .{ .@"pane.keys" = .{ .target = @enumFromInt(target), .text = text } };
@@ -329,7 +329,7 @@ const Args = struct {
         for (flags, directions) |name, value| if (try args.flag(name)) return value;
         return error.Usage;
     }
-    fn beside(args: *Args) !session.Beside {
+    fn beside(args: *Args) !protocol.Beside {
         const flags = [_][]const u8{ "--left-of", "--right-of", "--above", "--below" };
         const directions = [_]layout.Direction{ .left, .right, .up, .down };
         for (flags, directions) |name, value| if (try args.option(name)) |other| return .{ .other = @enumFromInt(try id(other)), .direction = value };
@@ -443,5 +443,5 @@ test "command lines parse to the request the daemon receives" {
     }
     const read = try parse(arena.allocator(), &.{ "pane", "read", "current", "--lines", "10", "--text" }, 5);
     try std.testing.expect(read.current and read.text_mode);
-    try std.testing.expectEqualDeep(session.Command{ .@"pane.read" = .{ .target = @enumFromInt(5), .lines = 10 } }, read.command.?);
+    try std.testing.expectEqualDeep(protocol.Command{ .@"pane.read" = .{ .target = @enumFromInt(5), .lines = 10 } }, read.command.?);
 }

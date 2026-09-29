@@ -1,6 +1,5 @@
 //! Local workspace/tab/pane selection. Shared models contain no active or zoom state.
 const std = @import("std");
-const session = @import("session.zig");
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
@@ -31,7 +30,7 @@ pub const State = struct {
         };
         unreachable;
     }
-    pub const Intent = struct { edit: ?session.Command = null, focus: ?layout.PaneId = null };
+    pub const Intent = struct { edit: ?protocol.Command = null, focus: ?layout.PaneId = null };
     pub fn agentHistory(n: *State, store: *mirror.Workspaces) *agent_navigation.History {
         _ = n.tabs(store);
         for (&n.entries) |*entry| if (entry.id == n.workspace_id) return &entry.agents;
@@ -80,7 +79,7 @@ pub const State = struct {
 /// Names the controller delegates to `State.command` once its own action names don't match.
 pub const Action = enum { rename, resize, focus, swap, @"move-tab", @"break", next, prev, tab, join };
 
-pub fn moveTab(model: *const layout.Model, id: layout.TabId, gap: usize) ?session.Command {
+pub fn moveTab(model: *const layout.Model, id: layout.TabId, gap: usize) ?protocol.Command {
     if (gap > model.count or model.count == 0) return null;
     const other = model.tabs[if (gap == model.count) gap - 1 else gap].id;
     if (id == other) return null;

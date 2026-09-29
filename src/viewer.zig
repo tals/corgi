@@ -11,7 +11,6 @@ const protocol = @import("protocol.zig");
 const viewer_version = @import("viewer_version.zig");
 const surface = @import("surface.zig");
 const controller = @import("controller.zig");
-const peer = @import("peer.zig");
 const Connection = @import("rpc.zig").Connection;
 const Theme = @import("theme.zig").Theme;
 const Probe = @import("theme.zig").Probe;
@@ -22,7 +21,7 @@ const corgi_badge = @import("corgi_badge.zig");
 pub const View = controller.Controller;
 const Response = struct {
     viewer: u32,
-    controls: []const peer.Control,
+    controls: []const protocol.Control,
     session: std.json.Value,
     session_hash: u64,
     resources: std.json.Value = .null,
@@ -80,7 +79,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         try p.terminal.flush();
     }
     var places: [layout.max_panes]layout.Placement = undefined;
-    var interests: [layout.max_panes]peer.Interest = undefined;
+    var interests: [layout.max_panes]protocol.Interest = undefined;
     var count: usize = 0;
     for (view.layoutView().placements(view.area(), &places)) |place| {
         const p = view.runtime.pane(place.id) orelse continue;

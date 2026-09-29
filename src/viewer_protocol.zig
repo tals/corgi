@@ -11,6 +11,7 @@ const agents = @import("agents.zig");
 const surface = @import("surface.zig");
 const workspace = @import("workspace.zig");
 const peer = @import("peer.zig");
+const session_command = @import("session.zig");
 const Client = peer.Client;
 const Server = @import("server.zig").Server;
 const WorkspaceId = workspace.Workspace.Id;
@@ -55,7 +56,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     } else if (op == .@"viewer.sync") {
         if (!cl.viewer) return error.NotAttached;
         const Request = struct {
-            interests: []const peer.Interest,
+            interests: []const protocol.Interest,
             session_hash: ?u64 = null,
             focus: ?layout.PaneId = null,
             watched: bool = true,
@@ -119,7 +120,7 @@ pub fn handle(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
         }
         // Snapshot fields include time-dependent usage and metadata updated by
         // independent workers. Compare the actual payload, not just layout revision.
-        const session = try std.json.Stringify.valueAlloc(allocator, try protocol.viewerSnapshot(allocator, &s.runtime), .{});
+        const session = try std.json.Stringify.valueAlloc(allocator, try session_command.viewerSnapshot(allocator, &s.runtime), .{});
         const session_hash = std.hash.Wyhash.hash(0, session);
         // Readings change every few seconds while the session stays put, and
         // each viewer asks for its own detail, so they have their own hash.
@@ -181,7 +182,7 @@ const RawJson = struct {
 /// other viewers clip or pad. Hidden panes retain their last size.
 pub fn resize(s: *Server) !void {
     for (s.runtime.panes.items) |p| {
-        var chosen: ?peer.Interest = null;
+        var chosen: ?protocol.Interest = null;
         var latest: u64 = 0;
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and (chosen == null or cl.active_seq > latest)) {
             for (cl.interests[0..cl.interest_count]) |interest| if (interest.pane == p.id) {
@@ -198,13 +199,6 @@ pub fn resize(s: *Server) !void {
     }
 }
 
-pub fn clearControls(cl: *Client) void {
-    for (cl.controls.items) |control| if (control.kind == .action) {
-        a.free(control.name);
-        a.free(control.value);
-    };
-    cl.controls.clearRetainingCapacity();
-}
 fn targetViewer(s: *Server, v: std.json.Value) !?*Client {
     const relaunch = std.mem.eql(u8, agents.str(v, "name"), "relaunch");
     const onboard = std.mem.eql(u8, agents.str(v, "name"), "onboard") and v.object.get("pane") != null;
@@ -255,7 +249,7 @@ pub fn routeControl(s: *Server, cl: *Client, v: std.json.Value, op: Op) !void {
     cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
 }
 
-fn enqueue(cl: *Client, value: peer.Control) !void {
+fn enqueue(cl: *Client, value: protocol.Control) !void {
     var control = value;
     control.seq = cl.next_control;
     try cl.controls.append(a, control);

@@ -1,7 +1,5 @@
 //! One typed command interface for shared session state. Selection belongs to viewers.
 const std = @import("std");
-const providers = @import("providers.zig");
-const Provider = @import("providers.zig").Provider;
 const os = @import("os.zig");
 const pane_label = @import("pane_label.zig");
 const layout = @import("layout.zig");
@@ -11,107 +9,21 @@ const Workspace = @import("workspace.zig").Workspace;
 const WorkspaceId = Workspace.Id;
 const PaneId = layout.PaneId;
 const TabId = layout.TabId;
-const keyboard = @import("keyboard.zig");
+const keys = @import("keys.zig");
+const agents = @import("agents.zig");
+const ActorId = @import("conversations.zig").Actor.Id;
+const options = @import("corgi_options");
+const protocol = @import("protocol.zig");
+const Command = protocol.Command;
+const Result = protocol.Result;
 const Theme = @import("theme.zig").Theme;
 const ordering = @import("agent_order.zig");
 const launch_command = @import("launch_command.zig");
 const terminal = @import("terminal.zig");
-const PaneTarget = struct { target: PaneId };
-const TabTarget = struct { target: TabId };
-const PaneRename = struct { target: PaneId, name: []const u8 };
-const TabRename = struct { target: TabId, name: []const u8 };
-pub const Beside = struct { other: PaneId, direction: layout.Direction = .right };
-pub const Destination = union(enum) { before: TabId, after: TabId, workspace: WorkspaceId };
-pub const Command = union(enum) {
-    @"agent.move": struct { workspace: WorkspaceId, target: ordering.Target, before: ?ordering.Target = null },
-    @"agent.command": struct {
-        index: usize,
-        command: []const u8,
-        hidden: bool = false,
-        name: ?[]const u8 = null,
-        original: ?[]const u8 = null,
-        semantics: ?launch_command.Semantics = null,
-        resolve: bool = true,
-        cwd: ?[]const u8 = null,
-    },
-    @"agent.command.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", index: usize },
-    @"agent.visibility": struct { hidden: providers.Each(bool, false) },
-    @"agent.yolo": struct { provider: Provider, enabled: bool },
-    @"agent.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", provider: ?Provider = null },
-    @"pane.create": struct {
-        workspace: WorkspaceId,
-        from: ?PaneId = null,
-        cwd: []const u8 = "",
-        command: ?[]const u8 = null,
-        title: []const u8 = "",
-    },
-    @"pane.split": struct {
-        target: PaneId,
-        direction: layout.Direction = .right,
-        cwd: []const u8 = "",
-        command: ?[]const u8 = null,
-        title: []const u8 = "",
-    },
-    @"pane.close": PaneTarget,
-    @"tab.close": TabTarget,
-    @"pane.restore": struct { workspace: WorkspaceId },
-    @"workspace.create": struct { name: []const u8 = "", cwd: []const u8 },
-    @"workspace.edit": struct {
-        target: WorkspaceId,
-        name: ?[]const u8 = null,
-        cwd: ?[]const u8 = null,
-    },
-    @"workspace.close": struct { target: WorkspaceId, close_contents: bool = false },
-    @"workspace.move": struct { target: WorkspaceId, before: WorkspaceId },
-    @"pane.rename": PaneRename,
-    @"tab.rename": TabRename,
-    @"pane.swap": struct { target: PaneId, other: PaneId },
-    @"pane.resize": struct {
-        target: PaneId,
-        axis: layout.Axis,
-        ratio: u16,
-    },
-    @"split.resize": struct { target: PaneId, direction: layout.Direction },
-    @"split.ratio": struct {
-        target: PaneId,
-        other: PaneId,
-        ratio: u16,
-        expected: u64,
-    },
-    @"pane.move": struct {
-        target: PaneId,
-        destination: union(enum) { beside: Beside, new_tab: []const u8 },
-    },
-    @"tab.move": struct { target: TabId, destination: Destination },
-    @"tab.merge": struct {
-        target: TabId,
-        other: PaneId,
-        direction: layout.Direction = .right,
-    },
-    @"pane.read": struct {
-        target: PaneId,
-        lines: usize = 100,
-        view: enum { history, screen } = .history,
-    },
-    @"pane.send": struct {
-        target: PaneId,
-        text: []const u8,
-        enter: bool = false,
-    },
-    @"pane.keys": struct { target: PaneId, text: []const u8 },
-    @"pane.input": struct { target: PaneId, data: []const u8 },
-};
 pub const Context = struct {
     socket: []const u8,
     executable: []const u8,
     theme: Theme,
-};
-pub const Result = struct {
-    pane: PaneId = .none,
-    tab: TabId = .none,
-    workspace: WorkspaceId = .none,
-    text: ?[]const u8 = null,
-    closed_panes: []const PaneId = &.{},
 };
 pub fn location(r: *Runtime, pane: PaneId) !Result {
     const ws = r.workspaces.owner(pane) orelse return error.NoPane;
@@ -295,7 +207,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             if (bracketed) try output.writer.writeAll("\x1b[200~");
             try output.writer.writeAll(q.text);
             if (bracketed) try output.writer.writeAll("\x1b[201~");
-            if (q.enter) try (try logicalKey("enter")).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
+            if (q.enter) try (try keys.logicalKey("enter")).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
             try p.terminal.send(output.written());
             return location(r, q.target);
         },
@@ -303,8 +215,8 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             const p = r.pane(q.target) orelse return error.NoPane;
             var output: std.Io.Writer.Allocating = .init(alloc);
             defer output.deinit();
-            var keys = std.mem.tokenizeScalar(u8, q.text, ' ');
-            while (keys.next()) |key| try (try logicalKey(key)).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
+            var names = std.mem.tokenizeScalar(u8, q.text, ' ');
+            while (names.next()) |key| try (try keys.logicalKey(key)).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
             p.detection.observeInput(output.written(), std.time.microTimestamp());
             try p.terminal.send(output.written());
             return location(r, q.target);
@@ -363,7 +275,7 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
             node.*.?.split.ratio = q.ratio;
         },
         else => {
-            const Placement = union(enum) { beside: Beside, new_tab: []const u8, tab: Destination, swap: PaneId };
+            const Placement = union(enum) { beside: protocol.Beside, new_tab: []const u8, tab: protocol.Destination, swap: PaneId };
             const place: Placement = switch (cmd) {
                 .@"pane.swap" => |q| .{ .swap = q.other },
                 .@"pane.move" => |q| switch (q.destination) {
@@ -430,34 +342,161 @@ fn arrange(r: *Runtime, cmd: Command) !Result {
     r.changed();
     return location(r, representative);
 }
-const named_keys = std.StaticStringMap(u21).initComptime(.{
-    .{ "esc", 27 },
-    .{ "enter", 13 },
-    .{ "tab", 9 },
-    .{ "backspace", 127 },
-    .{ "left", 57350 },
-    .{ "right", 57351 },
-    .{ "up", 57352 },
-    .{ "down", 57353 },
-    .{ "home", 57356 },
-    .{ "end", 57357 },
-    .{ "delete", 57349 },
-    .{ "pageup", 57354 },
-    .{ "pagedown", 57355 },
-    .{ "space", 32 },
-});
-pub fn logicalKey(name: []const u8) !keyboard.Key {
-    var mods: terminal.vt.input.KeyMods = .{};
-    var key = name;
-    while (std.mem.indexOfScalar(u8, key, '+')) |i| {
-        switch (std.meta.stringToEnum(enum { ctrl, alt, shift }, key[0..i]) orelse return error.InvalidKey) {
-            inline else => |m| @field(mods, @tagName(m)) = true,
+
+fn agentView(state: *const agents.Agent, conversation: ActorId) protocol.Agent {
+    return .{
+        .conversation = conversation,
+        .subagents = state.subagents,
+        .changed_at = state.changed_at,
+        .provider = state.provider,
+        .state = state.state,
+        .attention = state.attention,
+        .observation = state.observation,
+        .recent_activity = state.recentLabel(),
+        .name = state.displayName(),
+        .session = state.sessionId(),
+        .activity = state.activity.text(),
+        .cwd = state.directory(),
+        .tool_active = state.tool_active,
+        .compacting = state.compacting,
+    };
+}
+
+/// Allocate containers in a request arena; strings borrow the runtime until
+/// serialization completes. Process resources remain in the runtime.
+pub fn snapshot(allocator: std.mem.Allocator, r: *Runtime) !protocol.Snapshot {
+    return build(allocator, r, false);
+}
+/// A viewer syncs every 30 ms and gets a new session only when this copy's
+/// hash changes. It leaves out what moves while nothing shown changes: the
+/// revision, which every PTY read bumps, freshness stamps finer than
+/// `protocol.stamp_bucket`, which the viewer only compares against a window, and
+/// resources, which `viewer.sync` sends beside the session.
+pub fn viewerSnapshot(allocator: std.mem.Allocator, r: *Runtime) !protocol.Snapshot {
+    return build(allocator, r, true);
+}
+fn coarse(stamp: i64) i64 {
+    return if (stamp <= 0) stamp else @divFloor(stamp, protocol.stamp_bucket) * protocol.stamp_bucket;
+}
+fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snapshot {
+    const workspaces = try allocator.alloc(protocol.Workspace, r.workspaces.items.items.len);
+    for (r.workspaces.items.items, workspaces) |*ws, *out| {
+        const commits = try allocator.alloc(protocol.GitCommit, ws.git_commits.len);
+        for (ws.git_commits.items[0..ws.git_commits.len], commits) |*commit, *dest| {
+            dest.* = .{
+                .timestamp = commit.timestamp,
+                .hash = commit.hash.text(),
+                .subject = commit.subject.text(),
+                .author = commit.author.text(),
+                .date = commit.date.text(),
+            };
         }
-        key = key[i + 1 ..];
+        out.* = .{
+            .agent_order = ws.agent_order.slice(),
+            .git_commits = commits,
+            .id = ws.id,
+            .name = ws.name(),
+            .cwd = ws.cwd,
+            .custom_name = ws.customName(),
+            .git_ahead = ws.git_ahead,
+            .git_ref = ws.git_ref.view(),
+            .git_push = ws.git_push.view(),
+            .stats = ws.away.counts,
+            .model = ws.model,
+        };
     }
-    if (named_keys.get(key)) |cp| return .{ .codepoint = cp, .mods = mods };
-    if (key.len == 1 and key[0] >= 32 and key[0] < 127) return .{ .codepoint = key[0], .mods = mods };
-    return error.InvalidKey;
+    const panes = try allocator.alloc(protocol.Pane, r.panes.items.len);
+    for (r.panes.items, panes) |*p, *out| {
+        const owner = r.workspaces.owner(p.id) orelse return error.NoWorkspace;
+        const tab = owner.model.tabForPane(p.id) orelse return error.NoTab;
+        out.* = .{
+            .id = p.id,
+            .binding = p.attachment.generation,
+            .name = p.label.text(),
+            .workspace = owner.id,
+            .tab = owner.model.tabs[tab].id,
+            .cwd = p.cwd,
+            .pid = p.terminal.pid,
+            .cols = p.terminal.vt.cols,
+            .rows = p.terminal.vt.rows,
+            .exited = p.terminal.exited,
+            .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else .none),
+        };
+    }
+    const sessions = try allocator.alloc(protocol.Native, r.sessions.items.len);
+    for (r.sessions.items, sessions) |*session, *out| out.* = .{
+        .agent = agentView(session.attachment.agent(), if (session.attachment.actor) |actor| actor.id else .none),
+        .id = session.id,
+        .workspace = session.workspace_id,
+        .provider = session.provider,
+        .cwd = session.cwd,
+        .ready = session.ready,
+        .exited = session.exited,
+        .state = session.status(),
+        .attention = session.attention(),
+        .observation = session.observation(),
+        .tool_active = session.toolActive(),
+    };
+    const conversations = try allocator.alloc(protocol.Conversation, r.conversations.items.items.len);
+    for (r.conversations.items.items, conversations) |actor, *out| {
+        const current_usage = actor.usageView(std.time.milliTimestamp());
+        const points = try allocator.alloc(protocol.Conversation.ActivityPoint, actor.activity_timeline.len);
+        for (actor.activity_timeline.points[0..actor.activity_timeline.len], points) |*point, *dst| {
+            dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage };
+        }
+        var attachments: u32 = 0;
+        for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {
+            attachments += 1;
+        };
+        for (r.sessions.items) |native_session| if (!native_session.exited) {
+            for (native_session.members.items) |member| if (member == actor) {
+                attachments += 1;
+                break;
+            };
+        };
+        out.* = .{
+            .id = actor.id,
+            .parent = actor.parent,
+            .workspace = actor.workspace,
+            .observed_at = actor.observed_at,
+            .attachments = attachments,
+            .role = actor.role.text(),
+            .background_tasks = try actor.background_tasks.view(allocator),
+            .model = actor.model.text(),
+            .usage = current_usage,
+            .context = actor.context.view(&r.conversations.compaction_points),
+            .timeline = .{ .points = points, .pending = actor.activity_timeline.pending(current_usage) },
+            .children_observed_at = actor.children_observed_at,
+            .agent = agentView(&actor.state, actor.id),
+        };
+        if (viewer) {
+            out.observed_at = coarse(out.observed_at);
+            out.children_observed_at = coarse(out.children_observed_at);
+            out.background_tasks.observed_at = coarse(out.background_tasks.observed_at);
+        }
+    }
+    return .{
+        .conversations = conversations,
+        .release_version = options.release_version,
+        .release_commit = options.release_commit,
+        .staged_version = r.staged_version,
+        .system_model = r.system_model,
+        .inference = r.inference,
+        .system_usage = r.system_usage,
+        .system_working = r.system_working,
+        .server_pid = os.c.getpid(),
+        .ports = try r.link_labels.snapshot(allocator, r.ports.current),
+        .resources = if (viewer) .{} else r.resources.current,
+        .revision = if (viewer) 0 else r.revision,
+        .last_agent = r.last_agent,
+        .agent_yolo = r.agent_yolo,
+        .agent_hidden = r.agent_hidden,
+        .agent_commands = r.agent_commands,
+        .workspaces = workspaces,
+        .panes = panes,
+        .native_sessions = sessions,
+        .closed_panes = r.closed.items.len,
+    };
 }
 
 const test_context: Context = .{ .socket = "", .executable = "", .theme = .{} };
@@ -591,4 +630,27 @@ test "swapping panes exchanges their places, across workspaces too" {
     try std.testing.expectEqual(other, m.firstPane(root.second));
     try std.testing.expectEqual(revisions[0] + 1, m.revision);
     try std.testing.expectEqual(revisions[1] + 1, r.workspaces.get(away).?.model.revision);
+}
+
+test "a viewer's snapshot stays byte-stable while only output and stamps move" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    _ = try r.workspaces.add("stable", "/tmp");
+    const actor = try r.conversations.get(.codex, "stable");
+    actor.observed_at = 10 * std.time.us_per_s + 1;
+    actor.children_observed_at = actor.observed_at;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const before = try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{});
+    // A PTY read bumps the revision; a later observation lands in the same
+    // bucket; resource readings travel separately.
+    r.changed();
+    r.resources.current.cores = 8;
+    actor.observed_at += std.time.us_per_s;
+    actor.children_observed_at = actor.observed_at;
+    try std.testing.expectEqualStrings(before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{}));
+    try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try snapshot(alloc, &r), .{})));
+    actor.observed_at += protocol.stamp_bucket;
+    try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{})));
 }

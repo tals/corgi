@@ -10,16 +10,15 @@ const sidebar = @import("sidebar.zig");
 const Connection = @import("rpc.zig").Connection;
 const Rect = @import("layout.zig").Rect;
 const shortcut_help = @import("shortcut_help.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const builtin = @import("builtin");
 const herdr_adapter = @import("herdr_adapter.zig");
 const ghostty_integration = @import("ghostty_integration.zig");
+const OnboardingProgress = @import("protocol.zig").OnboardingProgress;
 pub const Step = enum { presets, keymap, connect, import, progress, complete };
 /// `welcome` is the first-run wizard. Corgi setup opens `keyboard` or `import`
 /// on its own: no greeting, and finishing returns to Corgi instead of chaining.
 pub const Mode = enum { welcome, keyboard, import };
-pub const Progress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
-/// `Progress.phase` stays a string on the wire because it is also displayed.
+/// The values of `OnboardingProgress.phase`.
 const Phase = enum { idle, connecting, receiving, preparing, committing, copying, complete, failed };
 pub const State = struct {
     preset: km.Preset = .corgi,
@@ -36,8 +35,8 @@ pub const State = struct {
     reveal_cursor: bool = false,
     handoff: bool = true,
     focus: u8 = 0,
-    progress: Progress = .{},
-    progress_data: ?std.json.Parsed(Progress) = null,
+    progress: OnboardingProgress = .{},
+    progress_data: ?std.json.Parsed(OnboardingProgress) = null,
     message: BoundedText(256) = .{},
     last_poll: i64 = 0,
     blink_closed: bool = false,
@@ -197,7 +196,7 @@ pub const State = struct {
         };
         defer response.deinit();
         const value = response.value.object.get("progress") orelse return false;
-        const parsed = std.json.parseFromValue(Progress, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch |err| {
+        const parsed = std.json.parseFromValue(OnboardingProgress, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch |err| {
             s.fail(err);
             return true;
         };

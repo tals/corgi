@@ -32,7 +32,6 @@ const inference_setup = @import("inference_setup.zig");
 const viewer_protocol = @import("viewer_protocol.zig");
 const surface = @import("surface.zig");
 const passes = @import("passes.zig");
-const main = @import("main.zig");
 const options = @import("corgi_options");
 const updates = @import("updates.zig");
 const detection = @import("detection.zig");
@@ -68,6 +67,8 @@ pub const Server = struct {
     clients: std.ArrayList(Client) = .empty,
     socket: []const u8,
     executable: []const u8,
+    /// Hex SHA-256 of `executable`; `corgi dev` reloads when it differs.
+    build_id: [64]u8,
     release: updates.Release = .built,
     theme: Theme = .{},
     dirty: bool = true,
@@ -179,7 +180,7 @@ pub const Server = struct {
         log.info("{s}", .{msg});
     }
     /// All shared commands have one execution and post-commit path.
-    pub fn execute(s: *Server, command: session_command.Command, allocator: std.mem.Allocator) !session_command.Result {
+    pub fn execute(s: *Server, command: protocol.Command, allocator: std.mem.Allocator) !protocol.Result {
         if (s.herdr_import.locked() or s.onboarding_copy.busy()) return error.ImportInProgress;
         const before = s.runtime.revision;
         const result = try session_command.execute(&s.runtime, .{ .socket = s.socket, .executable = s.executable, .theme = s.theme }, command, allocator);
@@ -215,7 +216,7 @@ pub const Server = struct {
     fn queueSession(s: *Server, cl: *Client) !void {
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
-        cl.queue(try protocol.snapshot(arena.allocator(), &s.runtime));
+        cl.queue(try session_command.snapshot(arena.allocator(), &s.runtime));
         cl.snapshot_revision = s.runtime.revision;
         cl.last_snapshot = std.time.milliTimestamp();
     }
@@ -251,7 +252,7 @@ pub const Server = struct {
                     .protocol = protocol.version,
                     .capabilities = protocol.capabilities,
                     .server_pid = c.getpid(),
-                    .build_id = &main.build_id,
+                    .build_id = &s.build_id,
                     .executable = s.executable,
                     .release_version = s.release.version,
                     .update_abi = updates.abi,
@@ -364,7 +365,7 @@ pub const Server = struct {
                 try protocol.require(v, cl.protocol_version);
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                const parsed = try std.json.parseFromValue(session_command.Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
+                const parsed = try std.json.parseFromValue(protocol.Command, arena.allocator(), v.object.get("command") orelse return error.MissingOperation, .{});
                 const result = try s.execute(parsed.value, arena.allocator());
                 cl.queue(.{ .ok = true, .result = result });
             },
@@ -382,7 +383,7 @@ pub const Server = struct {
                 try protocol.require(v, cl.protocol_version);
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                cl.queue(.{ .ok = true, .result = try protocol.snapshot(arena.allocator(), &s.runtime), .viewers = try viewer_protocol.viewers(s, arena.allocator()) });
+                cl.queue(.{ .ok = true, .result = try session_command.snapshot(arena.allocator(), &s.runtime), .viewers = try viewer_protocol.viewers(s, arena.allocator()) });
             },
             .@"session.snapshot", .@"session.subscribe" => {
                 try protocol.require(v, cl.protocol_version);
@@ -394,7 +395,7 @@ pub const Server = struct {
                 try protocol.require(v, cl.protocol_version);
                 var arena = std.heap.ArenaAllocator.init(a);
                 defer arena.deinit();
-                const snapshot = try protocol.snapshot(arena.allocator(), &s.runtime);
+                const snapshot = try session_command.snapshot(arena.allocator(), &s.runtime);
                 cl.queue(.{ .ok = true, .conversations = snapshot.conversations });
             },
             .@"conversation.acknowledge" => {
@@ -1260,7 +1261,7 @@ fn logHook(actor: *const Actor, from: Lifecycle, event: std.json.Value, pane: ?l
 
 test "Codex selection rejects delayed ABA observations while detached actors remain addressable" {
     const id = "11111111-1111-4111-8111-111111111111";
-    var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
+    var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi", .build_id = @splat('0') };
     defer s.runtime.deinit();
     const terminal = try Terminal.create(40, 4);
     terminal.feed("\x1b]2;" ++ id ++ "\x07");
@@ -1303,7 +1304,7 @@ test "Codex selection rejects delayed ABA observations while detached actors rem
 
 test "local Codex reattachment requires current unambiguous identity and preserves observations" {
     const id = "11111111-1111-4111-8111-111111111111";
-    var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi" };
+    var s: Server = .{ .socket = "/tmp/unused", .executable = "/tmp/corgi", .build_id = @splat('0') };
     defer s.runtime.deinit();
     const terminal = try Terminal.create(40, 4);
     try s.runtime.panes.append(a, .{ .id = @enumFromInt(1), .terminal = terminal, .cwd = try a.dupe(u8, "/tmp") });
@@ -1348,7 +1349,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     preview.options.getPtr(.claude).model = .ascii("before");
     var worker: agent_launcher.Worker = .{};
     worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
-    var s: Server = .{ .socket = "", .executable = "", .launch_previews = &worker };
+    var s: Server = .{ .socket = "", .executable = "", .build_id = @splat('0'), .launch_previews = &worker };
     var cl: Client = .{ .fd = -1, .launch_preview = .{ .cwd = .initTruncated("/"), .preview = preview } };
     defer cl.output.deinit(a);
     s.publishLaunchPreview(&cl);

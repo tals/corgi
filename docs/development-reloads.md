@@ -45,7 +45,7 @@ Shared commands name their targets explicitly:
 {"op":"session.command","protocol":1,"command":{"pane.input":{"target":3,"data":"hello"}}}
 ```
 
-`session.Command` in `src/session.zig` defines every accepted payload. CLI commands
+`protocol.Command` in `src/protocol.zig` defines every accepted payload. CLI commands
 and viewers use this same interface, including rename, move, close, restore,
 workspace changes, and terminal reads. Replies place command output in `result`.
 

@@ -5,12 +5,9 @@ const c = os.c;
 const a = os.allocator;
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const surface = @import("surface.zig");
+const protocol = @import("protocol.zig");
 const agent_launcher = @import("agent_launcher.zig");
-const viewer_protocol = @import("viewer_protocol.zig");
 const Path = @import("bounded_text.zig").Path;
-pub const Interest = struct { pane: layout.PaneId, cols: u16, rows: u16, offset: ?usize = null, known: ?surface.Stamp = null };
-pub const Control = struct { seq: u64 = 0, kind: enum { focus, workspace, action }, id: u32 = 0, name: []const u8 = "", value: []const u8 = "" };
 pub const LaunchPreview = struct {
     cwd: Path,
     preview: agent_launcher.Preview,
@@ -23,10 +20,10 @@ pub const Client = struct {
     next_control: u64 = 1,
     last_control: u64 = 0,
     view_workspace: WorkspaceId = .none,
-    controls: std.ArrayList(Control) = .empty,
+    controls: std.ArrayList(protocol.Control) = .empty,
     viewer: bool = false,
     view_focus: ?layout.PaneId = null,
-    interests: [layout.max_panes]Interest = undefined,
+    interests: [layout.max_panes]protocol.Interest = undefined,
     interest_count: usize = 0,
     fd: c_int,
     input: std.ArrayList(u8) = .empty,
@@ -59,11 +56,18 @@ pub const Client = struct {
         cl.dead = true;
     }
     pub fn deinit(cl: *Client) void {
-        viewer_protocol.clearControls(cl);
+        cl.clearControls();
         cl.controls.deinit(a);
         _ = c.close(cl.fd);
         cl.input.deinit(a);
         cl.output.deinit(a);
+    }
+    pub fn clearControls(cl: *Client) void {
+        for (cl.controls.items) |control| if (control.kind == .action) {
+            a.free(control.name);
+            a.free(control.value);
+        };
+        cl.controls.clearRetainingCapacity();
     }
 };
 

@@ -4,6 +4,8 @@
 //! forms share one tag except where a call site deliberately distinguishes
 //! them (those sites keep their own literal `std.mem.eql` checks).
 const std = @import("std");
+const vt = @import("ghostty-vt");
+const keyboard = @import("keyboard.zig");
 
 pub const Key = enum {
     up,
@@ -53,6 +55,37 @@ const map = std.StaticStringMap(Key).initComptime(.{
 
 pub fn parse(seq: []const u8) ?Key {
     return map.get(seq);
+}
+
+const named_keys = std.StaticStringMap(u21).initComptime(.{
+    .{ "esc", 27 },
+    .{ "enter", 13 },
+    .{ "tab", 9 },
+    .{ "backspace", 127 },
+    .{ "left", 57350 },
+    .{ "right", 57351 },
+    .{ "up", 57352 },
+    .{ "down", 57353 },
+    .{ "home", 57356 },
+    .{ "end", 57357 },
+    .{ "delete", 57349 },
+    .{ "pageup", 57354 },
+    .{ "pagedown", 57355 },
+    .{ "space", 32 },
+});
+/// A key named on the command line (`enter`, `ctrl+c`, `a`) as the pane receives it.
+pub fn logicalKey(name: []const u8) !keyboard.Key {
+    var mods: vt.input.KeyMods = .{};
+    var key = name;
+    while (std.mem.indexOfScalar(u8, key, '+')) |i| {
+        switch (std.meta.stringToEnum(enum { ctrl, alt, shift }, key[0..i]) orelse return error.InvalidKey) {
+            inline else => |m| @field(mods, @tagName(m)) = true,
+        }
+        key = key[i + 1 ..];
+    }
+    if (named_keys.get(key)) |cp| return .{ .codepoint = cp, .mods = mods };
+    if (key.len == 1 and key[0] >= 32 and key[0] < 127) return .{ .codepoint = key[0], .mods = mods };
+    return error.InvalidKey;
 }
 
 test "parse recognizes CSI and SS3 forms, and rejects the unmapped" {

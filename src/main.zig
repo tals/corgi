@@ -17,7 +17,6 @@ const discovery = @import("discovery.zig");
 const handoff = @import("handoff.zig");
 const Server = @import("server.zig").Server;
 const viewer_test = @import("viewer_test.zig");
-pub var build_id: [64]u8 = undefined;
 /// A no-op in the daemon, CLI and hook, where client.cleanup has nothing to
 /// restore; in the viewer it leaves the terminal usable instead of raw.
 pub const panic = std.debug.FullPanic(restoreThenPanic);
@@ -85,6 +84,19 @@ pub fn main() void {
         std.process.exit(1);
     };
 }
+/// Hex SHA-256 of the executable; `corgi dev` reloads when the daemon's differs.
+fn buildId(exe: []const u8) ![64]u8 {
+    var file = try std.fs.openFileAbsolute(exe, .{});
+    defer file.close();
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    var buffer: [65536]u8 = undefined;
+    while (true) {
+        const n = try file.read(&buffer);
+        if (n == 0) break;
+        hash.update(buffer[0..n]);
+    }
+    return std.fmt.bytesToHex(hash.finalResult(), .lower);
+}
 fn run() !void {
     const args = try std.process.argsAlloc(a);
     defer std.process.argsFree(a, args);
@@ -106,19 +118,8 @@ fn run() !void {
     if (command == .update) return updates.command(args[2..], path, exe);
     if (std.meta.stringToEnum(agents.Provider, std.fs.path.basename(args[0]))) |provider| try integration.launch(provider, args[1..], exe);
     if (command == .attach and os.env("CORGI_PANE") != null) return error.NestedCorgi;
-    if (command == .serve or command == .__handoff or command == .dev) {
-        var file = try std.fs.openFileAbsolute(exe, .{});
-        defer file.close();
-        var hash = std.crypto.hash.sha2.Sha256.init(.{});
-        var buffer: [65536]u8 = undefined;
-        while (true) {
-            const n = try file.read(&buffer);
-            if (n == 0) break;
-            hash.update(buffer[0..n]);
-        }
-        build_id = std.fmt.bytesToHex(hash.finalResult(), .lower);
-    }
     if (command == .dev) {
+        const build_id = try buildId(exe);
         try ensureServer(path, exe);
         const fd = try os.connect(path);
         defer _ = c.close(fd);
@@ -155,7 +156,7 @@ fn run() !void {
         .__handoff => {
             if (args.len != 4) return error.Usage;
             log_sink = .stderr;
-            handoff.importAndRun(path, exe, try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
+            handoff.importAndRun(path, exe, try buildId(exe), try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
         },
         .reload => {
             if (args.len > 3) return error.Usage;
@@ -164,7 +165,7 @@ fn run() !void {
         .checkpoint => return request(path, .{ .op = "recovery.save", .protocol = 1 }),
         .serve => {
             log_sink = .stderr;
-            var server: Server = .{ .socket = path, .executable = exe };
+            var server: Server = .{ .socket = path, .executable = exe, .build_id = try buildId(exe) };
             return server.run();
         },
         .hook => {

@@ -10,6 +10,7 @@ const cp = @import("checkpoint.zig");
 const migrations = @import("state_migrations.zig");
 const binary = @import("base64.zig");
 const peer = @import("peer.zig");
+const protocol = @import("protocol.zig");
 const Server = @import("server.zig").Server;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const layout = @import("layout.zig");
@@ -29,9 +30,9 @@ const SavedClient = struct {
     active_seq: u64 = 0,
     view_workspace: WorkspaceId,
     view_focus: ?PaneId,
-    interests: []const peer.Interest,
+    interests: []const protocol.Interest,
     watched: bool,
-    controls: []const peer.Control,
+    controls: []const protocol.Control,
     next_control: u64,
     last_control: u64,
     protocol_version: ?u32,
@@ -183,10 +184,10 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     // cleanup or unlink the shared listener. The candidate already has everything.
     c._exit(0);
 }
-pub fn importAndRun(socket: []const u8, executable: []const u8, state_fd: c_int, control_fd: c_int) noreturn {
+pub fn importAndRun(socket: []const u8, executable: []const u8, build_id: [64]u8, state_fd: c_int, control_fd: c_int) noreturn {
     _ = c.signal(c.SIGPIPE, os.sig_ignore);
     var s: Server = undefined;
-    importInner(&s, socket, executable, state_fd, control_fd) catch |err| {
+    importInner(&s, socket, executable, build_id, state_fd, control_fd) catch |err| {
         os.writeAll(control_fd, @errorName(err)) catch {};
         os.writeAll(control_fd, "\n") catch {};
         // Never kill processes or close their PTYs through runtime destructors
@@ -200,7 +201,7 @@ pub fn importAndRun(socket: []const u8, executable: []const u8, state_fd: c_int,
     };
     c._exit(0);
 }
-fn importInner(s: *Server, socket: []const u8, executable: []const u8, state_fd: c_int, control_fd: c_int) !void {
+fn importInner(s: *Server, socket: []const u8, executable: []const u8, build_id: [64]u8, state_fd: c_int, control_fd: c_int) !void {
     os.cloexec(state_fd);
     os.cloexec(control_fd);
     {
@@ -217,6 +218,7 @@ fn importInner(s: *Server, socket: []const u8, executable: []const u8, state_fd:
             .preferred_workspace = m.preferred_workspace,
             .socket = socket,
             .executable = executable,
+            .build_id = build_id,
             .inherited_listener = m.listener,
             .theme = m.theme,
             .default_folder_pending = m.default_folder_pending,
