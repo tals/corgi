@@ -18,7 +18,7 @@ const Command = protocol.Command;
 const Result = protocol.Result;
 const Theme = @import("theme.zig").Theme;
 const ordering = @import("agent_order.zig");
-const launch_command = @import("launch_command.zig");
+const launch_command = @import("launch.zig").command;
 const terminal = @import("pane.zig").terminal;
 pub const Context = struct {
     socket: []const u8,

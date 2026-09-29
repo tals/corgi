@@ -511,8 +511,7 @@ test {
     _ = @import("keyboard.zig");
     _ = @import("keymap.zig");
     _ = @import("keys.zig");
-    _ = @import("launch_command.zig");
-    _ = @import("launch_preview.zig");
+    _ = @import("launch.zig");
     _ = @import("launch_preview_stream.zig");
     _ = @import("launcher_usage.zig");
     _ = @import("layout.zig");

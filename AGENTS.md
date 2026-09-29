@@ -38,12 +38,16 @@ example `Surface.zig`, `input/Binding.zig`, `cli/action.zig`).
 
 **Imports.** One block at the top of the file; never `@import("x.zig").Thing`
 inside fields, signatures or bodies. Alias a module by its file name
-(`const launch_command = @import("launch_command.zig");`), or alias the type
+(`const layout = @import("layout.zig");`), or alias the type
 (`const Actor = @import("conversations.zig").Actor;`). Rename an alias only
 when a local, parameter or declaration (such as a method) would clash with it
 (Zig reports shadowing or "ambiguous reference"); struct fields never do. Don't
 bulk-replace `@import("x.zig").` with sed: it also rewrites the alias line into
-`const x = x;`.
+`const x = x;`. A directory under `src/` is a package: other files import the
+root beside it (`const handoff = @import("persist.zig").handoff;`), files
+inside import each other by name, and the root's `test` block lists every file
+in the directory. `providers/` isn't one yet: other files still import
+`providers/claude.zig` and its siblings directly.
 
 **Strings are parsed once, at the boundary.**
 - A closed set of names (ops, commands, actions, provider event types) is an

@@ -7,7 +7,7 @@ const layout = @import("../layout.zig");
 const hyperlink = @import("hyperlinks.zig");
 const providers = @import("../providers.zig");
 const detection = @import("../detection.zig");
-const launch_command = @import("../launch_command.zig");
+const launch_command = @import("../launch.zig").command;
 const Theme = @import("../theme.zig").Theme;
 pub const Terminal = struct {
     vt: vt.Terminal,

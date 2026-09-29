@@ -1,12 +1,12 @@
 //! Saved shell source is never rewritten or evaluated for a preview.
 const std = @import("std");
-const Provider = @import("providers.zig").Provider;
-const os = @import("os.zig");
-const detection = @import("detection.zig");
-const common = @import("providers/common.zig");
-const Text = @import("usage.zig").account.Text;
-const Path = @import("bounded_text.zig").Path;
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const Provider = @import("../providers.zig").Provider;
+const os = @import("../os.zig");
+const detection = @import("../detection.zig");
+const common = @import("../providers/common.zig");
+const Text = @import("../usage.zig").account.Text;
+const Path = @import("../bounded_text.zig").Path;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 const log = std.log.scoped(.launch_command);
 pub const capacity = 6;
 pub const max_length = 2048;

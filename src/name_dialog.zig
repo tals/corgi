@@ -4,7 +4,7 @@ const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const keys = @import("keys.zig");
-const launch_command = @import("launch_command.zig");
+const launch_command = @import("launch.zig").command;
 const sidebar = @import("sidebar.zig");
 
 pub const Target = union(enum) { pane: layout.PaneId, rename: layout.TabId, workspace_name: ?WorkspaceId, agent_command: usize };

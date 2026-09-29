@@ -17,7 +17,7 @@ const live_usage = @import("usage.zig").live;
 const ports = @import("trackers.zig").ports;
 const resources = @import("trackers.zig").resources;
 const providers = @import("providers.zig");
-const launch_command = @import("launch_command.zig");
+const launch_command = @import("launch.zig").command;
 
 pub const Terminal = struct {
     const Selection = struct { x: u16, y: u16, end_x: u16, end_y: u16 };

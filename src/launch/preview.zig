@@ -2,19 +2,19 @@
 //! plan limits and models. Launch previews never run inference; viewers show
 //! `Preview`.
 const std = @import("std");
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
-const providers = @import("providers.zig");
+const providers = @import("../providers.zig");
 const Provider = providers.Provider;
-const discovery = @import("discovery.zig");
-const inference = @import("inference.zig");
-const common = @import("providers/common.zig");
-const agents = @import("agents.zig");
-const Path = @import("bounded_text.zig").Path;
-const metadata = @import("usage.zig").account;
-const account_cache = @import("usage.zig").account_cache;
-const limit_history = @import("usage.zig").limits;
-const launch_command = @import("launch_command.zig");
+const discovery = @import("../discovery.zig");
+const inference = @import("../inference.zig");
+const common = @import("../providers/common.zig");
+const agents = @import("../agents.zig");
+const Path = @import("../bounded_text.zig").Path;
+const metadata = @import("../usage.zig").account;
+const account_cache = @import("../usage.zig").account_cache;
+const limit_history = @import("../usage.zig").limits;
+const launch_command = @import("command.zig");
 const log = std.log.scoped(.launch_preview);
 pub const Text = metadata.Text;
 pub const Option = struct {

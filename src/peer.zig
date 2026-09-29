@@ -6,7 +6,7 @@ const a = os.allocator;
 const layout = @import("layout.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const protocol = @import("protocol.zig");
-const Preview = @import("launch_preview.zig").Preview;
+const Preview = @import("launch.zig").Preview;
 const Path = @import("bounded_text.zig").Path;
 pub const LaunchPreview = struct {
     cwd: Path,
