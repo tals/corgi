@@ -9,6 +9,7 @@ const WorkspaceId = workspace.Workspace.Id;
 const a = @import("os.zig").allocator;
 const mirror = @import("mirror.zig");
 const keymap = @import("keymap.zig");
+const bindings = @import("bindings.zig");
 const resources = @import("resources.zig");
 const preferences = @import("preferences.zig");
 const resource_tooltip = @import("resource_tooltip.zig");
@@ -205,8 +206,13 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     }
     if (model.count == 0) {
         var empty_buffer: [160]u8 = undefined;
-        const prefix_key = if (ui.key_prefix == .ctrl_b) "Ctrl-B" else "Ctrl-A";
-        const empty = try std.fmt.bufPrint(&empty_buffer, " No panes. {s} c: agent picker | {s} ?: shortcuts", .{ prefix_key, prefix_key });
+        const prefix_key = keymap.prefixName(ui.key_prefix);
+        const empty = try std.fmt.bufPrint(&empty_buffer, " No panes. {s} {f}: agent picker | {s} {f}: shortcuts", .{
+            prefix_key,
+            bindings.first(ui.key_preset, .new, true).?,
+            prefix_key,
+            bindings.first(ui.key_preset, .help, true).?,
+        });
         try w.print("\x1b[2;{d}H", .{side.width + 1});
         try w.writeAll(empty[0..@min(empty.len, side.area().w)]);
     }

@@ -6,6 +6,13 @@ const vt = @import("ghostty-vt");
 pub const enable = "\x1b[>1u";
 pub const disable = "\x1b[<u";
 
+/// Kitty's codepoints for the arrow keys. `decode` reports plain cursor
+/// keys with them too.
+pub const arrow_left: u21 = 57350;
+pub const arrow_right: u21 = 57351;
+pub const arrow_up: u21 = 57352;
+pub const arrow_down: u21 = 57353;
+
 pub const Key = struct {
     codepoint: u21,
     mods: vt.input.KeyMods,
@@ -40,10 +47,10 @@ pub const Key = struct {
 pub fn decode(bytes: []const u8) ?Key {
     if (bytes.len == 3 and bytes[0] == 27 and (bytes[1] == '[' or bytes[1] == 'O')) {
         const cp: u21 = switch (bytes[2]) {
-            'A' => 57352,
-            'B' => 57353,
-            'C' => 57351,
-            'D' => 57350,
+            'A' => arrow_up,
+            'B' => arrow_down,
+            'C' => arrow_right,
+            'D' => arrow_left,
             else => return null,
         };
         return .{ .codepoint = cp, .mods = .{} };

@@ -5,15 +5,10 @@ const BoundedText = @import("bounded_text.zig").BoundedText;
 const a = @import("os.zig").allocator;
 const keys = @import("keys.zig");
 const km = @import("keymap.zig");
+const bindings = @import("bindings.zig");
 const sidebar = @import("sidebar.zig");
+const Action = @import("action.zig").Action;
 const Rect = @import("layout.zig").Rect;
-
-pub fn needsPane(action: u8) bool {
-    return switch (action) {
-        'a', 'c', 'u', 'g', '[', ']', 9, 'f', 'm', 'w', 'W', '{', '}', 'b', 'i', '?', km.workspace_picker, km.close_workspace => false,
-        else => true,
-    };
-}
 
 pub const State = struct {
     command_mode: bool = false,
@@ -50,7 +45,7 @@ pub const State = struct {
         const b = bounds(cols, rows);
         return !b.contains(x, y) or (y == b.y + (b.h -| 2) and x >= b.x + (b.w -| 16));
     }
-    pub const Hit = union(enum) { none, close, action: u8 };
+    pub const Hit = union(enum) { none, close, action: Action };
     pub fn hit(s: *const State, cols: u16, rows: u16, x: u16, y: u16, preset: km.Preset) !Hit {
         if (closeAt(cols, rows, x, y)) return .close;
         const b = bounds(cols, rows);
@@ -94,7 +89,8 @@ pub const State = struct {
         try at(w, b, 3, 1, "Keyboard shortcuts", .bright);
         if (b.w >= 60) try at(w, b, b.w - 17, 1, km.name(preset), .dim);
         try at(w, b, 3, 3, "PREFIX", .dim);
-        try at(w, b, 11, 3, if (prefix == .ctrl_b) "[ Ctrl+B ]" else "[ Ctrl+A ]", .keycap);
+        var keycap: [16]u8 = undefined;
+        try at(w, b, 11, 3, try std.fmt.bufPrint(&keycap, "[ {s} ]", .{km.prefixName(prefix)}), .keycap);
         try at(w, b, 23, 3, if (preset == .cmux) "P = prefix · Cmd = hold" else if (b.w < 76) "then key" else "Release, then press the key.", .dim);
 
         const dual = b.w >= 60;
@@ -139,7 +135,7 @@ const Part = struct {
     x: u16,
     text: BoundedText(192),
     style: Style,
-    action: ?u8 = null,
+    action: ?Action = null,
     fn value(p: *const Part) []const u8 {
         return p.text.text();
     }
@@ -152,7 +148,7 @@ const Row = struct {
         r.parts[r.len] = .{ .x = @intCast(x), .text = .initTruncated(value), .style = style };
         r.len += 1;
     }
-    fn command(r: *Row, x: usize, value: []const u8, style: Style, action: u8) void {
+    fn command(r: *Row, x: usize, value: []const u8, style: Style, action: Action) void {
         r.add(x, value, style);
         r.parts[r.len - 1].action = action;
     }
@@ -215,20 +211,30 @@ const Column = struct {
             try c.wrapped(key, indent, style, true);
         }
     }
-    fn action(c: *Column, label: []const u8, action_key: u8, indent: usize) !void {
+    fn action(c: *Column, label: []const u8, act: Action, indent: usize) !void {
         var buf: [128]u8 = undefined;
-        if (try spelling(c.preset, action_key, &buf)) |key| {
+        if (try spelling(c.preset, act, &buf)) |key| {
             const start = c.rows.items.len;
             try c.binding(label, key, indent, false);
-            c.mark(start, action_key);
+            c.mark(start, act);
         }
     }
-    fn mark(c: *Column, start: usize, action_key: u8) void {
+    /// A held key for an action whose shown key follows the prefix.
+    fn alsoHeld(c: *Column, label: []const u8, act: Action, indent: usize) !void {
+        const shown = bindings.find(c.preset, act) orelse return;
+        const held = bindings.first(c.preset, act, false) orelse return;
+        if (!shown.prefixed) return;
+        var buf: [64]u8 = undefined;
+        const start = c.rows.items.len;
+        try c.binding(label, try std.fmt.bufPrint(&buf, "{f}", .{held}), indent, true);
+        c.mark(start, act);
+    }
+    fn mark(c: *Column, start: usize, act: Action) void {
         for (c.rows.items[start..]) |*row| for (row.parts[0..row.len]) |*part| {
-            part.action = action_key;
+            part.action = act;
         };
     }
-    fn pair(c: *Column, label: []const u8, first: u8, second: u8, indent: usize) !void {
+    fn pair(c: *Column, label: []const u8, first: Action, second: Action, indent: usize) !void {
         var one: [128]u8 = undefined;
         var two: [128]u8 = undefined;
         const k1 = try spelling(c.preset, first, &one);
@@ -259,130 +265,108 @@ const Column = struct {
     }
 };
 
-// Resolve portable spellings from the same map that handles input. Command
-// aliases include their portable fallback explicitly; P denotes the prefix.
-fn spelling(preset: km.Preset, action: u8, buf: []u8) !?[]const u8 {
-    const direct: ?[]const u8 = if (preset != .cmux) null else switch (action) {
-        'c' => "Cmd+T",
-        'n' => "Cmd+Shift+]",
-        'p' => "Cmd+Shift+[",
-        'T' => "Cmd+R",
-        'w' => "Cmd+N",
-        'W' => "Cmd+Shift+R",
-        km.workspace_picker => "Cmd+P",
-        km.close_workspace => "Cmd+Shift+W",
-        'v' => "Cmd+D",
-        '-' => "Cmd+Shift+D",
-        'z' => "Cmd+Shift+Enter",
-        'x' => "Cmd+W",
-        's' => "Cmd+Shift+M",
-        'g' => "Cmd+Shift+P",
-        'f' => "Cmd+Shift+U",
-        'b' => "Cmd+B",
-        'i' => "Cmd+,",
-        else => null,
-    };
-    const byte = km.shortcut(preset, action);
-    var key_buf: [3]u8 = undefined;
-    const portable: ?[]const u8 = if (byte) |k| if (k == 9) "Tab" else if (k >= 32 and k <= 126) blk: {
-        key_buf[0] = k;
-        break :blk key_buf[0..1];
-    } else null else null;
-    if (direct) |key| return if (portable) |p| try std.fmt.bufPrint(buf, "{s} · P {s}", .{ key, p }) else key;
-    if (portable) |p| return try std.fmt.bufPrint(buf, "{s}{s}", .{ if (preset == .cmux) "P " else "", p });
-    return null;
+/// The keys shown for an action. cmux shows its held key, then the
+/// prefixed one after "P".
+fn spelling(preset: km.Preset, act: Action, buf: []u8) !?[]const u8 {
+    const shown = bindings.find(preset, act) orelse return null;
+    if (shown.prefixed) return try std.fmt.bufPrint(buf, "{s}{f}", .{ if (preset == .cmux) "P " else "", shown });
+    const fallback = bindings.first(preset, act, true) orelse return try std.fmt.bufPrint(buf, "{f}", .{shown});
+    return try std.fmt.bufPrint(buf, "{f} · P {f}", .{ shown, fallback });
 }
 fn navigation(c: *Column) !void {
     try c.heading("TABS");
-    try c.action("New tab → agent picker", 'c', 2);
-    if (c.preset == .corgi) {
-        const start = c.rows.items.len;
-        try c.binding("Also works directly", "Ctrl+T", 4, true);
-        c.mark(start, 'c');
-    }
-    try c.pair("Next / previous", 'n', 'p', 2);
+    try c.action("New tab → agent picker", .new, 2);
+    try c.alsoHeld("Also works directly", .new, 4);
+    try c.pair("Next / previous", .next, .prev, 2);
     try c.binding("Select tab", if (c.preset == .tmux) "0–9" else if (c.preset == .cmux) "Ctrl+1–9 · P 1–9" else "1–9", 2, false);
-    try c.action("Rename", 'T', 2);
-    try c.action("Close", 'X', 2);
+    try c.action("Rename", .@"rename-tab", 2);
+    try c.action("Close", .@"close-tab", 2);
     try c.space();
     try c.heading("WORKSPACES");
-    try c.action("New", 'w', 2);
-    try c.action("Edit", 'W', 2);
-    try c.pair("Next / previous", '}', '{', 2);
-    try c.action("Choose workspace", km.workspace_picker, 2);
+    try c.action("New", .@"new-workspace", 2);
+    try c.action("Edit", .@"edit-workspace", 2);
+    try c.pair("Next / previous", .@"workspace-next", .@"workspace-prev", 2);
+    try c.action("Choose workspace", .@"choose-workspace", 2);
     if (c.preset == .herdr) try c.binding("Also choose workspace", "g", 4, false);
     if (c.preset == .cmux) try c.binding("Select workspace", "Cmd+1–9", 2, false);
-    try c.action("Close workspace", km.close_workspace, 2);
+    try c.action("Close workspace", .@"close-workspace", 2);
     try c.space();
     try c.heading("AGENTS");
     try c.group("Navigate");
-    try c.action("Find", 'g', 4);
-    try c.pair("Next / previous", ']', '[', 4);
-    try c.action("Last visited", 9, 4);
-    try c.action("Needs attention", 'f', 4);
+    try c.action("Find", .@"find-agent", 4);
+    try c.pair("Next / previous", .@"next-agent", .@"prev-agent", 4);
+    try c.action("Last visited", .@"last-agent", 4);
+    try c.action("Needs attention", .attention, 4);
     try c.group("Manage");
-    try c.action("New agent", 'a', 4);
-    try c.action("Mute / unmute", 'm', 4);
+    try c.action("New agent", .@"new-agent", 4);
+    try c.action("Mute / unmute", .mute, 4);
 }
-fn direction(c: *Column, x: usize, title: []const u8, caption: []const u8, arrows: bool, swap: bool, start: usize) !void {
+/// Four keycaps, one per direction, from the preset's keys for `tag`.
+fn direction(c: *Column, x: usize, title: []const u8, caption: []const u8, comptime tag: std.meta.Tag(Action), start: usize) !void {
     while (c.rows.items.len < start + 4) try c.space();
     c.rows.items[start].add(x + 2, title, .bright);
     c.rows.items[start + 1].add(x + 2, caption, .dim);
-    c.rows.items[start + 2].command(x + 6, if (arrows) "[↑]" else if (swap) "[K]" else "[k]", .mint, if (swap) 'K' else 'k');
-    c.rows.items[start + 3].command(x + 2, if (arrows) "[←]" else if (swap) "[H]" else "[h]", .mint, if (swap) 'H' else 'h');
-    c.rows.items[start + 3].command(x + 6, if (arrows) "[↓]" else if (swap) "[J]" else "[j]", .mint, if (swap) 'J' else 'j');
-    c.rows.items[start + 3].command(x + 10, if (arrows) "[→]" else if (swap) "[L]" else "[l]", .mint, if (swap) 'L' else 'l');
+    const places = [_]struct { dir: @FieldType(Action, @tagName(tag)), row: usize, x: usize }{
+        .{ .dir = .up, .row = 2, .x = 6 },
+        .{ .dir = .left, .row = 3, .x = 2 },
+        .{ .dir = .down, .row = 3, .x = 6 },
+        .{ .dir = .right, .row = 3, .x = 10 },
+    };
+    for (places) |place| {
+        const act = @unionInit(Action, @tagName(tag), place.dir);
+        var key = bindings.find(c.preset, act) orelse continue;
+        key.mods = .{};
+        var buf: [16]u8 = undefined;
+        c.rows.items[start + place.row].command(x + place.x, try std.fmt.bufPrint(&buf, "[{f}]", .{key}), .mint, act);
+    }
 }
 fn panes(c: *Column) !void {
     try c.heading("PANES");
-    const swap = c.preset != .tmux;
-    const arrows = c.preset == .tmux or c.preset == .cmux;
+    const swap = bindings.find(c.preset, .{ .swap = .up }) != null;
     const caption = if (c.preset == .cmux) "Cmd+Option" else "Move focus";
     const top = c.rows.items.len;
-    try direction(c, 0, "Focus", caption, arrows, false, top);
-    if (swap) try direction(c, if (c.width >= 30) (c.width + 2) / 2 else 0, "Swap", if (c.preset == .cmux) "P + key" else "Move pane", false, true, if (c.width >= 30) top else c.rows.items.len);
+    try direction(c, 0, "Focus", caption, .focus, top);
+    if (swap) try direction(c, if (c.width >= 30) (c.width + 2) / 2 else 0, "Swap", if (c.preset == .cmux) "P + key" else "Move pane", .swap, if (c.width >= 30) top else c.rows.items.len);
     if (c.preset == .cmux) try c.binding("Also focus", "P h j k l", 2, false);
-    try c.action("Next pane", km.cycle_next, 2);
-    if (c.preset == .herdr) {
-        const start = c.rows.items.len;
-        try c.binding("Previous pane", "Shift+Tab", 2, false);
-        c.mark(start, km.cycle_prev);
-    }
+    try c.action("Next pane", .@"next-pane", 2);
+    try c.action("Previous pane", .@"prev-pane", 2);
     try c.space();
     try c.group("Split");
     if (c.width >= 30 and c.preset != .cmux) {
         const right = (c.width + 2) / 2;
         for ([_][]const u8{ "┌──┬──┐", "│  │  │", "└──┴──┘" }, [_][]const u8{ "┌─────┐", "├─────┤", "└─────┘" }) |left, down| {
             var row: Row = .{};
-            row.command(2, left, .dim, 'v');
-            row.command(right + 2, down, .dim, '-');
+            row.command(2, left, .dim, .{ .split = .right });
+            row.command(right + 2, down, .dim, .{ .split = .down });
             try c.rows.append(a, row);
         }
+        var right_key: [16]u8 = undefined;
+        var down_key: [16]u8 = undefined;
         var row: Row = .{};
-        row.command(2, if (c.preset == .tmux) "%" else "v", .mint, 'v');
-        row.command(5, "Right", .text, 'v');
-        row.command(right + 2, if (c.preset == .tmux) "\"" else "-", .mint, '-');
-        row.command(right + 5, "Down", .text, '-');
+        row.command(2, try std.fmt.bufPrint(&right_key, "{f}", .{bindings.first(c.preset, .{ .split = .right }, true).?}), .mint, .{ .split = .right });
+        row.command(5, "Right", .text, .{ .split = .right });
+        row.command(right + 2, try std.fmt.bufPrint(&down_key, "{f}", .{bindings.first(c.preset, .{ .split = .down }, true).?}), .mint, .{ .split = .down });
+        row.command(right + 5, "Down", .text, .{ .split = .down });
         try c.rows.append(a, row);
-    } else try c.pair("Right / down", 'v', '-', 4);
+    } else try c.pair("Right / down", .{ .split = .right }, .{ .split = .down }, 4);
     try c.group("Arrange");
-    try c.action("Resize", 'r', 4);
+    try c.action("Resize", .@"resize-mode", 4);
     if (c.preset == .tmux) try c.binding("Resize", "Ctrl+arrows", 4, false);
     if (c.preset == .cmux) try c.binding("Resize directly", "Ctrl+Shift+HJKL", 4, false);
-    try c.action("Zoom / unzoom", 'z', 4);
-    try c.action("Move to new tab", '!', 4);
+    try c.action("Zoom / unzoom", .zoom, 4);
+    try c.action("Move to new tab", .@"break", 4);
     try c.group("Close & recover");
-    try c.pair("Close / reopen", 'x', 'u', 4);
+    try c.pair("Close / reopen", .close, .@"undo-close", 4);
     try c.space();
     try c.heading("TERMINAL");
-    try c.action("Scroll / copy", 's', 2);
-    try c.action("Paste copied text", km.paste, 2);
+    try c.action("Scroll / copy", .@"copy-mode", 2);
+    try c.action("Paste copied text", .paste, 2);
     if (c.preset == .cmux) try c.binding("Paste (host terminal)", "Cmd+V", 2, false);
-    try c.action("Detach", 'q', 2);
+    try c.action("Detach", .detach, 2);
     try c.space();
     try c.heading("CORGI");
-    try c.action("Toggle sidebar", 'b', 2);
-    try c.action("Setup", 'i', 2);
+    try c.action("Toggle sidebar", .sidebar, 2);
+    try c.action("Setup", .setup, 2);
 }
 
 pub fn bounds(cols: u16, rows: u16) Rect {
@@ -415,5 +399,24 @@ fn box(w: *std.Io.Writer, b: Rect) !void {
             for (0..b.w - 2) |_| try w.writeAll("─");
         } else try w.splatByteAll(' ', b.w - 2);
         try w.writeAll(if (y == 0) "╮" else if (y + 1 == b.h) "╯" else "│");
+    }
+}
+
+test "the help screen spells each preset's keys from its bindings" {
+    const Case = struct { preset: km.Preset, action: Action, text: ?[]const u8 };
+    for ([_]Case{
+        .{ .preset = .corgi, .action = .new, .text = "c" },
+        .{ .preset = .corgi, .action = .@"last-agent", .text = "Tab" },
+        .{ .preset = .corgi, .action = .paste, .text = null },
+        .{ .preset = .tmux, .action = .paste, .text = "]" },
+        .{ .preset = .herdr, .action = .@"choose-workspace", .text = "w" },
+        .{ .preset = .herdr, .action = .@"prev-pane", .text = "Shift+Tab" },
+        .{ .preset = .cmux, .action = .new, .text = "Cmd+T · P c" },
+        .{ .preset = .cmux, .action = .@"close-workspace", .text = "Cmd+Shift+W" },
+        .{ .preset = .cmux, .action = .@"new-agent", .text = "P a" },
+    }) |case| {
+        var buf: [128]u8 = undefined;
+        const text = try spelling(case.preset, case.action, &buf);
+        if (case.text) |expected| try std.testing.expectEqualStrings(expected, text.?) else try std.testing.expectEqual(null, text);
     }
 }

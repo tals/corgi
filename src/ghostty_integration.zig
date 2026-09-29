@@ -3,6 +3,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const os = @import("os.zig");
 const keymap = @import("keymap.zig");
+const bindings = @import("bindings.zig");
+const keyboard = @import("keyboard.zig");
+const Action = @import("action.zig").Action;
 const a = os.allocator;
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
 const end = "# END CORGI GHOSTTY INTEGRATION\n";
@@ -62,6 +65,44 @@ pub fn state() State {
     defer a.free(bytes);
     return if ((block(bytes) catch return .failed) != null) .enabled else .disabled;
 }
+/// Host keys outside cmux, which type the prefix and the preset's key.
+const Host = struct { host: []const u8, action: Action };
+const host_keys = [_]Host{
+    .{ .host = "cmd+t", .action = .new },
+    .{ .host = "cmd+w", .action = .@"close-tab" },
+    .{ .host = "ctrl+tab", .action = .next },
+    .{ .host = "ctrl+shift+tab", .action = .prev },
+} ++ digitKeys("cmd+") ++ digitKeys("cmd+digit_");
+fn digitKeys(comptime modifier: []const u8) [9]Host {
+    var out: [9]Host = undefined;
+    for (&out, 1..) |*host, n| host.* = .{ .host = modifier ++ std.fmt.comptimePrint("{d}", .{n}), .action = .{ .tab = n } };
+    return out;
+}
+/// A held binding as a Ghostty trigger, such as `cmd+shift+right_bracket`.
+const Trigger = struct {
+    binding: bindings.Binding,
+    pub fn format(t: Trigger, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        const m = t.binding.mods;
+        if (m.super) try w.writeAll("cmd+");
+        if (m.ctrl) try w.writeAll("ctrl+");
+        if (m.alt) try w.writeAll("alt+");
+        if (m.shift) try w.writeAll("shift+");
+        try switch (t.binding.key) {
+            13 => w.writeAll("enter"),
+            ',' => w.writeAll("comma"),
+            '[' => w.writeAll("left_bracket"),
+            ']' => w.writeAll("right_bracket"),
+            keyboard.arrow_left => w.writeAll("left"),
+            keyboard.arrow_right => w.writeAll("right"),
+            keyboard.arrow_up => w.writeAll("up"),
+            keyboard.arrow_down => w.writeAll("down"),
+            else => |key| w.print("{u}", .{key}),
+        };
+    }
+};
+fn trigger(b: bindings.Binding) Trigger {
+    return .{ .binding = b };
+}
 /// The settings a block is written for.
 pub const Keys = struct { preset: keymap.Preset, prefix: keymap.Prefix };
 /// `bytes` with the block for `keys`, or without any block when null.
@@ -77,40 +118,19 @@ fn transform(allocator: std.mem.Allocator, bytes: []const u8, keys: ?Keys) ![]u8
         if (out.written().len > 0 and out.written()[out.written().len - 1] != '\n') try out.writer.writeByte('\n');
         try out.writer.writeAll(begin);
         if (k.preset == .cmux) {
+            // Each held key types its own Kitty sequence.
             try out.writer.writeAll("# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n");
-            const Binding = struct { host: []const u8, cp: u21, mods: u8 };
-            const bindings = [_]Binding{
-                .{ .host = "cmd+t", .cp = 't', .mods = 9 },                    .{ .host = "cmd+n", .cp = 'n', .mods = 9 },
-                .{ .host = "cmd+r", .cp = 'r', .mods = 9 },                    .{ .host = "cmd+shift+r", .cp = 'r', .mods = 10 },
-                .{ .host = "cmd+shift+w", .cp = 'w', .mods = 10 },             .{ .host = "cmd+p", .cp = 'p', .mods = 9 },
-                .{ .host = "cmd+d", .cp = 'd', .mods = 9 },                    .{ .host = "cmd+shift+d", .cp = 'd', .mods = 10 },
-                .{ .host = "cmd+alt+left", .cp = 57350, .mods = 11 },          .{ .host = "cmd+alt+right", .cp = 57351, .mods = 11 },
-                .{ .host = "cmd+alt+up", .cp = 57352, .mods = 11 },            .{ .host = "cmd+alt+down", .cp = 57353, .mods = 11 },
-                .{ .host = "cmd+shift+right_bracket", .cp = ']', .mods = 10 }, .{ .host = "cmd+shift+left_bracket", .cp = '[', .mods = 10 },
-                .{ .host = "cmd+shift+enter", .cp = 13, .mods = 10 },          .{ .host = "cmd+w", .cp = 'w', .mods = 9 },
-                .{ .host = "cmd+shift+m", .cp = 'm', .mods = 10 },             .{ .host = "cmd+shift+p", .cp = 'p', .mods = 10 },
-                .{ .host = "cmd+shift+u", .cp = 'u', .mods = 10 },             .{ .host = "cmd+b", .cp = 'b', .mods = 9 },
-                .{ .host = "cmd+comma", .cp = ',', .mods = 9 },
+            for (bindings.table(.cmux)) |b| if (!b.prefixed) {
+                try out.writer.print("keybind = {f}=text:\\x1b[{d};{d}u\n", .{ trigger(b), b.key, @as(u5, @as(u4, @bitCast(b.mods))) + 1 });
             };
-            for (bindings) |binding| try out.writer.print("keybind = {s}=text:\\x1b[{d};{d}u\n", .{ binding.host, binding.cp, binding.mods });
-            for (1..10) |digit| {
-                try out.writer.print("keybind = cmd+{d}=text:\\x1b[{d};9u\nkeybind = ctrl+{d}=text:\\x1b[{d};5u\n", .{ digit, '0' + digit, digit, '0' + digit });
-            }
-            for ("hjkl") |key| try out.writer.print("keybind = ctrl+shift+{c}=text:\\x1b[{d};6u\n", .{ key, key });
         } else {
-            // Each host key types the prefix and whatever key the preset
-            // uses for the action.
+            // Each host key types the prefix and the preset's key for its action.
             try out.writer.writeAll("# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\n");
-            const prefix = keymap.prefixByte(k.prefix);
-            const Host = struct { host: []const u8, action: u8 };
-            for ([_]Host{ .{ .host = "cmd+t", .action = 'c' }, .{ .host = "cmd+w", .action = 'X' }, .{ .host = "ctrl+tab", .action = 'n' }, .{ .host = "ctrl+shift+tab", .action = 'p' } }) |host| {
-                const key = keymap.shortcut(k.preset, host.action) orelse continue;
-                try out.writer.print("keybind = {s}=text:\\x{x:0>2}{c}\n", .{ host.host, prefix, key });
-            }
-            for (1..10) |i| {
-                const key = keymap.shortcut(k.preset, '0' + @as(u8, @intCast(i))) orelse continue;
-                try out.writer.print("keybind = cmd+{d}=text:\\x{x:0>2}{c}\nkeybind = cmd+digit_{d}=text:\\x{x:0>2}{c}\n", .{ i, prefix, key, i, prefix, key });
-            }
+            for (host_keys) |host| if (bindings.first(k.preset, host.action, true)) |b| if (b.mods == bindings.Mods{} and b.key < 0x80) {
+                try out.writer.print("keybind = {s}=text:\\x{x:0>2}", .{ host.host, keymap.prefixByte(k.prefix) });
+                if (b.key > ' ' and b.key < 0x7f and b.key != '\\') try out.writer.writeByte(@intCast(b.key)) else try out.writer.print("\\x{x:0>2}", .{b.key});
+                try out.writer.writeByte('\n');
+            };
         }
         try out.writer.writeAll(end);
     }
@@ -190,7 +210,16 @@ test "the block types the chosen prefix and each preset's keys" {
         .{ .keys = .{ .preset = .corgi, .prefix = .ctrl_a }, .lines = &.{ "keybind = cmd+t=text:\\x01c\n", "keybind = cmd+3=text:\\x013\n" }, .absent = &.{"\\x02"} },
         .{ .keys = .{ .preset = .tmux, .prefix = .ctrl_b }, .lines = &.{ "keybind = cmd+1=text:\\x020\n", "keybind = cmd+w=text:\\x02&\n", "keybind = cmd+digit_9=text:\\x028\n" } },
         .{ .keys = .{ .preset = .herdr, .prefix = .ctrl_b }, .lines = &.{ "keybind = cmd+t=text:\\x02c\n", "keybind = cmd+w=text:\\x02X\n" } },
-        .{ .keys = .{ .preset = .cmux, .prefix = .ctrl_a }, .lines = &.{"keybind = cmd+t=text:\\x1b[116;9u\n"}, .absent = &.{ "\\x01", "\\x02" } },
+        .{ .keys = .{ .preset = .tmux, .prefix = .ctrl_a }, .lines = &.{ "keybind = cmd+w=text:\\x01&\n", "keybind = ctrl+tab=text:\\x01n\n" }, .absent = &.{"\\x02"} },
+        .{ .keys = .{ .preset = .cmux, .prefix = .ctrl_a }, .lines = &.{
+            "keybind = cmd+t=text:\\x1b[116;9u\n",
+            "keybind = cmd+shift+right_bracket=text:\\x1b[93;10u\n",
+            "keybind = cmd+alt+left=text:\\x1b[57350;11u\n",
+            "keybind = ctrl+shift+h=text:\\x1b[104;6u\n",
+            "keybind = ctrl+3=text:\\x1b[51;5u\n",
+            "keybind = cmd+comma=text:\\x1b[44;9u\n",
+            "keybind = cmd+shift+enter=text:\\x1b[13;10u\n",
+        }, .absent = &.{ "\\x01", "\\x02" } },
     }) |case| {
         const block_text = try transform(std.testing.allocator, "", case.keys);
         defer std.testing.allocator.free(block_text);

@@ -5,6 +5,8 @@ const os = @import("os.zig");
 const a = os.allocator;
 const keys = @import("keys.zig");
 const km = @import("keymap.zig");
+const bindings = @import("bindings.zig");
+const Action = @import("action.zig").Action;
 const catalog = @import("import_catalog.zig");
 const sidebar = @import("sidebar.zig");
 const Connection = @import("rpc.zig").Connection;
@@ -622,10 +624,24 @@ fn presetLayout(b: Rect) PresetLayout {
         .help_y = summary_y + @as(u16, if (compact) 2 else 3),
     };
 }
+/// An action's key on a card. Under cmux, whose cards teach held keys, a
+/// prefixed key names the prefix too.
+const CardKey = struct {
+    state: *const State,
+    action: Action,
+    pub fn format(k: CardKey, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        const b = bindings.find(k.state.preset, k.action) orelse return;
+        if (k.state.preset == .cmux and b.prefixed) try w.print("{s} ", .{km.prefixName(k.state.prefix)});
+        try w.print("{f}", .{bindings.compact(b)});
+    }
+};
+fn cardKey(s: *const State, act: Action) CardKey {
+    return .{ .state = s, .action = act };
+}
 fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     const layout = presetLayout(b);
     const direct = s.preset == .cmux;
-    const prefix_name = if (s.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A";
+    const prefix_name = km.prefixName(s.prefix);
     var buf: [120]u8 = undefined;
     for (km.available_presets, layout.cards) |preset, card| {
         const picked = s.preset == preset;
@@ -649,7 +665,7 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     const key_y: usize = if (hero.h == 3) 1 else 2;
     try put(w, hero, 3, key_y, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), keycap);
     try put(w, hero, if (direct) 11 else 15, key_y, if (direct) "+" else "then", text);
-    try put(w, hero, if (direct) 15 else 22, key_y, if (direct) "[ T ]" else "[ c ]", mint);
+    try put(w, hero, if (direct) 15 else 22, key_y, try std.fmt.bufPrint(&buf, "[ {f} ]", .{cardKey(s, .new)}), mint);
     if (hero.h > 3) {
         if (narrow) {
             try put(w, hero, 3, key_y + 2, "Choose an agent or terminal", text);
@@ -678,18 +694,21 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     const right_x = split.w / 2 + 1;
     try drawSplitDiagram(w, .{ .x = split.x + left_x, .y = split.y + diagram_y, .w = diagram_w, .h = 3 }, false);
     try drawSplitDiagram(w, .{ .x = split.x + right_x, .y = split.y + diagram_y, .w = diagram_w, .h = 3 }, true);
-    try put(w, split, left_x, diagram_y + 3, if (direct) "D Right" else if (s.preset == .tmux) "% Right" else "v Right", mint);
-    try put(w, split, right_x, diagram_y + 3, if (direct) "⇧D Down" else if (s.preset == .tmux) "\" Down" else "- Down", mint);
+    try put(w, split, left_x, diagram_y + 3, try std.fmt.bufPrint(&buf, "{f} Right", .{cardKey(s, .{ .split = .right })}), mint);
+    try put(w, split, right_x, diagram_y + 3, try std.fmt.bufPrint(&buf, "{f} Down", .{cardKey(s, .{ .split = .down })}), mint);
 
     const focus = layout.focus;
     try box(w, focus, false);
     try put(w, focus, 2, 0, " Focus pane ", mint);
     const nav_y: usize = if (focus.h == 6) 1 else 2;
     try put(w, focus, 2, nav_y, if (direct) "[ Cmd+Option ]" else if (s.preset == .tmux) "Arrow keys" else "Home row", if (direct) keycap else dim);
-    const arrows = direct or s.preset == .tmux;
     const nav_x = (focus.w - 17) / 2;
-    try put(w, focus, nav_x + 6, nav_y + 1, if (arrows) "[ ↑ ]" else "[ k ]", mint);
-    try put(w, focus, nav_x, nav_y + 2, if (arrows) "[ ← ] [ ↓ ] [ → ]" else "[ h ] [ j ] [ l ]", mint);
+    try put(w, focus, nav_x + 6, nav_y + 1, try std.fmt.bufPrint(&buf, "[ {f} ]", .{cardKey(s, .{ .focus = .up })}), mint);
+    try put(w, focus, nav_x, nav_y + 2, try std.fmt.bufPrint(&buf, "[ {f} ] [ {f} ] [ {f} ]", .{
+        cardKey(s, .{ .focus = .left }),
+        cardKey(s, .{ .focus = .down }),
+        cardKey(s, .{ .focus = .right }),
+    }), mint);
 
     // The Command band applies to all direct keys; detach uses the portable prefix.
     const detail = Rect{ .x = b.x + layout.detail_x, .y = b.y, .w = hero.w, .h = b.h };
@@ -697,9 +716,9 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     try put(w, detail, 0, layout.summary_y, "TABS", dim);
     try put(w, detail, col, layout.summary_y, if (narrow) "COPY" else "SCROLL / COPY", dim);
     try put(w, detail, col * 2, layout.summary_y, "DETACH", dim);
-    try put(w, detail, 0, layout.summary_y + 1, if (direct) "⇧] / ⇧[" else "n / p", mint);
-    try put(w, detail, col, layout.summary_y + 1, if (direct) "⇧M" else if (s.preset == .corgi) "s" else "[", mint);
-    try put(w, detail, col * 2, layout.summary_y + 1, if (direct) try std.fmt.bufPrint(&buf, "{s} q", .{prefix_name}) else if (s.preset == .tmux) "d" else "q", mint);
+    try put(w, detail, 0, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f} / {f}", .{ cardKey(s, .next), cardKey(s, .prev) }), mint);
+    try put(w, detail, col, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f}", .{cardKey(s, .@"copy-mode")}), mint);
+    try put(w, detail, col * 2, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f}", .{cardKey(s, .detach)}), mint);
     try put(w, detail, 0, layout.help_y, "[ ? Full keymap ]", if (s.focus == 2) keycap else mint);
     if (direct) {
         const prefix_hint = if (narrow) try std.fmt.bufPrint(&buf, "[ P {s} ]", .{prefix_name}) else try std.fmt.bufPrint(&buf, "Prefix [ {s} ]  P change", .{prefix_name});

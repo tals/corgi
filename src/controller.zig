@@ -3,6 +3,7 @@ const std = @import("std");
 const keys = @import("keys.zig");
 const keyboard = @import("keyboard.zig");
 const keymap = @import("keymap.zig");
+const bindings = @import("bindings.zig");
 const onboarding = @import("onboarding.zig");
 const shortcut_help = @import("shortcut_help.zig");
 const os = @import("os.zig");
@@ -868,6 +869,39 @@ pub const Controller = struct {
             },
             .@"undo-close" => return s.undoClose(),
             .attention => return s.attention(),
+            .@"rename-tab" => s.beginRename(),
+            .@"new-workspace" => s.beginWorkspace(null),
+            .@"edit-workspace" => s.beginWorkspace(s.current().id),
+            .@"close-workspace" => try s.closeWorkspace(s.current().id, true),
+            .@"choose-workspace" => {
+                s.closeMenu();
+                s.workspace_chooser = s.workspaceIndex();
+            },
+            .@"goto-workspace" => |number| if (number >= 1 and number <= s.runtime.workspaces.items.len) {
+                try s.switchWorkspace(s.runtime.workspaces.items[number - 1].id);
+            },
+            .@"new-agent" => s.openLauncher(true),
+            .@"find-agent" => s.openAgentPicker(),
+            .@"next-agent" => try s.navigateAgent(true),
+            .@"prev-agent" => try s.navigateAgent(false),
+            .@"last-agent" => try s.navigateAgent(null),
+            .@"resize-mode" => {
+                s.resize_mode = true;
+                s.menu_page = 0;
+                s.menu_highlight = null;
+            },
+            .@"next-pane" => try s.cyclePane(true),
+            .@"prev-pane" => try s.cyclePane(false),
+            .@"copy-mode" => s.copy_mode = true,
+            .paste => if (s.clipboard) |text| if (s.focused()) |p| {
+                const bracketed = p.terminal.emulator().*.modes.get(.bracketed_paste);
+                if (bracketed) try s.sendInput(p.terminal, "\x1b[200~");
+                try s.sendInput(p.terminal, text);
+                if (bracketed) try s.sendInput(p.terminal, "\x1b[201~");
+            },
+            .setup => s.openSetup(),
+            .help => s.openHelp(),
+            .detach => s.input_state.attached = false,
             .split, .zoom, .close, .@"close-tab" => {
                 if (s.model().count == 0) return error.NoPane;
                 switch (act) {
@@ -1343,7 +1377,7 @@ pub const Controller = struct {
             else
                 std.fmt.bufPrint(&message, " Shortcuts: {s} · prefix {s}{s}", .{
                     keymap.name(saved.preset),
-                    if (saved.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A",
+                    keymap.prefixName(saved.prefix),
                     if (reload) ". Reload Ghostty: Cmd+Shift+," else "",
                 }) catch "");
         } else if (target) |id| {
@@ -1365,67 +1399,6 @@ pub const Controller = struct {
             if (p.id == s.nav().tab().focus) break i;
         } else 0;
         try s.focusPane(list[if (next) (index + 1) % list.len else (index + list.len - 1) % list.len].id);
-    }
-    fn dispatchKey(s: *Self, byte: u8) !void {
-        s.prefix = false;
-        s.dirty = true;
-        switch (byte) {
-            'w' => s.beginWorkspace(null),
-            'W' => s.beginWorkspace(s.current().id),
-            '}' => try s.perform(.@"workspace-next"),
-            '{' => try s.perform(.@"workspace-prev"),
-            'c' => try s.perform(.new),
-            'a', 'A', 1 => s.openLauncher(true),
-            'u' => try s.perform(.@"undo-close"),
-            'v', '%' => try s.perform(.{ .split = .right }),
-            '-', '"' => try s.perform(.{ .split = .down }),
-            'h', 'j', 'k', 'l' => try s.perform(.{ .focus = direction(byte).? }),
-            'H', 'J', 'K', 'L' => try s.perform(.{ .swap = direction(std.ascii.toLower(byte)).? }),
-            'n' => try s.perform(.next),
-            'p' => try s.perform(.prev),
-            '1'...'9' => try s.perform(.{ .tab = byte - '0' }),
-            'z' => try s.perform(.zoom),
-            'f' => try s.perform(.attention),
-            'b' => try s.perform(.sidebar),
-            '!' => try s.perform(.@"break"),
-            'm' => try s.perform(.mute),
-            'r' => {
-                s.resize_mode = true;
-                s.menu_page = 0;
-                s.menu_highlight = null;
-            },
-            'T', ',' => s.beginRename(),
-            'x' => try s.perform(.close),
-            'X' => try s.perform(.@"close-tab"),
-            'g' => s.openAgentPicker(),
-            'i', 'C' => s.openSetup(),
-            '[' => try s.navigateAgent(false),
-            ']' => try s.navigateAgent(true),
-            9 => try s.navigateAgent(null),
-            's' => {
-                s.copy_mode = true;
-                s.dirty = true;
-            },
-            'q', 'd' => s.input_state.attached = false,
-            '?' => s.openHelp(),
-            keymap.workspace_picker => {
-                s.closeMenu();
-                s.workspace_chooser = s.workspaceIndex();
-            },
-            keymap.cycle_next => try s.cyclePane(true),
-            keymap.cycle_prev => try s.cyclePane(false),
-            keymap.close_workspace => try s.closeWorkspace(s.current().id, true),
-            keymap.paste => if (s.clipboard) |text| {
-                if (s.focused()) |p| {
-                    const bracketed = p.terminal.emulator().*.modes.get(.bracketed_paste);
-                    if (bracketed) try s.sendInput(p.terminal, "\x1b[200~");
-                    try s.sendInput(p.terminal, text);
-                    if (bracketed) try s.sendInput(p.terminal, "\x1b[201~");
-                }
-            },
-            245 => try s.perform(.{ .tab = 10 }),
-            else => {},
-        }
     }
     fn key(s: *Self, byte: u8) !void {
         const cl = &s.input_state;
@@ -1627,17 +1600,14 @@ pub const Controller = struct {
                 if (s.focused()) |p| try s.sendInput(p.terminal, &.{byte});
                 return;
             }
-            if (keymap.resolve(s.key_preset, byte)) |action_key| try s.dispatchKey(action_key);
+            if (bindings.lookup(s.key_preset, true, byte, .{})) |act| try s.perform(act);
             return;
         }
         if (byte == keymap.prefixByte(s.key_prefix)) {
             s.beginPrefix();
             return;
         }
-        if (byte == 20 and s.key_preset == .corgi and !s.copy_mode) {
-            s.openLauncher(true);
-            return;
-        }
+        if (!s.copy_mode) if (bindings.lookup(s.key_preset, false, byte, .{})) |act| return s.perform(act);
         if (s.copy_mode) {
             switch (byte) {
                 'k' => s.scroll(-1),
@@ -1753,15 +1723,9 @@ pub const Controller = struct {
             if (cl.paste == null) {
                 if (keyboard.decode(seq)) |key_event| {
                     if (s.onboarding == null and s.name_dialog == null and s.workspace_chooser == null and (s.prefix or !s.hasMenu())) {
-                        if (keymap.modified(s.key_preset, s.prefix, key_event)) |binding| {
+                        if (bindings.chord(s.key_preset, s.prefix, key_event)) |act| {
                             s.prefix = false;
-                            switch (binding) {
-                                .action => |key_| try s.dispatchKey(key_),
-                                .resize => |key_| try s.perform(.{ .resize = direction(key_).? }),
-                                .workspace => |index| if (index < s.runtime.workspaces.items.len) {
-                                    try s.switchWorkspace(s.runtime.workspaces.items[index].id);
-                                },
-                            }
+                            try s.perform(act);
                             used += len;
                             continue;
                         }
@@ -1771,7 +1735,7 @@ pub const Controller = struct {
                     try key_event.encode(&encoded.writer, .{});
                     const legacy = encoded.written();
                     const owned = s.hasMenu() or s.name_dialog != null or s.copy_mode or s.search_mode;
-                    if (owned or (legacy.len == 1 and (legacy[0] == keymap.prefixByte(s.key_prefix) or (legacy[0] == 20 and s.key_preset == .corgi)))) {
+                    if (owned or (legacy.len == 1 and (legacy[0] == keymap.prefixByte(s.key_prefix) or bindings.lookup(s.key_preset, false, legacy[0], .{}) != null))) {
                         seq = legacy;
                     } else if (s.focused()) |p| {
                         encoded.clearRetainingCapacity();
@@ -1811,20 +1775,9 @@ pub const Controller = struct {
                 if (done) try s.finishOnboarding();
                 s.dirty = true;
             } else if (s.prefix) {
-                if (s.key_preset == .tmux and seq.len == 6 and std.mem.startsWith(u8, seq, "\x1b[1;5")) {
-                    const dir: ?layout.Direction = switch (seq[5]) {
-                        'A' => .up,
-                        'B' => .down,
-                        'C' => .right,
-                        'D' => .left,
-                        else => null,
-                    };
-                    if (dir) |value| {
-                        s.prefix = false;
-                        try s.perform(.{ .resize = value });
-                    }
-                } else if (s.key_preset == .herdr and parsed_key == .shift_tab) {
-                    try s.dispatchKey(keymap.cycle_prev);
+                if (bindings.prefixedSequence(s.key_preset, seq)) |act| {
+                    s.prefix = false;
+                    try s.perform(act);
                 } else if (s.help_visible) s.help.sequence(seq);
                 s.dirty = true;
             } else if (s.workspace_chooser != null) {
@@ -1924,8 +1877,9 @@ pub const Controller = struct {
                 s.ui_mouse_down = true;
                 switch (try s.help.hit(s.width, s.height, x, y, s.key_preset)) {
                     .close => s.closeMenu(),
-                    .action => |action_key| if (s.model().count > 0 or !shortcut_help.needsPane(action_key)) {
-                        try s.dispatchKey(action_key);
+                    .action => |act| if (s.model().count > 0 or !act.needsPane()) {
+                        s.prefix = false;
+                        try s.perform(act);
                     },
                     .none => {},
                 }

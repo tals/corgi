@@ -1,4 +1,4 @@
-//! Setup modal opened from the corgi badge (or Ctrl-B i), centered on screen.
+//! Setup modal opened from the corgi badge (or `prefix i`), centered on screen.
 //! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
 //! resource and sleeping corgi choices update viewer preferences.
 const std = @import("std");
@@ -287,7 +287,7 @@ pub const Menu = struct {
     }
     fn keysLabel(m: *const Menu, buffer: []u8) []const u8 {
         if (m.preset == .cmux) return "cmux · Cmd  →";
-        return std.fmt.bufPrint(buffer, "{s} · {s}  →", .{ km.name(m.preset), if (m.prefix == .ctrl_b) "Ctrl+B" else "Ctrl+A" }) catch "→";
+        return std.fmt.bufPrint(buffer, "{s} · {s}  →", .{ km.name(m.preset), km.prefixName(m.prefix) }) catch "→";
     }
     /// The keycap label for Enter, or null when Enter would do nothing useful.
     fn action(m: *const Menu, status: setup.Status, buffer: []u8) ?[]const u8 {
