@@ -25,14 +25,11 @@ pub const Pane = mirror.Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
 pub const Ui = struct {
-    key_preset: keymap.Preset = .corgi,
-    key_prefix: keymap.Prefix = .ctrl_b,
+    prefs: preferences.Preferences = .{},
     pointer: ?Pointer = null,
     iterm2_pointer: bool = false,
     link_tooltip: bool = false,
     resources: resources.Snapshot = .{},
-    resource_prefs: preferences.Resources = .{},
-    sleeping_corgis: bool = true,
     resource_hover: ?WorkspaceId = null,
     resource_card: ?resource_tooltip.State = null,
     git_hover: ?WorkspaceId = null,
@@ -46,7 +43,6 @@ pub const Ui = struct {
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
     scope_menu: ?sidebar.ScopeMenu = null,
-    agent_scope: sidebar.Scope = .workspace,
     scope_label: []const u8 = "",
     agent_search: ?sidebar.Search = null,
     tab_drop_x: ?u16 = null,
@@ -54,7 +50,6 @@ pub const Ui = struct {
     sidebar_open: bool = true,
     corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
-    sidebar_width: u16 = 28,
     dragged_workspace: ?sidebar.Preview = null,
     dragged_agent: ?sidebar.Preview = null,
     sidebar_offset: usize = 0,
@@ -163,14 +158,14 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
     const workspaces = if (ui.dragged_workspace) |drag| drag.apply(sidebar.WorkspaceEntry, ui.workspaces, &workspace_storage) else ui.workspaces;
     const dragging = ui.dragged_agent != null or ui.dragged_workspace != null;
-    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.sidebar_width);
-    side.resources = ui.resource_prefs;
+    var side = sidebar.View.init(width, height, ui.sidebar_open, ui.sidebar_offset, entries.len).withSearch(ui.agent_search).withWidth(ui.prefs.sidebar_width);
+    side.resources = ui.prefs.resources;
     side = side.withWorkspaces(ui.workspaces.len, ui.workspace_offset).withEntries(entries);
     side.corgi_badge = ui.corgi_badge;
     side.supports_kitty_graphics = ui.supports_kitty_graphics;
     side.scope_label = ui.scope_label;
     side.resource_hover = ui.resource_hover;
-    side.sleeping_corgis = ui.sleeping_corgis;
+    side.sleeping_corgis = ui.prefs.sleeping_corgis;
     side.dragged = if (ui.dragged_agent) |drag| drag.destination else null;
     side.dragged_workspace = if (ui.dragged_workspace) |drag| drag.destination else null;
     // Mouse tracking modes replace one another. Disabling first makes the host
@@ -189,7 +184,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.writeAll(if (i == view.selection.active) "\x1b[1;38;2;226;230;233;48;2;48;53;61m" else "\x1b[0;38;2;125;132;143;48;2;24;27;32m");
         var name: [96]u8 = undefined;
         const text = if (tab.title.len == 0)
-            try std.fmt.bufPrint(&name, "{d}", .{i + @as(usize, if (ui.key_preset == .tmux) 0 else 1)})
+            try std.fmt.bufPrint(&name, "{d}", .{i + @as(usize, if (ui.prefs.preset == .tmux) 0 else 1)})
         else
             tab.title.text()[0..@min(tab.title.text().len, 16)];
         const text_len = @min(text.len, len);
@@ -206,12 +201,12 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     }
     if (model.count == 0) {
         var empty_buffer: [160]u8 = undefined;
-        const prefix_key = keymap.prefixName(ui.key_prefix);
+        const prefix_key = keymap.prefixName(ui.prefs.prefix);
         const empty = try std.fmt.bufPrint(&empty_buffer, " No panes. {s} {f}: agent picker | {s} {f}: shortcuts", .{
             prefix_key,
-            bindings.first(ui.key_preset, .new, true).?,
+            bindings.first(ui.prefs.preset, .new, true).?,
             prefix_key,
-            bindings.first(ui.key_preset, .help, true).?,
+            bindings.first(ui.prefs.preset, .help, true).?,
         });
         try w.print("\x1b[2;{d}H", .{side.width + 1});
         try w.writeAll(empty[0..@min(empty.len, side.area().w)]);
@@ -376,9 +371,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
         try naming.View.init(width, height, dialog).draw(dialog, w, number);
     }
-    if (ui.scope_menu) |menu| try menu.draw(w, side, width, height, ui.workspaces, ui.agent_scope);
+    if (ui.scope_menu) |menu| try menu.draw(w, side, width, height, ui.workspaces, ui.prefs.agents);
     if (ui.agent_launcher) |*launcher| try launcher.draw(w, width, height, side);
-    if (ui.corgi_setup) |*setup| try setup.draw(w, ui.inference, width, height);
+    if (ui.corgi_setup) |*setup| try setup.draw(w, ui.inference, ui.prefs, width, height);
     try side.searchCursor(w);
     if (dragging) try w.writeAll("\x1b[?25l");
     // Include the shape in each complete frame so reconnects and overlay changes

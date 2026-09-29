@@ -36,7 +36,7 @@ pub const Choice = enum {
         };
     }
 };
-const Resources = @import("preferences.zig").Resources;
+const Preferences = @import("preferences.zig").Preferences;
 const corgi_animation = @import("corgi_animation.zig");
 const ghostty = @import("ghostty_integration.zig");
 const km = @import("keymap.zig");
@@ -149,10 +149,6 @@ const preview_period_ms = 6_000;
 pub const Menu = struct {
     selected: Choice,
     integration: ghostty.State = .unavailable,
-    preset: km.Preset = .corgi,
-    prefix: km.Prefix = .ctrl_b,
-    resources: Resources = .{},
-    sleeping_corgis: bool = true,
 
     pub fn open(status: setup.Status) Menu {
         return .{ .selected = @enumFromInt(@intFromEnum(status.choice)) };
@@ -177,10 +173,10 @@ pub const Menu = struct {
         const index: usize = @intFromEnum(m.selected);
         m.selected = @enumFromInt(if (next) @min(index + 1, @intFromEnum(Choice.import)) else index -| 1);
     }
-    pub fn draw(m: *const Menu, w: *std.Io.Writer, status: setup.Status, cols: u16, rows: u16) !void {
-        return m.drawAt(w, status, cols, rows, std.time.milliTimestamp());
+    pub fn draw(m: *const Menu, w: *std.Io.Writer, status: setup.Status, prefs: Preferences, cols: u16, rows: u16) !void {
+        return m.drawAt(w, status, prefs, cols, rows, std.time.milliTimestamp());
     }
-    fn drawAt(m: *const Menu, w: *std.Io.Writer, status: setup.Status, cols: u16, rows: u16, now_ms: i64) !void {
+    fn drawAt(m: *const Menu, w: *std.Io.Writer, status: setup.Status, prefs: Preferences, cols: u16, rows: u16, now_ms: i64) !void {
         const b = bounds(cols, rows);
         if (!usable(b)) return;
         // Shadow one row below and two columns right, clipped to the screen.
@@ -213,7 +209,7 @@ pub const Menu = struct {
                 .heading => |label| try put(w, b, marker_x, y, heading, label),
                 .lead => |label| try put(w, b, marker_x, y, panel, label),
                 .hint => |label| try put(w, b, label_x, y, panel, label),
-                .option => |choice| try m.drawOption(w, b, y, choice, status, now_ms),
+                .option => |choice| try m.drawOption(w, b, y, choice, status, prefs, now_ms),
                 .detail => {
                     var buffer: [96]u8 = undefined;
                     const in_use: Choice = @enumFromInt(@intFromEnum(status.choice));
@@ -222,7 +218,7 @@ pub const Menu = struct {
                 .footer => {
                     try put(w, b, marker_x, y, panel, "↑↓ choose · esc close");
                     var buffer: [48]u8 = undefined;
-                    if (m.action(status, &buffer)) |label| {
+                    if (m.action(status, prefs, &buffer)) |label| {
                         var cap: [64]u8 = undefined;
                         const shown = std.fmt.bufPrint(&cap, "[ Enter {s} ]", .{label}) catch unreachable;
                         try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + b.w - 3 - sidebar.displayWidth(shown) + 1, keycap, shown });
@@ -232,7 +228,7 @@ pub const Menu = struct {
         }
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
-    fn drawOption(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choice: Choice, status: setup.Status, now_ms: i64) !void {
+    fn drawOption(m: *const Menu, w: *std.Io.Writer, b: Rect, y: usize, choice: Choice, status: setup.Status, prefs: Preferences, now_ms: i64) !void {
         const highlighted = choice == m.selected;
         const p = if (highlighted) row_selected else row_normal;
         const base = p.text;
@@ -250,9 +246,9 @@ pub const Menu = struct {
                 .unavailable => .{ .text = "local macOS only", .style = quiet },
                 .failed => .{ .text = "config unreadable", .style = p.warn },
             },
-            .readings => if (m.resources.enabled) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
-            .sleeping_corgis => if (m.sleeping_corgis) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
-            .keyboard => .{ .text = m.keysLabel(&right_buffer), .style = accent },
+            .readings => if (prefs.resources.enabled) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
+            .sleeping_corgis => if (prefs.sleeping_corgis) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
+            .keyboard => .{ .text = keysLabel(prefs, &right_buffer), .style = accent },
             .import => .{ .text = "→", .style = accent },
             else => .{ .text = if (choice.summarizer() and @intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = accent },
         };
@@ -276,8 +272,8 @@ pub const Menu = struct {
             try w.print("\x1b[{d};{d}H{s}", .{ y + 1, b.x + x + 1, base });
             try corgi_animation.idle(w, @min(12, right_x -| (x + 1)), .{
                 .background = p.background,
-                .bright = m.sleeping_corgis,
-                .puff_ms = if (m.sleeping_corgis) elapsed else null,
+                .bright = prefs.sleeping_corgis,
+                .puff_ms = if (prefs.sleeping_corgis) elapsed else null,
             });
         }
         if (right_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + right_x + 1, right.style, right.text });
@@ -285,20 +281,20 @@ pub const Menu = struct {
     fn current(choice: Choice, status: setup.Status) bool {
         return @intFromEnum(choice) == @intFromEnum(status.choice);
     }
-    fn keysLabel(m: *const Menu, buffer: []u8) []const u8 {
-        if (m.preset == .cmux) return "cmux · Cmd  →";
-        return std.fmt.bufPrint(buffer, "{s} · {s}  →", .{ km.name(m.preset), km.prefixName(m.prefix) }) catch "→";
+    fn keysLabel(prefs: Preferences, buffer: []u8) []const u8 {
+        if (prefs.preset == .cmux) return "cmux · Cmd  →";
+        return std.fmt.bufPrint(buffer, "{s} · {s}  →", .{ km.name(prefs.preset), km.prefixName(prefs.prefix) }) catch "→";
     }
     /// The keycap label for Enter, or null when Enter would do nothing useful.
-    fn action(m: *const Menu, status: setup.Status, buffer: []u8) ?[]const u8 {
+    fn action(m: *const Menu, status: setup.Status, prefs: Preferences, buffer: []u8) ?[]const u8 {
         return switch (m.selected) {
             .ghostty => switch (m.integration) {
                 .enabled => "Turn off",
                 .disabled => "Turn on",
                 .unavailable, .failed => null,
             },
-            .readings => if (m.resources.enabled) "Turn off" else "Turn on",
-            .sleeping_corgis => if (m.sleeping_corgis) "Turn off" else "Turn on",
+            .readings => if (prefs.resources.enabled) "Turn off" else "Turn on",
+            .sleeping_corgis => if (prefs.sleeping_corgis) "Turn off" else "Turn on",
             .keyboard, .import => "Open →",
             else => |choice| if (current(choice, status))
                 "Keep"
@@ -388,19 +384,19 @@ test "setup modal explains the automatic choice" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const menu = Menu.open(.{});
-    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .launches = .init(.{ .claude = 3, .codex = 1 }), .models = .init(.{ .claude = "claude-haiku-4-5-20251001" }) }, 100, 30);
+    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .claude, .launches = .init(.{ .claude = 3, .codex = 1 }), .models = .init(.{ .claude = "claude-haiku-4-5-20251001" }) }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Following you → Claude · Haiku 4.5") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "claude 3× · codex 1×") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Keep ]") != null);
     output.clearRetainingCapacity();
-    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .init(.{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" }) }, 100, 30);
+    try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .init(.{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" }) }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Settled on Codex · gpt-6-luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "gpt-6-luna · your Codex login") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Haiku 4.5 · your Claude login") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯoᴥ°ᐯ") != null);
     try std.testing.expectEqual(std.unicode.utf8CountCodepoints("ᐯoᴥ°ᐯ"), sidebar.displayWidth("ᐯoᴥ°ᐯ"));
     output.clearRetainingCapacity();
-    try menu.draw(&output.writer, .{}, 20, 8);
+    try menu.draw(&output.writer, .{}, .{}, 20, 8);
     try std.testing.expectEqual(@as(usize, 0), output.written().len);
 }
 
@@ -408,8 +404,9 @@ test "resource readings are one on/off row" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     var menu = Menu.open(.{});
+    var prefs: Preferences = .{};
     menu.selected = .readings;
-    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    try menu.drawAt(&output.writer, .{}, prefs, 100, 40, 0);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Resource readings") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn off ]") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[x]") == null);
@@ -417,8 +414,8 @@ test "resource readings are one on/off row" {
     try std.testing.expectEqual(Choice.sleeping_corgis, menu.selected);
     output.clearRetainingCapacity();
     menu.selected = .readings;
-    menu.resources.enabled = false;
-    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    prefs.resources.enabled = false;
+    try menu.drawAt(&output.writer, .{}, prefs, 100, 40, 0);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
 }
 
@@ -426,8 +423,9 @@ test "sleeping corgis row shows its state, offers the opposite, and naps beside 
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     var menu = Menu.open(.{});
+    var prefs: Preferences = .{};
     menu.selected = .sleeping_corgis;
-    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    try menu.drawAt(&output.writer, .{}, prefs, 100, 40, 0);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Sleeping corgis") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "● On") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn off ]") != null);
@@ -435,11 +433,11 @@ test "sleeping corgis row shows its state, offers the opposite, and naps beside 
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") != null);
     // Between puffs the preview rests without a Z.
     output.clearRetainingCapacity();
-    try menu.drawAt(&output.writer, .{}, 100, 40, corgi_animation.puff_duration_ms);
+    try menu.drawAt(&output.writer, .{}, prefs, 100, 40, corgi_animation.puff_duration_ms);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
     output.clearRetainingCapacity();
-    menu.sleeping_corgis = false;
-    try menu.drawAt(&output.writer, .{}, 100, 40, 0);
+    prefs.sleeping_corgis = false;
+    try menu.drawAt(&output.writer, .{}, prefs, 100, 40, 0);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "○ Off") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "~ᐯ◡ᴥ◡ᐯ") != null);

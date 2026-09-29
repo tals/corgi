@@ -121,8 +121,9 @@ pub const Controller = struct {
     height: u16 = 30,
     dirty: bool = true,
     prefix: bool = false,
-    key_preset: keymap.Preset = .corgi,
-    key_prefix: keymap.Prefix = .ctrl_b,
+    /// Saved preferences as this viewer last loaded or set them. The sidebar
+    /// width is live while dragging and saved on release.
+    prefs: preferences.Preferences = .{},
     onboarding: ?onboarding.State = null,
     help: shortcut_help.State = .{ .command_mode = true },
     help_visible: bool = false,
@@ -133,13 +134,11 @@ pub const Controller = struct {
     sidebar_open: bool = true,
     corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
-    sidebar_width: u16 = 28,
     sidebar_offset: usize = 0,
     sidebar_rows: sidebar_rows.State = .{},
     remote_links: bool = false,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
-    agent_scope: sidebar.Scope = .workspace,
     /// Workspace ids whose group is folded in the grouped "All" list.
     folded_groups: [workspace.max_workspaces]WorkspaceId = undefined,
     folded_count: usize = 0,
@@ -156,8 +155,6 @@ pub const Controller = struct {
     git_hover: ?WorkspaceId = null,
     resource_card: resource_tooltip.State = .{},
     resource_aim: ?resource_tooltip.Aim = null,
-    resource_prefs: preferences.Resources = .{},
-    sleeping_corgis: bool = true,
     ui_mouse_down: bool = false,
     sidebar_drag: bool = false,
     agent_drag: ?agent_drag.Drag = null,
@@ -228,7 +225,7 @@ pub const Controller = struct {
         s.visitWorkspace(id);
         s.revealWorkspace();
         // "All" lists the same agents in every workspace; keep its scroll.
-        if (s.agent_scope == .workspace) s.sidebar_offset = 0;
+        if (s.prefs.agents == .workspace) s.sidebar_offset = 0;
         s.copy_mode = false;
         s.search_mode = false;
         s.selection = null;
@@ -265,50 +262,35 @@ pub const Controller = struct {
     }
     fn sidebarView(s: *Self, entries: []const sidebar.Entry) sidebar.View {
         const offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset;
-        var view = sidebar.View.init(s.width, s.height, s.sidebar_open, offset, entries.len).withSearch(s.agentSearch()).withWidth(s.sidebar_width);
+        var view = sidebar.View.init(s.width, s.height, s.sidebar_open, offset, entries.len).withSearch(s.agentSearch()).withWidth(s.prefs.sidebar_width);
         // Workspace rows, and so paging, depend on whether readings are shown.
-        view.resources = s.resource_prefs;
+        view.resources = s.prefs.resources;
         view = view.withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset).withEntries(entries);
         view.scope_label = s.scopeLabel();
         return view;
     }
     fn scopeLabel(s: *Self) []const u8 {
-        return switch (s.agent_scope) {
+        return switch (s.prefs.agents) {
             .workspace => s.current().name,
             .all => "all",
         };
     }
     fn inScope(s: *Self, id: WorkspaceId) bool {
-        return switch (s.agent_scope) {
+        return switch (s.prefs.agents) {
             .workspace => id == s.current().id,
             .all => true,
         };
     }
     fn setAgentScope(s: *Self, scope: sidebar.Scope) void {
         s.closeMenu();
-        s.agent_scope = scope;
+        s.prefs.agents = scope;
         s.sidebar_offset = 0;
         s.dirty = true;
-        const lasting: @FieldType(preferences.Preferences, "agents") = switch (scope) {
-            .workspace => .workspace,
-            .all => .all,
-        };
-        var saved = preferences.load();
-        saved.agents = lasting;
-        preferences.save(saved) catch |err| s.notice(@errorName(err));
+        preferences.update(.{ .agents = scope }) catch |err| s.notice(@errorName(err));
     }
     pub fn loadPreferences(s: *Self) void {
-        const saved = preferences.load();
-        s.key_preset = saved.preset;
-        s.key_prefix = saved.prefix;
-        s.sidebar_width = saved.sidebar_width;
-        s.resource_prefs = saved.resources;
-        s.sleeping_corgis = saved.sleeping_corgis;
-        if (!saved.onboarding_complete) s.onboarding = .{ .preset = saved.preset, .prefix = saved.prefix };
-        s.agent_scope = switch (saved.agents) {
-            .workspace => .workspace,
-            .all => .all,
-        };
+        s.prefs = preferences.load();
+        if (!s.prefs.onboarding_complete) s.onboarding = .{ .preset = s.prefs.preset, .prefix = s.prefs.prefix };
     }
     fn groupFolded(s: *Self, id: WorkspaceId) bool {
         return std.mem.indexOfScalar(WorkspaceId, s.folded_groups[0..s.folded_count], id) != null;
@@ -393,7 +375,7 @@ pub const Controller = struct {
         var count: usize = 0;
         const focus = if (s.model().count > 0) s.nav().tab().focus else layout.PaneId.none;
         // "All" groups agents under a header per workspace that has any.
-        const grouped = s.agent_scope == .all;
+        const grouped = s.prefs.agents == .all;
         var totals_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
         const totals: []const sidebar.WorkspaceEntry = if (grouped) s.workspaceEntries(&totals_storage) else &.{};
         for (s.runtime.workspaces.items, 0..) |*ws, ws_index| {
@@ -472,7 +454,7 @@ pub const Controller = struct {
     }
     fn sidebarEntries(s: *Self, entries: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
         var live: [sidebar.max_entries]sidebar.Entry = undefined;
-        const list = switch (s.agent_scope) {
+        const list = switch (s.prefs.agents) {
             .workspace => s.current().id,
             .all => @as(WorkspaceId, @enumFromInt(std.math.maxInt(u32))),
         };
@@ -1259,10 +1241,6 @@ pub const Controller = struct {
         s.closeMenu();
         s.corgi_setup = corgi_setup.Menu.open(s.runtime.inference);
         s.corgi_setup.?.integration = if (s.remote_links) .unavailable else ghostty_integration.state();
-        s.corgi_setup.?.preset = s.key_preset;
-        s.corgi_setup.?.prefix = s.key_prefix;
-        s.corgi_setup.?.resources = s.resource_prefs;
-        s.corgi_setup.?.sleeping_corgis = s.sleeping_corgis;
         s.dirty = true;
     }
     pub fn openOnboarding(s: *Self, mode: onboarding.Mode) void {
@@ -1274,7 +1252,7 @@ pub const Controller = struct {
         s.search_mode = false;
         s.selection = null;
         s.cancelDividers();
-        s.onboarding = .start(mode, s.key_preset, s.key_prefix);
+        s.onboarding = .start(mode, s.prefs.preset, s.prefs.prefix);
         s.dirty = true;
     }
     fn applySetup(s: *Self, choice: corgi_setup.Choice) void {
@@ -1282,20 +1260,14 @@ pub const Controller = struct {
             return s.openOnboarding(if (choice == .keyboard) .keyboard else .import);
         }
         if (choice == .readings) {
-            s.resource_prefs.enabled = !s.resource_prefs.enabled;
-            if (s.corgi_setup) |*setup| setup.resources = s.resource_prefs;
-            var saved = preferences.load();
-            saved.resources = s.resource_prefs;
-            preferences.save(saved) catch |err| s.notice(@errorName(err));
+            s.prefs.resources.enabled = !s.prefs.resources.enabled;
+            preferences.update(.{ .resources = s.prefs.resources }) catch |err| s.notice(@errorName(err));
             s.dirty = true;
             return;
         }
         if (choice == .sleeping_corgis) {
-            s.sleeping_corgis = !s.sleeping_corgis;
-            if (s.corgi_setup) |*setup| setup.sleeping_corgis = s.sleeping_corgis;
-            var saved = preferences.load();
-            saved.sleeping_corgis = s.sleeping_corgis;
-            preferences.save(saved) catch |err| s.notice(@errorName(err));
+            s.prefs.sleeping_corgis = !s.prefs.sleeping_corgis;
+            preferences.update(.{ .sleeping_corgis = s.prefs.sleeping_corgis }) catch |err| s.notice(@errorName(err));
             s.dirty = true;
             return;
         }
@@ -1310,7 +1282,7 @@ pub const Controller = struct {
                 s.notice(" Could not read Ghostty config; no changes made");
                 return;
             }
-            const settings: ghostty_integration.Keys = .{ .preset = s.key_preset, .prefix = s.key_prefix };
+            const settings: ghostty_integration.Keys = .{ .preset = s.prefs.preset, .prefix = s.prefs.prefix };
             ghostty_integration.sync(if (integration_state == .enabled) null else settings) catch |err| {
                 var message: [160]u8 = undefined;
                 s.notice(std.fmt.bufPrint(&message, " Ghostty integration: {s}", .{@errorName(err)}) catch "Ghostty config update failed");
@@ -1353,31 +1325,28 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
-        var saved = preferences.load();
-        saved.preset = wizard.preset;
-        saved.prefix = wizard.prefix;
-        saved.onboarding_complete = true;
-        preferences.save(saved) catch |err| {
+        preferences.update(.{ .preset = wizard.preset, .prefix = wizard.prefix, .onboarding_complete = true }) catch |err| {
             wizard.fail(err);
             s.dirty = true;
             return;
         };
-        s.key_preset = saved.preset;
-        s.key_prefix = saved.prefix;
+        s.prefs.preset = wizard.preset;
+        s.prefs.prefix = wizard.prefix;
+        s.prefs.onboarding_complete = true;
         // An enabled Ghostty block types the old prefix and keys until re-rendered.
-        const reload = !s.remote_links and (ghostty_integration.refresh(.{ .preset = saved.preset, .prefix = saved.prefix }) catch false);
+        const reload = !s.remote_links and (ghostty_integration.refresh(.{ .preset = s.prefs.preset, .prefix = s.prefs.prefix }) catch false);
         const target = wizard.progress.workspace;
         const mode = wizard.mode;
         wizard.deinit();
         s.onboarding = null;
         if (mode == .keyboard) {
             var message: [96]u8 = undefined;
-            s.notice(if (saved.preset == .cmux)
+            s.notice(if (s.prefs.preset == .cmux)
                 " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
             else
                 std.fmt.bufPrint(&message, " Shortcuts: {s} · prefix {s}{s}", .{
-                    keymap.name(saved.preset),
-                    keymap.prefixName(saved.prefix),
+                    keymap.name(s.prefs.preset),
+                    keymap.prefixName(s.prefs.prefix),
                     if (reload) ". Reload Ghostty: Cmd+Shift+," else "",
                 }) catch "");
         } else if (target) |id| {
@@ -1458,13 +1427,13 @@ pub const Controller = struct {
                 s.dirty = true;
                 return;
             }
-            if (launch.pinned and byte == keymap.prefixByte(s.key_prefix)) {
+            if (launch.pinned and byte == keymap.prefixByte(s.prefs.prefix)) {
                 s.agent_launcher.?.prefix = true;
                 return;
             }
             s.agent_launcher.?.prefix = false;
             if (launch.prefix and (byte == 'c' or byte == 'a' or byte == 'A')) return;
-            if (launch.pinned and byte == 20 and s.key_preset == .corgi) return;
+            if (launch.pinned and byte == 20 and s.prefs.preset == .corgi) return;
             const recognized = switch (byte) {
                 27, 13, 9, 14, 16, 'a', 'A', 1, 'y', 't' => true,
                 'u' => launch.trackable(launch.selected) or launch.shortcutRow(byte) != null,
@@ -1549,7 +1518,7 @@ pub const Controller = struct {
                 'k' => s.moveTabMenu(false),
                 else => if (context.itemFor(byte)) |item| {
                     try s.tabMenuAction(item);
-                } else if (byte == keymap.prefixByte(s.key_prefix)) s.beginPrefix(),
+                } else if (byte == keymap.prefixByte(s.prefs.prefix)) s.beginPrefix(),
             }
             return;
         }
@@ -1596,18 +1565,18 @@ pub const Controller = struct {
             }
             s.prefix = false;
             s.dirty = true;
-            if (byte == keymap.prefixByte(s.key_prefix)) {
+            if (byte == keymap.prefixByte(s.prefs.prefix)) {
                 if (s.focused()) |p| try s.sendInput(p.terminal, &.{byte});
                 return;
             }
-            if (bindings.lookup(s.key_preset, true, byte, .{})) |act| try s.perform(act);
+            if (bindings.lookup(s.prefs.preset, true, byte, .{})) |act| try s.perform(act);
             return;
         }
-        if (byte == keymap.prefixByte(s.key_prefix)) {
+        if (byte == keymap.prefixByte(s.prefs.prefix)) {
             s.beginPrefix();
             return;
         }
-        if (!s.copy_mode) if (bindings.lookup(s.key_preset, false, byte, .{})) |act| return s.perform(act);
+        if (!s.copy_mode) if (bindings.lookup(s.prefs.preset, false, byte, .{})) |act| return s.perform(act);
         if (s.copy_mode) {
             switch (byte) {
                 'k' => s.scroll(-1),
@@ -1723,7 +1692,7 @@ pub const Controller = struct {
             if (cl.paste == null) {
                 if (keyboard.decode(seq)) |key_event| {
                     if (s.onboarding == null and s.name_dialog == null and s.workspace_chooser == null and (s.prefix or !s.hasMenu())) {
-                        if (bindings.chord(s.key_preset, s.prefix, key_event)) |act| {
+                        if (bindings.chord(s.prefs.preset, s.prefix, key_event)) |act| {
                             s.prefix = false;
                             try s.perform(act);
                             used += len;
@@ -1735,7 +1704,7 @@ pub const Controller = struct {
                     try key_event.encode(&encoded.writer, .{});
                     const legacy = encoded.written();
                     const owned = s.hasMenu() or s.name_dialog != null or s.copy_mode or s.search_mode;
-                    if (owned or (legacy.len == 1 and (legacy[0] == keymap.prefixByte(s.key_prefix) or bindings.lookup(s.key_preset, false, legacy[0], .{}) != null))) {
+                    if (owned or (legacy.len == 1 and (legacy[0] == keymap.prefixByte(s.prefs.prefix) or bindings.lookup(s.prefs.preset, false, legacy[0], .{}) != null))) {
                         seq = legacy;
                     } else if (s.focused()) |p| {
                         encoded.clearRetainingCapacity();
@@ -1775,7 +1744,7 @@ pub const Controller = struct {
                 if (done) try s.finishOnboarding();
                 s.dirty = true;
             } else if (s.prefix) {
-                if (bindings.prefixedSequence(s.key_preset, seq)) |act| {
+                if (bindings.prefixedSequence(s.prefs.preset, seq)) |act| {
                     s.prefix = false;
                     try s.perform(act);
                 } else if (s.help_visible) s.help.sequence(seq);
@@ -1875,7 +1844,7 @@ pub const Controller = struct {
         if (s.prefix and s.help_visible) {
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
-                switch (try s.help.hit(s.width, s.height, x, y, s.key_preset)) {
+                switch (try s.help.hit(s.width, s.height, x, y, s.prefs.preset)) {
                     .close => s.closeMenu(),
                     .action => |act| if (s.model().count > 0 or !act.needsPane()) {
                         s.prefix = false;
@@ -1990,11 +1959,9 @@ pub const Controller = struct {
         if (s.sidebar_drag) {
             if (release) {
                 s.sidebar_drag = false;
-                var saved = preferences.load();
-                saved.sidebar_width = s.sidebar_width;
-                preferences.save(saved) catch |err| s.notice(@errorName(err));
+                preferences.update(.{ .sidebar_width = s.prefs.sidebar_width }) catch |err| s.notice(@errorName(err));
             } else if (button == 32) {
-                s.sidebar_width = std.math.clamp(x +| 1, 20, @max(20, s.width -| 20));
+                s.prefs.sidebar_width = std.math.clamp(x +| 1, 20, @max(20, s.width -| 20));
                 s.dirty = true;
             }
             s.dirty = true;
@@ -2587,7 +2554,7 @@ pub const Controller = struct {
         }
     }
     pub fn resourceDetail(s: *Self) ?WorkspaceId {
-        if (!s.resource_prefs.enabled or !s.link_tooltip.shown or s.link_tooltip.target == null) return null;
+        if (!s.prefs.resources.enabled or !s.link_tooltip.shown or s.link_tooltip.target == null) return null;
         const id = s.link_tooltip.target.?.resource orelse return null;
         if (s.runtime.workspaces.index(id) == null) return null;
         const work = s.runtime.resources.workspace(id);
@@ -2682,7 +2649,7 @@ pub const Controller = struct {
     }
     pub fn frame(s: *Self) ![]u8 {
         if (s.onboarding) |*wizard| return wizard.frame(s.width, s.height);
-        if (s.prefix and s.help_visible) return s.help.frame(s.width, s.height, s.key_preset, s.key_prefix);
+        if (s.prefix and s.help_visible) return s.help.frame(s.width, s.height, s.prefs.preset, s.prefs.prefix);
         if (s.workspace_chooser) |index| {
             var output: std.Io.Writer.Allocating = .init(a);
             errdefer output.deinit();
@@ -2718,14 +2685,11 @@ pub const Controller = struct {
             s.resource_card.update(s.runtime.resources.workspace(id), freeze);
         }
         return render.frame(s.layoutView(), s.runtime.panes.items, s.width, s.height, .{
-            .key_preset = s.key_preset,
-            .key_prefix = s.key_prefix,
+            .prefs = s.prefs,
             .pointer = s.pointer,
             .iterm2_pointer = s.iterm2_pointer,
             .link_tooltip = tooltip_ready,
             .resources = s.runtime.resources,
-            .resource_prefs = s.resource_prefs,
-            .sleeping_corgis = s.sleeping_corgis,
             .resource_hover = if (s.link_tooltip.target) |target| target.resource else null,
             .resource_card = if (tooltip_ready and detail != null) s.resource_card else null,
             .git_hover = if (s.hoverIdle()) s.git_hover else null,
@@ -2738,7 +2702,6 @@ pub const Controller = struct {
             .agent_search = s.agentSearch(),
             .agent_launcher = s.agent_launcher,
             .scope_menu = s.scope_menu,
-            .agent_scope = s.agent_scope,
             .scope_label = s.scopeLabel(),
             .corgi_setup = s.corgi_setup,
             .inference = s.runtime.inference,
@@ -2747,7 +2710,6 @@ pub const Controller = struct {
             .sidebar_open = s.sidebar_open,
             .corgi_badge = s.corgi_badge,
             .supports_kitty_graphics = s.supports_kitty_graphics,
-            .sidebar_width = s.sidebar_width,
             .dragged_workspace = if (s.workspace_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .dragged_agent = if (s.agent_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
@@ -2781,7 +2743,7 @@ fn gitPushMessage(err: []const u8) []const u8 {
 }
 
 test "the tab menu starts a prefix only with the configured prefix key" {
-    var s: Controller = .{ .connection = undefined, .executable = "", .key_prefix = .ctrl_a };
+    var s: Controller = .{ .connection = undefined, .executable = "", .prefs = .{ .prefix = .ctrl_a } };
     s.tab_menu = .{ .tab = 1, .anchor_x = 0 };
     try s.key(2);
     try std.testing.expect(!s.prefix);

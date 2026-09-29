@@ -90,7 +90,7 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     const response = try view.connection.callViewer(.{
         .op = "viewer.sync",
         .resource_detail = view.resourceDetail(),
-        .resources = view.resource_prefs.enabled,
+        .resources = view.prefs.resources.enabled,
         .protocol = 1,
         .viewer_protocol = viewer_version.version,
         .session_hash = view.runtime.snapshot_hash,

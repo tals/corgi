@@ -5,6 +5,7 @@ const os = @import("os.zig");
 const a = os.allocator;
 const keymap = @import("keymap.zig");
 const builtin = @import("builtin");
+const Scope = @import("sidebar.zig").Scope;
 
 /// Resource readings shown in the sidebar. Disabling removes the row and,
 /// once every attached viewer is off, stops the daemon's sampling. Settings
@@ -15,7 +16,7 @@ pub const Resources = struct {
 
 pub const Preferences = struct {
     /// The agent scope persists across viewer restarts.
-    agents: enum { workspace, all } = .workspace,
+    agents: Scope = .workspace,
     /// The last dragged sidebar width seeds new viewers; open ones keep their own.
     sidebar_width: u16 = 28,
     preset: keymap.Preset = .corgi,
@@ -53,10 +54,18 @@ pub fn load() Preferences {
     return saved orelse .{};
 }
 
-pub fn save(value: Preferences) !void {
+/// Saves the given fields and keeps the rest as another viewer may have left
+/// them. `changes` names `Preferences` fields: `update(.{ .agents = .all })`.
+pub fn update(changes: anytype) !void {
     const file = try path();
     defer a.free(file);
-    try write(file, value);
+    try updateFile(file, changes);
+}
+
+fn updateFile(file: []const u8, changes: anytype) !void {
+    var saved = read(file);
+    inline for (std.meta.fields(@TypeOf(changes))) |field| @field(saved, field.name) = @field(changes, field.name);
+    try write(file, saved);
 }
 
 fn read(file: []const u8) Preferences {
@@ -98,6 +107,8 @@ test "preferences round trip and fall back to defaults" {
     try std.testing.expectEqual(Preferences{ .agents = .all }, read(file));
     try write(file, .{ .sidebar_width = 44 });
     try std.testing.expectEqual(@as(u16, 44), read(file).sidebar_width);
+    try updateFile(file, .{ .agents = .all });
+    try std.testing.expectEqual(Preferences{ .agents = .all, .sidebar_width = 44 }, read(file));
     try write(file, .{ .resources = .{ .enabled = false } });
     try std.testing.expectEqual(Resources{ .enabled = false }, read(file).resources);
     try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{\"resources\":{\"enabled\":false,\"io\":false,\"alerts\":true}}" });
