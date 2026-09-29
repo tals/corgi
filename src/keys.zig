@@ -24,7 +24,7 @@ pub const Key = enum {
     paste_end,
 };
 
-/// Bracketed-paste markers, shared with theme.zig's incremental byte scan.
+/// Bracketed-paste markers, shared with host_probe.zig's incremental byte scan.
 pub const paste_start = "\x1b[200~";
 pub const paste_end = "\x1b[201~";
 

@@ -17,7 +17,7 @@ const Op = protocol.Op;
 const Theme = @import("theme.zig").Theme;
 const Client = @import("peer.zig").Client;
 const launch_command = @import("launch_command.zig");
-const agent_launcher = @import("agent_launcher.zig");
+const launch_preview = @import("launch_preview.zig");
 const onboarding_import = @import("onboarding_import.zig");
 const herdr_adapter = @import("herdr_adapter.zig");
 const activity_worker = @import("activity_worker.zig");
@@ -47,7 +47,7 @@ pub const Server = struct {
     const Pane = runtime.Pane;
     runtime: runtime.Runtime = .{},
     command_previews: ?*launch_command.Worker = null,
-    launch_previews: ?*agent_launcher.Worker = null,
+    launch_previews: ?*launch_preview.Worker = null,
     onboarding_copy: onboarding_import.Job = .{},
     herdr_import: herdr_adapter.Manager = .{},
     handoff_operation: u64 = 0,
@@ -342,7 +342,7 @@ pub const Server = struct {
                 const cwd = if (requested.len > 0) requested else ws.cwd;
                 if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
                 const dir = agents.Path.init(cwd) catch return error.InvalidDirectory;
-                const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else agent_launcher.Preview{};
+                const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else launch_preview.Preview{};
                 if (subscribe) {
                     cl.launch_preview = .{ .cwd = dir, .preview = preview, .checked = std.time.milliTimestamp() };
                     cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
@@ -761,7 +761,7 @@ pub const Server = struct {
             s.command_previews.?.stop();
             s.command_previews = null;
         }
-        s.launch_previews = try agent_launcher.Worker.start();
+        s.launch_previews = try launch_preview.Worker.start();
         defer {
             s.launch_previews.?.stop();
             s.launch_previews = null;
@@ -1345,9 +1345,9 @@ test "local Codex reattachment requires current unambiguous identity and preserv
     try std.testing.expect(p.attachment.actor == null);
 }
 test "preview subscriptions schedule stale refreshes and publish completion without another request" {
-    var preview: agent_launcher.Preview = .{ .pending = false };
+    var preview: launch_preview.Preview = .{ .pending = false };
     preview.options.getPtr(.claude).model = .ascii("before");
-    var worker: agent_launcher.Worker = .{};
+    var worker: launch_preview.Worker = .{};
     worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
     var s: Server = .{ .socket = "", .executable = "", .build_id = @splat('0'), .launch_previews = &worker };
     var cl: Client = .{ .fd = -1, .launch_preview = .{ .cwd = .initTruncated("/"), .preview = preview } };

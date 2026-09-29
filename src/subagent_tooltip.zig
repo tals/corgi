@@ -9,9 +9,8 @@ const max = @import("conversations.zig").max_actors;
 const time_c = @cImport(@cInclude("time.h"));
 const background = @import("background_tasks.zig");
 const prices = @import("model_prices.zig");
-const updates = @import("updates.zig");
 const agents = @import("agents.zig");
-const agent_launcher = @import("agent_launcher.zig");
+const launch_preview = @import("launch_preview.zig");
 const metadata = @import("account_preview.zig");
 const limit_history = @import("limit_history.zig");
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
@@ -384,7 +383,7 @@ fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversat
 pub const Release = struct { running: []const u8 = "", commit: []const u8 = "", staged: []const u8 = "" };
 /// Account limits for the pane beside Top agents, from the launcher preview.
 pub const Accounts = struct {
-    options: agents.providers.Each(agent_launcher.Option, .{}) = .{},
+    options: agents.providers.Each(launch_preview.Option, .{}) = .{},
     /// The provider the activity summarizer runs on.
     system: ?agents.Provider = null,
     /// Unix seconds; zero reads the clock.
@@ -465,8 +464,8 @@ fn overviewFooter(card: Card, row: usize, hidden: usize, release: Release) !void
     var running_buf: [64]u8 = undefined;
     var staged_buf: [64]u8 = undefined;
     var version_text: [160]u8 = undefined;
-    const running = updates.label(&running_buf, release.running, release.commit);
-    const staged = updates.label(&staged_buf, release.staged, "");
+    const running = versionLabel(&running_buf, release.running, release.commit);
+    const staged = versionLabel(&staged_buf, release.staged, "");
     // Prefer the most complete version text that still leaves room for the agent count.
     const room = (card.width - 6) -| (if (more.len > 0) sidebar.displayWidth(more) + 2 else 0);
     const candidates = if (staged.len > 0) [_][]const u8{
@@ -478,6 +477,24 @@ fn overviewFooter(card: Card, row: usize, hidden: usize, release: Release) !void
         if (sidebar.displayWidth(candidate) <= room) break candidate;
     } else "";
     try card.line(row, more, version_line, .muted, if (staged.len > 0) .idle else .muted);
+}
+/// "20260925T183012Z-be82c7b9090a" reads as "2026-09-25 · be82c7b". A known
+/// commit replaces the version's hash, so development builds show theirs too.
+fn versionLabel(buf: []u8, ver: []const u8, commit: []const u8) []const u8 {
+    const release = ver.len >= 24 and ver[8] == 'T' and ver[16] == '-';
+    const dirty = std.mem.endsWith(u8, commit, "-dirty");
+    const hex = commit.len >= 7 and for (commit[0..7]) |ch| {
+        if (!std.ascii.isHex(ch)) break false;
+    } else true;
+    const short = if (hex) commit[0..7] else if (release) ver[17..24] else "";
+    const suffix = if (hex and dirty) "-dirty" else "";
+    const out = if (release)
+        std.fmt.bufPrint(buf, "{s}-{s}-{s} · {s}{s}", .{ ver[0..4], ver[4..6], ver[6..8], short, suffix })
+    else if (short.len > 0)
+        std.fmt.bufPrint(buf, "{s} · {s}{s}", .{ ver, short, suffix })
+    else
+        return ver;
+    return out catch ver;
 }
 pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, release: Release, accounts: Accounts, cols: u16, rows: u16) !void {
     if (cols < 40 or rows < 13) return;
@@ -563,7 +580,7 @@ const Section = struct {
     rows: [10]usize = undefined,
     count: usize = 0,
 
-    fn option(section: Section, accounts: Accounts) ?agent_launcher.Option {
+    fn option(section: Section, accounts: Accounts) ?launch_preview.Option {
         return accounts.options.get(section.provider orelse return null);
     }
     /// Limit windows by length, shortest first.
@@ -721,7 +738,7 @@ fn accountRule(card: Card, row: usize, section: Section, accounts: Accounts, div
     };
     try w.print("{s} ", .{base});
 }
-fn limitsMessage(option: agent_launcher.Option) []const u8 {
+fn limitsMessage(option: launch_preview.Option) []const u8 {
     return switch (option.limits) {
         .metered => "metered · no limit",
         .rate_limited => "Unavailable · server returned 429",

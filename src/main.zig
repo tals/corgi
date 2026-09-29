@@ -456,6 +456,7 @@ test {
     _ = @import("git_status.zig");
     _ = @import("handoff.zig");
     _ = @import("herdr_adapter.zig");
+    _ = @import("host_probe.zig");
     _ = @import("hyperlinks.zig");
     _ = @import("import_catalog.zig");
     _ = @import("import_layout.zig");
@@ -468,6 +469,7 @@ test {
     _ = @import("keymap.zig");
     _ = @import("keys.zig");
     _ = @import("launch_command.zig");
+    _ = @import("launch_preview.zig");
     _ = @import("launch_preview_stream.zig");
     _ = @import("launcher_usage.zig");
     _ = @import("layout.zig");
@@ -546,4 +548,59 @@ test "every source file is in the test root" {
             return error.UnlistedSourceFile;
         }
     }
+}
+
+test "the daemon and the viewer never import each other" {
+    // Files that run only in `corgi attach`.
+    const viewer: std.StaticStringMap(void) = .initComptime(.{
+        .{"agent_drag.zig"},       .{"agent_launcher.zig"},        .{"agent_navigation.zig"},    .{"client.zig"},
+        .{"commands.zig"},         .{"controller.zig"},            .{"corgi_animation.zig"},     .{"corgi_badge.zig"},
+        .{"corgi_frames.zig"},     .{"corgi_setup.zig"},           .{"ghostty_integration.zig"}, .{"host_probe.zig"},
+        .{"keymap.zig"},           .{"launch_preview_stream.zig"}, .{"launcher_usage.zig"},      .{"link_tooltip.zig"},
+        .{"mirror.zig"},           .{"model_prices.zig"},          .{"name_dialog.zig"},         .{"navigation.zig"},
+        .{"onboarding.zig"},       .{"preferences.zig"},           .{"render.zig"},              .{"resource_tooltip.zig"},
+        .{"shortcut_help.zig"},    .{"sidebar.zig"},               .{"sidebar_rows.zig"},        .{"sound.zig"},
+        .{"subagent_tooltip.zig"}, .{"url_opener.zig"},            .{"viewer.zig"},              .{"viewer_test.zig"},
+        .{"workspace_drag.zig"},
+    });
+    // Files that own daemon state, the daemon's workers and updater, and their tests.
+    const core: std.StaticStringMap(void) = .initComptime(.{
+        .{"activity_worker.zig"},   .{"checkpoint.zig"}, .{"checkpoint_test.zig"},  .{"handoff.zig"},
+        .{"onboarding_import.zig"}, .{"peer.zig"},       .{"recovery.zig"},         .{"runtime.zig"},
+        .{"server.zig"},            .{"session.zig"},    .{"state_migrations.zig"}, .{"updates.zig"},
+        .{"viewer_protocol.zig"},
+    });
+    // Shared files that still import core. herdr_adapter.zig holds both the
+    // scan the onboarding wizard runs and the daemon's copy into the runtime.
+    const allowed = [_][2][]const u8{.{ "herdr_adapter.zig", "runtime.zig" }};
+    // Every other file is shared. Only main.zig imports viewer files, only
+    // core imports core, and nothing imports main.zig.
+    var dir = try std.fs.cwd().openDir("src", .{ .iterate = true });
+    defer dir.close();
+    var walker = try dir.walk(std.testing.allocator);
+    defer walker.deinit();
+    var crossed = false;
+    while (try walker.next()) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        if (std.mem.eql(u8, entry.path, "main.zig")) continue;
+        const source = try dir.readFileAlloc(std.testing.allocator, entry.path, 4 << 20);
+        defer std.testing.allocator.free(source);
+        const from_viewer = viewer.has(entry.path);
+        const from_core = core.has(entry.path);
+        var rest = source;
+        while (std.mem.indexOf(u8, rest, "@import(\"")) |start| {
+            rest = rest[start + "@import(\"".len ..];
+            const name = rest[0 .. std.mem.indexOfScalar(u8, rest, '"') orelse break];
+            // Files under providers/ reach the top level through "../".
+            const target = if (std.mem.startsWith(u8, name, "../")) name["../".len..] else name;
+            const exempt = for (allowed) |edge| {
+                if (std.mem.eql(u8, edge[0], entry.path) and std.mem.eql(u8, edge[1], target)) break true;
+            } else false;
+            if (std.mem.eql(u8, target, "main.zig") or (viewer.has(target) and !from_viewer) or (core.has(target) and !from_core and !exempt)) {
+                std.debug.print("{s} imports {s} across the daemon/viewer boundary\n", .{ entry.path, target });
+                crossed = true;
+            }
+        }
+    }
+    if (crossed) return error.ProcessBoundary;
 }

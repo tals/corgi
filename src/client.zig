@@ -3,7 +3,7 @@ const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const keyboard = @import("keyboard.zig");
-const theme = @import("theme.zig");
+const Probe = @import("host_probe.zig").Probe;
 const viewer = @import("viewer.zig");
 var keyboard_enabled = false;
 var cursor_blink_saved = false;
@@ -55,7 +55,7 @@ fn attachOnce(path: []const u8, start_onboarding: bool) !?[]const u8 {
     if (c.tcsetattr(0, c.TCSAFLUSH, &raw) != 0) return error.TerminalRequired;
     var input: std.ArrayList(u8) = .empty;
     defer input.deinit(a);
-    var probe: theme.Probe = .{};
+    var probe: Probe = .{};
     try probe.query(&input);
     try os.writeAll(1, "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?2004h" ++ keyboard.enable);
     keyboard_enabled = true;

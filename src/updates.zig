@@ -127,24 +127,6 @@ pub fn stagedVersion(rel: Release, exe: []const u8, buf: []u8) ?[]const u8 {
     @memcpy(buf[0..bytes.len], bytes);
     return buf[0..bytes.len];
 }
-/// "20260925T183012Z-be82c7b9090a" reads as "2026-09-25 · be82c7b". A known
-/// commit replaces the version's hash, so development builds show theirs too.
-pub fn label(buf: []u8, ver: []const u8, commit: []const u8) []const u8 {
-    const release = ver.len >= 24 and ver[8] == 'T' and ver[16] == '-';
-    const dirty = std.mem.endsWith(u8, commit, "-dirty");
-    const hex = commit.len >= 7 and for (commit[0..7]) |ch| {
-        if (!std.ascii.isHex(ch)) break false;
-    } else true;
-    const short = if (hex) commit[0..7] else if (release) ver[17..24] else "";
-    const suffix = if (hex and dirty) "-dirty" else "";
-    const out = if (release)
-        std.fmt.bufPrint(buf, "{s}-{s}-{s} · {s}{s}", .{ ver[0..4], ver[4..6], ver[6..8], short, suffix })
-    else if (short.len > 0)
-        std.fmt.bufPrint(buf, "{s} · {s}{s}", .{ ver, short, suffix })
-    else
-        return ver;
-    return out catch ver;
-}
 fn lock(root: []const u8, name: []const u8, wait: bool) !?std.fs.File {
     const p = try join(root, name);
     defer a.free(p);
