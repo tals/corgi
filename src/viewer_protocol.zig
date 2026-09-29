@@ -16,7 +16,7 @@ const Server = @import("server.zig").Server;
 const WorkspaceId = workspace.Workspace.Id;
 const Request = protocol.Request;
 const Action = @import("action.zig").Action;
-const migrations = @import("state_migrations.zig");
+const migrations = @import("persist.zig").migrations;
 
 pub fn open(s: *Server, cl: *Client, q: Request.Open) !void {
     if (cl.subscribed or cl.launch_preview != null or cl.viewer) return error.AlreadyAttached;

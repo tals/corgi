@@ -1,29 +1,29 @@
 //! Versioned runtime state shared by live handoff and disk recovery. Live state
 //! uses compact VT snapshots and application redraw.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
-const os = @import("os.zig");
+const ActorId = @import("../conversations.zig").Actor.Id;
+const os = @import("../os.zig");
 const a = os.allocator;
-const runtime = @import("runtime.zig");
-const workspace = @import("workspace.zig");
+const runtime = @import("../runtime.zig");
+const workspace = @import("../workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
-const layout = @import("layout.zig");
-const agents = @import("agents.zig");
-const providers = @import("providers.zig");
-const native = @import("native.zig");
+const layout = @import("../layout.zig");
+const agents = @import("../agents.zig");
+const providers = @import("../providers.zig");
+const native = @import("../native.zig");
 const NativeId = native.Session.Id;
-const conversations = @import("conversations.zig");
-const Terminal = @import("terminal.zig").Terminal;
-const binary = @import("base64.zig");
-const pane_label = @import("pane_label.zig");
-const detection = @import("detection.zig");
-const usage = @import("usage.zig");
-const agent_order = @import("agent_order.zig");
-const activity_summary = @import("activity_summary.zig");
-const link_labels = @import("link_labels.zig");
-const launch_command = @import("launch_command.zig");
-const state_migrations = @import("state_migrations.zig");
-const ResumeHint = @import("resume_hint.zig").ResumeHint;
+const conversations = @import("../conversations.zig");
+const Terminal = @import("../terminal.zig").Terminal;
+const binary = @import("../base64.zig");
+const pane_label = @import("../pane_label.zig");
+const detection = @import("../detection.zig");
+const usage = @import("../usage.zig");
+const agent_order = @import("../agent_order.zig");
+const activity_summary = @import("../activity_summary.zig");
+const link_labels = @import("../link_labels.zig");
+const launch_command = @import("../launch_command.zig");
+const state_migrations = @import("migrations.zig");
+const ResumeHint = @import("../resume_hint.zig").ResumeHint;
 pub const Screen = struct {
     cols: u16,
     rows: u16,

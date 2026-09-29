@@ -2,9 +2,9 @@
 //! This is deliberately test-only: a formatted screen is not a complete live
 //! checkpoint. In particular, parser fragments and inactive screens need more.
 const std = @import("std");
-const terminal = @import("terminal.zig");
+const terminal = @import("../terminal.zig");
 const Terminal = terminal.Terminal;
-const a = @import("os.zig").allocator;
+const a = @import("../os.zig").allocator;
 
 fn format(t: *Terminal) ![]u8 {
     var out: std.Io.Writer.Allocating = .init(a);

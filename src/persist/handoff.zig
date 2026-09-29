@@ -3,23 +3,23 @@
 //! pre-commit failure kills only the candidate; the source keeps serving.
 const std = @import("std");
 const log = std.log.scoped(.handoff);
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const c = os.c;
 const a = os.allocator;
 const cp = @import("checkpoint.zig");
-const migrations = @import("state_migrations.zig");
-const binary = @import("base64.zig");
-const peer = @import("peer.zig");
-const protocol = @import("protocol.zig");
-const Server = @import("server.zig").Server;
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const layout = @import("layout.zig");
+const migrations = @import("migrations.zig");
+const binary = @import("../base64.zig");
+const peer = @import("../peer.zig");
+const protocol = @import("../protocol.zig");
+const Server = @import("../server.zig").Server;
+const WorkspaceId = @import("../workspace.zig").Workspace.Id;
+const layout = @import("../layout.zig");
 const PaneId = layout.PaneId;
-const updates = @import("updates.zig");
+const updates = @import("../updates.zig");
 const options = @import("corgi_options");
-const activity_worker = @import("activity_worker.zig");
-const Theme = @import("theme.zig").Theme;
-const agents = @import("agents.zig");
+const activity_worker = @import("../activity_worker.zig");
+const Theme = @import("../theme.zig").Theme;
+const agents = @import("../agents.zig");
 const recovery = @import("recovery.zig");
 const SavedClient = struct {
     fd: i32,
@@ -279,5 +279,5 @@ fn importInner(s: *Server, socket: []const u8, executable: []const u8, build_id:
 test "saved handoff format matches its version" {
     const name = "fixtures/handoff.schema";
     // The runtime checkpoint carries, and is checked against, its own version.
-    try migrations.expectSchema(Manifest, &.{cp.State}, "src/" ++ name, @embedFile(name));
+    try migrations.expectSchema(Manifest, &.{cp.State}, "src/" ++ name, @embedFile("../" ++ name));
 }

@@ -2,11 +2,11 @@
 //! input replay, or automatic agent command execution on cold startup.
 const std = @import("std");
 const log = std.log.scoped(.recovery);
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
 const checkpoint = @import("checkpoint.zig");
-const migrations = @import("state_migrations.zig");
-const Runtime = @import("runtime.zig").Runtime;
+const migrations = @import("migrations.zig");
+const Runtime = @import("../runtime.zig").Runtime;
 pub fn path(socket: []const u8) ![]const u8 {
     const root = if (os.env("XDG_STATE_HOME")) |p| try a.dupe(u8, p) else try std.fs.path.join(a, &.{ os.env("HOME") orelse return error.NoHome, ".local", "state" });
     defer a.free(root);

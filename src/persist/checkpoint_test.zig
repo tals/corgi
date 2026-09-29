@@ -1,17 +1,17 @@
 const std = @import("std");
-const Terminal = @import("terminal.zig").Terminal;
+const Terminal = @import("../terminal.zig").Terminal;
 const cp = @import("checkpoint.zig");
-const a = @import("os.zig").allocator;
+const a = @import("../os.zig").allocator;
 
 test "V2 fixture migrates before typed decoding and restores unchanged terminal data" {
-    const migrations = @import("state_migrations.zig");
-    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v2.json"));
+    const migrations = @import("migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("../fixtures/checkpoint-v2.json"));
     defer decoded.deinit();
     try std.testing.expect(decoded.migrated);
     try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
     try std.testing.expectEqual(null, decoded.parsed.value.panes[0].binding.provisional.provider);
     try std.testing.expectEqual(null, decoded.parsed.value.panes[0].resume_hint.provider);
-    var fresh: @import("runtime.zig").Runtime = .{};
+    var fresh: @import("../runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, true, "/tmp/unused-v2.sock", "/tmp/corgi");
     const text = try fresh.panes.items[0].terminal.text();
@@ -29,13 +29,13 @@ test "V2 fixture migrates before typed decoding and restores unchanged terminal 
 test "V3 fixture migrates before typed decoding and restores unchanged terminal data" {
     // Captured by a V3 build. Kept unchanged now that V4 exists: it is the
     // old-format input for the V3 -> V4 migration.
-    const migrations = @import("state_migrations.zig");
-    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v3.json"));
+    const migrations = @import("migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("../fixtures/checkpoint-v3.json"));
     defer decoded.deinit();
     try std.testing.expectEqual(@as(u32, 3), decoded.from);
     try std.testing.expect(decoded.migrated);
     try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
-    var fresh: @import("runtime.zig").Runtime = .{};
+    var fresh: @import("../runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v3.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
@@ -50,13 +50,13 @@ test "V3 fixture migrates before typed decoding and restores unchanged terminal 
 test "V4 fixture migrates before typed decoding and restores unchanged terminal data" {
     // Captured from the migrated V3 fixture. Kept unchanged now that V5
     // exists: it is the old-format input for the V4 -> V5 migration.
-    const migrations = @import("state_migrations.zig");
-    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v4.json"));
+    const migrations = @import("migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("../fixtures/checkpoint-v4.json"));
     defer decoded.deinit();
     try std.testing.expectEqual(@as(u32, 4), decoded.from);
     try std.testing.expect(decoded.migrated);
     try std.testing.expectEqual(migrations.checkpoint_version, decoded.parsed.value.version);
-    var fresh: @import("runtime.zig").Runtime = .{};
+    var fresh: @import("../runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v4.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
@@ -73,14 +73,14 @@ test "V5 fixture is current and restores as saved" {
     // Captured from the migrated V4 fixture (see the generator test below).
     // Keep it unchanged once V6 exists: it becomes the old-format input for
     // the V5 -> V6 migration.
-    const migrations = @import("state_migrations.zig");
-    const bytes = @embedFile("fixtures/checkpoint-v5.json");
+    const migrations = @import("migrations.zig");
+    const bytes = @embedFile("../fixtures/checkpoint-v5.json");
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\\u0000") == null);
     const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, bytes);
     defer decoded.deinit();
     try std.testing.expectEqual(@as(u32, 5), decoded.from);
     try std.testing.expectEqual(migrations.checkpoint_version != 5, decoded.migrated);
-    var fresh: @import("runtime.zig").Runtime = .{};
+    var fresh: @import("../runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v5.sock", "/tmp/corgi");
     try std.testing.expectEqual(@as(usize, 1), fresh.conversations.items.items.len);
@@ -98,10 +98,10 @@ test "generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE
     // capture path a live build would. Run once with CORGI_UPDATE_FIXTURE=1
     // whenever checkpoint-v5.json needs regenerating, then inspect the diff.
     if (!std.process.hasEnvVarConstant("CORGI_UPDATE_FIXTURE")) return error.SkipZigTest;
-    const migrations = @import("state_migrations.zig");
-    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("fixtures/checkpoint-v4.json"));
+    const migrations = @import("migrations.zig");
+    const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("../fixtures/checkpoint-v4.json"));
     defer decoded.deinit();
-    var fresh: @import("runtime.zig").Runtime = .{};
+    var fresh: @import("../runtime.zig").Runtime = .{};
     defer fresh.deinit();
     try cp.restore(&fresh, decoded.parsed.value, false, "/tmp/unused-v4-to-v5.sock", "/tmp/corgi");
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -112,14 +112,14 @@ test "generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE
 }
 
 test "saved checkpoint format matches its version" {
-    const migrations = @import("state_migrations.zig");
+    const migrations = @import("migrations.zig");
     const name = "fixtures/checkpoint.schema";
-    try migrations.expectSchema(cp.State, &.{}, "src/" ++ name, @embedFile(name));
+    try migrations.expectSchema(cp.State, &.{}, "src/" ++ name, @embedFile("../" ++ name));
 }
 
 test "sidebar order survives live and recovery checkpoints and defaults for old state" {
-    const Runtime = @import("runtime.zig").Runtime;
-    const ordering = @import("agent_order.zig");
+    const Runtime = @import("../runtime.zig").Runtime;
+    const ordering = @import("../agent_order.zig");
     var original: Runtime = .{};
     defer original.deinit();
     const id = try original.workspaces.add("ordered", "/tmp");
@@ -137,13 +137,13 @@ test "sidebar order survives live and recovery checkpoints and defaults for old 
         try cp.restore(&fresh, decoded.value, live, "/tmp/unused-agent-order.sock", "/tmp/corgi");
         try std.testing.expectEqualSlices(ordering.Target, &order, fresh.workspaces.get(id).?.agent_order.slice());
     }
-    const legacy_json = try std.json.Stringify.valueAlloc(arena.allocator(), .{ .id = id, .name = "legacy", .cwd = "/tmp", .model = @import("layout.zig").Model{} }, .{});
+    const legacy_json = try std.json.Stringify.valueAlloc(arena.allocator(), .{ .id = id, .name = "legacy", .cwd = "/tmp", .model = @import("../layout.zig").Model{} }, .{});
     const legacy = try std.json.parseFromSlice(cp.Workspace, arena.allocator(), legacy_json, .{});
     try std.testing.expectEqual(@as(usize, 0), legacy.value.agent_order.len);
 }
 
 test "conversation checkpoint restores shared bindings and detached unread state" {
-    const Runtime = @import("runtime.zig").Runtime;
+    const Runtime = @import("../runtime.zig").Runtime;
     var original: Runtime = .{};
     defer original.deinit();
     const workspace = try original.workspaces.add("actors", "/tmp");
@@ -151,7 +151,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
     const shared = try original.conversations.get(.claude, "shared");
     shared.workspace = workspace;
     shared.state.state = .blocked;
-    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("activity_summary.zig").parseLabel("Explaining cursor visibility").?);
+    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("../activity_summary.zig").parseLabel("Explaining cursor visibility").?);
     shared.state.observation.finish(.completed, .hook);
     const detached = try original.conversations.get(.codex, "detached");
     detached.parent = shared.id;
@@ -160,7 +160,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
         const id = try ws.model.newTab("");
         const terminal = try Terminal.create(20, 4);
         terminal.exited = true;
-        var binding: @import("conversations.zig").Attachment = .{};
+        var binding: @import("../conversations.zig").Attachment = .{};
         binding.select(detached);
         binding.select(shared);
         binding.hook_seq = 50;
@@ -196,7 +196,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
     defer recovered.deinit();
     try cp.restore(&recovered, cold, false, "/tmp/unused-cold-test.sock", "/tmp/corgi");
     const historical = recovered.conversations.byId(shared.id).?;
-    try std.testing.expectEqual(@import("agents.zig").State.unknown, historical.state.state);
+    try std.testing.expectEqual(@import("../agents.zig").State.unknown, historical.state.state);
     try std.testing.expectEqual(@as(i64, 0), historical.observed_at);
     try std.testing.expect(historical.state.observation.unread());
 }
@@ -205,8 +205,8 @@ test "legacy pane checkpoint migrates identity into an actor" {
     // V1 kept identity on each pane's agent, before conversations and
     // bindings. The V4 fixture's panes still carry that copy, so dropping
     // what V2 and V3 added gives a V1 checkpoint.
-    const Runtime = @import("runtime.zig").Runtime;
-    var tree = try std.json.parseFromSlice(std.json.Value, a, @embedFile("fixtures/checkpoint-v4.json"), .{});
+    const Runtime = @import("../runtime.zig").Runtime;
+    var tree = try std.json.parseFromSlice(std.json.Value, a, @embedFile("../fixtures/checkpoint-v4.json"), .{});
     defer tree.deinit();
     const root = &tree.value.object;
     root.getPtr("version").?.* = .{ .integer = 1 };
@@ -215,7 +215,7 @@ test "legacy pane checkpoint migrates identity into an actor" {
     for (root.getPtr("panes").?.array.items) |*pane| pane.object.getPtr("binding").?.* = .null;
     const json = try std.json.Stringify.valueAlloc(a, tree.value, .{});
     defer a.free(json);
-    const decoded = try @import("state_migrations.zig").decode(cp.State, .checkpoint, std.testing.allocator, json);
+    const decoded = try @import("migrations.zig").decode(cp.State, .checkpoint, std.testing.allocator, json);
     defer decoded.deinit();
     var fresh: Runtime = .{};
     defer fresh.deinit();
@@ -227,8 +227,8 @@ test "legacy pane checkpoint migrates identity into an actor" {
 }
 
 test "live compaction restores its clearing source including older checkpoints" {
-    const Runtime = @import("runtime.zig").Runtime;
-    const Source = @import("agents.zig").observation.Source;
+    const Runtime = @import("../runtime.zig").Runtime;
+    const Source = @import("../agents.zig").observation.Source;
     const Case = struct { saved: ?bool, source: Source, screen_owned: bool, changed_at: i64 = 0 };
     for ([_]Case{
         .{ .saved = true, .source = .protocol, .screen_owned = true },
@@ -297,7 +297,7 @@ test "compact checkpoint preserves screens input modes cursor and title without 
     try std.testing.expect(std.mem.indexOf(u8, primary, "primary history") != null);
 }
 test "redraw cycle changes PTY dimensions only after activation and restores them" {
-    const os = @import("os.zig");
+    const os = @import("../os.zig");
     const c = os.c;
     var master: c_int = -1;
     var slave: c_int = -1;
@@ -323,7 +323,7 @@ test "redraw cycle changes PTY dimensions only after activation and restores the
     try std.testing.expect(t.redraw_restore_at == null);
 }
 test "a restored candidate terminal does not signal its process until adopted" {
-    const os = @import("os.zig");
+    const os = @import("../os.zig");
     const c = os.c;
     const pid = c.fork();
     if (pid == 0) {
@@ -364,8 +364,8 @@ test "live checkpoint size depends on retained state not output volume" {
 }
 
 test "link cache and spent inference attempts survive live checkpoints only" {
-    const Runtime = @import("runtime.zig").Runtime;
-    const links = @import("link_labels.zig");
+    const Runtime = @import("../runtime.zig").Runtime;
+    const links = @import("../link_labels.zig");
     var original: Runtime = .{};
     defer original.deinit();
     _ = try original.workspaces.add("links", "/tmp");

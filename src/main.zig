@@ -17,7 +17,7 @@ const preferences = @import("preferences.zig");
 const cli = @import("cli.zig");
 const options = @import("corgi_options");
 const discovery = @import("discovery.zig");
-const handoff = @import("handoff.zig");
+const handoff = @import("persist.zig").handoff;
 const Server = @import("server.zig").Server;
 const viewer_test = @import("viewer_test.zig");
 const keymap = @import("keymap.zig");
@@ -492,9 +492,6 @@ test {
     _ = @import("base64.zig");
     _ = @import("bindings.zig");
     _ = @import("bounded_text.zig");
-    _ = @import("checkpoint.zig");
-    _ = @import("checkpoint_probe.zig");
-    _ = @import("checkpoint_test.zig");
     _ = @import("claude_credentials.zig");
     _ = @import("cli.zig");
     _ = @import("client.zig");
@@ -516,7 +513,6 @@ test {
     _ = @import("ghostty_integration.zig");
     _ = @import("git_push.zig");
     _ = @import("git_status.zig");
-    _ = @import("handoff.zig");
     _ = @import("host_probe.zig");
     _ = @import("hyperlinks.zig");
     _ = @import("import.zig");
@@ -548,11 +544,11 @@ test {
     _ = @import("pane_label.zig");
     _ = @import("passes.zig");
     _ = @import("peer.zig");
+    _ = @import("persist.zig");
     _ = @import("ports.zig");
     _ = @import("preferences.zig");
     _ = @import("protocol.zig");
     _ = @import("providers.zig");
-    _ = @import("recovery.zig");
     _ = @import("render.zig");
     _ = @import("resource_os.zig");
     _ = @import("resource_tooltip.zig");
@@ -566,8 +562,6 @@ test {
     _ = @import("sidebar.zig");
     _ = @import("sidebar_rows.zig");
     _ = @import("sound.zig");
-    _ = @import("state_migrations.zig");
-    _ = @import("state_steps.zig");
     _ = @import("subagent_tooltip.zig");
     _ = @import("summary_backend.zig");
     _ = @import("surface.zig");
@@ -631,9 +625,9 @@ test "the daemon and the viewer never import each other" {
     });
     // Files that own daemon state, the daemon's workers and updater, and their tests.
     const core: std.StaticStringMap(void) = .initComptime(.{
-        .{"activity_worker.zig"},   .{"checkpoint.zig"}, .{"checkpoint_test.zig"},  .{"handoff.zig"},
-        .{"import/onboarding.zig"}, .{"peer.zig"},       .{"recovery.zig"},         .{"runtime.zig"},
-        .{"server.zig"},            .{"session.zig"},    .{"state_migrations.zig"}, .{"updates.zig"},
+        .{"activity_worker.zig"},         .{"import/onboarding.zig"}, .{"peer.zig"},               .{"persist/checkpoint.zig"},
+        .{"persist/checkpoint_test.zig"}, .{"persist/handoff.zig"},   .{"persist/migrations.zig"}, .{"persist/recovery.zig"},
+        .{"runtime.zig"},                 .{"server.zig"},            .{"session.zig"},            .{"updates.zig"},
         .{"viewer_protocol.zig"},
     });
     // Shared files that still import core. import/herdr.zig holds both the

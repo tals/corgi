@@ -102,7 +102,7 @@ use `viewer.sync`, which captures their independently requested viewport. Readin
 
 ## Terminal restoration findings
 
-`src/checkpoint_probe.zig` characterizes the pinned Ghostty formatter through
+`src/persist/probe.zig` characterizes the pinned Ghostty formatter through
 in-memory replay into a fresh terminal. It is test-only, not a live checkpoint
 implementation.
 
@@ -273,10 +273,10 @@ HOME and retain the original path in the pane's recovery banner.
 
 ### Saved-state migrations
 
-`src/state_migrations.zig` owns two independent, monotonically increasing schema
+`src/persist/migrations.zig` owns two independent, monotonically increasing schema
 versions: checkpoint **5** (shared runtime state) and handoff **4** (the live
 envelope containing clients and workers). Each version is derived from its
-ordered list of steps in `src/state_steps.zig` (`checkpoint`, `handoff`):
+ordered list of steps in `src/persist/steps.zig` (`checkpoint`, `handoff`):
 appending a step is the version bump. Readers parse plain JSON, require an
 explicit supported version, apply each step in order, then decode current Zig
 types and validate/restore the state. Missing, invalid, and future versions fail
@@ -305,7 +305,7 @@ opaque payloads remain unchanged.
 Steps operate on the JSON tree only. They must not decode into or import runtime
 types such as `agents.Agent` or `Provider`: those keep changing after a step is
 written, and an older step would then read or emit a newer shape.
-`state_steps.zig` imports only std, and a unit test fails on any other import.
+`persist/steps.zig` imports only std, and a unit test fails on any other import.
 Steps copy subtrees rather than sharing them, so a later step that edits one
 place in the tree never edits another by accident.
 

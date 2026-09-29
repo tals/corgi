@@ -3,11 +3,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;
-const state_steps = @import("state_steps.zig");
-const inference_setup = @import("inference_setup.zig");
-const providers = @import("providers.zig");
-const agents = @import("agents.zig");
-const account_preview = @import("account_preview.zig");
+const state_steps = @import("steps.zig");
+const inference_setup = @import("../inference_setup.zig");
+const providers = @import("../providers.zig");
+const agents = @import("../agents.zig");
+const account_preview = @import("../account_preview.zig");
 
 pub const checkpoint_version: u32 = state_steps.checkpoint.len + 1;
 pub const handoff_version: u32 = state_steps.handoff.len + 1;
@@ -169,7 +169,7 @@ test "a schema shows a JSON value a provider or command defines as any" {
 
 test "migration steps import only std" {
     // A new import would compile, so this keeps runtime types out of the steps.
-    var lines = std.mem.splitScalar(u8, @embedFile("state_steps.zig"), '\n');
+    var lines = std.mem.splitScalar(u8, @embedFile("steps.zig"), '\n');
     while (lines.next()) |line| if (std.mem.indexOf(u8, line, "@import(")) |at| {
         try std.testing.expect(std.mem.startsWith(u8, line[at..], "@import(\"std\")"));
     };
@@ -179,7 +179,7 @@ test "each released step still produces its golden output" {
     inline for (.{ .{ "checkpoint", &state_steps.checkpoint }, .{ "handoff", &state_steps.handoff } }) |kind| {
         inline for (kind[1], 1..) |step, n| {
             const name = std.fmt.comptimePrint("fixtures/steps/{s}-{d}", .{ kind[0], n });
-            try expectStep(step, "src/" ++ name ++ ".out.json", @embedFile(name ++ ".in.json"), @embedFile(name ++ ".out.json"));
+            try expectStep(step, "src/" ++ name ++ ".out.json", @embedFile("../" ++ name ++ ".in.json"), @embedFile("../" ++ name ++ ".out.json"));
         }
     }
 }

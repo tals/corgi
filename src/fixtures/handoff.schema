@@ -5,7 +5,7 @@ $.update_abi?: string
 $.terminal_abi: u64
 $.listener: i32
 $.requester: i32
-$.runtime: versioned checkpoint.State
+$.runtime: versioned persist.checkpoint.State
 $.summaries: optional
 $.summaries?.slots[].index: usize
 $.summaries?.slots[].slot.request.actor: u32

@@ -622,7 +622,7 @@ test "the V4 fixture migrates to text without padding" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    var root = try std.json.parseFromSliceLeaky(Value, alloc, @embedFile("fixtures/checkpoint-v4.json"), .{});
+    var root = try std.json.parseFromSliceLeaky(Value, alloc, @embedFile("../fixtures/checkpoint-v4.json"), .{});
     try checkpoint4To5(alloc, &root);
     const after = try std.json.Stringify.valueAlloc(alloc, root, .{});
     try std.testing.expect(std.mem.indexOf(u8, after, "\\u0000") == null);
