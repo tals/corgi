@@ -3,8 +3,8 @@ const layout = @import("layout.zig");
 const os = @import("os.zig");
 const a = os.allocator;
 const agent_order = @import("agent_order.zig");
-const git_push = @import("git_push.zig");
-const git_status = @import("git_status.zig");
+const git_push = @import("trackers.zig").git_push;
+const git_status = @import("trackers.zig").git_status;
 const tokens = @import("usage.zig").tokens;
 
 pub const max_workspaces = 32;

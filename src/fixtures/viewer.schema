@@ -45,7 +45,7 @@ $.view.session: optional
 $.view.session?: versioned protocol.Snapshot
 $.view.session_hash: u64
 $.view.resources: optional
-$.view.resources?: versioned resources.Snapshot
+$.view.resources?: versioned trackers.resources.Snapshot
 $.view.resources_hash: u64
 $.view.surfaces[].surface.pane: u32
 $.view.surfaces[].surface.cols: u16

@@ -1,6 +1,6 @@
 //! Viewer-local resource card: three framed graphs and a stable mini top.
 const std = @import("std");
-const resources = @import("resources.zig");
+const resources = @import("trackers.zig").resources;
 const sidebar = @import("sidebar.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Rect = @import("layout.zig").Rect;

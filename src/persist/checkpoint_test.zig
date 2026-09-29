@@ -365,7 +365,7 @@ test "live checkpoint size depends on retained state not output volume" {
 
 test "link cache and spent inference attempts survive live checkpoints only" {
     const Runtime = @import("../runtime.zig").Runtime;
-    const links = @import("../link_labels.zig");
+    const links = @import("../trackers.zig").link_labels;
     var original: Runtime = .{};
     defer original.deinit();
     _ = try original.workspaces.add("links", "/tmp");

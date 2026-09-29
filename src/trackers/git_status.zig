@@ -1,15 +1,15 @@
 //! Herdr-style background refresh: checkout deduplication, negative caching,
 //! and immutable ref fingerprints so unchanged histories are never recounted.
 const std = @import("std");
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
 const c = os.c;
 const PushRef = @import("git_push.zig").Ref;
-const workspace = @import("workspace.zig");
+const workspace = @import("../workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
-const clock = @import("clock.zig");
-const Failure = @import("failure.zig").Failure;
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const clock = @import("../clock.zig");
+const Failure = @import("../failure.zig").Failure;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 const log = std.log.scoped(.git_status);
 pub const Commit = struct {
     hash: BoundedText(12) = .{},

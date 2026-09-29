@@ -2,11 +2,11 @@
 //! inference runs on the shared worker and never changes a link destination.
 const std = @import("std");
 const ports = @import("ports.zig");
-const layout = @import("layout.zig");
-const inference = @import("inference.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const a = @import("os.zig").allocator;
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const layout = @import("../layout.zig");
+const inference = @import("../inference.zig");
+const WorkspaceId = @import("../workspace.zig").Workspace.Id;
+const a = @import("../os.zig").allocator;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 pub const capacity = 64;
 pub const Name = BoundedText(32);
 pub fn parseName(value: []const u8) ?Name {

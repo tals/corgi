@@ -14,8 +14,8 @@ const surface = @import("surface.zig");
 const hyperlink = @import("hyperlinks.zig");
 const inference_setup = @import("inference.zig").setup;
 const live_usage = @import("usage.zig").live;
-const ports = @import("ports.zig");
-const resources = @import("resources.zig");
+const ports = @import("trackers.zig").ports;
+const resources = @import("trackers.zig").resources;
 const providers = @import("providers.zig");
 const launch_command = @import("launch_command.zig");
 

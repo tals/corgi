@@ -18,11 +18,11 @@ const ResumeHint = @import("resume_hint.zig").ResumeHint;
 const launch_command = @import("launch_command.zig");
 const inference_setup = @import("inference.zig").setup;
 const live_usage = @import("usage.zig").live;
-const git_push = @import("git_push.zig");
-const git_status = @import("git_status.zig");
-const ports = @import("ports.zig");
-const resources = @import("resources.zig");
-const link_labels = @import("link_labels.zig");
+const git_push = @import("trackers.zig").git_push;
+const git_status = @import("trackers.zig").git_status;
+const ports = @import("trackers.zig").ports;
+const resources = @import("trackers.zig").resources;
+const link_labels = @import("trackers.zig").link_labels;
 
 pub const Pane = struct {
     label: pane_label.Label = .{},

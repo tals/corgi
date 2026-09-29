@@ -1,13 +1,13 @@
 //! Daemon-owned pushes. Each job freezes the previewed ref and runs without a
 //! shell; viewers only start jobs and display their shared status.
 const std = @import("std");
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
 const c = os.c;
 const git = @import("git_status.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const clock = @import("clock.zig");
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const WorkspaceId = @import("../workspace.zig").Workspace.Id;
+const clock = @import("../clock.zig");
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 
 /// Shared with controller.zig's gitPushMessage, whichever side rejected the push.
 pub const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";

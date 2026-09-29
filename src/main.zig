@@ -503,8 +503,6 @@ test {
     _ = @import("discovery.zig");
     _ = @import("failure.zig");
     _ = @import("ghostty_integration.zig");
-    _ = @import("git_push.zig");
-    _ = @import("git_status.zig");
     _ = @import("host_probe.zig");
     _ = @import("hyperlinks.zig");
     _ = @import("import.zig");
@@ -519,7 +517,6 @@ test {
     _ = @import("launch_preview_stream.zig");
     _ = @import("launcher_usage.zig");
     _ = @import("layout.zig");
-    _ = @import("link_labels.zig");
     _ = @import("link_tooltip.zig");
     _ = @import("mirror.zig");
     _ = @import("name_dialog.zig");
@@ -532,14 +529,11 @@ test {
     _ = @import("passes.zig");
     _ = @import("peer.zig");
     _ = @import("persist.zig");
-    _ = @import("ports.zig");
     _ = @import("preferences.zig");
     _ = @import("protocol.zig");
     _ = @import("providers.zig");
     _ = @import("render.zig");
-    _ = @import("resource_os.zig");
     _ = @import("resource_tooltip.zig");
-    _ = @import("resources.zig");
     _ = @import("resume_hint.zig");
     _ = @import("rpc.zig");
     _ = @import("runtime.zig");
@@ -554,6 +548,7 @@ test {
     _ = @import("surface.zig");
     _ = @import("terminal.zig");
     _ = @import("theme.zig");
+    _ = @import("trackers.zig");
     _ = @import("transcript.zig");
     _ = @import("updates.zig");
     _ = @import("url_opener.zig");
