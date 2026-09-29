@@ -38,7 +38,8 @@ pub const Rejection = enum {
 
 /// Every request the server accepts. The tag is the wire `"op"`; the payload's
 /// fields sit beside `op` in the same object. A new op does not compile until
-/// it declares its payload here and its envelope in `check`.
+/// it declares its payload here, its envelope in `check`, and what it must
+/// not overlap in `exclusion`.
 pub const Request = union(enum) {
     hello,
     @"session.command": SessionCommand,
@@ -212,6 +213,66 @@ pub const capabilities = list: {
     };
     break :list ops[0..ops.len].*;
 };
+
+/// Which in-flight daemon transaction a request must not overlap.
+/// `Server.admit` owns the predicates; this only classifies.
+pub const Exclusion = enum {
+    none,
+    /// Mutates layout. Refused while an import owns panes.
+    layout,
+    /// Starts an import. Refused while one runs or a reload is pending.
+    import,
+    /// Refused while a reload is pending.
+    push,
+    /// Replaces the daemon. Waits for imports, reloads and pushes.
+    reload,
+    /// Stops the daemon. Waits for imports.
+    shutdown,
+};
+
+pub fn exclusion(op: Op) Exclusion {
+    return switch (op) {
+        .@"session.command" => .layout,
+        .@"onboarding.handoff", .@"onboarding.copy" => .import,
+        .@"git.push" => .push,
+        .@"server.reload" => .reload,
+        .shutdown => .shutdown,
+        .hello,
+        .@"session.locate",
+        .@"session.list",
+        .@"session.snapshot",
+        .@"session.subscribe",
+        .@"agent.subscribe",
+        .@"viewer.open",
+        .@"viewer.sync",
+        .@"viewer.search",
+        .@"pane.acknowledge",
+        .@"conversation.list",
+        .@"conversation.acknowledge",
+        .@"pane.surface",
+        .@"recovery.save",
+        .@"inference.configure",
+        .@"onboarding.status",
+        .@"agent.command.preview",
+        .@"agent.preview",
+        .@"agent.track_usage",
+        .@"viewer.list",
+        .action,
+        .focus,
+        .@"workspace.switch",
+        .@"native.start",
+        .@"native.list",
+        .@"native.stop",
+        .@"native.send",
+        .@"native.events",
+        .theme,
+        .hook,
+        .ping,
+        .@"test.settle",
+        .@"test.advance",
+        => .none,
+    };
+}
 
 /// Reads `op`'s payload from `v` after `check` has passed. Unknown fields are
 /// ignored at this level: `op`, `protocol` and `viewer_protocol` sit beside
@@ -508,6 +569,23 @@ test "every op decodes a sample request" {
         };
         try std.testing.expectEqual(op, std.meta.activeTag(request));
     }
+}
+
+test "the ops that wait for an import, a reload or a push" {
+    var listed: std.ArrayList(u8) = .empty;
+    defer listed.deinit(std.testing.allocator);
+    for (std.enums.values(Op)) |op| if (exclusion(op) != .none) {
+        try listed.print(std.testing.allocator, "{s} {s}\n", .{ @tagName(op), @tagName(exclusion(op)) });
+    };
+    try std.testing.expectEqualStrings(
+        \\session.command layout
+        \\server.reload reload
+        \\git.push push
+        \\onboarding.handoff import
+        \\onboarding.copy import
+        \\shutdown shutdown
+        \\
+    , listed.items);
 }
 
 test "a session command stays strict inside a lenient request" {

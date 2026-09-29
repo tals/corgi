@@ -182,9 +182,39 @@ pub const Server = struct {
     pub fn notice(_: *Server, msg: []const u8) void {
         log.info("{s}", .{msg});
     }
+    pub const Excluded = error{ ImportInProgress, ReloadInProgress, GitPushInProgress };
+    /// The one place the import, reload and push locks are read.
+    pub fn admit(s: *const Server, exclusion: protocol.Exclusion) Excluded!void {
+        const importing = s.herdr_import.busy() or s.onboarding_copy.busy();
+        switch (exclusion) {
+            .none => {},
+            // Narrower than `importing`: an adopted Herdr import no longer owns panes.
+            .layout => if (s.herdr_import.locked() or s.onboarding_copy.busy()) return error.ImportInProgress,
+            .import => if (importing or s.reload_executable != null) return error.ImportInProgress,
+            .push => if (s.reload_executable != null) return error.ReloadInProgress,
+            .reload => {
+                if (importing) return error.ImportInProgress;
+                if (s.reload_executable != null) return error.ReloadInProgress;
+                if (s.runtime.git_push.busy()) return error.GitPushInProgress;
+            },
+            .shutdown => if (importing) return error.ImportInProgress,
+        }
+    }
+    /// Retrying an onboarding start whose reply was lost must not start the
+    /// work twice, and is answered before the import lock refuses it.
+    fn repeatsOperation(s: *const Server, req: protocol.Request) error{InvalidImport}!bool {
+        const operation, const current = switch (req) {
+            .@"onboarding.handoff" => |q| .{ q.operation, s.handoff_operation },
+            .@"onboarding.copy" => |q| .{ q.operation, s.onboarding_copy.operation },
+            else => return false,
+        };
+        if (operation == 0) return error.InvalidImport;
+        return operation == current;
+    }
     /// All shared commands have one execution and post-commit path.
     pub fn execute(s: *Server, command: protocol.Command, allocator: std.mem.Allocator) !protocol.Result {
-        if (s.herdr_import.locked() or s.onboarding_copy.busy()) return error.ImportInProgress;
+        // viewer.open's first pane and the pane-exit sweep reach here without a request.
+        try s.admit(.layout);
         const before = s.runtime.revision;
         const result = try session_command.execute(&s.runtime, .{ .socket = s.socket, .executable = s.executable, .theme = s.theme }, command, allocator);
         if (s.runtime.revision != before) {
@@ -257,7 +287,10 @@ pub const Server = struct {
                 try protocol.require(v, cl.protocol_version);
             },
         }
-        switch (try protocol.decode(arena, op, v)) {
+        const req = try protocol.decode(arena, op, v);
+        if (try s.repeatsOperation(req)) return cl.queue(.{ .ok = true });
+        try s.admit(protocol.exclusion(op));
+        switch (req) {
             .hello => {
                 cl.protocol_version = protocol.version;
                 cl.queue(.{
@@ -272,7 +305,6 @@ pub const Server = struct {
                 });
             },
             .@"git.push" => |q| {
-                if (s.reload_executable != null) return error.ReloadInProgress;
                 try s.runtime.git_push.start(&s.runtime.workspaces, q.workspace, q.ref);
                 s.dirty = true;
                 cl.queue(.{ .ok = true });
@@ -292,10 +324,6 @@ pub const Server = struct {
                 } else return error.NoImport;
             },
             .@"onboarding.handoff" => |q| {
-                if (q.operation == 0) return error.InvalidImport;
-                // Retrying an acknowledged/lost start response must not duplicate work.
-                if (q.operation == s.handoff_operation) return cl.queue(.{ .ok = true });
-                if (s.reload_executable != null or s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
                 if (q.viewer_pgid <= 0) return error.InvalidImport;
                 try s.herdr_import.start(q.socket, s.executable, s.theme, q.viewer_pgid);
                 s.handoff_operation = q.operation;
@@ -303,17 +331,11 @@ pub const Server = struct {
                 cl.queue(.{ .ok = true });
             },
             .@"onboarding.copy" => |q| {
-                if (q.operation == 0) return error.InvalidImport;
-                if (q.operation == s.onboarding_copy.operation) return cl.queue(.{ .ok = true });
-                if (s.reload_executable != null or s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
                 try s.onboarding_copy.start(q.plan, q.operation);
                 s.rememberImportStarter();
                 cl.queue(.{ .ok = true });
             },
             .@"server.reload" => |q| {
-                if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
-                if (s.reload_executable != null) return error.ReloadInProgress;
-                if (s.runtime.git_push.busy()) return error.GitPushInProgress;
                 if (!std.fs.path.isAbsolute(q.executable)) return error.InvalidExecutable;
                 s.reload_executable = try a.dupe(u8, q.executable);
                 s.reload_requester = cl.fd;
@@ -511,7 +533,6 @@ pub const Server = struct {
             },
             .ping => cl.queue(.{ .ok = true, .version = "0.1.0" }),
             .shutdown => {
-                if (s.herdr_import.busy() or s.onboarding_copy.busy()) return error.ImportInProgress;
                 s.quit = true;
                 cl.queue(.{ .ok = true });
             },
@@ -996,10 +1017,11 @@ pub const Server = struct {
             };
             s.runtime.reapStopped();
             // Remove in a separate pass so adjacent exits aren't skipped.
+            const closable = if (s.admit(.layout)) |_| true else |_| false;
             var pi: usize = 0;
             while (pi < s.runtime.panes.items.len) {
                 const p = &s.runtime.panes.items[pi];
-                if (p.terminal.exited and !s.herdr_import.locked() and !s.onboarding_copy.busy()) {
+                if (closable and p.terminal.exited) {
                     s.close(p.id) catch |err| {
                         log.warn("removing exited pane {d}: {}", .{ @intFromEnum(p.id), err });
                         pi += 1; // Leave it for the next pass rather than spin.
