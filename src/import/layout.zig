@@ -1,7 +1,7 @@
 //! Import-only split trees: pane values index the tab's source panes. Children
 //! precede parents and the final node is the root. Runtime IDs are assigned later.
 const std = @import("std");
-const layout = @import("layout.zig");
+const layout = @import("../layout.zig");
 pub const Node = union(enum) {
     pane: usize,
     split: struct { axis: layout.Axis, ratio: u16, first: usize, second: usize },

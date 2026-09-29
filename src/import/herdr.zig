@@ -1,22 +1,22 @@
 //! Herdr's Unix API and cooperative PTY handoff. Nothing in discovery mutates
 //! Herdr. The importer owns no process until Herdr sends `committed`.
 const std = @import("std");
-const os = @import("os.zig");
-const pane_label = @import("pane_label.zig");
+const os = @import("../os.zig");
+const pane_label = @import("../pane_label.zig");
 const c = os.c;
 const a = os.allocator;
 const Value = std.json.Value;
-const Runtime = @import("runtime.zig").Runtime;
-const Terminal = @import("terminal.zig").Terminal;
-const layout = @import("layout.zig");
-const workspace = @import("workspace.zig");
+const Runtime = @import("../runtime.zig").Runtime;
+const Terminal = @import("../terminal.zig").Terminal;
+const layout = @import("../layout.zig");
+const workspace = @import("../workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
-const ResumeHint = @import("resume_hint.zig").ResumeHint;
-const Theme = @import("theme.zig").Theme;
+const ResumeHint = @import("../resume_hint.zig").ResumeHint;
+const Theme = @import("../theme.zig").Theme;
 const builtin = @import("builtin");
-const providers = @import("providers.zig");
-const detection = @import("detection.zig");
-const Progress = @import("protocol.zig").OnboardingProgress;
+const providers = @import("../providers.zig");
+const detection = @import("../detection.zig");
+const Progress = @import("../protocol.zig").OnboardingProgress;
 const Phase = Progress.Phase;
 const max_manifest = 16 * 1024 * 1024;
 

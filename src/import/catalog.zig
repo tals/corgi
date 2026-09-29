@@ -1,14 +1,14 @@
 //! Read-only discovery runs in the viewer, away from the daemon PTY loop.
 const std = @import("std");
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
 const builtin = @import("builtin");
-const herdr = @import("herdr_adapter.zig");
-const layout = @import("layout.zig");
-const import_layout = @import("import_layout.zig");
+const herdr = @import("herdr.zig");
+const layout = @import("../layout.zig");
+const import_layout = @import("layout.zig");
 const tmux_layout = @import("tmux_layout.zig");
 const tmux_resume = @import("tmux_resume.zig");
-const cmux_import = @import("cmux_import.zig");
+const cmux_import = @import("cmux.zig");
 pub const Source = enum { tmux, herdr, cmux };
 pub const available_sources: []const Source = if (builtin.os.tag == .macos) &.{ .tmux, .herdr, .cmux } else &.{ .tmux, .herdr };
 pub const Pane = struct {

@@ -1,6 +1,6 @@
 //! Pane rectangles from tmux's saved (unzoomed) window_layout string.
 const std = @import("std");
-const layout = @import("layout.zig");
+const layout = @import("../layout.zig");
 
 pub const Geometry = struct {
     panes: [layout.max_panes]struct { id: u32, rect: layout.Rect } = undefined,

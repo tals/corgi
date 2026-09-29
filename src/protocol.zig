@@ -21,8 +21,8 @@ const ports = @import("ports.zig");
 const resources = @import("resources.zig");
 const Theme = @import("theme.zig").Theme;
 const Terminal = @import("terminal.zig").Terminal;
-const catalog = @import("import_catalog.zig");
-const herdr = @import("herdr_adapter.zig");
+const catalog = @import("import.zig").catalog;
+const herdr = @import("import.zig").herdr;
 const viewer_version = @import("viewer_version.zig");
 const options = @import("corgi_options");
 

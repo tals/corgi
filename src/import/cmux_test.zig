@@ -1,8 +1,8 @@
 const std = @import("std");
-const cmux = @import("cmux_import.zig");
-const catalog = @import("import_catalog.zig");
-const tree = @import("import_layout.zig");
-const layout = @import("layout.zig");
+const cmux = @import("cmux.zig");
+const catalog = @import("catalog.zig");
+const tree = @import("layout.zig");
+const layout = @import("../layout.zig");
 const a = std.testing.allocator;
 
 fn value(alloc: std.mem.Allocator, json: []const u8) !std.json.Value {
@@ -36,7 +36,7 @@ test "cmux selected surfaces first then stable layers, every surface exactly onc
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const root = try value(alloc, @embedFile("testdata/cmux-tree.json"));
+    const root = try value(alloc, @embedFile("../testdata/cmux-tree.json"));
     const source = root.object.get("windows").?.array.items[0].object.get("workspaces").?.array.items;
     const ws = (try cmux.convert(alloc, source[0], .null)).?;
     try std.testing.expectEqual(.full, ws.recovery);

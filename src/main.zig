@@ -6,7 +6,7 @@ const agents = @import("agents.zig");
 const integration = @import("integration.zig");
 const updates = @import("updates.zig");
 const viewer_version = @import("viewer_version.zig");
-const herdr_adapter = @import("herdr_adapter.zig");
+const herdr_adapter = @import("import.zig").herdr;
 const claude_credentials = @import("claude_credentials.zig");
 const rpc = @import("rpc.zig");
 const protocol = @import("protocol.zig");
@@ -499,8 +499,6 @@ test {
     _ = @import("cli.zig");
     _ = @import("client.zig");
     _ = @import("clock.zig");
-    _ = @import("cmux_import.zig");
-    _ = @import("cmux_import_test.zig");
     _ = @import("codex_files.zig");
     _ = @import("codex_observer.zig");
     _ = @import("codex_socket.zig");
@@ -519,11 +517,9 @@ test {
     _ = @import("git_push.zig");
     _ = @import("git_status.zig");
     _ = @import("handoff.zig");
-    _ = @import("herdr_adapter.zig");
     _ = @import("host_probe.zig");
     _ = @import("hyperlinks.zig");
-    _ = @import("import_catalog.zig");
-    _ = @import("import_layout.zig");
+    _ = @import("import.zig");
     _ = @import("inference.zig");
     _ = @import("inference_setup.zig");
     _ = @import("inference_usage.zig");
@@ -548,7 +544,6 @@ test {
     _ = @import("navigation.zig");
     _ = @import("observation.zig");
     _ = @import("onboarding.zig");
-    _ = @import("onboarding_import.zig");
     _ = @import("os.zig");
     _ = @import("pane_label.zig");
     _ = @import("passes.zig");
@@ -578,8 +573,6 @@ test {
     _ = @import("surface.zig");
     _ = @import("terminal.zig");
     _ = @import("theme.zig");
-    _ = @import("tmux_layout.zig");
-    _ = @import("tmux_resume.zig");
     _ = @import("transcript.zig");
     _ = @import("updates.zig");
     _ = @import("url_opener.zig");
@@ -639,13 +632,13 @@ test "the daemon and the viewer never import each other" {
     // Files that own daemon state, the daemon's workers and updater, and their tests.
     const core: std.StaticStringMap(void) = .initComptime(.{
         .{"activity_worker.zig"},   .{"checkpoint.zig"}, .{"checkpoint_test.zig"},  .{"handoff.zig"},
-        .{"onboarding_import.zig"}, .{"peer.zig"},       .{"recovery.zig"},         .{"runtime.zig"},
+        .{"import/onboarding.zig"}, .{"peer.zig"},       .{"recovery.zig"},         .{"runtime.zig"},
         .{"server.zig"},            .{"session.zig"},    .{"state_migrations.zig"}, .{"updates.zig"},
         .{"viewer_protocol.zig"},
     });
-    // Shared files that still import core. herdr_adapter.zig holds both the
+    // Shared files that still import core. import/herdr.zig holds both the
     // scan the onboarding wizard runs and the daemon's copy into the runtime.
-    const allowed = [_][2][]const u8{.{ "herdr_adapter.zig", "runtime.zig" }};
+    const allowed = [_][2][]const u8{.{ "import/herdr.zig", "runtime.zig" }};
     // Every other file is shared. Only main.zig imports viewer files, only
     // core imports core, and nothing imports main.zig. Importing a package
     // root imports the member it names, or every member when it names none.

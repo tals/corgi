@@ -1,9 +1,9 @@
 //! Deterministic cmux snapshot -> ordinary Corgi tabs. No processes, inference,
 //! or runtime state: the caller's arena owns the complete converted workspace.
 const std = @import("std");
-const catalog = @import("import_catalog.zig");
-const layout = @import("layout.zig");
-const tree = @import("import_layout.zig");
+const catalog = @import("catalog.zig");
+const layout = @import("../layout.zig");
+const tree = @import("layout.zig");
 const Value = std.json.Value;
 const Allocator = std.mem.Allocator;
 const Nodes = std.ArrayList(tree.Node);
