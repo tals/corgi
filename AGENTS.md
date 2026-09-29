@@ -86,7 +86,7 @@ to the import alias rule.
 - Best-effort cleanup stays `catch {}`: temp files, bells, `timedWait`,
   writes to a client that may be gone.
 - Anything in a periodic loop warns once per distinct failure, not every
-  cycle (see `same` in `ports.zig`).
+  cycle: keep a `Failure` (`failure.zig`) per job.
 
 **Types.** Prefer concrete types (`*Server`, `*Client`) to `anytype`; circular
 imports are fine in Zig. Keep `anytype` for real generics or test fakes.
