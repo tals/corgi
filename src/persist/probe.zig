@@ -2,7 +2,7 @@
 //! This is deliberately test-only: a formatted screen is not a complete live
 //! checkpoint. In particular, parser fragments and inactive screens need more.
 const std = @import("std");
-const terminal = @import("../terminal.zig");
+const terminal = @import("../pane.zig").terminal;
 const Terminal = terminal.Terminal;
 const a = @import("../os.zig").allocator;
 

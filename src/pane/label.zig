@@ -1,5 +1,5 @@
 const std = @import("std");
-pub const Label = @import("bounded_text.zig").BoundedText(80);
+pub const Label = @import("../bounded_text.zig").BoundedText(80);
 /// `value` trimmed, with bytes outside printable ASCII shown as `_`.
 pub fn label(value: []const u8) Label {
     var buf: [Label.capacity]u8 = undefined;

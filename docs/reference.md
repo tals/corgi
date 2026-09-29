@@ -329,7 +329,7 @@ For remote terminals, run Corgi on the host through SSH (`ssh -t host corgi`); t
 ## Layout
 
 - `layout.zig`: pure split tree, tab and pane identity, geometry, navigation.
-- `terminal.zig`: PTYs, Ghostty parser/render state, selections and search.
+- `pane/terminal.zig`: PTYs, Ghostty parser/render state, selections and search.
 - `runtime.zig` / `session.zig`: resource ownership and the typed shared command executor.
 - `navigation.zig`: local workspace, tab, pane, and zoom selection.
 - `server.zig` / `peer.zig`: daemon loop, socket dispatch, and viewer controls.

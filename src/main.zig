@@ -504,7 +504,6 @@ test {
     _ = @import("failure.zig");
     _ = @import("ghostty_integration.zig");
     _ = @import("host_probe.zig");
-    _ = @import("hyperlinks.zig");
     _ = @import("import.zig");
     _ = @import("inference.zig");
     _ = @import("integration.zig");
@@ -525,7 +524,7 @@ test {
     _ = @import("observation.zig");
     _ = @import("onboarding.zig");
     _ = @import("os.zig");
-    _ = @import("pane_label.zig");
+    _ = @import("pane.zig");
     _ = @import("passes.zig");
     _ = @import("peer.zig");
     _ = @import("persist.zig");
@@ -545,8 +544,6 @@ test {
     _ = @import("sound.zig");
     _ = @import("subagent_tooltip.zig");
     _ = @import("summary_backend.zig");
-    _ = @import("surface.zig");
-    _ = @import("terminal.zig");
     _ = @import("theme.zig");
     _ = @import("trackers.zig");
     _ = @import("transcript.zig");

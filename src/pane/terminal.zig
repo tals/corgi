@@ -1,14 +1,14 @@
 const std = @import("std");
 pub const vt = @import("ghostty-vt");
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const c = os.c;
 const a = os.allocator;
-const layout = @import("layout.zig");
+const layout = @import("../layout.zig");
 const hyperlink = @import("hyperlinks.zig");
-const providers = @import("providers.zig");
-const detection = @import("detection.zig");
-const launch_command = @import("launch_command.zig");
-const Theme = @import("theme.zig").Theme;
+const providers = @import("../providers.zig");
+const detection = @import("../detection.zig");
+const launch_command = @import("../launch_command.zig");
+const Theme = @import("../theme.zig").Theme;
 pub const Terminal = struct {
     vt: vt.Terminal,
     stream: vt.TerminalStream,
@@ -501,5 +501,5 @@ test "reap collects the terminal's own shell once and nothing for a stopped one"
 }
 
 test {
-    _ = @import("keyboard.zig");
+    _ = @import("../keyboard.zig");
 }

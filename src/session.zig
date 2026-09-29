@@ -1,7 +1,7 @@
 //! One typed command interface for shared session state. Selection belongs to viewers.
 const std = @import("std");
 const os = @import("os.zig");
-const pane_label = @import("pane_label.zig");
+const pane_label = @import("pane.zig").label;
 const layout = @import("layout.zig");
 const runtime = @import("runtime.zig");
 const Runtime = runtime.Runtime;
@@ -19,7 +19,7 @@ const Result = protocol.Result;
 const Theme = @import("theme.zig").Theme;
 const ordering = @import("agent_order.zig");
 const launch_command = @import("launch_command.zig");
-const terminal = @import("terminal.zig");
+const terminal = @import("pane.zig").terminal;
 pub const Context = struct {
     socket: []const u8,
     executable: []const u8,

@@ -1,5 +1,5 @@
 const std = @import("std");
-const Terminal = @import("../terminal.zig").Terminal;
+const Terminal = @import("../pane.zig").Terminal;
 const cp = @import("checkpoint.zig");
 const a = @import("../os.zig").allocator;
 

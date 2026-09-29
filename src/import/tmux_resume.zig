@@ -1,7 +1,7 @@
 //! Best-effort restart suggestions from foreground argv, never shell history.
 const std = @import("std");
 const os = @import("../os.zig");
-const Terminal = @import("../terminal.zig").Terminal;
+const Terminal = @import("../pane.zig").Terminal;
 
 pub fn foregroundPid(processes: []const u8, pane_pid: i32) ?i32 {
     var lines = std.mem.tokenizeScalar(u8, processes, '\n');

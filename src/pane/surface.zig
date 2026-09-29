@@ -1,7 +1,7 @@
 const std = @import("std");
 const terminal = @import("terminal.zig");
 const vt = terminal.vt;
-const layout = @import("layout.zig");
+const layout = @import("../layout.zig");
 const hyperlink = @import("hyperlinks.zig");
 
 pub const Surface = struct {

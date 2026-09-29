@@ -1,7 +1,7 @@
 //! Daemon-side copy transactions. Source processes are never signalled.
 const std = @import("std");
 const os = @import("../os.zig");
-const pane_label = @import("../pane_label.zig");
+const pane_label = @import("../pane.zig").label;
 const a = os.allocator;
 const catalog = @import("catalog.zig");
 const herdr = @import("herdr.zig");

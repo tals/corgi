@@ -2,7 +2,7 @@
 //! consulted later: synchronized output may already have changed/freed them.
 const std = @import("std");
 const vt = @import("ghostty-vt");
-const a = @import("os.zig").allocator;
+const a = @import("../os.zig").allocator;
 pub const Link = struct { row: usize, start: usize, end: usize, uri: []const u8, id: u64 };
 pub const Snapshot = struct {
     arena: std.heap.ArenaAllocator = .init(a),

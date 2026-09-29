@@ -18,7 +18,7 @@ const corgi_badge = @import("corgi_badge.zig");
 const resource_tooltip = @import("resource_tooltip.zig");
 const preferences = @import("preferences.zig");
 const Resources = preferences.Resources;
-const terminal = @import("terminal.zig");
+const terminal = @import("pane.zig").terminal;
 const corgi_frames = @import("corgi_frames.zig");
 const a = @import("os.zig").allocator;
 
