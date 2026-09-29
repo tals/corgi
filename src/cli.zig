@@ -169,11 +169,11 @@ fn parse(mem: std.mem.Allocator, words: []const [:0]const u8, caller: u32) !Invo
         start += 1;
     }
     var parsed = try Args.parse(mem, words[start..]);
-    const text_mode = try parsed.flag("--text");
+    const text_mode = parsed.flag(.text);
     const viewer = if (action == .focus)
-        try id(try parsed.required("--viewer"))
+        try id(try parsed.required(.viewer))
     else if (action == .@"workspace.switch")
-        if (try parsed.option("--viewer")) |value| try id(value) else @as(?u32, null)
+        if (parsed.option(.viewer)) |value| try id(value) else @as(?u32, null)
     else
         null;
     const command: ?protocol.Command = switch (action orelse return error.Usage) {
@@ -189,22 +189,22 @@ fn parse(mem: std.mem.Allocator, words: []const [:0]const u8, caller: u32) !Invo
 fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
     return switch (action) {
         .@"tab.new" => .{ .@"pane.create" = .{
-            .workspace = if (try args.option("--workspace")) |value| @enumFromInt(try id(value)) else .none,
-            .title = (try args.option("--name")) orelse "",
+            .workspace = if (args.option(.workspace)) |value| @enumFromInt(try id(value)) else .none,
+            .title = args.option(.name) orelse "",
             .cwd = try args.cwd(),
-            .command = try args.option("--command"),
+            .command = args.option(.command),
         } },
         .@"workspace.new" => .{ .@"workspace.create" = .{
             .name = try args.next(),
-            .cwd = try args.directory((try args.option("--cwd")) orelse "."),
+            .cwd = try args.directory(args.option(.cwd) orelse "."),
         } },
         .@"workspace.close" => .{ .@"workspace.close" = .{ .target = @enumFromInt(target) } },
         .@"workspace.edit" => .{ .@"workspace.edit" = .{
             .target = @enumFromInt(target),
-            .name = if (try args.flag("--clear")) "" else try args.option("--name"),
-            .cwd = if (try args.option("--cwd")) |value| try args.directory(value) else null,
+            .name = if (args.flag(.clear)) "" else args.option(.name),
+            .cwd = if (args.option(.cwd)) |value| try args.directory(value) else null,
         } },
-        .@"tab.rename" => .{ .@"tab.rename" = .{ .target = @enumFromInt(target), .name = if (try args.flag("--clear")) "" else try args.next() } },
+        .@"tab.rename" => .{ .@"tab.rename" = .{ .target = @enumFromInt(target), .name = if (args.flag(.clear)) "" else try args.next() } },
         .@"tab.close" => .{ .@"tab.close" = .{ .target = @enumFromInt(target) } },
         .@"pane.close" => .{ .@"pane.close" = .{ .target = @enumFromInt(target) } },
         .@"pane.swap" => .{ .@"pane.swap" = .{ .target = @enumFromInt(target), .other = @enumFromInt(try id(try args.next())) } },
@@ -212,7 +212,7 @@ fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
             .target = @enumFromInt(target),
             .direction = try args.direction(),
             .cwd = try args.cwd(),
-            .command = try args.option("--command"),
+            .command = args.option(.command),
         } },
         .@"tab.merge" => blk: {
             const beside = try args.beside();
@@ -220,23 +220,23 @@ fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
         },
         .@"tab.move" => .{ .@"tab.move" = .{
             .target = @enumFromInt(target),
-            .destination = if (try args.option("--before")) |value|
+            .destination = if (args.option(.before)) |value|
                 .{ .before = @enumFromInt(try id(value)) }
-            else if (try args.option("--after")) |value|
+            else if (args.option(.after)) |value|
                 .{ .after = @enumFromInt(try id(value)) }
             else
-                .{ .workspace = @enumFromInt(try id(try args.required("--workspace"))) },
+                .{ .workspace = @enumFromInt(try id(try args.required(.workspace))) },
         } },
         .@"pane.move" => .{ .@"pane.move" = .{
             .target = @enumFromInt(target),
-            .destination = if (try args.flag("--new-tab"))
-                .{ .new_tab = (try args.option("--name")) orelse "" }
+            .destination = if (args.flag(.@"new-tab"))
+                .{ .new_tab = args.option(.name) orelse "" }
             else
                 .{ .beside = try args.beside() },
         } },
         .@"pane.resize" => blk: {
-            const width = try args.option("--width");
-            const value = width orelse try args.required("--height");
+            const width = args.option(.width);
+            const value = width orelse try args.required(.height);
             if (!std.mem.endsWith(u8, value, "%")) return error.Usage;
             const percent = try std.fmt.parseInt(u16, value[0 .. value.len - 1], 10);
             if (percent < 10 or percent > 90) return error.Usage;
@@ -247,14 +247,14 @@ fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
             } };
         },
         .@"pane.read" => blk: {
-            const lines = if (try args.option("--lines")) |value| try std.fmt.parseInt(usize, value, 10) else 100;
+            const lines = if (args.option(.lines)) |value| try std.fmt.parseInt(usize, value, 10) else 100;
             if (lines == 0 or lines > 10000) return error.Usage;
             break :blk .{ .@"pane.read" = .{ .target = @enumFromInt(target), .lines = lines } };
         },
         .@"pane.send" => .{ .@"pane.send" = .{
             .target = @enumFromInt(target),
-            .text = if (try args.flag("--stdin")) try std.fs.File.stdin().readToEndAlloc(args.mem, 1024 * 1024) else try args.next(),
-            .enter = try args.flag("--enter"),
+            .text = if (args.flag(.stdin)) try std.fs.File.stdin().readToEndAlloc(args.mem, 1024 * 1024) else try args.next(),
+            .enter = args.flag(.enter),
         } },
         .@"pane.keys" => blk: {
             if (args.positional.items.len == 0) return error.Usage;
@@ -267,13 +267,48 @@ fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
     };
 }
 
+/// Every `--name` a command accepts. Flags take no value.
+const Opt = enum {
+    text,
+    clear,
+    stdin,
+    enter,
+    @"new-tab",
+    left,
+    right,
+    up,
+    down,
+    viewer,
+    workspace,
+    name,
+    command,
+    cwd,
+    before,
+    after,
+    width,
+    height,
+    lines,
+    @"left-of",
+    @"right-of",
+    above,
+    below,
+
+    fn isFlag(opt: Opt) bool {
+        return switch (opt) {
+            .text, .clear, .stdin, .enter, .@"new-tab", .left, .right, .up, .down => true,
+            else => false,
+        };
+    }
+};
+
 /// Command-line syntax only. Each operation consumes its own accepted options.
 const Args = struct {
     mem: std.mem.Allocator,
-    options: std.StringHashMap(?[]const u8),
+    /// A flag's value is empty.
+    options: std.EnumMap(Opt, []const u8) = .{},
     positional: std.ArrayList([]const u8) = .empty,
     fn parse(mem: std.mem.Allocator, values: []const [:0]const u8) !Args {
-        var result: Args = .{ .mem = mem, .options = .init(mem) };
+        var result: Args = .{ .mem = mem };
         var literal = false;
         var i: usize = 0;
         while (i < values.len) : (i += 1) {
@@ -281,31 +316,27 @@ const Args = struct {
             if (!literal and std.mem.eql(u8, arg, "--")) {
                 literal = true;
             } else if (!literal and std.mem.startsWith(u8, arg, "--")) {
-                const entry = try result.options.getOrPut(arg);
-                if (entry.found_existing) return error.Usage;
-                const flag_ = for ([_][]const u8{ "--text", "--clear", "--stdin", "--enter", "--new-tab", "--left", "--right", "--up", "--down" }) |name| {
-                    if (std.mem.eql(u8, arg, name)) break true;
-                } else false;
-                entry.value_ptr.* = if (flag_) null else blk: {
+                const opt = std.meta.stringToEnum(Opt, arg[2..]) orelse return error.Usage;
+                if (result.options.contains(opt)) return error.Usage;
+                result.options.put(opt, if (opt.isFlag()) "" else blk: {
                     i += 1;
                     if (i == values.len) return error.Usage;
                     break :blk values[i];
-                };
+                });
             } else try result.positional.append(mem, arg);
         }
         return result;
     }
-    fn flag(args: *Args, name: []const u8) !bool {
-        const entry = args.options.fetchRemove(name) orelse return false;
-        if (entry.value != null) return error.Usage;
-        return true;
+    fn flag(args: *Args, comptime opt: Opt) bool {
+        if (comptime !opt.isFlag()) @compileError("--" ++ @tagName(opt) ++ " takes a value");
+        return args.options.fetchRemove(opt) != null;
     }
-    fn option(args: *Args, name: []const u8) !?[]const u8 {
-        const entry = args.options.fetchRemove(name) orelse return null;
-        return entry.value orelse error.Usage;
+    fn option(args: *Args, comptime opt: Opt) ?[]const u8 {
+        if (comptime opt.isFlag()) @compileError("--" ++ @tagName(opt) ++ " is a flag");
+        return args.options.fetchRemove(opt);
     }
-    fn required(args: *Args, name: []const u8) ![]const u8 {
-        return (try args.option(name)) orelse error.Usage;
+    fn required(args: *Args, comptime opt: Opt) ![]const u8 {
+        return args.option(opt) orelse error.Usage;
     }
     fn next(args: *Args) ![]const u8 {
         if (args.positional.items.len == 0) return error.Usage;
@@ -315,7 +346,7 @@ const Args = struct {
         if (args.options.count() != 0 or args.positional.items.len != 0) return error.Usage;
     }
     fn cwd(args: *Args) ![]const u8 {
-        const value = (try args.option("--cwd")) orelse return "";
+        const value = args.option(.cwd) orelse return "";
         return args.directory(value);
     }
     fn directory(args: *Args, value: []const u8) ![]const u8 {
@@ -324,15 +355,15 @@ const Args = struct {
         return args.mem.dupe(u8, resolved);
     }
     fn direction(args: *Args) !layout.Direction {
-        const flags = [_][]const u8{ "--left", "--right", "--up", "--down" };
+        const flags = [_]Opt{ .left, .right, .up, .down };
         const directions = [_]layout.Direction{ .left, .right, .up, .down };
-        for (flags, directions) |name, value| if (try args.flag(name)) return value;
+        inline for (flags, directions) |opt, value| if (args.flag(opt)) return value;
         return error.Usage;
     }
     fn beside(args: *Args) !protocol.Beside {
-        const flags = [_][]const u8{ "--left-of", "--right-of", "--above", "--below" };
+        const flags = [_]Opt{ .@"left-of", .@"right-of", .above, .below };
         const directions = [_]layout.Direction{ .left, .right, .up, .down };
-        for (flags, directions) |name, value| if (try args.option(name)) |other| return .{ .other = @enumFromInt(try id(other)), .direction = value };
+        inline for (flags, directions) |opt, value| if (args.option(opt)) |other| return .{ .other = @enumFromInt(try id(other)), .direction = value };
         return error.Usage;
     }
 };
@@ -372,6 +403,8 @@ test "command lines are rejected before connecting" {
         .{ .words = &.{ "pane", "split", "3", "--right", "--unknown" } },
         .{ .words = &.{ "pane", "split", "3", "--right", "--unknown", "value" } },
         .{ .words = &.{ "pane", "split", "3", "--right", "--right" } },
+        .{ .words = &.{ "pane", "split", "3", "--righ" } },
+        .{ .words = &.{ "tab", "new", "--workspace", "1", "--name" } },
         .{ .words = &.{ "pane", "move", "3" } },
         .{ .words = &.{ "pane", "move", "3", "--new-tab", "--below", "3" } },
         .{ .words = &.{ "pane", "move", "3", "--right-of", "0" } },

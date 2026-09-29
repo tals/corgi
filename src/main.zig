@@ -20,6 +20,7 @@ const Server = @import("server.zig").Server;
 const viewer_test = @import("viewer_test.zig");
 const keymap = @import("keymap.zig");
 const bindings = @import("bindings.zig");
+const Action = @import("action.zig").Action;
 /// A no-op in the daemon, CLI and hook, where client.cleanup has nothing to
 /// restore; in the viewer it leaves the terminal usable instead of raw.
 pub const panic = std.debug.FullPanic(restoreThenPanic);
@@ -394,6 +395,39 @@ fn reportServerLog(log_path: []const u8, start: u64) void {
     }
     std.debug.print("corgi: server did not start; {s}:\n{s}\n", .{ log_path, trimmed });
 }
+/// The names `corgi action` takes, wrapped at 80 columns. `relaunch` is left
+/// out: Corgi sends it itself after an update.
+const action_names = names: {
+    var text: []const u8 = "Actions:";
+    var column = text.len;
+    var first = true;
+    for (std.meta.tags(std.meta.Tag(Action))) |tag| {
+        if (tag == .relaunch) continue;
+        const name = @tagName(tag);
+        if (first) {
+            text = text ++ " " ++ name;
+            column += 1 + name.len;
+        } else if (column + 2 + name.len + 1 > 80) {
+            text = text ++ ",\n" ++ name;
+            column = name.len;
+        } else {
+            text = text ++ ", " ++ name;
+            column += 2 + name.len;
+        }
+        first = false;
+    }
+    break :names text ++ ".";
+};
+test "help names every action on lines of at most 80 columns" {
+    var lines = std.mem.splitScalar(u8, action_names, '\n');
+    while (lines.next()) |line| try std.testing.expect(line.len <= 80);
+    var words = std.mem.tokenizeAny(u8, action_names["Actions:".len..], " ,.\n");
+    for (std.meta.tags(std.meta.Tag(Action))) |tag| {
+        if (tag == .relaunch) continue;
+        try std.testing.expectEqualStrings(@tagName(tag), words.next().?);
+    }
+    try std.testing.expectEqual(null, words.next());
+}
 const help =
     \\corgi — a small Ghostty-powered agent terminal
     \\
@@ -405,9 +439,7 @@ const help =
     \\  corgi update status|rollback|--check|--download-only
     \\  corgi update auto on|off      control automatic updates
     \\  corgi start                   start detached runtime
-    \\  corgi action NAME [VALUE]     zoom, rename, next, prev, tab,
-    \\                                   focus, swap, resize, move-tab,
-    \\                                   attention, mute, close-tab, undo-close
+    \\  corgi action NAME [VALUE]     run a viewer action, named below
     \\  corgi agent claude|codex ...   optional discovered-binary launcher
     \\  corgi hooks claude|codex       print hook configuration
     \\  corgi which codex             show automatically selected executable
@@ -423,6 +455,10 @@ const help =
     \\  corgi shutdown                terminate runtime and its panes
     \\
     \\Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.
+    \\
+    \\
+++ action_names ++
+    \\
     \\
     \\CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees.
     \\
