@@ -5,6 +5,7 @@ pub const Attention = enum { none, finished, needs_input };
 pub const providers = @import("providers.zig");
 pub const Provider = providers.Provider;
 const bounded_text = @import("bounded_text.zig");
+const json = @import("json.zig");
 /// Agent text: names, ids, labels.
 pub const Text = bounded_text.BoundedText(160);
 pub const Path = bounded_text.Path;
@@ -345,11 +346,7 @@ fn firstLine(value: []const u8) Text {
     for (line[0..n], buf[0..n]) |ch, *out| out.* = if (ch < 32 or ch == 127) ' ' else ch;
     return .initTruncated(buf[0..n]);
 }
-pub fn str(v: std.json.Value, key: []const u8) []const u8 {
-    if (v != .object) return "";
-    const item = v.object.get(key) orelse return "";
-    return if (item == .string) item.string else "";
-}
+pub const str = json.str;
 pub fn clean(out: []u8, input: []const u8) usize {
     const n = @min(out.len, input.len);
     for (input[0..n], 0..) |ch, i| out[i] = if (ch >= 32 and ch < 127) ch else ' ';

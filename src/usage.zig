@@ -3,6 +3,7 @@
 const std = @import("std");
 const agents = @import("agents.zig");
 const rollout = @import("transcript.zig");
+const json = @import("json.zig");
 pub const Counts = struct {
     tools: u64 = 0,
     input: u64 = 0,
@@ -38,9 +39,7 @@ pub const Window = struct {
         return changed;
     }
 };
-pub fn field(v: std.json.Value, key: []const u8) std.json.Value {
-    return if (v == .object) v.object.get(key) orelse .null else .null;
-}
+pub const field = json.field;
 fn number(v: std.json.Value, key: []const u8) ?u64 {
     const n = field(v, key);
     return if (n == .integer and n.integer >= 0) @intCast(n.integer) else null;

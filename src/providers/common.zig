@@ -2,6 +2,7 @@
 const std = @import("std");
 pub const Outcome = @import("../observation.zig").Outcome;
 const BoundedText = @import("../bounded_text.zig").BoundedText;
+const json = @import("../json.zig");
 
 pub const SessionRef = union(enum) {
     id: []const u8,
@@ -190,13 +191,8 @@ pub const NativeEvent = struct {
     tool_request: bool = false,
 };
 
-pub fn field(v: std.json.Value, key: []const u8) std.json.Value {
-    return if (v == .object) v.object.get(key) orelse .null else .null;
-}
-pub fn str(v: std.json.Value, key: []const u8) []const u8 {
-    const value = field(v, key);
-    return if (value == .string) value.string else "";
-}
+pub const field = json.field;
+pub const str = json.str;
 test "idle notifications do not mark a finished agent as needing input" {
     const alloc = std.testing.allocator;
     const idle = try std.json.parseFromSlice(std.json.Value, alloc,

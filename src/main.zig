@@ -445,6 +445,7 @@ test {
     _ = @import("inference_setup.zig");
     _ = @import("inference_usage.zig");
     _ = @import("integration.zig");
+    _ = @import("json.zig");
     _ = @import("keyboard.zig");
     _ = @import("keymap.zig");
     _ = @import("keys.zig");
