@@ -6,11 +6,11 @@ const os = @import("os.zig");
 const a = os.allocator;
 const layout = @import("layout.zig");
 const protocol = @import("protocol.zig");
-const viewer_version = @import("viewer_version.zig");
 const surface = @import("surface.zig");
 const workspace = @import("workspace.zig");
 const peer = @import("peer.zig");
 const session_command = @import("session.zig");
+const resources = @import("resources.zig");
 const Client = peer.Client;
 const Server = @import("server.zig").Server;
 const WorkspaceId = workspace.Workspace.Id;
@@ -43,8 +43,8 @@ pub fn open(s: *Server, cl: *Client, q: Request.Open) !void {
     cl.active_seq = s.next_active;
     cl.view_workspace = s.initialWorkspace().id;
     cl.protocol_version = 1;
-    if (first) s.updateTheme(q.theme);
-    cl.queue(.{ .ok = true, .viewer_protocol = viewer_version.version, .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
+    if (first) s.updateTheme(q.theme.value);
+    cl.reply(.@"viewer.open", .{ .bell_seq = s.bell_seq, .workspace = s.initialWorkspace().id });
 }
 
 pub fn sync(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Sync) !void {
@@ -103,12 +103,10 @@ pub fn sync(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Sync) 
     const usage = try s.runtime.resources.current.forViewer(arena, cl.resource_detail);
     const readings = try std.json.Stringify.valueAlloc(arena, usage, .{});
     const resources_hash = std.hash.Wyhash.hash(0, readings);
-    cl.queue(.{
-        .type = "view",
-        .viewer_protocol = viewer_version.version,
-        .session = if (q.session_hash == session_hash) @as(?RawJson, null) else RawJson{ .bytes = session },
+    cl.queue(View{
+        .session = if (q.session_hash == session_hash) null else .{ .bytes = session },
         .session_hash = session_hash,
-        .resources = if (q.resources_hash == resources_hash) @as(?RawJson, null) else RawJson{ .bytes = readings },
+        .resources = if (q.resources_hash == resources_hash) null else .{ .bytes = readings },
         .resources_hash = resources_hash,
         .surfaces = frames.items,
         .bell_seq = s.bell_seq,
@@ -121,8 +119,7 @@ pub fn sync(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Sync) 
 
 pub fn search(s: *Server, cl: *Client, q: Request.Search) !void {
     const p = s.runtime.pane(q.pane) orelse return error.NoPane;
-    const result = try p.terminal.search(q.needle, q.skip);
-    cl.queue(.{ .ok = true, .offset = result.offset, .match = result.match });
+    cl.reply(.@"viewer.search", try p.terminal.search(q.needle, q.skip));
 }
 
 pub fn acknowledge(s: *Server, cl: *Client, q: Request.Acknowledge) !void {
@@ -144,14 +141,22 @@ pub fn acknowledge(s: *Server, cl: *Client, q: Request.Acknowledge) !void {
     cl.queue(.{ .ok = true });
 }
 
-const RawJson = struct {
-    bytes: []const u8,
-    pub fn jsonStringify(self: RawJson, writer: *std.json.Stringify) !void {
-        try writer.beginWriteRaw();
-        try writer.writer.writeAll(self.bytes);
-        writer.endWriteRaw();
-    }
-};
+/// The `viewer.sync` reply as the daemon writes it.
+pub const View = protocol.View(Encoded(protocol.Snapshot), Encoded(resources.Snapshot));
+
+/// A `T` the daemon has already written as JSON, sent as is.
+fn Encoded(comptime T: type) type {
+    return struct {
+        bytes: []const u8,
+
+        pub const Json = T;
+        pub fn jsonStringify(self: @This(), writer: *std.json.Stringify) !void {
+            try writer.beginWriteRaw();
+            try writer.writer.writeAll(self.bytes);
+            writer.endWriteRaw();
+        }
+    };
+}
 
 /// A pane takes the size shown by the most recently used viewer displaying it;
 /// other viewers clip or pad. Hidden panes retain their last size.
@@ -241,4 +246,30 @@ pub fn viewers(s: *Server, alloc: std.mem.Allocator) ![]const ViewerInfo {
         .watched = view.watched,
     });
     return result.toOwnedSlice(alloc);
+}
+
+test "a viewer reads the view the daemon writes" {
+    const written: View = .{
+        .session = .{ .bytes = "{\"revision\":4}" },
+        .session_hash = 7,
+        .resources_hash = 9,
+        .surfaces = &.{},
+        .bell_seq = 2,
+        .bell_kind = .needs_input,
+        .controls = &.{.{ .seq = 5, .kind = .focus, .id = 1 }},
+        .viewer = 3,
+        .detach = true,
+    };
+    const json = try std.json.Stringify.valueAlloc(std.testing.allocator, written, .{});
+    defer std.testing.allocator.free(json);
+    const read = try std.json.parseFromSlice(protocol.Reply(.@"viewer.sync"), std.testing.allocator, json, .{ .ignore_unknown_fields = true });
+    defer read.deinit();
+    try std.testing.expectEqual(@as(i64, 4), read.value.session.?.object.get("revision").?.integer);
+    try std.testing.expectEqual(null, read.value.resources);
+    try std.testing.expectEqual(@as(u64, 7), read.value.session_hash);
+    try std.testing.expectEqual(@as(u64, 9), read.value.resources_hash);
+    try std.testing.expectEqual(.needs_input, read.value.bell_kind);
+    try std.testing.expectEqual(@as(u64, 5), read.value.controls[0].seq);
+    try std.testing.expectEqual(@as(u32, 3), read.value.viewer);
+    try std.testing.expect(read.value.detach);
 }

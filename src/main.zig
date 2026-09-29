@@ -10,6 +10,8 @@ const herdr_adapter = @import("herdr_adapter.zig");
 const claude_credentials = @import("claude_credentials.zig");
 const rpc = @import("rpc.zig");
 const protocol = @import("protocol.zig");
+const WorkspaceId = @import("workspace.zig").Workspace.Id;
+const NativeId = @import("native.zig").Session.Id;
 const client = @import("client.zig");
 const preferences = @import("preferences.zig");
 const cli = @import("cli.zig");
@@ -133,11 +135,11 @@ fn run() !void {
         const fd = try os.connect(path);
         defer _ = c.close(fd);
         var conn: rpc.Connection = .{ .fd = fd };
-        const hello = try conn.call(.{ .op = "hello", .protocol = 1 });
+        const hello = try conn.call(.hello, {});
         defer hello.deinit();
-        if (!std.mem.eql(u8, agents.str(hello.value, "build_id"), &build_id)) try reload(path, exe);
+        if (!std.mem.eql(u8, hello.value.build_id, &build_id)) try reload(path, exe);
         if (os.env("CORGI_PANE")) |pane| {
-            return request(path, .{ .op = "action", .name = "relaunch", .value = exe, .pane = try std.fmt.parseInt(u32, pane, 10) });
+            return request(path, .action, .{ .name = "relaunch", .value = exe, .pane = @enumFromInt(try std.fmt.parseInt(u32, pane, 10)) });
         }
         return client.attach(path);
     }
@@ -183,7 +185,7 @@ fn run() !void {
             if (args.len > 3) return error.Usage;
             return reload(path, if (args.len == 3) args[2] else exe);
         },
-        .checkpoint => return request(path, .{ .op = "recovery.save", .protocol = 1 }),
+        .checkpoint => return request(path, .@"recovery.save", {}),
         .serve => {
             log_sink = .stderr;
             var server: Server = .{ .socket = path, .executable = exe, .build_id = try buildId(exe) };
@@ -211,29 +213,30 @@ fn run() !void {
             switch (sub) {
                 .start => {
                     if (args.len != 4 and (args.len != 6 or !std.mem.eql(u8, args[4], "--workspace"))) return error.Usage;
+                    const provider = try providerArg(args[3]);
+                    const workspace: ?WorkspaceId = if (args.len == 6) @enumFromInt(try std.fmt.parseInt(u32, args[5], 10)) else null;
                     try ensureServer(path, exe);
                     const cwd = try std.process.getCwdAlloc(a);
                     defer a.free(cwd);
-                    if (args.len == 6) return request(path, .{ .op = "native.start", .provider = args[3], .cwd = cwd, .workspace = try std.fmt.parseInt(u32, args[5], 10) });
-                    return request(path, .{ .op = "native.start", .provider = args[3], .cwd = cwd });
+                    return request(path, .@"native.start", .{ .provider = provider, .cwd = cwd, .workspace = workspace });
                 },
-                .list => return request(path, .{ .op = "native.list" }),
+                .list => return request(path, .@"native.list", {}),
                 .events => {
                     if (args.len < 4) return error.Usage;
-                    const id = try std.fmt.parseInt(u32, args[3], 10);
-                    return request(path, .{ .op = "native.events", .session = id, .after = if (args.len > 4) try std.fmt.parseInt(u64, args[4], 10) else 0 });
+                    const id: NativeId = @enumFromInt(try std.fmt.parseInt(u32, args[3], 10));
+                    return request(path, .@"native.events", .{ .session = id, .after = if (args.len > 4) try std.fmt.parseInt(u64, args[4], 10) else 0 });
                 },
                 .stop => {
                     if (args.len < 4) return error.Usage;
-                    const id = try std.fmt.parseInt(u32, args[3], 10);
-                    return request(path, .{ .op = "native.stop", .session = id });
+                    const id: NativeId = @enumFromInt(try std.fmt.parseInt(u32, args[3], 10));
+                    return request(path, .@"native.stop", .{ .session = id });
                 },
                 .send => {
                     if (args.len != 5) return error.Usage;
-                    const id = try std.fmt.parseInt(u32, args[3], 10);
+                    const id: NativeId = @enumFromInt(try std.fmt.parseInt(u32, args[3], 10));
                     const msg = try std.json.parseFromSlice(std.json.Value, a, args[4], .{});
                     defer msg.deinit();
-                    return request(path, .{ .op = "native.send", .session = id, .message = msg.value });
+                    return request(path, .@"native.send", .{ .session = id, .message = msg.value });
                 },
             }
         },
@@ -252,15 +255,15 @@ fn run() !void {
         .onboard => {
             if (args.len != 2) return error.Usage;
             if (os.env("CORGI_PANE")) |pane| {
-                return request(path, .{ .op = "action", .name = "onboard", .pane = try std.fmt.parseInt(u32, pane, 10) });
+                return request(path, .action, .{ .name = "onboard", .pane = @enumFromInt(try std.fmt.parseInt(u32, pane, 10)) });
             }
             if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
             try ensureServer(path, exe);
             return client.onboard(path);
         },
-        .ping => return request(path, .{ .op = "ping" }),
+        .ping => return request(path, .ping, {}),
         .shutdown => {
-            try request(path, .{ .op = "shutdown" });
+            try request(path, .shutdown, {});
             // The daemon stops listening before its slower teardown. Waiting for
             // that lets an immediate start get a fresh daemon, not the exiting one.
             for (0..500) |_| {
@@ -272,13 +275,13 @@ fn run() !void {
         },
         .action => {
             if (args.len < 3) return error.Usage;
-            return request(path, .{ .op = "action", .name = args[2], .value = if (args.len > 3) args[3] else "" });
+            return request(path, .action, .{ .name = args[2], .value = if (args.len > 3) args[3] else "" });
         },
         .rpc => {
             if (args.len != 3) return error.Usage;
             const parsed = try std.json.parseFromSlice(std.json.Value, a, args[2], .{});
             defer parsed.deinit();
-            return request(path, parsed.value);
+            return printReply(path, parsed.value);
         },
         else => return error.UnknownCommand,
     }
@@ -291,9 +294,14 @@ fn usageStatus(err: anyerror) u8 {
     };
 }
 fn reload(path: []const u8, executable: []const u8) !void {
-    return request(path, .{ .op = "server.reload", .protocol = 1, .executable = executable });
+    return request(path, .@"server.reload", .{ .executable = executable });
 }
-fn request(path: []const u8, value: anytype) !void {
+/// Sends `op` and prints the daemon's reply as it arrives.
+fn request(path: []const u8, comptime op: protocol.Op, payload: protocol.Payload(op)) !void {
+    return printReply(path, protocol.Envelope(op){ .payload = payload });
+}
+/// Sends `value` as is, as `corgi rpc` does, and prints the reply.
+fn printReply(path: []const u8, value: anytype) !void {
     const fd = try os.connect(path);
     defer _ = c.close(fd);
     var connection: rpc.Connection = .{ .fd = fd };
@@ -301,7 +309,7 @@ fn request(path: []const u8, value: anytype) !void {
     defer parsed.deinit();
     const err = agents.str(parsed.value, "err");
     if (err.len > 0) {
-        if (std.meta.stringToEnum(protocol.Rejection, err) == .AmbiguousViewer) return error.AmbiguousViewer;
+        if (protocol.rejection(err) == error.AmbiguousViewer) return error.AmbiguousViewer;
         std.debug.print("{s}\n", .{err});
         return error.ServerRejected;
     }

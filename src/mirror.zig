@@ -78,20 +78,12 @@ pub const Terminal = struct {
         return t.inner.selectedText();
     }
     pub fn search(t: *Terminal, needle: []const u8, skip: usize) !bool {
-        const response = try t.conn.call(.{ .op = "viewer.search", .protocol = 1, .pane = t.id, .needle = needle, .skip = skip });
+        const response = try t.conn.call(.@"viewer.search", .{ .pane = t.id, .needle = needle, .skip = skip });
         defer response.deinit();
-        const offset = response.value.object.get("offset") orelse return false;
-        t.offset = switch (offset) {
-            .integer => |n| std.math.cast(usize, n) orelse return false,
-            else => return false,
-        };
+        t.offset = response.value.offset orelse return false;
         // A match on the current viewport still needs its selection applied.
         t.known = null;
-        if (response.value.object.get("match")) |match| if (match != .null) {
-            const parsed = try std.json.parseFromValue(Selection, a, match, .{});
-            defer parsed.deinit();
-            t.selection = parsed.value;
-        };
+        if (response.value.match) |m| t.selection = .{ .x = m.x, .y = m.y, .end_x = m.end_x, .end_y = m.end_y };
         return true;
     }
     pub fn send(t: *Terminal, bytes: []const u8) !void {
@@ -100,9 +92,10 @@ pub const Terminal = struct {
     }
     pub fn flush(t: *Terminal) !void {
         if (t.pending.items.len == 0) return;
-        t.conn.send(.{ .op = "session.command", .protocol = 1, .command = .{ .@"pane.input" = .{ .target = t.id, .data = t.pending.items } } }) catch |err| {
-            if (err != error.NoPane) return err;
-        };
+        const command: protocol.Command = .{ .@"pane.input" = .{ .target = t.id, .data = t.pending.items } };
+        if (t.conn.call(.@"session.command", .{ .command = command })) |response| {
+            response.deinit();
+        } else |err| if (err != error.NoPane) return err;
         t.pending.clearRetainingCapacity();
     }
     pub fn receive(t: *Terminal, view: surface.View) !void {

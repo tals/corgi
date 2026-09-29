@@ -29,13 +29,13 @@ const sidebar_rows = @import("sidebar_rows.zig");
 const agent_launcher = @import("agent_launcher.zig");
 const launch_preview_stream = @import("launch_preview_stream.zig");
 const corgi_setup = @import("corgi_setup.zig");
+const inference_setup = @import("inference_setup.zig");
 const link_tooltip = @import("link_tooltip.zig");
 const resource_tooltip = @import("resource_tooltip.zig");
 const preferences = @import("preferences.zig");
 const agent_drag = @import("agent_drag.zig");
 const workspace_drag = @import("workspace_drag.zig");
 const clock = @import("clock.zig");
-const launch_command = @import("launch_command.zig");
 const ghostty_integration = @import("ghostty_integration.zig");
 const subagent_tooltip = @import("subagent_tooltip.zig");
 const vt = @import("terminal.zig").vt;
@@ -193,12 +193,9 @@ pub const Controller = struct {
     }
     const Created = struct { pane: layout.PaneId, workspace: WorkspaceId };
     fn execute(s: *Self, command: Command) !Created {
-        const response = try s.connection.call(.{ .op = "session.command", .protocol = 1, .command = command });
+        const response = try s.connection.call(.@"session.command", .{ .command = command });
         defer response.deinit();
-        const raw_result = response.value.object.get("result") orelse return error.InvalidResponse;
-        const parsed = try std.json.parseFromValue(Created, a, raw_result, .{ .ignore_unknown_fields = true });
-        defer parsed.deinit();
-        const result = parsed.value;
+        const result: Created = .{ .pane = response.value.result.pane, .workspace = response.value.result.workspace };
         try s.refresh();
         if (s.runtime.panes.items.len == 0 and s.runtime.workspaces.items.len == 1) {
             s.input_state.attached = false;
@@ -1027,19 +1024,14 @@ pub const Controller = struct {
         if (!immediate and now - launch.draft_changed < 350) return;
         if (now - launch.resolution_checked < 100) return;
         launch.resolution_checked = now;
-        const response = s.connection.call(.{
-            .op = "agent.command.preview",
-            .protocol = 1,
+        const response = s.connection.call(.@"agent.command.preview", .{
             .workspace = launch.workspace,
             .cwd = launch.cwd.text(),
             .request = launch.request_id,
             .command = launch.draft.text(),
         }) catch return;
         defer response.deinit();
-        const value = response.value.object.get("resolution") orelse return;
-        const parsed = std.json.parseFromValue(launch_command.Resolution, a, value, .{}) catch return;
-        defer parsed.deinit();
-        launch.resolution = parsed.value;
+        launch.resolution = response.value.resolution;
         if (!launch.resolution.pending and !launch.name_customized and launch.resolution.error_message.len == 0) {
             launch.name_editor = naming.Dialog.init(.{ .rename = @enumFromInt(0) }, launch.resolution.semantics.suggested_name.text());
         }
@@ -1189,7 +1181,7 @@ pub const Controller = struct {
         }
         if (!launch.trackable(.of(provider))) return;
         launch.pinned = true;
-        const response = s.connection.call(.{ .op = "agent.track_usage", .protocol = 1, .workspace = launch.workspace, .cwd = launch.cwd.text() }) catch return;
+        const response = s.connection.call(.@"agent.track_usage", .{ .workspace = launch.workspace, .cwd = launch.cwd.text() }) catch return;
         defer response.deinit();
         launch.preview.pending = true;
         s.launch_previews.pending(launch.cwd.text());
@@ -1295,12 +1287,19 @@ pub const Controller = struct {
         // The setup screen stays open; the daemon republishes status, which
         // moves the "in use" marker.
         s.dirty = true;
-        const response = s.connection.call(.{ .op = "inference.configure", .protocol = 1, .choice = @tagName(choice) }) catch {
+        const summaries: inference_setup.Choice = switch (choice) {
+            .ghostty, .keyboard, .import, .readings, .sleeping_corgis => unreachable,
+            .auto => .auto,
+            .codex => .codex,
+            .claude => .claude,
+            .off => .off,
+        };
+        const response = s.connection.call(.@"inference.configure", .{ .choice = summaries }) catch {
             s.notice(" Corgi setup: the runtime did not accept the change");
             return;
         };
         defer response.deinit();
-        const saved = if (response.value.object.get("saved")) |value| value == .bool and value.bool else false;
+        const saved = response.value.saved;
         var buffer: [128]u8 = undefined;
         const label = switch (choice) {
             .ghostty, .keyboard, .import, .readings, .sleeping_corgis => unreachable,
@@ -2236,10 +2235,9 @@ pub const Controller = struct {
             const ws = git_hit.?;
             if (ws.git_push.phase == .pushing or ws.git_push.phase == .succeeded) return;
             const index = s.runtime.workspaces.index(ws.id) orelse return;
-            const response = try s.connection.request(.{ .op = "git.push", .protocol = 1, .workspace = ws.id, .ref = s.runtime.workspaces.items[index].git_ref });
-            defer response.deinit();
-            const err = agents.str(response.value, "err");
-            if (err.len > 0) s.notice(gitPushMessage(err));
+            if (s.connection.call(.@"git.push", .{ .workspace = ws.id, .ref = s.runtime.workspaces.items[index].git_ref })) |response| {
+                response.deinit();
+            } else |err| s.notice(gitPushMessage(err));
             try s.refresh();
             s.dirty = true;
             return;
@@ -2488,7 +2486,7 @@ pub const Controller = struct {
         }
     }
     pub fn refresh(s: *Self) !void {
-        const reply = try s.connection.call(.{ .op = "session.snapshot", .protocol = 1 });
+        const reply = try s.connection.call(.@"session.snapshot", {});
         defer reply.deinit();
         try s.receiveSnapshot(reply.value);
     }
@@ -2734,11 +2732,11 @@ fn direction(key: u8) ?layout.Direction {
         else => null,
     };
 }
-fn gitPushMessage(err: []const u8) []const u8 {
-    return switch (std.meta.stringToEnum(protocol.Rejection, err) orelse return err) {
-        .GitPreviewChanged => git_push.preview_changed,
-        .GitPushInProgress => "A push is already running for this repository.",
-        else => err,
+fn gitPushMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.GitPreviewChanged => git_push.preview_changed,
+        error.GitPushInProgress => "A push is already running for this repository.",
+        else => @errorName(err),
     };
 }
 

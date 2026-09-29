@@ -7,10 +7,11 @@ const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
 const opts = @import("corgi_options");
-const agents = @import("agents.zig");
 const atomicWrite = @import("recovery.zig").atomicWrite;
 const recoveryPath = @import("recovery.zig").path;
 const Connection = @import("rpc.zig").Connection;
+const protocol = @import("protocol.zig");
+const Op = protocol.Op;
 pub const abi = std.fmt.comptimePrint("1-{x}", .{opts.terminal_checkpoint_abi});
 /// What this binary is and where it checks for the next one.
 pub const Release = struct {
@@ -240,14 +241,14 @@ fn feed(rel: Release, root: []const u8, download: bool, explicit: bool) !void {
     try write(root, "staged", m.value.version);
     remove(root, "last-error");
 }
-fn rpc(socket: []const u8, value: anytype) !std.json.Parsed(std.json.Value) {
+fn rpc(socket: []const u8, comptime op: Op, payload: protocol.Payload(op)) !std.json.Parsed(protocol.Reply(op)) {
     const fd = try os.connect(socket);
     defer _ = c.close(fd);
     var conn: Connection = .{ .fd = fd };
-    return conn.call(value);
+    return conn.call(op, payload);
 }
-fn hello(socket: []const u8) !?std.json.Parsed(std.json.Value) {
-    return rpc(socket, .{ .op = "hello", .protocol = 1 }) catch |err| switch (err) {
+fn hello(socket: []const u8) !?std.json.Parsed(protocol.Hello) {
+    return rpc(socket, .hello, {}) catch |err| switch (err) {
         error.FileNotFound, error.ConnectionRefused => null,
         else => return err,
     };
@@ -292,12 +293,12 @@ fn activate(root: []const u8, socket: []const u8, ver: []const u8, target: []con
         if (thread) |t| t.join();
     }
     if (live) {
-        const response = rpc(socket, .{ .op = "server.reload", .protocol = 1, .executable = target }) catch |err| {
+        const response = rpc(socket, .@"server.reload", .{ .executable = target }) catch |err| {
             // A lost reply is not evidence that ownership failed to commit.
             // Probe before deciding whether to stay on the old executable.
             if (try hello(socket)) |h| {
                 defer h.deinit();
-                if (std.mem.eql(u8, agents.str(h.value, "executable"), target)) {
+                if (std.mem.eql(u8, h.value.executable, target)) {
                     try switchCurrent(root, ver);
                     return;
                 }
@@ -310,10 +311,14 @@ fn activate(root: []const u8, socket: []const u8, ver: []const u8, target: []con
     }
     const h = (try hello(socket)) orelse return error.UpdateRuntimeNotReady;
     defer h.deinit();
-    if (!std.mem.eql(u8, agents.str(h.value, "executable"), target)) return error.UpdateRuntimeChanged;
+    if (!std.mem.eql(u8, h.value.executable, target)) return error.UpdateRuntimeChanged;
     try switchCurrent(root, ver);
 }
-fn deferName(socket: []const u8, pid: i64) ![]u8 {
+/// A daemon that sends no pid cannot be told apart from its replacement.
+fn serverPid(h: protocol.Hello) !i32 {
+    return if (h.server_pid > 0) h.server_pid else error.UpdateRuntimeChanged;
+}
+fn deferName(socket: []const u8, pid: i32) ![]u8 {
     return std.fmt.allocPrint(a, "deferred-{x}-{d}", .{ std.hash.Wyhash.hash(0, socket), pid });
 }
 var prompt_term: ?c.struct_termios = null;
@@ -323,7 +328,7 @@ fn cancelPrompt(_: c_int) callconv(.c) void {
 }
 fn confirmRestart(socket: []const u8) !?bool {
     if (c.isatty(0) == 0 or c.isatty(2) == 0 or os.env("CORGI_PANE") != null) return null;
-    const snapshot = try rpc(socket, .{ .op = "session.snapshot", .protocol = 1 });
+    const snapshot = try rpc(socket, .@"session.snapshot", {});
     defer snapshot.deinit();
     try os.writeAll(2, "\n /ᐠ•ᴥ•ᐟ\\  An update is ready, but this session could not be moved safely.\n\nRestarting will stop ALL shells and agents in this runtime and disconnect\nits other viewers. Saved layout and output can be restored; running processes\nwill not survive.\n\nEnter / Esc: keep working     r: restart and update… ");
     var term: c.struct_termios = undefined;
@@ -362,7 +367,7 @@ fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, expli
     defer if (h) |*v| v.deinit();
     const current = (try read(root, "current")) orelse return error.MissingInstalledVersion;
     defer a.free(current);
-    const fallback = if (h) |v| agents.str(v.value, "executable") else "";
+    const fallback = if (h) |v| v.value.executable else "";
     if (h != null and fallback.len == 0) return error.RuntimeDoesNotSupportUpdates;
     const old_exe = if (fallback.len > 0) try a.dupe(u8, fallback) else try executable(root, current);
     errdefer a.free(old_exe);
@@ -389,12 +394,8 @@ fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, expli
     var deferred: ?[]u8 = null;
     defer if (deferred) |d| a.free(d);
     if (h) |v| {
-        safe = std.mem.eql(u8, agents.str(v.value, "update_abi"), m.value.update_abi);
-        const pid = switch (v.value.object.get("server_pid") orelse .null) {
-            .integer => |n| n,
-            else => return error.UpdateRuntimeChanged,
-        };
-        deferred = try deferName(socket, pid);
+        safe = std.mem.eql(u8, v.value.update_abi, m.value.update_abi);
+        deferred = try deferName(socket, try serverPid(v.value));
         if (!explicit) if (try read(root, deferred.?)) |d| {
             defer a.free(d);
             if (std.mem.eql(u8, d, candidate)) return old_exe;
@@ -415,7 +416,7 @@ fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, expli
         if (h) |*v| v.deinit();
         h = null;
         h = try hello(socket);
-        if (h) |v| if (std.mem.eql(u8, agents.str(v.value, "executable"), target)) {
+        if (h) |v| if (std.mem.eql(u8, v.value.executable, target)) {
             a.free(old_exe);
             return try a.dupe(u8, target);
         };
@@ -425,24 +426,16 @@ fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, expli
         // The prompt may have been left open while the runtime changed.
         const fresh = (try hello(socket)) orelse return error.UpdateRuntimeChanged;
         defer fresh.deinit();
-        const fresh_pid = switch (fresh.value.object.get("server_pid") orelse .null) {
-            .integer => |n| n,
-            else => return error.UpdateRuntimeChanged,
-        };
-        const stale_pid = switch (h.?.value.object.get("server_pid") orelse .null) {
-            .integer => |n| n,
-            else => return error.UpdateRuntimeChanged,
-        };
-        if (fresh_pid != stale_pid) return error.UpdateRuntimeChanged;
+        if (try serverPid(fresh.value) != try serverPid(h.?.value)) return error.UpdateRuntimeChanged;
         // Backup the recovery file before the explicitly destructive operation.
-        const saved = try rpc(socket, .{ .op = "recovery.save", .protocol = 1 });
+        const saved = try rpc(socket, .@"recovery.save", {});
         saved.deinit();
         const recovery = try recoveryPath(socket);
         defer a.free(recovery);
         const backup = try std.fmt.allocPrint(a, "{s}.before-update", .{recovery});
         defer a.free(backup);
         try std.fs.cwd().copyFile(recovery, std.fs.cwd(), backup, .{});
-        const shutdown = try rpc(socket, .{ .op = "shutdown" });
+        const shutdown = try rpc(socket, .shutdown, {});
         shutdown.deinit();
         var stopped = false;
         for (0..100) |_| {
@@ -476,7 +469,7 @@ pub fn startup(socket: []const u8, exe: []const u8, cmd: []const u8, skip: bool)
         // Network and local staging failures must never prevent attachment.
         if (try hello(socket)) |h| {
             defer h.deinit();
-            const running = agents.str(h.value, "executable");
+            const running = h.value.executable;
             if (running.len > 0 and !std.mem.eql(u8, running, exe)) try reexec(running, cmd);
         }
         return;
@@ -512,7 +505,7 @@ pub fn command(args: []const []const u8, socket: []const u8, exe: []const u8) !v
         }
         if (try hello(socket)) |h| {
             defer h.deinit();
-            std.debug.print("running: {s}\n", .{agents.str(h.value, "release_version")});
+            std.debug.print("running: {s}\n", .{h.value.release_version});
         }
         return;
     }

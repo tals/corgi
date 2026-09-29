@@ -7,6 +7,7 @@ const Preview = @import("launch_preview.zig").Preview;
 const Provider = @import("providers.zig").Provider;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Path = @import("bounded_text.zig").Path;
+const protocol = @import("protocol.zig");
 
 pub const Stream = struct {
     socket: []const u8 = "",
@@ -63,7 +64,7 @@ pub const Stream = struct {
             s.retry_at = now + 1000;
             const fd = os.connect(s.socket) catch return changed;
             s.fd = fd;
-            os.sendJson(fd, .{ .op = "agent.subscribe", .protocol = 1, .workspace = workspace, .cwd = cwd }) catch {
+            os.sendJson(fd, protocol.Envelope(.@"agent.subscribe"){ .payload = .{ .workspace = workspace, .cwd = cwd } }) catch {
                 s.disconnect();
                 s.retry_at = now + 1000;
                 return changed;

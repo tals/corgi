@@ -5,6 +5,7 @@ const Provider = @import("providers.zig").Provider;
 const agents = @import("agents.zig");
 const detection = @import("detection.zig");
 const discovery = @import("discovery.zig");
+const protocol = @import("protocol.zig");
 pub fn hook(provider: Provider, path: []const u8) !void {
     const pane = os.env("CORGI_PANE") orelse return;
     const id = std.fmt.parseInt(u32, pane, 10) catch return;
@@ -36,7 +37,13 @@ pub fn hook(provider: Provider, path: []const u8) !void {
     };
     const fd = os.connect(path) catch return;
     defer _ = os.c.close(fd);
-    try os.sendJson(fd, .{ .op = "hook", .provider = provider, .pane = id, .event = parsed.value, .seq = std.time.microTimestamp(), .background = background });
+    try os.sendJson(fd, protocol.Envelope(.hook){ .payload = .{
+        .provider = provider,
+        .event = parsed.value,
+        .pane = @enumFromInt(id),
+        .seq = std.time.microTimestamp(),
+        .background = background,
+    } });
 }
 pub fn config(provider: Provider, executable: []const u8) ![]u8 {
     const command = try hookCommand(provider, executable);

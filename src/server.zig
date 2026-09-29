@@ -293,10 +293,9 @@ pub const Server = struct {
         switch (req) {
             .hello => {
                 cl.protocol_version = protocol.version;
-                cl.queue(.{
-                    .type = "hello",
+                cl.queue(protocol.Hello{
                     .protocol = protocol.version,
-                    .capabilities = protocol.capabilities,
+                    .capabilities = &protocol.capabilities,
                     .server_pid = c.getpid(),
                     .build_id = &s.build_id,
                     .executable = s.executable,
@@ -311,16 +310,9 @@ pub const Server = struct {
             },
             .@"onboarding.status" => |q| {
                 if (q.operation == s.handoff_operation and q.operation != 0) {
-                    const status = s.herdr_import.status();
-                    cl.queue(.{ .ok = true, .progress = .{
-                        .phase = @tagName(status.phase),
-                        .completed = status.completed,
-                        .total = status.total,
-                        .workspace = status.workspace,
-                        .message = status.message,
-                    } });
+                    cl.reply(.@"onboarding.status", .{ .progress = s.herdr_import.status() });
                 } else if (q.operation == s.onboarding_copy.operation and q.operation != 0) {
-                    cl.queue(.{ .ok = true, .progress = s.onboarding_copy.progress });
+                    cl.reply(.@"onboarding.status", .{ .progress = s.onboarding_copy.progress });
                 } else return error.NoImport;
             },
             .@"onboarding.handoff" => |q| {
@@ -331,7 +323,7 @@ pub const Server = struct {
                 cl.queue(.{ .ok = true });
             },
             .@"onboarding.copy" => |q| {
-                try s.onboarding_copy.start(q.plan, q.operation);
+                try s.onboarding_copy.start(q);
                 s.rememberImportStarter();
                 cl.queue(.{ .ok = true });
             },
@@ -351,7 +343,7 @@ pub const Server = struct {
                 const cwd = if (q.cwd.len > 0) q.cwd else ws.cwd;
                 if (!std.fs.path.isAbsolute(cwd)) return error.InvalidDirectory;
                 const worker = s.command_previews orelse return error.Unavailable;
-                cl.queue(.{ .ok = true, .resolution = try worker.request(q.request, q.command, cwd) });
+                cl.reply(.@"agent.command.preview", .{ .resolution = try worker.request(q.request, q.command, cwd) });
             },
             .@"agent.preview", .@"agent.track_usage", .@"agent.subscribe" => |q| {
                 const subscribe = op == .@"agent.subscribe";
@@ -375,9 +367,9 @@ pub const Server = struct {
                     break :blk true;
                 } else |_| false;
                 s.publishInference();
-                cl.queue(.{ .ok = true, .saved = saved, .inference = s.runtime.inference });
+                cl.reply(.@"inference.configure", .{ .saved = saved, .inference = s.runtime.inference });
             },
-            .@"session.command" => |q| cl.queue(.{ .ok = true, .result = try s.execute(q.command, arena) }),
+            .@"session.command" => |q| cl.reply(.@"session.command", .{ .result = try s.execute(q.command, arena) }),
             .@"viewer.open" => |q| try viewer_protocol.open(s, cl, q),
             .@"viewer.sync" => |q| try viewer_protocol.sync(s, cl, arena, q),
             .@"viewer.search" => |q| try viewer_protocol.search(s, cl, q),
@@ -386,7 +378,7 @@ pub const Server = struct {
             .action => |q| try viewer_protocol.action(s, cl, q),
             .focus => |q| try viewer_protocol.focus(s, cl, q),
             .@"workspace.switch" => |q| try viewer_protocol.switchWorkspace(s, cl, q),
-            .@"session.locate" => |q| cl.queue(.{ .ok = true, .result = try session_command.location(&s.runtime, q.pane) }),
+            .@"session.locate" => |q| cl.reply(.@"session.locate", .{ .result = try session_command.location(&s.runtime, q.pane) }),
             .@"session.list" => {
                 cl.queue(.{ .ok = true, .result = try session_command.snapshot(arena, &s.runtime), .viewers = try viewer_protocol.viewers(s, arena) });
             },
@@ -488,7 +480,7 @@ pub const Server = struct {
             .theme => |q| {
                 if (!cl.viewer) return error.NotAttached;
                 for (s.clients.items) |viewer| if (viewer.viewer and !viewer.dead) {
-                    if (viewer.fd == cl.fd) s.updateTheme(q.theme);
+                    if (viewer.fd == cl.fd) s.updateTheme(q.theme.value);
                     break;
                 };
                 if (cl.viewer) cl.queue(.{ .ok = true });
@@ -549,10 +541,9 @@ pub const Server = struct {
             },
         }
     }
-    /// `value` is a viewer's host colors, or null when it sent none.
-    pub fn updateTheme(s: *Server, value: std.json.Value) void {
-        if (value == .null) return;
-        s.theme.merge(Theme.fromJson(value));
+    /// `theme` is a viewer's host colors, or null when it sent none or sent them malformed.
+    pub fn updateTheme(s: *Server, theme: ?Theme) void {
+        s.theme.merge(theme orelse return);
         for (s.runtime.panes.items) |p| p.terminal.applyTheme(s.theme);
         s.dirty = true;
     }
@@ -815,7 +806,7 @@ pub const Server = struct {
             const handed_off = s.herdr_import.tick(&s.runtime);
             const copied = s.onboarding_copy.tick(&s.runtime, .{ .workspace = .none, .cwd = "/", .cols = 80, .rows = 24, .theme = s.theme, .socket = s.socket, .executable = s.executable });
             if (handed_off) s.finishImport(s.herdr_import.status().workspace);
-            if (copied and std.mem.eql(u8, s.onboarding_copy.progress.phase, "complete")) s.finishImport(s.onboarding_copy.progress.workspace);
+            if (copied and s.onboarding_copy.progress.phase == .complete) s.finishImport(s.onboarding_copy.progress.workspace);
             if (handed_off or copied) {
                 s.dirty = true;
                 s.saveWorkspaces();
@@ -1195,7 +1186,7 @@ test "every protocol.Rejection can still be returned by a request" {
     // each name for real; until then it only proves the set still resolves.
     const E = @typeInfo(@typeInfo(@TypeOf(Server.request)).@"fn".return_type.?).error_union.error_set;
     const set = @typeInfo(E).error_set orelse return;
-    inline for (@typeInfo(protocol.Rejection).@"enum".fields) |f| {
+    inline for (@typeInfo(protocol.Rejection).error_set.?) |f| {
         comptime var found = false;
         inline for (set) |e| {
             if (comptime std.mem.eql(u8, e.name, f.name)) found = true;

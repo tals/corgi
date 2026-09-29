@@ -76,7 +76,8 @@ pub const Menu = struct {
     commands: [launch_command.capacity]launch_command.Entry = @splat(.{}),
     last: Provider,
     pinned: bool,
-    /// Ctrl-B arrived while pinned; Cmd+T sends Ctrl-B A, so a repeat opens a terminal.
+    /// The prefix arrived while pinned. Cmd+T sends the prefix and `c`, so a
+    /// repeat is ignored instead of read as a launcher key.
     prefix: bool = false,
     preview: Preview = .{},
     const headings = [_][]const u8{ "Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in" };

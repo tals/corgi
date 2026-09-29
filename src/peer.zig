@@ -55,6 +55,10 @@ pub const Client = struct {
         out.writer.end = start;
         cl.dead = true;
     }
+    /// Answers `op` with `ok` and its reply's fields.
+    pub fn reply(cl: *Client, comptime op: protocol.Op, value: protocol.Reply(op)) void {
+        cl.queue(protocol.Ok(op){ .reply = value });
+    }
     pub fn deinit(cl: *Client) void {
         cl.clearControls();
         cl.controls.deinit(a);

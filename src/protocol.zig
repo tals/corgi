@@ -19,22 +19,39 @@ const inference_setup = @import("inference_setup.zig");
 const launch_command = @import("launch_command.zig");
 const ports = @import("ports.zig");
 const resources = @import("resources.zig");
+const Theme = @import("theme.zig").Theme;
+const Terminal = @import("terminal.zig").Terminal;
+const catalog = @import("import_catalog.zig");
+const herdr = @import("herdr_adapter.zig");
+const viewer_version = @import("viewer_version.zig");
 const options = @import("corgi_options");
 
 pub const version: u32 = 1;
 
-/// Error names in a reply's `err` that clients branch on. Other names are
-/// shown to the user as they are. Renaming one of these is a protocol change.
-pub const Rejection = enum {
+/// Error names in a reply's `err` that clients branch on. Renaming one of
+/// these is a protocol change.
+pub const Rejection = error{
     StaleLayout,
     NoPane,
+    AmbiguousViewer,
+    NoViewer,
     UnsupportedViewerProtocol,
     UnsupportedProtocol,
     ProtocolRequired,
-    AmbiguousViewer,
     GitPreviewChanged,
     GitPushInProgress,
+    ReloadInProgress,
+    NoWorkspace,
+    NothingToPush,
+    TooManyPushes,
 };
+/// A reply's `err` as a `Rejection`; any other name is `ServerRejected`.
+pub fn rejection(name: []const u8) (Rejection || error{ServerRejected}) {
+    inline for (@typeInfo(Rejection).error_set.?) |e| {
+        if (std.mem.eql(u8, name, e.name)) return @field(Rejection, e.name);
+    }
+    return error.ServerRejected;
+}
 
 /// Every request the server accepts. The tag is the wire `"op"`; the payload's
 /// fields sit beside `op` in the same object. A new op does not compile until
@@ -75,8 +92,8 @@ pub const Request = union(enum) {
     @"native.stop": struct { session: NativeId },
     @"native.send": struct { session: NativeId, message: std.json.Value },
     @"native.events": struct { session: NativeId, after: u64 = 0 },
-    /// `theme` is the viewer's host colors; a malformed one is ignored.
-    theme: struct { theme: std.json.Value = .null },
+    /// `theme` is the viewer's host colors.
+    theme: struct { theme: Lenient(Theme) = .{} },
     /// `event` is the provider's own hook payload; its backend decodes it.
     /// A background hook comes from a session no pane runs.
     hook: struct { provider: agents.Provider, event: std.json.Value, pane: layout.PaneId = .none, seq: ?i64 = null, background: bool = false },
@@ -98,7 +115,7 @@ pub const Request = union(enum) {
         }
     };
     /// A viewer attaching. `theme` holds its terminal's colors.
-    pub const Open = struct { cwd: []const u8 = "", onboarding: bool = false, theme: std.json.Value = .null };
+    pub const Open = struct { cwd: []const u8 = "", onboarding: bool = false, theme: Lenient(Theme) = .{} };
     /// A viewer's poll: the panes it shows, and the controls it has handled.
     pub const Sync = struct {
         interests: []const Interest,
@@ -122,15 +139,14 @@ pub const Request = union(enum) {
         conversation: ?ActorId = null,
         attention_at: ?i64 = null,
     };
-    /// An import plan. The import job decodes `plan` into its own arena,
-    /// because the plan outlives the request.
+    /// An import plan: the source's workspaces and, for Herdr, the session
+    /// they come from. `operation` names it for retries and status polls.
     pub const Copy = struct {
         operation: u64,
-        plan: std.json.Value,
-        pub fn jsonParseFromValue(arena: std.mem.Allocator, v: std.json.Value, parse_options: std.json.ParseOptions) std.json.ParseFromValueError!Copy {
-            const Operation = struct { operation: u64 };
-            return .{ .operation = (try std.json.innerParseFromValue(Operation, arena, v, parse_options)).operation, .plan = v };
-        }
+        source: catalog.Source,
+        workspaces: []const catalog.Workspace,
+        herdr_session: ?herdr.SourceSession = null,
+        selected: []const []const u8 = &.{},
     };
 };
 /// Tag names are the exact wire strings (`@tagName` round-trips through `parse`).
@@ -138,6 +154,133 @@ pub const Op = std.meta.Tag(Request);
 pub fn Payload(comptime op: Op) type {
     return @FieldType(Request, @tagName(op));
 }
+
+/// A request as a client writes it: `op`, the versions `check(op)` asks
+/// for, then the payload's fields beside them. A null the daemon defaults to
+/// anyway stays out, as it did in hand-written requests, so a daemon from
+/// before typed payloads reads it as absent.
+pub fn Envelope(comptime op: Op) type {
+    return struct {
+        payload: Payload(op),
+
+        pub fn jsonStringify(e: @This(), w: *std.json.Stringify) std.Io.Writer.Error!void {
+            try w.beginObject();
+            try w.objectField("op");
+            try w.write(@tagName(op));
+            if (comptime check(op) != .none) {
+                try w.objectField("protocol");
+                try w.write(version);
+            }
+            if (comptime check(op) == .viewer) {
+                try w.objectField("viewer_protocol");
+                try w.write(viewer_version.version);
+            }
+            if (Payload(op) != void) inline for (std.meta.fields(Payload(op))) |field| {
+                const value = @field(e.payload, field.name);
+                const absent = comptime @typeInfo(field.type) == .optional and
+                    if (field.defaultValue()) |default| default == null else false;
+                if (!absent or value != null) {
+                    try w.objectField(field.name);
+                    try w.write(value);
+                }
+            };
+            try w.endObject();
+        }
+    };
+}
+
+/// A successful reply as the daemon writes it: `ok`, then the reply's fields.
+pub fn Ok(comptime op: Op) type {
+    return struct {
+        reply: Reply(op),
+
+        pub fn jsonStringify(o: @This(), w: *std.json.Stringify) std.Io.Writer.Error!void {
+            try w.beginObject();
+            try w.objectField("ok");
+            try w.write(true);
+            inline for (std.meta.fields(Reply(op))) |field| {
+                try w.objectField(field.name);
+                try w.write(@field(o.reply, field.name));
+            }
+            try w.endObject();
+        }
+    };
+}
+
+/// What the daemon answers to `op` besides `ok` and `err`. Unknown fields
+/// are ignored, so a newer daemon may add some.
+pub fn Reply(comptime op: Op) type {
+    return switch (op) {
+        .hello => Hello,
+        // The viewer's mirror decodes the snapshot into its own storage.
+        .@"session.snapshot" => std.json.Value,
+        .@"session.command", .@"session.locate" => struct { result: Result },
+        .@"viewer.open" => Opened,
+        .@"viewer.sync" => View(std.json.Value, std.json.Value),
+        .@"viewer.search" => Terminal.SearchResult,
+        .@"agent.command.preview" => struct { resolution: launch_command.Resolution },
+        .@"inference.configure" => struct { saved: bool = false, inference: inference_setup.Status = .{} },
+        .@"onboarding.status" => struct { progress: OnboardingProgress },
+        else => struct {},
+    };
+}
+
+/// A value a request may carry malformed, such as a viewer's colors. It
+/// reads as null instead of failing the request.
+pub fn Lenient(comptime T: type) type {
+    return struct {
+        value: ?T = null,
+
+        pub const Json = ?T;
+        pub fn jsonStringify(l: @This(), w: *std.json.Stringify) std.Io.Writer.Error!void {
+            try w.write(l.value);
+        }
+        pub fn jsonParseFromValue(arena: std.mem.Allocator, v: std.json.Value, parse_options: std.json.ParseOptions) std.json.ParseFromValueError!@This() {
+            return .{ .value = std.json.innerParseFromValue(?T, arena, v, parse_options) catch null };
+        }
+    };
+}
+
+/// The `viewer.open` reply.
+pub const Opened = struct {
+    viewer_protocol: u32 = viewer_version.version,
+    bell_seq: u64,
+    workspace: WorkspaceId,
+};
+
+/// The `viewer.sync` reply. The daemon writes `session` and `resources` from
+/// JSON it has already serialized (to hash it), and the viewer reads them as
+/// `std.json.Value`, so each side names how it holds them. Null when
+/// unchanged since the hash the viewer sent.
+pub fn View(comptime Session: type, comptime Resources: type) type {
+    return struct {
+        type: []const u8 = "view",
+        viewer_protocol: u32 = viewer_version.version,
+        session: ?Session = null,
+        session_hash: u64,
+        resources: ?Resources = null,
+        resources_hash: u64 = 0,
+        surfaces: []const surface.View,
+        bell_seq: u64,
+        bell_kind: agents.Attention,
+        controls: []const Control,
+        viewer: u32,
+        detach: bool,
+    };
+}
+
+/// The `hello` reply. A client may be talking to an older or newer daemon
+/// (see updates.zig), so every field has a default.
+pub const Hello = struct {
+    type: []const u8 = "hello",
+    protocol: u32 = 0,
+    capabilities: []const []const u8 = &.{},
+    server_pid: i32 = 0,
+    build_id: []const u8 = "",
+    executable: []const u8 = "",
+    release_version: []const u8 = "",
+    update_abi: []const u8 = "",
+};
 
 /// The op of a request object, or null. Test-only ops are unknown in
 /// release builds.
@@ -206,12 +349,12 @@ pub fn check(op: Op) Check {
 }
 /// `hello` lists every op that speaks the runtime protocol.
 pub const capabilities = list: {
-    var ops: []const Op = &.{};
+    var names: []const []const u8 = &.{};
     for (std.enums.values(Op)) |op| switch (check(op)) {
-        .runtime, .viewer => ops = ops ++ [_]Op{op},
+        .runtime, .viewer => names = names ++ .{@tagName(op)},
         .none, .negotiate => {},
     };
-    break :list ops[0..ops.len].*;
+    break :list names[0..names.len].*;
 };
 
 /// Which in-flight daemon transaction a request must not overlap.
@@ -413,8 +556,17 @@ pub const Snapshot = struct {
     native_sessions: []const Native,
     closed_panes: usize,
 };
-/// The `onboarding.status` reply. `phase` stays a string because it is also displayed.
-pub const OnboardingProgress = struct { phase: []const u8 = "idle", completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
+/// How far an import has come, for `onboarding.status`.
+pub const OnboardingProgress = struct {
+    phase: Phase = .idle,
+    completed: usize = 0,
+    total: usize = 0,
+    workspace: ?WorkspaceId = null,
+    message: []const u8 = "",
+
+    /// A copy is `copying` until it ends; the others are a Herdr handoff's.
+    pub const Phase = enum(u8) { idle, connecting, receiving, preparing, committing, copying, complete, failed };
+};
 /// A pane a viewer shows, at its size. The daemon sizes each pane for the
 /// most recently used viewer showing it.
 pub const Interest = struct { pane: layout.PaneId, cols: u16, rows: u16, offset: ?usize = null, known: ?surface.Stamp = null };
@@ -569,6 +721,81 @@ test "every op decodes a sample request" {
         };
         try std.testing.expectEqual(op, std.meta.activeTag(request));
     }
+}
+
+test "a client's envelope writes what the hand-written requests did" {
+    const Case = struct { json: []const u8, envelope: []const u8 };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const mem = arena.allocator();
+    const pane: layout.PaneId = @enumFromInt(3);
+    for ([_]Case{
+        .{ .json = "{\"op\":\"hello\",\"protocol\":1}", .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.hello){ .payload = {} }, .{}) },
+        .{ .json = "{\"op\":\"shutdown\"}", .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.shutdown){ .payload = {} }, .{}) },
+        .{
+            .json = "{\"op\":\"server.reload\",\"protocol\":1,\"executable\":\"/bin/corgi\"}",
+            .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.@"server.reload"){ .payload = .{ .executable = "/bin/corgi" } }, .{}),
+        },
+        .{
+            .json = "{\"op\":\"session.command\",\"protocol\":1,\"command\":{\"pane.close\":{\"target\":3}}}",
+            .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.@"session.command"){ .payload = .{ .command = .{ .@"pane.close" = .{ .target = pane } } } }, .{}),
+        },
+        .{
+            .json = "{\"op\":\"viewer.open\",\"protocol\":1,\"viewer_protocol\":3,\"cwd\":\"/tmp\",\"theme\":null,\"onboarding\":true}",
+            .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.@"viewer.open"){ .payload = .{ .cwd = "/tmp", .onboarding = true } }, .{}),
+        },
+        .{
+            .json = "{\"op\":\"focus\",\"pane\":3,\"viewer\":2}",
+            .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.focus){ .payload = .{ .pane = pane, .viewer = 2 } }, .{}),
+        },
+        .{
+            .json = "{\"op\":\"workspace.switch\",\"workspace\":1}",
+            .envelope = try std.json.Stringify.valueAlloc(mem, Envelope(.@"workspace.switch"){ .payload = .{ .workspace = @enumFromInt(1) } }, .{}),
+        },
+    }) |case| {
+        const expected = try std.json.parseFromSliceLeaky(std.json.Value, mem, case.json, .{});
+        const actual = try std.json.parseFromSliceLeaky(std.json.Value, mem, case.envelope, .{});
+        if (!sameJson(expected, actual)) {
+            std.debug.print("expected {s}\n     got {s}\n", .{ case.json, case.envelope });
+            return error.TestExpectedEqual;
+        }
+    }
+}
+
+/// Equal JSON values; object keys in any order.
+fn sameJson(x: std.json.Value, y: std.json.Value) bool {
+    if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
+    return switch (x) {
+        .object => |o| o.count() == y.object.count() and for (o.keys(), o.values()) |k, v| {
+            if (!sameJson(v, y.object.get(k) orelse return false)) break false;
+        } else true,
+        .array => |l| l.items.len == y.array.items.len and for (l.items, y.array.items) |i, j| {
+            if (!sameJson(i, j)) break false;
+        } else true,
+        .string => |t| std.mem.eql(u8, t, y.string),
+        .number_string => |t| std.mem.eql(u8, t, y.number_string),
+        else => std.meta.eql(x, y),
+    };
+}
+
+test "a malformed theme reads as none instead of failing the request" {
+    for ([_][]const u8{ "{\"theme\":{\"foreground\":7}}", "{\"theme\":\"dark\"}", "{}" }) |json| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json, .{});
+        defer parsed.deinit();
+        const request = try decode(parsed.arena.allocator(), .theme, parsed.value);
+        try std.testing.expectEqual(null, request.theme.theme.value);
+    }
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "{\"theme\":{\"foreground\":{\"r\":1,\"g\":2,\"b\":3}}}", .{});
+    defer parsed.deinit();
+    const request = try decode(parsed.arena.allocator(), .theme, parsed.value);
+    try std.testing.expectEqual(@as(u8, 2), request.theme.theme.value.?.foreground.?.g);
+}
+
+test "a reply's err names a rejection a client can switch on" {
+    try std.testing.expectEqual(error.StaleLayout, rejection("StaleLayout"));
+    try std.testing.expectEqual(error.GitPushInProgress, rejection("GitPushInProgress"));
+    try std.testing.expectEqual(error.ServerRejected, rejection("InvalidJson"));
+    try std.testing.expectEqual(error.ServerRejected, rejection(""));
 }
 
 test "the ops that wait for an import, a reload or a push" {

@@ -16,6 +16,8 @@ const Theme = @import("theme.zig").Theme;
 const builtin = @import("builtin");
 const providers = @import("providers.zig");
 const detection = @import("detection.zig");
+const Progress = @import("protocol.zig").OnboardingProgress;
+const Phase = Progress.Phase;
 const max_manifest = 16 * 1024 * 1024;
 
 pub const SourcePane = struct { id: []const u8, name: []const u8, cwd: []const u8, pid: ?i32 = null, resume_hint: ResumeHint = .{} };
@@ -331,9 +333,6 @@ fn copyTab(r: *Runtime, tab: SourceTab, defaults: Runtime.Create) !void {
     model.revision +%= 1;
     ws.model = model;
 }
-
-pub const Phase = enum(u8) { idle, connecting, receiving, preparing, committing, complete, failed };
-pub const Progress = struct { phase: Phase = .idle, completed: usize = 0, total: usize = 0, workspace: ?WorkspaceId = null, message: []const u8 = "" };
 
 /// Own on the daemon event loop. While locked(), reject layout mutation,
 /// daemon reload and shutdown until tick() finishes the ownership transaction.

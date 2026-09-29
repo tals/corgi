@@ -15,13 +15,12 @@ const shortcut_help = @import("shortcut_help.zig");
 const builtin = @import("builtin");
 const herdr_adapter = @import("herdr_adapter.zig");
 const ghostty_integration = @import("ghostty_integration.zig");
-const OnboardingProgress = @import("protocol.zig").OnboardingProgress;
+const protocol = @import("protocol.zig");
+const OnboardingProgress = protocol.OnboardingProgress;
 pub const Step = enum { presets, keymap, connect, import, progress, complete };
 /// `welcome` is the first-run wizard. Corgi setup opens `keyboard` or `import`
 /// on its own: no greeting, and finishing returns to Corgi instead of chaining.
 pub const Mode = enum { welcome, keyboard, import };
-/// The values of `OnboardingProgress.phase`.
-const Phase = enum { idle, connecting, receiving, preparing, committing, copying, complete, failed };
 pub const State = struct {
     preset: km.Preset = .corgi,
     prefix: km.Prefix = .ctrl_b,
@@ -38,7 +37,7 @@ pub const State = struct {
     handoff: bool = true,
     focus: u8 = 0,
     progress: OnboardingProgress = .{},
-    progress_data: ?std.json.Parsed(OnboardingProgress) = null,
+    progress_data: ?std.json.Parsed(protocol.Reply(.@"onboarding.status")) = null,
     message: BoundedText(256) = .{},
     last_poll: i64 = 0,
     blink_closed: bool = false,
@@ -67,9 +66,6 @@ pub const State = struct {
     }
     fn setMessage(s: *State, msg: []const u8) void {
         s.message = .initTruncated(msg);
-    }
-    fn phase(s: *const State) ?Phase {
-        return std.meta.stringToEnum(Phase, s.progress.phase);
     }
     pub fn worker(s: *const State) ?*catalog.Worker {
         return s.workers.get(s.source);
@@ -137,7 +133,7 @@ pub const State = struct {
                     for (ws.tabs) |tab| for (tab.panes) |pane| if (std.mem.eql(u8, pane.id, current_pane)) return error.OpenCorgiOutsideHerdrFirst;
                 };
             }
-            const result = try conn.call(.{ .viewer_pgid = os.c.getpgrp(), .op = "onboarding.handoff", .protocol = 1, .operation = s.operation, .socket = s.items()[s.cursor].socket });
+            const result = try conn.call(.@"onboarding.handoff", .{ .operation = s.operation, .viewer_pgid = os.c.getpgrp(), .socket = s.items()[s.cursor].socket });
             result.deinit();
         } else {
             var selected: std.ArrayList(catalog.Workspace) = .empty;
@@ -152,9 +148,7 @@ pub const State = struct {
                 var ids: std.ArrayList([]const u8) = .empty;
                 defer ids.deinit(a);
                 for (selected.items) |ws| try ids.append(a, ws.id);
-                const result = try conn.call(.{
-                    .op = "onboarding.copy",
-                    .protocol = 1,
+                const result = try conn.call(.@"onboarding.copy", .{
                     .operation = s.operation,
                     .source = s.source,
                     .workspaces = selected.items,
@@ -166,14 +160,14 @@ pub const State = struct {
                 var arena: std.heap.ArenaAllocator = .init(a);
                 defer arena.deinit();
                 const workspaces = try catalog.copyWorkspaces(arena.allocator(), selected.items);
-                const result = try conn.call(.{ .op = "onboarding.copy", .protocol = 1, .operation = s.operation, .source = s.source, .workspaces = workspaces });
+                const result = try conn.call(.@"onboarding.copy", .{ .operation = s.operation, .source = s.source, .workspaces = workspaces });
                 result.deinit();
             }
         }
         s.step = .progress;
         s.scroll = 0;
         s.message = .{};
-        s.progress = .{ .phase = "connecting" };
+        s.progress = .{ .phase = .connecting };
         s.last_poll = 0;
         return false;
     }
@@ -192,20 +186,14 @@ pub const State = struct {
         }
         if (s.step != .progress or std.time.milliTimestamp() - s.last_poll < 100) return animation_changed;
         s.last_poll = std.time.milliTimestamp();
-        const response = conn.call(.{ .op = "onboarding.status", .protocol = 1, .operation = s.operation }) catch |err| {
-            s.fail(err);
-            return true;
-        };
-        defer response.deinit();
-        const value = response.value.object.get("progress") orelse return false;
-        const parsed = std.json.parseFromValue(OnboardingProgress, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true }) catch |err| {
+        const response = conn.call(.@"onboarding.status", .{ .operation = s.operation }) catch |err| {
             s.fail(err);
             return true;
         };
         if (s.progress_data) |old| old.deinit();
-        s.progress_data = parsed;
-        s.progress = parsed.value;
-        if (s.phase() == .complete) s.step = .complete;
+        s.progress_data = response;
+        s.progress = response.value.progress;
+        if (s.progress.phase == .complete) s.step = .complete;
         return true;
     }
     pub fn key(s: *State, byte: u8, conn: *Connection) !bool {
@@ -293,7 +281,7 @@ pub const State = struct {
                 else => {},
             },
             .progress => {
-                if (s.phase() == .failed and (byte == 27 or byte == 13)) {
+                if (s.progress.phase == .failed and (byte == 27 or byte == 13)) {
                     s.step = .import;
                     s.operation = 0;
                     s.setMessage(s.progress.message);
@@ -466,8 +454,8 @@ pub const State = struct {
                         "Up to 3 recent groups selected · Return in each pane restarts its command", dim);
                 } else {
                     var buf: [120]u8 = undefined;
-                    try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ s.progress.phase, s.progress.completed, s.progress.total }), mint);
-                    const status: []const u8 = if (s.step == .complete) "[✓] Complete" else if (s.phase() == .failed) "[!] Import stopped · Enter returns to selection" else "[···] Working";
+                    try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ @tagName(s.progress.phase), s.progress.completed, s.progress.total }), mint);
+                    const status: []const u8 = if (s.step == .complete) "[✓] Complete" else if (s.progress.phase == .failed) "[!] Import stopped · Enter returns to selection" else "[···] Working";
                     try put(w, b, 3, 8, status, bright);
                 }
                 if (s.cmuxConfused()) {
@@ -575,7 +563,7 @@ pub const State = struct {
                 "[ Enter Handoff → ]"
             else
                 "[ Enter Import → ]",
-            .progress => if (s.phase() == .failed) "[ Enter Back ]" else "[ Importing… ]",
+            .progress => if (s.progress.phase == .failed) "[ Enter Back ]" else "[ Importing… ]",
             .complete => if (s.mode == .import) "[ Enter Done ]" else "[ Enter Open Corgi → ]",
         };
         try put(w, b, b.w -| 27, b.h - 3, cta, if (s.step == .presets and s.focus == 0) keycap else mint);

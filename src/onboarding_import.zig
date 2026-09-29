@@ -12,7 +12,7 @@ const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const tmux_resume = @import("tmux_resume.zig");
 const OnboardingProgress = @import("protocol.zig").OnboardingProgress;
-pub const Plan = struct { source: catalog.Source, workspaces: []const catalog.Workspace, herdr_session: ?herdr.SourceSession = null, selected: []const []const u8 = &.{} };
+const Plan = @import("protocol.zig").Request.Copy;
 pub const Job = struct {
     plan: ?std.json.Parsed(Plan) = null,
     progress: OnboardingProgress = .{},
@@ -27,9 +27,12 @@ pub const Job = struct {
         if (j.plan) |p| p.deinit();
         j.plan = null;
     }
-    pub fn start(j: *Job, value: std.json.Value, operation: u64) !void {
+    pub fn start(j: *Job, plan: Plan) !void {
         if (j.busy()) return error.ImportInProgress;
-        const p = try std.json.parseFromValue(Plan, a, value, .{ .allocate = .alloc_always, .ignore_unknown_fields = true });
+        // The plan lives in the request's memory; the job outlives the request.
+        const copied = try std.json.Stringify.valueAlloc(a, plan, .{});
+        defer a.free(copied);
+        const p = try std.json.parseFromSlice(Plan, a, copied, .{ .allocate = .alloc_always });
         errdefer p.deinit();
         if (p.value.workspaces.len == 0 or p.value.workspaces.len > j.created.len) return error.InvalidImport;
         if (p.value.source == .herdr and p.value.herdr_session == null) return error.InvalidImport;
@@ -43,14 +46,14 @@ pub const Job = struct {
             }
         }
         if (total > layout.max_panes) return error.TooManyPanes;
-        j.* = .{ .plan = p, .operation = operation, .progress = .{ .phase = "copying", .total = total, .message = "Creating workspaces and shells" } };
+        j.* = .{ .plan = p, .operation = plan.operation, .progress = .{ .phase = .copying, .total = total, .message = "Creating workspaces and shells" } };
     }
     pub fn tick(j: *Job, r: *Runtime, defaults: Runtime.Create) bool {
         const plan = j.plan orelse return false;
         const source = plan.value.workspaces[j.index];
         const id = (if (plan.value.source == .herdr) herdr.copy(r, plan.value.herdr_session.?, &.{source.id}, defaults) else copy(r, source, plan.value.source, defaults)) catch |err| {
             for (j.created[0..j.count]) |created| discard(r, created);
-            j.progress.phase = "failed";
+            j.progress.phase = .failed;
             j.progress.message = @errorName(err);
             j.progress.completed = 0;
             j.deinit();
@@ -62,7 +65,7 @@ pub const Job = struct {
         for (source.tabs) |tab| j.progress.completed += tab.panes.len;
         j.index += 1;
         if (j.index == plan.value.workspaces.len) {
-            j.progress.phase = "complete";
+            j.progress.phase = .complete;
             j.progress.message = "Copied successfully. Source processes are unchanged.";
             j.deinit();
         }
@@ -201,4 +204,24 @@ fn discard(r: *Runtime, wid: WorkspaceId) void {
     const ws = r.workspaces.items.orderedRemove(index);
     a.free(ws.cwd);
     r.changed();
+}
+
+test "a copy's plan outlives the request that brought it" {
+    // The daemon reuses a request's memory once it has answered.
+    var buffer: [16 * 1024]u8 = undefined;
+    var request: std.heap.FixedBufferAllocator = .init(&buffer);
+    const json =
+        \\{"operation":5,"source":"herdr","selected":["w"],
+        \\ "workspaces":[{"id":"w","name":"w","tabs":[{"id":"t","name":"t","panes":[{"id":"p","name":"p"}]}]}],
+        \\ "herdr_session":{"socket":"/s","name":"n","live_handoff":false,"workspaces":[{"id":"w","name":"w","cwd":"/",
+        \\  "tabs":[{"id":"t","name":"t","panes":[{"id":"p","name":"p","cwd":"/"}],"root":{"type":"pane","terminal_id":"p"}}]}]}}
+    ;
+    const value = try std.json.parseFromSliceLeaky(std.json.Value, request.allocator(), json, .{ .allocate = .alloc_always });
+    var job: Job = .{};
+    defer job.deinit();
+    try job.start(try std.json.parseFromValueLeaky(Plan, request.allocator(), value, .{}));
+    @memset(&buffer, 0);
+    const root = job.plan.?.value.herdr_session.?.workspaces[0].tabs[0].root;
+    const kind = root.object.get("type") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings("pane", kind.string);
 }

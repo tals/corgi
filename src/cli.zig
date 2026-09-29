@@ -104,11 +104,11 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
     const fd = try os.connect(path);
     defer _ = os.c.close(fd);
     if ((invocation.current and group == .tab) or (action == .@"tab.new" and caller != 0)) {
-        const located = try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller });
+        const located = try call(fd, .@"session.locate", .{ .pane = @enumFromInt(caller) });
         defer located.deinit();
-        const here = located.value.object.get("result") orelse return error.InvalidResponse;
-        const tab = try protocol.typedId(layout.TabId, here, "tab");
-        const workspace = try protocol.typedId(WorkspaceId, here, "workspace");
+        const reply = try std.json.parseFromValueLeaky(protocol.Reply(.@"session.locate"), mem, located.value, .{ .ignore_unknown_fields = true });
+        const tab = reply.result.tab;
+        const workspace = reply.result.workspace;
         switch (invocation.command.?) {
             .@"tab.rename" => |*q| q.target = tab,
             .@"tab.move" => |*q| q.target = tab,
@@ -122,15 +122,15 @@ pub fn run(path: []const u8, args: []const [:0]u8) !void {
         }
     }
     const response = if (invocation.command) |cmd|
-        try call(fd, .{ .op = "session.command", .protocol = 1, .command = cmd })
+        try call(fd, .@"session.command", .{ .command = cmd })
     else if (action == .list)
-        try call(fd, .{ .op = "session.list", .protocol = 1 })
+        try call(fd, .@"session.list", {})
     else if (action == .current)
-        try call(fd, .{ .op = "session.locate", .protocol = 1, .pane = caller })
+        try call(fd, .@"session.locate", .{ .pane = @enumFromInt(caller) })
     else if (action == .@"workspace.switch")
-        if (invocation.viewer) |selected| try call(fd, .{ .op = "workspace.switch", .workspace = target, .viewer = selected }) else try call(fd, .{ .op = "workspace.switch", .workspace = target })
+        try call(fd, .@"workspace.switch", .{ .workspace = @enumFromInt(target), .viewer = invocation.viewer })
     else
-        try call(fd, .{ .op = "focus", .pane = target, .viewer = invocation.viewer });
+        try call(fd, .focus, .{ .pane = @enumFromInt(target), .viewer = invocation.viewer });
     defer response.deinit();
     if (invocation.text_mode) {
         if (response.value.object.get("result")) |result| if (result.object.get("text")) |text| if (text == .string) return os.writeAll(1, text.string);
@@ -368,9 +368,11 @@ const Args = struct {
     }
 };
 
-fn call(fd: c_int, request: anytype) !std.json.Parsed(std.json.Value) {
+/// The daemon's reply as it sent it, which the CLI prints. An `err` reply
+/// exits with the daemon's error name.
+fn call(fd: c_int, comptime op: protocol.Op, payload: protocol.Payload(op)) !std.json.Parsed(std.json.Value) {
     var connection: rpc.Connection = .{ .fd = fd };
-    const response = try connection.request(request);
+    const response = try connection.request(protocol.Envelope(op){ .payload = payload });
     errdefer response.deinit();
     const err = agents.str(response.value, "err");
     if (err.len > 0) try failure(err, 1);

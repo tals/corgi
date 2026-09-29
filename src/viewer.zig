@@ -4,12 +4,8 @@ const std = @import("std");
 const os = @import("os.zig");
 const c = os.c;
 const a = os.allocator;
-const agents = @import("agents.zig");
 const layout = @import("layout.zig");
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const protocol = @import("protocol.zig");
-const viewer_version = @import("viewer_version.zig");
-const surface = @import("surface.zig");
 const controller = @import("controller.zig");
 const Action = @import("action.zig").Action;
 const Connection = @import("rpc.zig").Connection;
@@ -20,18 +16,6 @@ const sound = @import("sound.zig");
 const url_opener = @import("url_opener.zig");
 const corgi_badge = @import("corgi_badge.zig");
 pub const View = controller.Controller;
-const Response = struct {
-    viewer: u32,
-    controls: []const protocol.Control,
-    session: std.json.Value,
-    session_hash: u64,
-    resources: std.json.Value = .null,
-    resources_hash: u64 = 0,
-    surfaces: []const surface.View,
-    bell_seq: u64,
-    bell_kind: agents.Attention,
-    detach: bool,
-};
 
 pub fn open(view: *View, cwd: []const u8, theme: Theme, socket: []const u8) !u64 {
     return openMode(view, cwd, theme, socket, false);
@@ -43,23 +27,24 @@ fn openMode(view: *View, cwd: []const u8, theme: Theme, socket: []const u8, star
     view.iterm2_pointer = std.mem.eql(u8, os.env("TERM_PROGRAM") orelse "", "iTerm.app");
     view.loadPreferences();
     if (start_onboarding) view.openOnboarding(.welcome);
-    const opened = try view.connection.callViewer(.{
-        .op = "viewer.open",
-        .protocol = 1,
-        .viewer_protocol = viewer_version.version,
+    const opened = view.connection.call(.@"viewer.open", .{
         .cwd = cwd,
-        .theme = theme,
+        .theme = .{ .value = theme },
         .onboarding = view.onboarding != null,
-    });
+    }) catch |err| return incompatible(err);
     defer opened.deinit();
-    view.navigation.workspace_id = try protocol.typedId(WorkspaceId, opened.value, "workspace");
+    view.navigation.workspace_id = opened.value.workspace;
     view.input_state.attached = true;
     try view.refresh();
     view.launch_previews.socket = socket;
     view.updateLaunchPreview();
-    return switch (opened.value.object.get("bell_seq") orelse .null) {
-        .integer => |n| std.math.cast(u64, n) orelse return error.InvalidResponse,
-        else => return error.InvalidResponse,
+    return opened.value.bell_seq;
+}
+/// A daemon on another protocol is one error, which `main` explains.
+fn incompatible(err: anytype) (@TypeOf(err) || error{IncompatibleViewerProtocol}) {
+    return switch (err) {
+        error.UnsupportedViewerProtocol, error.UnsupportedProtocol, error.ProtocolRequired => error.IncompatibleViewerProtocol,
+        else => err,
     };
 }
 pub fn deinit(view: *View) void {
@@ -87,29 +72,24 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
         interests[count] = .{ .pane = place.id, .cols = @max(1, place.rect.w), .rows = @max(1, place.rect.h), .offset = p.terminal.offset, .known = p.terminal.known };
         count += 1;
     }
-    const response = try view.connection.callViewer(.{
-        .op = "viewer.sync",
-        .resource_detail = view.resourceDetail(),
-        .resources = view.prefs.resources.enabled,
-        .protocol = 1,
-        .viewer_protocol = viewer_version.version,
-        .session_hash = view.runtime.snapshot_hash,
-        .resources_hash = view.runtime.resources_hash,
+    const response = view.connection.call(.@"viewer.sync", .{
         .interests = interests[0..count],
-        .focus = if (view.focused()) |p| @as(?layout.PaneId, p.id) else null,
+        .session_hash = view.runtime.snapshot_hash,
+        .focus = if (view.focused()) |p| p.id else null,
         .watched = view.input_state.watched,
         .workspace = view.current().id,
         .ack = view.input_state.last_control,
         .active = view.input_state.active,
-    });
+        .resource_detail = view.resourceDetail(),
+        .resources = view.prefs.resources.enabled,
+        .resources_hash = view.runtime.resources_hash,
+    }) catch |err| return incompatible(err);
     view.input_state.active = false;
     defer response.deinit();
-    const parsed = try std.json.parseFromValue(Response, a, response.value, .{ .ignore_unknown_fields = true });
-    defer parsed.deinit();
-    const reply = parsed.value;
-    if (reply.session != .null) try view.receiveSnapshot(reply.session);
+    const reply = response.value;
+    if (reply.session) |session| try view.receiveSnapshot(session);
     view.runtime.snapshot_hash = reply.session_hash;
-    if (reply.resources != .null) try view.runtime.receiveResources(reply.resources);
+    if (reply.resources) |readings| try view.runtime.receiveResources(readings);
     view.runtime.resources_hash = reply.resources_hash;
     view.input_state.viewer_id = reply.viewer;
     for (reply.controls) |control| {
@@ -146,9 +126,7 @@ pub fn presented(view: *View) !void {
         const p = view.runtime.pane(place.id) orelse continue;
         const focused = if (view.focused()) |selected| selected.id == p.id else false;
         if (!p.agent.observation.unread() and (p.agent.attention == .none or !focused)) continue;
-        try view.connection.send(.{
-            .op = "pane.acknowledge",
-            .protocol = 1,
+        try view.connection.send(.@"pane.acknowledge", .{
             .pane = p.id,
             .binding = p.binding,
             .conversation = p.agent.conversation,
@@ -192,7 +170,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
             view.dirty = true;
         }
         if (probe.changed) {
-            try connection.send(.{ .op = "theme", .theme = probe.theme });
+            try connection.send(.theme, .{ .theme = .{ .value = probe.theme } });
             probe.changed = false;
         }
         const size = dimensions();

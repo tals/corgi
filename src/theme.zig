@@ -1,7 +1,5 @@
 const std = @import("std");
 const vt = @import("ghostty-vt");
-const os = @import("os.zig");
-const a = os.allocator;
 
 /// The host's default colors and its configurable ANSI palette. Applications
 /// still own their OSC overrides; changing the host only changes defaults.
@@ -10,11 +8,6 @@ pub const Theme = struct {
     background: ?vt.color.RGB = null,
     palette: [16]?vt.color.RGB = .{null} ** 16,
 
-    pub fn fromJson(value: std.json.Value) Theme {
-        const parsed = std.json.parseFromValue(Theme, a, value, .{ .ignore_unknown_fields = true }) catch return .{};
-        defer parsed.deinit();
-        return parsed.value;
-    }
     pub fn merge(t: *Theme, other: Theme) void {
         if (other.foreground) |color| t.foreground = color;
         if (other.background) |color| t.background = color;
