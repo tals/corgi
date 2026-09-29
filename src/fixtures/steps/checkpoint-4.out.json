@@ -1,0 +1,112 @@
+{
+  "version": 4,
+  "conversations": [
+    {
+      "id": 1,
+      "agent": {
+        "name": "Fix",
+        "provider": "claude",
+        "transcript": "/t.jsonl",
+        "cwd": "/tmp",
+        "turn": "t2",
+        "session": "s1",
+        "last_finished_turn": "t1",
+        "tool": "Bash",
+        "recent": "r",
+        "activity": "Idle"
+      },
+      "status_inference": {
+        "recent": [
+          "one",
+          ""
+        ],
+        "len": 1,
+        "previous": "Idle"
+      }
+    }
+  ],
+  "panes": [
+    {
+      "id": 1,
+      "binding": {
+        "actor": 0,
+        "provisional": {
+          "session": "p1",
+          "cwd": "/p"
+        }
+      },
+      "label": "api",
+      "resume_hint": {
+        "name": "Fix",
+        "session": "s1",
+        "touched_at": 5,
+        "provider": "claude"
+      }
+    },
+    {
+      "id": 2,
+      "binding": null,
+      "label": ""
+    }
+  ],
+  "sessions": [
+    {
+      "id": 1,
+      "resume_hint": {
+        "name": "",
+        "session": "n1",
+        "provider": "codex"
+      }
+    },
+    {
+      "id": 2,
+      "binding": {
+        "actor": 0,
+        "provisional": {
+          "tool": "Read"
+        }
+      }
+    }
+  ],
+  "closed": [
+    {
+      "label": "gone",
+      "workspace_id": 1
+    }
+  ],
+  "link_labels": {
+    "entries": [
+      null,
+      {
+        "name": "docs",
+        "pending": false
+      }
+    ],
+    "generation": 0
+  },
+  "agent_yolo": {
+    "codex": true,
+    "claude": false
+  },
+  "agent_hidden": {
+    "codex": false,
+    "claude": true
+  },
+  "agent_commands": [
+    {
+      "name": "Fast",
+      "semantics": {
+        "provider": "codex",
+        "suggested_name": "fast",
+        "model": "gpt",
+        "account": "",
+        "mode": "Skips permission checks",
+        "yolo": true,
+        "default_account": false
+      },
+      "original": "cx",
+      "command": "codex --yolo",
+      "hidden": true
+    }
+  ]
+}

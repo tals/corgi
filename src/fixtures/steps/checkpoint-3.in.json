@@ -1,0 +1,120 @@
+{
+  "version": 3,
+  "agent_commands": [
+    {
+      "semantics": {
+        "mode": {
+          "bytes": "Skips permission checks",
+          "len": 23
+        }
+      }
+    },
+    {
+      "semantics": {
+        "mode": {
+          "bytes": "Provider permission settings",
+          "len": 28
+        }
+      }
+    },
+    {
+      "semantics": {
+        "mode": {
+          "bytes": [
+            83,
+            107,
+            105,
+            112,
+            115
+          ],
+          "len": 5
+        }
+      }
+    },
+    {
+      "semantics": {
+        "mode": {
+          "bytes": "Skips permission checks\u0000\u0000\u0000\u0000",
+          "len": 23
+        }
+      }
+    },
+    {
+      "semantics": {
+        "mode": {
+          "bytes": "Skips permission check!\u0000",
+          "len": 23
+        }
+      }
+    },
+    {
+      "semantics": {
+        "mode": {
+          "bytes": [
+            83,
+            107,
+            105,
+            112,
+            115,
+            32,
+            112,
+            101,
+            114,
+            109,
+            105,
+            115,
+            115,
+            105,
+            111,
+            110,
+            32,
+            99,
+            104,
+            101,
+            99,
+            107,
+            115,
+            255
+          ],
+          "len": 23
+        }
+      }
+    },
+    {
+      "semantics": {
+        "mode": {
+          "bytes": [
+            83,
+            107,
+            105,
+            112,
+            115,
+            32,
+            112,
+            101,
+            114,
+            109,
+            105,
+            115,
+            115,
+            105,
+            111,
+            110,
+            32,
+            99,
+            104,
+            101,
+            99,
+            107,
+            33
+          ],
+          "len": 23
+        }
+      }
+    },
+    {
+      "semantics": {}
+    },
+    {}
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "next_conversation": 4,
+  "conversations": [
+    {
+      "id": 1,
+      "agent": {
+        "provider": "claude"
+      }
+    },
+    {
+      "id": 3,
+      "agent": {
+        "provider": "claude",
+        "session": "c3",
+        "session_len": 2
+      }
+    }
+  ],
+  "panes": [
+    {
+      "agent": {
+        "provider": "other"
+      },
+      "resume_hint": {
+        "provider": null
+      },
+      "binding": {
+        "provisional": {
+          "provider": "codex"
+        }
+      }
+    },
+    {
+      "agent": {
+        "provider": "codex",
+        "session": [
+          115,
+          49,
+          0
+        ],
+        "session_len": 2,
+        "later": 1
+      }
+    },
+    {
+      "agent": {
+        "provider": "codex",
+        "session": "s1\u0000",
+        "session_len": 2
+      }
+    },
+    {
+      "agent": {
+        "provider": "claude",
+        "session": "",
+        "session_len": 0,
+        "later": 2
+      }
+    },
+    {
+      "agent": {
+        "provider": "claude",
+        "session": "c3\u0000",
+        "session_len": 2
+      },
+      "binding": null
+    }
+  ],
+  "sessions": [
+    {
+      "provider": "claude",
+      "binding": {
+        "provisional": {
+          "provider": "other"
+        }
+      },
+      "resume_hint": {
+        "provider": "other"
+      },
+      "events": [
+        {
+          "provider": "other"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "state": "blocked",
+      "resume_hint": {
+        "provider": "codex",
+        "session": "s1\u0000",
+        "len": 2
+      }
+    }
+  ],
+  "agent_commands": [
+    {
+      "semantics": {
+        "provider": "other"
+      }
+    }
+  ],
+  "payload": {
+    "provider": "other"
+  }
+}

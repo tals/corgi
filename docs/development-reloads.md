@@ -261,10 +261,10 @@ HOME and retain the original path in the pane's recovery banner.
 `src/state_migrations.zig` owns two independent, monotonically increasing schema
 versions: checkpoint **5** (shared runtime state) and handoff **4** (the live
 envelope containing clients and workers). Each version is derived from its
-ordered list of steps (`checkpoint_steps`, `handoff_steps`): appending a step is
-the version bump. Readers parse plain JSON, require an explicit supported
-version, apply each step in order, then decode current Zig types and
-validate/restore the state. Missing, invalid, and future versions fail
+ordered list of steps in `src/state_steps.zig` (`checkpoint`, `handoff`):
+appending a step is the version bump. Readers parse plain JSON, require an
+explicit supported version, apply each step in order, then decode current Zig
+types and validate/restore the state. Missing, invalid, and future versions fail
 explicitly; they are never treated as the current version.
 
 Checkpoint 1 → 2 introduces the conversation table. Checkpoint 2 → 3 normalizes
@@ -289,18 +289,29 @@ opaque payloads remain unchanged.
 
 Steps operate on the JSON tree only. They must not decode into or import runtime
 types such as `agents.Agent` or `Provider`: those keep changing after a step is
-written, and an older step would then read or emit a newer shape. Steps copy
-subtrees rather than sharing them, so a later step that edits one place in the
-tree never edits another by accident.
+written, and an older step would then read or emit a newer shape.
+`state_steps.zig` imports only std, and a unit test fails on any other import.
+Steps copy subtrees rather than sharing them, so a later step that edits one
+place in the tree never edits another by accident.
 
 For a serialized schema change:
 
 1. Append a step to the owning list. Do not edit released steps or scatter
    historical parsing branches through runtime code.
-2. Keep the previous version's fixture (`src/fixtures/checkpoint-vN.json`)
+2. Ship the step with its pair in `src/fixtures/steps/`: step N of a list
+   upgrades version N to N + 1 and is pinned by `<kind>-N.in.json`, a small
+   old-format input, and `<kind>-N.out.json`, what the step writes from it.
+   The input reaches every branch one document can; where a document takes
+   only one side (handoff 1 → 2 either finds `count` or builds it), a unit
+   test covers the other. Start the output empty, fill it with
+   `CORGI_UPDATE_SCHEMA=1 ./scripts/zig build test`, and review it by hand.
+   Once the step is released, its `.out.json` never changes. That command
+   rewrites every pair, so a diff to an existing `.out.json`, like a test that
+   fails on one, means a released step was edited; undo that edit.
+3. Keep the previous version's fixture (`src/fixtures/checkpoint-vN.json`)
    unchanged and test that it migrates and restores. Capture a fixture for the
    new version from a real `checkpoint.capture`.
-3. Refresh the schema snapshot with `CORGI_UPDATE_SCHEMA=1 ./scripts/zig build
+4. Refresh the schema snapshot with `CORGI_UPDATE_SCHEMA=1 ./scripts/zig build
    test`. `src/fixtures/checkpoint.schema` and `handoff.schema` list every
    serialized field path and type of the current version; a unit test fails
    when the Zig types no longer match. Only the current snapshot is kept.

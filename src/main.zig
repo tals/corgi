@@ -490,6 +490,7 @@ test {
     _ = @import("sidebar_rows.zig");
     _ = @import("sound.zig");
     _ = @import("state_migrations.zig");
+    _ = @import("state_steps.zig");
     _ = @import("subagent_tooltip.zig");
     _ = @import("summary_backend.zig");
     _ = @import("surface.zig");

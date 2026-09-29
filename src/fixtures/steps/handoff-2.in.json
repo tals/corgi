@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "runtime": {
+    "version": 4
+  },
+  "clients": [
+    {
+      "launch_preview": {
+        "preview": {
+          "options": [
+            {
+              "usage": {
+                "bytes": "Metered",
+                "len": 7
+              },
+              "usage_metered": true,
+              "resets": {}
+            },
+            {
+              "usage": {
+                "bytes": "5h 12%",
+                "len": 6
+              },
+              "usage_metered": false,
+              "resets": {
+                "at": [
+                  100,
+                  null
+                ]
+              },
+              "usage_fetched_at": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "launch_preview": null
+    }
+  ]
+}

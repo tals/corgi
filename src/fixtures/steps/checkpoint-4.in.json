@@ -1,0 +1,174 @@
+{
+  "version": 4,
+  "conversations": [
+    {
+      "id": 1,
+      "agent": {
+        "name": "Fix\u0000",
+        "name_len": 3,
+        "transcript": "/t.jsonl\u0000",
+        "transcript_len": 8,
+        "turn": "t2\u0000",
+        "turn_len": 2,
+        "last_finished_turn": "t1\u0000",
+        "last_finished_turn_len": 2,
+        "recent": "r\u0000",
+        "recent_len": 1,
+        "provider": "claude",
+        "session": "s1\u0000",
+        "session_len": 2,
+        "activity": "Idleing tests",
+        "activity_len": 4,
+        "tool": "Bash\u0000",
+        "tool_len": 4,
+        "cwd": "/tmp\u0000",
+        "cwd_len": 4
+      },
+      "status_inference": {
+        "recent": [
+          {
+            "bytes": "one\u0000",
+            "len": 3
+          },
+          {
+            "bytes": "stale",
+            "len": 0
+          }
+        ],
+        "len": 1,
+        "previous": {
+          "bytes": "Idle\u0000",
+          "len": 4
+        }
+      }
+    }
+  ],
+  "panes": [
+    {
+      "id": 1,
+      "binding": {
+        "actor": 0,
+        "provisional": {
+          "session": [
+            112,
+            49,
+            0
+          ],
+          "session_len": 2,
+          "cwd": "/p\u0000",
+          "cwd_len": 2
+        }
+      },
+      "label": {
+        "bytes": "api\u0000",
+        "len": 3
+      },
+      "agent": {
+        "session": "old",
+        "session_len": 3
+      },
+      "resume_hint": {
+        "name": "Fix\u0000",
+        "name_len": 3,
+        "touched_at": 5,
+        "provider": "claude",
+        "session": "s1\u0000",
+        "len": 2
+      }
+    },
+    {
+      "id": 2,
+      "binding": null,
+      "label": {
+        "bytes": "\u0000",
+        "len": 0
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "id": 1,
+      "resume_hint": {
+        "name": "\u0000",
+        "name_len": 0,
+        "provider": "codex",
+        "session": "n1\u0000",
+        "len": 2
+      }
+    },
+    {
+      "id": 2,
+      "binding": {
+        "actor": 0,
+        "provisional": {
+          "tool": "Read\u0000",
+          "tool_len": 4
+        }
+      }
+    }
+  ],
+  "closed": [
+    {
+      "label": {
+        "bytes": "gone\u0000",
+        "len": 4
+      },
+      "workspace_id": 1
+    }
+  ],
+  "link_labels": {
+    "entries": [
+      null,
+      {
+        "name": {
+          "bytes": "docs\u0000",
+          "len": 4
+        },
+        "pending": false
+      }
+    ],
+    "generation": 0
+  },
+  "agent_yolo": [
+    true,
+    false
+  ],
+  "agent_hidden": [
+    false,
+    true
+  ],
+  "agent_commands": [
+    {
+      "bytes": "codex --yolo\u0000",
+      "len": 12,
+      "original": "cx\u0000",
+      "original_len": 2,
+      "hidden": true,
+      "name": {
+        "bytes": "Fast\u0000",
+        "len": 4
+      },
+      "semantics": {
+        "provider": "codex",
+        "suggested_name": {
+          "bytes": "fast\u0000",
+          "len": 4
+        },
+        "model": {
+          "bytes": "gpt\u0000",
+          "len": 3
+        },
+        "account": {
+          "bytes": "\u0000",
+          "len": 0
+        },
+        "mode": {
+          "bytes": "Skips permission checks\u0000",
+          "len": 23
+        },
+        "yolo": true,
+        "default_account": false
+      }
+    }
+  ]
+}

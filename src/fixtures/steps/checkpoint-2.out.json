@@ -1,0 +1,155 @@
+{
+  "version": 2,
+  "next_conversation": 5,
+  "conversations": [
+    {
+      "id": 1,
+      "agent": {
+        "provider": "claude"
+      }
+    },
+    {
+      "id": 3,
+      "agent": {
+        "provider": "claude",
+        "session": "c3",
+        "session_len": 2
+      }
+    },
+    {
+      "id": 4,
+      "agent": {
+        "provider": "codex",
+        "session": [
+          115,
+          49,
+          0
+        ],
+        "session_len": 2,
+        "later": 1
+      }
+    }
+  ],
+  "panes": [
+    {
+      "agent": {
+        "provider": null
+      },
+      "resume_hint": {
+        "provider": null
+      },
+      "binding": {
+        "provisional": {
+          "provider": "codex"
+        }
+      }
+    },
+    {
+      "agent": {
+        "provider": "codex",
+        "session": [
+          115,
+          49,
+          0
+        ],
+        "session_len": 2,
+        "later": 1
+      },
+      "binding": {
+        "actor": 4,
+        "generation": 2,
+        "known": [
+          4
+        ]
+      }
+    },
+    {
+      "agent": {
+        "provider": "codex",
+        "session": "s1\u0000",
+        "session_len": 2
+      },
+      "binding": {
+        "actor": 4,
+        "generation": 2,
+        "known": [
+          4
+        ]
+      }
+    },
+    {
+      "agent": {
+        "provider": "claude",
+        "session": "",
+        "session_len": 0,
+        "later": 2
+      },
+      "binding": {
+        "provisional": {
+          "provider": "claude",
+          "session": "",
+          "session_len": 0,
+          "later": 2
+        }
+      }
+    },
+    {
+      "agent": {
+        "provider": "claude",
+        "session": "c3\u0000",
+        "session_len": 2
+      },
+      "binding": {
+        "actor": 3,
+        "generation": 2,
+        "known": [
+          3
+        ]
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "provider": "claude",
+      "binding": {
+        "provisional": {
+          "provider": null
+        }
+      },
+      "resume_hint": {
+        "provider": null
+      },
+      "events": [
+        {
+          "provider": "other"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "state": "blocked",
+      "resume_hint": {
+        "provider": "codex",
+        "session": "s1\u0000",
+        "len": 2
+      },
+      "binding": {
+        "actor": 4,
+        "generation": 2,
+        "known": [
+          4
+        ]
+      }
+    }
+  ],
+  "agent_commands": [
+    {
+      "semantics": {
+        "provider": null
+      }
+    }
+  ],
+  "payload": {
+    "provider": "other"
+  }
+}

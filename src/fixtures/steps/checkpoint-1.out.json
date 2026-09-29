@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "panes": [
+    {
+      "agent": {
+        "provider": "codex",
+        "state": "blocked",
+        "session": "shared\u0000",
+        "session_len": 6
+      }
+    },
+    {
+      "agent": {
+        "provider": "codex",
+        "state": "blocked",
+        "session": "shared\u0000",
+        "session_len": 6
+      },
+      "binding": null
+    }
+  ],
+  "sessions": [
+    {
+      "provider": "codex",
+      "state": "blocked",
+      "resume_hint": {
+        "session": "shared\u0000",
+        "len": 6
+      }
+    }
+  ],
+  "conversations": [],
+  "next_conversation": 1
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "runtime": {
+    "version": 1
+  },
+  "summaries": {
+    "launches": {
+      "count": {
+        "values": [
+          7,
+          4
+        ]
+      },
+      "latest": "claude"
+    }
+  }
+}

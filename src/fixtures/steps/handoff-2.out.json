@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "runtime": {
+    "version": 4
+  },
+  "clients": [
+    {
+      "launch_preview": {
+        "preview": {
+          "options": [
+            {
+              "limits": {
+                "metered": {}
+              }
+            },
+            {
+              "usage_fetched_at": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "launch_preview": null
+    }
+  ]
+}

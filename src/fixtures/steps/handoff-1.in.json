@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "runtime": {
+    "version": 1
+  },
+  "summaries": {
+    "launches": {
+      "codex": 7,
+      "claude": 4,
+      "latest": "claude"
+    }
+  }
+}

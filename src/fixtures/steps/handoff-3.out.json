@@ -1,0 +1,148 @@
+{
+  "version": 3,
+  "runtime": {
+    "version": 4,
+    "panes": [
+      {
+        "label": {
+          "bytes": "keep\u0000",
+          "len": 4
+        }
+      }
+    ]
+  },
+  "summaries": {
+    "next_request": 3,
+    "launches": {
+      "count": {
+        "codex": 7,
+        "claude": 4
+      },
+      "latest": "claude"
+    },
+    "slots": [
+      {
+        "index": 0,
+        "slot": {
+          "request": {
+            "actor": 1,
+            "provider": "codex",
+            "session": "s1",
+            "conversation": {
+              "recent": [
+                "one",
+                ""
+              ],
+              "len": 1,
+              "previous": "Idle"
+            },
+            "turn": "t1",
+            "name": "Fix",
+            "evidence": "ran tests",
+            "panes": [
+              4,
+              0
+            ],
+            "panes_len": 1
+          },
+          "commentary": "Looking",
+          "tool_evidence": "bash",
+          "retry": false,
+          "result": {
+            "request": {
+              "session": "s0",
+              "conversation": {
+                "recent": [],
+                "len": 0,
+                "previous": ""
+              },
+              "turn": "t0",
+              "name": "",
+              "evidence": ""
+            },
+            "label": "Testing",
+            "number": 3
+          }
+        }
+      },
+      {
+        "index": 1,
+        "slot": {
+          "request": {
+            "session": "s2"
+          },
+          "commentary": "",
+          "tool_evidence": "",
+          "result": {
+            "label": null,
+            "number": 0
+          }
+        }
+      },
+      {
+        "index": 2,
+        "slot": {
+          "commentary": "a",
+          "result": null
+        }
+      }
+    ],
+    "link_results": [
+      null,
+      {
+        "slot": 0,
+        "name": "docs"
+      },
+      {
+        "slot": 1,
+        "name": null
+      }
+    ]
+  },
+  "clients": [
+    {
+      "fd": 3,
+      "launch_preview": {
+        "cwd": "/tmp",
+        "preview": {
+          "pending": false,
+          "options": {
+            "codex": {
+              "signed_in": true,
+              "model": "gpt",
+              "source": "config",
+              "account": "a@b",
+              "plan": "pro",
+              "limits": {
+                "metered": {}
+              },
+              "usage_fetched_at": 9,
+              "usage_error": "",
+              "usage_needs_consent": false
+            },
+            "claude": {
+              "signed_in": null,
+              "model": "opus",
+              "source": "",
+              "account": "",
+              "plan": "max",
+              "usage_error": "timed out"
+            }
+          },
+          "installed": {
+            "codex": true,
+            "claude": false
+          }
+        },
+        "checked": 5
+      }
+    },
+    {
+      "fd": 4,
+      "launch_preview": null
+    },
+    {
+      "fd": 5
+    }
+  ]
+}
