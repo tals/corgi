@@ -19,6 +19,7 @@ const inference_setup = @import("inference_setup.zig");
 const launch_command = @import("launch_command.zig");
 const ports = @import("ports.zig");
 const resources = @import("resources.zig");
+const options = @import("corgi_options");
 
 pub const version: u32 = 1;
 
@@ -35,70 +36,197 @@ pub const Rejection = enum {
     GitPushInProgress,
 };
 
-/// Every op the server accepts as the wire `"op"` field. Tag names are the
-/// exact wire strings (`@tagName` round-trips through `parse`).
-pub const Op = enum {
+/// Every request the server accepts. The tag is the wire `"op"`; the payload's
+/// fields sit beside `op` in the same object. A new op does not compile until
+/// it declares its payload here and its envelope in `check`.
+pub const Request = union(enum) {
     hello,
-    @"session.command",
-    @"session.locate",
+    @"session.command": SessionCommand,
+    @"session.locate": struct { pane: layout.PaneId },
     @"session.list",
     @"session.snapshot",
     @"session.subscribe",
-    @"agent.subscribe",
-    @"viewer.open",
-    @"viewer.sync",
-    @"viewer.search",
-    @"pane.acknowledge",
+    @"agent.subscribe": Launch,
+    @"viewer.open": Open,
+    @"viewer.sync": Sync,
+    @"viewer.search": Search,
+    @"pane.acknowledge": Acknowledge,
     @"conversation.list",
-    @"conversation.acknowledge",
-    @"pane.surface",
-    @"server.reload",
+    @"conversation.acknowledge": struct { conversation: ActorId, through: u64, attention_at: ?i64 = null },
+    @"pane.surface": struct { pane: layout.PaneId },
+    @"server.reload": struct { executable: []const u8 = "" },
     @"recovery.save",
-    @"inference.configure",
-    @"git.push",
-    @"onboarding.status",
-    @"onboarding.handoff",
-    @"onboarding.copy",
-    @"agent.command.preview",
-    @"agent.preview",
-    @"agent.track_usage",
+    @"inference.configure": struct { choice: inference_setup.Choice },
+    @"git.push": struct { workspace: WorkspaceId, ref: git_push.RefView },
+    @"onboarding.status": struct { operation: u64 },
+    @"onboarding.handoff": struct { operation: u64, viewer_pgid: i32, socket: []const u8 = "" },
+    @"onboarding.copy": Copy,
+    @"agent.command.preview": struct { workspace: WorkspaceId, cwd: []const u8 = "", request: u64, command: []const u8 = "" },
+    @"agent.preview": Launch,
+    @"agent.track_usage": Launch,
     @"viewer.list",
-    action,
-    focus,
-    @"workspace.switch",
-    @"native.start",
+    /// `pane` is the caller's pane, for the actions that return to it.
+    action: struct { name: []const u8 = "", value: []const u8 = "", viewer: ?u32 = null, pane: ?layout.PaneId = null },
+    focus: struct { pane: layout.PaneId, viewer: ?u32 = null },
+    @"workspace.switch": struct { workspace: WorkspaceId, viewer: ?u32 = null },
+    @"native.start": struct { provider: agents.Provider, cwd: []const u8 = "", workspace: ?WorkspaceId = null },
     @"native.list",
-    @"native.stop",
-    @"native.send",
-    @"native.events",
-    theme,
-    hook,
+    @"native.stop": struct { session: NativeId },
+    @"native.send": struct { session: NativeId, message: std.json.Value },
+    @"native.events": struct { session: NativeId, after: u64 = 0 },
+    /// `theme` is the viewer's host colors; a malformed one is ignored.
+    theme: struct { theme: std.json.Value = .null },
+    /// `event` is the provider's own hook payload; its backend decodes it.
+    /// A background hook comes from a session no pane runs.
+    hook: struct { provider: agents.Provider, event: std.json.Value, pane: layout.PaneId = .none, seq: ?i64 = null, background: bool = false },
     ping,
     shutdown,
     @"test.settle",
-    @"test.advance",
+    @"test.advance": struct { ms: i64 },
+
+    /// A launcher's folder; an empty `cwd` is the workspace's.
+    pub const Launch = struct { workspace: WorkspaceId, cwd: []const u8 = "" };
+    /// Commands are written by agents and scripts, so an unknown field inside
+    /// one stays an error (UnknownField).
+    pub const SessionCommand = struct {
+        command: Command,
+        pub fn jsonParseFromValue(arena: std.mem.Allocator, v: std.json.Value, _: std.json.ParseOptions) std.json.ParseFromValueError!SessionCommand {
+            if (v != .object) return error.UnexpectedToken;
+            const command = v.object.get("command") orelse return error.MissingField;
+            return .{ .command = try std.json.innerParseFromValue(Command, arena, command, .{}) };
+        }
+    };
+    /// A viewer attaching. `theme` holds its terminal's colors.
+    pub const Open = struct { cwd: []const u8 = "", onboarding: bool = false, theme: std.json.Value = .null };
+    /// A viewer's poll: the panes it shows, and the controls it has handled.
+    pub const Sync = struct {
+        interests: []const Interest,
+        session_hash: ?u64 = null,
+        focus: ?layout.PaneId = null,
+        watched: bool = true,
+        workspace: WorkspaceId = .none,
+        ack: u64 = 0,
+        active: bool = false,
+        resource_detail: ?WorkspaceId = null,
+        resources: bool = true,
+        resources_hash: ?u64 = null,
+    };
+    pub const Search = struct { pane: layout.PaneId, needle: []const u8, skip: usize = 0 };
+    /// A viewer acknowledges only what it showed, for the binding it showed.
+    pub const Acknowledge = struct {
+        pane: layout.PaneId,
+        session: []const u8 = "",
+        through: u64 = 0,
+        binding: ?u64 = null,
+        conversation: ?ActorId = null,
+        attention_at: ?i64 = null,
+    };
+    /// An import plan. The import job decodes `plan` into its own arena,
+    /// because the plan outlives the request.
+    pub const Copy = struct {
+        operation: u64,
+        plan: std.json.Value,
+        pub fn jsonParseFromValue(arena: std.mem.Allocator, v: std.json.Value, parse_options: std.json.ParseOptions) std.json.ParseFromValueError!Copy {
+            const Operation = struct { operation: u64 };
+            return .{ .operation = (try std.json.innerParseFromValue(Operation, arena, v, parse_options)).operation, .plan = v };
+        }
+    };
 };
-pub fn parse(v: std.json.Value) ?Op {
-    return std.meta.stringToEnum(Op, agents.str(v, "op"));
+/// Tag names are the exact wire strings (`@tagName` round-trips through `parse`).
+pub const Op = std.meta.Tag(Request);
+pub fn Payload(comptime op: Op) type {
+    return @FieldType(Request, @tagName(op));
 }
-pub const capabilities = [_]Op{
-    .@"session.command",
-    .@"session.locate",
-    .@"session.list",
-    .@"session.snapshot",
-    .@"session.subscribe",
-    .@"agent.subscribe",
-    .@"viewer.open",
-    .@"viewer.sync",
-    .@"viewer.search",
-    .@"pane.acknowledge",
-    .@"conversation.list",
-    .@"conversation.acknowledge",
-    .@"pane.surface",
-    .@"server.reload",
-    .@"recovery.save",
-    .@"inference.configure",
+
+/// The op of a request object, or null. Test-only ops are unknown in
+/// release builds.
+pub fn parse(v: std.json.Value) ?Op {
+    const op = std.meta.stringToEnum(Op, agents.str(v, "op")) orelse return null;
+    return switch (op) {
+        .@"test.settle", .@"test.advance" => if (options.test_build) op else null,
+        else => op,
+    };
+}
+
+/// What a request must carry before the server reads it.
+pub const Check = enum {
+    /// Local controls, hooks and tooling.
+    none,
+    /// `protocol` on this request; it starts negotiation.
+    negotiate,
+    /// `protocol` here or from an earlier `hello`.
+    runtime,
+    /// `viewer_protocol` first, then `protocol`.
+    viewer,
 };
+pub fn check(op: Op) Check {
+    return switch (op) {
+        .hello => .negotiate,
+        .@"viewer.open", .@"viewer.sync" => .viewer,
+        .@"session.command",
+        .@"session.locate",
+        .@"session.list",
+        .@"session.snapshot",
+        .@"session.subscribe",
+        .@"agent.subscribe",
+        .@"viewer.search",
+        .@"pane.acknowledge",
+        .@"conversation.list",
+        .@"conversation.acknowledge",
+        .@"pane.surface",
+        .@"server.reload",
+        .@"recovery.save",
+        .@"inference.configure",
+        .@"git.push",
+        .@"onboarding.status",
+        .@"onboarding.handoff",
+        .@"onboarding.copy",
+        .@"agent.command.preview",
+        .@"agent.preview",
+        .@"agent.track_usage",
+        => .runtime,
+        .@"viewer.list",
+        .action,
+        .focus,
+        .@"workspace.switch",
+        .@"native.start",
+        .@"native.list",
+        .@"native.stop",
+        .@"native.send",
+        .@"native.events",
+        .theme,
+        .hook,
+        .ping,
+        .shutdown,
+        .@"test.settle",
+        .@"test.advance",
+        => .none,
+    };
+}
+/// `hello` lists every op that speaks the runtime protocol.
+pub const capabilities = list: {
+    var ops: []const Op = &.{};
+    for (std.enums.values(Op)) |op| switch (check(op)) {
+        .runtime, .viewer => ops = ops ++ [_]Op{op},
+        .none, .negotiate => {},
+    };
+    break :list ops[0..ops.len].*;
+};
+
+/// Reads `op`'s payload from `v` after `check` has passed. Unknown fields are
+/// ignored at this level: `op`, `protocol` and `viewer_protocol` sit beside
+/// the payload, and a newer client may send more.
+pub fn decode(arena: std.mem.Allocator, op: Op, v: std.json.Value) std.json.ParseFromValueError!Request {
+    switch (op) {
+        inline else => |tag| {
+            const name = @tagName(tag);
+            return switch (Payload(tag)) {
+                void => @unionInit(Request, name, {}),
+                else => |T| @unionInit(Request, name, try std.json.parseFromValueLeaky(T, arena, v, .{ .ignore_unknown_fields = true })),
+            };
+        },
+    }
+}
 
 pub fn require(v: std.json.Value, negotiated: ?u32) !void {
     const requested = v.object.get("protocol");
@@ -328,6 +456,79 @@ pub const Result = struct {
 
 /// Freshness stamps in a viewer's snapshot are rounded down to this.
 pub const stamp_bucket = 5 * std.time.us_per_s;
+
+test "every op decodes a sample request" {
+    const samples: std.enums.EnumArray(Op, []const u8) = .init(.{
+        .hello = "{}",
+        .@"session.command" = "{\"command\":{\"pane.close\":{\"target\":1}}}",
+        .@"session.locate" = "{\"pane\":1}",
+        .@"session.list" = "{}",
+        .@"session.snapshot" = "{}",
+        .@"session.subscribe" = "{}",
+        .@"agent.subscribe" = "{\"workspace\":1,\"cwd\":\"/tmp\"}",
+        .@"viewer.open" = "{\"viewer_protocol\":3,\"cwd\":\"/tmp\",\"onboarding\":true,\"theme\":{}}",
+        .@"viewer.sync" = "{\"viewer_protocol\":3,\"interests\":[{\"pane\":1,\"cols\":80,\"rows\":24}],\"ack\":2}",
+        .@"viewer.search" = "{\"pane\":1,\"needle\":\"x\",\"skip\":1}",
+        .@"pane.acknowledge" = "{\"pane\":1,\"session\":\"s\",\"through\":2,\"binding\":1,\"conversation\":0,\"attention_at\":-1}",
+        .@"conversation.list" = "{}",
+        .@"conversation.acknowledge" = "{\"conversation\":1,\"through\":2,\"attention_at\":3}",
+        .@"pane.surface" = "{\"pane\":1}",
+        .@"server.reload" = "{\"executable\":\"/usr/local/bin/corgi\"}",
+        .@"recovery.save" = "{}",
+        .@"inference.configure" = "{\"choice\":\"claude\"}",
+        .@"git.push" = "{\"workspace\":1,\"ref\":{\"branch\":\"main\"}}",
+        .@"onboarding.status" = "{\"operation\":1}",
+        .@"onboarding.handoff" = "{\"operation\":1,\"viewer_pgid\":2,\"socket\":\"/tmp/herdr.sock\"}",
+        .@"onboarding.copy" = "{\"operation\":1,\"source\":\"tmux\",\"workspaces\":[]}",
+        .@"agent.command.preview" = "{\"workspace\":1,\"request\":3,\"command\":\"claude\"}",
+        .@"agent.preview" = "{\"workspace\":1}",
+        .@"agent.track_usage" = "{\"workspace\":1}",
+        .@"viewer.list" = "{}",
+        .action = "{\"name\":\"relaunch\",\"value\":\"/usr/local/bin/corgi\",\"pane\":1}",
+        .focus = "{\"pane\":1,\"viewer\":2}",
+        .@"workspace.switch" = "{\"workspace\":1,\"viewer\":null}",
+        .@"native.start" = "{\"provider\":\"codex\",\"cwd\":\"/tmp\",\"workspace\":1}",
+        .@"native.list" = "{}",
+        .@"native.stop" = "{\"session\":1}",
+        .@"native.send" = "{\"session\":1,\"message\":{\"text\":\"hi\"}}",
+        .@"native.events" = "{\"session\":1,\"after\":4}",
+        .theme = "{\"theme\":{\"foreground\":{\"r\":1,\"g\":2,\"b\":3}}}",
+        .hook = "{\"provider\":\"claude\",\"pane\":1,\"seq\":5,\"background\":false,\"event\":{\"hook_event_name\":\"Stop\"}}",
+        .ping = "{}",
+        .shutdown = "{}",
+        .@"test.settle" = "{}",
+        .@"test.advance" = "{\"ms\":1000}",
+    });
+    for (std.enums.values(Op)) |op| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, samples.get(op), .{});
+        defer parsed.deinit();
+        const request = decode(parsed.arena.allocator(), op, parsed.value) catch |err| {
+            std.debug.print("{s}: {}\n", .{ @tagName(op), err });
+            return err;
+        };
+        try std.testing.expectEqual(op, std.meta.activeTag(request));
+    }
+}
+
+test "a session command stays strict inside a lenient request" {
+    const Case = struct { json: []const u8, err: ?std.json.ParseFromValueError = null };
+    for ([_]Case{
+        .{ .json = "{\"op\":\"session.command\",\"newer\":1,\"command\":{\"pane.close\":{\"target\":3}}}" },
+        .{ .json = "{\"op\":\"session.command\",\"command\":{\"pane.close\":{\"target\":3,\"newer\":1}}}", .err = error.UnknownField },
+        .{ .json = "{\"op\":\"session.command\",\"command\":{\"pane.move\":{\"target\":3}}}", .err = error.MissingField },
+        .{ .json = "{\"op\":\"session.command\"}", .err = error.MissingField },
+    }) |case| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, case.json, .{});
+        defer parsed.deinit();
+        const decoded = decode(parsed.arena.allocator(), .@"session.command", parsed.value);
+        if (case.err) |err| {
+            try std.testing.expectError(err, decoded);
+        } else {
+            const target = (try decoded).@"session.command".command.@"pane.close".target;
+            try std.testing.expectEqual(@as(layout.PaneId, @enumFromInt(3)), target);
+        }
+    }
+}
 
 test "shared arrangement round trip is independent of viewer selection" {
     var original: layout.Model = .{};
