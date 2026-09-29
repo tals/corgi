@@ -22,6 +22,7 @@ const NativeId = @import("native.zig").Session.Id;
 const mirror = @import("mirror.zig");
 const rpc = @import("rpc.zig");
 const navigation = @import("navigation.zig");
+const Action = @import("action.zig").Action;
 const corgi_badge = @import("corgi_badge.zig");
 const sidebar_rows = @import("sidebar_rows.zig");
 const agent_launcher = @import("agent_launcher.zig");
@@ -619,47 +620,44 @@ pub const Controller = struct {
         s.selection = null;
         s.tab_menu = .{ .tab = @intFromEnum(s.model().tabs[index].id), .anchor_x = x };
     }
-    fn tabMenuAction(s: *Self, key_: u8) !void {
+    /// Runs a row of the open tab menu; `item` comes from its `entries()`.
+    fn tabMenuAction(s: *Self, item: commands.TabMenu.Item) !void {
         const context = s.tab_menu orelse return;
-        const supported = for (context.entries()) |entry| {
-            if (entry.key == key_) break true;
-        } else false;
-        if (!supported) return;
         s.closeMenu();
         if (context.pane) {
             const pane_id: layout.PaneId = @enumFromInt(context.tab);
             if (s.pane(pane_id) == null) return;
-            if (key_ == 'T') {
-                s.name_dialog = naming.Dialog.init(.{ .pane = pane_id }, s.pane(pane_id).?.label);
-                s.dirty = true;
-            } else if (key_ == 'C') {
-                try s.renamePane(pane_id, "");
-            } else if (key_ == 'X') {
-                try s.close(pane_id);
-            } else if (key_ == 's') {
-                if (context.source) |raw_source| {
+            switch (item) {
+                .rename => {
+                    s.name_dialog = naming.Dialog.init(.{ .pane = pane_id }, s.pane(pane_id).?.label);
+                    s.dirty = true;
+                },
+                .@"clear-name" => try s.renamePane(pane_id, ""),
+                .close => try s.close(pane_id),
+                .swap => if (context.source) |raw_source| {
                     const source: layout.PaneId = @enumFromInt(raw_source);
                     if (s.model().tabForPane(source) != s.model().tabForPane(pane_id)) return;
                     try s.focusPane(source);
                     try s.edit(.{ .@"pane.swap" = .{ .target = source, .other = pane_id } });
                     s.dirty = true;
-                }
-            } else {
-                try s.focusPane(pane_id);
-                switch (key_) {
-                    'v' => try s.action("split", "right"),
-                    '-' => try s.action("split", "down"),
-                    'z' => try s.action("zoom", ""),
-                    else => {},
-                }
+                },
+                .@"split-right", .@"split-down", .zoom => {
+                    try s.focusPane(pane_id);
+                    try s.perform(switch (item) {
+                        .@"split-right" => .{ .split = .right },
+                        .@"split-down" => .{ .split = .down },
+                        else => .zoom,
+                    });
+                },
+                .new => {},
             }
             return;
         }
         if (context.workspace) {
             if (s.runtime.workspaces.index(@enumFromInt(context.tab)) == null) return;
-            switch (key_) {
-                'T' => s.beginWorkspace(@enumFromInt(context.tab)),
-                'X' => s.closeWorkspace(@enumFromInt(context.tab), true) catch |err| s.notice(if (err == error.LastWorkspace) " Cannot close the last workspace" else " Could not close workspace"),
+            switch (item) {
+                .rename => s.beginWorkspace(@enumFromInt(context.tab)),
+                .close => s.closeWorkspace(@enumFromInt(context.tab), true) catch |err| s.notice(if (err == error.LastWorkspace) " Cannot close the last workspace" else " Could not close workspace"),
                 else => {},
             }
             return;
@@ -671,10 +669,10 @@ pub const Controller = struct {
         s.copy_mode = false;
 
         s.dirty = true;
-        switch (key_) {
-            'c' => try s.action("new", ""),
-            'T' => s.beginRename(),
-            'X' => try s.action("close-tab", ""),
+        switch (item) {
+            .new => try s.perform(.new),
+            .rename => s.beginRename(),
+            .close => try s.perform(.@"close-tab"),
             else => {},
         }
     }
@@ -845,11 +843,9 @@ pub const Controller = struct {
         }
         s.notice(" Nothing needs your attention");
     }
-    /// Controller-level action names. Anything else is tried as a `navigation.Action`.
-    pub const Action = enum { onboard, @"workspace-next", @"workspace-prev", new, sidebar, mute, @"undo-close", attention, split, zoom, close, @"close-tab" };
-    pub fn action(s: *Self, name: []const u8, value: []const u8) !void {
+    pub fn perform(s: *Self, act: Action) !void {
         s.message = .{};
-        if (std.meta.stringToEnum(Action, name)) |act| switch (act) {
+        switch (act) {
             .onboard => return s.openOnboarding(.welcome),
             .@"workspace-next", .@"workspace-prev" => {
                 const count = s.runtime.workspaces.items.len;
@@ -875,22 +871,27 @@ pub const Controller = struct {
             .split, .zoom, .close, .@"close-tab" => {
                 if (s.model().count == 0) return error.NoPane;
                 switch (act) {
-                    .split => _ = try s.create(if (std.mem.eql(u8, value, "down")) .vertical else .horizontal, s.currentCwd(), null, ""),
+                    .split => |side| _ = try s.create(switch (side) {
+                        .right => .horizontal,
+                        .down => .vertical,
+                    }, s.currentCwd(), null, ""),
                     .zoom => s.nav().tab().zoom = !s.nav().tab().zoom,
                     .close => try s.close(s.nav().tab().focus),
                     .@"close-tab" => try s.edit(.{ .@"tab.close" = .{ .target = s.selectedTab().id } }),
                     else => unreachable,
                 }
             },
-        } else {
-            if (s.model().count == 0) return error.NoPane;
-            const nav_action = std.meta.stringToEnum(navigation.Action, name) orelse return error.UnknownAction;
-            const intent = try s.navigation.command(&s.runtime.workspaces, nav_action, value, s.area());
-            if (intent.edit) |operation| try s.edit(operation);
-            if (intent.focus) |id| {
-                try s.focusPane(id);
-                s.copy_mode = false;
-            }
+            .rename, .resize, .focus, .swap, .@"move-tab", .@"break", .next, .prev, .tab, .join => {
+                if (s.model().count == 0) return error.NoPane;
+                const intent = try s.navigation.command(&s.runtime.workspaces, act, s.area());
+                if (intent.edit) |operation| try s.edit(operation);
+                if (intent.focus) |id| {
+                    try s.focusPane(id);
+                    s.copy_mode = false;
+                }
+            },
+            // viewer.sync execs the new binary before anything reaches here.
+            .relaunch => unreachable,
         }
         s.dirty = true;
     }
@@ -1371,31 +1372,31 @@ pub const Controller = struct {
         switch (byte) {
             'w' => s.beginWorkspace(null),
             'W' => s.beginWorkspace(s.current().id),
-            '}' => try s.action("workspace-next", ""),
-            '{' => try s.action("workspace-prev", ""),
-            'c' => try s.action("new", ""),
+            '}' => try s.perform(.@"workspace-next"),
+            '{' => try s.perform(.@"workspace-prev"),
+            'c' => try s.perform(.new),
             'a', 'A', 1 => s.openLauncher(true),
-            'u' => try s.action("undo-close", ""),
-            'v', '%' => try s.action("split", "right"),
-            '-', '"' => try s.action("split", "down"),
-            'h', 'j', 'k', 'l' => try s.action("focus", direction(byte).?),
-            'H', 'J', 'K', 'L' => try s.action("swap", direction(std.ascii.toLower(byte)).?),
-            'n' => try s.action("next", ""),
-            'p' => try s.action("prev", ""),
-            '1'...'9' => try s.action("tab", &.{byte}),
-            'z' => try s.action("zoom", ""),
-            'f' => try s.action("attention", ""),
-            'b' => try s.action("sidebar", ""),
-            '!' => try s.action("break", ""),
-            'm' => try s.action("mute", ""),
+            'u' => try s.perform(.@"undo-close"),
+            'v', '%' => try s.perform(.{ .split = .right }),
+            '-', '"' => try s.perform(.{ .split = .down }),
+            'h', 'j', 'k', 'l' => try s.perform(.{ .focus = direction(byte).? }),
+            'H', 'J', 'K', 'L' => try s.perform(.{ .swap = direction(std.ascii.toLower(byte)).? }),
+            'n' => try s.perform(.next),
+            'p' => try s.perform(.prev),
+            '1'...'9' => try s.perform(.{ .tab = byte - '0' }),
+            'z' => try s.perform(.zoom),
+            'f' => try s.perform(.attention),
+            'b' => try s.perform(.sidebar),
+            '!' => try s.perform(.@"break"),
+            'm' => try s.perform(.mute),
             'r' => {
                 s.resize_mode = true;
                 s.menu_page = 0;
                 s.menu_highlight = null;
             },
             'T', ',' => s.beginRename(),
-            'x' => try s.action("close", ""),
-            'X' => try s.action("close-tab", ""),
+            'x' => try s.perform(.close),
+            'X' => try s.perform(.@"close-tab"),
             'g' => s.openAgentPicker(),
             'i', 'C' => s.openSetup(),
             '[' => try s.navigateAgent(false),
@@ -1572,14 +1573,12 @@ pub const Controller = struct {
         if (s.tab_menu) |context| {
             switch (byte) {
                 27 => s.closeMenu(),
-                13 => try s.tabMenuAction(context.entries()[context.highlighted].key),
+                13 => try s.tabMenuAction(context.entries()[context.highlighted].item),
                 'j', 9 => s.moveTabMenu(true),
                 'k' => s.moveTabMenu(false),
-                's', 'C', 'v', '-', 'z' => try s.tabMenuAction(byte),
-                'c' => try s.tabMenuAction('c'),
-                'T', 'r' => try s.tabMenuAction('T'),
-                'X', 'x' => try s.tabMenuAction('X'),
-                else => if (byte == keymap.prefixByte(s.key_prefix)) s.beginPrefix(),
+                else => if (context.itemFor(byte)) |item| {
+                    try s.tabMenuAction(item);
+                } else if (byte == keymap.prefixByte(s.key_prefix)) s.beginPrefix(),
             }
             return;
         }
@@ -1615,7 +1614,7 @@ pub const Controller = struct {
             return;
         }
         if (s.resize_mode) {
-            if (direction(byte)) |dir| try s.action("resize", dir) else s.closeMenu();
+            if (direction(byte)) |dir| try s.perform(.{ .resize = dir }) else s.closeMenu();
             return;
         }
         if (s.prefix) {
@@ -1760,7 +1759,7 @@ pub const Controller = struct {
                             s.prefix = false;
                             switch (binding) {
                                 .action => |key_| try s.dispatchKey(key_),
-                                .resize => |key_| try s.action("resize", direction(key_).?),
+                                .resize => |key_| try s.perform(.{ .resize = direction(key_).? }),
                                 .workspace => |index| if (index < s.runtime.workspaces.items.len) {
                                     try s.switchWorkspace(s.runtime.workspaces.items[index].id);
                                 },
@@ -1815,16 +1814,16 @@ pub const Controller = struct {
                 s.dirty = true;
             } else if (s.prefix) {
                 if (s.key_preset == .tmux and seq.len == 6 and std.mem.startsWith(u8, seq, "\x1b[1;5")) {
-                    const dir: ?[]const u8 = switch (seq[5]) {
-                        'A' => "up",
-                        'B' => "down",
-                        'C' => "right",
-                        'D' => "left",
+                    const dir: ?layout.Direction = switch (seq[5]) {
+                        'A' => .up,
+                        'B' => .down,
+                        'C' => .right,
+                        'D' => .left,
                         else => null,
                     };
                     if (dir) |value| {
                         s.prefix = false;
-                        try s.action("resize", value);
+                        try s.perform(.{ .resize = value });
                     }
                 } else if (s.key_preset == .herdr and parsed_key == .shift_tab) {
                     try s.dispatchKey(keymap.cycle_prev);
@@ -2254,7 +2253,7 @@ pub const Controller = struct {
             if (!release and (button == 64 or button == 65)) s.moveTabMenu(button == 65);
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
-                if (context.hit(s.width, s.height, x, y)) |index| try s.tabMenuAction(context.entries()[index].key) else s.closeMenu();
+                if (context.hit(s.width, s.height, x, y)) |index| try s.tabMenuAction(context.entries()[index].item) else s.closeMenu();
             } else if (!release and (button == 35 or button == 32)) {
                 if (context.hit(s.width, s.height, x, y)) |index| {
                     s.tab_menu.?.highlighted = index;
@@ -2281,7 +2280,7 @@ pub const Controller = struct {
                     .close => s.closeMenu(),
                     .previous => s.pageMenu(false),
                     .next => s.pageMenu(true),
-                    .command => |entry| try s.key(entry.key),
+                    .command => |entry| try s.perform(.{ .resize = entry.direction }),
                     .none => {},
                 }
             }
@@ -2350,7 +2349,7 @@ pub const Controller = struct {
                 s.ui_mouse_down = true;
                 if (corgi_badge.hit(s.corgi_badge, side.width, x, y)) return s.openSetup();
                 switch (side.hit(x, y)) {
-                    .toggle => try s.action("sidebar", ""),
+                    .toggle => try s.perform(.sidebar),
                     .previous => s.sidebar_offset = side.offset -| side.capacity,
                     .next => s.sidebar_offset = @min(side.offset + side.capacity, side.maxOffset()),
                     .entry => |index| if (entries[index].exit == null) {
@@ -2426,7 +2425,7 @@ pub const Controller = struct {
             if (x >= add_x and x < add_x + 3) {
                 s.ui_mouse_down = true;
                 s.dismissName();
-                try s.action("new", "");
+                try s.perform(.new);
                 return;
             }
             if (x >= tabs_x) if (render.tabAt(s.layoutView(), tabs_width, x - tabs_x)) |index| {
@@ -2812,12 +2811,12 @@ pub const Controller = struct {
         });
     }
 };
-fn direction(key: u8) ?[]const u8 {
+fn direction(key: u8) ?layout.Direction {
     return switch (key) {
-        'h' => "left",
-        'j' => "down",
-        'k' => "up",
-        'l' => "right",
+        'h' => .left,
+        'j' => .down,
+        'k' => .up,
+        'l' => .right,
         else => null,
     };
 }

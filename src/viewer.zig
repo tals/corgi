@@ -11,6 +11,7 @@ const protocol = @import("protocol.zig");
 const viewer_version = @import("viewer_version.zig");
 const surface = @import("surface.zig");
 const controller = @import("controller.zig");
+const Action = @import("action.zig").Action;
 const Connection = @import("rpc.zig").Connection;
 const Theme = @import("theme.zig").Theme;
 const Probe = @import("host_probe.zig").Probe;
@@ -113,14 +114,16 @@ pub fn sync(view: *View, bell_seq: *u64, play_sound: bool) !bool {
     view.input_state.viewer_id = reply.viewer;
     for (reply.controls) |control| {
         if (control.seq <= view.input_state.last_control) continue;
-        if (control.kind == .action and std.mem.eql(u8, control.name, "relaunch")) {
-            view.executable = try a.dupe(u8, control.value);
-            return false;
-        }
         switch (control.kind) {
             .focus => view.focusPane(@enumFromInt(control.id)) catch |err| view.notice(@errorName(err)),
             .workspace => view.switchWorkspace(@enumFromInt(control.id)) catch |err| view.notice(@errorName(err)),
-            .action => view.action(control.name, control.value) catch |err| view.notice(@errorName(err)),
+            .action => if (Action.parse(control.name, control.value)) |act| switch (act) {
+                .relaunch => |path| {
+                    view.executable = try a.dupe(u8, path);
+                    return false;
+                },
+                else => view.perform(act) catch |err| view.notice(@errorName(err)),
+            } else |err| view.notice(@errorName(err)),
         }
         view.input_state.last_control = control.seq;
     }

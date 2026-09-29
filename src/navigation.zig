@@ -1,11 +1,11 @@
 //! Local workspace/tab/pane selection. Shared models contain no active or zoom state.
-const std = @import("std");
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const mirror = @import("mirror.zig");
 const protocol = @import("protocol.zig");
 const agent_navigation = @import("agent_navigation.zig");
+const Action = @import("action.zig").Action;
 pub const State = struct {
     workspace_id: WorkspaceId = .none,
     entries: [workspace.max_workspaces]struct { id: WorkspaceId = .none, value: layout.Selection = .{}, agents: agent_navigation.History = .{} } = @splat(.{}),
@@ -37,32 +37,30 @@ pub const State = struct {
         unreachable;
     }
     /// Resolve command shorthand once, before crossing the session seam.
-    pub fn command(n: *State, store: *mirror.Workspaces, act: Action, value: []const u8, area: layout.Rect) !Intent {
+    /// `Controller.perform` routes only tab and pane actions here.
+    pub fn command(n: *State, store: *mirror.Workspaces, act: Action, area: layout.Rect) !Intent {
         const model = &n.current(store).model;
         if (model.count == 0) return error.NoPane;
         const selected = n.tabs(store);
         const pane = selected.tab().focus;
         const tab = model.tabs[selected.active].id;
         switch (act) {
-            .rename => return .{ .edit = .{ .@"tab.rename" = .{ .target = tab, .name = value } } },
-            .resize, .focus, .swap => {
-                const direction = std.meta.stringToEnum(layout.Direction, value) orelse return error.BadDirection;
-                if (act == .resize) return .{ .edit = .{ .@"split.resize" = .{ .target = pane, .direction = direction } } };
+            .rename => |name| return .{ .edit = .{ .@"tab.rename" = .{ .target = tab, .name = name } } },
+            .resize => |direction| return .{ .edit = .{ .@"split.resize" = .{ .target = pane, .direction = direction } } },
+            .focus, .swap => |direction| {
                 const other = (layout.View{ .model = model, .selection = selected }).neighbor(direction, area) orelse return .{};
                 return if (act == .focus) .{ .focus = other } else .{ .edit = .{ .@"pane.swap" = .{ .target = pane, .other = other } } };
             },
-            .@"move-tab" => return .{ .edit = moveTab(
-                model,
-                tab,
-                if (std.mem.eql(u8, value, "left")) selected.active -| 1 else @min(selected.active + 2, model.count),
-            ) },
+            .@"move-tab" => |side| return .{ .edit = moveTab(model, tab, switch (side) {
+                .left => selected.active -| 1,
+                .right => @min(selected.active + 2, model.count),
+            }) },
             .@"break" => return if (model.nodes[model.tabs[selected.active].root].? == .pane)
                 .{}
             else
                 .{ .edit = .{ .@"pane.move" = .{ .target = pane, .destination = .{ .new_tab = "" } } }, .focus = pane },
             .next, .prev => return .{ .focus = selected.tabs[(selected.active + if (act == .next) @as(usize, 1) else model.count - 1) % model.count].focus },
-            .tab, .join => {
-                const number = try std.fmt.parseInt(usize, value, 10);
+            .tab, .join => |number| {
                 if (number == 0 or number > model.count) return error.NoTab;
                 const tab_index = number - 1;
                 const target = selected.tabs[tab_index].focus;
@@ -72,12 +70,10 @@ pub const State = struct {
                 }
                 return .{ .focus = target };
             },
+            else => unreachable,
         }
     }
 };
-
-/// Names the controller delegates to `State.command` once its own action names don't match.
-pub const Action = enum { rename, resize, focus, swap, @"move-tab", @"break", next, prev, tab, join };
 
 pub fn moveTab(model: *const layout.Model, id: layout.TabId, gap: usize) ?protocol.Command {
     if (gap > model.count or model.count == 0) return null;

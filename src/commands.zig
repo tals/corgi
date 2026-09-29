@@ -1,15 +1,18 @@
 const std = @import("std");
+const Direction = @import("layout.zig").Direction;
 
+/// A resize menu row: the key it shows and the resize a click performs.
 pub const Entry = struct {
     key: u8,
     label: []const u8,
+    direction: Direction,
     needs_pane: bool = true,
 };
 const resize_entries = [_]Entry{
-    .{ .key = 'h', .label = "Resize left" },
-    .{ .key = 'j', .label = "Resize down" },
-    .{ .key = 'k', .label = "Resize up" },
-    .{ .key = 'l', .label = "Resize right" },
+    .{ .key = 'h', .label = "Resize left", .direction = .left },
+    .{ .key = 'j', .label = "Resize down", .direction = .down },
+    .{ .key = 'k', .label = "Resize up", .direction = .up },
+    .{ .key = 'l', .label = "Resize right", .direction = .right },
 };
 pub const Hit = union(enum) { none, close, previous, next, command: Entry };
 // Herdr's tab context menu: these actions apply to the clicked tab, not the
@@ -22,23 +25,36 @@ pub const TabMenu = struct {
     pane: bool = false,
     source: ?u32 = null,
     highlighted: usize = 0,
-    pub const actions = [_]Entry{
-        .{ .key = 'c', .label = "New tab" },
-        .{ .key = 'T', .label = "Rename" },
-        .{ .key = 'X', .label = "Close" },
+    /// What a row does to the menu's tab, workspace or pane.
+    pub const Item = enum { new, rename, @"clear-name", swap, @"split-right", @"split-down", zoom, close };
+    pub const Row = struct { item: Item, key: u8, label: []const u8 };
+    const actions = [_]Row{
+        .{ .item = .new, .key = 'c', .label = "New tab" },
+        .{ .item = .rename, .key = 'T', .label = "Rename" },
+        .{ .item = .close, .key = 'X', .label = "Close" },
     };
-    const pane_actions = [_]Entry{
-        .{ .key = 's', .label = "Swap with focused pane" },
-        .{ .key = 'T', .label = "Rename pane" },
-        .{ .key = 'C', .label = "Clear pane name" },
-        .{ .key = 'v', .label = "Split right" },
-        .{ .key = '-', .label = "Split down" },
-        .{ .key = 'z', .label = "Zoom / unzoom" },
-        .{ .key = 'X', .label = "Close pane" },
+    const pane_actions = [_]Row{
+        .{ .item = .swap, .key = 's', .label = "Swap with focused pane" },
+        .{ .item = .rename, .key = 'T', .label = "Rename pane" },
+        .{ .item = .@"clear-name", .key = 'C', .label = "Clear pane name" },
+        .{ .item = .@"split-right", .key = 'v', .label = "Split right" },
+        .{ .item = .@"split-down", .key = '-', .label = "Split down" },
+        .{ .item = .zoom, .key = 'z', .label = "Zoom / unzoom" },
+        .{ .item = .close, .key = 'X', .label = "Close pane" },
     };
-    pub fn entries(m: TabMenu) []const Entry {
+    pub fn entries(m: TabMenu) []const Row {
         if (m.pane) return if (m.source != null) &pane_actions else pane_actions[1..];
         return if (m.workspace) actions[1..] else &actions;
+    }
+    /// The row a key picks: its shown key, or `r` and `x` for rename and close.
+    pub fn itemFor(m: TabMenu, key: u8) ?Item {
+        const shown: u8 = switch (key) {
+            'r' => 'T',
+            'x' => 'X',
+            else => key,
+        };
+        for (m.entries()) |row| if (row.key == shown) return row.item;
+        return null;
     }
     const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
     fn bounds(m: TabMenu, width: u16, height: u16) Bounds {
@@ -160,3 +176,19 @@ pub const ResizeView = struct {
         try w.writeAll(text[0..@min(text.len, v.width)]);
     }
 };
+
+test "menu keys pick the rows each menu shows" {
+    const tab: TabMenu = .{ .tab = 1, .anchor_x = 0 };
+    try std.testing.expectEqual(TabMenu.Item.new, tab.itemFor('c').?);
+    try std.testing.expectEqual(TabMenu.Item.rename, tab.itemFor('r').?);
+    try std.testing.expectEqual(TabMenu.Item.close, tab.itemFor('x').?);
+    try std.testing.expectEqual(null, tab.itemFor('v'));
+    const workspace: TabMenu = .{ .tab = 1, .anchor_x = 0, .workspace = true };
+    try std.testing.expectEqual(null, workspace.itemFor('c'));
+    const pane: TabMenu = .{ .tab = 1, .anchor_x = 0, .pane = true };
+    try std.testing.expectEqual(TabMenu.Item.@"split-down", pane.itemFor('-').?);
+    try std.testing.expectEqual(TabMenu.Item.@"clear-name", pane.itemFor('C').?);
+    try std.testing.expectEqual(null, pane.itemFor('s'));
+    const swap: TabMenu = .{ .tab = 1, .anchor_x = 0, .pane = true, .source = 2 };
+    try std.testing.expectEqual(TabMenu.Item.swap, swap.itemFor('s').?);
+}

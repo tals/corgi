@@ -56,6 +56,8 @@ bulk-replace `@import("x.zig").` with sed: it also rewrites the alias line into
   `keys.zig` for escape sequences.
 - A single check stays inline: `std.mem.eql(u8, x, "chatgpt")`. No
   one-value enums, and no local `fn eq` helpers.
+- Every viewer command is an `action.Action`, whether a key, a click,
+  `corgi action` or a daemon control asks for it.
 - Each vocabulary has one home: `protocol.Op`, `keys.Key`,
   `providers/codex.zig` (`Method`, `ItemType`, `RolloutKind`, `EventKind`),
   `providers/claude.zig` (`MessageType`, `BlockType`, `TranscriptLine`),

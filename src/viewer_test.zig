@@ -6,6 +6,7 @@ const a = os.allocator;
 const viewer = @import("viewer.zig");
 const agents = @import("agents.zig");
 const protocol = @import("protocol.zig");
+const Action = @import("action.zig").Action;
 const PaneId = @import("layout.zig").PaneId;
 const TabId = @import("layout.zig").TabId;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
@@ -31,7 +32,12 @@ pub fn run(path: []const u8) !void {
         if (std.mem.eql(u8, op, "input")) try view.input(agents.str(value, "data"));
         // Viewer-local delays (hover cards, command preview debounce).
         if (std.mem.eql(u8, op, "advance")) @import("clock.zig").advance(value.object.get("ms").?.integer);
-        if (std.mem.eql(u8, op, "action")) try view.action(agents.str(value, "name"), agents.str(value, "value"));
+        if (std.mem.eql(u8, op, "action")) {
+            const act = try Action.parse(agents.str(value, "name"), agents.str(value, "value"));
+            // viewer.sync execs the new binary before perform; the driver cannot.
+            if (act == .relaunch) return error.UnknownAction;
+            try view.perform(act);
+        }
         if (std.mem.eql(u8, op, "focus")) try view.focusPane(try protocol.typedId(PaneId, value, "pane"));
         if (std.mem.eql(u8, op, "workspace")) try view.switchWorkspace(try protocol.typedId(WorkspaceId, value, "workspace"));
         // The stdio driver has no host terminal to negotiate image support.

@@ -415,6 +415,7 @@ test {
     // below fails when one is missing.
     _ = @import("account_cache.zig");
     _ = @import("account_preview.zig");
+    _ = @import("action.zig");
     _ = @import("activity_prompt.zig");
     _ = @import("activity_summary.zig");
     _ = @import("activity_timeline.zig");
