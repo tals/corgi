@@ -472,7 +472,8 @@ const help =
     \\
 ;
 test {
-    // Every file under src/, sorted. "every source file is in the test root"
+    // Each top-level file under src/, sorted; each package root lists the
+    // files in its directory. "every source file is in the test root"
     // below fails when one is missing.
     _ = @import("account_cache.zig");
     _ = @import("account_preview.zig");
@@ -556,9 +557,6 @@ test {
     _ = @import("preferences.zig");
     _ = @import("protocol.zig");
     _ = @import("providers.zig");
-    _ = @import("providers/claude.zig");
-    _ = @import("providers/codex.zig");
-    _ = @import("providers/common.zig");
     _ = @import("recovery.zig");
     _ = @import("render.zig");
     _ = @import("resource_os.zig");
@@ -596,7 +594,8 @@ test {
 }
 
 test "every source file is in the test root" {
-    const root = @embedFile("main.zig");
+    // main.zig lists the top-level files; a package root lists the files in
+    // the directory beside it, which main.zig reaches through the root.
     var dir = try std.fs.cwd().openDir("src", .{ .iterate = true });
     defer dir.close();
     var walker = try dir.walk(std.testing.allocator);
@@ -604,10 +603,21 @@ test "every source file is in the test root" {
     while (try walker.next()) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
         if (std.mem.eql(u8, entry.path, "main.zig")) continue;
+        const package = std.fs.path.dirname(entry.path);
+        var root_buf: [256]u8 = undefined;
+        const root = if (package) |p| try std.fmt.bufPrint(&root_buf, "{s}.zig", .{p}) else "main.zig";
+        // The root sits beside its directory and names members from there.
+        const up = if (package) |p| std.fs.path.dirname(p) else null;
+        const member = if (up) |u| entry.path[u.len + 1 ..] else entry.path;
+        const source = dir.readFileAlloc(std.testing.allocator, root, 4 << 20) catch |err| {
+            std.debug.print("{s} has no package root {s}\n", .{ entry.path, root });
+            return err;
+        };
+        defer std.testing.allocator.free(source);
         var buf: [256]u8 = undefined;
-        const line = try std.fmt.bufPrint(&buf, "_ = @import(\"{s}\");", .{entry.path});
-        if (std.mem.indexOf(u8, root, line) == null) {
-            std.debug.print("missing from the test root in main.zig: {s}\n", .{entry.path});
+        const line = try std.fmt.bufPrint(&buf, "_ = @import(\"{s}\");", .{member});
+        if (std.mem.indexOf(u8, source, line) == null) {
+            std.debug.print("missing from the test block in {s}: {s}\n", .{ root, member });
             return error.UnlistedSourceFile;
         }
     }
@@ -637,33 +647,76 @@ test "the daemon and the viewer never import each other" {
     // scan the onboarding wizard runs and the daemon's copy into the runtime.
     const allowed = [_][2][]const u8{.{ "herdr_adapter.zig", "runtime.zig" }};
     // Every other file is shared. Only main.zig imports viewer files, only
-    // core imports core, and nothing imports main.zig.
+    // core imports core, and nothing imports main.zig. Importing a package
+    // root imports the member it names, or every member when it names none.
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
     var dir = try std.fs.cwd().openDir("src", .{ .iterate = true });
     defer dir.close();
-    var walker = try dir.walk(std.testing.allocator);
-    defer walker.deinit();
-    var crossed = false;
+    var sources: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+    var walker = try dir.walk(alloc);
     while (try walker.next()) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
         if (std.mem.eql(u8, entry.path, "main.zig")) continue;
-        const source = try dir.readFileAlloc(std.testing.allocator, entry.path, 4 << 20);
-        defer std.testing.allocator.free(source);
-        const from_viewer = viewer.has(entry.path);
-        const from_core = core.has(entry.path);
+        try sources.put(alloc, try alloc.dupe(u8, entry.path), try dir.readFileAlloc(alloc, entry.path, 4 << 20));
+    }
+    var crossed = false;
+    for (sources.keys(), sources.values()) |path, source| {
+        var targets: std.ArrayList([]const u8) = .empty;
         var rest = source;
         while (std.mem.indexOf(u8, rest, "@import(\"")) |start| {
             rest = rest[start + "@import(\"".len ..];
             const name = rest[0 .. std.mem.indexOfScalar(u8, rest, '"') orelse break];
-            // Files under providers/ reach the top level through "../".
-            const target = if (std.mem.startsWith(u8, name, "../")) name["../".len..] else name;
+            const target = try resolveImport(alloc, path, name);
+            // A root's members count where the root is imported.
+            if (inPackage(path, target)) continue;
+            if (!isPackageRoot(sources.keys(), target)) {
+                try targets.append(alloc, target);
+            } else if (try namedMember(alloc, sources.get(target) orelse "", rest[name.len..])) |member| {
+                try targets.append(alloc, try resolveImport(alloc, target, member));
+            } else for (sources.keys()) |file| {
+                if (inPackage(target, file)) try targets.append(alloc, file);
+            }
+        }
+        for (targets.items) |target| {
             const exempt = for (allowed) |edge| {
-                if (std.mem.eql(u8, edge[0], entry.path) and std.mem.eql(u8, edge[1], target)) break true;
+                if (std.mem.eql(u8, edge[0], path) and std.mem.eql(u8, edge[1], target)) break true;
             } else false;
-            if (std.mem.eql(u8, target, "main.zig") or (viewer.has(target) and !from_viewer) or (core.has(target) and !from_core and !exempt)) {
-                std.debug.print("{s} imports {s} across the daemon/viewer boundary\n", .{ entry.path, target });
+            if (std.mem.eql(u8, target, "main.zig") or (viewer.has(target) and !viewer.has(path)) or (core.has(target) and !core.has(path) and !exempt)) {
+                std.debug.print("{s} imports {s} across the daemon/viewer boundary\n", .{ path, target });
                 crossed = true;
             }
         }
     }
     if (crossed) return error.ProcessBoundary;
+}
+
+/// The file under src/ that `from` names by `name`.
+fn resolveImport(alloc: std.mem.Allocator, from: []const u8, name: []const u8) ![]u8 {
+    return std.fs.path.resolvePosix(alloc, &.{ std.fs.path.dirname(from) orelse "", name });
+}
+
+/// Whether `file` sits in the directory beside the package root `root`.
+fn inPackage(root: []const u8, file: []const u8) bool {
+    const stem = root[0 .. root.len - ".zig".len];
+    return file.len > stem.len and std.mem.startsWith(u8, file, stem) and file[stem.len] == '/';
+}
+
+fn isPackageRoot(files: []const []const u8, path: []const u8) bool {
+    if (!std.mem.endsWith(u8, path, ".zig")) return false;
+    for (files) |file| if (inPackage(path, file)) return true;
+    return false;
+}
+
+/// The path `root` imports the member by, when `after` (the source after an
+/// import of `root`'s path, as in `").checkpoint;`) names one.
+fn namedMember(alloc: std.mem.Allocator, root: []const u8, after: []const u8) !?[]const u8 {
+    if (!std.mem.startsWith(u8, after, "\").")) return null;
+    const rest = after["\").".len..];
+    const end = std.mem.indexOfNone(u8, rest, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") orelse rest.len;
+    const declaration = try std.fmt.allocPrint(alloc, "pub const {s} = @import(\"", .{rest[0..end]});
+    const at = std.mem.indexOf(u8, root, declaration) orelse return null;
+    const literal = root[at + declaration.len ..];
+    return literal[0 .. std.mem.indexOfScalar(u8, literal, '"') orelse return null];
 }

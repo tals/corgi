@@ -175,3 +175,9 @@ test "shared hook codec preserves permission context and rejects child observati
         try std.testing.expect(backend.hook(.null) == null);
     }
 }
+
+test {
+    _ = @import("providers/claude.zig");
+    _ = @import("providers/codex.zig");
+    _ = @import("providers/common.zig");
+}
