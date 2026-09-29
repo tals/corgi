@@ -422,11 +422,8 @@ test "copy text fits the RPC budget at full pane capacity without changing disco
 }
 
 fn cmuxExecutable(alloc: std.mem.Allocator) ![]const u8 {
-    var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse "", ':');
-    while (dirs.next()) |dir| {
-        const path = try std.fmt.allocPrintSentinel(alloc, "{s}/cmux", .{if (dir.len == 0) "." else dir}, 0);
-        if (os.c.access(path, os.c.X_OK) == 0) return path;
-    }
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (os.findExecutable("cmux", &buf)) |path| return alloc.dupe(u8, path);
     if (builtin.os.tag == .macos) {
         if (os.env("HOME")) |home| {
             const path = try std.fmt.allocPrintSentinel(alloc, "{s}/Applications/cmux.app/Contents/Resources/bin/cmux", .{home}, 0);

@@ -226,6 +226,62 @@ test "a process's parent and executable are readable" {
     var self: [std.fs.max_path_bytes]u8 = undefined;
     try std.testing.expectEqualStrings(try std.fs.selfExePath(&self), processPath(c.getpid(), &buf).?);
 }
+/// Executable regular files named `name` in `path_list` (a PATH value), in
+/// order. Empty and relative entries are skipped: the daemon's cwd is not a
+/// trusted place.
+pub const PathSearch = struct {
+    name: []const u8,
+    dirs: std.mem.SplitIterator(u8, .scalar),
+
+    pub fn init(path_list: []const u8, name: []const u8) PathSearch {
+        return .{ .name = name, .dirs = std.mem.splitScalar(u8, path_list, ':') };
+    }
+    /// The next match, written to `buf`.
+    pub fn next(s: *PathSearch, buf: []u8) ?[:0]const u8 {
+        while (s.dirs.next()) |dir| {
+            if (!std.fs.path.isAbsolute(dir)) continue;
+            const path = std.fmt.bufPrintZ(buf, "{s}/{s}", .{ dir, s.name }) catch continue;
+            const stat = std.fs.cwd().statFile(path) catch continue;
+            if (stat.kind == .file and c.access(path.ptr, c.X_OK) == 0) return path;
+        }
+        return null;
+    }
+};
+/// The first executable regular file named `name` in PATH.
+pub fn findExecutable(name: []const u8, buf: []u8) ?[:0]const u8 {
+    var search: PathSearch = .init(env("PATH") orelse "", name);
+    return search.next(buf);
+}
+test "PATH search takes absolute entries only" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makeDir("tool");
+    (try tmp.dir.createFile("plain", .{ .mode = 0o644 })).close();
+    for ([_][]const u8{ "a/tool", "b/tool" }) |sub| {
+        try tmp.dir.makeDir(std.fs.path.dirname(sub).?);
+        (try tmp.dir.createFile(sub, .{ .mode = 0o755 })).close();
+    }
+    var dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = try tmp.dir.realpath(".", &dir_buf);
+    const alloc = std.testing.allocator;
+    const relative = try std.fmt.allocPrint(alloc, ".zig-cache/tmp/{s}/a", .{tmp.sub_path});
+    defer alloc.free(relative);
+    const path_list = try std.fmt.allocPrint(alloc, "::{s}:{s}:{s}/a:{s}/b", .{ relative, root, root, root });
+    defer alloc.free(path_list);
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    // The relative entry and the root's directory named `tool` don't count.
+    var search: PathSearch = .init(path_list, "tool");
+    const first = try std.fmt.allocPrint(alloc, "{s}/a/tool", .{root});
+    defer alloc.free(first);
+    try std.testing.expectEqualStrings(first, search.next(&buf).?);
+    const second = try std.fmt.allocPrint(alloc, "{s}/b/tool", .{root});
+    defer alloc.free(second);
+    try std.testing.expectEqualStrings(second, search.next(&buf).?);
+    try std.testing.expectEqual(null, search.next(&buf));
+    // Not executable.
+    var plain: PathSearch = .init(path_list, "plain");
+    try std.testing.expectEqual(null, plain.next(&buf));
+}
 /// POSIX single-quoted form of `text`.
 pub fn shellQuote(alloc: std.mem.Allocator, text: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;

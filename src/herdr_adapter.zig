@@ -128,12 +128,7 @@ pub fn scan() !Scan {
 /// Local presence check only; connecting to sessions remains discovery-worker work.
 pub fn detected() bool {
     var buffer: [std.fs.max_path_bytes]u8 = undefined;
-    var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse "", ':');
-    while (dirs.next()) |dir| {
-        const path = std.fmt.bufPrintZ(&buffer, "{s}/herdr", .{if (dir.len == 0) "." else dir}) catch continue;
-        const stat = std.fs.cwd().statFile(path) catch continue;
-        if (stat.kind == .file and c.access(path, c.X_OK) == 0) return true;
-    }
+    if (os.findExecutable("herdr", &buffer) != null) return true;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const paths = socketCandidates(arena.allocator()) catch return false;

@@ -31,6 +31,8 @@ pub fn resolve(provider: Provider, cwd: ?[]const u8) ![]const u8 {
     defer finder.deinit();
 
     if (os.env("PATH")) |path| {
+        // Unlike os.PathSearch, relative entries count here: the agent runs
+        // in `cwd`, where the user's shell would resolve them the same way.
         var dirs = std.mem.splitScalar(u8, path, ':');
         while (dirs.next()) |dir| {
             const candidate = try std.fs.path.resolve(a, &.{ base, dir, command });
@@ -235,12 +237,8 @@ pub fn installed(provider: Provider) bool {
 }
 fn onPath(name: []const u8, self_real: []const u8) bool {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    var dirs = std.mem.splitScalar(u8, os.env("PATH") orelse return false, ':');
-    while (dirs.next()) |dir| {
-        if (!std.fs.path.isAbsolute(dir)) continue;
-        const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ dir, name }) catch continue;
-        if (executable(path, self_real)) return true;
-    }
+    var search: os.PathSearch = .init(os.env("PATH") orelse return false, name);
+    while (search.next(&buf)) |path| if (executable(path, self_real)) return true;
     return false;
 }
 fn executable(path: []const u8, self_real: []const u8) bool {
