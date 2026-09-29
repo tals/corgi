@@ -78,11 +78,12 @@ modules, so other files alias a nested one as `FooId`
 to the import alias rule.
 
 **Logging.**
-- Daemon modules use `const log = std.log.scoped(.module);`, and write
+- Modules use `const log = std.log.scoped(.module);`, and write
   `catch |err| log.warn("what failed: {}", .{err})`. Format errors with `{}`.
-- Viewer code (controller, render, sidebar, client, dialogs) never logs: its
-  stderr is the user's terminal. Neither does `corgi hook`, whose stderr the
-  provider may capture.
+- Only `serve` and `__handoff` turn logging on (`log_sink` in `main.zig`);
+  their stderr is server.log. Log calls elsewhere are dropped (unit tests
+  still print warnings, and a `log.err` fails the test), so shared modules
+  may log, but a warning the viewer or `corgi hook` raises is lost.
 - Best-effort cleanup stays `catch {}`: temp files, bells, `timedWait`,
   writes to a client that may be gone.
 - Anything in a periodic loop warns once per distinct failure, not every

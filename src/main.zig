@@ -25,6 +25,21 @@ fn restoreThenPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
     client.cleanup();
     std.debug.defaultPanic(msg, first_trace_addr);
 }
+/// Where std.log goes. Only the daemon turns it on: its stderr is server.log,
+/// while the viewer's, the CLI's and `corgi hook`'s is someone's terminal.
+var log_sink: enum { none, stderr } = .none;
+pub const std_options: std.Options = .{ .logFn = logFn };
+fn logFn(
+    comptime level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    switch (log_sink) {
+        .none => {},
+        .stderr => std.log.defaultLog(level, scope, format, args),
+    }
+}
 fn providerArg(name: []const u8) !agents.Provider {
     return std.meta.stringToEnum(agents.Provider, name) orelse error.BadProvider;
 }
@@ -139,6 +154,7 @@ fn run() !void {
     switch (command orelse return error.UnknownCommand) {
         .__handoff => {
             if (args.len != 4) return error.Usage;
+            log_sink = .stderr;
             handoff.importAndRun(path, exe, try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
         },
         .reload => {
@@ -147,6 +163,7 @@ fn run() !void {
         },
         .checkpoint => return request(path, .{ .op = "recovery.save", .protocol = 1 }),
         .serve => {
+            log_sink = .stderr;
             var server: Server = .{ .socket = path, .executable = exe };
             return server.run();
         },
