@@ -1,8 +1,8 @@
 //! Provider task identities are the unit of work, not individual OS processes.
 const std = @import("std");
-const common = @import("providers/common.zig");
-const clean = @import("agents.zig").clean;
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const common = @import("../providers/common.zig");
+const clean = @import("../agents.zig").clean;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 pub const capacity = 32;
 pub const Group = enum {
     tests,

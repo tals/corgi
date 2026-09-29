@@ -1,14 +1,14 @@
 //! Turn-scoped Codex tool evidence, fed by the existing incremental transcript
 //! reader. Historical records seed identities but never advance live progress.
 const std = @import("std");
-const agents = @import("agents.zig");
-const summary = @import("activity_summary.zig");
-const field = @import("usage.zig").field;
-const Claude = @import("providers/claude.zig").Claude;
-const Codex = @import("providers/codex.zig").Codex;
-const os = @import("os.zig");
+const agents = @import("../agents.zig");
+const summary = @import("summary.zig");
+const field = @import("../usage.zig").field;
+const Claude = @import("../providers/claude.zig").Claude;
+const Codex = @import("../providers/codex.zig").Codex;
+const os = @import("../os.zig");
 const a = os.allocator;
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 pub const View = struct {
     commentary: summary.Text = .{},
     running: usize = 0,

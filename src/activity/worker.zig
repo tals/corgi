@@ -1,23 +1,23 @@
 //! One bounded inference queue shared by providers. Observation and UI never
 //! wait for inference. Coalescing and cooldowns prevent unchanged polls billing.
 const std = @import("std");
-const conversations = @import("conversations.zig");
+const conversations = @import("../conversations.zig");
 const ActorId = conversations.Actor.Id;
-const clock = @import("clock.zig");
-const agents = @import("agents.zig");
-const summary = @import("activity_summary.zig");
-const backend = @import("summary_backend.zig");
-const links = @import("link_labels.zig");
-const setup = @import("inference.zig").setup;
-const os = @import("os.zig");
+const clock = @import("../clock.zig");
+const agents = @import("../agents.zig");
+const summary = @import("summary.zig");
+const backend = @import("../summary_backend.zig");
+const links = @import("../link_labels.zig");
+const setup = @import("../inference.zig").setup;
+const os = @import("../os.zig");
 const a = os.allocator;
-const layout = @import("layout.zig");
+const layout = @import("../layout.zig");
 const max = layout.max_panes;
 const max_slots = conversations.max_actors;
-const inference = @import("inference.zig");
-const live_usage = @import("live_usage.zig");
-const runtime = @import("runtime.zig");
-const activity_tools = @import("activity_tools.zig");
+const inference = @import("../inference.zig");
+const live_usage = @import("../live_usage.zig");
+const runtime = @import("../runtime.zig");
+const activity_tools = @import("tools.zig");
 /// Per-agent spacing between summaries.
 const cooldown_ms = 8000;
 /// A burst of tool calls is summarized once it has been quiet this long, and

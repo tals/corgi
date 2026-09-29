@@ -4,9 +4,9 @@
 //! Meters count from when Corgi began observing, so a missing reading means
 //! nothing was observed yet. Only a loss inside an interval makes it partial.
 const std = @import("std");
-const summary = @import("activity_summary.zig");
-const usage = @import("live_usage.zig");
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const summary = @import("summary.zig");
+const usage = @import("../live_usage.zig");
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 
 pub const Point = struct { at: i64, label: summary.Label, usage: usage.View };
 pub const Timeline = struct {

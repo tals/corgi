@@ -151,7 +151,7 @@ test "conversation checkpoint restores shared bindings and detached unread state
     const shared = try original.conversations.get(.claude, "shared");
     shared.workspace = workspace;
     shared.state.state = .blocked;
-    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("../activity_summary.zig").parseLabel("Explaining cursor visibility").?);
+    shared.status_inference.remember("prior-turn", "Explaining cursor visibility", @import("../activity.zig").summary.parseLabel("Explaining cursor visibility").?);
     shared.state.observation.finish(.completed, .hook);
     const detached = try original.conversations.get(.codex, "detached");
     detached.parent = shared.id;

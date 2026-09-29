@@ -1,6 +1,6 @@
 //! Shared production/eval contract for evidence-grounded activity labels.
 const std = @import("std");
-const summary = @import("activity_summary.zig");
+const summary = @import("summary.zig");
 pub const Context = summary.Conversation;
 pub const turnTag = summary.turnTag;
 /// `turn` is a `summary.turnTag`. `history` is recovery context for a newly

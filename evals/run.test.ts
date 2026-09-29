@@ -22,7 +22,7 @@ for (const scenario of plan) for (const step of scenario.steps) {
       expect(await proc.exited, await error).toBe(code);
       const report = JSON.parse(await readFile(join(out, "latest.json"), "utf8"));
       expect(report.metadata.fixture).toBe(true);
-      expect(report.metadata.hashes["src/activity_prompt.zig"]).toHaveLength(64);
+      expect(report.metadata.hashes["src/activity/prompt.zig"]).toHaveLength(64);
       expect(report.results).toHaveLength(1);
       expect(report.results[0].failures.length === 0).toBe(code === 0);
       expect(await readFile(join(out, "latest.md"), "utf8")).toContain(code === 0 ? "1/1" : "0/1");

@@ -1,8 +1,8 @@
 //! Provider-neutral, bounded evidence and validated display text. Providers
 //! supply evidence; inference backends never need to understand their protocols.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
-const BoundedText = @import("bounded_text.zig").BoundedText;
+const ActorId = @import("../conversations.zig").Actor.Id;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 pub const Text = BoundedText(2048);
 pub fn hash(t: *const Text) u64 {
     return std.hash.Wyhash.hash(0, t.text());

@@ -478,17 +478,12 @@ test {
     _ = @import("account_cache.zig");
     _ = @import("account_preview.zig");
     _ = @import("action.zig");
-    _ = @import("activity_prompt.zig");
-    _ = @import("activity_summary.zig");
-    _ = @import("activity_timeline.zig");
-    _ = @import("activity_tools.zig");
-    _ = @import("activity_worker.zig");
+    _ = @import("activity.zig");
     _ = @import("agent_drag.zig");
     _ = @import("agent_launcher.zig");
     _ = @import("agent_navigation.zig");
     _ = @import("agent_order.zig");
     _ = @import("agents.zig");
-    _ = @import("background_tasks.zig");
     _ = @import("base64.zig");
     _ = @import("bindings.zig");
     _ = @import("bounded_text.zig");
@@ -623,7 +618,7 @@ test "the daemon and the viewer never import each other" {
     });
     // Files that own daemon state, the daemon's workers and updater, and their tests.
     const core: std.StaticStringMap(void) = .initComptime(.{
-        .{"activity_worker.zig"},         .{"import/onboarding.zig"}, .{"peer.zig"},               .{"persist/checkpoint.zig"},
+        .{"activity/worker.zig"},         .{"import/onboarding.zig"}, .{"peer.zig"},               .{"persist/checkpoint.zig"},
         .{"persist/checkpoint_test.zig"}, .{"persist/handoff.zig"},   .{"persist/migrations.zig"}, .{"persist/recovery.zig"},
         .{"runtime.zig"},                 .{"server.zig"},            .{"session.zig"},            .{"updates.zig"},
         .{"viewer_protocol.zig"},
