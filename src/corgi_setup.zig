@@ -2,7 +2,7 @@
 //! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
 //! resource and sleeping corgi choices update viewer preferences.
 const std = @import("std");
-const setup = @import("inference_setup.zig");
+const setup = @import("inference.zig").setup;
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
 pub const Choice = enum {

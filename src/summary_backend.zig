@@ -1,10 +1,12 @@
-//! Activity-summary task over the shared persistent inference module.
+//! Activity-summary task over the shared persistent inference module. It
+//! stays beside main.zig: the eval driver roots a module here, and a module
+//! cannot import files above its root.
 const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
 const layout = @import("layout.zig");
 const inference = @import("inference.zig");
 pub const contract = @import("activity_prompt.zig");
-const setup = @import("inference_setup.zig");
+const setup = @import("inference.zig").setup;
 const os = @import("os.zig");
 const a = os.allocator;
 pub const Input = contract.Input;

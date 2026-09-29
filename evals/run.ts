@@ -63,7 +63,7 @@ async function main() {
   }
   const planPath = join(runDir, "plan.json");
   await writeFile(planPath, JSON.stringify(plan));
-  const tracked = ["evals/cases.json", "evals/driver.zig", "evals/score.ts", "evals/run.ts", "src/activity_prompt.zig", "src/activity_summary.zig", "src/summary_backend.zig", "src/inference.zig"];
+  const tracked = ["evals/cases.json", "evals/driver.zig", "evals/score.ts", "evals/run.ts", "src/activity_prompt.zig", "src/activity_summary.zig", "src/summary_backend.zig", "src/inference/harness.zig"];
   const hashes = Object.fromEntries(await Promise.all(tracked.map(async file => [file, createHash("sha256").update(await readFile(join(root, file))).digest("hex")])));
   const binaryHash = createHash("sha256").update(await readFile(driver)).digest("hex");
   const git = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: root, stdout: "pipe", stderr: "ignore" });

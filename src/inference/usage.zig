@@ -1,10 +1,10 @@
 //! Usage from Corgi's own fresh, tool-free inference conversations.
 const std = @import("std");
-const live = @import("live_usage.zig");
-const common = @import("providers/common.zig");
-const Claude = @import("providers/claude.zig").Claude;
-const Codex = @import("providers/codex.zig").Codex;
-const a = @import("os.zig").allocator;
+const live = @import("../live_usage.zig");
+const common = @import("../providers/common.zig");
+const Claude = @import("../providers/claude.zig").Claude;
+const Codex = @import("../providers/codex.zig").Codex;
+const a = @import("../os.zig").allocator;
 const log = std.log.scoped(.system_usage);
 pub const System = struct {
     meter: live.Meter = .{ .value = .{ .known = true } },

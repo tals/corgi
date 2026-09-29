@@ -517,8 +517,6 @@ test {
     _ = @import("hyperlinks.zig");
     _ = @import("import.zig");
     _ = @import("inference.zig");
-    _ = @import("inference_setup.zig");
-    _ = @import("inference_usage.zig");
     _ = @import("integration.zig");
     _ = @import("json.zig");
     _ = @import("keyboard.zig");

@@ -3,11 +3,11 @@
 //! stops re-evaluating once a harness has answered. The setup screen's choice
 //! is saved beside workspace state and wins over the environment default.
 const std = @import("std");
-const os = @import("os.zig");
-const inference = @import("inference.zig");
+const os = @import("../os.zig");
+const inference = @import("harness.zig");
 const a = os.allocator;
-const providers = @import("providers.zig");
-const workspace = @import("workspace.zig");
+const providers = @import("../providers.zig");
+const workspace = @import("../workspace.zig");
 pub const Choice = inference.Choice;
 pub const Provider = providers.Provider;
 

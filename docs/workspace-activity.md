@@ -142,7 +142,7 @@ optionally selects the native harness executable; otherwise the normal
 honored. Environment settings take effect when the server starts; a reload
 preserves the existing server environment, and launch counts restart.
 
-The shared `src/inference.zig` module accepts instructions, bounded content, an
+The shared `src/inference/harness.zig` module accepts instructions, bounded content, an
 optional JSON Schema, an optional conversation key, and optional content to send
 instead when the request creates that conversation. It returns bounded UTF-8
 text (JSON for schema requests), whether the conversation was new, and the
