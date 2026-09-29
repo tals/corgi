@@ -487,17 +487,22 @@ pub const View = struct {
         try w.writeAll("\x1b[0m");
     }
     /// The small glyph beside an agent's detail line: a wait clock, an active
-    /// tool, the thinking spinner, or a napping "z" once idle.
-    fn activityGlyph(e: Entry, waiting: bool, napping: bool, thinking: []const u8) []const u8 {
+    /// tool, the working spinner, or a napping "z" once idle.
+    fn activityGlyph(e: Entry, waiting: bool, napping: bool, spinner: []const u8) []const u8 {
         if (waiting) return "◷";
         if (e.tool_active and (e.state == .working or e.state == .blocked)) return "🔧";
-        if (e.state == .working) return thinking;
+        if (e.state == .working) return spinner;
         if (napping) return "ᶻ";
         return "";
     }
+    /// The thinking swirl, or dots that pile up and squash flat while compacting.
+    fn spinnerFrame(compacting: bool, now_ms: i64) []const u8 {
+        const thinking = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+        const pile = [_][]const u8{ "⣀", "⣁", "⣂", "⣄", "⣌", "⣔", "⣤", "⣥", "⣦", "⣮", "⣶", "⣷", "⣿", "⣿", "⣿", "⣶", "⣤", "⣀", "⣀" };
+        if (compacting) return pile[@intCast(@mod(@divFloor(now_ms, 75), pile.len))];
+        return thinking[@intCast(@mod(@divFloor(now_ms, 80), thinking.len))];
+    }
     fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64, dream: ?corgi_animation.Dream) !void {
-        const thinking_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-        const frame_index: usize = @intCast(@mod(@divFloor(now_ms, 80), thinking_frames.len));
         // Grouped rows select with the active workspace's tint; the rail stays unbroken.
         const row_bg: [3]u8 = if (ghost) .{ 44, 54, 67 } else if (!e.focused) .{ 24, 27, 32 } else if (grouped) .{ 34, 44, 58 } else .{ 35, 40, 47 };
         var bg_buf: [24]u8 = undefined;
@@ -530,7 +535,7 @@ pub const View = struct {
         const waiting = e.state == .working and e.subagents.waiting and !compacting;
         // Without sleeping corgis, a faint Z marks an idle agent; unseen ones are brighter.
         const napping = e.state == .idle and !v.sleeping_corgis;
-        const activity = activityGlyph(e, waiting, napping, thinking_frames[frame_index]);
+        const activity = activityGlyph(e, waiting, napping, spinnerFrame(compacting, now_ms));
         const activity_color = if (!napping) "\x1b[22;38;2;125;132;143m" else if (e.attention == .finished) "\x1b[22;38;2;108;112;134m" else "\x1b[22;38;2;70;74;88m";
         var name: [160]u8 = undefined;
         const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
@@ -569,7 +574,9 @@ pub const View = struct {
         const detail_room = room -| (badge_width + @as(usize, if (badge_width > 0) 1 else 0));
         const animation_key = animationKey(e);
         const fallback = e.state == .working and !compacting and !waiting and e.activity.len == 0;
-        const mode: corgi_animation.Mode = if (fallback) .awake else if (e.state == .idle and v.sleeping_corgis) .asleep else .content;
+        // Narrow rows keep the text; the pile beside it still moves.
+        const herding = compacting and detail_room >= corgi_animation.herd_width;
+        const mode: corgi_animation.Mode = if (herding) .herding else if (fallback) .awake else if (e.state == .idle and v.sleeping_corgis) .asleep else .content;
         const presentation = corgi_animation.observe(animation_key, mode, now_ms);
         // Unseen and focused naps stay bright; only the list's dreamer puffs.
         const sleep: corgi_animation.Sleep = .{
@@ -577,7 +584,9 @@ pub const View = struct {
             .bright = e.focused or e.attention == .finished,
             .puff_ms = if (dream) |d| (if (d.key == animation_key) d.puff_ms else null) else null,
         };
-        if (mode != .content) {
+        if (mode == .herding) {
+            try presentation.?.writeHerding(w, detail_room, now_ms);
+        } else if (mode != .content) {
             try presentation.?.writeCorgi(w, detail_room, e.state == .working, sleep);
         } else {
             // Lifecycle signals (blocked/ended/etc.) must be immediate.
@@ -1200,14 +1209,31 @@ test "unread label and arrow share their hit area across sidebar widths" {
     try std.testing.expect(!view.unreadHit(ws, @intCast(view.unreadRange(ws).start), 3));
 }
 
-test "compaction occupies the second agent row ahead of waiting and summaries" {
+test "compaction herds on the second agent row ahead of waiting and summaries" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const entry: Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .name = "Agent title", .provider = .codex, .state = .working, .attention = .none, .compacting = true, .activity = "Old summary", .subagents = .{ .waiting = true } };
-    try View.init(100, 30, true, 0, 1).draw(&output.writer, &.{entry}, &.{});
+    const view = View.init(100, 30, true, 0, 1);
+    try view.drawAt(&output.writer, &.{}, &.{}, 0); // Forget herds from earlier draws.
+    // The herd starts scattered beside the pile; the corgi pushes it together
+    // and curls into the ellipsis, which stays.
+    for ([_]i64{ 1000, 1000 + 12 * 110, 1000 + 29 * 110, 60_000 }, [_][]const u8{ "⣿  C o  mp  a ct  i n  g", "Compacting‹o[/\\]~", "Compacting… ", "Compacting… " }) |now, row| {
+        output.clearRetainingCapacity();
+        try view.drawAt(&output.writer, &.{entry}, &.{}, now);
+        const host = try terminal.Terminal.create(100, 30);
+        defer host.destroy();
+        host.feed(output.written());
+        const text = try host.text();
+        defer a.free(text);
+        try std.testing.expect(std.mem.indexOf(u8, text, row) != null);
+        try std.testing.expect(std.mem.indexOf(u8, text, "Old summary") == null);
+        try std.testing.expect(std.mem.indexOf(u8, text, "Waiting on agents") == null);
+    }
+    // Too narrow to herd: the text stays, and the pile still moves.
+    output.clearRetainingCapacity();
+    try view.withWidth(23).drawAt(&output.writer, &.{entry}, &.{}, 1000);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[18;5H\x1b[38;2;226;230;233mCompacting…") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Old summary") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Waiting on agents") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "⣿") != null);
 }
 
 // OSC 8 belongs to the outer terminal: its usual link gesture opens the URL.

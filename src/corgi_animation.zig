@@ -78,6 +78,100 @@ fn wagTail(step: usize) []const u8 {
     return ([_][]const u8{ "~", "-", "~", "^" })[step % 4];
 }
 
+// Once per compaction, the corgi herds the scattered letters of the word
+// together, sits, and curls up into the ellipsis after it.
+pub const herd_width = 18;
+const herd_step_ms = 110;
+const herd_sit_steps = 10;
+const herd_word = "Compacting";
+const walk_left = [_][]const u8{ "‹o[/\\]~", "‹o[||]~", "‹o[\\/]~", "‹o[||]~" };
+const word_bright = [3]u8{ 226, 230, 233 };
+const word_dim = [3]u8{ 125, 132, 143 };
+const awake_yellow = [3]u8{ 249, 226, 175 };
+/// Tail tucked, ears folded, rolled into "…": each pose's column after the
+/// word, and how far it has turned from corgi yellow to the word's white.
+const curl = [_]struct { after: usize, pose: []const u8, white: f64 }{
+    .{ .after = 2, .pose = "ᐯ◡ᴥ◡ᐯ", .white = 0 },
+    .{ .after = 2, .pose = "ᐯ◡ᴥ◡ᐯ", .white = 0 },
+    .{ .after = 3, .pose = "◡ᴥ◡", .white = 0 },
+    .{ .after = 2, .pose = "•ᴥ•", .white = 0.1 },
+    .{ .after = 1, .pose = "•.•", .white = 0.4 },
+    .{ .after = 0, .pose = "...", .white = 0.7 },
+    .{ .after = 0, .pose = "…", .white = 1 },
+};
+
+const HerdScene = struct {
+    letters: [herd_word.len]usize,
+    /// Settled letters, and those being pushed, are bright.
+    lit: [herd_word.len]bool,
+    dog: []const u8,
+    x: usize,
+    tone: [3]u8 = awake_yellow,
+};
+/// Where each letter rests while scattered. The gaps sum to 10, so the last
+/// letter stops one cell short of the edge.
+fn herdSpread(width: usize) [herd_word.len]usize {
+    const gaps = [_]usize{ 1, 2, 0, 2, 1, 0, 2, 1, 1 };
+    var spread: [herd_word.len]usize = undefined;
+    spread[0] = 0;
+    var sum: usize = 0;
+    for (gaps, 1..) |gap, i| {
+        sum += gap;
+        spread[i] = i + sum * (width - herd_word.len - 1) / 10;
+    }
+    return spread;
+}
+fn herdScene(width: usize, step: usize) HerdScene {
+    std.debug.assert(width >= herd_width);
+    const last = herd_word.len - 1;
+    const spread = herdSpread(width);
+    // The nose enters from past the edge and stops just after the word.
+    const roundup = width - last;
+    if (step < roundup) {
+        const nose = width - step;
+        var scene: HerdScene = .{ .letters = spread, .lit = undefined, .dog = walk_left[step % 4], .x = nose };
+        scene.letters[last] = @min(spread[last], nose - 1);
+        var i: usize = last;
+        while (i > 0) : (i -= 1) scene.letters[i - 1] = @min(spread[i - 1], scene.letters[i] - 1);
+        for (&scene.lit, scene.letters, spread, 0..) |*lit, at, rest, n| lit.* = at == n or at < rest;
+        return scene;
+    }
+    var scene: HerdScene = .{ .letters = undefined, .lit = @splat(true), .dog = "~ᐯ•ᴥ•ᐯ", .x = herd_word.len + 1 };
+    for (&scene.letters, 0..) |*letter, i| letter.* = i;
+    const p = step - roundup;
+    if (p == 6) scene.dog = "~ᐯ◡ᴥ◡ᐯ";
+    if (p >= herd_sit_steps) {
+        const pose = curl[@min(p - herd_sit_steps, curl.len - 1)];
+        scene.dog = pose.pose;
+        scene.x = herd_word.len + pose.after;
+        scene.tone = blend(awake_yellow, word_bright, pose.white);
+    }
+    return scene;
+}
+fn writeHerd(out: *std.Io.Writer, width: usize, step: usize) !void {
+    const scene = herdScene(width, step);
+    var dog = (std.unicode.Utf8View.init(scene.dog) catch unreachable).iterator();
+    var letter: usize = 0;
+    var color: ?[3]u8 = null;
+    for (0..width) |col| {
+        if (col >= scene.x) if (dog.nextCodepointSlice()) |glyph| {
+            try tint(out, &color, scene.tone);
+            try out.writeAll(if (std.mem.eql(u8, glyph, "~")) wagTail(step / 2) else glyph);
+            continue;
+        };
+        if (letter < herd_word.len and scene.letters[letter] == col) {
+            try tint(out, &color, if (scene.lit[letter]) word_bright else word_dim);
+            try out.writeByte(herd_word[letter]);
+            letter += 1;
+        } else try out.writeByte(' ');
+    }
+}
+fn tint(out: *std.Io.Writer, current: *?[3]u8, color: [3]u8) !void {
+    if (current.*) |shown| if (std.mem.eql(u8, &shown, &color)) return;
+    current.* = color;
+    try writeColor(out, color);
+}
+
 pub const Routine = enum { idle, sniff, fetch };
 
 pub const Playback = struct {
@@ -147,7 +241,7 @@ fn writeFrame(out: *std.Io.Writer, room: usize, frame: []const u8) !void {
     for (0..room) |_| try out.writeAll(glyphs.nextCodepointSlice() orelse break);
 }
 
-pub const Mode = enum { awake, asleep, content };
+pub const Mode = enum { awake, asleep, herding, content };
 
 /// Keeps the last corgi pose underneath a content reveal. Content changes during
 /// a reveal update its top layer without restarting the wipe.
@@ -157,10 +251,16 @@ pub const Presentation = struct {
     mode: Mode = .content,
     last_corgi: ?struct { mode: Mode, at_ms: i64 } = null,
     reveal_started_ms: ?i64 = null,
+    herd_started_ms: i64 = 0,
 
     pub fn update(self: *Presentation, mode: Mode, now_ms: i64) void {
         self.playback.update(mode == .awake, now_ms);
-        if (mode != .content) {
+        if (mode == .herding) {
+            // Each compaction starts from scattered letters; its end reveals nothing.
+            if (self.mode != .herding) self.herd_started_ms = now_ms;
+            self.last_corgi = null;
+            self.reveal_started_ms = null;
+        } else if (mode != .content) {
             self.last_corgi = .{ .mode = mode, .at_ms = now_ms };
             self.reveal_started_ms = null;
         } else if (self.mode == .asleep) {
@@ -195,6 +295,11 @@ pub const Presentation = struct {
 
     pub fn revealedColumns(self: Presentation, room: usize, now_ms: i64) usize {
         return @min(room, @as(usize, @intFromFloat(self.revealPosition(room, now_ms))));
+    }
+
+    pub fn writeHerding(self: Presentation, out: *std.Io.Writer, room: usize, now_ms: i64) !void {
+        const elapsed: usize = @intCast(@max(now_ms - self.herd_started_ms, 0));
+        try writeHerd(out, room, elapsed / herd_step_ms);
     }
 
     pub fn writeCorgi(self: Presentation, out: *std.Io.Writer, room: usize, working: bool, sleep: Sleep) !void {
@@ -473,6 +578,81 @@ test "half-cell fetch spans the full row without overlap or overflow" {
         }
         try std.testing.expect(reached_edge);
     }
+}
+
+test "the corgi herds the word together, sits, and curls into the ellipsis" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer plain.deinit();
+    const expected = [_]struct { usize, []const u8 }{
+        .{ 0, "C o  mp  a ct  i n  g " },
+        .{ 7, "C o  mp  acting‹o[||]^" },
+        .{ 12, "Compacting‹o[/\\]~     " },
+        .{ 19, "Compacting -ᐯ◡ᴥ◡ᐯ     " },
+        .{ 23, "Compacting  ᐯ◡ᴥ◡ᐯ     " },
+        .{ 25, "Compacting   ◡ᴥ◡      " },
+        .{ 27, "Compacting •.•        " },
+        .{ 29, "Compacting…           " },
+        .{ 1000, "Compacting…           " },
+    };
+    for (expected) |frame| {
+        output.clearRetainingCapacity();
+        try writeHerd(&output.writer, 22, frame[0]);
+        try std.testing.expectEqualStrings(frame[1], try withoutColors(&plain, output.written()));
+    }
+    // Scattered letters are dim; the pushed ones light up.
+    output.clearRetainingCapacity();
+    try writeHerd(&output.writer, 22, 7);
+    try std.testing.expect(std.mem.startsWith(u8, output.written(), "\x1b[38;2;226;230;233mC \x1b[38;2;125;132;143mo  mp  a\x1b[38;2;226;230;233mcting\x1b[38;2;249;226;175m‹o"));
+    // The curl turns from corgi yellow to the word's white.
+    output.clearRetainingCapacity();
+    try writeHerd(&output.writer, 22, 27);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;240;228;198m•.•") != null);
+    output.clearRetainingCapacity();
+    try writeHerd(&output.writer, 22, 29);
+    try std.testing.expectEqualStrings("\x1b[38;2;226;230;233mCompacting…" ++ " " ** 11, output.written());
+}
+
+test "herding fits every width with letters in order and clear of the corgi" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    for ([_]usize{ herd_width, 19, 22, 40, 80, 294 }) |width| {
+        var packed_word = false;
+        var scattered = false;
+        for (0..width + herd_sit_steps + curl.len) |step| {
+            const scene = herdScene(width, step);
+            const dog_width = try std.unicode.utf8CountCodepoints(scene.dog);
+            for (scene.letters, 0..) |at, i| {
+                if (i > 0) try std.testing.expect(at > scene.letters[i - 1]);
+                try std.testing.expect(at < scene.x or at >= scene.x + dog_width);
+            }
+            try std.testing.expect(scene.letters[herd_word.len - 1] <= width - 2);
+            packed_word = packed_word or scene.letters[herd_word.len - 1] == herd_word.len - 1;
+            scattered = scattered or scene.letters[herd_word.len - 1] == width - 2;
+            output.clearRetainingCapacity();
+            try writeHerd(&output.writer, width, step);
+            var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
+            defer plain.deinit();
+            try std.testing.expectEqual(width, try std.unicode.utf8CountCodepoints(try withoutColors(&plain, output.written())));
+        }
+        try std.testing.expect(packed_word and scattered);
+        try std.testing.expect(std.mem.startsWith(u8, output.written(), "\x1b[38;2;226;230;233mCompacting…"));
+    }
+}
+
+test "each compaction herds from the start and ends without a reveal" {
+    var presentation: Presentation = .{};
+    presentation.update(.awake, 0);
+    presentation.update(.herding, 100);
+    try std.testing.expectEqual(@as(i64, 100), presentation.herd_started_ms);
+    try std.testing.expect(presentation.last_corgi == null);
+    presentation.update(.herding, 500);
+    try std.testing.expectEqual(@as(i64, 100), presentation.herd_started_ms);
+    presentation.update(.content, 600);
+    try std.testing.expect(presentation.reveal_started_ms == null);
+    presentation.update(.herding, 700);
+    try std.testing.expectEqual(@as(i64, 700), presentation.herd_started_ms);
 }
 
 test "a puff starts lit, fades as it rises, and seen sleepers are dim" {
