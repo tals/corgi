@@ -42,6 +42,7 @@ pub const Codex = struct {
         .account_home = ".codex",
         .credential_env = &.{"OPENAI_API_KEY"},
         .endpoint_env = &.{"OPENAI_BASE_URL"},
+        .provider_env = &.{},
         .profile_flags = &.{ "--profile", "-p" },
         .settings_flags = &.{ "--settings", "-c", "--config" },
         .yolo_flag = "--dangerously-bypass-approvals-and-sandbox",

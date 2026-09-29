@@ -14,6 +14,7 @@ const Path = @import("bounded_text.zig").Path;
 const metadata = @import("account_preview.zig");
 const account_cache = @import("account_cache.zig");
 const limit_history = @import("limit_history.zig");
+const launch_command = @import("launch_command.zig");
 const log = std.log.scoped(.launch_preview);
 pub const Text = metadata.Text;
 pub const Option = struct {
@@ -197,29 +198,9 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     // prompt-capable Keychain read outside our helper's interaction guard.
     var info: metadata.Info = .{};
     info.usage_error = .ascii("credentials unavailable");
-    if (os.env("ANTHROPIC_API_KEY") != null or os.env("ANTHROPIC_AUTH_TOKEN") != null) {
-        info.signed_in = true;
-        info.account = .ascii("API key");
-        info.plan = .ascii("API");
-        info.limits = .metered;
-        info.usage_error = .{};
-        return info;
-    }
-    if (os.env("CLAUDE_CODE_OAUTH_TOKEN") != null) {
-        info.signed_in = true;
-        info.account = .ascii("OAuth token");
-        info.usage_error = .ascii("token usage unsupported");
-        return info;
-    }
-    for ([_][:0]const u8{ "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY" }) |name| {
-        if (std.mem.eql(u8, os.env(name) orelse "", "1")) {
-            info.signed_in = true;
-            info.account = .ascii("External provider");
-            info.limits = .metered;
-            info.usage_error = .{};
-            return info;
-        }
-    }
+    var env = std.process.getEnvMap(a) catch return info;
+    defer env.deinit();
+    if (claudeEnvAccount(&env)) |selected| return selected;
     const executable = std.fs.selfExePathAlloc(a) catch return info;
     defer a.free(executable);
     const response_bytes = command(&.{ executable, "__claude-credentials", if (request_access) "interactive" else "silent" }, cwd, null, stopping, if (request_access) 120000 else 3000) orelse {
@@ -380,6 +361,28 @@ fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stoppi
     }
     return null;
 }
+/// The account Claude's variables in `env` select over the default login,
+/// read as a launch command's prefix would read them.
+fn claudeEnvAccount(env: *const std.process.EnvMap) ?metadata.Info {
+    var found: std.EnumSet(common.EnvOverride) = .initEmpty();
+    var entries = env.iterator();
+    while (entries.next()) |entry| {
+        if (providers.Claude.info.envOverride(entry.key_ptr.*, entry.value_ptr.*)) |override| found.insert(override);
+    }
+    var info: metadata.Info = .{ .signed_in = true };
+    if (found.contains(.credential)) {
+        info.account = .ascii("API key");
+        info.plan = .ascii("API");
+        info.limits = .metered;
+    } else if (found.contains(.oauth)) {
+        info.account = .ascii("OAuth token");
+        info.usage_error = .ascii("token usage unsupported");
+    } else if (found.contains(.endpoint)) {
+        info.account = .ascii("External provider");
+        info.limits = .metered;
+    } else return null;
+    return info;
+}
 fn claudeModel(cwd: []const u8) Option {
     var result: Option = .{};
     result.source = .ascii("Account default / provider selection");
@@ -425,17 +428,42 @@ test "launch preview settings overlay" {
     try std.testing.expectEqualStrings("opus", result.model.text());
 }
 
-test "account preview shows identities or auth mode and never credential fields" {
-    const account = parseAccount("{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"email\":\"person@example.com\",\"apiKey\":\"secret\"}");
-    try std.testing.expectEqualStrings("person@example.com", account.text());
-    const key = parseAccount("{\"loggedIn\":true,\"authMethod\":\"api_key\",\"apiKey\":\"secret\"}");
-    try std.testing.expectEqualStrings("API key", key.text());
-    const logged_out = parseAccount("{\"loggedIn\":false,\"email\":\"stale@example.com\"}");
-    try std.testing.expectEqualStrings("Not signed in", logged_out.text());
-}
-
-fn parseAccount(bytes: []const u8) Text {
-    const parsed = std.json.parseFromSlice(std.json.Value, a, bytes, .{}) catch return .{};
-    defer parsed.deinit();
-    return metadata.claudeAccount(parsed.value).account;
+test "Claude's account follows the variables a launch command would name" {
+    const cases = [_]struct { name: []const u8, value: []const u8, account: ?[]const u8 }{
+        .{ .name = "TERM", .value = "xterm", .account = null },
+        .{ .name = "ANTHROPIC_BASE_URL", .value = "https://proxy.example", .account = "External provider" },
+        .{ .name = "ANTHROPIC_BASE_URL", .value = "", .account = null },
+        .{ .name = "CLAUDE_CODE_USE_BEDROCK", .value = "1", .account = "External provider" },
+        .{ .name = "CLAUDE_CODE_USE_VERTEX", .value = " True ", .account = "External provider" },
+        .{ .name = "CLAUDE_CODE_USE_BEDROCK", .value = "0", .account = null },
+        .{ .name = "CLAUDE_CODE_USE_BEDROCK", .value = "", .account = null },
+        .{ .name = "CLAUDE_CODE_USE_POWERSHELL_TOOL", .value = "1", .account = null },
+        .{ .name = "ANTHROPIC_API_KEY", .value = "key", .account = "API key" },
+        .{ .name = "ANTHROPIC_API_KEY", .value = "", .account = null },
+        .{ .name = "CLAUDE_CODE_OAUTH_TOKEN", .value = "token", .account = "OAuth token" },
+        .{ .name = "CLAUDE_CODE_OAUTH_TOKEN", .value = "", .account = null },
+    };
+    for (cases) |case| {
+        var env = std.process.EnvMap.init(std.testing.allocator);
+        defer env.deinit();
+        try env.put(case.name, case.value);
+        const source = try std.fmt.allocPrint(std.testing.allocator, "{s}='{s}' claude", .{ case.name, case.value });
+        defer std.testing.allocator.free(source);
+        const analyzed = launch_command.analyze(source, "/tmp");
+        if (case.account) |account| {
+            try std.testing.expectEqualStrings(account, claudeEnvAccount(&env).?.account.text());
+            try std.testing.expect(!analyzed.default_account);
+        } else {
+            try std.testing.expect(claudeEnvAccount(&env) == null);
+            try std.testing.expect(analyzed.default_account);
+        }
+    }
+    // A credential outranks an OAuth token, which outranks an endpoint.
+    var env = std.process.EnvMap.init(std.testing.allocator);
+    defer env.deinit();
+    try env.put("CLAUDE_CODE_USE_BEDROCK", "yes");
+    try env.put("CLAUDE_CODE_OAUTH_TOKEN", "token");
+    try std.testing.expectEqualStrings("OAuth token", claudeEnvAccount(&env).?.account.text());
+    try env.put("ANTHROPIC_API_KEY", "key");
+    try std.testing.expect(claudeEnvAccount(&env).?.limits == .metered);
 }

@@ -296,15 +296,17 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.run_cli("shutdown");
     await this.until(() => !existsSync(this.path));
     unlinkSync(join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"));
-    for (const key of [
-      "ANTHROPIC_API_KEY",
-      "ANTHROPIC_AUTH_TOKEN",
-      "CLAUDE_CODE_OAUTH_TOKEN",
-      "CLAUDE_CODE_USE_BEDROCK",
-      "CLAUDE_CODE_USE_VERTEX",
-      "CLAUDE_CODE_USE_FOUNDRY",
-    ])
-      delete this.env[key];
+    for (const key of Object.keys(this.env))
+      if (
+        key.startsWith("CLAUDE_CODE_USE_") ||
+        [
+          "ANTHROPIC_API_KEY",
+          "ANTHROPIC_AUTH_TOKEN",
+          "CLAUDE_CODE_OAUTH_TOKEN",
+          "ANTHROPIC_BASE_URL",
+        ].includes(key)
+      )
+        delete this.env[key];
     await this.run_cli("start");
     const ws = (await this.session()).workspaces[0].id;
     const preview = async () =>

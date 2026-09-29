@@ -431,18 +431,22 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
                     config_len = value.len;
                     @memcpy(config[0..config_len], value);
                     info.default_account = false;
-                } else if (envMatches(key, known.credential_env)) {
-                    credential_override = true;
+                } else if (known.envOverride(key, value)) |override| {
                     info.default_account = false;
-                    info.account = .ascii(if (value.len > 0) "API key - identity unavailable" else "Credential cleared - identity unknown");
-                } else if (known.oauth_env != null and std.mem.eql(u8, key, known.oauth_env.?)) {
-                    credential_override = true;
-                    info.default_account = false;
-                    info.account = .ascii("Explicit OAuth token - identity unknown");
-                } else if (envMatches(key, known.endpoint_env)) {
-                    settings_override = true;
-                    info.default_account = false;
-                    info.account = .ascii("External endpoint/provider - identity unknown");
+                    switch (override) {
+                        .credential => {
+                            credential_override = true;
+                            info.account = .ascii("API key - identity unavailable");
+                        },
+                        .oauth => {
+                            credential_override = true;
+                            info.account = .ascii("Explicit OAuth token - identity unknown");
+                        },
+                        .endpoint => {
+                            settings_override = true;
+                            info.account = .ascii("External endpoint/provider - identity unknown");
+                        },
+                    }
                 } else if (known.model_env != null and std.mem.eql(u8, key, known.model_env.?)) info.model = .ascii(value);
             }
             continue;
@@ -502,15 +506,6 @@ fn option(word: []const u8, names: []const []const u8) enum { none, separate, in
         if (std.mem.startsWith(u8, word, flag) and word.len > flag.len and word[flag.len] == '=') return .inline_value;
     }
     return .none;
-}
-/// Exact names, or `PREFIX_*` patterns.
-fn envMatches(key: []const u8, names: []const []const u8) bool {
-    for (names) |name| {
-        if (std.mem.endsWith(u8, name, "*")) {
-            if (std.mem.startsWith(u8, key, name[0 .. name.len - 1])) return true;
-        } else if (std.mem.eql(u8, key, name)) return true;
-    }
-    return false;
 }
 fn readIdentity(info: *Semantics, root: []const u8) void {
     const provider = info.provider orelse return;

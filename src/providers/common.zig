@@ -76,9 +76,10 @@ pub const Info = struct {
     credential_env: []const []const u8,
     /// Environment variable holding an explicit OAuth token.
     oauth_env: ?[]const u8 = null,
-    /// Environment variables (or `PREFIX_*` patterns) that change the endpoint
-    /// or backing provider.
+    /// Environment variables naming another endpoint.
     endpoint_env: []const []const u8,
+    /// Environment switches that select another backing provider when true.
+    provider_env: []const []const u8,
     /// Environment variable selecting the model.
     model_env: ?[]const u8 = null,
     /// Flags selecting a named profile (taking a value) or custom settings.
@@ -107,7 +108,24 @@ pub const Info = struct {
         if (ref != .id or !ref.valid()) return error.InvalidSessionRef;
         return .{ info.resume_args[0], info.resume_args[1], ref.id };
     }
+    /// What `name=value` in the agent's environment replaces, read as the
+    /// agent reads it: an empty value is unset, and a switch counts when true.
+    pub fn envOverride(info: *const Info, name: []const u8, value: []const u8) ?EnvOverride {
+        if (value.len == 0) return null;
+        for (info.credential_env) |known| if (std.mem.eql(u8, name, known)) return .credential;
+        if (info.oauth_env) |known| if (std.mem.eql(u8, name, known)) return .oauth;
+        for (info.endpoint_env) |known| if (std.mem.eql(u8, name, known)) return .endpoint;
+        for (info.provider_env) |known| if (std.mem.eql(u8, name, known)) {
+            return if (switch_on.has(std.mem.trim(u8, value, &std.ascii.whitespace))) .endpoint else null;
+        };
+        return null;
+    }
 };
+
+/// What an agent's environment variable replaces in its default account.
+pub const EnvOverride = enum { credential, oauth, endpoint };
+/// Values that turn an environment switch on, in any case.
+const switch_on = std.StaticStringMapWithEql(void, std.static_string_map.eqlAsciiIgnoreCase).initComptime(.{ .{"1"}, .{"true"}, .{"yes"}, .{"on"} });
 
 /// Where a provider's rate-limit response keeps its two usage windows.
 pub const LimitsFormat = struct {
