@@ -133,9 +133,11 @@ class LinkLabels extends Runtime {
     this.assertEqual(colors(final), []);
   }
   async test_inflight_result_and_cached_name_survive_reload_without_rebilling() {
+    // A settle waits up to 2 s for the activity worker, so the inference has
+    // to outlast it by a margin for `label_pending` to be visible.
     writeFileSync(
       this.control,
-      JSON.stringify({ label: "Finance", delay: 2.5 }),
+      JSON.stringify({ label: "Finance", delay: 5 }),
     );
     await this.start_server();
     await this.untilAdvancing(3, () => existsSync(this.log));
