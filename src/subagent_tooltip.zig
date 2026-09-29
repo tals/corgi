@@ -4,15 +4,15 @@ const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
 const protocol = @import("protocol.zig");
 const sidebar = @import("sidebar.zig");
-const usage = @import("live_usage.zig");
+const usage = @import("usage.zig").live;
 const max = @import("conversations.zig").max_actors;
 const time_c = @cImport(@cInclude("time.h"));
 const background = @import("activity.zig").background_tasks;
-const prices = @import("model_prices.zig");
+const prices = @import("usage.zig").prices;
 const agents = @import("agents.zig");
 const launch_preview = @import("launch_preview.zig");
-const metadata = @import("account_preview.zig");
-const limit_history = @import("limit_history.zig");
+const metadata = @import("usage.zig").account;
+const limit_history = @import("usage.zig").limits;
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
 /// How long an observation counts as current: 10 s, plus up to one bucket
 /// by which the snapshot rounds its stamps down.

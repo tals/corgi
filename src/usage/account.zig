@@ -1,10 +1,10 @@
 //! Public account metadata only. Credentials never enter the preview protocol.
 const std = @import("std");
-const common = @import("providers/common.zig");
+const common = @import("../providers/common.zig");
 const field = common.field;
 const str = common.str;
-const Provider = @import("providers.zig").Provider;
-const agents = @import("agents.zig");
+const Provider = @import("../providers.zig").Provider;
+const agents = @import("../agents.zig");
 pub const Text = agents.Text;
 pub const usage_max_age: i64 = 10 * 60;
 pub const Info = struct {

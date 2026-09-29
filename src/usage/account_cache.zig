@@ -1,9 +1,9 @@
 //! Account-scoped preview cache and request gate, shared by daemon processes.
 //! Only public display metadata and deadlines are persisted, never credentials.
 const std = @import("std");
-const os = @import("os.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
-const metadata = @import("account_preview.zig");
+const metadata = @import("account.zig");
 const log = std.log.scoped(.account_cache);
 pub const interval: i64 = 60;
 pub const cooldown: i64 = 5 * 60;

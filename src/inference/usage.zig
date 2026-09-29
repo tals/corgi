@@ -1,6 +1,6 @@
 //! Usage from Corgi's own fresh, tool-free inference conversations.
 const std = @import("std");
-const live = @import("../live_usage.zig");
+const live = @import("../usage.zig").live;
 const common = @import("../providers/common.zig");
 const Claude = @import("../providers/claude.zig").Claude;
 const Codex = @import("../providers/codex.zig").Codex;

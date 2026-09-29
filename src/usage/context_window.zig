@@ -2,12 +2,12 @@
 //! Unlike usage meters this is a level, not a counter: reopening a transcript
 //! reads it again from the tail, so it survives reloads without being saved.
 const std = @import("std");
-const agents = @import("agents.zig");
-const field = @import("usage.zig").field;
-const common = @import("providers/common.zig");
-const Claude = @import("providers/claude.zig").Claude;
-const Codex = @import("providers/codex.zig").Codex;
-const Name = @import("codex_files.zig").Name;
+const agents = @import("../agents.zig");
+const field = @import("tokens.zig").field;
+const common = @import("../providers/common.zig");
+const Claude = @import("../providers/claude.zig").Claude;
+const Codex = @import("../providers/codex.zig").Codex;
+const Name = @import("../codex_files.zig").Name;
 
 /// What the usage worker last read from one transcript.
 pub const Reading = struct {

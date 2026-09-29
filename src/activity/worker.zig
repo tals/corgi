@@ -15,7 +15,7 @@ const layout = @import("../layout.zig");
 const max = layout.max_panes;
 const max_slots = conversations.max_actors;
 const inference = @import("../inference.zig");
-const live_usage = @import("../live_usage.zig");
+const live_usage = @import("../usage.zig").live;
 const runtime = @import("../runtime.zig");
 const activity_tools = @import("tools.zig");
 /// Per-agent spacing between summaries.

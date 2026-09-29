@@ -2,9 +2,9 @@
 //! Explicit child ownership permits a bounded initial catch-up; ambiguous
 //! prefixes establish a baseline and are marked partial instead of guessed.
 const std = @import("std");
-const agents = @import("agents.zig");
-const field = @import("usage.zig").field;
-const providers = @import("providers.zig");
+const agents = @import("../agents.zig");
+const field = @import("tokens.zig").field;
+const providers = @import("../providers.zig");
 
 pub const Tokens = struct {
     input: u64 = 0,

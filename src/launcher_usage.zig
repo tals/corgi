@@ -1,8 +1,8 @@
 //! Compact, single-line usage and reset groups for the agent picker.
 const std = @import("std");
-const metadata = @import("account_preview.zig");
+const metadata = @import("usage.zig").account;
 const sidebar = @import("sidebar.zig");
-const account_cache = @import("account_cache.zig");
+const account_cache = @import("usage.zig").account_cache;
 
 pub const Cell = struct {
     const Window = struct {

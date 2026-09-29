@@ -12,8 +12,8 @@ const resources = @import("resources.zig");
 const ports = @import("ports.zig");
 const git_push = @import("git_push.zig");
 const protocol = @import("protocol.zig");
-const usage = @import("usage.zig");
-const context_window = @import("context_window.zig");
+const tokens = @import("usage.zig").tokens;
+const context_window = @import("usage.zig").context_window;
 const corgi_badge = @import("corgi_badge.zig");
 const resource_tooltip = @import("resource_tooltip.zig");
 const preferences = @import("preferences.zig");
@@ -91,7 +91,7 @@ pub const WorkspaceEntry = struct {
     working: usize = 0,
     unread: usize = 0,
     attention: usize = 0,
-    stats: usage.Counts = .{},
+    stats: tokens.Counts = .{},
 };
 pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 /// Render the prospective order without changing shared state or the stable

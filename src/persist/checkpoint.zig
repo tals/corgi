@@ -17,7 +17,7 @@ const Terminal = @import("../terminal.zig").Terminal;
 const binary = @import("../base64.zig");
 const pane_label = @import("../pane_label.zig");
 const detection = @import("../detection.zig");
-const usage = @import("../usage.zig");
+const tokens = @import("../usage.zig").tokens;
 const agent_order = @import("../agent_order.zig");
 const activity_summary = @import("../activity.zig").summary;
 const link_labels = @import("../link_labels.zig");
@@ -83,7 +83,7 @@ pub const Pane = struct {
 };
 pub const Closed = struct { label: pane_label.Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: WorkspaceId };
 pub const Workspace = struct {
-    away: usage.Window = .{},
+    away: tokens.Window = .{},
     id: WorkspaceId,
     name: []const u8,
     cwd: []const u8,
@@ -95,7 +95,7 @@ pub const Native = struct {
     binding: Binding,
     members: []const ActorId = &.{},
     approval_actors: []const ActorId = &.{},
-    usage_tracker: usage.Tracker = .{},
+    usage_tracker: tokens.Tracker = .{},
     observation: agents.observation.State = .{},
     turns: []const NativeTurn = &.{},
     id: NativeId,

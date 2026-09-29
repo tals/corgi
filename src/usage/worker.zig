@@ -1,21 +1,21 @@
 //! Incremental usage observation off the terminal thread. Opening a file seeds
 //! baselines only; old history never appears as new workspace activity.
 const std = @import("std");
-const ActorId = @import("conversations.zig").Actor.Id;
-const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const agents = @import("agents.zig");
-const usage = @import("usage.zig");
-const activity_tools = @import("activity.zig").tools;
-const activity_summary = @import("activity.zig").summary;
-const codex_files = @import("codex_files.zig");
-const live_usage = @import("live_usage.zig");
+const ActorId = @import("../conversations.zig").Actor.Id;
+const WorkspaceId = @import("../workspace.zig").Workspace.Id;
+const agents = @import("../agents.zig");
+const usage = @import("tokens.zig");
+const activity_tools = @import("../activity.zig").tools;
+const activity_summary = @import("../activity.zig").summary;
+const codex_files = @import("../codex_files.zig");
+const live_usage = @import("live.zig");
 const context_window = @import("context_window.zig");
-const transcript = @import("transcript.zig");
-const providers = @import("providers.zig");
-const passes = @import("passes.zig");
-const os = @import("os.zig");
+const transcript = @import("../transcript.zig");
+const providers = @import("../providers.zig");
+const passes = @import("../passes.zig");
+const os = @import("../os.zig");
 const a = os.allocator;
-const max_jobs = @import("layout.zig").max_panes;
+const max_jobs = @import("../layout.zig").max_panes;
 const log = std.log.scoped(.usage_worker);
 const read_budget = 64 * 1024;
 const initial_tail = 256 * 1024;

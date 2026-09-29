@@ -5,7 +5,7 @@ const a = os.allocator;
 const agent_order = @import("agent_order.zig");
 const git_push = @import("git_push.zig");
 const git_status = @import("git_status.zig");
-const usage = @import("usage.zig");
+const tokens = @import("usage.zig").tokens;
 
 pub const max_workspaces = 32;
 
@@ -32,7 +32,7 @@ pub const Workspace = struct {
     git_ref: git_push.Ref = .{},
     git_push: git_push.State = .{},
     git_commits: git_status.Commits = .{},
-    away: usage.Window = .{},
+    away: tokens.Window = .{},
     pub fn customName(w: *const Workspace) []const u8 {
         return w.name_buf[0..w.name_len];
     }

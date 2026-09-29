@@ -4,10 +4,10 @@
 //! without a daemon shows as a gap. Files are keyed by provider and account,
 //! not credential, because credentials rotate on every token refresh.
 const std = @import("std");
-const metadata = @import("account_preview.zig");
+const metadata = @import("account.zig");
 const account_cache = @import("account_cache.zig");
-const Provider = @import("providers.zig").Provider;
-const Failure = @import("failure.zig").Failure;
+const Provider = @import("../providers.zig").Provider;
+const Failure = @import("../failure.zig").Failure;
 const log = std.log.scoped(.limit_history);
 
 pub const cells = 11;

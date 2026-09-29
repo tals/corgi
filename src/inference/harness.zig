@@ -15,8 +15,8 @@ const capacity = 4;
 const inference_usage = @import("usage.zig");
 const output_limit = 8192;
 const binary = @import("../base64.zig");
-const live_usage = @import("../live_usage.zig");
-const metadata = @import("../account_preview.zig");
+const live_usage = @import("../usage.zig").live;
+const metadata = @import("../usage.zig").account;
 
 // Every pool's harnesses share one cap: the summary pool's connections
 // plus the launcher's metadata harness.

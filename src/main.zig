@@ -475,8 +475,6 @@ test {
     // Each top-level file under src/, sorted; each package root lists the
     // files in its directory. "every source file is in the test root"
     // below fails when one is missing.
-    _ = @import("account_cache.zig");
-    _ = @import("account_preview.zig");
     _ = @import("action.zig");
     _ = @import("activity.zig");
     _ = @import("agent_drag.zig");
@@ -495,7 +493,6 @@ test {
     _ = @import("codex_observer.zig");
     _ = @import("codex_socket.zig");
     _ = @import("commands.zig");
-    _ = @import("context_window.zig");
     _ = @import("controller.zig");
     _ = @import("conversations.zig");
     _ = @import("corgi_animation.zig");
@@ -522,12 +519,9 @@ test {
     _ = @import("launch_preview_stream.zig");
     _ = @import("launcher_usage.zig");
     _ = @import("layout.zig");
-    _ = @import("limit_history.zig");
     _ = @import("link_labels.zig");
     _ = @import("link_tooltip.zig");
-    _ = @import("live_usage.zig");
     _ = @import("mirror.zig");
-    _ = @import("model_prices.zig");
     _ = @import("name_dialog.zig");
     _ = @import("native.zig");
     _ = @import("navigation.zig");
@@ -564,7 +558,6 @@ test {
     _ = @import("updates.zig");
     _ = @import("url_opener.zig");
     _ = @import("usage.zig");
-    _ = @import("usage_worker.zig");
     _ = @import("viewer.zig");
     _ = @import("viewer_protocol.zig");
     _ = @import("viewer_test.zig");
@@ -606,15 +599,15 @@ test "every source file is in the test root" {
 test "the daemon and the viewer never import each other" {
     // Files that run only in `corgi attach`.
     const viewer: std.StaticStringMap(void) = .initComptime(.{
-        .{"agent_drag.zig"},       .{"agent_launcher.zig"},   .{"agent_navigation.zig"},      .{"bindings.zig"},
-        .{"client.zig"},           .{"commands.zig"},         .{"controller.zig"},            .{"corgi_animation.zig"},
-        .{"corgi_badge.zig"},      .{"corgi_frames.zig"},     .{"corgi_setup.zig"},           .{"ghostty_integration.zig"},
-        .{"host_probe.zig"},       .{"keymap.zig"},           .{"launch_preview_stream.zig"}, .{"launcher_usage.zig"},
-        .{"link_tooltip.zig"},     .{"mirror.zig"},           .{"model_prices.zig"},          .{"name_dialog.zig"},
-        .{"navigation.zig"},       .{"onboarding.zig"},       .{"preferences.zig"},           .{"render.zig"},
-        .{"resource_tooltip.zig"}, .{"shortcut_help.zig"},    .{"sidebar.zig"},               .{"sidebar_rows.zig"},
-        .{"sound.zig"},            .{"subagent_tooltip.zig"}, .{"url_opener.zig"},            .{"viewer.zig"},
-        .{"viewer_test.zig"},      .{"workspace_drag.zig"},
+        .{"agent_drag.zig"},       .{"agent_launcher.zig"}, .{"agent_navigation.zig"},      .{"bindings.zig"},
+        .{"client.zig"},           .{"commands.zig"},       .{"controller.zig"},            .{"corgi_animation.zig"},
+        .{"corgi_badge.zig"},      .{"corgi_frames.zig"},   .{"corgi_setup.zig"},           .{"ghostty_integration.zig"},
+        .{"host_probe.zig"},       .{"keymap.zig"},         .{"launch_preview_stream.zig"}, .{"launcher_usage.zig"},
+        .{"link_tooltip.zig"},     .{"mirror.zig"},         .{"name_dialog.zig"},           .{"navigation.zig"},
+        .{"onboarding.zig"},       .{"preferences.zig"},    .{"render.zig"},                .{"resource_tooltip.zig"},
+        .{"shortcut_help.zig"},    .{"sidebar.zig"},        .{"sidebar_rows.zig"},          .{"sound.zig"},
+        .{"subagent_tooltip.zig"}, .{"url_opener.zig"},     .{"viewer.zig"},                .{"viewer_test.zig"},
+        .{"workspace_drag.zig"},
     });
     // Files that own daemon state, the daemon's workers and updater, and their tests.
     const core: std.StaticStringMap(void) = .initComptime(.{

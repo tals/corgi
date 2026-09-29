@@ -10,7 +10,7 @@ const providers = @import("providers.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const ResumeHint = @import("resume_hint.zig").ResumeHint;
 const Terminal = @import("terminal.zig").Terminal;
-const usage = @import("usage.zig");
+const tokens = @import("usage.zig").tokens;
 const discovery = @import("discovery.zig");
 const codex_observer = @import("codex_observer.zig");
 const BoundedText = @import("bounded_text.zig").BoundedText;
@@ -104,8 +104,8 @@ pub const Session = struct {
     approvals: std.ArrayList(PendingRequest) = .empty,
     active_threads: std.StringHashMapUnmanaged([]const u8) = .empty,
     active_tools: std.ArrayList(Tool) = .empty,
-    usage_pending: usage.Counts = .{},
-    usage_tracker: usage.Tracker = .{},
+    usage_pending: tokens.Counts = .{},
+    usage_tracker: tokens.Tracker = .{},
     journal_bytes: usize = 0,
     next_seq: u64 = 1,
     pub fn agent(s: *Session) *agents.Agent {
@@ -349,7 +349,7 @@ pub const Session = struct {
             owner.native_meter.baseline_next = owner.live_usage.known or s.active_threads.contains(owner.state.sessionId());
             if (owner.native_meter.baseline_next) owner.native_meter.meter.value.partial = true;
         }
-        const field = usage.field;
+        const field = tokens.field;
         const thread = if (field(field(v, "params"), "thread") != .null) field(field(v, "params"), "thread") else field(field(v, "result"), "thread");
         const parent_id = agents.str(thread, "parentThreadId");
         if (registry.find(.codex, parent_id)) |parent| _ = registry.linkChild(parent, owner);
@@ -360,7 +360,7 @@ pub const Session = struct {
         if (params != .object) return;
         const thread = agents.str(params, "threadId");
         if (method == .@"thread/tokenUsage/updated") {
-            s.usage_pending.add(s.usage_tracker.codexNotification(thread, usage.field(params, "tokenUsage"), s.active_threads.contains(thread)));
+            s.usage_pending.add(s.usage_tracker.codexNotification(thread, tokens.field(params, "tokenUsage"), s.active_threads.contains(thread)));
         }
         if (method == .@"item/started" or method == .@"item/completed") {
             const item = params.object.get("item") orelse return;
@@ -546,7 +546,7 @@ pub const Session = struct {
         const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn.len > 0 and !std.mem.eql(u8, reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
         if (actor) |owner| if (method == .@"thread/tokenUsage/updated") switch (s.provider) {
-            .codex => owner.native_meter.native(usage.field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
+            .codex => owner.native_meter.native(tokens.field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
             .claude => {},
         };
         if (event.request_id) |request_id| {

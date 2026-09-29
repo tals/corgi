@@ -7,7 +7,7 @@ const state_steps = @import("steps.zig");
 const inference_setup = @import("../inference.zig").setup;
 const providers = @import("../providers.zig");
 const agents = @import("../agents.zig");
-const account_preview = @import("../account_preview.zig");
+const account_preview = @import("../usage.zig").account;
 
 pub const checkpoint_version: u32 = state_steps.checkpoint.len + 1;
 pub const handoff_version: u32 = state_steps.handoff.len + 1;
