@@ -856,7 +856,7 @@ pub const Server = struct {
                     const ding = actor.observeSnapshot(snap, s.actorWatched(actor.id), applied);
                     if (actor.parent == null) s.attention(ding, actor.state.state);
                     s.runtime.conversations.observeChildren(actor, snap, applied);
-                    summaries.submit(actor, snap.evidence, s.runtime.panes.items);
+                    summaries.submit(actor, snap.evidence, null, s.runtime.panes.items);
                     s.dirty = true;
                     s.runtime.changed();
                 };
@@ -938,13 +938,12 @@ pub const Server = struct {
                     const before = actor.state;
                     if (result.progress) |progress| actor.observeTools(progress);
                     if (result.fallback(&actor.state, clock.microTimestamp())) {
-                        summaries.submit(actor, result.progress.?.commentary, s.runtime.panes.items);
-                    }
+                        summaries.submit(actor, result.progress.?.commentary, result.progress, s.runtime.panes.items);
+                    } else if (result.progress) |progress| summaries.tools(actor.id, &actor.state, progress);
                     if (!std.meta.eql(before, actor.state)) {
                         s.dirty = true;
                         s.runtime.changed();
                     }
-                    if (result.progress) |progress| summaries.tools(actor.id, &actor.state, progress);
                     if (actor.native_usage) continue;
                     const ws = s.runtime.workspaces.get(result.workspace) orelse continue;
                     if (actor.workspace != ws.id or s.workspaceWatched(ws.id)) continue;

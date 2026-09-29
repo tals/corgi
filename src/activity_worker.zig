@@ -116,6 +116,16 @@ const Slot = struct {
         s.tool_evidence = evidence;
         s.combine();
     }
+    fn observeTools(s: *Slot, progress: activity_tools.View, now: i64) void {
+        // Cumulative counts survive watched-workspace counter resets. If a
+        // transcript is replaced, restart the count instead of replaying it.
+        if (progress.completed < s.request.completed_tools) {
+            s.attempted_tools = 0;
+            s.retry = false;
+        }
+        s.request.completed_tools = progress.completed;
+        s.updateTools(progress.evidence, now);
+    }
     /// Record that the current evidence is being summarized.
     fn attempt(s: *Slot, now: i64) void {
         s.attempted_tools = s.request.completed_tools;
@@ -401,7 +411,10 @@ pub const Worker = struct {
         w.freeSlots();
         a.destroy(w);
     }
-    pub fn submit(w: *Worker, owner: *const conversations.Actor, evidence: summary.Text, panes: []const runtime.Pane) void {
+    /// `progress` is the tool progress read along with `evidence`. It goes in
+    /// under the same lock: a worker woken in between would summarize the
+    /// commentary without the tools.
+    pub fn submit(w: *Worker, owner: *const conversations.Actor, evidence: summary.Text, progress: ?activity_tools.View, panes: []const runtime.Pane) void {
         const actor = owner.id;
         const agent = &owner.state;
         if ((agent.state != .working and agent.state != .blocked) or agent.turn.len == 0) return;
@@ -443,6 +456,7 @@ pub const Worker = struct {
         slot.commentary = evidence;
         slot.request.generation = agent.activity_generation;
         slot.combine();
+        if (progress) |p| if (std.mem.eql(u8, agent.turnId(), p.turn.text())) slot.observeTools(p, clock.milliTimestamp());
         w.wake.signal();
     }
     pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: activity_tools.View) void {
@@ -451,14 +465,7 @@ pub const Worker = struct {
         defer w.mutex.unlock();
         for (w.slots) |entry| if (entry) |slot| {
             if (slot.request.actor != actor or slot.request.turn_epoch != agent.turn_epoch) continue;
-            // Cumulative counts survive watched-workspace counter resets. If a
-            // transcript is replaced, restart the count instead of replaying it.
-            if (progress.completed < slot.request.completed_tools) {
-                slot.attempted_tools = 0;
-                slot.retry = false;
-            }
-            slot.request.completed_tools = progress.completed;
-            slot.updateTools(progress.evidence, clock.milliTimestamp());
+            slot.observeTools(progress, clock.milliTimestamp());
             w.wake.signal();
             return;
         };
@@ -719,8 +726,8 @@ test "summary slots belong to conversations shared by multiple or detached attac
     defer std.testing.allocator.destroy(worker);
     worker.* = Worker.init(.{});
     defer worker.freeSlots();
-    worker.submit(first.actor.?, .{}, &.{});
-    worker.submit(second.actor.?, .{}, &.{});
+    worker.submit(first.actor.?, .{}, null, &.{});
+    worker.submit(second.actor.?, .{}, null, &.{});
     try std.testing.expectEqual(@as(usize, 1), testSlots(worker));
     first.detach();
     second.detach();
@@ -740,6 +747,26 @@ fn testSlots(w: *const Worker) usize {
     return count;
 }
 
+test "the first summary of a turn sees the tools read with its commentary" {
+    var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const actor = try registry.get(.codex, "s");
+    actor.state.state = .working;
+    actor.state.setTurn("turn-1");
+    var progress: activity_tools.View = .{ .turn = .ascii("turn-1"), .completed = 3 };
+    progress.commentary.append("Latest agent update: Tracing focus from the transcript.");
+    progress.evidence.append("Recent completed tools (oldest to newest):\nexec_command: rg focus src\n");
+    var worker = Worker.init(.{});
+    defer worker.freeSlots();
+    worker.submit(actor, progress.commentary, progress, &.{});
+    // The worker may take the slot as soon as `submit` unlocks.
+    const slot = worker.slots[0].?;
+    try std.testing.expect(slot.ready(clock.milliTimestamp(), false));
+    try std.testing.expect(std.mem.indexOf(u8, slot.request.evidence.text(), "exec_command: rg focus src") != null);
+    try std.testing.expect(std.mem.endsWith(u8, slot.request.evidence.text(), "Tracing focus from the transcript."));
+    try std.testing.expectEqual(@as(u64, 3), slot.request.completed_tools);
+}
+
 test "summary slots exist only while their conversation is working" {
     var registry: conversations.Registry = .{ .allocator = std.testing.allocator };
     defer registry.deinit();
@@ -753,8 +780,8 @@ test "summary slots exist only while their conversation is working" {
     // `stop` frees slots the same way. Under -Dcheck-leaks a leaked slot fails the test.
     defer worker.freeSlots();
     try std.testing.expectEqual(@as(usize, 0), testSlots(&worker));
-    worker.submit(stays, .{}, &.{});
-    worker.submit(stops, .{}, &.{});
+    worker.submit(stays, .{}, null, &.{});
+    worker.submit(stops, .{}, null, &.{});
     try std.testing.expectEqual(@as(usize, 2), testSlots(&worker));
     stops.state.state = .idle;
     worker.reconcile(registry.items.items);
@@ -775,7 +802,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     defer std.testing.allocator.destroy(worker);
     worker.* = Worker.init(.{});
     defer worker.freeSlots();
-    worker.submit(actor, evidence, &.{});
+    worker.submit(actor, evidence, null, &.{});
     const first = worker.slots[0].?.request;
     const result: Result = .{ .request = first, .label = summary.parseLabel("Tracing pane focus").? };
     try std.testing.expect(result.apply(actor));
@@ -785,7 +812,7 @@ test "actor inference context survives turns and detachment but rejects stale re
     try std.testing.expect(worker.slots[0] == null);
     actor.state.state = .working;
     actor.state.setTurn("turn-2");
-    worker.submit(actor, evidence, &.{});
+    worker.submit(actor, evidence, null, &.{});
     const second = worker.slots[0].?.request;
     var key1: [32]u8 = undefined;
     var key2: [32]u8 = undefined;
