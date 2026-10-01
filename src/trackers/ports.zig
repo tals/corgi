@@ -42,7 +42,29 @@ pub const Snapshot = struct {
         for (s.workspaces) |w| if (w.id == id) return w;
         return .{ .id = id };
     }
+    /// The same findings, whenever their endpoints were last probed.
+    pub fn same(s: Snapshot, other: Snapshot) bool {
+        return equal(s, other);
+    }
 };
+fn equal(x: anytype, y: @TypeOf(x)) bool {
+    switch (@typeInfo(@TypeOf(x))) {
+        .pointer => |p| {
+            if (x.len != y.len) return false;
+            if (p.child == u8) return std.mem.eql(u8, x, y);
+            for (x, y) |i, j| if (!equal(i, j)) return false;
+            return true;
+        },
+        .@"struct" => |info| {
+            inline for (info.fields) |f| {
+                if (comptime std.mem.eql(u8, f.name, "probed_at")) continue;
+                if (!equal(@field(x, f.name), @field(y, f.name))) return false;
+            }
+            return true;
+        },
+        else => return std.meta.eql(x, y),
+    }
+}
 pub fn sshViewer() bool {
     for ([_][:0]const u8{ "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY" }) |key| {
         if (os.env(key)) |value| if (value.len > 0) return true;
@@ -326,11 +348,12 @@ pub const Tracker = struct {
                 if (p.terminal.pid != root.pid or ws.id != root.workspace) break false;
             } else true;
             if (valid) {
+                // Every scan finishes with fresh results; most are the same.
+                changed = !t.current.same(t.pending);
                 t.arena.deinit();
                 t.arena = t.pending_arena;
                 t.pending_arena = .init(a);
                 t.current = t.pending;
-                changed = true;
             }
         }
         const now = clock.milliTimestamp();
@@ -539,4 +562,22 @@ test "HTTP errors and unprobed endpoints never become browser links" {
         e.http_status = status;
         try std.testing.expectEqualStrings("http://localhost:3000", url(&buf, e, false).?);
     }
+}
+
+test "a rescan that finds the same ports is not a change" {
+    const lo = [_]Interface{.{ .name = "lo0", .address = "127.0.0.1", .kind = .loopback }};
+    var web: Endpoint = .{ .pid = 7, .pane = @enumFromInt(2), .name = "node", .transport = .tcp, .bind_address = "127.0.0.1", .port = 3000, .interfaces = &lo, .scheme = .http, .http_status = 200, .probed_at = 1000 };
+    var first = [_]Endpoint{web};
+    const before: Snapshot = .{ .processes_available = true, .ports_available = true, .workspaces = &.{.{ .id = @enumFromInt(1), .endpoints = &first }} };
+    web.probed_at = 61_000;
+    var second = [_]Endpoint{web};
+    var after: Snapshot = .{ .processes_available = true, .ports_available = true, .workspaces = &.{.{ .id = @enumFromInt(1), .endpoints = &second }} };
+    try std.testing.expect(before.same(after));
+    second[0].http_status = 404;
+    try std.testing.expect(!before.same(after));
+    second[0].http_status = 200;
+    second[0].bind_address = "*";
+    try std.testing.expect(!before.same(after));
+    after.workspaces = &.{};
+    try std.testing.expect(!before.same(after));
 }

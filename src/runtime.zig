@@ -81,7 +81,11 @@ pub const Runtime = struct {
     inference: inference_setup.Status = .{},
     system_working: bool = false,
     system_usage: live_usage.View = .{ .known = true },
+    /// Bumped by every change a snapshot shows.
     revision: u64 = 1,
+    /// Bumped by the changes a checkpoint records. Readings and git status,
+    /// which snapshots show but checkpoints leave out, bump only `revision`.
+    durable: u64 = 1,
     git_push: git_push.Manager = .{},
     git_status: git_status.Tracker = .{},
     ports: ports.Tracker = .{},
@@ -89,6 +93,10 @@ pub const Runtime = struct {
     link_labels: link_labels.Cache = .{},
 
     pub fn changed(r: *Runtime) void {
+        r.revision +%= 1;
+        r.durable +%= 1;
+    }
+    pub fn refreshed(r: *Runtime) void {
         r.revision +%= 1;
     }
 

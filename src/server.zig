@@ -87,7 +87,10 @@ pub const Server = struct {
     reload_executable: ?[]const u8 = null,
     reload_requester: c_int = -1,
     last_recovery: i64 = 0,
-    saved_revision: u64 = 0,
+    saved_durable: u64 = 0,
+    /// When the runtime's durable revision last moved, seen by the loop.
+    durable_seen: u64 = 0,
+    durable_at: i64 = 0,
     recovery_failure: Failure = .{},
     workspace_save_failure: Failure = .{},
     /// The attached viewers' resource preference, kept after they detach.
@@ -1073,9 +1076,10 @@ pub const Server = struct {
             // keep their last choice: CLI snapshots get fresh totals unless
             // readings were turned off, which stops sampling entirely.
             if (viewers) s.resource_readings = sampled;
-            if (if (s.resource_readings) s.runtime.resources.tick(&s.runtime, resource_detail) else s.runtime.resources.stop()) s.dirty = true;
-            if (s.runtime.git_push.tick(&s.runtime.workspaces, &s.runtime.git_status)) s.dirty = true;
-            if (s.runtime.git_status.tick(&s.runtime.workspaces)) s.dirty = true;
+            var refreshed = false;
+            if (if (s.resource_readings) s.runtime.resources.tick(&s.runtime, resource_detail) else s.runtime.resources.stop()) refreshed = true;
+            if (s.runtime.git_push.tick(&s.runtime.workspaces, &s.runtime.git_status)) refreshed = true;
+            if (s.runtime.git_status.tick(&s.runtime.workspaces)) refreshed = true;
             if (s.runtime.ports.tick(&s.runtime)) {
                 // Publish newly discovered links with their queued state in
                 // the same snapshot, avoiding a brief generic-label flash.
@@ -1085,7 +1089,7 @@ pub const Server = struct {
             if (s.dirty) {
                 s.runtime.changed();
                 s.dirty = false;
-            }
+            } else if (refreshed) s.runtime.refreshed();
             if (s.bell and s.bell_kind == .finished) {
                 var unread = false;
                 for (s.runtime.conversations.items.items) |actor| unread = unread or actor.state.observation.unread();
@@ -1144,7 +1148,14 @@ pub const Server = struct {
                     s.notice(@errorName(err));
                 };
             };
-            if ((now - s.last_recovery >= 2000 and s.saved_revision != s.runtime.revision) or s.quit) {
+            if (s.durable_seen != s.runtime.durable) {
+                s.durable_seen = s.runtime.durable;
+                s.durable_at = now;
+            }
+            // Save once changes have paused, and at least every ten seconds
+            // while they continue, as a pane streaming output does.
+            const settled = now - s.durable_at >= 2000 or now - s.last_recovery >= 10_000;
+            if ((settled and s.saved_durable != s.runtime.durable) or s.quit) {
                 s.last_recovery = now;
                 recovery.save(&s.runtime, s.socket) catch |err| {
                     if (s.recovery_failure.changed(err)) {
@@ -1154,7 +1165,7 @@ pub const Server = struct {
                     continue;
                 };
                 if (s.recovery_failure.clear()) log.info("recovery snapshot saved again", .{});
-                s.saved_revision = s.runtime.revision;
+                s.saved_durable = s.runtime.durable;
             }
         }
     }
