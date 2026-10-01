@@ -31,11 +31,29 @@ pub const Pane = struct {
     attachment: conversations.Attachment = .{},
 
     detection: detection.Tracker = .{},
+    /// The output and time of the pane's last detection pass.
+    detected: struct { output: u64 = 0, at: i64 = 0 } = .{},
     cwd: []const u8,
     resume_hint: ResumeHint = .{},
 
+    /// How often detection reads a quiet pane: one that printed nothing
+    /// since its last pass, with no agent mid-turn and nothing to confirm.
+    /// Starting or ending a program prints, so this only catches silent ones.
+    pub const quiet_detection_ms = 2000;
+
     pub fn agent(p: *const Pane) *agents.Agent {
         return p.attachment.agent();
+    }
+
+    pub fn detectionDue(p: *const Pane, now: i64) bool {
+        if (p.terminal.surface_revision != p.detected.output or now - p.detected.at >= quiet_detection_ms) return true;
+        const shown = p.agent();
+        // The screen state machine confirms over consecutive passes.
+        if (p.detection.missing > 0 or (shown.last_seq == 0 and p.detection.candidate != null and p.detection.candidate != shown.state)) return true;
+        return switch (shown.state) {
+            .working, .blocked, .initializing => true,
+            else => shown.permission_review != null,
+        };
     }
 
     pub fn refreshCwd(p: *Pane) void {
@@ -332,4 +350,20 @@ test "only attached conversations and their subagents are followed" {
     r.panes.items[0].terminal.exited = true;
     try std.testing.expect(!r.followed(attached));
     try std.testing.expect(!r.followed(child));
+}
+
+test "detection reads a quiet pane only every few seconds" {
+    var p: Pane = .{ .id = @enumFromInt(1), .terminal = try Terminal.create(20, 4), .cwd = "" };
+    defer p.terminal.destroy();
+    p.detected = .{ .output = p.terminal.surface_revision, .at = 10_000 };
+    try std.testing.expect(!p.detectionDue(10_250));
+    try std.testing.expect(p.detectionDue(10_000 + Pane.quiet_detection_ms));
+    p.terminal.feed("$ ");
+    try std.testing.expect(p.detectionDue(10_250));
+    p.detected.output = p.terminal.surface_revision;
+    p.agent().state = .working;
+    try std.testing.expect(p.detectionDue(10_250));
+    p.agent().state = .idle;
+    p.detection.candidate = .working;
+    try std.testing.expect(p.detectionDue(10_250));
 }

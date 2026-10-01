@@ -313,6 +313,11 @@ pub const Terminal = struct {
             t.pending.items.len -= used;
         }
     }
+    /// Work `read` does without new output: a launch command waiting for
+    /// the shell's line editor, or synchronized output that may time out.
+    pub fn expecting(t: *const Terminal) bool {
+        return t.initial_input != null or t.synchronized_since != null;
+    }
     pub fn read(t: *Terminal) bool {
         var bytes: [16384]u8 = undefined;
         var dirty = false;

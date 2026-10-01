@@ -242,6 +242,23 @@ pub const Server = struct {
             s.dirty = true;
         }
     }
+    /// How long the loop may sleep with nothing to read. Panes, viewers and
+    /// requests wake it; worker results wait for the detection cadence. Some
+    /// work needs finer ticks while it lasts.
+    fn pollTimeout(s: *Server) c_int {
+        if (s.settles.items.len > 0 or s.runtime.sessions.items.len > 0) return 16;
+        if (s.herdr_import.busy() or s.onboarding_copy.busy()) return 16;
+        for (s.runtime.panes.items) |p| {
+            if (p.terminal.expecting() or p.terminal.redraw_pending or p.terminal.redraw_restore_at != null) return 16;
+        }
+        var timeout: c_int = 250;
+        for (s.clients.items) |cl| {
+            if (cl.subscribed) return 16;
+            // Launcher previews are checked every 100 ms.
+            if (cl.launch_preview != null) timeout = 100;
+        }
+        return timeout;
+    }
     fn workspaceWatched(s: *Server, id: WorkspaceId) bool {
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
         return false;
@@ -826,25 +843,33 @@ pub const Server = struct {
                 polls[count] = .{ .fd = cl.fd, .events = @intCast(c.POLLIN | (if (cl.output.items.len > cl.sent) c.POLLOUT else 0)), .revents = 0 };
                 count += 1;
             }
-            _ = c.poll(&polls, @intCast(count), 16);
-            // Read every live PTY, even when its tab is hidden. Only visible output dirties the frame.
+            _ = c.poll(&polls, @intCast(count), s.pollTimeout());
+            const now = std.time.milliTimestamp();
+            const detecting = now - s.last_detection >= 250 or s.settles.items.len > 0;
+            // Read every live PTY that poll reports, even when its tab is
+            // hidden. Only visible output dirties the frame. A shell that
+            // exits while a child keeps the PTY open is reaped on the next
+            // detection pass.
             for (s.runtime.panes.items, 0..) |*p, i| {
-                p.terminal.refreshRedraw(std.time.milliTimestamp());
-                if (polls[i + 1].revents != 0) p.refreshCwd();
+                p.terminal.refreshRedraw(now);
+                const ready = polls[i + 1].revents != 0;
+                if (ready) p.refreshCwd();
                 p.terminal.flush();
-                if (p.terminal.read()) {
+                if ((ready or p.terminal.expecting()) and p.terminal.read()) {
                     s.runtime.changed();
                     if (!p.terminal.vt.modes.get(.synchronized_output)) s.dirty = true;
                 }
-                if (p.terminal.reap()) {
+                if ((ready or detecting) and p.terminal.reap()) {
                     s.runtime.changed();
                     s.dirty = true;
                 }
             }
-            const now = std.time.milliTimestamp();
-            if (now - s.last_detection >= 250 or s.settles.items.len > 0) {
+            if (detecting) {
                 s.last_detection = now;
-                for (s.runtime.panes.items) |*p| if (!p.terminal.exited) s.detectPane(p);
+                for (s.runtime.panes.items) |*p| if (!p.terminal.exited and (s.settles.items.len > 0 or p.detectionDue(now))) {
+                    s.detectPane(p);
+                    p.detected = .{ .output = p.terminal.surface_revision, .at = now };
+                };
                 codex.reconcile(&s.runtime);
                 var snapshots: [layout.max_panes]?codex_observer.Snapshot = undefined;
                 codex.take(&snapshots);
