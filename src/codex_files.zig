@@ -9,12 +9,19 @@ const a = os.allocator;
 
 pub const Name = BoundedText(160);
 
+/// Codex's session index, parsed when the file changes. Codex appends a
+/// record per rename; the latest complete record for a session wins.
 pub const Index = struct {
-    bytes: []const u8 = "",
+    arena: std.heap.ArenaAllocator = .init(a),
+    names: std.StringHashMapUnmanaged(Name) = .empty,
     next_read: i64 = 0,
+    stamp: Stamp = .{},
+
+    const Stamp = struct { inode: std.fs.File.INode = 0, size: u64 = 0, mtime: i128 = 0 };
+    const Record = struct { id: []const u8 = "", thread_name: []const u8 = "" };
 
     pub fn deinit(index: *Index) void {
-        if (index.bytes.len > 0) a.free(index.bytes);
+        index.arena.deinit();
     }
     pub fn refresh(index: *Index) void {
         const now = std.time.milliTimestamp();
@@ -29,24 +36,32 @@ pub const Index = struct {
         defer file.close();
         const stat = file.stat() catch return;
         if (stat.kind != .file or stat.size > 8 * 1024 * 1024) return;
+        const stamp: Stamp = .{ .inode = stat.inode, .size = stat.size, .mtime = stat.mtime };
+        if (std.meta.eql(stamp, index.stamp)) return;
         const bytes = file.readToEndAlloc(a, 8 * 1024 * 1024) catch return;
-        index.deinit();
-        index.bytes = bytes;
+        defer a.free(bytes);
+        index.load(bytes) catch return;
+        index.stamp = stamp;
     }
-    pub fn name(index: *const Index, session: []const u8) Name {
-        var out: Name = .{};
-        var lines = std.mem.splitScalar(u8, index.bytes, '\n');
+    fn load(index: *Index, bytes: []const u8) !void {
+        var arena: std.heap.ArenaAllocator = .init(a);
+        errdefer arena.deinit();
+        const allocator = arena.allocator();
+        var names: std.StringHashMapUnmanaged(Name) = .empty;
+        var lines = std.mem.splitScalar(u8, bytes, '\n');
         while (lines.next()) |line| {
             // A writer may still be appending the last record.
-            if (lines.index == null and !std.mem.endsWith(u8, index.bytes, "\n")) break;
-            const parsed = std.json.parseFromSlice(std.json.Value, a, line, .{}) catch continue;
-            defer parsed.deinit();
-            if (!std.mem.eql(u8, agents.str(parsed.value, "id"), session)) continue;
-            const value = agents.str(parsed.value, "thread_name");
-            if (value.len == 0 or !std.unicode.utf8ValidateSlice(value)) continue;
-            out = .ascii(value);
+            if (lines.index == null and !std.mem.endsWith(u8, bytes, "\n")) break;
+            const record = std.json.parseFromSliceLeaky(Record, allocator, line, .{ .ignore_unknown_fields = true, .allocate = .alloc_always }) catch continue;
+            if (record.thread_name.len == 0 or !std.unicode.utf8ValidateSlice(record.thread_name)) continue;
+            try names.put(allocator, record.id, .ascii(record.thread_name));
         }
-        return out;
+        index.arena.deinit();
+        index.arena = arena;
+        index.names = names;
+    }
+    pub fn name(index: *const Index, session: []const u8) Name {
+        return index.names.get(session) orelse .{};
     }
 };
 
@@ -68,13 +83,15 @@ test "file names wait five seconds after protocol metadata, on the daemon clock"
 }
 
 test "index selects exact identity and latest complete name" {
-    const index: Index = .{
-        .bytes = "{\"id\":\"a\",\"thread_name\":\"Old\"}\n" ++
-            "broken\n{\"id\":\"b\",\"thread_name\":\"Other\"}\n" ++
-            "{\"id\":\"a\",\"thread_name\":\"Investigate missing session details\"}\n" ++
-            "{\"id\":\"a\",\"thread_name\":\"Partial\"}",
-    };
+    var index: Index = .{};
+    defer index.deinit();
+    try index.load("{\"id\":\"a\",\"thread_name\":\"Old\"}\n" ++
+        "broken\n{\"id\":\"b\",\"thread_name\":\"Other\"}\n" ++
+        "{\"id\":\"a\",\"thread_name\":\"Investigate missing session details\"}\n" ++
+        "{\"id\":\"a\",\"thread_name\":\"\"}\n" ++
+        "{\"id\":\"a\",\"thread_name\":\"Partial\"}");
     const name = index.name("a");
     try std.testing.expectEqualStrings("Investigate missing session details", name.text());
+    try std.testing.expectEqualStrings("Other", index.name("b").text());
     try std.testing.expectEqual(@as(usize, 0), index.name("missing").len);
 }
