@@ -108,6 +108,7 @@ $.requests|session.locate.pane: u32
 $.requests|session.list: {}
 $.requests|session.snapshot: {}
 $.requests|session.subscribe: {}
+$.requests|viewer.watch.viewer: u32
 $.requests|agent.subscribe.workspace: u32
 $.requests|agent.subscribe.cwd: string
 $.requests|viewer.open: versioned protocol.Request.Open

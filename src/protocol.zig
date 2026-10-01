@@ -64,6 +64,10 @@ pub const Request = union(enum) {
     @"session.list",
     @"session.snapshot",
     @"session.subscribe",
+    /// A viewer's second connection. The daemon writes a line to it whenever
+    /// that viewer's next `viewer.sync` could differ, so the viewer need not
+    /// poll; one that cannot watch keeps syncing on its frame clock.
+    @"viewer.watch": struct { viewer: u32 },
     @"agent.subscribe": Launch,
     @"viewer.open": Open,
     @"viewer.sync": Sync,
@@ -312,6 +316,7 @@ pub fn check(op: Op) Check {
         .@"session.list",
         .@"session.snapshot",
         .@"session.subscribe",
+        .@"viewer.watch",
         .@"agent.subscribe",
         .@"viewer.search",
         .@"pane.acknowledge",
@@ -385,6 +390,7 @@ pub fn exclusion(op: Op) Exclusion {
         .@"session.list",
         .@"session.snapshot",
         .@"session.subscribe",
+        .@"viewer.watch",
         .@"agent.subscribe",
         .@"viewer.open",
         .@"viewer.sync",
@@ -678,6 +684,7 @@ test "every op decodes a sample request" {
         .@"session.list" = "{}",
         .@"session.snapshot" = "{}",
         .@"session.subscribe" = "{}",
+        .@"viewer.watch" = "{\"viewer\":1}",
         .@"agent.subscribe" = "{\"workspace\":1,\"cwd\":\"/tmp\"}",
         .@"viewer.open" = "{\"viewer_protocol\":3,\"cwd\":\"/tmp\",\"onboarding\":true,\"theme\":{}}",
         .@"viewer.sync" = "{\"viewer_protocol\":3,\"interests\":[{\"pane\":1,\"cols\":80,\"rows\":24}],\"ack\":2}",

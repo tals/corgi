@@ -368,8 +368,9 @@ fn agentView(state: *const agents.Agent, conversation: ActorId) protocol.Agent {
 pub fn snapshot(allocator: std.mem.Allocator, r: *Runtime) !protocol.Snapshot {
     return build(allocator, r, false);
 }
-/// A viewer syncs every 30 ms and gets a new session only when this copy's
-/// hash changes. It leaves out what moves while nothing shown changes: the
+/// A viewer gets a new session only when this copy's hash changes, and the
+/// daemon rebuilds it only when `Runtime.shown` or the freshness bucket moves.
+/// It leaves out what moves while nothing shown changes: the
 /// revision, which every PTY read bumps, freshness stamps finer than
 /// `protocol.stamp_bucket`, which the viewer only compares against a window, and
 /// resources, which `viewer.sync` sends beside the session. It also leaves
@@ -644,7 +645,7 @@ test "a viewer's snapshot stays byte-stable while only output and stamps move" {
     const before = try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{});
     // A PTY read bumps the revision; a later observation lands in the same
     // bucket; resource readings travel separately.
-    r.changed();
+    r.wrote();
     r.resources.current.cores = 8;
     actor.observed_at += std.time.us_per_s;
     actor.children_observed_at = actor.observed_at;

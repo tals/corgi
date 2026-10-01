@@ -102,8 +102,11 @@ pub const Runtime = struct {
     /// Bumped by every change a snapshot shows.
     revision: u64 = 1,
     /// Bumped by the changes a checkpoint records. Readings and git status,
-    /// which snapshots show but checkpoints leave out, bump only `revision`.
+    /// which snapshots show but checkpoints leave out, do not bump it.
     durable: u64 = 1,
+    /// Bumped by the changes a viewer's session shows. Pane output, which
+    /// viewers receive as surfaces, does not bump it.
+    shown: u64 = 1,
     git_push: git_push.Manager = .{},
     git_status: git_status.Tracker = .{},
     ports: ports.Tracker = .{},
@@ -113,9 +116,15 @@ pub const Runtime = struct {
     pub fn changed(r: *Runtime) void {
         r.revision +%= 1;
         r.durable +%= 1;
+        r.shown +%= 1;
     }
     pub fn refreshed(r: *Runtime) void {
         r.revision +%= 1;
+        r.shown +%= 1;
+    }
+    pub fn wrote(r: *Runtime) void {
+        r.revision +%= 1;
+        r.durable +%= 1;
     }
 
     /// The handoff committed: inherited processes are ours to stop.
@@ -350,6 +359,17 @@ test "only attached conversations and their subagents are followed" {
     r.panes.items[0].terminal.exited = true;
     try std.testing.expect(!r.followed(attached));
     try std.testing.expect(!r.followed(child));
+}
+
+test "output and readings bump only the revisions that hold them" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    r.wrote();
+    try std.testing.expectEqual([3]u64{ 2, 2, 1 }, [3]u64{ r.revision, r.durable, r.shown });
+    r.refreshed();
+    try std.testing.expectEqual([3]u64{ 3, 2, 2 }, [3]u64{ r.revision, r.durable, r.shown });
+    r.changed();
+    try std.testing.expectEqual([3]u64{ 4, 3, 3 }, [3]u64{ r.revision, r.durable, r.shown });
 }
 
 test "detection reads a quiet pane only every few seconds" {

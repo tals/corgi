@@ -155,7 +155,16 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     defer if (probe.badge.uploaded) {
         os.writeAll(1, corgi_badge.remove) catch {};
     };
+    // Opened once the first sync names this viewer.
+    var waker: ?c_int = null;
+    var watch_opened = false;
+    defer if (waker) |wake_fd| {
+        _ = c.close(wake_fd);
+    };
+    var woken = true;
+    var synced: i64 = 0;
     var next_sync: i64 = 0;
+    var typed = false;
     while (view.input_state.attached) {
         openers.reap();
         try probe.expire(input);
@@ -191,7 +200,18 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         try view.expireInput();
         const now = std.time.milliTimestamp();
         if (view.dirty or now >= next_sync) {
-            if (!try sync(&view, &bell_seq, true)) return if (view.executable.len > 0) try a.dupe(u8, view.executable) else null;
+            // Frames keep their clock for animations; the daemon is asked
+            // only when it said something changed, or often enough that it
+            // still counts this viewer as watching.
+            if (waker == null or view.dirty or woken or now - synced >= quiet_sync_ms) {
+                if (!try sync(&view, &bell_seq, true)) return if (view.executable.len > 0) try a.dupe(u8, view.executable) else null;
+                woken = false;
+                synced = now;
+                if (!watch_opened) {
+                    waker = watch(socket, view.input_state.viewer_id);
+                    watch_opened = true;
+                }
+            }
             next_sync = std.time.milliTimestamp() + 30;
             const frame = try view.frame();
             if (!std.mem.eql(u8, previous, frame)) try os.writeAll(1, frame);
@@ -207,8 +227,30 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
             .write_terminal => |data| try os.writeAll(1, data),
         };
         view.clearEffects();
-        var poll = c.struct_pollfd{ .fd = 0, .events = c.POLLIN, .revents = 0 };
-        _ = c.poll(&poll, 1, 16);
+        var polls = [2]c.struct_pollfd{
+            .{ .fd = 0, .events = c.POLLIN, .revents = 0 },
+            .{ .fd = waker orelse -1, .events = c.POLLIN, .revents = 0 },
+        };
+        _ = c.poll(&polls, polls.len, 16);
+        const poll = polls[0];
+        // Input reaches the daemon with a frame's sync, so send it now, and
+        // show the first change after it (its echo) without waiting a frame.
+        if (polls[0].revents != 0) {
+            typed = true;
+            next_sync = 0;
+        }
+        if (polls[1].revents != 0) {
+            woken = true;
+            if (typed) next_sync = 0;
+            typed = false;
+            var bytes: [4096]u8 = undefined;
+            // A daemon gone or replaced by a reload stops waking; sync on
+            // every frame again until this viewer reconnects.
+            if (c.read(waker.?, &bytes, bytes.len) <= 0) {
+                _ = c.close(waker.?);
+                waker = null;
+            }
+        }
         if (poll.revents & (c.POLLHUP | c.POLLERR) != 0) return null;
         if (poll.revents & c.POLLIN != 0) {
             var bytes: [8192]u8 = undefined;
@@ -218,6 +260,21 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         }
     }
     return null;
+}
+/// How often a viewer syncs while the daemon reports nothing new. Under a
+/// second, so the daemon keeps counting the viewer as watching.
+const quiet_sync_ms = 500;
+/// The daemon's wake connection, or null when it cannot watch (an older
+/// daemon), in which case the viewer syncs on every frame.
+fn watch(socket: []const u8, viewer: u32) ?c_int {
+    const fd = os.connect(socket) catch return null;
+    var connection: Connection = .{ .fd = fd };
+    connection.send(.@"viewer.watch", .{ .viewer = viewer }) catch {
+        _ = c.close(fd);
+        return null;
+    };
+    os.nonblock(fd);
+    return fd;
 }
 fn dimensions() struct { cols: u16, rows: u16 } {
     var size = std.mem.zeroes(c.struct_winsize);

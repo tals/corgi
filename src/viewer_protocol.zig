@@ -10,6 +10,7 @@ const surface = @import("pane.zig").surface;
 const workspace = @import("workspace.zig");
 const peer = @import("peer.zig");
 const session_command = @import("session.zig");
+const clock = @import("clock.zig");
 const resources = @import("trackers.zig").resources;
 const Client = peer.Client;
 const Server = @import("server.zig").Server;
@@ -95,10 +96,16 @@ pub fn sync(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Sync) 
         if (interest.known) |receipt| if (std.meta.eql(receipt, surface.stamp(terminal, interest.offset))) continue;
         try frames.append(arena, try surface.captureView(arena, interest.pane, terminal, interest.offset));
     }
-    // Snapshot fields include time-dependent usage and metadata updated by
-    // independent workers. Compare the actual payload, not just layout revision.
-    const session = try std.json.Stringify.valueAlloc(arena, try session_command.viewerSnapshot(arena, &s.runtime), .{});
-    const session_hash = std.hash.Wyhash.hash(0, session);
+    // Rebuild the session only when something it shows changed, or its
+    // freshness stamps moved to the next bucket. Pane output, which a viewer
+    // gets as surfaces, is not a change; otherwise compare the payload.
+    const bucket = @divFloor(clock.microTimestamp(), protocol.stamp_bucket);
+    const rebuild = cl.session_shown != s.runtime.shown or cl.session_bucket != bucket or q.session_hash != cl.session_hash;
+    const session = if (rebuild) try std.json.Stringify.valueAlloc(arena, try session_command.viewerSnapshot(arena, &s.runtime), .{}) else "";
+    const session_hash = if (rebuild) std.hash.Wyhash.hash(0, session) else cl.session_hash;
+    cl.session_hash = session_hash;
+    cl.session_shown = s.runtime.shown;
+    cl.session_bucket = bucket;
     // Readings change every few seconds while the session stays put, and
     // each viewer asks for its own detail, so they have their own hash.
     const usage = try s.runtime.resources.current.forViewer(arena, cl.resource_detail);

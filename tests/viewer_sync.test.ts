@@ -271,6 +271,75 @@ await Bun.sleep(60000);
     this.assertEqual((await viewer.sync()).surfaces, []);
   }
 
+  async test_watch_wakes_a_viewer_only_when_something_changed() {
+    const pane = await this.new(),
+      viewer = await WireViewer.create(this, pane);
+    await this.ready(viewer, "IDLE_SURFACE");
+    const id = (await viewer.sync()).viewer;
+    const watch = await JsonSocket.connect(this.path);
+    this.addCleanup(() => watch.close());
+    watch.socket.write(JSON.stringify({ op: "viewer.watch", protocol: 1, viewer: id }) + "\n");
+    this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
+    // While the pane sleeps, nothing a viewer shows changes.
+    await this.settle();
+    watch.lines.discard();
+    await this.settle();
+    this.assertFalse(watch.lines.discard());
+    await this.command("pane.rename", { target: pane, name: "Woken" });
+    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+    await viewer.sync();
+    this.assertEqual(
+      viewer.session.panes.find((p: any) => p.id === pane).name,
+      "Woken",
+    );
+    await this.rpc({
+      op: "action",
+      name: "rename",
+      value: "Queued",
+      viewer: id,
+    });
+    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+  }
+
+  async test_watch_ignores_output_the_viewer_does_not_show() {
+    const pane = await this.new(),
+      viewer = await WireViewer.create(this, pane);
+    await this.ready(viewer, "IDLE_SURFACE");
+    const id = (await viewer.sync()).viewer;
+    await this.new("while :; do echo hidden; sleep 0.05; done");
+    const watch = await JsonSocket.connect(this.path);
+    this.addCleanup(() => watch.close());
+    watch.socket.write(JSON.stringify({ op: "viewer.watch", protocol: 1, viewer: id }) + "\n");
+    this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
+    await this.settle();
+    watch.lines.discard();
+    // The other pane prints all along; this viewer does not show it.
+    await this.settle();
+    await this.settle();
+    this.assertFalse(watch.lines.discard());
+    await this.command("pane.input", { target: pane, data: "x" });
+    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+  }
+
+  async test_watch_survives_a_reload() {
+    const pane = await this.new(),
+      viewer = await WireViewer.create(this, pane);
+    await this.ready(viewer, "IDLE_SURFACE");
+    const id = (await viewer.sync()).viewer;
+    const watch = await JsonSocket.connect(this.path);
+    this.addCleanup(() => watch.close());
+    watch.socket.write(JSON.stringify({ op: "viewer.watch", protocol: 1, viewer: id }) + "\n");
+    this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
+    const reload = await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    this.assertTrue(reload.ok, JSON.stringify(reload));
+    // The new daemon wakes the watcher it inherited, then keeps waking it.
+    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+    await this.settle();
+    watch.lines.discard();
+    await this.command("pane.rename", { target: pane, name: "After reload" });
+    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+  }
+
   async test_search_updates_selection_on_an_unchanged_viewport() {
     const pane = await this.new("printf 'one NEEDLE two NEEDLE'; sleep 60");
     const viewer = await Viewer.create(this);

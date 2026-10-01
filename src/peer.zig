@@ -31,10 +31,20 @@ pub const Client = struct {
     sent: usize = 0,
     protocol_version: ?u32 = null,
     subscribed: bool = false,
+    /// A `viewer.watch` connection, the viewer it watches, and the wake it
+    /// was last sent.
+    watching: bool = false,
+    watch_viewer: u32 = 0,
+    woken: u64 = 0,
     launch_preview: ?LaunchPreview = null,
     snapshot_revision: ?u64 = null,
     last_snapshot: i64 = 0,
     watched: bool = true,
+    /// The session this viewer was last sent: its hash, and the runtime's
+    /// `shown` revision and freshness bucket it was built at.
+    session_hash: u64 = 0,
+    session_shown: u64 = 0,
+    session_bucket: i64 = 0,
     resource_detail: ?WorkspaceId = null,
     /// False once this viewer's resource row is off; see `server.zig`.
     resources: bool = true,

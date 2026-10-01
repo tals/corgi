@@ -259,6 +259,18 @@ pub const Server = struct {
         }
         return timeout;
     }
+    /// Moves whenever `viewer`'s next sync could differ: what its session
+    /// shows, a bell, a control queued for it, or output in a pane it shows.
+    fn wakeSeq(s: *Server, viewer: u32) u64 {
+        var seq = s.runtime.shown +% s.bell_seq;
+        for (s.clients.items) |cl| if (cl.viewer and cl.viewer_id == viewer) {
+            seq +%= cl.next_control;
+            for (cl.interests[0..cl.interest_count]) |interest| if (s.runtime.pane(interest.pane)) |p| {
+                seq +%= p.terminal.surface_revision;
+            };
+        };
+        return seq;
+    }
     fn workspaceWatched(s: *Server, id: WorkspaceId) bool {
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
         return false;
@@ -404,9 +416,16 @@ pub const Server = struct {
                 cl.queue(.{ .ok = true, .result = try session_command.snapshot(arena, &s.runtime), .viewers = try viewer_protocol.viewers(s, arena) });
             },
             .@"session.snapshot", .@"session.subscribe" => {
-                if (op == .@"session.subscribe" and (cl.viewer or cl.launch_preview != null)) return error.AlreadyAttached;
+                if (op == .@"session.subscribe" and (cl.viewer or cl.launch_preview != null or cl.watching)) return error.AlreadyAttached;
                 try s.queueSession(cl);
                 if (op == .@"session.subscribe") cl.subscribed = true;
+            },
+            .@"viewer.watch" => |q| {
+                if (cl.viewer or cl.subscribed or cl.launch_preview != null) return error.AlreadyAttached;
+                cl.watching = true;
+                cl.watch_viewer = q.viewer;
+                cl.woken = s.wakeSeq(q.viewer);
+                cl.queue(.{ .ok = true });
             },
             .@"conversation.list" => {
                 const snapshot = try session_command.snapshot(arena, &s.runtime);
@@ -847,18 +866,18 @@ pub const Server = struct {
             const now = std.time.milliTimestamp();
             const detecting = now - s.last_detection >= 250 or s.settles.items.len > 0;
             // Read every live PTY that poll reports, even when its tab is
-            // hidden. Only visible output dirties the frame. A shell that
-            // exits while a child keeps the PTY open is reaped on the next
-            // detection pass.
+            // hidden. A shell that exits while a child keeps the PTY open is
+            // reaped on the next detection pass.
             for (s.runtime.panes.items, 0..) |*p, i| {
                 p.terminal.refreshRedraw(now);
                 const ready = polls[i + 1].revents != 0;
-                if (ready) p.refreshCwd();
-                p.terminal.flush();
-                if ((ready or p.terminal.expecting()) and p.terminal.read()) {
-                    s.runtime.changed();
-                    if (!p.terminal.vt.modes.get(.synchronized_output)) s.dirty = true;
+                if (ready) {
+                    const cwd = std.hash.Wyhash.hash(0, p.cwd);
+                    p.refreshCwd();
+                    if (cwd != std.hash.Wyhash.hash(0, p.cwd)) s.runtime.changed();
                 }
+                p.terminal.flush();
+                if ((ready or p.terminal.expecting()) and p.terminal.read()) s.runtime.wrote();
                 if ((ready or detecting) and p.terminal.reap()) {
                     s.runtime.changed();
                     s.dirty = true;
@@ -1079,7 +1098,7 @@ pub const Server = struct {
                     std.mem.copyForwards(u8, cl.input.items[0 .. cl.input.items.len - consumed], cl.input.items[consumed..]);
                     cl.input.items.len -= consumed;
                 }
-                if (!cl.viewer and !cl.subscribed and cl.launch_preview == null and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
+                if (!cl.viewer and !cl.subscribed and !cl.watching and cl.launch_preview == null and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
                 if (cl.dead) {
                     cl.deinit();
                     _ = s.clients.orderedRemove(ci);
@@ -1133,6 +1152,13 @@ pub const Server = struct {
             }
             for (s.clients.items) |*cl| {
                 s.publishLaunchPreview(cl);
+                if (cl.watching and !cl.dead and cl.output.items.len == 0) {
+                    const wake = s.wakeSeq(cl.watch_viewer);
+                    if (cl.woken != wake) {
+                        cl.queue(.{ .type = "viewer.wake" });
+                        cl.woken = wake;
+                    }
+                }
                 if (cl.subscribed and !cl.dead and cl.output.items.len == 0 and
                     cl.snapshot_revision != s.runtime.revision and std.time.milliTimestamp() - cl.last_snapshot >= 30)
                 {

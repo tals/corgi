@@ -167,6 +167,8 @@ $.clients[].last_control: u64
 $.clients[].protocol_version: optional
 $.clients[].protocol_version?: u32
 $.clients[].subscribed: bool
+$.clients[].watching: bool
+$.clients[].watch_viewer: u32
 $.clients[].launch_preview: optional
 $.clients[].launch_preview?.cwd: custom bounded_text.BoundedText(10240)
 $.clients[].launch_preview?.preview.pending: bool
