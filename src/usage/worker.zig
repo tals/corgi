@@ -127,6 +127,7 @@ pub const Worker = struct {
         for (runtime.conversations.items.items) |actor| {
             const agent = &actor.state;
             if (agent.session.len == 0 or (agent.transcript.len == 0 and !indexedNames(actor.provider()))) continue;
+            if (!runtime.followed(actor)) continue;
             const ws = runtime.workspaces.get(actor.workspace) orelse continue;
             w.requests.append(a, .{
                 .actor = actor.id,

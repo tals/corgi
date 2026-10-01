@@ -12,6 +12,7 @@ const TabId = layout.TabId;
 const keys = @import("keys.zig");
 const agents = @import("agents.zig");
 const ActorId = @import("conversations.zig").Actor.Id;
+const Attachment = @import("conversations.zig").Attachment;
 const options = @import("corgi_options");
 const protocol = @import("protocol.zig");
 const Command = protocol.Command;
@@ -371,7 +372,8 @@ pub fn snapshot(allocator: std.mem.Allocator, r: *Runtime) !protocol.Snapshot {
 /// hash changes. It leaves out what moves while nothing shown changes: the
 /// revision, which every PTY read bumps, freshness stamps finer than
 /// `protocol.stamp_bucket`, which the viewer only compares against a window, and
-/// resources, which `viewer.sync` sends beside the session.
+/// resources, which `viewer.sync` sends beside the session. It also leaves
+/// out conversations nothing is attached to, which no viewer shows.
 pub fn viewerSnapshot(allocator: std.mem.Allocator, r: *Runtime) !protocol.Snapshot {
     return build(allocator, r, true);
 }
@@ -438,28 +440,22 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
         .tool_active = session.toolActive(),
     };
     const conversations = try allocator.alloc(protocol.Conversation, r.conversations.items.items.len);
-    for (r.conversations.items.items, conversations) |actor, *out| {
+    var shown: usize = 0;
+    for (r.conversations.items.items) |actor| {
+        if (viewer and !r.followed(actor)) continue;
+        const out = &conversations[shown];
+        shown += 1;
         const current_usage = actor.usageView(std.time.milliTimestamp());
         const points = try allocator.alloc(protocol.Conversation.ActivityPoint, actor.activity_timeline.len);
         for (actor.activity_timeline.points[0..actor.activity_timeline.len], points) |*point, *dst| {
             dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage };
         }
-        var attachments: u32 = 0;
-        for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {
-            attachments += 1;
-        };
-        for (r.sessions.items) |native_session| if (!native_session.exited) {
-            for (native_session.members.items) |member| if (member == actor) {
-                attachments += 1;
-                break;
-            };
-        };
         out.* = .{
             .id = actor.id,
             .parent = actor.parent,
             .workspace = actor.workspace,
             .observed_at = actor.observed_at,
-            .attachments = attachments,
+            .attachments = r.attachments(actor),
             .role = actor.role.text(),
             .background_tasks = try actor.background_tasks.view(allocator),
             .model = actor.model.text(),
@@ -476,7 +472,7 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
         }
     }
     return .{
-        .conversations = conversations,
+        .conversations = conversations[0..shown],
         .release_version = options.release_version,
         .release_commit = options.release_commit,
         .staged_version = r.staged_version,
@@ -635,8 +631,11 @@ test "swapping panes exchanges their places, across workspaces too" {
 test "a viewer's snapshot stays byte-stable while only output and stamps move" {
     var r: Runtime = .{};
     defer r.deinit();
-    _ = try r.workspaces.add("stable", "/tmp");
+    const ws = r.workspaces.get(try r.workspaces.add("stable", "/tmp")).?;
     const actor = try r.conversations.get(.codex, "stable");
+    var binding: Attachment = .{};
+    binding.select(actor);
+    try r.panes.append(os.allocator, .{ .id = try ws.model.newTab(""), .terminal = try terminal.Terminal.create(20, 4), .cwd = try os.allocator.dupe(u8, "/tmp"), .attachment = binding });
     actor.observed_at = 10 * std.time.us_per_s + 1;
     actor.children_observed_at = actor.observed_at;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -653,4 +652,26 @@ test "a viewer's snapshot stays byte-stable while only output and stamps move" {
     try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try snapshot(alloc, &r), .{})));
     actor.observed_at += protocol.stamp_bucket;
     try std.testing.expect(!std.mem.eql(u8, before, try std.json.Stringify.valueAlloc(alloc, try viewerSnapshot(alloc, &r), .{})));
+}
+
+test "a viewer's snapshot leaves out conversations nothing is attached to" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const ws = r.workspaces.get(try r.workspaces.add("shown", "/tmp")).?;
+    const attached = try r.conversations.get(.claude, "attached");
+    const child = try r.conversations.get(.claude, "child");
+    child.parent = attached.id;
+    _ = try r.conversations.get(.claude, "detached");
+    var binding: Attachment = .{};
+    binding.select(attached);
+    try r.panes.append(os.allocator, .{ .id = try ws.model.newTab(""), .terminal = try terminal.Terminal.create(20, 4), .cwd = try os.allocator.dupe(u8, "/tmp"), .attachment = binding });
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const shown = (try viewerSnapshot(arena.allocator(), &r)).conversations;
+    try std.testing.expectEqual(@as(usize, 2), shown.len);
+    try std.testing.expectEqual(attached.id, shown[0].id);
+    try std.testing.expectEqual(child.id, shown[1].id);
+    try std.testing.expectEqual(@as(u32, 1), shown[0].attachments);
+    // `corgi list` and session subscribers still see every conversation.
+    try std.testing.expectEqual(@as(usize, 3), (try snapshot(arena.allocator(), &r)).conversations.len);
 }

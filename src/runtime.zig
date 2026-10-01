@@ -123,6 +123,33 @@ pub const Runtime = struct {
         return null;
     }
 
+    /// Live panes and native sessions showing `actor`.
+    pub fn attachments(r: *const Runtime, actor: *const conversations.Actor) u32 {
+        var count: u32 = 0;
+        for (r.panes.items) |p| if (!p.terminal.exited and p.attachment.actor == actor) {
+            count += 1;
+        };
+        for (r.sessions.items) |session| if (!session.exited) {
+            for (session.members.items) |member| if (member == actor) {
+                count += 1;
+                break;
+            };
+        };
+        return count;
+    }
+
+    /// Attached somewhere, or a subagent of a conversation that is. Workers
+    /// observe only these; a detached conversation waits to be attached again.
+    pub fn followed(r: *const Runtime, actor: *const conversations.Actor) bool {
+        var current: ?*const conversations.Actor = actor;
+        for (0..conversations.max_actors) |_| {
+            const each = current orelse return false;
+            if (r.attachments(each) > 0) return true;
+            current = if (each.parent) |id| r.conversations.byId(id) else null;
+        }
+        return false;
+    }
+
     pub fn getWorkspace(r: *Runtime, id: WorkspaceId) !*workspace.Workspace {
         return r.workspaces.get(id) orelse error.NoWorkspace;
     }
@@ -274,4 +301,27 @@ test "reapStopped collects exited shells and forgets processes that are not ours
     r.reapStopped();
     try std.testing.expectEqualSlices(c_int, &.{running}, r.stopped.items);
     try std.testing.expect(os.c.waitpid(exited, null, os.c.WNOHANG) < 0);
+}
+
+test "only attached conversations and their subagents are followed" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const ws = r.workspaces.get(try r.workspaces.add("follow", "/tmp")).?;
+    const attached = try r.conversations.get(.codex, "attached");
+    const child = try r.conversations.get(.codex, "child");
+    const detached = try r.conversations.get(.codex, "detached");
+    const orphan = try r.conversations.get(.codex, "orphan");
+    child.parent = attached.id;
+    orphan.parent = detached.id;
+    var binding: conversations.Attachment = .{};
+    binding.select(attached);
+    try r.panes.append(a, .{ .id = try ws.model.newTab(""), .terminal = try Terminal.create(20, 4), .cwd = try a.dupe(u8, "/tmp"), .attachment = binding });
+    try std.testing.expect(r.followed(attached));
+    try std.testing.expect(r.followed(child));
+    try std.testing.expect(!r.followed(detached));
+    try std.testing.expect(!r.followed(orphan));
+    // A pane whose program exited no longer holds its conversation.
+    r.panes.items[0].terminal.exited = true;
+    try std.testing.expect(!r.followed(attached));
+    try std.testing.expect(!r.followed(child));
 }
