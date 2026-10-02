@@ -164,7 +164,7 @@ prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
 | Next agent | `prefix ]` |  |  | `prefix ]` |
 | Previous agent | `prefix [` |  |  | `prefix [` |
 | Last visited agent | `prefix Tab` |  |  | `prefix Tab` |
-| Jump to attention | `prefix f` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
+| Jump to attention | `prefix f`, `F1` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
 | New agent | `prefix a`, `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix a`, `prefix A`, `prefix Ctrl+A` |
 | Mute / unmute sounds | `prefix m` | `prefix m` | `prefix m` | `prefix m` |
 | Focus left | `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix h` |

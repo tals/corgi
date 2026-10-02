@@ -130,7 +130,7 @@ pub const State = struct {
     }
 };
 
-const Style = enum { text, bright, mint, dim, direct, keycap };
+const Style = enum { text, bright, mint, dim, direct, keycap, attention };
 const Part = struct {
     x: u16,
     text: BoundedText(192),
@@ -219,6 +219,22 @@ const Column = struct {
             c.mark(start, act);
         }
     }
+    /// An action people open help to find: a dot, a bright label and a
+    /// keycap. The keycap drops to its own row when the column is narrow.
+    fn featured(c: *Column, label: []const u8, act: Action, indent: usize) !void {
+        var buf: [128]u8 = undefined;
+        const key = try spelling(c.preset, act, &buf) orelse return;
+        var cap: [136]u8 = undefined;
+        const keycap = try std.fmt.bufPrint(&cap, "[ {s} ]", .{key});
+        const key_width = sidebar.displayWidth(keycap);
+        const start = c.rows.items.len;
+        try c.wrapped(label, indent + 2, .bright, false);
+        c.rows.items[start].add(indent, "●", .attention);
+        const last = c.rows.items[c.rows.items.len - 1].parts[0];
+        if (last.x + sidebar.displayWidth(last.value()) + 3 + key_width > c.width) try c.space();
+        c.rows.items[c.rows.items.len - 1].add(c.width -| key_width, keycap, .keycap);
+        c.mark(start, act);
+    }
     /// A held key for an action whose shown key follows the prefix.
     fn alsoHeld(c: *Column, label: []const u8, act: Action, indent: usize) !void {
         const shown = bindings.find(c.preset, act) orelse return;
@@ -292,11 +308,12 @@ fn navigation(c: *Column) !void {
     try c.action("Close workspace", .@"close-workspace", 2);
     try c.space();
     try c.heading("AGENTS");
+    try c.featured("Jump to who needs you", .attention, 2);
+    try c.alsoHeld("Also works directly", .attention, 4);
     try c.group("Navigate");
     try c.action("Find", .@"find-agent", 4);
     try c.pair("Next / previous", .@"next-agent", .@"prev-agent", 4);
     try c.action("Last visited", .@"last-agent", 4);
-    try c.action("Needs attention", .attention, 4);
     try c.group("Manage");
     try c.action("New agent", .@"new-agent", 4);
     try c.action("Mute / unmute", .mute, 4);
@@ -382,6 +399,8 @@ fn color(style: Style) []const u8 {
         .dim => "\x1b[0;38;2;112;124;135;48;2;35;40;47m",
         .direct => "\x1b[0;38;2;219;194;152;48;2;35;40;47m",
         .keycap => "\x1b[1;38;2;24;27;32;48;2;161;194;178m",
+        // The sidebar's unseen-completion dot.
+        .attention => "\x1b[0;38;2;148;226;213;48;2;35;40;47m",
     };
 }
 fn clippedAt(w: *std.Io.Writer, b: Rect, x: usize, y: usize, room: usize, value: []const u8, style: Style) !void {
@@ -419,4 +438,27 @@ test "the help screen spells each preset's keys from its bindings" {
         const text = try spelling(case.preset, case.action, &buf);
         if (case.text) |expected| try std.testing.expectEqualStrings(expected, text.?) else try std.testing.expectEqual(null, text);
     }
+}
+
+test "agents lead with the attention jump, its key a keycap that fits" {
+    const Case = struct { preset: km.Preset, keycap: []const u8 };
+    for ([_]Case{
+        .{ .preset = .corgi, .keycap = "[ f ]" },
+        .{ .preset = .tmux, .keycap = "[ F ]" },
+        .{ .preset = .herdr, .keycap = "[ o ]" },
+        .{ .preset = .cmux, .keycap = "[ Cmd+Shift+U · P f ]" },
+    }) |case| for ([_]u16{ 47, 21 }) |width| {
+        var column: Column = .{ .width = width, .preset = case.preset };
+        defer column.rows.deinit(a);
+        try navigation(&column);
+        var found = false;
+        for (column.rows.items) |*row| for (row.parts[0..row.len]) |*part| {
+            try std.testing.expect(part.style != .keycap or part.action.? == .attention);
+            if (part.style != .keycap) continue;
+            try std.testing.expectEqualStrings(case.keycap, part.value());
+            try std.testing.expect(part.x + sidebar.displayWidth(part.value()) <= width);
+            found = true;
+        };
+        try std.testing.expect(found);
+    };
 }

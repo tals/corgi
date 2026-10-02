@@ -37,6 +37,7 @@ pub const Binding = struct {
             keyboard.arrow_right => try w.writeAll("→"),
             keyboard.arrow_up => try w.writeAll("↑"),
             keyboard.arrow_down => try w.writeAll("↓"),
+            keyboard.f1...keyboard.f1 + 24 => try w.print("F{d}", .{b.key - keyboard.f1 + 1}),
             // A held letter names the key; a typed one is the character.
             'a'...'z' => try w.writeByte(@intCast(if (b.mods == Mods{}) b.key else b.key - 32)),
             else => try w.print("{u}", .{b.key}),
@@ -199,6 +200,7 @@ const corgi_keys = [_]Binding{
 };
 const corgi = corgi_keys ++ [_]Binding{
     .{ .key = 20, .prefixed = false, .action = .new },
+    held(keyboard.f1, .{}, .attention),
 };
 
 const tmux = [_]Binding{
@@ -422,6 +424,7 @@ test "keys are spelled the way the help screen shows them" {
         .{ .binding = held(13, cmd_shift, .new), .text = "Cmd+Shift+Enter" },
         .{ .binding = .{ .key = 9, .mods = .{ .shift = true }, .action = .new }, .text = "Shift+Tab" },
         .{ .binding = .{ .key = keyboard.arrow_up, .mods = ctrl, .action = .new }, .text = "Ctrl+↑" },
+        .{ .binding = held(keyboard.f1, .{}, .attention), .text = "F1" },
     }) |case| {
         var buf: [32]u8 = undefined;
         try std.testing.expectEqualStrings(case.text, try std.fmt.bufPrint(&buf, "{f}", .{case.binding}));
@@ -463,6 +466,7 @@ test "the shortcut table lists each preset's keys" {
         "| Select tab | `prefix 1–9` | `prefix 0–9` | `Ctrl+1–9`, `prefix 1–9` |\n",
         "| Select workspace |  |  | `Cmd+1–9` |\n",
         "| Resize up |  | `prefix Ctrl+↑` | `Ctrl+Shift+K` |\n",
+        "| Jump to attention | `prefix f`, `F1` | `prefix F` | `Cmd+Shift+U`, `prefix f` |\n",
     }) |row| try std.testing.expect(std.mem.indexOf(u8, text, row) != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "Relaunch") == null);
 }
@@ -494,6 +498,9 @@ test "keys that arrive as sequences" {
         // Ctrl+T is a byte too; the byte path handles it.
         .{ .preset = .corgi, .key = 't', .mods = ctrl, .action = null },
         .{ .preset = .corgi, .prefixed = true, .key = 'c', .action = null },
+        .{ .preset = .corgi, .key = keyboard.f1, .action = .attention },
+        .{ .preset = .corgi, .prefixed = true, .key = keyboard.f1, .action = .attention },
+        .{ .preset = .tmux, .key = keyboard.f1, .action = null },
     }) |case| {
         const event: keyboard.Key = .{ .codepoint = case.key, .mods = .{ .shift = case.mods.shift, .alt = case.mods.alt, .ctrl = case.mods.ctrl, .super = case.mods.super } };
         try std.testing.expectEqual(case.action, chord(case.preset, case.prefixed, event));

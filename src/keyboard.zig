@@ -12,6 +12,8 @@ pub const arrow_left: u21 = 57350;
 pub const arrow_right: u21 = 57351;
 pub const arrow_up: u21 = 57352;
 pub const arrow_down: u21 = 57353;
+/// Kitty's codepoint for F1; F2 to F25 follow it.
+pub const f1: u21 = 57364;
 
 pub const Key = struct {
     codepoint: u21,
@@ -51,6 +53,10 @@ pub fn decode(bytes: []const u8) ?Key {
             'B' => arrow_down,
             'C' => arrow_right,
             'D' => arrow_left,
+            // F1 to F4: SS3 in legacy mode, CSI with Kitty keys on. Kitty
+            // sends F3 as CSI 13~, since CSI R is a cursor position report.
+            'P', 'Q', 'S' => f1 + (bytes[2] - 'P'),
+            'R' => if (bytes[1] == 'O') f1 + 2 else return null,
             else => return null,
         };
         return .{ .codepoint = cp, .mods = .{} };
@@ -235,4 +241,25 @@ test "CSI-u function keys are encoded as keys rather than private-use text" {
     try decode("\x1b[57375u").?.encode(&out.writer, .{});
     try std.testing.expectEqualStrings("\x1b[24~", out.written());
     try std.testing.expect(decode("\x1b[57398u") == null);
+}
+
+test "F1 to F4 arrive in either host form and leave in the pane's" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    for ([_][2][]const u8{
+        .{ "\x1bOP", "\x1bOP" },
+        .{ "\x1b[P", "\x1bOP" },
+        .{ "\x1b[Q", "\x1bOQ" },
+        .{ "\x1bOR", "\x1bOR" },
+        .{ "\x1b[S", "\x1bOS" },
+    }) |case| {
+        out.clearRetainingCapacity();
+        try decode(case[0]).?.encode(&out.writer, .{});
+        try std.testing.expectEqualStrings(case[1], out.written());
+    }
+    out.clearRetainingCapacity();
+    try decode("\x1bOP").?.encode(&out.writer, .{ .kitty_flags = .{ .disambiguate = true } });
+    try std.testing.expectEqualStrings("\x1b[P", out.written());
+    // A cursor position report, not F3.
+    try std.testing.expect(decode("\x1b[R") == null);
 }
