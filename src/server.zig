@@ -913,6 +913,12 @@ pub const Server = struct {
                 }
                 p.terminal.flush();
                 if ((ready or p.terminal.expecting()) and p.terminal.read()) s.runtime.wrote();
+                if (p.terminal.copied) |text| {
+                    p.terminal.copied = null;
+                    defer a.free(text);
+                    // Like a bell, a copy no viewer can take is dropped.
+                    viewer_protocol.copy(s, p.id, text) catch {};
+                }
                 if (p.watchGhost(now)) s.runtime.changed();
                 if ((ready or detecting) and p.terminal.reap()) {
                     s.runtime.changed();

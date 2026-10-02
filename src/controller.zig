@@ -896,6 +896,7 @@ pub const Controller = struct {
             .@"next-pane" => try s.cyclePane(true),
             .@"prev-pane" => try s.cyclePane(false),
             .@"copy-mode" => s.copy_mode = true,
+            .copy => |text| try s.copyText(text),
             .paste => if (s.clipboard) |text| if (s.focused()) |p| {
                 const bracketed = p.terminal.emulator().*.modes.get(.bracketed_paste);
                 if (bracketed) try s.sendInput(p.terminal, "\x1b[200~");
@@ -959,6 +960,10 @@ pub const Controller = struct {
     fn copyPane(s: *Self, p: *Pane) !void {
         const text = try p.terminal.selectedText();
         defer a.free(text);
+        try s.copyText(text);
+    }
+    /// Puts `text` on the host clipboard and keeps it for `paste`.
+    fn copyText(s: *Self, text: []const u8) !void {
         if (s.clipboard) |old| a.free(old);
         s.clipboard = null;
         s.clipboard = try a.dupe(u8, text);

@@ -46,6 +46,9 @@ pub const Action = union(enum) {
     @"copy-mode",
     /// Pastes the text Corgi copied last into the focused pane.
     paste,
+    /// Puts text on the clipboard. The daemon sends it when a program in a
+    /// pane copies with OSC 52.
+    copy: []const u8,
     detach,
     sidebar,
     setup,
@@ -128,6 +131,7 @@ pub const Action = union(enum) {
             .join => "Move pane into tab",
             .@"copy-mode" => "Scroll / copy mode",
             .paste => "Paste copied text",
+            .copy => "Copy text",
             .setup => "Setup",
             .help => "All shortcuts",
             .detach => "Detach",
@@ -142,15 +146,15 @@ pub const Action = union(enum) {
             .@"workspace-next", .@"workspace-prev", .@"new-workspace", .@"edit-workspace" => false,
             .@"close-workspace", .@"choose-workspace", .@"goto-workspace" => false,
             .@"new-agent", .@"find-agent", .@"next-agent", .@"prev-agent", .@"last-agent" => false,
-            .setup, .help, .detach, .relaunch => false,
+            .setup, .help, .detach, .relaunch, .copy => false,
             .split, .zoom, .close, .@"close-tab", .@"rename-tab", .rename, .@"move-tab", .@"break" => true,
             .resize, .@"resize-mode", .focus, .swap, .@"next-pane", .@"prev-pane" => true,
             .next, .prev, .tab, .join, .@"copy-mode", .paste => true,
         };
     }
 
-    /// The wire form: a name and an optional value. `rename` and `relaunch`
-    /// borrow `value`.
+    /// The wire form: a name and an optional value. `rename`, `copy` and
+    /// `relaunch` borrow `value`.
     pub fn parse(name: []const u8, value: []const u8) !Action {
         inline for (@typeInfo(Action).@"union".fields) |field| {
             if (std.mem.eql(u8, name, field.name))
@@ -181,6 +185,7 @@ test "wire names used by the CLI and the test suites parse" {
     try std.testing.expectEqual(Action{ .@"goto-workspace" = 2 }, try Action.parse("goto-workspace", "2"));
     try std.testing.expectEqual(Action.detach, try Action.parse("detach", ""));
     try std.testing.expectEqualStrings("Renamed", (try Action.parse("rename", "Renamed")).rename);
+    try std.testing.expectEqualStrings("copied", (try Action.parse("copy", "copied")).copy);
     try std.testing.expectError(error.UnknownAction, Action.parse("close_tab", ""));
     try std.testing.expectError(error.BadValue, Action.parse("focus", "north"));
     try std.testing.expectError(error.BadValue, Action.parse("resize", ""));

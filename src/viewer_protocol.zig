@@ -240,12 +240,44 @@ fn viewerShowing(s: *Server, pane: layout.PaneId) !*Client {
 /// Queues `value` for `target`, delivered in its next viewer.sync, and tells
 /// the requester which viewer took it.
 fn send(cl: *Client, target: *Client, value: protocol.Control) !void {
+    try queue(target, value);
+    cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
+}
+fn queue(target: *Client, value: protocol.Control) !void {
     if (target.controls.items.len >= 64) return error.ViewerBusy;
     var control = value;
     control.seq = target.next_control;
     try target.controls.append(a, control);
     target.next_control += 1;
-    cl.queue(.{ .ok = true, .viewer = target.viewer_id, .queued = true });
+}
+
+/// Hands a program's clipboard copy to the most recently used viewer
+/// showing its pane. Only the newest copy waits for a viewer.
+pub fn copy(s: *Server, pane: layout.PaneId, text: []const u8) !void {
+    var target: ?*Client = null;
+    for (s.clients.items) |*view| if (view.viewer and !view.dead and (target == null or view.active_seq > target.?.active_seq)) {
+        for (view.interests[0..view.interest_count]) |interest| if (interest.pane == pane) {
+            target = view;
+        };
+    };
+    const view = target orelse return;
+    const name = @tagName(std.meta.Tag(Action).copy);
+    var i: usize = 0;
+    while (i < view.controls.items.len) {
+        const queued = view.controls.items[i];
+        if (queued.kind != .action or !std.mem.eql(u8, queued.name, name)) {
+            i += 1;
+            continue;
+        }
+        a.free(queued.name);
+        a.free(queued.value);
+        _ = view.controls.orderedRemove(i);
+    }
+    const owned_name = try a.dupe(u8, name);
+    errdefer a.free(owned_name);
+    const value = try a.dupe(u8, text);
+    errdefer a.free(value);
+    try queue(view, .{ .kind = .action, .name = owned_name, .value = value });
 }
 
 const ViewerInfo = struct { id: u32, workspace: WorkspaceId, pane: ?layout.PaneId, watched: bool };

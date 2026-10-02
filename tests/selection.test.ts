@@ -61,6 +61,23 @@ process.stdin.resume();
     );
   }
 
+  async test_program_copy_reaches_the_viewer_showing_it() {
+    const pane = await this.new("exec /bin/sh");
+    const viewer = await this.newViewer();
+    await viewer.focus(pane);
+    await this.command("pane.input", {
+      data: "printf '\\033]52;c;%s\\007' Q09QSUVE\n",
+      target: pane,
+    });
+    const copy = `\x1b]52;c;${Buffer.from("COPIED").toString("base64")}\x07`;
+    await this.until(async () =>
+      (await viewer.poll()).effects.some(
+        (effect: any) => effect.write_terminal === copy,
+      ),
+    );
+    this.assertIn("Copied to clipboard", viewer.state.data);
+  }
+
   async test_drag_freezes_text_and_release_copies_then_resumes() {
     const pane = await this.new("printf 'SELECT_ME\\n'; exec /bin/sh");
     await this.until(async () =>

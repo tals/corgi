@@ -28,6 +28,9 @@ pub const Terminal = struct {
     exited: bool = false,
     exit_status: c_int = 0,
     pending: std.ArrayList(u8) = .empty,
+    /// The text the program last copied with OSC 52, until the daemon
+    /// passes it to a viewer.
+    copied: ?[]u8 = null,
     initial_input: ?[]const u8 = null,
     synchronized_since: ?i64 = null,
     restoring: bool = false,
@@ -65,8 +68,26 @@ pub const Terminal = struct {
         handler.effects.write_pty = reply;
         handler.effects.title_changed = titleChanged;
         handler.effects.device_attributes = attributes;
+        handler.effects.clipboard_write = clipboardWrite;
         t.stream = .initAlloc(a, handler);
         return t;
+    }
+    /// Copies larger than this are dropped; each one rides in a viewer.sync reply.
+    const max_copy = 1024 * 1024;
+    const ClipboardCallback = @typeInfo(@typeInfo(@FieldType(vt.TerminalStream.Handler.Effects, "clipboard_write")).optional.child).pointer.child;
+    const ClipboardWrite = @typeInfo(ClipboardCallback).@"fn".params[1].type.?;
+    const ClipboardResult = @typeInfo(ClipboardCallback).@"fn".return_type.?;
+    fn clipboardWrite(handler: *vt.TerminalStream.Handler, write: ClipboardWrite) ClipboardResult {
+        const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
+        if (t.restoring or write.location != .standard) return .unsupported;
+        for (write.contents) |content| if (std.mem.eql(u8, content.mime, "text/plain")) {
+            if (content.data.len == 0 or content.data.len > max_copy) return .invalid_data;
+            const owned = a.dupe(u8, content.data) catch return .io_error;
+            if (t.copied) |old| a.free(old);
+            t.copied = owned;
+            return .success;
+        };
+        return .unsupported;
     }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
@@ -175,6 +196,7 @@ pub const Terminal = struct {
     pub fn destroy(t: *Terminal) void {
         t.stop();
         t.pending.deinit(a);
+        if (t.copied) |bytes| a.free(bytes);
         t.stream.deinit();
         t.links.deinit();
         t.render.deinit(a);
@@ -429,6 +451,18 @@ test "Ghostty keeps fragmented escapes, unicode, alternate screen and resize" {
     const after = try t.text();
     defer a.free(after);
     try std.testing.expect(std.mem.indexOf(u8, after, "hello") != null);
+}
+
+test "a program's clipboard copy is kept until passed on, and reads are refused" {
+    const t = try Terminal.create(20, 4);
+    defer t.destroy();
+    t.feed("\x1b]52;c;Zmlyc3Q=\x07\x1b]52;c;c2Vjb25k\x1b\\");
+    try std.testing.expectEqualStrings("second", t.copied.?);
+    a.free(t.copied.?);
+    t.copied = null;
+    // Reads, X11 selections and clears never reach a viewer.
+    t.feed("\x1b]52;c;?\x07\x1b]52;s;dGV4dA==\x07\x1b]52;c;\x07");
+    try std.testing.expectEqual(null, t.copied);
 }
 
 test "synchronized redraw retains completed cells and cursor even during text capture" {
