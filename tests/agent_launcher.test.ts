@@ -869,6 +869,44 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\x02a");
     await this.assertSelected(view, "Codex");
   }
+  async test_each_workspace_keeps_its_agent_and_new_ones_start_on_the_last() {
+    const view = await Viewer.create(this, 120, 30);
+    await view.input("\x02a");
+    await view.input("1");
+    await this.until(
+      async () => (await this.session()).workspaces[0].last_agent === "claude",
+    );
+    const other = (
+      await this.command("workspace.create", {
+        name: "Other",
+        cwd: this.launchDir,
+      })
+    ).workspace;
+    await view.poll();
+    await view.request({ op: "workspace", workspace: other });
+    await view.input("\x02a");
+    await this.assertSelected(view, "Claude Code");
+    await view.input("0");
+    const workspace = async (id: number) =>
+      (await this.session()).workspaces.find((ws: any) => ws.id === id);
+    await this.until(
+      async () => (await workspace(other)).last_agent === "codex",
+    );
+    this.assertEqual((await this.session()).last_agent, "codex");
+    await view.request({ op: "workspace", workspace: this.ws });
+    await view.input("\x02a");
+    await this.assertSelected(view, "Claude Code");
+    await view.input("\x1b");
+    await this.until(
+      async () => !(await view.poll()).data.includes("New agent"),
+    );
+    await this.command("agent.create", { workspace: this.ws });
+    this.assertEqual((await this.session()).last_agent, "claude");
+    this.assertEqual((await workspace(other)).last_agent, "codex");
+    await view.request({ op: "workspace", workspace: other });
+    await view.input("\x02a");
+    await this.assertSelected(view, "Codex");
+  }
   async test_custom_selection_survives_launch_and_hidden_row_falls_back() {
     await this.command("agent.command", {
       index: 0,

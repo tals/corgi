@@ -434,6 +434,8 @@ $.snapshot.workspaces[].model: custom layout.Model
 $.snapshot.workspaces[].agent_order[]: one of
 $.snapshot.workspaces[].agent_order[]|pane: u32
 $.snapshot.workspaces[].agent_order[]|native: u32
+$.snapshot.workspaces[].last_agent: optional
+$.snapshot.workspaces[].last_agent?: enum codex claude
 $.snapshot.workspaces[].git_commits[].timestamp: i64
 $.snapshot.workspaces[].git_commits[].hash: string
 $.snapshot.workspaces[].git_commits[].subject: string

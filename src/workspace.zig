@@ -6,6 +6,7 @@ const agent_order = @import("agent_order.zig");
 const git_push = @import("trackers.zig").git_push;
 const git_status = @import("trackers.zig").git_status;
 const tokens = @import("usage.zig").tokens;
+const Provider = @import("providers.zig").Provider;
 
 pub const max_workspaces = 32;
 
@@ -28,6 +29,8 @@ pub const Workspace = struct {
     cwd: []const u8,
     model: layout.Model = .{},
     agent_order: agent_order.Order = .{},
+    /// The agent `New` repeats here; null until one starts here.
+    last_agent: ?Provider = null,
     git_ahead: ?u64 = null,
     git_ref: git_push.Ref = .{},
     git_push: git_push.State = .{},

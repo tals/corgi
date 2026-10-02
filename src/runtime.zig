@@ -189,6 +189,16 @@ pub const Runtime = struct {
         return r.workspaces.get(id) orelse error.NoWorkspace;
     }
 
+    /// The agent `New` repeats in `ws`: its own, else the last one anywhere.
+    pub fn lastAgent(r: *const Runtime, ws: *const workspace.Workspace) agents.Provider {
+        return ws.last_agent orelse r.last_agent;
+    }
+    /// An agent started in pane `id`; `New` repeats it in that workspace.
+    pub fn rememberAgent(r: *Runtime, id: layout.PaneId, provider: agents.Provider) void {
+        r.last_agent = provider;
+        if (r.workspaces.owner(id)) |ws| ws.last_agent = provider;
+    }
+
     pub const Create = struct {
         workspace: WorkspaceId,
         split: ?struct { pane: layout.PaneId, axis: layout.Axis, before: bool = false } = null,

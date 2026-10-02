@@ -5,10 +5,18 @@ const WorkspaceId = workspace.Workspace.Id;
 const mirror = @import("mirror.zig");
 const protocol = @import("protocol.zig");
 const agent_navigation = @import("agent_navigation.zig");
+const agent_launcher = @import("agent_launcher.zig");
 const Action = @import("action.zig").Action;
 pub const State = struct {
     workspace_id: WorkspaceId = .none,
-    entries: [workspace.max_workspaces]struct { id: WorkspaceId = .none, value: layout.Selection = .{}, agents: agent_navigation.History = .{} } = @splat(.{}),
+    entries: [workspace.max_workspaces]Entry = @splat(.{}),
+    const Entry = struct {
+        id: WorkspaceId = .none,
+        value: layout.Selection = .{},
+        agents: agent_navigation.History = .{},
+        /// The launcher row last left selected here.
+        launcher: ?agent_launcher.Row = null,
+    };
     pub fn index(n: *State, store: *mirror.Workspaces) usize {
         const i = store.index(n.workspace_id) orelse 0;
         n.workspace_id = store.items[i].id;
@@ -18,23 +26,33 @@ pub const State = struct {
         return &store.items[n.index(store)];
     }
     pub fn tabs(n: *State, store: *mirror.Workspaces) *layout.Selection {
-        const ws = n.current(store);
-        for (&n.entries) |*entry| if (entry.id == ws.id) {
-            entry.value.reconcile(&ws.model);
-            return &entry.value;
+        return &n.entry(store, n.current(store)).value;
+    }
+    /// Takes over a closed workspace's slot the first time `ws` needs one.
+    fn entry(n: *State, store: *mirror.Workspaces, ws: *protocol.Workspace) *Entry {
+        for (&n.entries) |*e| if (e.id == ws.id) {
+            e.value.reconcile(&ws.model);
+            return e;
         };
-        for (&n.entries) |*entry| if (entry.id == WorkspaceId.none or store.index(entry.id) == null) {
-            entry.* = .{ .id = ws.id };
-            entry.value.reconcile(&ws.model);
-            return &entry.value;
+        for (&n.entries) |*e| if (e.id == WorkspaceId.none or store.index(e.id) == null) {
+            e.* = .{ .id = ws.id };
+            e.value.reconcile(&ws.model);
+            return e;
         };
         unreachable;
     }
     pub const Intent = struct { edit: ?protocol.Command = null, focus: ?layout.PaneId = null };
     pub fn agentHistory(n: *State, store: *mirror.Workspaces) *agent_navigation.History {
-        _ = n.tabs(store);
-        for (&n.entries) |*entry| if (entry.id == n.workspace_id) return &entry.agents;
-        unreachable;
+        return &n.entry(store, n.current(store)).agents;
+    }
+    /// The launcher row this viewer last left selected in workspace `id`.
+    pub fn launcherRow(n: *State, store: *mirror.Workspaces, id: WorkspaceId) ?agent_launcher.Row {
+        const i = store.index(id) orelse return null;
+        return n.entry(store, &store.items[i]).launcher;
+    }
+    pub fn rememberLauncherRow(n: *State, store: *mirror.Workspaces, id: WorkspaceId, row: agent_launcher.Row) void {
+        const i = store.index(id) orelse return;
+        n.entry(store, &store.items[i]).launcher = row;
     }
     /// Resolve command shorthand once, before crossing the session seam.
     /// `Controller.perform` routes only tab and pane actions here.

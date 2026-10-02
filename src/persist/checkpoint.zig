@@ -89,6 +89,7 @@ pub const Workspace = struct {
     cwd: []const u8,
     model: layout.Model,
     agent_order: []const agent_order.Target = &.{},
+    last_agent: ?agents.Provider = null,
 };
 pub const NativeTurn = struct { thread: []const u8, turn: []const u8 };
 pub const Native = struct {
@@ -178,6 +179,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
     for (r.workspaces.items.items, workspaces) |*w, *out| {
         out.* = .{
             .agent_order = try alloc.dupe(agent_order.Target, w.agent_order.slice()),
+            .last_agent = w.last_agent,
             .id = w.id,
             .away = w.away,
             .name = w.customName(),
@@ -280,7 +282,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.link_labels = if (live) try link_labels.Cache.restore(state.link_labels) else .{};
     for (state.workspaces) |w| {
         if (w.id == WorkspaceId.none or @intFromEnum(w.id) >= @intFromEnum(state.next_workspace) or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
-        var item: workspace.Workspace = .{ .agent_order = try agent_order.Order.restore(w.agent_order), .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
+        var item: workspace.Workspace = .{ .agent_order = try agent_order.Order.restore(w.agent_order), .last_agent = w.last_agent, .id = w.id, .away = w.away, .cwd = try a.dupe(u8, w.cwd) };
         item.name_len = agents.clean(&item.name_buf, w.name);
         item.model = w.model;
         for (item.model.tabs[0..item.model.count]) |tab| if (@intFromEnum(tab.id) >= @intFromEnum(state.next_pane)) return error.InvalidCheckpoint;

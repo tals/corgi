@@ -549,7 +549,7 @@ pub const Server = struct {
                 const seq = q.seq orelse std.time.microTimestamp();
                 if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, q.provider, hook.?)) |actor| {
                     p.attachment.hook_seq = seq;
-                    if (hook.?.kind == .session_start) s.runtime.last_agent = q.provider;
+                    if (hook.?.kind == .session_start) s.runtime.rememberAgent(p.id, q.provider);
                     if (actor.workspace == WorkspaceId.none or s.runtime.workspaces.index(actor.workspace) == null) {
                         if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
                     }
@@ -678,7 +678,7 @@ pub const Server = struct {
         const old_binding = p.attachment.generation;
         const previous_pid = p.detection.pid;
         if (before.provider != p.agent().provider or !std.mem.eql(u8, before.sessionId(), p.agent().sessionId())) {
-            if (p.agent().provider) |provider| s.runtime.last_agent = provider;
+            if (p.agent().provider) |provider| s.runtime.rememberAgent(p.id, provider);
         }
         p.resume_hint.observe(p.agent());
         if (job) |current| {

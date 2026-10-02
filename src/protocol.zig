@@ -467,6 +467,8 @@ pub const Workspace = struct {
     cwd: []const u8,
     model: layout.Model,
     agent_order: []const agent_order.Target = &.{},
+    /// The agent `New` repeats here; null follows `Snapshot.last_agent`.
+    last_agent: ?agents.Provider = null,
     git_commits: []const GitCommit = &.{},
     git_ahead: ?u64 = null,
     git_ref: git_push.RefView = .{},

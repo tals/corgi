@@ -145,6 +145,7 @@ pub const Controller = struct {
     scope_menu: ?sidebar.ScopeMenu = null,
     agent_picker: ?agent_navigation.Picker = null,
     agent_launcher: ?agent_launcher.Menu = null,
+    /// The launcher row last left selected in any workspace.
     launcher_selection: ?agent_launcher.Row = null,
     launch_previews: launch_preview_stream.Stream = .{},
     corgi_setup: ?corgi_setup.Menu = null,
@@ -946,6 +947,10 @@ pub const Controller = struct {
         s.copy_feedback_until = clock.milliTimestamp() + 2000;
         s.dirty = true;
     }
+    /// The agent `New` repeats in the current workspace.
+    fn lastAgent(s: *Self) agents.Provider {
+        return s.current().last_agent orelse s.runtime.last_agent;
+    }
     fn launchAgent(s: *Self, provider: ?agents.Provider) !void {
         var cwd: [std.fs.max_path_bytes]u8 = undefined;
         const dir = if (s.agent_launcher) |*launch| launch.cwd.text() else s.currentCwd();
@@ -953,7 +958,7 @@ pub const Controller = struct {
         @memcpy(cwd[0..dir.len], dir);
         const len = dir.len;
         s.closeMenu();
-        s.launcher_selection = .of(provider orelse s.runtime.last_agent);
+        s.rememberLauncherRow(s.current().id, .of(provider orelse s.lastAgent()));
         const created = s.execute(.{ .@"agent.create" = .{ .workspace = s.current().id, .cwd = cwd[0..len], .provider = provider } }) catch |err| {
             s.notice(@errorName(err));
             return;
@@ -980,7 +985,7 @@ pub const Controller = struct {
             if (row == .manage) {
                 s.rememberLauncherSelection();
                 launch.managing = !launch.managing;
-                launch.selected = if (launch.managing) .add else s.launcher_selection orelse launch.first();
+                launch.selected = if (launch.managing) .add else s.launcherSelection(launch.workspace);
                 launch.normalize();
                 launch.pinned = true;
                 s.dirty = true;
@@ -1117,8 +1122,21 @@ pub const Controller = struct {
     }
     fn rememberLauncherSelection(s: *Self) void {
         if (s.agent_launcher) |launch| {
-            if (!launch.managing and launch.selected != .manage and launch.selected != .add) s.launcher_selection = launch.selected;
+            if (launch.managing or launch.selected == .manage or launch.selected == .add) return;
+            s.rememberLauncherRow(launch.workspace, launch.selected);
         }
+    }
+    fn rememberLauncherRow(s: *Self, id: WorkspaceId, row: agent_launcher.Row) void {
+        s.launcher_selection = row;
+        s.navigation.rememberLauncherRow(&s.runtime.workspaces, id, row);
+    }
+    /// The row the launcher opens on in workspace `id`: the one last left
+    /// selected there, else its agent, else the last row or agent used anywhere.
+    fn launcherSelection(s: *Self, id: WorkspaceId) agent_launcher.Row {
+        if (s.navigation.launcherRow(&s.runtime.workspaces, id)) |row| return row;
+        const i = s.runtime.workspaces.index(id) orelse return .of(s.runtime.last_agent);
+        if (s.runtime.workspaces.items[i].last_agent) |provider| return .of(provider);
+        return s.launcher_selection orelse .of(s.runtime.last_agent);
     }
     fn closeLauncher(s: *Self) void {
         s.rememberLauncherSelection();
@@ -1130,8 +1148,8 @@ pub const Controller = struct {
         var launch: agent_launcher.Menu = .{
             .workspace = s.current().id,
             .cwd = Path.init(cwd) catch return,
-            .selected = s.launcher_selection orelse .of(s.runtime.last_agent),
-            .last = s.runtime.last_agent,
+            .selected = s.launcherSelection(s.current().id),
+            .last = s.lastAgent(),
             .yolo = s.runtime.agent_yolo,
             .hidden = s.runtime.agent_hidden,
             .commands = s.runtime.agent_commands,
@@ -1212,7 +1230,7 @@ pub const Controller = struct {
                 s.closeMenu();
                 return;
             }
-            launch.last = s.runtime.last_agent;
+            launch.last = s.lastAgent();
         } else if (on_button and !s.launcher_hover_blocked and !s.hasMenu() and s.name_dialog == null and !s.ui_mouse_down and !s.copy_mode) {
             s.openLauncher(false);
         }

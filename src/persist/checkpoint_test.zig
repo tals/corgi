@@ -142,6 +142,29 @@ test "sidebar order survives live and recovery checkpoints and defaults for old 
     try std.testing.expectEqual(@as(usize, 0), legacy.value.agent_order.len);
 }
 
+test "each workspace keeps its last agent, and one that has none follows the latest" {
+    const Runtime = @import("../runtime.zig").Runtime;
+    var original: Runtime = .{};
+    defer original.deinit();
+    const used = try original.workspaces.add("used", "/tmp");
+    const unused = try original.workspaces.add("unused", "/tmp");
+    original.workspaces.get(used).?.last_agent = .claude;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    for ([_]bool{ true, false }) |live| {
+        const saved = try cp.capture(arena.allocator(), &original, live);
+        const json = try std.json.Stringify.valueAlloc(arena.allocator(), saved, .{});
+        const decoded = try std.json.parseFromSlice(cp.State, arena.allocator(), json, .{});
+        var fresh: Runtime = .{};
+        defer fresh.deinit();
+        try cp.restore(&fresh, decoded.value, live, "/tmp/unused-last-agent.sock", "/tmp/corgi");
+        try std.testing.expectEqual(.claude, fresh.lastAgent(fresh.workspaces.get(used).?));
+        try std.testing.expectEqual(.codex, fresh.lastAgent(fresh.workspaces.get(unused).?));
+        fresh.last_agent = .claude;
+        try std.testing.expectEqual(.claude, fresh.lastAgent(fresh.workspaces.get(unused).?));
+    }
+}
+
 test "conversation checkpoint restores shared bindings and detached unread state" {
     const Runtime = @import("../runtime.zig").Runtime;
     var original: Runtime = .{};

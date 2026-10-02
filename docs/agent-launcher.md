@@ -2,8 +2,10 @@
 
 The agents heading has a split `New ▾` button. `New` opens a new interactive
 agent tab in the focused pane's directory (or the workspace directory when
-empty), repeating the last provider. Codex is the initial default. The choice
-is shared by viewers and retained by live reload and disk recovery.
+empty), repeating the provider last used in that workspace. A workspace that
+has used none repeats the last provider used anywhere. Codex is the initial
+default. The choice is shared by viewers and retained by live reload and disk
+recovery.
 
 Hover over the button for an immediate preview, or click the arrow to keep the popover
 open. Choose Codex or Claude Code to launch and remember that provider.
@@ -23,7 +25,8 @@ A hover preview accepts a, A, or Ctrl+A to launch; other ordinary typing goes to
 
 Press Ctrl+B, then a, A, or Ctrl+A to open the preview. Press any of those again to launch
 the selected agent, or use arrows to select another provider first. The preview
-starts with the last-used provider selected. The next-tab binding is unchanged. Jump to attention is now Ctrl+B, f.
+starts on the row this viewer last left selected in the workspace, else the
+workspace's provider; a new workspace starts on the last row used anywhere. The next-tab binding is unchanged. Jump to attention is now Ctrl+B, f.
 
 The compact popover shows one row per provider with aligned agent and model
 and account columns, a full-row selection highlight, and the destination folder in its footer. Codex
@@ -63,8 +66,9 @@ The protocol exposes `agent.subscribe` (workspace and cwd) on a dedicated connec
 which receives `{type: "agent.preview", cwd, preview}` messages. The one-shot
 `agent.preview` operation remains available. The session command
 `agent.create` (workspace, optional cwd, optional provider). Omitting provider
-repeats the shared choice. The session snapshot and checkpoint include
-`last_agent`, with a Codex default for older data.
+repeats that workspace's choice. The session snapshot and checkpoint include
+`last_agent`, the latest choice anywhere, with a Codex default for older data,
+and each workspace's `last_agent`, null until an agent starts there.
 
 Account previews use Codex `account/read` without token refresh and Claude's
 isolated credential helper, followed by bounded usage/profile requests. Silent

@@ -108,7 +108,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             return .{};
         },
         .@"agent.create" => |q| {
-            const provider = q.provider orelse r.last_agent;
+            const provider = q.provider orelse r.lastAgent(try r.getWorkspace(q.workspace));
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
             const executable = try os.shellQuote(os.allocator, ctx.executable);
             defer os.allocator.free(executable);
@@ -121,7 +121,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             });
             opts.command = command;
             const pane = try r.create(opts);
-            r.last_agent = provider;
+            r.rememberAgent(pane, provider);
             return location(r, pane);
         },
         .@"pane.create" => |q| {
@@ -396,6 +396,7 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
         }
         out.* = .{
             .agent_order = ws.agent_order.slice(),
+            .last_agent = ws.last_agent,
             .git_commits = commits,
             .id = ws.id,
             .name = ws.name(),
