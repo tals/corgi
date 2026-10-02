@@ -730,9 +730,8 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await this.assertSelected(view, "Claude Code", 100);
     await view.input("\x1b[B");
     await this.assertSelected(view, "New terminal", 100);
+    // Manage is the title's button; with no conversations below, down stops.
     await view.input("\x1b[B");
-    await this.assertSelected(view, "Manage agents", 100);
-    await view.input("\x1b[A");
     await this.assertSelected(view, "New terminal", 100);
     await view.input("\x1b[A");
     await this.assertSelected(view, "Claude Code", 100);
@@ -745,7 +744,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\x1b[H");
     await this.assertSelected(view, "Codex", 100);
     await view.input("\x1b[Z");
-    await this.assertSelected(view, "Manage agents", 100);
+    await this.assertSelected(view, "New terminal", 100);
     await view.input("\t");
     await this.assertSelected(view, "Codex", 100);
     await view.input("\x1b");
@@ -1338,6 +1337,47 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     await view.input("\x1b");
     await this.until(async () => !(await text()).includes("Corgi setup"));
     this.assertEqual((await this.session()).inference.choice, "off");
+  }
+  async test_launcher_resumes_a_closed_conversation_in_its_folder() {
+    const session = "4f1c2b9e-0a6d-4c1e-9b7f-2d3e4f5a6b7c";
+    const project = join(this.env.CLAUDE_CONFIG_DIR!, "projects", "fixture");
+    mkdirSync(project, { recursive: true });
+    const prompt = (content: string) =>
+      JSON.stringify({
+        type: "user",
+        cwd: this.launchDir,
+        gitBranch: "main",
+        message: { role: "user", content },
+      });
+    writeFileSync(
+      join(project, session + ".jsonl"),
+      [
+        prompt("fix the sidebar flicker"),
+        JSON.stringify({ type: "ai-title", aiTitle: "Sidebar flicker fixture" }),
+        prompt("does it work on linux?"),
+      ].join("\n") + "\n",
+    );
+    const view = await Viewer.create(this, 120, 30);
+    await view.input("\x02a");
+    // The newest closed conversations sit under the agents.
+    await this.until(async () => {
+      const rows = screen_text((await view.poll()).data, 120, 30);
+      return rows.some(
+        (row) =>
+          row.includes("Sidebar flicker fixture") &&
+          row.includes("does it work on linux?"),
+      );
+    }, 20);
+    await view.input("/flicker");
+    await this.until(async () =>
+      (await view.poll()).data.includes("1 in this workspace"),
+    );
+    await view.input("\r");
+    await this.until(() => existsSync(this.launches), 20);
+    const launch = JSON.parse(lines(this.launches).at(-1)!);
+    this.assertEqual(launch.args, ["--resume", session]);
+    this.assertEqual(realpathSync(launch.cwd), this.launchDir);
+    this.assertNotIn("New agent", (await view.poll()).data);
   }
   async test_preview_project_model() {
     const project = join(this.temp.name, "project");

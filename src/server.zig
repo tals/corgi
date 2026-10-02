@@ -18,6 +18,7 @@ const Theme = @import("theme.zig").Theme;
 const Client = @import("peer.zig").Client;
 const launch_command = @import("launch.zig").command;
 const launch_preview = @import("launch.zig").preview;
+const launch_history = @import("launch.zig").history;
 const onboarding_import = @import("import.zig").onboarding;
 const herdr_adapter = @import("import.zig").herdr;
 const activity_worker = @import("activity.zig").worker;
@@ -48,6 +49,7 @@ pub const Server = struct {
     runtime: runtime.Runtime = .{},
     command_previews: ?*launch_command.Worker = null,
     launch_previews: ?*launch_preview.Worker = null,
+    launch_history: ?*launch_history.Worker = null,
     onboarding_copy: onboarding_import.Job = .{},
     herdr_import: herdr_adapter.Manager = .{},
     handoff_operation: u64 = 0,
@@ -298,6 +300,16 @@ pub const Server = struct {
         const now = std.time.milliTimestamp();
         if (cl.dead or cl.output.items.len != 0 or now - subscription.checked < 100) return;
         subscription.checked = now;
+        // The last read goes out at once, then a current one when done.
+        if (subscription.history_asked) if (s.launch_history) |reader| {
+            const latest = reader.latest(reader.request());
+            defer reader.release();
+            if (latest.read > 0 and (latest.read != subscription.history_sent or !latest.history.pending)) {
+                cl.queue(.{ .type = "agent.history", .history = latest.history });
+                subscription.history_sent = latest.read;
+                subscription.history_asked = latest.history.pending;
+            }
+        };
         const cwd = subscription.cwd.text();
         var preview = worker.preview(cwd);
         // A replacement daemon starts with an empty worker cache. Keep the
@@ -395,6 +407,19 @@ pub const Server = struct {
                     cl.launch_preview = .{ .cwd = dir, .preview = preview, .checked = std.time.milliTimestamp() };
                     cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
                 } else cl.queue(.{ .ok = true, .preview = preview });
+            },
+            .@"agent.history" => {
+                const reader = s.launch_history orelse return error.Unavailable;
+                const wanted = reader.request();
+                // A subscriber gets it pushed once read; a one-shot caller
+                // gets the last read, pending while a newer one runs.
+                if (cl.launch_preview) |*subscription| {
+                    subscription.history_asked = true;
+                } else {
+                    const latest = reader.latest(wanted);
+                    defer reader.release();
+                    cl.reply(.@"agent.history", .{ .history = latest.history });
+                }
             },
             .@"inference.configure" => |q| {
                 const worker = s.summaries orelse return error.InferenceUnavailable;
@@ -778,6 +803,11 @@ pub const Server = struct {
         defer {
             s.launch_previews.?.stop();
             s.launch_previews = null;
+        }
+        s.launch_history = try launch_history.Worker.start();
+        defer {
+            s.launch_history.?.stop();
+            s.launch_history = null;
         }
         const observer = try transcript.Worker.start();
         defer observer.stop();

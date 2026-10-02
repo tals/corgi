@@ -50,6 +50,16 @@ fn spawnOptions(r: *Runtime, ctx: Context, workspace: WorkspaceId, from: ?PaneId
     } else ws.cwd;
     return .{ .workspace = workspace, .cwd = dir, .cols = 80, .rows = 24, .theme = ctx.theme, .socket = ctx.socket, .executable = ctx.executable };
 }
+/// A provider in a new tab, as its launcher row starts it, resuming the
+/// session `resuming` names when set.
+fn startAgent(r: *Runtime, ctx: Context, alloc: std.mem.Allocator, workspace: WorkspaceId, cwd: []const u8, provider: agents.Provider, resuming: ?[3][]const u8) !PaneId {
+    var opts = try spawnOptions(r, ctx, workspace, null, cwd);
+    const launch: runtime.Launch = .{ .agent = .{ .provider = provider, .yolo = r.agent_yolo.get(provider) } };
+    opts.command = try launch.paneCommand(alloc, ctx.executable, try launch.typed(alloc, resuming));
+    const pane = try r.create(opts);
+    r.pane(pane).?.launch = launch;
+    return pane;
+}
 /// Returned strings/arrays belong to the request allocator. Structural edits
 /// prepare copies before committing; process creation owns its rollback in Runtime.
 pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator) !Result {
@@ -111,12 +121,16 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         },
         .@"agent.create" => |q| {
             const provider = q.provider orelse r.lastAgent(try r.getWorkspace(q.workspace));
-            var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
-            const launch: runtime.Launch = .{ .agent = .{ .provider = provider, .yolo = r.agent_yolo.get(provider) } };
-            opts.command = try launch.paneCommand(alloc, ctx.executable, try launch.typed(alloc, null));
-            const pane = try r.create(opts);
-            r.pane(pane).?.launch = launch;
+            const pane = try startAgent(r, ctx, alloc, q.workspace, q.cwd, provider, null);
             r.rememberAgent(pane, provider);
+            return location(r, pane);
+        },
+        .@"agent.resume" => |q| {
+            const args = try q.provider.info().resumeArgs(.{ .id = q.session });
+            // Resuming is not choosing what `New` starts, so the last agent stays.
+            const pane = try startAgent(r, ctx, alloc, q.workspace, q.cwd, q.provider, args);
+            // Recovery can name the session before the agent reports it.
+            r.pane(pane).?.resume_hint = .{ .provider = q.provider, .session = try agents.Text.init(q.session) };
             return location(r, pane);
         },
         .@"pane.create" => |q| {

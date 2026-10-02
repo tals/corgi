@@ -16,6 +16,9 @@ const Path = @import("bounded_text.zig").Path;
 const metadata = @import("usage.zig").account;
 const usage_cell = @import("launcher_usage.zig");
 const launch_preview = @import("launch.zig").preview;
+const launch_history = @import("launch.zig").history;
+const History = launch_history.History;
+const launcher_resume = @import("launcher_resume.zig");
 const Text = metadata.Text;
 const Option = launch_preview.Option;
 const Preview = launch_preview.Preview;
@@ -55,6 +58,13 @@ pub fn keyAgent(byte: u8) ?Provider {
 pub const Menu = struct {
     workspace: WorkspaceId,
     cwd: Path = .{},
+    /// The workspace's default folder, for the conversations' workspace scope.
+    workspace_cwd: Path = .{},
+    resume_view: launcher_resume.View = .{},
+    history: History = .{},
+    /// Conversations panes run now, which the list jumps to instead.
+    open: [launcher_resume.max_open]launcher_resume.Open = undefined,
+    open_count: usize = 0,
     selected: Row,
     yolo: providers.Each(bool, false) = .{},
     hidden: providers.Each(bool, false) = .{},
@@ -132,7 +142,8 @@ pub const Menu = struct {
     }
     /// Management includes unavailable providers so preferences stay editable.
     pub fn shown(m: *const Menu, row: Row) bool {
-        if (row == .manage) return true;
+        // Outside management, Manage is the title's button.
+        if (row == .manage) return m.managing;
         if (row == .add) return m.managing;
         if (row.custom()) |index| return m.commands[index].command.len > 0 and (m.managing or !m.commands[index].hidden);
         if (row == .terminal) return !m.managing;
@@ -175,6 +186,9 @@ pub const Menu = struct {
     pub fn first(m: *const Menu) Row {
         return m.rowAt(0).?;
     }
+    pub fn lastRow(m: *const Menu) Row {
+        return m.rowAt(m.count() - 1).?;
+    }
     /// Digits enumerate visible agents only, matching the picker keycaps.
     pub fn shortcutRow(m: *const Menu, key: u8) ?Row {
         if (m.managing or key < '0' or key > '9') return null;
@@ -189,15 +203,23 @@ pub const Menu = struct {
             (if (next) index + 1 else index + n - 1) % n
         else if (next) @min(index + 1, n - 1) else index -| 1).?;
     }
+    /// Rows the menu needs: border, headings, agent rows and a gap, the
+    /// conversations and a gap, footer and border.
     fn rowsHeight(m: *const Menu) u16 {
         if (m.managing) return @intCast(m.count() + 20);
-        return @intCast(7 + m.count());
+        const conversations: usize = if (!m.hasResume()) 0 else if (m.resume_view.expanded) 8 else m.resume_view.collapsedHeight(m.resumeContext()) + 1;
+        return @intCast(5 + m.count() + conversations);
     }
     pub fn bounds(m: *const Menu, cols: u16, rows: u16, side: sidebar.View) layout.Rect {
         var content: u16 = 4;
         for (m.columnSizes().preferred) |width| content += width;
-        const width = @min(cols, if (m.managing) @as(u16, 82) else @max(@as(u16, 40), content));
-        const height = @min(rows, m.rowsHeight());
+        var width = @min(cols, if (m.managing) @as(u16, 82) else @max(@as(u16, if (m.hasResume()) 80 else 40), content));
+        var height = @min(rows, m.rowsHeight());
+        // Expanded conversations take the room a table of them needs.
+        if (m.resume_view.expanded and m.hasResume()) {
+            width = @max(width, @min(cols, 104));
+            height = @min(rows, @max(30, height));
+        }
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
     fn columnSizes(m: *const Menu) struct { preferred: [6]u16, usage_minimum: u16 } {
@@ -263,10 +285,7 @@ pub const Menu = struct {
         }
         if (x <= b.x or x >= b.x + b.w - 1 or y < b.y + 2) return null;
         const index = y - b.y - 2;
-        const manage_index = m.count() - 1;
-        if (index == manage_index + 2) return .manage;
-        if (index >= manage_index) return null;
-        return m.rowAt(index);
+        return if (index < m.count()) m.rowAt(index) else null;
     }
     fn providerHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?Provider {
         if (m.managing) return null;
@@ -292,6 +311,79 @@ pub const Menu = struct {
         const widths = m.columns(b.w);
         const start = b.x + 3 + widths[0] + widths[1] + widths[2] + widths[3] + widths[4];
         return if (x >= start and x < start + widths[5] -| 1) provider else null;
+    }
+    pub fn resumeContext(m: *const Menu) launcher_resume.Context {
+        return .{
+            .history = m.history,
+            .folder = m.cwd.text(),
+            .workspace_folder = m.workspace_cwd.text(),
+            .open = m.open[0..m.open_count],
+            .now = std.time.timestamp(),
+        };
+    }
+    /// Whether conversations show: once the daemon has sent some. A first
+    /// read takes seconds; the menu does not wait on it or show a placeholder.
+    pub fn hasResume(m: *const Menu) bool {
+        return !m.managing and m.history.entries.len > 0;
+    }
+    /// The terminal row the conversations start on, a gap below the agents.
+    fn resumeTop(m: *const Menu, b: layout.Rect) u16 {
+        return b.y + 4 + @as(u16, @intCast(m.count()));
+    }
+    pub fn resumeArea(m: *const Menu, cols: u16, rows: u16, side: sidebar.View) launcher_resume.Area {
+        const b = m.bounds(cols, rows, side);
+        const top = m.resumeTop(b);
+        return .{ .x = b.x + 1, .y = top, .width = b.w, .height = (b.y + b.h - 1) -| top };
+    }
+    /// The conversation row or scope under a pointer, in 0-based cells.
+    pub fn resumeHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) ?launcher_resume.View.Hit {
+        if (!m.hasResume()) return null;
+        const b = m.bounds(cols, rows, side);
+        if (x <= b.x or x >= b.x + b.w - 1) return null;
+        if (m.resume_view.expanded) return m.resume_view.hit(m.resumeContext(), m.resumeArea(cols, rows, side), x + 1, y + 1);
+        // Below the collapsed list's heading.
+        const lines_top = m.resumeTop(b) + 1;
+        if (y + 1 < lines_top) return null;
+        return if (m.resume_view.collapsedHit(m.resumeContext(), y + 1 - lines_top)) |row| .{ .row = row } else null;
+    }
+    const manage_label = " Manage agents ";
+    /// The title's Manage button, `┤ m  Manage agents ├`, in 0-based cells;
+    /// null when the menu is too narrow for it.
+    fn manageSpan(b: layout.Rect) ?struct { x: u16, w: u16 } {
+        const width: u16 = 1 + 3 + manage_label.len + 1;
+        if (b.w < width + 18) return null;
+        return .{ .x = b.x + b.w - 2 - width, .w = width };
+    }
+    pub fn manageHit(m: *const Menu, cols: u16, rows: u16, side: sidebar.View, x: u16, y: u16) bool {
+        if (m.managing) return false;
+        const b = m.bounds(cols, rows, side);
+        const span = manageSpan(b) orelse return false;
+        return y == b.y and x >= span.x and x < span.x + span.w;
+    }
+    fn drawTitle(w: *std.Io.Writer, b: layout.Rect, panel: []const u8) !void {
+        try w.print("\x1b[{d};{d}H\x1b[1;38;2;226;230;233m New agent {s}", .{ b.y + 1, b.x + 3, panel });
+        const span = manageSpan(b) orelse return;
+        const button = "\x1b[0;1;38;2;226;230;233;48;2;58;68;79m";
+        try w.print("\x1b[{d};{d}H{s}┤", .{ b.y + 1, span.x + 1, panel });
+        try writeKey(w, "m", button);
+        try w.print("{s}{s}├", .{ manage_label, panel });
+    }
+    const Hint = struct { key: []const u8, label: []const u8 };
+    fn drawFooter(w: *std.Io.Writer, b: layout.Rect, panel: []const u8, cwd: []const u8, what: []const u8, hints: []const Hint) !void {
+        var hint_width: u16 = 0;
+        for (hints, 0..) |hint, i| hint_width += @intCast(sidebar.displayWidth(hint.key) + 2 + 1 + hint.label.len + @as(usize, if (i > 0) 2 else 0));
+        const footer_row = b.y + b.h - 1;
+        try w.print("\x1b[{d};{d}H{s}", .{ footer_row, b.x + 3, panel });
+        const directory = std.fs.path.basename(cwd);
+        var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
+        const footer = try std.fmt.bufPrint(&buffer, "{s} · {s}", .{ directory, what });
+        try sidebar.writeEllipsis(w, footer, b.w -| (hint_width + 6));
+        try w.print("\x1b[{d};{d}H", .{ footer_row, b.x + b.w - 1 - hint_width });
+        for (hints, 0..) |hint, i| {
+            if (i > 0) try w.writeAll("  ");
+            try writeKey(w, hint.key, panel);
+            try w.print(" {s}", .{hint.label});
+        }
     }
     pub fn edit(m: *Menu, row: Row) void {
         m.draft = .{};
@@ -449,7 +541,7 @@ pub const Menu = struct {
             } else try w.splatByteAll(' ', b.w - 2);
             try w.writeAll(if (row == 0) "╮" else if (row == b.h - 1) "╯" else "│");
         }
-        try w.print("\x1b[{d};{d}H\x1b[1;38;2;226;230;233m {s} ", .{ b.y + 1, b.x + 3, if (m.managing) "Manage agents" else "New agent" });
+        try drawTitle(w, b, panel);
         const widths = m.columns(b.w);
         var heading_x: u16 = b.x + 4;
         for (headings, widths, 0..) |heading, width, column| {
@@ -467,7 +559,7 @@ pub const Menu = struct {
         }
         for (0..m.count()) |visible| {
             const current = m.rowAt(visible).?;
-            const selected = current == m.selected;
+            const selected = current == m.selected and !m.resume_view.focused;
             const row = b.y + 3 + visible + @as(usize, if (current == .manage) 2 else 0);
             if (current == .manage) {
                 try w.print("\x1b[{d};{d}H{s}\x1b[38;2;112;124;135m", .{ row - 1, b.x + 4, panel });
@@ -527,8 +619,26 @@ pub const Menu = struct {
                 x += width;
             }
         }
-        const Hint = struct { key: []const u8, label: []const u8 };
-        const hints: []const Hint = if (m.managing or m.selected == .manage) blk: {
+        if (m.hasResume()) {
+            if (m.resume_view.expanded) {
+                try m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rows, side));
+            } else try m.resume_view.drawCollapsed(w, m.resumeContext(), b.x + 1, m.resumeTop(b), b.w);
+        }
+        const view = &m.resume_view;
+        const on_more = blk: {
+            var storage: [launcher_resume.max_lines]launcher_resume.Line = undefined;
+            const c = m.resumeContext();
+            break :blk view.focused and view.entry(c, view.lines(c, &storage)) == null;
+        };
+        const hints: []const Hint = if (view.searching)
+            &.{ .{ .key = "↵", .label = "resume" }, .{ .key = "tab", .label = "scope" }, .{ .key = "esc", .label = "clear" } }
+        else if (view.focused and view.expanded)
+            &.{ .{ .key = "↵", .label = "resume" }, .{ .key = "/", .label = "search" }, .{ .key = "tab", .label = "scope" }, .{ .key = "esc", .label = "less" } }
+        else if (on_more)
+            &.{ .{ .key = "↵", .label = "show all" }, .{ .key = "/", .label = "search" } }
+        else if (view.focused)
+            &.{ .{ .key = "↵", .label = "resume" }, .{ .key = "/", .label = "search" } }
+        else if (m.managing or m.selected == .manage) blk: {
             const label = if (m.selected == .manage)
                 "back/open"
             else if (m.selected == .add)
@@ -548,20 +658,7 @@ pub const Menu = struct {
             &.{ .{ .key = "u", .label = "Track usage" }, .{ .key = "a", .label = "launch" }, .{ .key = "y", .label = "YOLO" } }
         else
             &.{ .{ .key = "a", .label = "launch" }, .{ .key = "y", .label = "YOLO" } };
-        var hint_width: u16 = 0;
-        for (hints, 0..) |hint, i| hint_width += @intCast(3 + 1 + hint.label.len + @as(usize, if (i > 0) 2 else 0));
-        const footer_row = b.y + b.h - 1;
-        try w.print("\x1b[{d};{d}H{s}", .{ footer_row, b.x + 3, panel });
-        const directory = std.fs.path.basename(m.cwd.text());
-        var buffer: [std.fs.max_path_bytes + 32]u8 = undefined;
-        const footer = try std.fmt.bufPrint(&buffer, "{s} · new tab", .{directory});
-        try sidebar.writeEllipsis(w, footer, b.w -| (hint_width + 6));
-        try w.print("\x1b[{d};{d}H", .{ footer_row, b.x + b.w - 1 - hint_width });
-        for (hints, 0..) |hint, i| {
-            if (i > 0) try w.writeAll("  ");
-            try writeKey(w, hint.key, panel);
-            try w.print(" {s}", .{hint.label});
-        }
+        try drawFooter(w, b, panel, m.cwd.text(), "new tab", hints);
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
 };
@@ -579,8 +676,30 @@ test "launcher menu bounds" {
     try std.testing.expectEqual(Row.codex, menu.hit(80, 24, side, b.x + 2, b.y + 2).?);
     try std.testing.expectEqual(Row.claude, menu.hit(80, 24, side, b.x + 2, b.y + 3).?);
     try std.testing.expectEqual(Row.terminal, menu.hit(80, 24, side, b.x + 2, b.y + 4).?);
-    try std.testing.expectEqual(@as(?Row, .manage), menu.hit(80, 24, side, b.x + 2, b.y + 7));
     try std.testing.expectEqual(@as(?Row, null), menu.hit(80, 24, side, b.x + 2, b.y + 6));
+    // Manage is the title's button now.
+    try std.testing.expect(menu.manageHit(80, 24, side, b.x + b.w - 6, b.y));
+    try std.testing.expect(!menu.manageHit(80, 24, side, b.x + 4, b.y));
+}
+
+test "conversations sit below the agents and their rows hit-test" {
+    const side = sidebar.View.init(120, 40, true, 0, 0);
+    var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true, .cwd = .initTruncated("/w") };
+    const entries = [_]launch_history.Entry{
+        .{ .provider = .claude, .session = "a", .title = "First", .cwd = "/w", .updated_at = 5 },
+        .{ .provider = .codex, .session = "b", .title = "Second", .cwd = "/w", .updated_at = 4 },
+    };
+    menu.history = .{ .pending = false, .entries = &entries };
+    const b = menu.bounds(120, 40, side);
+    // Border, headings, three agent rows, a gap, then the Resume heading.
+    const first_line = b.y + 7;
+    try std.testing.expectEqual(@as(?Row, null), menu.hit(120, 40, side, b.x + 2, first_line));
+    try std.testing.expectEqual(@as(usize, 0), menu.resumeHit(120, 40, side, b.x + 2, first_line).?.row);
+    try std.testing.expectEqual(@as(usize, 2), menu.resumeHit(120, 40, side, b.x + 2, first_line + 2).?.row);
+    try std.testing.expect(menu.resumeHit(120, 40, side, b.x + 2, first_line - 1) == null);
+    try std.testing.expect(b.h >= menu.rowsHeight());
+    menu.resume_view.expand();
+    try std.testing.expectEqual(@as(u16, 104), menu.bounds(120, 40, side).w);
 }
 
 test "launcher fits long content and keeps usage hit targets aligned" {
@@ -678,14 +797,12 @@ test "launcher hides providers that are not installed" {
     menu.normalize();
     try std.testing.expectEqual(Row.claude, menu.selected);
     const b = menu.bounds(120, 24, side);
-    try std.testing.expectEqual(@as(u16, 10), b.h);
+    // Border, headings, two rows, a gap, footer and border.
+    try std.testing.expectEqual(@as(u16, 7), b.h);
     try std.testing.expectEqual(Row.claude, menu.hit(120, 24, side, b.x + 2, b.y + 2).?);
     try std.testing.expectEqual(Row.terminal, menu.hit(120, 24, side, b.x + 2, b.y + 3).?);
-    try std.testing.expectEqual(@as(?Row, .manage), menu.hit(120, 24, side, b.x + 2, b.y + 6));
     menu.move(true, true);
     try std.testing.expectEqual(Row.terminal, menu.selected);
-    menu.move(true, true);
-    try std.testing.expectEqual(Row.manage, menu.selected);
     menu.move(true, true);
     try std.testing.expectEqual(Row.claude, menu.selected);
     menu.preview.installed = .init(.{ .codex = false, .claude = false });

@@ -76,9 +76,46 @@ reads never request Keychain interaction; Track usage explicitly permits access.
 They show an email, API-key mode, or login status; no credential values are displayed.
 Reads are bounded and run on the preview worker.
 
+## Resume a closed conversation
+
+Below the agent rows, the launcher lists the five newest closed conversations
+from its folder: provider, title, the last thing you said, and how long ago.
+A ✕ marks a turn that was interrupted, and the branch shows when it differs from
+the folder's newest conversation. Down from the last agent row moves into the
+list; Enter (or a click) resumes the conversation in a new tab, in the folder
+it ran in, with that provider's launcher flags such as YOLO. Resuming does not
+change which agent `New` starts.
+
+**Show N more…** or `/` expands the list into a table grouped by day. `/`
+searches titles, first prompts and last messages; every word must match. Tab
+widens the scope from this folder to the workspace to everywhere. Search lists
+conversations a pane already runs first; Enter goes to that pane instead of
+starting a second copy of the session. Esc clears the search, then collapses the
+list.
+
+The list holds Claude transcripts and interactive Codex threads that contain a
+prompt and whose folder still exists, since a Claude session resumes only from
+its own folder. Running conversations, SDK runs, subagents and sessions continued
+under a new id are left out, and so are conversations that only asked for a
+commit (`$commit-all`), which search still finds. Claude Code keeps transcripts
+for 30 days by default; Codex keeps its threads.
+
+The daemon reads conversations on its own worker, so a slow Codex App Server
+never delays previews: Claude transcripts by their first 128 KB and a tail that
+grows until it holds the last prompt, and Codex threads through `thread/list`
+on an App Server that runs only while it reads. Files are reread only when they
+change. A first read takes a few seconds; the viewer asks for one when the
+launcher opens and shows the list once it arrives, then refreshes it when it is
+over 30 seconds old.
+
+`agent.history` returns the conversations. On an `agent.subscribe` connection
+the daemon pushes `{type: "agent.history", history}` instead: its last read at
+once, marked pending, then a current one. The session command `agent.resume`
+(workspace, cwd, provider, session) starts the resumed agent.
+
 ## Manage agents and saved commands
 
-Choose **Manage agents…** in the picker for a table of Show checkboxes, agent
+Choose **Manage agents** on the launcher's title, or press m, for a table of Show checkboxes, agent
 names, accounts, and **Edit** buttons. The inline command field below the table
 is focused by default. Paste a command; a name is suggested from the provider
 and model. Permission behavior appears in the YOLO column. Press Tab to edit the

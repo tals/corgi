@@ -17,6 +17,7 @@ const context_window = @import("usage.zig").context_window;
 const background_tasks = @import("activity.zig").background_tasks;
 const inference_setup = @import("inference.zig").setup;
 const launch_command = @import("launch.zig").command;
+const History = @import("launch.zig").history.History;
 const ports = @import("trackers.zig").ports;
 const resources = @import("trackers.zig").resources;
 const Theme = @import("theme.zig").Theme;
@@ -86,6 +87,9 @@ pub const Request = union(enum) {
     @"agent.command.preview": struct { workspace: WorkspaceId, cwd: []const u8 = "", request: u64, command: []const u8 = "" },
     @"agent.preview": Launch,
     @"agent.track_usage": Launch,
+    /// Conversations the launcher can resume. On an `agent.subscribe`
+    /// connection the reply is an `agent.history` message once read.
+    @"agent.history",
     @"viewer.list",
     /// `pane` is the caller's pane, for the actions that return to it.
     action: struct { name: []const u8 = "", value: []const u8 = "", viewer: ?u32 = null, pane: ?layout.PaneId = null },
@@ -223,6 +227,7 @@ pub fn Reply(comptime op: Op) type {
         .@"viewer.sync" => View(std.json.Value, std.json.Value),
         .@"viewer.search" => Terminal.SearchResult,
         .@"agent.command.preview" => struct { resolution: launch_command.Resolution },
+        .@"agent.history" => struct { history: History },
         .@"inference.configure" => struct { saved: bool = false, inference: inference_setup.Status = .{} },
         .@"onboarding.status" => struct { progress: OnboardingProgress },
         else => struct {},
@@ -333,6 +338,7 @@ pub fn check(op: Op) Check {
         .@"agent.command.preview",
         .@"agent.preview",
         .@"agent.track_usage",
+        .@"agent.history",
         => .runtime,
         .@"viewer.list",
         .action,
@@ -405,6 +411,7 @@ pub fn exclusion(op: Op) Exclusion {
         .@"agent.command.preview",
         .@"agent.preview",
         .@"agent.track_usage",
+        .@"agent.history",
         .@"viewer.list",
         .action,
         .focus,
@@ -607,6 +614,9 @@ pub const Command = union(enum) {
     @"agent.visibility": struct { hidden: providers.Each(bool, false) },
     @"agent.yolo": struct { provider: providers.Provider, enabled: bool },
     @"agent.create": struct { workspace: WorkspaceId, cwd: []const u8 = "", provider: ?providers.Provider = null },
+    /// Continue `provider`'s conversation `session` in a new tab, in the
+    /// folder it ran in.
+    @"agent.resume": struct { workspace: WorkspaceId, cwd: []const u8, provider: providers.Provider, session: []const u8 },
     @"pane.create": struct {
         workspace: WorkspaceId,
         from: ?layout.PaneId = null,
@@ -709,6 +719,7 @@ test "every op decodes a sample request" {
         .@"agent.command.preview" = "{\"workspace\":1,\"request\":3,\"command\":\"claude\"}",
         .@"agent.preview" = "{\"workspace\":1}",
         .@"agent.track_usage" = "{\"workspace\":1}",
+        .@"agent.history" = "{}",
         .@"viewer.list" = "{}",
         .action = "{\"name\":\"relaunch\",\"value\":\"/usr/local/bin/corgi\",\"pane\":1}",
         .focus = "{\"pane\":1,\"viewer\":2}",

@@ -514,6 +514,7 @@ test {
     _ = @import("launch.zig");
     _ = @import("launch_preview_stream.zig");
     _ = @import("launcher_usage.zig");
+    _ = @import("launcher_resume.zig");
     _ = @import("layout.zig");
     _ = @import("link_tooltip.zig");
     _ = @import("mirror.zig");
@@ -590,15 +591,15 @@ test "every source file is in the test root" {
 test "the daemon and the viewer never import each other" {
     // Files that run only in `corgi attach`.
     const viewer: std.StaticStringMap(void) = .initComptime(.{
-        .{"agent_drag.zig"},       .{"agent_launcher.zig"}, .{"agent_navigation.zig"},      .{"bindings.zig"},
-        .{"client.zig"},           .{"commands.zig"},       .{"controller.zig"},            .{"corgi_animation.zig"},
-        .{"corgi_badge.zig"},      .{"corgi_frames.zig"},   .{"corgi_setup.zig"},           .{"ghostty_integration.zig"},
-        .{"host_probe.zig"},       .{"keymap.zig"},         .{"launch_preview_stream.zig"}, .{"launcher_usage.zig"},
-        .{"link_tooltip.zig"},     .{"mirror.zig"},         .{"name_dialog.zig"},           .{"navigation.zig"},
-        .{"onboarding.zig"},       .{"preferences.zig"},    .{"render.zig"},                .{"resource_tooltip.zig"},
-        .{"shortcut_help.zig"},    .{"sidebar.zig"},        .{"sidebar_rows.zig"},          .{"sound.zig"},
-        .{"subagent_tooltip.zig"}, .{"url_opener.zig"},     .{"viewer.zig"},                .{"viewer_test.zig"},
-        .{"workspace_drag.zig"},
+        .{"agent_drag.zig"},       .{"agent_launcher.zig"},   .{"agent_navigation.zig"},      .{"bindings.zig"},
+        .{"client.zig"},           .{"commands.zig"},         .{"controller.zig"},            .{"corgi_animation.zig"},
+        .{"corgi_badge.zig"},      .{"corgi_frames.zig"},     .{"corgi_setup.zig"},           .{"ghostty_integration.zig"},
+        .{"host_probe.zig"},       .{"keymap.zig"},           .{"launch_preview_stream.zig"}, .{"launcher_resume.zig"},
+        .{"launcher_usage.zig"},   .{"link_tooltip.zig"},     .{"mirror.zig"},                .{"name_dialog.zig"},
+        .{"navigation.zig"},       .{"onboarding.zig"},       .{"preferences.zig"},           .{"render.zig"},
+        .{"resource_tooltip.zig"}, .{"shortcut_help.zig"},    .{"sidebar.zig"},               .{"sidebar_rows.zig"},
+        .{"sound.zig"},            .{"subagent_tooltip.zig"}, .{"url_opener.zig"},            .{"viewer.zig"},
+        .{"viewer_test.zig"},      .{"workspace_drag.zig"},
     });
     // Files that own daemon state, the daemon's workers and updater, and their tests.
     const core: std.StaticStringMap(void) = .initComptime(.{

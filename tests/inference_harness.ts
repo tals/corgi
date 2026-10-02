@@ -17,6 +17,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     method = value.method,
     ident = value.id;
   if (method === "initialize") emit({ id: ident, result: {} });
+  else if (method === "thread/list")
+    emit({ id: ident, result: { data: [], nextCursor: null } });
   else if (method === "config/read")
     emit({
       id: ident,

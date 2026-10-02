@@ -39,6 +39,10 @@ $.requests|session.command.command|agent.create.workspace: u32
 $.requests|session.command.command|agent.create.cwd: string
 $.requests|session.command.command|agent.create.provider: optional
 $.requests|session.command.command|agent.create.provider?: enum codex claude
+$.requests|session.command.command|agent.resume.workspace: u32
+$.requests|session.command.command|agent.resume.cwd: string
+$.requests|session.command.command|agent.resume.provider: enum codex claude
+$.requests|session.command.command|agent.resume.session: string
 $.requests|session.command.command|pane.create.workspace: u32
 $.requests|session.command.command|pane.create.from: optional
 $.requests|session.command.command|pane.create.from?: u32
@@ -206,6 +210,7 @@ $.requests|agent.preview.workspace: u32
 $.requests|agent.preview.cwd: string
 $.requests|agent.track_usage.workspace: u32
 $.requests|agent.track_usage.cwd: string
+$.requests|agent.history: {}
 $.requests|viewer.list: {}
 $.requests|action.name: string
 $.requests|action.value: string
@@ -594,6 +599,17 @@ $.replies.agent.command.preview.resolution.command.semantics.mode: custom bounde
 $.replies.agent.command.preview.resolution.command.semantics.yolo: bool
 $.replies.agent.command.preview.resolution.command.semantics.default_account: bool
 $.replies.agent.command.preview.resolution.error_message: custom bounded_text.BoundedText(160)
+$.replies.agent.history.history.pending: bool
+$.replies.agent.history.history.entries[].provider: enum codex claude
+$.replies.agent.history.history.entries[].session: string
+$.replies.agent.history.history.entries[].title: string
+$.replies.agent.history.history.entries[].first: string
+$.replies.agent.history.history.entries[].last: string
+$.replies.agent.history.history.entries[].cwd: string
+$.replies.agent.history.history.entries[].branch: string
+$.replies.agent.history.history.entries[].updated_at: i64
+$.replies.agent.history.history.entries[].interrupted: bool
+$.replies.agent.history.history.entries[].chore: bool
 $.launch_preview.pending: bool
 $.launch_preview.options.codex.signed_in: optional
 $.launch_preview.options.codex.signed_in?: bool

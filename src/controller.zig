@@ -28,6 +28,7 @@ const corgi_badge = @import("corgi_badge.zig");
 const sidebar_rows = @import("sidebar_rows.zig");
 const agent_launcher = @import("agent_launcher.zig");
 const launch_preview_stream = @import("launch_preview_stream.zig");
+const launcher_resume = @import("launcher_resume.zig");
 const corgi_setup = @import("corgi_setup.zig");
 const inference_setup = @import("inference.zig").setup;
 const link_tooltip = @import("link_tooltip.zig");
@@ -1177,6 +1178,11 @@ pub const Controller = struct {
             .pinned = pinned,
         };
         launch.preview = s.launch_previews.current(cwd);
+        launch.workspace_cwd = Path.init(s.current().cwd) catch .{};
+        // A first read takes seconds; start it as soon as the launcher opens.
+        s.launch_previews.requestHistory(30_000);
+        launch.history = s.launch_previews.history;
+        s.syncOpenConversations(&launch);
         launch.normalize();
         s.agent_launcher = launch;
         s.cancelDividers();
@@ -1198,7 +1204,11 @@ pub const Controller = struct {
     }
     fn moveLauncher(s: *Self, next: bool, wrap: bool) void {
         if (s.agent_launcher) |*launch| {
-            launch.move(next, wrap);
+            // Down from the last agent row goes into the conversations.
+            if (next and !wrap and !launch.managing and launch.hasResume() and launch.selected == launch.lastRow()) {
+                launch.resume_view.focused = true;
+                launch.resume_view.home();
+            } else launch.move(next, wrap);
             launch.pinned = true;
         }
         s.dirty = true;
@@ -1241,6 +1251,8 @@ pub const Controller = struct {
             launch.yolo = s.runtime.agent_yolo;
             launch.hidden = s.runtime.agent_hidden;
             launch.commands = s.runtime.agent_commands;
+            s.syncOpenConversations(launch);
+            if (launch.resume_view.expanded) s.launch_previews.requestHistory(30_000);
             launch.normalize();
             if (launch.workspace != s.current().id or (side.width == 0 and !launch.pinned)) {
                 s.closeLauncher();
@@ -1261,8 +1273,141 @@ pub const Controller = struct {
         if (!s.launch_previews.poll(s.current().id, cwd)) return;
         if (s.agent_launcher) |*launch| {
             launch.preview = s.launch_previews.current(launch.cwd.text());
+            // The stream replaced the conversations the menu pointed at.
+            launch.history = s.launch_previews.history;
             launch.normalize();
+            s.revealResume();
         }
+        s.dirty = true;
+    }
+    /// The conversations panes run now, which the launcher jumps to.
+    fn syncOpenConversations(s: *Self, launch: *agent_launcher.Menu) void {
+        launch.open_count = 0;
+        for (s.runtime.panes.items) |p| {
+            const provider = p.agent.provider orelse continue;
+            if (p.agent.session.len == 0 or launch.open_count == launch.open.len) continue;
+            launch.open[launch.open_count] = .{ .provider = provider, .session = .initTruncated(p.agent.session), .pane = p.id };
+            launch.open_count += 1;
+        }
+    }
+    /// Expand the conversations under the agents, searching when asked.
+    fn expandResume(s: *Self, searching: bool) void {
+        const launch = if (s.agent_launcher) |*value| value else return;
+        if (!launch.hasResume()) return;
+        launch.pinned = true;
+        if (searching) launch.resume_view.startSearch() else launch.resume_view.expand();
+        s.launch_previews.requestHistory(30_000);
+        s.revealResume();
+        s.dirty = true;
+    }
+    fn revealResume(s: *Self) void {
+        const launch = if (s.agent_launcher) |*value| value else return;
+        if (!launch.resume_view.expanded) return;
+        launch.resume_view.reveal(launch.resumeContext(), launch.resumeArea(s.width, s.height, s.sidebarView(&.{})));
+    }
+    fn openManager(s: *Self) !void {
+        if (s.agent_launcher) |*launch| {
+            launch.resume_view.focused = false;
+            launch.resume_view.collapse();
+        }
+        try s.launchRow(.manage);
+    }
+    /// Move within the conversations; up from the first returns to the agents.
+    fn moveResume(s: *Self, rows: []const launcher_resume.Line, delta: isize) void {
+        const launch = &s.agent_launcher.?;
+        if (launch.resume_view.move(launch.resumeContext(), rows, delta)) return;
+        launch.resume_view.focused = false;
+        launch.selected = launch.lastRow();
+    }
+    fn resumeKey(s: *Self, byte: u8) !void {
+        const launch = &s.agent_launcher.?;
+        const view = &launch.resume_view;
+        const c = launch.resumeContext();
+        var storage: [launcher_resume.max_lines]launcher_resume.Line = undefined;
+        const rows = view.lines(c, &storage);
+        if (view.searching) switch (byte) {
+            27 => if (view.query.len > 0) {
+                view.query.clear();
+                view.home();
+            } else view.stopSearch(),
+            13 => return s.resumeSelected(),
+            9 => view.nextScope(true),
+            14 => s.moveResume(rows, 1),
+            16 => s.moveResume(rows, -1),
+            else => {
+                _ = view.query.key(byte);
+                view.home();
+            },
+        } else switch (byte) {
+            27 => if (view.expanded) view.collapse() else return s.closeMenu(),
+            13, 'a', 'A', 1 => return s.resumeSelected(),
+            '/' => view.startSearch(),
+            9 => if (view.expanded) view.nextScope(true) else s.moveResume(rows, 1),
+            'j', 14 => s.moveResume(rows, 1),
+            'k', 16 => s.moveResume(rows, -1),
+            'm' => return s.openManager(),
+            't' => return s.launchRow(.terminal),
+            '0'...'9' => if (launch.shortcutRow(byte)) |row| return s.launchRow(row),
+            else => if (agent_launcher.keyAgent(byte)) |provider| {
+                if (launch.shown(.of(provider))) return s.launchAgent(provider);
+            },
+        }
+        s.revealResume();
+        s.dirty = true;
+    }
+    fn resumeSequence(s: *Self, seq: []const u8, parsed: ?keys.Key) void {
+        const launch = &s.agent_launcher.?;
+        const view = &launch.resume_view;
+        const c = launch.resumeContext();
+        var storage: [launcher_resume.max_lines]launcher_resume.Line = undefined;
+        const rows = view.lines(c, &storage);
+        const page: isize = if (view.expanded) @max(1, @as(isize, launch.resumeArea(s.width, s.height, s.sidebarView(&.{})).height) - 3) else launcher_resume.collapsed_rows;
+        switch (parsed orelse {
+            if (view.searching) view.query.sequence(seq);
+            s.dirty = true;
+            return;
+        }) {
+            .up => s.moveResume(rows, -1),
+            .down => s.moveResume(rows, 1),
+            .page_up => s.moveResume(rows, -page),
+            .page_down => s.moveResume(rows, page),
+            .home, .end, .left, .right, .delete => if (view.searching) view.query.sequence(seq) else switch (parsed.?) {
+                .home => view.home(),
+                .end => _ = view.move(c, rows, std.math.maxInt(isize)),
+                else => {},
+            },
+            .shift_tab => if (view.expanded) view.nextScope(false) else s.moveResume(rows, -1),
+            else => {},
+        }
+        s.revealResume();
+        s.dirty = true;
+    }
+    /// Resume the selected conversation in a new tab, or go to the pane
+    /// that already runs it.
+    fn resumeSelected(s: *Self) !void {
+        const launch = &s.agent_launcher.?;
+        const c = launch.resumeContext();
+        var storage: [launcher_resume.max_lines]launcher_resume.Line = undefined;
+        // The row past the newest few shows them all.
+        const e = launch.resume_view.entry(c, launch.resume_view.lines(c, &storage)) orelse return s.expandResume(false);
+        for (c.open) |open| if (open.provider == e.provider and std.mem.eql(u8, open.session.text(), e.session)) {
+            s.closeMenu();
+            return s.selectAgent(.{ .pane = open.pane });
+        };
+        // The menu's conversations go with it.
+        var cwd: [std.fs.max_path_bytes]u8 = undefined;
+        var session: [256]u8 = undefined;
+        if (e.cwd.len > cwd.len or e.session.len > session.len) return error.NameTooLong;
+        @memcpy(cwd[0..e.cwd.len], e.cwd);
+        @memcpy(session[0..e.session.len], e.session);
+        const command: Command = .{ .@"agent.resume" = .{ .workspace = s.current().id, .cwd = cwd[0..e.cwd.len], .provider = e.provider, .session = session[0..e.session.len] } };
+        s.closeMenu();
+        const created = s.execute(command) catch |err| {
+            s.notice(@errorName(err));
+            return;
+        };
+        try s.focusPane(created.pane);
+        s.launched = created.pane;
         s.dirty = true;
     }
     fn portWorkspaceEntry(s: *Self, id: WorkspaceId) sidebar.WorkspaceEntry {
@@ -1472,8 +1617,12 @@ pub const Controller = struct {
             s.agent_launcher.?.prefix = false;
             if (launch.prefix and (byte == 'c' or byte == 'a' or byte == 'A')) return;
             if (launch.pinned and byte == 20 and s.prefs.preset == .corgi) return;
+            if (launch.resume_view.focused and !launch.managing) {
+                s.agent_launcher.?.pinned = true;
+                return s.resumeKey(byte);
+            }
             const recognized = switch (byte) {
-                27, 13, 9, 14, 16, 'a', 'A', 1, 'y', 't' => true,
+                27, 13, 9, 14, 16, 'a', 'A', 1, 'y', 't', 'm', '/' => true,
                 'u' => launch.trackable(launch.selected) or launch.shortcutRow(byte) != null,
                 else => launch.shortcutRow(byte) != null,
             };
@@ -1489,6 +1638,8 @@ pub const Controller = struct {
                     'k', 16 => s.moveLauncher(false, false),
                     '0'...'9' => if (launch.shortcutRow(byte)) |row| try s.launchRow(row),
                     't' => try s.launchRow(.terminal),
+                    'm' => if (!launch.managing) try s.openManager(),
+                    '/' => s.expandResume(true),
                     'y' => if (!launch.managing) if (launch.selected.agent()) |provider| try s.toggleLauncherYolo(provider),
                     'u' => if (launch.trackable(launch.selected)) s.trackLauncherUsage(launch.selected.agent().?),
                     else => if (agent_launcher.keyAgent(byte)) |provider| {
@@ -1796,7 +1947,10 @@ pub const Controller = struct {
                 s.dirty = true;
             } else if (s.agent_launcher != null) {
                 // CSI-only on purpose: SS3 arrows reach the name field as input.
-                if (s.agent_launcher.?.managing and s.agent_launcher.?.selected == .add and
+                if (s.agent_launcher.?.resume_view.focused and !s.agent_launcher.?.managing) {
+                    s.agent_launcher.?.pinned = true;
+                    s.resumeSequence(seq, parsed_key);
+                } else if (s.agent_launcher.?.managing and s.agent_launcher.?.selected == .add and
                     !std.mem.eql(u8, seq, "\x1b[A") and !std.mem.eql(u8, seq, "\x1b[B") and !std.mem.eql(u8, seq, "\x1b[Z"))
                 {
                     s.agent_launcher.?.input().sequence(seq);
@@ -2152,6 +2306,18 @@ pub const Controller = struct {
                     s.dirty = true;
                     return;
                 }
+                if (s.agent_launcher.?.manageHit(s.width, s.height, side, x, y)) return s.openManager();
+                if (s.agent_launcher.?.resumeHit(s.width, s.height, side, x, y)) |target| {
+                    const launch = &s.agent_launcher.?;
+                    launch.pinned = true;
+                    switch (target) {
+                        .scope => launch.resume_view.nextScope(true),
+                        .row => |row| if (launch.resume_view.select(launch.resumeContext(), row)) return s.resumeSelected(),
+                    }
+                    s.revealResume();
+                    s.dirty = true;
+                    return;
+                }
                 const hit = side.hit(x, y);
                 if (s.agent_launcher.?.yoloHit(s.width, s.height, side, x, y)) |provider| {
                     try s.toggleLauncherYolo(provider);
@@ -2163,11 +2329,24 @@ pub const Controller = struct {
                     s.agent_launcher.?.pinned = true;
                 } else if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| {
                     try s.launchRow(row);
-                } else s.closeMenu();
+                } else if (!s.agent_launcher.?.bounds(s.width, s.height, side).contains(x, y)) s.closeMenu();
             } else if (!release and (button == 35 or button == 32)) {
-                if (!s.agent_launcher.?.managing) if (s.agent_launcher.?.hit(s.width, s.height, side, x, y)) |row| {
-                    s.agent_launcher.?.selected = row;
+                const launch = &s.agent_launcher.?;
+                if (!launch.managing) if (launch.hit(s.width, s.height, side, x, y)) |row| {
+                    launch.selected = row;
+                    launch.resume_view.focused = false;
+                } else if (launch.resumeHit(s.width, s.height, side, x, y)) |target| switch (target) {
+                    .row => |row| _ = launch.resume_view.select(launch.resumeContext(), row),
+                    .scope => {},
                 };
+                s.dirty = true;
+            } else if (!release and (button == 64 or button == 65) and s.agent_launcher.?.resume_view.expanded) {
+                const launch = &s.agent_launcher.?;
+                const c = launch.resumeContext();
+                var storage: [launcher_resume.max_lines]launcher_resume.Line = undefined;
+                launch.resume_view.focused = true;
+                _ = launch.resume_view.move(c, launch.resume_view.lines(c, &storage), if (button == 65) 3 else -3);
+                s.revealResume();
                 s.dirty = true;
             }
             return;

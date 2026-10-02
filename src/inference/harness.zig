@@ -18,11 +18,12 @@ const binary = @import("../base64.zig");
 const live_usage = @import("../usage.zig").live;
 const metadata = @import("../usage.zig").account;
 
-// Every pool's harnesses share one cap: the summary pool's connections
-// plus the launcher's metadata harness.
+// Every pool's harnesses share one cap: the summary pool's connections,
+// the launcher's metadata harness, and the conversation reader's, which
+// runs only while it reads.
 var harnesses: std.atomic.Value(usize) = .init(0);
 fn claimHarness() error{TooManyHarnesses}!void {
-    if (harnesses.fetchAdd(1, .monotonic) < capacity + 1) return;
+    if (harnesses.fetchAdd(1, .monotonic) < capacity + 2) return;
     _ = harnesses.fetchSub(1, .monotonic);
     return error.TooManyHarnesses;
 }
@@ -491,6 +492,17 @@ pub const Pool = struct {
         if (response.limits == .none) response.usage_error = .ascii("no usage returned");
         return response;
     }
+    /// One page of interactive Codex threads, most recently updated first.
+    pub fn listThreads(p: *Pool, cursor: ?[]const u8, stopping: *const std.atomic.Value(bool)) !std.json.Parsed(std.json.Value) {
+        const slot = &p.slots[0];
+        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        errdefer if (slot.*) |*connection| {
+            connection.close();
+            slot.* = null;
+        };
+        if (slot.* == null) slot.* = try p.open(.{ .instructions = "", .content = "" });
+        return slot.*.?.rpc("thread/list", .{ .cursor = cursor, .limit = 100, .sortKey = "updated_at", .useStateDbOnly = true }, stopping, deadline);
+    }
     fn select(p: *Pool, request: Request) usize {
         for (&p.slots, 0..) |*slot, i| if (slot.*) |*s| {
             if (matches(s, request)) return i;
@@ -683,8 +695,9 @@ test "harnesses from every pool share one cap" {
     defer harnesses.store(before, .monotonic);
     harnesses.store(capacity, .monotonic);
     try claimHarness();
+    try claimHarness();
     try std.testing.expectError(error.TooManyHarnesses, claimHarness());
-    try std.testing.expectEqual(capacity + 1, harnesses.load(.monotonic));
+    try std.testing.expectEqual(capacity + 2, harnesses.load(.monotonic));
 }
 
 test "native inference reuses each harness conversation and keeps targets separate" {
