@@ -436,6 +436,7 @@ $.snapshot.workspaces[].agent_order[]|pane: u32
 $.snapshot.workspaces[].agent_order[]|native: u32
 $.snapshot.workspaces[].last_agent: optional
 $.snapshot.workspaces[].last_agent?: enum codex claude
+$.snapshot.workspaces[].closed_agents: usize
 $.snapshot.workspaces[].git_commits[].timestamp: i64
 $.snapshot.workspaces[].git_commits[].hash: string
 $.snapshot.workspaces[].git_commits[].subject: string
@@ -486,6 +487,7 @@ $.snapshot.panes[].agent.activity: string
 $.snapshot.panes[].agent.cwd: string
 $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
+$.snapshot.panes[].restoring: string
 $.snapshot.native_sessions[].agent: optional
 $.snapshot.native_sessions[].agent?.conversation: u32
 $.snapshot.native_sessions[].agent?.subagents.running: u32

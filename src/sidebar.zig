@@ -36,6 +36,10 @@ pub const Entry = struct {
     conversation: ActorId = .none,
     children: usize = 0,
     exit: ?struct { frame_ms: i64, progress: f64 } = null,
+    /// A reopened agent's row, which fades in as a closing one fades out.
+    reopened: bool = false,
+    /// How far a reopened row has faded in, until it has.
+    enter: ?f64 = null,
     name: []const u8 = "",
     target: Target,
     /// Null for workspace group headers.
@@ -485,19 +489,20 @@ pub const View = struct {
             const index = absolute - v.offset;
             var exit_buffer: [16384]u8 = undefined;
             var exit_writer = std.Io.Writer.fixed(&exit_buffer);
-            const row_writer = if (e.exit != null) &exit_writer else w;
+            const fade: ?f64 = if (e.exit) |closing| closing.progress else if (e.enter) |opened| 1 - opened else null;
+            const row_writer = if (fade != null) &exit_writer else w;
             const frame_ms = if (e.exit) |closing| closing.frame_ms else now_ms;
             const y = next_y;
             next_y += @intCast(height(e));
             if (e.target == .group) {
                 try v.drawGroup(row_writer, e, y);
-                if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
+                if (fade) |faded| try writeExit(w, exit_writer.buffered(), faded);
                 continue;
             }
             const last_in_group = grouped and (absolute + 1 == entries.len or entries[absolute + 1].target == .group);
             const divider = !grouped and index + 1 < @min(entries.len - v.offset, v.capacity);
             try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, frame_ms, dream);
-            if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
+            if (fade) |faded| try writeExit(w, exit_writer.buffered(), faded);
         }
         if (v.search != null) try v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
         if (v.thumb()) |t| for (t.start..t.start + t.len) |row| {

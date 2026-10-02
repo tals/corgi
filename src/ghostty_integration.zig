@@ -70,6 +70,7 @@ const Host = struct { host: []const u8, action: Action };
 const host_keys = [_]Host{
     .{ .host = "cmd+t", .action = .new },
     .{ .host = "cmd+w", .action = .@"close-tab" },
+    .{ .host = "cmd+shift+t", .action = .@"undo-close" },
     .{ .host = "ctrl+tab", .action = .next },
     .{ .host = "ctrl+shift+tab", .action = .prev },
 } ++ digitKeys("cmd+") ++ digitKeys("cmd+digit_");
@@ -207,7 +208,7 @@ test "re-rendering a block replaces the old prefix and keeps other settings" {
 test "the block types the chosen prefix and each preset's keys" {
     const Case = struct { keys: Keys, lines: []const []const u8, absent: []const []const u8 = &.{} };
     for ([_]Case{
-        .{ .keys = .{ .preset = .corgi, .prefix = .ctrl_a }, .lines = &.{ "keybind = cmd+t=text:\\x01c\n", "keybind = cmd+3=text:\\x013\n" }, .absent = &.{"\\x02"} },
+        .{ .keys = .{ .preset = .corgi, .prefix = .ctrl_a }, .lines = &.{ "keybind = cmd+t=text:\\x01c\n", "keybind = cmd+3=text:\\x013\n", "keybind = cmd+shift+t=text:\\x01u\n" }, .absent = &.{"\\x02"} },
         .{ .keys = .{ .preset = .tmux, .prefix = .ctrl_b }, .lines = &.{ "keybind = cmd+1=text:\\x020\n", "keybind = cmd+w=text:\\x02&\n", "keybind = cmd+digit_9=text:\\x028\n" } },
         .{ .keys = .{ .preset = .herdr, .prefix = .ctrl_b }, .lines = &.{ "keybind = cmd+t=text:\\x02c\n", "keybind = cmd+w=text:\\x02X\n" } },
         .{ .keys = .{ .preset = .tmux, .prefix = .ctrl_a }, .lines = &.{ "keybind = cmd+w=text:\\x01&\n", "keybind = ctrl+tab=text:\\x01n\n" }, .absent = &.{"\\x02"} },
@@ -219,6 +220,7 @@ test "the block types the chosen prefix and each preset's keys" {
             "keybind = ctrl+3=text:\\x1b[51;5u\n",
             "keybind = cmd+comma=text:\\x1b[44;9u\n",
             "keybind = cmd+shift+enter=text:\\x1b[13;10u\n",
+            "keybind = cmd+shift+t=text:\\x1b[116;10u\n",
         }, .absent = &.{ "\\x01", "\\x02" } },
     }) |case| {
         const block_text = try transform(std.testing.allocator, "", case.keys);

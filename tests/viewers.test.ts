@@ -451,7 +451,7 @@ class ViewerScenarios extends Viewers {
   async test_pane_name_survives_reload_and_reopen() {
     const pane = await this.new(),
       a = await this.newViewer();
-    await this.command("pane.rename", { name: "Build", target: pane });
+    await this.mark_agent(pane, "Build");
     await this.run_cli("reload", EXE);
     this.assertEqual(
       (await this.session()).panes.find((p: any) => p.id === pane).name,
@@ -1065,11 +1065,15 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await b.poll()).pane, first);
     await a.action("join", "1");
     this.assertEqual(a.state.pane, split);
+    await this.mark_agent(split, "Split");
     await a.action("close");
     this.assertEqual(a.state.pane, first);
     await a.action("undo-close");
     this.assertNotIn(a.state.pane, [first, split]);
-    this.assertIn("restored output", a.state.data);
+    this.assertEqual(
+      (await this.session()).panes.find((p: any) => p.id === a.state.pane).name,
+      "Split",
+    );
     this.assertEqual((await b.poll()).pane, first);
   }
 

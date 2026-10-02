@@ -95,7 +95,9 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
             opts.command = entry.text();
             opts.interactive_command = true;
-            return location(r, try r.create(opts));
+            const pane = try r.create(opts);
+            r.pane(pane).?.launch = .{ .command = entry.command };
+            return location(r, pane);
         },
         .@"agent.visibility" => |q| {
             r.agent_hidden = q.hidden;
@@ -110,17 +112,10 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         .@"agent.create" => |q| {
             const provider = q.provider orelse r.lastAgent(try r.getWorkspace(q.workspace));
             var opts = try spawnOptions(r, ctx, q.workspace, null, q.cwd);
-            const executable = try os.shellQuote(os.allocator, ctx.executable);
-            defer os.allocator.free(executable);
-            const yolo = r.agent_yolo.get(provider);
-            const command = try std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {t}{s}{s}", .{
-                executable,
-                provider,
-                if (yolo) " " else "",
-                if (yolo) provider.info().yolo_flag else "",
-            });
-            opts.command = command;
+            const launch: runtime.Launch = .{ .agent = .{ .provider = provider, .yolo = r.agent_yolo.get(provider) } };
+            opts.command = try launch.paneCommand(alloc, ctx.executable, try launch.typed(alloc, null));
             const pane = try r.create(opts);
+            r.pane(pane).?.launch = launch;
             r.rememberAgent(pane, provider);
             return location(r, pane);
         },
@@ -149,7 +144,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         },
         .@"workspace.close" => |q| try r.closeWorkspace(q.target, q.close_contents),
         .@"workspace.move" => |q| try r.workspaces.moveBefore(q.target, q.before),
-        .@"pane.restore" => |q| return location(r, try r.restore(try spawnOptions(r, ctx, q.workspace, null, ""))),
+        .@"pane.restore" => |q| return location(r, try r.reopen(try spawnOptions(r, ctx, q.workspace, null, ""))),
         .@"pane.close" => |q| {
             const ids = try alloc.alloc(PaneId, layout.max_panes);
             _ = try location(r, q.target);
@@ -397,6 +392,7 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
         out.* = .{
             .agent_order = ws.agent_order.slice(),
             .last_agent = ws.last_agent,
+            .closed_agents = r.closedCount(ws.id),
             .git_commits = commits,
             .id = ws.id,
             .name = ws.name(),
@@ -425,6 +421,7 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
             .rows = p.terminal.vt.rows,
             .exited = p.terminal.exited,
             .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else .none),
+            .restoring = try p.restoring(allocator),
         };
     }
     const sessions = try allocator.alloc(protocol.Native, r.sessions.items.len);

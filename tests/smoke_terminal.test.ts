@@ -636,7 +636,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
   }
   async test_real_client_returns_to_terminal_on_last_shell_exit() {
     await this.checkRealClientExit("exit\r", 0);
-    this.assertEqual((await this.session()).closed_panes, 1);
+    this.assertEqual((await this.session()).closed_panes, 0);
   }
   async test_real_client_returns_to_terminal_on_last_tab_close() {
     await this.open_pane({ cwd: this.temp.name });
@@ -649,7 +649,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
       })
     ).session;
     await this.checkRealClientExit("\x02X\x02c\r", 0);
-    this.assertEqual((await this.session()).closed_panes, 2);
+    this.assertEqual((await this.session()).closed_panes, 0);
     this.assertEqual(
       (await this.rpc({ op: "native.list" })).sessions[0].id,
       ident,

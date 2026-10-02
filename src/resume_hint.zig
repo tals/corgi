@@ -43,11 +43,13 @@ pub const ResumeHint = struct {
         }
         return out.toOwnedSlice();
     }
+    /// The argv that resumes the session, or null when none is known.
+    pub fn args(r: *const ResumeHint) ?[3][]const u8 {
+        const provider = r.provider orelse return null;
+        return provider.info().resumeArgs(.{ .id = r.session.text() }) catch null;
+    }
     pub fn command(r: ResumeHint, alloc: std.mem.Allocator) ![]const u8 {
-        const provider = r.provider orelse return alloc.dupe(u8, "");
-        if (r.session.len == 0) return alloc.dupe(u8, "");
-        for (r.session.text()) |ch| if (ch < 32 or ch == 127) return alloc.dupe(u8, "");
-        const argv = try provider.info().resumeArgs(.{ .id = r.session.text() });
+        const argv = r.args() orelse return alloc.dupe(u8, "");
         var out: std.Io.Writer.Allocating = .init(alloc);
         errdefer out.deinit();
         try out.writer.print("{s} {s} '", .{ argv[0], argv[1] });

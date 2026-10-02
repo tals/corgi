@@ -151,18 +151,22 @@ pub fn captureView(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal
         .stamp = stamp(t, offset),
         .bottom = bottom,
         .offset = @min(offset orelse bottom, bottom),
-        .modes = .{
-            .bracketed_paste = t.vt.modes.get(.bracketed_paste),
-            .cursor_keys = t.vt.modes.get(.cursor_keys),
-            .keypad_keys = t.vt.modes.get(.keypad_keys),
-            .backarrow = t.vt.modes.get(.backarrow_key_mode),
-            .numlock = t.vt.modes.get(.ignore_keypad_with_numlock),
-            .alt_escape = t.vt.modes.get(.alt_esc_prefix),
-            .modify_other = t.vt.flags.modify_other_keys_2,
-            .kitty = t.vt.screens.active.kitty_keyboard.current().int(),
-            .mouse_event = t.vt.flags.mouse_event,
-            .mouse_format = t.vt.flags.mouse_format,
-        },
+        .modes = modes(t),
+    };
+}
+/// How a viewer encodes input for the program in `t`.
+pub fn modes(t: *const terminal.Terminal) Modes {
+    return .{
+        .bracketed_paste = t.vt.modes.get(.bracketed_paste),
+        .cursor_keys = t.vt.modes.get(.cursor_keys),
+        .keypad_keys = t.vt.modes.get(.keypad_keys),
+        .backarrow = t.vt.modes.get(.backarrow_key_mode),
+        .numlock = t.vt.modes.get(.ignore_keypad_with_numlock),
+        .alt_escape = t.vt.modes.get(.alt_esc_prefix),
+        .modify_other = t.vt.flags.modify_other_keys_2,
+        .kitty = t.vt.screens.active.kitty_keyboard.current().int(),
+        .mouse_event = t.vt.flags.mouse_event,
+        .mouse_format = t.vt.flags.mouse_format,
     };
 }
 

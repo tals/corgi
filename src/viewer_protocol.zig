@@ -92,9 +92,13 @@ pub fn sync(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Sync) 
     try resize(s);
     var frames: std.ArrayList(surface.View) = .empty;
     for (cl.interests[0..cl.interest_count]) |interest| {
-        const terminal = s.runtime.pane(interest.pane).?.terminal;
-        if (interest.known) |receipt| if (std.meta.eql(receipt, surface.stamp(terminal, interest.offset))) continue;
-        try frames.append(arena, try surface.captureView(arena, interest.pane, terminal, interest.offset));
+        const p = s.runtime.pane(interest.pane).?;
+        const shown = p.displayed();
+        if (interest.known) |receipt| if (std.meta.eql(receipt, surface.stamp(shown, interest.offset))) continue;
+        var view = try surface.captureView(arena, interest.pane, shown, interest.offset);
+        // Input goes to the agent under a ghost, encoded for its modes.
+        view.modes = surface.modes(p.terminal);
+        try frames.append(arena, view);
     }
     // Rebuild the session only when something it shows changed, or its
     // freshness stamps moved to the next bucket. Pane output, which a viewer
@@ -127,7 +131,7 @@ pub fn sync(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Sync) 
 
 pub fn search(s: *Server, cl: *Client, q: Request.Search) !void {
     const p = s.runtime.pane(q.pane) orelse return error.NoPane;
-    cl.reply(.@"viewer.search", try p.terminal.search(q.needle, q.skip));
+    cl.reply(.@"viewer.search", try p.displayed().search(q.needle, q.skip));
 }
 
 pub fn acknowledge(s: *Server, cl: *Client, q: Request.Acknowledge) !void {
@@ -169,7 +173,7 @@ fn Encoded(comptime T: type) type {
 /// A pane takes the size shown by the most recently used viewer displaying it;
 /// other viewers clip or pad. Hidden panes retain their last size.
 pub fn resize(s: *Server) !void {
-    for (s.runtime.panes.items) |p| {
+    for (s.runtime.panes.items) |*p| {
         var chosen: ?protocol.Interest = null;
         var latest: u64 = 0;
         for (s.clients.items) |cl| if (cl.viewer and !cl.dead and (chosen == null or cl.active_seq > latest)) {
@@ -180,7 +184,7 @@ pub fn resize(s: *Server) !void {
         };
         const size = chosen orelse continue;
         if (p.terminal.vt.cols != size.cols or p.terminal.vt.rows != size.rows) {
-            try p.terminal.resize(size.cols, size.rows);
+            try p.resize(size.cols, size.rows);
             s.runtime.changed();
             s.dirty = true;
         }

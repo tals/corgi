@@ -80,8 +80,21 @@ pub const Pane = struct {
     screen: Screen,
     detection: detection.Tracker = .{},
     resume_hint: ResumeHint = .{},
+    launch: ?runtime.Launch = null,
 };
-pub const Closed = struct { label: pane_label.Label = .{}, cwd: []const u8, screen: Screen, tab: layout.Tab, workspace_id: WorkspaceId };
+/// A closed agent. Older builds also kept closed shells, which have no
+/// resume hint; restore drops those.
+pub const Closed = struct {
+    label: pane_label.Label = .{},
+    cwd: []const u8,
+    screen: Screen,
+    tab: layout.Tab,
+    workspace_id: WorkspaceId,
+    resume_hint: ResumeHint = .{},
+    launch: ?runtime.Launch = null,
+    pane: layout.PaneId = .none,
+    tab_index: ?u8 = null,
+};
 pub const Workspace = struct {
     away: tokens.Window = .{},
     id: WorkspaceId,
@@ -199,10 +212,21 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
             .binding = try captureBinding(alloc, &p.attachment, live),
             .detection = if (live) p.detection else .{},
             .resume_hint = p.resume_hint,
+            .launch = p.launch,
         };
     }
     const closed = try alloc.alloc(Closed, r.closed.items.len);
-    for (r.closed.items, closed) |p, *out| out.* = .{ .label = p.label, .cwd = p.cwd, .screen = try Screen.capture(alloc, p.terminal, false), .tab = p.tab, .workspace_id = p.workspace_id };
+    for (r.closed.items, closed) |p, *out| out.* = .{
+        .label = p.label,
+        .cwd = p.cwd,
+        .screen = try Screen.capture(alloc, p.terminal, false),
+        .tab = p.tab,
+        .workspace_id = p.workspace_id,
+        .resume_hint = p.resume_hint,
+        .launch = p.launch,
+        .pane = p.pane,
+        .tab_index = p.tab_index,
+    };
     const sessions = try alloc.alloc(Native, r.sessions.items.len);
     for (r.sessions.items, sessions) |*s, *out| {
         var it = s.active_threads.iterator();
@@ -278,7 +302,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
 // calling destructors: inherited descriptors are still owned by the old daemon.
 pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8, executable: []const u8) !void {
     if (state.version != state_migrations.checkpoint_version or state.conversations.len > conversations.max_actors or state.live != live or state.workspaces.len == 0 or
-        state.workspaces.len > workspace.max_workspaces or state.panes.len > layout.max_panes or state.closed.len > 8 or state.sessions.len > 16) return error.InvalidCheckpoint;
+        state.workspaces.len > workspace.max_workspaces or state.panes.len > layout.max_panes or state.closed.len > runtime.closed_per_workspace * workspace.max_workspaces or state.sessions.len > 16) return error.InvalidCheckpoint;
     r.link_labels = if (live) try link_labels.Cache.restore(state.link_labels) else .{};
     for (state.workspaces) |w| {
         if (w.id == WorkspaceId.none or @intFromEnum(w.id) >= @intFromEnum(state.next_workspace) or r.workspaces.index(w.id) != null or !std.fs.path.isAbsolute(w.cwd)) return error.InvalidCheckpoint;
@@ -328,11 +352,23 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             .attachment = try restoreBinding(&r.conversations, p.binding, live),
             .detection = p.detection,
             .resume_hint = p.resume_hint,
+            .launch = p.launch,
         });
     }
     for (r.workspaces.items.items) |w| for (w.model.nodes) |maybe| if (maybe) |n| if (n == .pane and r.pane(n.pane) == null) return error.InvalidCheckpoint;
     for (state.closed) |p| {
-        try r.closed.append(a, .{ .label = p.label, .terminal = try p.screen.restore(false), .cwd = try a.dupe(u8, p.cwd), .tab = p.tab, .workspace_id = p.workspace_id });
+        if (p.resume_hint.args() == null or r.workspaces.index(p.workspace_id) == null) continue;
+        try r.closed.append(a, .{
+            .label = p.label,
+            .terminal = try p.screen.restore(false),
+            .cwd = try a.dupe(u8, p.cwd),
+            .tab = p.tab,
+            .workspace_id = p.workspace_id,
+            .resume_hint = p.resume_hint,
+            .launch = p.launch,
+            .pane = p.pane,
+            .tab_index = p.tab_index,
+        });
     }
     for (state.sessions) |n| {
         if (n.usage_tracker.next_sample >= n.usage_tracker.samples.len or n.usage_tracker.next_tool >= n.usage_tracker.tools.len or

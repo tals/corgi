@@ -421,6 +421,7 @@ pub const Controller = struct {
                         .subagents = p.agent.subagents,
                         .unread = p.agent.observation.unread(),
                         .activity = p.agent.activity,
+                        .reopened = p.restoring.len > 0,
                     };
                     count += 1;
                 }
@@ -811,16 +812,14 @@ pub const Controller = struct {
         return;
     }
     fn undoClose(s: *Self) !void {
-        if (s.runtime.closed_panes == 0) {
-            s.notice(" No closed panes to restore");
+        if (s.current().closed_agents == 0) {
+            s.notice(" No closed agents to reopen in this workspace");
             return;
         }
         const id = (try s.execute(.{ .@"pane.restore" = .{ .workspace = s.current().id } })).pane;
         try s.focusPane(id);
         s.launched = id;
         s.copy_mode = false;
-        s.notice(" Restored closed pane in a new tab with a fresh shell");
-        return;
     }
     fn attention(s: *Self) !void {
         for ([_]agents.Attention{ .needs_input, .finished }) |priority| {

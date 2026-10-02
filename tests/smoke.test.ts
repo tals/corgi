@@ -413,12 +413,17 @@ class Smoke extends Runtime {
       (await this.workspaces()).find((w: any) => w.active).id,
       ws,
     );
+    // A shell is not kept to reopen, and undo stays in this workspace.
     await this.rpc({ op: "action", name: "undo-close" });
+    await this.frame_with("No closed agents");
     this.assertEqual(
       (await this.workspaces()).find((w: any) => w.active).id,
-      home,
+      ws,
     );
-    await this.frame_with("restored output");
+    this.assertEqual(
+      (await this.workspaces()).find((w: any) => w.id === home).closed_agents,
+      0,
+    );
   }
   async test_workspace_sidebar_create_edit_switch_and_agents() {
     this.folder("项目 café");
@@ -908,7 +913,6 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
       const panes = await this.panes();
       return panes.length === 1 && panes[0].id === second;
     });
-    this.assertEqual((await this.session()).closed_panes, 2);
     const gone = (await this.open_pane({ cwd: this.temp.name, title: "Gone" }))
       .pane;
     await this.rpc({ op: "focus", pane: second });
@@ -1152,6 +1156,13 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
       event: { hook_event_name: "SessionStart", session_id: "numbering" },
     });
     await this.agent_frame("codex", "○");
+    await this.rpc({
+      op: "hook",
+      pane: first,
+      provider: "claude",
+      seq: 1,
+      event: { hook_event_name: "SessionStart", session_id: "restored" },
+    });
     const labels = (screen: string[]) =>
       screen[0].slice(28).trim().split(/\s+/).join(" ");
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
@@ -1179,20 +1190,21 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.tabs_are("1 2");
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     await this.tabs_are("2 2");
+    // The reopened agent's tab goes back first, where it was.
     await this.rpc({ op: "action", name: "undo-close" });
     screen = await this.frame_with(" 3 ");
-    this.assertEqual(labels(screen), "2 2 3 +");
+    this.assertEqual(labels(screen), "1 2 3 +");
     const second = (await this.panes()).find(
       (p: any) => p.id !== third && !p.focused,
     ).id;
     await this.command("pane.close", { target: second });
-    screen = await this.tabs_are("2 2");
+    screen = await this.tabs_are("1 2");
     this.assertNotIn(" 3 ", screen[0]);
     await this.split_pane("right", { cwd: this.temp.name });
     await this.rpc({ op: "action", name: "break" });
-    await this.tabs_are("2 2 3");
+    await this.tabs_are("1 2 3");
     await this.open_pane({ command: "sleep 30" });
-    screen = await this.tabs_are("2 2 3 4");
+    screen = await this.tabs_are("1 2 3 4");
     this.assertNotIn("shell", screen[0]);
   }
   async test_menu_paging_and_plus_remain_usable_in_narrow_terminal() {
@@ -1319,108 +1331,90 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     this.assertTrue((await this.panes())[0].focused);
     this.assertEqual(await this.tab_count(), 1);
   }
-  async test_last_shell_exit_detaches_and_keyboard_undo_preserves_output_and_cwd() {
+  async test_keyboard_undo_resumes_closed_agent_over_its_faded_screen() {
     await this.attach();
     await this.get_type("frame");
-    const sub = this.folder("nested");
-    await this.input('cd nested; printf "SAVED_OUTPUT\\n"\r');
+    const shell = (await this.panes())[0].id,
+      sub = this.folder("nested");
+    const agent = (
+      await this.open_pane({
+        cwd: sub,
+        command:
+          "printf 'SCROLLBACK_SENTINEL\\n'; i=0; while [ $i -lt 50 ]; do echo line-$i; i=$((i+1)); done; printf 'OLD_SCREEN\\n'; exec sleep 60",
+      })
+    ).pane;
+    await this.command("pane.rename", { target: agent, name: "Stored name" });
+    await this.rpc({
+      op: "hook",
+      pane: agent,
+      provider: "claude",
+      seq: 1,
+      event: { hook_event_name: "SessionStart", session_id: "it's-closed" },
+    });
     await this.until(async () =>
       (
-        await this.command("pane.read", { target: 1, view: "screen" })
-      ).text.includes("SAVED_OUTPUT"),
+        await this.command("pane.read", { target: agent, view: "screen" })
+      ).text.includes("OLD_SCREEN"),
     );
-    await this.until(
-      async () =>
-        realpathSync((await this.panes())[0].cwd) === realpathSync(sub),
+    // Agents start through the provider double; this one draws its
+    // arguments once it reads a line.
+    writeExecutable(
+      join(this.temp.name, "provider"),
+      "for await (const _ of (await import('node:readline')).createInterface({ input: process.stdin }))\n  console.log('RESUMED ' + JSON.stringify(process.argv.slice(2)));\n",
     );
-    await this.input("exit\r");
-    await this.until(async () => (await this.tab_count()) === 0);
+    const closed = async () =>
+      (await this.session()).workspaces[0].closed_agents;
+    await this.command("pane.input", { target: shell, data: "exit\r" });
+    await this.until(async () =>
+      (await this.panes()).every((p: any) => p.id !== shell),
+    );
+    this.assertEqual(await closed(), 0);
+    await this.command("pane.close", { target: agent });
     await this.get_type("detach");
-    this.assertEqual((await this.session()).closed_panes, 1);
+    this.assertEqual(await closed(), 1);
     await this.reconnect();
-    await this.input("\x02u");
+    await this.input("\x1b[116;6u");
     await this.until(async () => (await this.panes()).length === 2);
     const pane = await this.focused();
-    this.assertNotEqual(pane.id, 1);
-    this.assertFalse(pane.exited);
-    this.assertEqual(pane.provider, null);
+    this.assertNotEqual(pane.id, agent);
+    this.assertEqual(pane.name, "Stored name");
     this.assertEqual(realpathSync(pane.cwd), realpathSync(sub));
-    this.assertIn(
-      "SAVED_OUTPUT",
-      (await this.command("pane.read", { target: pane.id, view: "screen" }))
-        .text,
+    this.assertEqual(await closed(), 0);
+    this.assertEqual(pane.restoring, "claude --resume 'it'\\''s-closed'");
+    // Its conversation, idle, and its old tab place come back before it draws.
+    this.assertEqual([pane.provider, pane.state], ["claude", "idle"]);
+    this.assertEqual(
+      layout_tree((await this.session()).workspaces[0], 0).pane,
+      pane.id,
     );
-    this.assertEqual((await this.session()).closed_panes, 0);
-    await this.input("printf '%s%s\\n' FRESH_ SHELL\r");
+    await this.frame_with("Restoring…");
+    const lines = (
+      await this.rpc({ op: "pane.surface", protocol: 1, pane: pane.id })
+    ).surface.lines;
+    this.assertTrue(
+      lines.some((line: string) => line.includes("\x1b[2mOLD_SCREEN")),
+      "the old screen is not faded",
+    );
+    await this.command("pane.input", { target: pane.id, data: "go\r" });
     await this.until(async () =>
       (
         await this.command("pane.read", { target: pane.id, view: "screen" })
-      ).text.includes("FRESH_SHELL"),
+      ).text.includes(`RESUMED ["--resume","it's-closed"]`),
     );
-  }
-  async test_closed_history_is_bounded_and_does_not_rerun_commands() {
-    const workspace = (await this.session()).workspaces[0].id;
-    for (let i = 0; i < 10; i++) {
-      // A viewer attached after a fast exit would create a new empty shell.
-      await this.command("pane.create", {
-        workspace,
-        cwd: this.temp.name,
-        title: `saved-${i}`,
-        command: `printf "FINAL_${i}\\n"; echo ran >> runs; exit 7`,
-      });
-      await this.until(async () => (await this.tab_count()) === 0);
-      this.assertEqual((await this.session()).closed_panes, Math.min(i + 1, 8));
-    }
-    await this.attach();
-    await this.get_type("frame");
-    for (let i = 9; i > 1; i--) {
-      await this.rpc({ op: "action", name: "undo-close" });
-      const pane = await this.focused();
-      this.assertIn(
-        `FINAL_${i}`,
-        (await this.command("pane.read", { target: pane.id, view: "screen" }))
-          .text,
-      );
-    }
-    this.assertEqual((await this.session()).closed_panes, 0);
-    this.assertEqual(
-      readFileSync(join(this.temp.name, "runs"), "utf8").trimEnd().split("\n")
-        .length,
-      10,
+    await this.until(
+      async () =>
+        (await this.panes()).find((p: any) => p.id === pane.id).restoring ===
+        "",
     );
-    await this.rpc({ op: "action", name: "undo-close" });
-    this.assertEqual((await this.panes()).length, 9);
-  }
-  async test_manual_close_retains_scrollback_and_cancels_stale_modes() {
-    await this.attach();
-    await this.get_type("frame");
-    await this.input(
-      "printf 'SCROLLBACK_SENTINEL\\n'; i=0; while [ $i -lt 50 ]; do echo line-$i; i=$((i+1)); done\r",
-    );
-    await this.until(async () =>
-      (
-        await this.command("pane.read", { target: 1, view: "screen" })
-      ).text.includes("line-49"),
-    );
-    await this.input("\x02TStored name\r\x02s/missing");
-    await this.command("pane.close", { target: 1 });
-    await this.get_type("detach");
-    await this.reconnect();
-    await this.input("\x02u");
-    await this.until(async () => (await this.panes()).length === 2);
-    const pane = (await this.focused()).id;
+    let gone = false;
+    for (let i = 0; i < 100 && !gone; i++)
+      gone = !screen_text((await this.get_type("frame")).data)
+        .join("\n")
+        .includes("Restoring…");
+    this.assertTrue(gone, "the restoring band stayed");
     await this.input("\x02sg");
     await this.frame_with("SCROLLBACK_SENTINEL");
-    await this.until(async () =>
-      (await this.get_type("frame")).data.includes("Stored name"),
-    );
     await this.input("q");
-    await this.input("printf '%s%s\\n' LIVE_AFTER_ UNDO\r");
-    await this.until(async () =>
-      (
-        await this.command("pane.read", { target: pane, view: "screen" })
-      ).text.includes("LIVE_AFTER_UNDO"),
-    );
   }
 }
 registerCase("Smoke", Smoke);

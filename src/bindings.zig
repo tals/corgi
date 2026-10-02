@@ -200,6 +200,8 @@ const corgi_keys = [_]Binding{
 };
 const corgi = corgi_keys ++ [_]Binding{
     .{ .key = 20, .prefixed = false, .action = .new },
+    held('t', ctrl_shift, .@"undo-close"),
+    held('t', cmd_shift, .@"undo-close"),
     held(keyboard.f1, .{}, .attention),
 };
 
@@ -312,6 +314,7 @@ const cmux = [_]Binding{
     held('l', ctrl_shift, .{ .resize = .right }),
     held(13, cmd_shift, .zoom),
     held('w', cmd, .close),
+    held('t', cmd_shift, .@"undo-close"),
     held('m', cmd_shift, .@"copy-mode"),
     held('b', cmd, .sidebar),
     held(',', cmd, .setup),
@@ -500,6 +503,9 @@ test "keys that arrive as sequences" {
         .{ .preset = .corgi, .prefixed = true, .key = 'c', .action = null },
         .{ .preset = .corgi, .key = keyboard.f1, .action = .attention },
         .{ .preset = .corgi, .prefixed = true, .key = keyboard.f1, .action = .attention },
+        .{ .preset = .corgi, .key = 'T', .mods = ctrl_shift, .action = .@"undo-close" },
+        .{ .preset = .corgi, .key = 't', .mods = cmd_shift, .action = .@"undo-close" },
+        .{ .preset = .cmux, .key = 'T', .mods = cmd_shift, .action = .@"undo-close" },
         .{ .preset = .tmux, .key = keyboard.f1, .action = null },
     }) |case| {
         const event: keyboard.Key = .{ .codepoint = case.key, .mods = .{ .shift = case.mods.shift, .alt = case.mods.alt, .ctrl = case.mods.ctrl, .super = case.mods.super } };

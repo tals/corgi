@@ -316,6 +316,8 @@ fn navigation(c: *Column) !void {
     try c.action("Last visited", .@"last-agent", 4);
     try c.group("Manage");
     try c.action("New agent", .@"new-agent", 4);
+    try c.pair("Close / reopen", .close, .@"undo-close", 4);
+    try c.alsoHeld("Reopen directly", .@"undo-close", 4);
     try c.action("Mute / unmute", .mute, 4);
 }
 /// Four keycaps, one per direction, from the preset's keys for `tag`.
@@ -347,6 +349,7 @@ fn panes(c: *Column) !void {
     if (c.preset == .cmux) try c.binding("Also focus", "P h j k l", 2, false);
     try c.action("Next pane", .@"next-pane", 2);
     try c.action("Previous pane", .@"prev-pane", 2);
+    try c.action("Close", .close, 2);
     try c.space();
     try c.group("Split");
     if (c.width >= 30 and c.preset != .cmux) {
@@ -372,8 +375,6 @@ fn panes(c: *Column) !void {
     if (c.preset == .cmux) try c.binding("Resize directly", "Ctrl+Shift+HJKL", 4, false);
     try c.action("Zoom / unzoom", .zoom, 4);
     try c.action("Move to new tab", .@"break", 4);
-    try c.group("Close & recover");
-    try c.pair("Close / reopen", .close, .@"undo-close", 4);
     try c.space();
     try c.heading("TERMINAL");
     try c.action("Scroll / copy", .@"copy-mode", 2);
@@ -461,4 +462,23 @@ test "agents lead with the attention jump, its key a keycap that fits" {
         };
         try std.testing.expect(found);
     };
+}
+
+test "agents list closing and reopening; panes list closing only" {
+    for (std.enums.values(km.Preset)) |preset| {
+        var agents_column: Column = .{ .width = 47, .preset = preset };
+        defer agents_column.rows.deinit(a);
+        try navigation(&agents_column);
+        var panes_column: Column = .{ .width = 47, .preset = preset };
+        defer panes_column.rows.deinit(a);
+        try panes(&panes_column);
+        try std.testing.expect(shows(&agents_column, .close) and shows(&agents_column, .@"undo-close"));
+        try std.testing.expect(shows(&panes_column, .close) and !shows(&panes_column, .@"undo-close"));
+    }
+}
+fn shows(c: *const Column, act: Action) bool {
+    for (c.rows.items) |row| for (row.parts[0..row.len]) |part| {
+        if (part.action != null and std.meta.eql(part.action.?, act)) return true;
+    };
+    return false;
 }

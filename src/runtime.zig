@@ -2,6 +2,7 @@
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
+const log = std.log.scoped(.runtime);
 const layout = @import("layout.zig");
 const workspace = @import("workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
@@ -15,6 +16,7 @@ const pane_label = @import("pane.zig").label;
 const conversations = @import("conversations.zig");
 const detection = @import("detection.zig");
 const ResumeHint = @import("resume_hint.zig").ResumeHint;
+const agent_order = @import("agent_order.zig");
 const launch_command = @import("launch.zig").command;
 const inference_setup = @import("inference.zig").setup;
 const live_usage = @import("usage.zig").live;
@@ -35,6 +37,10 @@ pub const Pane = struct {
     detected: struct { output: u64 = 0, at: i64 = 0 } = .{},
     cwd: []const u8,
     resume_hint: ResumeHint = .{},
+    /// How Corgi started the pane's agent, so a reopened one starts the same way.
+    launch: ?Launch = null,
+    /// A reopened agent's old screen, shown until the agent catches up.
+    ghost: ?Ghost = null,
 
     /// How often detection reads a quiet pane: one that printed nothing
     /// since its last pass, with no agent mid-turn and nothing to confirm.
@@ -56,6 +62,53 @@ pub const Pane = struct {
         };
     }
 
+    /// The terminal viewers see.
+    pub fn displayed(p: *const Pane) *Terminal {
+        return if (p.ghost) |g| g.terminal else p.terminal;
+    }
+    /// Follows the agent drawing under its ghost. Returns whether the
+    /// ghost just went: the agent's screen reads as the old one did, held
+    /// still for `Ghost.quiet_ms`, or `Ghost.longest_ms` passed.
+    pub fn watchGhost(p: *Pane, now: i64) bool {
+        const g = if (p.ghost) |*ghost| ghost else return false;
+        if (g.revision != p.terminal.surface_revision) {
+            g.revision = p.terminal.surface_revision;
+            const text = screenHash(p.terminal);
+            if (text != g.text) {
+                g.text = text;
+                g.changed_at = now;
+                if (g.drawn_at == null) g.drawn_at = now;
+                if (text != null and text == screenHash(g.terminal)) {
+                    p.dropGhost();
+                    return true;
+                }
+            }
+        }
+        if (now < g.due() orelse return false) return false;
+        p.dropGhost();
+        return true;
+    }
+    fn dropGhost(p: *Pane) void {
+        if (p.ghost) |g| g.terminal.destroy();
+        p.ghost = null;
+    }
+    pub fn resize(p: *Pane, cols: u16, rows: u16) !void {
+        try p.terminal.resize(cols, rows);
+        const g = if (p.ghost) |*ghost| ghost else return;
+        try g.terminal.resize(cols, rows);
+        // Rewrapping the old screen is not the agent drawing.
+        if (g.drawn_at == null) {
+            g.revision = p.terminal.surface_revision;
+            g.text = screenHash(p.terminal);
+        }
+    }
+    /// The command a reopened agent runs, shown while its ghost is up.
+    pub fn restoring(p: *const Pane, alloc: std.mem.Allocator) ![]const u8 {
+        if (p.ghost == null) return "";
+        const launch = p.launch orelse return "";
+        return launch.typed(alloc, p.resume_hint.args());
+    }
+
     pub fn refreshCwd(p: *Pane) void {
         if (p.terminal.exited) return;
         const pgid = os.c.tcgetpgrp(p.terminal.fd);
@@ -69,22 +122,101 @@ pub const Pane = struct {
     }
 };
 
-pub const ClosedPane = struct {
+/// A reopened agent's old screen, faded. Viewers see it in place of the
+/// pane until the agent has drawn its own and stopped changing it, so the
+/// agent's first redraws don't flicker.
+pub const Ghost = struct {
+    /// How long the agent's screen holds still before it shows.
+    pub const quiet_ms = 300;
+    /// The longest the ghost stays once the agent draws.
+    pub const longest_ms = 2000;
+
+    terminal: *Terminal,
+    /// The agent's screen when last looked at: its output and its text.
+    revision: u64,
+    text: ?u64,
+    /// When the agent first drew, and when its screen last changed.
+    drawn_at: ?i64 = null,
+    changed_at: i64 = 0,
+
+    /// When the ghost goes if the agent's screen holds still; null until
+    /// the agent draws.
+    pub fn due(g: Ghost) ?i64 {
+        const drawn = g.drawn_at orelse return null;
+        return @min(g.changed_at + quiet_ms, drawn + longest_ms);
+    }
+};
+fn screenHash(t: *Terminal) ?u64 {
+    const text = t.liveText() catch return null;
+    defer a.free(text);
+    return std.hash.Wyhash.hash(0, text);
+}
+
+/// An agent whose pane closed while it ran. `reopen` resumes it, showing
+/// this screen faded until the agent catches up.
+pub const ClosedAgent = struct {
     label: pane_label.Label = .{},
     terminal: *Terminal,
     cwd: []const u8,
     tab: layout.Tab,
     workspace_id: WorkspaceId,
-    pub fn deinit(p: ClosedPane) void {
+    resume_hint: ResumeHint,
+    launch: ?Launch = null,
+    /// The pane it was, which a saved agent order may still name.
+    pane: layout.PaneId = .none,
+    /// Where its tab goes back: its old place, or after its old tab when
+    /// that tab is still open. Null appends it.
+    tab_index: ?u8 = null,
+    pub fn deinit(p: ClosedAgent) void {
         p.terminal.destroy();
         a.free(p.cwd);
+    }
+};
+/// How many closed agents each workspace keeps.
+pub const closed_per_workspace = 8;
+
+/// How Corgi started an agent. A reopened agent starts the same way, so it
+/// keeps its account, settings and flags.
+pub const Launch = union(enum) {
+    /// The launcher's row for a provider.
+    agent: struct { provider: agents.Provider, yolo: bool = false },
+    /// A saved launcher command, run as typed into an interactive shell.
+    command: launch_command.Command,
+
+    /// The command as a person would type it, resuming the session
+    /// `resuming` names when set.
+    pub fn typed(l: Launch, alloc: std.mem.Allocator, resuming: ?[3][]const u8) ![]const u8 {
+        var out: std.Io.Writer.Allocating = .init(alloc);
+        errdefer out.deinit();
+        switch (l) {
+            .agent => |agent| {
+                try out.writer.print("{t}", .{agent.provider});
+                if (agent.yolo) try out.writer.print(" {s}", .{agent.provider.info().yolo_flag});
+            },
+            .command => |command| try out.writer.writeAll(command.text()),
+        }
+        if (resuming) |argv| {
+            const session = try os.shellQuote(a, argv[2]);
+            defer a.free(session);
+            try out.writer.print(" {s} {s}", .{ argv[1], session });
+        }
+        return out.toOwnedSlice();
+    }
+    /// What a pane runs for `typed`. A provider runs through `corgi agent`,
+    /// which finds its binary and clears Claude's nesting markers.
+    pub fn paneCommand(l: Launch, alloc: std.mem.Allocator, executable: []const u8, typed_command: []const u8) ![]const u8 {
+        if (l == .command) return alloc.dupe(u8, typed_command);
+        const quoted = try os.shellQuote(a, executable);
+        defer a.free(quoted);
+        return std.fmt.allocPrint(alloc, "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT {s} agent {s}", .{ quoted, typed_command });
     }
 };
 
 pub const Runtime = struct {
     workspaces: workspace.Store = .{},
     panes: std.ArrayList(Pane) = .empty,
-    closed: std.ArrayList(ClosedPane) = .empty,
+    /// Oldest first, from every workspace.
+    closed: std.ArrayList(ClosedAgent) = .empty,
     /// Shells `stopShell` signalled that are not yet collected.
     stopped: std.ArrayList(c_int) = .empty,
     sessions: std.ArrayList(native.Session) = .empty,
@@ -139,7 +271,8 @@ pub const Runtime = struct {
         r.ports.deinit();
         r.git_push.deinit();
         r.git_status.deinit();
-        for (r.panes.items) |p| {
+        for (r.panes.items) |*p| {
+            p.dropGhost();
             p.terminal.destroy();
             a.free(p.cwd);
         }
@@ -238,22 +371,60 @@ pub const Runtime = struct {
 
     pub fn close(r: *Runtime, id: layout.PaneId) !void {
         const owner = r.workspaces.owner(id) orelse return error.NoPane;
-        const previous = owner.model.tabs[owner.model.tabForPane(id).?];
+        const tab = owner.model.tabForPane(id).?;
+        const previous = owner.model.tabs[tab];
         try r.closed.ensureUnusedCapacity(a, 1);
         try r.stopped.ensureUnusedCapacity(a, 1);
         try owner.model.close(id);
         owner.model.revision +%= 1;
+        const tab_index: u8 = @intCast(tab + @intFromBool(owner.model.tabIndex(previous.id) != null));
         for (r.panes.items, 0..) |*p, i| if (p.id == id) {
+            p.dropGhost();
             p.refreshCwd();
             _ = p.terminal.read();
             _ = p.terminal.reap();
+            p.resume_hint.observe(p.agent());
+            // An agent that quit on its own was closed on purpose.
+            const running = !p.terminal.exited and p.attachment.actor != null;
             r.stopShell(p.terminal);
-            if (r.closed.items.len == 8) r.closed.orderedRemove(0).deinit();
-            r.closed.appendAssumeCapacity(.{ .label = p.label, .terminal = p.terminal, .cwd = p.cwd, .tab = previous, .workspace_id = owner.id });
+            if (running and p.resume_hint.args() != null) {
+                if (r.closedCount(owner.id) == closed_per_workspace) r.closed.orderedRemove(r.closedIndex(owner.id, .oldest).?).deinit();
+                r.closed.appendAssumeCapacity(.{
+                    .label = p.label,
+                    .terminal = p.terminal,
+                    .cwd = p.cwd,
+                    .tab = previous,
+                    .workspace_id = owner.id,
+                    .resume_hint = p.resume_hint,
+                    .launch = p.launch,
+                    .pane = p.id,
+                    .tab_index = tab_index,
+                });
+            } else {
+                p.terminal.destroy();
+                a.free(p.cwd);
+            }
             _ = r.panes.orderedRemove(i);
             break;
         };
         r.changed();
+    }
+
+    /// Agents `reopen` can resume in `ws`.
+    pub fn closedCount(r: *const Runtime, ws: WorkspaceId) usize {
+        var count: usize = 0;
+        for (r.closed.items) |p| {
+            if (p.workspace_id == ws) count += 1;
+        }
+        return count;
+    }
+    fn closedIndex(r: *const Runtime, ws: WorkspaceId, which: enum { oldest, newest }) ?usize {
+        var found: ?usize = null;
+        for (r.closed.items, 0..) |p, i| if (p.workspace_id == ws) {
+            found = i;
+            if (which == .oldest) break;
+        };
+        return found;
     }
 
     /// Signal a pane's shell, keeping its pid until `reapStopped` collects it.
@@ -273,21 +444,55 @@ pub const Runtime = struct {
         }
     }
 
-    pub fn restore(r: *Runtime, fallback: Create) !layout.PaneId {
-        if (r.closed.items.len == 0) return error.NoClosedPane;
-        const saved = r.closed.items[r.closed.items.len - 1];
-        const content = try saved.terminal.snapshot();
-        defer a.free(content);
-        var opts = fallback;
-        if (r.workspaces.get(saved.workspace_id) != null) opts.workspace = saved.workspace_id;
-        opts.cwd = saved.cwd;
-        opts.title = saved.tab.title.text();
-        const id = try r.create(opts);
+    /// Resumes the agent closed last in `opts.workspace` in a new tab. Its
+    /// old screen shows faded until the agent catches up.
+    pub fn reopen(r: *Runtime, opts: Create) !layout.PaneId {
+        const index = r.closedIndex(opts.workspace, .newest) orelse return error.NoClosedAgent;
+        const saved = r.closed.items[index];
+        const ghost = try saved.terminal.fadedSnapshot();
+        defer a.free(ghost);
+        // An agent Corgi did not start resumes as its provider's launcher row would.
+        const launch = saved.launch orelse Launch{ .agent = .{ .provider = saved.resume_hint.provider.? } };
+        const typed = try launch.typed(a, saved.resume_hint.args().?);
+        defer a.free(typed);
+        const command = try launch.paneCommand(a, opts.executable, typed);
+        defer a.free(command);
+        const frozen = try Terminal.create(saved.terminal.vt.cols, saved.terminal.vt.rows);
+        errdefer frozen.destroy();
+        frozen.applyTheme(opts.theme);
+        frozen.feed(ghost);
+        var resumed = opts;
+        resumed.cwd = saved.cwd;
+        resumed.title = saved.tab.title.text();
+        resumed.command = command;
+        resumed.interactive_command = launch == .command;
+        // Its old size lays the ghost out as it was, and the agent's first
+        // drawing over it lines up.
+        resumed.cols = saved.terminal.vt.cols;
+        resumed.rows = saved.terminal.vt.rows;
+        const id = try r.create(resumed);
+        const ws = r.workspaces.get(opts.workspace).?;
+        if (saved.tab_index) |place| {
+            ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, @min(place, ws.model.count - 1));
+            ws.model.revision +%= 1;
+        }
+        for (ws.agent_order.items[0..ws.agent_order.len]) |*target| {
+            if (std.meta.eql(target.*, agent_order.Target{ .pane = saved.pane })) target.* = .{ .pane = id };
+        }
         const p = r.pane(id).?;
         p.label = saved.label;
-        p.terminal.feed(content);
-        p.terminal.feed("\x1b[0m\r\n[Corgi: restored output; new shell]\r\n");
-        _ = r.closed.pop();
+        p.resume_hint = saved.resume_hint;
+        p.launch = launch;
+        // Its conversation shows at once, by name, before the agent reports in.
+        if (r.conversations.get(saved.resume_hint.provider.?, saved.resume_hint.session.text())) |actor| {
+            actor.state.reopened(std.time.microTimestamp());
+            if (actor.state.name.len == 0) actor.state.name = saved.resume_hint.name;
+            if (actor.workspace == WorkspaceId.none) actor.workspace = opts.workspace;
+            p.attachment.select(actor);
+        } else |err| log.warn("reattaching a reopened agent: {}", .{err});
+        p.terminal.feed(ghost);
+        p.ghost = .{ .terminal = frozen, .revision = p.terminal.surface_revision, .text = screenHash(p.terminal) };
+        _ = r.closed.orderedRemove(index);
         saved.deinit();
         return id;
     }
@@ -310,9 +515,14 @@ pub const Runtime = struct {
             if (ws.model.count > 0) return error.WorkspaceNotEmpty;
             for (r.sessions.items) |session| if (session.workspace_id == id) return error.WorkspaceNotEmpty;
         }
-        try r.closed.ensureUnusedCapacity(a, @min(r.panes.items.len, 8));
+        try r.closed.ensureUnusedCapacity(a, @min(r.panes.items.len, closed_per_workspace));
         while (ws.model.count > 0) try r.close(ws.model.firstPane(ws.model.tabs[0].root));
+        // Its closed agents could only reopen here.
         var i: usize = 0;
+        while (i < r.closed.items.len) {
+            if (r.closed.items[i].workspace_id == id) r.closed.orderedRemove(i).deinit() else i += 1;
+        }
+        i = 0;
         while (i < r.sessions.items.len) {
             if (r.sessions.items[i].workspace_id == id) {
                 r.sessions.items[i].destroy();
@@ -396,4 +606,162 @@ test "detection reads a quiet pane only every few seconds" {
     p.agent().state = .idle;
     p.detection.candidate = .working;
     try std.testing.expect(p.detectionDue(10_250));
+}
+
+/// A pane with no process in a new tab, running `session` when set.
+fn testPane(r: *Runtime, ws: WorkspaceId, session: ?[]const u8) !*Pane {
+    const owner = try r.getWorkspace(ws);
+    owner.model.next_id = r.workspaces.next_pane_id;
+    const id = try owner.model.newTab("");
+    r.workspaces.next_pane_id = owner.model.next_id;
+    var binding: conversations.Attachment = .{};
+    if (session) |name| binding.select(try r.conversations.get(.claude, name));
+    try r.panes.append(a, .{ .id = id, .terminal = try Terminal.create(20, 4), .cwd = try a.dupe(u8, "/tmp"), .attachment = binding });
+    return &r.panes.items[r.panes.items.len - 1];
+}
+
+test "closing a running agent keeps it for its own workspace; shells and agents that quit are not kept" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const first = try r.workspaces.add("first", "/tmp");
+    const second = try r.workspaces.add("second", "/tmp");
+    const agent = try testPane(&r, first, "running");
+    agent.launch = .{ .command = try launch_command.Command.init("CLAUDE_CONFIG_DIR=~/.work claude") };
+    const agent_id = agent.id;
+    const shell = (try testPane(&r, first, null)).id;
+    const quit = try testPane(&r, first, "quit");
+    quit.terminal.exited = true;
+    const quit_id = quit.id;
+    const elsewhere = (try testPane(&r, second, "elsewhere")).id;
+    for ([_]layout.PaneId{ agent_id, shell, quit_id, elsewhere }) |id| try r.close(id);
+    try std.testing.expectEqual(@as(usize, 1), r.closedCount(first));
+    try std.testing.expectEqual(@as(usize, 1), r.closedCount(second));
+    const kept = r.closed.items[r.closedIndex(first, .newest).?];
+    try std.testing.expectEqualStrings("running", kept.resume_hint.session.text());
+    try std.testing.expectEqualStrings("CLAUDE_CONFIG_DIR=~/.work claude", kept.launch.?.command.text());
+    try std.testing.expectEqual(agent_id, kept.pane);
+    try std.testing.expectEqual(@as(?u8, 0), kept.tab_index);
+}
+
+test "a closed split's tab goes back after the tab it shared" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const ws = try r.workspaces.add("splits", "/tmp");
+    _ = try testPane(&r, ws, null);
+    const left = (try testPane(&r, ws, null)).id;
+    const owner = r.workspaces.get(ws).?;
+    owner.model.next_id = r.workspaces.next_pane_id;
+    const right = try owner.model.split(left, .horizontal);
+    r.workspaces.next_pane_id = owner.model.next_id;
+    var binding: conversations.Attachment = .{};
+    binding.select(try r.conversations.get(.claude, "split"));
+    try r.panes.append(a, .{ .id = right, .terminal = try Terminal.create(20, 4), .cwd = try a.dupe(u8, "/tmp"), .attachment = binding });
+    try r.close(right);
+    try std.testing.expectEqual(@as(?u8, 2), r.closed.items[0].tab_index);
+}
+
+test "each workspace keeps its newest closed agents, and closing it drops them" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const busy = try r.workspaces.add("busy", "/tmp");
+    const quiet = try r.workspaces.add("quiet", "/tmp");
+    try r.close((try testPane(&r, quiet, "quiet")).id);
+    var name: [8]u8 = undefined;
+    for (0..closed_per_workspace + 1) |i| try r.close((try testPane(&r, busy, try std.fmt.bufPrint(&name, "s{d}", .{i}))).id);
+    try std.testing.expectEqual(closed_per_workspace, r.closedCount(busy));
+    try std.testing.expectEqualStrings("s1", r.closed.items[r.closedIndex(busy, .oldest).?].resume_hint.session.text());
+    try std.testing.expectEqualStrings("s8", r.closed.items[r.closedIndex(busy, .newest).?].resume_hint.session.text());
+    try std.testing.expectEqual(@as(usize, 1), r.closedCount(quiet));
+    try r.closeWorkspace(busy, true);
+    try std.testing.expectEqual(@as(usize, 1), r.closed.items.len);
+    try std.testing.expectEqual(error.NoClosedAgent, r.reopen(.{ .workspace = busy, .cwd = "/tmp", .cols = 20, .rows = 4, .theme = .{}, .socket = "", .executable = "" }));
+}
+
+test "a launch resumes the way it started, with the session quoted" {
+    const alloc = std.testing.allocator;
+    const claude = try agents.Provider.claude.info().resumeArgs(.{ .id = "it's" });
+    const Case = struct { launch: Launch, resuming: ?[3][]const u8, typed: []const u8, runs: []const u8 };
+    for ([_]Case{
+        .{ .launch = .{ .agent = .{ .provider = .claude } }, .resuming = null, .typed = "claude", .runs = "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT '/opt/corgi' agent claude" },
+        .{
+            .launch = .{ .agent = .{ .provider = .claude, .yolo = true } },
+            .resuming = claude,
+            .typed = "claude --dangerously-skip-permissions --resume 'it'\\''s'",
+            .runs = "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT '/opt/corgi' agent claude --dangerously-skip-permissions --resume 'it'\\''s'",
+        },
+        .{
+            .launch = .{ .agent = .{ .provider = .codex } },
+            .resuming = try agents.Provider.codex.info().resumeArgs(.{ .id = "thread" }),
+            .typed = "codex resume 'thread'",
+            .runs = "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT '/opt/corgi' agent codex resume 'thread'",
+        },
+        // A saved command keeps its account and settings exactly.
+        .{
+            .launch = .{ .command = try launch_command.Command.init("CLAUDE_CONFIG_DIR=~/.work claude --model opus") },
+            .resuming = claude,
+            .typed = "CLAUDE_CONFIG_DIR=~/.work claude --model opus --resume 'it'\\''s'",
+            .runs = "CLAUDE_CONFIG_DIR=~/.work claude --model opus --resume 'it'\\''s'",
+        },
+    }) |case| {
+        const typed = try case.launch.typed(alloc, case.resuming);
+        defer alloc.free(typed);
+        try std.testing.expectEqualStrings(case.typed, typed);
+        const runs = try case.launch.paneCommand(alloc, "/opt/corgi", typed);
+        defer alloc.free(runs);
+        try std.testing.expectEqualStrings(case.runs, runs);
+    }
+}
+
+/// `p` as `reopen` leaves it: the same faded screen in it and in its ghost.
+fn testGhost(p: *Pane, screen: []const u8) !void {
+    const frozen = try Terminal.create(p.terminal.vt.cols, p.terminal.vt.rows);
+    frozen.feed(screen);
+    p.terminal.feed(screen);
+    p.ghost = .{ .terminal = frozen, .revision = p.terminal.surface_revision, .text = screenHash(p.terminal) };
+}
+
+test "a reopened agent's ghost shows until the agent draws and holds still" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const p = try testPane(&r, try r.workspaces.add("ghost", "/tmp"), null);
+    try testGhost(p, "\x1b[2mOLD SCREEN THAT WRAPS\x1b[0m");
+    try std.testing.expect(p.displayed() == p.ghost.?.terminal);
+    // Modes and rewrapping are not the agent drawing.
+    p.terminal.feed("\x1b[?25l\x1b[?2004h\x1b[>1u");
+    try std.testing.expect(!p.watchGhost(0));
+    try p.resize(8, 6);
+    try std.testing.expect(!p.watchGhost(10_000));
+    try std.testing.expectEqual(null, p.ghost.?.drawn_at);
+    p.terminal.feed("\x1b[2J\x1b[Hfirst");
+    try std.testing.expect(!p.watchGhost(100));
+    p.terminal.feed("\x1b[2J\x1b[Hsecond");
+    try std.testing.expect(!p.watchGhost(350));
+    try std.testing.expect(!p.watchGhost(350 + Ghost.quiet_ms - 1));
+    try std.testing.expect(p.watchGhost(350 + Ghost.quiet_ms));
+    try std.testing.expect(p.displayed() == p.terminal);
+    try std.testing.expect(!p.watchGhost(10_000));
+}
+
+test "a ghost goes as soon as the agent's screen reads as the old one, or after the longest wait" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const ws = try r.workspaces.add("ghost", "/tmp");
+    const caught_up = try testPane(&r, ws, null);
+    try testGhost(caught_up, "\x1b[2mOLD\x1b[0m");
+    caught_up.terminal.feed("\x1b[2J");
+    try std.testing.expect(!caught_up.watchGhost(100));
+    caught_up.terminal.feed("\x1b[HOLD");
+    try std.testing.expect(caught_up.watchGhost(150));
+    const busy = try testPane(&r, ws, null);
+    try testGhost(busy, "\x1b[2mOLD\x1b[0m");
+    var now: i64 = 0;
+    while (busy.ghost != null) : (now += 100) {
+        busy.terminal.feed(if (@mod(now, 200) == 0) "\x1b[Htick" else "\x1b[Htock");
+        _ = busy.watchGhost(now);
+    }
+    try std.testing.expectEqual(Ghost.longest_ms + 100, now);
+    // A pane closed under its ghost frees it.
+    const closing = try testPane(&r, ws, null);
+    try testGhost(closing, "OLD");
+    try r.close(closing.id);
 }

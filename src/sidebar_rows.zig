@@ -13,6 +13,7 @@ const Stored = struct {
     activity: BoundedText(512) = .{},
     cwd: BoundedText(std.fs.max_path_bytes) = .{},
     at_ms: i64 = 0,
+    opening_ms: ?i64 = null,
     closing_ms: ?i64 = null,
     unbound_ms: ?i64 = null,
     ended: bool = false,
@@ -38,6 +39,9 @@ const Stored = struct {
         if (self.closing_ms) |start| entry.exit = .{
             .frame_ms = self.at_ms,
             .progress = @as(f64, @floatFromInt(std.math.clamp(now_ms - start, 0, State.duration_ms))) / State.duration_ms,
+        };
+        if (self.opening_ms) |start| if (now_ms - start < State.duration_ms) {
+            entry.enter = @as(f64, @floatFromInt(@max(now_ms - start, 0))) / State.duration_ms;
         };
         return entry;
     }
@@ -81,6 +85,7 @@ pub const State = struct {
                 unreachable; // At most one current and one departing list.
             };
             const slot = &self.slots[index];
+            const arrived = !slot.occupied;
             const lost_binding = slot.occupied and entry.target == .pane and
                 slot.entry.provider == entry.provider and slot.entry.conversation != ActorId.none and entry.conversation == ActorId.none and
                 (entry.state == .initializing or entry.state == .unknown);
@@ -98,6 +103,7 @@ pub const State = struct {
                 }
                 if (!same or slot.closing_ms == null or !slot.ended) slot.capture(entry, now_ms);
             }
+            if (arrived) slot.opening_ms = if (entry.reopened) now_ms else null;
             slot.seen = true;
             if (slot.closing_ms == null and count < capacity) {
                 next[count] = index;
@@ -153,6 +159,25 @@ test "end hook and disappearance share one frozen exit without changing adjacent
     try std.testing.expectEqual(@as(PaneId, @enumFromInt(2)), shown[0].target.pane);
     shown = rows.update(@enumFromInt(2), &.{}, &out, 260);
     try std.testing.expectEqual(@as(usize, 0), shown.len);
+}
+
+test "a reopened row fades in as long as a closing one fades out; other new rows just appear" {
+    var rows: State = .{};
+    var out: [capacity]sidebar.Entry = undefined;
+    const shown_before: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .provider = .claude, .state = .idle, .attention = .none };
+    var reopened: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(2) }, .provider = .claude, .state = .idle, .attention = .none, .reopened = true };
+    const launched: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(3) }, .provider = .codex, .state = .idle, .attention = .none };
+    _ = rows.update(@enumFromInt(1), &.{shown_before}, &out, 0);
+    var shown = rows.update(@enumFromInt(1), &.{ shown_before, reopened, launched }, &out, 10);
+    try std.testing.expectEqual(null, shown[0].enter);
+    try std.testing.expectEqual(@as(?f64, 0), shown[1].enter);
+    try std.testing.expectEqual(null, shown[2].enter);
+    // It keeps fading in after the agent catches up.
+    reopened.reopened = false;
+    shown = rows.update(@enumFromInt(1), &.{ shown_before, reopened, launched }, &out, 130);
+    try std.testing.expectEqual(@as(?f64, 0.5), shown[1].enter);
+    shown = rows.update(@enumFromInt(1), &.{ shown_before, reopened, launched }, &out, 250);
+    try std.testing.expectEqual(null, shown[1].enter);
 }
 
 test "lost terminal binding holds the label until exit or a real replacement" {

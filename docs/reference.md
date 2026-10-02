@@ -187,7 +187,7 @@ prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
 | Zoom / unzoom pane | `prefix z` | `prefix z` | `prefix z` | `Cmd+Shift+Enter`, `prefix z` |
 | Move pane to a new tab | `prefix !` | `prefix !` | `prefix !` | `prefix !` |
 | Close pane | `prefix x` | `prefix x` | `prefix x` | `Cmd+W`, `prefix x` |
-| Reopen last closed pane | `prefix u` | `prefix u` | `prefix u` | `prefix u` |
+| Reopen last closed agent | `prefix u`, `Ctrl+Shift+T`, `Cmd+Shift+T` | `prefix u` | `prefix u` | `Cmd+Shift+T`, `prefix u` |
 | Scroll / copy mode | `prefix s` | `prefix [` | `prefix [` | `Cmd+Shift+M`, `prefix s` |
 | Paste copied text |  | `prefix ]` |  |  |
 | Detach | `prefix q`, `prefix d` | `prefix d` | `prefix q` | `prefix q`, `prefix d` |
@@ -195,7 +195,7 @@ prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
 | Setup | `prefix i`, `prefix C` | `prefix C` | `prefix s` | `Cmd+,`, `prefix i`, `prefix C` |
 | All shortcuts | `prefix ?` | `prefix ?` | `prefix ?` | `prefix ?` |
 
-Right-click a pane for its own context menu: rename, clear name, swap with the previously focused pane, split right/down, zoom, or close. Opening the menu does not change focus. Pane names are shared, survive reload/recovery and reopening closed panes, and appear in the focused-pane status line and agent sidebar. An empty name restores the default label. Hold Shift while right-clicking to open the menu over a mouse-aware application.
+Right-click a pane for its own context menu: rename, clear name, swap with the previously focused pane, split right/down, zoom, or close. Opening the menu does not change focus. Pane names are shared, survive reload/recovery and reopening closed agents, and appear in the focused-pane status line and agent sidebar. An empty name restores the default label. Hold Shift while right-clicking to open the menu over a mouse-aware application.
 
 Drag workspace rows to reorder them, using the horizontal destination marker; release outside the workspace list or press Escape to cancel. Order is shared and saved. Drag agent rows to set a separate order within each workspace. The highlighted ghost occupies the destination slot, and neighboring rows shift to preview the order before you release. Scroll the wheel while dragging to reach offscreen agents. Release outside the agent list or press Escape to cancel. Agent order is shared across viewers, survives reload/recovery, and leaves tabs and splits in place. In the grouped All view, agents stay within their workspace group. Drag the sidebar's right border to change its width, clamped to leave at least 20 terminal columns. Width is local to the viewer and resets on reattach; the workspace/agent division remains halfway down.
 
@@ -203,7 +203,7 @@ Click tabs and panes to focus. Drag split dividers to resize. Drag terminal text
 
 `corgi action move-tab left|right` reorders tabs. `corgi action join N` moves the focused pane into tab N. New tabs and splits use the workspace default directory.
 
-Exiting a shell immediately removes its pane; an empty tab disappears too. Corgi keeps the last **eight closed panes** in memory, including terminal output and scrollback, the tab name, and the last observed working directory. `prefix u` (or `corgi action undo-close`) restores the most recent one in its original workspace (or the current one if removed), into a new tab with a **fresh shell**, not the old process or agent session. With one workspace, closing the last tab automatically detaches and returns to the outer terminal. Run `./go.sh` to reattach with a new shell, then `prefix u` to restore a snapshot. Snapshots and native agent sessions remain in the background runtime until it shuts down.
+Exiting a shell immediately removes its pane; an empty tab disappears too. Closing a pane while its agent is running keeps the agent to reopen: each workspace keeps its last **eight closed agents**, with their screen and scrollback, tab name, pane name and working directory. `Ctrl+Shift+T` or `Cmd+Shift+T` in the Corgi preset, `Cmd+Shift+T` in cmux or through the Ghostty integration, or `prefix u` in any preset (or `corgi action undo-close`) reopens the newest one in this workspace in a new tab. The old screen comes back faded under a **Restoring…** band naming the command, and the agent resumes its conversation right away (`claude --resume` or `codex resume`), with the yolo flag if Corgi started it in yolo mode. The band goes away when the agent first draws over the old screen. Closed shells, agents that quit on their own and agents whose session Corgi never learned are not kept, and closing a workspace drops its closed agents. With one workspace, closing the last tab automatically detaches and returns to the outer terminal. Run `./go.sh` to reattach with a new shell, then reopen the agent. Closed agents and native agent sessions remain in the background runtime until it shuts down.
 
 This is an initial implementation of Herdr's core tab/pane operations. Copy mode is intentionally smaller: it does not yet reproduce all of Herdr's vi word motions, keyboard selection, smart-case search, or configurable bindings. Multiple viewers share arrangement and independently select what to view. Limits: 24 tabs per workspace, 64 panes, 16 native provider processes, 10,000 scrollback lines per terminal.
 

@@ -162,6 +162,11 @@ $.panes[].resume_hint.touched_at: i64
 $.panes[].resume_hint.provider: optional
 $.panes[].resume_hint.provider?: enum codex claude
 $.panes[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.panes[].launch: optional
+$.panes[].launch?: one of
+$.panes[].launch?|agent.provider: enum codex claude
+$.panes[].launch?|agent.yolo: bool
+$.panes[].launch?|command: custom bounded_text.BoundedText(2048)
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16
@@ -177,6 +182,19 @@ $.closed[].tab.id: u32
 $.closed[].tab.root: u8
 $.closed[].tab.title: custom bounded_text.BoundedText(80)
 $.closed[].workspace_id: u32
+$.closed[].resume_hint.name: custom bounded_text.BoundedText(160)
+$.closed[].resume_hint.touched_at: i64
+$.closed[].resume_hint.provider: optional
+$.closed[].resume_hint.provider?: enum codex claude
+$.closed[].resume_hint.session: custom bounded_text.BoundedText(160)
+$.closed[].launch: optional
+$.closed[].launch?: one of
+$.closed[].launch?|agent.provider: enum codex claude
+$.closed[].launch?|agent.yolo: bool
+$.closed[].launch?|command: custom bounded_text.BoundedText(2048)
+$.closed[].pane: u32
+$.closed[].tab_index: optional
+$.closed[].tab_index?: u8
 $.sessions[].binding.actor: u32
 $.sessions[].binding.generation: u64
 $.sessions[].binding.selection_hash: u64

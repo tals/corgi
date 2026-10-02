@@ -21,6 +21,7 @@ const protocol = @import("protocol.zig");
 const subagent_tooltip = @import("subagent_tooltip.zig");
 const live_usage = @import("usage.zig").live;
 const surface = @import("pane.zig").surface;
+const corgi_animation = @import("corgi_animation.zig");
 pub const Pane = mirror.Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
@@ -305,6 +306,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 try surface.writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
             }
             try w.writeAll("\x1b[0m");
+            if (p.restoring.len > 0) try drawRestoring(w, r, p.restoring, std.time.milliTimestamp() - p.restoring_since);
             break;
         };
     }
@@ -320,7 +322,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     try writeChip(w, text, width, height, ui.pointer);
     if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and noOverlay(ui)) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
-        for (panes) |p| if (p.id == place.id) {
+        for (panes) |p| if (p.id == place.id and p.restoring.len == 0) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
                 if (cursor.x < place.rect.w and cursor.y < place.rect.h) {
                     try w.print("\x1b[{d};{d}H\x1b[?25h", .{ place.rect.y + cursor.y + 1, place.rect.x + cursor.x + 1 });
@@ -519,6 +521,34 @@ test "tab drop slots follow midpoints and clipped visible tabs" {
 }
 
 /// The box-drawing glyph joining a divider cell with its neighbors on each side.
+/// A band over the bottom of a reopened agent's faded old screen, naming
+/// the command it resumes with. The agent's first drawing replaces the
+/// screen beneath, and the band goes with it.
+fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, command: []const u8, shown_ms: i64) !void {
+    if (r.w < 8 or r.h < 2) return;
+    var lines: [8][]const u8 = undefined;
+    var count: usize = 0;
+    var rest = command;
+    while (rest.len > 0 and count < lines.len) : (count += 1) {
+        var it = (std.unicode.Utf8View.init(rest) catch return).iterator();
+        for (0..r.w - 4) |_| _ = it.nextCodepointSlice() orelse break;
+        lines[count] = rest[0..it.i];
+        rest = rest[it.i..];
+    }
+    const shown = @min(count, r.h -| 3);
+    const height = @min(r.h, shown + 3);
+    const top = r.y + r.h - height;
+    for (0..height) |row| {
+        try w.print("\x1b[{d};{d}H\x1b[0;48;2;30;34;40m", .{ top + row + 1, r.x + 1 });
+        try w.splatByteAll(' ', r.w);
+    }
+    try w.print("\x1b[{d};{d}H", .{ top + 2, r.x + 3 });
+    try corgi_animation.writeUnearth(w, r.w - 4, shown_ms);
+    try w.writeAll("\x1b[22;38;2;150;157;168m");
+    for (lines[0..shown], 0..) |line, i| try w.print("\x1b[{d};{d}H{s}", .{ top + 3 + i, r.x + 3, line });
+    try w.writeAll("\x1b[0m");
+}
+
 fn dividerGlyph(up: bool, down: bool, left: bool, right: bool, horizontal: bool) []const u8 {
     if (up and down) return if (left and right) "┼" else if (left) "┤" else if (right) "├" else "│";
     if (left and right) return if (up) "┴" else if (down) "┬" else "─";
@@ -706,4 +736,24 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, emoji, corgi_badge.emoji) != null);
     try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b_G") == null);
     try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
+}
+
+test "the restoring band sits on a pane's bottom rows and wraps its command" {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try drawRestoring(&out.writer, .{ .x = 10, .y = 1, .w = 20, .h = 10 }, "claude --resume 'abcdefghijklmnop' --yolo-flag", 0);
+    const drawn = out.written();
+    // Three command lines and a padding row on each side, ending on the pane's last row.
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[5;11H") == null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[6;11H") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[11;11H") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[7;13H\x1b[1m\x1b[38;2;161;194;178mRestoring…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[8;13Hclaude --resume ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[9;13H'abcdefghijklmno") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[10;13Hp' --yolo-flag") != null);
+    out.clearRetainingCapacity();
+    // A short pane keeps the title and drops the command.
+    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 20, .h = 2 }, "claude --resume 'x'", 0);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Restoring…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "claude") == null);
 }

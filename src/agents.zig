@@ -165,6 +165,18 @@ pub const Agent = struct {
         a.tool_active = false;
         a.changed_at = now;
     }
+    /// A reopened agent starts idle, whatever its old process last reported.
+    /// Hooks that process sent while closing are older and get dropped.
+    pub fn reopened(a: *Agent, now: i64) void {
+        a.permission_review = null;
+        a.observation.pending_stop = false;
+        a.state = .idle;
+        a.compacting = false;
+        a.tool = .{};
+        a.tool_active = false;
+        a.changed_at = now;
+        if (a.last_seq > 0) a.last_seq = @max(a.last_seq, now);
+    }
     pub fn confirmStop(a: *Agent, seq: i64, outcome: observation.Outcome, now: i64) bool {
         if (!a.observation.pending_stop or a.last_seq != seq) return false;
         return a.endTurn(a.turnId(), outcome, .transcript, now);
@@ -547,4 +559,19 @@ test "Claude prompt ids key inferred labels without gating Stop" {
     // Stop carries no turn id, so it is never rejected as another turn's.
     try std.testing.expect(a.observeHook(.claude, .{ .kind = .stop, .session = "s", .prompt = "p1" }, 5, false, 50) != null);
     try std.testing.expect(a.observation.pending_stop);
+}
+
+test "a reopened agent sleeps, and its old process's late ending is dropped" {
+    var agent: Agent = .{ .provider = .claude };
+    agent.session = .ascii("s");
+    _ = agent.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 10, false, 10);
+    agent.reopened(100);
+    try std.testing.expectEqual(State.idle, agent.state);
+    try std.testing.expectEqual(null, agent.observeHook(.claude, .{ .kind = .session_end, .session = "s" }, 50, false, 120));
+    try std.testing.expectEqual(State.idle, agent.state);
+    // The resumed process's own hooks come later.
+    _ = agent.observeHook(.claude, .{ .kind = .session_start, .session = "s" }, 150, false, 150);
+    try std.testing.expectEqual(State.idle, agent.state);
+    _ = agent.observeHook(.claude, .{ .kind = .prompt, .session = "s" }, 160, false, 160);
+    try std.testing.expectEqual(State.working, agent.state);
 }

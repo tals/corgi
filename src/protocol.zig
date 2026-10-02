@@ -469,6 +469,8 @@ pub const Workspace = struct {
     agent_order: []const agent_order.Target = &.{},
     /// The agent `New` repeats here; null follows `Snapshot.last_agent`.
     last_agent: ?agents.Provider = null,
+    /// Closed agents `undo-close` can reopen here.
+    closed_agents: usize = 0,
     git_commits: []const GitCommit = &.{},
     git_ahead: ?u64 = null,
     git_ref: git_push.RefView = .{},
@@ -508,6 +510,8 @@ pub const Pane = struct {
     rows: u16,
     exited: bool,
     agent: Agent,
+    /// The command a reopened agent runs, until it draws over its old screen.
+    restoring: []const u8 = "",
 };
 pub const Native = struct {
     agent: ?Agent = null,

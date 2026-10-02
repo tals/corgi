@@ -142,6 +142,10 @@ pub const Pane = struct {
     cwd: []const u8,
     agent: protocol.Agent,
     terminal: *Terminal,
+    /// The command a reopened agent runs while its old screen shows.
+    restoring: []const u8 = "",
+    /// When this viewer first saw it restoring, which its animation starts from.
+    restoring_since: i64 = 0,
 };
 pub const Workspaces = struct {
     items: []protocol.Workspace = &.{},
@@ -173,7 +177,6 @@ pub const Runtime = struct {
     /// Owns `resources`, which arrive beside the session with their own hash.
     resources_parsed: ?std.json.Parsed(resources.Snapshot) = null,
     resources_hash: ?u64 = null,
-    closed_panes: usize = 0,
     last_agent: providers.Provider = .codex,
     agent_yolo: providers.Each(bool, false) = .{},
     agent_hidden: providers.Each(bool, false) = .{},
@@ -207,14 +210,26 @@ pub const Runtime = struct {
             panes.deinit(a);
         }
         try panes.ensureTotalCapacity(a, snapshot.panes.len);
+        const now = std.time.milliTimestamp();
         for (snapshot.panes) |info| {
-            const term = if (r.pane(info.id)) |old| old.terminal else blk: {
+            const previous = r.pane(info.id);
+            const term = if (previous) |old| old.terminal else blk: {
                 const created = try a.create(Terminal);
                 errdefer a.destroy(created);
                 created.* = .{ .id = info.id, .conn = conn, .inner = try terminal.Terminal.create(info.cols, info.rows) };
                 break :blk created;
             };
-            panes.appendAssumeCapacity(.{ .id = info.id, .binding = info.binding, .label = info.name, .cwd = info.cwd, .agent = info.agent, .terminal = term });
+            const was_restoring = if (previous) |old| old.restoring.len > 0 else false;
+            panes.appendAssumeCapacity(.{
+                .id = info.id,
+                .binding = info.binding,
+                .label = info.name,
+                .cwd = info.cwd,
+                .agent = info.agent,
+                .terminal = term,
+                .restoring = info.restoring,
+                .restoring_since = if (was_restoring) previous.?.restoring_since else now,
+            });
         }
         for (r.panes.items) |old| {
             const retained = for (panes.items) |p| {
@@ -242,6 +257,5 @@ pub const Runtime = struct {
         r.agent_yolo = snapshot.agent_yolo;
         r.agent_hidden = snapshot.agent_hidden;
         r.agent_commands = snapshot.agent_commands;
-        r.closed_panes = snapshot.closed_panes;
     }
 };

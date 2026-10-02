@@ -257,6 +257,11 @@ pub const Server = struct {
             // Launcher previews are checked every 100 ms.
             if (cl.launch_preview != null) timeout = 100;
         }
+        // A ghost goes once its agent's screen holds still, with no output to wake us.
+        const now = std.time.milliTimestamp();
+        for (s.runtime.panes.items) |p| if (p.ghost) |g| if (g.due()) |at| {
+            timeout = @intCast(std.math.clamp(at - now, 1, timeout));
+        };
         return timeout;
     }
     /// Moves whenever `viewer`'s next sync could differ: what its session
@@ -266,7 +271,7 @@ pub const Server = struct {
         for (s.clients.items) |cl| if (cl.viewer and cl.viewer_id == viewer) {
             seq +%= cl.next_control;
             for (cl.interests[0..cl.interest_count]) |interest| if (s.runtime.pane(interest.pane)) |p| {
-                seq +%= p.terminal.surface_revision;
+                seq +%= p.displayed().surface_revision;
             };
         };
         return seq;
@@ -878,6 +883,7 @@ pub const Server = struct {
                 }
                 p.terminal.flush();
                 if ((ready or p.terminal.expecting()) and p.terminal.read()) s.runtime.wrote();
+                if (p.watchGhost(now)) s.runtime.changed();
                 if ((ready or detecting) and p.terminal.reap()) {
                     s.runtime.changed();
                     s.dirty = true;

@@ -195,6 +195,44 @@ pub const Terminal = struct {
         try formatter.format(&out.writer);
         return out.toOwnedSlice();
     }
+    /// `snapshot` drawn faint throughout, for a terminal of the same size:
+    /// each style it sets keeps SGR 2, and the rows below the content and
+    /// the cursor come back where they were.
+    pub fn fadedSnapshot(t: *Terminal) ![]u8 {
+        const content = try t.snapshot();
+        defer a.free(content);
+        const screen = try t.liveText();
+        defer a.free(screen);
+        var out: std.Io.Writer.Allocating = .init(a);
+        defer out.deinit();
+        try out.writer.writeAll("\x1b[2m");
+        var i: usize = 0;
+        while (i < content.len) {
+            if (content[i] != 0x1b or i + 1 == content.len or content[i + 1] != '[') {
+                try out.writer.writeByte(content[i]);
+                i += 1;
+                continue;
+            }
+            var end = i + 2;
+            while (end < content.len and (content[end] < 0x40 or content[end] > 0x7e)) end += 1;
+            if (end == content.len) break;
+            try out.writer.writeAll(content[i .. end + 1]);
+            if (content[end] == 'm') try out.writer.writeAll("\x1b[2m");
+            i = end + 1;
+        }
+        // The formatter ends at the last row with text; blank rows follow it.
+        var rows = std.mem.splitScalar(u8, screen, '\n');
+        var row: usize = 0;
+        var blank: usize = t.vt.rows;
+        while (rows.next()) |line| : (row += 1) {
+            if (std.mem.trim(u8, line, " ").len > 0) blank = t.vt.rows - 1 - row;
+        }
+        try out.writer.writeAll("\x1b[0m");
+        for (0..blank) |_| try out.writer.writeAll("\r\n");
+        const cursor = t.vt.screens.active.cursor;
+        try out.writer.print("\x1b[{d};{d}H", .{ cursor.y + 1, cursor.x + 1 });
+        return out.toOwnedSlice();
+    }
     /// Compact best-effort live state, independent of accumulated output volume.
     /// Preserve modes and both screens; parser fragments and some saved state
     /// cannot be reconstructed by VT formatting and require a fresh repaint.
@@ -457,6 +495,46 @@ test "snapshot restores primary history and alternate output without input modes
     try std.testing.expect((try fresh.search("NEW_SHELL", 0)).offset != null);
     try std.testing.expectEqualDeep(viewport, fresh.vt.screens.active.pages.viewport);
     try std.testing.expectEqualDeep(selection, fresh.vt.screens.active.selection);
+}
+
+test "a faded snapshot keeps each style and draws all of it faint" {
+    const old = try Terminal.create(30, 4);
+    defer old.destroy();
+    old.feed("\x1b[1;31mRED\x1b[0m PLAIN \x1b[2;22mNORMAL");
+    const faded = try old.fadedSnapshot();
+    defer a.free(faded);
+    const fresh = try Terminal.create(30, 4);
+    defer fresh.destroy();
+    fresh.feed(faded);
+    try fresh.updateRender();
+    const row = fresh.render.row_data.items(.cells)[0];
+    for ([_]usize{ 0, 4, 10 }) |col| {
+        try std.testing.expect(row.items(.raw)[col].style_id != 0);
+        try std.testing.expect(row.items(.style)[col].flags.faint);
+    }
+    try std.testing.expect(row.items(.style)[0].flags.bold);
+    try std.testing.expect(row.items(.style)[0].fg_color != .none);
+    try std.testing.expect(row.items(.style)[4].fg_color == .none);
+}
+
+test "a faded snapshot puts back the blank rows and the cursor" {
+    inline for (.{ "A\r\nB\r\n", "A\r\nB", "\x1b[2J\x1b[HTOP\x1b[5;1HBOX\r\n", "\x1b[3;4H", "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9\x1b[2;3H" }) |input| {
+        const old = try Terminal.create(20, 6);
+        defer old.destroy();
+        old.feed(input);
+        const faded = try old.fadedSnapshot();
+        defer a.free(faded);
+        const fresh = try Terminal.create(20, 6);
+        defer fresh.destroy();
+        fresh.feed(faded);
+        const before = try old.liveText();
+        defer a.free(before);
+        const after = try fresh.liveText();
+        defer a.free(after);
+        try std.testing.expectEqualStrings(before, after);
+        try std.testing.expectEqual(old.vt.screens.active.cursor.x, fresh.vt.screens.active.cursor.x);
+        try std.testing.expectEqual(old.vt.screens.active.cursor.y, fresh.vt.screens.active.cursor.y);
+    }
 }
 
 test "terminal reports host colors and keeps application overrides" {
