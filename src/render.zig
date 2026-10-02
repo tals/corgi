@@ -52,6 +52,8 @@ pub const Ui = struct {
     supports_kitty_graphics: bool = false,
     dragged_workspace: ?sidebar.Preview = null,
     dragged_agent: ?sidebar.Preview = null,
+    /// The axis of a divider or sidebar edge being dragged.
+    resizing: ?layout.Axis = null,
     sidebar_offset: usize = 0,
     agents: []const sidebar.Entry = &.{},
     conversations: []const protocol.Conversation = &.{},
@@ -215,6 +217,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     const area = side.area();
     var hovered_uri: ?[]const u8 = null;
     var link_pointer = false;
+    var resize_hover: ?layout.Axis = null;
     var workspace_uri: [256]u8 = undefined;
     const card_rect: ?layout.Rect = if (!ui.link_tooltip or ui.agent_launcher != null or ui.corgi_setup != null or ui.pointer == null) null else if (ui.resource_card) |card|
         resource_tooltip.geometry(width, height, side.width, card.anchor)
@@ -252,6 +255,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                     link_pointer = link_pointer or (pointer.x >= add_x and pointer.x < add_x + 3);
                 }
                 hovered_uri = sidebar.portLink(side, ui.workspaces, pointer.x, pointer.y, &workspace_uri);
+                // The sidebar's last column drags its width, ahead of any control there.
+                if (side.width > 0 and pointer.x == side.width - 1) {
+                    resize_hover = .horizontal;
+                } else if (view.dividerAt(area, pointer.x, pointer.y)) |hit| resize_hover = hit.axis;
             }
         }
     }
@@ -382,7 +389,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     // "default" also clears its override because unrecognized names reset it.
     const shape = if (dragging)
         (if (ui.iterm2_pointer) "fleur" else "grabbing")
-    else if (link_pointer or hovered_uri != null)
+    else if (ui.resizing orelse resize_hover) |axis| switch (axis) {
+        .horizontal => if (ui.iterm2_pointer) "sb_h_double_arrow" else "ew-resize",
+        .vertical => if (ui.iterm2_pointer) "sb_v_double_arrow" else "ns-resize",
+    } else if (link_pointer or hovered_uri != null)
         (if (ui.iterm2_pointer) "hand2" else "pointer")
     else
         "default";
@@ -449,6 +459,42 @@ test "resource card points only at its sortable column headers" {
         defer a.free(output);
         try std.testing.expect(std.mem.indexOf(u8, output, "TOP PROCESSES") != null);
         try std.testing.expect(std.mem.indexOf(u8, output, if (case.hand) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\") != null);
+    }
+}
+
+test "dividers and the sidebar edge show resize pointers" {
+    var m: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &m, .selection = &selection };
+    const left = try m.newTab("");
+    _ = try m.split(left, .horizontal);
+    _ = try m.split(left, .vertical);
+    selection.reconcile(&m);
+    const Case = struct { x: u16, y: u16, shape: []const u8, resizing: ?layout.Axis = null, menu: bool = false, iterm2: bool = false };
+    for ([_]Case{
+        .{ .x = 63, .y = 5, .shape = "ew-resize" },
+        .{ .x = 40, .y = 15, .shape = "ns-resize" },
+        .{ .x = 27, .y = 12, .shape = "ew-resize" },
+        .{ .x = 50, .y = 5, .shape = "default" },
+        // A frame edge is not a divider.
+        .{ .x = 99, .y = 5, .shape = "default" },
+        // A drag keeps its pointer after leaving the one-cell divider.
+        .{ .x = 50, .y = 5, .resizing = .vertical, .shape = "ns-resize" },
+        .{ .x = 63, .y = 5, .menu = true, .shape = "default" },
+        .{ .x = 40, .y = 15, .iterm2 = true, .shape = "sb_v_double_arrow" },
+    }) |case| {
+        errdefer std.debug.print("pointer {d},{d}\n", .{ case.x, case.y });
+        const output = try frame(view, @as([]const Pane, &.{}), 100, 30, .{
+            .pointer = .{ .x = case.x, .y = case.y },
+            .iterm2_pointer = case.iterm2,
+            .resizing = case.resizing,
+            .tab_menu = if (case.menu) .{ .tab = @intFromEnum(m.tabs[0].id), .anchor_x = 0 } else null,
+            .message = "",
+            .copy_mode = false,
+        });
+        defer a.free(output);
+        var expected: [32]u8 = undefined;
+        try std.testing.expect(std.mem.indexOf(u8, output, try std.fmt.bufPrint(&expected, "\x1b]22;{s}\x1b\\", .{case.shape})) != null);
     }
 }
 

@@ -383,7 +383,7 @@ pub const View = struct {
         }
         return best;
     }
-    pub const Divider = struct { node: u8, rect: Rect };
+    pub const Divider = struct { node: u8, rect: Rect, axis: Axis };
     pub fn dividerAt(m: View, area: Rect, x: u16, y: u16) ?Divider {
         if (m.model.count == 0 or m.selection.tabs[m.selection.active].zoom) return null;
         return m.dividerNode(m.model.tabs[m.selection.active].root, m.contentArea(area), x, y);
@@ -394,7 +394,7 @@ pub const View = struct {
         if (n != .split) return null;
         const s = n.split;
         const parts = splitRects(s, r);
-        if (parts[1].contains(x, y)) return .{ .node = index, .rect = r };
+        if (parts[1].contains(x, y)) return .{ .node = index, .rect = r, .axis = s.axis };
         if (parts[0].contains(x, y)) return m.dividerNode(s.first, parts[0], x, y);
         return m.dividerNode(s.second, parts[2], x, y);
     }
@@ -423,9 +423,9 @@ pub const View = struct {
         m.borderNode(n.split.second, parts[2], out, len);
     }
 
-    pub fn dividerRatio(divider: Divider, axis: Axis, x: u16, y: u16) u16 {
-        const total = if (axis == .horizontal) divider.rect.w else divider.rect.h;
-        const pos = if (axis == .horizontal) x -| divider.rect.x else y -| divider.rect.y;
+    pub fn dividerRatio(divider: Divider, x: u16, y: u16) u16 {
+        const total = if (divider.axis == .horizontal) divider.rect.w else divider.rect.h;
+        const pos = if (divider.axis == .horizontal) x -| divider.rect.x else y -| divider.rect.y;
         return @intCast(std.math.clamp((@as(u32, pos) * 1000 + (total -| 2)) / @max(1, total -| 1), 100, 900));
     }
 };
@@ -590,7 +590,7 @@ test "divider cells match gaps at every size and drag lands on requested cell" {
     }
     const area: Rect = .{ .x = 28, .y = 1, .w = 72, .h = 28 };
     const divider = view.dividerAt(area, 63, 2).?;
-    m.nodes[divider.node].?.split.ratio = View.dividerRatio(divider, .horizontal, 75, 2);
+    m.nodes[divider.node].?.split.ratio = View.dividerRatio(divider, 75, 2);
     try std.testing.expect(view.dividerAt(area, 75, 2) != null);
     selection.tab().zoom = true;
     var lines: [max_borders]View.Border = undefined;

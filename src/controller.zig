@@ -1984,7 +1984,7 @@ pub const Controller = struct {
                 const operation: Command = .{ .@"split.ratio" = .{
                     .target = s.model().firstPane(split.first),
                     .other = s.model().firstPane(split.second),
-                    .ratio = layout.View.dividerRatio(drag.hit, split.axis, x, y),
+                    .ratio = layout.View.dividerRatio(drag.hit, x, y),
                     .expected = s.model().revision,
                 } };
                 try s.edit(operation);
@@ -2749,6 +2749,7 @@ pub const Controller = struct {
             .supports_kitty_graphics = s.supports_kitty_graphics,
             .dragged_workspace = if (s.workspace_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .dragged_agent = if (s.agent_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
+            .resizing = if (s.sidebar_drag) .horizontal else if (s.input_state.divider) |drag| if (drag.cancelled) null else drag.hit.axis else null,
             .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.agentOffset().*,
             .agents = entries,
             .conversations = s.runtime.conversations,
