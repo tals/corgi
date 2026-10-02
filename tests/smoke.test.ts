@@ -19,6 +19,7 @@ import {
   EXE,
   FAKE,
   screen_text,
+  scrollbar,
   layout_tree,
 } from "./runtime";
 import {
@@ -486,9 +487,9 @@ class Smoke extends Runtime {
     let screen = await this.frame_with("Group-4");
     this.assertIn("Group-5", screen[5]);
     this.assertIn("<  >", screen[9]);
-    this.assertIn("< 1-4/6 >", screen[22]);
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃┃│");
     await this.input("\x1b[<65;5;15M");
-    screen = await this.frame_with("< 2-5/6 >");
+    screen = await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃┃");
     this.assertIn("Group-4", screen[2]);
     this.assertIn("Group-5", screen[5]);
     await this.input("\x1b[<64;5;5M");
@@ -496,7 +497,7 @@ class Smoke extends Runtime {
     this.assertIn("Group-4", screen[5]);
     await this.input("\x1b[<64;5;5M".repeat(2));
     screen = await this.frame_with("Group-1");
-    this.assertIn("< 2-5/6 >", screen[22]);
+    this.assertEqual(scrollbar(screen), "│┃┃┃┃┃┃┃┃┃┃");
     await this.click_text(
       screen.map((r) => r.slice(0, 27)),
       "Group-1",

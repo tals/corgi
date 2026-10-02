@@ -93,7 +93,7 @@ pub const WorkspaceEntry = struct {
     attention: usize = 0,
     stats: tokens.Counts = .{},
 };
-pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, previous, next, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
+pub const Hit = union(enum) { none, toggle, agent_scope, agent_new, agent_options, entry: usize, workspace_new, workspace_previous, workspace_next, workspace: usize };
 /// Render the prospective order without changing shared state or the stable
 /// row geometry used by the captured gesture's hit testing.
 pub const Preview = struct {
@@ -157,11 +157,17 @@ pub const View = struct {
         return if (open and cols >= 64) 28 else 0;
     }
     pub fn init(cols: u16, rows: u16, open: bool, offset: usize, count: usize) View {
-        const capacity = @max(1, (rows -| ((rows -| 1) / 2) -| 4) / 2);
-        return .{ .cols = cols, .rows = rows, .width = if (rows >= 13) widthFor(cols, open) else 0, .count = count, .capacity = capacity, .offset = @min(offset, count -| capacity) };
+        var v: View = .{ .cols = cols, .rows = rows, .width = if (rows >= 13) widthFor(cols, open) else 0, .count = count, .capacity = 1, .offset = 0 };
+        v.capacity = @max(1, v.listRows() / 2);
+        v.offset = @min(offset, count -| v.capacity);
+        return v;
+    }
+    /// The list runs to the bottom, above the search hint while searching.
+    fn listEnd(v: View) u16 {
+        return if (v.search != null) v.rows -| 1 else v.rows;
     }
     fn listRows(v: View) usize {
-        return v.rows -| v.middle() -| 4;
+        return v.listEnd() -| (v.middle() + 2);
     }
     fn height(e: Entry) usize {
         return if (e.target == .group) 1 else 2;
@@ -186,6 +192,23 @@ pub const View = struct {
             if (used > v.listRows()) break;
         }
         return start;
+    }
+    fn rowsBefore(v: View, index: usize) usize {
+        if (v.entries.len == 0) return index * 2;
+        var rows: usize = 0;
+        for (v.entries[0..index]) |e| rows += height(e);
+        return rows;
+    }
+    /// The scrollbar thumb's rows within the list, drawn over the border;
+    /// null while every entry fits.
+    pub fn thumb(v: View) ?struct { start: usize, len: usize } {
+        const track = v.listRows();
+        const total = v.rowsBefore(v.count);
+        if (total <= track or track < 2) return null;
+        const len = std.math.clamp((track * track + total / 2) / total, 1, track - 1);
+        const last = @max(1, v.rowsBefore(v.maxOffset()));
+        const start = ((track - len) * v.rowsBefore(v.offset) + last / 2) / last;
+        return .{ .start = @min(start, track - len), .len = len };
     }
     pub fn withEntries(v: View, entries: []const Entry) View {
         var result = v;
@@ -232,7 +255,7 @@ pub const View = struct {
     }
     pub fn hit(v: View, x: u16, y: u16) Hit {
         if (v.width == 0) return if (v.cols >= 64 and x < 3 and y == 0) .toggle else .none;
-        if (x >= v.width - 1 or y >= v.rows - 1) return .none;
+        if (x >= v.width - 1 or y >= v.rows) return .none;
         if (y == 0 and x >= v.width - 5) return .toggle;
         if (y == 0 and x >= v.width - 11 and x < v.width - 6) return .workspace_new;
         if (y == v.middle() and x >= v.width - 10 and x < v.width - 2) return if (x >= v.width - 4) .agent_options else .agent_new;
@@ -254,8 +277,7 @@ pub const View = struct {
             const index = slot + v.workspace_offset;
             return if (index < v.workspace_count and slot < v.workspaceCapacity()) .{ .workspace = index } else .none;
         }
-        if (y == v.rows - 2 and v.count > v.capacity) return if (x < v.width / 2) .previous else .next;
-        if (y < v.middle() + 2 or y >= v.rows - 2) return .none;
+        if (y < v.middle() + 2 or y >= v.listEnd()) return .none;
         var top: usize = v.middle() + 2;
         for (v.offset..@min(v.count, v.offset + v.capacity)) |index| {
             top += if (v.entries.len > 0) height(v.entries[index]) else 2;
@@ -267,7 +289,7 @@ pub const View = struct {
     /// Use the same row heights and viewport as hit testing. The marker sits
     /// just above the destination row, including the gap after the last row.
     pub fn agentDrop(v: View, x: u16, y: u16) ?Drop {
-        if (v.width == 0 or x >= v.width - 1 or y < v.middle() + 2 or y >= v.rows - 2 or v.entries.len == 0) return null;
+        if (v.width == 0 or x >= v.width - 1 or y < v.middle() + 2 or y >= v.listEnd() or v.entries.len == 0) return null;
         var top: usize = v.middle() + 2;
         const end = @min(v.count, v.offset + v.capacity);
         for (v.offset..end) |i| {
@@ -477,13 +499,10 @@ pub const View = struct {
             try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, frame_ms, dream);
             if (e.exit) |closing| try writeExit(w, exit_writer.buffered(), closing.progress);
         }
-        if (v.search != null) {
-            try v.line(w, v.rows - 2, "↑↓  ↵ jump  Esc back", panel);
-        } else if (v.count > v.capacity) {
-            var text: [64]u8 = undefined;
-            const footer = try std.fmt.bufPrint(&text, "< {d}-{d}/{d} >", .{ v.offset + 1, @min(v.count, v.offset + v.capacity), v.count });
-            try v.line(w, v.rows - 2, footer, panel);
-        }
+        if (v.search != null) try v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
+        if (v.thumb()) |t| for (t.start..t.start + t.len) |row| {
+            try w.print("\x1b[{d};{d}H{s}\x1b[38;2;112;119;130m┃", .{ v.middle() + 3 + row, v.width, panel });
+        };
         try w.writeAll("\x1b[0m");
     }
     /// The small glyph beside an agent's detail line: a wait clock, an active
@@ -508,7 +527,7 @@ pub const View = struct {
         var bg_buf: [24]u8 = undefined;
         const bg = std.fmt.bufPrint(&bg_buf, "\x1b[48;2;{d};{d};{d}m", .{ row_bg[0], row_bg[1], row_bg[2] }) catch unreachable;
         for (0..2) |row| {
-            if (y + row >= v.rows - 2) break;
+            if (y + row >= v.listEnd()) break;
             try w.print("\x1b[{d};{d}H\x1b[0m{s}", .{ y + row + 1, x + 1, bg });
             try w.splatByteAll(' ', v.width - 1);
         }
@@ -518,7 +537,7 @@ pub const View = struct {
             const rail = if (e.focused) "\x1b[0;38;2;137;180;250m" else "\x1b[0;38;2;112;119;130m";
             const branch = if (e.focused) (if (last_in_group) "┗" else "┣") else if (last_in_group) "╰" else "├";
             try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ y + 1, x + 1, rail, bg, branch });
-            if (!last_in_group and y + 1 < v.rows - 2) try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + 1, if (e.focused) "┃" else "│" });
+            if (!last_in_group and y + 1 < v.listEnd()) try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + 1, if (e.focused) "┃" else "│" });
             try w.print("\x1b[0m{s}", .{bg});
         }
         const dot = e.indicator();
@@ -689,7 +708,7 @@ pub const View = struct {
         try w.print("\x1b[22;38;2;125;132;143m{s}", .{v.scopeArrow()});
     }
     fn line(v: View, w: *std.Io.Writer, y: u16, text: []const u8, style: []const u8) !void {
-        if (y >= v.rows - 1) return;
+        if (y >= v.rows) return;
         try w.print("\x1b[{d};2H{s}", .{ y + 1, style });
         try writeClipped(w, text, v.width - 3);
     }
@@ -1882,12 +1901,38 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
 test "grouped scrolling fits more rows when headers are shorter" {
     var entries: [7]Entry = undefined;
     for (&entries, 0..) |*e, i| e.* = .{ .target = if (i % 3 == 0) .{ .group = @enumFromInt(i) } else .{ .pane = @enumFromInt(i) }, .provider = .codex, .state = .idle, .attention = .none };
-    // 13 rows leave three list rows: a header and an agent, or an agent and a header.
+    // 13 rows leave five list rows: three entries where only two agents fit.
     const view = View.init(100, 13, true, 0, entries.len).withEntries(&entries);
-    try std.testing.expectEqual(@as(usize, 2), view.capacity);
-    try std.testing.expectEqual(@as(usize, 5), view.maxOffset());
-    try std.testing.expectEqual(@as(usize, 2), view.reveal(3));
-    try std.testing.expectEqual(@as(usize, 5), View.init(100, 13, true, 99, entries.len).withEntries(&entries).offset);
+    try std.testing.expectEqual(@as(usize, 3), view.capacity);
+    try std.testing.expectEqual(@as(usize, 4), view.maxOffset());
+    try std.testing.expectEqual(@as(usize, 1), view.reveal(3));
+    try std.testing.expectEqual(@as(usize, 4), View.init(100, 13, true, 99, entries.len).withEntries(&entries).offset);
+}
+
+test "agent list shows a scrollbar on the border only when it overflows" {
+    var entries: [6]Entry = undefined;
+    for (&entries, 0..) |*e, i| e.* = .{ .target = .{ .pane = @enumFromInt(i) }, .provider = .codex, .state = .idle, .attention = .none };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    // 24 rows leave eleven list rows, down to the bottom: five agents.
+    const fits = View.init(80, 24, true, 0, 5).withEntries(entries[0..5]);
+    try std.testing.expect(fits.thumb() == null);
+    try fits.drawAt(&output.writer, entries[0..5], &.{}, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "┃") == null);
+    output.clearRetainingCapacity();
+    const top = View.init(80, 24, true, 0, entries.len).withEntries(&entries);
+    try std.testing.expectEqual(@as(usize, 0), top.thumb().?.start);
+    try std.testing.expectEqual(@as(usize, 10), top.thumb().?.len);
+    try std.testing.expectEqual(@as(usize, 1), View.init(80, 24, true, 99, entries.len).withEntries(&entries).thumb().?.start);
+    try top.drawAt(&output.writer, &entries, &.{}, 0);
+    try std.testing.expectEqual(@as(usize, 10), std.mem.count(u8, output.written(), "┃"));
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[14;28H") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "/6") == null);
+    try std.testing.expectEqual(Hit{ .entry = 4 }, top.hit(5, top.rows - 2));
+    // The search hint takes the bottom row.
+    const searching = View.init(80, 24, true, 0, 5).withSearch(.{ .text = "", .cursor = 0 }).withEntries(entries[0..5]);
+    try std.testing.expectEqual(@as(usize, 5), searching.capacity);
+    try std.testing.expectEqual(Hit.none, searching.hit(5, searching.rows - 1));
 }
 
 test "git badge hit area follows sidebar width and workspace scroll" {

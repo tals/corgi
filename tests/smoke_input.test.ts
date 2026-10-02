@@ -237,7 +237,7 @@ class SmokeInput extends Runtime {
       });
     }
     await this.attach();
-    let screen = await this.frame_with("< 1-4/12 >");
+    let screen = await this.scrollbar_with("┃┃┃┃┃││││││");
     this.assertNotIn(
       "Agent-11",
       screen
@@ -246,9 +246,9 @@ class SmokeInput extends Runtime {
         .join("\n"),
     );
     await this.input("\x1b[<65;5;15M");
-    screen = await this.frame_with("< 2-5/12 >");
-    await this.click(20, 23);
-    screen = await this.frame_with("< 6-9/12 >");
+    await this.scrollbar_with("│┃┃┃┃┃│││││");
+    await this.input("\x1b[<65;5;15M".repeat(4));
+    screen = await this.scrollbar_with("││││┃┃┃┃┃││");
     await this.click_text(
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
       "Agent-8",
@@ -259,7 +259,7 @@ class SmokeInput extends Runtime {
     );
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     await this.command("pane.close", { target: panes[11] });
-    screen = await this.frame_with("< 6-9/11 >");
+    screen = await this.scrollbar_with("││││┃┃┃┃┃┃│");
     await this.click_text(
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
       "Agent-8",
@@ -272,7 +272,117 @@ class SmokeInput extends Runtime {
     screen = await this.frame_with(" + ", 30, 8);
     this.assertNotIn("agents", screen[0]);
     await this.write({ op: "size", cols: 80, rows: 24 });
-    await this.frame_with("< 6-9/11 >");
+    await this.scrollbar_with("││││┃┃┃┃┃┃│");
+  }
+  async test_each_workspace_keeps_its_agent_list_scroll() {
+    const home = (await this.session()).workspaces[0].id;
+    const other = (
+      await this.command("workspace.create", {
+        name: "Other",
+        cwd: this.temp.name,
+      })
+    ).workspace;
+    for (const workspace of [home, other])
+      for (let index = 0; index < 7; index++) {
+        const pane = (
+          await this.command("pane.create", {
+            workspace,
+            cwd: this.temp.name,
+            command: "sleep 30",
+          })
+        ).pane;
+        await this.rpc({
+          op: "hook",
+          pane,
+          provider: "claude",
+          seq: 1,
+          event: {
+            hook_event_name: "SessionStart",
+            session_id: `${workspace}-${index}`,
+          },
+        });
+      }
+    await this.attach();
+    await this.write({ op: "workspace", workspace: home });
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.input("\x1b[<65;5;15M".repeat(2));
+    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
+    await this.write({ op: "workspace", workspace: other });
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.input("\x1b[<65;5;15M");
+    await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃│");
+    await this.write({ op: "workspace", workspace: home });
+    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
+    await this.write({ op: "workspace", workspace: other });
+    await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃│");
+  }
+  async test_launched_and_restored_agents_scroll_into_view() {
+    for (let index = 0; index < 7; index++) {
+      const pane = (
+        await this.open_pane({ cwd: this.temp.name, command: "sleep 30" })
+      ).pane;
+      await this.rpc({
+        op: "hook",
+        pane,
+        provider: "claude",
+        seq: 1,
+        event: { hook_event_name: "SessionStart", session_id: String(index) },
+      });
+    }
+    await this.attach();
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    const before = (await this.session()).panes.map((p: any) => p.id);
+    // The sidebar's "New" launches the last agent.
+    await this.click(20, 12);
+    let pane = 0;
+    await this.until(async () => {
+      pane = (await this.session()).panes.find(
+        (p: any) => !before.includes(p.id),
+      )?.id;
+      return pane !== undefined;
+    });
+    await this.command("pane.rename", { name: "Launched", target: pane });
+    await this.rpc({
+      op: "hook",
+      pane,
+      provider: "claude",
+      seq: 1,
+      event: { hook_event_name: "SessionStart", session_id: "launched" },
+    });
+    const screen = await this.scrollbar_with("│││┃┃┃┃┃┃┃┃");
+    this.assertIn(
+      "Launched",
+      screen
+        .slice(13)
+        .map((r) => r.slice(0, 27))
+        .join("\n"),
+    );
+    await this.command("pane.close", { target: pane });
+    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
+    await this.input("\x1b[<64;5;15M".repeat(3));
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    const open = (await this.session()).panes.map((p: any) => p.id);
+    await this.rpc({ op: "action", name: "undo-close" });
+    await this.until(async () => {
+      pane = (await this.session()).panes.find(
+        (p: any) => !open.includes(p.id),
+      )?.id;
+      return pane !== undefined;
+    });
+    await this.command("pane.rename", { name: "Reopened", target: pane });
+    await this.rpc({
+      op: "hook",
+      pane,
+      provider: "claude",
+      seq: 1,
+      event: { hook_event_name: "SessionStart", session_id: "restored" },
+    });
+    // The restore notice covers the bottom row, and so the scrollbar's end.
+    await this.until(async () =>
+      screen_text((await this.client!.poll()).data, 80, 24)
+        .slice(13)
+        .some((row) => row.slice(0, 27).includes("Reopened")),
+    );
   }
   async test_sidebar_keeps_provider_and_activity_separate_from_directory_and_tab_title() {
     const project = join(this.temp.name, "frontend");

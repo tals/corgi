@@ -240,7 +240,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 link_pointer = sidebar.portWorkspace(side, ui.workspaces, pointer.x, pointer.y) != null or
                     corgi_badge.hit(ui.corgi_badge, side.width, pointer.x, pointer.y);
                 switch (side.hit(pointer.x, pointer.y)) {
-                    .toggle, .workspace_new, .workspace_previous, .workspace_next, .previous, .next, .agent_scope, .agent_new, .agent_options => link_pointer = true,
+                    .toggle, .workspace_new, .workspace_previous, .workspace_next, .agent_scope, .agent_new, .agent_options => link_pointer = true,
                     .workspace => |index| link_pointer = link_pointer or side.unreadHit(ui.workspaces[index], pointer.x, pointer.y),
                     else => {},
                 }

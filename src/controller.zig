@@ -134,7 +134,11 @@ pub const Controller = struct {
     sidebar_open: bool = true,
     corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
-    sidebar_offset: usize = 0,
+    /// The "All" list's scroll; each workspace keeps its own list's.
+    all_offset: usize = 0,
+    /// A tab this viewer launched or restored; its agent scrolls into view
+    /// once listed.
+    launched: layout.PaneId = .none,
     sidebar_rows: sidebar_rows.State = .{},
     remote_links: bool = false,
     tab_menu: ?commands.TabMenu = null,
@@ -222,8 +226,6 @@ pub const Controller = struct {
         s.navigation.workspace_id = id;
         s.visitWorkspace(id);
         s.revealWorkspace();
-        // "All" lists the same agents in every workspace; keep its scroll.
-        if (s.prefs.agents == .workspace) s.sidebar_offset = 0;
         s.copy_mode = false;
         s.search_mode = false;
         s.selection = null;
@@ -259,13 +261,19 @@ pub const Controller = struct {
         return s.sidebarView(&.{}).area();
     }
     fn sidebarView(s: *Self, entries: []const sidebar.Entry) sidebar.View {
-        const offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset;
+        const offset = if (s.agent_picker) |picker| picker.offset else s.agentOffset().*;
         var view = sidebar.View.init(s.width, s.height, s.sidebar_open, offset, entries.len).withSearch(s.agentSearch()).withWidth(s.prefs.sidebar_width);
         // Workspace rows, and so paging, depend on whether readings are shown.
         view.resources = s.prefs.resources;
         view = view.withWorkspaces(s.runtime.workspaces.items.len, s.workspace_offset).withEntries(entries);
         view.scope_label = s.scopeLabel();
         return view;
+    }
+    fn agentOffset(s: *Self) *usize {
+        return switch (s.prefs.agents) {
+            .workspace => s.navigation.agentOffset(&s.runtime.workspaces),
+            .all => &s.all_offset,
+        };
     }
     fn scopeLabel(s: *Self) []const u8 {
         return switch (s.prefs.agents) {
@@ -282,7 +290,6 @@ pub const Controller = struct {
     fn setAgentScope(s: *Self, scope: sidebar.Scope) void {
         s.closeMenu();
         s.prefs.agents = scope;
-        s.sidebar_offset = 0;
         s.dirty = true;
         preferences.update(.{ .agents = scope }) catch |err| s.notice(@errorName(err));
     }
@@ -495,8 +502,20 @@ pub const Controller = struct {
         s.rememberAgent();
         var storage: [sidebar.max_entries]sidebar.Entry = undefined;
         const entries = s.sidebarEntries(&storage);
-        if (agent_navigation.indexOf(entries, target)) |index| s.sidebar_offset = s.sidebarView(entries).reveal(index);
+        if (agent_navigation.indexOf(entries, target)) |index| s.agentOffset().* = s.sidebarView(entries).reveal(index);
         s.dirty = true;
+    }
+    /// A launched agent shows up in the list only once it starts, so reveal it
+    /// then, unless focus has moved on.
+    fn revealLaunched(s: *Self, entries: []const sidebar.Entry) void {
+        if (s.launched == layout.PaneId.none) return;
+        if (s.model().count == 0 or s.nav().tab().focus != s.launched) {
+            s.launched = .none;
+            return;
+        }
+        const index = agent_navigation.indexOf(entries, .{ .pane = s.launched }) orelse return;
+        s.agentOffset().* = s.sidebarView(entries).reveal(index);
+        s.launched = .none;
     }
     fn focusedAgent(s: *Self) ?sidebar.Target {
         if (s.native_notice) |id| {
@@ -528,7 +547,7 @@ pub const Controller = struct {
         s.search_mode = false;
         s.selection = null;
         s.cancelDividers();
-        s.agent_picker = .{ .workspace = s.current().id, .selected = s.focusedAgent(), .offset = s.sidebar_offset };
+        s.agent_picker = .{ .workspace = s.current().id, .selected = s.focusedAgent(), .offset = s.agentOffset().* };
         s.dirty = true;
     }
     fn pickerEntries(s: *Self, out: *[sidebar.max_entries]sidebar.Entry) []sidebar.Entry {
@@ -798,6 +817,7 @@ pub const Controller = struct {
         }
         const id = (try s.execute(.{ .@"pane.restore" = .{ .workspace = s.current().id } })).pane;
         try s.focusPane(id);
+        s.launched = id;
         s.copy_mode = false;
         s.notice(" Restored closed pane in a new tab with a fresh shell");
         return;
@@ -964,6 +984,7 @@ pub const Controller = struct {
             return;
         };
         try s.focusPane(created.pane);
+        s.launched = created.pane;
         s.dirty = true;
     }
     fn launchRow(s: *Self, row: agent_launcher.Row) !void {
@@ -979,6 +1000,7 @@ pub const Controller = struct {
                 const created = try s.execute(.{ .@"agent.command.create" = .{ .workspace = launch.workspace, .cwd = launch.cwd.text(), .index = index } });
                 s.closeMenu();
                 try s.focusPane(created.pane);
+                s.launched = created.pane;
                 s.dirty = true;
                 return;
             };
@@ -1992,7 +2014,7 @@ pub const Controller = struct {
             const live = s.sidebarEntries(&storage);
             var side = s.sidebarView(live);
             if (!release and (button == 64 or button == 65) and drag.valid(side, s.current().id)) {
-                s.sidebar_offset = if (button == 64) side.offset -| 1 else @min(side.offset + 1, side.maxOffset());
+                s.agentOffset().* = if (button == 64) side.offset -| 1 else @min(side.offset + 1, side.maxOffset());
                 side = s.sidebarView(live);
                 drag.dragging = true;
             }
@@ -2274,19 +2296,17 @@ pub const Controller = struct {
                 return;
             }
         }
-        if ((side.width > 0 and x < side.width and y < s.height - 1) or (y == 0 and x < tabs_x)) {
+        if ((side.width > 0 and x < side.width) or (y == 0 and x < tabs_x)) {
             if (!release and (button == 64 or button == 65)) {
                 if (y < side.middle()) {
                     s.workspace_offset = if (button == 64) side.workspace_offset -| 1 else @min(side.workspace_offset + 1, s.runtime.workspaces.items.len -| side.workspaceCapacity());
-                } else s.sidebar_offset = if (button == 64) side.offset -| 1 else @min(side.offset + 1, side.maxOffset());
+                } else s.agentOffset().* = if (button == 64) side.offset -| 1 else @min(side.offset + 1, side.maxOffset());
                 s.dirty = true;
             } else if (!release and (button == 0 or button == 2)) {
                 s.ui_mouse_down = true;
                 if (corgi_badge.hit(s.corgi_badge, side.width, x, y)) return s.openSetup();
                 switch (side.hit(x, y)) {
                     .toggle => try s.perform(.sidebar),
-                    .previous => s.sidebar_offset = side.offset -| side.capacity,
-                    .next => s.sidebar_offset = @min(side.offset + side.capacity, side.maxOffset()),
                     .entry => |index| if (entries[index].exit == null) {
                         const target = entries[index].target;
                         try s.selectAgent(target);
@@ -2334,7 +2354,7 @@ pub const Controller = struct {
                                 const updated = s.sidebarEntries(&agent_storage);
                                 for (updated, 0..) |entry, i| {
                                     if (std.meta.eql(entry.target, agent)) {
-                                        s.sidebar_offset = @min(i, s.sidebarView(updated).maxOffset());
+                                        s.agentOffset().* = @min(i, s.sidebarView(updated).maxOffset());
                                         break;
                                     }
                                 }
@@ -2683,6 +2703,7 @@ pub const Controller = struct {
         s.rememberAgent();
         var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
         const entries = if (s.agent_picker != null) s.pickerEntries(&agent_storage) else s.sidebarEntries(&agent_storage);
+        if (s.agent_picker == null) s.revealLaunched(entries);
         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
         if (s.pointer) |pointer| {
             const hit = sidebar.gitActionWorkspace(s.sidebarView(entries), s.workspaceEntries(&workspace_storage), s.git_hover, pointer.x, pointer.y);
@@ -2728,7 +2749,7 @@ pub const Controller = struct {
             .supports_kitty_graphics = s.supports_kitty_graphics,
             .dragged_workspace = if (s.workspace_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
             .dragged_agent = if (s.agent_drag) |drag| if (drag.preview) |destination| .{ .source = drag.source, .destination = destination } else null else null,
-            .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.sidebar_offset,
+            .sidebar_offset = if (s.agent_picker) |picker| picker.offset else s.agentOffset().*,
             .agents = entries,
             .conversations = s.runtime.conversations,
             .system_model = s.runtime.system_model,

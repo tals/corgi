@@ -67,6 +67,14 @@ export function screen_text(data: string, cols = 80, rows = 24): string[] {
   }
   return grid.map((row) => row.join(""));
 }
+/** The agent list's rows of the sidebar border, where its scrollbar thumb shows. */
+export function scrollbar(screen: string[]): string {
+  const top = Math.floor((screen.length - 1) / 2) + 2;
+  return screen
+    .slice(top)
+    .map((row) => [...row][27])
+    .join("");
+}
 export function layout_tree(workspace: any, tab = 0): any {
   const model = workspace.model;
   function tree(index: number): any {
@@ -445,6 +453,18 @@ export class Runtime extends TestCase {
         return screen;
     }
     this.fail(`missing visible text ${text}`);
+  }
+  /** Waits for the agent list's scrollbar, read down the sidebar border, to show `bar`. */
+  async scrollbar_with(bar: string, cols = 80, rows = 24) {
+    for (let i = 0; i < 100; i++) {
+      const screen = screen_text(
+        (await this.get_type("frame")).data,
+        cols,
+        rows,
+      );
+      if (scrollbar(screen) === bar) return screen;
+    }
+    this.fail(`missing scrollbar ${bar}`);
   }
   tab_frame(text: string, cols = 80, rows = 24) {
     return this.frame_with(text, cols, rows, 0);

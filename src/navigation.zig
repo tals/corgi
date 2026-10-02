@@ -16,6 +16,8 @@ pub const State = struct {
         agents: agent_navigation.History = .{},
         /// The launcher row last left selected here.
         launcher: ?agent_launcher.Row = null,
+        /// How far this workspace's own agent list is scrolled.
+        agent_offset: usize = 0,
     };
     pub fn index(n: *State, store: *mirror.Workspaces) usize {
         const i = store.index(n.workspace_id) orelse 0;
@@ -44,6 +46,9 @@ pub const State = struct {
     pub const Intent = struct { edit: ?protocol.Command = null, focus: ?layout.PaneId = null };
     pub fn agentHistory(n: *State, store: *mirror.Workspaces) *agent_navigation.History {
         return &n.entry(store, n.current(store)).agents;
+    }
+    pub fn agentOffset(n: *State, store: *mirror.Workspaces) *usize {
+        return &n.entry(store, n.current(store)).agent_offset;
     }
     /// The launcher row this viewer last left selected in workspace `id`.
     pub fn launcherRow(n: *State, store: *mirror.Workspaces, id: WorkspaceId) ?agent_launcher.Row {
