@@ -97,6 +97,9 @@ const InputState = struct {
     /// shared panes for the viewer that was used most recently.
     active: bool = false,
     port_click: ?PortClick = null,
+    /// The pane whose app took the held mouse button; its drag and release
+    /// follow it outside the pane.
+    pane_press: ?layout.PaneId = null,
     /// Where the bracketed paste in progress goes; null outside a paste.
     paste: ?Paste = null,
     tab_drag: ?TabDrag = null,
@@ -2237,6 +2240,16 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
+        if (cl.pane_press) |id| if (release or (button & 96 == 32 and button & 3 != 3)) {
+            if (release) cl.pane_press = null;
+            var locations: [layout.max_panes]layout.Placement = undefined;
+            for (s.layoutView().placements(s.area(), &locations)) |p| {
+                if (p.id != id) continue;
+                const held = s.pane(id) orelse break;
+                try sendMouse(held.terminal, p.rect, button, x, y, release);
+            }
+            return;
+        };
         if (!release and (x >= s.width or y >= s.height)) return;
         const tabs_x = s.sidebarView(&.{}).tabX();
         const tabs_width = s.width - tabs_x;
@@ -2581,10 +2594,20 @@ pub const Controller = struct {
             };
             return;
         }
-        if (button & 32 != 0 and button & 3 == 3) return;
+        const hover = button & 32 != 0 and button & 3 == 3;
         var locations: [layout.max_panes]layout.Placement = undefined;
         for (s.layoutView().placements(s.area(), &locations)) |p| if (p.rect.contains(x, y)) {
-            if (!release and button & 0xe3 == 2 and (s.pane(p.id).?.terminal.emulator().*.flags.mouse_event == .none or button & 4 != 0)) {
+            const term = s.pane(p.id).?.terminal;
+            // Once the app asks for mouse input it gets every event except
+            // Shift, copy mode and the rest of a selection drag.
+            const app_mouse = term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0 and s.selection == null;
+            // Hover never moves focus. The encoder drops it unless the app
+            // tracks all motion.
+            if (hover) {
+                if (app_mouse) try sendMouse(term, p.rect, button, x, y, release);
+                return;
+            }
+            if (!release and button & 0xe3 == 2 and (term.emulator().*.flags.mouse_event == .none or button & 4 != 0)) {
                 const source = s.nav().tab().focus;
                 s.closeMenu();
                 s.selection = null;
@@ -2597,16 +2620,12 @@ pub const Controller = struct {
             try s.focusPane(p.id);
 
             s.dirty = true;
-            const term = s.pane(p.id).?.terminal;
-            // Agent output keeps ordinary left-drag selection even when the
-            // agent requests mouse reporting. Alt-click still reaches its UI.
-            const agent_selection = s.pane(p.id).?.agent.provider != null and (button == 0 or button == 32);
             // Links open on release in the pressed cell, so a drag that ends
             // on a link never opens it. Plain clicks only claim links when
             // they would otherwise start a selection; mouse-aware apps keep
             // them. Cmd-click stays with the host's OSC 8 handler. SGR mouse
             // events expose Ctrl, but do not encode the Command modifier.
-            const plain_link = button == 0 and (term.emulator().*.flags.mouse_event == .none or agent_selection);
+            const plain_link = button == 0 and term.emulator().*.flags.mouse_event == .none;
             if (!release and (button == 16 or plain_link) and !s.copy_mode) {
                 for (term.hyperlinks()) |link| {
                     if (link.row != y - p.rect.y or x - p.rect.x < link.start or x - p.rect.x >= link.end) continue;
@@ -2623,33 +2642,9 @@ pub const Controller = struct {
                     return;
                 }
             }
-            if (term.emulator().*.flags.mouse_event != .none and !s.copy_mode and button & 4 == 0 and !agent_selection) {
-                // Translate coordinates through Ghostty's input encoder into the app's chosen protocol.
-                var encoded: std.Io.Writer.Allocating = .init(a);
-                defer encoded.deinit();
-                var opts = vt.input.MouseEncodeOptions.fromTerminal(&term.emulator().*, .{
-                    .screen = .{ .width = term.emulator().*.cols, .height = term.emulator().*.rows },
-                    .cell = .{ .width = 1, .height = 1 },
-                    .padding = .{},
-                });
-                opts.any_button_pressed = !release and button & 3 != 3;
-                const btn: ?vt.input.MouseButton = switch (button & 0xc3) {
-                    0 => .left,
-                    1 => .middle,
-                    2 => .right,
-                    64 => .four,
-                    65 => .five,
-                    66 => .six,
-                    67 => .seven,
-                    else => null,
-                };
-                try vt.input.encodeMouse(&encoded.writer, .{
-                    .action = if (release) .release else if (button & 32 != 0) .motion else .press,
-                    .button = btn,
-                    .mods = .{ .shift = button & 4 != 0, .alt = button & 8 != 0, .ctrl = button & 16 != 0 },
-                    .pos = .{ .x = @floatFromInt(x - p.rect.x), .y = @floatFromInt(y - p.rect.y) },
-                }, opts);
-                try term.send(encoded.written());
+            if (app_mouse) {
+                if (!release and button & 96 == 0) cl.pane_press = p.id;
+                try sendMouse(term, p.rect, button, x, y, release);
                 return;
             }
             if (release) {
@@ -2692,6 +2687,38 @@ pub const Controller = struct {
             cl.divider = .{ .hit = hit, .area = s.area() };
             s.selection = null;
         };
+    }
+    /// Re-encodes a host SGR report for the app in `rect`, in the protocol it
+    /// chose. Points outside `rect` reach the app only while a button is held.
+    fn sendMouse(term: *mirror.Terminal, rect: layout.Rect, button: u16, x: u16, y: u16, release: bool) !void {
+        var encoded: std.Io.Writer.Allocating = .init(a);
+        defer encoded.deinit();
+        var opts = vt.input.MouseEncodeOptions.fromTerminal(term.emulator(), .{
+            .screen = .{ .width = term.emulator().*.cols, .height = term.emulator().*.rows },
+            .cell = .{ .width = 1, .height = 1 },
+            .padding = .{},
+        });
+        opts.any_button_pressed = !release and button & 3 != 3;
+        const btn: ?vt.input.MouseButton = switch (button & 0xc3) {
+            0 => .left,
+            1 => .middle,
+            2 => .right,
+            64 => .four,
+            65 => .five,
+            66 => .six,
+            67 => .seven,
+            else => null,
+        };
+        try vt.input.encodeMouse(&encoded.writer, .{
+            .action = if (release) .release else if (button & 32 != 0) .motion else .press,
+            .button = btn,
+            .mods = .{ .shift = button & 4 != 0, .alt = button & 8 != 0, .ctrl = button & 16 != 0 },
+            .pos = .{
+                .x = @as(f32, @floatFromInt(x)) - @as(f32, @floatFromInt(rect.x)),
+                .y = @as(f32, @floatFromInt(y)) - @as(f32, @floatFromInt(rect.y)),
+            },
+        }, opts);
+        try term.send(encoded.written());
     }
 
     pub fn visitWorkspace(s: *Self, id: WorkspaceId) void {

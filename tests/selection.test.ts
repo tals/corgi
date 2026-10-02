@@ -4,7 +4,7 @@ import { Viewers } from "./viewers";
 import { registerCase, shellJoin, writeExecutable } from "./support";
 
 class Selection extends Viewers {
-  async test_agent_drag_copies_when_application_enables_mouse() {
+  async test_agent_gets_mouse_and_shift_drag_selects() {
     const fixture = join(this.temp.name, "mouse.ts");
     const capture = join(this.temp.name, "mouse.bin");
     writeExecutable(
@@ -13,7 +13,7 @@ class Selection extends Viewers {
 import { openSync, writeSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 spawnSync('stty', ['raw', '-echo'], { stdio: 'inherit' });
-process.stdout.write('\\x1b[?1002h\\x1b[?1006hSELECT_ME');
+process.stdout.write('\\x1b[?1000h\\x1b[?1002h\\x1b[?1003h\\x1b[?1006hSELECT_ME');
 const fd = openSync(process.argv[2], 'w');
 process.stdin.on('data', chunk => writeSync(fd, chunk));
 process.stdin.resume();
@@ -28,24 +28,36 @@ process.stdin.resume();
     await this.mark_agent(pane, "Mouse agent");
     const viewer = await this.newViewer();
     await viewer.focus(pane);
+    // Hover, then a drag released over the sidebar, all reach the agent.
+    await viewer.input("\x1b[<35;30;2M");
     await viewer.input("\x1b[<0;29;2M");
     await viewer.input("\x1b[<32;37;2M");
-    await viewer.input("\x1b[<0;37;2m");
+    await viewer.input("\x1b[<32;5;2M");
+    await viewer.input("\x1b[<0;5;2m");
+    const forwarded =
+      "\x1b[<35;2;1M\x1b[<0;1;1M\x1b[<32;9;1M\x1b[<32;1;1M\x1b[<0;1;1m";
+    await this.until(() =>
+      readFileSync(capture).includes(Buffer.from(forwarded)),
+    );
+    this.assertNotIn("Copied to clipboard", viewer.state.data);
+    // Shift-drag stays with corgi and copies.
+    await viewer.input("\x1b[<4;29;2M");
+    await viewer.input("\x1b[<36;37;2M");
+    await viewer.input("\x1b[<4;37;2m");
     const effects = viewer.state.effects;
-    this.assertTrue(effects, "agent drag did not copy");
+    this.assertTrue(effects.length, "shift drag did not copy");
     const encoded = effects[0].write_terminal
       .split("52;c;", 2)[1]
       .split("\x07", 1)[0];
     this.assertEqual(Buffer.from(encoded, "base64").toString(), "SELECT_ME");
     this.assertIn("Copied to clipboard", viewer.state.data);
-    this.assertEqual(readFileSync(capture), Buffer.alloc(0));
     await viewer.input("\x1b[<64;29;2M");
     await this.until(() =>
       readFileSync(capture).includes(Buffer.from("\x1b[<64;1;1M")),
     );
-    await viewer.input("\x1b[<8;29;2M\x1b[<8;29;2m");
-    await this.until(() =>
-      readFileSync(capture).includes(Buffer.from("\x1b[<8;1;1m")),
+    this.assertEqual(
+      readFileSync(capture).toString(),
+      forwarded + "\x1b[<64;1;1M",
     );
   }
 

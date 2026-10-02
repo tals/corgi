@@ -71,7 +71,7 @@ The caret is steady by default while attached, preserving the host terminal's cu
 - **Ctrl-B** opens the clickable command menu and shows shortcuts; `corgi keys` lists every preset's keys.
 - Click **+** to create a tab; right-click a tab to rename or close it. Unnamed tabs show their current position; clear a name to return to automatic numbering.
 - Right-click a pane for rename, clear name, swap with the focused pane, split, zoom, and close. Opening the menu preserves focus. Hold Shift when a mouse-aware application owns right-click. Pane names appear in the focused-pane status line and override agent names in the sidebar.
-- In agent panes, left-drag selects text and copies it on release, even when the agent enables mouse input. Scrolling still reaches the agent; use Alt-click for its mouse controls.
+- Left-drag selects text and copies it on release. When the app in a pane enables mouse input, such as Claude Code's fullscreen mode, its clicks, drags and hover go to the app instead; hold Shift to select with Corgi.
 - Drag workspace rows to reorder them; a horizontal line marks the destination. Release outside the workspace list or press Escape to cancel.
 - Drag the sidebar's right edge to resize it. Width belongs to each viewer and resets on reattach.
 - Drag a tab to reorder it; the vertical marker shows where it will land. Release outside the tab bar or press Escape to cancel.
