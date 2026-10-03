@@ -360,7 +360,7 @@ pub const View = struct {
         try w.print("\x1b[{d};{d}HActive", .{ y, x + width - 3 - 6 });
         const at = v.index(c, rows);
         for (rows, 0..) |line, k| {
-            try v.drawLine(w, c, line, rows, v.focused and at == k, x, y + 1 + @as(u16, @intCast(k)), width, cols);
+            try v.drawLine(w, c, line, rows, v.focused and at == k, startsRun(c, rows, k, 0), x, y + 1 + @as(u16, @intCast(k)), width, cols);
         }
     }
     /// The expanded list in `area`, terminal coordinates inside the border.
@@ -410,7 +410,7 @@ pub const View = struct {
         }
         for (rows[first..@min(rows.len, first + list_height)], 0..) |line, k| {
             const row: u16 = list_top + @as(u16, @intCast(k));
-            try v.drawLine(w, c, line, rows, v.focused and at == first + k, x, row, width, cols);
+            try v.drawLine(w, c, line, rows, v.focused and at == first + k, startsRun(c, rows, first + k, first), x, row, width, cols);
         }
         if (rows.len > list_height) {
             const thumb: usize = @max(1, list_height * list_height / rows.len);
@@ -420,7 +420,9 @@ pub const View = struct {
             }
         }
     }
-    fn drawLine(v: *const View, w: *std.Io.Writer, c: Context, line: Line, rows: []const Line, selected: bool, x: u16, row: u16, width: u16, cols: Columns) !void {
+    /// `named` rows show their agent's name; the rows below continue its run
+    /// as a rail.
+    fn drawLine(v: *const View, w: *std.Io.Writer, c: Context, line: Line, rows: []const Line, selected: bool, named: bool, x: u16, row: u16, width: u16, cols: Columns) !void {
         const style = if (selected) selected_style else row_style;
         switch (line) {
             .day => |at| {
@@ -458,7 +460,9 @@ pub const View = struct {
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, style });
                 try w.splatByteAll(' ', width -| 3);
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, if (selected) "›" else " " });
-                try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row, x + 3, providerColor(e.provider), providerLabel(e.provider), style });
+                if (named) {
+                    try w.print("\x1b[{d};{d}H{s}", .{ row, x + 3, providerLabel(e.provider) });
+                } else try w.print("\x1b[{d};{d}H{s}│{s}", .{ row, x + 3, dim, style });
                 var col: u16 = x + 3 + 9;
                 try w.print("\x1b[{d};{d}H", .{ row, col });
                 const branch = if (line == .entry) otherBranch(c, e) else "";
@@ -540,16 +544,25 @@ fn otherBranch(c: Context, e: *const Entry) []const u8 {
     };
     return "";
 }
+/// The agent of a conversation row; null for any other row.
+fn agentOf(c: Context, line: Line) ?Provider {
+    return switch (line) {
+        .entry, .open => |i| c.history.entries[i].provider,
+        else => null,
+    };
+}
+/// Whether conversation row `i` names its agent: the first row shown from
+/// `first`, and wherever the agent differs from the row above.
+fn startsRun(c: Context, rows: []const Line, i: usize, first: usize) bool {
+    const agent = agentOf(c, rows[i]) orelse return false;
+    if (i == first) return true;
+    const above = agentOf(c, rows[i - 1]) orelse return true;
+    return above != agent;
+}
 fn providerLabel(p: Provider) []const u8 {
     return switch (p) {
         .claude => "Claude",
         .codex => "Codex",
-    };
-}
-fn providerColor(p: Provider) []const u8 {
-    return switch (p) {
-        .claude => "\x1b[38;2;250;179;135m",
-        .codex => "\x1b[38;2;148;226;213m",
     };
 }
 fn writeKey(w: *std.Io.Writer, key_label: []const u8, after: []const u8) !void {
@@ -667,6 +680,29 @@ test "expanded groups by day and widens; search finds open conversations and cou
     v.collapse();
     try std.testing.expect(!v.expanded and !v.searching);
     try std.testing.expectEqual(Scope.workspace, v.scope);
+}
+
+test "a run of one agent names it once" {
+    var entries = [_]Entry{
+        testEntry("a", "/w/corgi", "Sticky agent", 900),
+        testEntry("b", "/w/corgi", "Unread hotkey", 800),
+        testEntry("c", "/w/corgi", "CPU check", 700),
+        testEntry("d", "/w/corgi", "Compacting", 600),
+        testEntry("e", "/w/corgi", "Review", 500),
+    };
+    entries[2].provider = .codex;
+    entries[3].provider = .codex;
+    const c: Context = .{ .history = .{ .pending = false, .entries = &entries }, .folder = "/w/corgi", .workspace_folder = "/w/corgi", .open = &.{}, .now = 1000 };
+    var v: View = .{};
+    var storage: [max_lines]Line = undefined;
+    const rows = v.lines(c, &storage);
+    var named: [collapsed_rows]bool = undefined;
+    for (&named, 0..) |*n, i| n.* = startsRun(c, rows, i, 0);
+    try std.testing.expectEqualSlices(bool, &.{ true, false, true, false, true }, &named);
+    // A list scrolled past a run's first row names it again.
+    try std.testing.expect(startsRun(c, rows, 1, 1));
+    // Show more.
+    try std.testing.expect(!startsRun(c, rows, rows.len - 1, 0));
 }
 
 test "day headings and ages" {

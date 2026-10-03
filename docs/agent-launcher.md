@@ -78,9 +78,11 @@ Reads are bounded and run on the preview worker.
 
 ## Resume a closed conversation
 
-Below the agent rows, the launcher lists the five newest closed conversations
-from its folder: provider, title, the last thing you said, and how long ago.
-A ✕ marks a turn that was interrupted, and the branch shows when it differs from
+Below the agent rows and a rule, the launcher lists the five newest closed
+conversations from its folder: provider, title, the last thing you said, and how
+long ago. The provider is named once per run of rows: a line continues it down
+the rows below, and the next name marks a switch. A scrolled list or a new day
+names it again. A ✕ marks a turn that was interrupted, and the branch shows when it differs from
 the folder's newest conversation. Down from the last agent row moves into the
 list; Enter (or a click) resumes the conversation in a new tab, in the folder
 it ran in, with that provider's launcher flags such as YOLO. Resuming does not

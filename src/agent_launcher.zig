@@ -620,6 +620,9 @@ pub const Menu = struct {
             }
         }
         if (m.hasResume()) {
+            // A rule across the gap between the agents and the conversations.
+            try w.print("\x1b[{d};{d}H{s}", .{ m.resumeTop(b) - 1, b.x + 4, panel });
+            for (0..b.w - 6) |_| try w.writeAll("─");
             if (m.resume_view.expanded) {
                 try m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rows, side));
             } else try m.resume_view.drawCollapsed(w, m.resumeContext(), b.x + 1, m.resumeTop(b), b.w);
