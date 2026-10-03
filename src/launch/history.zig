@@ -11,6 +11,7 @@ const Provider = @import("../providers.zig").Provider;
 const Claude = @import("../providers/claude.zig").Claude;
 const Codex = @import("../providers/codex.zig").Codex;
 const inference = @import("../inference.zig");
+const fs_watch = @import("../fs_watch.zig");
 const log = std.log.scoped(.launch_history);
 
 pub const Entry = struct {
@@ -124,6 +125,15 @@ fn copy(alloc: std.mem.Allocator, e: Entry) !Entry {
     out.cwd = try alloc.dupe(u8, e.cwd);
     errdefer alloc.free(out.cwd);
     out.branch = try clip(alloc, e.branch, 80);
+    return out;
+}
+
+/// `e` with its own copies of its strings.
+pub fn clone(alloc: std.mem.Allocator, e: Entry) !Entry {
+    var out = e;
+    inline for (.{ "session", "title", "first", "last", "cwd", "branch" }) |name| {
+        @field(out, name) = try alloc.dupe(u8, @field(e, name));
+    }
     return out;
 }
 
@@ -301,28 +311,37 @@ fn readAt(alloc: std.mem.Allocator, file: std.fs.File, offset: u64, len: u64) ![
     return bytes[0..n];
 }
 
-/// Every Claude transcript under `<config>/projects`, copied into `arena`.
-fn claudeEntries(arena: std.mem.Allocator, cache: *Cache, out: *std.ArrayList(Entry)) !void {
-    const root = Claude.info.configDir(a) catch return;
-    defer a.free(root);
-    const projects_path = try std.fs.path.join(a, &.{ root, "projects" });
-    defer a.free(projects_path);
-    var projects = std.fs.openDirAbsolute(projects_path, .{ .iterate = true }) catch return;
-    defer projects.close();
-    var it = projects.iterate();
+/// One Claude transcript, from the cache while unchanged; null when it is
+/// gone or cannot be resumed.
+fn claudeFile(cache: *Cache, path: []const u8) ?Entry {
+    const stat = std.fs.cwd().statFile(path) catch return null;
+    if (stat.kind != .file) return null;
+    return if (cache.lookup(path, stat)) |hit| hit.entry else cache.store(path, stat, readClaude(path, stat));
+}
+
+/// The Claude transcripts in one project folder, copied into `arena`.
+fn claudeProject(arena: std.mem.Allocator, cache: *Cache, folder: []const u8, out: *std.ArrayList(Entry)) !void {
+    var dir = std.fs.openDirAbsolute(folder, .{ .iterate = true }) catch return;
+    defer dir.close();
+    var files = dir.iterate();
+    while (files.next() catch null) |file| {
+        if (file.kind != .file or !std.mem.endsWith(u8, file.name, ".jsonl")) continue;
+        const path = try std.fs.path.join(a, &.{ folder, file.name });
+        defer a.free(path);
+        if (claudeFile(cache, path)) |e| try out.append(arena, try copy(arena, e));
+    }
+}
+
+/// Every Claude transcript under `projects`, copied into `arena`.
+fn claudeEntries(arena: std.mem.Allocator, cache: *Cache, projects: []const u8, out: *std.ArrayList(Entry)) !void {
+    var dir = std.fs.openDirAbsolute(projects, .{ .iterate = true }) catch return;
+    defer dir.close();
+    var it = dir.iterate();
     while (it.next() catch null) |project| {
         if (project.kind != .directory) continue;
-        var dir = projects.openDir(project.name, .{ .iterate = true }) catch continue;
-        defer dir.close();
-        var files = dir.iterate();
-        while (files.next() catch null) |file| {
-            if (file.kind != .file or !std.mem.endsWith(u8, file.name, ".jsonl")) continue;
-            const stat = dir.statFile(file.name) catch continue;
-            const path = try std.fs.path.join(a, &.{ projects_path, project.name, file.name });
-            defer a.free(path);
-            const entry = if (cache.lookup(path, stat)) |hit| hit.entry else cache.store(path, stat, readClaude(path, stat));
-            if (entry) |e| try out.append(arena, try copy(arena, e));
-        }
+        const folder = try std.fs.path.join(a, &.{ projects, project.name });
+        defer a.free(folder);
+        try claudeProject(arena, cache, folder, out);
     }
 }
 
@@ -377,21 +396,46 @@ fn readCodex(path: []const u8, stat: std.fs.File.Stat) ?Entry {
     }
 }
 
+/// Each Codex rollout's path and the thread it holds, so a changed rollout
+/// can be reread without asking the App Server.
+const Rollouts = struct {
+    sessions: std.StringHashMapUnmanaged([]const u8) = .empty,
+
+    fn deinit(r: *Rollouts) void {
+        var it = r.sessions.iterator();
+        while (it.next()) |kv| {
+            a.free(kv.key_ptr.*);
+            a.free(kv.value_ptr.*);
+        }
+        r.sessions.deinit(a);
+    }
+    fn note(r: *Rollouts, path: []const u8, session: []const u8) !void {
+        if (r.sessions.contains(path)) return;
+        const owned_path = try a.dupe(u8, path);
+        errdefer a.free(owned_path);
+        const owned_session = try a.dupe(u8, session);
+        errdefer a.free(owned_session);
+        try r.sessions.put(a, owned_path, owned_session);
+    }
+};
+
 /// Interactive Codex threads, newest first, through the App Server, copied
-/// into `arena`.
-fn codexEntries(arena: std.mem.Allocator, pool: *inference.Pool, cache: *Cache, out: *std.ArrayList(Entry), stopping: *const std.atomic.Value(bool)) !void {
+/// into `arena`; at most `pages` pages of 100. False when the App Server
+/// could not list them.
+fn codexEntries(arena: std.mem.Allocator, cache: *Cache, rollouts: *Rollouts, pages: usize, out: *std.ArrayList(Entry), stopping: *const std.atomic.Value(bool)) !bool {
+    var pool: inference.Pool = .{ .config = .{ .timeout_ms = 5000 } };
+    defer pool.deinit();
     var cursor: ?[]u8 = null;
     defer if (cursor) |value| a.free(value);
-    var count: usize = 0;
-    while (count < capacity and !stopping.load(.acquire)) {
+    for (0..pages) |_| {
+        if (stopping.load(.acquire)) return false;
         const page = pool.listThreads(cursor, stopping) catch |err| {
             log.warn("listing Codex threads failed: {}", .{err});
-            return;
+            return false;
         };
         defer page.deinit();
         const result = field(page.value, "result");
         for (json.list(result, "data")) |item| {
-            count += 1;
             var entry: Entry = .{
                 .provider = .codex,
                 .session = str(item, "id"),
@@ -405,6 +449,7 @@ fn codexEntries(arena: std.mem.Allocator, pool: *inference.Pool, cache: *Cache, 
             if (entry.first.len == 0 or entry.session.len == 0 or entry.cwd.len == 0) continue;
             entry.last = entry.first;
             if (std.fs.path.isAbsolute(path)) if (std.fs.cwd().statFile(path)) |stat| {
+                try rollouts.note(path, entry.session);
                 const tail = if (cache.lookup(path, stat)) |hit| hit.entry else cache.store(path, stat, readCodex(path, stat));
                 if (tail) |t| {
                     if (t.last.len > 0) entry.last = t.last;
@@ -415,13 +460,14 @@ fn codexEntries(arena: std.mem.Allocator, pool: *inference.Pool, cache: *Cache, 
             try out.append(arena, try copy(arena, entry));
         }
         const next = str(result, "nextCursor");
-        if (next.len == 0) return;
+        if (next.len == 0) return true;
         if (cursor) |value| a.free(value);
         cursor = try a.dupe(u8, next);
     }
+    return true;
 }
 
-// ---------- Reading ----------
+// ---------- Keeping the list ----------
 
 /// A conversation whose folder is gone cannot be resumed: a Claude session
 /// resumes only from its own folder.
@@ -441,103 +487,382 @@ const Folders = struct {
         f.known.put(a, cwd, ok) catch {};
         return ok;
     }
+    /// Keep the entries whose folder exists.
+    fn keep(f: *Folders, entries: []Entry) []Entry {
+        var kept: usize = 0;
+        for (entries) |entry| {
+            if (!f.exists(entry.cwd)) continue;
+            entries[kept] = entry;
+            kept += 1;
+        }
+        return entries[0..kept];
+    }
 };
 
 fn newer(_: void, x: Entry, y: Entry) bool {
     return x.updated_at > y.updated_at;
 }
 
-/// Every resumable conversation, newest first, in `arena`.
-pub fn read(arena: std.mem.Allocator, pool: *inference.Pool, cache: *Cache, stopping: *const std.atomic.Value(bool)) !History {
-    var found: std.ArrayList(Entry) = .empty;
-    try claudeEntries(arena, cache, &found);
-    try codexEntries(arena, pool, cache, &found, stopping);
-    cache.sweep();
-    var folders: Folders = .{};
-    defer folders.deinit();
-    var kept: usize = 0;
-    for (found.items) |entry| {
-        if (!folders.exists(entry.cwd)) continue;
-        found.items[kept] = entry;
-        kept += 1;
+/// Where conversations are written: `<claude config>/projects`, the Codex
+/// home with `session_index.jsonl`, and its `sessions` tree. Empty when
+/// unknown.
+const Roots = struct {
+    claude: []const u8 = "",
+    codex: []const u8 = "",
+    codex_sessions: []const u8 = "",
+
+    fn init() Roots {
+        var r: Roots = .{};
+        if (Claude.info.configDir(a)) |config| {
+            defer a.free(config);
+            r.claude = std.fs.path.join(a, &.{ config, "projects" }) catch "";
+        } else |_| {}
+        if (Codex.info.configDir(a)) |home| {
+            r.codex = home;
+            r.codex_sessions = std.fs.path.join(a, &.{ home, "sessions" }) catch "";
+        } else |_| {}
+        return r;
     }
-    std.mem.sort(Entry, found.items[0..kept], {}, newer);
-    return .{ .pending = false, .entries = found.items[0..@min(kept, capacity)] };
+    fn deinit(r: Roots) void {
+        for ([_][]const u8{ r.claude, r.codex, r.codex_sessions }) |path| a.free(path);
+    }
+    fn watch(r: Roots) ?*fs_watch.Watcher {
+        const roots = [_]fs_watch.Root{
+            .{ .path = r.claude, .depth = 1 },
+            .{ .path = r.codex, .depth = 0 },
+            .{ .path = r.codex_sessions, .depth = 3 },
+        };
+        var some: [roots.len]fs_watch.Root = undefined;
+        var n: usize = 0;
+        for (roots) |root| if (root.path.len > 0) {
+            some[n] = root;
+            n += 1;
+        };
+        return fs_watch.Watcher.init(some[0..n], settle_ms) catch |err| {
+            log.warn("watching conversations failed, rereading every {d} minutes: {}", .{ unwatched_ms / std.time.ms_per_min, err });
+            return null;
+        };
+    }
+    fn under(root: []const u8, path: []const u8) bool {
+        return root.len > 0 and path.len > root.len and std.mem.startsWith(u8, path, root) and path[root.len] == '/';
+    }
+};
+/// A busy transcript changes many times a second; it is read once writes settle.
+const settle_ms = 1000;
+/// Without a watcher, everything is reread this often.
+const unwatched_ms = 5 * std.time.ms_per_min;
+
+/// Every resumable conversation the daemon knows, owned, with the revision
+/// that last changed each, so a viewer gets only what changed.
+const Store = struct {
+    items: std.StringArrayHashMapUnmanaged(Item) = .empty,
+    /// Conversations taken out and when; the oldest are forgotten first.
+    gone: std.ArrayList(Gone) = .empty,
+    revision: u64 = 0,
+    /// Viewers behind this revision may have missed a removal.
+    forgot: u64 = 0,
+
+    const Item = struct { entry: Entry, revision: u64 };
+    const Gone = struct { provider: Provider, session: []const u8, revision: u64 };
+    const max_gone = 256;
+
+    fn deinit(s: *Store) void {
+        for (s.items.keys(), s.items.values()) |k, item| {
+            a.free(k);
+            free(item.entry);
+        }
+        s.items.deinit(a);
+        for (s.gone.items) |g| a.free(g.session);
+        s.gone.deinit(a);
+    }
+    fn key(buffer: []u8, provider: Provider, session: []const u8) []const u8 {
+        return std.fmt.bufPrint(buffer, "{t}:{s}", .{ provider, session }) catch "";
+    }
+    fn get(s: *const Store, provider: Provider, session: []const u8) ?*const Entry {
+        var buffer: [512]u8 = undefined;
+        return if (s.items.getPtr(key(&buffer, provider, session))) |item| &item.entry else null;
+    }
+    /// Keep a copy of `e`; nothing changes when it is already kept as is.
+    fn put(s: *Store, e: Entry) !void {
+        var buffer: [512]u8 = undefined;
+        const k = key(&buffer, e.provider, e.session);
+        if (k.len == 0) return;
+        if (s.items.getPtr(k)) |item| {
+            if (same(item.entry, e)) return;
+            const fresh = try copy(a, e);
+            free(item.entry);
+            s.revision += 1;
+            item.* = .{ .entry = fresh, .revision = s.revision };
+            return;
+        }
+        const owned = try a.dupe(u8, k);
+        errdefer a.free(owned);
+        const fresh = try copy(a, e);
+        errdefer free(fresh);
+        try s.items.put(a, owned, .{ .entry = fresh, .revision = s.revision + 1 });
+        s.revision += 1;
+    }
+    fn remove(s: *Store, provider: Provider, session: []const u8) void {
+        var buffer: [512]u8 = undefined;
+        const removed = s.items.fetchSwapRemove(key(&buffer, provider, session)) orelse return;
+        defer a.free(removed.key);
+        s.forget(removed.value.entry);
+    }
+    /// Note `e` as gone and free it.
+    fn forget(s: *Store, e: Entry) void {
+        defer free(e);
+        s.revision += 1;
+        if (s.gone.items.len == max_gone) {
+            const oldest = s.gone.orderedRemove(0);
+            s.forgot = oldest.revision;
+            a.free(oldest.session);
+        }
+        const session = a.dupe(u8, e.session) catch {
+            s.forgot = s.revision;
+            return;
+        };
+        s.gone.append(a, .{ .provider = e.provider, .session = session, .revision = s.revision }) catch {
+            a.free(session);
+            s.forgot = s.revision;
+        };
+    }
+    /// Hold exactly `found` for each provider in `read`; others keep theirs.
+    fn replace(s: *Store, found: []const Entry, read: std.EnumSet(Provider)) !void {
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        defer {
+            var it = seen.keyIterator();
+            while (it.next()) |k| a.free(k.*);
+            seen.deinit(a);
+        }
+        for (found) |e| {
+            try s.put(e);
+            var buffer: [512]u8 = undefined;
+            const k = key(&buffer, e.provider, e.session);
+            if (!seen.contains(k)) try seen.put(a, try a.dupe(u8, k), {});
+        }
+        var i: usize = 0;
+        while (i < s.items.count()) {
+            const item = s.items.values()[i];
+            if (!read.contains(item.entry.provider) or seen.contains(s.items.keys()[i])) {
+                i += 1;
+                continue;
+            }
+            const k = s.items.keys()[i];
+            s.items.swapRemoveAt(i);
+            a.free(k);
+            s.forget(item.entry);
+        }
+    }
+};
+fn same(x: Entry, y: Entry) bool {
+    inline for (std.meta.fields(Entry)) |f| {
+        const equal = if (f.type == []const u8) std.mem.eql(u8, @field(x, f.name), @field(y, f.name)) else @field(x, f.name) == @field(y, f.name);
+        if (!equal) return false;
+    }
+    return true;
 }
 
-/// Reads conversations on its own thread, so a slow or stuck App Server
-/// never holds up launcher previews. Its App Server lives only for a read.
+/// What a viewer needs to catch up: the whole list, or what changed after
+/// the revision it has.
+pub const Update = struct {
+    /// The daemon's list this came from; another daemon's revisions mean nothing here.
+    epoch: u64,
+    revision: u64,
+    /// `entries` replace everything the viewer had.
+    full: bool,
+    entries: []const Entry = &.{},
+    removed: []const Removed = &.{},
+    pub const Removed = struct { provider: Provider, session: []const u8 };
+};
+
+/// Keeps every resumable conversation current on its own thread: one read
+/// at start, then only the files a watcher reports changed. A slow or stuck
+/// Codex App Server never holds up launcher previews; it runs only while
+/// the worker lists threads.
 pub const Worker = struct {
     mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
     stopping: std.atomic.Value(bool) = .init(false),
     thread: ?std.Thread = null,
-    /// The conversations read last, in `arena`; how many reads finished, and
-    /// the read a viewer waits for.
-    history: History = .{},
-    arena: ?std.heap.ArenaAllocator = null,
-    done: u64 = 0,
-    wanted: u64 = 0,
-    done_at: i64 = 0,
+    /// What the worker waits on, so `stop` can end the wait.
+    watcher: ?*fs_watch.Watcher = null,
+    wake: std.Thread.Condition = .{},
+    store: Store = .{},
+    /// The first read finished.
+    ready: bool = false,
+    epoch: u64,
 
     pub fn start() !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
-        w.* = .{};
+        w.* = .{ .epoch = std.crypto.random.int(u64) | 1 };
         w.thread = try std.Thread.spawn(.{}, run, .{w});
         return w;
     }
     pub fn stop(w: *Worker) void {
+        w.mutex.lock();
         w.stopping.store(true, .release);
+        if (w.watcher) |x| x.interrupt();
         w.wake.signal();
+        w.mutex.unlock();
         w.thread.?.join();
-        if (w.arena) |*arena| arena.deinit();
+        w.store.deinit();
         a.destroy(w);
     }
-    /// The read to wait for: the last one when it is recent, else the next.
-    pub fn request(w: *Worker) u64 {
+    /// Every conversation, newest first, copied into `alloc`.
+    pub fn snapshot(w: *Worker, alloc: std.mem.Allocator) !History {
         w.mutex.lock();
         defer w.mutex.unlock();
-        if (w.done > 0 and std.time.milliTimestamp() - w.done_at < 3000) return w.done;
-        if (w.wanted <= w.done) w.wanted = w.done + 1;
-        w.wake.signal();
-        return w.wanted;
+        var entries: std.ArrayList(Entry) = .empty;
+        for (w.store.items.values()) |item| try entries.append(alloc, try copy(alloc, item.entry));
+        std.mem.sort(Entry, entries.items, {}, newer);
+        return .{ .pending = !w.ready, .entries = entries.items[0..@min(entries.items.len, capacity)] };
     }
-    /// The last read and its number, held until `release`. Pending while
-    /// read `wanted` is still to come.
-    pub fn latest(w: *Worker, wanted: u64) struct { history: History, read: u64 } {
+    /// What a viewer that has `epoch` at `revision` lacks, copied into
+    /// `alloc`; null when it has everything.
+    pub fn update(w: *Worker, alloc: std.mem.Allocator, epoch: u64, revision: u64) !?Update {
         w.mutex.lock();
-        var history = w.history;
-        if (w.done < wanted) history.pending = true;
-        return .{ .history = history, .read = w.done };
+        defer w.mutex.unlock();
+        if (!w.ready) return null;
+        const full = epoch != w.epoch or revision < w.store.forgot;
+        if (!full and revision >= w.store.revision) return null;
+        var entries: std.ArrayList(Entry) = .empty;
+        for (w.store.items.values()) |item| if (full or item.revision > revision) {
+            try entries.append(alloc, try copy(alloc, item.entry));
+        };
+        var removed: std.ArrayList(Update.Removed) = .empty;
+        if (!full) for (w.store.gone.items) |g| if (g.revision > revision) {
+            try removed.append(alloc, .{ .provider = g.provider, .session = try alloc.dupe(u8, g.session) });
+        };
+        if (full) std.mem.sort(Entry, entries.items, {}, newer);
+        const kept = if (full) @min(entries.items.len, capacity) else entries.items.len;
+        return .{ .epoch = w.epoch, .revision = w.store.revision, .full = full, .entries = entries.items[0..kept], .removed = removed.items };
     }
-    pub fn release(w: *Worker) void {
-        w.mutex.unlock();
-    }
+
     fn run(w: *Worker) void {
+        const roots = Roots.init();
+        defer roots.deinit();
         var cache: Cache = .{};
         defer cache.deinit();
-        while (true) {
-            w.mutex.lock();
-            while (w.wanted <= w.done and !w.stopping.load(.acquire)) w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
-            const wanted = w.wanted;
-            w.mutex.unlock();
-            if (w.stopping.load(.acquire)) return;
-            var pool: inference.Pool = .{ .config = .{ .timeout_ms = 5000 } };
-            var arena: std.heap.ArenaAllocator = .init(a);
-            const result = read(arena.allocator(), &pool, &cache, &w.stopping) catch |err| blk: {
-                log.warn("reading conversations failed: {}", .{err});
-                break :blk History{ .pending = false };
+        var rollouts: Rollouts = .{};
+        defer rollouts.deinit();
+        // Watch before reading, so a file written during the read is not missed.
+        _ = w.setWatcher(roots.watch());
+        defer if (w.setWatcher(null)) |x| x.deinit();
+        w.readAll(roots, &cache, &rollouts);
+        var changes: fs_watch.Changes = .{};
+        defer changes.deinit();
+        var settling_since: i64 = 0;
+        while (!w.stopping.load(.acquire)) {
+            const x = w.watcher orelse {
+                // Without a watcher, read everything now and then.
+                w.mutex.lock();
+                if (!w.stopping.load(.acquire)) w.wake.timedWait(&w.mutex, unwatched_ms * std.time.ns_per_ms) catch {};
+                w.mutex.unlock();
+                if (w.stopping.load(.acquire)) return;
+                _ = w.setWatcher(roots.watch());
+                w.readAll(roots, &cache, &rollouts);
+                continue;
             };
-            pool.deinit();
-            w.mutex.lock();
-            defer w.mutex.unlock();
-            if (w.arena) |*old| old.deinit();
-            w.arena = arena;
-            w.history = result;
-            w.done = wanted;
-            w.done_at = std.time.milliTimestamp();
+            // Sleep until something changes; once it does, until writes settle.
+            const settled = settling_since + settle_ms - std.time.milliTimestamp();
+            x.wait(if (settling_since == 0) null else @intCast(std.math.clamp(settled, 0, settle_ms)), &changes);
+            if (changes.overflow) {
+                changes.clear();
+                settling_since = 0;
+                w.readAll(roots, &cache, &rollouts);
+                continue;
+            }
+            if (changes.paths.count() == 0) continue;
+            const now = std.time.milliTimestamp();
+            if (settling_since == 0) settling_since = now;
+            if (now - settling_since < settle_ms) continue;
+            w.readChanged(roots, &cache, &rollouts, &changes);
+            changes.clear();
+            settling_since = 0;
         }
+    }
+    /// Swap the watcher `stop` interrupts; returns the old one.
+    fn setWatcher(w: *Worker, watcher: ?*fs_watch.Watcher) ?*fs_watch.Watcher {
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        const old = w.watcher;
+        w.watcher = watcher;
+        // A stop before this watcher existed could not interrupt it.
+        if (watcher) |x| if (w.stopping.load(.acquire)) x.interrupt();
+        return old;
+    }
+    /// Read everything, keeping what a provider had when it cannot be read.
+    fn readAll(w: *Worker, roots: Roots, cache: *Cache, rollouts: *Rollouts) void {
+        var arena: std.heap.ArenaAllocator = .init(a);
+        defer arena.deinit();
+        var found: std.ArrayList(Entry) = .empty;
+        var read: std.EnumSet(Provider) = .initOne(.claude);
+        claudeEntries(arena.allocator(), cache, roots.claude, &found) catch |err| {
+            log.warn("reading Claude conversations failed: {}", .{err});
+            read.remove(.claude);
+        };
+        if (codexEntries(arena.allocator(), cache, rollouts, capacity / 100, &found, &w.stopping) catch false) read.insert(.codex);
+        cache.sweep();
+        var folders: Folders = .{};
+        defer folders.deinit();
+        const kept = folders.keep(found.items);
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        w.store.replace(kept, read) catch |err| log.warn("keeping conversations failed: {}", .{err});
+        w.ready = true;
+    }
+    /// Reread what the watcher reported. Only the worker writes the store,
+    /// so it reads it here without the lock.
+    fn readChanged(w: *Worker, roots: Roots, cache: *Cache, rollouts: *Rollouts, changes: *const fs_watch.Changes) void {
+        var arena: std.heap.ArenaAllocator = .init(a);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+        var found: std.ArrayList(Entry) = .empty;
+        var gone: std.ArrayList(Update.Removed) = .empty;
+        var list_codex = false;
+        for (changes.paths.keys()) |path| {
+            if (Roots.under(roots.claude, path)) {
+                const parent = std.fs.path.dirname(path) orelse continue;
+                if (std.mem.eql(u8, parent, roots.claude)) {
+                    // A project folder: new, or written before a watch reached it.
+                    claudeProject(alloc, cache, path, &found) catch continue;
+                } else if (std.mem.endsWith(u8, path, ".jsonl") and std.mem.eql(u8, std.fs.path.dirname(parent) orelse "", roots.claude)) {
+                    if (claudeFile(cache, path)) |e| {
+                        found.append(alloc, copy(alloc, e) catch continue) catch continue;
+                    } else gone.append(alloc, .{ .provider = .claude, .session = std.fs.path.stem(path) }) catch continue;
+                }
+            } else if (Roots.under(roots.codex, path)) {
+                if (rollouts.sessions.get(path)) |session| {
+                    const stat = std.fs.cwd().statFile(path) catch {
+                        gone.append(alloc, .{ .provider = .codex, .session = session }) catch {};
+                        continue;
+                    };
+                    const kept = w.store.get(.codex, session) orelse {
+                        list_codex = true;
+                        continue;
+                    };
+                    var e = kept.*;
+                    const tail = if (cache.lookup(path, stat)) |hit| hit.entry else cache.store(path, stat, readCodex(path, stat));
+                    if (tail) |t| {
+                        if (t.last.len > 0) e.last = t.last;
+                        e.interrupted = t.interrupted;
+                    }
+                    e.updated_at = @max(e.updated_at, @as(i64, @intCast(@divTrunc(stat.mtime, std.time.ns_per_s))));
+                    found.append(alloc, copy(alloc, e) catch continue) catch continue;
+                } else if (Roots.under(roots.codex_sessions, path) or std.mem.eql(u8, std.fs.path.basename(path), "session_index.jsonl")) {
+                    // A new thread, or a rename.
+                    list_codex = true;
+                }
+            }
+        }
+        if (list_codex) _ = codexEntries(alloc, cache, rollouts, 1, &found, &w.stopping) catch false;
+        var folders: Folders = .{};
+        defer folders.deinit();
+        const kept = folders.keep(found.items);
+        w.mutex.lock();
+        defer w.mutex.unlock();
+        for (kept) |e| w.store.put(e) catch |err| log.warn("keeping a conversation failed: {}", .{err});
+        for (gone.items) |g| w.store.remove(g.provider, g.session);
     }
 };
 
@@ -650,4 +975,38 @@ test "clip keeps one line within its byte limit at a UTF-8 boundary" {
     try std.testing.expectEqualStrings("a b c ", out[0..6]);
     try std.testing.expect(std.unicode.utf8ValidateSlice(out));
     try std.testing.expect(out.len <= 7);
+}
+
+test "a viewer gets everything once, then only what changed, and everything from another daemon" {
+    var w: Worker = .{ .epoch = 5, .ready = true };
+    defer w.store.deinit();
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    const first: Entry = .{ .provider = .claude, .session = "a", .title = "First", .cwd = "/w", .updated_at = 1 };
+    const second: Entry = .{ .provider = .codex, .session = "b", .title = "Second", .cwd = "/w", .updated_at = 2 };
+    try w.store.replace(&.{ first, second }, .initFull());
+    const full = (try w.update(alloc, 0, 0)).?;
+    try std.testing.expect(full.full);
+    try std.testing.expectEqualStrings("Second", full.entries[0].title);
+    try std.testing.expect(try w.update(alloc, full.epoch, full.revision) == null);
+    // The same entry again changes nothing.
+    try w.store.put(first);
+    try std.testing.expect(try w.update(alloc, full.epoch, full.revision) == null);
+    var used = first;
+    used.last = "one more thing";
+    used.updated_at = 9;
+    try w.store.put(used);
+    w.store.remove(.codex, "b");
+    const delta = (try w.update(alloc, full.epoch, full.revision)).?;
+    try std.testing.expect(!delta.full);
+    try std.testing.expectEqual(@as(usize, 1), delta.entries.len);
+    try std.testing.expectEqualStrings("one more thing", delta.entries[0].last);
+    try std.testing.expectEqualStrings("b", delta.removed[0].session);
+    try std.testing.expect((try w.update(alloc, 4, delta.revision)).?.full);
+    // A read that could not list Codex leaves Codex's conversations alone.
+    try w.store.put(second);
+    try w.store.replace(&.{}, .initOne(.claude));
+    try std.testing.expect(w.store.get(.codex, "b") != null);
+    try std.testing.expect(w.store.get(.claude, "a") == null);
 }

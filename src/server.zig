@@ -300,14 +300,17 @@ pub const Server = struct {
         const now = std.time.milliTimestamp();
         if (cl.dead or cl.output.items.len != 0 or now - subscription.checked < 100) return;
         subscription.checked = now;
-        // The last read goes out at once, then a current one when done.
         if (subscription.history_asked) if (s.launch_history) |reader| {
-            const latest = reader.latest(reader.request());
-            defer reader.release();
-            if (latest.read > 0 and (latest.read != subscription.history_sent or !latest.history.pending)) {
-                cl.queue(.{ .type = "agent.history", .history = latest.history });
-                subscription.history_sent = latest.read;
-                subscription.history_asked = latest.history.pending;
+            var arena: std.heap.ArenaAllocator = .init(a);
+            defer arena.deinit();
+            const update = reader.update(arena.allocator(), subscription.history_epoch, subscription.history_sent) catch |err| blk: {
+                log.warn("collecting conversation changes failed: {}", .{err});
+                break :blk null;
+            };
+            if (update) |changed| {
+                cl.queue(.{ .type = "agent.history", .update = changed });
+                subscription.history_epoch = changed.epoch;
+                subscription.history_sent = changed.revision;
             }
         };
         const cwd = subscription.cwd.text();
@@ -408,18 +411,13 @@ pub const Server = struct {
                     cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
                 } else cl.queue(.{ .ok = true, .preview = preview });
             },
-            .@"agent.history" => {
+            .@"agent.history" => |q| {
                 const reader = s.launch_history orelse return error.Unavailable;
-                const wanted = reader.request();
-                // A subscriber gets it pushed once read; a one-shot caller
-                // gets the last read, pending while a newer one runs.
-                if (cl.launch_preview) |*subscription| {
+                if (q.follow) {
+                    const subscription = if (cl.launch_preview) |*value| value else return error.NotSubscribed;
                     subscription.history_asked = true;
-                } else {
-                    const latest = reader.latest(wanted);
-                    defer reader.release();
-                    cl.reply(.@"agent.history", .{ .history = latest.history });
-                }
+                    subscription.history_epoch = 0;
+                } else cl.reply(.@"agent.history", .{ .history = try reader.snapshot(arena) });
             },
             .@"inference.configure" => |q| {
                 const worker = s.summaries orelse return error.InferenceUnavailable;
@@ -1296,6 +1294,8 @@ const Wire = struct {
     replies: Replies,
     /// What `agent.subscribe` pushes; the viewer's launcher decodes it.
     launch_preview: launch_preview.Preview,
+    /// What a stream following `agent.history` is pushed.
+    launch_history: launch_history.Update,
 };
 /// One field per op whose reply says more than `ok`.
 const Replies = replies: {

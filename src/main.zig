@@ -502,6 +502,7 @@ test {
     _ = @import("detection.zig");
     _ = @import("discovery.zig");
     _ = @import("failure.zig");
+    _ = @import("fs_watch.zig");
     _ = @import("ghostty_integration.zig");
     _ = @import("host_probe.zig");
     _ = @import("import.zig");

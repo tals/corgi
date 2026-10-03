@@ -49,6 +49,7 @@ fn incompatible(err: anytype) (@TypeOf(err) || error{IncompatibleViewerProtocol}
 }
 pub fn deinit(view: *View) void {
     view.launch_previews.deinit();
+    if (view.resume_arena) |*arena| arena.deinit();
     if (view.onboarding) |*wizard| wizard.deinit();
     if (view.clipboard) |bytes| a.free(bytes);
     if (view.executable.len > 0) a.free(view.executable);

@@ -210,7 +210,7 @@ $.requests|agent.preview.workspace: u32
 $.requests|agent.preview.cwd: string
 $.requests|agent.track_usage.workspace: u32
 $.requests|agent.track_usage.cwd: string
-$.requests|agent.history: {}
+$.requests|agent.history.follow: bool
 $.requests|viewer.list: {}
 $.requests|action.name: string
 $.requests|action.value: string
@@ -655,3 +655,18 @@ $.launch_preview.options.claude.history[2][11]: optional
 $.launch_preview.options.claude.history[2][11]?: u8
 $.launch_preview.installed.codex: bool
 $.launch_preview.installed.claude: bool
+$.launch_history.epoch: u64
+$.launch_history.revision: u64
+$.launch_history.full: bool
+$.launch_history.entries[].provider: enum codex claude
+$.launch_history.entries[].session: string
+$.launch_history.entries[].title: string
+$.launch_history.entries[].first: string
+$.launch_history.entries[].last: string
+$.launch_history.entries[].cwd: string
+$.launch_history.entries[].branch: string
+$.launch_history.entries[].updated_at: i64
+$.launch_history.entries[].interrupted: bool
+$.launch_history.entries[].chore: bool
+$.launch_history.removed[].provider: enum codex claude
+$.launch_history.removed[].session: string

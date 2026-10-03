@@ -1,11 +1,14 @@
 //! A directory subscription owns the latest launcher snapshot independently of
 //! popup lifetime. The separate socket keeps events out of ordered RPC replies.
-//! It also carries the conversations the launcher can resume, on request.
+//! It also follows the conversations the launcher can resume: the daemon
+//! sends the whole list once per connection, then only what changes.
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
 const Preview = @import("launch.zig").Preview;
-const History = @import("launch.zig").history.History;
+const launch_history = @import("launch.zig").history;
+const Entry = launch_history.Entry;
+const History = launch_history.History;
 const Provider = @import("providers.zig").Provider;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Path = @import("bounded_text.zig").Path;
@@ -20,13 +23,10 @@ pub const Stream = struct {
     preview: Preview = .{},
     received: bool = false,
     retry_at: i64 = 0,
-    /// The last conversations received, in `history_arena`.
+    /// The conversations the launcher can resume, newest first, in
+    /// `history_arena`; pending until the daemon sends them.
     history: History = .{},
     history_arena: ?std.heap.ArenaAllocator = null,
-    /// A request is due once connected, or sent and unanswered.
-    history_due: bool = false,
-    history_sent: bool = false,
-    history_at: i64 = 0,
 
     const Kind = enum { @"agent.preview", @"agent.history" };
 
@@ -36,28 +36,10 @@ pub const Stream = struct {
         if (s.history_arena) |*arena| arena.deinit();
     }
 
-    /// Ask for the conversations again unless an answer is on its way or
-    /// arrived within `max_age_ms`.
-    pub fn requestHistory(s: *Stream, max_age_ms: i64) void {
-        if (s.history_sent or s.history_due) return;
-        if (s.history_at != 0 and std.time.milliTimestamp() - s.history_at < max_age_ms) return;
-        s.history_due = true;
-        s.sendHistoryRequest();
-    }
-    fn sendHistoryRequest(s: *Stream) void {
-        const fd = s.fd orelse return;
-        os.sendJson(fd, protocol.Envelope(.@"agent.history"){ .payload = {} }) catch return;
-        s.history_due = false;
-        s.history_sent = true;
-    }
-
     fn disconnect(s: *Stream) void {
         if (s.fd) |fd| _ = os.c.close(fd);
         s.fd = null;
         s.input.clearRetainingCapacity();
-        // The next connection asks again.
-        if (s.history_sent) s.history_due = true;
-        s.history_sent = false;
     }
 
     pub fn current(s: *const Stream, cwd: []const u8) Preview {
@@ -94,13 +76,14 @@ pub const Stream = struct {
             s.retry_at = now + 1000;
             const fd = os.connect(s.socket) catch return changed;
             s.fd = fd;
+            const follow: protocol.Envelope(.@"agent.history") = .{ .payload = .{ .follow = true } };
             os.sendJson(fd, protocol.Envelope(.@"agent.subscribe"){ .payload = .{ .workspace = workspace, .cwd = cwd } }) catch {
                 s.disconnect();
                 s.retry_at = now + 1000;
                 return changed;
             };
+            os.sendJson(fd, follow) catch {};
         }
-        if (s.history_due) s.sendHistoryRequest();
         const previous = s.preview;
         const received = s.drain() catch {
             s.disconnect();
@@ -137,25 +120,17 @@ pub const Stream = struct {
     fn receive(s: *Stream, bytes: []const u8) !bool {
         const parsed = try std.json.parseFromSlice(std.json.Value, a, bytes, .{});
         defer parsed.deinit();
-        const Header = struct { type: []const u8 = "", err: ?[]const u8 = null };
+        const Header = struct { type: []const u8 = "" };
         const header = try std.json.parseFromValueLeaky(Header, parsed.arena.allocator(), parsed.value, .{ .ignore_unknown_fields = true });
-        switch (std.meta.stringToEnum(Kind, header.type) orelse {
-            // An older daemon refuses `agent.history`; show none rather than wait.
-            if (s.history_sent and header.err != null) {
-                s.history_sent = false;
-                s.storeHistory(.{ .pending = false }, null);
-                return true;
-            }
-            return false;
-        }) {
+        switch (std.meta.stringToEnum(Kind, header.type) orelse return false) {
             .@"agent.history" => {
                 var arena: std.heap.ArenaAllocator = .init(a);
                 errdefer arena.deinit();
-                const Message = struct { history: History };
+                // A daemon from before updates pushes the whole list as `history`.
+                const Message = struct { update: ?launch_history.Update = null, history: ?History = null };
                 const message = try std.json.parseFromValueLeaky(Message, arena.allocator(), parsed.value, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
-                // A pending list is the last read; a fresh one follows.
-                s.history_sent = message.history.pending;
-                s.storeHistory(message.history, arena);
+                const update: launch_history.Update = message.update orelse .{ .epoch = 0, .revision = 0, .full = true, .entries = (message.history orelse return false).entries };
+                try s.applyHistory(update, arena);
                 return true;
             },
             .@"agent.preview" => {},
@@ -182,11 +157,31 @@ pub const Stream = struct {
         s.received = true;
         return changed;
     }
-    fn storeHistory(s: *Stream, history: History, arena: ?std.heap.ArenaAllocator) void {
+    /// Merge `update`, parsed into `arena`, which becomes the list's home.
+    fn applyHistory(s: *Stream, update: launch_history.Update, arena: std.heap.ArenaAllocator) !void {
+        var home = arena;
+        const alloc = home.allocator();
+        var entries: std.ArrayList(Entry) = .empty;
+        if (!update.full) {
+            var replaced: std.StringHashMapUnmanaged(void) = .empty;
+            for (update.entries) |e| try replaced.put(alloc, try key(alloc, e.provider, e.session), {});
+            for (update.removed) |r| try replaced.put(alloc, try key(alloc, r.provider, r.session), {});
+            for (s.history.entries) |e| {
+                if (replaced.contains(try key(alloc, e.provider, e.session))) continue;
+                try entries.append(alloc, try launch_history.clone(alloc, e));
+            }
+        }
+        try entries.appendSlice(alloc, update.entries);
+        std.mem.sort(Entry, entries.items, {}, newer);
         if (s.history_arena) |*old| old.deinit();
-        s.history_arena = arena;
-        s.history = history;
-        s.history_at = std.time.milliTimestamp();
+        s.history_arena = home;
+        s.history = .{ .pending = false, .entries = entries.items };
+    }
+    fn key(alloc: std.mem.Allocator, provider: Provider, session: []const u8) ![]const u8 {
+        return std.fmt.allocPrint(alloc, "{t}:{s}", .{ provider, session });
+    }
+    fn newer(_: void, x: Entry, y: Entry) bool {
+        return x.updated_at > y.updated_at;
     }
 };
 
@@ -219,32 +214,35 @@ test "preview stream handles partial and consecutive messages and ignores old di
     try std.testing.expectEqualStrings("updated", stream.preview.options.getPtr(.codex).model.text());
 }
 
-test "history arrives on the preview stream and an old daemon's refusal ends the wait" {
+test "the stream follows conversations: the whole list, then what changed" {
     var pair: [2]c_int = undefined;
     if (os.c.socketpair(os.c.AF_UNIX, os.c.SOCK_STREAM, 0, &pair) != 0) return error.SocketPairFailed;
     defer _ = os.c.close(pair[1]);
     var stream: Stream = .{ .fd = pair[0], .cwd = .initTruncated("/a") };
     defer stream.deinit();
-    stream.requestHistory(0);
-    try std.testing.expect(stream.history_sent);
-    var request: [256]u8 = undefined;
-    const n = os.c.recv(pair[1], &request, request.len, 0);
-    try std.testing.expect(std.mem.indexOf(u8, request[0..@intCast(n)], "\"op\":\"agent.history\"") != null);
-    try os.sendJson(pair[1], .{ .type = "agent.history", .history = History{ .pending = false, .entries = &.{
-        .{ .provider = .claude, .session = "s1", .title = "Sidebar flicker", .cwd = "/a", .updated_at = 5 },
+    try std.testing.expect(stream.history.pending);
+    try os.sendJson(pair[1], .{ .type = "agent.history", .update = launch_history.Update{ .epoch = 7, .revision = 2, .full = true, .entries = &.{
+        .{ .provider = .claude, .session = "s1", .title = "Older", .cwd = "/a", .updated_at = 5 },
+        .{ .provider = .codex, .session = "s2", .title = "Newer", .cwd = "/a", .updated_at = 9 },
     } } });
     try std.testing.expect(try stream.drain());
-    try std.testing.expect(!stream.history_sent);
-    try std.testing.expectEqual(@as(usize, 1), stream.history.entries.len);
-    try std.testing.expectEqualStrings("Sidebar flicker", stream.history.entries[0].title);
-    // Recent enough: no second request.
-    stream.requestHistory(60_000);
-    try std.testing.expect(!stream.history_sent);
-    stream.requestHistory(0);
-    try std.testing.expect(stream.history_sent);
-    _ = os.c.recv(pair[1], &request, request.len, 0);
-    try os.sendJson(pair[1], .{ .err = "UnknownOperation" });
+    try std.testing.expect(!stream.history.pending);
+    try std.testing.expectEqualStrings("Newer", stream.history.entries[0].title);
+    // s1 is used again and s2 is gone.
+    try os.sendJson(pair[1], .{ .type = "agent.history", .update = launch_history.Update{
+        .epoch = 7,
+        .revision = 4,
+        .full = false,
+        .entries = &.{.{ .provider = .claude, .session = "s1", .title = "Older, used again", .cwd = "/a", .updated_at = 12 }},
+        .removed = &.{.{ .provider = .codex, .session = "s2" }},
+    } });
     try std.testing.expect(try stream.drain());
-    try std.testing.expect(!stream.history_sent and !stream.history.pending);
-    try std.testing.expectEqual(@as(usize, 0), stream.history.entries.len);
+    try std.testing.expectEqual(@as(usize, 1), stream.history.entries.len);
+    try std.testing.expectEqualStrings("Older, used again", stream.history.entries[0].title);
+    // A daemon from before updates sends the whole list as `history`.
+    try os.sendJson(pair[1], .{ .type = "agent.history", .history = History{ .pending = false, .entries = &.{
+        .{ .provider = .claude, .session = "s3", .title = "From an older daemon", .cwd = "/a", .updated_at = 1 },
+    } } });
+    try std.testing.expect(try stream.drain());
+    try std.testing.expectEqualStrings("From an older daemon", stream.history.entries[0].title);
 }

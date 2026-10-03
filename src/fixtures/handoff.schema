@@ -218,6 +218,7 @@ $.clients[].launch_preview?.preview.installed.codex: bool
 $.clients[].launch_preview?.preview.installed.claude: bool
 $.clients[].launch_preview?.checked: i64
 $.clients[].launch_preview?.history_asked: bool
+$.clients[].launch_preview?.history_epoch: u64
 $.clients[].launch_preview?.history_sent: u64
 $.clients[].snapshot_revision: optional
 $.clients[].snapshot_revision?: u64

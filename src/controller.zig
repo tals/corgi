@@ -29,6 +29,7 @@ const sidebar_rows = @import("sidebar_rows.zig");
 const agent_launcher = @import("agent_launcher.zig");
 const launch_preview_stream = @import("launch_preview_stream.zig");
 const launcher_resume = @import("launcher_resume.zig");
+const launch_history = @import("launch.zig").history;
 const corgi_setup = @import("corgi_setup.zig");
 const inference_setup = @import("inference.zig").setup;
 const link_tooltip = @import("link_tooltip.zig");
@@ -43,6 +44,8 @@ const vt = @import("pane.zig").terminal.vt;
 const Command = @import("protocol.zig").Command;
 const BoundedText = @import("bounded_text.zig").BoundedText;
 const Path = @import("bounded_text.zig").Path;
+/// A conversation a pane stopped running, and when, in seconds.
+const Stopped = struct { provider: agents.Provider, session: agents.Text, at: i64 };
 const Effect = union(enum) {
     write_terminal: []const u8,
     open_url: []const u8,
@@ -156,6 +159,13 @@ pub const Controller = struct {
     /// The launcher row last left selected in any workspace.
     launcher_selection: ?agent_launcher.Row = null,
     launch_previews: launch_preview_stream.Stream = .{},
+    /// The conversations an open launcher shows; it keeps them while open.
+    resume_arena: ?std.heap.ArenaAllocator = null,
+    /// Conversations panes run, and recent ones that stopped, with when.
+    running: [launcher_resume.max_open]launcher_resume.Open = undefined,
+    running_count: usize = 0,
+    stopped: [32]Stopped = undefined,
+    stopped_count: usize = 0,
     corgi_setup: ?corgi_setup.Menu = null,
     launcher_hover_blocked: bool = false,
     pointer: ?render.Pointer = null,
@@ -1187,10 +1197,7 @@ pub const Controller = struct {
         };
         launch.preview = s.launch_previews.current(cwd);
         launch.workspace_cwd = Path.init(s.current().cwd) catch .{};
-        // A first read takes seconds; start it as soon as the launcher opens.
-        s.launch_previews.requestHistory(30_000);
-        launch.history = s.launch_previews.history;
-        s.syncOpenConversations(&launch);
+        s.showHistory(&launch);
         launch.normalize();
         s.agent_launcher = launch;
         s.cancelDividers();
@@ -1259,8 +1266,6 @@ pub const Controller = struct {
             launch.yolo = s.runtime.agent_yolo;
             launch.hidden = s.runtime.agent_hidden;
             launch.commands = s.runtime.agent_commands;
-            s.syncOpenConversations(launch);
-            if (launch.resume_view.expanded) s.launch_previews.requestHistory(30_000);
             launch.normalize();
             if (launch.workspace != s.current().id or (side.width == 0 and !launch.pinned)) {
                 s.closeLauncher();
@@ -1281,22 +1286,66 @@ pub const Controller = struct {
         if (!s.launch_previews.poll(s.current().id, cwd)) return;
         if (s.agent_launcher) |*launch| {
             launch.preview = s.launch_previews.current(launch.cwd.text());
-            // The stream replaced the conversations the menu pointed at.
-            launch.history = s.launch_previews.history;
+            // An open launcher keeps its list, unless it had none yet.
+            if (launch.history.entries.len == 0 and s.launch_previews.history.entries.len > 0) s.showHistory(launch);
             launch.normalize();
             s.revealResume();
         }
         s.dirty = true;
     }
-    /// The conversations panes run now, which the launcher jumps to.
-    fn syncOpenConversations(s: *Self, launch: *agent_launcher.Menu) void {
-        launch.open_count = 0;
+    /// Give the launcher the conversations as they are now, with this
+    /// Corgi's names and times for the ones it ran.
+    fn showHistory(s: *Self, launch: *agent_launcher.Menu) void {
+        var arena: std.heap.ArenaAllocator = .init(a);
+        const merged = s.mergedHistory(arena.allocator()) catch {
+            arena.deinit();
+            return;
+        };
+        if (s.resume_arena) |*old| old.deinit();
+        s.resume_arena = arena;
+        launch.history = .{ .pending = s.launch_previews.history.pending, .entries = merged };
+        launch.open = s.running;
+        launch.open_count = s.running_count;
+    }
+    fn mergedHistory(s: *Self, alloc: std.mem.Allocator) ![]launch_history.Entry {
+        var known: std.ArrayList(launcher_resume.Known) = .empty;
+        for (s.runtime.conversations) |c| {
+            const provider = c.agent.provider orelse continue;
+            if (c.parent != null or c.agent.session.len == 0) continue;
+            const at = @divTrunc(@max(c.observed_at, c.agent.changed_at), std.time.us_per_s);
+            try known.append(alloc, .{ .provider = provider, .session = c.agent.session, .name = c.agent.name, .at = at });
+        }
+        for (s.stopped[0..s.stopped_count]) |*stop| {
+            try known.append(alloc, .{ .provider = stop.provider, .session = stop.session.text(), .at = stop.at });
+        }
+        return launcher_resume.merge(alloc, s.launch_previews.history.entries, known.items);
+    }
+    /// Note the conversations panes stop running, and when, so a closed one
+    /// sorts by when it closed.
+    fn trackRunning(s: *Self) void {
+        var running: [launcher_resume.max_open]launcher_resume.Open = undefined;
+        var count: usize = 0;
         for (s.runtime.panes.items) |p| {
             const provider = p.agent.provider orelse continue;
-            if (p.agent.session.len == 0 or launch.open_count == launch.open.len) continue;
-            launch.open[launch.open_count] = .{ .provider = provider, .session = .initTruncated(p.agent.session), .pane = p.id };
-            launch.open_count += 1;
+            if (p.agent.session.len == 0 or count == running.len) continue;
+            running[count] = .{ .provider = provider, .session = .initTruncated(p.agent.session), .pane = p.id };
+            count += 1;
         }
+        const now = std.time.timestamp();
+        for (s.running[0..s.running_count]) |was| {
+            const still = for (running[0..count]) |is| {
+                if (is.provider == was.provider and std.mem.eql(u8, is.session.text(), was.session.text())) break true;
+            } else false;
+            if (still) continue;
+            if (s.stopped_count == s.stopped.len) {
+                std.mem.copyForwards(Stopped, s.stopped[0 .. s.stopped.len - 1], s.stopped[1..]);
+                s.stopped_count -= 1;
+            }
+            s.stopped[s.stopped_count] = .{ .provider = was.provider, .session = was.session, .at = now };
+            s.stopped_count += 1;
+        }
+        s.running = running;
+        s.running_count = count;
     }
     /// Expand the conversations under the agents, searching when asked.
     fn expandResume(s: *Self, searching: bool) void {
@@ -1304,7 +1353,6 @@ pub const Controller = struct {
         if (!launch.hasResume()) return;
         launch.pinned = true;
         if (searching) launch.resume_view.startSearch() else launch.resume_view.expand();
-        s.launch_previews.requestHistory(30_000);
         s.revealResume();
         s.dirty = true;
     }
@@ -2743,6 +2791,7 @@ pub const Controller = struct {
         const previous_workspace = if (s.runtime.workspaces.items.len > 0) s.current().id else WorkspaceId.none;
         const previous_token = if (s.runtime.workspaces.items.len > 0) s.model().revision else 0;
         try s.runtime.receive(s.connection, snapshot);
+        s.trackRunning();
         if (previous_workspace != s.current().id or previous_token != s.model().revision) s.cancelDividers();
         if (previous_focus != layout.PaneId.none and previous_focus != (if (s.focused()) |p| p.id else layout.PaneId.none)) {
             s.copy_mode = false;

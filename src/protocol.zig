@@ -87,9 +87,10 @@ pub const Request = union(enum) {
     @"agent.command.preview": struct { workspace: WorkspaceId, cwd: []const u8 = "", request: u64, command: []const u8 = "" },
     @"agent.preview": Launch,
     @"agent.track_usage": Launch,
-    /// Conversations the launcher can resume. On an `agent.subscribe`
-    /// connection the reply is an `agent.history` message once read.
-    @"agent.history",
+    /// Conversations the launcher can resume. With `follow` on an
+    /// `agent.subscribe` connection, the daemon pushes `agent.history`
+    /// updates instead of replying: the whole list, then what changes.
+    @"agent.history": struct { follow: bool = false },
     @"viewer.list",
     /// `pane` is the caller's pane, for the actions that return to it.
     action: struct { name: []const u8 = "", value: []const u8 = "", viewer: ?u32 = null, pane: ?layout.PaneId = null },

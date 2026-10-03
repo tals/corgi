@@ -12,9 +12,10 @@ pub const LaunchPreview = struct {
     cwd: Path,
     preview: Preview,
     checked: i64 = 0,
-    /// The viewer asked for conversations and waits for a current read;
-    /// the read it was sent last. Read numbers restart with each daemon.
+    /// The viewer asked to follow the conversations it can resume; the
+    /// daemon's list and the revision of it the viewer was sent last.
     history_asked: bool = false,
+    history_epoch: u64 = 0,
     history_sent: u64 = 0,
 };
 pub const Client = struct {

@@ -60,6 +60,37 @@ pub const Context = struct {
     }
 };
 
+/// What this Corgi knows about a conversation it ran: the name its sidebar
+/// showed, and when it last saw or closed it, in seconds.
+pub const Known = struct { provider: Provider, session: []const u8, name: []const u8 = "", at: i64 = 0 };
+
+/// `entries` as this Corgi knows them, newest first, copied into `alloc`:
+/// its names, and its times when later than the transcript's.
+pub fn merge(alloc: std.mem.Allocator, entries: []const Entry, known: []const Known) ![]Entry {
+    var by_session: std.StringHashMapUnmanaged(Known) = .empty;
+    for (known) |k| {
+        const slot = try by_session.getOrPut(alloc, try std.fmt.allocPrint(alloc, "{t}:{s}", .{ k.provider, k.session }));
+        if (!slot.found_existing) {
+            slot.value_ptr.* = k;
+            continue;
+        }
+        if (slot.value_ptr.name.len == 0) slot.value_ptr.name = k.name;
+        slot.value_ptr.at = @max(slot.value_ptr.at, k.at);
+    }
+    const out = try alloc.alloc(Entry, entries.len);
+    for (entries, out) |e, *merged| {
+        merged.* = try launch_history.clone(alloc, e);
+        const k = by_session.get(try std.fmt.allocPrint(alloc, "{t}:{s}", .{ e.provider, e.session })) orelse continue;
+        if (k.name.len > 0) merged.title = try alloc.dupe(u8, k.name);
+        merged.updated_at = @max(merged.updated_at, k.at);
+    }
+    std.mem.sort(Entry, out, {}, newer);
+    return out;
+}
+fn newer(_: void, x: Entry, y: Entry) bool {
+    return x.updated_at > y.updated_at;
+}
+
 /// How many conversations show before the list is expanded.
 pub const collapsed_rows = 5;
 
@@ -646,4 +677,26 @@ test "day headings and ages" {
     try std.testing.expectEqualStrings("36m", ageLabel(&buf, 36 * 60));
     try std.testing.expectEqualStrings("3d", ageLabel(&buf, 3 * 86400 + 5));
     try std.testing.expectEqualStrings("5w", ageLabel(&buf, 35 * 86400));
+}
+
+test "a conversation closed here comes first, under the name the sidebar showed" {
+    var entries: [7]Entry = undefined;
+    const names = "abcdefg";
+    for (&entries, 0..) |*e, i| e.* = testEntry(names[i..][0..1], "/w/corgi", "Busy", 900 - @as(i64, @intCast(i)));
+    // "review" last wrote its transcript long before it was closed.
+    entries[6].title = "5b5101b6 review";
+    entries[6].updated_at = 100;
+    const known = [_]Known{
+        .{ .provider = .claude, .session = "g", .name = "Review of 5b5101b6", .at = 500 },
+        .{ .provider = .claude, .session = "g", .at = 1000 },
+    };
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const merged = try merge(arena.allocator(), &entries, &known);
+    const c: Context = .{ .history = .{ .pending = false, .entries = merged }, .folder = "/w/corgi", .workspace_folder = "/w", .open = &.{}, .now = 1000 };
+    var v: View = .{};
+    var storage: [max_lines]Line = undefined;
+    const rows = v.lines(c, &storage);
+    try std.testing.expectEqualStrings("Review of 5b5101b6", v.entry(c, rows).?.title);
+    try std.testing.expectEqual(@as(i64, 1000), v.entry(c, rows).?.updated_at);
 }

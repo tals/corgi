@@ -62,7 +62,8 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
 `,
     );
     this.env.PATH = `${root}:${this.env.PATH ?? ""}`;
-    mkdirSync(this.env.CLAUDE_CONFIG_DIR!, { recursive: true });
+    // The daemon watches where Claude writes transcripts from the start.
+    mkdirSync(join(this.env.CLAUDE_CONFIG_DIR!, "projects"), { recursive: true });
     writeFileSync(
       join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"),
       JSON.stringify({
@@ -1339,6 +1340,8 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     this.assertEqual((await this.session()).inference.choice, "off");
   }
   async test_launcher_resumes_a_closed_conversation_in_its_folder() {
+    const view = await Viewer.create(this, 120, 30);
+    // Written while Corgi runs: the daemon notices it without being asked.
     const session = "4f1c2b9e-0a6d-4c1e-9b7f-2d3e4f5a6b7c";
     const project = join(this.env.CLAUDE_CONFIG_DIR!, "projects", "fixture");
     mkdirSync(project, { recursive: true });
@@ -1357,16 +1360,16 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
         prompt("does it work on linux?"),
       ].join("\n") + "\n",
     );
-    const view = await Viewer.create(this, 120, 30);
-    await view.input("\x02a");
     // The newest closed conversations sit under the agents.
     await this.until(async () => {
-      const rows = screen_text((await view.poll()).data, 120, 30);
-      return rows.some(
+      const rows = screen_text((await view.input("\x02a")).data, 120, 30);
+      const shown = rows.some(
         (row) =>
           row.includes("Sidebar flicker fixture") &&
           row.includes("does it work on linux?"),
       );
+      if (!shown) await view.input("\x1b");
+      return shown;
     }, 20);
     await view.input("/flicker");
     await this.until(async () =>

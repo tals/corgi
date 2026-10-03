@@ -100,18 +100,29 @@ under a new id are left out, and so are conversations that only asked for a
 commit (`$commit-all`), which search still finds. Claude Code keeps transcripts
 for 30 days by default; Codex keeps its threads.
 
-The daemon reads conversations on its own worker, so a slow Codex App Server
-never delays previews: Claude transcripts by their first 128 KB and a tail that
-grows until it holds the last prompt, and Codex threads through `thread/list`
-on an App Server that runs only while it reads. Files are reread only when they
-change. A first read takes a few seconds; the viewer asks for one when the
-launcher opens and shows the list once it arrives, then refreshes it when it is
-over 30 seconds old.
+The daemon keeps the list current on its own worker. It reads everything once
+when it starts: Claude transcripts by their first 128 KB and a tail that grows
+until it holds the last prompt, and Codex threads through `thread/list` on an
+App Server that runs only while it lists. After that it rereads only what
+changes. `fs_watch.zig` watches `<claude config>/projects` and the Codex home
+(FSEvents on macOS, inotify on Linux), and a busy transcript is reread once
+its writes settle for a second. A new Codex thread or a rename lists the most
+recent page of threads again. With nothing changing, the worker sleeps. Where
+watching cannot start, it rereads everything every five minutes.
 
-`agent.history` returns the conversations. On an `agent.subscribe` connection
-the daemon pushes `{type: "agent.history", history}` instead: its last read at
-once, marked pending, then a current one. The session command `agent.resume`
-(workspace, cwd, provider, session) starts the resumed agent.
+Viewers follow the list instead of asking for it, so opening the launcher does
+no work. The daemon sends each viewer the whole list once, then only the
+conversations that changed or went away. The launcher keeps the list it opened
+with, so rows never move while it is open. The viewer adds what Corgi knows
+about conversations it ran: the name its sidebar showed, and when it last saw
+or closed them, so a conversation you just closed comes first.
+
+`agent.history` returns the list. With `follow` on an `agent.subscribe`
+connection, the daemon pushes `{type: "agent.history", update}` messages
+instead: `update.full` replaces the list, otherwise `entries` replace those
+with the same provider and session and `removed` drops some. The session
+command `agent.resume` (workspace, cwd, provider, session) starts the resumed
+agent.
 
 ## Manage agents and saved commands
 
