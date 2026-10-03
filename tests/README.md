@@ -36,6 +36,10 @@ CORGI_TEST_BIN=/path/to/corgi bun test tests/cli.test.ts
 bun run tests/run.ts --check --external --dev
 ```
 
+Set `CORGI_OLD_EXE` to a test-enabled binary from the previous release when
+running `updates`; its first fixture version then uses that binary to exercise
+the real cross-version handoff.
+
 `--check` parses and bundles the suites without executing them; it is not a
 replacement for running the tests. The former smoke suite is split into
 `smoke`, `smoke_input`, and `smoke_terminal`. Scenarios retain their original

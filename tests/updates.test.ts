@@ -48,8 +48,10 @@ async function waitFor(fn: () => Promise<boolean>) {
   throw new Error("Timed out");
 }
 beforeAll(async () => {
-  const binary = await readFile(EXE);
+  const current = await readFile(EXE);
   for (const v of ["1.0.0", "1.0.1"]) {
+    const binary = v === "1.0.0" && process.env.CORGI_OLD_EXE
+      ? await readFile(process.env.CORGI_OLD_EXE) : current;
     await mkdir(dirname(fixture(v)), { recursive: true });
     await writeFile(fixture(v), binary, { mode: 0o755 });
     binaries.set(v, binary);
@@ -83,10 +85,15 @@ test("explicit update preserves real pane PID and supports rollback", async () =
   const session = await rpc({ op: "session.snapshot", protocol: 1 });
   await rpc({ op: "session.command", protocol: 1, command: { "pane.create": { workspace: session.workspaces[0].id, cwd: home, command: "exec /bin/sh" } } });
   const before = await rpc({ op: "session.snapshot", protocol: 1 });
+  const pane = before.panes[0].id;
+  await rpc({ op: "session.command", protocol: 1, command: { "pane.input": { target: pane, data: "printf 'BEFORE_UPDATE\\n'\r" } } });
+  await waitFor(async () => (await rpc({ op: "session.command", protocol: 1, command: { "pane.read": { target: pane, view: "screen" } } })).result.text.includes("BEFORE_UPDATE"));
   await cli(["update"]);
   const after = await rpc({ op: "session.snapshot", protocol: 1 });
   expect(after.server_pid).not.toBe(before.server_pid);
   expect(after.panes[0].pid).toBe(before.panes[0].pid);
+  await rpc({ op: "session.command", protocol: 1, command: { "pane.input": { target: pane, data: "printf 'AFTER_UPDATE\\n'\r" } } });
+  await waitFor(async () => (await rpc({ op: "session.command", protocol: 1, command: { "pane.read": { target: pane, view: "screen" } } })).result.text.includes("AFTER_UPDATE"));
   expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.1");
   await cli(["update", "rollback"]);
   expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.0");
