@@ -1,6 +1,7 @@
 //! Ordered JSON migrations at the persistence seam. Runtime code consumes only
 //! the current schema; historical representations belong in the steps.
 const std = @import("std");
+const os = @import("../os.zig");
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;
 const state_steps = @import("steps.zig");
@@ -149,8 +150,8 @@ pub fn expectWireSchema(comptime T: type, comptime sealed: []const type, comptim
 }
 
 fn expectShape(actual: []const u8, comptime path: []const u8, snapshot: []const u8, comptime format: []const u8, comptime advice: []const u8) !void {
-    if (std.process.hasEnvVarConstant("CORGI_UPDATE_SCHEMA")) {
-        try std.fs.cwd().writeFile(.{ .sub_path = path, .data = actual });
+    if ((os.env("CORGI_UPDATE_SCHEMA") != null)) {
+        try std.Io.Dir.cwd().writeFile(os.io(), .{ .sub_path = path, .data = actual });
         return;
     }
     if (std.mem.eql(u8, actual, snapshot)) return;
@@ -193,8 +194,8 @@ fn expectStep(step: state_steps.Step, comptime out_path: []const u8, in: []const
     var value = try std.json.parseFromSliceLeaky(Value, alloc, in, .{});
     try step(alloc, &value);
     const actual = try std.fmt.allocPrint(alloc, "{f}\n", .{std.json.fmt(value, .{ .whitespace = .indent_2 })});
-    if (std.process.hasEnvVarConstant("CORGI_UPDATE_SCHEMA")) {
-        try std.fs.cwd().writeFile(.{ .sub_path = out_path, .data = actual });
+    if ((os.env("CORGI_UPDATE_SCHEMA") != null)) {
+        try std.Io.Dir.cwd().writeFile(os.io(), .{ .sub_path = out_path, .data = actual });
         return;
     }
     if (std.mem.eql(u8, actual, out)) return;

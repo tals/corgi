@@ -119,7 +119,7 @@ const Connection = struct {
     }
     fn poll(s: *Connection, stopping: *const std.atomic.Value(bool), deadline: i64) !void {
         if (stopping.load(.acquire)) return error.Cancelled;
-        if (std.time.milliTimestamp() >= deadline) return error.Timeout;
+        if (os.milliTimestamp() >= deadline) return error.Timeout;
         defer s.collectUsage() catch |err| {
             s.system_usage.markPartial("collecting usage failed: {s}", .{@errorName(err)});
         };
@@ -135,12 +135,12 @@ const Connection = struct {
             s.usage_cursor = event.seq;
             const parsed = try std.json.parseFromSlice(std.json.Value, a, event.line, .{});
             defer parsed.deinit();
-            s.usage_tracker.ingest(parsed.value, s.system_usage, std.time.milliTimestamp());
+            s.usage_tracker.ingest(parsed.value, s.system_usage, os.milliTimestamp());
         }
     }
     fn idle(s: *Connection) !void {
         if (s.transport.exited or s.transport.reap()) return error.HarnessExited;
-        std.Thread.sleep(10 * std.time.ns_per_ms);
+        os.sleep(10 * std.time.ns_per_ms);
     }
     fn rpc(s: *Connection, method: []const u8, params: anytype, stopping: *const std.atomic.Value(bool), deadline: i64) !std.json.Parsed(std.json.Value) {
         const id = s.next_id;
@@ -240,7 +240,7 @@ pub const Pool = struct {
                 entry.* = .{ .thread = item.key_ptr.*, .tokens = item.value_ptr.* };
             }
             out.* = .{
-                .pid = transport.child.id,
+                .pid = transport.child.id.?,
                 .stdin = if (transport.child.stdin) |file| file.handle else -1,
                 .stdout = if (transport.child.stdout) |file| file.handle else -1,
                 .exited = transport.exited,
@@ -287,7 +287,6 @@ pub const Pool = struct {
                     .id = NativeId.none,
                     .provider = saved.config.provider,
                     .cwd = try a.dupe(u8, "/tmp"),
-                    .child = std.process.Child.init(&.{}, a),
                     .ready = s.ready,
                     .exited = s.exited,
                     .imported = true,
@@ -309,8 +308,8 @@ pub const Pool = struct {
             @memcpy(connection.thread[0..s.thread.len], s.thread);
             const transport = &connection.transport;
             transport.child.id = s.pid;
-            transport.child.stdin = .{ .handle = s.stdin };
-            transport.child.stdout = .{ .handle = s.stdout };
+            transport.child.stdin = .{ .handle = s.stdin, .flags = .{ .nonblocking = true } };
+            transport.child.stdout = .{ .handle = s.stdout, .flags = .{ .nonblocking = true } };
             os.cloexec(s.stdin);
             os.cloexec(s.stdout);
             transport.input = .fromOwnedSlice(try binary.decode(a, s.input));
@@ -362,7 +361,7 @@ pub const Pool = struct {
         if (request.conversation) |key| if (key.len == 0 or key.len > 512) return error.InvalidConversation;
         p.working.store(true, .release);
         defer p.working.store(false, .release);
-        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        const deadline = os.milliTimestamp() + p.config.timeout_ms;
         const index = p.select(request);
         const slot = &p.slots[index];
         errdefer if (slot.*) |*s| {
@@ -437,7 +436,7 @@ pub const Pool = struct {
     /// harness cap alongside the four inference connections.
     pub fn configuredModel(p: *Pool, cwd: []const u8, stopping: *const std.atomic.Value(bool)) !Response {
         const slot = &p.slots[0];
-        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        const deadline = os.milliTimestamp() + p.config.timeout_ms;
         errdefer if (slot.*) |*connection| {
             connection.close();
             slot.* = null;
@@ -466,7 +465,7 @@ pub const Pool = struct {
     }
     pub fn configuredAccount(p: *Pool, stopping: *const std.atomic.Value(bool)) !metadata.Info {
         const slot = &p.slots[0];
-        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        const deadline = os.milliTimestamp() + p.config.timeout_ms;
         errdefer if (slot.*) |*connection| {
             connection.close();
             slot.* = null;
@@ -495,7 +494,7 @@ pub const Pool = struct {
     /// One page of interactive Codex threads, most recently updated first.
     pub fn listThreads(p: *Pool, cursor: ?[]const u8, stopping: *const std.atomic.Value(bool)) !std.json.Parsed(std.json.Value) {
         const slot = &p.slots[0];
-        const deadline = std.time.milliTimestamp() + p.config.timeout_ms;
+        const deadline = os.milliTimestamp() + p.config.timeout_ms;
         errdefer if (slot.*) |*connection| {
             connection.close();
             slot.* = null;
@@ -565,15 +564,15 @@ fn codex(s: *Connection, config: Config, request: Request, stopping: *const std.
         // Disable each configured MCP server before a thread can initialize it.
         const settings = try s.rpc("config/read", .{ .includeLayers = false }, stopping, deadline);
         defer settings.deinit();
-        var overrides: std.json.ObjectMap = .init(a);
+        var overrides: std.json.ObjectMap = .empty;
         defer {
             for (overrides.keys()) |key| a.free(key);
-            overrides.deinit();
+            overrides.deinit(a);
         }
         const servers = field(field(field(settings.value, "result"), "config"), "mcp_servers");
         if (servers == .object) for (servers.object.keys()) |name| {
             const key = try std.fmt.allocPrint(a, "mcp_servers.{s}.enabled", .{name});
-            try overrides.put(key, .{ .bool = false });
+            try overrides.put(a, key, .{ .bool = false });
         };
         const started = try s.rpc("thread/start", .{
             .model = config.model,
@@ -680,7 +679,7 @@ fn claude(s: *Connection, request: Request, stopping: *const std.atomic.Value(bo
 }
 
 fn fixturePool(provider: Provider) !Pool {
-    return .{ .config = .{ .provider = provider, .executable = try std.fs.cwd().realpathAlloc(a, "tests/inference_harness.ts"), .timeout_ms = 3000 } };
+    return .{ .config = .{ .provider = provider, .executable = try os.realpathAlloc(a, .cwd(), "tests/inference_harness.ts"), .timeout_ms = 3000 } };
 }
 fn fixtureValue(response: *const Response, key: []const u8) !i64 {
     const parsed = try std.json.parseFromSlice(std.json.Value, a, response.text(), .{});

@@ -1,4 +1,5 @@
 const std = @import("std");
+const os = @import("os.zig");
 const layout = @import("layout.zig");
 const agents = @import("agents.zig");
 const commands = @import("commands.zig");
@@ -140,7 +141,7 @@ fn noOverlay(ui: Ui) bool {
         ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null;
 }
 fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointer: ?Pointer) !void {
-    const text = std.mem.trimLeft(u8, raw, " ");
+    const text = std.mem.trimStart(u8, raw, " ");
     if (width < 4 or height == 0 or text.len == 0 or !std.unicode.utf8ValidateSlice(text)) return;
     var buffer: [2048]u8 = undefined;
     var clipped = std.Io.Writer.fixed(&buffer);
@@ -306,7 +307,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 try surface.writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
             }
             try w.writeAll("\x1b[0m");
-            if (p.restoring.len > 0) try drawRestoring(w, r, p.restoring, std.time.milliTimestamp() - p.restoring_since);
+            if (p.restoring.len > 0) try drawRestoring(w, r, p.restoring, os.milliTimestamp() - p.restoring_since);
             break;
         };
     }

@@ -11,15 +11,16 @@
 //! though fresh evidence arrives. Stamp such evidence from this clock when
 //! the daemon applies it instead, as `Agent.protocol_at` does.
 const std = @import("std");
+const os = @import("os.zig");
 const enabled = @import("corgi_options").test_build;
 
 var offset_ms: std.atomic.Value(i64) = .init(0);
 
 pub fn milliTimestamp() i64 {
-    return std.time.milliTimestamp() + offset();
+    return os.milliTimestamp() + offset();
 }
 pub fn microTimestamp() i64 {
-    return std.time.microTimestamp() + offset() * std.time.us_per_ms;
+    return os.microTimestamp() + offset() * std.time.us_per_ms;
 }
 pub fn advance(ms: i64) void {
     if (enabled) _ = offset_ms.fetchAdd(ms, .monotonic);

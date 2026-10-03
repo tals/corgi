@@ -515,7 +515,7 @@ pub const Runtime = struct {
         p.launch = launch;
         // Its conversation shows at once, by name, before the agent reports in.
         if (r.conversations.get(provider, hint.session.text())) |actor| {
-            actor.state.reopened(std.time.microTimestamp());
+            actor.state.reopened(os.microTimestamp());
             if (actor.state.name.len == 0) actor.state.name = hint.name;
             if (actor.workspace == WorkspaceId.none) actor.workspace = opts.workspace;
             p.attachment.select(actor);

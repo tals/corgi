@@ -210,7 +210,7 @@ pub const Runtime = struct {
             panes.deinit(a);
         }
         try panes.ensureTotalCapacity(a, snapshot.panes.len);
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         for (snapshot.panes) |info| {
             const previous = r.pane(info.id);
             const term = if (previous) |old| old.terminal else blk: {

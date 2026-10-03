@@ -1,5 +1,6 @@
 //! Usage from Corgi's own fresh, tool-free inference conversations.
 const std = @import("std");
+const os = @import("../os.zig");
 const live = @import("../usage.zig").live;
 const common = @import("../providers/common.zig");
 const Claude = @import("../providers/claude.zig").Claude;
@@ -13,7 +14,7 @@ pub const System = struct {
     /// server.log with enough context to tell a real loss from a false alarm.
     pub fn markPartial(system: *System, comptime reason: []const u8, args: anytype) void {
         log.warn("{d} partial{s} after {d} reports, {d} tokens: " ++ reason, .{
-            std.time.milliTimestamp(),
+            os.milliTimestamp(),
             if (system.meter.value.partial) " (again)" else "",
             system.reports,
             system.meter.value.tokens.total(),

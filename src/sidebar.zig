@@ -1,4 +1,5 @@
 const std = @import("std");
+const os = @import("os.zig");
 const ActorId = @import("conversations.zig").Actor.Id;
 const NativeId = @import("native.zig").Session.Id;
 const workspace = @import("workspace.zig");
@@ -338,7 +339,7 @@ pub const View = struct {
         return x >= range.start and x < range.end;
     }
     pub fn draw(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry) !void {
-        return v.drawAt(w, entries, workspaces, std.time.milliTimestamp());
+        return v.drawAt(w, entries, workspaces, os.milliTimestamp());
     }
     fn drawAt(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry, now_ms: i64) !void {
         corgi_animation.beginFrame();
@@ -1400,7 +1401,7 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
     }
     if (writer) |w| {
         try w.writeAll("\x1b[4;38;2;137;180;250m");
-        try writePortLabel(w, label, width, portName(ws) == null, std.time.milliTimestamp());
+        try writePortLabel(w, label, width, portName(ws) == null, os.milliTimestamp());
         if (count == 1) try w.writeAll("\x1b]8;;\x1b\\");
         try w.writeAll("\x1b[24;38;2;155;163;175m");
         if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
@@ -1512,7 +1513,7 @@ pub const PortMenu = struct {
             var label_buf: [384]u8 = undefined;
             const naming = name.len == 0 and workspaceUrlPending(ws, index);
             const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else if (naming) try std.fmt.bufPrint(&label_buf, "Open ... · {s}", .{url}) else url;
-            try writePortLabel(w, label, rect.w - 4, naming, std.time.milliTimestamp());
+            try writePortLabel(w, label, rect.w - 4, naming, os.milliTimestamp());
             try w.writeAll("\x1b]8;;\x1b\\");
         }
     }
@@ -1672,7 +1673,7 @@ fn gitLabel(buf: []u8, ws: WorkspaceEntry, expanded: bool) []const u8 {
     switch (ws.git_push.phase) {
         .pushing => {
             const frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-            const i: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 80), frames.len));
+            const i: usize = @intCast(@mod(@divFloor(os.milliTimestamp(), 80), frames.len));
             return std.fmt.bufPrint(buf, " Pushing {s}", .{frames[i]}) catch "";
         },
         .succeeded => return " Pushed ✓",
@@ -1775,7 +1776,7 @@ pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u1
         try writeEllipsis(w, item.subject, (width - 6) -| item.hash.len);
         try w.print("\x1b[{d};{d}H\x1b[38;2;127;132;156m", .{ y + 4 + i * 2, x + 5 });
         var age_buf: [48]u8 = undefined;
-        const age = relativeTime(&age_buf, item.timestamp, std.time.timestamp());
+        const age = relativeTime(&age_buf, item.timestamp, os.timestamp());
         const timing = try std.fmt.bufPrint(&buf, "{s} · {s}", .{ item.date, age });
         const author_room = @min(24, (width - 9) -| displayWidth(timing));
         if (author_room > 0) {
@@ -1847,9 +1848,9 @@ test "scope menu offers only the current workspace and all agents" {
     defer a.free(text);
     var lines = std.mem.splitScalar(u8, text, '\n');
     for (0..b.y + 1) |_| _ = lines.next();
-    try std.testing.expectEqualStrings(" │   This workspace     3 │", std.mem.trimRight(u8, lines.next().?, " "));
-    try std.testing.expectEqualStrings(" │ ✓ All                4 │", std.mem.trimRight(u8, lines.next().?, " "));
-    try std.testing.expectEqualStrings(" ╰────────────────────────╯", std.mem.trimRight(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" │   This workspace     3 │", std.mem.trimEnd(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" │ ✓ All                4 │", std.mem.trimEnd(u8, lines.next().?, " "));
+    try std.testing.expectEqualStrings(" ╰────────────────────────╯", std.mem.trimEnd(u8, lines.next().?, " "));
     for (workspaces) |ws| try std.testing.expect(std.mem.indexOf(u8, text, ws.name) == null);
 }
 
@@ -1879,7 +1880,7 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
     var lines = std.mem.splitScalar(u8, text, '\n');
     for (0..top) |_| _ = lines.next();
     var rows: [6][]const u8 = undefined;
-    for (&rows) |*row| row.* = std.mem.trimRight(u8, lines.next().?[0..@min(80, lines.peek().?.len)], " ");
+    for (&rows) |*row| row.* = std.mem.trimEnd(u8, lines.next().?[0..@min(80, lines.peek().?.len)], " ");
     // The focused agent's rail turns heavy but stays continuous.
     const expected = [_][]const u8{
         "▾ corgi ━━━━━━━━━━━━━ 1● 2 │",

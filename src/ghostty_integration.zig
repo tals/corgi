@@ -29,7 +29,7 @@ fn path() ![]const u8 {
         for ([_][]const u8{ "config.ghostty", "config" }) |name| {
             const candidate = try std.fs.path.join(a, &.{ dir, name });
             defer a.free(candidate);
-            const resolved = std.fs.cwd().realpathAlloc(a, candidate) catch |err| {
+            const resolved = os.realpathAlloc(a, .cwd(), candidate) catch |err| {
                 if (err == error.FileNotFound) continue;
                 return err;
             };
@@ -40,7 +40,7 @@ fn path() ![]const u8 {
 }
 
 fn read(file: []const u8) ![]u8 {
-    return std.fs.cwd().readFileAlloc(a, file, 1024 * 1024) catch |err| {
+    return std.Io.Dir.cwd().readFileAlloc(os.io(), file, a, .limited(1024 * 1024)) catch |err| {
         if (err == error.FileNotFound) return a.dupe(u8, "");
         return err;
     };
@@ -157,19 +157,19 @@ fn apply(keys: ?Keys, existing_only: bool) !bool {
     const updated = try transform(a, bytes, keys);
     defer a.free(updated);
     if (std.mem.eql(u8, bytes, updated)) return false;
-    try std.fs.cwd().makePath(std.fs.path.dirname(file).?);
-    const stat = std.fs.cwd().statFile(file) catch |err| blk: {
+    try std.Io.Dir.cwd().createDirPath(os.io(), std.fs.path.dirname(file).?);
+    const stat = std.Io.Dir.cwd().statFile(os.io(), file, .{}) catch |err| blk: {
         if (err == error.FileNotFound) break :blk null;
         return err;
     };
-    const mode = if (stat) |info| info.mode else 0o600;
+    const permissions: std.Io.File.Permissions = if (stat) |info| info.permissions else .fromMode(0o600);
     // Atomic replacement; another viewer cannot collide with our temporary file.
-    var atomic = try std.fs.cwd().atomicFile(file, .{ .mode = mode, .write_buffer = &.{} });
-    defer atomic.deinit();
-    try atomic.file_writer.file.chmod(mode);
-    try atomic.file_writer.interface.writeAll(updated);
-    try atomic.file_writer.file.sync();
-    try atomic.finish();
+    var atomic = try std.Io.Dir.cwd().createFileAtomic(os.io(), file, .{ .permissions = permissions, .replace = true });
+    defer atomic.deinit(os.io());
+    try atomic.file.setPermissions(os.io(), permissions);
+    try atomic.file.writeStreamingAll(os.io(), updated);
+    try atomic.file.sync(os.io());
+    try atomic.replace(os.io());
     return true;
 }
 

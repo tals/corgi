@@ -22,12 +22,11 @@ Build and test through `./scripts/zig`, never bare `zig`:
 ./scripts/zig build test
 ```
 
-Corgi requires exactly Zig 0.15.2. Zig breaks its APIs between minor releases,
-and the pinned Ghostty commit targets 0.15.2. A newer `zig` may be first on
-PATH (such as Homebrew's 0.16.0); running it fails with `Your Zig version v0.16.0
-does not meet the required build version of v0.15.2` or `no field or member
-function named 'linkLibC'`. `scripts/zig` uses `$ZIG`, a 0.15.2 `zig` on PATH,
-or the project copy in `.tools/zig-aarch64-macos-0.15.2/`, and refuses any other
+Corgi requires exactly Zig 0.16.0. Zig breaks its APIs between minor releases,
+and the pinned Ghostty commit targets 0.16.0. Another `zig` may be first on
+PATH; running it fails with `Your Zig version vX does not meet the required
+build version of v0.16.0`. `scripts/zig` uses `$ZIG`, a 0.16.0 `zig` on PATH,
+or the project copy in `.tools/zig-aarch64-macos-0.16.0/`, and refuses any other
 version.
 
 ## Zig style
@@ -94,6 +93,11 @@ to the import alias rule.
   writes to a client that may be gone.
 - Anything in a periodic loop warns once per distinct failure, not every
   cycle: keep a `Failure` (`failure.zig`) per job.
+
+**I/O.** Files, clocks, sleeps, locks and child processes take a `std.Io`:
+pass `os.io()`, which is `std.testing.io` in tests. Use `os.milliTimestamp`,
+`os.sleep` and `os.Timer` for time, and `compat.timedWait` to wait on a
+condition with a timeout.
 
 **Types.** Prefer concrete types (`*Server`, `*Client`) to `anytype`; circular
 imports are fine in Zig. Keep `anytype` for real generics or test fakes.

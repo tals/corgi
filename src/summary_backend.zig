@@ -10,6 +10,7 @@ const setup = @import("inference.zig").setup;
 const os = @import("os.zig");
 const a = os.allocator;
 pub const Input = contract.Input;
+pub const initIo = os.initIo;
 /// `tools_since_last` counts tool calls completed since this agent's previous attempt.
 pub const Source = struct { actor: ActorId, panes: []const layout.PaneId, agent_name: []const u8, session: []const u8, tools_since_last: u64 = 0 };
 
@@ -31,7 +32,7 @@ pub fn outcome(request: u64, discard: ?Discard) void {
     if (request == 0) return;
     log(.{
         .event = "outcome",
-        .at = std.time.milliTimestamp(),
+        .at = os.milliTimestamp(),
         .context = .{ .pid = os.c.getpid(), .request = request },
         .status = if (discard == null) "applied" else "discarded",
         .reason = if (discard) |reason| @tagName(reason) else null,
@@ -74,7 +75,7 @@ pub const Backend = struct {
             return failed;
         } else null;
         defer if (fresh_json) |value| a.free(value);
-        const started = std.time.milliTimestamp();
+        const started = os.milliTimestamp();
         const context = .{ .pid = os.c.getpid(), .request = request_id, .source = source, .turn = turn, .conversation = conversation };
         log(.{
             .event = "request",
@@ -94,16 +95,16 @@ pub const Backend = struct {
             .fresh_content = fresh_json,
             .conversation = conversation,
         }, stopping) catch |err| {
-            log(.{ .event = "result", .at = std.time.milliTimestamp(), .context = context, .status = "inference_error", .err = @errorName(err), .output = @as(?[]const u8, null) });
+            log(.{ .event = "result", .at = os.milliTimestamp(), .context = context, .status = "inference_error", .err = @errorName(err), .output = @as(?[]const u8, null) });
             return failed;
         };
         const decision = contract.parse(a, response.text()) catch |err| {
-            log(.{ .event = "result", .at = std.time.milliTimestamp(), .context = context, .status = "rejected", .err = @errorName(err), .output = response.text(), .fresh_conversation = response.fresh, .usage = response.usage });
+            log(.{ .event = "result", .at = os.milliTimestamp(), .context = context, .status = "rejected", .err = @errorName(err), .output = response.text(), .fresh_conversation = response.fresh, .usage = response.usage });
             return failed;
         };
         log(.{
             .event = "result",
-            .at = std.time.milliTimestamp(),
+            .at = os.milliTimestamp(),
             .context = context,
             .status = if (decision.label == null) "abstained" else "validated",
             .output = response.text(),

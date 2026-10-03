@@ -2,6 +2,7 @@
 //! that hold a prompt, newest first. The launcher preview worker reads them on
 //! request; viewers filter them, so typing a search never waits on the daemon.
 const std = @import("std");
+const compat = @import("../compat.zig");
 const os = @import("../os.zig");
 const a = os.allocator;
 const json = @import("../json.zig");
@@ -50,7 +51,7 @@ const long_tail_bytes = 2 * 1024 * 1024;
 pub const Cache = struct {
     files: std.StringHashMapUnmanaged(Cached) = .empty,
 
-    const Stamp = struct { inode: std.fs.File.INode = 0, size: u64 = 0, mtime: i128 = 0 };
+    const Stamp = struct { inode: std.Io.File.INode = 0, size: u64 = 0, mtime: i128 = 0 };
     /// A Codex summary holds only what its rollout says: `last` and
     /// `interrupted`. `thread/list` supplies the rest fresh.
     const Cached = struct { stamp: Stamp, entry: ?Entry, seen: bool = true };
@@ -63,18 +64,18 @@ pub const Cache = struct {
         }
         c.files.deinit(a);
     }
-    fn stamp(stat: std.fs.File.Stat) Stamp {
-        return .{ .inode = stat.inode, .size = stat.size, .mtime = stat.mtime };
+    fn stamp(stat: std.Io.File.Stat) Stamp {
+        return .{ .inode = stat.inode, .size = stat.size, .mtime = stat.mtime.toNanoseconds() };
     }
     /// What `path` said when it last looked like `stat`, if it was read then.
-    fn lookup(c: *Cache, path: []const u8, stat: std.fs.File.Stat) ?*const Cached {
+    fn lookup(c: *Cache, path: []const u8, stat: std.Io.File.Stat) ?*const Cached {
         const cached = c.files.getPtr(path) orelse return null;
         cached.seen = true;
         return if (std.meta.eql(cached.stamp, stamp(stat))) cached else null;
     }
     /// Keep `entry`, which the cache now owns, as what `path` says. Returns
     /// what it kept: null when there was no room, and `entry` is freed.
-    fn store(c: *Cache, path: []const u8, stat: std.fs.File.Stat, entry: ?Entry) ?Entry {
+    fn store(c: *Cache, path: []const u8, stat: std.Io.File.Stat, entry: ?Entry) ?Entry {
         if (c.files.getPtr(path)) |cached| {
             if (cached.entry) |old| free(old);
             cached.* = .{ .stamp = stamp(stat), .entry = entry };
@@ -172,7 +173,7 @@ fn chore(first: []const u8, title: []const u8) bool {
 
 /// Text a user typed, as opposed to what a client wrote into the prompt.
 fn typed(text: []const u8) bool {
-    const t = std.mem.trimLeft(u8, text, " \n\t");
+    const t = std.mem.trimStart(u8, text, " \n\t");
     if (t.len == 0) return false;
     const injected = [_][]const u8{
         "<command-",   "<local-command",       "<system-reminder",                "<task-notification", "<bash-",
@@ -183,7 +184,7 @@ fn typed(text: []const u8) bool {
     return true;
 }
 fn interruption(text: []const u8) bool {
-    return std.mem.startsWith(u8, std.mem.trimLeft(u8, text, " \n\t"), "[Request interrupted");
+    return std.mem.startsWith(u8, std.mem.trimStart(u8, text, " \n\t"), "[Request interrupted");
 }
 
 /// The complete lines in `bytes`. A tail that starts mid-file skips its first
@@ -279,14 +280,14 @@ fn claudeEntry(arena: std.mem.Allocator, session: []const u8, head: []const u8, 
 }
 
 /// What one transcript says, owned by the caller.
-fn readClaude(path: []const u8, stat: std.fs.File.Stat) ?Entry {
+fn readClaude(path: []const u8, stat: std.Io.File.Stat) ?Entry {
     const session = std.fs.path.stem(path);
     var arena: std.heap.ArenaAllocator = .init(a);
     defer arena.deinit();
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(os.io(), path, .{}) catch return null;
+    defer file.close(os.io());
     const head = readAt(arena.allocator(), file, 0, @min(stat.size, head_bytes)) catch return null;
-    const mtime: i64 = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s));
+    const mtime = stat.mtime.toSeconds();
     var span: u64 = tail_bytes;
     while (true) {
         const start = stat.size -| span;
@@ -305,26 +306,26 @@ fn readClaude(path: []const u8, stat: std.fs.File.Stat) ?Entry {
     }
 }
 
-fn readAt(alloc: std.mem.Allocator, file: std.fs.File, offset: u64, len: u64) ![]u8 {
+fn readAt(alloc: std.mem.Allocator, file: std.Io.File, offset: u64, len: u64) ![]u8 {
     const bytes = try alloc.alloc(u8, len);
-    const n = try file.preadAll(bytes, offset);
+    const n = try file.readPositionalAll(os.io(), bytes, offset);
     return bytes[0..n];
 }
 
 /// One Claude transcript, from the cache while unchanged; null when it is
 /// gone or cannot be resumed.
 fn claudeFile(cache: *Cache, path: []const u8) ?Entry {
-    const stat = std.fs.cwd().statFile(path) catch return null;
+    const stat = std.Io.Dir.cwd().statFile(os.io(), path, .{}) catch return null;
     if (stat.kind != .file) return null;
     return if (cache.lookup(path, stat)) |hit| hit.entry else cache.store(path, stat, readClaude(path, stat));
 }
 
 /// The Claude transcripts in one project folder, copied into `arena`.
 fn claudeProject(arena: std.mem.Allocator, cache: *Cache, folder: []const u8, out: *std.ArrayList(Entry)) !void {
-    var dir = std.fs.openDirAbsolute(folder, .{ .iterate = true }) catch return;
-    defer dir.close();
+    var dir = std.Io.Dir.openDirAbsolute(os.io(), folder, .{ .iterate = true }) catch return;
+    defer dir.close(os.io());
     var files = dir.iterate();
-    while (files.next() catch null) |file| {
+    while (files.next(os.io()) catch null) |file| {
         if (file.kind != .file or !std.mem.endsWith(u8, file.name, ".jsonl")) continue;
         const path = try std.fs.path.join(a, &.{ folder, file.name });
         defer a.free(path);
@@ -334,10 +335,10 @@ fn claudeProject(arena: std.mem.Allocator, cache: *Cache, folder: []const u8, ou
 
 /// Every Claude transcript under `projects`, copied into `arena`.
 fn claudeEntries(arena: std.mem.Allocator, cache: *Cache, projects: []const u8, out: *std.ArrayList(Entry)) !void {
-    var dir = std.fs.openDirAbsolute(projects, .{ .iterate = true }) catch return;
-    defer dir.close();
+    var dir = std.Io.Dir.openDirAbsolute(os.io(), projects, .{ .iterate = true }) catch return;
+    defer dir.close(os.io());
     var it = dir.iterate();
-    while (it.next() catch null) |project| {
+    while (it.next(os.io()) catch null) |project| {
         if (project.kind != .directory) continue;
         const folder = try std.fs.path.join(a, &.{ projects, project.name });
         defer a.free(folder);
@@ -378,11 +379,11 @@ fn codexTail(arena: std.mem.Allocator, tail: []const u8, mid_file: bool) CodexTa
 
 /// What a rollout's tail says, owned by the caller: only `last` and
 /// `interrupted` are set.
-fn readCodex(path: []const u8, stat: std.fs.File.Stat) ?Entry {
+fn readCodex(path: []const u8, stat: std.Io.File.Stat) ?Entry {
     var arena: std.heap.ArenaAllocator = .init(a);
     defer arena.deinit();
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(os.io(), path, .{}) catch return null;
+    defer file.close(os.io());
     var span: u64 = tail_bytes;
     while (true) {
         const start = stat.size -| span;
@@ -448,7 +449,7 @@ fn codexEntries(arena: std.mem.Allocator, cache: *Cache, rollouts: *Rollouts, pa
             const path = str(item, "path");
             if (entry.first.len == 0 or entry.session.len == 0 or entry.cwd.len == 0) continue;
             entry.last = entry.first;
-            if (std.fs.path.isAbsolute(path)) if (std.fs.cwd().statFile(path)) |stat| {
+            if (std.fs.path.isAbsolute(path)) if (std.Io.Dir.cwd().statFile(os.io(), path, .{})) |stat| {
                 try rollouts.note(path, entry.session);
                 const tail = if (cache.lookup(path, stat)) |hit| hit.entry else cache.store(path, stat, readCodex(path, stat));
                 if (tail) |t| {
@@ -479,9 +480,9 @@ const Folders = struct {
     }
     fn exists(f: *Folders, cwd: []const u8) bool {
         if (f.known.get(cwd)) |ok| return ok;
-        const ok = if (std.fs.openDirAbsolute(cwd, .{})) |dir| blk: {
+        const ok = if (std.Io.Dir.openDirAbsolute(os.io(), cwd, .{})) |dir| blk: {
             var d = dir;
-            d.close();
+            d.close(os.io());
             break :blk true;
         } else |_| false;
         f.known.put(a, cwd, ok) catch {};
@@ -680,12 +681,12 @@ pub const Update = struct {
 /// Codex App Server never holds up launcher previews; it runs only while
 /// the worker lists threads.
 pub const Worker = struct {
-    mutex: std.Thread.Mutex = .{},
+    mutex: std.Io.Mutex = .init,
     stopping: std.atomic.Value(bool) = .init(false),
     thread: ?std.Thread = null,
     /// What the worker waits on, so `stop` can end the wait.
     watcher: ?*fs_watch.Watcher = null,
-    wake: std.Thread.Condition = .{},
+    wake: std.Io.Condition = .init,
     store: Store = .{},
     /// The first read finished.
     ready: bool = false,
@@ -694,24 +695,24 @@ pub const Worker = struct {
     pub fn start() !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
-        w.* = .{ .epoch = std.crypto.random.int(u64) | 1 };
+        w.* = .{ .epoch = os.random.int(u64) | 1 };
         w.thread = try std.Thread.spawn(.{}, run, .{w});
         return w;
     }
     pub fn stop(w: *Worker) void {
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         w.stopping.store(true, .release);
         if (w.watcher) |x| x.interrupt();
-        w.wake.signal();
-        w.mutex.unlock();
+        w.wake.signal(os.io());
+        w.mutex.unlock(os.io());
         w.thread.?.join();
         w.store.deinit();
         a.destroy(w);
     }
     /// Every conversation, newest first, copied into `alloc`.
     pub fn snapshot(w: *Worker, alloc: std.mem.Allocator) !History {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         var entries: std.ArrayList(Entry) = .empty;
         for (w.store.items.values()) |item| try entries.append(alloc, try copy(alloc, item.entry));
         std.mem.sort(Entry, entries.items, {}, newer);
@@ -720,8 +721,8 @@ pub const Worker = struct {
     /// What a viewer that has `epoch` at `revision` lacks, copied into
     /// `alloc`; null when it has everything.
     pub fn update(w: *Worker, alloc: std.mem.Allocator, epoch: u64, revision: u64) !?Update {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         if (!w.ready) return null;
         const full = epoch != w.epoch or revision < w.store.forgot;
         if (!full and revision >= w.store.revision) return null;
@@ -755,16 +756,16 @@ pub const Worker = struct {
         while (!w.stopping.load(.acquire)) {
             const x = w.watcher orelse {
                 // Without a watcher, read everything now and then.
-                w.mutex.lock();
-                if (!w.stopping.load(.acquire)) w.wake.timedWait(&w.mutex, unwatched_ms * std.time.ns_per_ms) catch {};
-                w.mutex.unlock();
+                w.mutex.lockUncancelable(os.io());
+                if (!w.stopping.load(.acquire)) compat.timedWait(&w.wake, os.io(), &w.mutex, unwatched_ms * std.time.ns_per_ms) catch {};
+                w.mutex.unlock(os.io());
                 if (w.stopping.load(.acquire)) return;
                 _ = w.setWatcher(roots.watch());
                 w.readAll(roots, &cache, &rollouts);
                 continue;
             };
             // Sleep until something changes; once it does, until writes settle.
-            const settled = settling_since + settle_ms - std.time.milliTimestamp();
+            const settled = settling_since + settle_ms - os.milliTimestamp();
             x.wait(if (settling_since == 0) null else @intCast(std.math.clamp(settled, 0, settle_ms)), &changes);
             if (changes.overflow) {
                 changes.clear();
@@ -773,7 +774,7 @@ pub const Worker = struct {
                 continue;
             }
             if (changes.paths.count() == 0) continue;
-            const now = std.time.milliTimestamp();
+            const now = os.milliTimestamp();
             if (settling_since == 0) settling_since = now;
             if (now - settling_since < settle_ms) continue;
             w.readChanged(roots, &cache, &rollouts, &changes);
@@ -783,8 +784,8 @@ pub const Worker = struct {
     }
     /// Swap the watcher `stop` interrupts; returns the old one.
     fn setWatcher(w: *Worker, watcher: ?*fs_watch.Watcher) ?*fs_watch.Watcher {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         const old = w.watcher;
         w.watcher = watcher;
         // A stop before this watcher existed could not interrupt it.
@@ -806,8 +807,8 @@ pub const Worker = struct {
         var folders: Folders = .{};
         defer folders.deinit();
         const kept = folders.keep(found.items);
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.store.replace(kept, read) catch |err| log.warn("keeping conversations failed: {}", .{err});
         w.ready = true;
     }
@@ -833,7 +834,7 @@ pub const Worker = struct {
                 }
             } else if (Roots.under(roots.codex, path)) {
                 if (rollouts.sessions.get(path)) |session| {
-                    const stat = std.fs.cwd().statFile(path) catch {
+                    const stat = std.Io.Dir.cwd().statFile(os.io(), path, .{}) catch {
                         gone.append(alloc, .{ .provider = .codex, .session = session }) catch {};
                         continue;
                     };
@@ -847,7 +848,7 @@ pub const Worker = struct {
                         if (t.last.len > 0) e.last = t.last;
                         e.interrupted = t.interrupted;
                     }
-                    e.updated_at = @max(e.updated_at, @as(i64, @intCast(@divTrunc(stat.mtime, std.time.ns_per_s))));
+                    e.updated_at = @max(e.updated_at, stat.mtime.toSeconds());
                     found.append(alloc, copy(alloc, e) catch continue) catch continue;
                 } else if (Roots.under(roots.codex_sessions, path) or std.mem.eql(u8, std.fs.path.basename(path), "session_index.jsonl")) {
                     // A new thread, or a rename.
@@ -859,8 +860,8 @@ pub const Worker = struct {
         var folders: Folders = .{};
         defer folders.deinit();
         const kept = folders.keep(found.items);
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         for (kept) |e| w.store.put(e) catch |err| log.warn("keeping a conversation failed: {}", .{err});
         for (gone.items) |g| w.store.remove(g.provider, g.session);
     }

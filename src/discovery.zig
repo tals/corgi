@@ -23,11 +23,11 @@ pub fn resolve(provider: Provider, cwd: ?[]const u8) ![]const u8 {
     const command = info.executables[0];
     if (os.env(info.binary_env)) |path| if (path.len > 0 or info.version_prefix == null) return a.dupe(u8, path);
     const version_prefix = info.version_prefix orelse return a.dupe(u8, command);
-    const current = try std.process.getCwdAlloc(a);
+    const current = try std.process.currentPathAlloc(os.io(), a);
     defer a.free(current);
     const base = try std.fs.path.resolve(a, &.{ current, cwd orelse current });
     defer a.free(base);
-    var finder: Finder = .{ .timer = try std.time.Timer.start(), .command = command, .version_prefix = version_prefix, .bundles = info.app_bundles };
+    var finder: Finder = .{ .timer = .start(), .command = command, .version_prefix = version_prefix, .bundles = info.app_bundles };
     defer finder.deinit();
 
     if (os.env("PATH")) |path| {
@@ -69,7 +69,7 @@ pub fn resolve(provider: Provider, cwd: ?[]const u8) ![]const u8 {
 
 const Finder = struct {
     seen: std.StringHashMapUnmanaged(void) = .empty,
-    timer: std.time.Timer,
+    timer: os.Timer,
     command: []const u8,
     version_prefix: []const u8,
     bundles: []const []const u8,
@@ -84,11 +84,11 @@ const Finder = struct {
     fn candidate(f: *Finder, path: []const u8) !?[]const u8 {
         // A pane-local agent symlink invokes Corgi's launcher. Probing it
         // would recurse back into discovery rather than identify a provider.
-        const self = try std.fs.selfExePathAlloc(a);
+        const self = try std.process.executablePathAlloc(os.io(), a);
         defer a.free(self);
-        const self_real = try std.fs.cwd().realpathAlloc(a, self);
+        const self_real = try os.realpathAlloc(a, .cwd(), self);
         defer a.free(self_real);
-        const real = std.fs.cwd().realpathAlloc(a, path) catch return null;
+        const real = os.realpathAlloc(a, .cwd(), path) catch return null;
         defer a.free(real);
         if (std.mem.eql(u8, self_real, real)) return null;
         // Preserve symlink paths: package-manager shims may dispatch using argv[0].
@@ -100,8 +100,8 @@ const Finder = struct {
         };
         const z = try a.dupeZ(u8, path);
         defer a.free(z);
-        const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, 0) catch return null;
-        if ((stat.mode & c.S_IFMT) != c.S_IFREG or c.access(z, c.X_OK) != 0) return null;
+        const stat = std.Io.Dir.cwd().statFile(os.io(), path, .{}) catch return null;
+        if (stat.kind != .file or c.access(z, c.X_OK) != 0) return null;
         const remaining = budget -| f.timer.read();
         if (remaining == 0) return null;
         if (probe(path, f.version_prefix, @min(remaining, 750 * std.time.ns_per_ms))) return try a.dupe(u8, path);
@@ -112,15 +112,15 @@ const Finder = struct {
         for (f.bundles) |name| {
             if (try f.bundle(root, name)) |found| return found;
         }
-        var dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch return null;
-        defer dir.close();
+        var dir = std.Io.Dir.cwd().openDir(os.io(), root, .{ .iterate = true }) catch return null;
+        defer dir.close(os.io());
         var names: std.ArrayList([]const u8) = .empty;
         defer {
             for (names.items) |name| a.free(name);
             names.deinit(a);
         }
         var it = dir.iterate();
-        while (try it.next()) |entry| {
+        while (try it.next(os.io())) |entry| {
             if (!std.mem.endsWith(u8, entry.name, ".app")) continue;
             try names.append(a, try a.dupe(u8, entry.name));
         }
@@ -140,28 +140,28 @@ const Finder = struct {
 };
 
 fn probe(path: []const u8, prefix: []const u8, timeout_ns: u64) bool {
-    var child = std.process.Child.init(&.{ path, "--version" }, a);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-    child.pgid = 0;
-    child.spawn() catch return false;
+    const child = std.process.spawn(os.io(), .{
+        .argv = &.{ path, "--version" },
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+        .pgid = 0,
+    }) catch return false;
     var reaped = false;
     defer {
         // Kill the process group as well: a hanging wrapper may have children.
-        _ = c.kill(-child.id, c.SIGKILL);
+        _ = c.kill(-child.id.?, c.SIGKILL);
         if (!reaped) {
             var status: c_int = 0;
-            _ = c.waitpid(child.id, &status, 0);
+            _ = c.waitpid(child.id.?, &status, 0);
         }
-        if (child.stdout) |file| file.close();
+        if (child.stdout) |file| file.close(os.io());
     }
-    child.waitForSpawn() catch return false;
     const fd = child.stdout.?.handle;
     os.nonblock(fd);
     var output: [4096]u8 = undefined;
     var len: usize = 0;
-    var timer = std.time.Timer.start() catch return false;
+    const timer: os.Timer = .start();
     while (timer.read() < timeout_ns) {
         // Bounded output and bounded work even for a noisy or broken wrapper.
         for (0..8) |_| {
@@ -171,7 +171,7 @@ fn probe(path: []const u8, prefix: []const u8, timeout_ns: u64) bool {
             len += @intCast(n);
         }
         var status: c_int = 0;
-        if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) {
+        if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) {
             reaped = true;
             // The child may have written between the last read and waitpid.
             if (len < output.len) {
@@ -180,7 +180,7 @@ fn probe(path: []const u8, prefix: []const u8, timeout_ns: u64) bool {
             }
             return status == 0 and isVersion(output[0..len], prefix);
         }
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        os.sleep(5 * std.time.ns_per_ms);
     }
     return false;
 }
@@ -203,9 +203,9 @@ pub fn installed(provider: Provider) bool {
     const info = provider.info();
     const name = info.executables[0];
     const override = info.binary_env;
-    const self = std.fs.selfExePathAlloc(a) catch return true;
+    const self = std.process.executablePathAlloc(os.io(), a) catch return true;
     defer a.free(self);
-    const self_real = std.fs.cwd().realpathAlloc(a, self) catch return true;
+    const self_real = os.realpathAlloc(a, .cwd(), self) catch return true;
     defer a.free(self_real);
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     if (os.env(override)) |path| if (path.len > 0) {
@@ -244,10 +244,10 @@ fn onPath(name: []const u8, self_real: []const u8) bool {
 fn executable(path: []const u8, self_real: []const u8) bool {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     // Pane-local shims resolve to Corgi itself and do not mean a provider exists.
-    const real = std.fs.cwd().realpath(path, &buf) catch return false;
+    const real = buf[0 .. std.Io.Dir.cwd().realPathFile(os.io(), path, &buf) catch return false];
     if (std.mem.eql(u8, real, self_real)) return false;
-    const stat = std.posix.fstatat(std.posix.AT.FDCWD, real, 0) catch return false;
-    if ((stat.mode & c.S_IFMT) != c.S_IFREG) return false;
+    const stat = std.Io.Dir.cwd().statFile(os.io(), real, .{}) catch return false;
+    if (stat.kind != .file) return false;
     var z: [std.fs.max_path_bytes + 1]u8 = undefined;
     @memcpy(z[0..real.len], real);
     z[real.len] = 0;

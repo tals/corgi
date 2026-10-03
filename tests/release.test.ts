@@ -211,7 +211,7 @@ test("isolated builds reuse a local compiler with a separate local cache", () =>
   const env = releaseEnvironment("/repo", "/isolated", { ZIG: ".tools/zig", ZIG_LOCAL_CACHE_DIR: "/repo/.zig-cache" });
   expect(env.ZIG).toBe("/repo/.tools/zig");
   expect(env.ZIG_LOCAL_CACHE_DIR).toBe("/isolated/.zig-cache");
-  expect(releaseEnvironment("/repo", "/isolated", { PATH: "/nonexistent" }).ZIG).toBe("/repo/.tools/zig-aarch64-macos-0.15.2/zig");
+  expect(releaseEnvironment("/repo", "/isolated", { PATH: "/nonexistent" }).ZIG).toBe("/repo/.tools/zig-aarch64-macos-0.16.0/zig");
 });
 
 test("CLI dry run accepts dirty HEAD without creating release state", async () => {

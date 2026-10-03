@@ -58,7 +58,7 @@ pub const Cache = Locked(State, "account-previews");
 pub fn Locked(comptime T: type, comptime dir: []const u8) type {
     return struct {
         const Self = @This();
-        file: std.fs.File,
+        file: std.Io.File,
         state: T = .{},
         pub fn open(kind: []const u8, identity: []const u8, stopping: *const std.atomic.Value(bool)) !Self {
             const home = os.env("HOME") orelse return error.NoHome;
@@ -67,20 +67,20 @@ pub fn Locked(comptime T: type, comptime dir: []const u8) type {
             else
                 try std.fs.path.join(a, &.{ home, ".local", "state", "corgi", dir });
             defer a.free(root);
-            try std.fs.cwd().makePath(root);
+            try std.Io.Dir.cwd().createDirPath(os.io(), root);
             var digest: [32]u8 = undefined;
             std.crypto.hash.sha2.Sha256.hash(identity, &digest, .{});
             const name = try std.fmt.allocPrint(a, "{s}/{s}-{s}.json", .{ root, kind, std.fmt.bytesToHex(digest, .lower) });
             defer a.free(name);
-            const file = try std.fs.cwd().createFile(name, .{ .read = true, .truncate = false, .mode = 0o600 });
-            errdefer file.close();
-            const deadline = std.time.milliTimestamp() + 10000;
-            while (!try file.tryLock(.exclusive)) {
-                if (stopping.load(.acquire) or std.time.milliTimestamp() >= deadline) return error.CacheBusy;
-                std.Thread.sleep(10 * std.time.ns_per_ms);
+            const file = try std.Io.Dir.cwd().createFile(os.io(), name, .{ .read = true, .truncate = false, .permissions = .fromMode(0o600) });
+            errdefer file.close(os.io());
+            const deadline = os.milliTimestamp() + 10000;
+            while (!try file.tryLock(os.io(), .exclusive)) {
+                if (stopping.load(.acquire) or os.milliTimestamp() >= deadline) return error.CacheBusy;
+                os.sleep(10 * std.time.ns_per_ms);
             }
             var result: Self = .{ .file = file };
-            const bytes = try file.readToEndAlloc(a, 16384);
+            const bytes = try os.readToEndAlloc(file, a, 16384);
             defer a.free(bytes);
             if (bytes.len == 0) return result;
             if (std.json.parseFromSlice(T, a, bytes, .{ .ignore_unknown_fields = true })) |parsed| {
@@ -92,14 +92,13 @@ pub fn Locked(comptime T: type, comptime dir: []const u8) type {
         pub fn save(self: *Self) !void {
             const bytes = try std.json.Stringify.valueAlloc(a, self.state, .{});
             defer a.free(bytes);
-            try self.file.seekTo(0);
-            try self.file.writeAll(bytes);
-            try self.file.setEndPos(bytes.len);
-            try self.file.sync();
+            try self.file.writePositionalAll(os.io(), bytes, 0);
+            try self.file.setLength(os.io(), bytes.len);
+            try self.file.sync(os.io());
         }
         pub fn close(self: *Self) void {
-            self.file.unlock();
-            self.file.close();
+            self.file.unlock(os.io());
+            self.file.close(os.io());
         }
     };
 }

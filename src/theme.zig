@@ -18,11 +18,12 @@ pub const Theme = struct {
     pub fn apply(t: Theme, terminal: *vt.Terminal) void {
         if (t.foreground) |color| terminal.colors.foreground.default = color;
         if (t.background) |color| terminal.colors.background.default = color;
-        var palette = terminal.colors.palette.original;
+        var palette = terminal.colors.palette.original.*;
         for (t.palette, 0..) |entry, i| if (entry) |color| {
             palette[i] = color;
         };
-        terminal.colors.palette.changeDefault(palette);
+        // Out of memory keeps the previous palette.
+        terminal.colors.palette.changeDefault(terminal.gpa(), palette) catch {};
         terminal.flags.dirty.palette = true;
     }
     pub fn complete(t: Theme) bool {

@@ -9,13 +9,14 @@ pub const Client = struct {
     next_id: u32 = 1,
     deadline: i64 = 0,
     pub fn open(path: []const u8) !Client {
-        const addr = try std.net.Address.initUnix(path);
-        const fd = try std.posix.socket(std.posix.AF.UNIX, std.posix.SOCK.STREAM | std.posix.SOCK.CLOEXEC | std.posix.SOCK.NONBLOCK, 0);
-        errdefer std.posix.close(fd);
-        try std.posix.connect(fd, &addr.any, addr.getOsSockLen());
-        var s: Client = .{ .fd = fd, .deadline = std.time.milliTimestamp() + 1000 };
+        const addr = try os.unixAddress(path);
+        const fd = try os.unixSocket();
+        errdefer _ = c.close(fd);
+        os.nonblock(fd);
+        if (c.connect(fd, @ptrCast(&addr), @sizeOf(c.struct_sockaddr_un)) != 0) return error.ConnectFailed;
+        var s: Client = .{ .fd = fd, .deadline = os.milliTimestamp() + 1000 };
         var nonce: [16]u8 = undefined;
-        std.crypto.random.bytes(&nonce);
+        os.random.bytes(&nonce);
         var key: [24]u8 = undefined;
         _ = std.base64.standard.Encoder.encode(&key, &nonce);
         const request = try std.fmt.allocPrint(
@@ -49,10 +50,10 @@ pub const Client = struct {
         return s;
     }
     pub fn close(s: *Client) void {
-        std.posix.close(s.fd);
+        _ = c.close(s.fd);
     }
     fn ready(s: *Client, events: c_short) !void {
-        const remaining = s.deadline - std.time.milliTimestamp();
+        const remaining = s.deadline - os.milliTimestamp();
         if (remaining <= 0) return error.Timeout;
         var p: c.struct_pollfd = .{ .fd = s.fd, .events = events, .revents = 0 };
         if (c.poll(&p, 1, @intCast(remaining)) <= 0) return error.Timeout;
@@ -91,7 +92,7 @@ pub const Client = struct {
             n = 10;
         }
         var mask: [4]u8 = undefined;
-        std.crypto.random.bytes(&mask);
+        os.random.bytes(&mask);
         @memcpy(header[n..][0..4], &mask);
         try s.write(header[0 .. n + 4]);
         const payload = try a.dupe(u8, bytes);
@@ -137,7 +138,7 @@ pub const Client = struct {
         }
     }
     pub fn call(s: *Client, method: []const u8, params: anytype) !std.json.Parsed(std.json.Value) {
-        s.deadline = std.time.milliTimestamp() + 1000;
+        s.deadline = os.milliTimestamp() + 1000;
         const id = s.next_id;
         s.next_id +%= 1;
         const json = try std.json.Stringify.valueAlloc(a, .{ .id = id, .method = method, .params = params }, .{});

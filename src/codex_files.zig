@@ -17,28 +17,28 @@ pub const Index = struct {
     next_read: i64 = 0,
     stamp: Stamp = .{},
 
-    const Stamp = struct { inode: std.fs.File.INode = 0, size: u64 = 0, mtime: i128 = 0 };
+    const Stamp = struct { inode: std.Io.File.INode = 0, size: u64 = 0, mtime: i128 = 0 };
     const Record = struct { id: []const u8 = "", thread_name: []const u8 = "" };
 
     pub fn deinit(index: *Index) void {
         index.arena.deinit();
     }
     pub fn refresh(index: *Index) void {
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         if (now < index.next_read) return;
         index.next_read = now + 1000;
         const root = Codex.info.configDir(a) catch return;
         defer a.free(root);
         const path = std.fs.path.join(a, &.{ root, "session_index.jsonl" }) catch return;
         defer a.free(path);
-        const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0) catch return;
-        const file: std.fs.File = .{ .handle = fd };
-        defer file.close();
-        const stat = file.stat() catch return;
+        const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0) catch return;
+        const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+        defer file.close(os.io());
+        const stat = file.stat(os.io()) catch return;
         if (stat.kind != .file or stat.size > 8 * 1024 * 1024) return;
-        const stamp: Stamp = .{ .inode = stat.inode, .size = stat.size, .mtime = stat.mtime };
+        const stamp: Stamp = .{ .inode = stat.inode, .size = stat.size, .mtime = stat.mtime.toNanoseconds() };
         if (std.meta.eql(stamp, index.stamp)) return;
-        const bytes = file.readToEndAlloc(a, 8 * 1024 * 1024) catch return;
+        const bytes = os.readToEndAlloc(file, a, 8 * 1024 * 1024) catch return;
         defer a.free(bytes);
         index.load(bytes) catch return;
         index.stamp = stamp;

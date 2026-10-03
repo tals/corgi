@@ -59,7 +59,7 @@ pub const Terminal = struct {
     pub fn create(cols: u16, rows: u16) !*Terminal {
         const t = try a.create(Terminal);
         errdefer a.destroy(t);
-        t.* = .{ .vt = try vt.Terminal.init(a, .{ .cols = @max(1, cols), .rows = @max(1, rows), .max_scrollback = 10_000 }), .stream = undefined, .surface_identity = std.crypto.random.int(u64) };
+        t.* = .{ .vt = try vt.Terminal.init(os.io(), a, .{ .cols = @max(1, cols), .rows = @max(1, rows), .max_scrollback_bytes = 10_000 }), .stream = undefined, .surface_identity = os.random.int(u64) };
         // Answer OSC 10/11 even before a client supplies its host theme. These
         // match RenderState's fallback colors for headless or non-querying hosts.
         t.vt.colors.foreground = .init(.{ .r = 255, .g = 255, .b = 255 });
@@ -69,23 +69,23 @@ pub const Terminal = struct {
         handler.effects.title_changed = titleChanged;
         handler.effects.device_attributes = attributes;
         handler.effects.clipboard_write = clipboardWrite;
-        t.stream = .initAlloc(a, handler);
+        t.stream = .init(.{ .handler = handler, .allocator = a });
         return t;
     }
     /// Copies larger than this are dropped; each one rides in a viewer.sync reply.
     const max_copy = 1024 * 1024;
-    const ClipboardCallback = @typeInfo(@typeInfo(@FieldType(vt.TerminalStream.Handler.Effects, "clipboard_write")).optional.child).pointer.child;
-    const ClipboardWrite = @typeInfo(ClipboardCallback).@"fn".params[1].type.?;
-    const ClipboardResult = @typeInfo(ClipboardCallback).@"fn".return_type.?;
-    fn clipboardWrite(handler: *vt.TerminalStream.Handler, write: ClipboardWrite) ClipboardResult {
+    fn clipboardWrite(handler: *vt.TerminalStream.Handler, write: vt.clipboard.Write) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
+        write.reply(t.copy(write));
+    }
+    fn copy(t: *Terminal, write: vt.clipboard.Write) vt.clipboard.Write.Result {
         if (t.restoring or write.location != .standard) return .unsupported;
         for (write.contents) |content| if (std.mem.eql(u8, content.mime, "text/plain")) {
             if (content.data.len == 0 or content.data.len > max_copy) return .invalid_data;
             const owned = a.dupe(u8, content.data) catch return .io_error;
             if (t.copied) |old| a.free(old);
             t.copied = owned;
-            return .success;
+            return .{ .success = .{} };
         };
         return .unsupported;
     }
@@ -100,7 +100,7 @@ pub const Terminal = struct {
             t.title_pid = if (detection.foreground(t.fd)) |job| job.pid else 0;
         }
     }
-    fn reply(handler: *vt.TerminalStream.Handler, bytes: [:0]const u8) void {
+    fn reply(handler: *vt.TerminalStream.Handler, bytes: []const u8) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
         if (!t.restoring) t.send(bytes) catch {};
     }
@@ -310,7 +310,7 @@ pub const Terminal = struct {
         const w = @max(1, cols);
         const h = @max(1, rows);
         if (t.vt.cols == w and t.vt.rows == h) return;
-        try t.vt.resize(a, w, h);
+        try t.vt.resize(a, .{ .cols = w, .rows = h });
         t.surface_revision +%= 1;
         var ws = std.mem.zeroes(c.struct_winsize);
         ws.ws_col = w;
@@ -321,7 +321,7 @@ pub const Terminal = struct {
         t.stream.nextSlice(bytes);
         if (bytes.len > 0) t.surface_revision +%= 1;
         if (t.vt.modes.get(.synchronized_output)) {
-            if (t.synchronized_since == null) t.synchronized_since = std.time.milliTimestamp();
+            if (t.synchronized_since == null) t.synchronized_since = os.milliTimestamp();
         } else {
             t.synchronized_since = null;
         }
@@ -392,7 +392,7 @@ pub const Terminal = struct {
             dirty = true;
         }
         if (!t.exited) t.fillInput();
-        if (t.expireSynchronizedOutput(std.time.milliTimestamp())) dirty = true;
+        if (t.expireSynchronizedOutput(os.milliTimestamp())) dirty = true;
         return dirty;
     }
     /// True once, when the shell exits. Only this reaps our own shell; an

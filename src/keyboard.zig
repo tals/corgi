@@ -202,7 +202,7 @@ test "unsupported and malformed CSI-u remains untouched" {
 }
 
 test "ordinary arrows follow the pane application cursor mode in both directions" {
-    var terminal = try vt.Terminal.init(std.testing.allocator, .{ .cols = 80, .rows = 24 });
+    var terminal = try vt.Terminal.init(std.testing.io, std.testing.allocator, .{ .cols = 80, .rows = 24 });
     defer terminal.deinit(std.testing.allocator);
     var stream = terminal.vtStream();
     defer stream.deinit();

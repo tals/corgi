@@ -126,7 +126,7 @@ pub const State = struct {
     }
     fn begin(s: *State, conn: *Connection) !bool {
         if (s.selectionCount() == 0) return if (s.mode == .import) s.cancel() else true;
-        if (s.operation == 0) s.operation = (std.crypto.random.int(u64) >> 1) | 1;
+        if (s.operation == 0) s.operation = (os.random.int(u64) >> 1) | 1;
         if (s.activeHandoff()) {
             if (os.env("HERDR_PANE_ID")) |current_pane| {
                 for (s.items()) |ws| if (ws.session == s.items()[s.cursor].session) {
@@ -172,7 +172,7 @@ pub const State = struct {
         return false;
     }
     pub fn poll(s: *State, conn: *Connection) bool {
-        const blink = s.cmuxConfused() and @mod(std.time.milliTimestamp(), 5000) >= 4850;
+        const blink = s.cmuxConfused() and @mod(os.milliTimestamp(), 5000) >= 4850;
         const animation_changed = blink != s.blink_closed;
         s.blink_closed = blink;
         if (s.step == .import) {
@@ -184,8 +184,8 @@ pub const State = struct {
             };
             return animation_changed;
         }
-        if (s.step != .progress or std.time.milliTimestamp() - s.last_poll < 100) return animation_changed;
-        s.last_poll = std.time.milliTimestamp();
+        if (s.step != .progress or os.milliTimestamp() - s.last_poll < 100) return animation_changed;
+        s.last_poll = os.milliTimestamp();
         const response = conn.call(.@"onboarding.status", .{ .operation = s.operation }) catch |err| {
             s.fail(err);
             return true;

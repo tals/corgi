@@ -80,18 +80,18 @@ pub const Store = struct {
         for (s.items.items, 0..) |*w, i| entries[i] = .{ .id = w.id, .name = w.customName(), .cwd = w.cwd };
         const bytes = try std.json.Stringify.valueAlloc(a, Saved{ .active = selected, .next_id = s.next_id, .workspaces = entries[0..s.items.items.len] }, .{ .whitespace = .indent_2 });
         defer a.free(bytes);
-        try std.fs.cwd().makePath(std.fs.path.dirname(path) orelse ".");
+        try std.Io.Dir.cwd().createDirPath(os.io(), std.fs.path.dirname(path) orelse ".");
         const temp = try std.fmt.allocPrint(a, "{s}.tmp", .{path});
         defer a.free(temp);
-        var file = try std.fs.cwd().createFile(temp, .{ .mode = 0o600 });
-        defer file.close();
-        errdefer std.fs.cwd().deleteFile(temp) catch {};
-        try file.writeAll(bytes);
-        try file.sync();
-        try std.fs.cwd().rename(temp, path);
+        var file = try std.Io.Dir.cwd().createFile(os.io(), temp, .{ .permissions = .fromMode(0o600) });
+        defer file.close(os.io());
+        errdefer std.Io.Dir.cwd().deleteFile(os.io(), temp) catch {};
+        try file.writeStreamingAll(os.io(), bytes);
+        try file.sync(os.io());
+        try std.Io.Dir.cwd().rename(temp, .cwd(), path, os.io());
     }
     pub fn load(s: *Store, path: []const u8) !?Workspace.Id {
-        const bytes = std.fs.cwd().readFileAlloc(a, path, 1024 * 1024) catch |err| switch (err) {
+        const bytes = std.Io.Dir.cwd().readFileAlloc(os.io(), path, a, .limited(1024 * 1024)) catch |err| switch (err) {
             error.FileNotFound => return null,
             else => return err,
         };
@@ -148,9 +148,9 @@ pub const Store = struct {
         else
             try a.dupe(u8, if (path.len == 0) "." else path);
         defer a.free(expanded);
-        var dir = try std.fs.cwd().openDir(expanded, .{});
-        defer dir.close();
-        return dir.realpathAlloc(a, ".");
+        var dir = try std.Io.Dir.cwd().openDir(os.io(), expanded, .{});
+        defer dir.close(os.io());
+        return os.realpathAlloc(a, dir, ".");
     }
     pub fn add(s: *Store, name: []const u8, cwd: []const u8) !Workspace.Id {
         if (s.items.items.len >= max_workspaces) return error.TooManyWorkspaces;
@@ -190,7 +190,7 @@ test "automatic workspace names follow folders while overrides survive save and 
     try std.testing.expectEqualStrings("My project", store.items.items[0].name());
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const root = try tmp.dir.realpathAlloc(a, ".");
+    const root = try os.realpathAlloc(a, tmp.dir, ".");
     defer a.free(root);
     const path = try std.fs.path.join(a, &.{ root, "workspaces.json" });
     defer a.free(path);
@@ -215,8 +215,8 @@ test "old workspace state drops pins and preserves all existing names" {
     const legacy =
         \\{"version":1,"active":1,"next_id":3,"workspaces":[{"id":1,"name":"Default","cwd":"/tmp/project","pinned":true},{"id":2,"name":"Custom","cwd":"/tmp/other","pinned":true}]}
     ;
-    try tmp.dir.writeFile(.{ .sub_path = "workspaces.json", .data = legacy });
-    const path = try tmp.dir.realpathAlloc(a, "workspaces.json");
+    try tmp.dir.writeFile(os.io(), .{ .sub_path = "workspaces.json", .data = legacy });
+    const path = try os.realpathAlloc(a, tmp.dir, "workspaces.json");
     defer a.free(path);
     var store: Store = .{};
     defer store.deinit();

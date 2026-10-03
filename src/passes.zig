@@ -1,5 +1,6 @@
 //! Lets a caller wait until a polling worker finishes a pass that began after
 //! its request (tests use it to settle the daemon). Guarded by the worker's mutex.
+const os = @import("os.zig");
 pub const Passes = struct {
     done: u64 = 0,
     wanted: u64 = 0,
@@ -20,13 +21,13 @@ pub const Passes = struct {
 /// Wake `worker` (anything with `mutex`, `wake` and `passes`) and return the
 /// pass count to wait for.
 pub fn settle(worker: anytype) u64 {
-    worker.mutex.lock();
-    defer worker.mutex.unlock();
-    worker.wake.signal();
+    worker.mutex.lockUncancelable(os.io());
+    defer worker.mutex.unlock(os.io());
+    worker.wake.signal(os.io());
     return worker.passes.request();
 }
 pub fn reached(worker: anytype, target: u64) bool {
-    worker.mutex.lock();
-    defer worker.mutex.unlock();
+    worker.mutex.lockUncancelable(os.io());
+    defer worker.mutex.unlock(os.io());
     return worker.passes.done >= target;
 }

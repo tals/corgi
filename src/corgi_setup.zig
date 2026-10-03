@@ -2,6 +2,7 @@
 //! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
 //! resource and sleeping corgi choices update viewer preferences.
 const std = @import("std");
+const os = @import("os.zig");
 const setup = @import("inference.zig").setup;
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
@@ -174,7 +175,7 @@ pub const Menu = struct {
         m.selected = @enumFromInt(if (next) @min(index + 1, @intFromEnum(Choice.import)) else index -| 1);
     }
     pub fn draw(m: *const Menu, w: *std.Io.Writer, status: setup.Status, prefs: Preferences, cols: u16, rows: u16) !void {
-        return m.drawAt(w, status, prefs, cols, rows, std.time.milliTimestamp());
+        return m.drawAt(w, status, prefs, cols, rows, os.milliTimestamp());
     }
     fn drawAt(m: *const Menu, w: *std.Io.Writer, status: setup.Status, prefs: Preferences, cols: u16, rows: u16, now_ms: i64) !void {
         const b = bounds(cols, rows);

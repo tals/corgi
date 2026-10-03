@@ -152,7 +152,7 @@ pub fn resolve(source: []const u8, cwd: ?[]const u8, allocator: std.mem.Allocato
     var expanded = false;
     var previous: [max_length]u8 = undefined;
     var previous_len: usize = 0;
-    const deadline = std.time.milliTimestamp() + 2000;
+    const deadline = os.milliTimestamp() + 2000;
     for (0..8) |_| {
         var tokens: Tokens = .{ .source = current };
         var buffer: [max_length]u8 = undefined;
@@ -220,32 +220,32 @@ fn definitionOf(name: []const u8, cwd: ?[]const u8, deadline: i64, allocator: st
     defer allocator.free(query);
     const script = try std.fmt.allocPrint(allocator, "printf '\\036CORGI_BEGIN\\n'; {s} 2>/dev/null; printf '\\036CORGI_END\\n'", .{query});
     defer allocator.free(script);
-    var child = std.process.Child.init(&.{ chosen, flags(), script }, allocator);
-    child.cwd = cwd;
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-    child.pgid = 0;
-    try child.spawn();
+    const child = try std.process.spawn(os.io(), .{
+        .argv = &.{ chosen, flags(), script },
+        .cwd = if (cwd) |dir| .{ .path = dir } else .inherit,
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+        .pgid = 0,
+    });
     var reaped = false;
     defer {
         if (!reaped) {
-            _ = os.c.kill(-child.id, os.c.SIGKILL);
+            _ = os.c.kill(-child.id.?, os.c.SIGKILL);
             var status: c_int = 0;
-            _ = os.c.waitpid(child.id, &status, 0);
+            _ = os.c.waitpid(child.id.?, &status, 0);
         }
-        if (child.stdout) |file| file.close();
+        if (child.stdout) |file| file.close(os.io());
     }
-    try child.waitForSpawn();
     os.nonblock(child.stdout.?.handle);
     var output: [16384]u8 = undefined;
     var len: usize = 0;
-    while (std.time.milliTimestamp() < deadline) {
+    while (os.milliTimestamp() < deadline) {
         if (len == output.len) return error.ShorthandOutputTooLarge;
         const n = os.c.read(child.stdout.?.handle, output[len..].ptr, output.len - len);
         if (n > 0) len += @intCast(n);
         var status: c_int = 0;
-        if (os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id) {
+        if (os.c.waitpid(child.id.?, &status, os.c.WNOHANG) == child.id.?) {
             reaped = true;
             const tail = os.c.read(child.stdout.?.handle, output[len..].ptr, output.len - len);
             if (tail > 0) len += @intCast(tail);
@@ -253,7 +253,7 @@ fn definitionOf(name: []const u8, cwd: ?[]const u8, deadline: i64, allocator: st
             const end = std.mem.indexOfPos(u8, output[0..len], begin, "\x1eCORGI_END\n") orelse return error.ShorthandLookupFailed;
             return allocator.dupe(u8, std.mem.trim(u8, output[begin..end], " \r\n\t"));
         }
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        os.sleep(5 * std.time.ns_per_ms);
     }
     return error.ShorthandLookupTimeout;
 }
@@ -306,8 +306,8 @@ pub const Worker = struct {
         result: Resolution = .{},
         queued: bool = true,
     };
-    mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    wake: std.Io.Condition = .init,
     stopping: bool = false,
     thread: ?std.Thread = null,
     jobs: [8]?Job = @splat(null),
@@ -320,17 +320,17 @@ pub const Worker = struct {
         return w;
     }
     pub fn stop(w: *Worker) void {
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         w.stopping = true;
-        w.wake.signal();
-        w.mutex.unlock();
+        w.wake.signal(os.io());
+        w.mutex.unlock(os.io());
         w.thread.?.join();
         os.allocator.destroy(w);
     }
     pub fn request(w: *Worker, id: u64, source: []const u8, cwd: []const u8) !Resolution {
         const dir = Path.init(cwd) catch return error.InvalidDirectory;
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         for (w.jobs) |entry| if (entry) |job| {
             if (job.id == id and std.mem.eql(u8, job.source.text(), source) and std.mem.eql(u8, job.cwd.text(), cwd)) return job.result;
         };
@@ -338,26 +338,26 @@ pub const Worker = struct {
         try job.source.set(source);
         w.jobs[w.next] = job;
         w.next = (w.next + 1) % w.jobs.len;
-        w.wake.signal();
+        w.wake.signal(os.io());
         return .{};
     }
     fn run(w: *Worker) void {
         while (true) {
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             if (w.stopping) {
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 return;
             }
             const index = for (w.jobs, 0..) |entry, i| {
                 if (entry != null and entry.?.queued) break i;
             } else {
-                w.wake.wait(&w.mutex);
-                w.mutex.unlock();
+                w.wake.waitUncancelable(os.io(), &w.mutex);
+                w.mutex.unlock(os.io());
                 continue;
             };
             const job = w.jobs[index].?;
             w.jobs[index].?.queued = false;
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             var result: Resolution = .{ .pending = false };
             if (resolve(job.source.text(), job.cwd.text(), os.allocator)) |source| {
                 defer os.allocator.free(source);
@@ -366,14 +366,14 @@ pub const Worker = struct {
                 };
                 result.semantics = analyze(source, job.cwd.text());
             } else |err| result.error_message = .ascii(@errorName(err));
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             if (w.jobs[index]) |*current| {
                 const matches = current.id == job.id and
                     std.mem.eql(u8, current.source.text(), job.source.text()) and
                     std.mem.eql(u8, current.cwd.text(), job.cwd.text());
                 if (matches) current.result = result;
             }
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
         }
     }
 };
@@ -511,12 +511,12 @@ fn readIdentity(info: *Semantics, root: []const u8) void {
     const provider = info.provider orelse return;
     const path = std.fs.path.join(os.allocator, &.{ root, provider.info().account_file }) catch return;
     defer os.allocator.free(path);
-    const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0) catch return;
-    const file: std.fs.File = .{ .handle = fd };
-    defer file.close();
-    const stat = file.stat() catch return;
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0) catch return;
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+    defer file.close(os.io());
+    const stat = file.stat(os.io()) catch return;
     if (stat.kind != .file or stat.size > 65536) return;
-    const bytes = file.readToEndAlloc(os.allocator, 65536) catch return;
+    const bytes = os.readToEndAlloc(file, os.allocator, 65536) catch return;
     defer os.allocator.free(bytes);
     const json = std.json.parseFromSlice(std.json.Value, os.allocator, bytes, .{}) catch return;
     defer json.deinit();
@@ -572,8 +572,8 @@ test "command semantics distinguish default accounts from auth overrides" {
 test "explicit Codex home uses only that profile's cached public identity" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    try tmp.dir.writeFile(.{ .sub_path = "auth.json", .data = "{\"tokens\":{\"id_token\":\"x.eyJlbWFpbCI6IndvcmtAZXhhbXBsZS5jb20ifQ.x\"}}" });
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    try tmp.dir.writeFile(os.io(), .{ .sub_path = "auth.json", .data = "{\"tokens\":{\"id_token\":\"x.eyJlbWFpbCI6IndvcmtAZXhhbXBsZS5jb20ifQ.x\"}}" });
+    const root = try os.realpathAlloc(std.testing.allocator, tmp.dir, ".");
     defer std.testing.allocator.free(root);
     const source = try std.fmt.allocPrint(std.testing.allocator, "CODEX_HOME='{s}' codex", .{root});
     defer std.testing.allocator.free(source);
@@ -585,8 +585,8 @@ test "explicit Codex home uses only that profile's cached public identity" {
 test "Claude HOME override reads the home identity cache" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    try tmp.dir.writeFile(.{ .sub_path = ".claude.json", .data = "{\"oauthAccount\":{\"emailAddress\":\"claude-work@example.com\"}}" });
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    try tmp.dir.writeFile(os.io(), .{ .sub_path = ".claude.json", .data = "{\"oauthAccount\":{\"emailAddress\":\"claude-work@example.com\"}}" });
+    const root = try os.realpathAlloc(std.testing.allocator, tmp.dir, ".");
     defer std.testing.allocator.free(root);
     const source = try std.fmt.allocPrint(std.testing.allocator, "HOME='{s}' claude", .{root});
     defer std.testing.allocator.free(source);

@@ -135,7 +135,7 @@ pub fn detected() bool {
     defer arena.deinit();
     const paths = socketCandidates(arena.allocator()) catch return false;
     for (paths) |candidate| {
-        const stat = std.fs.cwd().statFile(candidate.path) catch continue;
+        const stat = std.Io.Dir.cwd().statFile(os.io(), candidate.path, .{}) catch continue;
         if (stat.kind == .unix_domain_socket) return true;
     }
     return false;
@@ -149,10 +149,10 @@ fn socketCandidates(alloc: std.mem.Allocator) ![]const SocketCandidate {
     for ([_][]const u8{ "herdr", "herdr-dev" }) |app| {
         const dirpath = try std.fs.path.join(alloc, &.{ root, app });
         try paths.append(alloc, .{ .path = try std.fs.path.join(alloc, &.{ dirpath, "herdr.sock" }), .name = app });
-        var dir = std.fs.cwd().openDir(try std.fs.path.join(alloc, &.{ dirpath, "sessions" }), .{ .iterate = true }) catch continue;
-        defer dir.close();
+        var dir = std.Io.Dir.cwd().openDir(os.io(), try std.fs.path.join(alloc, &.{ dirpath, "sessions" }), .{ .iterate = true }) catch continue;
+        defer dir.close(os.io());
         var entries = dir.iterate();
-        while (try entries.next()) |entry| if (entry.kind == .directory and paths.items.len < 64) {
+        while (try entries.next(os.io())) |entry| if (entry.kind == .directory and paths.items.len < 64) {
             try paths.append(alloc, .{ .path = try std.fs.path.join(alloc, &.{ dirpath, "sessions", entry.name, "herdr.sock" }), .name = try alloc.dupe(u8, entry.name) });
         };
     }
@@ -163,7 +163,7 @@ pub fn scanCancelable(cancel: ?*const std.atomic.Value(bool)) !Scan {
     var arena = std.heap.ArenaAllocator.init(a);
     errdefer arena.deinit();
     const alloc = arena.allocator();
-    const deadline = std.time.milliTimestamp() + 15000;
+    const deadline = os.milliTimestamp() + 15000;
     var sessions: std.ArrayList(SourceSession) = .empty;
     const paths = try socketCandidates(alloc);
     for (paths, 0..) |candidate, index| {
@@ -181,7 +181,7 @@ pub fn scanCancelable(cancel: ?*const std.atomic.Value(bool)) !Scan {
 }
 
 fn scanStopped(cancel: ?*const std.atomic.Value(bool), deadline: i64) bool {
-    return (if (cancel) |flag| flag.load(.acquire) else false) or std.time.milliTimestamp() >= deadline;
+    return (if (cancel) |flag| flag.load(.acquire) else false) or os.milliTimestamp() >= deadline;
 }
 
 fn scanSession(alloc: std.mem.Allocator, socket: []const u8, name: []const u8, cancel: ?*const std.atomic.Value(bool), deadline: i64) !SourceSession {
@@ -517,12 +517,12 @@ const Job = struct {
         const alloc = arena.allocator();
         const pong = try rpc(alloc, job.source, "ping", .{});
         if (!yes(field(field(pong, "capabilities"), "live_handoff"))) return error.HerdrHandoffUnsupported;
-        const dir = try std.fmt.allocPrint(alloc, "/tmp/corgi-{d}/herdr-{x}", .{ c.getuid(), std.crypto.random.int(u64) });
+        const dir = try std.fmt.allocPrint(alloc, "/tmp/corgi-{d}/herdr-{x}", .{ c.getuid(), os.random.int(u64) });
         try os.privateDirectory(dir);
-        defer std.fs.cwd().deleteTree(dir) catch {};
+        defer std.Io.Dir.cwd().deleteTree(os.io(), dir) catch {};
         const bridge_path = try std.fs.path.join(alloc, &.{ dir, "bridge.sock" });
         const launcher = try std.fs.path.join(alloc, &.{ dir, "import" });
-        const token = try std.fmt.allocPrint(alloc, "{x}{x}", .{ std.crypto.random.int(u64), std.crypto.random.int(u64) });
+        const token = try std.fmt.allocPrint(alloc, "{x}{x}", .{ os.random.int(u64), os.random.int(u64) });
         const listener = try os.listen(bridge_path);
         defer _ = c.close(listener);
         const script = try std.fmt.allocPrint(alloc, "#!/bin/sh\nexec {s} __herdr_import {s} {s} \"$@\"\n", .{
@@ -531,9 +531,9 @@ const Job = struct {
             try os.shellQuote(alloc, token),
         });
         {
-            const file = try std.fs.cwd().createFile(launcher, .{ .mode = 0o700, .exclusive = true });
-            defer file.close();
-            try file.writeAll(script);
+            const file = try std.Io.Dir.cwd().createFile(os.io(), launcher, .{ .permissions = .fromMode(0o700), .exclusive = true });
+            defer file.close(os.io());
+            try file.writeStreamingAll(os.io(), script);
         }
         const request = try os.connect(job.source);
         defer _ = c.close(request);
@@ -573,10 +573,10 @@ const Job = struct {
             }
         }
         job.phase.store(.preparing, .release);
-        const deadline = std.time.milliTimestamp() + 15000;
+        const deadline = os.milliTimestamp() + 15000;
         while (!job.approved.load(.acquire)) {
             if (job.cancel.load(.acquire)) return error.HandoffCancelled;
-            if (std.time.milliTimestamp() >= deadline) return error.HandoffPreparationTimedOut;
+            if (os.milliTimestamp() >= deadline) return error.HandoffPreparationTimedOut;
             _ = c.poll(null, 0, 5);
         }
         if (job.cancel.load(.acquire)) return error.HandoffCancelled;
@@ -638,7 +638,7 @@ const Job = struct {
             // Never close potentially sole PTY masters on an ambiguous socket
             // failure. A dead donor cannot be another reader; salvage its PTYs.
             if (c.kill(donor_pid, 0) != 0 and std.posix.errno(-1) == .SRCH) return;
-            const now = std.time.milliTimestamp();
+            const now = os.milliTimestamp();
             if (now < next_reconcile) continue;
             next_reconcile = now + 1000;
             var arena = std.heap.ArenaAllocator.init(a);
@@ -813,8 +813,8 @@ fn corgiProcess(pid: i32, executable: []const u8) bool {
     return std.mem.eql(u8, path, executable) or std.mem.eql(u8, std.fs.path.basename(path), "corgi");
 }
 fn acceptBridge(listener: i32, request: i32, cancel: *std.atomic.Value(bool)) !i32 {
-    const deadline = std.time.milliTimestamp() + 30000;
-    while (std.time.milliTimestamp() < deadline) {
+    const deadline = os.milliTimestamp() + 30000;
+    while (os.milliTimestamp() < deadline) {
         if (cancel.load(.acquire)) return error.HandoffCancelled;
         var pollfds = [_]c.struct_pollfd{ .{ .fd = listener, .events = c.POLLIN, .revents = 0 }, .{ .fd = request, .events = c.POLLIN, .revents = 0 } };
         _ = c.poll(&pollfds, pollfds.len, 50);

@@ -20,16 +20,13 @@ pub const Openers = struct {
             if (pid.* == 0) break pid;
         } else return error.TooManyOpenRequests;
         const executable = if (builtin.os.tag == .macos) "open" else "xdg-open";
-        var child = std.process.Child.init(&.{ executable, url }, os.allocator);
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Ignore;
-        child.pgid = 0;
-        try child.spawn();
-        child.waitForSpawn() catch |err| {
-            _ = child.wait() catch {};
-            return err;
-        };
-        slot.* = child.id;
+        const child = try std.process.spawn(os.io(), .{
+            .argv = &.{ executable, url },
+            .stdin = .ignore,
+            .stdout = .ignore,
+            .stderr = .ignore,
+            .pgid = 0,
+        });
+        slot.* = child.id.?;
     }
 };

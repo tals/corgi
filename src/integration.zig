@@ -41,7 +41,7 @@ pub fn hook(provider: Provider, path: []const u8) !void {
         .provider = provider,
         .event = parsed.value,
         .pane = @enumFromInt(id),
-        .seq = std.time.microTimestamp(),
+        .seq = os.microTimestamp(),
         .background = background,
     } });
 }
@@ -51,7 +51,7 @@ pub fn config(provider: Provider, executable: []const u8) ![]u8 {
     return configCommand(provider, command);
 }
 fn configCommand(provider: Provider, command: []const u8) ![]u8 {
-    var hooks: std.json.ObjectMap = .init(a);
+    var hooks: std.json.ObjectMap = .empty;
     defer {
         var it = hooks.iterator();
         while (it.next()) |entry| {
@@ -59,31 +59,31 @@ fn configCommand(provider: Provider, command: []const u8) ![]u8 {
             var group = groups.items[0].object;
             var handlers = group.get("hooks").?.array;
             var handler = handlers.items[0].object;
-            handler.deinit();
+            handler.deinit(a);
             handlers.deinit();
-            group.deinit();
+            group.deinit(a);
             groups.deinit();
         }
-        hooks.deinit();
+        hooks.deinit(a);
     }
     for (provider.backend().hookEvents()) |event| try addHook(&hooks, event, command);
-    var root: std.json.ObjectMap = .init(a);
-    defer root.deinit();
-    try root.put("hooks", .{ .object = hooks });
+    var root: std.json.ObjectMap = .empty;
+    defer root.deinit(a);
+    try root.put(a, "hooks", .{ .object = hooks });
     return std.json.Stringify.valueAlloc(a, std.json.Value{ .object = root }, .{ .whitespace = .indent_2 });
 }
 fn addHook(hooks: *std.json.ObjectMap, event: []const u8, command: []const u8) !void {
-    var handler: std.json.ObjectMap = .init(a);
-    try handler.put("type", .{ .string = "command" });
-    try handler.put("command", .{ .string = command });
-    try handler.put("timeout", .{ .integer = 2 });
+    var handler: std.json.ObjectMap = .empty;
+    try handler.put(a, "type", .{ .string = "command" });
+    try handler.put(a, "command", .{ .string = command });
+    try handler.put(a, "timeout", .{ .integer = 2 });
     var handlers: std.array_list.Managed(std.json.Value) = .init(a);
     try handlers.append(.{ .object = handler });
-    var group: std.json.ObjectMap = .init(a);
-    try group.put("hooks", .{ .array = handlers });
+    var group: std.json.ObjectMap = .empty;
+    try group.put(a, "hooks", .{ .array = handlers });
     var groups: std.array_list.Managed(std.json.Value) = .init(a);
     try groups.append(.{ .object = group });
-    try hooks.put(event, .{ .array = groups });
+    try hooks.put(a, event, .{ .array = groups });
 }
 fn hookCommand(provider: Provider, executable: []const u8) ![]u8 {
     const quoted = try os.shellQuote(a, executable);
@@ -105,8 +105,8 @@ pub fn mergedConfig(allocator: std.mem.Allocator, provider: Provider, existing: 
     const parsed = try std.json.parseFromSlice(std.json.Value, mem, existing, .{ .allocate = .alloc_always });
     var root = parsed.value;
     if (root != .object) return error.InvalidHookSettings;
-    const entry = try root.object.getOrPut("hooks");
-    if (!entry.found_existing) entry.value_ptr.* = .{ .object = .init(mem) };
+    const entry = try root.object.getOrPut(mem, "hooks");
+    if (!entry.found_existing) entry.value_ptr.* = .{ .object = .empty };
     if (entry.value_ptr.* != .object) return error.InvalidHookSettings;
     const hooks = &entry.value_ptr.object;
     const command = try installedCommand(provider);
@@ -117,7 +117,7 @@ pub fn mergedConfig(allocator: std.mem.Allocator, provider: Provider, existing: 
     var events = template.value.object.get("hooks").?.object.iterator();
     var changed = false;
     while (events.next()) |event| {
-        const groups = try hooks.getOrPut(event.key_ptr.*);
+        const groups = try hooks.getOrPut(mem, event.key_ptr.*);
         if (!groups.found_existing) groups.value_ptr.* = .{ .array = .init(mem) };
         if (groups.value_ptr.* != .array) return error.InvalidHookSettings;
         var found = false;
@@ -144,48 +144,50 @@ pub fn install(provider: Provider) !void {
         error.OutOfMemory => |e| return e,
     };
     defer a.free(directory);
-    var dir = std.fs.cwd().openDir(directory, .{}) catch |err| {
+    var dir = std.Io.Dir.cwd().openDir(os.io(), directory, .{}) catch |err| {
         if (err == error.FileNotFound) return;
         return err;
     };
-    defer dir.close();
-    const lock = try dir.createFile(".corgi-hooks.lock", .{ .truncate = false, .mode = 0o600 });
-    defer lock.close();
-    if (!try lock.tryLock(.exclusive)) return error.HookSettingsBusy;
-    defer lock.unlock();
+    defer dir.close(os.io());
+    const lock = try dir.createFile(os.io(), ".corgi-hooks.lock", .{ .truncate = false, .permissions = .fromMode(0o600) });
+    defer lock.close(os.io());
+    if (!try lock.tryLock(os.io(), .exclusive)) return error.HookSettingsBusy;
+    defer lock.unlock(os.io());
     const filename = info.hooks_file;
     // Don't replace a symlink, FIFO, or other user-managed indirection.
     const path = try std.fs.path.join(a, &.{ directory, filename });
     defer a.free(path);
-    const stat = std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch null;
+    const stat = std.Io.Dir.cwd().statFile(os.io(), path, .{ .follow_symlinks = false }) catch null;
     const exists = stat != null;
-    if (exists and (stat.?.mode & os.c.S_IFMT) != os.c.S_IFREG) return error.HookSettingsNotRegular;
-    const before = if (exists) try dir.readFileAlloc(a, filename, 1024 * 1024) else try a.dupe(u8, "{}");
+    if (exists and stat.?.kind != .file) return error.HookSettingsNotRegular;
+    const before = if (exists) try dir.readFileAlloc(os.io(), filename, a, .limited(1024 * 1024)) else try a.dupe(u8, "{}");
     defer a.free(before);
     const after = try mergedConfig(a, provider, before) orelse return;
     defer a.free(after);
     if (exists) {
         const backup_name = try std.fmt.allocPrint(a, "{s}.corgi-backup", .{filename});
         defer a.free(backup_name);
-        if (dir.createFile(backup_name, .{ .exclusive = true, .mode = 0o600 })) |backup| {
-            defer backup.close();
-            try backup.writeAll(before);
+        if (dir.createFile(os.io(), backup_name, .{ .exclusive = true, .permissions = .fromMode(0o600) })) |backup| {
+            defer backup.close(os.io());
+            try backup.writeStreamingAll(os.io(), before);
         } else |err| if (err != error.PathAlreadyExists) return err;
     }
     var buffer: [4096]u8 = undefined;
-    var output = try dir.atomicFile(filename, .{ .mode = if (exists) @intCast(stat.?.mode & 0o777) else 0o600, .write_buffer = &buffer });
-    defer output.deinit();
-    try output.file_writer.interface.writeAll(after);
-    try output.file_writer.interface.writeAll("\n");
+    var output = try dir.createFileAtomic(os.io(), filename, .{ .permissions = if (exists) stat.?.permissions else .fromMode(0o600), .replace = true });
+    defer output.deinit(os.io());
+    var writer = output.file.writer(os.io(), &buffer);
+    try writer.interface.writeAll(after);
+    try writer.interface.writeAll("\n");
+    try writer.interface.flush();
     // Catch concurrent edits by tools which don't use our installation lock.
     if (exists) {
-        const latest = try dir.readFileAlloc(a, filename, 1024 * 1024);
+        const latest = try dir.readFileAlloc(os.io(), filename, a, .limited(1024 * 1024));
         defer a.free(latest);
         if (!std.mem.eql(u8, latest, before)) return error.HookSettingsChanged;
     } else {
-        if ((std.posix.fstatat(std.posix.AT.FDCWD, path, std.posix.AT.SYMLINK_NOFOLLOW) catch null) != null) return error.HookSettingsChanged;
+        if (std.Io.Dir.cwd().statFile(os.io(), path, .{ .follow_symlinks = false })) |_| return error.HookSettingsChanged else |_| {}
     }
-    try output.finish();
+    try output.replace(os.io());
 }
 pub fn launch(provider: Provider, args: []const []const u8, executable: []const u8) !noreturn {
     _ = executable;

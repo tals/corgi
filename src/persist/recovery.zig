@@ -28,23 +28,23 @@ pub fn save(r: *Runtime, socket: []const u8) !void {
 pub fn atomicWrite(dest: []const u8, bytes: []const u8) !void {
     const parent = std.fs.path.dirname(dest) orelse return error.InvalidRecoveryPath;
     try os.privateDirectory(parent);
-    const temp = try std.fmt.allocPrint(a, "{s}.{d}.{x}.tmp", .{ dest, os.c.getpid(), std.crypto.random.int(u64) });
+    const temp = try std.fmt.allocPrint(a, "{s}.{d}.{x}.tmp", .{ dest, os.c.getpid(), os.random.int(u64) });
     defer a.free(temp);
-    const file = try std.fs.cwd().createFile(temp, .{ .mode = 0o600, .exclusive = true });
-    defer file.close();
-    defer std.fs.cwd().deleteFile(temp) catch {};
-    try file.writeAll(bytes);
-    try file.sync();
-    try std.fs.cwd().rename(temp, dest);
+    const file = try std.Io.Dir.cwd().createFile(os.io(), temp, .{ .permissions = .fromMode(0o600), .exclusive = true });
+    defer file.close(os.io());
+    defer std.Io.Dir.cwd().deleteFile(os.io(), temp) catch {};
+    try file.writeStreamingAll(os.io(), bytes);
+    try file.sync(os.io());
+    try std.Io.Dir.cwd().rename(temp, .cwd(), dest, os.io());
     // Linux O_PATH descriptors cannot be synced; request a readable directory.
-    var dir = try std.fs.cwd().openDir(parent, .{ .iterate = true });
-    defer dir.close();
-    try std.posix.fsync(dir.fd);
+    var dir = try std.Io.Dir.cwd().openDir(os.io(), parent, .{ .iterate = true });
+    defer dir.close(os.io());
+    if (os.c.fsync(dir.handle) != 0) return error.SyncFailed;
 }
 pub fn load(r: *Runtime, socket: []const u8, executable: []const u8) !bool {
     const source = try path(socket);
     defer a.free(source);
-    const bytes = std.fs.cwd().readFileAlloc(a, source, 256 * 1024 * 1024) catch |err| switch (err) {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(os.io(), source, a, .limited(256 * 1024 * 1024)) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };

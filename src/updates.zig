@@ -71,7 +71,7 @@ fn join(root: []const u8, name: []const u8) ![]u8 {
 fn read(root: []const u8, name: []const u8) !?[]u8 {
     const p = try join(root, name);
     defer a.free(p);
-    return std.fs.cwd().readFileAlloc(a, p, 1024 * 1024) catch |err| switch (err) {
+    return std.Io.Dir.cwd().readFileAlloc(os.io(), p, a, .limited(1024 * 1024)) catch |err| switch (err) {
         error.FileNotFound => null,
         else => return err,
     };
@@ -84,7 +84,7 @@ fn write(root: []const u8, name: []const u8, bytes: []const u8) !void {
 fn remove(root: []const u8, name: []const u8) void {
     const p = join(root, name) catch return;
     defer a.free(p);
-    std.fs.cwd().deleteFile(p) catch {};
+    std.Io.Dir.cwd().deleteFile(os.io(), p) catch {};
 }
 fn exists(root: []const u8, name: []const u8) bool {
     const bytes = (read(root, name) catch return false) orelse return false;
@@ -128,13 +128,13 @@ pub fn stagedVersion(rel: Release, exe: []const u8, buf: []u8) ?[]const u8 {
     @memcpy(buf[0..bytes.len], bytes);
     return buf[0..bytes.len];
 }
-fn lock(root: []const u8, name: []const u8, wait: bool) !?std.fs.File {
+fn lock(root: []const u8, name: []const u8, wait: bool) !?std.Io.File {
     const p = try join(root, name);
     defer a.free(p);
-    const file = try std.fs.cwd().createFile(p, .{ .truncate = false, .mode = 0o600 });
-    errdefer file.close();
-    if (wait) try file.lock(.exclusive) else if (!try file.tryLock(.exclusive)) {
-        file.close();
+    const file = try std.Io.Dir.cwd().createFile(os.io(), p, .{ .truncate = false, .permissions = .fromMode(0o600) });
+    errdefer file.close(os.io());
+    if (wait) try file.lock(os.io(), .exclusive) else if (!try file.tryLock(os.io(), .exclusive)) {
+        file.close(os.io());
         return null;
     }
     return file;
@@ -159,10 +159,10 @@ fn parse(rel: Release, bytes: []const u8) !std.json.Parsed(Manifest) {
     return m;
 }
 fn run(argv: []const []const u8) !void {
-    const result = try std.process.Child.run(.{ .allocator = a, .argv = argv, .max_output_bytes = 1024 * 1024 });
+    const result = try std.process.run(a, os.io(), .{ .argv = argv, .stdout_limit = .limited(1024 * 1024), .stderr_limit = .limited(1024 * 1024) });
     defer a.free(result.stdout);
     defer a.free(result.stderr);
-    if (result.term != .Exited or result.term.Exited != 0) return error.UpdateSubprocessFailed;
+    if (result.term != .exited or result.term.exited != 0) return error.UpdateSubprocessFailed;
 }
 fn fetch(rel: Release, url: []const u8, dest: []const u8, limit: u64) !void {
     const size = try std.fmt.allocPrint(a, "{d}", .{limit});
@@ -177,32 +177,34 @@ fn fetch(rel: Release, url: []const u8, dest: []const u8, limit: u64) !void {
     });
 }
 fn hashFile(path: []const u8) ![64]u8 {
-    var file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+    var file = try std.Io.Dir.cwd().openFile(os.io(), path, .{});
+    defer file.close(os.io());
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
     var buf: [65536]u8 = undefined;
     while (true) {
-        const n = try file.read(&buf);
-        if (n == 0) break;
+        const n = file.readStreaming(os.io(), &.{&buf}) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
         hash.update(buf[0..n]);
     }
     return std.fmt.bytesToHex(hash.finalResult(), .lower);
 }
 fn verifyFile(path: []const u8, t: Target) !void {
-    var f = try std.fs.cwd().openFile(path, .{});
-    defer f.close();
-    if ((try f.stat()).size != t.size or !std.mem.eql(u8, &(try hashFile(path)), t.sha256)) return error.UpdateChecksumMismatch;
+    var f = try std.Io.Dir.cwd().openFile(os.io(), path, .{});
+    defer f.close(os.io());
+    if ((try f.stat(os.io())).size != t.size or !std.mem.eql(u8, &(try hashFile(path)), t.sha256)) return error.UpdateChecksumMismatch;
 }
 fn feed(rel: Release, root: []const u8, download: bool, explicit: bool) !void {
     const guard = (try lock(root, "download.lock", explicit)) orelse return;
-    defer guard.close();
+    defer guard.close(os.io());
     const temp = try join(root, "feed.tmp");
     defer a.free(temp);
-    defer std.fs.cwd().deleteFile(temp) catch {};
+    defer std.Io.Dir.cwd().deleteFile(os.io(), temp) catch {};
     const url = try std.fmt.allocPrint(a, "{s}/channels/stable.json", .{rel.feed_url});
     defer a.free(url);
     try fetch(rel, url, temp, 1024 * 1024);
-    const bytes = try std.fs.cwd().readFileAlloc(a, temp, 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(os.io(), temp, a, .limited(1024 * 1024));
     defer a.free(bytes);
     const m = try parse(rel, bytes);
     defer m.deinit();
@@ -226,16 +228,16 @@ fn feed(rel: Release, root: []const u8, download: bool, explicit: bool) !void {
     verifyFile(dest, m.value.target()) catch {
         const partial = try join(dir, "download.tmp");
         defer a.free(partial);
-        defer std.fs.cwd().deleteFile(partial) catch {};
+        defer std.Io.Dir.cwd().deleteFile(os.io(), partial) catch {};
         try fetch(rel, m.value.target().url, partial, m.value.target().size);
         try verifyFile(partial, m.value.target());
-        var f = try std.fs.cwd().openFile(partial, .{ .mode = .read_write });
-        defer f.close();
-        try f.chmod(0o700);
-        try f.sync();
+        var f = try std.Io.Dir.cwd().openFile(os.io(), partial, .{ .mode = .read_write });
+        defer f.close(os.io());
+        try f.setPermissions(os.io(), .fromMode(0o700));
+        try f.sync(os.io());
         // Never replace a completed executable (it may own a live runtime).
-        if (std.fs.cwd().access(dest, .{})) |_| return error.ExistingReleaseDiffers else |err| if (err != error.FileNotFound) return err;
-        try std.fs.cwd().rename(partial, dest);
+        if (std.Io.Dir.cwd().access(os.io(), dest, .{})) |_| return error.ExistingReleaseDiffers else |err| if (err != error.FileNotFound) return err;
+        try std.Io.Dir.cwd().rename(partial, .cwd(), dest, os.io());
     };
     try write(dir, "manifest.json", bytes);
     try write(root, "staged", m.value.version);
@@ -280,7 +282,7 @@ const Animation = struct {
         while (!self.stop.load(.acquire)) : (tick += 1) {
             os.writeAll(2, "\r") catch {};
             os.writeAll(2, frames[(tick / 3) % frames.len]) catch {};
-            std.Thread.sleep(80 * std.time.ns_per_ms);
+            os.sleep(80 * std.time.ns_per_ms);
         }
         os.writeAll(2, "\r\x1b[2K") catch {};
     }
@@ -362,7 +364,7 @@ fn confirmRestart(socket: []const u8) !?bool {
 // Returns the executable compatible with the runtime (or selected installation).
 fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, explicit: bool, rollback: bool) ![]u8 {
     const guard = try lock(root, "activation.lock", explicit);
-    defer if (guard) |g| g.close();
+    defer if (guard) |g| g.close(os.io());
     var h = try hello(socket);
     defer if (h) |*v| v.deinit();
     const current = (try read(root, "current")) orelse return error.MissingInstalledVersion;
@@ -434,14 +436,14 @@ fn select(rel: Release, root: []const u8, socket: []const u8, allow: bool, expli
         defer a.free(recovery);
         const backup = try std.fmt.allocPrint(a, "{s}.before-update", .{recovery});
         defer a.free(backup);
-        try std.fs.cwd().copyFile(recovery, std.fs.cwd(), backup, .{});
+        try std.Io.Dir.cwd().copyFile(recovery, .cwd(), backup, os.io(), .{});
         const shutdown = try rpc(socket, .shutdown, {});
         shutdown.deinit();
         var stopped = false;
         for (0..100) |_| {
             if (try hello(socket)) |v| {
                 v.deinit();
-                std.Thread.sleep(50 * std.time.ns_per_ms);
+                os.sleep(50 * std.time.ns_per_ms);
             } else {
                 stopped = true;
                 break;
@@ -546,24 +548,24 @@ fn worker(rel: Release, exe: []const u8, socket: []const u8) !void {
     const name = try std.fmt.allocPrint(a, "worker-{x}.lock", .{std.hash.Wyhash.hash(0, socket)});
     defer a.free(name);
     const guard = (try lock(root, name, false)) orelse return;
-    defer guard.close();
+    defer guard.close(os.io());
     var next: i64 = 0;
     while (!exists(root, "auto-off")) {
         const h = (try hello(socket)) orelse return;
         h.deinit();
-        const now = std.time.timestamp();
+        const now = os.timestamp();
         if (now >= next) {
             feed(rel, root, true, false) catch |err| recordError(root, err);
-            next = now + 3600 + std.crypto.random.intRangeLessThan(i64, 0, 300);
+            next = now + 3600 + os.random.intRangeLessThan(i64, 0, 300);
         }
-        std.Thread.sleep(30 * std.time.ns_per_s);
+        os.sleep(30 * std.time.ns_per_s);
     }
 }
 pub fn internal(args: []const []const u8) !bool {
     if (args.len < 2) return false;
     const Internal = enum { @"__update-worker", @"__update-info", __install };
     const cmd = std.meta.stringToEnum(Internal, args[1]) orelse return false;
-    const exe = try std.fs.selfExePathAlloc(a);
+    const exe = try std.process.executablePathAlloc(os.io(), a);
     defer a.free(exe);
     const rel: Release = .of(exe);
     switch (cmd) {
@@ -593,9 +595,9 @@ fn install(rel: Release, exe: []const u8, root: []const u8, bin: []const u8, man
     if (!std.fs.path.isAbsolute(root) or !std.fs.path.isAbsolute(bin)) return error.AbsoluteInstallPathRequired;
     try os.privateDirectory(root);
     const guard = (try lock(root, "activation.lock", true)).?;
-    defer guard.close();
+    defer guard.close(os.io());
     if (exists(root, "current")) return error.AlreadyInstalled;
-    const bytes = try std.fs.cwd().readFileAlloc(a, manifest_path, 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(os.io(), manifest_path, a, .limited(1024 * 1024));
     defer a.free(bytes);
     const m = try parse(rel, bytes);
     defer m.deinit();
@@ -605,7 +607,7 @@ fn install(rel: Release, exe: []const u8, root: []const u8, bin: []const u8, man
     defer a.free(dest);
     const dir = std.fs.path.dirname(dest).?;
     try os.privateDirectory(dir);
-    try std.fs.cwd().copyFile(exe, std.fs.cwd(), dest, .{ .override_mode = 0o700 });
+    try std.Io.Dir.cwd().copyFile(exe, .cwd(), dest, os.io(), .{ .permissions = .fromMode(0o700) });
     try write(dir, "manifest.json", bytes);
     // Quote the install root for a POSIX shell. No shell-dependent PATH edits.
     var quoted: std.ArrayList(u8) = .empty;
@@ -617,11 +619,11 @@ fn install(rel: Release, exe: []const u8, root: []const u8, bin: []const u8, man
     try quoted.append(a, '\'');
     const launcher = try std.fmt.allocPrint(a, "#!/bin/sh\nset -eu\nroot={s}\nv=$(cat \"$root/current\")\ncase \"$v\" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec \"$root/releases/$v/corgi\" \"$@\"\n", .{quoted.items});
     defer a.free(launcher);
-    try std.fs.cwd().makePath(std.fs.path.dirname(bin).?);
-    const file = try std.fs.cwd().createFile(bin, .{ .exclusive = true, .mode = 0o755 });
-    defer file.close();
-    try file.writeAll(launcher);
-    try file.sync();
+    try std.Io.Dir.cwd().createDirPath(os.io(), std.fs.path.dirname(bin).?);
+    const file = try std.Io.Dir.cwd().createFile(os.io(), bin, .{ .exclusive = true, .permissions = .fromMode(0o755) });
+    defer file.close(os.io());
+    try file.writeStreamingAll(os.io(), launcher);
+    try file.sync(os.io());
     try write(root, "current", rel.version);
     std.debug.print("Installed Corgi {s} at {s}\nAdd its directory to PATH if needed, then run corgi.\n", .{ rel.version, bin });
 }
@@ -657,9 +659,9 @@ fn signedManifest(signer: std.crypto.sign.Ed25519.KeyPair, schema: u32, url: []c
 }
 
 test "manifests verify against the release's key" {
-    const signer = std.crypto.sign.Ed25519.KeyPair.generate();
+    const signer = std.crypto.sign.Ed25519.KeyPair.generate(os.io());
     const key = std.fmt.bytesToHex(signer.public_key.toBytes(), .lower);
-    const other = std.fmt.bytesToHex(std.crypto.sign.Ed25519.KeyPair.generate().public_key.toBytes(), .lower);
+    const other = std.fmt.bytesToHex(std.crypto.sign.Ed25519.KeyPair.generate(os.io()).public_key.toBytes(), .lower);
     const bytes = try signedManifest(signer, 1, "https://example.invalid/corgi");
     defer a.free(bytes);
     const m = try parse(testRelease(&key), bytes);
@@ -675,7 +677,7 @@ test "manifests verify against the release's key" {
 }
 
 test "local http targets need test mode" {
-    const signer = std.crypto.sign.Ed25519.KeyPair.generate();
+    const signer = std.crypto.sign.Ed25519.KeyPair.generate(os.io());
     const key = std.fmt.bytesToHex(signer.public_key.toBytes(), .lower);
     const local = try signedManifest(signer, 1, "http://127.0.0.1:9/corgi");
     defer a.free(local);
@@ -692,7 +694,7 @@ test "local http targets need test mode" {
 test "only an installed release with a feed is managed" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const base = try tmp.dir.realpathAlloc(a, ".");
+    const base = try os.realpathAlloc(a, tmp.dir, ".");
     defer a.free(base);
     const root = try join(base, "install");
     defer a.free(root);

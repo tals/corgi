@@ -70,7 +70,7 @@ pub const Stream = struct {
             s.retry_at = 0;
             changed = true;
         }
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         if (s.fd == null) {
             if (now < s.retry_at) return changed;
             s.retry_at = now + 1000;

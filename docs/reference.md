@@ -4,7 +4,7 @@ A small terminal multiplexer for agents, written in Zig, using **Ghostty's nativ
 
 ## Run
 
-Requires **Zig 0.15.2**, pinned to the Ghostty revision in `build.zig.zon`. The host's Zig 0.16 is not compatible with this dependency. `scripts/zig` selects a matching compiler from `ZIG`, PATH, or the local `.tools/` download.
+Requires **Zig 0.16.0**, pinned to the Ghostty revision in `build.zig.zon`. `scripts/zig` selects a matching compiler from `ZIG`, PATH, or the local `.tools/` download.
 
 ```sh
 ./go.sh                        # ReleaseSafe build, then start or attach

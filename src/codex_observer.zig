@@ -1,6 +1,7 @@
 //! Title-selected, read-only daemon observation. Never resumes or subscribes a
 //! thread, and never changes the CLI transport or launch configuration.
 const std = @import("std");
+const compat = @import("compat.zig");
 const conversations = @import("conversations.zig");
 const ActorId = conversations.Actor.Id;
 const os = @import("os.zig");
@@ -110,9 +111,9 @@ fn children(client: *Client, session: []const u8) !Children {
     errdefer out.entries.deinit(a);
     var cursor: ?[]const u8 = null;
     defer if (cursor) |p| a.free(p);
-    const deadline = std.time.milliTimestamp() + 1000;
+    const deadline = os.milliTimestamp() + 1000;
     for (0..32) |_| {
-        if (std.time.milliTimestamp() >= deadline) return error.Timeout;
+        if (os.milliTimestamp() >= deadline) return error.Timeout;
         const page = try client.call("thread/list", .{ .parentThreadId = session, .sourceKinds = &.{"subAgent"}, .useStateDbOnly = true, .limit = 100, .cursor = cursor });
         defer page.deinit();
         const data = field(result(page.value), "data");
@@ -138,9 +139,9 @@ fn isActiveWait(entry: std.json.Value, turn: []const u8, session: []const u8) bo
 fn waiting(client: *Client, session: []const u8, turn: []const u8) !bool {
     var cursor: ?[]const u8 = null;
     defer if (cursor) |p| a.free(p);
-    const deadline = std.time.milliTimestamp() + 1000;
+    const deadline = os.milliTimestamp() + 1000;
     for (0..32) |_| {
-        if (std.time.milliTimestamp() >= deadline) return error.Timeout;
+        if (os.milliTimestamp() >= deadline) return error.Timeout;
         const page = try client.call("thread/items/list", .{ .threadId = session, .turnId = turn, .limit = 100, .sortDirection = "desc", .cursor = cursor });
         defer page.deinit();
         const data = field(result(page.value), "data");
@@ -162,7 +163,7 @@ fn snapshot(client: *Client, req: Request, session: [36]u8) !Snapshot {
     if (!std.mem.eql(u8, agents.str(thread, "id"), &session)) return error.WrongThread;
     var state = threadState(field(thread, "status"));
     if (state == .unknown) state = .initializing;
-    var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = std.time.microTimestamp() };
+    var out: Snapshot = .{ .request = req, .session = session, .state = state, .observed_at = os.microTimestamp() };
     const updated = field(thread, "updatedAt");
     if (updated == .integer and updated.integer > 0) out.updated_at = updated.integer;
     out.name = .initTruncated(agents.str(thread, "name"));
@@ -217,8 +218,8 @@ fn backgroundTasks(client: *Client, session: []const u8, now: i64) !background_t
     return out;
 }
 pub const Worker = struct {
-    mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    wake: std.Io.Condition = .init,
     stopping: bool = false,
     passes: passes.Passes = .{},
     requests: [max]Request = undefined,
@@ -239,18 +240,18 @@ pub const Worker = struct {
         return w;
     }
     pub fn stop(w: *Worker) void {
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         w.stopping = true;
-        w.wake.signal();
-        w.mutex.unlock();
+        w.wake.signal(os.io());
+        w.mutex.unlock(os.io());
         w.thread.?.join();
         for (w.results) |entry| if (entry) |s| s.deinit();
         a.free(w.socket);
         a.destroy(w);
     }
     pub fn reconcile(w: *Worker, runtime: anytype) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.count = 0;
         for (runtime.panes.items) |p| {
             if (p.terminal.exited or p.agent().provider != .codex or p.detection.pid <= 0 or p.detection.missing != 0 or p.terminal.title_pid != p.detection.pid) continue;
@@ -277,28 +278,28 @@ pub const Worker = struct {
         if (actors.len > 0) w.cursor = (w.cursor + 1) % actors.len;
     }
     pub fn take(w: *Worker, out: *[max]?Snapshot) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         out.* = w.results;
         w.results = .{null} ** max;
     }
     fn stopped(w: *Worker) bool {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         return w.stopping;
     }
     fn run(w: *Worker) void {
         while (true) {
             var requests: [max]Request = undefined;
-            w.mutex.lock();
-            if (!w.passes.next()) w.wake.timedWait(&w.mutex, 500 * std.time.ns_per_ms) catch {};
+            w.mutex.lockUncancelable(os.io());
+            if (!w.passes.next()) compat.timedWait(&w.wake, os.io(), &w.mutex, 500 * std.time.ns_per_ms) catch {};
             if (w.stopping) {
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 return;
             }
             const count = w.count;
             @memcpy(requests[0..count], w.requests[0..count]);
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             if (count == 0) continue;
             var client = Client.open(w.socket) catch continue;
             defer client.close();
@@ -314,10 +315,10 @@ pub const Worker = struct {
                 if (w.stopped()) return;
                 const session = if (req.actor != ActorId.none) req.prefix.bytes else unique(ids.items, &req.prefix) orelse continue;
                 const s = snapshot(&client, req, session) catch continue;
-                w.mutex.lock();
+                w.mutex.lockUncancelable(os.io());
                 if (w.results[i]) |old| old.deinit();
                 w.results[i] = s;
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
             }
         }
     }

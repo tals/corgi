@@ -72,7 +72,7 @@ fn inherit(fd: c_int) void {
 pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c_int) !noreturn {
     // Keep the saved context current even if the machine fails during reload.
     try recovery.save(&s.runtime, s.socket);
-    const deadline = std.time.milliTimestamp() + 1500;
+    const deadline = os.milliTimestamp() + 1500;
     while (true) {
         var pending = false;
         for (s.runtime.panes.items) |p| {
@@ -84,7 +84,7 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
             pending = pending or (!n.exited and n.output.items.len > 0);
         }
         if (!pending) break;
-        if (std.time.milliTimestamp() >= deadline) return error.ReloadInputBackpressure;
+        if (os.milliTimestamp() >= deadline) return error.ReloadInputBackpressure;
         _ = c.poll(null, 0, 5);
     }
     if (s.summaries) |worker| try worker.pause();
@@ -132,14 +132,14 @@ pub fn replace(s: *Server, listener: c_int, executable: []const u8, requester: c
     };
     const bytes = try std.json.Stringify.valueAlloc(alloc, manifest, .{});
     if (bytes.len > 256 * 1024 * 1024) return error.CheckpointTooLarge;
-    const name = try std.fmt.allocPrint(alloc, "{s}.handoff-{d}-{x}", .{ s.socket, c.getpid(), std.crypto.random.int(u64) });
-    const file = try std.fs.cwd().createFile(name, .{ .mode = 0o600, .read = true, .exclusive = true });
-    defer file.close();
+    const name = try std.fmt.allocPrint(alloc, "{s}.handoff-{d}-{x}", .{ s.socket, c.getpid(), os.random.int(u64) });
+    const file = try std.Io.Dir.cwd().createFile(os.io(), name, .{ .permissions = .fromMode(0o600), .read = true, .exclusive = true });
+    defer file.close(os.io());
     // Anonymous after creation: it cannot survive a crash or be mistaken for a
     // disk recovery file containing usable descriptors.
-    try std.fs.cwd().deleteFile(name);
-    try file.writeAll(bytes);
-    try file.seekTo(0);
+    try std.Io.Dir.cwd().deleteFile(os.io(), name);
+    // Positional, leaving the offset at 0 for the successor's read.
+    try file.writePositionalAll(os.io(), bytes, 0);
     var pair: [2]c_int = undefined;
     if (c.socketpair(c.AF_UNIX, c.SOCK_STREAM, 0, &pair) != 0) return error.SocketPairFailed;
     defer _ = c.close(pair[0]);
@@ -209,10 +209,10 @@ fn importInner(s: *Server, socket: []const u8, executable: []const u8, build_id:
     os.cloexec(state_fd);
     os.cloexec(control_fd);
     {
-        const file: std.fs.File = .{ .handle = state_fd };
-        const bytes = try file.readToEndAlloc(a, 256 * 1024 * 1024);
+        const file: std.Io.File = .{ .handle = state_fd, .flags = .{ .nonblocking = false } };
+        const bytes = try os.readToEndAlloc(file, a, 256 * 1024 * 1024);
         defer a.free(bytes);
-        file.close();
+        file.close(os.io());
         const parsed = try migrations.decode(Manifest, .handoff, a, bytes);
         defer parsed.deinit();
         const m = parsed.parsed.value;
@@ -254,7 +254,7 @@ fn importInner(s: *Server, socket: []const u8, executable: []const u8, build_id:
                 .watch_viewer = saved.watch_viewer,
                 .launch_preview = saved.launch_preview,
                 .snapshot_revision = saved.snapshot_revision,
-                .touched = std.time.milliTimestamp(),
+                .touched = os.milliTimestamp(),
             };
             cl.input = .fromOwnedSlice(try binary.decode(a, saved.input));
             cl.output = .fromOwnedSlice(try binary.decode(a, saved.output));

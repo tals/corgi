@@ -1,4 +1,5 @@
 const std = @import("std");
+const os = @import("../os.zig");
 const Terminal = @import("../pane.zig").Terminal;
 const cp = @import("checkpoint.zig");
 const a = @import("../os.zig").allocator;
@@ -97,7 +98,7 @@ test "generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE
     // migrated and restored, then re-captured, which exercises the same
     // capture path a live build would. Run once with CORGI_UPDATE_FIXTURE=1
     // whenever checkpoint-v5.json needs regenerating, then inspect the diff.
-    if (!std.process.hasEnvVarConstant("CORGI_UPDATE_FIXTURE")) return error.SkipZigTest;
+    if (!(os.env("CORGI_UPDATE_FIXTURE") != null)) return error.SkipZigTest;
     const migrations = @import("migrations.zig");
     const decoded = try migrations.decode(cp.State, .checkpoint, std.testing.allocator, @embedFile("../fixtures/checkpoint-v4.json"));
     defer decoded.deinit();
@@ -108,7 +109,7 @@ test "generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE
     defer arena.deinit();
     const captured = try cp.capture(arena.allocator(), &fresh, false);
     const json = try std.json.Stringify.valueAlloc(arena.allocator(), captured, .{});
-    try std.fs.cwd().writeFile(.{ .sub_path = "src/fixtures/checkpoint-v5.json", .data = json });
+    try std.Io.Dir.cwd().writeFile(os.io(), .{ .sub_path = "src/fixtures/checkpoint-v5.json", .data = json });
 }
 
 test "saved checkpoint format matches its version" {
@@ -285,7 +286,7 @@ test "live compaction restores its clearing source including older checkpoints" 
         const restored_actor = fresh.conversations.byId(actor.id).?;
         try std.testing.expectEqual(case.screen_owned, restored_actor.screen_compacting);
         try std.testing.expectEqualStrings("Compacting context", restored_actor.activity_timeline.points[0].label.text());
-        restored_actor.observeCompactionScreen(false, std.time.microTimestamp());
+        restored_actor.observeCompactionScreen(false, os.microTimestamp());
         try std.testing.expectEqual(!case.screen_owned, restored_actor.state.compacting);
         const cold = try cp.capture(arena.allocator(), &original, false);
         try std.testing.expect(!cold.conversations[0].agent.compacting);
@@ -320,7 +321,6 @@ test "compact checkpoint preserves screens input modes cursor and title without 
     try std.testing.expect(std.mem.indexOf(u8, primary, "primary history") != null);
 }
 test "redraw cycle changes PTY dimensions only after activation and restores them" {
-    const os = @import("../os.zig");
     const c = os.c;
     var master: c_int = -1;
     var slave: c_int = -1;
@@ -346,7 +346,6 @@ test "redraw cycle changes PTY dimensions only after activation and restores the
     try std.testing.expect(t.redraw_restore_at == null);
 }
 test "a restored candidate terminal does not signal its process until adopted" {
-    const os = @import("../os.zig");
     const c = os.c;
     const pid = c.fork();
     if (pid == 0) {

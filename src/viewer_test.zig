@@ -16,7 +16,7 @@ pub fn run(path: []const u8) !void {
     var conn: @import("rpc.zig").Connection = .{ .fd = fd };
     var view: viewer.View = .{ .connection = &conn, .executable = "" };
     defer viewer.deinit(&view);
-    const cwd = try std.process.getCwdAlloc(a);
+    const cwd = try std.process.currentPathAlloc(os.io(), a);
     defer a.free(cwd);
     var bell = try viewer.open(&view, cwd, .{}, path);
     while (true) {

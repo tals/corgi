@@ -180,40 +180,40 @@ const Job = struct {
         defer argv.deinit(a);
         try argv.appendSlice(a, &.{ "git", "-c", "core.askPass=", "-c", "credential.interactive=false", "-C", j.ref.view().root });
         try argv.appendSlice(a, args);
-        var env = try std.process.getEnvMap(a);
+        var env = try os.environMap(a);
         defer env.deinit();
         try env.put("GIT_TERMINAL_PROMPT", "0");
         try env.put("GCM_INTERACTIVE", "Never");
-        var child = std.process.Child.init(argv.items, a);
-        child.env_map = &env;
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-        child.pgid = 0;
-        try child.spawn();
+        const child = try std.process.spawn(os.io(), .{
+            .argv = argv.items,
+            .environ_map = &env,
+            .stdin = .ignore,
+            .stdout = .pipe,
+            .stderr = .pipe,
+            .pgid = 0,
+        });
         var reaped = false;
         defer {
             if (!reaped) {
-                _ = c.kill(-child.id, c.SIGKILL);
+                _ = c.kill(-child.id.?, c.SIGKILL);
                 var status: c_int = 0;
-                _ = c.waitpid(child.id, &status, 0);
+                _ = c.waitpid(child.id.?, &status, 0);
             }
-            if (child.stdout) |file| file.close();
-            if (child.stderr) |file| file.close();
+            if (child.stdout) |file| file.close(os.io());
+            if (child.stderr) |file| file.close(os.io());
         }
-        try child.waitForSpawn();
         os.nonblock(child.stdout.?.handle);
         os.nonblock(child.stderr.?.handle);
         var output: std.ArrayList(u8) = .empty;
         defer output.deinit(a);
         var errors: std.ArrayList(u8) = .empty;
         defer errors.deinit(a);
-        const deadline = std.time.milliTimestamp() + @as(i64, if (pushing) 120000 else 5000);
-        while (!j.stopping.load(.acquire) and std.time.milliTimestamp() < deadline) {
+        const deadline = os.milliTimestamp() + @as(i64, if (pushing) 120000 else 5000);
+        while (!j.stopping.load(.acquire) and os.milliTimestamp() < deadline) {
             try drain(child.stdout.?.handle, &output);
             try drain(child.stderr.?.handle, &errors);
             var status: c_int = 0;
-            if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) {
+            if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) {
                 reaped = true;
                 try drain(child.stdout.?.handle, &output);
                 try drain(child.stderr.?.handle, &errors);
@@ -226,7 +226,7 @@ const Job = struct {
                 }
                 return a.dupe(u8, std.mem.trim(u8, output.items, " \t\r\n"));
             }
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            os.sleep(10 * std.time.ns_per_ms);
         }
         return error.TimedOut;
     }

@@ -106,10 +106,10 @@ pub fn foreground(fd: c_int) ?Job {
             if (process(pid)) |provider| return .{ .pid = pid, .provider = provider };
         }
     } else if (builtin.os.tag == .linux) {
-        var dir = std.fs.openDirAbsolute("/proc", .{ .iterate = true }) catch return null;
-        defer dir.close();
+        var dir = std.Io.Dir.openDirAbsolute(os.io(), "/proc", .{ .iterate = true }) catch return null;
+        defer dir.close(os.io());
         var it = dir.iterate();
-        while (it.next() catch null) |entry| {
+        while (it.next(os.io()) catch null) |entry| {
             const pid = std.fmt.parseInt(c_int, entry.name, 10) catch continue;
             if (pid == pgid or c.getpgid(pid) != pgid) continue;
             if (process(pid)) |provider| return .{ .pid = pid, .provider = provider };
@@ -377,7 +377,7 @@ pub const Tracker = struct {
         if (agent.state == next) return false;
         if (next == .idle) t.ready = true;
         agent.state = next;
-        agent.changed_at = std.time.microTimestamp();
+        agent.changed_at = os.microTimestamp();
         agent.activity = .{};
         agent.observation.source = .screen;
         if (next == .working) agent.attention = if (agent.observation.unread()) .finished else .none;

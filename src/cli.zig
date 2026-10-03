@@ -80,12 +80,12 @@ pub const help =
     \\
 ;
 
-pub fn handles(args: []const [:0]u8) bool {
+pub fn handles(args: []const [:0]const u8) bool {
     if (args.len < 2) return false;
     return std.meta.stringToEnum(Group, args[1]) != null;
 }
 
-pub fn run(path: []const u8, args: []const [:0]u8) !void {
+pub fn run(path: []const u8, args: []const [:0]const u8) !void {
     const group = std.meta.stringToEnum(Group, args[1]).?;
     if (group == .@"--skill") {
         if (args.len != 2) return error.Usage;
@@ -253,7 +253,7 @@ fn parseCommand(action: Action, target: u32, args: *Args) !protocol.Command {
         },
         .@"pane.send" => .{ .@"pane.send" = .{
             .target = @enumFromInt(target),
-            .text = if (args.flag(.stdin)) try std.fs.File.stdin().readToEndAlloc(args.mem, 1024 * 1024) else try args.next(),
+            .text = if (args.flag(.stdin)) try os.readToEndAlloc(.stdin(), args.mem, 1024 * 1024) else try args.next(),
             .enter = args.flag(.enter),
         } },
         .@"pane.keys" => blk: {
@@ -441,7 +441,7 @@ test "command lines are rejected before connecting" {
 test "command lines parse to the request the daemon receives" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const tmp = try std.fs.realpathAlloc(arena.allocator(), "/tmp");
+    const tmp = try os.realpathAlloc(arena.allocator(), .cwd(), "/tmp");
     const Case = struct {
         words: []const [:0]const u8,
         caller: u32 = 0,

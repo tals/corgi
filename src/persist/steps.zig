@@ -22,8 +22,8 @@ fn checkpoint1To2(alloc: Allocator, value: *Value) Error!void {
 
 fn conversationTable(alloc: Allocator, value: *Value) Error!void {
     const fields = try object(value);
-    if (!fields.contains("conversations")) try fields.put("conversations", .{ .array = .init(alloc) });
-    if (!fields.contains("next_conversation")) try fields.put("next_conversation", .{ .integer = 1 });
+    if (!fields.contains("conversations")) try fields.put(alloc, "conversations", .{ .array = .init(alloc) });
+    if (!fields.contains("next_conversation")) try fields.put(alloc, "next_conversation", .{ .integer = 1 });
 }
 
 fn checkpoint2To3(alloc: Allocator, value: *Value) Error!void {
@@ -47,12 +47,11 @@ fn checkpoint3To4(alloc: Allocator, value: *Value) Error!void {
     // V3 only ever recorded yolo as `semantics.mode` display text. Recover the
     // fact for any command whose text names the yolo mode; otherwise leave
     // `yolo` unset, which decodes to its default of false.
-    _ = alloc;
     for (try items(value, "agent_commands")) |*command| {
         const fields = object(command) catch continue;
         const semantics = fields.getPtr("semantics") orelse continue;
         const info = object(semantics) catch continue;
-        if (modeIsYolo(info)) try info.put("yolo", .{ .bool = true });
+        if (modeIsYolo(info)) try info.put(alloc, "yolo", .{ .bool = true });
     }
 }
 
@@ -94,33 +93,33 @@ fn promoteBindings(alloc: Allocator, state: *Value) Error!void {
             const fields = try object(entry);
             if (fields.get("binding")) |binding| if (binding != .null) continue;
             var legacy: Value = if (comptime std.mem.eql(u8, collection, "panes"))
-                try clone(alloc, fields.get("agent") orelse .{ .object = .init(alloc) })
+                try clone(alloc, fields.get("agent") orelse .{ .object = .empty })
             else legacy: {
                 // Native V1 kept identity in its resume hint and lifecycle on
                 // the transport. Reassemble the agent only here.
-                var raw: Value = .{ .object = .init(alloc) };
+                var raw: Value = .{ .object = .empty };
                 inline for (.{ "provider", "state", "attention", "observation" }) |key| {
-                    if (fields.get(key)) |field| try raw.object.put(key, try clone(alloc, field));
+                    if (fields.get(key)) |field| try raw.object.put(alloc, key, try clone(alloc, field));
                 }
                 if (fields.getPtr("resume_hint")) |hint| {
                     const hint_fields = try object(hint);
-                    if (hint_fields.get("session")) |field| try raw.object.put("session", try clone(alloc, field));
-                    if (hint_fields.get("len")) |field| try raw.object.put("session_len", try clone(alloc, field));
+                    if (hint_fields.get("session")) |field| try raw.object.put(alloc, "session", try clone(alloc, field));
+                    if (hint_fields.get("len")) |field| try raw.object.put(alloc, "session_len", try clone(alloc, field));
                 }
                 break :legacy raw;
             };
             if (legacy != .object) return error.InvalidCheckpoint;
-            var binding: Value = .{ .object = .init(alloc) };
+            var binding: Value = .{ .object = .empty };
             if (try identity(alloc, &legacy)) |id| {
                 const actor = try conversationFor(alloc, state, id, legacy);
                 var known: Value = .{ .array = .init(alloc) };
                 try known.array.append(.{ .integer = actor });
-                try binding.object.put("actor", .{ .integer = actor });
+                try binding.object.put(alloc, "actor", .{ .integer = actor });
                 // A fresh attachment starts at 1; selecting the actor bumps it.
-                try binding.object.put("generation", .{ .integer = 2 });
-                try binding.object.put("known", known);
-            } else try binding.object.put("provisional", legacy);
-            try fields.put("binding", binding);
+                try binding.object.put(alloc, "generation", .{ .integer = 2 });
+                try binding.object.put(alloc, "known", known);
+            } else try binding.object.put(alloc, "provisional", legacy);
+            try fields.put(alloc, "binding", binding);
         }
     }
 }
@@ -174,10 +173,10 @@ fn conversationFor(alloc: Allocator, state: *Value, id: Identity, agent: Value) 
     if (next.* != .integer or next.integer < 1 or next.integer >= std.math.maxInt(u32)) return error.InvalidCheckpoint;
     const actor = next.integer;
     next.integer += 1;
-    var entry: Value = .{ .object = .init(alloc) };
-    try entry.object.put("id", .{ .integer = actor });
+    var entry: Value = .{ .object = .empty };
+    try entry.object.put(alloc, "id", .{ .integer = actor });
     // The binding keeps no copy, so the conversation owns this tree outright.
-    try entry.object.put("agent", agent);
+    try entry.object.put(alloc, "agent", agent);
     try actors.array.append(entry);
     return actor;
 }
@@ -186,9 +185,9 @@ fn conversationFor(alloc: Allocator, state: *Value, id: Identity, agent: Value) 
 fn clone(alloc: Allocator, value: Value) Allocator.Error!Value {
     return switch (value) {
         .object => |map| copy: {
-            var out: std.json.ObjectMap = .init(alloc);
+            var out: std.json.ObjectMap = .empty;
             var it = map.iterator();
-            while (it.next()) |entry| try out.put(entry.key_ptr.*, try clone(alloc, entry.value_ptr.*));
+            while (it.next()) |entry| try out.put(alloc, entry.key_ptr.*, try clone(alloc, entry.value_ptr.*));
             break :copy .{ .object = out };
         },
         .array => |list| copy: {
@@ -211,9 +210,9 @@ fn handoff1To2(alloc: Allocator, value: *Value) Error!void {
         var values: std.json.Array = .init(alloc);
         try values.append(fields.get("codex") orelse .{ .integer = 0 });
         try values.append(fields.get("claude") orelse .{ .integer = 0 });
-        var count: std.json.ObjectMap = .init(alloc);
-        try count.put("values", .{ .array = values });
-        try fields.put("count", .{ .object = count });
+        var count: std.json.ObjectMap = .empty;
+        try count.put(alloc, "values", .{ .array = values });
+        try fields.put(alloc, "count", .{ .object = count });
     }
     _ = fields.swapRemove("codex");
     _ = fields.swapRemove("claude");
@@ -229,9 +228,9 @@ fn handoff2To3(alloc: Allocator, value: *Value) Error!void {
         for (try items(preview, "options")) |*option| {
             const fields = try object(option);
             if (fields.get("usage_metered")) |metered| if (metered == .bool and metered.bool) {
-                var limits: Value = .{ .object = .init(alloc) };
-                try limits.object.put("metered", .{ .object = .init(alloc) });
-                try fields.put("limits", limits);
+                var limits: Value = .{ .object = .empty };
+                try limits.object.put(alloc, "metered", .{ .object = .empty });
+                try fields.put(alloc, "limits", limits);
             };
             _ = fields.swapRemove("usage");
             _ = fields.swapRemove("usage_metered");
@@ -287,7 +286,7 @@ fn agentText(alloc: Allocator, agent: *Value) Error!void {
 fn commandText(alloc: Allocator, command: *Value) Error!void {
     const fields = try object(command);
     try pairedText(alloc, fields, "bytes", "len");
-    if (fields.fetchSwapRemove("bytes")) |text| try fields.put("command", text.value);
+    if (fields.fetchSwapRemove("bytes")) |text| try fields.put(alloc, "command", text.value);
     try pairedText(alloc, fields, "original", "original_len");
     try wrappedText(alloc, fields.getPtr("name"));
     const semantics = fields.getPtr("semantics") orelse return;
@@ -402,10 +401,10 @@ fn byProvider(alloc: Allocator, field: ?*Value, comptime tag: std.meta.Tag(Value
     const list = field orelse return;
     const names = [_][]const u8{ "codex", "claude" };
     if (list.* != .array or list.array.items.len > names.len) return error.InvalidCheckpoint;
-    var named: std.json.ObjectMap = .init(alloc);
+    var named: std.json.ObjectMap = .empty;
     for (list.array.items, names[0..list.array.items.len]) |item, name| {
         if (item != tag) return error.InvalidCheckpoint;
-        try named.put(name, item);
+        try named.put(alloc, name, item);
     }
     list.* = .{ .object = named };
 }

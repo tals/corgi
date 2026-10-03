@@ -73,7 +73,7 @@ fn read(file: []const u8) Preferences {
 }
 
 fn readExisting(file: []const u8) ?Preferences {
-    const bytes = std.fs.cwd().readFileAlloc(a, file, 64 * 1024) catch return null;
+    const bytes = std.Io.Dir.cwd().readFileAlloc(os.io(), file, a, .limited(64 * 1024)) catch return null;
     defer a.free(bytes);
     const parsed = std.json.parseFromSlice(Preferences, a, bytes, .{ .ignore_unknown_fields = true }) catch return null;
     defer parsed.deinit();
@@ -86,19 +86,19 @@ fn readExisting(file: []const u8) ?Preferences {
 fn write(file: []const u8, value: Preferences) !void {
     const bytes = try std.json.Stringify.valueAlloc(a, value, .{ .whitespace = .indent_2 });
     defer a.free(bytes);
-    try std.fs.cwd().makePath(std.fs.path.dirname(file) orelse ".");
+    try std.Io.Dir.cwd().createDirPath(os.io(), std.fs.path.dirname(file) orelse ".");
     // Every viewer uses this file, so each writer needs its own temporary file.
-    var atomic = try std.fs.cwd().atomicFile(file, .{ .mode = 0o600, .write_buffer = &.{} });
-    defer atomic.deinit();
-    try atomic.file_writer.interface.writeAll(bytes);
-    try atomic.file_writer.file.sync();
-    try atomic.finish();
+    var atomic = try std.Io.Dir.cwd().createFileAtomic(os.io(), file, .{ .permissions = .fromMode(0o600), .replace = true });
+    defer atomic.deinit(os.io());
+    try atomic.file.writeStreamingAll(os.io(), bytes);
+    try atomic.file.sync(os.io());
+    try atomic.replace(os.io());
 }
 
 test "preferences round trip and fall back to defaults" {
     var dir = std.testing.tmpDir(.{});
     defer dir.cleanup();
-    const root = try dir.dir.realpathAlloc(std.testing.allocator, ".");
+    const root = try os.realpathAlloc(std.testing.allocator, dir.dir, ".");
     defer std.testing.allocator.free(root);
     const file = try std.fs.path.join(std.testing.allocator, &.{ root, "nested", "viewer.json" });
     defer std.testing.allocator.free(file);
@@ -111,10 +111,10 @@ test "preferences round trip and fall back to defaults" {
     try std.testing.expectEqual(Preferences{ .agents = .all, .sidebar_width = 44 }, read(file));
     try write(file, .{ .resources = .{ .enabled = false } });
     try std.testing.expectEqual(Resources{ .enabled = false }, read(file).resources);
-    try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{\"resources\":{\"enabled\":false,\"io\":false,\"alerts\":true}}" });
+    try dir.dir.writeFile(os.io(), .{ .sub_path = "nested/viewer.json", .data = "{\"resources\":{\"enabled\":false,\"io\":false,\"alerts\":true}}" });
     try std.testing.expectEqual(Resources{ .enabled = false }, read(file).resources);
     try write(file, .{ .preset = .cmux, .onboarding_complete = true });
     try std.testing.expectEqual(if (builtin.os.tag == .macos) keymap.Preset.cmux else .corgi, read(file).preset);
-    try dir.dir.writeFile(.{ .sub_path = "nested/viewer.json", .data = "{broken" });
+    try dir.dir.writeFile(os.io(), .{ .sub_path = "nested/viewer.json", .data = "{broken" });
     try std.testing.expectEqual(Preferences{}, read(file));
 }

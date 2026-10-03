@@ -123,7 +123,7 @@ pub const Menu = struct {
         // Built-in rows offer an actionable "Track usage" link instead; saved
         // commands sharing that provider show unavailable data (no action).
         if (m.trackable(.of(p))) return if (row.custom() == null) .status("Track usage") else unavailableCell(option);
-        const now = std.time.timestamp();
+        const now = os.timestamp();
         return switch (option.limits) {
             .none => if (m.preview.pending) .status("Reading…") else unavailableCell(option),
             .metered => .status("Metered"),
@@ -318,7 +318,7 @@ pub const Menu = struct {
             .folder = m.cwd.text(),
             .workspace_folder = m.workspace_cwd.text(),
             .open = m.open[0..m.open_count],
-            .now = std.time.timestamp(),
+            .now = os.timestamp(),
         };
     }
     /// Whether conversations show: once the daemon has sent some. A first
@@ -730,7 +730,7 @@ test "launcher fits long content and keeps usage hit targets aligned" {
 test "single-line limit groups survive narrow terminal rendering" {
     var menu: Menu = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
     menu.preview.pending = false;
-    const now = std.time.timestamp();
+    const now = os.timestamp();
     menu.preview.options.getPtr(.codex).limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48, .reset_at = now + 6 * 86400 + 18 * 3600 } } };
     menu.preview.options.getPtr(.claude).limits = .{ .windows = .{
         .{ .minutes = 300, .used = 17, .reset_at = now + 99 * 60 },
@@ -781,9 +781,9 @@ test "viewer expires a delivered usage reading after ten minutes" {
     menu.preview.pending = false;
     const option = menu.preview.options.getPtr(.codex);
     option.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48 } } };
-    option.usage_fetched_at = std.time.timestamp() - 590;
+    option.usage_fetched_at = os.timestamp() - 590;
     try std.testing.expectEqual(@as(usize, 1), menu.usageCell(.codex).len);
-    option.usage_fetched_at = std.time.timestamp() - metadata.usage_max_age;
+    option.usage_fetched_at = os.timestamp() - metadata.usage_max_age;
     try std.testing.expectEqualStrings("Unavailable · last success 10m+ ago", menu.usageCell(.codex).fallback.text());
     option.limits = .metered;
     try std.testing.expectEqualStrings("Metered", menu.usageCell(.codex).fallback.text());

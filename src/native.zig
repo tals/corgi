@@ -83,7 +83,8 @@ pub const Session = struct {
     id: Id,
     provider: agents.Provider,
     cwd: []const u8,
-    child: std.process.Child,
+    /// Unspawned until `start`, or filled in from a handoff.
+    child: std.process.Child = .{ .id = null, .thread_handle = {}, .stdin = null, .stdout = null, .stderr = null, .request_resource_usage_statistics = false },
     /// A handoff candidate holds a duplicate of the pid the source daemon
     /// still owns. Only `Runtime.adopt` makes it ours to signal.
     owner: Terminal.Owner = .runtime,
@@ -198,7 +199,7 @@ pub const Session = struct {
     /// The inference worker uses the same native transport with a private
     /// conversation registry and an explicitly restricted harness invocation.
     pub fn startWithOptions(id: Id, provider: agents.Provider, cwd: []const u8, options: Options) !Session {
-        const directory = try std.fs.cwd().realpathAlloc(a, cwd);
+        const directory = try os.realpathAlloc(a, .cwd(), cwd);
         errdefer a.free(directory);
         var argv: std.ArrayList([]const u8) = .empty;
         defer argv.deinit(a);
@@ -206,28 +207,28 @@ pub const Session = struct {
         defer a.free(bin);
         try argv.append(a, bin);
         try argv.appendSlice(a, options.args orelse provider.info().native_args);
-        var child = std.process.Child.init(argv.items, a);
-        var env = try std.process.getEnvMap(a);
+        var env = try os.environMap(a);
         defer env.deinit();
-        env.remove("CORGI_PANE");
+        _ = env.swapRemove("CORGI_PANE");
         if (options.inference) {
-            for ([_][]const u8{ "CORGI_SOCKET", "CORGI_NATIVE_SESSION", "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT" }) |key| env.remove(key);
+            for ([_][]const u8{ "CORGI_SOCKET", "CORGI_NATIVE_SESSION", "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT" }) |key| _ = env.swapRemove(key);
             try env.put("CMUX_CODEX_HOOKS_DISABLED", "1");
         }
-        child.env_map = &env;
-        child.stdin_behavior = .Pipe;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = if (options.inference) .Ignore else .Inherit;
-        child.cwd = cwd;
-        child.pgid = 0;
-        try child.spawn();
+        const child = try std.process.spawn(os.io(), .{
+            .argv = argv.items,
+            .cwd = .{ .path = cwd },
+            .environ_map = &env,
+            .stdin = .pipe,
+            .stdout = .pipe,
+            .stderr = if (options.inference) .ignore else .inherit,
+            .pgid = 0,
+        });
         errdefer {
-            _ = c.kill(-child.id, c.SIGKILL);
-            _ = c.waitpid(child.id, null, 0);
-            if (child.stdin) |file| file.close();
-            if (child.stdout) |file| file.close();
+            _ = c.kill(-child.id.?, c.SIGKILL);
+            _ = c.waitpid(child.id.?, null, 0);
+            if (child.stdin) |file| file.close(os.io());
+            if (child.stdout) |file| file.close(os.io());
         }
-        try child.waitForSpawn();
         os.nonblock(child.stdout.?.handle);
         os.nonblock(child.stdin.?.handle);
         os.cloexec(child.stdout.?.handle);
@@ -252,13 +253,13 @@ pub const Session = struct {
     pub fn destroy(s: *Session) void {
         s.releaseRequests();
         a.free(s.cwd);
-        if (s.owner == .runtime and !s.exited) {
-            _ = c.kill(-s.child.id, c.SIGKILL);
+        if (s.owner == .runtime and !s.exited) if (s.child.id) |pid| {
+            _ = c.kill(-pid, c.SIGKILL);
             var exit_status: c_int = 0;
-            _ = c.waitpid(s.child.id, &exit_status, 0);
-        }
-        if (s.child.stdin) |f| f.close();
-        if (s.child.stdout) |f| f.close();
+            _ = c.waitpid(pid, &exit_status, 0);
+        };
+        if (s.child.stdin) |f| f.close(os.io());
+        if (s.child.stdout) |f| f.close(os.io());
         for (s.events.items) |event| a.free(event.line);
         for (s.approvals.items) |request| a.free(request.line);
         var threads = s.active_threads.iterator();
@@ -286,8 +287,9 @@ pub const Session = struct {
     /// True once, when our own child exits. An imported process belongs to
     /// another parent; `poll` sees its exit as EOF.
     pub fn reap(s: *Session) bool {
-        if (s.exited or s.imported or s.child.id <= 0) return false;
-        if (c.waitpid(s.child.id, null, c.WNOHANG) != s.child.id) return false;
+        const pid = s.child.id orelse return false;
+        if (s.exited or s.imported or pid <= 0) return false;
+        if (c.waitpid(pid, null, c.WNOHANG) != pid) return false;
         s.markExited();
         return true;
     }
@@ -507,7 +509,7 @@ pub const Session = struct {
                 .claude => {},
             }
             try s.remember(owner);
-            owner.observed_at = std.time.microTimestamp();
+            owner.observed_at = os.microTimestamp();
             if (owner.workspace == WorkspaceId.none) owner.workspace = s.workspace_id;
             if (s.attachment.actor == null) {
                 if (owner.state.state == .unknown) {
@@ -546,7 +548,7 @@ pub const Session = struct {
         const stale_turn = completed_turn or (event.phase != .working and reported_turn.len > 0 and target.turn.len > 0 and !std.mem.eql(u8, reported_turn, target.turnId()));
         if (!stale_turn or event.phase == .completed) try s.observeTools(target, v, params, method, kind);
         if (actor) |owner| if (method == .@"thread/tokenUsage/updated") switch (s.provider) {
-            .codex => owner.native_meter.native(tokens.field(params, "tokenUsage"), s.active_threads.contains(event.session), std.time.milliTimestamp()),
+            .codex => owner.native_meter.native(tokens.field(params, "tokenUsage"), s.active_threads.contains(event.session), os.milliTimestamp()),
             .claude => {},
         };
         if (event.request_id) |request_id| {
@@ -587,7 +589,7 @@ pub const Session = struct {
                     a.free(entry.value);
                 }
             }
-            if (matches) ding = target.endTurn(event.turn, event.outcome, .protocol, std.time.microTimestamp());
+            if (matches) ding = target.endTurn(event.turn, event.outcome, .protocol, os.microTimestamp());
         }
         if (!stale_turn and s.hasApproval(actor)) {
             target.state = .blocked;
@@ -595,7 +597,7 @@ pub const Session = struct {
         }
         if (!stale_turn and (event.phase != .none or event.request_id != null or method == .@"item/started" or method == .@"item/completed" or kind == .user)) s.syncTools(target);
         if (!stale_turn and (target.state != old or event.phase != .none or event.request_id != null)) {
-            target.last_seq = std.time.microTimestamp();
+            target.last_seq = os.microTimestamp();
             target.changed_at = target.last_seq;
             target.observation.source = .protocol;
         }
@@ -617,7 +619,6 @@ fn testSession(provider: agents.Provider) !Session {
         .id = @enumFromInt(1),
         .provider = provider,
         .cwd = try a.dupe(u8, "/tmp"),
-        .child = std.process.Child.init(&.{}, a),
         .ready = true,
         .attachment = .{ .provisional = .{ .provider = provider, .state = .idle } },
     };

@@ -1,6 +1,7 @@
 //! Incremental usage observation off the terminal thread. Opening a file seeds
 //! baselines only; old history never appears as new workspace activity.
 const std = @import("std");
+const compat = @import("../compat.zig");
 const ActorId = @import("../conversations.zig").Actor.Id;
 const WorkspaceId = @import("../workspace.zig").Workspace.Id;
 const agents = @import("../agents.zig");
@@ -96,8 +97,8 @@ pub const Result = struct {
     }
 };
 pub const Worker = struct {
-    mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    wake: std.Io.Condition = .init,
     stopping: bool = false,
     passes: passes.Passes = .{},
     requests: std.ArrayList(Request) = .empty,
@@ -112,17 +113,17 @@ pub const Worker = struct {
         return w;
     }
     pub fn stop(w: *Worker) void {
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         w.stopping = true;
-        w.wake.signal();
-        w.mutex.unlock();
+        w.wake.signal(os.io());
+        w.mutex.unlock(os.io());
         w.thread.?.join();
         w.requests.deinit(a);
         a.destroy(w);
     }
     pub fn reconcile(w: *Worker, runtime: anytype) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.requests.clearRetainingCapacity();
         for (runtime.conversations.items.items) |actor| {
             const agent = &actor.state;
@@ -141,7 +142,7 @@ pub const Worker = struct {
                 break;
             };
         }
-        w.wake.signal();
+        w.wake.signal(os.io());
     }
     fn batch(w: *Worker, out: *[max_jobs]Request) []Request {
         const count = @min(out.len, w.requests.items.len);
@@ -150,8 +151,8 @@ pub const Worker = struct {
         return out[0..count];
     }
     pub fn take(w: *Worker, out: *[max_jobs]?Result) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         out.* = w.results;
         w.results = @splat(null);
     }
@@ -169,14 +170,14 @@ pub const Worker = struct {
         }
         var requests: [max_jobs]Request = undefined;
         while (true) {
-            w.mutex.lock();
-            if (!w.passes.next()) w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
+            w.mutex.lockUncancelable(os.io());
+            if (!w.passes.next()) compat.timedWait(&w.wake, os.io(), &w.mutex, 250 * std.time.ns_per_ms) catch {};
             if (w.stopping) {
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 return;
             }
             const batch_requests = w.batch(&requests);
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             index.refresh();
             for (batch_requests) |*req| {
                 const entry = watchers.getOrPut(a, req.actor) catch |err| {
@@ -194,7 +195,7 @@ pub const Worker = struct {
                 }
                 const t = entry.value_ptr.*;
                 // A full delivery buffer must not consume and lose usage deltas.
-                w.mutex.lock();
+                w.mutex.lockUncancelable(os.io());
                 const slot = for (&w.results) |*candidate| {
                     if (candidate.*) |old| {
                         if (old.actor == req.actor) break candidate;
@@ -202,7 +203,7 @@ pub const Worker = struct {
                 } else for (&w.results) |*candidate| {
                     if (candidate.* == null) break candidate;
                 } else null;
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 if (slot == null) continue;
                 const delta = t.poll(req) catch blk: {
                     if (t.live.meter.value.known) t.live.meter.lose();
@@ -213,14 +214,14 @@ pub const Worker = struct {
                 t.releaseFile();
                 if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and
                     t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.context.at == 0) continue;
-                w.mutex.lock();
+                w.mutex.lockUncancelable(os.io());
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace) {
                         result.* = .{ .actor = req.actor, .workspace = req.workspace, .since = req.since, .delta = .{} };
                     }
                     result.*.?.delta.add(delta);
                     result.*.?.model = t.model;
-                    result.*.?.live = t.live.meter.view(std.time.milliTimestamp());
+                    result.*.?.live = t.live.meter.view(os.milliTimestamp());
                     result.*.?.context = t.context;
                     result.*.?.progress = t.progress.view();
                     result.*.?.seq = req.agent.last_seq;
@@ -235,7 +236,7 @@ pub const Worker = struct {
                     }
                     if (std.mem.eql(u8, t.progress.turn.text(), req.agent.turnId())) t.progress.dirty = false;
                 }
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
             }
         }
     }
@@ -245,8 +246,8 @@ pub const Tail = struct {
     initial_until: u64 = 0,
     tracker: usage.Tracker = .{},
     progress: activity_tools.Tracker = .{},
-    file: ?std.fs.File = null,
-    inode: std.fs.File.INode = 0,
+    file: ?std.Io.File = null,
+    inode: std.Io.File.INode = 0,
     device: u64 = 0,
     offset: u64 = 0,
     partial: std.ArrayList(u8) = .empty,
@@ -261,7 +262,7 @@ pub const Tail = struct {
     update: codex_files.Name = .{},
     update_at: i64 = 0,
     fn releaseFile(t: *Tail) void {
-        if (t.file) |f| f.close();
+        if (t.file) |f| f.close(os.io());
         t.file = null;
     }
     fn closeFile(t: *Tail) void {
@@ -279,12 +280,12 @@ pub const Tail = struct {
     }
     fn open(t: *Tail, req: *const Request) !void {
         const agent = &req.agent;
-        const fd = try std.posix.open(agent.transcriptPath(), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0);
-        const file: std.fs.File = .{ .handle = fd };
-        errdefer file.close();
-        const stat = try file.stat();
+        const fd = try std.posix.openat(std.posix.AT.FDCWD, agent.transcriptPath(), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0);
+        const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+        errdefer file.close(os.io());
+        const stat = try file.stat(os.io());
         if (stat.kind != .file) return error.NotRegular;
-        const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
+        const device: u64 = (try os.fstat(file.handle)).dev;
         const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
         if (!resumed) {
             try transcript.verifySession(file, req.provider(), agent.sessionId());
@@ -309,12 +310,12 @@ pub const Tail = struct {
                     // any new message that is zero observed, not unknown coverage.
                     if (!t.live.meter.value.known) {
                         t.live.meter.value.known = true;
-                        t.live.meter.value.since = std.time.milliTimestamp();
+                        t.live.meter.value.since = os.milliTimestamp();
                     }
                 },
                 .codex => {
                     var header: [64 * 1024]u8 = undefined;
-                    const n = try file.pread(&header, 0);
+                    const n = try file.readPositional(os.io(), &.{&header}, 0);
                     if (std.mem.indexOfScalar(u8, header[0..n], '\n')) |end| {
                         const parsed = try std.json.parseFromSlice(std.json.Value, a, header[0..end], .{});
                         defer parsed.deinit();
@@ -390,7 +391,7 @@ pub const Tail = struct {
                 t.observeModel(usage.field(value, "message"));
                 const delta = t.tracker.transcript(.claude, session, value);
                 if (appended and delta.tokens_known) {
-                    t.live.meter.add(.{ .input = delta.input, .cached_input = delta.cached_input, .output = delta.output }, stamp orelse std.time.milliTimestamp());
+                    t.live.meter.add(.{ .input = delta.input, .cached_input = delta.cached_input, .output = delta.output }, stamp orelse os.milliTimestamp());
                 }
                 return delta;
             },
@@ -398,7 +399,7 @@ pub const Tail = struct {
                 t.progress.ingest(value, appended);
                 t.observeModel(usage.field(value, "payload"));
                 const delta = t.tracker.transcript(.codex, session, value);
-                t.live.ingest(value, appended, std.time.milliTimestamp());
+                t.live.ingest(value, appended, os.milliTimestamp());
                 t.context.codex(value);
                 return delta;
             },
@@ -411,12 +412,12 @@ pub const Tail = struct {
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(req);
         const file = t.file.?;
-        const stat = try file.stat();
-        const path_stat = try std.posix.fstatat(std.posix.AT.FDCWD, req.agent.transcriptPath(), std.posix.AT.SYMLINK_NOFOLLOW);
-        if (!std.posix.S.ISREG(path_stat.mode) or path_stat.ino != t.inode or path_stat.dev != t.device or stat.size < t.offset) return error.Replaced;
+        const stat = try file.stat(os.io());
+        const path_stat = try os.lstat(req.agent.transcriptPath());
+        if (!path_stat.isFile() or path_stat.ino != t.inode or path_stat.dev != t.device or stat.size < t.offset) return error.Replaced;
         if (stat.size == t.offset) return .{};
         var bytes: [read_budget]u8 = undefined;
-        const n = try file.pread(&bytes, t.offset);
+        const n = try file.readPositional(os.io(), &.{&bytes}, t.offset);
         const start_offset = t.offset;
         t.offset += n;
         return t.ingest(req, bytes[0..n], start_offset);
@@ -518,15 +519,15 @@ test "file metadata prefers fresh protocol and rejects other turns" {
 test "real file usage reader accepts large Codex metadata and counts later activity" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    var file = try tmp.dir.createFile("usage.jsonl", .{ .read = true });
-    defer file.close();
-    try file.writeAll("{\"type\":\"session_meta\",\"payload\":{\"id\":\"large-session\",\"instructions\":\"");
+    var file = try tmp.dir.createFile(os.io(), "usage.jsonl", .{ .read = true });
+    defer file.close(os.io());
+    try file.writeStreamingAll(os.io(), "{\"type\":\"session_meta\",\"payload\":{\"id\":\"large-session\",\"instructions\":\"");
     const padding: [24 * 1024]u8 = @splat('x');
-    try file.writeAll(&padding);
-    try file.writeAll("\"}}\n");
+    try file.writeStreamingAll(os.io(), &padding);
+    try file.writeStreamingAll(os.io(), "\"}}\n");
     try transcript.verifySession(file, .codex, "large-session");
     try std.testing.expectError(error.WrongSession, transcript.verifySession(file, .codex, "other-session"));
-    const path = try tmp.dir.realpathAlloc(std.testing.allocator, "usage.jsonl");
+    const path = try os.realpathAlloc(std.testing.allocator, tmp.dir, "usage.jsonl");
     defer std.testing.allocator.free(path);
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 1000, .agent = .{ .provider = .codex } };
     req.agent.session = .ascii("large-session");
@@ -539,8 +540,8 @@ test "real file usage reader accepts large Codex metadata and counts later activ
     const baseline_offset = tail.offset;
     tail.releaseFile();
     try std.testing.expectEqual(null, tail.file);
-    try file.writeAll("{\"type\":\"response_item\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"function_call\",\"call_id\":\"call1\"}}\n");
-    try file.writeAll("{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"output_tokens\":20}}}}\n");
+    try file.writeStreamingAll(os.io(), "{\"type\":\"response_item\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"function_call\",\"call_id\":\"call1\"}}\n");
+    try file.writeStreamingAll(os.io(), "{\"type\":\"event_msg\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":100,\"output_tokens\":20}}}}\n");
     const delta = try tail.poll(&req);
     try std.testing.expect(tail.offset > baseline_offset);
     try std.testing.expectEqual(@as(u64, 1), delta.tools);

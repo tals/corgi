@@ -1,5 +1,6 @@
 //! Native, read-only process counters. No subprocesses or command-line scraping.
 const std = @import("std");
+const os = @import("../os.zig");
 const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("unistd.h");
@@ -45,10 +46,10 @@ pub fn inventory(alloc: std.mem.Allocator) !Inventory {
             try list.append(alloc, item);
         }
     } else if (builtin.os.tag == .linux) {
-        var dir = try std.fs.openDirAbsolute("/proc", .{ .iterate = true });
-        defer dir.close();
+        var dir = try std.Io.Dir.openDirAbsolute(os.io(), "/proc", .{ .iterate = true });
+        defer dir.close(os.io());
         var it = dir.iterate();
-        while (try it.next()) |entry| {
+        while (try it.next(os.io())) |entry| {
             const pid = std.fmt.parseInt(i32, entry.name, 10) catch continue;
             if (list.items.len == max_processes) {
                 truncated = true;
@@ -124,10 +125,7 @@ fn parseStat(pid: i32, text: []const u8) ?Stat {
     return null;
 }
 fn read(path: []const u8, buf: []u8) ?[]const u8 {
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
-    const n = file.readAll(buf) catch return null;
-    return buf[0..n];
+    return buf[0 .. os.readFile(path, buf) catch return null];
 }
 fn field(text: []const u8, key: []const u8) ?u64 {
     var lines = std.mem.splitScalar(u8, text, '\n');

@@ -188,10 +188,10 @@ pub const Tracker = struct {
         while (true) {
             const marker = try std.fs.path.join(a, &.{ root, ".git" });
             defer a.free(marker);
-            if (std.fs.cwd().access(marker, .{})) |_| break else |_| {}
+            if (std.Io.Dir.cwd().access(os.io(), marker, .{})) |_| break else |_| {}
             root = std.fs.path.dirname(root) orelse return t.save(cwd, "", null, now);
         }
-        const key = try std.fs.cwd().realpathAlloc(a, root);
+        const key = try os.realpathAlloc(a, .cwd(), root);
         defer a.free(key);
         if (t.cache.get(key)) |cached| {
             if (cached.seen == now or (cached.refs.len == 0 and now - cached.seen < 30000)) return cachedResult(cached, commits, ref);
@@ -253,12 +253,13 @@ fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?
     defer argv.deinit(a);
     argv.appendSlice(a, &.{ "git", "--no-optional-locks", "-C", cwd }) catch return null;
     argv.appendSlice(a, args) catch return null;
-    var child = std.process.Child.init(argv.items, a);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-    child.pgid = 0;
-    child.spawn() catch |err| {
+    const child = std.process.spawn(os.io(), .{
+        .argv = argv.items,
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+        .pgid = 0,
+    }) catch |err| {
         if (spawn_failure.changed(err)) log.warn("git spawn failed: {}", .{err});
         return null;
     };
@@ -266,24 +267,23 @@ fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?
     var reaped = false;
     defer {
         if (!reaped) {
-            _ = c.kill(-child.id, c.SIGKILL);
+            _ = c.kill(-child.id.?, c.SIGKILL);
             var status: c_int = 0;
-            _ = c.waitpid(child.id, &status, 0);
+            _ = c.waitpid(child.id.?, &status, 0);
         }
-        if (child.stdout) |file| file.close();
+        if (child.stdout) |file| file.close(os.io());
     }
-    child.waitForSpawn() catch return null;
     const fd = child.stdout.?.handle;
     os.nonblock(fd);
     var buf: [65536]u8 = undefined;
     var len: usize = 0;
-    var timer = std.time.Timer.start() catch return null;
+    const timer: os.Timer = .start();
     while (timer.read() < 2 * std.time.ns_per_s) {
         if (len == buf.len) return null;
         const n = c.read(fd, buf[len..].ptr, buf.len - len);
         if (n > 0) len += @intCast(n);
         var status: c_int = 0;
-        if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) {
+        if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) {
             reaped = true;
             if (status != 0) return null;
             if (len < buf.len) {
@@ -293,7 +293,7 @@ fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?
             if (len == buf.len) return null;
             return a.dupe(u8, std.mem.trim(u8, buf[0..len], " \t\r\n")) catch null;
         }
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        os.sleep(5 * std.time.ns_per_ms);
     }
     return null;
 }
@@ -307,7 +307,7 @@ fn testGit(cwd: []const u8, args: []const []const u8) !void {
 test "upstream counts follow commits and packed refs, deduplicate subdirectories and isolate worktrees" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const root = try tmp.dir.realpathAlloc(a, ".");
+    const root = try os.realpathAlloc(a, tmp.dir, ".");
     defer a.free(root);
     try testGit(root, &.{ "init", "-b", "main" });
     try testGit(root, &.{ "config", "user.name", "Corgi Test" });
@@ -329,7 +329,7 @@ test "upstream counts follow commits and packed refs, deduplicate subdirectories
     // A sentinel proves the unchanged-ref path reuses the cached count.
     tracker.cache.getPtr(root).?.ahead = 42;
     try std.testing.expectEqual(@as(?u64, 42), try tracker.refresh(root, 10000));
-    try tmp.dir.makeDir("nested");
+    try tmp.dir.createDir(os.io(), "nested", .default_dir);
     const nested = try std.fs.path.join(a, &.{ root, "nested" });
     defer a.free(nested);
     try std.testing.expectEqual(@as(?u64, 42), try tracker.refresh(nested, 10000));

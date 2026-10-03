@@ -1,6 +1,7 @@
 //! On-demand completion verification. One worker, bounded reads and framing;
 //! no transcript IO or JSON parsing on the terminal interaction thread.
 const std = @import("std");
+const compat = @import("compat.zig");
 const conversations = @import("conversations.zig");
 const ActorId = conversations.Actor.Id;
 const agents = @import("agents.zig");
@@ -19,8 +20,8 @@ const Request = struct { actor: ActorId, agent: agents.Agent };
 pub const Result = struct { actor: ActorId, seq: i64, outcome: agents.observation.Outcome };
 
 pub const Worker = struct {
-    mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    wake: std.Io.Condition = .init,
     stopping: bool = false,
     passes: passes.Passes = .{},
     requests: std.ArrayList(Request) = .empty,
@@ -36,17 +37,17 @@ pub const Worker = struct {
         return w;
     }
     pub fn stop(w: *Worker) void {
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         w.stopping = true;
-        w.wake.signal();
-        w.mutex.unlock();
+        w.wake.signal(os.io());
+        w.mutex.unlock(os.io());
         w.thread.?.join();
         w.requests.deinit(a);
         a.destroy(w);
     }
     pub fn reconcile(w: *Worker, actors: anytype) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.requests.clearRetainingCapacity();
         for (actors) |actor| {
             const agent = &actor.state;
@@ -56,7 +57,7 @@ pub const Worker = struct {
                 break;
             };
         }
-        w.wake.signal();
+        w.wake.signal(os.io());
     }
     fn batch(w: *Worker, out: *[max_jobs]Request) []Request {
         const count = @min(out.len, w.requests.items.len);
@@ -65,8 +66,8 @@ pub const Worker = struct {
         return out[0..count];
     }
     pub fn take(w: *Worker, out: *[max_jobs]?Result) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         out.* = w.results;
         w.results = .{null} ** max_jobs;
     }
@@ -82,14 +83,14 @@ pub const Worker = struct {
         }
         var requests: [max_jobs]Request = undefined;
         while (true) {
-            w.mutex.lock();
-            if (!w.passes.next()) w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
+            w.mutex.lockUncancelable(os.io());
+            if (!w.passes.next()) compat.timedWait(&w.wake, os.io(), &w.mutex, 250 * std.time.ns_per_ms) catch {};
             if (w.stopping) {
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 return;
             }
             const batch_requests = w.batch(&requests);
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             for (batch_requests) |*req| {
                 const entry = watchers.getOrPut(a, req.actor) catch |err| {
                     log.warn("tracking completion tail: {}", .{err});
@@ -110,14 +111,14 @@ pub const Worker = struct {
                     t.actor = req.actor;
                     t.seq = req.agent.last_seq;
                 }
-                const now = std.time.milliTimestamp();
+                const now = os.milliTimestamp();
                 if (t.finished or now < t.next_check) continue;
                 // Reserve result capacity before advancing this actor's reader.
-                w.mutex.lock();
+                w.mutex.lockUncancelable(os.io());
                 const slot = for (&w.results) |*candidate| {
                     if (candidate.* == null) break candidate;
                 } else null;
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 if (slot == null) continue;
                 t.attempts +|= 1;
                 t.next_check = now + (if (t.attempts < 20) @as(i64, 250) else 2000);
@@ -128,10 +129,10 @@ pub const Worker = struct {
                 // Keep framing/offsets while bounding open file descriptors.
                 t.releaseFile();
                 if (outcome) |value| {
-                    w.mutex.lock();
+                    w.mutex.lockUncancelable(os.io());
                     slot.?.* = .{ .actor = req.actor, .seq = req.agent.last_seq, .outcome = value };
                     t.finished = true;
-                    w.mutex.unlock();
+                    w.mutex.unlock(os.io());
                 }
             }
         }
@@ -141,8 +142,8 @@ pub const Worker = struct {
 const Tail = struct {
     actor: ActorId = .none,
     seq: i64 = 0,
-    file: ?std.fs.File = null,
-    inode: std.fs.File.INode = 0,
+    file: ?std.Io.File = null,
+    inode: std.Io.File.INode = 0,
     device: u64 = 0,
     offset: u64 = 0,
     partial: std.ArrayList(u8) = .empty,
@@ -151,7 +152,7 @@ const Tail = struct {
     next_check: i64 = 0,
     attempts: u32 = 0,
     fn releaseFile(t: *Tail) void {
-        if (t.file) |f| f.close();
+        if (t.file) |f| f.close(os.io());
         t.file = null;
     }
     fn closeFile(t: *Tail) void {
@@ -168,12 +169,12 @@ const Tail = struct {
         t.* = .{};
     }
     fn open(t: *Tail, agent: *const agents.Agent) !void {
-        const fd = try std.posix.open(agent.transcriptPath(), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0);
-        const file: std.fs.File = .{ .handle = fd };
-        errdefer file.close();
-        const stat = try file.stat();
+        const fd = try std.posix.openat(std.posix.AT.FDCWD, agent.transcriptPath(), .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NOFOLLOW = true, .NONBLOCK = true }, 0);
+        const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+        errdefer file.close(os.io());
+        const stat = try file.stat(os.io());
         if (stat.kind != .file) return error.NotRegular;
-        const device: u64 = @intCast((try std.posix.fstat(file.handle)).dev);
+        const device: u64 = (try os.fstat(file.handle)).dev;
         const resumed = t.inode != 0 and stat.inode == t.inode and device == t.device and stat.size >= t.offset;
         if (!resumed) {
             try verifySession(file, agent.provider orelse return error.NoProvider, agent.sessionId());
@@ -188,12 +189,12 @@ const Tail = struct {
     fn poll(t: *Tail, agent: *const agents.Agent) !?agents.observation.Outcome {
         if (t.file == null) try t.open(agent);
         const file = t.file.?;
-        const stat = try file.stat();
-        const path_stat = try std.posix.fstatat(std.posix.AT.FDCWD, agent.transcriptPath(), std.posix.AT.SYMLINK_NOFOLLOW);
-        if (!std.posix.S.ISREG(path_stat.mode) or path_stat.ino != t.inode or path_stat.dev != t.device or stat.size < t.offset) return error.Replaced;
+        const stat = try file.stat(os.io());
+        const path_stat = try os.lstat(agent.transcriptPath());
+        if (!path_stat.isFile() or path_stat.ino != t.inode or path_stat.dev != t.device or stat.size < t.offset) return error.Replaced;
         if (stat.size == t.offset) return null;
         var bytes: [read_budget]u8 = undefined;
-        const n = try file.pread(&bytes, t.offset);
+        const n = try file.readPositional(os.io(), &.{&bytes}, t.offset);
         t.offset += n;
         return t.ingest(agent, bytes[0..n]);
     }
@@ -223,7 +224,7 @@ const Tail = struct {
 };
 /// A transcript that begins with an identity record must name this session.
 /// Shared by completion and usage readers.
-pub fn verifySession(file: std.fs.File, provider: agents.Provider, session: []const u8) !void {
+pub fn verifySession(file: std.Io.File, provider: agents.Provider, session: []const u8) !void {
     switch (provider) {
         .codex => try verifyCodexSession(file, session),
         .claude => {},
@@ -232,13 +233,13 @@ pub fn verifySession(file: std.fs.File, provider: agents.Provider, session: []co
 // Session metadata contains instructions and can exceed 16 KiB. Read through
 // the first newline with a bounded allocation, rather than assuming one chunk
 // contains the whole identity record.
-fn verifyCodexSession(file: std.fs.File, session: []const u8) !void {
+fn verifyCodexSession(file: std.Io.File, session: []const u8) !void {
     const limit = 1024 * 1024;
     var header: std.ArrayList(u8) = .empty;
     defer header.deinit(a);
     var chunk: [4096]u8 = undefined;
     while (header.items.len < limit) {
-        const n = try file.pread(chunk[0..@min(chunk.len, limit - header.items.len)], header.items.len);
+        const n = try file.readPositional(os.io(), &.{chunk[0..@min(chunk.len, limit - header.items.len)]}, header.items.len);
         if (n == 0) return error.NoIdentity;
         const end = std.mem.indexOfScalar(u8, chunk[0..n], '\n');
         try header.appendSlice(a, chunk[0 .. end orelse n]);

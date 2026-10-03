@@ -144,7 +144,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     var connection: Connection = .{ .fd = fd };
     var view: View = .{ .connection = &connection, .executable = "" };
     defer deinit(&view);
-    const cwd = try std.process.getCwdAlloc(a);
+    const cwd = try std.process.currentPathAlloc(os.io(), a);
     defer a.free(cwd);
     var bell_seq = try openMode(&view, cwd, probe.theme, socket, start_onboarding);
     var openers: url_opener.Openers = .{};
@@ -171,7 +171,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         try probe.expire(input);
         var image_output: std.Io.Writer.Allocating = .init(a);
         defer image_output.deinit();
-        try probe.badge.upload(&image_output.writer, std.time.milliTimestamp());
+        try probe.badge.upload(&image_output.writer, os.milliTimestamp());
         if (image_output.written().len > 0) try os.writeAll(1, image_output.written());
         const badge_mode = probe.badge.mode();
         if (view.corgi_badge != badge_mode or view.supports_kitty_graphics != probe.badge.supports_kitty_graphics) {
@@ -199,7 +199,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         }
         if (input.items.len > 4) input.clearRetainingCapacity();
         try view.expireInput();
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         if (view.dirty or now >= next_sync) {
             // Frames keep their clock for animations; the daemon is asked
             // only when it said something changed, or often enough that it
@@ -213,7 +213,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
                     watch_opened = true;
                 }
             }
-            next_sync = std.time.milliTimestamp() + 30;
+            next_sync = os.milliTimestamp() + 30;
             const frame = try view.frame();
             if (!std.mem.eql(u8, previous, frame)) try os.writeAll(1, frame);
             if (previous.len > 0) a.free(previous);

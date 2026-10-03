@@ -23,7 +23,7 @@ Updates download in the background and apply on the next launch.
 
 ## Development
 
-Requires **Zig 0.15.2** on your PATH (or set `ZIG=/path/to/zig`). Tested on macOS Apple Silicon.
+Requires **Zig 0.16.0** on your PATH (or set `ZIG=/path/to/zig`). Tested on macOS Apple Silicon.
 
 From this directory:
 

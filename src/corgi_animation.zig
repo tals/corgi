@@ -1,4 +1,5 @@
 const std = @import("std");
+const os = @import("os.zig");
 const frames = @import("corgi_frames.zig");
 
 const gait_right = [_][]const u8{ "~[/\\]o>", "~[||]o>", "~[\\/]o>", "~[||]o>" };
@@ -183,7 +184,11 @@ const unearth_word = [_][]const u8{ "R", "e", "s", "t", "o", "r", "i", "n", "g",
 const buried = [_][]const u8{ "⣶", "⣿", "⣷", "⣾", "⣿", "⣶", "⣷", "⣿", "⣾", "⣶" };
 /// A clod's flight from behind the corgi, a cell a step, before it lands.
 const clod = [_]struct { col: usize, glyph: []const u8 }{
-    .{ .col = 18, .glyph = "⠂" }, .{ .col = 19, .glyph = "⠁" }, .{ .col = 20, .glyph = "⠁" }, .{ .col = 21, .glyph = "⠂" }, .{ .col = 22, .glyph = "⠄" },
+    .{ .col = 18, .glyph = "⠂" },
+    .{ .col = 19, .glyph = "⠁" },
+    .{ .col = 20, .glyph = "⠁" },
+    .{ .col = 21, .glyph = "⠂" },
+    .{ .col = 22, .glyph = "⠄" },
 };
 const pile_col = 23;
 /// The pile column each letter's clod lands on, and the pile's heights.
@@ -415,7 +420,7 @@ pub fn observe(key: u64, mode: Mode, now_ms: i64) ?*Presentation {
     // Use empty/finished slots first, preserving other visible corgis even if
     // their rows have not been visited yet in this frame.
     for (&slots) |*slot| if (!slot.seen and slot.presentation.last_corgi == null) {
-        slot.* = .{ .key = key, .seen = true, .presentation = .{ .playback = .{ .random = .init(std.crypto.random.int(u64)) } } };
+        slot.* = .{ .key = key, .seen = true, .presentation = .{ .playback = .{ .random = .init(os.random.int(u64)) } } };
         slot.presentation.update(mode, now_ms);
         return &slot.presentation;
     };

@@ -239,7 +239,7 @@ pub const Server = struct {
     }
     pub fn visitWorkspace(s: *Server, id: WorkspaceId) void {
         const index = s.runtime.workspaces.index(id) orelse return;
-        if (s.runtime.workspaces.items.items[index].away.visit(std.time.milliTimestamp())) {
+        if (s.runtime.workspaces.items.items[index].away.visit(os.milliTimestamp())) {
             s.runtime.changed();
             s.dirty = true;
         }
@@ -260,7 +260,7 @@ pub const Server = struct {
             if (cl.launch_preview != null) timeout = 100;
         }
         // A ghost goes once its agent's screen holds still, with no output to wake us.
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         for (s.runtime.panes.items) |p| if (p.ghost) |g| if (g.due()) |at| {
             timeout = @intCast(std.math.clamp(at - now, 1, timeout));
         };
@@ -279,11 +279,11 @@ pub const Server = struct {
         return seq;
     }
     fn workspaceWatched(s: *Server, id: WorkspaceId) bool {
-        for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
+        for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_workspace == id and os.milliTimestamp() - cl.touched < 1000) return true;
         return false;
     }
     fn paneWatched(s: *Server, id: layout.PaneId) bool {
-        for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id and std.time.milliTimestamp() - cl.touched < 1000) return true;
+        for (s.clients.items) |cl| if (cl.viewer and !cl.dead and cl.watched and cl.view_focus == id and os.milliTimestamp() - cl.touched < 1000) return true;
         return false;
     }
     fn queueSession(s: *Server, cl: *Client) !void {
@@ -291,13 +291,13 @@ pub const Server = struct {
         defer arena.deinit();
         cl.queue(try session_command.snapshot(arena.allocator(), &s.runtime));
         cl.snapshot_revision = s.runtime.revision;
-        cl.last_snapshot = std.time.milliTimestamp();
+        cl.last_snapshot = os.milliTimestamp();
     }
 
     fn publishLaunchPreview(s: *Server, cl: *Client) void {
         const subscription = if (cl.launch_preview) |*value| value else return;
         const worker = s.launch_previews orelse return;
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         if (cl.dead or cl.output.items.len != 0 or now - subscription.checked < 100) return;
         subscription.checked = now;
         if (subscription.history_asked) if (s.launch_history) |reader| {
@@ -407,7 +407,7 @@ pub const Server = struct {
                 const dir = agents.Path.init(cwd) catch return error.InvalidDirectory;
                 const preview = if (s.launch_previews) |worker| (if (op == .@"agent.track_usage") worker.trackUsage(cwd) else worker.preview(cwd)) else launch_preview.Preview{};
                 if (subscribe) {
-                    cl.launch_preview = .{ .cwd = dir, .preview = preview, .checked = std.time.milliTimestamp() };
+                    cl.launch_preview = .{ .cwd = dir, .preview = preview, .checked = os.milliTimestamp() };
                     cl.queue(.{ .type = "agent.preview", .cwd = cwd, .preview = preview });
                 } else cl.queue(.{ .ok = true, .preview = preview });
             },
@@ -502,7 +502,7 @@ pub const Server = struct {
                 defer info.deinit(a);
                 for (s.runtime.sessions.items) |session| try info.append(a, .{
                     .id = session.id,
-                    .pid = session.child.id,
+                    .pid = session.child.id orelse -1,
                     .session_id = session.resume_hint.session.text(),
                     .provider = session.provider,
                     .ready = session.ready,
@@ -559,7 +559,7 @@ pub const Server = struct {
                     // A daemon-hosted session only updates a conversation some pane
                     // already follows (see continued-in handling); it never selects.
                     if (hook) |h| if (s.runtime.conversations.find(q.provider, h.session)) |actor| {
-                        const now = std.time.microTimestamp();
+                        const now = os.microTimestamp();
                         const from = Lifecycle.of(actor);
                         const ding = actor.observeHook(h, q.seq orelse now, s.actorWatched(actor.id), now);
                         logHook(actor, from, q.event, null);
@@ -574,14 +574,14 @@ pub const Server = struct {
                 // Bind a newly launched foreground process before applying its
                 // first hook, including back-to-back launches in the same pane.
                 s.detectPane(p);
-                const seq = q.seq orelse std.time.microTimestamp();
+                const seq = q.seq orelse os.microTimestamp();
                 if (seq > p.attachment.hook_seq and hook != null) if (try s.runtime.conversations.routeHook(&p.attachment, q.provider, hook.?)) |actor| {
                     p.attachment.hook_seq = seq;
                     if (hook.?.kind == .session_start) s.runtime.rememberAgent(p.id, q.provider);
                     if (actor.workspace == WorkspaceId.none or s.runtime.workspaces.index(actor.workspace) == null) {
                         if (s.runtime.workspaces.owner(p.id)) |ws| actor.workspace = ws.id;
                     }
-                    const now = std.time.microTimestamp();
+                    const now = os.microTimestamp();
                     const from = Lifecycle.of(actor);
                     const ding = actor.observeHook(hook.?, seq, s.actorWatched(actor.id), now);
                     logHook(actor, from, q.event, p.id);
@@ -896,7 +896,7 @@ pub const Server = struct {
                 count += 1;
             }
             _ = c.poll(&polls, @intCast(count), s.pollTimeout());
-            const now = std.time.milliTimestamp();
+            const now = os.milliTimestamp();
             const detecting = now - s.last_detection >= 250 or s.settles.items.len > 0;
             // Read every live PTY that poll reports, even when its tab is
             // hidden. A shell that exits while a child keeps the PTY open is
@@ -1045,7 +1045,7 @@ pub const Server = struct {
                 for (completions) |entry| if (entry) |result| {
                     if (s.runtime.conversations.byId(result.actor)) |actor| {
                         const was_pending = actor.state.observation.pending_stop;
-                        const ding = actor.confirmStop(result.seq, result.outcome, std.time.microTimestamp());
+                        const ding = actor.confirmStop(result.seq, result.outcome, os.microTimestamp());
                         if (was_pending and !actor.state.observation.pending_stop) {
                             s.runtime.changed();
                             s.dirty = true;
@@ -1063,7 +1063,7 @@ pub const Server = struct {
                 const old_tool = session.toolActive();
                 const ding = session.poll(&s.runtime.conversations) catch |err| blk: {
                     s.notice(@errorName(err));
-                    _ = c.kill(-session.child.id, c.SIGTERM);
+                    if (session.child.id) |pid| _ = c.kill(-pid, c.SIGTERM);
                     break :blk false;
                 };
                 if (s.runtime.workspaces.index(session.workspace_id)) |index| {
@@ -1113,7 +1113,7 @@ pub const Server = struct {
                 const n = c.read(cl.fd, &bytes, bytes.len);
                 if (n == 0) cl.dead = true;
                 if (n > 0) {
-                    cl.touched = std.time.milliTimestamp();
+                    cl.touched = os.milliTimestamp();
                     cl.input.appendSlice(a, bytes[0..@intCast(n)]) catch {
                         cl.dead = true;
                     };
@@ -1138,7 +1138,7 @@ pub const Server = struct {
                     std.mem.copyForwards(u8, cl.input.items[0 .. cl.input.items.len - consumed], cl.input.items[consumed..]);
                     cl.input.items.len -= consumed;
                 }
-                if (!cl.viewer and !cl.subscribed and !cl.watching and cl.launch_preview == null and std.time.milliTimestamp() - cl.touched > 5000) cl.dead = true;
+                if (!cl.viewer and !cl.subscribed and !cl.watching and cl.launch_preview == null and os.milliTimestamp() - cl.touched > 5000) cl.dead = true;
                 if (cl.dead) {
                     cl.deinit();
                     _ = s.clients.orderedRemove(ci);
@@ -1183,12 +1183,12 @@ pub const Server = struct {
                     s.bell_kind = .none;
                 }
             }
-            if (s.bell and std.time.milliTimestamp() - s.last_bell > 1500) {
+            if (s.bell and os.milliTimestamp() - s.last_bell > 1500) {
                 s.bell_seq +%= 1;
                 s.last_bell_kind = s.bell_kind;
                 s.bell = false;
                 s.bell_kind = .none;
-                s.last_bell = std.time.milliTimestamp();
+                s.last_bell = os.milliTimestamp();
             }
             for (s.clients.items) |*cl| {
                 s.publishLaunchPreview(cl);
@@ -1200,7 +1200,7 @@ pub const Server = struct {
                     }
                 }
                 if (cl.subscribed and !cl.dead and cl.output.items.len == 0 and
-                    cl.snapshot_revision != s.runtime.revision and std.time.milliTimestamp() - cl.last_snapshot >= 30)
+                    cl.snapshot_revision != s.runtime.revision and os.milliTimestamp() - cl.last_snapshot >= 30)
                 {
                     s.queueSession(cl) catch |err| {
                         log.warn("snapshot for client {d}: {}", .{ cl.fd, err });
@@ -1225,7 +1225,7 @@ pub const Server = struct {
                     if (s.clients.items.len == 32) _ = c.close(client_fd) else {
                         os.nonblock(client_fd);
                         os.cloexec(client_fd);
-                        s.clients.append(a, .{ .fd = client_fd, .touched = std.time.milliTimestamp() }) catch {
+                        s.clients.append(a, .{ .fd = client_fd, .touched = os.milliTimestamp() }) catch {
                             _ = c.close(client_fd);
                         };
                     }
@@ -1299,13 +1299,15 @@ const Wire = struct {
 };
 /// One field per op whose reply says more than `ok`.
 const Replies = replies: {
-    var fields: []const std.builtin.Type.StructField = &.{};
+    var names: []const []const u8 = &.{};
+    var types: []const type = &.{};
     for (std.enums.values(protocol.Op)) |op| {
         const R = protocol.Reply(op);
         if (@typeInfo(R) == .@"struct" and @typeInfo(R).@"struct".fields.len == 0) continue;
-        fields = fields ++ [_]std.builtin.Type.StructField{.{ .name = @tagName(op), .type = R, .default_value_ptr = null, .is_comptime = false, .alignment = @alignOf(R) }};
+        names = names ++ [_][]const u8{@tagName(op)};
+        types = types ++ [_]type{R};
     }
-    break :replies @Type(.{ .@"struct" = .{ .layout = .auto, .fields = fields, .decls = &.{}, .is_tuple = false } });
+    break :replies @Struct(.auto, null, names, types[0..names.len], &@splat(.{}));
 };
 
 test "every protocol.Rejection can still be returned by a request" {
@@ -1461,7 +1463,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     var preview: launch_preview.Preview = .{ .pending = false };
     preview.options.getPtr(.claude).model = .ascii("before");
     var worker: launch_preview.Worker = .{};
-    worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = std.time.milliTimestamp() - 60000 };
+    worker.jobs[0] = .{ .cwd = .initTruncated("/"), .preview = preview, .queued = false, .updated = os.milliTimestamp() - 60000 };
     var s: Server = .{ .socket = "", .executable = "", .build_id = @splat('0'), .launch_previews = &worker };
     var cl: Client = .{ .fd = -1, .launch_preview = .{ .cwd = .initTruncated("/"), .preview = preview } };
     defer cl.output.deinit(a);
@@ -1471,7 +1473,7 @@ test "preview subscriptions schedule stale refreshes and publish completion with
     try std.testing.expectEqualStrings("before", cl.launch_preview.?.preview.options.get(.claude).model.text());
     cl.output.clearRetainingCapacity();
     cl.launch_preview.?.checked = 0;
-    worker.jobs[0].?.updated = std.time.milliTimestamp();
+    worker.jobs[0].?.updated = os.milliTimestamp();
     worker.jobs[0].?.preview.pending = false;
     worker.jobs[0].?.preview.options.getPtr(.claude).model = .ascii("after");
     s.publishLaunchPreview(&cl);

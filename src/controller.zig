@@ -464,7 +464,7 @@ pub const Controller = struct {
         }
         for (entries[0..count]) |*entry| {
             if (entry.target == .group) continue;
-            subagent_tooltip.presentChildren(entry, s.runtime.conversations, std.time.microTimestamp());
+            subagent_tooltip.presentChildren(entry, s.runtime.conversations, os.microTimestamp());
             for (s.runtime.conversations) |conversation| if (conversation.id == entry.conversation) {
                 entry.context = conversation.context;
                 break;
@@ -478,7 +478,7 @@ pub const Controller = struct {
             .workspace => s.current().id,
             .all => @as(WorkspaceId, @enumFromInt(std.math.maxInt(u32))),
         };
-        return s.sidebar_rows.update(list, s.agentEntries(&live), entries, std.time.milliTimestamp());
+        return s.sidebar_rows.update(list, s.agentEntries(&live), entries, os.milliTimestamp());
     }
     fn firstUnreadAgent(s: *Self, workspace_index: usize) ?sidebar.Target {
         const ws = &s.runtime.workspaces.items[workspace_index];
@@ -1059,7 +1059,7 @@ pub const Controller = struct {
         if (!std.mem.eql(u8, launch.draft.text(), launch.editor.name())) {
             launch.draft.set(launch.editor.name()) catch return;
             launch.draft_changed = now;
-            launch.request_id = std.crypto.random.int(u32) | 1;
+            launch.request_id = os.random.int(u32) | 1;
             launch.resolution_checked = 0;
             launch.resolution = .{};
             launch.save_requested = false;
@@ -1331,7 +1331,7 @@ pub const Controller = struct {
             running[count] = .{ .provider = provider, .session = .initTruncated(p.agent.session), .pane = p.id };
             count += 1;
         }
-        const now = std.time.timestamp();
+        const now = os.timestamp();
         for (s.running[0..s.running_count]) |was| {
             const still = for (running[0..count]) |is| {
                 if (is.provider == was.provider and std.mem.eql(u8, is.session.text(), was.session.text())) break true;
@@ -2039,7 +2039,7 @@ pub const Controller = struct {
         }
         std.mem.copyForwards(u8, cl.keybuf.items[0 .. cl.keybuf.items.len - used], cl.keybuf.items[used..]);
         cl.keybuf.items.len -= used;
-        cl.escape_at = std.time.milliTimestamp();
+        cl.escape_at = os.milliTimestamp();
         if (cl.keybuf.items.len > 256) {
             cl.keybuf.clearRetainingCapacity();
             return error.InvalidInput;
@@ -2839,7 +2839,7 @@ pub const Controller = struct {
             s.dirty = true;
         }
         const cl = &s.input_state;
-        if (cl.attached and cl.keybuf.items.len > 0 and std.time.milliTimestamp() - cl.escape_at > @as(i64, if (cl.paste != null or cl.keybuf.items.len == 1) 40 else 1000)) {
+        if (cl.attached and cl.keybuf.items.len > 0 and os.milliTimestamp() - cl.escape_at > @as(i64, if (cl.paste != null or cl.keybuf.items.len == 1) 40 else 1000)) {
             if (cl.paste != null) {
                 if (s.pastePane()) |p| try s.sendInput(p.terminal, cl.keybuf.items);
             } else if (cl.keybuf.items.len == 1 and cl.keybuf.items[0] == 27) try s.key(27) else if (!s.hasMenu() and s.name_dialog == null) {

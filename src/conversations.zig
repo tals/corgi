@@ -338,7 +338,7 @@ pub const Registry = struct {
         const actor = try registry.allocator.create(Actor);
         errdefer registry.allocator.destroy(actor);
         const id = agents.Text.init(session) catch return error.InvalidSession;
-        actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider, .session = id }, .tracked_since = std.time.milliTimestamp() };
+        actor.* = .{ .id = registry.next_id, .state = .{ .provider = provider, .session = id }, .tracked_since = os.milliTimestamp() };
         try registry.items.append(registry.allocator, actor);
         registry.next_id = registry.next_id.next();
         return actor;

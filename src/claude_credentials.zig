@@ -20,12 +20,12 @@ fn read(interaction: Interaction) ReadError![]u8 {
     defer a.free(root);
     const path = std.fs.path.join(a, &.{ root, ".credentials.json" }) catch return error.Unavailable;
     defer a.free(path);
-    if (std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0)) |fd| {
-        const file: std.fs.File = .{ .handle = fd };
-        defer file.close();
-        const stat = file.stat() catch return error.Unavailable;
+    if (std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0)) |fd| {
+        const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+        defer file.close(os.io());
+        const stat = file.stat(os.io()) catch return error.Unavailable;
         if (stat.kind != .file or stat.size > 65536) return error.Unavailable;
-        return file.readToEndAlloc(a, 65536) catch error.Unavailable;
+        return os.readToEndAlloc(file, a, 65536) catch error.Unavailable;
     } else |err| {
         if (err != error.FileNotFound) return error.Unavailable;
     }
@@ -97,14 +97,14 @@ fn unlocked() bool {
 // keychain, the only state in which `security` would show UI.
 fn securityTool(interaction: Interaction) ReadError![]u8 {
     if (interaction == .silent and !unlocked()) return error.NeedsConsent;
-    const result = std.process.Child.run(.{
-        .allocator = a,
+    const result = std.process.run(a, os.io(), .{
         .argv = &.{ "/usr/bin/security", "find-generic-password", "-s", "Claude Code-credentials", "-w" },
-        .max_output_bytes = 65536,
+        .stdout_limit = .limited(65536),
+        .stderr_limit = .limited(65536),
     }) catch return error.Unavailable;
     a.free(result.stderr);
-    const ok = result.term == .Exited and result.term.Exited == 0;
-    const len = std.mem.trimRight(u8, result.stdout, "\n").len;
+    const ok = result.term == .exited and result.term.exited == 0;
+    const len = std.mem.trimEnd(u8, result.stdout, "\n").len;
     if (!ok or len == 0) {
         a.free(result.stdout);
         return if (interaction == .silent) error.NeedsConsent else error.Unavailable;
@@ -116,21 +116,20 @@ fn securityTool(interaction: Interaction) ReadError![]u8 {
 pub fn serve(interaction: Interaction) !void {
     if (options.viewer_test_driver) {
         if (os.env("CORGI_TEST_CLAUDE_CREDENTIALS")) |path| {
-            const file = try std.fs.openFileAbsolute(path, .{});
-            defer file.close();
-            const bytes = try file.readToEndAlloc(a, 65536);
+            const file = try std.Io.Dir.openFileAbsolute(os.io(), path, .{});
+            defer file.close(os.io());
+            const bytes = try os.readToEndAlloc(file, a, 65536);
             defer a.free(bytes);
             const fixture = try std.json.parseFromSlice(std.json.Value, a, bytes, .{});
             defer fixture.deinit();
             if (os.env("CORGI_TEST_CLAUDE_CREDENTIAL_LOG")) |log_path| {
-                const log = try std.fs.createFileAbsolute(log_path, .{ .truncate = false });
-                defer log.close();
-                try log.seekFromEnd(0);
-                try log.writeAll(@tagName(interaction));
-                try log.writeAll("\n");
+                const log = try std.Io.Dir.createFileAbsolute(os.io(), log_path, .{ .truncate = false });
+                defer log.close(os.io());
+                var line: [64]u8 = undefined;
+                try log.writePositionalAll(os.io(), try std.fmt.bufPrint(&line, "{t}\n", .{interaction}), try log.length(os.io()));
             }
             const selected = fixture.value.object.get(@tagName(interaction)) orelse return error.InvalidFixture;
-            if (selected.object.get("delay_ms")) |delay| std.Thread.sleep(@as(u64, @intCast(delay.integer)) * std.time.ns_per_ms);
+            if (selected.object.get("delay_ms")) |delay| os.sleep(@as(u64, @intCast(delay.integer)) * std.time.ns_per_ms);
             return reply(selected);
         }
     }

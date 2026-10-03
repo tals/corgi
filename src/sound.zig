@@ -28,18 +28,18 @@ fn worker(kind: Kind) void {
 
 fn playEmbedded(kind: Kind) !void {
     var random: [16]u8 = undefined;
-    std.crypto.random.bytes(&random);
+    os.random.bytes(&random);
     const filename = try std.fmt.allocPrint(a, "corgi-sound-{s}.mp3", .{std.fmt.bytesToHex(random, .lower)});
     defer a.free(filename);
     const path = try std.fs.path.join(a, &.{ os.env("TMPDIR") orelse "/tmp", filename });
     defer a.free(path);
     {
-        const file = try std.fs.cwd().createFile(path, .{ .exclusive = true, .mode = 0o600 });
-        defer file.close();
-        errdefer std.fs.cwd().deleteFile(path) catch {};
-        try file.writeAll(if (kind == .request) request else done);
+        const file = try std.Io.Dir.cwd().createFile(os.io(), path, .{ .exclusive = true, .permissions = .fromMode(0o600) });
+        defer file.close(os.io());
+        errdefer std.Io.Dir.cwd().deleteFile(os.io(), path) catch {};
+        try file.writeStreamingAll(os.io(), if (kind == .request) request else done);
     }
-    defer std.fs.cwd().deleteFile(path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(os.io(), path) catch {};
     if (builtin.os.tag == .macos) {
         if (runPlayer(&.{ "afplay", path }, 15 * std.time.ns_per_s)) return;
     } else {
@@ -57,31 +57,24 @@ fn playEmbedded(kind: Kind) !void {
 }
 
 fn runPlayer(argv: []const []const u8, timeout_ns: u64) bool {
-    var child = std.process.Child.init(argv, a);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    child.spawn() catch return false;
-    child.waitForSpawn() catch {
-        _ = std.posix.waitpid(child.id, 0);
-        return false;
-    };
-    var timer = std.time.Timer.start() catch {
-        _ = os.c.kill(child.id, os.c.SIGKILL);
-        _ = child.wait() catch {};
-        return false;
-    };
+    var child = std.process.spawn(os.io(), .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return false;
+    const timer: os.Timer = .start();
     while (true) {
         var status: c_int = 0;
-        const pid = os.c.waitpid(child.id, &status, os.c.WNOHANG);
+        const pid = os.c.waitpid(child.id.?, &status, os.c.WNOHANG);
         if (pid > 0) return status == 0;
         if (pid < 0 and std.posix.errno(pid) != .INTR) return false;
         if (timer.read() >= timeout_ns) {
-            _ = os.c.kill(child.id, os.c.SIGKILL);
-            _ = child.wait() catch {};
+            _ = os.c.kill(child.id.?, os.c.SIGKILL);
+            _ = child.wait(os.io()) catch {};
             return false;
         }
-        std.Thread.sleep(25 * std.time.ns_per_ms);
+        os.sleep(25 * std.time.ns_per_ms);
     }
 }
 

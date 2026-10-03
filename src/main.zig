@@ -36,7 +36,7 @@ var log_sink: enum { none, stderr } = .none;
 pub const std_options: std.Options = .{ .logFn = logFn };
 fn logFn(
     comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -77,8 +77,9 @@ const Command = enum {
     rpc,
 };
 const NativeCommand = enum { start, list, events, stop, send };
-pub fn main() void {
-    run() catch |err| {
+pub fn main(init: std.process.Init.Minimal) void {
+    os.initIo(init);
+    run(init.args) catch |err| {
         if (err == error.IncompatibleViewerProtocol) {
             std.debug.print("corgi: this viewer is incompatible with the server (requires viewer protocol {d}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n", .{viewer_version.version});
         } else if (err == error.AmbiguousViewer) {
@@ -97,20 +98,22 @@ pub fn main() void {
 }
 /// Hex SHA-256 of the executable; `corgi dev` reloads when the daemon's differs.
 fn buildId(exe: []const u8) ![64]u8 {
-    var file = try std.fs.openFileAbsolute(exe, .{});
-    defer file.close();
+    var file = try std.Io.Dir.openFileAbsolute(os.io(), exe, .{});
+    defer file.close(os.io());
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
     var buffer: [65536]u8 = undefined;
     while (true) {
-        const n = try file.read(&buffer);
-        if (n == 0) break;
+        const n = file.readStreaming(os.io(), &.{&buffer}) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
         hash.update(buffer[0..n]);
     }
     return std.fmt.bytesToHex(hash.finalResult(), .lower);
 }
-fn run() !void {
-    const args = try std.process.argsAlloc(a);
-    defer std.process.argsFree(a, args);
+fn run(process_args: std.process.Args) !void {
+    const args = try process_args.toSlice(a);
+    defer a.free(args);
     const no_update = args.len == 2 and std.mem.eql(u8, args[1], "--no-update");
     const cmd = if (no_update) "attach" else if (args.len > 1) args[1] else "attach";
     const command = std.meta.stringToEnum(Command, cmd);
@@ -123,7 +126,7 @@ fn run() !void {
     }
     const path = try os.socketPath();
     defer a.free(path);
-    const exe = try std.fs.selfExePathAlloc(a);
+    const exe = try std.process.executablePathAlloc(os.io(), a);
     defer a.free(exe);
     if (command == .@"__update-start") return ensureServer(path, exe);
     if (command == .update) return updates.command(args[2..], path, exe);
@@ -216,7 +219,7 @@ fn run() !void {
                     const provider = try providerArg(args[3]);
                     const workspace: ?WorkspaceId = if (args.len == 6) @enumFromInt(try std.fmt.parseInt(u32, args[5], 10)) else null;
                     try ensureServer(path, exe);
-                    const cwd = try std.process.getCwdAlloc(a);
+                    const cwd = try std.process.currentPathAlloc(os.io(), a);
                     defer a.free(cwd);
                     return request(path, .@"native.start", .{ .provider = provider, .cwd = cwd, .workspace = workspace });
                 },
@@ -269,7 +272,7 @@ fn run() !void {
             for (0..500) |_| {
                 const fd = os.connect(path) catch return;
                 _ = c.close(fd);
-                std.Thread.sleep(10 * std.time.ns_per_ms);
+                os.sleep(10 * std.time.ns_per_ms);
             }
             return error.ShutdownTimedOut;
         },
@@ -327,18 +330,18 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
     try os.privateDirectory(parent);
     const lock_path = try std.fmt.allocPrint(a, "{s}/start.lock", .{parent});
     defer a.free(lock_path);
-    const lock = try std.fs.cwd().createFile(lock_path, .{ .truncate = false, .mode = 0o600 });
-    defer lock.close();
-    try lock.lock(.exclusive);
-    defer lock.unlock();
+    const lock = try std.Io.Dir.cwd().createFile(os.io(), lock_path, .{ .truncate = false, .permissions = .fromMode(0o600) });
+    defer lock.close(os.io());
+    try lock.lock(os.io(), .exclusive);
+    defer lock.unlock(os.io());
     if (os.connect(path)) |fd| {
         _ = c.close(fd);
         return;
     } else |_| {}
-    std.fs.cwd().deleteFile(path) catch |err| if (err != error.FileNotFound) return err;
+    std.Io.Dir.cwd().deleteFile(os.io(), path) catch |err| if (err != error.FileNotFound) return err;
     const log_path = try std.fmt.allocPrintSentinel(a, "{s}/server.log", .{parent}, 0);
     defer a.free(log_path);
-    const log_start = if (std.fs.cwd().statFile(log_path)) |st| st.size else |_| 0;
+    const log_start = if (std.Io.Dir.cwd().statFile(os.io(), log_path, .{})) |st| st.size else |_| 0;
     // The first child reports the daemon's pid, so a daemon that exits while
     // starting is reported at once instead of after the whole wait.
     var started: [2]c_int = undefined;
@@ -378,25 +381,25 @@ fn ensureServer(path: []const u8, exe: []const u8) !void {
             return;
         } else |_| {}
         if (daemon > 0 and c.kill(daemon, 0) != 0) break;
-        std.Thread.sleep(20 * std.time.ns_per_ms);
+        os.sleep(20 * std.time.ns_per_ms);
     }
     reportServerLog(log_path, log_start);
     return error.ServerStartFailed;
 }
 /// Show what the detached server wrote during this launch attempt.
 fn reportServerLog(log_path: []const u8, start: u64) void {
-    const file = std.fs.cwd().openFile(log_path, .{}) catch {
+    const file = std.Io.Dir.cwd().openFile(os.io(), log_path, .{}) catch {
         std.debug.print("corgi: server did not start and wrote no log at {s}\n", .{log_path});
         return;
     };
-    defer file.close();
-    const size = (file.stat() catch return).size;
+    defer file.close(os.io());
+    const size = (file.stat(os.io()) catch return).size;
     const max = 8 * 1024;
     const from = if (size < start) 0 else @max(start, size -| max);
-    file.seekTo(from) catch return;
-    const bytes = file.readToEndAlloc(a, max) catch return;
+    const bytes = a.alloc(u8, @min(size - from, max)) catch return;
     defer a.free(bytes);
-    const trimmed = std.mem.trim(u8, bytes, " \r\n");
+    const n = file.readPositionalAll(os.io(), bytes, from) catch return;
+    const trimmed = std.mem.trim(u8, bytes[0..n], " \r\n");
     if (trimmed.len == 0) {
         std.debug.print("corgi: server did not start and logged nothing (see {s})\n", .{log_path});
         return;
@@ -493,6 +496,7 @@ test {
     _ = @import("codex_observer.zig");
     _ = @import("codex_socket.zig");
     _ = @import("commands.zig");
+    _ = @import("compat.zig");
     _ = @import("controller.zig");
     _ = @import("conversations.zig");
     _ = @import("corgi_animation.zig");
@@ -562,11 +566,11 @@ test {
 test "every source file is in the test root" {
     // main.zig lists the top-level files; a package root lists the files in
     // the directory beside it, which main.zig reaches through the root.
-    var dir = try std.fs.cwd().openDir("src", .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(os.io(), "src", .{ .iterate = true });
+    defer dir.close(os.io());
     var walker = try dir.walk(std.testing.allocator);
     defer walker.deinit();
-    while (try walker.next()) |entry| {
+    while (try walker.next(os.io())) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
         if (std.mem.eql(u8, entry.path, "main.zig")) continue;
         const package = std.fs.path.dirname(entry.path);
@@ -575,7 +579,7 @@ test "every source file is in the test root" {
         // The root sits beside its directory and names members from there.
         const up = if (package) |p| std.fs.path.dirname(p) else null;
         const member = if (up) |u| entry.path[u.len + 1 ..] else entry.path;
-        const source = dir.readFileAlloc(std.testing.allocator, root, 4 << 20) catch |err| {
+        const source = dir.readFileAlloc(os.io(), root, std.testing.allocator, .limited(4 << 20)) catch |err| {
             std.debug.print("{s} has no package root {s}\n", .{ entry.path, root });
             return err;
         };
@@ -618,14 +622,14 @@ test "the daemon and the viewer never import each other" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
-    var dir = try std.fs.cwd().openDir("src", .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(os.io(), "src", .{ .iterate = true });
+    defer dir.close(os.io());
     var sources: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
     var walker = try dir.walk(alloc);
-    while (try walker.next()) |entry| {
+    while (try walker.next(os.io())) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".zig")) continue;
         if (std.mem.eql(u8, entry.path, "main.zig")) continue;
-        try sources.put(alloc, try alloc.dupe(u8, entry.path), try dir.readFileAlloc(alloc, entry.path, 4 << 20));
+        try sources.put(alloc, try alloc.dupe(u8, entry.path), try dir.readFileAlloc(os.io(), entry.path, alloc, .limited(4 << 20)));
     }
     var crossed = false;
     for (sources.keys(), sources.values()) |path, source| {

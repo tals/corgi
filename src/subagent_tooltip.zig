@@ -1,6 +1,7 @@
 //! Viewer-only grouping. Usage always belongs to individual conversations;
 //! changing a role/activity label cannot move, reset, or duplicate its tokens.
 const std = @import("std");
+const os = @import("os.zig");
 const ActorId = @import("conversations.zig").Actor.Id;
 const protocol = @import("protocol.zig");
 const sidebar = @import("sidebar.zig");
@@ -186,7 +187,7 @@ fn activity(agent: protocol.Agent) []const u8 {
 /// Working with nothing reported yet: animated dots advance with the sidebar
 /// spinner's redraws.
 fn thinking() []const u8 {
-    const dots: usize = @intCast(@mod(@divFloor(std.time.milliTimestamp(), 400), 3));
+    const dots: usize = @intCast(@mod(@divFloor(os.milliTimestamp(), 400), 3));
     return "..."[0 .. dots + 1];
 }
 const Status = struct { icon: []const u8, label: []const u8, tone: Tone };
@@ -208,7 +209,7 @@ const Card = struct {
     width: usize,
     fn backgroundTasks(card: Card, row: usize, tasks: background.View, budget: usize) !usize {
         if (budget < 2 or tasks.items.len == 0) return 0;
-        const age = std.time.microTimestamp() - tasks.observed_at;
+        const age = os.microTimestamp() - tasks.observed_at;
         const live = tasks.live and age >= 0 and age <= fresh_window;
         try card.line(row, "Background commands", if (live) "Running" else "Last reported", .group, .muted);
         const shown = @min(tasks.items.len, budget - 1 - @as(usize, @intFromBool(tasks.items.len + 1 > budget or tasks.truncated)));
@@ -503,7 +504,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     var ranked: [max + 1]Row = undefined;
     ranked[0] = .{ .value = system_usage, .model = system_model };
     var count: usize = 1;
-    const now = std.time.microTimestamp();
+    const now = os.microTimestamp();
     // Rows use exclusive own usage. Parents never include their children here.
     for (all) |*item| {
         add(&total, item.usage);
@@ -658,7 +659,7 @@ fn byAccount(out: *[agents.Provider.all.len + 1]Section, rows_shown: []const Ran
 /// left, and each account's rule crosses both panes so its limits sit level
 /// with its agents. Returns false when the rows do not fit the terminal.
 fn drawAccounts(w: *std.Io.Writer, ranked: []const Ranked, most: usize, overview: Overview, accounts: Accounts, cols: u16, rows: u16) !bool {
-    const now = if (accounts.now != 0) accounts.now else std.time.timestamp();
+    const now = if (accounts.now != 0) accounts.now else os.timestamp();
     var picked: [10]Ranked = undefined;
     var storage: [agents.Provider.all.len + 1]Section = undefined;
     var shown = most;
@@ -819,7 +820,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const root = find(all, parent) orelse &provisional;
     var root_agent = root.agent;
     root_agent.state = entry.state;
-    const children_available = childrenAvailable(all, parent, std.time.microTimestamp());
+    const children_available = childrenAvailable(all, parent, os.microTimestamp());
     if (!children_available) root_agent.subagents = .{};
     const name = if (entry.name.len > 0) entry.name else if (root_agent.name.len > 0) root_agent.name else root_agent.providerName();
     const model = if (children_available) Model.init(all, parent) else Model{ .total = root.usage };
@@ -882,7 +883,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         if (!visibleChild(all, child, parent)) continue;
         if (row + total_rows >= end) break;
         var display_child = child;
-        if (!childrenAvailable(all, child.id, std.time.microTimestamp())) display_child.agent.subagents = .{};
+        if (!childrenAvailable(all, child.id, os.microTimestamp())) display_child.agent.subagents = .{};
         try card.childRow(row, display_child);
         row += 1;
         shown += 1;
@@ -936,7 +937,7 @@ test "compact child rows prioritize activity and color only the status and secon
 }
 
 test "idle children stay hidden while active descendants and usage remain" {
-    const now = std.time.microTimestamp();
+    const now = os.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "Scanning", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
         .{ .id = @enumFromInt(1), .attachments = 1, .agent = agent, .children_observed_at = now },
@@ -1025,10 +1026,10 @@ test "total shares one set of timeline columns with compact child rows" {
         .{ .at = 3000, .activity = "Running tests", .usage = .{ .known = true, .tokens = .{ .input = 7600 } } },
     };
     const all = [_]protocol.Conversation{
-        .{ .id = @enumFromInt(1), .agent = agent, .children_observed_at = std.time.microTimestamp(), .usage = own, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 500 } } } },
-        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .observed_at = std.time.microTimestamp() },
-        .{ .id = @enumFromInt(3), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .observed_at = std.time.microTimestamp() },
-        .{ .id = @enumFromInt(4), .parent = @enumFromInt(1), .role = "Reviewer", .agent = agent, .observed_at = std.time.microTimestamp() },
+        .{ .id = @enumFromInt(1), .agent = agent, .children_observed_at = os.microTimestamp(), .usage = own, .timeline = .{ .points = &points, .pending = .{ .known = true, .tokens = .{ .input = 500 } } } },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .observed_at = os.microTimestamp() },
+        .{ .id = @enumFromInt(3), .parent = @enumFromInt(1), .role = "Explorer", .agent = agent, .observed_at = os.microTimestamp() },
+        .{ .id = @enumFromInt(4), .parent = @enumFromInt(1), .role = "Reviewer", .agent = agent, .observed_at = os.microTimestamp() },
     };
     const entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .codex, .state = .working, .attention = .none };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
@@ -1122,7 +1123,7 @@ test "compaction is the current timeline phase even before the first summary" {
 }
 
 test "overview excludes detached history and shows Corgi activity" {
-    const now = std.time.microTimestamp();
+    const now = os.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "test", .activity = "", .cwd = "", .tool_active = false };
     var all = [_]protocol.Conversation{
         .{ .id = @enumFromInt(1), .attachments = 1, .agent = agent },
@@ -1228,7 +1229,7 @@ fn testAccounts(now: i64) Accounts {
 }
 
 test "wide terminals put each account's limits beside its agents" {
-    const now = std.time.timestamp();
+    const now = os.timestamp();
     const claude_agent: protocol.Agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "c", .activity = "", .cwd = "", .tool_active = false };
     var codex_agent = claude_agent;
     codex_agent.provider = .codex;
@@ -1262,7 +1263,7 @@ test "wide terminals put each account's limits beside its agents" {
 }
 
 test "accounts without agents keep their limits and short terminals fall back" {
-    const now = std.time.timestamp();
+    const now = os.timestamp();
     const none: [0]protocol.Conversation = .{};
     const accounts = testAccounts(now);
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
@@ -1350,7 +1351,7 @@ test "overview ranks by tokens of the priciest listed model" {
 }
 
 test "unavailable or stale child discovery makes no subagent claims" {
-    const now = std.time.microTimestamp();
+    const now = os.microTimestamp();
     const agent: protocol.Agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "parent", .activity = "Reading source", .cwd = "", .tool_active = false, .subagents = .{ .running = 2, .waiting = true } };
     var all = [_]protocol.Conversation{
         .{ .id = @enumFromInt(1), .agent = agent },
@@ -1419,7 +1420,7 @@ test "background command rows group tasks and bound overflow without claiming st
         .{ .id = "tests", .label = "Parser tests", .group = .tests },
         .{ .id = "build", .label = "Release build", .group = .builds },
     };
-    var tasks: background.View = .{ .items = &items, .observed_at = std.time.microTimestamp(), .live = true };
+    var tasks: background.View = .{ .items = &items, .observed_at = os.microTimestamp(), .live = true };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const card: Card = .{ .w = &output.writer, .x = 0, .width = 64 };

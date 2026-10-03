@@ -129,8 +129,8 @@ fn copy(r: *Runtime, source: catalog.Workspace, kind: catalog.Source, defaults: 
 fn cmuxDirectory(path: []const u8, fallback: []const u8) []const u8 {
     for ([_][]const u8{ path, fallback, os.env("HOME") orelse "/", "/" }) |candidate| {
         if (!std.fs.path.isAbsolute(candidate)) continue;
-        var dir = std.fs.openDirAbsolute(candidate, .{}) catch continue;
-        dir.close();
+        var dir = std.Io.Dir.openDirAbsolute(os.io(), candidate, .{}) catch continue;
+        dir.close(os.io());
         return candidate;
     }
     return "/";

@@ -75,7 +75,7 @@ const FsEvents = struct {
     paths: CFArrayRef,
     /// Each root as given, and as FSEvents spells it (symlinks resolved).
     roots: []const [2][]const u8,
-    mutex: std.Thread.Mutex = .{},
+    mutex: std.Io.Mutex = .init,
     pending: Changes = .{},
 
     const Symbols = struct {
@@ -110,7 +110,7 @@ const FsEvents = struct {
             strings.deinit(a);
         }
         for (roots) |root| {
-            const real = std.fs.realpathAlloc(a, root.path) catch continue;
+            const real = os.realpathAlloc(a, .cwd(), root.path) catch continue;
             errdefer a.free(real);
             const spelled = try a.dupe(u8, root.path);
             errdefer a.free(spelled);
@@ -176,8 +176,8 @@ const FsEvents = struct {
     pub fn wait(w: *FsEvents, timeout_ms: ?u32, out: *Changes) void {
         const until = if (timeout_ms) |ms| dispatch_time(.now, @as(i64, ms) * std.time.ns_per_ms) else .forever;
         _ = dispatch_semaphore_wait(w.semaphore, until);
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         out.take(&w.pending);
     }
     /// End a `wait` on another thread.
@@ -196,7 +196,7 @@ const FsEvents = struct {
     fn callback(_: *const anyopaque, info: ?*anyopaque, count: usize, event_paths: *anyopaque, flags: [*]const FSEventStreamEventFlags, _: [*]const u64) callconv(.c) void {
         const w: *FsEvents = @ptrCast(@alignCast(info.?));
         const paths: [*]const [*:0]const u8 = @ptrCast(@alignCast(event_paths));
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         for (paths[0..count], flags[0..count]) |raw, flag| {
             if (flag.history_done) continue;
             if (flag.must_scan_sub_dirs or flag.user_dropped or flag.kernel_dropped) {
@@ -206,7 +206,7 @@ const FsEvents = struct {
             var buffer: [std.fs.max_path_bytes]u8 = undefined;
             if (w.respell(std.mem.span(raw), &buffer)) |path| w.pending.add(path);
         }
-        w.mutex.unlock();
+        w.mutex.unlock(os.io());
         _ = dispatch_semaphore_signal(w.semaphore);
     }
 
@@ -273,10 +273,15 @@ const Inotify = struct {
         linux.IN.MOVED_TO | linux.IN.DELETE_SELF | linux.IN.ONLYDIR;
 
     pub fn init(roots: []const Root, _: u32) !*Inotify {
-        const fd = std.posix.inotify_init1(linux.IN.NONBLOCK | linux.IN.CLOEXEC) catch return error.Unsupported;
-        errdefer std.posix.close(fd);
-        const wake = try std.posix.pipe2(.{ .NONBLOCK = true, .CLOEXEC = true });
-        errdefer for (wake) |end| std.posix.close(end);
+        const rc = linux.inotify_init1(linux.IN.NONBLOCK | linux.IN.CLOEXEC);
+        if (linux.errno(rc) != .SUCCESS) return error.Unsupported;
+        const fd: i32 = @intCast(rc);
+        errdefer _ = os.c.close(fd);
+        var wake: [2]i32 = undefined;
+        if (linux.errno(linux.pipe2(&wake, .{ .NONBLOCK = true, .CLOEXEC = true })) != .SUCCESS) return error.SystemResources;
+        errdefer for (wake) |end| {
+            _ = os.c.close(end);
+        };
         const w = try a.create(Inotify);
         w.* = .{ .fd = fd, .wake = wake };
         errdefer w.deinit();
@@ -286,8 +291,8 @@ const Inotify = struct {
         return w;
     }
     pub fn deinit(w: *Inotify) void {
-        std.posix.close(w.fd);
-        for (w.wake) |end| std.posix.close(end);
+        _ = os.c.close(w.fd);
+        for (w.wake) |end| _ = os.c.close(end);
         var it = w.folders.valueIterator();
         while (it.next()) |folder| a.free(folder.path);
         w.folders.deinit(a);
@@ -295,10 +300,17 @@ const Inotify = struct {
     }
     /// Watch `path` and its subfolders `depth` levels down.
     fn watch(w: *Inotify, path: []const u8, depth: u8) void {
-        const wd = std.posix.inotify_add_watch(w.fd, path, mask) catch |err| {
-            if (err == error.UserResourceLimitReached or err == error.SystemResources) w.full = true;
-            return;
-        };
+        var z: [std.fs.max_path_bytes]u8 = undefined;
+        const rc = linux.inotify_add_watch(w.fd, std.fmt.bufPrintZ(&z, "{s}", .{path}) catch return, mask);
+        switch (linux.errno(rc)) {
+            .SUCCESS => {},
+            .NOSPC, .NOMEM => {
+                w.full = true;
+                return;
+            },
+            else => return,
+        }
+        const wd: i32 = @intCast(rc);
         const owned = a.dupe(u8, path) catch return;
         const entry = w.folders.getOrPut(a, wd) catch {
             a.free(owned);
@@ -308,10 +320,10 @@ const Inotify = struct {
         if (entry.found_existing) a.free(entry.value_ptr.path);
         entry.value_ptr.* = .{ .path = owned, .depth = depth };
         if (depth == 0) return;
-        var dir = std.fs.openDirAbsolute(path, .{ .iterate = true }) catch return;
-        defer dir.close();
+        var dir = std.Io.Dir.openDirAbsolute(os.io(), path, .{ .iterate = true }) catch return;
+        defer dir.close(os.io());
         var it = dir.iterate();
-        while (it.next() catch null) |child| {
+        while (it.next(os.io()) catch null) |child| {
             if (child.kind != .directory) continue;
             var buffer: [std.fs.max_path_bytes]u8 = undefined;
             const sub = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ path, child.name }) catch continue;
@@ -343,7 +355,7 @@ const Inotify = struct {
     }
     /// End a `wait` on another thread.
     pub fn interrupt(w: *Inotify) void {
-        _ = std.posix.write(w.wake[1], "x") catch {};
+        _ = os.c.write(w.wake[1], "x", 1);
     }
     fn handle(w: *Inotify, event: *const linux.inotify_event, out: *Changes) void {
         if (event.mask & linux.IN.Q_OVERFLOW != 0) {
@@ -370,18 +382,18 @@ test "a file written under a watched folder is reported in its root's spelling" 
     if (Watcher == Unsupported) return error.SkipZigTest;
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.makePath("projects/one");
+    try tmp.dir.createDirPath(os.io(), "projects/one");
     var buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const base = try tmp.dir.realpath(".", &buffer);
+    const base = buffer[0..try tmp.dir.realPathFile(os.io(), ".", &buffer)];
     const root = try std.fmt.allocPrint(a, "{s}/projects", .{base});
     defer a.free(root);
     const w = try Watcher.init(&.{.{ .path = root, .depth = 2 }}, 50);
     defer w.deinit();
     // FSEvents starts reporting a moment after the stream starts.
-    std.Thread.sleep(200 * std.time.ns_per_ms);
-    try tmp.dir.makePath("projects/two");
-    try tmp.dir.writeFile(.{ .sub_path = "projects/one/a.jsonl", .data = "{}\n" });
-    try tmp.dir.writeFile(.{ .sub_path = "projects/two/b.jsonl", .data = "{}\n" });
+    os.sleep(200 * std.time.ns_per_ms);
+    try tmp.dir.createDirPath(os.io(), "projects/two");
+    try tmp.dir.writeFile(os.io(), .{ .sub_path = "projects/one/a.jsonl", .data = "{}\n" });
+    try tmp.dir.writeFile(os.io(), .{ .sub_path = "projects/two/b.jsonl", .data = "{}\n" });
     const a_path = try std.fmt.allocPrint(a, "{s}/one/a.jsonl", .{root});
     defer a.free(a_path);
     const b_path = try std.fmt.allocPrint(a, "{s}/two/b.jsonl", .{root});

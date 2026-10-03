@@ -84,7 +84,7 @@ pub fn path(socket: []const u8) ![]const u8 {
 }
 
 pub fn load(file: []const u8) ?Choice {
-    const bytes = std.fs.cwd().readFileAlloc(a, file, 64 * 1024) catch return null;
+    const bytes = std.Io.Dir.cwd().readFileAlloc(os.io(), file, a, .limited(64 * 1024)) catch return null;
     defer a.free(bytes);
     const parsed = std.json.parseFromSlice(Saved, a, bytes, .{ .ignore_unknown_fields = true }) catch return null;
     defer parsed.deinit();
@@ -94,15 +94,15 @@ pub fn load(file: []const u8) ?Choice {
 pub fn save(file: []const u8, choice: Choice) !void {
     const bytes = try std.json.Stringify.valueAlloc(a, Saved{ .inference = choice }, .{ .whitespace = .indent_2 });
     defer a.free(bytes);
-    try std.fs.cwd().makePath(std.fs.path.dirname(file) orelse ".");
+    try std.Io.Dir.cwd().createDirPath(os.io(), std.fs.path.dirname(file) orelse ".");
     const temp = try std.fmt.allocPrint(a, "{s}.tmp", .{file});
     defer a.free(temp);
-    var handle = try std.fs.cwd().createFile(temp, .{ .mode = 0o600 });
-    defer handle.close();
-    errdefer std.fs.cwd().deleteFile(temp) catch {};
-    try handle.writeAll(bytes);
-    try handle.sync();
-    try std.fs.cwd().rename(temp, file);
+    var handle = try std.Io.Dir.cwd().createFile(os.io(), temp, .{ .permissions = .fromMode(0o600) });
+    defer handle.close(os.io());
+    errdefer std.Io.Dir.cwd().deleteFile(os.io(), temp) catch {};
+    try handle.writeStreamingAll(os.io(), bytes);
+    try handle.sync(os.io());
+    try std.Io.Dir.cwd().rename(temp, .cwd(), file, os.io());
 }
 
 test "auto follows launched agents, then the remembered agent" {
@@ -125,7 +125,7 @@ test "auto follows launched agents, then the remembered agent" {
 test "setup choice round-trips beside workspace state" {
     var dir = std.testing.tmpDir(.{});
     defer dir.cleanup();
-    const root = try dir.dir.realpathAlloc(a, ".");
+    const root = try os.realpathAlloc(a, dir.dir, ".");
     defer a.free(root);
     const file = try std.fs.path.join(a, &.{ root, "nested", "settings.json" });
     defer a.free(file);

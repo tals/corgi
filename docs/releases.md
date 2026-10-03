@@ -7,7 +7,7 @@ B2 or S3. The publisher uses Bun and an S3-compatible endpoint.
 
 ## One-time publisher setup
 
-Run the publisher on an Apple Silicon Mac with Zig 0.15.2, Bun, and a persistent
+Run the publisher on an Apple Silicon Mac with Zig 0.16.0, Bun, and a persistent
 macOS code-signing certificate with its private key. `scripts/sign-macos` discovers
 a Developer ID Application or Apple Development identity; you can configure one
 explicitly. Developer ID is the appropriate identity for general external

@@ -248,7 +248,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
             .provider = s.provider,
             .cwd = s.cwd,
             .workspace_id = s.workspace_id,
-            .pid = if (live) s.child.id else -1,
+            .pid = if (live) s.child.id orelse -1 else -1,
             .stdin = if (live and s.child.stdin != null) s.child.stdin.?.handle else -1,
             .stdout = if (live and s.child.stdout != null) s.child.stdout.?.handle else -1,
             .ready = s.ready,
@@ -287,7 +287,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
         .conversations = actors,
         .next_conversation = r.conversations.next_id,
         .live = live,
-        .saved_at = std.time.timestamp(),
+        .saved_at = os.timestamp(),
         .next_workspace = r.workspaces.next_id,
         .next_pane = r.workspaces.next_pane_id,
         .next_session = r.next_session,
@@ -331,7 +331,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         actor.status_inference = if (live) saved.status_inference else .{};
         actor.id = saved.id;
         actor.state = if (live) saved.agent else historicalAgent(saved.agent);
-        if (live) actor.restoreCompaction(saved.screen_compacting, std.time.microTimestamp());
+        if (live) actor.restoreCompaction(saved.screen_compacting, os.microTimestamp());
         actor.parent = saved.parent;
         actor.workspace = if (r.workspaces.index(saved.workspace) != null) saved.workspace else .none;
         actor.observed_at = if (live) saved.observed_at else 0;
@@ -379,7 +379,6 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
             .provider = n.provider,
             .cwd = try a.dupe(u8, n.cwd),
             .workspace_id = n.workspace_id,
-            .child = std.process.Child.init(&.{}, a),
             .ready = n.ready,
             .exited = if (live) n.exited else true,
             .attachment = try restoreBinding(&r.conversations, n.binding, live),
@@ -400,11 +399,11 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         s.child.id = n.pid;
         if (live) s.owner = .candidate;
         if (live and n.stdin >= 0) {
-            s.child.stdin = .{ .handle = n.stdin };
+            s.child.stdin = .{ .handle = n.stdin, .flags = .{ .nonblocking = true } };
             os.cloexec(n.stdin);
         }
         if (live and n.stdout >= 0) {
-            s.child.stdout = .{ .handle = n.stdout };
+            s.child.stdout = .{ .handle = n.stdout, .flags = .{ .nonblocking = true } };
             os.cloexec(n.stdout);
         }
         s.input = .fromOwnedSlice(try binary.decode(a, n.input));
@@ -463,7 +462,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
                 pane.terminal.feed(text);
                 pane.terminal.feed("\r\n");
             }
-            const banner = try pane.resume_hint.banner(a, std.time.timestamp());
+            const banner = try pane.resume_hint.banner(a, os.timestamp());
             defer a.free(banner);
             pane.terminal.feed(banner);
             try pane.terminal.prefill(command);
@@ -477,7 +476,7 @@ fn recoverPane(p: *runtime.Pane, socket: []const u8, executable: []const u8, sav
     const dir = workspace.Store.directory(p.cwd) catch try workspace.Store.directory(os.env("HOME") orelse "/");
     defer a.free(dir);
     _ = saved_at;
-    const banner = if (command.len > 0) try p.resume_hint.banner(a, std.time.timestamp()) else try a.dupe(u8, "\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
+    const banner = if (command.len > 0) try p.resume_hint.banner(a, os.timestamp()) else try a.dupe(u8, "\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
     defer a.free(banner);
     p.terminal.feed(banner);
     try p.terminal.spawn(dir, socket, p.id, executable, null, false);

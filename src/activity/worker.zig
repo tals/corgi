@@ -1,6 +1,7 @@
 //! One bounded inference queue shared by providers. Observation and UI never
 //! wait for inference. Coalescing and cooldowns prevent unchanged polls billing.
 const std = @import("std");
+const compat = @import("../compat.zig");
 const conversations = @import("../conversations.zig");
 const ActorId = conversations.Actor.Id;
 const clock = @import("../clock.zig");
@@ -68,7 +69,7 @@ pub const Result = struct {
         agent.activity = .initTruncated(label.text());
         agent.activity_inferred = true;
         actor.status_inference.remember(agent.turnId(), r.request.evidence.text(), label);
-        const now = std.time.milliTimestamp();
+        const now = os.milliTimestamp();
         if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), label, actor.usageView(now), now);
         return true;
     }
@@ -157,8 +158,8 @@ pub const Checkpoint = struct {
     next_global: i64,
 };
 pub const Worker = struct {
-    mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    wake: std.Io.Condition = .init,
     stopping: std.atomic.Value(bool) = .init(false),
     /// Allocated while a conversation is working or blocked. Inference runs
     /// unlocked and re-reads its slot by index: `reconcile` may destroy it.
@@ -187,19 +188,19 @@ pub const Worker = struct {
     observed_at: i64 = 0,
     /// The server reports each pass that has an attached viewer.
     pub fn observe(w: *Worker, now: i64) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.observed_at = now;
     }
     /// Viewers and the link cache read this; the pool itself is worker-owned.
     pub fn off(w: *Worker) bool {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         return w.choice == .off;
     }
     pub fn status(w: *Worker) setup.Status {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         const provider = if (w.applied) w.active else setup.resolve(w.choice, w.launches, w.remembered);
         var result: setup.Status = .{ .choice = w.choice, .provider = provider, .model = setup.model(provider), .locked = w.locked };
         inline for (comptime std.enums.values(setup.Provider)) |known| {
@@ -209,8 +210,8 @@ pub const Worker = struct {
         return result;
     }
     pub fn configure(w: *Worker, choice: setup.Choice) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.choice = choice;
         w.applied = false;
         w.locked = false;
@@ -218,59 +219,59 @@ pub const Worker = struct {
         for (w.slots) |entry| if (entry) |slot| if (slot.retry) {
             slot.next = 0;
         };
-        w.wake.signal();
+        w.wake.signal(os.io());
     }
     /// Re-evaluate schedules now, e.g. after the test clock moved, and wait
     /// (briefly) until the worker has decided what is due.
     pub fn poke(w: *Worker) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         const before = w.passes;
-        w.wake.signal();
+        w.wake.signal(os.io());
         var waited: u64 = 0;
         while (w.passes == before and waited < 2 * std.time.ns_per_s) : (waited += 10 * std.time.ns_per_ms) {
-            w.mutex.unlock();
-            std.Thread.sleep(10 * std.time.ns_per_ms);
-            w.mutex.lock();
+            w.mutex.unlock(os.io());
+            os.sleep(10 * std.time.ns_per_ms);
+            w.mutex.lockUncancelable(os.io());
         }
     }
     pub fn observeLaunch(w: *Worker, provider: setup.Provider) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.launches.record(provider);
         w.remembered = provider;
     }
     pub fn remember(w: *Worker, provider: setup.Provider) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.remembered = provider;
     }
     /// Worker thread only. Automatic choices re-resolve until a harness answers.
     fn applyChoice(w: *Worker) void {
-        w.mutex.lock();
+        w.mutex.lockUncancelable(os.io());
         const wanted = setup.resolve(w.choice, w.launches, w.remembered);
         const change = !w.applied or (!w.locked and wanted != w.active);
         if (change) {
             w.active = wanted;
             w.applied = true;
         }
-        w.mutex.unlock();
+        w.mutex.unlock(os.io());
         if (change) w.implementation.use(wanted);
     }
     pub fn systemUsage(w: *Worker, now: i64) live_usage.View {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         return w.system_meter.view(now);
     }
     pub fn submitLink(w: *Worker, request: links.Request) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.link_requests[request.slot] = request;
-        w.wake.signal();
+        w.wake.signal(os.io());
     }
     pub fn cancelLink(w: *Worker, slot: usize, generation: u64) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         if (w.link_requests[slot]) |request| if (request.generation == generation) {
             w.link_requests[slot] = null;
         };
@@ -279,8 +280,8 @@ pub const Worker = struct {
         };
     }
     pub fn takeLinks(w: *Worker, out: *[links.capacity]?links.Result) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         out.* = w.link_results;
         w.link_results = @splat(null);
     }
@@ -305,31 +306,31 @@ pub const Worker = struct {
     /// conversation. The server stops publishing new requests while preparing
     /// the handoff. Any failed preparation resumes this same worker.
     pub fn pause(w: *Worker) !void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.pausing = true;
-        w.wake.broadcast();
-        const deadline = std.time.milliTimestamp() + 47000;
+        w.wake.broadcast(os.io());
+        const deadline = os.milliTimestamp() + 47000;
         while (!w.paused) {
-            const remaining = deadline - std.time.milliTimestamp();
+            const remaining = deadline - os.milliTimestamp();
             if (remaining <= 0) {
                 w.pausing = false;
-                w.wake.broadcast();
+                w.wake.broadcast(os.io());
                 return error.ReloadInferenceBusy;
             }
-            w.wake.timedWait(&w.mutex, @as(u64, @intCast(remaining)) * std.time.ns_per_ms) catch {};
+            compat.timedWait(&w.wake, os.io(), &w.mutex, @as(u64, @intCast(remaining)) * std.time.ns_per_ms) catch {};
         }
     }
     pub fn unpause(w: *Worker) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         w.pausing = false;
-        w.wake.broadcast();
+        w.wake.broadcast(os.io());
     }
     /// Capturing a paused worker does not consume pending results or retry work.
     pub fn capture(w: *Worker, alloc: std.mem.Allocator) !Checkpoint {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         if (!w.paused) return error.InferenceBusy;
         var slots: std.ArrayList(Checkpoint.Entry) = .empty;
         for (w.slots, 0..) |entry, i| if (entry) |slot| try slots.append(alloc, .{ .index = i, .slot = slot.* });
@@ -404,9 +405,9 @@ pub const Worker = struct {
     }
     pub fn stop(w: *Worker) void {
         w.stopping.store(true, .release);
-        w.mutex.lock();
-        w.wake.signal();
-        w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        w.wake.signal(os.io());
+        w.mutex.unlock(os.io());
         w.thread.?.join();
         w.freeSlots();
         a.destroy(w);
@@ -433,8 +434,8 @@ pub const Worker = struct {
             req.panes[req.panes_len] = pane.id;
             req.panes_len += 1;
         };
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         if (w.choice == .off) return;
         const slot = for (w.slots) |entry| {
             if (entry) |s| if (s.request.actor == actor) break s;
@@ -457,22 +458,22 @@ pub const Worker = struct {
         slot.request.generation = agent.activity_generation;
         slot.combine();
         if (progress) |p| if (std.mem.eql(u8, agent.turnId(), p.turn.text())) slot.observeTools(p, clock.milliTimestamp());
-        w.wake.signal();
+        w.wake.signal(os.io());
     }
     pub fn tools(w: *Worker, actor: ActorId, agent: *const agents.Agent, progress: activity_tools.View) void {
         if (!std.mem.eql(u8, agent.turnId(), progress.turn.text())) return;
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         for (w.slots) |entry| if (entry) |slot| {
             if (slot.request.actor != actor or slot.request.turn_epoch != agent.turn_epoch) continue;
             slot.observeTools(progress, clock.milliTimestamp());
-            w.wake.signal();
+            w.wake.signal(os.io());
             return;
         };
     }
     pub fn reconcile(w: *Worker, actors: anytype) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         for (&w.slots) |*entry| if (entry.*) |slot| {
             const found = for (actors) |actor| {
                 if (actor.id == slot.request.actor and (actor.state.state == .working or actor.state.state == .blocked) and
@@ -490,8 +491,8 @@ pub const Worker = struct {
         };
     }
     pub fn take(w: *Worker, out: *[max]?Result) void {
-        w.mutex.lock();
-        defer w.mutex.unlock();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
         out.* = @splat(null);
         var count: usize = 0;
         for (w.slots) |entry| if (entry) |slot| {
@@ -505,18 +506,18 @@ pub const Worker = struct {
     fn run(w: *Worker) void {
         defer w.implementation.deinit();
         while (!w.stopping.load(.acquire)) {
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             while (w.pausing and !w.stopping.load(.acquire)) {
                 w.paused = true;
-                w.wake.broadcast();
-                w.wake.wait(&w.mutex);
+                w.wake.broadcast(os.io());
+                w.wake.waitUncancelable(os.io(), &w.mutex);
             }
             w.paused = false;
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             if (w.stopping.load(.acquire)) break;
             w.applyChoice();
             w.implementation.pool.refreshUsage();
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             w.locked = w.locked or w.implementation.pool.started;
             w.system_meter = w.implementation.pool.system_usage.meter;
             if (w.choice == .off) {
@@ -525,13 +526,13 @@ pub const Worker = struct {
                     result.* = .{ .slot = r.slot, .generation = r.generation, .key = r.key, .name = null };
                     request.* = null;
                 };
-                w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
-                w.mutex.unlock();
+                compat.timedWait(&w.wake, os.io(), &w.mutex, 250 * std.time.ns_per_ms) catch {};
+                w.mutex.unlock(os.io());
                 continue;
             }
-            w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
+            compat.timedWait(&w.wake, os.io(), &w.mutex, 250 * std.time.ns_per_ms) catch {};
             if (w.pausing or w.stopping.load(.acquire)) {
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 continue;
             }
             const now = clock.milliTimestamp();
@@ -552,16 +553,16 @@ pub const Worker = struct {
                 w.link_cursor = (index + 1) % links.capacity;
                 w.prefer_links = false;
                 w.next_global = now + 1000;
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 const result = links.infer(&w.implementation.pool, request, &w.stopping);
-                w.mutex.lock();
+                w.mutex.lockUncancelable(os.io());
                 w.system_meter = w.implementation.pool.system_usage.meter;
                 w.link_results[index] = result;
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 continue;
             }
             if (selected == null) {
-                w.mutex.unlock();
+                w.mutex.unlock(os.io());
                 continue;
             }
             const index = selected.?;
@@ -572,7 +573,7 @@ pub const Worker = struct {
             slot.attempt(now);
             w.cursor = (index + 1) % max_slots;
             w.next_global = now + 1000;
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             var key_buffer: [32]u8 = undefined;
             const key = request.conversation.key(request.actor, &key_buffer);
             var history: [4][]const u8 = undefined;
@@ -590,7 +591,7 @@ pub const Worker = struct {
                 .session = request.session.text(),
                 .tools_since_last = tools_since_last,
             }, &w.stopping);
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             w.system_meter = w.implementation.pool.system_usage.meter;
             // A removed slot means the agent stopped working in this turn.
             var discard: ?backend.Discard = .not_working;
@@ -614,7 +615,7 @@ pub const Worker = struct {
                     s.next = clock.milliTimestamp() + retry_ms;
                 }
             }
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             if (superseded != 0) backend.outcome(superseded, .superseded);
             if (attempt.decision != null) if (discard) |reason| backend.outcome(attempt.request, reason);
         }

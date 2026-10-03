@@ -101,41 +101,41 @@ pub const Worker = struct {
     }
     // Bounded subprocesses. No shell interpretation and no source mutations.
     fn command(self: *Worker, argv: []const []const u8) ![]const u8 {
-        return self.commandUntil(argv, std.time.milliTimestamp() + 5000);
+        return self.commandUntil(argv, os.milliTimestamp() + 5000);
     }
     fn commandUntil(self: *Worker, argv: []const []const u8, until: i64) ![]const u8 {
         if (self.stop.load(.acquire)) return error.SourceCancelled;
-        const deadline = @min(until, std.time.milliTimestamp() + 5000);
-        if (std.time.milliTimestamp() >= deadline) return error.SourceTimedOut;
-        var child = std.process.Child.init(argv, a);
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Ignore;
-        child.pgid = 0;
-        try child.spawn();
+        const deadline = @min(until, os.milliTimestamp() + 5000);
+        if (os.milliTimestamp() >= deadline) return error.SourceTimedOut;
+        const child = try std.process.spawn(os.io(), .{
+            .argv = argv,
+            .stdin = .ignore,
+            .stdout = .pipe,
+            .stderr = .ignore,
+            .pgid = 0,
+        });
         var reaped = false;
         defer {
-            _ = os.c.kill(-child.id, os.c.SIGKILL);
+            _ = os.c.kill(-child.id.?, os.c.SIGKILL);
             if (!reaped) {
                 var status: c_int = 0;
-                _ = os.c.waitpid(child.id, &status, 0);
+                _ = os.c.waitpid(child.id.?, &status, 0);
             }
-            if (child.stdout) |file| file.close();
+            if (child.stdout) |file| file.close(os.io());
         }
-        try child.waitForSpawn();
         const fd = child.stdout.?.handle;
         os.nonblock(fd);
         var bytes: std.ArrayList(u8) = .empty;
         defer bytes.deinit(a);
         var buf: [8192]u8 = undefined;
         var status: c_int = 0;
-        while (!self.stop.load(.acquire) and std.time.milliTimestamp() < deadline) {
+        while (!self.stop.load(.acquire) and os.milliTimestamp() < deadline) {
             const n = os.c.read(fd, &buf, buf.len);
             if (n > 0) {
                 if (bytes.items.len + @as(usize, @intCast(n)) > 4 * 1024 * 1024) return error.SourceTooLarge;
                 try bytes.appendSlice(a, buf[0..@intCast(n)]);
             } else if (n < 0 and std.posix.errno(n) != .AGAIN and std.posix.errno(n) != .INTR) return error.SourceUnavailable;
-            if (!reaped and os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id) {
+            if (!reaped and os.c.waitpid(child.id.?, &status, os.c.WNOHANG) == child.id.?) {
                 reaped = true;
                 continue; // A final write may have raced the preceding read.
             }
@@ -145,7 +145,7 @@ pub const Worker = struct {
                 if (status != 0) return error.SourceUnavailable;
                 return self.arena.allocator().dupe(u8, bytes.items);
             }
-            std.Thread.sleep(5 * std.time.ns_per_ms);
+            os.sleep(5 * std.time.ns_per_ms);
         }
         return if (self.stop.load(.acquire)) error.SourceCancelled else error.SourceTimedOut;
     }
@@ -157,11 +157,11 @@ pub const Worker = struct {
             try sockets.append(alloc, parts.next().?);
         }
         const dirpath = try std.fmt.allocPrint(alloc, "{s}/tmux-{d}", .{ os.env("TMUX_TMPDIR") orelse "/tmp", os.c.getuid() });
-        if (std.fs.cwd().openDir(dirpath, .{ .iterate = true })) |opened| {
+        if (std.Io.Dir.cwd().openDir(os.io(), dirpath, .{ .iterate = true })) |opened| {
             var dir = opened;
-            defer dir.close();
+            defer dir.close(os.io());
             var it = dir.iterate();
-            while (try it.next()) |entry| {
+            while (try it.next(os.io())) |entry| {
                 if (entry.kind != .unix_domain_socket) continue;
                 const socket = try std.fs.path.join(alloc, &.{ dirpath, entry.name });
                 var exists = false;
@@ -264,7 +264,7 @@ pub const Worker = struct {
     fn cmux(self: *Worker) !void {
         const alloc = self.arena.allocator();
         const exe = try cmuxExecutable(alloc);
-        const deadline = std.time.milliTimestamp() + 15000;
+        const deadline = os.milliTimestamp() + 15000;
         var workspaces: std.ArrayList(Workspace) = .empty;
         const snapshot = try self.cmuxJson(exe, &.{ "tree", "--all" }, deadline);
         var known_list = false;

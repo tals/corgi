@@ -27,7 +27,7 @@ pub const Probe = struct {
             }
             p.pending[p.len] = byte;
             p.len += 1;
-            p.touched = std.time.milliTimestamp();
+            p.touched = os.milliTimestamp();
             const sequence = p.pending[0..p.len];
             const start = keys.paste_start;
             const end = keys.paste_end;
@@ -77,7 +77,7 @@ pub const Probe = struct {
     }
     pub fn expire(p: *Probe, input: *std.ArrayList(u8)) !void {
         // An Escape key must not wait indefinitely for another input byte.
-        if (p.len > 0 and std.time.milliTimestamp() - p.touched >= 100) try p.flush(input);
+        if (p.len > 0 and os.milliTimestamp() - p.touched >= 100) try p.flush(input);
     }
     pub fn query(p: *Probe, input: *std.ArrayList(u8)) !void {
         try os.writeAll(1, "\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
@@ -85,9 +85,9 @@ pub const Probe = struct {
             var buf: [32]u8 = undefined;
             try os.writeAll(1, try std.fmt.bufPrint(&buf, "\x1b]4;{d};?\x1b\\", .{i}));
         }
-        const deadline = std.time.milliTimestamp() + 150;
+        const deadline = os.milliTimestamp() + 150;
         while (!p.theme.complete()) {
-            const left = deadline - std.time.milliTimestamp();
+            const left = deadline - os.milliTimestamp();
             if (left <= 0) break;
             var poll = os.c.struct_pollfd{ .fd = 0, .events = os.c.POLLIN, .revents = 0 };
             if (os.c.poll(&poll, 1, @intCast(left)) <= 0 or poll.revents & os.c.POLLIN == 0) break;

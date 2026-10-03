@@ -31,8 +31,11 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "viewer_test_driver", viewer_test_driver);
     // The integration-test binary already builds with the viewer harness.
     options.addOption(bool, "test_build", b.option(bool, "test-build", "Enable integration-test hooks (default: -Dviewer-test-driver)") orelse viewer_test_driver);
-    const package = @import("build.zig.zon");
-    options.addOption(u64, "terminal_checkpoint_abi", std.hash.Wyhash.hash(0, package.dependencies.ghostty.hash));
+    // Live terminal checkpoints contain VT sequences, not Ghostty structs.
+    // Retain the ABI advertised before the Ghostty f523504ea update so an
+    // installed older runtime can hand off to this build. Bump this only when
+    // the checkpoint format or its restoration semantics change incompatibly.
+    options.addOption(u64, "terminal_checkpoint_abi", 0xa826bd22ebcdbe60);
     options.addOption([]const u8, "release_version", b.option([]const u8, "release-version", "Release version") orelse "0.1.0-dev");
     options.addOption([]const u8, "release_commit", b.option([]const u8, "release-commit", "Source commit") orelse gitCommit(b));
     options.addOption([]const u8, "update_url", b.option([]const u8, "update-url", "HTTPS update feed base URL") orelse "");
@@ -105,8 +108,8 @@ pub fn build(b: *std.Build) void {
 /// Development builds identify their checkout, marking uncommitted changes.
 fn gitCommit(b: *std.Build) []const u8 {
     var code: u8 = 0;
-    const head = b.runAllowFail(&.{ "git", "-C", b.pathFromRoot("."), "rev-parse", "HEAD" }, &code, .Ignore) catch return "development";
+    const head = b.runAllowFail(&.{ "git", "-C", b.pathFromRoot("."), "rev-parse", "HEAD" }, &code, .ignore) catch return "development";
     const commit = std.mem.trim(u8, head, " \r\n\t");
-    const status = b.runAllowFail(&.{ "git", "-C", b.pathFromRoot("."), "status", "--porcelain" }, &code, .Ignore) catch return commit;
+    const status = b.runAllowFail(&.{ "git", "-C", b.pathFromRoot("."), "status", "--porcelain" }, &code, .ignore) catch return commit;
     return if (std.mem.trim(u8, status, " \r\n\t").len > 0) b.fmt("{s}-dirty", .{commit}) else commit;
 }

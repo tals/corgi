@@ -252,7 +252,9 @@ suppresses PTY replies until commit; after commit a temporary width change and
 restore 250 ms later request an application repaint. Parser fragments, keyboard
 stacks, and some saved terminal state are approximate, and applications that do
 not repaint may retain artifacts. Older exact replay checkpoints remain supported
-on import. A terminal dependency fingerprint rejects incompatible engines.
+on import. The terminal checkpoint ABI tracks the VT snapshot format and
+restoration semantics, not the Ghostty dependency revision. Bump it only when a
+new build cannot safely replay snapshots from the previous ABI.
 Manifests remain limited to 256 MiB and restoration must finish within the
 15-second candidate readiness timeout. The old daemon continues serving when
 handoff is unavailable. An already running daemon still uses its original exporter;

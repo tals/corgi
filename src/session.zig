@@ -221,13 +221,13 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             defer output.deinit();
             var names = std.mem.tokenizeScalar(u8, q.text, ' ');
             while (names.next()) |key| try (try keys.logicalKey(key)).encode(&output.writer, terminal.vt.input.KeyEncodeOptions.fromTerminal(&p.terminal.vt));
-            p.detection.observeInput(output.written(), std.time.microTimestamp());
+            p.detection.observeInput(output.written(), os.microTimestamp());
             try p.terminal.send(output.written());
             return location(r, q.target);
         },
         .@"pane.input" => |q| {
             const p = r.pane(q.target) orelse return error.NoPane;
-            p.detection.observeInput(q.data, std.time.microTimestamp());
+            p.detection.observeInput(q.data, os.microTimestamp());
             try p.terminal.send(q.data);
             return location(r, q.target);
         },
@@ -452,7 +452,7 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
         if (viewer and !r.followed(actor)) continue;
         const out = &conversations[shown];
         shown += 1;
-        const current_usage = actor.usageView(std.time.milliTimestamp());
+        const current_usage = actor.usageView(os.milliTimestamp());
         const points = try allocator.alloc(protocol.Conversation.ActivityPoint, actor.activity_timeline.len);
         for (actor.activity_timeline.points[0..actor.activity_timeline.len], points) |*point, *dst| {
             dst.* = .{ .at = point.at, .activity = point.label.text(), .usage = point.usage };

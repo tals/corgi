@@ -2,6 +2,7 @@
 //! plan limits and models. Launch previews never run inference; viewers show
 //! `Preview`.
 const std = @import("std");
+const compat = @import("../compat.zig");
 const os = @import("../os.zig");
 const a = os.allocator;
 const providers = @import("../providers.zig");
@@ -46,8 +47,8 @@ const Job = struct {
     used: i64 = 0,
 };
 pub const Worker = struct {
-    mutex: std.Thread.Mutex = .{},
-    wake: std.Thread.Condition = .{},
+    mutex: std.Io.Mutex = .init,
+    wake: std.Io.Condition = .init,
     stopping: std.atomic.Value(bool) = .init(false),
     thread: ?std.Thread = null,
     // Enough slots for every connected client's subscribed directory.
@@ -61,7 +62,7 @@ pub const Worker = struct {
     }
     pub fn stop(w: *Worker) void {
         w.stopping.store(true, .release);
-        w.wake.signal();
+        w.wake.signal(os.io());
         w.thread.?.join();
         a.destroy(w);
     }
@@ -73,9 +74,9 @@ pub const Worker = struct {
     }
     fn request(w: *Worker, cwd: []const u8, request_access: bool) Preview {
         const dir = Path.init(cwd) catch return .{};
-        w.mutex.lock();
-        defer w.mutex.unlock();
-        const now = std.time.milliTimestamp();
+        w.mutex.lockUncancelable(os.io());
+        defer w.mutex.unlock(os.io());
+        const now = os.milliTimestamp();
         var oldest: usize = 0;
         for (&w.jobs, 0..) |*entry, i| {
             if (entry.*) |*job| {
@@ -90,7 +91,7 @@ pub const Worker = struct {
                         job.queued = true;
                         job.preview.pending = true;
                     }
-                    w.wake.signal();
+                    w.wake.signal(os.io());
                     return job.preview;
                 }
                 if (w.jobs[oldest] != null and job.used < w.jobs[oldest].?.used) oldest = i;
@@ -100,40 +101,40 @@ pub const Worker = struct {
         // Filesystem-only, so the first reply already hides missing providers.
         job.preview.installed = installed();
         w.jobs[oldest] = job;
-        w.wake.signal();
+        w.wake.signal(os.io());
         return job.preview;
     }
     fn run(w: *Worker) void {
         var pool: inference.Pool = .{ .config = .{ .timeout_ms = 5000 } };
         defer pool.deinit();
         while (!w.stopping.load(.acquire)) {
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             const index = for (w.jobs, 0..) |entry, i| {
                 if (entry != null and entry.?.queued) break i;
             } else {
-                w.wake.timedWait(&w.mutex, 250 * std.time.ns_per_ms) catch {};
-                w.mutex.unlock();
+                compat.timedWait(&w.wake, os.io(), &w.mutex, 250 * std.time.ns_per_ms) catch {};
+                w.mutex.unlock(os.io());
                 continue;
             };
             const job = w.jobs[index].?;
             w.jobs[index].?.queued = false;
             w.jobs[index].?.request_access = false;
             w.jobs[index].?.accessing = job.request_access;
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
             var result: Preview = .{ .pending = false, .installed = installed() };
             // Skip reads for missing providers; their rows are hidden.
             for (Provider.all) |provider| {
                 if (result.installed.get(provider)) result.options.set(provider, option(provider, &pool, &job, &w.stopping));
             }
-            w.mutex.lock();
+            w.mutex.lockUncancelable(os.io());
             if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd.text(), job.cwd.text())) {
                 current.preview = result;
                 // A click may have queued access while a silent read was running.
                 current.preview.pending = current.queued;
                 current.accessing = false;
-                current.updated = std.time.milliTimestamp();
+                current.updated = os.milliTimestamp();
             };
-            w.mutex.unlock();
+            w.mutex.unlock(os.io());
         }
     }
 };
@@ -174,34 +175,34 @@ fn codexAccount(pool: *inference.Pool, stopping: *const std.atomic.Value(bool)) 
     defer a.free(root);
     const path = try std.fs.path.join(a, &.{ root, "auth.json" });
     defer a.free(path);
-    const auth = std.fs.cwd().readFileAlloc(a, path, 65536) catch try a.dupe(u8, root);
+    const auth = std.Io.Dir.cwd().readFileAlloc(os.io(), path, a, .limited(65536)) catch try a.dupe(u8, root);
     defer a.free(auth);
     const identity = try std.fmt.allocPrint(a, "{s}\n{s}", .{ auth, os.env("OPENAI_API_KEY") orelse "" });
     defer a.free(identity);
     var cache = try account_cache.Cache.open("codex", identity, stopping);
     defer cache.close();
-    const now = std.time.timestamp();
+    const now = os.timestamp();
     if (now < cache.state.next_usage) return cache.state.display(now);
     cache.state.next_usage = now + account_cache.interval;
     try cache.save();
     const fresh = pool.configuredAccount(stopping) catch |err| {
         cache.state.failed(if (err == error.Timeout) "request timed out" else "account read failed");
         try cache.save();
-        return cache.state.display(std.time.timestamp());
+        return cache.state.display(os.timestamp());
     };
-    cache.state.update(fresh, std.time.timestamp());
+    cache.state.update(fresh, os.timestamp());
     try cache.save();
-    return cache.state.display(std.time.timestamp());
+    return cache.state.display(os.timestamp());
 }
 fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), request_access: bool) metadata.Info {
     // Never invoke `claude auth status` here: the CLI can perform its own
     // prompt-capable Keychain read outside our helper's interaction guard.
     var info: metadata.Info = .{};
     info.usage_error = .ascii("credentials unavailable");
-    var env = std.process.getEnvMap(a) catch return info;
+    var env = os.environMap(a) catch return info;
     defer env.deinit();
     if (claudeEnvAccount(&env)) |selected| return selected;
-    const executable = std.fs.selfExePathAlloc(a) catch return info;
+    const executable = std.process.executablePathAlloc(os.io(), a) catch return info;
     defer a.free(executable);
     const response_bytes = command(&.{ executable, "__claude-credentials", if (request_access) "interactive" else "silent" }, cwd, null, stopping, if (request_access) 120000 else 3000) orelse {
         info.usage_needs_consent = true;
@@ -248,9 +249,9 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     defer cache.close();
     cache.state.info.signed_in = true;
     cache.state.info.plan = info.plan;
-    const now = std.time.timestamp();
+    const now = os.timestamp();
     const expires = common.field(oauth, "expiresAt");
-    if (expires == .integer and expires.integer <= std.time.milliTimestamp()) {
+    if (expires == .integer and expires.integer <= os.milliTimestamp()) {
         cache.state.failed("access token expired");
         return cache.state.display(now);
     }
@@ -280,7 +281,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
                     const limits = metadata.limits(parsed.value, .claude);
                     if (limits != .none) {
                         cache.state.info.limits = limits;
-                        cache.state.info.usage_fetched_at = std.time.timestamp();
+                        cache.state.info.usage_fetched_at = os.timestamp();
                         cache.state.info.usage_error = .{};
                     }
                 } else |_| {}
@@ -312,43 +313,43 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     }
     if (cache.state.info.account.len == 0) cache.state.info.account = .ascii("Signed in");
     cache.save() catch |err| log.warn("claude account cache save failed: {}", .{err});
-    return cache.state.display(std.time.timestamp());
+    return cache.state.display(os.timestamp());
 }
 fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stopping: *const std.atomic.Value(bool), timeout_ms: u32) ?[]u8 {
-    var child = std.process.Child.init(argv, a);
-    child.cwd = cwd;
-    child.stdin_behavior = if (input != null) .Pipe else .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-    child.pgid = 0;
-    child.spawn() catch return null;
+    var child = std.process.spawn(os.io(), .{
+        .argv = argv,
+        .cwd = .{ .path = cwd },
+        .stdin = if (input != null) .pipe else .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+        .pgid = 0,
+    }) catch return null;
     var reaped = false;
     defer {
         if (!reaped) {
-            _ = os.c.kill(-child.id, os.c.SIGKILL);
+            _ = os.c.kill(-child.id.?, os.c.SIGKILL);
             var status: c_int = 0;
-            _ = os.c.waitpid(child.id, &status, 0);
+            _ = os.c.waitpid(child.id.?, &status, 0);
         }
-        if (child.stdin) |file| file.close();
-        if (child.stdout) |file| file.close();
+        if (child.stdin) |file| file.close(os.io());
+        if (child.stdout) |file| file.close(os.io());
     }
-    child.waitForSpawn() catch return null;
     if (input) |bytes| {
         os.writeAll(child.stdin.?.handle, bytes) catch return null;
-        child.stdin.?.close();
+        child.stdin.?.close(os.io());
         child.stdin = null;
     }
     const fd = child.stdout.?.handle;
     os.nonblock(fd);
     var output: [16384]u8 = undefined;
     var len: usize = 0;
-    const deadline = std.time.milliTimestamp() + timeout_ms;
-    while (!stopping.load(.acquire) and std.time.milliTimestamp() < deadline) {
+    const deadline = os.milliTimestamp() + timeout_ms;
+    while (!stopping.load(.acquire) and os.milliTimestamp() < deadline) {
         if (len == output.len) return null;
         const n = os.c.read(fd, output[len..].ptr, output.len - len);
         if (n > 0) len += @intCast(n);
         var status: c_int = 0;
-        if (os.c.waitpid(child.id, &status, os.c.WNOHANG) == child.id) {
+        if (os.c.waitpid(child.id.?, &status, os.c.WNOHANG) == child.id.?) {
             reaped = true;
             if (len < output.len) {
                 const tail = os.c.read(fd, output[len..].ptr, output.len - len);
@@ -357,13 +358,13 @@ fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stoppi
             // The CLI also returns JSON with an unsuccessful login status.
             return a.dupe(u8, output[0..len]) catch null;
         }
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        os.sleep(5 * std.time.ns_per_ms);
     }
     return null;
 }
 /// The account Claude's variables in `env` select over the default login,
 /// read as a launch command's prefix would read them.
-fn claudeEnvAccount(env: *const std.process.EnvMap) ?metadata.Info {
+fn claudeEnvAccount(env: *const std.process.Environ.Map) ?metadata.Info {
     var found: std.EnumSet(common.EnvOverride) = .initEmpty();
     var entries = env.iterator();
     while (entries.next()) |entry| {
@@ -402,12 +403,12 @@ fn claudeModel(cwd: []const u8) Option {
 fn readModel(out: *Option, root: []const u8, relative: []const u8, source: []const u8) void {
     const path = std.fs.path.join(a, &.{ root, relative }) catch return;
     defer a.free(path);
-    const fd = std.posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0) catch return;
-    const file: std.fs.File = .{ .handle = fd };
-    defer file.close();
-    const stat = file.stat() catch return;
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true }, 0) catch return;
+    const file: std.Io.File = .{ .handle = fd, .flags = .{ .nonblocking = true } };
+    defer file.close(os.io());
+    const stat = file.stat(os.io()) catch return;
     if (stat.kind != .file or stat.size > 1024 * 1024) return;
-    const bytes = file.readToEndAlloc(a, 1024 * 1024) catch return;
+    const bytes = os.readToEndAlloc(file, a, 1024 * 1024) catch return;
     defer a.free(bytes);
     const json = std.json.parseFromSlice(std.json.Value, a, bytes, .{}) catch return;
     defer json.deinit();
@@ -444,7 +445,7 @@ test "Claude's account follows the variables a launch command would name" {
         .{ .name = "CLAUDE_CODE_OAUTH_TOKEN", .value = "", .account = null },
     };
     for (cases) |case| {
-        var env = std.process.EnvMap.init(std.testing.allocator);
+        var env = std.process.Environ.Map.init(std.testing.allocator);
         defer env.deinit();
         try env.put(case.name, case.value);
         const source = try std.fmt.allocPrint(std.testing.allocator, "{s}='{s}' claude", .{ case.name, case.value });
@@ -459,7 +460,7 @@ test "Claude's account follows the variables a launch command would name" {
         }
     }
     // A credential outranks an OAuth token, which outranks an endpoint.
-    var env = std.process.EnvMap.init(std.testing.allocator);
+    var env = std.process.Environ.Map.init(std.testing.allocator);
     defer env.deinit();
     try env.put("CLAUDE_CODE_USE_BEDROCK", "yes");
     try env.put("CLAUDE_CODE_OAUTH_TOKEN", "token");

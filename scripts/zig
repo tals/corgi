@@ -3,17 +3,17 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ -n "${ZIG:-}" ]; then
     compiler=$ZIG
-elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = 0.15.2 ]; then
+elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = 0.16.0 ]; then
     compiler=zig
-elif [ -x "$root/.tools/zig-aarch64-macos-0.15.2/zig" ]; then
-    compiler="$root/.tools/zig-aarch64-macos-0.15.2/zig"
+elif [ -x "$root/.tools/zig-aarch64-macos-0.16.0/zig" ]; then
+    compiler="$root/.tools/zig-aarch64-macos-0.16.0/zig"
 else
-    echo 'Corgi requires Zig 0.15.2 (matching the pinned Ghostty API).' >&2
-    echo 'Install Zig 0.15.2, or set ZIG=/absolute/path/to/zig.' >&2
+    echo 'Corgi requires Zig 0.16.0 (matching the pinned Ghostty API).' >&2
+    echo 'Install Zig 0.16.0, or set ZIG=/absolute/path/to/zig.' >&2
     exit 1
 fi
-if [ "$("$compiler" version)" != 0.15.2 ]; then
-    echo 'Expected Zig 0.15.2; set ZIG to the matching compiler.' >&2
+if [ "$("$compiler" version)" != 0.16.0 ]; then
+    echo 'Expected Zig 0.16.0; set ZIG to the matching compiler.' >&2
     exit 1
 fi
 cd "$root"

@@ -208,11 +208,12 @@ pub const Tracker = struct {
         }
         for (runtime.sessions.items) |*s| {
             if (s.exited or s.workspace_id == WorkspaceId.none) continue;
+            const pid = s.child.id orelse continue;
             roots.append(allocator, .{
                 .key = @as(u64, @intFromEnum(s.id)) * 2 + 1,
-                .pid = s.child.id,
+                .pid = pid,
                 .workspace = s.workspace_id,
-                .agent_pid = s.child.id,
+                .agent_pid = pid,
                 .provider = s.provider,
             }) catch return changed;
         }

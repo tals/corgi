@@ -245,27 +245,27 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
 }
 
 fn command(argv: []const []const u8, stopping: *const std.atomic.Value(bool), allow_empty: bool) ?[]const u8 {
-    var child = std.process.Child.init(argv, a);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Ignore;
-    child.pgid = 0;
-    child.spawn() catch return null;
+    const child = std.process.spawn(os.io(), .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .pipe,
+        .stderr = .ignore,
+        .pgid = 0,
+    }) catch return null;
     var exit_status: ?c_int = null;
     defer {
         if (exit_status == null) {
-            _ = c.kill(-child.id, c.SIGKILL);
+            _ = c.kill(-child.id.?, c.SIGKILL);
             var status: c_int = 0;
-            _ = c.waitpid(child.id, &status, 0);
+            _ = c.waitpid(child.id.?, &status, 0);
         }
-        if (child.stdout) |file| file.close();
+        if (child.stdout) |file| file.close(os.io());
     }
-    child.waitForSpawn() catch return null;
     const fd = child.stdout.?.handle;
     os.nonblock(fd);
     var output: std.ArrayList(u8) = .empty;
     defer output.deinit(a);
-    var timer = std.time.Timer.start() catch return null;
+    const timer: os.Timer = .start();
     while (timer.read() < 2 * std.time.ns_per_s and !stopping.load(.acquire)) {
         var buf: [16384]u8 = undefined;
         const n = c.read(fd, &buf, buf.len);
@@ -273,7 +273,7 @@ fn command(argv: []const []const u8, stopping: *const std.atomic.Value(bool), al
         if (output.items.len > 4 * 1024 * 1024) return null;
         if (exit_status == null) {
             var status: c_int = 0;
-            if (c.waitpid(child.id, &status, c.WNOHANG) == child.id) exit_status = status;
+            if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) exit_status = status;
         }
         // Drain what the child wrote before it exited.
         if (n > 0) continue;
@@ -281,7 +281,7 @@ fn command(argv: []const []const u8, stopping: *const std.atomic.Value(bool), al
             if (status != 0 and !(allow_empty and status == 256 and output.items.len == 0)) return null;
             return output.toOwnedSlice(a) catch null;
         }
-        std.Thread.sleep(5 * std.time.ns_per_ms);
+        os.sleep(5 * std.time.ns_per_ms);
     }
     return null;
 }
