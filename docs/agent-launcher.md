@@ -85,8 +85,12 @@ the rows below, and the next name marks a switch. A scrolled list or a new day
 names it again. A ✕ marks a turn that was interrupted, and the branch shows when it differs from
 the folder's newest conversation. Down from the last agent row moves into the
 list; Enter (or a click) resumes the conversation in a new tab, in the folder
-it ran in, with that provider's launcher flags such as YOLO. Resuming does not
-change which agent `New` starts.
+it ran in, with that provider's launcher flags such as YOLO. Its sidebar row
+shows at once, asleep, and the corgi digs out a **Restoring…** band over a blank
+screen until the agent has drawn and settled. A closed agent that undo could
+reopen comes back as undo brings it back instead: with the command that started
+it, its old screen faded under the band, and in its old tab place when it
+closed in this workspace. Resuming does not change which agent `New` starts.
 
 **Show N more…** or `/` expands the list into a table grouped by day. `/`
 searches titles, first prompts and last messages; every word must match. Tab

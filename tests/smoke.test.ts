@@ -1416,5 +1416,70 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.frame_with("SCROLLBACK_SENTINEL");
     await this.input("q");
   }
+  async test_launcher_resume_restores_like_undo() {
+    await this.attach();
+    await this.get_type("frame");
+    const workspace = (await this.session()).workspaces[0].id,
+      cwd = this.folder("nested");
+    const agent = (
+      await this.open_pane({ cwd, command: "printf 'OLD_SCREEN\\n'; exec sleep 60" })
+    ).pane;
+    await this.command("pane.rename", { target: agent, name: "Stored name" });
+    await this.rpc({
+      op: "hook",
+      pane: agent,
+      provider: "claude",
+      seq: 1,
+      event: { hook_event_name: "SessionStart", session_id: "closed" },
+    });
+    await this.until(async () =>
+      (
+        await this.command("pane.read", { target: agent, view: "screen" })
+      ).text.includes("OLD_SCREEN"),
+    );
+    writeExecutable(
+      join(this.temp.name, "provider"),
+      "for await (const _ of (await import('node:readline')).createInterface({ input: process.stdin }))\n  console.log('RESUMED ' + JSON.stringify(process.argv.slice(2)));\n",
+    );
+    await this.command("pane.close", { target: agent });
+    const resume = async (session: string) => {
+      const { pane } = await this.command("agent.resume", {
+        workspace,
+        cwd,
+        provider: "claude",
+        session,
+      });
+      return (await this.panes()).find((p: any) => p.id === pane);
+    };
+    // A conversation Corgi closed comes back as undo brings it back.
+    const reopened = await resume("closed");
+    this.assertEqual(reopened.name, "Stored name");
+    this.assertEqual(reopened.restoring, "claude --resume 'closed'");
+    this.assertEqual((await this.session()).workspaces[0].closed_agents, 0);
+    const lines = (
+      await this.rpc({ op: "pane.surface", protocol: 1, pane: reopened.id })
+    ).surface.lines;
+    this.assertTrue(
+      lines.some((line: string) => line.includes("\x1b[2mOLD_SCREEN")),
+      "the old screen is not faded",
+    );
+    // Any other comes back under the same band, over a blank screen.
+    const fresh = await resume("elsewhere");
+    this.assertEqual(fresh.restoring, "claude --resume 'elsewhere'");
+    this.assertEqual([fresh.provider, fresh.state], ["claude", "idle"]);
+    await this.rpc({ op: "focus", pane: fresh.id });
+    await this.frame_with("Restoring…");
+    await this.command("pane.input", { target: fresh.id, data: "go\r" });
+    await this.until(async () =>
+      (
+        await this.command("pane.read", { target: fresh.id, view: "screen" })
+      ).text.includes(`RESUMED ["--resume","elsewhere"]`),
+    );
+    await this.until(
+      async () =>
+        (await this.panes()).find((p: any) => p.id === fresh.id).restoring ===
+        "",
+    );
+  }
 }
 registerCase("Smoke", Smoke);
