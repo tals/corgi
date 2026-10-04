@@ -347,10 +347,10 @@ pub const Menu = struct {
         return if (m.resume_view.collapsedHit(m.resumeContext(), y + 1 - lines_top)) |row| .{ .row = row } else null;
     }
     const manage_label = " Manage agents ";
-    /// The title's Manage button, `┤ m  Manage agents ├`, in 0-based cells;
+    /// The title's Manage button, ` m  Manage agents `, in 0-based cells;
     /// null when the menu is too narrow for it.
     fn manageSpan(b: layout.Rect) ?struct { x: u16, w: u16 } {
-        const width: u16 = 1 + 3 + manage_label.len + 1;
+        const width: u16 = 1 + 3 + manage_label.len;
         if (b.w < width + 18) return null;
         return .{ .x = b.x + b.w - 2 - width, .w = width };
     }
@@ -363,10 +363,10 @@ pub const Menu = struct {
     fn drawTitle(w: *std.Io.Writer, b: layout.Rect, panel: []const u8) !void {
         try w.print("\x1b[{d};{d}H\x1b[1;38;2;226;230;233m New agent {s}", .{ b.y + 1, b.x + 3, panel });
         const span = manageSpan(b) orelse return;
-        const button = "\x1b[0;1;38;2;226;230;233;48;2;58;68;79m";
-        try w.print("\x1b[{d};{d}H{s}┤", .{ b.y + 1, span.x + 1, panel });
-        try writeKey(w, "m", button);
-        try w.print("{s}{s}├", .{ manage_label, panel });
+        // Like a footer hint: a keycap, then the label in the border's grey.
+        try w.print("\x1b[{d};{d}H{s} ", .{ b.y + 1, span.x + 1, panel });
+        try writeKey(w, "m", panel);
+        try w.writeAll(manage_label);
     }
     const Hint = struct { key: []const u8, label: []const u8 };
     fn drawFooter(w: *std.Io.Writer, b: layout.Rect, panel: []const u8, cwd: []const u8, what: []const u8, hints: []const Hint) !void {
