@@ -449,6 +449,8 @@ pub const View = struct {
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, style });
                 try w.splatByteAll(' ', width -| 3);
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, if (selected) "›" else " " });
+                // The rail above runs on, dashed, into the conversations left out.
+                if (n > 0) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row, x + 3, dim, style });
                 try w.print("\x1b[{d};{d}H", .{ row, x + 3 + 9 });
                 if (n > 0) try w.print("Show {d} more…", .{n}) else try w.writeAll("Search every folder…");
                 try w.print("\x1b[{d};{d}H", .{ row, x + width - 3 - 10 });
