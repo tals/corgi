@@ -9,6 +9,7 @@ const import_layout = @import("layout.zig");
 const tmux_layout = @import("tmux_layout.zig");
 const tmux_resume = @import("tmux_resume.zig");
 const cmux_import = @import("cmux.zig");
+const subprocess = @import("../subprocess.zig");
 pub const Source = enum { tmux, herdr, cmux };
 pub const available_sources: []const Source = if (builtin.os.tag == .macos) &.{ .tmux, .herdr, .cmux } else &.{ .tmux, .herdr };
 pub const Pane = struct {
@@ -46,20 +47,24 @@ pub const Worker = struct {
     thread: ?std.Thread = null,
     done: std.atomic.Value(bool) = .init(false),
     stop: std.atomic.Value(bool) = .init(false),
+    quit: subprocess.Quit = .{},
     source: Source,
     catalog: Catalog = .{},
     herdr_scan: ?herdr.Scan = null,
     pub fn start(source: Source) !*Worker {
         if (source == .cmux and builtin.os.tag != .macos) return error.CmuxRequiresMacOS;
         const self = try a.create(Worker);
-        self.* = .{ .arena = .init(a), .source = source };
         errdefer a.destroy(self);
+        self.* = .{ .arena = .init(a), .source = source, .quit = try .init() };
+        errdefer self.quit.deinit();
         self.thread = try std.Thread.spawn(.{}, run, .{self});
         return self;
     }
     pub fn deinit(self: *Worker) void {
         self.stop.store(true, .release);
+        self.quit.signal();
         if (self.thread) |t| t.join();
+        self.quit.deinit();
         if (self.herdr_scan) |*scan| scan.deinit();
         self.arena.deinit();
         a.destroy(self);
@@ -105,49 +110,17 @@ pub const Worker = struct {
     }
     fn commandUntil(self: *Worker, argv: []const []const u8, until: i64) ![]const u8 {
         if (self.stop.load(.acquire)) return error.SourceCancelled;
-        const deadline = @min(until, os.milliTimestamp() + 5000);
-        if (os.milliTimestamp() >= deadline) return error.SourceTimedOut;
-        const child = try std.process.spawn(os.io(), .{
-            .argv = argv,
-            .stdin = .ignore,
-            .stdout = .pipe,
-            .stderr = .ignore,
-            .pgid = 0,
-        });
-        var reaped = false;
-        defer {
-            _ = os.c.kill(-child.id.?, os.c.SIGKILL);
-            if (!reaped) {
-                var status: c_int = 0;
-                _ = os.c.waitpid(child.id.?, &status, 0);
-            }
-            if (child.stdout) |file| file.close(os.io());
-        }
-        const fd = child.stdout.?.handle;
-        os.nonblock(fd);
-        var bytes: std.ArrayList(u8) = .empty;
-        defer bytes.deinit(a);
-        var buf: [8192]u8 = undefined;
-        var status: c_int = 0;
-        while (!self.stop.load(.acquire) and os.milliTimestamp() < deadline) {
-            const n = os.c.read(fd, &buf, buf.len);
-            if (n > 0) {
-                if (bytes.items.len + @as(usize, @intCast(n)) > 4 * 1024 * 1024) return error.SourceTooLarge;
-                try bytes.appendSlice(a, buf[0..@intCast(n)]);
-            } else if (n < 0 and std.posix.errno(n) != .AGAIN and std.posix.errno(n) != .INTR) return error.SourceUnavailable;
-            if (!reaped and os.c.waitpid(child.id.?, &status, os.c.WNOHANG) == child.id.?) {
-                reaped = true;
-                continue; // A final write may have raced the preceding read.
-            }
-            // EOF alone is not exit: a broken CLI can close stdout and hang.
-            // Drain buffered output even after exit before releasing the result.
-            if (reaped and n <= 0) {
-                if (status != 0) return error.SourceUnavailable;
-                return self.arena.allocator().dupe(u8, bytes.items);
-            }
-            os.sleep(5 * std.time.ns_per_ms);
-        }
-        return if (self.stop.load(.acquire)) error.SourceCancelled else error.SourceTimedOut;
+        const left = @min(until - os.milliTimestamp(), 5000);
+        if (left <= 0) return error.SourceTimedOut;
+        const out = subprocess.run(a, argv, .{ .timeout_ms = @intCast(left), .max_output = 4 * 1024 * 1024, .quit = &self.quit }) catch |err| return switch (err) {
+            error.Cancelled => error.SourceCancelled,
+            error.TimedOut => error.SourceTimedOut,
+            error.OutputTooLarge => error.SourceTooLarge,
+            else => |e| e,
+        };
+        defer out.deinit(a);
+        if (!out.ok()) return error.SourceUnavailable;
+        return self.arena.allocator().dupe(u8, out.stdout);
     }
     fn tmux(self: *Worker) !void {
         const alloc = self.arena.allocator();

@@ -10,6 +10,7 @@ const a = os.allocator;
 const c = os.c;
 const Provider = @import("agents.zig").Provider;
 const providers = @import("providers.zig");
+const subprocess = @import("subprocess.zig");
 /// Integration tests move system install locations under a fixture directory,
 /// so what happens to be installed on the machine cannot satisfy discovery.
 fn systemRoot() []const u8 {
@@ -140,49 +141,10 @@ const Finder = struct {
 };
 
 fn probe(path: []const u8, prefix: []const u8, timeout_ns: u64) bool {
-    const child = std.process.spawn(os.io(), .{
-        .argv = &.{ path, "--version" },
-        .stdin = .ignore,
-        .stdout = .pipe,
-        .stderr = .ignore,
-        .pgid = 0,
-    }) catch return false;
-    var reaped = false;
-    defer {
-        // Kill the process group as well: a hanging wrapper may have children.
-        _ = c.kill(-child.id.?, c.SIGKILL);
-        if (!reaped) {
-            var status: c_int = 0;
-            _ = c.waitpid(child.id.?, &status, 0);
-        }
-        if (child.stdout) |file| file.close(os.io());
-    }
-    const fd = child.stdout.?.handle;
-    os.nonblock(fd);
-    var output: [4096]u8 = undefined;
-    var len: usize = 0;
-    const timer: os.Timer = .start();
-    while (timer.read() < timeout_ns) {
-        // Bounded output and bounded work even for a noisy or broken wrapper.
-        for (0..8) |_| {
-            if (len == output.len) return false;
-            const n = c.read(fd, output[len..].ptr, output.len - len);
-            if (n <= 0) break;
-            len += @intCast(n);
-        }
-        var status: c_int = 0;
-        if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) {
-            reaped = true;
-            // The child may have written between the last read and waitpid.
-            if (len < output.len) {
-                const n = c.read(fd, output[len..].ptr, output.len - len);
-                if (n > 0) len += @intCast(n);
-            }
-            return status == 0 and isVersion(output[0..len], prefix);
-        }
-        os.sleep(5 * std.time.ns_per_ms);
-    }
-    return false;
+    // Bounded output and bounded work even for a noisy or broken wrapper.
+    const out = subprocess.run(a, &.{ path, "--version" }, .{ .timeout_ms = @intCast(timeout_ns / std.time.ns_per_ms), .max_output = 4096 }) catch return false;
+    defer out.deinit(a);
+    return out.ok() and isVersion(out.stdout, prefix);
 }
 fn isVersion(output: []const u8, prefix: []const u8) bool {
     const line = std.mem.trim(u8, output, " \t\r\n");

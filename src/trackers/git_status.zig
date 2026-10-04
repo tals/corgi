@@ -3,13 +3,13 @@
 const std = @import("std");
 const os = @import("../os.zig");
 const a = os.allocator;
-const c = os.c;
 const PushRef = @import("git_push.zig").Ref;
 const workspace = @import("../workspace.zig");
 const WorkspaceId = workspace.Workspace.Id;
 const clock = @import("../clock.zig");
 const Failure = @import("../failure.zig").Failure;
 const BoundedText = @import("../bounded_text.zig").BoundedText;
+const subprocess = @import("../subprocess.zig");
 const log = std.log.scoped(.git_status);
 pub const Commit = struct {
     hash: BoundedText(12) = .{},
@@ -253,49 +253,15 @@ fn command(cwd: []const u8, args: []const []const u8, spawn_failure: *Failure) ?
     defer argv.deinit(a);
     argv.appendSlice(a, &.{ "git", "--no-optional-locks", "-C", cwd }) catch return null;
     argv.appendSlice(a, args) catch return null;
-    const child = std.process.spawn(os.io(), .{
-        .argv = argv.items,
-        .stdin = .ignore,
-        .stdout = .pipe,
-        .stderr = .ignore,
-        .pgid = 0,
-    }) catch |err| {
-        if (spawn_failure.changed(err)) log.warn("git spawn failed: {}", .{err});
+    const out = subprocess.run(a, argv.items, .{ .timeout_ms = 2000 }) catch |err| {
+        // A slow or huge checkout is expected; failing to run git is not.
+        if (err != error.TimedOut and err != error.OutputTooLarge and spawn_failure.changed(err)) log.warn("git failed to run: {}", .{err});
         return null;
     };
+    defer out.deinit(a);
     _ = spawn_failure.clear();
-    var reaped = false;
-    defer {
-        if (!reaped) {
-            _ = c.kill(-child.id.?, c.SIGKILL);
-            var status: c_int = 0;
-            _ = c.waitpid(child.id.?, &status, 0);
-        }
-        if (child.stdout) |file| file.close(os.io());
-    }
-    const fd = child.stdout.?.handle;
-    os.nonblock(fd);
-    var buf: [65536]u8 = undefined;
-    var len: usize = 0;
-    const timer: os.Timer = .start();
-    while (timer.read() < 2 * std.time.ns_per_s) {
-        if (len == buf.len) return null;
-        const n = c.read(fd, buf[len..].ptr, buf.len - len);
-        if (n > 0) len += @intCast(n);
-        var status: c_int = 0;
-        if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) {
-            reaped = true;
-            if (status != 0) return null;
-            if (len < buf.len) {
-                const tail = c.read(fd, buf[len..].ptr, buf.len - len);
-                if (tail > 0) len += @intCast(tail);
-            }
-            if (len == buf.len) return null;
-            return a.dupe(u8, std.mem.trim(u8, buf[0..len], " \t\r\n")) catch null;
-        }
-        os.sleep(5 * std.time.ns_per_ms);
-    }
-    return null;
+    if (!out.ok()) return null;
+    return a.dupe(u8, std.mem.trim(u8, out.stdout, " \t\r\n")) catch null;
 }
 
 fn testGit(cwd: []const u8, args: []const []const u8) !void {

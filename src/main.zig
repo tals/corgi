@@ -548,6 +548,7 @@ test {
     _ = @import("sidebar_rows.zig");
     _ = @import("sound.zig");
     _ = @import("subagent_tooltip.zig");
+    _ = @import("subprocess.zig");
     _ = @import("summary_backend.zig");
     _ = @import("theme.zig");
     _ = @import("trackers.zig");

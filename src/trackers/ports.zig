@@ -7,8 +7,8 @@ const WorkspaceId = @import("../workspace.zig").Workspace.Id;
 const detection = @import("../detection.zig");
 const clock = @import("../clock.zig");
 const Failure = @import("../failure.zig").Failure;
+const subprocess = @import("../subprocess.zig");
 const a = os.allocator;
-const c = os.c;
 const net = @cImport({
     @cInclude("ifaddrs.h");
     @cInclude("net/if.h");
@@ -244,49 +244,17 @@ fn sockets(allocator: std.mem.Allocator, text: []const u8, list: []const Process
     return result.toOwnedSlice(allocator);
 }
 
-fn command(argv: []const []const u8, stopping: *const std.atomic.Value(bool), allow_empty: bool) ?[]const u8 {
-    const child = std.process.spawn(os.io(), .{
-        .argv = argv,
-        .stdin = .ignore,
-        .stdout = .pipe,
-        .stderr = .ignore,
-        .pgid = 0,
-    }) catch return null;
-    var exit_status: ?c_int = null;
-    defer {
-        if (exit_status == null) {
-            _ = c.kill(-child.id.?, c.SIGKILL);
-            var status: c_int = 0;
-            _ = c.waitpid(child.id.?, &status, 0);
-        }
-        if (child.stdout) |file| file.close(os.io());
-    }
-    const fd = child.stdout.?.handle;
-    os.nonblock(fd);
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(a);
-    const timer: os.Timer = .start();
-    while (timer.read() < 2 * std.time.ns_per_s and !stopping.load(.acquire)) {
-        var buf: [16384]u8 = undefined;
-        const n = c.read(fd, &buf, buf.len);
-        if (n > 0) output.appendSlice(a, buf[0..@intCast(n)]) catch return null;
-        if (output.items.len > 4 * 1024 * 1024) return null;
-        if (exit_status == null) {
-            var status: c_int = 0;
-            if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) exit_status = status;
-        }
-        // Drain what the child wrote before it exited.
-        if (n > 0) continue;
-        if (exit_status) |status| {
-            if (status != 0 and !(allow_empty and status == 256 and output.items.len == 0)) return null;
-            return output.toOwnedSlice(a) catch null;
-        }
-        os.sleep(5 * std.time.ns_per_ms);
-    }
+fn command(argv: []const []const u8, quit: *const subprocess.Quit, allow_empty: bool) ?[]const u8 {
+    const out = subprocess.run(a, argv, .{ .timeout_ms = 2000, .max_output = 4 * 1024 * 1024, .quit = quit }) catch return null;
+    a.free(out.stderr);
+    // lsof exits 1 when it finds nothing.
+    const empty = allow_empty and out.term == .exited and out.term.exited == 1 and out.stdout.len == 0;
+    if (out.ok() or empty) return out.stdout;
+    a.free(out.stdout);
     return null;
 }
 const Probe = struct { scheme: Scheme = .unknown, status: ?u16 = null };
-fn probe(endpoint: Endpoint, stopping: *const std.atomic.Value(bool)) Probe {
+fn probe(endpoint: Endpoint, quit: *const subprocess.Quit) Probe {
     var e = endpoint;
     // Use the exact family/address for probing; localhost DNS could hit another
     // process listening on the other address family at the same port.
@@ -303,7 +271,7 @@ fn probe(endpoint: Endpoint, stopping: *const std.atomic.Value(bool)) Probe {
             "--connect-timeout", "0.3",        "--max-time",  "0.6",
             "--output",          "/dev/null",  "--write-out", "%{http_code}",
             "--",                target,
-        }, stopping, false) orelse continue;
+        }, quit, false) orelse continue;
         defer a.free(result);
         const status = std.fmt.parseInt(u16, result, 10) catch continue;
         if (status >= 100 and status <= 599) return .{ .scheme = scheme, .status = status };
@@ -320,6 +288,8 @@ pub const Tracker = struct {
     thread: ?std.Thread = null,
     done: std.atomic.Value(bool) = .init(false),
     stopping: std.atomic.Value(bool) = .init(false),
+    /// Made before the first scan, signalled only by `deinit`.
+    quit: ?subprocess.Quit = null,
     next_refresh: i64 = 0,
     // Scans repeat every few seconds; warn once per distinct failure.
     scan_failure: Failure = .{},
@@ -327,7 +297,9 @@ pub const Tracker = struct {
     thread_failure: Failure = .{},
     pub fn deinit(t: *Tracker) void {
         t.stopping.store(true, .release);
+        if (t.quit) |quit| quit.signal();
         if (t.thread) |thread| thread.join();
+        if (t.quit) |quit| quit.deinit();
         t.arena.deinit();
         t.pending_arena.deinit();
     }
@@ -368,6 +340,10 @@ pub const Tracker = struct {
             roots.append(allocator, .{ .pid = p.terminal.pid, .pane = p.id, .workspace = ws.id, .agent_pid = p.detection.pid }) catch return changed;
         }
         t.roots = roots.toOwnedSlice(allocator) catch return changed;
+        if (t.quit == null) t.quit = subprocess.Quit.init() catch |err| {
+            if (t.thread_failure.changed(err)) log.warn("scan quit pipe failed: {}", .{err});
+            return changed;
+        };
         t.pending = .{};
         t.done.store(false, .release);
         t.thread = std.Thread.spawn(.{}, run, .{t}) catch |err| blk: {
@@ -388,7 +364,8 @@ pub const Tracker = struct {
     }
     fn scan(t: *Tracker) !void {
         const allocator = t.pending_arena.allocator();
-        const ps = command(&.{ "ps", "-axo", "pid=,ppid=,pgid=,comm=" }, &t.stopping, false) orelse return;
+        const quit = &t.quit.?;
+        const ps = command(&.{ "ps", "-axo", "pid=,ppid=,pgid=,comm=" }, quit, false) orelse return;
         defer a.free(ps);
         const list = try processes(allocator, ps);
         const all = if (interfaces(allocator)) |found| blk: {
@@ -398,7 +375,7 @@ pub const Tracker = struct {
             if (t.interfaces_failure.changed(err)) log.warn("network interface enumeration failed: {}", .{err});
             break :blk &.{};
         };
-        const files = command(&.{ "lsof", "-nP", "-iTCP", "-iUDP", "-FpcftPnT" }, &t.stopping, true);
+        const files = command(&.{ "lsof", "-nP", "-iTCP", "-iUDP", "-FpcftPnT" }, quit, true);
         defer if (files) |text| a.free(text);
         const endpoints = if (files) |text| try sockets(allocator, text, list, t.roots, all) else &.{};
         var works: std.ArrayList(Work) = .empty;
@@ -440,7 +417,7 @@ pub const Tracker = struct {
                 if (oldest == null or e.probed_at < oldest.?.probed_at) oldest = e;
             };
             const e = oldest orelse break;
-            const result = probe(e.*, &t.stopping);
+            const result = probe(e.*, quit);
             e.scheme = result.scheme;
             e.http_status = result.status;
             e.probed_at = now;

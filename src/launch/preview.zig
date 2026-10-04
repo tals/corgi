@@ -16,6 +16,7 @@ const metadata = @import("../usage.zig").account;
 const account_cache = @import("../usage.zig").account_cache;
 const limit_history = @import("../usage.zig").limits;
 const launch_command = @import("command.zig");
+const subprocess = @import("../subprocess.zig");
 const log = std.log.scoped(.launch_preview);
 pub const Text = metadata.Text;
 pub const Option = struct {
@@ -50,20 +51,24 @@ pub const Worker = struct {
     mutex: std.Io.Mutex = .init,
     wake: std.Io.Condition = .init,
     stopping: std.atomic.Value(bool) = .init(false),
+    quit: subprocess.Quit = .{},
     thread: ?std.Thread = null,
     // Enough slots for every connected client's subscribed directory.
     jobs: [32]?Job = @splat(null),
     pub fn start() !*Worker {
         const w = try a.create(Worker);
         errdefer a.destroy(w);
-        w.* = .{};
+        w.* = .{ .quit = try .init() };
+        errdefer w.quit.deinit();
         w.thread = try std.Thread.spawn(.{}, run, .{w});
         return w;
     }
     pub fn stop(w: *Worker) void {
         w.stopping.store(true, .release);
+        w.quit.signal();
         w.wake.signal(os.io());
         w.thread.?.join();
+        w.quit.deinit();
         a.destroy(w);
     }
     pub fn preview(w: *Worker, cwd: []const u8) Preview {
@@ -124,7 +129,7 @@ pub const Worker = struct {
             var result: Preview = .{ .pending = false, .installed = installed() };
             // Skip reads for missing providers; their rows are hidden.
             for (Provider.all) |provider| {
-                if (result.installed.get(provider)) result.options.set(provider, option(provider, &pool, &job, &w.stopping));
+                if (result.installed.get(provider)) result.options.set(provider, option(provider, &pool, &job, w));
             }
             w.mutex.lockUncancelable(os.io());
             if (w.jobs[index]) |*current| if (std.mem.eql(u8, current.cwd.text(), job.cwd.text())) {
@@ -139,8 +144,9 @@ pub const Worker = struct {
     }
 };
 /// One provider's launcher row: the model it would run and its account.
-fn option(provider: Provider, pool: *inference.Pool, job: *const Job, stopping: *const std.atomic.Value(bool)) Option {
+fn option(provider: Provider, pool: *inference.Pool, job: *const Job, w: *const Worker) Option {
     const cwd = job.cwd.text();
+    const stopping = &w.stopping;
     var result = switch (provider) {
         .codex => codexModel(pool, cwd, stopping),
         .claude => claudeModel(cwd),
@@ -150,7 +156,7 @@ fn option(provider: Provider, pool: *inference.Pool, job: *const Job, stopping: 
             result.usage_error = .ascii("account read failed");
             return result;
         },
-        .claude => claudeAccount(cwd, stopping, job.request_access),
+        .claude => claudeAccount(cwd, stopping, &w.quit, job.request_access),
     };
     result.signed_in = account.signed_in;
     result.account = account.account;
@@ -194,7 +200,7 @@ fn codexAccount(pool: *inference.Pool, stopping: *const std.atomic.Value(bool)) 
     try cache.save();
     return cache.state.display(os.timestamp());
 }
-fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), request_access: bool) metadata.Info {
+fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), quit: *const subprocess.Quit, request_access: bool) metadata.Info {
     // Never invoke `claude auth status` here: the CLI can perform its own
     // prompt-capable Keychain read outside our helper's interaction guard.
     var info: metadata.Info = .{};
@@ -204,7 +210,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     if (claudeEnvAccount(&env)) |selected| return selected;
     const executable = std.process.executablePathAlloc(os.io(), a) catch return info;
     defer a.free(executable);
-    const response_bytes = command(&.{ executable, "__claude-credentials", if (request_access) "interactive" else "silent" }, cwd, null, stopping, if (request_access) 120000 else 3000) orelse {
+    const response_bytes = command(&.{ executable, "__claude-credentials", if (request_access) "interactive" else "silent" }, cwd, null, quit, if (request_access) 120000 else 3000) orelse {
         info.usage_needs_consent = true;
         return info;
     };
@@ -269,7 +275,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     if (fetch_usage) {
         cache.state.failed("request failed or timed out");
         const usage_argv = [_][]const u8{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/usage" };
-        if (command(&usage_argv, cwd, headers, stopping, 3500)) |bytes| {
+        if (command(&usage_argv, cwd, headers, quit, 3500)) |bytes| {
             defer a.free(bytes);
             const reply = account_cache.response(bytes, now);
             cache.state.next_usage = account_cache.nextAttempt(reply, now);
@@ -292,7 +298,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     // just because the usage endpoint is rate limited.
     if (fetch_profile) {
         const profile_argv = [_][]const u8{ "curl", "-q", "--silent", "--include", "--connect-timeout", "2", "--max-time", "3", "--header", "@-", "--", "https://api.anthropic.com/api/oauth/profile" };
-        if (command(&profile_argv, cwd, headers, stopping, 3500)) |bytes| {
+        if (command(&profile_argv, cwd, headers, quit, 3500)) |bytes| {
             defer a.free(bytes);
             const reply = account_cache.response(bytes, now);
             cache.state.next_profile = account_cache.nextAttempt(reply, now);
@@ -315,52 +321,11 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), reque
     cache.save() catch |err| log.warn("claude account cache save failed: {}", .{err});
     return cache.state.display(os.timestamp());
 }
-fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, stopping: *const std.atomic.Value(bool), timeout_ms: u32) ?[]u8 {
-    var child = std.process.spawn(os.io(), .{
-        .argv = argv,
-        .cwd = .{ .path = cwd },
-        .stdin = if (input != null) .pipe else .ignore,
-        .stdout = .pipe,
-        .stderr = .ignore,
-        .pgid = 0,
-    }) catch return null;
-    var reaped = false;
-    defer {
-        if (!reaped) {
-            _ = os.c.kill(-child.id.?, os.c.SIGKILL);
-            var status: c_int = 0;
-            _ = os.c.waitpid(child.id.?, &status, 0);
-        }
-        if (child.stdin) |file| file.close(os.io());
-        if (child.stdout) |file| file.close(os.io());
-    }
-    if (input) |bytes| {
-        os.writeAll(child.stdin.?.handle, bytes) catch return null;
-        child.stdin.?.close(os.io());
-        child.stdin = null;
-    }
-    const fd = child.stdout.?.handle;
-    os.nonblock(fd);
-    var output: [16384]u8 = undefined;
-    var len: usize = 0;
-    const deadline = os.milliTimestamp() + timeout_ms;
-    while (!stopping.load(.acquire) and os.milliTimestamp() < deadline) {
-        if (len == output.len) return null;
-        const n = os.c.read(fd, output[len..].ptr, output.len - len);
-        if (n > 0) len += @intCast(n);
-        var status: c_int = 0;
-        if (os.c.waitpid(child.id.?, &status, os.c.WNOHANG) == child.id.?) {
-            reaped = true;
-            if (len < output.len) {
-                const tail = os.c.read(fd, output[len..].ptr, output.len - len);
-                if (tail > 0) len += @intCast(tail);
-            }
-            // The CLI also returns JSON with an unsuccessful login status.
-            return a.dupe(u8, output[0..len]) catch null;
-        }
-        os.sleep(5 * std.time.ns_per_ms);
-    }
-    return null;
+fn command(argv: []const []const u8, cwd: []const u8, input: ?[]const u8, quit: *const subprocess.Quit, timeout_ms: u32) ?[]u8 {
+    const out = subprocess.run(a, argv, .{ .cwd = cwd, .input = input, .timeout_ms = timeout_ms, .max_output = 16384, .quit = quit }) catch return null;
+    a.free(out.stderr);
+    // The CLI also returns JSON with an unsuccessful login status.
+    return out.stdout;
 }
 /// The account Claude's variables in `env` select over the default login,
 /// read as a launch command's prefix would read them.

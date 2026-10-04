@@ -7,6 +7,7 @@ const common = @import("../providers/common.zig");
 const Text = @import("../usage.zig").account.Text;
 const Path = @import("../bounded_text.zig").Path;
 const BoundedText = @import("../bounded_text.zig").BoundedText;
+const subprocess = @import("../subprocess.zig");
 const log = std.log.scoped(.launch_command);
 pub const capacity = 6;
 pub const max_length = 2048;
@@ -220,42 +221,17 @@ fn definitionOf(name: []const u8, cwd: ?[]const u8, deadline: i64, allocator: st
     defer allocator.free(query);
     const script = try std.fmt.allocPrint(allocator, "printf '\\036CORGI_BEGIN\\n'; {s} 2>/dev/null; printf '\\036CORGI_END\\n'", .{query});
     defer allocator.free(script);
-    const child = try std.process.spawn(os.io(), .{
-        .argv = &.{ chosen, flags(), script },
-        .cwd = if (cwd) |dir| .{ .path = dir } else .inherit,
-        .stdin = .ignore,
-        .stdout = .pipe,
-        .stderr = .ignore,
-        .pgid = 0,
-    });
-    var reaped = false;
-    defer {
-        if (!reaped) {
-            _ = os.c.kill(-child.id.?, os.c.SIGKILL);
-            var status: c_int = 0;
-            _ = os.c.waitpid(child.id.?, &status, 0);
-        }
-        if (child.stdout) |file| file.close(os.io());
-    }
-    os.nonblock(child.stdout.?.handle);
-    var output: [16384]u8 = undefined;
-    var len: usize = 0;
-    while (os.milliTimestamp() < deadline) {
-        if (len == output.len) return error.ShorthandOutputTooLarge;
-        const n = os.c.read(child.stdout.?.handle, output[len..].ptr, output.len - len);
-        if (n > 0) len += @intCast(n);
-        var status: c_int = 0;
-        if (os.c.waitpid(child.id.?, &status, os.c.WNOHANG) == child.id.?) {
-            reaped = true;
-            const tail = os.c.read(child.stdout.?.handle, output[len..].ptr, output.len - len);
-            if (tail > 0) len += @intCast(tail);
-            const begin = (std.mem.indexOf(u8, output[0..len], "\x1eCORGI_BEGIN\n") orelse return error.ShorthandLookupFailed) + "\x1eCORGI_BEGIN\n".len;
-            const end = std.mem.indexOfPos(u8, output[0..len], begin, "\x1eCORGI_END\n") orelse return error.ShorthandLookupFailed;
-            return allocator.dupe(u8, std.mem.trim(u8, output[begin..end], " \r\n\t"));
-        }
-        os.sleep(5 * std.time.ns_per_ms);
-    }
-    return error.ShorthandLookupTimeout;
+    const left = deadline - os.milliTimestamp();
+    if (left <= 0) return error.ShorthandLookupTimeout;
+    const out = subprocess.run(allocator, &.{ chosen, flags(), script }, .{ .cwd = cwd, .timeout_ms = std.math.lossyCast(u32, left), .max_output = 16384 }) catch |err| return switch (err) {
+        error.TimedOut => error.ShorthandLookupTimeout,
+        error.OutputTooLarge => error.ShorthandOutputTooLarge,
+        else => |e| e,
+    };
+    defer out.deinit(allocator);
+    const begin = (std.mem.indexOf(u8, out.stdout, "\x1eCORGI_BEGIN\n") orelse return error.ShorthandLookupFailed) + "\x1eCORGI_BEGIN\n".len;
+    const end = std.mem.indexOfPos(u8, out.stdout, begin, "\x1eCORGI_END\n") orelse return error.ShorthandLookupFailed;
+    return allocator.dupe(u8, std.mem.trim(u8, out.stdout[begin..end], " \r\n\t"));
 }
 
 fn wrapperBody(definition: []const u8, allocator: std.mem.Allocator) !?[]u8 {

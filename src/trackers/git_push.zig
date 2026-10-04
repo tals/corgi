@@ -3,11 +3,11 @@
 const std = @import("std");
 const os = @import("../os.zig");
 const a = os.allocator;
-const c = os.c;
 const git = @import("git_status.zig");
 const WorkspaceId = @import("../workspace.zig").Workspace.Id;
 const clock = @import("../clock.zig");
 const BoundedText = @import("../bounded_text.zig").BoundedText;
+const subprocess = @import("../subprocess.zig");
 
 /// Shared with controller.zig's gitPushMessage, whichever side rejected the push.
 pub const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
@@ -68,8 +68,9 @@ pub const Manager = struct {
     }
     pub fn deinit(m: *Manager) void {
         for (&m.jobs) |*slot| if (slot.*) |job| {
-            job.stopping.store(true, .release);
+            job.quit.signal();
             job.thread.?.join();
+            job.quit.deinit();
             a.destroy(job);
             slot.* = null;
         };
@@ -94,7 +95,8 @@ pub const Manager = struct {
         } else return error.TooManyPushes;
         const job = try a.create(Job);
         errdefer a.destroy(job);
-        job.* = .{ .ref = ws.git_ref, .id = m.next_id };
+        job.* = .{ .ref = ws.git_ref, .id = m.next_id, .quit = try .init() };
+        errdefer job.quit.deinit();
         m.next_id += 1;
         slot.* = job;
         errdefer slot.* = null;
@@ -109,6 +111,7 @@ pub const Manager = struct {
         for (&m.jobs) |*slot| if (slot.*) |job| {
             if (!job.done.load(.acquire)) continue;
             job.thread.?.join();
+            job.quit.deinit();
             for (store.items.items) |*ws| if (ws.git_push.operation == job.id) {
                 ws.git_push = job.result;
                 ws.git_push.until = now + 1600;
@@ -131,7 +134,7 @@ const Job = struct {
     ref: Ref,
     thread: ?std.Thread = null,
     done: std.atomic.Value(bool) = .init(false),
-    stopping: std.atomic.Value(bool) = .init(false),
+    quit: subprocess.Quit = .{},
     result: State = .{},
 
     fn run(j: *Job) void {
@@ -184,66 +187,21 @@ const Job = struct {
         defer env.deinit();
         try env.put("GIT_TERMINAL_PROMPT", "0");
         try env.put("GCM_INTERACTIVE", "Never");
-        const child = try std.process.spawn(os.io(), .{
-            .argv = argv.items,
-            .environ_map = &env,
-            .stdin = .ignore,
-            .stdout = .pipe,
-            .stderr = .pipe,
-            .pgid = 0,
+        const out = try subprocess.run(a, argv.items, .{
+            .env = &env,
+            .timeout_ms = if (pushing) 120000 else 5000,
+            .max_output = 16384,
+            .stderr = true,
+            .quit = &j.quit,
         });
-        var reaped = false;
-        defer {
-            if (!reaped) {
-                _ = c.kill(-child.id.?, c.SIGKILL);
-                var status: c_int = 0;
-                _ = c.waitpid(child.id.?, &status, 0);
+        defer out.deinit(a);
+        if (!out.ok()) {
+            if (pushing) {
+                const message = if (out.stderr.len > 0) out.stderr else out.stdout;
+                j.result.message = git.cleaned(@TypeOf(j.result.message), std.mem.trim(u8, message, " \t\r\n"));
             }
-            if (child.stdout) |file| file.close(os.io());
-            if (child.stderr) |file| file.close(os.io());
+            return error.GitPushFailed;
         }
-        os.nonblock(child.stdout.?.handle);
-        os.nonblock(child.stderr.?.handle);
-        var output: std.ArrayList(u8) = .empty;
-        defer output.deinit(a);
-        var errors: std.ArrayList(u8) = .empty;
-        defer errors.deinit(a);
-        const deadline = os.milliTimestamp() + @as(i64, if (pushing) 120000 else 5000);
-        while (!j.stopping.load(.acquire) and os.milliTimestamp() < deadline) {
-            try drain(child.stdout.?.handle, &output);
-            try drain(child.stderr.?.handle, &errors);
-            var status: c_int = 0;
-            if (c.waitpid(child.id.?, &status, c.WNOHANG) == child.id.?) {
-                reaped = true;
-                try drain(child.stdout.?.handle, &output);
-                try drain(child.stderr.?.handle, &errors);
-                if (status != 0) {
-                    if (pushing) {
-                        const message = if (errors.items.len > 0) errors.items else output.items;
-                        j.result.message = git.cleaned(@TypeOf(j.result.message), std.mem.trim(u8, message, " \t\r\n"));
-                    }
-                    return error.GitPushFailed;
-                }
-                return a.dupe(u8, std.mem.trim(u8, output.items, " \t\r\n"));
-            }
-            os.sleep(10 * std.time.ns_per_ms);
-        }
-        return error.TimedOut;
+        return a.dupe(u8, std.mem.trim(u8, out.stdout, " \t\r\n"));
     }
 };
-
-fn drain(fd: c_int, out: *std.ArrayList(u8)) !void {
-    var buf: [4096]u8 = undefined;
-    // Keep polling bounded even if a hook produces endless output.
-    for (0..16) |_| {
-        const n = c.read(fd, &buf, buf.len);
-        if (n <= 0) return;
-        const len: usize = @intCast(n);
-        if (out.items.len + len > 16384) {
-            const discard = out.items.len + len - 16384;
-            std.mem.copyForwards(u8, out.items[0 .. out.items.len - discard], out.items[discard..]);
-            out.items.len -= discard;
-        }
-        try out.appendSlice(a, buf[0..len]);
-    }
-}
