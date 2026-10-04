@@ -14,6 +14,8 @@ const agents = @import("agents.zig");
 const launch_preview = @import("launch.zig").preview;
 const metadata = @import("usage.zig").account;
 const limit_history = @import("usage.zig").limits;
+const context_window = @import("usage.zig").context_window;
+const terminal = @import("pane.zig").terminal;
 const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
 /// How long an observation counts as current: 10 s, plus up to one bucket
 /// by which the snapshot rounds its stamps down.
@@ -243,6 +245,39 @@ const Card = struct {
         const padding = if (right) width -| sidebar.displayWidth(label) else 0;
         try card.w.print("\x1b[{d};{d}H{s}{s}", .{ row + 1, card.x + 4 + offset + padding, base, tone.ansi() });
         try sidebar.writeEllipsis(card.w, label, width - padding);
+    }
+    /// The context meter takes at most half the subtitle line: narrow cards
+    /// shorten its bar, and the narrowest drop it.
+    fn meterBar(card: Card) usize {
+        const bar = @min(16, ((card.width - 6) / 2) -| 13);
+        return if (bar < 6) 0 else bar;
+    }
+    fn meterWidth(card: Card, context: context_window.View) usize {
+        var buf: [8]u8 = undefined;
+        const figure = std.fmt.bufPrint(&buf, "{d}%", .{@min(context.percent(), 999)}) catch unreachable;
+        const bar = card.meterBar();
+        return "context ".len + bar + @intFromBool(bar > 0) + figure.len;
+    }
+    /// "context ━━━━━━──── 74%" at the right of a row: the share of the window,
+    /// in the sidebar figure's colors, with a tick at a learned compaction point.
+    fn meter(card: Card, row: usize, context: context_window.View, compacting: bool) !void {
+        const band = context.band() orelse return;
+        const color = sidebar.contextColor(band, compacting, .{ 30, 30, 46 });
+        try card.w.print("\x1b[{d};{d}H{s}{s}context ", .{ row + 1, card.x + card.width - 2 - card.meterWidth(context), base, Tone.muted.ansi() });
+        const bar = card.meterBar();
+        if (bar > 0) {
+            const filled = @max(1, @min(bar, (context.used *| bar +| context.window / 2) / context.window));
+            const tick: ?usize = if (context.compacts_at > 0 and context.compacts_at < context.window) context.compacts_at * bar / context.window else null;
+            for (0..bar) |i| {
+                if (i < filled) {
+                    try card.w.print("\x1b[38;2;{d};{d};{d}m━", .{ color[0], color[1], color[2] });
+                } else if (tick == i) {
+                    try card.w.print("{s}┼", .{Tone.muted.ansi()});
+                } else try card.w.print("{s}─", .{Tone.border.ansi()});
+            }
+            try card.w.writeAll(" ");
+        }
+        try card.w.print("\x1b[38;2;{d};{d};{d}m{d}%", .{ color[0], color[1], color[2], @min(context.percent(), 999) });
     }
     const number_width: usize = 8;
     fn textWidth(card: Card) usize {
@@ -830,7 +865,9 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
     const child_footer = children_available and model.children == 0;
     const task_height = if (root.background_tasks.items.len > 0) @min(8, root.background_tasks.items.len + 1 + @as(usize, @intFromBool(root.background_tasks.truncated))) else 0;
-    const wanted = 7 + timeline_height + task_height +
+    // Until there is a timeline, the activity takes its own line under the subtitle.
+    const activity_row = timeline_nodes == 0;
+    const wanted = 7 + @as(usize, @intFromBool(activity_row)) + timeline_height + task_height +
         (if (model.children > 0) model.children + 3 else @as(usize, @intFromBool(child_footer)));
     const height = @min(wanted, rows - 2);
     const x: usize = @min(@as(usize, px) + 2, cols - width);
@@ -852,18 +889,24 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         thinking()
     else
         activity(root_agent);
+    // The subtitle names the provider and model, with the context meter beside it.
     const provider = root_agent.providerName();
-    const subtitle = if (timeline_nodes > 0)
-        provider
-    else if (std.ascii.eqlIgnoreCase(name, provider))
-        root_activity
+    const subtitle = if (std.ascii.eqlIgnoreCase(name, provider))
+        root.model
+    else if (root.model.len > 0)
+        try std.fmt.bufPrint(&text, "{s} · {s}", .{ provider, root.model })
     else
-        try std.fmt.bufPrint(&text, "{s} · {s}", .{ provider, root_activity });
-    try card.line(top + 1, subtitle, "", .muted, .muted);
-    try card.tokenColumns(top + 2, null, false, .muted);
-    try card.cell(top + 3, 0, card.textWidth(), "Total", .text, false);
-    try card.tokenColumns(top + 3, root.usage, false, if (root.usage.known) .tokens else .muted);
-    var row = top + 4;
+        provider;
+    const metered = root_agent.state != .done and root.context.band() != null;
+    const padding = " " ** 40;
+    try card.line(top + 1, subtitle, if (metered) padding[0..card.meterWidth(root.context)] else "", .muted, .muted);
+    if (metered) try card.meter(top + 1, root.context, root_agent.state == .working and root_agent.compacting);
+    const header = top + 2 + @intFromBool(activity_row);
+    if (activity_row) try card.line(top + 2, root_activity, "", .muted, .muted);
+    try card.tokenColumns(header, null, false, .muted);
+    try card.cell(header + 1, 0, card.textWidth(), "Total", .text, false);
+    try card.tokenColumns(header + 1, root.usage, false, if (root.usage.known) .tokens else .muted);
+    var row = header + 2;
     const footer_row = y + height - 2;
     const end = if (model.children > 0 or child_footer) footer_row else y + height - 1;
     // Give requested background work priority on short terminals. The section
@@ -1461,4 +1504,77 @@ test "overview footer names a development build's commit" {
     defer output.deinit();
     try drawOverview(&output.writer, &all, .{}, false, "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi 0.1.0-dev · 0123abc-dirty") != null);
+}
+
+fn screenLines(all: []const protocol.Conversation, entry: sidebar.Entry, cols: u16, out: *[30][]const u8) ![]u8 {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try draw(&output.writer, all, entry, cols, 30, 0, 2);
+    const host = try terminal.Terminal.create(cols, 30);
+    defer host.destroy();
+    host.feed(output.written());
+    const text = try host.text();
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    for (out) |*line| line.* = lines.next() orelse "";
+    return text;
+}
+fn lineWith(lines: []const []const u8, needle: []const u8) ?usize {
+    for (lines, 0..) |line, i| if (std.mem.indexOf(u8, line, needle) != null) return i;
+    return null;
+}
+
+test "the subtitle pairs provider and model with the context meter, and activity moves below until there is a timeline" {
+    const now = os.microTimestamp();
+    const activity_text = "Running the reload suite against the v5 fixtures";
+    var all = [_]protocol.Conversation{.{
+        .id = @enumFromInt(1),
+        .agent = .{ .provider = .codex, .state = .working, .attention = .none, .name = "api refactor", .session = "s", .activity = activity_text, .cwd = "", .tool_active = false },
+        .model = "gpt-6-astra",
+        .children_observed_at = now,
+        .context = .{ .used = 85_386, .window = 258_400, .at = 1 },
+    }};
+    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .name = "api refactor", .provider = .codex, .state = .working, .attention = .none };
+    var lines: [30][]const u8 = undefined;
+
+    // No timeline: the activity keeps a whole line under the subtitle.
+    var text = try screenLines(&all, entry, 100, &lines);
+    var subtitle = lineWith(&lines, "codex · gpt-6-astra").?;
+    try std.testing.expect(std.mem.indexOf(u8, lines[subtitle], "context ━━━━━") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lines[subtitle], "33%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, lines[subtitle + 1], activity_text) != null);
+    try std.testing.expect(std.mem.indexOf(u8, lines[subtitle + 2], "Tokens") != null);
+    os.allocator.free(text);
+
+    // With a timeline, the activity is its "now" row and the card keeps its height.
+    const points = [_]protocol.Conversation.ActivityPoint{.{ .at = 1000, .activity = activity_text, .usage = .{ .known = true } }};
+    all[0].timeline = .{ .points = &points, .pending = .{ .known = true } };
+    text = try screenLines(&all, entry, 100, &lines);
+    subtitle = lineWith(&lines, "codex · gpt-6-astra").?;
+    try std.testing.expect(std.mem.indexOf(u8, lines[subtitle + 1], "Tokens") != null);
+    os.allocator.free(text);
+
+    // The narrowest card keeps the figure and drops the bar.
+    text = try screenLines(&all, entry, 40, &lines);
+    try std.testing.expect(lineWith(&lines, "context 33%") != null);
+    os.allocator.free(text);
+
+    // Ended sessions and conversations without a reading show no meter.
+    entry.state = .done;
+    text = try screenLines(&all, entry, 100, &lines);
+    try std.testing.expect(lineWith(&lines, "context") == null);
+    os.allocator.free(text);
+    entry.state = .working;
+    all[0].context = .{};
+    text = try screenLines(&all, entry, 100, &lines);
+    try std.testing.expect(lineWith(&lines, "context") == null);
+    os.allocator.free(text);
+
+    // Near a learned compaction point the figure is red, faded while compacting.
+    all[0].context = .{ .used = 381_000, .window = 1_000_000, .compacts_at = 400_000, .at = 1 };
+    all[0].agent.compacting = true;
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try draw(&output.writer, &all, entry, 100, 30, 0, 2);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;115;73;94m38%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "┼") != null);
 }

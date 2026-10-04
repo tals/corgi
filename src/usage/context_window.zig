@@ -92,6 +92,12 @@ pub const View = struct {
         const limit = if (v.compacts_at > 0) @min(v.compacts_at, v.window) else v.window;
         return @as(f64, @floatFromInt(v.used)) / @as(f64, @floatFromInt(limit));
     }
+    /// How close to compaction. The sidebar row shows its figure from `near`.
+    pub const Band = enum { calm, near, high };
+    pub fn band(v: View) ?Band {
+        const p = v.pressure() orelse return null;
+        return if (p < 0.7) .calm else if (p < 0.85) .near else .high;
+    }
     /// Share of the window, as providers show it, in whole percent.
     pub fn percent(v: View) u64 {
         if (v.window == 0) return 0;

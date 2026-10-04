@@ -632,18 +632,13 @@ pub const View = struct {
         try w.writeAll("\x1b[24;59m");
         if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H\x1b[48;2;137;180;250m \x1b[0m", .{ y + row + 1, x + 1 });
     }
-    /// Context appears on the name line only near compaction: from 70% of the
-    /// way, amber, then red from 85%. It dims while the agent compacts.
+    /// Context appears on the name line only near compaction.
     fn contextFigure(buf: []u8, e: Entry, compacting: bool, background: [3]u8) ?struct { text: []const u8, color: [3]u8 } {
         if (e.state == .done) return null;
-        const pressure = e.context.pressure() orelse return null;
-        if (pressure < 0.7) return null;
+        const band = e.context.band() orelse return null;
+        if (band == .calm) return null;
         const text = std.fmt.bufPrint(buf, "{d}%", .{@min(e.context.percent(), 999)}) catch unreachable;
-        const tone: [3]u8 = if (pressure < 0.85) .{ 250, 179, 135 } else .{ 243, 139, 168 };
-        if (!compacting) return .{ .text = text, .color = tone };
-        var dim: [3]u8 = undefined;
-        for (&dim, tone, background) |*out, t, b| out.* = @intCast((@as(u16, t) * 2 + @as(u16, b) * 3) / 5);
-        return .{ .text = text, .color = dim };
+        return .{ .text = text, .color = contextColor(band, compacting, background) };
     }
     fn animationKey(e: Entry) u64 {
         return switch (e.target) {
@@ -719,6 +714,21 @@ pub const View = struct {
         try writeClipped(w, text, v.width - 3);
     }
 };
+
+/// Context colors for the row figure and the card's meter: grey, amber from
+/// 70% of the way to compaction, red from 85%, faded into the background while
+/// the agent compacts.
+pub fn contextColor(band: context_window.View.Band, compacting: bool, background: [3]u8) [3]u8 {
+    const tone: [3]u8 = switch (band) {
+        .calm => .{ 166, 173, 200 },
+        .near => .{ 250, 179, 135 },
+        .high => .{ 243, 139, 168 },
+    };
+    if (!compacting) return tone;
+    var dim: [3]u8 = undefined;
+    for (&dim, tone, background) |*out, t, b| out.* = @intCast((@as(u16, t) * 2 + @as(u16, b) * 3) / 5);
+    return dim;
+}
 
 fn subagentBadge(buf: []u8, status: agents.Subagents, children: usize) []const u8 {
     var running_buf: [24]u8 = undefined;

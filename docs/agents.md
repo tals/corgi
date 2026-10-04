@@ -142,6 +142,13 @@ figure is amber, and red from 85% of the way. While the agent compacts it dims;
 afterwards the smaller context is below the threshold and the figure goes away.
 Ended sessions never show one.
 
+The hover card always shows it. Its subtitle names the provider and model, with
+a meter on the right such as `context ━━━━━━━━━━━━──── 74%`, in the same colors
+(grey below 70% of the way) and with a `┼` tick at a learned compaction point.
+Until the agent has a timeline, its activity takes the line below the subtitle,
+so the meter never shortens it. Narrow cards shorten the bar and, below about 44
+columns, show only `context 74%`.
+
 While an agent compacts, the corgi on its activity line herds the letters of
 “Compacting” into the word, sits, and curls up into the ellipsis after it,
 where it stays. Beside it, a pile of dots fills up and squashes flat. A row too
