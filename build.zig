@@ -16,13 +16,15 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     mod.addImport("ghostty-vt", ghostty.module("ghostty-vt"));
+    // The release script passes the SDK selected by xcrun as --sysroot. An
+    // explicit macOS target otherwise compiles against Zig's bundled headers,
+    // whose Mach struct size asserts Zig 0.16 can't translate, so the SDK is
+    // also named as libc. Zig doesn't search the libc file's frameworks for
+    // -framework (ziglang/zig#24024), so those are added by hand.
+    const sdk_libc: ?std.Build.LazyPath = if (target.result.os.tag == .macos and b.sysroot != null) sdkLibc(b, b.sysroot.?) else null;
+    const sdk_frameworks: ?std.Build.LazyPath = if (sdk_libc != null) .{ .cwd_relative = b.pathJoin(&.{ b.sysroot.?, "System/Library/Frameworks" }) } else null;
     if (target.result.os.tag == .macos) {
-        // Explicit macOS targets don't inherit native framework search paths.
-        // The release script supplies the SDK selected by xcrun as --sysroot.
-        if (b.sysroot) |sdk| {
-            mod.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
-            mod.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
-        }
+        if (sdk_frameworks) |path| mod.addSystemFrameworkPath(path);
         mod.linkFramework("Security", .{});
         mod.linkFramework("CoreFoundation", .{});
     }
@@ -44,8 +46,9 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "check_leaks", b.option(bool, "check-leaks", "Unit tests use the leak-checking allocator everywhere") orelse false);
     options.addOption([]const u8, "sentry_dsn", b.option([]const u8, "sentry-dsn", "Sentry DSN to send crash reports to (default: none)") orelse "");
     mod.addOptions("corgi_options", options);
-    mod.linkLibrary(sentryLibrary(b, target, optimize));
+    mod.linkLibrary(sentryLibrary(b, target, optimize, sdk_libc));
     const exe = b.addExecutable(.{ .name = "corgi", .root_module = mod });
+    exe.setLibCFile(sdk_libc);
     // Sentry matches a Linux crash to its uploaded debug file by build ID.
     if (target.result.ofmt == .elf) exe.build_id = .sha1;
     const native_macos = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;
@@ -72,6 +75,7 @@ pub fn build(b: *std.Build) void {
     b.step("run", "Run Corgi").dependOn(&run.step);
     const test_filters = b.option([][]const u8, "test-filter", "Only run Zig tests whose names contain this; repeatable") orelse &.{};
     const tests = b.addTest(.{ .root_module = mod, .filters = test_filters });
+    tests.setLibCFile(sdk_libc);
     b.step("test", "Test layouts, hooks, signaling and terminal behavior").dependOn(&b.addRunArtifact(tests).step);
 
     // Opt-in live eval driver shares the production prompt, parser and harness.
@@ -79,16 +83,14 @@ pub fn build(b: *std.Build) void {
     eval_backend.addImport("ghostty-vt", ghostty.module("ghostty-vt"));
     eval_backend.addOptions("corgi_options", options);
     if (target.result.os.tag == .macos) {
-        if (b.sysroot) |sdk| {
-            eval_backend.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
-            eval_backend.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
-        }
+        if (sdk_frameworks) |path| eval_backend.addSystemFrameworkPath(path);
         eval_backend.linkFramework("Security", .{});
         eval_backend.linkFramework("CoreFoundation", .{});
     }
     const eval_mod = b.createModule(.{ .root_source_file = b.path("evals/driver.zig"), .target = target, .optimize = optimize, .link_libc = true });
     eval_mod.addImport("backend", eval_backend);
     const eval_exe = b.addExecutable(.{ .name = "corgi-eval", .root_module = eval_mod });
+    eval_exe.setLibCFile(sdk_libc);
     b.step("evals", "Build the activity eval driver (does not call models)").dependOn(&b.addInstallArtifact(eval_exe, .{}).step);
 
     // Real external runtimes are opt-in, never dependencies of the unit suite.
@@ -109,18 +111,22 @@ pub fn build(b: *std.Build) void {
     b.step("test-handoff", "Run slow Herdr migration integration tests in disposable runtimes").dependOn(&handoff.step);
 }
 
+/// A libc installation file naming a macOS SDK.
+fn sdkLibc(b: *std.Build, sdk: []const u8) std.Build.LazyPath {
+    const include = b.pathJoin(&.{ sdk, "usr/include" });
+    const contents = b.fmt("include_dir={s}\nsys_include_dir={s}\ncrt_dir=\nmsvc_lib_dir=\nkernel32_lib_dir=\ngcc_dir=\n", .{ include, include });
+    return b.addWriteFiles().add("libc.txt", contents);
+}
 /// sentry-native with its in-process crash handler and no transport of its
 /// own; src/crash.zig sends reports with curl.
-fn sentryLibrary(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+fn sentryLibrary(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, libc: ?std.Build.LazyPath) *std.Build.Step.Compile {
     const upstream = b.dependency("sentry", .{});
     const lib = b.addLibrary(.{
         .name = "sentry",
         .linkage = .static,
         .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
     });
-    if (target.result.os.tag == .macos) if (b.sysroot) |sdk| {
-        lib.root_module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
-    };
+    lib.setLibCFile(libc);
     const flags: []const []const u8 = &.{
         "-DSENTRY_BUILD_STATIC",
         "-DSENTRY_BACKEND_INPROC",
