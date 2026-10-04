@@ -2899,7 +2899,7 @@ pub const Controller = struct {
     fn hoverIdle(s: *Self) bool {
         return !s.hasMenu() and s.menu() == null and s.name_dialog == null and !s.copy_mode and s.selection == null and s.workspace_drag == null;
     }
-    fn linkTooltipReady(s: *Self) !bool {
+    fn linkTooltipReady(s: *Self) bool {
         var target: ?link_tooltip.Target = null;
         if (s.pointer) |pointer| {
             if (!s.hasMenu() and s.menu() == null and s.name_dialog == null and !s.copy_mode and s.selection == null and !s.ui_mouse_down) {
@@ -2907,37 +2907,23 @@ pub const Controller = struct {
                 if (s.resourceHoverContains(pointer.x, pointer.y)) return true;
                 if (sidebar.resourceAt(s.sidebarView(&.{}), s.workspaceEntries(&storage), pointer.x, pointer.y)) |ws| {
                     if (resource_tooltip.geometry(s.width, s.height, s.sidebarView(&.{}).width, pointer.y) != null) {
-                        target = .{ .pane = .none, .link = 0, .resource = ws.id };
+                        target = .{ .resource = ws.id };
                         s.resource_card.anchor = pointer.y;
                     }
                 }
                 if (corgi_badge.hit(s.corgi_badge, s.sidebarView(&.{}).width, pointer.x, pointer.y)) {
-                    target = .{ .pane = .none, .link = 0, .usage = true };
+                    target = .{ .usage = true };
                 }
                 if (sidebar.gitActionWorkspace(s.sidebarView(&.{}), s.workspaceEntries(&storage), s.git_hover, pointer.x, pointer.y)) |ws| {
-                    target = .{ .pane = @enumFromInt(@intFromEnum(ws.id)), .link = 0, .git = true };
+                    target = .{ .git = ws.id };
                     if (ws.git_push.phase == .failed) return true;
                 }
                 var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
                 const entries = s.sidebarEntries(&agent_storage);
                 // The host may leave its last mouse report at the window edge.
                 if (pointer.x > 0) if (sidebar.agentAt(s.sidebarView(entries), entries, pointer.x, pointer.y)) |entry| {
-                    target = .{ .pane = .none, .link = 0, .conversation = entry.conversation, .agent = entry.target };
+                    target = .{ .conversation = entry.conversation, .agent = entry.target };
                 };
-                var locations: [layout.max_panes]layout.Placement = undefined;
-                for (s.layoutView().placements(s.area(), &locations)) |place| {
-                    if (!place.rect.contains(pointer.x, pointer.y)) continue;
-                    const p = s.pane(place.id) orelse continue;
-                    try p.terminal.updateRender();
-                    for (p.terminal.hyperlinks()) |link| {
-                        if (link.row == pointer.y - place.rect.y and link.start <= pointer.x - place.rect.x and pointer.x - place.rect.x < link.end and
-                            (std.mem.startsWith(u8, link.uri, "http://") or std.mem.startsWith(u8, link.uri, "https://")))
-                        {
-                            target = .{ .pane = place.id, .link = link.id };
-                            break;
-                        }
-                    }
-                }
             }
         }
         return s.link_tooltip.ready(target, clock.milliTimestamp());
@@ -2973,7 +2959,7 @@ pub const Controller = struct {
             var ids_storage: [workspace.max_workspaces]WorkspaceId = undefined;
             _ = drag.valid(s.sidebarView(entries), s.workspaceIds(&ids_storage));
         }
-        const tooltip_ready = try s.linkTooltipReady();
+        const tooltip_ready = s.linkTooltipReady();
         const detail = s.resourceDetail();
         if (detail) |id| {
             const rect = s.resourceRect();

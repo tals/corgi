@@ -2,9 +2,8 @@
 const std = @import("std");
 const ActorId = @import("conversations.zig").Actor.Id;
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
-const layout = @import("layout.zig");
 const sidebar = @import("sidebar.zig");
-pub const Target = struct { resource: ?WorkspaceId = null, pane: layout.PaneId, link: u64, git: bool = false, usage: bool = false, conversation: ActorId = .none, agent: ?sidebar.Target = null };
+pub const Target = struct { resource: ?WorkspaceId = null, git: ?WorkspaceId = null, usage: bool = false, conversation: ActorId = .none, agent: ?sidebar.Target = null };
 pub const State = struct {
     suppressed: bool = true,
     target: ?Target = null,
@@ -42,7 +41,7 @@ pub const State = struct {
 
 test "tooltip waits for rest and requires fresh movement after interaction" {
     var s: State = .{};
-    const target: Target = .{ .pane = @enumFromInt(1), .link = 2 };
+    const target: Target = .{ .git = @enumFromInt(1) };
     try std.testing.expect(!s.ready(target, 0));
     s.move();
     try std.testing.expect(!s.ready(target, 100));
@@ -53,7 +52,7 @@ test "tooltip waits for rest and requires fresh movement after interaction" {
     s.move();
     try std.testing.expect(!s.ready(target, 2001));
     try std.testing.expect(s.ready(target, 2501));
-    try std.testing.expect(!s.ready(.{ .pane = @enumFromInt(2), .link = 2 }, 2502));
+    try std.testing.expect(!s.ready(.{ .git = @enumFromInt(2) }, 2502));
     try std.testing.expect(!s.ready(null, 4000));
     try std.testing.expect(!s.ready(target, 4001));
 }

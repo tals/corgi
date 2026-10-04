@@ -162,66 +162,9 @@ class Links extends Runtime {
     });
     this.pty = pty;
     await pty.waitFor(`;${url}\x1b\\`);
-    pty.write("\x1b[<35;30;2M");
-    await pty.waitFor("Click to open");
-    pty.write("\x1b[<16;30;2M\x1b[<16;30;2m");
+    pty.write("\x1b[<35;30;2M\x1b[<16;30;2M\x1b[<16;30;2m");
     await this.until(() => existsSync(opened));
     this.assertEqual(readFileSync(opened, "utf8"), url);
-  }
-  async test_tooltip_waits_and_stays_hidden_through_interaction() {
-    const url = "https://example.com/tooltip";
-    const pane = await this.new(
-      `printf %s ${quote(url + "\r\n")}; exec /bin/sh`,
-    );
-    await this.until(async () =>
-      (
-        await this.command("pane.read", { target: pane, view: "screen" })
-      ).text.includes(url),
-    );
-    const viewer = await Viewer.create(this),
-      other = await Viewer.create(this),
-      hint = "Click to open";
-    const move = (x = 30) => viewer.input(`\x1b[<35;${x};2M`);
-    const absent = async () =>
-      this.assertNotIn(hint, (await viewer.poll()).data);
-    const appears = () =>
-      this.until(async () => (await viewer.poll()).data.includes(hint));
-    await move();
-    await absent();
-    await appears();
-    this.assertNotIn(hint, (await other.poll()).data);
-    await viewer.input("\x1b[<0;30;2M");
-    await absent();
-    await viewer.input("\x1b[<32;35;2M");
-    await viewer.advance(0.55);
-    await absent();
-    await viewer.input("\x1b[<0;35;2m");
-    await viewer.advance(0.55);
-    await absent();
-    await move(34);
-    await absent();
-    await appears();
-    await viewer.input("x");
-    await absent();
-    await viewer.advance(0.55);
-    await absent();
-    await move(33);
-    await appears();
-    await viewer.input("\x1b[<65;33;2M");
-    await absent();
-    await viewer.advance(0.55);
-    await absent();
-    await move(32);
-    await appears();
-    await viewer.input("\x1b[O");
-    await absent();
-    await viewer.input("\x1b[I");
-    await viewer.advance(0.55);
-    await absent();
-    await move(31);
-    await appears();
-    await move(75);
-    await absent();
   }
   async test_plain_port_click_invokes_system_opener_in_attached_client() {
     const ready = join(this.temp.name, "port"),
