@@ -101,7 +101,9 @@ export function validateBinary(name: string, bytes: Uint8Array) {
     for (let i = 0; i < count; i++) if (b.readUInt32LE(offset + i * size) === 3) throw new Error("Linux release must be static (no dynamic interpreter).");
   }
 }
-type Config = { publicBaseUrl: string; endpoint: string; region: string; bucket: string; signingKey: string; codesignIdentity: string; credentialsFile?: string };
+type Config = { publicBaseUrl: string; endpoint: string; region: string; bucket: string; signingKey: string; codesignIdentity: string; credentialsFile?: string; sentry?: SentryConfig };
+// Release builds send crash reports to this Sentry project, which gets their debug files.
+type SentryConfig = { dsn: string; org: string; project: string };
 export async function loadCredentials(config: Pick<Config, "credentialsFile">, env = process.env) {
   let accessKeyId = env.AWS_ACCESS_KEY_ID;
   let secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
@@ -151,6 +153,17 @@ export function installer(base: string, version: string, binaries: Record<string
   return template.replace(/@(BASE|VERSION|MAC_SHA256|LINUX_SHA256)@/g, (_, key) => values[key]);
 }
 
+// The macOS binary's debug map points into the build cache, which goes away
+// with the release checkout, so its debug info is kept as a dSYM.
+async function writeDsym(run: (argv: string[], capture?: boolean) => Promise<string>, binary: string, dsym: string) {
+  await run(["xcrun", "dsymutil", binary, "-o", dsym]);
+  const uuid = async (path: string) => (await run(["xcrun", "dwarfdump", "--uuid", path], true)).split(" ")[1];
+  if (await uuid(binary) !== await uuid(dsym)) throw new Error("The dSYM does not match the macOS binary.");
+  // dsymutil only warns about missing build products; corgi's own code must resolve.
+  const symbol = (await run(["nm", binary], true)).split("\n").find(line => line.endsWith(" _main.run"))?.split(" ")[0];
+  const resolved = symbol ? await run(["xcrun", "atos", "-o", dsym, "-arch", "arm64", `0x${symbol}`], true) : "";
+  if (!resolved.includes("(main.zig:")) throw new Error("The dSYM has no debug info for corgi's code.");
+}
 async function command(cwd: string, env: typeof process.env, argv: string[], capture = false) {
   const child = Bun.spawn(argv, { cwd, env, stdout: capture ? "pipe" : "inherit", stderr: "inherit", stdin: "ignore" });
   const output = capture ? await new Response(child.stdout).text() : "";
@@ -184,7 +197,7 @@ async function main() {
   const version = publishedVersion(options.version || timestampVersion(commit), commit);
   const out = join(releases, version);
   if (mode === "--dry-run") {
-    console.log(`Release ${version}: test → build/sign macOS arm64 → cross-compile static Linux amd64 → verify both → sign manifest → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`);
+    console.log(`Release ${version}: test → build/sign macOS arm64 → cross-compile static Linux amd64 → verify both → sign manifest → upload debug files to Sentry → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`);
     return;
   }
   const config: Config = JSON.parse(await readFile(process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json"), "utf8"));
@@ -194,6 +207,12 @@ async function main() {
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Use credential-free HTTPS URLs without query strings or fragments.");
   }
   if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("Run releases on an Apple Silicon Mac (macOS signing requires it).");
+  if (config.sentry) {
+    const { dsn, org, project } = config.sentry;
+    if (![dsn, org, project].every(v => typeof v === "string" && v)) throw new Error("sentry needs dsn, org and project.");
+    if (new URL(dsn).protocol !== "https:") throw new Error("Use an HTTPS Sentry DSN.");
+    if (mode !== "--build-only" && !Bun.which("sentry-cli")) throw new Error("Install sentry-cli to upload debug files: brew install getsentry/tools/sentry-cli");
+  }
   const credentials = mode === "--build-only" ? undefined : await loadCredentials(config);
   const key = createPrivateKey(await readFile(config.signingKey));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("The release signing key must be Ed25519.");
@@ -229,7 +248,9 @@ async function main() {
             args.push("-Dcodesign=false");
           } else if (config.codesignIdentity) args.push(`-Dsigning-identity=${config.codesignIdentity}`);
         } else args.push("-Dcodesign=false");
+        if (config.sentry) args.push(`-Dsentry-dsn=${config.sentry.dsn}`);
         await runCommand(args);
+        if (target.name === "macos-aarch64") await writeDsym(runCommand, join(prefix, "bin/corgi"), join(out, "corgi-macos-aarch64.dSYM"));
         const bytes = await readFile(join(prefix, "bin/corgi"));
         validateBinary(target.name, bytes);
         await writeFile(join(out, `corgi-${target.name}`), bytes, { mode: 0o755 });
@@ -244,11 +265,12 @@ async function main() {
       const install = installer(config.publicBaseUrl, version, binaries, template);
       await writeFile(join(out, "install.sh"), install);
       checkSource();
-      await writeFile(join(out, "prepared.json"), JSON.stringify({ version, commit, publicBaseUrl: config.publicBaseUrl, publicKey, publishable: mode !== "--build-only", hashes: { ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])), "manifest.json": sha256(envelope), "install.sh": sha256(install) } }, null, 2));
+      await writeFile(join(out, "prepared.json"), JSON.stringify({ version, commit, publicBaseUrl: config.publicBaseUrl, publicKey, publishable: mode !== "--build-only", sentry: config.sentry?.dsn, hashes: { ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])), "manifest.json": sha256(envelope), "install.sh": sha256(install) } }, null, 2));
     }
     if (mode === "--build-only") { console.log(`Both platforms built and verified in ${out}. Nothing published.`); return; }
     const prepared = JSON.parse(await readFile(join(out, "prepared.json"), "utf8"));
     if (!prepared.publishable || prepared.version !== version || prepared.commit !== commit || prepared.publicKey !== publicKey || prepared.publicBaseUrl !== config.publicBaseUrl) throw new Error("Prepared release does not match this release source/configuration.");
+    if (prepared.sentry && prepared.sentry !== config.sentry?.dsn) throw new Error("Prepared release reports crashes to a Sentry project this configuration does not name.");
     for (const [name, digest] of Object.entries(prepared.hashes)) if (sha256(await readFile(join(out, name))) !== digest) throw new Error(`Prepared artifact changed: ${name}`);
     const s3 = new Bun.S3Client({ endpoint: config.endpoint, region: config.region, bucket: config.bucket, ...credentials });
     const store: Store = {
@@ -272,6 +294,12 @@ async function main() {
       const old = compare(current), next = compare(version);
       const first = next.findIndex((n, i) => n !== old[i]);
       if (first >= 0 && next[first] < old[first]) throw new Error(`Refusing to move stable backwards from ${current} to ${version}.`);
+    }
+    // Crashes can arrive as soon as the channel moves; Sentry symbolicates
+    // them with these files.
+    if (prepared.sentry) {
+      await runCommand(["sentry-cli", "debug-files", "upload", "--org", config.sentry!.org, "--project", config.sentry!.project, "--wait",
+        join(out, "corgi-macos-aarch64.dSYM"), join(out, "corgi-linux-x86_64")]);
     }
     const assets = await Promise.all([...targets.map(t => `corgi-${t.name}`), "manifest.json", "install.sh"].map(async name => ({ key: `releases/${version}/${name}`, bytes: await readFile(join(out, name)), type: name.endsWith(".json") ? "application/json" : name.endsWith(".sh") ? "text/x-shellscript" : "application/octet-stream" })));
     await publish(store, assets, await readFile(join(out, "manifest.json")), await readFile(join(out, "install.sh")));

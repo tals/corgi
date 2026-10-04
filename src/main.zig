@@ -23,11 +23,15 @@ const viewer_test = @import("viewer_test.zig");
 const keymap = @import("keymap.zig");
 const bindings = @import("bindings.zig");
 const Action = @import("action.zig").Action;
-/// A no-op in the daemon, CLI and hook, where client.cleanup has nothing to
-/// restore; in the viewer it leaves the terminal usable instead of raw.
+const crash = @import("crash.zig");
+/// client.cleanup is a no-op in the daemon, CLI and hook, where there is
+/// nothing to restore; in the viewer it leaves the terminal usable instead of
+/// raw. crash.notePanic keeps the message and stack for the crash report that
+/// defaultPanic's abort triggers.
 pub const panic = std.debug.FullPanic(restoreThenPanic);
 fn restoreThenPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
     client.cleanup();
+    crash.notePanic(msg, first_trace_addr orelse @returnAddress());
     std.debug.defaultPanic(msg, first_trace_addr);
 }
 /// Where std.log goes. Only the daemon turns it on: its stderr is server.log,
@@ -182,6 +186,7 @@ fn run(process_args: std.process.Args) !void {
         .__handoff => {
             if (args.len != 4) return error.Usage;
             log_sink = .stderr;
+            crash.init(.daemon);
             handoff.importAndRun(path, exe, try buildId(exe), try std.fmt.parseInt(c_int, args[2], 10), try std.fmt.parseInt(c_int, args[3], 10));
         },
         .reload => {
@@ -191,6 +196,7 @@ fn run(process_args: std.process.Args) !void {
         .checkpoint => return request(path, .@"recovery.save", {}),
         .serve => {
             log_sink = .stderr;
+            crash.init(.daemon);
             var server: Server = .{ .socket = path, .executable = exe, .build_id = try buildId(exe) };
             return server.run();
         },
@@ -247,6 +253,7 @@ fn run(process_args: std.process.Args) !void {
             if (!(args.len == 3 and std.mem.eql(u8, args[2], "--update-routed"))) try updates.startup(path, exe, cmd, no_update);
             try ensureServer(path, exe);
             updates.background(path, exe) catch {};
+            crash.init(.viewer);
             return client.attach(path);
         },
         .start => {
@@ -262,6 +269,7 @@ fn run(process_args: std.process.Args) !void {
             }
             if (c.isatty(0) == 0 or c.isatty(1) == 0) return error.TerminalRequired;
             try ensureServer(path, exe);
+            crash.init(.viewer);
             return client.onboard(path);
         },
         .ping => return request(path, .ping, {}),
@@ -503,6 +511,7 @@ test {
     _ = @import("corgi_badge.zig");
     _ = @import("corgi_frames.zig");
     _ = @import("corgi_setup.zig");
+    _ = @import("crash.zig");
     _ = @import("detection.zig");
     _ = @import("discovery.zig");
     _ = @import("failure.zig");

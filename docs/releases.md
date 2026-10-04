@@ -30,9 +30,16 @@ Create `~/.config/corgi/release.json` (or set `CORGI_RELEASE_CONFIG`):
   "bucket": "your-corgi-releases",
   "signingKey": "/Users/you/.config/corgi/release-key.pem",
   "credentialsFile": "/Users/you/.config/corgi/r2-credentials.json",
-  "codesignIdentity": "Developer ID Application: Your Name (TEAMID)"
+  "codesignIdentity": "Developer ID Application: Your Name (TEAMID)",
+  "sentry": {
+    "dsn": "https://KEY@oORG.ingest.us.sentry.io/PROJECT_ID",
+    "org": "your-org",
+    "project": "corgi"
+  }
 }
 ```
+
+`sentry` is optional; see [Crash reports](#crash-reports).
 
 `publicBaseUrl` must map to the **root of this bucket**, including any CDN routing
 prefix. Use a stable domain you control so you can move storage without replacing
@@ -116,6 +123,27 @@ For a build-only check of committed HEAD:
 Build-only results are not publishable. `codesignIdentity: "-"` permits an ad-hoc
 macOS build in this mode only. For Linux the script verifies that the ELF has no
 dynamic interpreter; executing Linux integration tests still requires Linux.
+
+## Crash reports
+
+With `sentry` configured, release builds embed the DSN (`-Dsentry-dsn`) and the
+daemon and viewer report fatal signals and Zig panics to that Sentry project
+(a native project; the free plan is enough). Development builds have no DSN and
+send nothing. sentry-native's in-process handler saves a report under
+`$XDG_STATE_HOME/corgi/crash` (default `~/.local/state/corgi/crash`); the next
+daemon or viewer to start posts it with curl. A report that fails to send is
+dropped. Hooks and other short CLI commands do not report.
+
+Reports carry raw addresses. The publisher keeps the macOS debug info as
+`corgi-macos-aarch64.dSYM` beside the release artifacts and, before any asset
+goes public, uploads it and the Linux executable (which keeps its DWARF) with
+`sentry-cli debug-files upload`; Sentry symbolicates from those. Install
+sentry-cli (`brew install getsentry/tools/sentry-cli`) and authenticate it once
+with `sentry-cli login` using an organization auth token, or export
+`SENTRY_AUTH_TOKEN`. `--build-only` makes the dSYM but uploads nothing.
+
+To symbolicate a macOS address by hand, use the image's load address from the
+report: `atos -o corgi-macos-aarch64.dSYM -arch arm64 -l LOAD_ADDRESS ADDRESS`.
 
 ## Install and use
 
