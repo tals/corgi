@@ -4,7 +4,8 @@ const backend = @import("backend");
 const contract = backend.contract;
 const a = std.heap.c_allocator;
 const Step = struct { id: []const u8, evidence: []const u8, turn: []const u8 };
-const Scenario = struct { id: []const u8, steps: []const Step };
+/// Instructions and schema default to production; playback backfills override them.
+const Scenario = struct { id: []const u8, steps: []const Step, instructions: ?[]const u8 = null, schema: ?[]const u8 = null };
 var stopping: std.atomic.Value(bool) = .init(false);
 
 fn stop(_: std.posix.SIG) callconv(.c) void {
@@ -55,7 +56,13 @@ pub fn main(init: std.process.Init) !void {
             const fresh_json = if (context.len > 0) try contract.content(a, fresh) else null;
             defer if (fresh_json) |value| a.free(value);
             const started = milliTimestamp(io);
-            const response = impl.pool.infer(.{ .instructions = contract.instructions, .schema = contract.schema, .content = json, .fresh_content = fresh_json, .conversation = scenario.id }, &stopping) catch |err| {
+            const response = impl.pool.infer(.{
+                .instructions = scenario.instructions orelse contract.instructions,
+                .schema = scenario.schema orelse contract.schema,
+                .content = json,
+                .fresh_content = fresh_json,
+                .conversation = scenario.id,
+            }, &stopping) catch |err| {
                 try emit(io, .{ .id = step.id, .status = "error", .err = @errorName(err), .raw = @as(?[]const u8, null), .label = @as(?[]const u8, null), .elapsed_ms = milliTimestamp(io) - started, .input = live });
                 continue;
             };
