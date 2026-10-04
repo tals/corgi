@@ -633,8 +633,10 @@ pub const Menu = struct {
             const c = m.resumeContext();
             break :blk view.focused and view.entry(c, view.lines(c, &storage)) == null;
         };
-        const hints: []const Hint = if (view.searching)
+        const hints: []const Hint = if (view.searching and view.query.len > 0)
             &.{ .{ .key = "↵", .label = "resume" }, .{ .key = "tab", .label = "scope" }, .{ .key = "esc", .label = "clear" } }
+        else if (view.searching)
+            &.{ .{ .key = "↵", .label = "resume" }, .{ .key = "tab", .label = "scope" }, .{ .key = "esc", .label = "close" } }
         else if (view.focused and view.expanded)
             &.{ .{ .key = "↵", .label = "resume" }, .{ .key = "/", .label = "search" }, .{ .key = "tab", .label = "scope" }, .{ .key = "esc", .label = "less" } }
         else if (on_more)

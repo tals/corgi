@@ -1385,7 +1385,7 @@ pub const Controller = struct {
             27 => if (view.query.len > 0) {
                 view.query.clear();
                 view.home();
-            } else view.stopSearch(),
+            } else return s.closeMenu(),
             13 => return s.resumeSelected(),
             9 => view.nextScope(true),
             14 => s.moveResume(rows, 1),
@@ -3065,4 +3065,17 @@ test "a paste goes to the field that owned the keyboard when it began" {
     s.name_dialog = null;
     s.beginPrefix();
     try std.testing.expect(s.pasteTarget() == .discard);
+}
+
+test "escape in the launcher's search clears the query, then closes the launcher" {
+    var s: Controller = .{ .connection = undefined, .executable = "" };
+    s.agent_launcher = .{ .workspace = @enumFromInt(1), .selected = .codex, .last = .codex, .pinned = true };
+    // Collapsed, so the test needs no sidebar to scroll the list.
+    s.agent_launcher.?.resume_view = .{ .focused = true, .searching = true, .query = naming.Dialog.init(.{ .pane = @enumFromInt(0) }, "ab") };
+    try s.key(27);
+    try std.testing.expect(s.agent_launcher != null);
+    try std.testing.expect(s.agent_launcher.?.resume_view.searching);
+    try std.testing.expectEqualStrings("", s.agent_launcher.?.resume_view.query.name());
+    try s.key(27);
+    try std.testing.expect(s.agent_launcher == null);
 }
