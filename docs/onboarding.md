@@ -39,9 +39,10 @@ Split diagrams, Arrange, and Close & recover groups. Below 60 columns, the two
 panes stack into one scrolling list. ↑/↓, j/k, PgUp/PgDn, and the mouse wheel
 scroll the reference; Esc returns. The prefix and footer remain visible.
 
-The same screen opens inside Corgi with **prefix ?**. The prefix alone waits
-silently for the next key. In the screen, press an action key or click its
-label/key to run it; Esc or Enter closes the screen.
+The same screen opens inside Corgi with **prefix ?**. The prefix alone shows a
+PREFIX bar across the bottom of the panes until the next key. In the screen,
+press an action key or click its label/key to run it; Esc or Enter closes the
+screen.
 The prefix is already active, so j/k focus panes and q detaches in the Corgi
 preset. PgUp/PgDn and the wheel scroll; arrows also scroll except in tmux, where
 they focus panes. It uses the current preset and prefix in both places.

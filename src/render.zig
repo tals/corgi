@@ -41,6 +41,8 @@ pub const Ui = struct {
     message: []const u8,
     copy_mode: bool,
     copy_feedback: bool = false,
+    /// The prefix key was pressed and waits for the next one.
+    prefix: bool = false,
     menu: ?commands.ResizeView = null,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
@@ -151,6 +153,44 @@ fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointe
     const covered = if (pointer) |p| p.y == height - 1 and p.x < chip_width else false;
     const x = if (covered) width - chip_width else 0;
     try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\\x1b[0;38;2;201;208;214;48;2;48;53;61m {s} \x1b[0m", .{ height, x + 1, body });
+}
+/// A bar over the pane area's bottom row while the prefix waits for its key.
+/// A narrow bar drops "send prefix", then "cancel".
+fn drawPrefixBar(w: *std.Io.Writer, area: layout.Rect, preset: keymap.Preset, prefix: keymap.Prefix) !void {
+    if (area.w == 0 or area.h == 0) return;
+    const Hint = struct {
+        key: []const u8,
+        label: []const u8,
+        fn width(h: @This()) usize {
+            return sidebar.displayWidth(h.key) + h.label.len + 3;
+        }
+    };
+    var help_key: [16]u8 = undefined;
+    const hints = [_]Hint{
+        .{ .key = "Esc", .label = "cancel" },
+        .{ .key = keymap.prefixName(prefix), .label = "send prefix" },
+        .{ .key = try std.fmt.bufPrint(&help_key, "{f}", .{bindings.first(preset, .help, true).?}), .label = "shortcuts" },
+    };
+    const label = " PREFIX ";
+    var shown: [hints.len]bool = @splat(true);
+    var used: usize = label.len;
+    for (hints) |hint| used += hint.width();
+    for ([_]usize{ 1, 0 }) |i| {
+        if (used <= area.w) break;
+        shown[i] = false;
+        used -= hints[i].width();
+    }
+    if (used > area.w) {
+        shown = @splat(false);
+        used = label.len;
+    }
+    try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\\x1b[1;38;2;24;27;32;48;2;161;194;178m{s}", .{ area.y + area.h, area.x + 1, label[0..@min(label.len, area.w)] });
+    for (hints, shown) |hint, show| if (show) {
+        try w.print("\x1b[1;38;2;161;194;178;48;2;35;40;47m {s}\x1b[0;38;2;112;124;135;48;2;35;40;47m {s} ", .{ hint.key, hint.label });
+    };
+    try w.writeAll("\x1b[0;48;2;35;40;47m");
+    try w.splatByteAll(' ', area.w -| used);
+    try w.writeAll("\x1b[0m");
 }
 pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui) ![]u8 {
     const model = view.model;
@@ -319,13 +359,17 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try corgi_badge.place(w);
     }
-    const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
-    try writeChip(w, text, width, height, ui.pointer);
+    if (ui.prefix) try drawPrefixBar(w, area, ui.prefs.preset, ui.prefs.prefix) else {
+        const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
+        try writeChip(w, text, width, height, ui.pointer);
+    }
+    // The prefix bar covers the area's last row.
+    const cursor_rows = area.y + area.h - @intFromBool(ui.prefix and area.h > 0);
     if (model.count > 0 and !ui.copy_mode and !ui.link_tooltip and noOverlay(ui)) for (view.placements(area, &locations)) |place| {
         if (place.id != view.selection.tabs[view.selection.active].focus or place.rect.h == 0) continue;
         for (panes) |p| if (p.id == place.id and p.restoring.len == 0) {
             if (p.terminal.renderState().cursor.visible) if (p.terminal.renderState().cursor.viewport) |cursor| {
-                if (cursor.x < place.rect.w and cursor.y < place.rect.h) {
+                if (cursor.x < place.rect.w and cursor.y < place.rect.h and place.rect.y + cursor.y < cursor_rows) {
                     try w.print("\x1b[{d};{d}H\x1b[?25h", .{ place.rect.y + cursor.y + 1, place.rect.x + cursor.x + 1 });
                 }
             };
@@ -757,4 +801,43 @@ test "the restoring band sits on a pane's bottom rows and wraps its command" {
     try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 20, .h = 2 }, "claude --resume 'x'", 0);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Restoring…") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "claude") == null);
+}
+
+/// The text `bytes` shows, without its escape sequences.
+fn testVisible(buf: []u8, bytes: []const u8) []const u8 {
+    var len: usize = 0;
+    var i: usize = 0;
+    while (i < bytes.len) {
+        if (bytes[i] != 0x1b) {
+            buf[len] = bytes[i];
+            len += 1;
+            i += 1;
+        } else if (bytes[i + 1] == ']') {
+            i = std.mem.indexOfPos(u8, bytes, i, "\x1b\\").? + 2;
+        } else {
+            i += 2;
+            while (bytes[i] < 0x40 or bytes[i] > 0x7e) i += 1;
+            i += 1;
+        }
+    }
+    return buf[0..len];
+}
+
+test "the prefix bar spans the pane area's bottom row and drops hints that do not fit" {
+    const Case = struct { width: u16, prefix: keymap.Prefix = .ctrl_b, text: []const u8 };
+    for ([_]Case{
+        .{ .width = 60, .text = " PREFIX  Esc cancel  Ctrl+B send prefix  ? shortcuts        " },
+        .{ .width = 60, .prefix = .ctrl_a, .text = " PREFIX  Esc cancel  Ctrl+A send prefix  ? shortcuts        " },
+        .{ .width = 40, .text = " PREFIX  Esc cancel  ? shortcuts        " },
+        .{ .width = 25, .text = " PREFIX  ? shortcuts     " },
+        .{ .width = 12, .text = " PREFIX     " },
+        .{ .width = 5, .text = " PREF" },
+    }) |case| {
+        var out: Buffer = .init(std.testing.allocator);
+        defer out.deinit();
+        try drawPrefixBar(&out.writer, .{ .x = 30, .y = 1, .w = case.width, .h = 20 }, .corgi, case.prefix);
+        try std.testing.expect(std.mem.startsWith(u8, out.written(), "\x1b[21;31H"));
+        var buf: [256]u8 = undefined;
+        try std.testing.expectEqualStrings(case.text, testVisible(&buf, out.written()));
+    }
 }

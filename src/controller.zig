@@ -2105,7 +2105,7 @@ pub const Controller = struct {
             s.dirty = true;
             return;
         }
-        // A hidden prefix has no mouse targets. A click resumes normal UI input.
+        // The prefix bar has no mouse targets. A click resumes normal UI input.
         if (s.prefix and !release and button & 0xe0 == 0) s.closeMenu();
         if (s.workspace_chooser != null) return;
         const moved = s.pointer == null or s.pointer.?.x != x or s.pointer.?.y != y;
@@ -2992,6 +2992,7 @@ pub const Controller = struct {
             .message = if (s.agent_picker != null and (s.width < 40 or s.height < 13)) " Agent search: enlarge terminal or Esc" else s.message.text(),
             .copy_feedback = s.copy_feedback_until > clock.milliTimestamp(),
             .copy_mode = s.copy_mode,
+            .prefix = s.prefix,
             .menu = s.menu(),
             .tab_menu = s.tab_menu,
             .port_menu = s.port_menu,

@@ -119,8 +119,9 @@ Regression suite: `bun test tests/cli.test.ts` uses isolated sockets and provide
 ## Tabs and panes
 
 `prefix` means press Ctrl+B (or your configured prefix), release, then the next
-key. The prefix alone waits silently. **`prefix ?` opens the full shortcut
-screen used in onboarding.**
+key. While it waits, a PREFIX bar across the bottom of the panes shows Esc to
+cancel, the prefix to send it, and ? for shortcuts. **`prefix ?` opens the full
+shortcut screen used in onboarding.**
 Press a displayed shortcut or click its label/key to run the action. Esc, Enter,
 the Back control, or a click outside dismisses it. Press the prefix twice to send
 it through to the child. Resize has its own clickable direction menu.

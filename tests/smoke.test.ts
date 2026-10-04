@@ -1064,6 +1064,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     const pending = await this.client!.poll();
     this.assertTrue(pending.prefix);
     this.assertNotIn("Keyboard shortcuts", pending.data);
+    await this.frame_with(" PREFIX  Esc cancel  Ctrl+B send prefix  ? shortcuts", 100, 40, 39);
     await this.input("?");
     let menu = await this.frame_with("Keyboard shortcuts", 100, 40);
     this.assertTrue(menu.some((row) => row.includes("New tab → agent picker")));
