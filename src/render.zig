@@ -1,5 +1,6 @@
 const std = @import("std");
 const os = @import("os.zig");
+const palette = @import("palette.zig");
 const layout = @import("layout.zig");
 const agents = @import("agents.zig");
 const commands = @import("commands.zig");
@@ -26,6 +27,16 @@ const corgi_animation = @import("corgi_animation.zig");
 pub const Pane = mirror.Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
+const tab_active = (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr();
+const tab_inactive = (palette.Style{ .fg = .faint, .bg = .bg }).sgr();
+const button = (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr();
+const chip = (palette.Style{ .fg = .text, .bg = .selected }).sgr();
+const hint_key = (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr();
+const hint_label = (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
+const bar = (palette.Style{ .bg = .surface }).sgr();
+/// The focused pane's outline. The divider tests parse it back.
+const divider_focused = (palette.Style{ .fg = .accent, .bold = true }).sgr();
+const divider_plain = (palette.Style{ .fg = .line }).sgr();
 pub const Ui = struct {
     prefs: preferences.Preferences = .{},
     pointer: ?Pointer = null,
@@ -152,7 +163,7 @@ fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointe
     const chip_width = sidebar.displayWidth(body) + 2;
     const covered = if (pointer) |p| p.y == height - 1 and p.x < chip_width else false;
     const x = if (covered) width - chip_width else 0;
-    try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\\x1b[0;38;2;201;208;214;48;2;48;53;61m {s} \x1b[0m", .{ height, x + 1, body });
+    try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\" ++ chip ++ " {s} \x1b[0m", .{ height, x + 1, body });
 }
 /// A bar over the pane area's bottom row while the prefix waits for its key.
 /// A narrow bar drops "send prefix", then "cancel".
@@ -184,11 +195,11 @@ fn drawPrefixBar(w: *std.Io.Writer, area: layout.Rect, preset: keymap.Preset, pr
         shown = @splat(false);
         used = label.len;
     }
-    try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\\x1b[1;38;2;24;27;32;48;2;161;194;178m{s}", .{ area.y + area.h, area.x + 1, label[0..@min(label.len, area.w)] });
+    try w.print("\x1b[{d};{d}H\x1b]8;;\x1b\\" ++ palette.keycap ++ "{s}", .{ area.y + area.h, area.x + 1, label[0..@min(label.len, area.w)] });
     for (hints, shown) |hint, show| if (show) {
-        try w.print("\x1b[1;38;2;161;194;178;48;2;35;40;47m {s}\x1b[0;38;2;112;124;135;48;2;35;40;47m {s} ", .{ hint.key, hint.label });
+        try w.print(hint_key ++ " {s}" ++ hint_label ++ " {s} ", .{ hint.key, hint.label });
     };
-    try w.writeAll("\x1b[0;48;2;35;40;47m");
+    try w.writeAll(bar);
     try w.splatByteAll(' ', area.w -| used);
     try w.writeAll("\x1b[0m");
 }
@@ -225,7 +236,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     for (model.tabs[start..model.count], start..) |tab, i| {
         const len = tabExtent(tab, i, start, tab_space - x);
         if (len == 0) break;
-        try w.writeAll(if (i == view.selection.active) "\x1b[1;38;2;226;230;233;48;2;48;53;61m" else "\x1b[0;38;2;125;132;143;48;2;24;27;32m");
+        try w.writeAll(if (i == view.selection.active) tab_active else tab_inactive);
         var name: [96]u8 = undefined;
         const text = if (tab.title.len == 0)
             try std.fmt.bufPrint(&name, "{d}", .{i + @as(usize, if (ui.prefs.preset == .tmux) 0 else 1)})
@@ -238,10 +249,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         try w.splatByteAll(' ', len - text_len - padding);
         x += len;
     }
-    try w.writeAll("\x1b[1;38;2;161;194;178;48;2;35;40;47m + ");
+    try w.writeAll(button ++ " + ");
     try w.writeAll("\x1b[0m");
     if (ui.tab_drop_x) |drop_x| {
-        try w.print("\x1b[1;{d}H\x1b[1;38;2;161;194;178m│\x1b[0m", .{side.tabX() + drop_x + 1});
+        try w.print("\x1b[1;{d}H\x1b[1m" ++ palette.fg(.strong) ++ "│\x1b[0m", .{side.tabX() + drop_x + 1});
     }
     if (model.count == 0) {
         var empty_buffer: [160]u8 = undefined;
@@ -393,9 +404,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     };
     if (ui.copy_feedback and width >= 27 and height >= 5) {
         const toast_x = width - 26;
-        try w.writeAll("\x1b7\x1b[0;38;2;166;227;161;48;2;30;30;46m");
+        try w.writeAll("\x1b7" ++ comptime (palette.Style{ .fg = .line, .bg = .bg }).sgr());
         try w.print("\x1b[2;{d}H╭─────────────────────────╮", .{toast_x});
-        try w.print("\x1b[3;{d}H│ ● \x1b[1mCopied to clipboard\x1b[22m   │", .{toast_x});
+        try w.print("\x1b[3;{d}H│ " ++ palette.fg(.strong) ++ "● \x1b[1mCopied to clipboard\x1b[22m" ++ palette.fg(.line) ++ "   │", .{toast_x});
         try w.print("\x1b[4;{d}H╰─────────────────────────╯", .{toast_x});
         try w.writeAll("\x1b[0m\x1b8");
     }
@@ -576,12 +587,12 @@ fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, command: []const u8, shown_m
     const height = @min(r.h, shown + 3);
     const top = r.y + r.h - height;
     for (0..height) |row| {
-        try w.print("\x1b[{d};{d}H\x1b[0;48;2;30;34;40m", .{ top + row + 1, r.x + 1 });
+        try w.print("\x1b[{d};{d}H" ++ bar, .{ top + row + 1, r.x + 1 });
         try w.splatByteAll(' ', r.w);
     }
     try w.print("\x1b[{d};{d}H", .{ top + 2, r.x + 3 });
     try corgi_animation.writeUnearth(w, r.w - 4, shown_ms);
-    try w.writeAll("\x1b[22;38;2;150;157;168m");
+    try w.writeAll("\x1b[22m" ++ comptime palette.fg(.muted));
     for (lines[0..shown], 0..) |line, i| try w.print("\x1b[{d};{d}H{s}", .{ top + 3 + i, r.x + 3, line });
     try w.writeAll("\x1b[0m");
 }
@@ -631,7 +642,7 @@ fn drawDividers(w: *std.Io.Writer, view: layout.View, area: layout.Rect) !void {
 }
 
 fn dividerStyle(w: *std.Io.Writer, highlighted: bool) !void {
-    try w.writeAll(if (highlighted) "\x1b[1;38;2;161;194;178m" else "\x1b[0;38;2;125;132;143m");
+    try w.writeAll(if (highlighted) divider_focused else divider_plain);
 }
 
 fn touchesPane(r: layout.Rect, x: usize, y: usize) bool {
@@ -660,7 +671,7 @@ fn testDividerCells(view: layout.View, area: layout.Rect) ![30][100]TestCell {
                 var it = std.mem.splitScalar(u8, params, ';');
                 y = try std.fmt.parseInt(usize, it.next().?, 10) - 1;
                 x = try std.fmt.parseInt(usize, it.next().?, 10) - 1;
-            } else highlighted = std.mem.eql(u8, params, "1;38;2;161;194;178");
+            } else highlighted = std.mem.eql(u8, params, divider_focused[2 .. divider_focused.len - 1]);
             rest = rest[end + 1 ..];
             continue;
         }
@@ -727,6 +738,22 @@ test "focus outline follows stacked and nested splits" {
     try expectOutline(&cells, &.{ .{ 99, 20 }, .{ 90, 29 }, .{ 90, 15 }, .{ 63, 20 }, .{ 63, 15 } }, &.{ .{ 40, 29 }, .{ 28, 20 } });
 }
 
+/// Whether `bytes` moves the cursor to `position` and writes `text` there,
+/// after any styles.
+fn testDrawsAt(bytes: []const u8, position: []const u8, text: []const u8) bool {
+    var from: usize = 0;
+    while (std.mem.indexOfPos(u8, bytes, from, position)) |at| : (from = at + 1) {
+        var rest = bytes[at + position.len ..];
+        while (std.mem.startsWith(u8, rest, "\x1b[")) {
+            const end = std.mem.indexOfNone(u8, rest[2..], "0123456789;:") orelse break;
+            if (rest[2 + end] != 'm') break;
+            rest = rest[2 + end + 1 ..];
+        }
+        if (std.mem.startsWith(u8, rest, text)) return true;
+    }
+    return false;
+}
+
 test "badge redraw preserves cached pixels and shifts only the workspace heading" {
     var model: layout.Model = .{};
     var selection: layout.Selection = .{};
@@ -738,7 +765,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[H\x1b[J") != null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=p,i=730031") != null);
     try std.testing.expect(std.mem.indexOf(u8, shown, "a=t,") == null);
-    try std.testing.expect(std.mem.indexOf(u8, shown, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
+    try std.testing.expect(testDrawsAt(shown, "\x1b[1;6H", "workspaces"));
     ui.pointer = .{ .x = 2, .y = 0 };
     ui.link_tooltip = true;
     const usage_popup = try frame(view, @as([]const Pane, &.{}), 100, 30, ui);
@@ -772,7 +799,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     defer a.free(emoji);
     try std.testing.expect(std.mem.indexOf(u8, emoji, corgi_badge.emoji) != null);
     try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b_G") == null);
-    try std.testing.expect(std.mem.indexOf(u8, emoji, "\x1b[1;6H\x1b[1;38;2;226;230;233mworkspaces") != null);
+    try std.testing.expect(testDrawsAt(emoji, "\x1b[1;6H", "workspaces"));
 }
 
 test "the restoring band sits on a pane's bottom rows and wraps its command" {
@@ -784,7 +811,7 @@ test "the restoring band sits on a pane's bottom rows and wraps its command" {
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[5;11H") == null);
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[6;11H") != null);
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[11;11H") != null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[7;13H\x1b[1m\x1b[38;2;161;194;178mRestoring…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, comptime "\x1b[7;13H\x1b[1m" ++ palette.fg(.accent) ++ "Restoring…") != null);
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[8;13Hclaude --resume ") != null);
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[9;13H'abcdefghijklmno") != null);
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[10;13Hp' --yolo-flag") != null);

@@ -3,6 +3,7 @@
 //! resource and sleeping corgi choices update viewer preferences.
 const std = @import("std");
 const os = @import("os.zig");
+const palette = @import("palette.zig");
 const setup = @import("inference.zig").setup;
 const sidebar = @import("sidebar.zig");
 const Rect = @import("layout.zig").Rect;
@@ -122,24 +123,33 @@ fn usable(b: Rect) bool {
     return b.w >= min_width and b.h >= comptime heightFor(.minimal);
 }
 
-const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
-const text = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
-const bright = "\x1b[1;38;2;226;230;233;48;2;35;40;47m";
-const mint = "\x1b[0;38;2;161;194;178;48;2;35;40;47m";
-const heading = "\x1b[1;38;2;161;194;178;48;2;35;40;47m";
-const yellow = "\x1b[0;38;2;232;190;115;48;2;35;40;47m";
-const keycap = "\x1b[1;38;2;24;27;32;48;2;161;194;178m";
-const Row = struct { text: []const u8, label: []const u8, accent: []const u8, quiet: []const u8, warn: []const u8, background: [3]u8 };
-const row_normal: Row = .{ .text = text, .label = text, .accent = mint, .quiet = panel, .warn = yellow, .background = .{ 35, 40, 47 } };
-const row_selected: Row = .{
-    .text = "\x1b[0;38;2;201;224;211;48;2;47;64;59m",
-    .label = "\x1b[1;38;2;226;230;233;48;2;47;64;59m",
-    .accent = "\x1b[0;38;2;161;194;178;48;2;47;64;59m",
-    .quiet = "\x1b[0;38;2;112;124;135;48;2;47;64;59m",
-    .warn = "\x1b[0;38;2;232;190;115;48;2;47;64;59m",
-    .background = .{ 47, 64, 59 },
+const panel = (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
+const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
+const text = (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+const bright = (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr();
+const warm = (palette.Style{ .fg = .warm, .bg = .surface }).sgr();
+const Row = struct { text: []const u8, label: []const u8, accent: []const u8, muted: []const u8, quiet: []const u8, warn: []const u8, background: palette.Rgb };
+const row_normal: Row = .{
+    .text = text,
+    .label = text,
+    .accent = (palette.Style{ .fg = .accent, .bg = .surface }).sgr(),
+    .muted = (palette.Style{ .fg = .muted, .bg = .surface }).sgr(),
+    .quiet = panel,
+    .warn = warm,
+    .background = palette.Token.surface.rgb(),
 };
-const shadow = "\x1b[0;48;2;12;14;17m";
+const row_selected: Row = .{
+    .text = (palette.Style{ .fg = .text, .bg = .selected }).sgr(),
+    .label = (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr(),
+    .accent = (palette.Style{ .fg = .accent, .bg = .selected }).sgr(),
+    .muted = (palette.Style{ .fg = .muted, .bg = .selected }).sgr(),
+    // Faint is too dim on a selected row.
+    .quiet = (palette.Style{ .fg = .muted, .bg = .selected }).sgr(),
+    .warn = (palette.Style{ .fg = .warm, .bg = .selected }).sgr(),
+    .background = palette.Token.selected.rgb(),
+};
+/// The background darkened halfway to black.
+const shadow = "\x1b[0m" ++ palette.bgRgb(palette.mix(palette.Token.bg.rgb(), .{ 0, 0, 0 }, 50));
 // Columns inside the frame, counted from its left border.
 const marker_x = 3;
 const label_x = 5;
@@ -194,20 +204,20 @@ pub const Menu = struct {
         for (0..b.h) |row| {
             const line = if (row == 0 or row == b.h - 1) null else lineAt(rows, row - 1);
             const divider = line != null and line.? == .divider;
-            try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, panel });
+            try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, border });
             try w.writeAll(if (row == 0) "╭" else if (row == b.h - 1) "╰" else if (divider) "├" else "│");
             if (row == 0 or row == b.h - 1 or divider) {
                 for (0..b.w - 2) |_| try w.writeAll("─");
             } else try w.splatByteAll(' ', b.w - 2);
             try w.writeAll(if (row == 0) "╮" else if (row == b.h - 1) "╯" else if (divider) "┤" else "│");
         }
-        try w.print("\x1b[{d};{d}H{s} ᐯ•ᴥ•ᐯ {s}Corgi setup ", .{ b.y + 1, b.x + 3, mint, bright });
+        try w.print("\x1b[{d};{d}H{s} ᐯ•ᴥ•ᐯ {s}Corgi setup ", .{ b.y + 1, b.x + 3, text, bright });
         try w.print("\x1b[{d};{d}H{s} esc ", .{ b.y + 1, b.x + b.w - 7, panel });
         for (1..b.h - 1) |row| {
             const y = b.y + row;
             switch (lineAt(rows, row - 1).?) {
                 .spacer, .divider => {},
-                .heading => |label| try put(w, b, marker_x, y, heading, label),
+                .heading => |label| try put(w, b, marker_x, y, bright, label),
                 .lead => |label| try put(w, b, marker_x, y, panel, label),
                 .hint => |label| try put(w, b, label_x, y, panel, label),
                 .option => |choice| try m.drawOption(w, b, y, choice, status, prefs, now_ms),
@@ -222,7 +232,7 @@ pub const Menu = struct {
                     if (m.action(status, prefs, &buffer)) |label| {
                         var cap: [64]u8 = undefined;
                         const shown = std.fmt.bufPrint(&cap, "[ Enter {s} ]", .{label}) catch unreachable;
-                        try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + b.w - 3 - sidebar.displayWidth(shown) + 1, keycap, shown });
+                        try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + b.w - 3 - sidebar.displayWidth(shown) + 1, palette.keycap, shown });
                     }
                 },
             }
@@ -249,9 +259,9 @@ pub const Menu = struct {
             },
             .readings => if (prefs.resources.enabled) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
             .sleeping_corgis => if (prefs.sleeping_corgis) .{ .text = "● On", .style = accent } else .{ .text = "○ Off", .style = quiet },
-            .keyboard => .{ .text = keysLabel(prefs, &right_buffer), .style = accent },
-            .import => .{ .text = "→", .style = accent },
-            else => .{ .text = if (choice.summarizer() and @intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = accent },
+            .keyboard => .{ .text = keysLabel(prefs, &right_buffer), .style = p.muted },
+            .import => .{ .text = "→", .style = p.muted },
+            else => .{ .text = if (choice.summarizer() and @intFromEnum(choice) == @intFromEnum(status.choice)) "in use" else "", .style = p.muted },
         };
         const right_width = sidebar.displayWidth(right.text);
         const right_x = b.w - 4 - right_width;
@@ -274,6 +284,7 @@ pub const Menu = struct {
             try corgi_animation.idle(w, @min(12, right_x -| (x + 1)), .{
                 .background = p.background,
                 .bright = prefs.sleeping_corgis,
+                .selected = highlighted,
                 .puff_ms = if (prefs.sleeping_corgis) elapsed else null,
             });
         }

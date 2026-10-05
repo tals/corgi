@@ -8,6 +8,7 @@ const onboarding = @import("onboarding.zig");
 const shortcut_help = @import("shortcut_help.zig");
 const os = @import("os.zig");
 const a = os.allocator;
+const palette = @import("palette.zig");
 const layout = @import("layout.zig");
 const agents = @import("agents.zig");
 const render = @import("render.zig");
@@ -2934,7 +2935,7 @@ pub const Controller = struct {
         if (s.workspace_chooser) |index| {
             var output: std.Io.Writer.Allocating = .init(a);
             errdefer output.deinit();
-            try output.writer.writeAll("\x1b[0;38;2;201;208;215;48;2;35;40;47m\x1b[2J\x1b[H Workspaces\r\n\r\n");
+            try output.writer.writeAll(comptime (palette.Style{ .fg = .text, .bg = .surface }).sgr() ++ "\x1b[2J\x1b[H Workspaces\r\n\r\n");
             const capacity = s.height -| 5;
             const start = index -| (capacity -| 1);
             for (s.runtime.workspaces.items[start..@min(s.runtime.workspaces.items.len, start + capacity)], start..) |ws, i| {

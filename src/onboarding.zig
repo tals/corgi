@@ -3,6 +3,7 @@ const std = @import("std");
 const BoundedText = @import("bounded_text.zig").BoundedText;
 const os = @import("os.zig");
 const a = os.allocator;
+const palette = @import("palette.zig");
 const keys = @import("keys.zig");
 const km = @import("keymap.zig");
 const bindings = @import("bindings.zig");
@@ -391,10 +392,10 @@ pub const State = struct {
         var out: std.Io.Writer.Allocating = .init(a);
         errdefer out.deinit();
         const w = &out.writer;
-        try w.writeAll("\x1b[0;48;2;24;27;32m\x1b[2J\x1b[?25l");
+        try w.writeAll(comptime (palette.Style{ .bg = .bg }).sgr() ++ "\x1b[2J\x1b[?25l");
         const b = bounds(cols, rows);
         if (b.w < 76 or b.h < 26) {
-            try w.writeAll("\x1b[H\x1b[38;2;201;208;215mWelcome to Corgi. Enlarge the terminal to 76 × 26 to continue.");
+            try w.writeAll("\x1b[H" ++ comptime palette.fg(.text) ++ "Welcome to Corgi. Enlarge the terminal to 76 × 26 to continue.");
             return out.toOwnedSlice();
         }
         try box(w, b, false);
@@ -402,7 +403,7 @@ pub const State = struct {
             .welcome => " Welcome to Corgi ",
             .keyboard => " Keyboard shortcuts ",
             .import => " Import sessions ",
-        }, mint);
+        }, bright);
         try put(w, b, 3, 2, switch (s.step) {
             .presets => "Which shortcuts feel like home?",
             .keymap => "Your shortcuts",
@@ -427,41 +428,41 @@ pub const State = struct {
             .presets => try drawPresets(w, b, s),
             .keymap => unreachable,
             .connect => {
-                try put(w, b, 5, 7, if (ghosttyHost()) "Ghostty / macOS" else "Command forwarding is not confirmed", mint);
+                try put(w, b, 5, 7, if (ghosttyHost()) "Ghostty / macOS" else "Command forwarding is not confirmed", bright);
                 try put(w, b, 5, 10, if (ghosttyHost()) "[ Connect and continue ]" else "[ P Use Herdr prefix keys ]", bright);
                 try put(w, b, 5, 13, "Ghostty setup changes shortcuts in every Ghostty window.", text);
                 try put(w, b, 5, 15, "Cmd+T/D/W, workspace numbers and related bindings replace host actions.", dim);
                 try put(w, b, 5, 17, "Reload Ghostty with Cmd+Shift+, after connecting.", dim);
-                try put(w, b, 5, 20, "P  Continue with portable Herdr keys", mint);
+                try put(w, b, 5, 20, "P  Continue with portable Herdr keys", bright);
             },
             .import, .progress, .complete => {
                 if (s.step == .import) {
                     for (catalog.available_sources, 0..) |source, i| {
                         var buf: [32]u8 = undefined;
-                        try put(w, b, 3 + i * 14, 6, try std.fmt.bufPrint(&buf, "[ {d} {s} ]", .{ i + 1, @tagName(source) }), if (source == s.source) mint else dim);
+                        try put(w, b, 3 + i * 14, 6, try std.fmt.bufPrint(&buf, "[ {d} {s} ]", .{ i + 1, @tagName(source) }), if (source == s.source) bright else dim);
                     }
                     try put(w, b, b.w -| 23, 6, "[ S Skip import ]", dim);
                     if (s.source == .herdr) {
-                        if (s.handoff and s.items().len > 0 and !s.activeHandoff()) try put(w, b, 3, 9, "Live handoff unavailable for this Herdr session; H switches to copy.", yellow);
+                        if (s.handoff and s.items().len > 0 and !s.activeHandoff()) try put(w, b, 3, 9, "Live handoff unavailable for this Herdr session; H switches to copy.", warm);
                         if (s.activeHandoff()) {
                             var info: [100]u8 = undefined;
                             try put(w, b, 3, 9, try std.fmt.bufPrint(&info, "All {d} workspaces in this session move together.", .{s.selectionCount()}), dim);
                         }
-                        try put(w, b, 3, 8, if (s.handoff) "[● ON ] Handoff processes  Keep your processes running" else "[  OFF] Handoff processes  Keep your processes running", mint);
+                        try put(w, b, 3, 8, if (s.handoff) "[● ON ] Handoff processes  Keep your processes running" else "[  OFF] Handoff processes  Keep your processes running", bright);
                     } else if (!s.cmuxConfused()) try put(w, b, 3, 8, if (s.source == .cmux)
                         "Visible splits first · remaining surfaces in additional tabs"
                     else
                         "Up to 3 recent groups selected · Return in each pane restarts its command", dim);
                 } else {
                     var buf: [120]u8 = undefined;
-                    try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ @tagName(s.progress.phase), s.progress.completed, s.progress.total }), mint);
+                    try put(w, b, 3, 6, try std.fmt.bufPrint(&buf, "{s}  {d}/{d}", .{ @tagName(s.progress.phase), s.progress.completed, s.progress.total }), text);
                     const status: []const u8 = if (s.step == .complete) "[✓] Complete" else if (s.progress.phase == .failed) "[!] Import stopped · Enter returns to selection" else "[···] Working";
                     try put(w, b, 3, 8, status, bright);
                 }
                 if (s.cmuxConfused()) {
                     const y: usize = if (s.step == .import) 8 else 9;
-                    try put(w, b, 3, y, if (s.blink_closed) "ᐱ─ᴥ─ᐱ" else "ᐱoᴥ°ᐱ", yellow);
-                    try put(w, b, 10, y, "I'm confused by this cmux version.", yellow);
+                    try put(w, b, 3, y, if (s.blink_closed) "ᐱ─ᴥ─ᐱ" else "ᐱoᴥ°ᐱ", text);
+                    try put(w, b, 10, y, "I'm confused by this cmux version.", warm);
                     try put(w, b, 10, y + 1, if (s.step == .complete) "Imported what I could. See details below." else "I'll bring over what I can.", dim);
                 }
                 if (s.worker()) |wk| {
@@ -498,18 +499,18 @@ pub const State = struct {
                     var buf: [1024]u8 = undefined;
                     const cursor_mark: []const u8 = if (i == s.cursor and s.step == .import) "›" else " ";
                     const check_mark: []const u8 = if (s.chosen(i)) "[x]" else "[ ]";
-                    try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "{s}{s} {s}", .{ cursor_mark, check_mark, short(ws.name) }), mint, "");
+                    try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "{s}{s} {s}", .{ cursor_mark, check_mark, short(ws.name) }), bright, "");
                     row += 1;
                     if (ws.recovery != .full) {
                         if (ws.recovery == .workspace) {
-                            try treeLine(w, b, row, s.scroll, "    Workspace only · opens a new shell", yellow, "");
+                            try treeLine(w, b, row, s.scroll, "    Workspace only · opens a new shell", warm, "");
                             row += 1;
                         }
-                        try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}", .{ws.recovery_note}), yellow, "");
+                        try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    {s}", .{ws.recovery_note}), warm, "");
                         row += 1;
                     }
                     if (preview_layout.toggle_row != null and preview_layout.hidden == 0) {
-                        try treeLine(w, b, row, s.scroll, "    ▾ Show less", mint, "");
+                        try treeLine(w, b, row, s.scroll, "    ▾ Show less", bright, "");
                         row += 1;
                     }
                     var remaining = preview_layout.pane_limit;
@@ -544,14 +545,14 @@ pub const State = struct {
                         }
                     }
                     if (preview_layout.hidden > 0) {
-                        try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    …{d} more", .{preview_layout.hidden}), mint, "");
+                        try treeLine(w, b, row, s.scroll, try std.fmt.bufPrint(&buf, "    …{d} more", .{preview_layout.hidden}), bright, "");
                         row += 1;
                     }
                     row += 1;
                 }
             },
         }
-        if (s.message.len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message.text(), yellow);
+        if (s.message.len > 0) try put(w, b, 3, b.h - @as(u16, if (s.step == .presets or s.step == .keymap) 4 else 5), s.message.text(), warm);
         try put(w, b, 3, b.h - 3, footerHint(s), dim);
         const cta: []const u8 = switch (s.step) {
             .presets => if (s.mode == .keyboard and s.preset != .cmux) "[ Enter Save ]" else "[ Enter Continue → ]",
@@ -566,7 +567,7 @@ pub const State = struct {
             .progress => if (s.progress.phase == .failed) "[ Enter Back ]" else "[ Importing… ]",
             .complete => if (s.mode == .import) "[ Enter Done ]" else "[ Enter Open Corgi → ]",
         };
-        try put(w, b, b.w -| 27, b.h - 3, cta, if (s.step == .presets and s.focus == 0) keycap else mint);
+        try put(w, b, b.w -| 27, b.h - 3, cta, if (s.step == .presets and s.focus == 0) palette.keycap else bright);
         try put(w, b, 3, b.h - 2, if (s.step == .import) "←→ sources · ↑↓ choose · PgUp/PgDn scroll · R refresh · S skip" else "", dim);
         try w.writeAll("\x1b[0m");
         return out.toOwnedSlice();
@@ -649,11 +650,11 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     const hero = layout.hero;
     const narrow = hero.w < 64;
     try box(w, hero, false);
-    try put(w, hero, 2, 0, if (narrow or hero.h == 3) " New tab → agent picker " else " New tab ", mint);
+    try put(w, hero, 2, 0, if (narrow or hero.h == 3) " New tab → agent picker " else " New tab ", bright);
     const key_y: usize = if (hero.h == 3) 1 else 2;
-    try put(w, hero, 3, key_y, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), keycap);
+    try put(w, hero, 3, key_y, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), palette.keycap);
     try put(w, hero, if (direct) 11 else 15, key_y, if (direct) "+" else "then", text);
-    try put(w, hero, if (direct) 15 else 22, key_y, try std.fmt.bufPrint(&buf, "[ {f} ]", .{cardKey(s, .new)}), mint);
+    try put(w, hero, if (direct) 15 else 22, key_y, try std.fmt.bufPrint(&buf, "[ {f} ]", .{cardKey(s, .new)}), bright);
     if (hero.h > 3) {
         if (narrow) {
             try put(w, hero, 3, key_y + 2, "Choose an agent or terminal", text);
@@ -665,38 +666,38 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
 
     const band = layout.prefix;
     try box(w, band, false);
-    try put(w, band, 2, 1, if (direct) "MODIFIER" else "PREFIX", mint);
-    try put(w, band, 12, 1, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), keycap);
+    try put(w, band, 2, 1, if (direct) "MODIFIER" else "PREFIX", bright);
+    try put(w, band, 12, 1, try std.fmt.bufPrint(&buf, "[ {s} ]", .{if (direct) "Cmd" else prefix_name}), palette.keycap);
     const explanation = if (direct) "Hold with the action key." else "Release, then press a key.";
     if (narrow) {
         try put(w, band, 2, 2, explanation, text);
     } else try put(w, band, 24, 1, explanation, text);
-    if (!direct) try put(w, band, band.w - 14, 1, "[ P change ]", if (s.focus == 1) keycap else mint);
+    if (!direct) try put(w, band, band.w - 14, 1, "[ P change ]", if (s.focus == 1) palette.keycap else bright);
 
     const split = layout.split;
     try box(w, split, false);
-    try put(w, split, 2, 0, " Split ", mint);
+    try put(w, split, 2, 0, " Split ", bright);
     const diagram_y: u16 = if (split.h == 6) 1 else 2;
     const diagram_w: u16 = if (split.w < 28) 5 else 9;
     const left_x: u16 = 2;
     const right_x = split.w / 2 + 1;
     try drawSplitDiagram(w, .{ .x = split.x + left_x, .y = split.y + diagram_y, .w = diagram_w, .h = 3 }, false);
     try drawSplitDiagram(w, .{ .x = split.x + right_x, .y = split.y + diagram_y, .w = diagram_w, .h = 3 }, true);
-    try put(w, split, left_x, diagram_y + 3, try std.fmt.bufPrint(&buf, "{f} Right", .{cardKey(s, .{ .split = .right })}), mint);
-    try put(w, split, right_x, diagram_y + 3, try std.fmt.bufPrint(&buf, "{f} Down", .{cardKey(s, .{ .split = .down })}), mint);
+    try put(w, split, left_x, diagram_y + 3, try std.fmt.bufPrint(&buf, "{f} Right", .{cardKey(s, .{ .split = .right })}), bright);
+    try put(w, split, right_x, diagram_y + 3, try std.fmt.bufPrint(&buf, "{f} Down", .{cardKey(s, .{ .split = .down })}), bright);
 
     const focus = layout.focus;
     try box(w, focus, false);
-    try put(w, focus, 2, 0, " Focus pane ", mint);
+    try put(w, focus, 2, 0, " Focus pane ", bright);
     const nav_y: usize = if (focus.h == 6) 1 else 2;
-    try put(w, focus, 2, nav_y, if (direct) "[ Cmd+Option ]" else if (s.preset == .tmux) "Arrow keys" else "Home row", if (direct) keycap else dim);
+    try put(w, focus, 2, nav_y, if (direct) "[ Cmd+Option ]" else if (s.preset == .tmux) "Arrow keys" else "Home row", if (direct) palette.keycap else dim);
     const nav_x = (focus.w - 17) / 2;
-    try put(w, focus, nav_x + 6, nav_y + 1, try std.fmt.bufPrint(&buf, "[ {f} ]", .{cardKey(s, .{ .focus = .up })}), mint);
+    try put(w, focus, nav_x + 6, nav_y + 1, try std.fmt.bufPrint(&buf, "[ {f} ]", .{cardKey(s, .{ .focus = .up })}), bright);
     try put(w, focus, nav_x, nav_y + 2, try std.fmt.bufPrint(&buf, "[ {f} ] [ {f} ] [ {f} ]", .{
         cardKey(s, .{ .focus = .left }),
         cardKey(s, .{ .focus = .down }),
         cardKey(s, .{ .focus = .right }),
-    }), mint);
+    }), bright);
 
     // The Command band applies to all direct keys; detach uses the portable prefix.
     const detail = Rect{ .x = b.x + layout.detail_x, .y = b.y, .w = hero.w, .h = b.h };
@@ -704,23 +705,23 @@ fn drawPresets(w: *std.Io.Writer, b: Rect, s: *const State) !void {
     try put(w, detail, 0, layout.summary_y, "TABS", dim);
     try put(w, detail, col, layout.summary_y, if (narrow) "COPY" else "SCROLL / COPY", dim);
     try put(w, detail, col * 2, layout.summary_y, "DETACH", dim);
-    try put(w, detail, 0, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f} / {f}", .{ cardKey(s, .next), cardKey(s, .prev) }), mint);
-    try put(w, detail, col, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f}", .{cardKey(s, .@"copy-mode")}), mint);
-    try put(w, detail, col * 2, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f}", .{cardKey(s, .detach)}), mint);
-    try put(w, detail, 0, layout.help_y, "[ ? Full keymap ]", if (s.focus == 2) keycap else mint);
+    try put(w, detail, 0, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f} / {f}", .{ cardKey(s, .next), cardKey(s, .prev) }), bright);
+    try put(w, detail, col, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f}", .{cardKey(s, .@"copy-mode")}), bright);
+    try put(w, detail, col * 2, layout.summary_y + 1, try std.fmt.bufPrint(&buf, "{f}", .{cardKey(s, .detach)}), bright);
+    try put(w, detail, 0, layout.help_y, "[ ? Full keymap ]", if (s.focus == 2) palette.keycap else bright);
     if (direct) {
         const prefix_hint = if (narrow) try std.fmt.bufPrint(&buf, "[ P {s} ]", .{prefix_name}) else try std.fmt.bufPrint(&buf, "Prefix [ {s} ]  P change", .{prefix_name});
-        try put(w, detail, 22, layout.help_y, prefix_hint, if (s.focus == 1) keycap else mint);
+        try put(w, detail, 22, layout.help_y, prefix_hint, if (s.focus == 1) palette.keycap else bright);
     } else if (!narrow) try put(w, detail, 23, layout.help_y, try std.fmt.bufPrint(&buf, "{s} twice sends it through.", .{prefix_name}), dim);
 }
 fn drawSplitDiagram(w: *std.Io.Writer, b: Rect, down: bool) !void {
     try box(w, b, false);
     if (down) {
-        try w.print("\x1b[{d};{d}H{s}├", .{ b.y + 2, b.x + 1, panel });
+        try w.print("\x1b[{d};{d}H{s}├", .{ b.y + 2, b.x + 1, border });
         for (0..b.w - 2) |_| try w.writeAll("─");
         try w.writeAll("┤");
     } else {
-        for (0..3) |row| try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + row + 1, b.x + b.w / 2 + 1, panel, if (row == 0) "┬" else if (row == 2) "┴" else "│" });
+        for (0..3) |row| try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + row + 1, b.x + b.w / 2 + 1, border, if (row == 0) "┬" else if (row == 2) "┴" else "│" });
     }
 }
 // Counts and hit targets use the same pane budget as the rendered tree.
@@ -785,14 +786,13 @@ pub fn bounds(cols: u16, rows: u16) Rect {
     const h = @min(rows, 36);
     return .{ .x = (cols - w) / 2, .y = (rows - h) / 2, .w = w, .h = h };
 }
-const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
-const text = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
-const bright = "\x1b[1;38;2;226;230;233;48;2;35;40;47m";
-const mint = "\x1b[0;38;2;161;194;178;48;2;35;40;47m";
-const dim = panel;
-const yellow = "\x1b[0;38;2;232;190;115;48;2;35;40;47m";
-const keycap = "\x1b[1;38;2;24;27;32;48;2;161;194;178m";
-const selected_style = "\x1b[0;38;2;201;224;211;48;2;47;64;59m";
+const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
+const text = (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+const bright = (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr();
+const muted = (palette.Style{ .fg = .muted, .bg = .surface }).sgr();
+const dim = (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
+const warm = (palette.Style{ .fg = .warm, .bg = .surface }).sgr();
+const selected_style = (palette.Style{ .fg = .text, .bg = .selected }).sgr();
 
 test "onboarding offers only platform-supported presets and import sources" {
     const macos = builtin.os.tag == .macos;
@@ -919,7 +919,7 @@ fn put(w: *std.Io.Writer, b: Rect, x: usize, y: usize, str: []const u8, style: [
 }
 fn box(w: *std.Io.Writer, b: Rect, on: bool) !void {
     for (0..b.h) |row| {
-        try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, if (on) selected_style else panel });
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, if (on) selected_style else border });
         try w.writeAll(if (row == 0) "╭" else if (row == b.h - 1) "╰" else "│");
         if (row == 0 or row == b.h - 1) {
             for (0..b.w - 2) |_| try w.writeAll("─");
@@ -933,7 +933,7 @@ fn treeLine(w: *std.Io.Writer, b: Rect, row: usize, scroll: usize, label: []cons
     const split = b.w -| 32;
     try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + 4, style });
     try safeText(w, label, if (hint.len > 0) split - 5 else b.w - 7);
-    if (hint.len > 0) try put(w, b, split, y, hint, mint);
+    if (hint.len > 0) try put(w, b, split, y, hint, muted);
 }
 
 fn short(value: []const u8) []const u8 {

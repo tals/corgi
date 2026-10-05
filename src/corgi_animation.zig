@@ -1,5 +1,6 @@
 const std = @import("std");
 const os = @import("os.zig");
+const palette = @import("palette.zig");
 const frames = @import("corgi_frames.zig");
 
 const gait_right = [_][]const u8{ "~[/\\]o>", "~[||]o>", "~[\\/]o>", "~[||]o>" };
@@ -86,19 +87,19 @@ const herd_step_ms = 110;
 const herd_sit_steps = 10;
 const herd_word = "Compacting";
 const walk_left = [_][]const u8{ "‹o[/\\]~", "‹o[||]~", "‹o[\\/]~", "‹o[||]~" };
-const word_bright = [3]u8{ 226, 230, 233 };
-const word_dim = [3]u8{ 125, 132, 143 };
-const awake_yellow = [3]u8{ 249, 226, 175 };
-/// Tail tucked, ears folded, rolled into "…": each pose's column after the
-/// word, and how far it has turned from corgi yellow to the word's white.
-const curl = [_]struct { after: usize, pose: []const u8, white: f64 }{
-    .{ .after = 2, .pose = "ᐯ◡ᴥ◡ᐯ", .white = 0 },
-    .{ .after = 2, .pose = "ᐯ◡ᴥ◡ᐯ", .white = 0 },
-    .{ .after = 3, .pose = "◡ᴥ◡", .white = 0 },
-    .{ .after = 2, .pose = "•ᴥ•", .white = 0.1 },
-    .{ .after = 1, .pose = "•.•", .white = 0.4 },
-    .{ .after = 0, .pose = "...", .white = 0.7 },
-    .{ .after = 0, .pose = "…", .white = 1 },
+const word_bright = palette.Token.text.rgb();
+const word_dim = palette.Token.faint.rgb();
+/// The corgi is gray, never a status color.
+const awake_color = palette.Token.text.rgb();
+/// Tail tucked, ears folded, rolled into "…": each pose's column after the word.
+const curl = [_]struct { after: usize, pose: []const u8 }{
+    .{ .after = 2, .pose = "ᐯ◡ᴥ◡ᐯ" },
+    .{ .after = 2, .pose = "ᐯ◡ᴥ◡ᐯ" },
+    .{ .after = 3, .pose = "◡ᴥ◡" },
+    .{ .after = 2, .pose = "•ᴥ•" },
+    .{ .after = 1, .pose = "•.•" },
+    .{ .after = 0, .pose = "..." },
+    .{ .after = 0, .pose = "…" },
 };
 
 const HerdScene = struct {
@@ -107,7 +108,6 @@ const HerdScene = struct {
     lit: [herd_word.len]bool,
     dog: []const u8,
     x: usize,
-    tone: [3]u8 = awake_yellow,
 };
 /// Where each letter rests while scattered. The gaps sum to 10, so the last
 /// letter stops one cell short of the edge.
@@ -145,7 +145,6 @@ fn herdScene(width: usize, step: usize) HerdScene {
         const pose = curl[@min(p - herd_sit_steps, curl.len - 1)];
         scene.dog = pose.pose;
         scene.x = herd_word.len + pose.after;
-        scene.tone = blend(awake_yellow, word_bright, pose.white);
     }
     return scene;
 }
@@ -156,7 +155,7 @@ fn writeHerd(out: *std.Io.Writer, width: usize, step: usize) !void {
     var color: ?[3]u8 = null;
     for (0..width) |col| {
         if (col >= scene.x) if (dog.nextCodepointSlice()) |glyph| {
-            try tint(out, &color, scene.tone);
+            try tint(out, &color, awake_color);
             try out.writeAll(if (std.mem.eql(u8, glyph, "~")) wagTail(step / 2) else glyph);
             continue;
         };
@@ -194,8 +193,10 @@ const pile_col = 23;
 /// The pile column each letter's clod lands on, and the pile's heights.
 const pile_order = [_]usize{ 1, 2, 0, 3, 1, 2, 1, 2, 0, 3 };
 const pile_glyph = [_][]const u8{ " ", "⣀", "⣤", "⣶", "⣿" };
+/// Pixel art, not a UI color.
 const dirt = [3]u8{ 150, 126, 96 };
-const restoring_mint = [3]u8{ 161, 194, 178 };
+/// The word is live progress; the corgi digging it out stays gray.
+const restored = palette.Token.accent.rgb();
 const UnearthCell = struct { glyph: []const u8 = " ", color: [3]u8 = dirt, bold: bool = false };
 
 fn unearthScene(step: usize) [unearth_width]UnearthCell {
@@ -204,7 +205,7 @@ fn unearthScene(step: usize) [unearth_width]UnearthCell {
         const at = (unearth_word.len - 1 - i) * unearth_dig_steps;
         cells[i] = if (step < at) .{ .glyph = cover } else .{
             .glyph = letter,
-            .color = blend(dirt, restoring_mint, @as(f64, @floatFromInt(@min(step - at, 2))) / 2),
+            .color = blend(dirt, restored, @as(f64, @floatFromInt(@min(step - at, 2))) / 2),
             .bold = true,
         };
     }
@@ -219,11 +220,11 @@ fn unearthScene(step: usize) [unearth_width]UnearthCell {
     const dog = if (step < dug) (if (step % 2 == 1) "‹o[/\\]~" else "‹o[\\/]~") else if (step - dug < 5) "ᐱ•ᴥ•ᐱ" else "ᐯ•ᴥ•ᐯ";
     var col: usize = if (step < dug) 11 else 12;
     if (step >= dug) {
-        cells[col] = .{ .glyph = wagTail(step / 2), .color = awake_yellow };
+        cells[col] = .{ .glyph = wagTail(step / 2), .color = awake_color };
         col += 1;
     }
     var glyphs = (std.unicode.Utf8View.init(dog) catch unreachable).iterator();
-    while (glyphs.nextCodepointSlice()) |glyph| : (col += 1) cells[col] = .{ .glyph = glyph, .color = awake_yellow };
+    while (glyphs.nextCodepointSlice()) |glyph| : (col += 1) cells[col] = .{ .glyph = glyph, .color = awake_color };
     return cells;
 }
 /// The restoring band's title `shown_ms` after it appeared, in `width` cells.
@@ -231,7 +232,7 @@ fn unearthScene(step: usize) [unearth_width]UnearthCell {
 pub fn writeUnearth(out: *std.Io.Writer, width: usize, shown_ms: i64) !void {
     if (width < unearth_width) {
         try out.writeAll("\x1b[1m");
-        try writeColor(out, restoring_mint);
+        try writeColor(out, restored);
         for (unearth_word) |letter| try out.writeAll(letter);
         return;
     }
@@ -383,7 +384,7 @@ pub const Presentation = struct {
         if (pose.mode == .asleep and !working) {
             try idle(out, room, sleep);
         } else {
-            try out.writeAll("\x1b[38;2;249;226;175m");
+            try writeColor(out, awake_color);
             // If work starts while sleep is being covered, wake immediately.
             const playback = if (pose.mode == .asleep) Playback{} else self.playback;
             try playback.write(out, room, pose.at_ms);
@@ -430,13 +431,15 @@ pub fn observe(key: u64, mode: Mode, now_ms: i64) ?*Presentation {
 /// How a sleeping corgi is drawn. Seen naps dim so a long idle list stays
 /// quiet; `bright` keeps unseen and focused ones at full grey.
 pub const Sleep = struct {
-    background: [3]u8 = .{ 24, 27, 32 },
+    background: [3]u8 = palette.Token.bg.rgb(),
     bright: bool = false,
+    /// On a `selected` row the sleeper is `muted`, as faint is too dark there.
+    selected: bool = false,
     /// Milliseconds into this corgi's Z puff, while it is the one dreaming.
     puff_ms: ?u64 = null,
 };
 
-const sleeping_grey = [3]u8{ 108, 112, 134 };
+const sleeping_grey = palette.Token.faint.rgb();
 /// Dim sleepers sit this far from the background toward `sleeping_grey`.
 const dim_amount = 0.42;
 /// A puff drifts right from the nose one cell per step, fading as it rises.
@@ -484,9 +487,7 @@ fn blend(from: [3]u8, to: [3]u8, amount: f64) [3]u8 {
     return color;
 }
 
-fn writeColor(out: *std.Io.Writer, color: [3]u8) !void {
-    try out.print("\x1b[38;2;{d};{d};{d}m", .{ color[0], color[1], color[2] });
-}
+const writeColor = palette.writeFg;
 
 /// Brightness of the puff at `col`, or null where it is not drawn. The Z
 /// crossfades to the next cell in 150 ms steps.
@@ -512,13 +513,14 @@ fn fade(step: u64) f64 {
 /// A still sleeping corgi; a dreaming one puffs a Z from its nose.
 pub fn idle(out: *std.Io.Writer, width: usize, sleep: Sleep) !void {
     const sprite = [_][]const u8{ "~", "ᐯ", "◡", "ᴥ", "◡", "ᐯ" };
-    const body = if (sleep.bright) sleeping_grey else blend(sleep.background, sleeping_grey, dim_amount);
+    const grey = if (sleep.selected) palette.Token.muted.rgb() else sleeping_grey;
+    const body = if (sleep.bright or sleep.selected) grey else blend(sleep.background, grey, dim_amount);
     try writeColor(out, body);
     for (0..width) |col| {
         if (col < sprite.len) {
             try out.writeAll(sprite[col]);
         } else if (puffAmount(sleep.puff_ms, col)) |amount| {
-            try writeColor(out, blend(sleep.background, sleeping_grey, amount));
+            try writeColor(out, blend(sleep.background, grey, amount));
             try out.writeAll(if ((col - 7) % 2 == 0) "ᶻ" else "z");
             try writeColor(out, body);
         } else try out.writeByte(' ');
@@ -541,6 +543,11 @@ test "half-cell ball travel keeps the impact before the perk and preserves picku
     try std.testing.expectEqualStrings("⡀", left.mark);
     try std.testing.expectEqualStrings("⢀", right.mark);
     try std.testing.expectEqualStrings("⡀", advance.mark);
+}
+
+/// `text` after the SGR writeColor writes for `color`.
+fn testTinted(buffer: []u8, color: [3]u8, text: []const u8) []const u8 {
+    return std.fmt.bufPrint(buffer, "\x1b[38;2;{d};{d};{d}m{s}", .{ color[0], color[1], color[2], text }) catch unreachable;
 }
 
 fn withoutColors(out: *std.Io.Writer.Allocating, bytes: []const u8) ![]const u8 {
@@ -680,14 +687,10 @@ test "the corgi herds the word together, sits, and curls into the ellipsis" {
     // Scattered letters are dim; the pushed ones light up.
     output.clearRetainingCapacity();
     try writeHerd(&output.writer, 22, 7);
-    try std.testing.expect(std.mem.startsWith(u8, output.written(), "\x1b[38;2;226;230;233mC \x1b[38;2;125;132;143mo  mp  a\x1b[38;2;226;230;233mcting\x1b[38;2;249;226;175m‹o"));
-    // The curl turns from corgi yellow to the word's white.
-    output.clearRetainingCapacity();
-    try writeHerd(&output.writer, 22, 27);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;240;228;198m•.•") != null);
+    try std.testing.expect(std.mem.startsWith(u8, output.written(), comptime palette.fg(.text) ++ "C " ++ palette.fg(.faint) ++ "o  mp  a" ++ palette.fg(.text) ++ "cting‹o"));
     output.clearRetainingCapacity();
     try writeHerd(&output.writer, 22, 29);
-    try std.testing.expectEqualStrings("\x1b[38;2;226;230;233mCompacting…" ++ " " ** 11, output.written());
+    try std.testing.expectEqualStrings(comptime palette.fg(.text) ++ "Compacting…" ++ " " ** 11, output.written());
 }
 
 test "herding fits every width with letters in order and clear of the corgi" {
@@ -713,7 +716,7 @@ test "herding fits every width with letters in order and clear of the corgi" {
             try std.testing.expectEqual(width, try std.unicode.utf8CountCodepoints(try withoutColors(&plain, output.written())));
         }
         try std.testing.expect(packed_word and scattered);
-        try std.testing.expect(std.mem.startsWith(u8, output.written(), "\x1b[38;2;226;230;233mCompacting…"));
+        try std.testing.expect(std.mem.startsWith(u8, output.written(), comptime palette.fg(.text) ++ "Compacting…"));
     }
 }
 
@@ -735,20 +738,41 @@ test "a puff starts lit, fades as it rises, and seen sleepers are dim" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try idle(&output.writer, 22, .{ .bright = true, .puff_ms = 0 });
-    try std.testing.expect(std.mem.startsWith(u8, output.written(), "\x1b[38;2;108;112;134m~ᐯ◡ᴥ◡ᐯ"));
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;108;112;134mᶻ") != null);
+    try std.testing.expect(std.mem.startsWith(u8, output.written(), comptime palette.fg(.faint) ++ "~ᐯ◡ᴥ◡ᐯ"));
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.faint) ++ "ᶻ") != null);
     output.clearRetainingCapacity();
+    const bg = palette.Token.bg.rgb();
+    var tinted: [64]u8 = undefined;
     // Halfway through the first step, the Z is split across two cells.
     try idle(&output.writer, 22, .{ .puff_ms = puff_step_ms / 2 });
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;66;70;83mᶻ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;58;61;73mz") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), testTinted(&tinted, blend(bg, sleeping_grey, 0.5), "ᶻ")) != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), testTinted(&tinted, blend(bg, sleeping_grey, 0.4), "z")) != null);
     output.clearRetainingCapacity();
     // Four cells out, the Z is 40% lit.
     try idle(&output.writer, 22, .{ .puff_ms = 3 * puff_step_ms });
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;58;61;73mz") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), testTinted(&tinted, blend(bg, sleeping_grey, 0.4), "z")) != null);
     output.clearRetainingCapacity();
     try idle(&output.writer, 22, .{});
-    try std.testing.expectEqualStrings("\x1b[38;2;59;63;75m~ᐯ◡ᴥ◡ᐯ" ++ " " ** 16, output.written());
+    try std.testing.expectEqualStrings(testTinted(&tinted, blend(bg, sleeping_grey, dim_amount), "~ᐯ◡ᴥ◡ᐯ" ++ " " ** 16), output.written());
+}
+
+test "the corgi is gray: text awake, faint asleep, muted asleep on a selected row" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var presentation: Presentation = .{};
+    presentation.update(.awake, 0);
+    try presentation.writeCorgi(&output.writer, 20, true, .{});
+    try std.testing.expect(std.mem.startsWith(u8, output.written(), comptime palette.fg(.text)));
+    output.clearRetainingCapacity();
+    try idle(&output.writer, 6, .{ .bright = true });
+    try std.testing.expectEqualStrings(comptime palette.fg(.faint) ++ "~ᐯ◡ᴥ◡ᐯ", output.written());
+    output.clearRetainingCapacity();
+    try idle(&output.writer, 6, .{ .background = palette.Token.selected.rgb(), .selected = true });
+    try std.testing.expectEqualStrings(comptime palette.fg(.muted) ++ "~ᐯ◡ᴥ◡ᐯ", output.written());
+    output.clearRetainingCapacity();
+    try writeUnearth(&output.writer, unearth_width, 3000);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.accent) ++ "Restoring…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.text) ++ "~ᐯ•ᴥ•ᐯ") != null);
 }
 
 test "one sleeper dreams per period, holds through its puff, and rarely repeats" {
