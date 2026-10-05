@@ -19,7 +19,7 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 |---|---|
 | `bg` | Sidebar, cards, panels |
 | `surface` | Raised areas on `bg`: launcher panel, menus, dialogs |
-| `selected` | Selected row. Inputs and buttons on `surface`. Empty meter and spark cells |
+| `selected` | Selected row; a hovered agent row takes `mix(bg, selected, 50)`. Inputs and buttons on `surface`. Empty meter and spark cells |
 | `line` | Borders, rules. Keycap background |
 | `faint` | Labels, column headings, secondary numbers, footers |
 | `muted` | Secondary text: model, subtitle |

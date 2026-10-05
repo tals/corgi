@@ -41,6 +41,9 @@ const dotted_underline = "\x1b[4:4m" ++ palette.underline(.line);
 const ghost_underline = "\x1b[4m" ++ palette.underline(.strong);
 /// A seen agent's nap "z" on a plain row, dimmer than faint.
 const nap_fg = palette.fgRgb(palette.mix(palette.Token.faint.rgb(), palette.Token.bg.rgb(), 50));
+/// The agent row under the pointer, halfway from the panel to `selected`.
+const hover_rgb = palette.mix(palette.Token.bg.rgb(), palette.Token.selected.rgb(), 50);
+const hover_bg = palette.bgRgb(hover_rgb);
 /// `group` is a workspace header row in the grouped "All" list, not an agent.
 pub const Target = union(enum) { pane: layout.PaneId, native: NativeId, group: WorkspaceId };
 pub const Search = struct { text: []const u8, cursor: usize };
@@ -155,6 +158,8 @@ pub const View = struct {
     /// When set, rows are measured per entry: group headers take one row.
     entries: []const Entry = &.{},
     dragged: ?usize = null,
+    /// The agent entry under the pointer.
+    hovered: ?usize = null,
     dragged_workspace: ?usize = null,
     workspace_count: usize = 0,
     workspace_offset: usize = 0,
@@ -515,7 +520,7 @@ pub const View = struct {
             }
             const last_in_group = grouped and (absolute + 1 == entries.len or entries[absolute + 1].target == .group);
             const divider = !grouped and index + 1 < @min(entries.len - v.offset, v.capacity);
-            try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, frame_ms, dream);
+            try v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged == absolute, v.hovered == absolute, frame_ms, dream);
             if (fade) |faded| try writeExit(w, exit_writer.buffered(), faded);
         }
         if (v.search != null) try v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
@@ -540,12 +545,12 @@ pub const View = struct {
         if (compacting) return pile[@intCast(@mod(@divFloor(now_ms, 75), pile.len))];
         return thinking[@intCast(@mod(@divFloor(now_ms, 80), thinking.len))];
     }
-    fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64, dream: ?corgi_animation.Dream) !void {
-        // Focused and dragged rows take the selected tint; in a group the rail stays unbroken.
-        const row_bg: palette.Token = if (ghost or e.focused) .selected else .bg;
-        const bg = switch (row_bg) {
-            inline else => |t| palette.bg(t),
-        };
+    fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, hovered: bool, now_ms: i64, dream: ?corgi_animation.Dream) !void {
+        // Focused and dragged rows take the selected tint, and a hovered one
+        // goes halfway to it; in a group the rail stays unbroken.
+        const selected = ghost or e.focused;
+        const background = if (selected) palette.Token.selected.rgb() else if (hovered) hover_rgb else palette.Token.bg.rgb();
+        const bg = if (selected) selected_bg else if (hovered) hover_bg else palette.bg(.bg);
         for (0..2) |row| {
             if (y + row >= v.listEnd()) break;
             try w.print("\x1b[{d};{d}H\x1b[0m{s}", .{ y + row + 1, x + 1, bg });
@@ -560,7 +565,7 @@ pub const View = struct {
             if (!last_in_group and y + 1 < v.listEnd()) try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + 1, if (e.focused) "┃" else "│" });
             try w.print("\x1b[0m{s}", .{bg});
         }
-        const dot = e.indicator(row_bg == .selected);
+        const dot = e.indicator(selected);
         try w.print("\x1b[{d};{d}H\x1b[22m{s}{s}", .{ y + 1, x + 2, dot.color, dot.icon });
         const room = v.width - 6;
         // Within a group, a dotted line under the text separates agents. Only
@@ -576,7 +581,7 @@ pub const View = struct {
         // brighter. Selected rows take muted, as faint is too dim on them.
         const napping = e.state == .idle and !v.sleeping_corgis;
         const activity = activityGlyph(e, waiting, napping, spinnerFrame(compacting, now_ms));
-        const activity_color = if (row_bg == .selected)
+        const activity_color = if (selected)
             comptime "\x1b[22m" ++ palette.fg(.muted)
         else if (napping and e.attention != .finished)
             "\x1b[22m" ++ nap_fg
@@ -585,7 +590,7 @@ pub const View = struct {
         var name: [160]u8 = undefined;
         const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
         var figure_buf: [8]u8 = undefined;
-        const figure = contextFigure(&figure_buf, e, compacting, row_bg.rgb());
+        const figure = contextFigure(&figure_buf, e, compacting, background);
         const figure_width = if (figure) |f| displayWidth(f.text) else 0;
         try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (dot.unread or (grouped and e.focused)) comptime "\x1b[1m" ++ palette.fg(.strong) else comptime "\x1b[22m" ++ palette.fg(.text) });
         try writeEllipsis(w, provider, room -| (figure_width + @as(usize, if (figure_width > 0) 1 else 0)));
@@ -629,9 +634,9 @@ pub const View = struct {
         const presentation = corgi_animation.observe(animation_key, mode, now_ms);
         // Unseen and focused naps stay bright; only the list's dreamer puffs.
         const sleep: corgi_animation.Sleep = .{
-            .background = row_bg.rgb(),
+            .background = background,
             .bright = e.focused or e.attention == .finished,
-            .selected = row_bg == .selected,
+            .selected = selected,
             .puff_ms = if (dream) |d| (if (d.key == animation_key) d.puff_ms else null) else null,
         };
         if (mode == .herding) {
@@ -918,10 +923,14 @@ test "readings off removes the resource row and moves the separator under the st
 }
 
 pub fn agentAt(v: View, entries: []const Entry, x: u16, y: u16) ?*const Entry {
+    return &entries[agentIndexAt(v, entries, x, y) orelse return null];
+}
+/// `agentAt` as an index into `entries`.
+pub fn agentIndexAt(v: View, entries: []const Entry, x: u16, y: u16) ?usize {
     const hit = v.hit(x, y);
     if (hit != .entry or hit.entry >= entries.len) return null;
-    const entry = &entries[hit.entry];
-    return if (entry.exit == null and entry.target != .group) entry else null;
+    const entry = entries[hit.entry];
+    return if (entry.exit == null and entry.target != .group) hit.entry else null;
 }
 
 // Fade both the card background and its foreground/underline colors into the
@@ -1226,6 +1235,33 @@ test "agent rows take the workspace bars: active when focused outside groups, st
     view = view.withEntries(&grouped);
     try view.draw(&output.writer, &grouped, &.{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), active_bar) == null);
+}
+
+test "a hovered agent's rows tint halfway to selected, and a selected one keeps its tint" {
+    var entries = [_]Entry{
+        .{ .target = .{ .pane = @enumFromInt(1) }, .name = "api refactor", .provider = .codex, .state = .idle, .attention = .none },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .name = "release notes", .provider = .claude, .state = .idle, .attention = .none },
+    };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var view = View.init(100, 30, true, 0, entries.len).withEntries(&entries);
+    view.hovered = 0;
+    try view.draw(&output.writer, &entries, &.{});
+    for (0..4) |row| {
+        var buf: [64]u8 = undefined;
+        const tinted = try std.fmt.bufPrint(&buf, "\x1b[{d};1H\x1b[0m" ++ hover_bg, .{view.middle() + 3 + row});
+        try std.testing.expectEqual(row < 2, std.mem.indexOf(u8, output.written(), tinted) != null);
+    }
+    // The sleeper blends against the tint, not the panel.
+    var sleeper: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer sleeper.deinit();
+    try corgi_animation.idle(&sleeper.writer, 6, .{ .background = hover_rgb });
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), sleeper.written()));
+    entries[0].focused = true;
+    output.clearRetainingCapacity();
+    try view.draw(&output.writer, &entries, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), hover_bg) == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[0m" ++ selected_bg) != null);
 }
 
 test "subagent badge shares the second row without reserving empty space" {

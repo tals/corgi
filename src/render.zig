@@ -368,6 +368,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         };
     }
     try drawDividers(w, view, area);
+    // The host may leave its last mouse report at the window edge.
+    if (ui.pointer) |pointer| if (pointer.x > 0 and !dragging and !on_card and noOverlay(ui)) {
+        side.hovered = sidebar.agentIndexAt(side, entries, pointer.x, pointer.y);
+    };
     try side.draw(w, entries, workspaces);
     if (ui.git_hover) |id| try sidebar.drawGitAction(w, side, ui.workspaces, id);
     if (ui.corgi_badge == .image) {
@@ -483,6 +487,45 @@ test "unread pointer follows the clickable workspace and respects overlays" {
         });
         defer a.free(output);
         try std.testing.expect(std.mem.indexOf(u8, output, if (case.hand) "\x1b]22;pointer\x1b\\" else "\x1b]22;default\x1b\\") != null);
+    }
+}
+
+test "the agent under the pointer takes the hover tint until the pointer leaves it" {
+    var model: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &model, .selection = &selection };
+    const entries = [_]sidebar.Entry{
+        .{ .target = .{ .pane = @enumFromInt(1) }, .name = "api refactor", .provider = .codex, .state = .idle, .attention = .none },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .name = "release notes", .provider = .claude, .state = .idle, .attention = .none },
+    };
+    const tint = comptime palette.bgRgb(palette.mix(palette.Token.bg.rgb(), palette.Token.selected.rgb(), 50));
+    const top = sidebar.View.init(100, 30, true, 0, entries.len).middle() + 2;
+    const Case = struct { pointer: ?Pointer, tinted: ?u16 = null, scope_menu: bool = false, drag: bool = false };
+    for ([_]Case{
+        .{ .pointer = .{ .x = 5, .y = top }, .tinted = top },
+        .{ .pointer = .{ .x = 20, .y = top + 3 }, .tinted = top + 2 },
+        .{ .pointer = .{ .x = 0, .y = top } },
+        .{ .pointer = .{ .x = 60, .y = top } },
+        .{ .pointer = null },
+        .{ .pointer = .{ .x = 5, .y = top }, .scope_menu = true },
+        .{ .pointer = .{ .x = 5, .y = top + 2 }, .drag = true },
+    }) |case| {
+        const output = try frame(view, @as([]const Pane, &.{}), 100, 30, .{
+            .pointer = case.pointer,
+            .message = "",
+            .copy_mode = false,
+            .agents = &entries,
+            .scope_menu = if (case.scope_menu) .{} else null,
+            .dragged_agent = if (case.drag) .{ .source = 0, .destination = 0 } else null,
+        });
+        defer a.free(output);
+        if (case.tinted) |y| {
+            try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, output, tint));
+            for (0..2) |row| {
+                var buf: [64]u8 = undefined;
+                try std.testing.expect(std.mem.indexOf(u8, output, try std.fmt.bufPrint(&buf, "\x1b[{d};1H\x1b[0m" ++ tint, .{y + row + 1})) != null);
+            }
+        } else try std.testing.expect(std.mem.indexOf(u8, output, tint) == null);
     }
 }
 
