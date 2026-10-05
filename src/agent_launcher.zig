@@ -99,7 +99,7 @@ pub const Menu = struct {
         return .{
             provider.info().label,
             if (m.yolo.get(provider)) "✓" else "·",
-            if (option.model.len > 0) option.model.text() else if (m.preview.pending) "Reading…" else "Default",
+            if (option.model.len > 0) option.modelLabel() else if (m.preview.pending) "Reading…" else "Default",
             if (option.account.len > 0) option.account.text() else if (m.preview.pending) "Reading…" else "Unavailable",
             if (option.plan.len > 0) option.plan.text() else if (m.preview.pending) "…" else "Unknown",
         };
@@ -111,7 +111,7 @@ pub const Menu = struct {
         var values: [5][]const u8 = if (shared) |provider| m.cells(provider) else .{ "", "", "Default", "", "—" };
         values[0] = entry.label();
         values[1] = if (info.yolo) "✓" else "·";
-        if (info.model.len > 0) values[2] = info.model.text();
+        if (info.model.len > 0) values[2] = info.modelLabel();
         values[3] = m.account(info);
         return values;
     }
@@ -516,7 +516,7 @@ pub const Menu = struct {
             if (resolved) {
                 var detail: [340]u8 = undefined;
                 const mode = if (info.yolo) info.mode.text() else "";
-                const text = std.fmt.bufPrint(&detail, "{s}{s}{s}", .{ info.model.text(), if (info.model.len > 0 and mode.len > 0) " · " else "", mode }) catch "";
+                const text = std.fmt.bufPrint(&detail, "{s}{s}{s}", .{ info.modelLabel(), if (info.model.len > 0 and mode.len > 0) " · " else "", mode }) catch "";
                 try sidebar.writeEllipsis(w, text, b.w - 26);
                 try w.print("\x1b[{d};{d}H[{s} command]", .{ field_y + 10, b.x + b.w - 17, if (m.show_command) "Hide" else "Show" });
                 if (m.show_command) {
@@ -881,9 +881,11 @@ test "custom picker cells preserve account scope and permission state" {
     menu.preview.options.getPtr(.claude).account = .ascii("personal@example.com");
     menu.preview.options.getPtr(.claude).plan = .ascii("Max");
     menu.preview.options.getPtr(.claude).model = .ascii("opus");
+    menu.preview.options.getPtr(.claude).model_name = .ascii("Opus");
     try menu.commands[0].set("claude --dangerously-skip-permissions");
     menu.commands[0].semantics = launch_command.analyze(menu.commands[0].text(), "/tmp");
     var values = menu.customCells(0);
+    try std.testing.expectEqualStrings("Opus", values[2]);
     try std.testing.expectEqualStrings("personal@example.com", values[3]);
     try std.testing.expectEqualStrings("✓", values[1]);
     try std.testing.expectEqualStrings("Max", values[4]);
@@ -893,4 +895,7 @@ test "custom picker cells preserve account scope and permission state" {
     try std.testing.expectEqualStrings("work@example.com (cached)", values[3]);
     try std.testing.expectEqualStrings("—", values[4]);
     try std.testing.expectEqualStrings("—", menu.usageCell(.custom0).fallback.text());
+    try menu.commands[1].set("claude --model sonnet[1m]");
+    menu.commands[1].semantics = launch_command.analyze(menu.commands[1].text(), "/tmp");
+    try std.testing.expectEqualStrings("Sonnet (1M context)", menu.customCells(1)[2]);
 }

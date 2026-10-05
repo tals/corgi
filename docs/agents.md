@@ -195,9 +195,14 @@ and Claude's window. Names follow the CLIs' own: `claude-opus-4-0` is "Opus 4",
 `claude-sonnet-4-6[1m]` is "Sonnet 4.6 (1M context)", `gpt-6.1-sol` is "GPT-6.1
 Sol" (Codex writes "GPT-6.1-Sol"), `codex-auto-review` is "Codex Auto Review".
 Ids of any other shape, such as a custom provider's or an application
-inference profile ARN, keep their id and have no name. `conversation.list` and
+inference profile ARN, keep their id and have no name. Claude Code's aliases
+keep their spelling and take its model picker's names, without a version,
+since Claude Code chooses it: `opus` is "Opus", `sonnet[1m]` "Sonnet (1M
+context)", `opusplan` "Opus Plan Mode". `conversation.list` and
 `session.snapshot` send the first-party id as `model` and the name as
 `model_name`; the summarizer's are `system_model` and `system_model_name`.
+The launcher's configured models and saved commands' `--model` keep the model
+as written in `model` and send the name as `model_name`.
 
 ## Tests and simulation
 

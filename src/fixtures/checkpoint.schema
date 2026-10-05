@@ -23,6 +23,7 @@ $.agent_commands[6].semantics.provider: optional
 $.agent_commands[6].semantics.provider?: enum codex claude
 $.agent_commands[6].semantics.suggested_name: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.model: custom bounded_text.BoundedText(160)
+$.agent_commands[6].semantics.model_name: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.account: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.mode: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.yolo: bool

@@ -16,12 +16,16 @@ const metadata = @import("../usage.zig").account;
 const account_cache = @import("../usage.zig").account_cache;
 const limit_history = @import("../usage.zig").limits;
 const launch_command = @import("command.zig");
+const Model = @import("../providers/model.zig").Model;
 const subprocess = @import("../subprocess.zig");
 const log = std.log.scoped(.launch_preview);
 pub const Text = metadata.Text;
 pub const Option = struct {
     signed_in: ?bool = null,
+    /// As configured, such as "opus" or "gpt-6-astra".
     model: Text = .{},
+    /// Its name, such as "Opus" or "GPT-6 Astra"; empty for an unknown shape.
+    model_name: Text = .{},
     source: Text = .{},
     account: Text = .{},
     plan: Text = .{},
@@ -31,6 +35,16 @@ pub const Option = struct {
     usage_needs_consent: bool = false,
     /// Readings across each limit window, in the order of `limits.windows`.
     history: [2]limit_history.Spark = limit_history.none,
+
+    /// The model's name, or its id when it has none.
+    pub fn modelLabel(o: *const Option) []const u8 {
+        return if (o.model_name.len > 0) o.model_name.text() else o.model.text();
+    }
+    fn setModel(o: *Option, model: []const u8, source: []const u8) void {
+        o.model = .ascii(model);
+        o.model_name = Model.resolve(model).name;
+        o.source = .ascii(source);
+    }
 };
 pub const Preview = struct { pending: bool = true, options: providers.Each(Option, .{}) = .{}, installed: providers.Each(bool, true) = .{} };
 fn installed() providers.Each(bool, true) {
@@ -171,8 +185,7 @@ fn option(provider: Provider, pool: *inference.Pool, job: *const Job, w: *const 
 fn codexModel(pool: *inference.Pool, cwd: []const u8, stopping: *const std.atomic.Value(bool)) Option {
     var result: Option = .{};
     if (pool.configuredModel(cwd, stopping)) |model| {
-        result.model = .ascii(model.text());
-        result.source = .ascii("Effective Codex settings");
+        result.setModel(model.text(), "Effective Codex settings");
     } else |_| result.source = .ascii("Model resolved by Codex at startup");
     return result;
 }
@@ -357,10 +370,7 @@ fn claudeModel(cwd: []const u8) Option {
     } else |_| {}
     readModel(&result, cwd, ".claude/settings.json", "Project settings (if trusted)");
     readModel(&result, cwd, ".claude/settings.local.json", "Local settings (if trusted)");
-    if (os.env("ANTHROPIC_MODEL")) |model| if (model.len > 0) {
-        result.model = .ascii(model);
-        result.source = .ascii("ANTHROPIC_MODEL");
-    };
+    if (os.env("ANTHROPIC_MODEL")) |model| if (model.len > 0) result.setModel(model, "ANTHROPIC_MODEL");
     readModel(&result, "/Library/Application Support/ClaudeCode", "managed-settings.json", "Managed settings");
     return result;
 }
@@ -381,8 +391,7 @@ fn readModel(out: *Option, root: []const u8, relative: []const u8, source: []con
 fn applyModel(out: *Option, value: std.json.Value, source: []const u8) void {
     const model = agents.str(value, "model");
     if (model.len == 0) return;
-    out.model = .ascii(model);
-    out.source = .ascii(source);
+    out.setModel(model, source);
 }
 
 test "launch preview settings overlay" {
@@ -391,6 +400,7 @@ test "launch preview settings overlay" {
     defer parsed.deinit();
     applyModel(&result, parsed.value, "Project");
     try std.testing.expectEqualStrings("opus", result.model.text());
+    try std.testing.expectEqualStrings("Opus", result.modelLabel());
 }
 
 test "Claude's account follows the variables a launch command would name" {

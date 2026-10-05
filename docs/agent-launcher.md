@@ -33,9 +33,11 @@ and account columns, a full-row selection highlight, and the destination folder 
 uses `config/read` with that directory and `model/list` for the provider default.
 These calls use a separate, lazily started App Server on a background worker;
 no thread or inference turn is created. Claude previews `ANTHROPIC_MODEL`, user,
-project, local, and local managed settings. Aliases stay aliases; account policy,
-trust, and dynamic defaults remain provider decisions. Missing or unreadable
-configuration displays `Provider default` instead of guessing a specific model.
+project, local, and local managed settings. Models show their names, as in
+[Model names](agents.md#model-names). Aliases stay aliases, so `opus` shows as
+"Opus" with no version; account policy, trust, and dynamic defaults remain
+provider decisions. Missing or unreadable configuration displays
+`Provider default` instead of guessing a specific model.
 
 Usage stays on that same row. Each reported limit groups its window, usage bar,
 percent used, and reset countdown, with `·` before the countdown and `│` between

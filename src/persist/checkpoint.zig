@@ -323,6 +323,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
     r.agent_yolo = state.agent_yolo;
     r.agent_hidden = state.agent_hidden;
     r.agent_commands = state.agent_commands;
+    for (&r.agent_commands) |*entry| entry.semantics.nameModel();
     for (state.conversations) |saved| {
         if (saved.id == ActorId.none or @intFromEnum(saved.id) >= @intFromEnum(state.next_conversation) or r.conversations.byId(saved.id) != null or
             !validAgent(saved.agent) or saved.agent.session.len == 0) return error.InvalidCheckpoint;

@@ -175,6 +175,7 @@ $.clients[].launch_preview?.preview.pending: bool
 $.clients[].launch_preview?.preview.options.codex.signed_in: optional
 $.clients[].launch_preview?.preview.options.codex.signed_in?: bool
 $.clients[].launch_preview?.preview.options.codex.model: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.codex.model_name: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options.codex.source: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options.codex.account: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options.codex.plan: custom bounded_text.BoundedText(160)
@@ -196,6 +197,7 @@ $.clients[].launch_preview?.preview.options.codex.history[2][11]?: u8
 $.clients[].launch_preview?.preview.options.claude.signed_in: optional
 $.clients[].launch_preview?.preview.options.claude.signed_in?: bool
 $.clients[].launch_preview?.preview.options.claude.model: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options.claude.model_name: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options.claude.source: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options.claude.account: custom bounded_text.BoundedText(160)
 $.clients[].launch_preview?.preview.options.claude.plan: custom bounded_text.BoundedText(160)

@@ -4,6 +4,7 @@ const Provider = @import("../providers.zig").Provider;
 const os = @import("../os.zig");
 const detection = @import("../detection.zig");
 const common = @import("../providers/common.zig");
+const Model = @import("../providers/model.zig").Model;
 const Text = @import("../usage.zig").account.Text;
 const Path = @import("../bounded_text.zig").Path;
 const BoundedText = @import("../bounded_text.zig").BoundedText;
@@ -357,12 +358,24 @@ pub const Worker = struct {
 pub const Semantics = struct {
     provider: ?Provider = null,
     suggested_name: Text = .{},
+    /// As the command spells it, such as "sonnet".
     model: Text = .{},
+    /// Its name, such as "Sonnet"; empty for an unknown shape.
+    model_name: Text = .{},
     account: Text = .{},
     mode: Text = .{},
     /// Skips the provider's permission checks; `mode` is its display text.
     yolo: bool = false,
     default_account: bool = false,
+
+    /// The model's name, or its id when it has none.
+    pub fn modelLabel(s: *const Semantics) []const u8 {
+        return if (s.model_name.len > 0) s.model_name.text() else s.model.text();
+    }
+    /// Derives `model_name`; older checkpoints saved commands without one.
+    pub fn nameModel(s: *Semantics) void {
+        s.model_name = Model.resolve(s.model.text()).name;
+    }
 };
 
 /// Only public identity metadata leaves this analysis. Explicit auth/profile
@@ -470,9 +483,10 @@ pub fn analyze(source: []const u8, cwd: []const u8) Semantics {
     if (!info.default_account and info.account.len == 0) info.account = .ascii("Account cannot be determined");
     info.yolo = yolo;
     info.mode = .ascii(if (yolo) "Skips permission checks" else "Provider permission settings");
+    info.nameModel();
     var label: [160]u8 = undefined;
     const provider_name = if (info.provider) |provider| provider.info().label else "Custom agent";
-    info.suggested_name = .ascii(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else "", if (info.model.len > 0) info.model.text() else "" }) catch provider_name);
+    info.suggested_name = .ascii(std.fmt.bufPrint(&label, "{s}{s}{s}", .{ provider_name, if (info.model.len > 0) " - " else "", info.modelLabel() }) catch provider_name);
     return info;
 }
 /// Whether `word` is one of `flags`, either alone or as `--flag=value`.
@@ -532,7 +546,8 @@ test "command semantics distinguish default accounts from auth overrides" {
     try std.testing.expectEqualStrings("Skips permission checks", base.mode.text());
     const permission_only = analyze("claude --dangerously-skip-permissions", "/tmp");
     try std.testing.expectEqualStrings("Claude Code", permission_only.suggested_name.text());
-    try std.testing.expectEqualStrings("Claude Code - sonnet", base.suggested_name.text());
+    try std.testing.expectEqualStrings("Sonnet", base.modelLabel());
+    try std.testing.expectEqualStrings("Claude Code - Sonnet", base.suggested_name.text());
     const api = analyze("ANTHROPIC_API_KEY=private-value claude", "/tmp");
     try std.testing.expect(!api.default_account);
     try std.testing.expectEqualStrings("API key - identity unavailable", api.account.text());

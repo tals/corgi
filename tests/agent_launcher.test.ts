@@ -248,7 +248,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       (await view.poll()).data.includes("API key - identity unavailable"),
     );
     this.assertIn("Skips permission checks", (await view.poll()).data);
-    this.assertIn("Claude Code - sonnet", (await view.poll()).data);
+    this.assertIn("Claude Code - Sonnet", (await view.poll()).data);
     await view.input("\tTeam assistant");
     await this.clickText(view, "[Add]");
     await this.waitSaved(0, source);
@@ -508,7 +508,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const text = screen_text((await view.poll()).data, 140, 30).join("\n");
     for (const value of [
       "Claude Code",
-      "opus",
+      "Opus",
       "codex@example.com",
       "claude@example.com",
     ])
@@ -527,7 +527,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       rows.some(
         (row) =>
           row.includes("Claude Code") &&
-          row.includes("opus") &&
+          row.includes("Opus") &&
           row.includes("claude@example.com"),
       ),
     );
@@ -550,7 +550,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertFalse(existsSync(this.launches));
     this.assertEqual((await this.session()).panes.length, 1);
     const y = rows.findIndex(
-      (row) => row.includes("Claude Code") && row.includes("opus"),
+      (row) => row.includes("Claude Code") && row.includes("Opus"),
     );
     await this.clickViewer(view, rows[y].indexOf("Claude Code") + 1, y + 1);
     await this.until(() => existsSync(this.launches));
@@ -1405,6 +1405,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     await this.until(async () => !(await preview()).pending, 12);
     const result = (await preview()).options.claude;
     this.assertEqual(result.model, "sonnet");
+    this.assertEqual(result.model_name, "Sonnet");
     this.assertIn("Local settings", result.source);
   }
 }

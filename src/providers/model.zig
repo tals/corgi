@@ -2,22 +2,24 @@
 //! dates, version suffixes and `[1m]` reduce to the first-party id, the way
 //! Claude Code canonicalizes ids; its family and version give the name both
 //! CLIs show and Claude's context window. Codex reports its windows itself.
+//! Claude Code's aliases keep their spelling and get its picker's names.
 const std = @import("std");
 const Name = @import("../bounded_text.zig").BoundedText(160);
 
 pub const Model = struct {
     /// The first-party id, such as "claude-opus-4-5-20251101" or "gpt-6-astra".
-    /// An id of unknown shape stays as reported.
+    /// An alias or an id of unknown shape stays as reported.
     id: Name = .{},
-    /// "Opus 4.5", "GPT-6 Astra"; empty for an id of unknown shape.
+    /// "Opus 4.5", "GPT-6 Astra", "Opus"; empty for an id of unknown shape.
     name: Name = .{},
-    /// Claude's context window; zero for every other model.
+    /// Claude's context window; zero for aliases and every other model.
     window: u64 = 0,
 
     pub fn resolve(reported: []const u8) Model {
         var id = reported;
         const million = std.mem.endsWith(u8, id, "[1m]");
         if (million) id = id[0 .. id.len - "[1m]".len];
+        if (std.meta.stringToEnum(Alias, id)) |alias| return alias.model(reported, million);
         // Bedrock ARNs and Vertex resource names end in the model id.
         if (std.mem.lastIndexOfScalar(u8, id, '/')) |slash| id = id[slash + 1 ..];
         // Bedrock prefixes "anthropic.", optionally after a region such as "us.".
@@ -46,6 +48,29 @@ fn nativeMillion(family: []const u8, major: u8, minor: u8) bool {
         .haiku => false,
     };
 }
+
+/// The aliases Claude Code's model picker offers. Which version one runs is
+/// Claude Code's choice, so the name has none.
+const Alias = enum {
+    opus,
+    sonnet,
+    haiku,
+    fable,
+    opusplan,
+
+    fn model(alias: Alias, reported: []const u8, million: bool) Model {
+        const name = switch (alias) {
+            .opus => "Opus",
+            .sonnet => "Sonnet",
+            .haiku => "Haiku",
+            .fable => "Fable",
+            .opusplan => "Opus Plan Mode",
+        };
+        var buf: [Name.capacity]u8 = undefined;
+        const full = if (million) std.fmt.bufPrint(&buf, "{s} (1M context)", .{name}) catch name else name;
+        return .{ .id = .ascii(reported), .name = .ascii(full) };
+    }
+};
 
 fn region(prefix: []const u8) bool {
     if (prefix.len == 0) return false;
@@ -211,12 +236,16 @@ test "ids resolve to the names Claude Code and Codex show, across provider spell
         .{ "gpt-5.5", "gpt-5.5", "GPT-5.5", 0 },
         .{ "gpt-5.3-codex-spark", "gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", 0 },
         .{ "codex-auto-review", "codex-auto-review", "Codex Auto Review", 0 },
+        // Claude Code's aliases name no version.
+        .{ "opus", "opus", "Opus", 0 },
+        .{ "sonnet[1m]", "sonnet[1m]", "Sonnet (1M context)", 0 },
+        .{ "opusplan", "opusplan", "Opus Plan Mode", 0 },
         // Unknown shapes keep their id and have no name.
         .{ "google/gemma-4-26b-a4b-it", "google/gemma-4-26b-a4b-it", "", 0 },
         .{ "<synthetic>", "<synthetic>", "", 0 },
         .{ "gpt-oss-120b", "gpt-oss-120b", "", 0 },
         .{ "claude-opus-4-5-experimental", "claude-opus-4-5-experimental", "", 0 },
-        .{ "opus", "opus", "", 0 },
+        .{ "best", "best", "", 0 },
         .{ "", "", "", 0 },
     };
     for (cases) |case| {
