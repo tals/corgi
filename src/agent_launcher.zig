@@ -224,18 +224,26 @@ pub const Menu = struct {
         }
         return .{ .x = @min(side.width -| 10, cols - width), .y = @min(side.middle() + 1, rows - height), .w = width, .h = height };
     }
+    /// Every row's usage shares one grid, so limits and resets line up.
+    fn usageGrid(m: *const Menu) usage_cell.Grid {
+        var grid: usage_cell.Grid = .{};
+        for (std.enums.values(Row)) |row| {
+            if (!m.shown(row) or (row.agent() == null and row.custom() == null)) continue;
+            grid.add(m.usageCell(row));
+        }
+        return grid;
+    }
     fn columnSizes(m: *const Menu) struct { preferred: [6]u16, usage_minimum: u16 } {
         var widths: [6]u16 = undefined;
         for (headings, &widths) |heading, *size| size.* = @intCast(sidebar.displayWidth(heading));
-        var usage_minimum = widths[5];
         for (std.enums.values(Row)) |row| {
             if (!m.shown(row) or (row.agent() == null and row.custom() == null)) continue;
             const values = if (row.custom()) |i| m.customCells(i) else m.cells(row.agent().?);
             for (values, widths[0..5]) |text, *size| size.* = @max(size.*, @as(u16, @intCast(sidebar.displayWidth(text))));
-            const cell = m.usageCell(row);
-            widths[5] = @max(widths[5], @as(u16, @intCast(cell.preferredWidth())));
-            usage_minimum = @max(usage_minimum, @as(u16, @intCast(cell.minimumWidth())));
         }
+        const grid = m.usageGrid();
+        const usage_minimum = @max(widths[5], @as(u16, @intCast(grid.minimumWidth())));
+        widths[5] = @max(widths[5], @as(u16, @intCast(grid.preferredWidth())));
         for (&widths, 0..) |*size, column| size.* += if (column == 5) 1 else 2;
         widths[0] += 4; // Left shortcut keycap and its following space.
         return .{ .preferred = widths, .usage_minimum = usage_minimum + 1 };
@@ -562,6 +570,7 @@ pub const Menu = struct {
             try sidebar.writeEllipsis(w, label, room);
             heading_x += width;
         }
+        const grid = m.usageGrid();
         for (0..m.count()) |visible| {
             const current = m.rowAt(visible).?;
             const selected = current == m.selected and !m.resume_view.focused;
@@ -618,7 +627,7 @@ pub const Menu = struct {
                 if (column == 1 and yolo) try w.writeAll(comptime "\x1b[1m" ++ palette.fg(.strong));
                 const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
                 if (column == 5) {
-                    try m.usageCell(current).write(w, room, style, selected);
+                    try m.usageCell(current).write(w, grid, room, style, selected);
                 } else try sidebar.writeEllipsis(w, values[column], room);
                 try w.writeAll("\x1b[24m");
                 if (column == 1 and yolo) try w.writeAll(style);
@@ -756,10 +765,12 @@ test "single-line limit groups survive narrow terminal rendering" {
         const rendered = try host.text();
         defer a.free(rendered);
         var found: [2]usize = .{ 0, 0 };
+        var rows: [2][]const u8 = undefined;
         var lines = std.mem.splitScalar(u8, rendered, '\n');
         while (lines.next()) |line| {
             if (std.mem.indexOf(u8, line, "Codex") != null) {
                 found[0] += 1;
+                rows[0] = line;
                 try std.testing.expect(std.mem.indexOf(u8, line, "7d") != null);
                 try std.testing.expect(std.mem.indexOf(u8, line, "48%") != null);
                 try std.testing.expect(std.mem.indexOf(u8, line, "6d 18h") != null);
@@ -767,12 +778,20 @@ test "single-line limit groups survive narrow terminal rendering" {
             }
             if (std.mem.indexOf(u8, line, "Claude Code") != null) {
                 found[1] += 1;
+                rows[1] = line;
                 for ([_][]const u8{ "5h", "17%", "1h 39m", " │ 7d", "35%", "1d 15h" }) |value|
                     try std.testing.expect(std.mem.indexOf(u8, line, value) != null);
             }
             try std.testing.expect(sidebar.displayWidth(line) <= cols);
         }
         try std.testing.expectEqual([2]usize{ 1, 1 }, found);
+        // Codex reports only a weekly limit; it sits under Claude's.
+        for ([_][]const u8{ "7d", "·" }) |needle| {
+            var columns: [2]usize = undefined;
+            for (rows, &columns) |line, *column|
+                column.* = sidebar.displayWidth(line[0..std.mem.lastIndexOf(u8, line, needle).?]);
+            try std.testing.expectEqual(columns[0], columns[1]);
+        }
         const b = menu.bounds(cols, 24, side);
         const x = b.x + 3 + menu.columns(b.w)[0];
         try std.testing.expectEqual(Provider.codex, menu.yoloHit(cols, 24, side, x, b.y + 2).?);
@@ -785,7 +804,7 @@ test "viewer expires a delivered usage reading after ten minutes" {
     const option = menu.preview.options.getPtr(.codex);
     option.limits = .{ .windows = .{ null, .{ .minutes = 10080, .used = 48 } } };
     option.usage_fetched_at = os.timestamp() - 590;
-    try std.testing.expectEqual(@as(usize, 1), menu.usageCell(.codex).len);
+    try std.testing.expect(menu.usageCell(.codex).limited());
     option.usage_fetched_at = os.timestamp() - metadata.usage_max_age;
     try std.testing.expectEqualStrings("Unavailable · last success 10m+ ago", menu.usageCell(.codex).fallback.text());
     option.limits = .metered;
