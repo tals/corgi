@@ -409,7 +409,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
       ["tool", "🔧"],
     ]) {
       await this.command("pane.input", { target: pane, data: command + "\r" });
-      await this.agent_frame("codex", "●", icon);
+      await this.agent_frame("codex", "▶", icon);
     }
     await this.command("pane.input", { target: pane, data: "stop\r" });
     await this.agent_frame("codex", "○", "");
@@ -424,7 +424,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     await this.command("pane.input", { target: pane, data: "ready\r" });
     await this.agent_frame("codex", "○", "", PALETTE.muted);
     await this.command("pane.input", { target: pane, data: "work\r" });
-    await this.agent_frame("codex", "●", "thinking", PALETTE.accent);
+    await this.agent_frame("codex", "▶", "thinking", PALETTE.accent);
   }
   async test_bun_agent_detection() {
     const script = join(

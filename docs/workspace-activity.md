@@ -2,9 +2,9 @@
 
 The workspace's second line uses the same colors and attention icons as the agent list:
 
-- Yellow `N●`: working agents; green `○` with no number when none are working. The indicator uses a three-column slot so idle, single-digit, and two-digit counts align.
-- Red, bold `N●`: agents blocked or needing input.
-- Teal, bold `N unread`: unread agents.
+- Green, bold `▶N`: working agents; muted `○` with no number when none are working. The indicator uses a three-column slot so idle, single-digit, and two-digit counts align.
+- Amber, bold `●N`: agents blocked or needing input.
+- Green, bold `N unread →`: unread agents.
 - `N⚒`: reported tool calls while away.
 
 Tool counts are right-aligned and stay visible even at zero. Token usage is still tracked in workspace stats but is not shown in the sidebar. The unread count remains visible, including zero, when away statistics appear. Working counts are omitted when space is tight. The full unread label and needs-input count take priority. All counters stay within the two-line workspace entry. Working, attention, and unread are live agent counts; tool and token counters clear when a focused viewer opens the workspace and stay clear while any focused viewer watches it. An unfocused window or detached viewer does not suppress activity when the terminal reports focus changes. If another viewer still reports the workspace as focused, its counters remain cleared. Counters are shared across viewers and saved with runtime checkpoints.

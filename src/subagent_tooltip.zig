@@ -34,9 +34,9 @@ const Tone = enum {
     border,
     /// Spark cells for time still ahead in a window.
     remaining,
-    /// Live: usage that is fine, the current step, a finished agent's check.
+    /// Live: usage that is fine, the current step.
     live,
-    /// A working agent's dot.
+    /// A working agent's arrow, an unread agent's dot.
     working,
     /// Needs the user: an agent waiting for input, usage past 80%.
     warm,
@@ -221,9 +221,9 @@ fn status(agent: protocol.Agent, stale: bool) Status {
     if (stale) return .{ .icon = "?", .label = "Last seen", .tone = .muted };
     if (agent.state == .blocked or agent.attention == .needs_input) return .{ .icon = "●", .label = "Needs input", .tone = .warm };
     // Finished and not yet seen, as the sidebar shows it.
-    if (agent.attention == .finished and agent.state != .working and agent.state != .done) return .{ .icon = "✓", .label = "Finished", .tone = .live };
+    if (agent.attention == .finished and agent.state != .working and agent.state != .done) return .{ .icon = "●", .label = "Finished", .tone = .working };
     return switch (agent.state) {
-        .working => .{ .icon = "●", .label = "Working", .tone = .working },
+        .working => .{ .icon = "▶", .label = "Working", .tone = .working },
         .idle => .{ .icon = "○", .label = "Idle", .tone = .muted },
         .done => .{ .icon = "○", .label = "Ended", .tone = .faint },
         .initializing => .{ .icon = "◌", .label = "Starting", .tone = .muted },
@@ -352,7 +352,7 @@ const Card = struct {
         const marker: Status = if (child.agent.attention == .needs_input or child.agent.state == .blocked)
             .{ .icon = "●", .label = "Needs input", .tone = .warm }
         else switch (child.agent.state) {
-            .working => .{ .icon = "●", .label = "Working", .tone = .working },
+            .working => .{ .icon = "▶", .label = "Working", .tone = .working },
             .done => .{ .icon = "✓", .label = "Done", .tone = .muted },
             .idle => .{ .icon = "○", .label = "Idle", .tone = .muted },
             else => status(child.agent, false),
@@ -533,17 +533,17 @@ fn overviewAgent(card: Card, row: usize, ranked_row: Ranked, reference: ?prices.
         "?"
     else
         try std.fmt.bufPrint(&equivalent_text, "{s}{s}", .{ if (ranked_row.value.partial) "≥" else "", compact(&tokens, ranked_row.equivalent) });
-    // Corgi's own row keeps a muted name; only a working dot is lit.
+    // Corgi's own row keeps a muted name; only a working arrow is lit.
     const item = ranked_row.conversation orelse {
         try card.overviewRow(
             row,
-            if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
+            if (system_working) "▶ Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
             model,
             ranked_row.value,
             equivalent,
             .muted,
         );
-        if (system_working) try card.w.print("\x1b[{d};{d}H{s}{s}●", .{ row + 1, card.x + 4, base, Tone.working.ansi() });
+        if (system_working) try card.w.print("\x1b[{d};{d}H{s}{s}▶", .{ row + 1, card.x + 4, base, Tone.working.ansi() });
         return;
     };
     const agent_status = status(item.agent, false);
@@ -1037,6 +1037,7 @@ test "compact child rows prioritize activity and color only the status and secon
         const glyph = switch (state) {
             .done => "✓",
             .idle => "○",
+            .working => "▶",
             else => "●",
         };
         try std.testing.expect(std.mem.indexOf(u8, frame, try std.fmt.bufPrint(&marker, "{s}{s}", .{ tone.ansi(), glyph })) != null);
@@ -1260,7 +1261,7 @@ test "overview excludes detached history and shows Corgi activity" {
         defer output.deinit();
         try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
         const frame = output.written();
-        for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)" }) |text|
+        for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "▶ Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
         for ([_][]const u8{ "Detached history", "Detached child", "Stale child", "Ended session", "more agents" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) == null);
@@ -1453,12 +1454,12 @@ test "sparks ghost unobserved slots and floor the time left" {
     try std.testing.expect(std.mem.indexOf(u8, high.written(), try std.fmt.bufPrint(&figure, "{s}100%", .{Tone.hot.ansi()})) != null);
 }
 
-test "a finished agent the user has not seen shows a check" {
+test "a finished agent the user has not seen shows a dot" {
     var agent: protocol.Agent = .{ .provider = .codex, .state = .idle, .attention = .finished, .session = "s", .activity = "", .cwd = "", .tool_active = false };
     const finished = status(agent, false);
-    try std.testing.expectEqualStrings("✓", finished.icon);
+    try std.testing.expectEqualStrings("●", finished.icon);
     try std.testing.expectEqualStrings("Finished", finished.label);
-    try std.testing.expectEqual(Tone.live, finished.tone);
+    try std.testing.expectEqual(Tone.working, finished.tone);
     agent.state = .working;
     try std.testing.expectEqualStrings("Working", status(agent, false).label);
 }

@@ -36,9 +36,9 @@ use `muted` or brighter. Tests check this.
 
 | State | Glyph | Token |
 |---|---|---|
-| Working | ● | `accent`, bold |
+| Working | ▶ | `accent`, bold |
 | Needs input | ● | `warm`, bold |
-| Finished, unread | ✓ | `accent` |
+| Finished, unread | ● | `accent`, bold; the name is `strong`, bold |
 | Idle | ○ | `muted` |
 | Starting | ◌ | `muted` |
 | Ended | ○ | `faint` |

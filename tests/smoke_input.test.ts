@@ -168,9 +168,9 @@ class SmokeInput extends Runtime {
     this.assertNotIn("SessionStart", screen.join("\n"));
     this.assertNotIn("Alpha", screen.map((r) => r.slice(0, 27)).join("\n"));
     await hook("UserPromptSubmit");
-    await this.agent_frame("codex", "●", "thinking", PALETTE.accent);
+    await this.agent_frame("codex", "▶", "thinking", PALETTE.accent);
     await hook("PreToolUse", { tool_name: "Bash" });
-    screen = await this.agent_frame("codex", "●", "🔧");
+    screen = await this.agent_frame("codex", "▶", "🔧");
     this.assertTrue((await this.panes())[0].tool_active);
     this.assertNotIn("Bash", screen.map((r) => r.slice(0, 27)).join("\n"));
     await hook("PreToolUse", { tool_name: "request_user_input" });
@@ -189,9 +189,9 @@ class SmokeInput extends Runtime {
     screen = await this.tab_frame("Renamed");
     this.assertNotIn("Renamed", screen.map((r) => r.slice(0, 27)).join("\n"));
     await hook("PostToolUse", { tool_name: "Bash" });
-    await this.agent_frame("codex", "●", "thinking");
+    await this.agent_frame("codex", "▶", "thinking");
     await hook("UserPromptSubmit");
-    await this.agent_frame("codex", "●", "thinking", PALETTE.accent);
+    await this.agent_frame("codex", "▶", "thinking", PALETTE.accent);
     await hook("Stop");
     await this.agent_frame("codex", "○", "", PALETTE.muted);
     await hook("SessionEnd");
@@ -421,7 +421,7 @@ class SmokeInput extends Runtime {
         tool_name: "Read",
       },
     });
-    screen = await this.agent_frame("claude", "●", "🔧");
+    screen = await this.agent_frame("claude", "▶", "🔧");
     this.assertEqual(
       (await this.session()).panes[0].agent.cwd,
       "/a/very/long/working/directory/backend",
@@ -438,7 +438,7 @@ class SmokeInput extends Runtime {
         tool_name: "Read",
       },
     });
-    await this.agent_frame("claude", "●", "thinking");
+    await this.agent_frame("claude", "▶", "thinking");
   }
   async test_sidebar_native_updates_and_selection_keep_approvals_pending() {
     await this.open_pane({ cwd: this.temp.name, command: "sleep 30" });
@@ -473,7 +473,7 @@ class SmokeInput extends Runtime {
       session: ident,
       message: { id: 900, result: { decision: "decline" } },
     });
-    await this.agent_frame("codex", "✓", "", PALETTE.accent);
+    await this.agent_frame("codex", "●", "", PALETTE.accent);
     await this.rpc({
       op: "native.send",
       session: ident,
@@ -510,22 +510,22 @@ class SmokeInput extends Runtime {
         );
       await send("tool-start");
       await count(1);
-      await this.agent_frame(provider, "●", "🔧");
+      await this.agent_frame(provider, "▶", "🔧");
       await send("tool-start", "b");
       await count(2);
       await send("tool-stop");
       await count(1);
       await this.write({ op: "size", cols: 80, rows: 24 });
-      await this.agent_frame(provider, "●", "🔧");
+      await this.agent_frame(provider, "▶", "🔧");
       await send("tool-stop", "b");
       await count(0);
-      await this.agent_frame(provider, "●", "thinking");
+      await this.agent_frame(provider, "▶", "thinking");
       await send("tool-start", "c");
       await count(1);
-      await this.agent_frame(provider, "●", "🔧");
+      await this.agent_frame(provider, "▶", "🔧");
       await send("turn-end");
       await count(0);
-      await this.agent_frame(provider, "✓", "", PALETTE.accent);
+      await this.agent_frame(provider, "●", "", PALETTE.accent);
       await send("tool-start", "d");
       await count(1);
       await send("exit");

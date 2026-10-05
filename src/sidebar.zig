@@ -87,14 +87,14 @@ pub const Entry = struct {
     }
 
     // The style guide's status glyphs; finished attention is the unseen-idle
-    // state. Corgi also retains ended native sessions. A `selected` row takes
-    // muted where the guide says faint.
-    fn indicator(e: Entry, selected: bool) struct { icon: []const u8, color: []const u8 } {
+    // state, and its name turns bold. Corgi also retains ended native
+    // sessions. A `selected` row takes muted where the guide says faint.
+    fn indicator(e: Entry, selected: bool) struct { icon: []const u8, color: []const u8, unread: bool = false } {
         const quiet = if (selected) palette.fg(.muted) else palette.fg(.faint);
         if (e.state == .done) return .{ .icon = "○", .color = quiet };
         if (e.state == .blocked or e.attention == .needs_input) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.warm) };
-        if (e.state == .working) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.accent) };
-        if (e.attention == .finished) return .{ .icon = "✓", .color = palette.fg(.accent) };
+        if (e.state == .working) return .{ .icon = "▶", .color = comptime "\x1b[1m" ++ palette.fg(.accent) };
+        if (e.attention == .finished) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.accent), .unread = true };
         if (e.state == .initializing) return .{ .icon = "◌", .color = palette.fg(.muted) };
         if (e.state == .idle) return .{ .icon = "○", .color = palette.fg(.muted) };
         return .{ .icon = "·", .color = quiet };
@@ -441,7 +441,7 @@ pub const View = struct {
             var text_buf: [96]u8 = undefined;
             var has_status = false;
             {
-                const text = if (ws.working == 0) "○" else try std.fmt.bufPrint(&text_buf, "●{s}", .{compactCount(&number_buf, ws.working)});
+                const text = if (ws.working == 0) "○" else try std.fmt.bufPrint(&text_buf, "▶{s}", .{compactCount(&number_buf, ws.working)});
                 if (displayWidth(text) + attention_width <= room) {
                     try statusPart(w, text, if (ws.working > 0) comptime "\x1b[1m" ++ palette.fg(.accent) else palette.fg(.muted), &room);
                     has_status = true;
@@ -586,7 +586,7 @@ pub const View = struct {
         var figure_buf: [8]u8 = undefined;
         const figure = contextFigure(&figure_buf, e, compacting, row_bg.rgb());
         const figure_width = if (figure) |f| displayWidth(f.text) else 0;
-        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) comptime "\x1b[1m" ++ palette.fg(.strong) else comptime "\x1b[22m" ++ palette.fg(.text) });
+        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (dot.unread or (grouped and e.focused)) comptime "\x1b[1m" ++ palette.fg(.strong) else comptime "\x1b[22m" ++ palette.fg(.text) });
         try writeEllipsis(w, provider, room -| (figure_width + @as(usize, if (figure_width > 0) 1 else 0)));
         try w.writeAll("\x1b[22m");
         if (figure) |f| {
@@ -684,7 +684,7 @@ pub const View = struct {
         const count_x = (v.width -| 2) -| displayWidth(count);
         var working_buf: [32]u8 = undefined;
         var attention_buf: [32]u8 = undefined;
-        const working = if (g.working > 0) try std.fmt.bufPrint(&working_buf, "{s}●", .{compactCount(&digits, g.working)}) else "";
+        const working = if (g.working > 0) try std.fmt.bufPrint(&working_buf, "{s}▶", .{compactCount(&digits, g.working)}) else "";
         const attention = if (g.attention > 0) try std.fmt.bufPrint(&attention_buf, "{s}●", .{compactCount(&digits, g.attention)}) else "";
         const both = working.len > 0 and attention.len > 0;
         const status_width = displayWidth(working) + displayWidth(attention) + @as(usize, if (both) 1 else 0);
@@ -1226,13 +1226,29 @@ test "subagent badge shares the second row without reserving empty space" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), entry.activity) != null);
 }
 
+test "an unread agent takes the bold dot and a bold name, and working takes the arrow" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var entry: Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .name = "Release notes", .provider = .codex, .state = .idle, .attention = .finished };
+    const view = View.init(100, 30, true, 0, 1);
+    const lit = comptime "\x1b[1m" ++ palette.fg(.accent);
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), lit ++ "●") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.strong) ++ "Release notes") != null);
+    output.clearRetainingCapacity();
+    entry.state = .working;
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), lit ++ "▶") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[22m" ++ palette.fg(.text) ++ "Release notes") != null);
+}
+
 test "workspace status uses agent colors and keeps usage on its second row" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
     const entries = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = false, .working = 1, .attention = 2, .unread = 3, .stats = .{ .tools = 12, .input = 1200, .output = 300, .tokens_known = true } }};
     try view.draw(&output.writer, &.{}, &entries);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[4;2H" ++ panel ++ "\x1b[22m\x1b[1m" ++ palette.fg(.accent) ++ "●1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[4;2H" ++ panel ++ "\x1b[22m\x1b[1m" ++ palette.fg(.accent) ++ "▶1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.warm) ++ " ●2") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.accent) ++ "3 unread →") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "⚒12") != null);
@@ -1241,7 +1257,7 @@ test "workspace status uses agent colors and keeps usage on its second row" {
     const empty = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = true }};
     try view.draw(&output.writer, &.{}, &empty);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "unread") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "●0") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "▶0") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "⚒0") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[4;2H" ++ active_meta ++ "\x1b[22m" ++ palette.fg(.muted) ++ "○") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "—") == null);
@@ -1718,7 +1734,7 @@ test "idle face replaces stale activity while working activity remains useful" {
         has_spinner = has_spinner or std.mem.indexOf(u8, output.written(), glyph) != null;
     }
     try std.testing.expect(has_spinner);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.accent) ++ "●") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.accent) ++ "▶") != null);
 }
 
 /// Warm while commits wait to be pushed, accent while pushing or just pushed, hot when it failed.
@@ -1949,7 +1965,7 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
     for (&rows) |*row| row.* = std.mem.trimEnd(u8, lines.next().?[0..@min(80, lines.peek().?.len)], " ");
     // The focused agent's rail turns heavy but stays continuous.
     const expected = [_][]const u8{
-        "▾ corgi ━━━━━━━━━━━━━ 1● 2 │",
+        "▾ corgi ━━━━━━━━━━━━━ 1▶ 2 │",
         "┣●  api refactor           │",
         "┃   Needs input            │",
         "╰○  release notes          │",
