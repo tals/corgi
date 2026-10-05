@@ -10,7 +10,7 @@ const BoundedText = @import("../bounded_text.zig").BoundedText;
 
 pub const Point = struct { at: i64, label: summary.Label, usage: usage.View };
 pub const Timeline = struct {
-    points: [4]Point = undefined,
+    points: [16]Point = undefined,
     len: usize = 0,
     baseline: usage.View = .{ .known = true },
     turn: BoundedText(160) = .{},
@@ -105,8 +105,8 @@ test "checkpoints partition own usage, coalesce repeated labels, and remain boun
     try std.testing.expectEqual(@as(u64, 10), timeline.pending(current).tokens.total());
     timeline.checkpoint("b", testing, current, 4000);
     try std.testing.expectEqual(@as(usize, 3), timeline.len);
-    for (0..8) |i| timeline.checkpoint("b", if (i % 2 == 0) reading else testing, current, @intCast(5000 + i));
-    try std.testing.expectEqual(@as(usize, 4), timeline.len);
+    for (0..timeline.points.len) |i| timeline.checkpoint("b", if (i % 2 == 0) reading else testing, current, @intCast(5000 + i));
+    try std.testing.expectEqual(timeline.points.len, timeline.len);
     try std.testing.expectEqual(@as(u64, 0), timeline.pending(current).tokens.total());
 }
 

@@ -62,6 +62,28 @@ const Tone = enum {
             .hot_cell => palette.fg(.hot),
         };
     }
+    fn token(tone: Tone) palette.Token {
+        return switch (tone) {
+            .text => .text,
+            .title, .strong => .strong,
+            .muted => .muted,
+            .faint => .faint,
+            .border => .line,
+            .remaining => .selected,
+            .live, .working => .accent,
+            .warm, .warm_cell => .warm,
+            .hot, .hot_cell => .hot,
+        };
+    }
+    /// The tone 45% of the way to the card's background, without bold.
+    fn faded(tone: Tone) []const u8 {
+        return switch (tone) {
+            inline else => |t| comptime blk: {
+                const c = palette.mix(t.token().rgb(), palette.Token.bg.rgb(), 45);
+                break :blk std.fmt.comptimePrint("\x1b[38;2;{d};{d};{d}m", .{ c[0], c[1], c[2] });
+            },
+        };
+    }
 };
 
 fn find(all: []const protocol.Conversation, id: ActorId) ?*const protocol.Conversation {
@@ -211,6 +233,12 @@ const Card = struct {
     w: *std.Io.Writer,
     x: usize,
     width: usize,
+    /// Text recedes toward the background: timeline rows older than the
+    /// latest five.
+    faded: bool = false,
+    fn ink(card: Card, tone: Tone) []const u8 {
+        return if (card.faded) tone.faded() else tone.ansi();
+    }
     fn backgroundTasks(card: Card, row: usize, tasks: background.View, budget: usize) !usize {
         if (budget < 2 or tasks.items.len == 0) return 0;
         const age = os.microTimestamp() - tasks.observed_at;
@@ -236,16 +264,16 @@ const Card = struct {
     fn line(card: Card, row: usize, left: []const u8, right: []const u8, left_tone: Tone, right_tone: Tone) !void {
         const right_width = sidebar.displayWidth(right);
         const left_room = (card.width - 6) -| (right_width + @as(usize, if (right_width > 0) 2 else 0));
-        try card.w.print("\x1b[{d};{d}H{s}{s}", .{ row + 1, card.x + 4, base, left_tone.ansi() });
+        try card.w.print("\x1b[{d};{d}H{s}{s}", .{ row + 1, card.x + 4, base, card.ink(left_tone) });
         var clean: [512]u8 = undefined;
         try sidebar.writeEllipsis(card.w, if (left.len == 0) "" else sidebar.directoryLabel(&clean, left, null), left_room);
-        try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + card.width - 2 - right_width, base, right_tone.ansi(), right });
+        try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + card.width - 2 - right_width, base, card.ink(right_tone), right });
     }
     fn cell(card: Card, row: usize, offset: usize, width: usize, text: []const u8, tone: Tone, right: bool) !void {
         var clean: [512]u8 = undefined;
         const label = sidebar.directoryLabel(&clean, text, null);
         const padding = if (right) width -| sidebar.displayWidth(label) else 0;
-        try card.w.print("\x1b[{d};{d}H{s}{s}", .{ row + 1, card.x + 4 + offset + padding, base, tone.ansi() });
+        try card.w.print("\x1b[{d};{d}H{s}{s}", .{ row + 1, card.x + 4 + offset + padding, base, card.ink(tone) });
         try sidebar.writeEllipsis(card.w, label, width - padding);
     }
     /// The context meter takes at most half the subtitle line: narrow cards
@@ -355,7 +383,7 @@ const Card = struct {
         try card.cell(row, 0, card.textWidth(), try std.fmt.bufPrint(&text, "{s}  {s}  {s}", .{ stamp, icon, label }), if (live) .strong else .muted, false);
         try card.tokenColumns(row, value, live, if (!value.known) .muted else if (live) .title else .strong);
         const time: Tone = if (live) .live else .faint;
-        try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, time.ansi(), stamp, row + 1, card.x + 11, base, dot.ansi(), icon });
+        try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, card.ink(time), stamp, row + 1, card.x + 11, base, card.ink(dot), icon });
     }
     fn timeline(card: Card, row: usize, root: *const protocol.Conversation, agent: protocol.Agent, nodes: usize, pending: bool) !void {
         // A working agent without a summary has no current named phase. Keep
@@ -370,6 +398,9 @@ const Card = struct {
         try card.cell(row, (divider_width - label.len) / 2, label.len, label, .muted, false);
         const completed = history_nodes - @intFromBool(show_pending);
         const history_end = root.timeline.points.len - @intFromBool(pending);
+        // The latest five rows, the current one included, keep their colors.
+        var older = card;
+        older.faded = true;
         for (root.timeline.points[history_end - completed .. history_end], 0..) |point, i| {
             const seconds: time_c.time_t = @divFloor(point.at, 1000);
             var local: time_c.struct_tm = undefined;
@@ -378,7 +409,7 @@ const Card = struct {
                 try std.fmt.bufPrint(&stamp, "{d:0>2}:{d:0>2}", .{ @as(u8, @intCast(local.tm_hour)), @as(u8, @intCast(local.tm_min)) })
             else
                 "--:--";
-            try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .faint);
+            try (if (i + 5 < nodes) older else card).drawPoint(row + 1 + i, time, point.activity, point.usage, false, .faint);
         }
         if (show_pending) {
             const active = agent.state == .working and !unreported;
@@ -891,7 +922,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     const model = if (children_available) Model.init(all, parent) else Model{ .total = root.usage };
     const width: usize = @min(88, cols);
     const pending = root.timeline.points.len > 0;
-    const timeline_nodes: usize = @min(4, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0 and !root_agent.compacting));
+    const timeline_nodes: usize = @min(16, root.timeline.points.len + @intFromBool(root_agent.state == .working and root_agent.activity.len == 0 and !root_agent.compacting));
     const timeline_height = if (timeline_nodes > 0) timeline_nodes + 1 else 0;
     const child_footer = children_available and model.children == 0;
     const task_height = if (root.background_tasks.items.len > 0) @min(8, root.background_tasks.items.len + 1 + @as(usize, @intFromBool(root.background_tasks.truncated))) else 0;
@@ -1580,6 +1611,50 @@ fn screenLines(all: []const protocol.Conversation, entry: sidebar.Entry, cols: u
 fn lineWith(lines: []const []const u8, needle: []const u8) ?usize {
     for (lines, 0..) |line, i| if (std.mem.indexOf(u8, line, needle) != null) return i;
     return null;
+}
+
+test "the card shows sixteen recent phases when the terminal has room" {
+    var labels: [16][16]u8 = undefined;
+    var points: [16]protocol.Conversation.ActivityPoint = undefined;
+    for (&points, &labels, 0..) |*point, *label, i| point.* = .{
+        .at = @intCast(1000 * (i + 1)),
+        .activity = try std.fmt.bufPrint(label, "Phase {d:0>2}", .{i + 1}),
+        .usage = .{ .known = true },
+    };
+    const all = [_]protocol.Conversation{.{
+        .id = @enumFromInt(1),
+        .agent = .{ .provider = .codex, .state = .working, .attention = .none, .name = "long run", .session = "s", .activity = "Phase 16", .cwd = "", .tool_active = false },
+        .children_observed_at = os.microTimestamp(),
+        .timeline = .{ .points = &points, .pending = .{ .known = true } },
+    }};
+    const entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .name = "long run", .provider = .codex, .state = .working, .attention = .none };
+    var lines: [30][]const u8 = undefined;
+    const text = try screenLines(&all, entry, 100, &lines);
+    defer os.allocator.free(text);
+    var name: [16]u8 = undefined;
+    for (1..17) |i| try std.testing.expect(lineWith(&lines, try std.fmt.bufPrint(&name, "Phase {d:0>2}", .{i})) != null);
+}
+
+test "timeline rows older than the latest five recede toward the background" {
+    var labels: [8][16]u8 = undefined;
+    var points: [8]protocol.Conversation.ActivityPoint = undefined;
+    for (&points, &labels, 0..) |*point, *label, i| point.* = .{
+        .at = @intCast(1000 * (i + 1)),
+        .activity = try std.fmt.bufPrint(label, "Phase {d:0>2}", .{i + 1}),
+        .usage = .{ .known = true, .tokens = .{ .input = 1000 } },
+    };
+    const root: protocol.Conversation = .{ .id = @enumFromInt(1), .agent = .{ .provider = .codex, .state = .working, .attention = .none, .session = "s", .activity = "Phase 08", .cwd = "", .tool_active = false }, .timeline = .{ .points = &points, .pending = .{ .known = true } } };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try (Card{ .w = &output.writer, .x = 0, .width = 88 }).timeline(0, &root, root.agent, points.len, true);
+    const frame = output.written();
+    var name: [16]u8 = undefined;
+    for (1..9) |i| {
+        const at = std.mem.indexOf(u8, frame, try std.fmt.bufPrint(&name, "Phase {d:0>2}", .{i})).?;
+        const color = frame[std.mem.lastIndexOf(u8, frame[0..at], "\x1b[38;2;").?..];
+        const tone: []const u8 = if (i <= 3) Tone.muted.faded() else if (i == 8) Tone.strong.ansi() else Tone.muted.ansi();
+        try std.testing.expect(std.mem.startsWith(u8, color, tone));
+    }
 }
 
 test "the subtitle pairs provider and model with the context meter, and activity moves below until there is a timeline" {
