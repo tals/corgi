@@ -254,18 +254,32 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.assertTrue((await this.rpc({ op: "ping" })).ok);
   }
   async test_hook_binary_silent_and_configuration_valid() {
-    const pane = (await this.open_pane({ cwd: this.temp.name })).pane;
-    const payload = JSON.stringify({
-      hook_event_name: "UserPromptSubmit",
-      session_id: "session",
-    });
-    const result = await run([EXE, "hook", "claude"], {
-      env: { ...this.env, CORGI_PANE: String(pane) },
-      input: payload,
-      timeout: 3000,
-    });
-    this.assertEqual([result.code, result.stdout, result.stderr], [0, "", ""]);
-    await this.until(async () => (await this.panes())[0].state === "working");
+    // Run the hook inside the pane, as Claude does. Spawned from Bun, its
+    // ancestry would include whatever runs the tests, and a background
+    // Claude session there makes the hook count as background.
+    const [input, out, err, code] = ["input", "out", "err", "code"].map(
+      (name) => join(this.temp.name, `hook-${name}`),
+    );
+    writeFileSync(
+      input,
+      JSON.stringify({
+        hook_event_name: "UserPromptSubmit",
+        session_id: "session",
+      }),
+    );
+    const pane = (
+      await this.open_pane({
+        cwd: this.temp.name,
+        command: `${quote(EXE)} hook claude <${quote(input)} >${quote(out)} 2>${quote(err)}; echo $? >${quote(code)}; exec /bin/sh`,
+      })
+    ).pane;
+    await this.until(() => existsSync(code) && file(code).endsWith("\n"));
+    this.assertEqual([file(code), file(out), file(err)], ["0\n", "", ""]);
+    await this.until(
+      async () =>
+        (await this.panes()).find((p: any) => p.id === pane)?.state ===
+        "working",
+    );
     for (const provider of ["claude", "codex"]) {
       const config = JSON.parse(await this.run_cli("hooks", provider));
       this.assertIn("PermissionRequest", config.hooks);

@@ -167,6 +167,7 @@ export class Runtime extends TestCase {
       TERM_PROGRAM: "ghostty",
     };
     delete this.env.CODEX_THREAD_ID;
+    delete this.env.CLAUDE_CODE_SESSION_KIND;
     delete this.env.CORGI_PANE;
     Object.assign(this.env, this.extraEnv);
     const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
