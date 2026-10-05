@@ -710,7 +710,9 @@ test "conversations sit below the agents and their rows hit-test" {
     const first_line = b.y + 7;
     try std.testing.expectEqual(@as(?Row, null), menu.hit(120, 40, side, b.x + 2, first_line));
     try std.testing.expectEqual(@as(usize, 0), menu.resumeHit(120, 40, side, b.x + 2, first_line).?.row);
-    try std.testing.expectEqual(@as(usize, 2), menu.resumeHit(120, 40, side, b.x + 2, first_line + 2).?.row);
+    // "More" sits below a gap.
+    try std.testing.expect(menu.resumeHit(120, 40, side, b.x + 2, first_line + 2) == null);
+    try std.testing.expectEqual(@as(usize, 2), menu.resumeHit(120, 40, side, b.x + 2, first_line + 3).?.row);
     try std.testing.expect(menu.resumeHit(120, 40, side, b.x + 2, first_line - 1) == null);
     try std.testing.expect(b.h >= menu.rowsHeight());
     menu.resume_view.expand();

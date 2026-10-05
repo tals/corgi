@@ -342,10 +342,11 @@ pub const View = struct {
         const title = if (room -| folder >= 70) @max(30, (room - folder) * 2 / 5) else @min(room -| folder, @max(@as(u16, 24), (room -| folder) * 3 / 5));
         return .{ .title = title, .folder = folder, .last = room -| folder -| title -| 2 };
     }
-    /// Rows the collapsed list takes, its heading included.
+    /// Rows the collapsed list takes, its heading and the gap above the
+    /// "more" row included.
     pub fn collapsedHeight(v: *const View, c: Context) u16 {
         var storage: [max_lines]Line = undefined;
-        return @intCast(1 + v.lines(c, &storage).len);
+        return @intCast(2 + v.lines(c, &storage).len);
     }
 
     /// The collapsed list from terminal row `y`, inside a border at column
@@ -366,7 +367,8 @@ pub const View = struct {
         try w.print("\x1b[{d};{d}HActive", .{ y, x + width - 3 - 6 });
         const at = v.index(c, rows);
         for (rows, 0..) |line, k| {
-            try v.drawLine(w, c, line, rows, v.focused and at == k, startsRun(c, rows, k, 0), x, y + 1 + @as(u16, @intCast(k)), width, cols);
+            const row = y + 1 + @as(u16, @intCast(k)) + @intFromBool(line == .more);
+            try v.drawLine(w, c, line, rows, v.focused and at == k, startsRun(c, rows, k, 0), x, row, width, cols);
         }
     }
     /// The expanded list in `area`, terminal coordinates inside the border.
@@ -457,12 +459,12 @@ pub const View = struct {
                 try w.splatByteAll(' ', width -| 3);
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, if (selected) "›" else " " });
                 // The rail above runs on, dashed, into the conversations left out.
-                if (n > 0) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row, x + 3, rail(selected), style });
-                try w.print("\x1b[{d};{d}H", .{ row, x + 3 + 9 });
-                if (n > 0) try w.print("Show {d} more…", .{n}) else try w.writeAll("Search every folder…");
-                try w.print("\x1b[{d};{d}H", .{ row, x + width - 3 - 10 });
+                if (n > 0) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row - 1, x + 3, panel, style });
+                // In the agents' keycap column.
+                try w.print("\x1b[{d};{d}H", .{ row, x + 3 });
                 try writeKey(w, "/", style);
-                try w.writeAll(" search");
+                try w.writeAll(if (selected) palette.fg(.muted) else dim);
+                if (n > 0) try w.print(" Search {d} agent{s}", .{ n, if (n == 1) "" else "s" }) else try w.writeAll(" Search every folder");
             },
             .entry, .open => |i| {
                 const e = &c.history.entries[i];
@@ -525,7 +527,10 @@ pub const View = struct {
     pub fn collapsedHit(v: *const View, c: Context, line: usize) ?usize {
         var storage: [max_lines]Line = undefined;
         const rows = v.lines(c, &storage);
-        return if (line < rows.len and Key.of(c, rows[line]) != null) line else null;
+        // The "more" row, last, sits below a gap.
+        if (line + 1 == rows.len) return null;
+        const i = if (line == rows.len) line - 1 else line;
+        return if (i < rows.len and Key.of(c, rows[i]) != null) i else null;
     }
 };
 
@@ -645,6 +650,11 @@ test "collapsed shows this folder's newest closed conversations, then more" {
     try std.testing.expectEqual(@as(u16, 4), rows[1].entry);
     // The search starts on the workspace, so c counts among the rest.
     try std.testing.expectEqual(@as(u16, 2), rows[collapsed_rows].more);
+    // A gap sits above the "more" row.
+    try std.testing.expectEqual(@as(?usize, collapsed_rows - 1), v.collapsedHit(c, collapsed_rows - 1));
+    try std.testing.expectEqual(@as(?usize, null), v.collapsedHit(c, collapsed_rows));
+    try std.testing.expectEqual(@as(?usize, collapsed_rows), v.collapsedHit(c, collapsed_rows + 1));
+    try std.testing.expectEqual(@as(?usize, null), v.collapsedHit(c, collapsed_rows + 2));
     try std.testing.expect(v.move(c, rows, 10));
     try std.testing.expect(v.entry(c, rows) == null);
     try std.testing.expect(v.move(c, rows, -10));
