@@ -433,6 +433,7 @@ pub const Controller = struct {
                         .cwd = if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd,
                         .tool_active = p.agent.tool_active,
                         .compacting = p.agent.compacting,
+                        .paused = p.agent.paused,
                         .subagents = p.agent.subagents,
                         .unread = p.agent.observation.unread(),
                         .activity = p.agent.activity,

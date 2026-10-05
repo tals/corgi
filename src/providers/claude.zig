@@ -52,9 +52,37 @@ pub const Claude = struct {
     /// The kinds of in-flight work a Stop hook's `background_tasks` lists
     /// that Corgi reads (the entry's `type` field).
     pub const TaskType = enum { shell, subagent };
+    /// How a background task ended, as its notification says.
+    pub const TaskStatus = enum { completed, failed, killed, stopped };
     /// A transcript JSONL line's `type`. The dashed kinds name the
-    /// conversation or the session it continued in.
-    pub const TranscriptLine = enum { assistant, user, system, attachment, @"agent-name", @"custom-title", @"ai-title", @"continued-in" };
+    /// conversation or the session it continued in; a queue operation
+    /// records a message queued for the conversation, a task's notice among them.
+    pub const TranscriptLine = enum { assistant, user, system, attachment, @"agent-name", @"custom-title", @"ai-title", @"continued-in", @"queue-operation" };
+    /// A task's notice in Claude's `<task-notification>` envelope: which task,
+    /// and how it ended, for the notice that says so.
+    pub const TaskNotice = struct {
+        id: []const u8,
+        status: ?TaskStatus,
+
+        pub fn decode(content: []const u8) ?TaskNotice {
+            if (!std.mem.startsWith(u8, std.mem.trimStart(u8, content, " \t\r\n"), "<task-notification>")) return null;
+            // The fields come before the summary and the task's own output,
+            // which may print anything.
+            const end = std.mem.indexOf(u8, content, "<summary>") orelse std.mem.indexOf(u8, content, "<event>") orelse content.len;
+            const fields = content[0..end];
+            const status = element(fields, "status");
+            return .{
+                .id = element(fields, "task-id") orelse return null,
+                .status = if (status) |word| std.meta.stringToEnum(TaskStatus, word) else null,
+            };
+        }
+        fn element(text: []const u8, comptime name: []const u8) ?[]const u8 {
+            const open = "<" ++ name ++ ">";
+            const start = (std.mem.indexOf(u8, text, open) orelse return null) + open.len;
+            const len = std.mem.indexOf(u8, text[start..], "</" ++ name ++ ">") orelse return null;
+            return text[start..][0..len];
+        }
+    };
     /// A transcript line's envelope; field names are the wire keys.
     pub const Line = struct {
         type: ?TranscriptLine = null,
@@ -130,6 +158,22 @@ test "transcript lines decode their envelope and drop subagent lines" {
     , .{});
     defer subagent.deinit();
     try std.testing.expect(Claude.Line.decode(subagent.value) == null);
+}
+
+test "task notices name their task, and how it ended once it has" {
+    const cases = .{
+        .{ "<task-notification>\n<task-id>bepm4nu57</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Monitor \"probe\" stream ended</summary>\n<event>done</event>\n</task-notification>", "bepm4nu57", Claude.TaskStatus.completed },
+        .{ "<task-notification>\n<task-id>b8eldxmdy</task-id>\n<status>killed</status>\n<summary>Task \"probe\" was stopped by the user</summary>\n</task-notification>", "b8eldxmdy", Claude.TaskStatus.killed },
+        // An event of a Monitor that runs on, though its output prints a status.
+        .{ "<task-notification>\n<task-id>bu7xsz0ou</task-id>\n<summary>Monitor event: \"ci\"</summary>\n<event><status>killed</status></event>\n</task-notification>", "bu7xsz0ou", null },
+    };
+    inline for (cases) |case| {
+        const notice = Claude.TaskNotice.decode(case[0]).?;
+        try std.testing.expectEqualStrings(case[1], notice.id);
+        try std.testing.expectEqual(@as(?Claude.TaskStatus, case[2]), notice.status);
+    }
+    try std.testing.expect(Claude.TaskNotice.decode("check CI again") == null);
+    try std.testing.expect(Claude.TaskNotice.decode("<task-notification><summary>no id</summary></task-notification>") == null);
 }
 
 test "plans read as Claude's tier refines its kind" {

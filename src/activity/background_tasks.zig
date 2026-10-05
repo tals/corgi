@@ -107,6 +107,98 @@ pub const Children = struct {
     }
 };
 
+/// The Monitors a Claude conversation started and still runs. Each event a
+/// Monitor prints, and its own end, wakes the conversation.
+pub const Monitors = struct {
+    pub const limit = 4;
+    items: [limit]TaskId = @splat(.{}),
+    len: usize = 0,
+
+    /// A Monitor that has started; the oldest gives way when full.
+    pub fn add(m: *Monitors, id: []const u8) void {
+        const task = TaskId.init(id) catch return;
+        if (id.len == 0 or m.listed(id)) return;
+        if (m.len == limit) {
+            std.mem.copyForwards(TaskId, m.items[0 .. limit - 1], m.items[1..]);
+            m.len -= 1;
+        }
+        m.items[m.len] = task;
+        m.len += 1;
+    }
+    /// Keeps only the Monitors a Claude Stop lists as still running. A Stop
+    /// that lists no work at all keeps none.
+    pub fn retain(m: *Monitors, value: std.json.Value) void {
+        var kept: usize = 0;
+        for (m.items[0..m.len]) |task| {
+            if (!running(value, task.text())) continue;
+            m.items[kept] = task;
+            kept += 1;
+        }
+        m.len = kept;
+    }
+    /// Drops the Monitors the transcript reports ended.
+    pub fn drop(m: *Monitors, ended: *const Ended) void {
+        var kept: usize = 0;
+        for (m.items[0..m.len]) |task| {
+            if (ended.listed(task.text())) continue;
+            m.items[kept] = task;
+            kept += 1;
+        }
+        m.len = kept;
+    }
+    pub fn slice(m: *const Monitors) []const TaskId {
+        return m.items[0..m.len];
+    }
+    fn listed(m: *const Monitors, id: []const u8) bool {
+        for (m.slice()) |task| if (std.mem.eql(u8, task.text(), id)) return true;
+        return false;
+    }
+    fn running(value: std.json.Value, id: []const u8) bool {
+        if (value != .array) return false;
+        for (value.array.items) |item| {
+            if (claudeTask(item) == .shell and std.mem.eql(u8, common.str(item, "id"), id)) return true;
+        }
+        return false;
+    }
+};
+
+/// The Claude tasks a transcript last reported ended, newest last. The
+/// notice of a task stopped from Claude's task list wakes nothing, so the
+/// transcript is the one place it shows.
+pub const Ended = struct {
+    pub const limit = 16;
+    items: [limit]TaskId = @splat(.{}),
+    len: usize = 0,
+
+    pub fn add(e: *Ended, id: []const u8) void {
+        const task = TaskId.init(id) catch return;
+        if (id.len == 0 or e.listed(id)) return;
+        if (e.len == limit) {
+            std.mem.copyForwards(TaskId, e.items[0 .. limit - 1], e.items[1..]);
+            e.len -= 1;
+        }
+        e.items[e.len] = task;
+        e.len += 1;
+    }
+    pub fn listed(e: *const Ended, id: []const u8) bool {
+        for (e.items[0..e.len]) |task| if (std.mem.eql(u8, task.text(), id)) return true;
+        return false;
+    }
+};
+pub const TaskId = BoundedText(32);
+
+/// Whether a Claude Stop lists a one-shot wakeup (ScheduleWakeup, a /loop
+/// tick), which resumes the conversation when it fires. Recurring crons
+/// fire on and on, so the conversation is not waiting on them.
+pub fn claudeWakeup(session_crons: std.json.Value) bool {
+    if (session_crons != .array) return false;
+    for (session_crons.array.items) |cron| {
+        const recurring = common.field(cron, "recurring");
+        if (recurring == .bool and !recurring.bool) return true;
+    }
+    return false;
+}
+
 /// The kind of a Claude task that is still in flight, if Corgi reads it.
 fn claudeTask(item: std.json.Value) ?TaskType {
     const status = common.str(item, "status");
@@ -240,4 +332,57 @@ test "task labels summarize commands and bound provider prose" {
         const task = inventory.items[i];
         try std.testing.expectEqualStrings(example[2], task.label.text());
     }
+}
+
+test "a Claude Stop keeps the Monitors it lists as running, and the transcript ends them" {
+    var monitors: Monitors = .{};
+    monitors.add("m1");
+    monitors.add("m2");
+    monitors.add("m2");
+    monitors.add("");
+    try std.testing.expectEqual(@as(usize, 2), monitors.len);
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\[{"id":"m1","type":"shell","status":"running","command":"tail -F build.log"},
+        \\{"id":"m2","type":"shell","status":"completed"},
+        \\{"id":"b1","type":"shell","status":"running","command":"bun test"}]
+    , .{});
+    defer parsed.deinit();
+    monitors.retain(parsed.value);
+    try std.testing.expectEqual(@as(usize, 1), monitors.len);
+    try std.testing.expectEqualStrings("m1", monitors.slice()[0].text());
+    var ended: Ended = .{};
+    ended.add("b1");
+    monitors.drop(&ended);
+    try std.testing.expectEqual(@as(usize, 1), monitors.len);
+    ended.add("m1");
+    monitors.drop(&ended);
+    try std.testing.expectEqual(@as(usize, 0), monitors.len);
+    monitors.add("m1");
+    monitors.retain(.null);
+    try std.testing.expectEqual(@as(usize, 0), monitors.len);
+    for (0..Ended.limit + 1) |i| {
+        var id: [8]u8 = undefined;
+        const name = try std.fmt.bufPrint(&id, "t{d}", .{i});
+        ended.add(name);
+        monitors.add(name);
+    }
+    try std.testing.expectEqual(Ended.limit, ended.len);
+    try std.testing.expect(!ended.listed("b1") and !ended.listed("t0") and ended.listed("t1") and ended.listed("t16"));
+    try std.testing.expectEqual(Monitors.limit, monitors.len);
+    try std.testing.expectEqualStrings("t13", monitors.slice()[0].text());
+}
+
+test "only a one-shot cron is a wakeup the conversation waits on" {
+    const cases = .{
+        .{ "[{\"id\":\"c1\",\"schedule\":\"17 13 5 10 *\",\"recurring\":false,\"prompt\":\"check CI\"}]", true },
+        .{ "[{\"id\":\"c1\",\"schedule\":\"*/30 * * * *\",\"recurring\":true,\"prompt\":\"failsafe\"}]", false },
+        .{ "[{\"id\":\"c1\",\"schedule\":\"17 13 5 10 *\"}]", false },
+        .{ "[]", false },
+    };
+    inline for (cases) |case| {
+        const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, case[0], .{});
+        defer parsed.deinit();
+        try std.testing.expectEqual(case[1], claudeWakeup(parsed.value));
+    }
+    try std.testing.expect(!claudeWakeup(.null));
 }

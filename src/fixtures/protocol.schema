@@ -253,6 +253,7 @@ $.requests|hook.pane: u32
 $.requests|hook.seq: optional
 $.requests|hook.seq?: i64
 $.requests|hook.background: bool
+$.requests|hook.pid: i32
 $.requests|ping: {}
 $.requests|shutdown: {}
 $.requests|test.settle: {}
@@ -368,6 +369,7 @@ $.snapshot.conversations[].agent.activity: string
 $.snapshot.conversations[].agent.cwd: string
 $.snapshot.conversations[].agent.tool_active: bool
 $.snapshot.conversations[].agent.compacting: bool
+$.snapshot.conversations[].agent.paused: bool
 $.snapshot.ports.processes_available: bool
 $.snapshot.ports.ports_available: bool
 $.snapshot.ports.workspaces[].id: u32
@@ -494,6 +496,7 @@ $.snapshot.panes[].agent.activity: string
 $.snapshot.panes[].agent.cwd: string
 $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
+$.snapshot.panes[].agent.paused: bool
 $.snapshot.panes[].restoring: string
 $.snapshot.native_sessions[].agent: optional
 $.snapshot.native_sessions[].agent?.conversation: u32
@@ -517,6 +520,7 @@ $.snapshot.native_sessions[].agent?.activity: string
 $.snapshot.native_sessions[].agent?.cwd: string
 $.snapshot.native_sessions[].agent?.tool_active: bool
 $.snapshot.native_sessions[].agent?.compacting: bool
+$.snapshot.native_sessions[].agent?.paused: bool
 $.snapshot.native_sessions[].observation.source: enum unknown screen hook transcript protocol
 $.snapshot.native_sessions[].observation.pending_stop: bool
 $.snapshot.native_sessions[].observation.completed: u64

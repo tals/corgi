@@ -448,5 +448,122 @@ class Observations extends Runtime {
     this.assertEqual(seen.agent.state, "idle");
     this.assertEqual(seen.children, { "Lane A": "idle", "Lane B": "idle" });
   }
+  async test_claude_pauses_while_its_monitor_or_wakeup_can_wake_it() {
+    this.pane = (
+      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
+    ).pane;
+    // A stand-in for the Claude process that sends the hooks.
+    const script = join(this.temp.name, "claude");
+    writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.2; done\n", {
+      mode: 0o755,
+    });
+    const claude = Bun.spawn([script], { stdout: "ignore", stderr: "ignore" });
+    try {
+      const hook = (event: string, extra: Record<string, any> = {}) => {
+        this.seq = Math.max(this.seq + 1, Math.floor(Date.now() * 1000));
+        return this.rpc({
+          op: "hook",
+          pane: this.pane,
+          provider: "claude",
+          seq: this.seq,
+          pid: claude.pid,
+          event: {
+            hook_event_name: event,
+            session_id: "session",
+            transcript_path: this.log,
+            ...extra,
+          },
+        });
+      };
+      const record = (type: string, extra: Record<string, any> = {}) =>
+        appendFileSync(
+          this.log,
+          JSON.stringify({
+            type,
+            sessionId: "session",
+            timestamp: new Date().toISOString(),
+            ...extra,
+          }) + "\n",
+        );
+      let turns = 0;
+      const turn = async (stop: Record<string, any>) => {
+        await hook("UserPromptSubmit");
+        await hook("Stop", stop);
+        record("system", { subtype: "turn_duration" });
+        turns++;
+        await this.until(async () => (await this.state()).completed === turns);
+      };
+      const wakeup = {
+        background_tasks: [],
+        session_crons: [
+          { id: "c1", schedule: "0 9 * * *", recurring: false, prompt: "go" },
+        ],
+      };
+      const notice = (id: string, status: string) =>
+        record("queue-operation", {
+          operation: "enqueue",
+          content: `<task-notification>\n<task-id>${id}</task-id>\n<status>${status}</status>\n<summary>Task "probe" was stopped by the user</summary>\n</task-notification>`,
+        });
+      await hook("PostToolUse", {
+        tool_name: "Monitor",
+        tool_input: { command: "tail -F ci.log", description: "probe" },
+        tool_response: { taskId: "m1", timeoutMs: 1800000, persistent: false },
+      });
+      await turn({
+        background_tasks: [
+          {
+            id: "m1",
+            type: "shell",
+            status: "running",
+            command: "tail -F ci.log",
+          },
+          {
+            id: "b1",
+            type: "shell",
+            status: "running",
+            command: "bun run dev",
+          },
+        ],
+        session_crons: [],
+      });
+      const seen = await this.state();
+      this.assertEqual(
+        [seen.state, seen.unread, seen.paused],
+        ["idle", true, true],
+      );
+      // A settle checks the pause: Claude still runs, so it holds.
+      await this.settle();
+      this.assertTrue((await this.state()).paused);
+      // Another task ending leaves it; its Monitor stopped from Claude's task
+      // list, which queues a notice but wakes nothing, ends it.
+      notice("b1", "completed");
+      await this.settleTranscript();
+      this.assertTrue((await this.state()).paused);
+      notice("m1", "killed");
+      await this.until(async () => {
+        await this.settleTranscript();
+        return !(await this.state()).paused;
+      });
+      this.assertEqual((await this.state()).state, "idle");
+      // A wake the transcript shows ends it though no hook arrives.
+      await turn(wakeup);
+      this.assertTrue((await this.state()).paused);
+      record("user", {
+        message: { role: "user", content: "<task-notification>" },
+      });
+      await this.until(async () => {
+        await this.settleTranscript();
+        return !(await this.state()).paused;
+      });
+      // Claude exiting ends it.
+      await turn(wakeup);
+      this.assertTrue((await this.state()).paused);
+      claude.kill("SIGKILL");
+      await claude.exited;
+      await this.until(async () => !(await this.state()).paused);
+    } finally {
+      claude.kill("SIGKILL");
+    }
+  }
 }
 registerCase("Observations", Observations, { inherited: false });

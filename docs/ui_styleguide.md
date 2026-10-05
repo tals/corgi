@@ -39,6 +39,8 @@ use `muted` or brighter. Tests check this.
 | Working | ▶ | `accent`, bold |
 | Needs input | ● | `warm`, bold |
 | Finished, unread | ● | `accent`, bold; the name is `strong`, bold |
+| Paused, unread | ‖ | `accent`, bold; the name is `strong`, bold |
+| Paused | ‖ | `muted` |
 | Idle | ○ | `muted` |
 | Starting | ◌ | `muted` |
 | Ended | ○ | `faint` |

@@ -66,6 +66,8 @@ pub const Entry = struct {
     cwd: []const u8 = "",
     tool_active: bool = false,
     compacting: bool = false,
+    /// Idle until its Monitors or a wakeup it scheduled wake it.
+    paused: bool = false,
     unread: bool = false,
     activity: []const u8 = "",
     group: Group = .{},
@@ -91,6 +93,10 @@ pub const Entry = struct {
         if (e.state == .done) return .{ .icon = "○", .color = quiet };
         if (e.state == .blocked or e.attention == .needs_input) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.warm) };
         if (e.state == .working) return .{ .icon = "▶", .color = comptime "\x1b[1m" ++ palette.fg(.accent) };
+        if (e.state == .idle and e.paused) {
+            if (e.attention == .finished) return .{ .icon = "‖", .color = comptime "\x1b[1m" ++ palette.fg(.accent), .unread = true };
+            return .{ .icon = "‖", .color = palette.fg(.muted) };
+        }
         if (e.attention == .finished) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.accent), .unread = true };
         if (e.state == .initializing) return .{ .icon = "◌", .color = palette.fg(.muted) };
         if (e.state == .idle) return .{ .icon = "○", .color = palette.fg(.muted) };
@@ -1256,6 +1262,28 @@ test "an unread agent takes the bold dot and a bold name, and working takes the 
     try view.draw(&output.writer, &.{entry}, &.{});
     try std.testing.expect(std.mem.indexOf(u8, output.written(), lit ++ "▶") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[22m" ++ palette.fg(.text) ++ "Release notes") != null);
+}
+
+test "a paused agent takes the pause glyph, green while unread and gray once read" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var entry: Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .name = "Squash history", .provider = .claude, .state = .idle, .attention = .finished, .paused = true };
+    const view = View.init(100, 30, true, 0, 1);
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.accent) ++ "‖") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.strong) ++ "Squash history") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "●") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Paused") == null);
+    output.clearRetainingCapacity();
+    entry.attention = .none;
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.muted) ++ "‖") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "○") == null);
+    // Only an idle agent shows it.
+    output.clearRetainingCapacity();
+    entry.state = .working;
+    try view.draw(&output.writer, &.{entry}, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "‖") == null);
 }
 
 test "workspace status uses agent colors and keeps usage on its second row" {

@@ -363,6 +363,7 @@ fn agentView(state: *const agents.Agent, conversation: ActorId) protocol.Agent {
         .cwd = state.directory(),
         .tool_active = state.tool_active,
         .compacting = state.compacting,
+        .paused = state.paused,
     };
 }
 

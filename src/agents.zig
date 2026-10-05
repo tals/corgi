@@ -61,6 +61,9 @@ pub const Agent = struct {
     // actual prompt (or a protocol waiting flag) establishes human attention.
     permission_review: ?u8 = null,
     compacting: bool = false,
+    /// The turn ended while the agent waits to be woken by a Monitor it
+    /// started or a wakeup it scheduled. Only an idle agent shows it.
+    paused: bool = false,
     cwd: Path = .{},
     last_seq: i64 = 0,
     changed_at: i64 = 0,
@@ -173,6 +176,7 @@ pub const Agent = struct {
     pub fn abandonTurn(a: *Agent, now: i64) void {
         a.permission_review = null;
         a.subagents.waiting = false;
+        a.paused = false;
         a.state = .idle;
         a.compacting = false;
         a.activity = .{};
@@ -185,6 +189,7 @@ pub const Agent = struct {
     pub fn reopened(a: *Agent, now: i64) void {
         a.permission_review = null;
         a.observation.pending_stop = false;
+        a.paused = false;
         a.state = .idle;
         a.compacting = false;
         a.tool = .{};
@@ -215,6 +220,9 @@ pub const Agent = struct {
         }
         const path = hook.transcript;
         if (std.fs.path.isAbsolute(path)) a.transcript = Path.init(path) catch a.transcript;
+        // Any accepted hook ends a pause; only a Stop can begin one. A new
+        // process starting the session no longer runs the old one's tasks.
+        a.paused = false;
         // Another attachment may announce the same conversation. Refresh its
         // transcript without resetting an active turn or pending confirmation.
         if (start and a.state != .unknown and a.state != .done) return false;

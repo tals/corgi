@@ -8,6 +8,7 @@ const agents = @import("../agents.zig");
 const usage = @import("tokens.zig");
 const activity_tools = @import("../activity.zig").tools;
 const activity_summary = @import("../activity.zig").summary;
+const background_tasks = @import("../activity.zig").background_tasks;
 const codex_files = @import("../codex_files.zig");
 const Model = @import("../providers/model.zig").Model;
 const live_usage = @import("live.zig");
@@ -58,6 +59,11 @@ pub const Result = struct {
     // Claude's latest text update and its transcript time in microseconds.
     update: codex_files.Name = .{},
     update_at: i64 = 0,
+    // When Claude's transcript last showed a prompt, tool result or reply,
+    // in milliseconds: the conversation going on, even if no hook said so.
+    spoke_at: i64 = 0,
+    // The background tasks Claude's transcript last reported ended.
+    ended: background_tasks.Ended = .{},
 
     // Only presentation metadata. Hooks remain the lifecycle authority.
     pub fn fallback(result: *const Result, agent: *agents.Agent, now: i64) bool {
@@ -214,7 +220,7 @@ pub const Worker = struct {
                 };
                 t.releaseFile();
                 if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and
-                    t.model.id.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.context.at == 0) continue;
+                    t.model.id.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.spoke_at == 0 and t.ended.len == 0 and t.context.at == 0) continue;
                 w.mutex.lockUncancelable(os.io());
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace) {
@@ -232,6 +238,8 @@ pub const Worker = struct {
                             result.*.?.continued = t.continued;
                             result.*.?.update = t.update;
                             result.*.?.update_at = t.update_at;
+                            result.*.?.spoke_at = t.spoke_at;
+                            result.*.?.ended = t.ended;
                         },
                         .codex => result.*.?.name = index.name(req.agent.sessionId()),
                     }
@@ -262,6 +270,8 @@ pub const Tail = struct {
     continued: codex_files.Name = .{},
     update: codex_files.Name = .{},
     update_at: i64 = 0,
+    spoke_at: i64 = 0,
+    ended: background_tasks.Ended = .{},
     fn releaseFile(t: *Tail) void {
         if (t.file) |f| f.close(os.io());
         t.file = null;
@@ -356,6 +366,11 @@ pub const Tail = struct {
         } else if (kind == .user or kind == .assistant) {
             // Resuming the original conversation later makes it current again.
             t.continued = .{};
+            if (providers.timestampMs(line.timestamp)) |stamp| t.spoke_at = @max(t.spoke_at, stamp);
+        } else if (kind == .@"queue-operation" and std.mem.eql(u8, agents.str(value, "operation"), "enqueue")) {
+            // Queued at once, even for a stop the person made, which wakes nothing.
+            const notice = providers.Claude.TaskNotice.decode(agents.str(value, "content")) orelse return;
+            if (notice.status != null) t.ended.add(notice.id);
         }
     }
     /// Text Claude writes between tools is its only commentary. Thinking is
@@ -635,4 +650,41 @@ test "usage tail reads context from its own session, history included" {
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"b\",\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"id\":\"m2\",\"model\":\"claude-opus-5-5\",\"usage\":{\"input_tokens\":7}}}\n", 0);
     try std.testing.expectEqual(@as(u64, 41002), tail.context.used);
     try std.testing.expectEqual(@as(u64, 1_000_000), tail.context.window);
+}
+
+test "Claude transcripts report when the conversation last went on" {
+    var tail: Tail = .{};
+    defer tail.close();
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
+    req.agent.session = .ascii("a");
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:02.000Z\",\"message\":{}}\n", 0);
+    try std.testing.expectEqual(@as(i64, 2000), tail.spoke_at);
+    // Records about the turn or the session, and subagents' lines, are not the conversation going on.
+    _ = try tail.ingest(&req, "{\"type\":\"system\",\"subtype\":\"turn_duration\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:03.000Z\"}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"ai-title\",\"aiTitle\":\"Title\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:04.000Z\"}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"a\",\"isSidechain\":true,\"timestamp\":\"1970-01-01T00:00:05.000Z\",\"message\":{}}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"b\",\"timestamp\":\"1970-01-01T00:00:06.000Z\",\"message\":{}}\n", 0);
+    try std.testing.expectEqual(@as(i64, 2000), tail.spoke_at);
+    _ = try tail.ingest(&req, "{\"type\":\"user\",\"sessionId\":\"a\",\"timestamp\":\"1970-01-01T00:00:07.000Z\",\"message\":{\"content\":\"<task-notification>\"}}\n", 0);
+    try std.testing.expectEqual(@as(i64, 7000), tail.spoke_at);
+}
+
+test "Claude transcripts report the tasks whose queued notice says they ended" {
+    var tail: Tail = .{};
+    defer tail.close();
+    var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
+    req.agent.session = .ascii("a");
+    const lines = [_][]const u8{
+        // A Monitor's event: it runs on.
+        "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"sessionId\":\"a\",\"content\":\"<task-notification>\\n<task-id>m1</task-id>\\n<summary>Monitor event: \\\"ci\\\"</summary>\\n<event>pass</event>\\n</task-notification>\"}\n",
+        // Stopped from Claude's task list, which wakes nothing.
+        "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"sessionId\":\"a\",\"content\":\"<task-notification>\\n<task-id>m2</task-id>\\n<status>killed</status>\\n<summary>Task \\\"ci\\\" was stopped by the user</summary>\\n</task-notification>\"}\n",
+        "{\"type\":\"queue-operation\",\"operation\":\"dequeue\",\"sessionId\":\"a\"}\n",
+        "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"sessionId\":\"b\",\"content\":\"<task-notification>\\n<task-id>m3</task-id>\\n<status>completed</status>\\n</task-notification>\"}\n",
+        "{\"type\":\"queue-operation\",\"operation\":\"enqueue\",\"sessionId\":\"a\",\"content\":\"check CI again\"}\n",
+    };
+    for (lines) |line| _ = try tail.ingest(&req, line, 0);
+    try std.testing.expectEqual(@as(usize, 1), tail.ended.len);
+    try std.testing.expect(tail.ended.listed("m2"));
+    try std.testing.expect(!tail.ended.listed("m1") and !tail.ended.listed("m3"));
 }

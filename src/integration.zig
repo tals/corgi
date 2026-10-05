@@ -31,8 +31,12 @@ pub fn hook(provider: Provider, path: []const u8) !void {
     // Claude's background daemon inherits the environment of whichever pane
     // first spawned it, and so does a `claude -p` an agent runs from a tool.
     // CORGI_PANE identifies neither session's pane.
+    const origin: detection.HookOrigin = switch (provider) {
+        .claude => detection.hookOrigin(),
+        .codex => .{},
+    };
     const background = switch (provider) {
-        .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or detection.backgroundAncestor(),
+        .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or origin.background,
         .codex => false,
     };
     const fd = os.connect(path) catch return;
@@ -43,6 +47,7 @@ pub fn hook(provider: Provider, path: []const u8) !void {
         .pane = @enumFromInt(id),
         .seq = os.microTimestamp(),
         .background = background,
+        .pid = origin.pid,
     } });
 }
 pub fn config(provider: Provider, executable: []const u8) ![]u8 {

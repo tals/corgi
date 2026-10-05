@@ -83,6 +83,7 @@ pub const Server = struct {
     next_active: u64 = 0,
     last_bell_kind: agents.Attention = .none,
     last_detection: i64 = 0,
+    last_pause_check: i64 = 0,
     last_update_check: i64 = 0,
     staged_buf: [64]u8 = undefined,
     inherited_listener: ?c_int = null,
@@ -561,6 +562,7 @@ pub const Server = struct {
                     if (hook) |h| if (s.runtime.conversations.find(q.provider, h.session)) |actor| {
                         const now = os.microTimestamp();
                         const from = Lifecycle.of(actor);
+                        if (q.pid > 0) actor.pid = q.pid;
                         const ding = s.runtime.conversations.observeHook(actor, h, q.seq orelse now, s.actorWatched(actor.id), now);
                         logHook(actor, from, q.event, null);
                         s.attention(ding, actor.state.state);
@@ -583,6 +585,7 @@ pub const Server = struct {
                     }
                     const now = os.microTimestamp();
                     const from = Lifecycle.of(actor);
+                    if (q.pid > 0) actor.pid = q.pid;
                     const ding = s.runtime.conversations.observeHook(actor, hook.?, seq, s.actorWatched(actor.id), now);
                     logHook(actor, from, q.event, p.id);
                     s.attention(ding, actor.state.state);
@@ -648,8 +651,27 @@ pub const Server = struct {
         if (!followed) return;
         old.state.state = .done;
         old.state.tool_active = false;
+        old.state.paused = false;
         s.runtime.changed();
         s.dirty = true;
+    }
+    /// Ends the pauses of conversations whose Claude process has exited.
+    fn checkPauses(s: *Server) void {
+        var buf: ?[]u8 = null;
+        defer if (buf) |bytes| a.free(bytes);
+        for (s.runtime.conversations.items.items) |actor| {
+            if (!actor.state.paused) continue;
+            const bytes = buf orelse a.alloc(u8, detection.process_buffer) catch |err| {
+                log.warn("checking paused conversations: {}", .{err});
+                return;
+            };
+            buf = bytes;
+            const from = Lifecycle.of(actor);
+            if (!actor.checkPause(bytes)) continue;
+            logState(actor, from, null, "process", "Claude exited");
+            s.dirty = true;
+            s.runtime.changed();
+        }
     }
     fn actorWatched(s: *Server, actor: ActorId) bool {
         for (s.runtime.panes.items) |p| if (p.attachment.actor) |selected| {
@@ -931,6 +953,10 @@ pub const Server = struct {
                     s.detectPane(p);
                     p.detected = .{ .output = p.terminal.surface_revision, .at = now };
                 };
+                if (now - s.last_pause_check >= std.time.ms_per_s or s.settles.items.len > 0) {
+                    s.last_pause_check = now;
+                    s.checkPauses();
+                }
                 codex.reconcile(&s.runtime);
                 var snapshots: [layout.max_panes]?codex_observer.Snapshot = undefined;
                 codex.take(&snapshots);
@@ -1024,6 +1050,13 @@ pub const Server = struct {
                         s.runtime.changed();
                     }
                     if (result.continued.len > 0) s.followContinuation(actor, result.continued.text());
+                    const prior = Lifecycle.of(actor);
+                    const turned = actor.observeTranscriptTurn(result.spoke_at);
+                    if (actor.observeTaskEnds(&result.ended) or turned) {
+                        logState(actor, prior, null, "transcript", if (turned) "turn after pause" else "its Monitors ended");
+                        s.dirty = true;
+                        s.runtime.changed();
+                    }
                     const before = actor.state;
                     if (result.progress) |progress| actor.observeTools(progress);
                     if (result.fallback(&actor.state, clock.microTimestamp())) {
@@ -1347,8 +1380,9 @@ test "a viewer's protocol version is checked before its request is decoded" {
 const Lifecycle = struct {
     state: agents.State,
     attention: agents.Attention,
+    paused: bool,
     fn of(actor: *const Actor) Lifecycle {
-        return .{ .state = actor.state.state, .attention = actor.state.attention };
+        return .{ .state = actor.state.state, .attention = actor.state.attention, .paused = actor.state.paused };
     }
 };
 /// One line per lifecycle change, so a state that looks stuck can be traced
@@ -1365,6 +1399,7 @@ fn logState(actor: *const Actor, from: Lifecycle, pane: ?layout.PaneId, cause: [
         .from = from.state,
         .to = to.state,
         .attention = to.attention,
+        .paused = to.paused,
     }, .{})});
 }
 /// Background hooks have no pane.

@@ -53,26 +53,40 @@ fn process(pid: c_int) ?Provider {
     return identify(p.args());
 }
 
+/// Holds a Claude process's arguments and environment. Daemon-hosted
+/// sessions carry large environments; 64 KiB is not enough.
+pub const process_buffer = 1024 * 1024;
+
+/// The Claude process a hook runs under, 0 when none was found, and
+/// whether its session runs in the background.
+pub const HookOrigin = struct { pid: c_int = 0, background: bool = false };
+
 /// Claude runs hooks without its internal session variables, and its
 /// background daemon hands CORGI_PANE from one pane to every session it
 /// hosts. So does a `claude -p` that an agent's tool starts, but tools run
 /// detached from the terminal. Only the pane's foreground Claude owns
 /// CORGI_PANE, so find the hook's nearest Claude process and check it.
-pub fn backgroundAncestor() bool {
+pub fn hookOrigin() HookOrigin {
     const a = os.allocator;
-    // Daemon-hosted sessions carry large environments; 64 KiB is not enough.
-    const bytes = a.alloc(u8, 1024 * 1024) catch return false;
+    const bytes = a.alloc(u8, process_buffer) catch return .{};
     defer a.free(bytes);
     var pid: c_int = c.getppid();
     for (0..8) |_| {
-        if (pid <= 1) return false;
+        if (pid <= 1) return .{};
         if (os.processArgs(pid, bytes, .{ .env = true })) |p| if (claudeProcess(&p)) {
-            for (p.environ()) |entry| if (std.mem.eql(u8, entry, "CLAUDE_CODE_SESSION_KIND=bg")) return true;
-            return backgroundJob(pid);
+            for (p.environ()) |entry| if (std.mem.eql(u8, entry, "CLAUDE_CODE_SESSION_KIND=bg")) return .{ .pid = pid, .background = true };
+            return .{ .pid = pid, .background = backgroundJob(pid) };
         };
-        pid = (os.processJob(pid) orelse return false).ppid;
+        pid = (os.processJob(pid) orelse return .{}).ppid;
     }
-    return false;
+    return .{};
+}
+
+/// Whether `pid` still runs Claude. `buf` holds `process_buffer` bytes.
+pub fn claudeRunning(pid: c_int, buf: []u8) bool {
+    if (pid <= 1) return false;
+    const p = os.processArgs(pid, buf, .{}) orelse return false;
+    return claudeProcess(&p);
 }
 
 /// Claude retitles its processes ("claude bg-spare" as one argv[0]),

@@ -104,8 +104,9 @@ pub const Request = union(enum) {
     /// `theme` is the viewer's host colors.
     theme: struct { theme: Lenient(Theme) = .{} },
     /// `event` is the provider's own hook payload; its backend decodes it.
-    /// A background hook comes from a session no pane runs.
-    hook: struct { provider: agents.Provider, event: std.json.Value, pane: layout.PaneId = .none, seq: ?i64 = null, background: bool = false },
+    /// A background hook comes from a session no pane runs. `pid` is the
+    /// agent process that ran the hook, 0 when unknown.
+    hook: struct { provider: agents.Provider, event: std.json.Value, pane: layout.PaneId = .none, seq: ?i64 = null, background: bool = false, pid: i32 = 0 },
     ping,
     shutdown,
     @"test.settle",
@@ -501,6 +502,7 @@ pub const Agent = struct {
     cwd: []const u8,
     tool_active: bool,
     compacting: bool = false,
+    paused: bool = false,
 
     pub fn providerName(agent: Agent) []const u8 {
         return if (agent.provider) |provider| @tagName(provider) else "agent";

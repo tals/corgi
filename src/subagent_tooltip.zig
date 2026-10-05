@@ -220,8 +220,11 @@ const Status = struct { icon: []const u8, label: []const u8, tone: Tone };
 fn status(agent: protocol.Agent, stale: bool) Status {
     if (stale) return .{ .icon = "?", .label = "Last seen", .tone = .muted };
     if (agent.state == .blocked or agent.attention == .needs_input) return .{ .icon = "●", .label = "Needs input", .tone = .warm };
+    const unread = agent.attention == .finished and agent.state != .working and agent.state != .done;
+    // Waiting on its Monitors or a wakeup, as the sidebar shows it.
+    if (agent.state == .idle and agent.paused) return if (unread) .{ .icon = "‖", .label = "Finished", .tone = .working } else .{ .icon = "‖", .label = "Idle", .tone = .muted };
     // Finished and not yet seen, as the sidebar shows it.
-    if (agent.attention == .finished and agent.state != .working and agent.state != .done) return .{ .icon = "●", .label = "Finished", .tone = .working };
+    if (unread) return .{ .icon = "●", .label = "Finished", .tone = .working };
     return switch (agent.state) {
         .working => .{ .icon = "▶", .label = "Working", .tone = .working },
         .idle => .{ .icon = "○", .label = "Idle", .tone = .muted },

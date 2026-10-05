@@ -43,6 +43,14 @@ pub const Actor = struct {
     activity_timeline: activity_timeline.Timeline = .{},
     screen_compacting: bool = false,
     background_tasks: background_tasks.Inventory = .{},
+    /// Claude: the Monitors it runs, each of which can wake it.
+    monitors: background_tasks.Monitors = .{},
+    /// Claude: the process its hooks run under, 0 when unknown.
+    pid: i32 = 0,
+    /// The Stop that paused it, as a hook seq, and whether a wakeup it
+    /// scheduled holds the pause whatever its Monitors do.
+    paused_at: i64 = 0,
+    paused_for_wakeup: bool = false,
     // Foreground tool calls and background processes have independent lifetimes.
     transcript_tool_active: bool = false,
     prompt_watch: detection.PromptWatch = .{},
@@ -85,11 +93,53 @@ pub const Actor = struct {
                 actor.state.subagents.waiting = false;
                 if (background_tasks.Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
                 if (event.kind == .session_end) actor.background_tasks = .{};
+                if (event.monitor.len > 0) actor.monitors.add(event.monitor);
+                switch (event.kind) {
+                    // A Stop lists only the tasks of the process that runs the
+                    // session now, so a Monitor of an earlier one drops out.
+                    .stop => actor.monitors.retain(event.background_tasks),
+                    .session_end => actor.monitors = .{},
+                    else => {},
+                }
             },
             .codex => {},
         }
         actor.observed_at = @max(actor.observed_at, now);
         return ding;
+    }
+
+    /// A Claude Stop pauses a conversation that waits to be woken by its
+    /// Monitors or a wakeup it scheduled, when its process can be watched.
+    fn pauseAtStop(actor: *Actor, session_crons: std.json.Value, seq: i64) void {
+        const wakeup = background_tasks.claudeWakeup(session_crons);
+        if (actor.pid <= 0 or (actor.monitors.len == 0 and !wakeup)) return;
+        actor.state.paused = true;
+        actor.paused_at = seq;
+        actor.paused_for_wakeup = wakeup;
+    }
+    /// Ends a pause whose Claude process has exited, as nothing is left to
+    /// wake it. `buf` holds `detection.process_buffer` bytes. Returns whether
+    /// the pause ended.
+    pub fn checkPause(actor: *Actor, buf: []u8) bool {
+        if (!actor.state.paused or detection.claudeRunning(actor.pid, buf)) return false;
+        actor.state.paused = false;
+        return true;
+    }
+    /// The transcript reports tasks that ended. A Monitor stopped from
+    /// Claude's task list wakes nothing, so this is the only sign it is gone.
+    /// Returns whether the pause ended with its last Monitor.
+    pub fn observeTaskEnds(actor: *Actor, ended: *const background_tasks.Ended) bool {
+        actor.monitors.drop(ended);
+        if (!actor.state.paused or actor.paused_for_wakeup or actor.monitors.len > 0) return false;
+        actor.state.paused = false;
+        return true;
+    }
+    /// The transcript shows the conversation going on after the Stop that
+    /// paused it, at `spoke_at` milliseconds, though no hook said so.
+    pub fn observeTranscriptTurn(actor: *Actor, spoke_at: i64) bool {
+        if (!actor.state.paused or spoke_at * std.time.us_per_ms <= actor.paused_at) return false;
+        actor.state.paused = false;
+        return true;
     }
 
     fn compactionChanged(actor: *Actor, was_compacting: bool, now: i64) void {
@@ -390,7 +440,8 @@ pub const Registry = struct {
         }
     }
     /// A hook updates its conversation. A Claude Stop also lists the subagents
-    /// still running, which become the conversation's children.
+    /// still running, which become the conversation's children. Without any,
+    /// it pauses while its Monitors or a wakeup it scheduled can wake it.
     pub fn observeHook(registry: *Registry, actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const accepted = actor.state.last_seq;
         const ding = actor.observeHook(event, seq, watched, now);
@@ -400,7 +451,9 @@ pub const Registry = struct {
         if (listed == null and event.kind != .session_end) return ding;
         const children = listed orelse background_tasks.Children{};
         registry.observeSubagents(actor, &children, now);
-        if (event.kind == .stop and children.running > 0) actor.state.awaitSubagents(now);
+        if (event.kind == .stop) {
+            if (children.running > 0) actor.state.awaitSubagents(now) else actor.pauseAtStop(event.session_crons, seq);
+        }
         return ding;
     }
     /// Claude's subagents as listed when its turn last stopped: listed ones
@@ -701,6 +754,147 @@ test "a Claude session's end ends the subagents its last Stop listed" {
     try std.testing.expectEqual(agents.State.done, parent.state.state);
     try std.testing.expectEqual(agents.Subagents{}, parent.state.subagents);
     try std.testing.expectEqual(agents.State.idle, registry.find(.claude, "a1").?.state.state);
+}
+
+test "a Claude Stop pauses a conversation its Monitors or a wakeup can wake" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const actor = try registry.get(.claude, "s");
+    const lines = [_][]const u8{
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"s"}
+        ,
+        \\{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Monitor","tool_input":{"command":"tail -F ci.log | grep --line-buffered -E 'pass|fail'"},"tool_response":{"taskId":"m1","timeoutMs":1800000}}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"s","background_tasks":[
+        \\{"id":"m1","type":"shell","status":"running","command":"tail -F ci.log | grep --line-buffered -E 'pass|fail'"},
+        \\{"id":"b1","type":"shell","status":"running","command":"bun run dev"}],"session_crons":[]}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"s","background_tasks":[
+        \\{"id":"b1","type":"shell","status":"running","command":"bun run dev"}],
+        \\"session_crons":[{"id":"c1","schedule":"*/30 * * * *","recurring":true,"prompt":"failsafe"}]}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"s","background_tasks":[],
+        \\"session_crons":[{"id":"c2","schedule":"17 13 5 10 *","recurring":false,"prompt":"check CI"}]}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"s","background_tasks":[
+        \\{"id":"m1","type":"shell","status":"running"},
+        \\{"id":"a1","type":"subagent","status":"running","description":"Lane A"}]}
+        ,
+        \\{"hook_event_name":"SessionStart","session_id":"s","source":"resume"}
+    };
+    var hooks: [lines.len]providers.Hook = undefined;
+    var parsed: [lines.len]std.json.Parsed(std.json.Value) = undefined;
+    for (lines, &hooks, &parsed) |line, *hook, *value| {
+        value.* = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, line, .{});
+        hook.* = providers.Backend.init(.claude).hook(value.value).?;
+    }
+    defer for (parsed) |value| value.deinit();
+    // A process that can't be watched never pauses.
+    _ = registry.observeHook(actor, hooks[0], 1, false, 100);
+    _ = registry.observeHook(actor, hooks[1], 2, false, 200);
+    _ = registry.observeHook(actor, hooks[2], 3, false, 300);
+    try std.testing.expect(!actor.state.paused);
+    actor.pid = 4242;
+    _ = registry.observeHook(actor, hooks[0], 4, false, 400);
+    _ = registry.observeHook(actor, hooks[1], 5, false, 500);
+    // Its turn ends while its Monitor runs: finished, and paused.
+    _ = registry.observeHook(actor, hooks[2], 6, false, 600);
+    try std.testing.expect(actor.state.paused);
+    try std.testing.expect(!actor.paused_for_wakeup);
+    try std.testing.expect(actor.confirmStop(6, .completed, 610));
+    try std.testing.expectEqual(agents.State.idle, actor.state.state);
+    try std.testing.expectEqual(agents.Attention.finished, actor.state.attention);
+    try std.testing.expect(actor.state.paused);
+    // A transcript line from before the Stop is its own turn; a later one is the wake.
+    try std.testing.expect(!actor.observeTranscriptTurn(0));
+    try std.testing.expect(actor.state.paused);
+    try std.testing.expect(actor.observeTranscriptTurn(1));
+    try std.testing.expect(!actor.state.paused);
+    // A Monitor event wakes it and the turn pauses again; any hook ends a pause.
+    _ = registry.observeHook(actor, hooks[0], 7, false, 700);
+    _ = registry.observeHook(actor, hooks[2], 8, false, 800);
+    try std.testing.expect(actor.state.paused);
+    _ = registry.observeHook(actor, hooks[0], 9, false, 900);
+    try std.testing.expect(!actor.state.paused);
+    try std.testing.expectEqual(agents.State.working, actor.state.state);
+    // A background command and a recurring cron are not waited on.
+    _ = registry.observeHook(actor, hooks[3], 10, false, 1000);
+    try std.testing.expect(!actor.state.paused);
+    try std.testing.expectEqual(@as(usize, 0), actor.monitors.len);
+    // A one-shot wakeup is.
+    _ = registry.observeHook(actor, hooks[0], 11, false, 1100);
+    _ = registry.observeHook(actor, hooks[4], 12, false, 1200);
+    try std.testing.expect(actor.state.paused);
+    try std.testing.expect(actor.paused_for_wakeup);
+    // A resumed session runs none of the old process's tasks.
+    _ = registry.observeHook(actor, hooks[6], 13, false, 1300);
+    try std.testing.expect(!actor.state.paused);
+    // Running subagents keep it working instead.
+    _ = registry.observeHook(actor, hooks[0], 14, false, 1400);
+    _ = registry.observeHook(actor, hooks[1], 15, false, 1500);
+    _ = registry.observeHook(actor, hooks[5], 16, false, 1600);
+    try std.testing.expect(!actor.state.paused);
+    try std.testing.expect(actor.state.subagents.waiting);
+}
+
+test "a pause ends when the transcript reports its last Monitor ended" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const actor = try registry.get(.claude, "s");
+    actor.pid = 4242;
+    const lines = [_][]const u8{
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"s"}
+        ,
+        \\{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Monitor","tool_response":{"taskId":"m1"}}
+        ,
+        \\{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Monitor","tool_response":{"taskId":"m2"}}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"s","background_tasks":[
+        \\{"id":"m1","type":"shell","status":"running"},{"id":"m2","type":"shell","status":"running"}]}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"s","background_tasks":[{"id":"m2","type":"shell","status":"running"}],
+        \\"session_crons":[{"id":"c1","schedule":"0 9 * * *","recurring":false,"prompt":"go"}]}
+    };
+    var hooks: [lines.len]providers.Hook = undefined;
+    var parsed: [lines.len]std.json.Parsed(std.json.Value) = undefined;
+    for (lines, &hooks, &parsed) |line, *hook, *value| {
+        value.* = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, line, .{});
+        hook.* = providers.Backend.init(.claude).hook(value.value).?;
+    }
+    defer for (parsed) |value| value.deinit();
+    for (hooks[0..4], 1..) |hook, seq| _ = registry.observeHook(actor, hook, @intCast(seq), false, @intCast(seq * 100));
+    try std.testing.expect(actor.state.paused);
+    // One Monitor stopped from Claude's task list: the other can still wake it.
+    var ended: background_tasks.Ended = .{};
+    ended.add("m1");
+    try std.testing.expect(!actor.observeTaskEnds(&ended));
+    try std.testing.expect(actor.state.paused);
+    ended.add("m2");
+    try std.testing.expect(actor.observeTaskEnds(&ended));
+    try std.testing.expect(!actor.state.paused);
+    // A scheduled wakeup holds the pause whatever its Monitors do.
+    _ = registry.observeHook(actor, hooks[0], 5, false, 500);
+    _ = registry.observeHook(actor, hooks[2], 6, false, 600);
+    _ = registry.observeHook(actor, hooks[4], 7, false, 700);
+    try std.testing.expect(actor.state.paused);
+    try std.testing.expect(!actor.observeTaskEnds(&ended));
+    try std.testing.expect(actor.state.paused);
+    try std.testing.expectEqual(@as(usize, 0), actor.monitors.len);
+}
+
+test "a pause ends once the Claude process that held it is gone" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const actor = try registry.get(.claude, "s");
+    const buf = try std.testing.allocator.alloc(u8, detection.process_buffer);
+    defer std.testing.allocator.free(buf);
+    try std.testing.expect(!actor.checkPause(buf));
+    actor.state.paused = true;
+    actor.paused_for_wakeup = true;
+    // This test's own process is not Claude.
+    actor.pid = os.c.getpid();
+    try std.testing.expect(actor.checkPause(buf));
+    try std.testing.expect(!actor.state.paused);
 }
 
 test "first hook establishes identity without process detection but cannot revive a replaced source" {
