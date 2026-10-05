@@ -4,13 +4,16 @@ const resources = @import("trackers.zig").resources;
 const sidebar = @import("sidebar.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
 const Rect = @import("layout.zig").Rect;
-const text = "\x1b[38;2;214;222;232m";
-const muted = "\x1b[38;2;125;137;155m";
-const rule = "\x1b[38;2;67;80;99m";
-const blue = "\x1b[38;2;137;180;250m";
-const mint = "\x1b[38;2;148;226;213m";
-const violet = "\x1b[38;2;203;166;247m";
-const warm = "\x1b[38;2;214;190;140m";
+const palette = @import("palette.zig");
+// Each write sets a whole style, so bold never leaks into the next.
+const text = (palette.Style{ .fg = .text, .bg = .bg }).sgr();
+const faint = (palette.Style{ .fg = .faint, .bg = .bg }).sgr();
+const rule = (palette.Style{ .fg = .line, .bg = .bg }).sgr();
+/// Titles, headings, and the figures the table sorts by.
+const strong = (palette.Style{ .fg = .strong, .bg = .bg, .bold = true }).sgr();
+const warm = (palette.Style{ .fg = .warm, .bg = .bg }).sgr();
+/// Graph cells: live data, like the limit sparks.
+const live = (palette.Style{ .fg = .accent, .bg = .bg }).sgr();
 
 pub fn geometry(cols: u16, rows: u16, side: u16, anchor: u16) ?Rect {
     if (cols < 68 or rows < 22) return null;
@@ -88,7 +91,7 @@ fn at(w: *std.Io.Writer, x: usize, y: usize, color: []const u8, value: []const u
 fn right(w: *std.Io.Writer, x: usize, y: usize, color: []const u8, value: []const u8, width: usize) !void {
     try at(w, x + width -| @min(width, sidebar.displayWidth(value)), y, color, value, width);
 }
-fn box(w: *std.Io.Writer, rect: Rect, title: []const u8) !void {
+fn box(w: *std.Io.Writer, rect: Rect, title: []const u8, title_color: []const u8) !void {
     try at(w, rect.x, rect.y, rule, "┌", 1);
     for (0..rect.w - 2) |_| try w.writeAll("─");
     try w.writeAll("┐");
@@ -99,9 +102,9 @@ fn box(w: *std.Io.Writer, rect: Rect, title: []const u8) !void {
     try at(w, rect.x, rect.y + rect.h - 1, rule, "└", 1);
     for (0..rect.w - 2) |_| try w.writeAll("─");
     try w.writeAll("┘");
-    try at(w, rect.x + 2, rect.y, muted, title, rect.w - 4);
+    try at(w, rect.x + 2, rect.y, title_color, title, rect.w - 4);
 }
-fn graph(w: *std.Io.Writer, rect: Rect, work: resources.Work, metric: resources.Sort, color: []const u8) !void {
+fn graph(w: *std.Io.Writer, rect: Rect, work: resources.Work, metric: resources.Sort) !void {
     var buf: [64]u8 = undefined;
     const total = if (work.read != null and work.written != null) work.read.? +| work.written.? else null;
     const value = switch (metric) {
@@ -114,8 +117,8 @@ fn graph(w: *std.Io.Writer, rect: Rect, work: resources.Work, metric: resources.
         .cpu => " cpu ",
         .memory => " memory ",
         .io => " disk I/O ",
-    });
-    try at(w, rect.x + 2, rect.y + 1, color, value, rect.w - 4);
+    }, faint);
+    try at(w, rect.x + 2, rect.y + 1, strong, value, rect.w - 4);
     const width: usize = rect.w - 4;
     const history = work.history[work.history.len - @min(width, work.history.len) ..];
     var ceiling: f64 = if (metric == .cpu) 100 else 1;
@@ -129,7 +132,7 @@ fn graph(w: *std.Io.Writer, rect: Rect, work: resources.Work, metric: resources.
         const eighths: usize = @intFromFloat(@round(v / ceiling * @as(f64, @floatFromInt(rows * 8))));
         for (0..rows) |row| {
             const fill = @min(8, eighths -| (row * 8));
-            try at(w, rect.x + 2 + width - history.len + i, rect.y + rect.h - 2 - row, color, glyphs[fill], 1);
+            try at(w, rect.x + 2 + width - history.len + i, rect.y + rect.h - 2 - row, live, glyphs[fill], 1);
         }
     }
 }
@@ -149,55 +152,55 @@ fn statusText(work: resources.Work) []const u8 {
 
 pub fn draw(w: *std.Io.Writer, rect: Rect, name: []const u8, snapshot: resources.Snapshot, state: State) !void {
     const work = snapshot.workspace(state.workspace orelse return);
-    try w.writeAll("\x1b7\x1b]8;;\x1b\\\x1b[0;48;2;29;37;49m\x1b[?25l");
+    try w.writeAll("\x1b7\x1b]8;;\x1b\\" ++ text ++ "\x1b[?25l");
     for (0..rect.h) |row| {
         try w.print("\x1b[{d};{d}H", .{ rect.y + row + 1, rect.x + 1 });
         try w.splatByteAll(' ', rect.w);
     }
     var buf: [180]u8 = undefined;
-    try box(w, rect, try std.fmt.bufPrint(&buf, " {s} / resources ", .{name}));
+    try box(w, rect, try std.fmt.bufPrint(&buf, " {s} / resources ", .{name}), strong);
     const status = statusText(work);
     try at(w, rect.x + 2, rect.y + 1, if (work.cpu_pressure) warm else text, status, rect.w - 20);
-    try right(w, rect.x + rect.w - 16, rect.y + 1, muted, try std.fmt.bufPrint(&buf, "live / {d}s", .{snapshot.interval_ms / 1000}), 13);
+    try right(w, rect.x + rect.w - 16, rect.y + 1, faint, try std.fmt.bufPrint(&buf, "live / {d}s", .{snapshot.interval_ms / 1000}), 13);
     const gw = (rect.w - 6) / 3;
     inline for (.{ resources.Sort.cpu, resources.Sort.memory, resources.Sort.io }, 0..) |metric, i| {
-        try graph(w, .{ .x = rect.x + 2 + @as(u16, i) * (gw + 1), .y = rect.y + 3, .w = gw, .h = 7 }, work, metric, switch (metric) {
-            .cpu => blue,
-            .memory => mint,
-            .io => violet,
-        });
+        try graph(w, .{ .x = rect.x + 2 + @as(u16, i) * (gw + 1), .y = rect.y + 3, .w = gw, .h = 7 }, work, metric);
     }
     var cpu_buf: [24]u8 = undefined;
     var host_line = std.Io.Writer.fixed(&buf);
     try host_line.print("HOST {d} cores", .{snapshot.cores});
     if (snapshot.host_cpu != null) try host_line.print(" / {s} CPU", .{resources.cpuText(&cpu_buf, snapshot.host_cpu)});
     if (snapshot.memory_pressure != .unknown) try host_line.print(" / memory {s}", .{@tagName(snapshot.memory_pressure)});
-    try at(w, rect.x + 2, rect.y + 11, muted, host_line.buffered(), rect.w - 4);
-    try at(w, rect.x + 2, rect.y + 13, text, "TOP PROCESSES", 20);
+    try at(w, rect.x + 2, rect.y + 11, faint, host_line.buffered(), rect.w - 4);
+    try at(w, rect.x + 2, rect.y + 13, strong, "TOP PROCESSES", 20);
     const header = rect.y + 14;
-    try right(w, rect.x + 2, header, muted, "PID", 6);
-    try at(w, rect.x + 10, header, muted, "PROCESS", rect.w - 43);
-    try right(w, rect.x + rect.w - 32, header, if (state.sort == .cpu) blue else muted, "CPU %", 7);
-    try right(w, rect.x + rect.w - 24, header, if (state.sort == .memory) mint else muted, "GiB", 6);
-    try right(w, rect.x + rect.w - 17, header, if (state.sort == .io) violet else muted, "R MB/s", 7);
-    try right(w, rect.x + rect.w - 9, header, if (state.sort == .io) violet else muted, "W MB/s", 7);
+    // The sorted column's heading and figures are bright; the rest recede.
+    const cpu = if (state.sort == .cpu) strong else text;
+    const memory = if (state.sort == .memory) strong else text;
+    const io = if (state.sort == .io) strong else text;
+    try right(w, rect.x + 2, header, faint, "PID", 6);
+    try at(w, rect.x + 10, header, faint, "PROCESS", rect.w - 43);
+    try right(w, rect.x + rect.w - 32, header, if (state.sort == .cpu) strong else faint, "CPU %", 7);
+    try right(w, rect.x + rect.w - 24, header, if (state.sort == .memory) strong else faint, "GiB", 6);
+    try right(w, rect.x + rect.w - 17, header, if (state.sort == .io) strong else faint, "R MB/s", 7);
+    try right(w, rect.x + rect.w - 9, header, if (state.sort == .io) strong else faint, "W MB/s", 7);
     const count = @min(state.count, rect.h -| 19);
     for (state.order[0..count], 0..) |key, i| {
         const y = header + 1 + i;
         const proc: ?resources.Process = for (work.processes) |p| {
             if (p.pid == key.pid and p.start == key.start) break p;
         } else null;
-        try right(w, rect.x + 2, y, muted, try std.fmt.bufPrint(&buf, "{d}", .{key.pid}), 6);
+        try right(w, rect.x + 2, y, faint, try std.fmt.bufPrint(&buf, "{d}", .{key.pid}), 6);
         if (proc) |p| {
             try at(w, rect.x + 10, y, text, try std.fmt.bufPrint(&buf, "{s}{s}", .{ if (p.provider) |provider| (if (provider == .claude) "* " else "† ") else "", p.name }), rect.w - 43);
-            try right(w, rect.x + rect.w - 32, y, blue, if (p.cpu) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{n}) else "", 7);
-            try right(w, rect.x + rect.w - 24, y, mint, try std.fmt.bufPrint(&buf, "{d:.2}", .{@as(f64, @floatFromInt(p.memory)) / (1024 * 1024 * 1024)}), 6);
-            try right(w, rect.x + rect.w - 17, y, violet, if (p.read) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{@as(f64, @floatFromInt(n)) / 1000000}) else "", 7);
-            try right(w, rect.x + rect.w - 9, y, violet, if (p.written) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{@as(f64, @floatFromInt(n)) / 1000000}) else "", 7);
-        } else try at(w, rect.x + 10, y, muted, "Sample not available", rect.w - 43);
+            try right(w, rect.x + rect.w - 32, y, cpu, if (p.cpu) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{n}) else "", 7);
+            try right(w, rect.x + rect.w - 24, y, memory, try std.fmt.bufPrint(&buf, "{d:.2}", .{@as(f64, @floatFromInt(p.memory)) / (1024 * 1024 * 1024)}), 6);
+            try right(w, rect.x + rect.w - 17, y, io, if (p.read) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{@as(f64, @floatFromInt(n)) / 1000000}) else "", 7);
+            try right(w, rect.x + rect.w - 9, y, io, if (p.written) |n| try std.fmt.bufPrint(&buf, "{d:.1}", .{@as(f64, @floatFromInt(n)) / 1000000}) else "", 7);
+        } else try at(w, rect.x + 10, y, faint, "Sample not available", rect.w - 43);
     }
-    try at(w, rect.x + 2, rect.y + rect.h - 3, muted, "* Claude Code   † Codex", rect.w - 4);
-    try at(w, rect.x + 2, rect.y + rect.h - 2, muted, try std.fmt.bufPrint(&buf, "{d} local processes / {s}{s} / {d} shown", .{
+    try at(w, rect.x + 2, rect.y + rect.h - 3, faint, "* Claude Code   † Codex", rect.w - 4);
+    try at(w, rect.x + 2, rect.y + rect.h - 2, faint, try std.fmt.bufPrint(&buf, "{d} local processes / {s}{s} / {d} shown", .{
         work.count,
         snapshot.memory_kind,
         if (work.partial) " / partial" else "",

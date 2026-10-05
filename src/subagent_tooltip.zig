@@ -16,50 +16,50 @@ const metadata = @import("usage.zig").account;
 const limit_history = @import("usage.zig").limits;
 const context_window = @import("usage.zig").context_window;
 const terminal = @import("pane.zig").terminal;
-const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
+const palette = @import("palette.zig");
+const base = (palette.Style{ .fg = .text, .bg = .bg }).sgr();
 /// How long an observation counts as current: 10 s, plus up to one bucket
 /// by which the snapshot rounds its stamps down.
 const fresh_window = 10 * std.time.us_per_s + protocol.stamp_bucket;
+/// Every write starts from `base`, so a tone sets only the foreground and bold.
 const Tone = enum {
     text,
+    /// Titles, headings, and the figure a column ranks by.
     title,
+    /// The current step's label, and the token figures of single steps.
+    strong,
     muted,
+    /// Column labels, footers and secondary figures.
+    faint,
     border,
-    tokens,
-    input,
-    output,
-    recent,
-    working,
-    blocked,
-    idle,
-    group,
-    /// Limit windows, in the launcher's usage colors.
-    limit,
-    unobserved,
+    /// Spark cells for time still ahead in a window.
     remaining,
-    usage_ok,
-    usage_high,
-    usage_full,
+    /// Live: usage that is fine, the current step, a finished agent's check.
+    live,
+    /// A working agent's dot.
+    working,
+    /// Needs the user: an agent waiting for input, usage past 80%.
+    warm,
+    /// Usage at its limit.
+    hot,
+    /// Spark cells past 80% and at the limit: those colors without bold.
+    warm_cell,
+    hot_cell,
     fn ansi(tone: Tone) []const u8 {
         return switch (tone) {
-            .text => "\x1b[38;2;205;214;244m",
-            .title => "\x1b[1;38;2;205;214;244m",
-            .muted => "\x1b[38;2;147;153;178m",
-            .border => "\x1b[38;2;88;91;112m",
-            .tokens => "\x1b[1;38;2;148;226;213m",
-            .input => "\x1b[38;2;137;180;250m",
-            .output => "\x1b[38;2;203;166;247m",
-            .recent => "\x1b[38;2;250;179;135m",
-            .working => "\x1b[38;2;249;226;175m",
-            .blocked => "\x1b[38;2;243;139;168m",
-            .idle => "\x1b[38;2;166;227;161m",
-            .group => "\x1b[1;38;2;180;190;254m",
-            .limit => "\x1b[1;38;2;169;200;184m",
-            .unobserved => "\x1b[38;2;96;106;118m",
-            .remaining => "\x1b[38;2;56;60;78m",
-            .usage_ok => "\x1b[38;2;169;200;184m",
-            .usage_high => "\x1b[1;38;2;229;195;139m",
-            .usage_full => "\x1b[1;38;2;237;163;152m",
+            .text => palette.fg(.text),
+            .title => comptime "\x1b[1m" ++ palette.fg(.strong),
+            .strong => palette.fg(.strong),
+            .muted => palette.fg(.muted),
+            .faint => palette.fg(.faint),
+            .border => palette.fg(.line),
+            .remaining => palette.fg(.selected),
+            .live => palette.fg(.accent),
+            .working => comptime "\x1b[1m" ++ palette.fg(.accent),
+            .warm => comptime "\x1b[1m" ++ palette.fg(.warm),
+            .hot => comptime "\x1b[1m" ++ palette.fg(.hot),
+            .warm_cell => palette.fg(.warm),
+            .hot_cell => palette.fg(.hot),
         };
     }
 };
@@ -195,12 +195,14 @@ fn thinking() []const u8 {
 const Status = struct { icon: []const u8, label: []const u8, tone: Tone };
 fn status(agent: protocol.Agent, stale: bool) Status {
     if (stale) return .{ .icon = "?", .label = "Last seen", .tone = .muted };
-    if (agent.state == .blocked or agent.attention == .needs_input) return .{ .icon = "!", .label = "Needs input", .tone = .blocked };
+    if (agent.state == .blocked or agent.attention == .needs_input) return .{ .icon = "●", .label = "Needs input", .tone = .warm };
+    // Finished and not yet seen, as the sidebar shows it.
+    if (agent.attention == .finished and agent.state != .working and agent.state != .done) return .{ .icon = "✓", .label = "Finished", .tone = .live };
     return switch (agent.state) {
         .working => .{ .icon = "●", .label = "Working", .tone = .working },
-        .idle => .{ .icon = "○", .label = "Idle", .tone = .idle },
-        .done => .{ .icon = "○", .label = "Ended", .tone = .muted },
-        .initializing => .{ .icon = "◌", .label = "Starting", .tone = .group },
+        .idle => .{ .icon = "○", .label = "Idle", .tone = .muted },
+        .done => .{ .icon = "○", .label = "Ended", .tone = .faint },
+        .initializing => .{ .icon = "◌", .label = "Starting", .tone = .muted },
         .unknown => .{ .icon = "?", .label = "Unknown", .tone = .muted },
         .blocked => unreachable,
     };
@@ -213,7 +215,7 @@ const Card = struct {
         if (budget < 2 or tasks.items.len == 0) return 0;
         const age = os.microTimestamp() - tasks.observed_at;
         const live = tasks.live and age >= 0 and age <= fresh_window;
-        try card.line(row, "Background commands", if (live) "Running" else "Last reported", .group, .muted);
+        try card.line(row, "Background commands", if (live) "Running" else "Last reported", .title, .muted);
         const shown = @min(tasks.items.len, budget - 1 - @as(usize, @intFromBool(tasks.items.len + 1 > budget or tasks.truncated)));
         var offset: usize = 1;
         inline for (std.meta.tags(background.Group)) |group| {
@@ -226,7 +228,7 @@ const Card = struct {
         }
         if (shown < tasks.items.len or tasks.truncated) {
             var more: [64]u8 = undefined;
-            try card.line(row + offset, try std.fmt.bufPrint(&more, "+{d}{s} more commands", .{ tasks.items.len - shown, if (tasks.truncated) "+" else "" }), "", .muted, .muted);
+            try card.line(row + offset, try std.fmt.bufPrint(&more, "+{d}{s} more commands", .{ tasks.items.len - shown, if (tasks.truncated) "+" else "" }), "", .faint, .faint);
             offset += 1;
         }
         return offset;
@@ -260,24 +262,28 @@ const Card = struct {
     }
     /// "context ━━━━━━──── 74%" at the right of a row: the share of the window,
     /// in the sidebar figure's colors, with a tick at a learned compaction point.
+    /// A filling window's figure is bold.
     fn meter(card: Card, row: usize, context: context_window.View, compacting: bool) !void {
         const band = context.band() orelse return;
-        const color = sidebar.contextColor(band, compacting, .{ 30, 30, 46 });
-        try card.w.print("\x1b[{d};{d}H{s}{s}context ", .{ row + 1, card.x + card.width - 2 - card.meterWidth(context), base, Tone.muted.ansi() });
+        const color = sidebar.contextColor(band, compacting, palette.Token.bg.rgb());
+        try card.w.print("\x1b[{d};{d}H{s}{s}context ", .{ row + 1, card.x + card.width - 2 - card.meterWidth(context), base, Tone.faint.ansi() });
         const bar = card.meterBar();
         if (bar > 0) {
             const filled = @max(1, @min(bar, (context.used *| bar +| context.window / 2) / context.window));
             const tick: ?usize = if (context.compacts_at > 0 and context.compacts_at < context.window) context.compacts_at * bar / context.window else null;
             for (0..bar) |i| {
                 if (i < filled) {
-                    try card.w.print("\x1b[38;2;{d};{d};{d}m━", .{ color[0], color[1], color[2] });
+                    try palette.writeFg(card.w, color);
+                    try card.w.writeAll("━");
                 } else if (tick == i) {
                     try card.w.print("{s}┼", .{Tone.muted.ansi()});
                 } else try card.w.print("{s}─", .{Tone.border.ansi()});
             }
             try card.w.writeAll(" ");
         }
-        try card.w.print("\x1b[38;2;{d};{d};{d}m{d}%", .{ color[0], color[1], color[2], @min(context.percent(), 999) });
+        if (band != .calm) try card.w.writeAll("\x1b[1m");
+        try palette.writeFg(card.w, color);
+        try card.w.print("{d}%", .{@min(context.percent(), 999)});
     }
     const number_width: usize = 8;
     fn textWidth(card: Card) usize {
@@ -301,7 +307,7 @@ const Card = struct {
         else
             "—") else "Cached";
         try card.cell(row, text_width + 1, number_width, tokens, tone, true);
-        try card.cell(row, text_width + number_width + 2, number_width, cached, .muted, true);
+        try card.cell(row, text_width + number_width + 2, number_width, cached, .faint, true);
     }
     fn childRow(card: Card, row: usize, child: protocol.Conversation) !void {
         const text_width = card.textWidth();
@@ -314,37 +320,42 @@ const Card = struct {
         const name_width = @min(@as(usize, 18), available -| (sidebar.displayWidth(label) + 1));
         const label_width = available -| (if (name_width > 0) name_width + 1 else 0);
         const marker: Status = if (child.agent.attention == .needs_input or child.agent.state == .blocked)
-            .{ .icon = "●", .label = "Needs input", .tone = .recent }
+            .{ .icon = "●", .label = "Needs input", .tone = .warm }
         else switch (child.agent.state) {
             .working => .{ .icon = "●", .label = "Working", .tone = .working },
-            .done => .{ .icon = "✓", .label = "Done", .tone = .idle },
-            .idle => .{ .icon = "●", .label = "Idle", .tone = .muted },
+            .done => .{ .icon = "✓", .label = "Done", .tone = .muted },
+            .idle => .{ .icon = "○", .label = "Idle", .tone = .muted },
             else => status(child.agent, false),
         };
-        try card.cell(row, 0, 9, "       ↳", .muted, false);
+        try card.cell(row, 0, 9, "       ↳", .faint, false);
         try card.cell(row, 9, 1, marker.icon, marker.tone, false);
         try card.cell(row, prefix_width, label_width, label, .text, false);
-        if (name_width > 0) try card.cell(row, text_width - name_width, name_width, name, .muted, true);
-        try card.tokenColumns(row, child.usage, child.agent.state == .working, if (child.usage.known) .tokens else .muted);
+        if (name_width > 0) try card.cell(row, text_width - name_width, name_width, name, .faint, true);
+        try card.tokenColumns(row, child.usage, child.agent.state == .working, if (child.usage.known) .strong else .muted);
     }
-    /// Token columns plus a trailing column in reference-model tokens.
+    /// Token columns plus a trailing column in reference-model tokens, which
+    /// the table ranks by. Null draws the column headings.
     fn overviewRow(card: Card, row: usize, name: []const u8, model: []const u8, value: ?usage.View, equivalent: []const u8, tone: Tone) !void {
         const columns: Card = .{ .w = card.w, .x = card.x, .width = card.width - (number_width + 1) };
         const text_width = columns.textWidth();
         // Model ids are short; the extra column comes out of their share.
         const model_width = @min(text_width / 2, 22);
         const name_width = text_width - model_width - 1;
+        const heading = value == null;
         try card.cell(row, 0, name_width, name, tone, false);
-        try card.cell(row, name_width + 1, model_width, model, .muted, false);
-        try columns.tokenColumns(row, value, false, if (value == null) .tokens else .text);
-        try card.cell(row, text_width + 2 * number_width + 3, number_width, equivalent, .tokens, true);
+        try card.cell(row, name_width + 1, model_width, model, if (heading) .faint else .muted, false);
+        try columns.tokenColumns(row, value, false, if (heading) .faint else .text);
+        try card.cell(row, text_width + 2 * number_width + 3, number_width, equivalent, if (heading) .faint else .title, true);
     }
-    fn drawPoint(card: Card, row: usize, stamp: []const u8, label: []const u8, value: usage.View, live: bool, tone: Tone) !void {
+    /// One timeline step: the live one has a sage time and a bright label,
+    /// and past ones recede.
+    fn drawPoint(card: Card, row: usize, stamp: []const u8, label: []const u8, value: usage.View, live: bool, dot: Tone) !void {
         var text: [512]u8 = undefined;
         const icon = if (live) "●" else "○";
-        try card.cell(row, 0, card.textWidth(), try std.fmt.bufPrint(&text, "{s}  {s}  {s}", .{ stamp, icon, label }), .text, false);
-        try card.tokenColumns(row, value, live, if (value.known) .tokens else .muted);
-        try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, Tone.muted.ansi(), stamp, row + 1, card.x + 11, base, tone.ansi(), icon });
+        try card.cell(row, 0, card.textWidth(), try std.fmt.bufPrint(&text, "{s}  {s}  {s}", .{ stamp, icon, label }), if (live) .strong else .muted, false);
+        try card.tokenColumns(row, value, live, if (!value.known) .muted else if (live) .title else .strong);
+        const time: Tone = if (live) .live else .faint;
+        try card.w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, time.ansi(), stamp, row + 1, card.x + 11, base, dot.ansi(), icon });
     }
     fn timeline(card: Card, row: usize, root: *const protocol.Conversation, agent: protocol.Agent, nodes: usize, pending: bool) !void {
         // A working agent without a summary has no current named phase. Keep
@@ -356,7 +367,7 @@ const Card = struct {
         const divider_width = card.width - 6;
         const label = " Recent ";
         try card.cell(row, 0, divider_width, rule[0 .. divider_width * "─".len], .border, false);
-        try card.cell(row, (divider_width - label.len) / 2, label.len, label, .text, false);
+        try card.cell(row, (divider_width - label.len) / 2, label.len, label, .muted, false);
         const completed = history_nodes - @intFromBool(show_pending);
         const history_end = root.timeline.points.len - @intFromBool(pending);
         for (root.timeline.points[history_end - completed .. history_end], 0..) |point, i| {
@@ -367,7 +378,7 @@ const Card = struct {
                 try std.fmt.bufPrint(&stamp, "{d:0>2}:{d:0>2}", .{ @as(u8, @intCast(local.tm_hour)), @as(u8, @intCast(local.tm_min)) })
             else
                 "--:--";
-            try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .muted);
+            try card.drawPoint(row + 1 + i, time, point.activity, point.usage, false, .faint);
         }
         if (show_pending) {
             const active = agent.state == .working and !unreported;
@@ -379,7 +390,7 @@ const Card = struct {
                 latest.activity,
                 root.timeline.pending,
                 active,
-                if (active) .working else if (blocked) .blocked else .muted,
+                if (active) .working else if (blocked) .warm else .faint,
             );
         }
         if (unreported) {
@@ -388,15 +399,24 @@ const Card = struct {
         }
     }
 };
-fn overviewTokens(buf: []u8, value: usage.View) []const u8 {
-    if (!value.known) return "— tokens";
-    var tokens: [32]u8 = undefined;
-    var cached: [32]u8 = undefined;
-    return std.fmt.bufPrint(buf, "{s}{s} tokens (+{s} cached)", .{
+/// The title row: "Observed tokens", and "2.4M tokens (+38M cached)" at the
+/// right in muted words with its figures drawn over them.
+fn overviewTotal(card: Card, row: usize, value: usage.View) !void {
+    if (!value.known) return card.line(row, "Observed tokens", "— tokens", .title, .muted);
+    var tokens_buf: [32]u8 = undefined;
+    var cached_buf: [32]u8 = undefined;
+    var tokens_text: [40]u8 = undefined;
+    var text: [96]u8 = undefined;
+    const tokens = try std.fmt.bufPrint(&tokens_text, "{s}{s}", .{
         if (value.partial) "≥" else "",
-        compact(&tokens, (value.tokens.input -| value.tokens.cached_input) +| value.tokens.output),
-        compact(&cached, value.tokens.cached_input),
-    }) catch unreachable;
+        compact(&tokens_buf, (value.tokens.input -| value.tokens.cached_input) +| value.tokens.output),
+    });
+    const cached = compact(&cached_buf, value.tokens.cached_input);
+    const total = try std.fmt.bufPrint(&text, "{s} tokens (+{s} cached)", .{ tokens, cached });
+    try card.line(row, "Observed tokens", total, .title, .muted);
+    const start = card.x + card.width - 2 - sidebar.displayWidth(total);
+    try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, start, base, Tone.title.ansi(), tokens });
+    try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, start + sidebar.displayWidth(tokens) + " tokens (+".len, base, Tone.text.ansi(), cached });
 }
 fn runningSomewhere(all: []const protocol.Conversation, item: protocol.Conversation, now: i64) bool {
     if (item.agent.state == .done) return false;
@@ -476,14 +496,19 @@ fn overviewAgent(card: Card, row: usize, ranked_row: Ranked, reference: ?prices.
         "?"
     else
         try std.fmt.bufPrint(&equivalent_text, "{s}{s}", .{ if (ranked_row.value.partial) "≥" else "", compact(&tokens, ranked_row.equivalent) });
-    const item = ranked_row.conversation orelse return card.overviewRow(
-        row,
-        if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
-        model,
-        ranked_row.value,
-        equivalent,
-        if (system_working) .working else .idle,
-    );
+    // Corgi's own row keeps a muted name; only a working dot is lit.
+    const item = ranked_row.conversation orelse {
+        try card.overviewRow(
+            row,
+            if (system_working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)",
+            model,
+            ranked_row.value,
+            equivalent,
+            .muted,
+        );
+        if (system_working) try card.w.print("\x1b[{d};{d}H{s}{s}●", .{ row + 1, card.x + 4, base, Tone.working.ansi() });
+        return;
+    };
     const agent_status = status(item.agent, false);
     var text: [512]u8 = undefined;
     var fallback: [80]u8 = undefined;
@@ -491,7 +516,9 @@ fn overviewAgent(card: Card, row: usize, ranked_row: Ranked, reference: ?prices.
         item.agent.providerName(),
         item.agent.session[0..@min(8, item.agent.session.len)],
     });
-    try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, .text);
+    // Idle agents recede with their dot; finished ones wait to be seen.
+    const idle = item.agent.state == .idle and item.agent.attention == .none;
+    try card.overviewRow(row, try std.fmt.bufPrint(&text, "{s} {s}", .{ agent_status.icon, name }), model, item.usage, equivalent, if (idle) .muted else .text);
     try card.w.print("\x1b[{d};{d}H{s}{s}{s}", .{ row + 1, card.x + 4, base, agent_status.tone.ansi(), agent_status.icon });
 }
 fn overviewFooter(card: Card, row: usize, hidden: usize, release: Release) !void {
@@ -512,7 +539,7 @@ fn overviewFooter(card: Card, row: usize, hidden: usize, release: Release) !void
     const version_line = for (candidates) |candidate| {
         if (sidebar.displayWidth(candidate) <= room) break candidate;
     } else "";
-    try card.line(row, more, version_line, .muted, if (staged.len > 0) .idle else .muted);
+    try card.line(row, more, version_line, .faint, if (staged.len > 0) .title else .faint);
 }
 /// "20260925T183012Z-be82c7b9090a" reads as "2026-09-25 · be82c7b". A known
 /// commit replaces the version's hash, so development builds show theirs too.
@@ -592,10 +619,9 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
     try w.writeAll("\x1b7\x1b]8;;\x1b\\");
     try overviewBox(w, x, y, width, height);
     const card: Card = .{ .w = w, .x = x, .width = width };
-    var tokens: [64]u8 = undefined;
-    try card.line(y + 1, "Observed tokens", overviewTokens(&tokens, total), .title, .tokens);
+    try overviewTotal(card, y + 1, total);
     const heading = y + 3;
-    try card.overviewRow(heading, "Top agents", "Model", null, reference_label, .text);
+    try card.overviewRow(heading, "Top agents", "Model", null, reference_label, .title);
     for (rows_shown, 0..) |ranked_row, i| try overviewAgent(card, heading + 1 + i, ranked_row, reference, system_working);
     try overviewFooter(card, y + height - 2, count - shown, release);
     try w.writeAll("\x1b[0m\x1b8");
@@ -720,12 +746,11 @@ fn drawAccounts(w: *std.Io.Writer, ranked: []const Ranked, most: usize, overview
     try w.print("\x1b[{d};{d}H{s}{s}┴", .{ y + height, divider + 1, base, Tone.border.ansi() });
     const full: Card = .{ .w = w, .x = x, .width = width };
     const table: Card = .{ .w = w, .x = x, .width = 88 };
-    var tokens: [64]u8 = undefined;
-    try full.line(y + 1, "Observed tokens", overviewTokens(&tokens, overview.total), .title, .tokens);
+    try overviewTotal(full, y + 1, overview.total);
     const heading = y + 3;
-    try table.overviewRow(heading, "Top agents", "Model", null, overview.reference_label, .text);
-    try full.cell(heading, pane, 6, "Limits", .text, false);
-    try full.cell(heading, pane + 9, 20, "↻ resets in", .muted, true);
+    try table.overviewRow(heading, "Top agents", "Model", null, overview.reference_label, .title);
+    try full.cell(heading, pane, 6, "Limits", .title, false);
+    try full.cell(heading, pane + 9, 20, "↻ resets in", .faint, true);
     var row = heading + 1;
     for (sections, 0..) |section, i| {
         try accountRule(full, row, section, accounts, divider, i == 0);
@@ -766,7 +791,7 @@ fn accountRule(card: Card, row: usize, section: Section, accounts: Accounts, div
     else
         "Other agents";
     try w.print("\x1b[{d};{d}H{s}{s} ", .{ row + 1, card.x + 3, base, Tone.border.ansi() });
-    try w.print("{s}{s}", .{ base, Tone.group.ansi() });
+    try w.print("{s}{s}", .{ base, Tone.title.ansi() });
     try sidebar.writeEllipsis(w, name, 60);
     if (option) |value| if (value.plan.len > 0) {
         try w.print("{s}{s} · ", .{ base, Tone.muted.ansi() });
@@ -797,7 +822,7 @@ fn block(used: u8) []const u8 {
 /// the floor before the first reading.
 fn limitLine(card: Card, row: usize, pane: usize, window: metadata.Window, spark: limit_history.Spark, fresh: bool, now: i64) !void {
     var label: [16]u8 = undefined;
-    try card.cell(row, pane, 2, window.label(&label), if (fresh) .limit else .muted, false);
+    try card.cell(row, pane, 2, window.label(&label), .muted, false);
     const elapsed = elapsedCells(window, now);
     var last: ?u8 = null;
     for (0..limit_history.cells) |i| {
@@ -809,21 +834,22 @@ fn limitLine(card: Card, row: usize, pane: usize, window: metadata.Window, spark
         // The current slot shows the latest reading even before it is recorded.
         const reading = spark[i] orelse (if (fresh and i + 1 == elapsed) window.used else null);
         const value = reading orelse {
-            try card.cell(row, at, 1, if (last) |previous| block(previous) else "▁", .unobserved, false);
+            try card.cell(row, at, 1, if (last) |previous| block(previous) else "▁", .faint, false);
             continue;
         };
         last = value;
-        try card.cell(row, at, 1, block(value), if (fresh) usageTone(value) else .unobserved, false);
+        try card.cell(row, at, 1, block(value), if (fresh) sparkTone(value) else .faint, false);
     }
     var percent: [8]u8 = undefined;
-    try card.cell(row, pane + 15, 4, try std.fmt.bufPrint(&percent, "{d}%", .{window.used}), if (!fresh) .muted else if (window.used >= 80) usageTone(window.used) else .title, true);
+    const figure: Tone = if (!fresh) .muted else if (window.used >= 100) .hot else if (window.used >= 80) .warm else .title;
+    try card.cell(row, pane + 15, 4, try std.fmt.bufPrint(&percent, "{d}%", .{window.used}), figure, true);
     var countdown: [48]u8 = undefined;
     var reset: [64]u8 = undefined;
     const status_text = if (!fresh) "stale" else try std.fmt.bufPrint(&reset, "↻ {s}", .{window.countdown(now, &countdown) orelse "unknown"});
-    try card.cell(row, pane + 20, 9, status_text, .muted, false);
+    try card.cell(row, pane + 20, 9, status_text, .faint, false);
 }
-fn usageTone(used: u8) Tone {
-    return if (used >= 100) .usage_full else if (used >= 80) .usage_high else .usage_ok;
+fn sparkTone(used: u8) Tone {
+    return if (used >= 100) .hot_cell else if (used >= 80) .warm_cell else .live;
 }
 /// Spark cells that cover time already passed in the window.
 fn elapsedCells(window: metadata.Window, now: i64) usize {
@@ -883,7 +909,10 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     var text: [512]u8 = undefined;
     const top = y + 1;
     const root_status = status(root_agent, false);
-    try card.line(top, name, try std.fmt.bufPrint(&text, "{s} {s}", .{ root_status.icon, root_status.label }), .title, root_status.tone);
+    const status_text = try std.fmt.bufPrint(&text, "{s} {s}", .{ root_status.icon, root_status.label });
+    try card.line(top, name, status_text, .title, .text);
+    // Only the status dot takes the state's color.
+    try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ top + 1, x + width - 2 - sidebar.displayWidth(status_text), base, root_status.tone.ansi(), root_status.icon });
     const root_activity = if (root_agent.activity.len == 0 and root_agent.recent_activity.len == 0 and
         !root_agent.tool_active and !root_agent.compacting and !root_agent.subagents.waiting and root_agent.state == .working)
         thinking()
@@ -903,9 +932,9 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     if (metered) try card.meter(top + 1, root.context, root_agent.state == .working and root_agent.compacting);
     const header = top + 2 + @intFromBool(activity_row);
     if (activity_row) try card.line(top + 2, root_activity, "", .muted, .muted);
-    try card.tokenColumns(header, null, false, .muted);
+    try card.tokenColumns(header, null, false, .faint);
     try card.cell(header + 1, 0, card.textWidth(), "Total", .text, false);
-    try card.tokenColumns(header + 1, root.usage, false, if (root.usage.known) .tokens else .muted);
+    try card.tokenColumns(header + 1, root.usage, false, if (root.usage.known) .title else .muted);
     var row = header + 2;
     const footer_row = y + height - 2;
     const end = if (model.children > 0 or child_footer) footer_row else y + height - 1;
@@ -934,7 +963,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
     if (model.children > 0 and row + 1 < end) {
         row += 1;
         try card.cell(row, 0, card.textWidth(), "Including subagents", .text, false);
-        try card.tokenColumns(row, model.total, false, if (model.total.known) .tokens else .muted);
+        try card.tokenColumns(row, model.total, false, if (model.total.known) .title else .muted);
     }
     const footer = if (!children_available)
         ""
@@ -946,7 +975,7 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         "No subagents"
     else
         "Live usage";
-    if (model.children > 0 or child_footer) try card.line(footer_row, footer, "", .muted, .muted);
+    if (model.children > 0 or child_footer) try card.line(footer_row, footer, "", .faint, .faint);
     try w.writeAll("\x1b[0m\x1b8");
 }
 
@@ -963,12 +992,16 @@ test "compact child rows prioritize activity and color only the status and secon
         try std.testing.expect(std.mem.indexOf(u8, frame, "Maxwell with a lo…") != null);
         const tone: Tone = switch (state) {
             .working => .working,
-            .blocked => .recent,
-            .done => .idle,
+            .blocked => .warm,
             else => .muted,
         };
         var marker: [64]u8 = undefined;
-        try std.testing.expect(std.mem.indexOf(u8, frame, try std.fmt.bufPrint(&marker, "{s}{s}", .{ tone.ansi(), if (state == .done) "✓" else "●" })) != null);
+        const glyph = switch (state) {
+            .done => "✓",
+            .idle => "○",
+            else => "●",
+        };
+        try std.testing.expect(std.mem.indexOf(u8, frame, try std.fmt.bufPrint(&marker, "{s}{s}", .{ tone.ansi(), glyph })) != null);
         try std.testing.expect(std.mem.indexOf(u8, frame, "200") != null);
         try std.testing.expect(std.mem.indexOf(u8, frame, "800") != null);
     }
@@ -1337,16 +1370,16 @@ test "sparks ghost unobserved slots and floor the time left" {
     const spark: limit_history.Spark = .{ 4, 11, null, null, 33, 45, null, null, null, null, null };
     try limitLine(.{ .w = &output.writer, .x = 0, .width = 122 }, 5, 87, window, spark, true, now);
     const line = output.written();
-    try expectSparkCell(line, 0, "▁", .usage_ok);
-    try expectSparkCell(line, 1, "▁", .usage_ok);
+    try expectSparkCell(line, 0, "▁", .live);
+    try expectSparkCell(line, 1, "▁", .live);
     // Missed slots show a gray bar at the last reading's level.
-    try expectSparkCell(line, 2, "▁", .unobserved);
-    try expectSparkCell(line, 3, "▁", .unobserved);
-    try expectSparkCell(line, 4, "▃", .usage_ok);
-    try expectSparkCell(line, 5, "▄", .usage_ok);
-    try expectSparkCell(line, 6, "▄", .unobserved);
+    try expectSparkCell(line, 2, "▁", .faint);
+    try expectSparkCell(line, 3, "▁", .faint);
+    try expectSparkCell(line, 4, "▃", .live);
+    try expectSparkCell(line, 5, "▄", .live);
+    try expectSparkCell(line, 6, "▄", .faint);
     // The current slot shows the latest reading before history records it.
-    try expectSparkCell(line, 7, "▄", .usage_ok);
+    try expectSparkCell(line, 7, "▄", .live);
     for (8..11) |i| try expectSparkCell(line, i, "▁", .remaining);
     try std.testing.expect(std.mem.indexOf(u8, line, "┈") == null);
     try std.testing.expect(std.mem.indexOf(u8, line, "52%") != null);
@@ -1357,9 +1390,9 @@ test "sparks ghost unobserved slots and floor the time left" {
     defer first.deinit();
     const early: metadata.Window = .{ .minutes = 300, .used = 40, .reset_at = now + 220 * 60 };
     try limitLine(.{ .w = &first.writer, .x = 0, .width = 122 }, 5, 87, early, @splat(null), true, now);
-    try expectSparkCell(first.written(), 0, "▁", .unobserved);
-    try expectSparkCell(first.written(), 1, "▁", .unobserved);
-    try expectSparkCell(first.written(), 2, "▃", .usage_ok);
+    try expectSparkCell(first.written(), 0, "▁", .faint);
+    try expectSparkCell(first.written(), 1, "▁", .faint);
+    try expectSparkCell(first.written(), 2, "▃", .live);
     try expectSparkCell(first.written(), 3, "▁", .remaining);
 
     var stale: std.Io.Writer.Allocating = .init(std.testing.allocator);
@@ -1367,8 +1400,28 @@ test "sparks ghost unobserved slots and floor the time left" {
     try limitLine(.{ .w = &stale.writer, .x = 0, .width = 122 }, 5, 87, window, spark, false, now);
     try std.testing.expect(std.mem.indexOf(u8, stale.written(), "stale") != null);
     try std.testing.expect(std.mem.indexOf(u8, stale.written(), "↻") == null);
-    try expectSparkCell(stale.written(), 5, "▄", .unobserved);
-    try expectSparkCell(stale.written(), 7, "▄", .unobserved);
+    try expectSparkCell(stale.written(), 5, "▄", .faint);
+    try expectSparkCell(stale.written(), 7, "▄", .faint);
+
+    // Cells past 80% are warm and hot without bold; the figure stays bold.
+    var high: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer high.deinit();
+    const full: metadata.Window = .{ .minutes = 300, .used = 100, .reset_at = now + 100 * 60 };
+    try limitLine(.{ .w = &high.writer, .x = 0, .width = 122 }, 5, 87, full, .{ 50, 85, 100, null, null, null, null, null, null, null, null }, true, now);
+    try expectSparkCell(high.written(), 1, "▇", .warm_cell);
+    try expectSparkCell(high.written(), 2, "█", .hot_cell);
+    var figure: [64]u8 = undefined;
+    try std.testing.expect(std.mem.indexOf(u8, high.written(), try std.fmt.bufPrint(&figure, "{s}100%", .{Tone.hot.ansi()})) != null);
+}
+
+test "a finished agent the user has not seen shows a check" {
+    var agent: protocol.Agent = .{ .provider = .codex, .state = .idle, .attention = .finished, .session = "s", .activity = "", .cwd = "", .tool_active = false };
+    const finished = status(agent, false);
+    try std.testing.expectEqualStrings("✓", finished.icon);
+    try std.testing.expectEqualStrings("Finished", finished.label);
+    try std.testing.expectEqual(Tone.live, finished.tone);
+    agent.state = .working;
+    try std.testing.expectEqualStrings("Working", status(agent, false).label);
 }
 
 test "overview ranks by tokens of the priciest listed model" {
@@ -1490,7 +1543,7 @@ test "overview footer shows the running release and a staged update" {
     defer ready.deinit();
     const release: Release = .{ .running = "20260925T183012Z-be82c7b9090a", .staged = "20260926T090000Z-a1b2c3d4e5f6" };
     try drawOverview(&ready.writer, &all, .{}, false, "", release, .{}, 100, 30);
-    try std.testing.expect(std.mem.indexOf(u8, ready.written(), "↑ Update 2026-09-26 · a1b2c3d ready · relaunch Corgi") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ready.written(), comptime Tone.title.ansi() ++ "↑ Update 2026-09-26 · a1b2c3d ready · relaunch Corgi") != null);
     var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer narrow.deinit();
     try drawOverview(&narrow.writer, &all, .{}, false, "", release, .{}, 40, 13);
@@ -1569,12 +1622,18 @@ test "the subtitle pairs provider and model with the context meter, and activity
     try std.testing.expect(lineWith(&lines, "context") == null);
     os.allocator.free(text);
 
-    // Near a learned compaction point the figure is red, faded while compacting.
+    // Near a learned compaction point the figure is hot and bold, and fades
+    // into the card while compacting.
     all[0].context = .{ .used = 381_000, .window = 1_000_000, .compacts_at = 400_000, .at = 1 };
+    var hot: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer hot.deinit();
+    try draw(&hot.writer, &all, entry, 100, 30, 0, 2);
+    try std.testing.expect(std.mem.indexOf(u8, hot.written(), comptime "\x1b[1m" ++ palette.fg(.hot) ++ "38%") != null);
     all[0].agent.compacting = true;
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try draw(&output.writer, &all, entry, 100, 30, 0, 2);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;113;83;88m38%") != null);
+    const faded = comptime "\x1b[1m" ++ palette.fgRgb(palette.mix(palette.Token.hot.rgb(), palette.Token.bg.rgb(), 60)) ++ "38%";
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), faded) != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "┼") != null);
 }

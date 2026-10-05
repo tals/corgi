@@ -2,7 +2,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Titles, A } from "./codex_titles";
-import { Runtime, EXE, screen_text } from "./runtime";
+import { PALETTE, Runtime, EXE, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { registerCase, sleep } from "./support";
 
@@ -126,7 +126,11 @@ class Children extends Titles {
       border.slice(border.indexOf("╭"), border.indexOf("╮") + 1).length,
       88,
     );
-    this.assertIn("\x1b[1;38;2;148;226;213m", frame);
+    // Token totals are bold in the palette's strong gray.
+    this.assertRegex(
+      frame,
+      new RegExp(`\\x1b\\[1m\\x1b\\[38;2;${PALETTE.strong}m≥?\\d`),
+    );
     writeFileSync("/tmp/corgi-subagents-screen.txt", screen.join("\n"));
     writeFileSync(
       "/tmp/corgi-subagents-frame.json",
