@@ -88,6 +88,8 @@ pub const Claude = struct {
         type: ?TranscriptLine = null,
         subtype: []const u8 = "",
         sessionId: []const u8 = "",
+        /// The subagent a sidechain line belongs to.
+        agentId: []const u8 = "",
         timestamp: []const u8 = "",
         isSidechain: bool = false,
         message: std.json.Value = .null,
@@ -98,7 +100,20 @@ pub const Claude = struct {
             const line = json.decode(Line, v);
             return if (line.isSidechain) null else line;
         }
+        /// The line if it belongs to `conversation`: a session's own line, or
+        /// a subagent's, whose conversation is its agent id.
+        pub fn of(v: std.json.Value, conversation: []const u8) ?Line {
+            const line = json.decode(Line, v);
+            const owner = if (line.isSidechain) line.agentId else line.sessionId;
+            return if (std.mem.eql(u8, owner, conversation)) line else null;
+        }
     };
+    /// A subagent's own transcript, kept beside its session's in a folder
+    /// named for the session.
+    pub fn subagentTranscript(buf: []u8, transcript: []const u8, session: []const u8, agent: []const u8) ?[]const u8 {
+        const dir = std.fs.path.dirname(transcript) orelse return null;
+        return std.fmt.bufPrint(buf, "{s}/{s}/subagents/agent-{s}.jsonl", .{ dir, session, agent }) catch null;
+    }
 
     pub fn hook(provider: Claude, value: std.json.Value) ?common.Hook {
         return provider.hooks.decode(value);
@@ -158,6 +173,24 @@ test "transcript lines decode their envelope and drop subagent lines" {
     , .{});
     defer subagent.deinit();
     try std.testing.expect(Claude.Line.decode(subagent.value) == null);
+}
+
+test "a subagent's lines belong to the subagent, in the file beside its session's" {
+    const alloc = std.testing.allocator;
+    const own = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"assistant","sessionId":"s"}
+    , .{});
+    defer own.deinit();
+    const subagent = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"type":"assistant","sessionId":"s","isSidechain":true,"agentId":"a1"}
+    , .{});
+    defer subagent.deinit();
+    try std.testing.expect(Claude.Line.of(own.value, "s") != null);
+    try std.testing.expect(Claude.Line.of(own.value, "a1") == null);
+    try std.testing.expect(Claude.Line.of(subagent.value, "a1") != null);
+    try std.testing.expect(Claude.Line.of(subagent.value, "s") == null);
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqualStrings("/p/s/subagents/agent-a1.jsonl", Claude.subagentTranscript(&buf, "/p/s.jsonl", "s", "a1").?);
 }
 
 test "task notices name their task, and how it ended once it has" {

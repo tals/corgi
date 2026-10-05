@@ -489,6 +489,11 @@ pub const Registry = struct {
             return false;
         };
         if (!registry.linkChild(parent, child)) return false;
+        if (child.state.transcript.len == 0 and std.fs.path.isAbsolute(parent.state.transcriptPath())) {
+            var path: [agents.Path.capacity]u8 = undefined;
+            if (providers.Claude.subagentTranscript(&path, parent.state.transcriptPath(), parent.state.sessionId(), meta.id.text())) |own|
+                child.state.transcript = agents.Path.init(own) catch .{};
+        }
         child.role = .initTruncated(meta.agent_type.text());
         child.state.setName(meta.agent_type.text());
         child.state.setActivity(meta.description.text());
@@ -755,7 +760,7 @@ test "a Claude subagent counts from its launch until a Stop's list leaves it out
     defer registry.deinit();
     const parent = try registry.get(.claude, "parent");
     const lines = [_][]const u8{
-        \\{"hook_event_name":"UserPromptSubmit","session_id":"parent"}
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"parent","transcript_path":"/p/parent.jsonl"}
         ,
         \\{"hook_event_name":"PostToolUse","session_id":"parent","tool_name":"Agent",
         \\"tool_input":{"description":"Lane A","subagent_type":"general-purpose"},"tool_response":{"status":"async_launched","agentId":"a1"}}
@@ -783,6 +788,7 @@ test "a Claude subagent counts from its launch until a Stop's list leaves it out
     try std.testing.expectEqual(parent.id, a1.parent.?);
     try std.testing.expectEqual(agents.State.working, a1.state.state);
     try std.testing.expectEqualStrings("Lane A", a1.state.activity.text());
+    try std.testing.expectEqualStrings("/p/parent/subagents/agent-a1.jsonl", a1.state.transcriptPath());
     // A repeated report of the same launch counts it once.
     _ = registry.observeHook(parent, hooks[1], 3, false, 300);
     try std.testing.expectEqual(@as(u32, 1), parent.state.subagents.running);

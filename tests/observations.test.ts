@@ -1,5 +1,6 @@
 import {
   appendFileSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   symlinkSync,
@@ -416,6 +417,31 @@ class Observations extends Runtime {
     await this.hook("UserPromptSubmit", "claude");
     await launch("a1", "Lane A");
     await launch("a2", "Lane B");
+    // Lane A writes its own transcript, beside the session's.
+    const lanes = join(this.temp.name, "session", "subagents");
+    mkdirSync(lanes, { recursive: true });
+    writeFileSync(
+      join(lanes, "agent-a1.jsonl"),
+      JSON.stringify({
+        type: "assistant",
+        sessionId: "session",
+        isSidechain: true,
+        agentId: "a1",
+        timestamp: new Date().toISOString(),
+        message: {
+          id: "m1",
+          model: "claude-haiku-4-5-20251001",
+          usage: { input_tokens: 40, output_tokens: 2 },
+        },
+      }) + "\n",
+    );
+    await this.until(async () => {
+      const snapshot = await this.session();
+      const lane = snapshot.conversations.find(
+        (c: any) => c.agent.activity === "Lane A",
+      );
+      return lane?.usage.tokens.input === 40;
+    });
     // Each counts from its launch, while the turn that launched it runs.
     let seen = await parent();
     this.assertEqual(seen.agent.state, "working");

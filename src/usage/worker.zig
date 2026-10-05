@@ -265,6 +265,8 @@ pub const Tail = struct {
     live: live_usage.Codex = .{},
     context: context_window.Reading = .{},
     opened: bool = false,
+    /// A Claude subagent's file is all its own, so its bounded prefix counts.
+    catch_up: bool = false,
     name: codex_files.Name = .{},
     name_chosen: bool = false,
     continued: codex_files.Name = .{},
@@ -323,6 +325,7 @@ pub const Tail = struct {
                         t.live.meter.value.known = true;
                         t.live.meter.value.since = os.milliTimestamp();
                     }
+                    t.catch_up = catch_up;
                 },
                 .codex => {
                     var header: [64 * 1024]u8 = undefined;
@@ -406,7 +409,10 @@ pub const Tail = struct {
                 }
                 t.observeModel(usage.field(value, "message"));
                 const delta = t.tracker.transcript(.claude, session, value);
-                if (appended and delta.tokens_known) {
+                // A subagent's lines from after Corgi began tracking it count
+                // even when it wrote them before Corgi opened its file.
+                const owned = t.catch_up and stamp != null and stamp.? >= req.tracked_since;
+                if ((appended or owned) and delta.tokens_known) {
                     t.live.meter.add(.{ .input = delta.input, .cached_input = delta.cached_input, .output = delta.output }, stamp orelse os.milliTimestamp());
                 }
                 return delta;
@@ -605,6 +611,27 @@ test "Claude transcripts supply chosen names over generated titles and report co
     const result: Result = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .delta = .{}, .name = tail.name };
     try std.testing.expect(!result.fallback(&agent, 0));
     try std.testing.expectEqualStrings("Chosen", agent.displayName());
+}
+
+test "a Claude subagent's own transcript counts its usage from when it was tracked" {
+    var tail: Tail = .{ .initial_until = 1 << 20, .catch_up = true };
+    defer tail.close();
+    var req: Request = .{ .actor = @enumFromInt(2), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude }, .child = true, .tracked_since = 2000 };
+    req.agent.session = .ascii("a1");
+    // Its file was already written when Corgi opened it: before tracking
+    // began, after it, and a line of another subagent.
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"s\",\"isSidechain\":true,\"agentId\":\"a1\",\"timestamp\":\"1970-01-01T00:00:01.000Z\",\"message\":{\"id\":\"m1\",\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"s\",\"isSidechain\":true,\"agentId\":\"a1\",\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"id\":\"m2\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n", 0);
+    _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"sessionId\":\"s\",\"isSidechain\":true,\"agentId\":\"a2\",\"timestamp\":\"1970-01-01T00:00:04.000Z\",\"message\":{\"id\":\"m3\",\"usage\":{\"input_tokens\":100,\"output_tokens\":5}}}\n", 0);
+    try std.testing.expectEqual(@as(u64, 10), tail.live.meter.value.tokens.input);
+    try std.testing.expectEqual(@as(u64, 2), tail.live.meter.value.tokens.output);
+    // The session's own transcript never counts its subagents' lines.
+    var parent: Tail = .{};
+    defer parent.close();
+    req = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .claude } };
+    req.agent.session = .ascii("s");
+    _ = try parent.ingest(&req, "\n{\"type\":\"assistant\",\"sessionId\":\"s\",\"isSidechain\":true,\"agentId\":\"a1\",\"timestamp\":\"1970-01-01T00:00:03.000Z\",\"message\":{\"id\":\"m2\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n", 0);
+    try std.testing.expectEqual(@as(u64, 0), parent.live.meter.value.tokens.input);
 }
 
 test "Claude text updates apply only when newer than the latest hook" {

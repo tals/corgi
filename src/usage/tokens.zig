@@ -126,8 +126,8 @@ pub const Tracker = struct {
         };
     }
     fn claudeTranscript(t: *Tracker, session: []const u8, value: std.json.Value) Counts {
-        const line = Claude.Line.decode(value) orelse return .{};
-        if (!std.mem.eql(u8, line.sessionId, session) or line.type != .assistant) return .{};
+        const line = Claude.Line.of(value, session) orelse return .{};
+        if (line.type != .assistant) return .{};
         return t.claudeMessage(line.message);
     }
     fn codexTranscript(t: *Tracker, value: std.json.Value) Counts {
