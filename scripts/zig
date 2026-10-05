@@ -17,4 +17,9 @@ if [ "$("$compiler" version)" != 0.16.0 ]; then
     exit 1
 fi
 cd "$root"
+if [ "${1:-}" = build ]; then
+    shift
+    # Later -j flags override this default.
+    exec nice -n 10 "$compiler" build -j6 "$@"
+fi
 exec "$compiler" "$@"
