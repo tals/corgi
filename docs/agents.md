@@ -142,8 +142,8 @@ figure is amber, and red from 85% of the way. While the agent compacts it dims;
 afterwards the smaller context is below the threshold and the figure goes away.
 Ended sessions never show one.
 
-The hover card always shows it. Its subtitle names the provider and model, with
-a meter on the right such as `context ━━━━━━━━━━━━──── 74%`, in the same colors
+The hover card always shows it. Its subtitle names the provider and model, such
+as `codex · GPT-6 Astra` or `claude · Opus 5.5`, with a meter on the right such as `context ━━━━━━━━━━━━──── 74%`, in the same colors
 (grey below 70% of the way) and with a `┼` tick at a learned compaction point.
 Until the agent has a timeline, its activity takes the line below the subtitle,
 so the meter never shortens it. Narrow cards shorten the bar and, below about 44
@@ -175,6 +175,20 @@ reports an effective window, and compacted at 81–89% of it in observed session
 After a reload or restart each transcript's tail supplies the level again, so it
 is not saved. `conversation.list` and `session.snapshot` expose it as `context`
 on each conversation: `used`, `window`, `compacts_at` (0 until learned) and `at`.
+
+## Model names
+
+A model id is resolved once, where it arrives from a hook or a transcript, the
+way Claude Code reads ids: Bedrock (`us.anthropic.claude-haiku-4-5-20251001-v1:0`,
+inference-profile ARNs) and Vertex (`claude-opus-4-5@20251101`) spellings, dates
+and `[1m]` reduce to the first-party id, whose family and version give the name
+and Claude's window. Names follow the CLIs' own: `claude-opus-4-0` is "Opus 4",
+`claude-sonnet-4-6[1m]` is "Sonnet 4.6 (1M context)", `gpt-6.1-sol` is "GPT-6.1
+Sol" (Codex writes "GPT-6.1-Sol"), `codex-auto-review` is "Codex Auto Review".
+Ids of any other shape, such as a custom provider's or an application
+inference profile ARN, keep their id and have no name. `conversation.list` and
+`session.snapshot` send the first-party id as `model` and the name as
+`model_name`; the summarizer's are `system_model` and `system_model_name`.
 
 ## Tests and simulation
 

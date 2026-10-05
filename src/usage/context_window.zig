@@ -8,6 +8,7 @@ const common = @import("../providers/common.zig");
 const Claude = @import("../providers/claude.zig").Claude;
 const Codex = @import("../providers/codex.zig").Codex;
 const Name = @import("../codex_files.zig").Name;
+const Model = @import("../providers/model.zig").Model;
 
 /// What the usage worker last read from one transcript.
 pub const Reading = struct {
@@ -19,7 +20,7 @@ pub const Reading = struct {
     window: u64 = 0,
     /// Transcript time of the reading in milliseconds; zero means no reading.
     at: i64 = 0,
-    model: Name = .{},
+    model: Model = .{},
     /// Size at which this conversation last compacted on its own.
     auto_compaction: u64 = 0,
 
@@ -28,16 +29,15 @@ pub const Reading = struct {
         const stamp = common.timestampMs(line.timestamp) orelse return;
         switch (line.type orelse return) {
             .assistant => {
-                const model = agents.str(line.message, "model");
                 // Also skips "<synthetic>" error records, which report no usage.
-                const window = Claude.contextWindow(model);
-                if (window == 0) return;
+                const model: Model = .resolve(agents.str(line.message, "model"));
+                if (model.window == 0) return;
                 const usage = field(line.message, "usage");
                 const input = number(usage, "input_tokens") orelse return;
                 r.used = input +| (number(usage, "cache_read_input_tokens") orelse 0) +| (number(usage, "cache_creation_input_tokens") orelse 0);
-                r.window = window;
+                r.window = model.window;
                 r.at = stamp;
-                r.model = .ascii(model);
+                r.model = model;
             },
             .system => {
                 if (!std.mem.eql(u8, line.subtype, "compact_boundary")) return;
@@ -72,7 +72,7 @@ pub const Reading = struct {
             .used = r.used,
             .window = r.window,
             .at = r.at,
-            .compacts_at = if (r.auto_compaction > 0) r.auto_compaction else points.get(r.model.text()),
+            .compacts_at = if (r.auto_compaction > 0) r.auto_compaction else points.get(r.model.id.text()),
         };
     }
 };
@@ -152,7 +152,7 @@ test "claude counts the latest main-chain call's input side against its model wi
     );
     try std.testing.expectEqual(@as(u64, 252758), r.used);
     try std.testing.expectEqual(@as(u64, 1_000_000), r.window);
-    try std.testing.expectEqualStrings("claude-opus-5-5", r.model.text());
+    try std.testing.expectEqualStrings("claude-opus-5-5", r.model.id.text());
     // Subagent and synthetic error records leave the reading alone.
     try feed(&r, .claude,
         \\{"type":"assistant","isSidechain":true,"timestamp":"2026-09-27T17:29:30.000Z","message":{"model":"claude-opus-5-5","usage":{"input_tokens":9,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
@@ -169,15 +169,6 @@ test "claude counts the latest main-chain call's input side against its model wi
         \\{"type":"assistant","timestamp":"2026-09-27T17:30:00.000Z","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":40000}}}
     );
     try std.testing.expectEqual(@as(u64, 200_000), r.window);
-}
-
-test "claude windows follow Claude Code's model families" {
-    try std.testing.expectEqual(@as(u64, 1_000_000), Claude.contextWindow("claude-opus-5-5"));
-    try std.testing.expectEqual(@as(u64, 1_000_000), Claude.contextWindow("claude-opus-4-7-20260301"));
-    try std.testing.expectEqual(@as(u64, 1_000_000), Claude.contextWindow("claude-sonnet-4-6[1m]"));
-    try std.testing.expectEqual(@as(u64, 200_000), Claude.contextWindow("claude-opus-4-6"));
-    try std.testing.expectEqual(@as(u64, 200_000), Claude.contextWindow("claude-opus-55"));
-    try std.testing.expectEqual(@as(u64, 0), Claude.contextWindow("<synthetic>"));
 }
 
 test "claude compactions reset the level and only automatic ones teach the compaction point" {
@@ -211,7 +202,7 @@ test "codex reads the last call and the reported window, ignoring null info" {
 test "pressure follows a learned compaction point shared by model" {
     var points: Points = .{};
     var r: Reading = .{ .used = 300_000, .window = 1_000_000, .at = 1 };
-    r.model = .ascii("claude-opus-5-5");
+    r.model = .resolve("claude-opus-5-5");
     try std.testing.expectEqual(@as(f64, 0.3), r.view(&points).pressure().?);
     points.learn("claude-opus-5-5", 400_000);
     try std.testing.expectEqual(@as(f64, 0.75), r.view(&points).pressure().?);

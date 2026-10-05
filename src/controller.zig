@@ -3010,6 +3010,7 @@ pub const Controller = struct {
             .agents = entries,
             .conversations = s.runtime.conversations,
             .system_model = s.runtime.system_model,
+            .system_model_name = s.runtime.system_model_name,
             .release = .{ .running = s.runtime.release_version, .commit = s.runtime.release_commit, .staged = s.runtime.staged_version },
             .system_usage = s.runtime.system_usage,
             .system_working = s.runtime.system_working,

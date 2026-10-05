@@ -646,7 +646,7 @@ class SummaryCases extends Summaries {
       const agentRow = rows.find((r) => r.includes("codex ·"))!;
       this.assertRegex(
         systemRow,
-        /Corgi \(Activity summarizer\)\s+gpt-6-luna\s+1\.2k\s+1\.8k\s+1\.2k/,
+        /Corgi \(Activity summarizer\)\s+GPT-6 Luna\s+1\.2k\s+1\.8k\s+1\.2k/,
       );
       this.assertRegex(agentRow, /codex · \S+\s+—\s+6\.9k\s+7\.8k/);
       this.assertNotIn("tracked sessions", overview);

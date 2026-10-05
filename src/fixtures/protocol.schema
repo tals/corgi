@@ -261,6 +261,7 @@ $.snapshot.release_version: string
 $.snapshot.release_commit: string
 $.snapshot.staged_version: string
 $.snapshot.system_model: string
+$.snapshot.system_model_name: string
 $.snapshot.inference.choice: enum auto codex claude off
 $.snapshot.inference.provider: optional
 $.snapshot.inference.provider?: enum codex claude
@@ -325,6 +326,7 @@ $.snapshot.conversations[].timeline.pending.since: i64
 $.snapshot.conversations[].timeline.pending.updated_at: i64
 $.snapshot.conversations[].timeline.pending.recent_tokens: u64
 $.snapshot.conversations[].model: string
+$.snapshot.conversations[].model_name: string
 $.snapshot.conversations[].parent: optional
 $.snapshot.conversations[].parent?: u32
 $.snapshot.conversations[].workspace: u32

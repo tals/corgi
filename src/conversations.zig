@@ -9,8 +9,8 @@ const activity_summary = @import("activity.zig").summary;
 const activity_timeline = @import("activity.zig").timeline;
 const background_tasks = @import("activity.zig").background_tasks;
 const detection = @import("detection.zig");
-const codex_files = @import("codex_files.zig");
 const BoundedText = @import("bounded_text.zig").BoundedText;
+const Model = @import("providers/model.zig").Model;
 const live_usage = @import("usage.zig").live;
 const context_window = @import("usage.zig").context_window;
 const codex_observer = @import("codex_observer.zig");
@@ -52,7 +52,7 @@ pub const Actor = struct {
     child_refresh: bool = false,
     children_observed_at: i64 = 0,
     role: BoundedText(80) = .{},
-    model: codex_files.Name = .{},
+    model: Model = .{},
     // Hooks report the current model on every event; a bounded transcript
     // tail can miss the once-per-turn record, so it only fills gaps.
     model_from_hook: bool = false,
@@ -75,7 +75,7 @@ pub const Actor = struct {
         const ding = actor.state.observeHook(actor.provider(), event, seq, watched, now) orelse return false;
         if (actor.state.last_seq == seq) actor.screen_compacting = false;
         if (event.model.len > 0) {
-            actor.model = .ascii(event.model);
+            actor.model = .resolve(event.model);
             actor.model_from_hook = true;
         }
         actor.compactionChanged(was_compacting, now);
@@ -739,13 +739,13 @@ test "delayed hook endings and transcript confirmations cannot stop resumed work
 test "hook models replace the transcript model and survive events without one" {
     var actor: Actor = .{ .id = @enumFromInt(1), .state = .{ .provider = .codex } };
     _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-astra" }, 1, false, 10);
-    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.text());
+    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.id.text());
     try std.testing.expect(actor.model_from_hook);
     _ = actor.observeHook(.{ .kind = .tool_start, .session = "a", .tool = "Bash" }, 2, false, 20);
-    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.text());
+    try std.testing.expectEqualStrings("gpt-6-astra", actor.model.id.text());
     _ = actor.observeHook(.{ .kind = .prompt, .session = "a", .model = "gpt-6-luna" }, 3, false, 30);
-    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.text());
+    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.id.text());
     // Another session's hook is rejected and cannot change the model.
     _ = actor.observeHook(.{ .kind = .prompt, .session = "b", .model = "gpt-6-sol" }, 4, false, 40);
-    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.text());
+    try std.testing.expectEqualStrings("gpt-6-luna", actor.model.id.text());
 }

@@ -459,7 +459,9 @@ pub const Accounts = struct {
 const Ranked = struct {
     conversation: ?*const protocol.Conversation = null,
     value: usage.View,
+    /// The id prices are found by, and the name the column shows.
     model: []const u8,
+    model_name: []const u8 = "",
     // Uncached input plus output in reference-model tokens; raw for unknown models.
     equivalent: u64 = 0,
 };
@@ -484,7 +486,9 @@ fn overviewBox(w: *std.Io.Writer, x: usize, y: usize, width: usize, height: usiz
 fn overviewAgent(card: Card, row: usize, ranked_row: Ranked, reference: ?prices.Price, system_working: bool) !void {
     var tokens: [64]u8 = undefined;
     var equivalent_text: [48]u8 = undefined;
-    const model = if (ranked_row.model.len == 0)
+    const model = if (ranked_row.model_name.len > 0)
+        ranked_row.model_name
+    else if (ranked_row.model.len == 0)
         "—"
     else
         ranked_row.model;
@@ -559,12 +563,12 @@ fn versionLabel(buf: []u8, ver: []const u8, commit: []const u8) []const u8 {
         return ver;
     return out catch ver;
 }
-pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, release: Release, accounts: Accounts, cols: u16, rows: u16) !void {
+pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, system_usage: usage.View, system_working: bool, system_model: []const u8, system_model_name: []const u8, release: Release, accounts: Accounts, cols: u16, rows: u16) !void {
     if (cols < 40 or rows < 13) return;
     var total: usage.View = system_usage;
     const Row = Ranked;
     var ranked: [max + 1]Row = undefined;
-    ranked[0] = .{ .value = system_usage, .model = system_model };
+    ranked[0] = .{ .value = system_usage, .model = system_model, .model_name = system_model_name };
     var count: usize = 1;
     const now = os.microTimestamp();
     // Rows use exclusive own usage. Parents never include their children here.
@@ -572,7 +576,7 @@ pub fn drawOverview(w: *std.Io.Writer, all: []const protocol.Conversation, syste
         add(&total, item.usage);
         if (!runningSomewhere(all, item.*, now)) continue;
         if (count < ranked.len) {
-            ranked[count] = .{ .conversation = item, .value = item.usage, .model = item.model };
+            ranked[count] = .{ .conversation = item, .value = item.usage, .model = item.model, .model_name = item.model_name };
             count += 1;
         }
     }
@@ -920,10 +924,11 @@ pub fn draw(w: *std.Io.Writer, all: []const protocol.Conversation, entry: sideba
         activity(root_agent);
     // The subtitle names the provider and model, with the context meter beside it.
     const provider = root_agent.providerName();
+    const model_label = root.modelLabel();
     const subtitle = if (std.ascii.eqlIgnoreCase(name, provider))
-        root.model
-    else if (root.model.len > 0)
-        try std.fmt.bufPrint(&text, "{s} · {s}", .{ provider, root.model })
+        model_label
+    else if (model_label.len > 0)
+        try std.fmt.bufPrint(&text, "{s} · {s}", .{ provider, model_label })
     else
         provider;
     const metered = root_agent.state != .done and root.context.band() != null;
@@ -1040,7 +1045,7 @@ test "idle children stay hidden while active descendants and usage remain" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Visible grandchild") != null);
     var overview: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer overview.deinit();
-    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", .{}, .{}, 100, 30);
+    try drawOverview(&overview.writer, &all, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Hidden child") == null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "Visible parent") != null);
     try std.testing.expect(std.mem.indexOf(u8, overview.written(), "50 tokens") != null);
@@ -1065,7 +1070,7 @@ test "role groups aggregate each descendant once and exclude other trees" {
     try std.testing.expect(!model.total.partial);
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, .{}, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "960 tokens") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi (Activity summarizer)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Top agents") != null);
@@ -1220,7 +1225,7 @@ test "overview excludes detached history and shows Corgi activity" {
     for ([_]bool{ false, true }) |working| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
-        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", .{}, .{}, 100, 30);
+        try drawOverview(&output.writer, &all, .{}, working, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
         const frame = output.written();
         for ([_][]const u8{ "Open session", "Live child", "900 tokens", if (working) "● Corgi (Activity summarizer)" else "○ Corgi (Activity summarizer)" }) |text|
             try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
@@ -1245,9 +1250,10 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     const system: usage.View = .{ .known = true, .tokens = .{ .input = 50 } };
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", .{}, .{}, 100, 30);
+    try drawOverview(&output.writer, &all, system, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
     const frame = output.written();
-    try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6-luna") != null);
+    // Corgi's own row names its model, as agent rows do.
+    try std.testing.expect(std.mem.indexOf(u8, frame, "GPT-6 Luna") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "gpt-6") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "Cached") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame, "1.4k tokens") != null);
@@ -1257,7 +1263,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     try std.testing.expect(std.mem.indexOf(u8, frame, "Unreported task") != null);
     var small: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer small.deinit();
-    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", .{}, .{}, 64, 13);
+    try drawOverview(&small.writer, &all, system, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 64, 13);
     // Narrow cards clip the label; the Corgi prefix stays visible.
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "○ Corgi") != null);
     try std.testing.expect(std.mem.indexOf(u8, small.written(), "Largest") != null);
@@ -1267,7 +1273,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     all[0].usage.tokens = .{ .input = 10000, .cached_input = 9990 };
     var sorted: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer sorted.deinit();
-    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", .{}, .{}, 100, 30);
+    try drawOverview(&sorted.writer, &all, system, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
     const sorted_frame = sorted.written();
     try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Child task").? < std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").?);
     try std.testing.expect(std.mem.indexOf(u8, sorted_frame, "Corgi (Activity summarizer)").? < std.mem.indexOf(u8, sorted_frame, "Parent task").?);
@@ -1279,7 +1285,7 @@ test "overview ranks all agents together and keeps Corgi in small windows" {
     }
     var capped: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer capped.deinit();
-    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", .{}, .{}, 100, 30);
+    try drawOverview(&capped.writer, &many, .{ .known = true, .tokens = .{ .input = 50, .cached_input = 30, .output = 5 } }, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
     try std.testing.expectEqual(@as(usize, 9), std.mem.count(u8, capped.written(), "Ranked task"));
     try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, capped.written(), "Corgi (Activity summarizer)"));
     try std.testing.expect(std.mem.indexOf(u8, capped.written(), "25") != null);
@@ -1318,7 +1324,7 @@ test "wide terminals put each account's limits beside its agents" {
     const accounts = testAccounts(now);
     var wide: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer wide.deinit();
-    try drawOverview(&wide.writer, &all, .{}, false, "gpt-6-luna", .{}, accounts, 130, 40);
+    try drawOverview(&wide.writer, &all, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, accounts, 130, 40);
     const frame = wide.written();
     for ([_][]const u8{ "Limits", "Claude work@acme.dev", "Codex me@home.dev", "100%", "↻ 42m", "84%", "┬", "┼", "┴" }) |text| {
         try std.testing.expect(std.mem.indexOf(u8, frame, text) != null);
@@ -1333,7 +1339,7 @@ test "wide terminals put each account's limits beside its agents" {
     try std.testing.expect(codex_rule < std.mem.indexOf(u8, frame, "Corgi (Activity summarizer)").?);
     var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer narrow.deinit();
-    try drawOverview(&narrow.writer, &all, .{}, false, "gpt-6-luna", .{}, accounts, 100, 40);
+    try drawOverview(&narrow.writer, &all, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, accounts, 100, 40);
     try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "Limits") == null);
     try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "Claude task") != null);
 }
@@ -1344,12 +1350,12 @@ test "accounts without agents keep their limits and short terminals fall back" {
     const accounts = testAccounts(now);
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &none, .{}, false, "gpt-6-luna", .{}, accounts, 130, 40);
+    try drawOverview(&output.writer, &none, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, accounts, 130, 40);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Claude work@acme.dev") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "63%") != null);
     var short: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer short.deinit();
-    try drawOverview(&short.writer, &none, .{}, false, "gpt-6-luna", .{}, accounts, 130, 13);
+    try drawOverview(&short.writer, &none, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, accounts, 130, 13);
     try std.testing.expect(std.mem.indexOf(u8, short.written(), "Limits") == null);
     try std.testing.expect(std.mem.indexOf(u8, short.written(), "Top agents") != null);
 }
@@ -1436,7 +1442,7 @@ test "overview ranks by tokens of the priciest listed model" {
     all[2].agent.name = "Unpriced task";
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", .{}, .{}, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "gpt-6-luna", "GPT-6 Luna", .{}, .{}, 100, 30);
     const frame = output.written();
     // Haiku 42k raw is 8.4k in Opus tokens, below Opus's own 11k.
     try std.testing.expect(std.mem.indexOf(u8, frame, "Opus task").? < std.mem.indexOf(u8, frame, "Haiku task").?);
@@ -1536,17 +1542,17 @@ test "overview footer shows the running release and a staged update" {
     const all = [_]protocol.Conversation{.{ .id = @enumFromInt(1), .attachments = 1, .agent = agent }};
     var current: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer current.deinit();
-    try drawOverview(&current.writer, &all, .{}, false, "", .{ .running = "20260925T183012Z-be82c7b9090a", .commit = "be82c7b9090a5f7e" }, .{}, 100, 30);
+    try drawOverview(&current.writer, &all, .{}, false, "", "", .{ .running = "20260925T183012Z-be82c7b9090a", .commit = "be82c7b9090a5f7e" }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, current.written(), "Corgi 2026-09-25 · be82c7b") != null);
     try std.testing.expect(std.mem.indexOf(u8, current.written(), "Update") == null);
     var ready: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer ready.deinit();
     const release: Release = .{ .running = "20260925T183012Z-be82c7b9090a", .staged = "20260926T090000Z-a1b2c3d4e5f6" };
-    try drawOverview(&ready.writer, &all, .{}, false, "", release, .{}, 100, 30);
+    try drawOverview(&ready.writer, &all, .{}, false, "", "", release, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, ready.written(), comptime Tone.title.ansi() ++ "↑ Update 2026-09-26 · a1b2c3d ready · relaunch Corgi") != null);
     var narrow: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer narrow.deinit();
-    try drawOverview(&narrow.writer, &all, .{}, false, "", release, .{}, 40, 13);
+    try drawOverview(&narrow.writer, &all, .{}, false, "", "", release, .{}, 40, 13);
     try std.testing.expect(std.mem.indexOf(u8, narrow.written(), "↑ Update ready · relaunch Corgi") != null);
 }
 
@@ -1555,7 +1561,7 @@ test "overview footer names a development build's commit" {
     const all = [_]protocol.Conversation{.{ .id = @enumFromInt(1), .attachments = 1, .agent = agent }};
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
-    try drawOverview(&output.writer, &all, .{}, false, "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, .{}, 100, 30);
+    try drawOverview(&output.writer, &all, .{}, false, "", "", .{ .running = "0.1.0-dev", .commit = "0123abcdef45-dirty" }, .{}, 100, 30);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Corgi 0.1.0-dev · 0123abc-dirty") != null);
 }
 
@@ -1583,6 +1589,7 @@ test "the subtitle pairs provider and model with the context meter, and activity
         .id = @enumFromInt(1),
         .agent = .{ .provider = .codex, .state = .working, .attention = .none, .name = "api refactor", .session = "s", .activity = activity_text, .cwd = "", .tool_active = false },
         .model = "gpt-6-astra",
+        .model_name = "GPT-6 Astra",
         .children_observed_at = now,
         .context = .{ .used = 85_386, .window = 258_400, .at = 1 },
     }};
@@ -1591,7 +1598,7 @@ test "the subtitle pairs provider and model with the context meter, and activity
 
     // No timeline: the activity keeps a whole line under the subtitle.
     var text = try screenLines(&all, entry, 100, &lines);
-    var subtitle = lineWith(&lines, "codex · gpt-6-astra").?;
+    var subtitle = lineWith(&lines, "codex · GPT-6 Astra").?;
     try std.testing.expect(std.mem.indexOf(u8, lines[subtitle], "context ━━━━━") != null);
     try std.testing.expect(std.mem.indexOf(u8, lines[subtitle], "33%") != null);
     try std.testing.expect(std.mem.indexOf(u8, lines[subtitle + 1], activity_text) != null);
@@ -1602,7 +1609,7 @@ test "the subtitle pairs provider and model with the context meter, and activity
     const points = [_]protocol.Conversation.ActivityPoint{.{ .at = 1000, .activity = activity_text, .usage = .{ .known = true } }};
     all[0].timeline = .{ .points = &points, .pending = .{ .known = true } };
     text = try screenLines(&all, entry, 100, &lines);
-    subtitle = lineWith(&lines, "codex · gpt-6-astra").?;
+    subtitle = lineWith(&lines, "codex · GPT-6 Astra").?;
     try std.testing.expect(std.mem.indexOf(u8, lines[subtitle + 1], "Tokens") != null);
     os.allocator.free(text);
 

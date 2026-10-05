@@ -102,7 +102,7 @@ pub const Server = struct {
         const status = worker.status();
         if (std.meta.eql(s.runtime.inference, status)) return;
         s.runtime.inference = status;
-        s.runtime.system_model = status.model;
+        s.runtime.system_model = .resolve(status.model);
         s.runtime.changed();
         s.dirty = true;
     }
@@ -1004,7 +1004,7 @@ pub const Server = struct {
                 usage.take(&activity);
                 for (activity) |entry| if (entry) |result| {
                     const actor = s.runtime.conversations.byId(result.actor) orelse continue;
-                    if (!actor.model_from_hook and result.model.len > 0 and !std.meta.eql(actor.model, result.model)) {
+                    if (!actor.model_from_hook and result.model.id.len > 0 and !std.meta.eql(actor.model, result.model)) {
                         actor.model = result.model;
                         s.dirty = true;
                         s.runtime.changed();
@@ -1017,7 +1017,7 @@ pub const Server = struct {
                     if (!std.meta.eql(actor.context, result.context)) {
                         actor.context = result.context;
                         const model = result.context.model;
-                        s.runtime.conversations.compaction_points.learn(model.text(), result.context.auto_compaction);
+                        s.runtime.conversations.compaction_points.learn(model.id.text(), result.context.auto_compaction);
                         s.dirty = true;
                         s.runtime.changed();
                     }

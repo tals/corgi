@@ -44,6 +44,7 @@ const ghostty = @import("ghostty_integration.zig");
 const km = @import("keymap.zig");
 
 const providers = @import("providers.zig");
+const Model = @import("providers/model.zig").Model;
 const Provider = providers.Provider;
 
 /// Rows inside the frame, top to bottom. Drawing and hit testing both walk
@@ -321,28 +322,25 @@ fn put(w: *std.Io.Writer, b: Rect, x: u16, y: usize, style: []const u8, value: [
     try sidebar.writeEllipsis(w, value, b.w -| (x + 2));
 }
 
-fn modelName(id: []const u8) []const u8 {
-    return if (std.mem.startsWith(u8, id, "claude-haiku-4-5")) "Haiku 4.5" else id;
-}
-
 fn summary(choice: Choice, status: setup.Status, buffer: []u8) []const u8 {
     return switch (choice) {
         .keyboard, .import, .ghostty, .readings, .sleeping_corgis => unreachable,
         .auto => if (status.choice != .auto)
             "Follow the agents you run"
-        else if (status.provider) |provider|
-            std.fmt.bufPrint(buffer, "{s} {s} · {s}", .{
+        else if (status.provider) |provider| blk: {
+            const model: Model = .resolve(status.models.get(provider));
+            break :blk std.fmt.bufPrint(buffer, "{s} {s} · {s}", .{
                 if (status.locked) "Settled on" else "Following you →",
                 provider.info().name,
-                modelName(status.models.get(provider)),
-            }) catch ""
-        else
-            "Follow the agents you run",
+                model.label(),
+            }) catch "";
+        } else "Follow the agents you run",
         // Mismatched eyes: every glyph stays one terminal column wide.
         .off => "ᐯoᴥ°ᐯ  no summaries, plain links",
         .codex, .claude => {
             const provider = choice.provider().?;
-            return std.fmt.bufPrint(buffer, "{s} · your {s} login", .{ modelName(status.models.get(provider)), provider.info().name }) catch "";
+            const model: Model = .resolve(status.models.get(provider));
+            return std.fmt.bufPrint(buffer, "{s} · your {s} login", .{ model.label(), provider.info().name }) catch "";
         },
     };
 }
@@ -412,8 +410,8 @@ test "setup modal explains the automatic choice" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Keep ]") != null);
     output.clearRetainingCapacity();
     try menu.draw(&output.writer, .{ .choice = .auto, .provider = .codex, .locked = true, .model = "gpt-6-luna", .models = .init(.{ .codex = "gpt-6-luna", .claude = "claude-haiku-4-5-20251001" }) }, .{}, 100, 30);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Settled on Codex · gpt-6-luna") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "gpt-6-luna · your Codex login") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Settled on Codex · GPT-6 Luna") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "GPT-6 Luna · your Codex login") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Haiku 4.5 · your Claude login") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯoᴥ°ᐯ") != null);
     try std.testing.expectEqual(std.unicode.utf8CountCodepoints("ᐯoᴥ°ᐯ"), sidebar.displayWidth("ᐯoᴥ°ᐯ"));

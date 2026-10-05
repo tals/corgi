@@ -9,6 +9,7 @@ const usage = @import("tokens.zig");
 const activity_tools = @import("../activity.zig").tools;
 const activity_summary = @import("../activity.zig").summary;
 const codex_files = @import("../codex_files.zig");
+const Model = @import("../providers/model.zig").Model;
 const live_usage = @import("live.zig");
 const context_window = @import("context_window.zig");
 const transcript = @import("../transcript.zig");
@@ -49,7 +50,7 @@ pub const Result = struct {
     progress: ?activity_tools.View = null,
     name: codex_files.Name = .{},
     seq: i64 = 0,
-    model: codex_files.Name = .{},
+    model: Model = .{},
     live: live_usage.View = .{},
     context: context_window.Reading = .{},
     // A Claude conversation moved to a background session under this id.
@@ -213,7 +214,7 @@ pub const Worker = struct {
                 };
                 t.releaseFile();
                 if (!delta.any() and !delta.tokens_known and !t.progress.dirty and !indexedNames(req.provider()) and
-                    t.model.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.context.at == 0) continue;
+                    t.model.id.len == 0 and t.name.len == 0 and t.continued.len == 0 and t.update.len == 0 and t.context.at == 0) continue;
                 w.mutex.lockUncancelable(os.io());
                 if (slot) |result| {
                     if (result.* == null or result.*.?.since != req.since or result.*.?.workspace != req.workspace) {
@@ -252,7 +253,7 @@ pub const Tail = struct {
     offset: u64 = 0,
     partial: std.ArrayList(u8) = .empty,
     discard: bool = false,
-    model: codex_files.Name = .{},
+    model: Model = .{},
     live: live_usage.Codex = .{},
     context: context_window.Reading = .{},
     opened: bool = false,
@@ -406,8 +407,10 @@ pub const Tail = struct {
         }
     }
     fn observeModel(t: *Tail, message: std.json.Value) void {
-        const model_name = agents.str(message, "model");
-        if (model_name.len > 0) t.model = .ascii(model_name);
+        const model = agents.str(message, "model");
+        // Claude marks the error records it writes itself as "<synthetic>".
+        if (model.len == 0 or std.mem.eql(u8, model, "<synthetic>")) return;
+        t.model = .resolve(model);
     }
     fn poll(t: *Tail, req: *const Request) !usage.Counts {
         if (t.file == null) try t.open(req);
@@ -556,10 +559,10 @@ test "usage tail retains the latest reported model across unrelated records" {
     var req: Request = .{ .actor = @enumFromInt(1), .workspace = @enumFromInt(1), .since = 0, .agent = .{ .provider = .codex } };
     _ = try tail.ingest(&req, "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6\"}}\n", 0);
     _ = try tail.ingest(&req, "{\"type\":\"event_msg\",\"payload\":{}}\n", 0);
-    try std.testing.expectEqualStrings("gpt-6", tail.model.text());
+    try std.testing.expectEqualStrings("gpt-6", tail.model.id.text());
     req.agent.provider = .claude;
     _ = try tail.ingest(&req, "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-opus-4-6\"}}\n", 0);
-    try std.testing.expectEqualStrings("claude-opus-4-6", tail.model.text());
+    try std.testing.expectEqualStrings("claude-opus-4-6", tail.model.id.text());
 }
 
 test "Claude transcripts supply chosen names over generated titles and report continuations" {

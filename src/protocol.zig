@@ -541,7 +541,10 @@ pub const Conversation = struct {
     background_tasks: background_tasks.View = .{},
     id: ActorId,
     timeline: Timeline = .{},
+    /// The first-party model id; Bedrock and Vertex spellings are resolved.
     model: []const u8 = "",
+    /// Its display name, such as "Opus 5.5"; empty for an unknown shape.
+    model_name: []const u8 = "",
     parent: ?ActorId = null,
     workspace: WorkspaceId = .none,
     observed_at: i64 = 0,
@@ -551,12 +554,18 @@ pub const Conversation = struct {
     context: context_window.View = .{},
     children_observed_at: i64 = 0,
     agent: Agent,
+
+    /// The model's name, or its id from a daemon that sends no name.
+    pub fn modelLabel(c: Conversation) []const u8 {
+        return if (c.model_name.len > 0) c.model_name else c.model;
+    }
 };
 pub const Snapshot = struct {
     release_version: []const u8 = "",
     release_commit: []const u8 = "",
     staged_version: []const u8 = "",
     system_model: []const u8 = "",
+    system_model_name: []const u8 = "",
     inference: inference_setup.Status = .{},
     system_working: bool = false,
     system_usage: live_usage.View = .{},

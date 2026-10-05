@@ -179,5 +179,6 @@ test "shared hook codec preserves permission context and rejects child observati
 test {
     _ = @import("providers/claude.zig");
     _ = @import("providers/codex.zig");
+    _ = @import("providers/model.zig");
     _ = @import("providers/common.zig");
 }

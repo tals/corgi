@@ -469,6 +469,7 @@ class ClaudeConversations extends Runtime {
     );
     const first = (await this.actor("context")).context;
     this.assertEqual(first.window, 1000000);
+    this.assertEqual((await this.actor("context")).model_name, "Opus 5.5");
     this.assertEqual(first.compacts_at, 0);
     this.record("context", {
       type: "system",
