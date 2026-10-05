@@ -8,7 +8,8 @@ const a = os.allocator;
 const json = @import("../json.zig");
 const field = json.field;
 const str = json.str;
-const Provider = @import("../providers.zig").Provider;
+const providers = @import("../providers.zig");
+const Provider = providers.Provider;
 const Claude = @import("../providers/claude.zig").Claude;
 const Codex = @import("../providers/codex.zig").Codex;
 const inference = @import("../inference.zig");
@@ -177,11 +178,14 @@ fn interruption(text: []const u8) bool {
 
 /// The complete lines in `bytes`. A tail that starts mid-file skips its first
 /// partial line; the last line counts only when it ends.
-fn lines(bytes: []const u8, mid_file: bool) std.mem.SplitIterator(u8, .scalar) {
+fn complete(bytes: []const u8, mid_file: bool) []const u8 {
     var start: usize = 0;
     if (mid_file) start = if (std.mem.indexOfScalar(u8, bytes, '\n')) |i| i + 1 else bytes.len;
     const end = if (std.mem.lastIndexOfScalar(u8, bytes, '\n')) |i| @max(i, start) else start;
-    return std.mem.splitScalar(u8, bytes[start..end], '\n');
+    return bytes[start..end];
+}
+fn lines(bytes: []const u8, mid_file: bool) std.mem.SplitIterator(u8, .scalar) {
+    return std.mem.splitScalar(u8, complete(bytes, mid_file), '\n');
 }
 
 // ---------- Claude ----------
@@ -211,6 +215,25 @@ fn claudeText(arena: std.mem.Allocator, v: std.json.Value) ?[]const u8 {
         out.appendSlice(arena, str(block, "text")) catch return null;
     }
     return out.items;
+}
+
+/// When the last prompt or reply in `tail` was written, in seconds. Claude
+/// stamps a running session's transcript every hour and appends titles
+/// without activity, so the file's mtime is not when it was last used.
+fn claudeActivity(arena: std.mem.Allocator, tail: []const u8, mid_file: bool) ?i64 {
+    var it = std.mem.splitBackwardsScalar(u8, complete(tail, mid_file), '\n');
+    while (it.next()) |line| {
+        if (std.mem.indexOf(u8, line, "\"type\":\"user\"") == null and std.mem.indexOf(u8, line, "\"type\":\"assistant\"") == null) continue;
+        const v = std.json.parseFromSliceLeaky(std.json.Value, arena, line, .{}) catch continue;
+        const decoded = Claude.Line.decode(v) orelse continue;
+        switch (decoded.type orelse continue) {
+            .user, .assistant => {},
+            else => continue,
+        }
+        const ms = providers.timestampMs(decoded.timestamp) orelse continue;
+        return @divFloor(ms, std.time.ms_per_s);
+    }
+    return null;
 }
 
 /// The conversation `head` and `tail` of one transcript describe, or null when
@@ -264,6 +287,7 @@ fn claudeEntry(arena: std.mem.Allocator, session: []const u8, head: []const u8, 
     entry.last = t.last;
     entry.interrupted = t.interrupted;
     entry.branch = t.branch;
+    if (claudeActivity(arena, tail, tail_mid_file)) |at| entry.updated_at = at;
     return entry;
 }
 
@@ -926,6 +950,22 @@ test "a tail that starts mid-line skips the partial line" {
     const entry = claudeEntry(arena.allocator(), "s", head, tail, true, 0).?;
     try std.testing.expectEqualStrings("first", entry.first);
     try std.testing.expectEqualStrings("latest", entry.last);
+}
+
+test "a Claude conversation dates from its last prompt or reply, not its file" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    // A notification and titles land later, and Claude stamps the file hourly.
+    const transcript =
+        \\{"type":"user","cwd":"/w","timestamp":"2026-09-24T09:59:00.000Z","message":{"role":"user","content":"ship it"}}
+        \\{"type":"assistant","timestamp":"2026-09-24T10:00:00.123Z","message":{"content":[{"type":"text","text":"Shipped."}]}}
+        \\{"type":"system","subtype":"turn_duration","timestamp":"2026-09-24T10:00:01.000Z"}
+        \\{"type":"queue-operation","operation":"enqueue","timestamp":"2026-09-25T08:00:00.000Z","content":"<task-notification>watch ended</task-notification>"}
+        \\{"type":"custom-title","customTitle":"Release"}
+        \\
+    ;
+    const entry = claudeEntry(arena.allocator(), "s", transcript, transcript, false, 1_790_600_000).?;
+    try std.testing.expectEqual(@as(i64, 1_790_244_000), entry.updated_at);
 }
 
 test "a Codex rollout tail yields the last typed prompt and an abort" {
