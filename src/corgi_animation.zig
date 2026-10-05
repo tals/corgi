@@ -534,6 +534,34 @@ pub const Playback = struct {
     }
 };
 
+/// A corgi that wags until it is thrown a ball, then fetches it.
+pub const Fetch = struct {
+    thrown_ms: ?i64 = null,
+    throw: Throw = .{},
+
+    /// Throws a ball, unless the corgi is still fetching the last one.
+    pub fn throwBall(self: *Fetch, room: usize, now_ms: i64) void {
+        if (room < 18 or self.tick(room, now_ms) != null) return;
+        self.* = .{ .thrown_ms = now_ms, .throw = .random(os.random) };
+    }
+
+    /// The fetch from the throw on, or null once the corgi is back.
+    fn tick(self: Fetch, room: usize, now_ms: i64) ?usize {
+        const thrown = self.thrown_ms orelse return null;
+        const elapsed: usize = @intCast(@max(now_ms - thrown, 0));
+        if (room < 18 or elapsed >= Playback.max_activity_ms) return null;
+        const at = windup + elapsed * fetchPace(room, self.throw) / Playback.max_activity_ms;
+        return if (at < fetchTicks(room, self.throw)) at else null;
+    }
+
+    pub fn write(self: Fetch, out: *std.Io.Writer, room: usize, now_ms: i64) !void {
+        try writeColor(out, awake_color);
+        if (self.tick(room, now_ms)) |at| return writeFetch(out, room, self.throw, at);
+        const step: usize = @intCast(@divFloor(@max(now_ms, 0), 200));
+        try writeFrame(out, room, frames.wag[step % frames.wag.len]);
+    }
+};
+
 fn writeFrame(out: *std.Io.Writer, room: usize, frame: []const u8) !void {
     var glyphs = (std.unicode.Utf8View.init(frame) catch unreachable).iterator();
     for (0..room) |_| try out.writeAll(glyphs.nextCodepointSlice() orelse break);

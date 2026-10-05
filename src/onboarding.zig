@@ -337,6 +337,7 @@ pub const State = struct {
     pub fn click(s: *State, cols: u16, rows: u16, x: u16, y: u16, conn: *Connection) !bool {
         if (s.step == .keymap) {
             if (shortcut_help.State.closeAt(cols, rows, x, y)) s.step = .presets;
+            if (shortcut_help.State.corgiAt(cols, rows, x, y)) s.help.play(os.milliTimestamp());
             return false;
         }
         const b = bounds(cols, rows);
@@ -388,7 +389,7 @@ pub const State = struct {
     pub fn frame(s: *State, cols: u16, rows: u16) ![]u8 {
         if (s.step == .import) s.selectDefaults();
         s.preset = km.supportedPreset(s.preset);
-        if (s.step == .keymap) return s.help.frame(cols, rows, s.preset, s.prefix);
+        if (s.step == .keymap) return s.help.frame(cols, rows, s.preset, s.prefix, os.milliTimestamp(), "default");
         var out: std.Io.Writer.Allocating = .init(a);
         errdefer out.deinit();
         const w = &out.writer;

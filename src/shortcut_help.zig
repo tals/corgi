@@ -2,7 +2,9 @@
 //! Layout produces cell rows before clipping, so both columns share one scroll.
 const std = @import("std");
 const BoundedText = @import("bounded_text.zig").BoundedText;
-const a = @import("os.zig").allocator;
+const os = @import("os.zig");
+const a = os.allocator;
+const corgi_animation = @import("corgi_animation.zig");
 const keys = @import("keys.zig");
 const km = @import("keymap.zig");
 const bindings = @import("bindings.zig");
@@ -16,9 +18,17 @@ pub const State = struct {
     scroll: usize = 0,
     page_rows: usize = 1,
     max_scroll: usize = 0,
+    /// The corgi in the footer, and its cells in the last frame.
+    corgi: corgi_animation.Fetch = .{},
+    corgi_room: usize = 0,
 
     pub fn move(s: *State, down: bool, rows: usize) void {
         s.scroll = if (down) @min(s.max_scroll, s.scroll +| rows) else s.scroll -| rows;
+    }
+    /// Throws the footer corgi a ball. Its key, `t`, is a secret: help
+    /// doesn't list it.
+    pub fn play(s: *State, now_ms: i64) void {
+        s.corgi.throwBall(s.corgi_room, now_ms);
     }
     pub fn key(s: *State, byte: u8) bool {
         switch (byte) {
@@ -27,6 +37,7 @@ pub const State = struct {
             'k', 16 => s.move(false, 1),
             'g' => s.scroll = 0,
             'G' => s.scroll = s.max_scroll,
+            't' => s.play(os.milliTimestamp()),
             else => {},
         }
         return false;
@@ -46,9 +57,24 @@ pub const State = struct {
         const b = bounds(cols, rows);
         return !b.contains(x, y) or (y == b.y + (b.h -| 2) and x >= b.x + (b.w -| 16));
     }
-    pub const Hit = union(enum) { none, close, action: Action };
+    pub fn corgiAt(cols: u16, rows: u16, x: u16, y: u16) bool {
+        const b = bounds(cols, rows);
+        const zone = corgiZone(b) orelse return false;
+        return y == b.y + b.h - 2 and x >= b.x + zone.x and x < b.x + zone.x + zone.w;
+    }
+    pub const Hit = union(enum) { none, close, play, action: Action };
+    /// Whether a click at `x`, `y` does something there: a key, the corgi or
+    /// Esc. Outside the box a click closes help, but nothing is pointed at.
+    pub fn pointsAt(s: *const State, cols: u16, rows: u16, x: u16, y: u16, preset: km.Preset) !bool {
+        return switch (try s.hit(cols, rows, x, y, preset)) {
+            .none => false,
+            .close => bounds(cols, rows).contains(x, y),
+            .play, .action => true,
+        };
+    }
     pub fn hit(s: *const State, cols: u16, rows: u16, x: u16, y: u16, preset: km.Preset) !Hit {
         if (closeAt(cols, rows, x, y)) return .close;
+        if (corgiAt(cols, rows, x, y)) return .play;
         const b = bounds(cols, rows);
         if (b.w < 32 or b.h < 12 or y < b.y + 5 or y >= b.y + b.h - 3) return .none;
         const dual = b.w >= 60;
@@ -70,11 +96,13 @@ pub const State = struct {
         }
         return .none;
     }
-    pub fn frame(s: *State, cols: u16, rows: u16, preset: km.Preset, prefix: km.Prefix) ![]u8 {
+    /// The screen, with the host pointer set to `pointer_shape`.
+    pub fn frame(s: *State, cols: u16, rows: u16, preset: km.Preset, prefix: km.Prefix, now_ms: i64, pointer_shape: []const u8) ![]u8 {
         var out: std.Io.Writer.Allocating = .init(a);
         errdefer out.deinit();
         const w = &out.writer;
-        try w.writeAll(comptime (palette.Style{ .bg = .bg }).sgr() ++ "\x1b[2J\x1b[?25l");
+        // Synchronized, so the corgi's frames redraw the screen without tearing.
+        try w.writeAll("\x1b[?2026h" ++ comptime (palette.Style{ .bg = .bg }).sgr() ++ "\x1b[2J\x1b[?25l");
         const b = bounds(cols, rows);
         if (b.w < 32 or b.h < 12) {
             s.page_rows = 1;
@@ -82,7 +110,8 @@ pub const State = struct {
             s.scroll = 0;
             try at(w, b, 0, 0, "Help needs 32 × 12", .text);
             if (b.h > 1) try at(w, b, 0, 1, "Esc back", .bright);
-            try w.writeAll("\x1b[0m");
+            s.corgi_room = 0;
+            try w.print("\x1b[0m\x1b]22;{s}\x1b\\\x1b[?2026l", .{pointer_shape});
             return out.toOwnedSlice();
         }
         try box(w, b);
@@ -121,12 +150,18 @@ pub const State = struct {
         const footer = if (total > capacity)
             try std.fmt.bufPrint(&buf, "{s}  {d}–{d}/{d}", .{ scroll_keys, s.scroll + 1, @min(total, s.scroll + capacity), total })
         else if (s.command_mode)
-            "Press a shortcut or click a key"
+            command_footer
         else
             "All shortcuts";
         try clippedAt(w, b, 3, b.h - 2, b.w - 21, if (b.w < 60 and total > capacity) scroll_keys else footer, .dim);
         try at(w, b, b.w - 16, b.h - 2, "[ Esc Back ]", .bright);
-        try w.writeAll("\x1b[0m");
+        s.corgi_room = 0;
+        if (corgiZone(b)) |zone| {
+            s.corgi_room = zone.w;
+            try w.print("\x1b[{d};{d}H{s}", .{ b.y + b.h - 1, b.x + zone.x + 1, color(.text) });
+            try s.corgi.write(w, zone.w, now_ms);
+        }
+        try w.print("\x1b[0m\x1b]22;{s}\x1b\\\x1b[?2026l", .{pointer_shape});
         return out.toOwnedSlice();
     }
 };
@@ -388,6 +423,15 @@ fn panes(c: *Column) !void {
     try c.action("Setup", .setup, 2);
 }
 
+const command_footer = "Press a shortcut or click a key";
+/// The corgi's patch of the footer, from past the longest footer text to the
+/// Esc button.
+fn corgiZone(b: Rect) ?struct { x: u16, w: u16 } {
+    const x: u16 = 5 + command_footer.len;
+    if (b.w < 32 or b.h < 12 or b.w < x + 17 + 6) return null;
+    return .{ .x = x, .w = b.w - 17 - x };
+}
+
 pub fn bounds(cols: u16, rows: u16) Rect {
     const width = @min(cols, 112);
     const height = @min(rows, 36);
@@ -482,4 +526,64 @@ fn shows(c: *const Column, act: Action) bool {
         if (part.action != null and std.meta.eql(part.action.?, act)) return true;
     };
     return false;
+}
+
+test "the footer corgi wags until a click or the secret t throws it a ball" {
+    var help: State = .{ .command_mode = true };
+    const idle = try help.frame(120, 40, .corgi, .ctrl_b, 0, "default");
+    defer a.free(idle);
+    try std.testing.expect(std.mem.indexOf(u8, idle, "~ᐯ•.•ᐯ") != null);
+    const b = bounds(120, 40);
+    const footer = b.y + b.h - 2;
+    try std.testing.expectEqual(State.Hit.play, try help.hit(120, 40, b.x + 36, footer, .corgi));
+    try std.testing.expectEqual(State.Hit.play, try help.hit(120, 40, b.x + b.w - 18, footer, .corgi));
+    try std.testing.expectEqual(State.Hit.none, try help.hit(120, 40, b.x + 35, footer, .corgi));
+    try std.testing.expectEqual(State.Hit.close, try help.hit(120, 40, b.x + b.w - 16, footer, .corgi));
+
+    // `t` keeps help open, and a second throw waits for the corgi to come back.
+    try std.testing.expect(!help.key('t'));
+    const thrown = help.corgi.thrown_ms.?;
+    help.play(thrown + 100);
+    try std.testing.expectEqual(thrown, help.corgi.thrown_ms.?);
+    const fetching = try help.frame(120, 40, .corgi, .ctrl_b, thrown + 300, "default");
+    defer a.free(fetching);
+    // A smash lands at once, so the corgi may already be up.
+    try std.testing.expect(std.mem.indexOf(u8, fetching, "•ᴥ•") != null or std.mem.indexOf(u8, fetching, "]o>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fetching, "•.•") == null);
+    const back = try help.frame(120, 40, .corgi, .ctrl_b, thrown + 9_600, "default");
+    defer a.free(back);
+    try std.testing.expect(std.mem.indexOf(u8, back, "ᴥ") == null);
+    help.play(thrown + 9_600);
+    try std.testing.expectEqual(thrown + 9_600, help.corgi.thrown_ms.?);
+
+    // Too narrow for a fetch, the corgi stays put.
+    var narrow: State = .{ .command_mode = true };
+    const small = try narrow.frame(60, 40, .corgi, .ctrl_b, 0, "default");
+    defer a.free(small);
+    narrow.play(0);
+    try std.testing.expect(narrow.corgi.thrown_ms == null);
+}
+
+test "the pointer is a hand over what a click acts on" {
+    const help: State = .{ .command_mode = true };
+    const b = bounds(120, 40);
+    const footer = b.y + b.h - 2;
+    try std.testing.expect(try help.pointsAt(120, 40, b.x + 40, footer, .corgi));
+    try std.testing.expect(try help.pointsAt(120, 40, b.x + b.w - 10, footer, .corgi));
+    try std.testing.expect(!try help.pointsAt(120, 40, b.x + 3, footer, .corgi));
+    try std.testing.expect(!try help.pointsAt(120, 40, 0, 0, .corgi));
+    var keys_at: ?u16 = null;
+    for (b.y + 5..b.y + b.h - 3) |y| if (try help.pointsAt(120, 40, b.x + b.w / 2 - 6, @intCast(y), .corgi)) {
+        keys_at = @intCast(y);
+        break;
+    };
+    try std.testing.expect(keys_at != null);
+    var shown: State = .{ .command_mode = true };
+    const out = try shown.frame(120, 40, .corgi, .ctrl_b, 0, "pointer");
+    defer a.free(out);
+    try std.testing.expect(std.mem.endsWith(u8, out, "\x1b]22;pointer\x1b\\\x1b[?2026l"));
+}
+
+test "the corgi's secret key shadows no shortcut" {
+    for (std.enums.values(km.Preset)) |preset| try std.testing.expect(bindings.lookup(preset, true, 't', .{}) == null);
 }

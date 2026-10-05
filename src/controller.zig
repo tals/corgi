@@ -1809,6 +1809,10 @@ pub const Controller = struct {
                 s.dirty = true;
                 return;
             }
+            if (s.help_visible and byte == 't') {
+                s.help.play(os.milliTimestamp());
+                return;
+            }
             s.prefix = false;
             s.dirty = true;
             if (byte == keymap.prefixByte(s.prefs.prefix)) {
@@ -2091,10 +2095,12 @@ pub const Controller = struct {
             return;
         }
         if (s.prefix and s.help_visible) {
+            s.pointer = .{ .x = x, .y = y };
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
                 switch (try s.help.hit(s.width, s.height, x, y, s.prefs.preset)) {
                     .close => s.closeMenu(),
+                    .play => s.help.play(os.milliTimestamp()),
                     .action => |act| if (s.model().count > 0 or !act.needsPane()) {
                         s.prefix = false;
                         try s.perform(act);
@@ -2931,7 +2937,10 @@ pub const Controller = struct {
     }
     pub fn frame(s: *Self) ![]u8 {
         if (s.onboarding) |*wizard| return wizard.frame(s.width, s.height);
-        if (s.prefix and s.help_visible) return s.help.frame(s.width, s.height, s.prefs.preset, s.prefs.prefix);
+        if (s.prefix and s.help_visible) {
+            const hand = if (s.pointer) |p| try s.help.pointsAt(s.width, s.height, p.x, p.y, s.prefs.preset) else false;
+            return s.help.frame(s.width, s.height, s.prefs.preset, s.prefs.prefix, os.milliTimestamp(), if (hand) render.handShape(s.iterm2_pointer) else "default");
+        }
         if (s.workspace_chooser) |index| {
             var output: std.Io.Writer.Allocating = .init(a);
             errdefer output.deinit();

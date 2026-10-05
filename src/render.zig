@@ -153,6 +153,10 @@ fn noOverlay(ui: Ui) bool {
     return ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and
         ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null;
 }
+/// The host's name for the pointing hand. iTerm2 takes X11 cursor names.
+pub fn handShape(iterm2: bool) []const u8 {
+    return if (iterm2) "hand2" else "pointer";
+}
 fn writeChip(w: *std.Io.Writer, raw: []const u8, width: u16, height: u16, pointer: ?Pointer) !void {
     const text = std.mem.trimStart(u8, raw, " ");
     if (width < 4 or height == 0 or text.len == 0 or !std.unicode.utf8ValidateSlice(text)) return;
@@ -443,7 +447,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         .horizontal => if (ui.iterm2_pointer) "sb_h_double_arrow" else "ew-resize",
         .vertical => if (ui.iterm2_pointer) "sb_v_double_arrow" else "ns-resize",
     } else if (link_pointer or hovered_uri != null)
-        (if (ui.iterm2_pointer) "hand2" else "pointer")
+        handShape(ui.iterm2_pointer)
     else
         "default";
     try w.print("\x1b]22;{s}\x1b\\", .{shape});
