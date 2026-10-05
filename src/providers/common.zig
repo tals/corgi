@@ -263,6 +263,27 @@ pub fn timestampMs(s: []const u8) ?i64 {
 fn leap(y: usize) bool {
     return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0);
 }
+
+/// An account's plan as a label, such as "Max 5x".
+pub const Plan = BoundedText(160);
+
+/// A plan code as a label: "edu_plus" is "Edu Plus". Labels pass through.
+pub fn planLabel(code: []const u8) Plan {
+    var buf: [Plan.capacity]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    var words = std.mem.tokenizeAny(u8, code, "_ ");
+    while (words.next()) |word| {
+        if (w.end > 0) w.writeByte(' ') catch break;
+        w.print("{c}{s}", .{ std.ascii.toUpper(word[0]), word[1..] }) catch break;
+    }
+    return .ascii(w.buffered());
+}
+test "plan codes read as labels" {
+    try std.testing.expectEqualStrings("Edu Plus", planLabel("edu_plus").text());
+    try std.testing.expectEqualStrings("Max 5x", planLabel("Max 5x").text());
+    try std.testing.expectEqualStrings("API", planLabel("API").text());
+    try std.testing.expectEqualStrings("", planLabel("").text());
+}
 test "RFC 3339 UTC timestamps become Unix milliseconds" {
     try std.testing.expectEqual(@as(?i64, 0), timestampMs("1970-01-01T00:00:00.000Z"));
     try std.testing.expectEqual(@as(?i64, 1_790_244_000_123), timestampMs("2026-09-24T10:00:00.123Z"));

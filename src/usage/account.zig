@@ -4,6 +4,8 @@ const common = @import("../providers/common.zig");
 const field = common.field;
 const str = common.str;
 const Provider = @import("../providers.zig").Provider;
+const Claude = @import("../providers/claude.zig").Claude;
+const Codex = @import("../providers/codex.zig").Codex;
 const agents = @import("../agents.zig");
 pub const Text = agents.Text;
 pub const usage_max_age: i64 = 10 * 60;
@@ -117,7 +119,7 @@ pub fn codexAccount(value: std.json.Value) Info {
     const email = str(value, "email");
     const api = std.mem.eql(u8, str(value, "type"), "apiKey");
     info.account = .ascii(if (api) "API key" else if (email.len > 0) email else if (value == .null) "Not signed in" else "Signed in");
-    info.plan = .ascii(if (api) "API" else str(value, "planType"));
+    info.plan = if (api) .ascii("API") else Codex.plan(str(value, "planType"));
     if (api) info.limits = .metered;
     return info;
 }
@@ -131,7 +133,7 @@ pub fn claudeAccount(value: std.json.Value) Info {
     const email = str(value, "email");
     info.account = .ascii(if (!logged.bool) "Not signed in" else if (api) "API key" else if (email.len > 0) email else "Signed in");
     if (logged.bool) {
-        info.plan = .ascii(if (api) "API" else str(value, "subscriptionType"));
+        info.plan = if (api) .ascii("API") else Claude.plan(str(value, "subscriptionType"), "");
         if (api) info.limits = .metered;
     }
     return info;

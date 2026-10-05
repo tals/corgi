@@ -88,6 +88,21 @@ pub const Claude = struct {
     pub fn titleSession(_: []const u8) ?common.SessionPrefix {
         return null;
     }
+    /// The plan from its kind ("max", "claude_max") and its rate limit tier
+    /// ("default_claude_max_5x"), which is shown only when it refines the kind.
+    pub fn plan(kind: []const u8, tier: []const u8) common.Plan {
+        const named = common.planLabel(planCode(kind));
+        const refined = common.planLabel(planCode(tier));
+        return if (named.len > 0 and std.mem.startsWith(u8, refined.text(), named.text())) refined else named;
+    }
+    /// "default_claude_max_5x" is "max_5x".
+    fn planCode(code: []const u8) []const u8 {
+        var rest = code;
+        for ([_][]const u8{ "default_", "claude_" }) |prefix| {
+            if (std.mem.startsWith(u8, rest, prefix)) rest = rest[prefix.len..];
+        }
+        return rest;
+    }
     /// Model families Claude Code runs with a 1M window without a `[1m]` suffix.
     const native_1m = [_][]const u8{ "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-mythos-5" };
     /// The context window Claude Code gives a transcript's model id. Zero for
@@ -126,4 +141,15 @@ test "transcript lines decode their envelope and drop subagent lines" {
     , .{});
     defer subagent.deinit();
     try std.testing.expect(Claude.Line.decode(subagent.value) == null);
+}
+
+test "plans read as Claude's tier refines its kind" {
+    const cases = [_][3][]const u8{
+        .{ "max", "default_claude_max_5x", "Max 5x" },
+        .{ "claude_max", "default_claude_max_20x", "Max 20x" },
+        .{ "pro", "default_claude_ai", "Pro" },
+        .{ "claude_team", "default_raven", "Team" },
+        .{ "", "default_claude_ai", "" },
+    };
+    for (cases) |case| try std.testing.expectEqualStrings(case[2], Claude.plan(case[0], case[1]).text());
 }

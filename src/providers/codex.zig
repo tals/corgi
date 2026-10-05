@@ -91,6 +91,23 @@ pub const Codex = struct {
         local_shell_call,
         web_search_call,
     };
+    /// `planType` values that Codex's /status names other than by the code.
+    pub const plan_names = std.StaticStringMap([]const u8).initComptime(.{
+        .{ "prolite", "Pro 100" },
+        .{ "pro", "Pro 200" },
+        .{ "promax", "Pro 500" },
+        .{ "team", "Business" },
+        .{ "self_serve_business_usage_based", "Business" },
+        .{ "self_serve_business_prolite", "Business Premium" },
+        .{ "business", "Enterprise" },
+        .{ "ent26", "Enterprise" },
+        .{ "enterprise_cbp_usage_based", "Enterprise" },
+        .{ "enterprise_cbp_automation", "Enterprise (Automation)" },
+    });
+    /// A `planType` as Codex's /status names it: "prolite" is "Pro 100".
+    pub fn plan(code: []const u8) common.Plan {
+        return if (plan_names.get(code)) |name| .ascii(name) else common.planLabel(code);
+    }
     /// A rollout line's envelope; field names are the wire keys.
     pub const Rollout = struct {
         type: ?RolloutKind = null,
@@ -168,4 +185,21 @@ test "rollout lines decode their envelope and payload kind" {
     defer other.deinit();
     try std.testing.expectEqual(null, Codex.Rollout.decode(other.value).type);
     try std.testing.expectEqual(null, Codex.Rollout.decode(other.value).payloadType());
+}
+
+test "plans read as Codex's /status names them" {
+    const cases = [_][2][]const u8{
+        .{ "free", "Free" },
+        .{ "plus", "Plus" },
+        .{ "prolite", "Pro 100" },
+        .{ "pro", "Pro 200" },
+        .{ "promax", "Pro 500" },
+        .{ "team", "Business" },
+        .{ "business", "Enterprise" },
+        .{ "enterprise", "Enterprise" },
+        .{ "edu_plus", "Edu Plus" },
+        .{ "unknown", "Unknown" },
+        .{ "", "" },
+    };
+    for (cases) |case| try std.testing.expectEqualStrings(case[1], Codex.plan(case[0]).text());
 }

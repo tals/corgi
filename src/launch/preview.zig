@@ -232,12 +232,7 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), quit:
     const json = std.json.parseFromSlice(std.json.Value, a, credentials, .{}) catch return info;
     defer json.deinit();
     const oauth = common.field(json.value, "claudeAiOauth");
-    const subscription_type = common.str(oauth, "subscriptionType");
-    if (info.plan.len == 0) info.plan = .ascii(subscription_type);
-    if (std.mem.eql(u8, subscription_type, "max")) {
-        const tier = common.str(oauth, "rateLimitTier");
-        if (std.mem.endsWith(u8, tier, "_max_5x")) info.plan = .ascii("Max 5x") else if (std.mem.endsWith(u8, tier, "_max_20x")) info.plan = .ascii("Max 20x");
-    }
+    info.plan = providers.Claude.plan(common.str(oauth, "subscriptionType"), common.str(oauth, "rateLimitTier"));
     const token = common.str(oauth, "accessToken");
     if (token.len == 0) {
         info.signed_in = false;
@@ -254,7 +249,8 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), quit:
     };
     defer cache.close();
     cache.state.info.signed_in = true;
-    cache.state.info.plan = info.plan;
+    // The login keeps the plan from sign-in; the profile's is current.
+    if (cache.state.info.plan.len == 0) cache.state.info.plan = info.plan;
     const now = os.timestamp();
     const expires = common.field(oauth, "expiresAt");
     if (expires == .integer and expires.integer <= os.milliTimestamp()) {
@@ -313,6 +309,9 @@ fn claudeAccount(cwd: []const u8, stopping: *const std.atomic.Value(bool), quit:
                             break;
                         }
                     }
+                    const organization = common.field(parsed.value, "organization");
+                    const plan = providers.Claude.plan(common.str(organization, "organization_type"), common.str(organization, "rate_limit_tier"));
+                    if (plan.len > 0) cache.state.info.plan = plan;
                 } else |_| {}
             }
         }

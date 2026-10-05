@@ -535,7 +535,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       rows.some(
         (row) =>
           row.includes("Codex") &&
-          row.includes("pro") &&
+          row.includes("Pro 200") &&
           hasLimits(row, 23, 61),
       ),
     );
@@ -543,7 +543,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       rows.some(
         (row) =>
           row.includes("Claude Code") &&
-          row.includes("max") &&
+          row.includes("Max") &&
           hasLimits(row, 12, 48),
       ),
     );
@@ -1013,7 +1013,7 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
       ).preview;
     await this.until(async () => !(await preview()).pending, 12);
     const option = (await preview()).options.claude;
-    this.assertEqual(option.plan, "max");
+    this.assertEqual(option.plan, "Max");
     this.assertEqual(windows(option), claudeWindows);
     this.assertNotIn("fixture-token", JSON.stringify(await preview()));
     this.assertTrue(option.limits.windows.every((w: any) => w.reset_at !== null));
