@@ -5,73 +5,294 @@ const frames = @import("corgi_frames.zig");
 
 const gait_right = [_][]const u8{ "~[/\\]o>", "~[||]o>", "~[\\/]o>", "~[||]o>" };
 const gait_left_carry = [_][]const u8{ "●‹o[/\\]~", "●‹o[||]~", "●‹o[\\/]~", "●‹o[||]~" };
+/// How the ball leaves the corgi, in dots per tick: forward, up (down when
+/// negative) and its spin (see `Ball.spin`). `seed` makes each bounce's
+/// unevenness, so every frame replays the same throw. The default is a
+/// middling lob.
+const Throw = struct {
+    speed: f64 = 1.6,
+    lift: f64 = 1.1,
+    spin: f64 = 0,
+    seed: u64 = 0,
+
+    /// A roll, a lob or a smash, equally often. A roll leaves just off the
+    /// floor with some forward spin and skips before it rolls. A lob leaves
+    /// at 15° to 50° with backspin. A smash is slammed down into the floor
+    /// at 30° to 45°, so it bounces between the floor and the ceiling.
+    fn random(r: std.Random) Throw {
+        const seed = r.int(u64);
+        switch (r.uintLessThan(u32, 3)) {
+            0 => {
+                const speed = 1.5 + 0.4 * r.float(f64);
+                return .{ .speed = speed, .lift = -(0.4 + 0.4 * r.float(f64)), .spin = -speed * (0.5 + 0.5 * r.float(f64)), .seed = seed };
+            },
+            1 => {
+                const angle = std.math.degreesToRadians(15 + 35 * r.float(f64));
+                const force = 1.8 + 0.8 * r.float(f64);
+                const speed = force * @cos(angle);
+                return .{ .speed = speed, .lift = force * @sin(angle), .spin = speed * (0.5 + 0.5 * r.float(f64)), .seed = seed };
+            },
+            else => {
+                const angle = std.math.degreesToRadians(30 + 15 * r.float(f64));
+                const force = 2.6 + 0.8 * r.float(f64);
+                return .{ .speed = force * @cos(angle), .lift = -force * @sin(angle), .seed = seed };
+            },
+        }
+    }
+};
+
+/// The ball in braille dots, two across and four down a cell. `y` rises
+/// from the floor's dot row. The row ends in a slant: a 45° rise two dots
+/// tall in its last cell, with the far wall above it.
+const Ball = struct {
+    x: f64 = nose,
+    y: f64 = 1,
+    vx: f64,
+    vy: f64,
+    /// The speed of the ball's surface as it spins: `-vx` rolls it along
+    /// the floor and `vx` along the ceiling.
+    spin: f64,
+    random: std.Random.DefaultPrng,
+
+    /// The near wall while the corgi sits: the cell after its nose.
+    const nose = 12;
+    const ceiling = 3;
+    const gravity = 0.16;
+    /// The share of its speed into a surface the ball keeps, different each
+    /// bounce. A rolling ball meets the slant's rounded foot softly and
+    /// rides up it.
+    const bounciness = [2]f64{ 0.7, 0.9 };
+    const ride = [2]f64{ 0.25, 0.65 };
+    /// A surface sits up to this many degrees askew, different each bounce.
+    const tilt = 5;
+    /// How much of a bounce's push friction can turn into spin.
+    const grip = 0.15;
+    /// A hop slower than this barely leaves the floor's dot row, so the
+    /// ball rolls instead.
+    const settle = 0.3;
+    /// Rolling slows by this over the row, so wide rows roll as far.
+    const friction = 0.6;
+    /// A rolling ball this slow stops rather than creep a dot every few ticks.
+    const stall = 0.25;
+    /// The highest dot row the corgi's mouth reaches.
+    const reach = 1;
+    /// The slant's line, in the row's last cell.
+    const slant: u8 = 0x60;
+
+    fn thrown(throw: Throw) Ball {
+        return .{ .vx = throw.speed, .vy = throw.lift, .spin = throw.spin, .random = .init(throw.seed) };
+    }
+
+    fn resting(ball: Ball) bool {
+        return ball.y == 0 and ball.vx == 0 and ball.vy == 0;
+    }
+
+    fn reachable(ball: Ball) bool {
+        return @round(ball.y) <= reach;
+    }
+
+    /// One tick: fly under gravity or roll against friction. The ball stops
+    /// at the floor, the ceiling, the slant, the row's end and the corgi's
+    /// nose, `near`, for a tick, so each bounce is drawn.
+    fn step(ball: *Ball, width: usize, near: usize) void {
+        // The slant rises a dot per dot from `foot`, and the ball keeps a
+        // dot above its line. Over it, the slant is the ground.
+        const foot: f64 = @floatFromInt(2 * width - 3);
+        const far: f64 = @floatFromInt(2 * width - 1);
+        const rolling = ball.y == 0 and ball.vy == 0;
+        if (rolling) {
+            const drag = friction / @as(f64, @floatFromInt(2 * width - nose));
+            ball.vx = if (@abs(ball.vx) <= stall) 0 else ball.vx - std.math.copysign(drag, ball.vx);
+            ball.spin = -ball.vx;
+        } else {
+            ball.vy -= gravity;
+            ball.y += ball.vy;
+            if (ball.y >= ceiling) {
+                ball.y = ceiling;
+                _ = ball.bounce(.{ 0, -1 }, bounciness);
+            } else if (ball.y <= 0 and ball.x <= foot) ball.land();
+        }
+        ball.x += ball.vx;
+        const surface = @min(ball.x, far) - foot;
+        if (surface > 0 and ball.y < surface) {
+            const depth = (surface - ball.y) / 2;
+            ball.x -= depth;
+            ball.y = @max(0, ball.y + depth);
+            _ = ball.bounce(.{ -std.math.sqrt1_2, std.math.sqrt1_2 }, if (rolling) ride else bounciness);
+        } else if (ball.y < 0) ball.land();
+        if (ball.x >= far) {
+            ball.x = far;
+            _ = ball.bounce(.{ -1, 0 }, bounciness);
+            ball.vx = -@abs(ball.vx);
+        } else if (ball.x <= @as(f64, @floatFromInt(near))) {
+            ball.x = @floatFromInt(near);
+            _ = ball.bounce(.{ 1, 0 }, bounciness);
+            ball.vx = @abs(ball.vx);
+        }
+    }
+
+    fn land(ball: *Ball) void {
+        ball.y = 0;
+        _ = ball.bounce(.{ 0, 1 }, bounciness);
+        ball.vy = @abs(ball.vy);
+        if (ball.vy < settle) {
+            // Too low to hop: it skids until it rolls.
+            ball.vy = 0;
+            ball.vx -= 2.0 / 7.0 * (ball.vx + ball.spin);
+            ball.spin = -ball.vx;
+        }
+    }
+
+    /// Off a surface facing the room along `normal`, keeping a share of its
+    /// speed into it from `kept`. Friction trades sliding for spin, as for
+    /// a solid ball: at most 2/7 of the slip comes off its speed and the
+    /// rest goes to spin, and `grip` caps it by how hard the ball hits.
+    fn bounce(ball: *Ball, normal: [2]f64, kept: [2]f64) bool {
+        const r = ball.random.random();
+        const askew = std.math.degreesToRadians((r.float(f64) - 0.5) * 2 * tilt);
+        const nx = normal[0] * @cos(askew) - normal[1] * @sin(askew);
+        const ny = normal[0] * @sin(askew) + normal[1] * @cos(askew);
+        const into = ball.vx * nx + ball.vy * ny;
+        if (into >= 0) return false;
+        const kept_share = kept[0] + (kept[1] - kept[0]) * r.float(f64);
+        // Along the surface, a quarter turn clockwise from the normal.
+        const along = ball.vx * ny - ball.vy * nx;
+        const slip = along + ball.spin;
+        const rub = -std.math.copysign(@min(2.0 / 7.0 * @abs(slip), grip * (1 + kept_share) * -into), slip);
+        const out = -kept_share * into;
+        ball.spin += 2.5 * rub;
+        ball.vx = (along + rub) * ny + out * nx;
+        ball.vy = -(along + rub) * nx + out * ny;
+        return true;
+    }
+
+    fn dot(ball: Ball) Dot {
+        const col: usize = @intFromFloat(@round(ball.x));
+        const row: usize = @intFromFloat(@round(ball.y));
+        return .{ .cell = col / 2, .dots = braille_dots[col % 2][row] };
+    }
+};
+/// The ball's cell, and its dot in braille's bits.
+const Dot = struct { cell: usize, dots: u8 };
+/// Braille's dot bits by column, from the floor up.
+const braille_dots = [2][4]u8{ .{ 0x40, 0x04, 0x02, 0x01 }, .{ 0x80, 0x20, 0x10, 0x08 } };
+/// The braille character with `dots` raised.
+fn braille(dots: u8) [3]u8 {
+    return .{ 0xe2, 0xa0 | dots >> 6, 0x80 | (dots & 0x3f) };
+}
+
+/// Ticks the corgi watches the ball after it lands, before setting off.
+const react = 4;
+
+const Gait = struct { x: usize, pose: []const u8 };
+/// A throw `ticks` in: the ball, the corgi once it is up, the tick the ball
+/// first lands, and the tick and column at which the corgi catches it.
+const Chase = struct { ball: Ball, dog: ?Gait = null, landed: usize = 0, caught: usize = 0, stop: usize = 0 };
+/// The corgi gets up once the ball has landed and left room for it to stand.
+/// It stands for two steps, then each step runs a cell after the ball, up to
+/// the foot of the slant, or waits while the ball is just past its nose. A
+/// ball there low enough to reach is caught on the next tick; a higher one
+/// bounces off its head.
+fn chase(width: usize, throw: Throw, ticks: usize) Chase {
+    var ball: Ball = .thrown(throw);
+    var result: Chase = .{ .ball = ball };
+    var up: ?usize = null;
+    var x: usize = 0;
+    var ran = false;
+    var tick: usize = 0;
+    while (true) : (tick += 1) {
+        // `x + 7` is the cell just past the running corgi's nose.
+        const cell = ball.dot().cell;
+        const ready = result.landed > 0 and tick >= result.landed + react;
+        if (up) |since| {
+            if (tick - since >= 4 and (tick - since) % 2 == 0) {
+                ran = cell > x + 7 and x + 8 < width;
+                if (ran) x += 1;
+            }
+        } else if (ready and cell >= x + 7) up = tick;
+        if (tick == ticks) {
+            result.ball = ball;
+            if (up != null) result.dog = .{ .x = x, .pose = if (ran) gait_right[x % 4] else gait_right[1] };
+        }
+        const near: usize = if (up != null) x + 7 else Ball.nose / 2;
+        // A ball still loose after `give_up` is caught where the corgi is.
+        if ((ready and cell <= near and ball.reachable()) or tick == give_up) {
+            result.caught = tick + 1;
+            result.stop = x;
+            return result;
+        }
+        ball.step(width, 2 * near);
+        if (ball.y == 0 and result.landed == 0) result.landed = tick + 1;
+    }
+}
+const give_up = 1000;
+
+/// Ticks before the throw, while the corgi sits and blinks.
+const windup = 16;
+
 const FetchScene = struct {
     dog: []const u8,
     x: usize = 0,
-    ball: ?usize = null,
-    mark: []const u8 = "⢀",
+    ball: ?Dot = null,
 };
 fn stage(phase: *usize, duration: usize) bool {
     if (phase.* < duration) return true;
     phase.* -= duration;
     return false;
 }
-fn fetchKeyframe(width: usize, step: usize) FetchScene {
+/// The ball and the chase move every tick; the rest in steps of two ticks.
+fn fetchScene(width: usize, throw: Throw, tick: usize) FetchScene {
     std.debug.assert(width >= 18);
-    var p = step % (3 * width + 11);
     const rest = "~ᐯ•ᴥ•ᐯ";
     const alert = "~ᐯ•ᴥ•ᐱ";
     const held = "~ᐯ•●•ᐯ";
-    const end = width - 1;
-    if (stage(&p, 8)) return .{ .dog = if (p == 4) "~ᐯ◡ᴥ◡ᐯ" else rest };
-    if (stage(&p, 6)) return .{ .dog = rest, .ball = 6 + p, .mark = ([_][]const u8{ "⠄", "⠂", "⠁", "⠂", "⠄", "⡀" })[p] };
-    if (stage(&p, 4)) return .{ .dog = alert, .ball = 12 + p, .mark = ([_][]const u8{ "⠄", "⠂", "⠄", "⡀" })[p] };
-    if (stage(&p, width - 16)) return .{ .dog = alert, .ball = 16 + p, .mark = "⡀" };
-    if (stage(&p, 3)) return .{ .dog = alert, .ball = end };
-    if (stage(&p, 2)) return .{ .dog = gait_right[1], .ball = end };
-    if (stage(&p, width - 8)) return .{ .dog = gait_right[(p + 1) % 4], .x = p + 1, .ball = end };
-    if (stage(&p, 2)) return .{ .dog = gait_right[1], .x = width - 8, .ball = end };
-    if (stage(&p, 2)) return .{ .dog = "~[||]o●", .x = width - 8 };
-    if (stage(&p, 5)) return .{ .dog = held, .x = width - 8 };
-    if (stage(&p, 2)) return .{ .dog = gait_left_carry[1], .x = width - 9 };
-    if (stage(&p, width - 8)) return .{ .dog = gait_left_carry[p % 4], .x = width - 9 - p };
+    var p = tick;
+    if (stage(&p, windup)) return .{ .dog = if (p / 2 == 4) "~ᐯ◡ᴥ◡ᐯ" else rest };
+    const run = chase(width, throw, p);
+    if (stage(&p, run.caught)) {
+        const ball = run.ball.dot();
+        if (run.dog) |gait| return .{ .dog = gait.pose, .x = gait.x, .ball = ball };
+        // React on the very next tick after floor contact.
+        return .{ .dog = if (p > run.landed) alert else rest, .ball = ball };
+    }
+    p /= 2;
+    const stop = run.stop;
+    // A ball caught within reach is held without turning around.
+    const turn: usize = if (stop > 0) 2 else 0;
+    if (stage(&p, 2)) return .{ .dog = "~[||]o●", .x = stop };
+    if (stage(&p, 5)) return .{ .dog = held, .x = stop };
+    if (stage(&p, turn)) return .{ .dog = gait_left_carry[1], .x = stop - 1 };
+    if (stage(&p, stop)) return .{ .dog = gait_left_carry[p % 4], .x = stop - 1 - p };
     if (stage(&p, 3)) return .{ .dog = held };
-    if (stage(&p, 3)) return .{ .dog = rest };
     return .{ .dog = rest };
 }
-// Insert a right-half dot between adjacent whole-cell ball positions.
-// Dog motion and pauses remain at their original 200 ms timing.
-fn fetchScene(width: usize, step: usize) FetchScene {
-    var current = fetchKeyframe(width, step / 2);
-    if (step % 2 == 0) return current;
-    const next = fetchKeyframe(width, step / 2 + 1);
-    if (current.ball) |ball| {
-        if (next.ball) |next_ball| {
-            if (next_ball == ball or next_ball == ball + 1) {
-                const left = [_][]const u8{ "⠁", "⠂", "⠄", "⡀" };
-                const right = [_][]const u8{ "⠈", "⠐", "⠠", "⢀" };
-                for (left, right) |from, to| {
-                    if (std.mem.eql(u8, current.mark, from)) {
-                        current.mark = to;
-                        break;
-                    }
-                }
-                // React on the very next (100 ms) frame after floor contact.
-                if (std.mem.eql(u8, current.dog, "~ᐯ•ᴥ•ᐯ") and std.mem.eql(u8, next.dog, "~ᐯ•ᴥ•ᐱ")) current.dog = next.dog;
-            }
-        }
-    }
-    return current;
+/// Ticks in a whole fetch, from the throw to the corgi resting again.
+fn fetchTicks(width: usize, throw: Throw) usize {
+    const run = chase(width, throw, 0);
+    const turn: usize = if (run.stop > 0) 2 else 0;
+    return windup + run.caught + 2 * (turn + run.stop + 13);
 }
-fn writeFetch(out: *std.Io.Writer, width: usize, step: usize) !void {
-    const scene = fetchScene(width, step);
+/// Ticks that fill the activity budget: one every 50 ms, or a longer trip's
+/// own, so it speeds up to fit.
+fn fetchPace(width: usize, throw: Throw) usize {
+    return @max(fetchTicks(width, throw), Playback.max_activity_ms / 50);
+}
+/// The slant is faint, and lit while the ball shares its cell.
+const slant_color = palette.Token.faint.rgb();
+fn writeFetch(out: *std.Io.Writer, width: usize, throw: Throw, tick: usize) !void {
+    const scene = fetchScene(width, throw, tick);
     var dog = (std.unicode.Utf8View.init(scene.dog) catch unreachable).iterator();
     for (0..width) |col| {
-        if (scene.ball == col) {
-            try out.writeAll(scene.mark);
+        const ball: u8 = if (scene.ball) |b| (if (b.cell == col) b.dots else 0) else 0;
+        if (col == width - 1) {
+            if (ball == 0) try writeColor(out, slant_color);
+            try out.writeAll(&braille(Ball.slant | ball));
+            if (ball == 0) try writeColor(out, awake_color);
+        } else if (ball != 0) {
+            try out.writeAll(&braille(ball));
         } else if (col >= scene.x) {
             const glyph = dog.nextCodepointSlice() orelse " ";
-            try out.writeAll(if (std.mem.eql(u8, glyph, "~")) wagTail(step / 4) else glyph);
+            try out.writeAll(if (std.mem.eql(u8, glyph, "~")) wagTail(tick / 4) else glyph);
         } else try out.writeByte(' ');
     }
 }
@@ -262,10 +483,12 @@ pub const Playback = struct {
     started_ms: i64 = 0,
     deadline_ms: i64 = 0,
     random: std.Random.DefaultPrng = .init(0),
+    throw: Throw = .{},
 
     fn enter(self: *Playback, routine: Routine, now_ms: i64) void {
         self.routine = routine;
         self.started_ms = now_ms;
+        if (routine == .fetch) self.throw = .random(self.random.random());
         const duration: i64 = switch (routine) {
             .idle => minimum_idle_ms,
             .sniff => @as(i64, @intCast(1 + self.random.random().uintLessThan(u32, 2))) * frames.sniff.len * 200,
@@ -299,9 +522,7 @@ pub const Playback = struct {
             // This is awake rest. Sleep is owned by the agent lifecycle in the sidebar.
             .idle => try writeFrame(out, room, frames.wag[(elapsed / 200) % frames.wag.len]),
             .fetch => if (room >= 18) {
-                // Fit one complete trip into the activity budget at any width.
-                const steps = 2 * (3 * room + 11);
-                try writeFetch(out, room, @min(elapsed, max_activity_ms - 1) * steps / max_activity_ms);
+                try writeFetch(out, room, self.throw, @min(elapsed, max_activity_ms - 1) * fetchPace(room, self.throw) / max_activity_ms);
             } else {
                 // Keep the dog and tail visible when there is no room for a chase.
                 const phase = @min(elapsed, max_activity_ms - 1) * 4 / max_activity_ms;
@@ -527,22 +748,95 @@ pub fn idle(out: *std.Io.Writer, width: usize, sleep: Sleep) !void {
     }
 }
 
-test "half-cell ball travel keeps the impact before the perk and preserves pickup pause" {
-    const landed = fetchScene(18, 26);
-    try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐯ", landed.dog);
-    try std.testing.expectEqualStrings("⡀", landed.mark);
-    const reacted = fetchScene(18, 27);
-    try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐱ", reacted.dog);
-    try std.testing.expectEqualStrings("⢀", reacted.mark);
-    for (78..88) |step| try std.testing.expectEqualStrings("~ᐯ•●•ᐯ", fetchScene(18, step).dog);
-    const left = fetchScene(22, 36);
-    const right = fetchScene(22, 37);
-    const advance = fetchScene(22, 38);
-    try std.testing.expectEqual(left.ball, right.ball);
-    try std.testing.expectEqual(left.ball.? + 1, advance.ball.?);
-    try std.testing.expectEqualStrings("⡀", left.mark);
-    try std.testing.expectEqualStrings("⢀", right.mark);
-    try std.testing.expectEqualStrings("⡀", advance.mark);
+test "the corgi perks up as the ball lands, chases it while it moves, and pauses to hold it" {
+    const throw: Throw = .{};
+    const run = chase(18, throw, 0);
+    try std.testing.expect(chase(18, throw, run.landed - 1).ball.y > 0);
+    try std.testing.expectEqual(@as(f64, 0), chase(18, throw, run.landed).ball.y);
+    try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐯ", fetchScene(18, throw, windup + run.landed).dog);
+    try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐱ", fetchScene(18, throw, windup + run.landed + 1).dog);
+    try std.testing.expectEqualStrings("~[||]o>", fetchScene(18, throw, windup + run.landed + react).dog);
+    try std.testing.expect(!chase(18, throw, run.caught - 1).ball.resting());
+    var tick: usize = windup;
+    while (!std.mem.eql(u8, fetchScene(18, throw, tick).dog, "~ᐯ•●•ᐯ")) tick += 1;
+    try std.testing.expectEqualStrings("~[||]o●", fetchScene(18, throw, tick - 1).dog);
+    for (tick..tick + 10) |held| try std.testing.expectEqualStrings("~ᐯ•●•ᐯ", fetchScene(18, throw, held).dog);
+    try std.testing.expectEqualStrings("●‹o[||]~", fetchScene(18, throw, tick + 10).dog);
+}
+
+test "the corgi catches the ball low at its nose, and waits beside it while it is high" {
+    // The bottom two dot rows.
+    const low: u8 = 0xe4;
+    var prng: std.Random.DefaultPrng = .init(11);
+    var waited = false;
+    for ([_]usize{ 18, 26, 40 }) |width| for (0..40) |_| {
+        const throw: Throw = .random(prng.random());
+        var before = fetchScene(width, throw, windup);
+        for (windup + 1..fetchTicks(width, throw)) |tick| {
+            const scene = fetchScene(width, throw, tick);
+            const ball = before.ball.?;
+            const reachable = ball.dots & low != 0;
+            const past_nose = before.x + try std.unicode.utf8CountCodepoints(before.dog);
+            if (scene.ball == null) {
+                try std.testing.expectEqualStrings("~[||]o●", scene.dog);
+                try std.testing.expectEqual(before.x, scene.x);
+                try std.testing.expect(reachable and ball.cell == past_nose);
+                break;
+            }
+            waited = waited or (std.mem.eql(u8, before.dog, "~[||]o>") and ball.cell == past_nose and !reachable);
+            before = scene;
+        }
+    };
+    try std.testing.expect(waited);
+}
+
+test "every throw carries off, from lobs under the ceiling to smashes that bounce off it" {
+    var prng: std.Random.DefaultPrng = .init(1);
+    var under = false;
+    var smashed = false;
+    for (0..100) |_| {
+        const throw: Throw = .random(prng.random());
+        try std.testing.expect(throw.speed >= 1);
+        var ball: Ball = .thrown(throw);
+        var hits: usize = 0;
+        for (0..give_up) |_| {
+            if (ball.resting()) break;
+            ball.step(40, Ball.nose);
+            if (ball.y == Ball.ceiling) hits += 1;
+        } else return error.TestUnexpectedResult;
+        under = under or hits == 0;
+        // Only a smash leaves the hand this steeply down.
+        smashed = smashed or (throw.lift < -1 and hits >= 3);
+    }
+    try std.testing.expect(under and smashed);
+}
+
+test "a roll skips before it rolls, the slant kicks it up, and lights while the ball is over it" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer plain.deinit();
+    // The floor's dot row, and the top two.
+    const floor: u8 = 0xc0;
+    const high: u8 = 0x1b;
+    var skipped = false;
+    var kicked = false;
+    for (0..30) |seed| {
+        const throw: Throw = .{ .speed = 1.8, .lift = -0.6, .spin = -1.4, .seed = seed };
+        var landed = false;
+        for (windup..fetchTicks(26, throw)) |tick| {
+            const ball = fetchScene(26, throw, tick).ball orelse break;
+            if (ball.dots & floor != 0) landed = true else if (landed and ball.cell < 24) skipped = true;
+            output.clearRetainingCapacity();
+            try writeFetch(&output.writer, 26, throw, tick);
+            if (ball.cell == 25) {
+                kicked = kicked or ball.dots & high != 0;
+                try std.testing.expect(std.mem.endsWith(u8, try withoutColors(&plain, output.written()), &braille(Ball.slant | ball.dots)));
+                try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.faint)) == null);
+            } else try std.testing.expect(std.mem.endsWith(u8, output.written(), comptime palette.fg(.faint) ++ "⡠" ++ palette.fg(.text)));
+        }
+    }
+    try std.testing.expect(skipped and kicked);
 }
 
 /// `text` after the SGR writeColor writes for `color`.
@@ -640,26 +934,72 @@ test "delayed activity transition still gets a full idle rest" {
     try std.testing.expectEqual(@as(i64, 110_000), playback.deadline_ms);
 }
 
-test "half-cell fetch spans the full row without overlap or overflow" {
+test "every throw fits the row, bounces off its walls, and keeps clear of the corgi" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
+    var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer plain.deinit();
+    var prng: std.Random.DefaultPrng = .init(7);
     for ([_]usize{ 18, 22, 40, 80, 294 }) |width| {
-        var reached_edge = false;
-        for (0..2 * (3 * width + 11)) |step| {
-            const scene = fetchScene(width, step);
-            const dog_width = try std.unicode.utf8CountCodepoints(scene.dog);
-            try std.testing.expect(scene.x + dog_width <= width);
-            if (scene.ball) |ball| {
-                try std.testing.expect(ball < width);
-                try std.testing.expect(ball < scene.x or ball >= scene.x + dog_width);
-                reached_edge = reached_edge or ball == width - 1;
+        var far = false;
+        var ceiling = false;
+        var catches: std.DynamicBitSetUnmanaged = try .initEmpty(std.testing.allocator, width);
+        defer catches.deinit(std.testing.allocator);
+        for (0..12) |n| {
+            const throw: Throw = switch (n) {
+                // Dropped at the corgi's feet, picked up without a run.
+                0 => .{ .speed = 0, .lift = 0.5 },
+                1 => .{ .speed = 2.2, .lift = 0.6 },
+                2 => .{ .speed = 1.0, .lift = 1.6 },
+                else => .random(prng.random()),
+            };
+            const ticks = fetchTicks(width, throw);
+            for (0..ticks) |tick| {
+                const scene = fetchScene(width, throw, tick);
+                const dog_width = try std.unicode.utf8CountCodepoints(scene.dog);
+                // Clear of the slant, too.
+                try std.testing.expect(scene.x + dog_width < width);
+                if (scene.ball) |ball| {
+                    try std.testing.expect(ball.cell < width);
+                    try std.testing.expect(ball.cell < scene.x or ball.cell >= scene.x + dog_width);
+                    far = far or ball.cell == width - 1;
+                    ceiling = ceiling or ball.dots & 0x09 != 0;
+                }
+                output.clearRetainingCapacity();
+                try writeFetch(&output.writer, width, throw, tick);
+                const text = try withoutColors(&plain, output.written());
+                try std.testing.expectEqual(width, try std.unicode.utf8CountCodepoints(text));
+                try std.testing.expect(std.mem.indexOfAny(u8, text, "~-^") != null);
             }
-            output.clearRetainingCapacity();
-            try writeFetch(&output.writer, width, step);
-            try std.testing.expectEqual(width, try std.unicode.utf8CountCodepoints(output.written()));
-            try std.testing.expect(std.mem.indexOfAny(u8, output.written(), "~-^") != null);
+            const last = fetchScene(width, throw, ticks - 1);
+            try std.testing.expectEqualStrings("~ᐯ•ᴥ•ᐯ", last.dog);
+            try std.testing.expect(last.x == 0 and last.ball == null);
+            catches.set(chase(width, throw, 0).stop);
         }
-        try std.testing.expect(reached_edge);
+        try std.testing.expect(far and ceiling);
+        try std.testing.expect(catches.count() >= 6);
+    }
+}
+
+test "each fetch throws anew and finishes within the activity budget" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer plain.deinit();
+    var playback: Playback = .{ .random = .init(3) };
+    var previous: Throw = .{};
+    for (0..20) |_| {
+        playback.enter(.fetch, 0);
+        try std.testing.expect(!std.meta.eql(previous, playback.throw));
+        previous = playback.throw;
+        for ([_]usize{ 18, 26, 40, 80 }) |room| {
+            output.clearRetainingCapacity();
+            try playback.write(&output.writer, room, Playback.max_activity_ms - 1);
+            const text = try withoutColors(&plain, output.written());
+            // At rest, with the slant still at the row's end.
+            try std.testing.expect(std.mem.endsWith(u8, text, "⡠"));
+            try std.testing.expectEqualStrings("ᐯ•ᴥ•ᐯ", std.mem.trimEnd(u8, text[1 .. text.len - "⡠".len], " "));
+        }
     }
 }
 
