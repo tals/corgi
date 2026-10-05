@@ -38,7 +38,7 @@ pub const Token = enum {
             .muted => .{ 0xa5, 0xae, 0xb8 },
             .text => .{ 0xd1, 0xd6, 0xdb },
             .strong => .{ 0xee, 0xf1, 0xf4 },
-            .accent => .{ 0xa1, 0xc2, 0xb2 },
+            .accent => .{ 0x7b, 0xf1, 0xa8 },
             .warm => .{ 0xe5, 0xc3, 0x8b },
             .hot => .{ 0xed, 0xa3, 0x98 },
         };
@@ -152,7 +152,7 @@ test "text tokens stay readable on the backgrounds the guide allows" {
 }
 
 test "styles render to SGR, called at runtime" {
-    try std.testing.expectEqualStrings("\x1b[38;2;161;194;178m", fg(.accent));
+    try std.testing.expectEqualStrings("\x1b[38;2;123;241;168m", fg(.accent));
     try std.testing.expectEqualStrings("\x1b[48;2;35;40;47m", bg(.surface));
     try std.testing.expectEqualStrings("\x1b[0;1;38;2;238;241;244;48;2;24;27;32m", (Style{ .fg = .strong, .bg = .bg, .bold = true }).sgr());
     try std.testing.expectEqualStrings("\x1b[0m", (Style{}).sgr());
