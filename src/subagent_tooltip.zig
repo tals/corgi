@@ -1575,6 +1575,6 @@ test "the subtitle pairs provider and model with the context meter, and activity
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try draw(&output.writer, &all, entry, 100, 30, 0, 2);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;115;73;94m38%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;113;83;88m38%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "┼") != null);
 }

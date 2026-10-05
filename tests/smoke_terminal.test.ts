@@ -25,7 +25,7 @@ import {
   tempDir,
   writeExecutable,
 } from "./support";
-import { FAKE, Runtime } from "./runtime";
+import { FAKE, PALETTE, Runtime } from "./runtime";
 
 const file = (path: string) => readFileSync(path, "utf8");
 const json = (path: string) => JSON.parse(file(path));
@@ -50,7 +50,7 @@ class SmokeTerminal extends Runtime {
     pty.write("\x1b_Gi=730031;OK\x1b\\");
     await pty.waitFor("\x1b_Gm=0;");
     // Styling becomes available as soon as the capability probe succeeds.
-    await pty.waitFor("\x1b[0;38;2;137;180;250;48;2;34;44;58m▌");
+    await pty.waitFor(`\x1b[0;38;2;${PALETTE.accent};48;2;${PALETTE.selected}m▌`);
     const placement = "\x1b_Ga=p,i=730031,p=1,c=3,z=1,C=1,q=";
     this.assertNotIn(placement + "1", pty.output);
     // Simulate iTerm2's final-chunk acknowledgement, then its reordered
@@ -403,14 +403,14 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
   async test_agent_startup_has_its_own_indicator_and_never_thinks() {
     const pane = await this.ordinary_agent("codex", false, true);
     await this.attach();
-    const screen = await this.agent_frame("codex", "●", "", "160;146;184");
+    const screen = await this.agent_frame("codex", "◌", "", PALETTE.muted);
     this.assertIn("Starting session", screen[14]);
     await sleep(0.8);
     this.assertEqual((await this.panes())[0].state, "initializing");
     await this.command("pane.input", { target: pane, data: "ready\r" });
-    await this.agent_frame("codex", "○", "", "166;227;161");
+    await this.agent_frame("codex", "○", "", PALETTE.muted);
     await this.command("pane.input", { target: pane, data: "work\r" });
-    await this.agent_frame("codex", "●", "thinking", "249;226;175");
+    await this.agent_frame("codex", "●", "thinking", PALETTE.accent);
   }
   async test_bun_agent_detection() {
     const script = join(

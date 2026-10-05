@@ -1,8 +1,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Runtime, screen_text } from "./runtime";
+import { PALETTE, Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { registerCase, shellJoin, sleep } from "./support";
+
+// The hovered resource row: its background, then its readings' style.
+const hover = `\x1b[48;2;${PALETTE.selected}m\x1b[22m`;
 
 class Resources extends Runtime {
   async test_process_churn_keeps_established_workspace_totals() {
@@ -69,13 +72,13 @@ class Resources extends Runtime {
       const resourceStart = frame.indexOf("\x1b[5;2H", frame.indexOf("workspaces"));
       this.assertGreaterEqual(resourceStart, 0);
       const resourceRow = frame.slice(resourceStart, frame.indexOf("\x1b[6;1H", resourceStart));
-      this.assertIn("\x1b[4;58:2::65:70:77m", resourceRow);
+      this.assertIn(`\x1b[4m\x1b[58:2::${PALETTE.line.replaceAll(";", ":")}m`, resourceRow);
       this.assertIn("\x1b[24;59m", resourceRow);
       this.assertRegex(screen_text(frame, cols, 40)[4], /CPU .*Mem/);
       // Disk throughput stays in the hover card.
       this.assertNotIn("↕", screen_text(frame, cols, 40)[4]);
       this.assertEqual(screen_text(frame, cols, 40)[4][25], "›");
-      this.assertNotIn("\x1b[48;2;48;57;70m", frame);
+      this.assertNotIn(hover, frame);
 
       // Every workspace row selects, including the previously inert third row.
       for (const row of [6, 7, 8]) {
@@ -89,15 +92,15 @@ class Resources extends Runtime {
       await viewer.input("\x1b[<35;5;4M");
       await viewer.advance(0.6);
       this.assertNotIn("TOP PROCESSES", viewer.state.data);
-      this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      this.assertNotIn(hover, viewer.state.data);
       await viewer.input("\x1b[<35;5;5M");
       this.assertNotIn("TOP PROCESSES", viewer.state.data);
-      this.assertIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      this.assertIn(hover, viewer.state.data);
       // The end chevron belongs to the same hover target; the padding does not.
       await viewer.input("\x1b[<35;26;5M");
-      this.assertIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      this.assertIn(hover, viewer.state.data);
       await viewer.input("\x1b[<35;27;5M");
-      this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      this.assertNotIn(hover, viewer.state.data);
       await viewer.input("\x1b[<35;5;5M");
       await viewer.advance(0.6);
       this.assertIn("TOP PROCESSES", viewer.state.data);
@@ -130,7 +133,7 @@ class Resources extends Runtime {
     this.assertNotIn("›", screen_text(quiet.state.data, 120, 20)[4]);
     await quiet.input("\x1b[<35;5;5M");
     await quiet.advance(0.6);
-    this.assertNotIn("\x1b[48;2;48;57;70m", quiet.state.data);
+    this.assertNotIn(hover, quiet.state.data);
     this.assertNotIn("TOP PROCESSES", quiet.state.data);
     await quiet.close();
   }
@@ -256,7 +259,7 @@ class Resources extends Runtime {
     for (const [column, row] of [[26, 5], [27, 6], [28, 7], [29, 8], [70, 12]]) {
       await viewer.input(`\x1b[<35;${column};${row}M`);
       this.assertIn("TOP PROCESSES", viewer.state.data);
-      this.assertIn("\x1b[48;2;48;57;70m", viewer.state.data);
+      this.assertIn(hover, viewer.state.data);
     }
     await viewer.input("\x1b[<0;88;19M");
     await viewer.input("\x1b[<0;88;19m");
@@ -267,7 +270,7 @@ class Resources extends Runtime {
     writeFileSync("/tmp/corgi-resource-screen.txt", screen_text(viewer.state.data, 120, 40).join("\n"));
     await viewer.input("\x1b[<35;118;38M");
     this.assertNotIn("TOP PROCESSES", viewer.state.data);
-    this.assertNotIn("\x1b[48;2;48;57;70m", viewer.state.data);
+    this.assertNotIn(hover, viewer.state.data);
     await viewer.poll();
     await this.until(async () => (await this.session()).resources.interval_ms === 2000, 5);
     // Menu aim: a diagonal swing toward the card crosses the next workspace's

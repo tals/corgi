@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { Viewers } from "./viewers";
-import { screen_text, layout_tree } from "./runtime";
+import { PALETTE, screen_text, layout_tree } from "./runtime";
 import {
   EXE,
   JsonSocket,
@@ -20,6 +20,12 @@ import {
   sleep,
   writeExecutable,
 } from "./support";
+
+// A tinted workspace title row: the active workspace, or the one being dragged.
+const tinted = `\x1b[0;1;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m`;
+// Workspace bars without Kitty graphics: accent when active, strong when dragged.
+const activeBar = `\x1b[0;48;2;${PALETTE.accent}m `;
+const ghostBar = `\x1b[0;48;2;${PALETTE.strong}m `;
 
 class ViewerScenarios extends Viewers {
   async test_ghostty_setup_toggle_preserves_config_and_routes_tabs() {
@@ -490,20 +496,24 @@ class ViewerScenarios extends Viewers {
     const a = await this.newViewer(),
       b = await this.newViewer();
     await b.request({ op: "workspace", workspace: second });
+    // Pressing a row switches to it, so switch away mid-drag to drag an inactive one.
     await a.input("\x1b[<0;5;3M");
+    await a.request({ op: "workspace", workspace: third });
     await a.input("\x1b[<32;5;11M");
     // The list previews the new order with the dragged row tinted, like agents.
     const preview = screen_text(a.state.data, 100, 30);
     this.assertIn("Second", preview[2]);
     this.assertIn("Third", preview[5]);
-    this.assertIn("48;2;44;54;67m", a.state.data);
+    this.assertIn(`\x1b[6;1H${activeBar}`, a.state.data);
+    this.assertIn(`\x1b[9;1H${tinted}`, a.state.data);
+    for (const row of [9, 10, 11]) this.assertIn(`\x1b[${row};1H${ghostBar}`, a.state.data);
     this.assertIn("\x1b]22;grabbing\x1b\\", a.state.data);
     await a.input("\x1b[<0;5;11m");
     this.assertEqual(
       (await this.session()).workspaces.map((w: any) => w.id),
       [second, third, first],
     );
-    this.assertEqual(a.state.workspace, first);
+    this.assertEqual(a.state.workspace, third);
     this.assertEqual((await b.poll()).workspace, second);
     await a.input("\x1b[<0;5;3M\x1b[<32;5;11M\x1b[<0;50;11m");
     this.assertEqual(
@@ -535,7 +545,8 @@ class ViewerScenarios extends Viewers {
     const a = await this.newViewer(100, 18);
     await a.input("\x1b[<0;5;3M\x1b[<32;5;6M");
     for (let i = 0; i < 2; i++) await a.input("\x1b[<65;5;6M");
-    this.assertIn("48;2;44;54;67m", a.state.data);
+    this.assertIn(`\x1b[3;1H${tinted}`, a.state.data);
+    this.assertIn(`\x1b[3;1H${ghostBar}`, a.state.data);
     await a.input("\x1b[<0;5;6m");
     this.assertEqual(
       (await this.session()).workspaces.map((w: any) => w.id),
@@ -638,7 +649,7 @@ class ViewerScenarios extends Viewers {
         session_id: "usage",
       },
     });
-    this.assertIn("\x1b[1;38;2;243;139;168m ●1", (await a.poll()).data);
+    this.assertIn(`\x1b[1m\x1b[38;2;${PALETTE.warm}m ●1`, (await a.poll()).data);
     this.assertNotIn("↓50↑10", a.state.data);
     this.assertIn("●1", screen_text(a.state.data, 100, 30)[3].slice(0, 27));
     this.assertNotIn("unread", screen_text(a.state.data, 100, 30)[3]);

@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { Runtime, EXE, screen_text } from "./runtime";
+import { Runtime, EXE, PALETTE, screen_text } from "./runtime";
 import { registerCase, run, quote, sleep, writeExecutable } from "./support";
 
 class SmokeInput extends Runtime {
@@ -164,17 +164,17 @@ class SmokeInput extends Runtime {
         );
     };
     await hook("SessionStart");
-    screen = await this.agent_frame("codex", "○", "", "166;227;161");
+    screen = await this.agent_frame("codex", "○", "", PALETTE.muted);
     this.assertNotIn("SessionStart", screen.join("\n"));
     this.assertNotIn("Alpha", screen.map((r) => r.slice(0, 27)).join("\n"));
     await hook("UserPromptSubmit");
-    await this.agent_frame("codex", "●", "thinking", "249;226;175");
+    await this.agent_frame("codex", "●", "thinking", PALETTE.accent);
     await hook("PreToolUse", { tool_name: "Bash" });
     screen = await this.agent_frame("codex", "●", "🔧");
     this.assertTrue((await this.panes())[0].tool_active);
     this.assertNotIn("Bash", screen.map((r) => r.slice(0, 27)).join("\n"));
     await hook("PreToolUse", { tool_name: "request_user_input" });
-    screen = await this.agent_frame("codex", "●", "🔧", "243;139;168");
+    screen = await this.agent_frame("codex", "●", "🔧", PALETTE.warm);
     this.assertEqual((await this.panes())[0].attention, "needs_input");
     await this.click_text(
       screen.map((r) => r.slice(0, 27)),
@@ -191,11 +191,11 @@ class SmokeInput extends Runtime {
     await hook("PostToolUse", { tool_name: "Bash" });
     await this.agent_frame("codex", "●", "thinking");
     await hook("UserPromptSubmit");
-    await this.agent_frame("codex", "●", "thinking", "249;226;175");
+    await this.agent_frame("codex", "●", "thinking", PALETTE.accent);
     await hook("Stop");
-    await this.agent_frame("codex", "○", "", "166;227;161");
+    await this.agent_frame("codex", "○", "", PALETTE.muted);
     await hook("SessionEnd");
-    await this.agent_frame("codex", "○", "", "166;227;161");
+    await this.agent_frame("codex", "○", "", PALETTE.muted);
     this.assertEqual(
       (await this.session()).conversations.find(
         (c: any) => c.agent.session === "sidebar",
@@ -451,13 +451,13 @@ class SmokeInput extends Runtime {
         cwd: this.temp.name,
       })
     ).session;
-    await this.agent_frame("codex", "○", "", "166;227;161");
+    await this.agent_frame("codex", "○", "", PALETTE.muted);
     await this.rpc({
       op: "native.send",
       session: ident,
       message: { id: 1, method: "test/approval" },
     });
-    const screen = await this.agent_frame("codex", "●", "🔧", "243;139;168");
+    const screen = await this.agent_frame("codex", "●", "🔧", PALETTE.warm);
     await this.click_text(
       screen.map((r) => r.slice(0, 27)),
       "codex",
@@ -473,13 +473,14 @@ class SmokeInput extends Runtime {
       session: ident,
       message: { id: 900, result: { decision: "decline" } },
     });
-    await this.agent_frame("codex", "●", "", "148;226;213");
+    await this.agent_frame("codex", "✓", "", PALETTE.accent);
     await this.rpc({
       op: "native.send",
       session: ident,
       message: { id: 2, method: "test/exit" },
     });
-    await this.agent_frame("codex", "○", "", "108;112;134");
+    // Ended is faint, but the clicked row is selected, where faint becomes muted.
+    await this.agent_frame("codex", "○", "", PALETTE.muted);
     await this.until(
       async () => (await this.rpc({ op: "native.list" })).sessions[0].exited,
     );
@@ -524,12 +525,12 @@ class SmokeInput extends Runtime {
       await this.agent_frame(provider, "●", "🔧");
       await send("turn-end");
       await count(0);
-      await this.agent_frame(provider, "●", "", "148;226;213");
+      await this.agent_frame(provider, "✓", "", PALETTE.accent);
       await send("tool-start", "d");
       await count(1);
       await send("exit");
       await count(0);
-      await this.agent_frame(provider, "○", "", "108;112;134");
+      await this.agent_frame(provider, "○", "", PALETTE.faint);
       await this.rpc({ op: "native.stop", session: ident });
       await this.frame_with("No agents yet");
     }

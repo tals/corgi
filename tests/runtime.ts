@@ -16,6 +16,38 @@ import { Viewer, pump } from "./viewer_client";
 import { NATIVE_PROVIDER, write_ordinary_agent } from "./provider_sim";
 export { EXE, ROOT, Viewer };
 export const FAKE = NATIVE_PROVIDER;
+const TOKENS = [
+  "bg",
+  "surface",
+  "selected",
+  "line",
+  "faint",
+  "muted",
+  "text",
+  "strong",
+  "accent",
+  "warm",
+  "hot",
+] as const;
+/** src/palette.zig's tokens as SGR "R;G;B" parameters. */
+export const PALETTE = readPalette();
+
+function readPalette() {
+  const source = readFileSync(join(ROOT, "src/palette.zig"), "utf8");
+  const palette = {} as Record<(typeof TOKENS)[number], string>;
+  for (const name of TOKENS) {
+    const match = new RegExp(
+      `\\.${name} => \\.\\{ 0x([0-9a-f]{2}), 0x([0-9a-f]{2}), 0x([0-9a-f]{2}) \\}`,
+      "i",
+    ).exec(source);
+    if (!match) throw new Error(`src/palette.zig has no ${name} token`);
+    palette[name] = match
+      .slice(1)
+      .map((hex) => parseInt(hex, 16))
+      .join(";");
+  }
+  return palette;
+}
 
 export function screen_text(data: string, cols = 80, rows = 24): string[] {
   let grid = Array.from({ length: rows }, () => Array(cols).fill(" "));

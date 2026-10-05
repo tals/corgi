@@ -1,7 +1,10 @@
 import { Viewers } from './viewers';
-import { screen_text } from './runtime';
+import { PALETTE, screen_text } from './runtime';
 import { Viewer } from './viewer_client';
 import { EXE, registerCase } from './support';
+
+// The dragged agent row's strong bar.
+const ghost = `\x1b[48;2;${PALETTE.strong}m \x1b[0m`;
 
 const mouse = (button: number, x: number, y: number, release = false) => `\x1b[<${button};${x + 1};${y + 1}${release ? 'm' : 'M'}`;
 
@@ -45,7 +48,7 @@ class AgentReorder extends Viewers {
     const screen = screen_text(first.state.data, 100, 30);
     this.assertIn('Agent-0', screen[20].slice(0, 27));
     this.assertEqual(this.labels(first), ['Agent-1', 'Agent-2', 'Agent-0']);
-    this.assertIn('\x1b[48;2;44;54;67m', first.state.data);
+    this.assertIn(ghost, first.state.data);
     this.assertIn('\x1b]22;grabbing\x1b\\', first.state.data);
     // Another viewer's release cannot complete this viewer's drag.
     await second.input(mouse(0, 6, 21, true));
@@ -103,7 +106,7 @@ class AgentReorder extends Viewers {
     this.assertFalse(screen.slice(0, -1).some(row => row.slice(28).includes('Agent-')));
     await viewer.input(mouse(32, 65, 22));
     this.assertEqual(this.labels(viewer), ['Agent-0', 'Agent-1', 'Agent-2']);
-    this.assertNotIn('\x1b[48;2;44;54;67m', viewer.state.data);
+    this.assertNotIn(ghost, viewer.state.data);
     await viewer.input(mouse(32, 6, 19));
     this.assertEqual(this.labels(viewer), ['Agent-1', 'Agent-0', 'Agent-2']);
     await viewer.input('\x1b');

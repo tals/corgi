@@ -21,11 +21,29 @@ const preferences = @import("preferences.zig");
 const Resources = preferences.Resources;
 const terminal = @import("pane.zig").terminal;
 const corgi_frames = @import("corgi_frames.zig");
+const palette = @import("palette.zig");
 const a = @import("os.zig").allocator;
 
 /// Agents plus one header per workspace in the grouped "All" list.
 pub const max_entries = layout.max_panes + 16 + workspace.max_workspaces;
-const selected_bg = "\x1b[48;2;34;44;58m";
+const selected_bg = palette.bg(.selected);
+// Styles that code or tests concatenate with `++`.
+const panel = (palette.Style{ .fg = .muted, .bg = .bg }).sgr();
+const button = (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr();
+const active_name = (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr();
+const active_meta = (palette.Style{ .fg = .muted, .bg = .selected }).sgr();
+// Kitty-graphics hosts (kitty, Ghostty, WezTerm) draw block elements to fill
+// the cell, so a half block joins into one bar. Elsewhere the font's glyph can
+// leave gaps between rows, so paint the whole cell instead.
+const active_bar_half = (palette.Style{ .fg = .accent, .bg = .selected }).sgr() ++ "▌";
+const active_bar_cell = (palette.Style{ .bg = .accent }).sgr() ++ " ";
+const ghost_bar_half = (palette.Style{ .fg = .strong, .bg = .selected }).sgr() ++ "▌";
+const ghost_bar_cell = (palette.Style{ .bg = .strong }).sgr() ++ " ";
+const rule_underline = "\x1b[4m" ++ palette.underline(.line);
+const dotted_underline = "\x1b[4:4m" ++ palette.underline(.line);
+const ghost_underline = "\x1b[4m" ++ palette.underline(.strong);
+/// A seen agent's nap "z" on a plain row, dimmer than faint.
+const nap_fg = palette.fgRgb(palette.mix(palette.Token.faint.rgb(), palette.Token.bg.rgb(), 50));
 /// `group` is a workspace header row in the grouped "All" list, not an agent.
 pub const Target = union(enum) { pane: layout.PaneId, native: NativeId, group: WorkspaceId };
 pub const Search = struct { text: []const u8, cursor: usize };
@@ -68,16 +86,18 @@ pub const Entry = struct {
         return agent_order.rank(order, left.orderTarget().?) < agent_order.rank(order, right.orderTarget().?);
     }
 
-    // Herdr's dot style and Catppuccin colors; finished attention is its
-    // unseen-idle state. Corgi also retains ended native sessions.
-    fn indicator(e: Entry) struct { icon: []const u8, color: []const u8 } {
-        if (e.state == .done) return .{ .icon = "○", .color = "\x1b[38;2;108;112;134m" };
-        if (e.state == .blocked or e.attention == .needs_input) return .{ .icon = "●", .color = "\x1b[38;2;243;139;168m" };
-        if (e.state == .working) return .{ .icon = "●", .color = "\x1b[38;2;249;226;175m" };
-        if (e.attention == .finished) return .{ .icon = "●", .color = "\x1b[38;2;148;226;213m" };
-        if (e.state == .initializing) return .{ .icon = "●", .color = "\x1b[38;2;160;146;184m" };
-        if (e.state == .idle) return .{ .icon = "○", .color = "\x1b[38;2;166;227;161m" };
-        return .{ .icon = "·", .color = "\x1b[38;2;108;112;134m" };
+    // The style guide's status glyphs; finished attention is the unseen-idle
+    // state. Corgi also retains ended native sessions. A `selected` row takes
+    // muted where the guide says faint.
+    fn indicator(e: Entry, selected: bool) struct { icon: []const u8, color: []const u8 } {
+        const quiet = if (selected) palette.fg(.muted) else palette.fg(.faint);
+        if (e.state == .done) return .{ .icon = "○", .color = quiet };
+        if (e.state == .blocked or e.attention == .needs_input) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.warm) };
+        if (e.state == .working) return .{ .icon = "●", .color = comptime "\x1b[1m" ++ palette.fg(.accent) };
+        if (e.attention == .finished) return .{ .icon = "✓", .color = palette.fg(.accent) };
+        if (e.state == .initializing) return .{ .icon = "◌", .color = palette.fg(.muted) };
+        if (e.state == .idle) return .{ .icon = "○", .color = palette.fg(.muted) };
+        return .{ .icon = "·", .color = quiet };
     }
 };
 
@@ -344,46 +364,38 @@ pub const View = struct {
     fn drawAt(v: View, w: *std.Io.Writer, entries: []const Entry, workspaces: []const WorkspaceEntry, now_ms: i64) !void {
         corgi_animation.beginFrame();
         defer corgi_animation.endFrame();
-        const panel = "\x1b[0;38;2;155;163;175;48;2;24;27;32m";
         if (v.width == 0) {
-            if (v.cols >= 64) try w.writeAll("\x1b[1;1H\x1b[1;38;2;161;194;178m > \x1b[0m");
+            if (v.cols >= 64) try w.writeAll(comptime "\x1b[1;1H\x1b[1m" ++ palette.fg(.strong) ++ " > \x1b[0m");
             return;
         }
         for (0..v.rows) |row| {
             try w.print("\x1b[{d};1H{s}", .{ row + 1, panel });
             try w.splatByteAll(' ', v.width - 1);
-            try w.writeAll("\x1b[38;2;55;61;70m│");
+            try w.writeAll(comptime palette.fg(.line) ++ "│");
         }
         try v.drawScope(w);
         if (v.search) |search| {
-            try v.line(w, v.middle() + 1, "/ ", "\x1b[0;38;2;161;194;178;48;2;35;40;47m");
+            try v.line(w, v.middle() + 1, "/ ", (palette.Style{ .fg = .strong, .bg = .surface }).sgr());
             try w.splatByteAll(' ', v.width - 5);
-            try w.print("\x1b[{d};4H", .{v.middle() + 2});
+            try w.print("\x1b[{d};4H" ++ palette.fg(.text), .{v.middle() + 2});
             if (search.text.len == 0) try writeClipped(w, "type to search", v.width - 5) else try writeClipped(w, search.text[v.searchOffset()..], v.width - 5);
-        } else try w.print("\x1b[{d};{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m New  ▾ {s}", .{ v.middle() + 1, v.width - 9, panel });
+        } else try w.print("\x1b[{d};{d}H" ++ button ++ " New  ▾ {s}", .{ v.middle() + 1, v.width - 9, panel });
         try w.print("\x1b[1;{d}H{s} < ", .{ v.width - 4, panel });
         if (v.corgi_badge != .none) {
             if (v.corgi_badge == .emoji) try w.print("\x1b[1;2H{s}{s}", .{ panel, corgi_badge.emoji });
-            try w.writeAll("\x1b[1;6H\x1b[1;38;2;226;230;233m");
+            try w.writeAll(comptime "\x1b[1;6H\x1b[1m" ++ palette.fg(.strong));
             try writeEllipsis(w, "workspaces", v.width -| 17);
-        } else try v.line(w, 0, "workspaces", "\x1b[1;38;2;226;230;233m");
-        try w.print("\x1b[1;{d}H\x1b[0;1;38;2;161;194;178;48;2;35;40;47m[ + ]{s}", .{ v.width - 10, panel });
-        const active_name = "\x1b[1;38;2;182;206;240;48;2;34;44;58m";
-        const active_meta = "\x1b[0;38;2;155;163;175;48;2;34;44;58m";
-        // Kitty-graphics hosts (kitty, Ghostty, WezTerm) draw block elements to
-        // fill the cell, so a half block joins into one bar. Elsewhere the font's
-        // glyph can leave gaps between rows, so paint the whole cell instead.
-        const active_bar = if (v.supports_kitty_graphics) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
-        // The dragged workspace uses the dragged agent row's tint.
-        const ghost_name = "\x1b[1;38;2;182;206;240;48;2;44;54;67m";
-        const ghost_meta = "\x1b[0;38;2;155;163;175;48;2;44;54;67m";
-        const ghost_bar = if (v.supports_kitty_graphics) "\x1b[0;38;2;137;180;250;48;2;44;54;67m▌" else active_bar;
+        } else try v.line(w, 0, "workspaces", comptime "\x1b[1m" ++ palette.fg(.strong));
+        try w.print("\x1b[1;{d}H" ++ button ++ "[ + ]{s}", .{ v.width - 10, panel });
+        const active_bar = if (v.supports_kitty_graphics) active_bar_half else active_bar_cell;
+        // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
+        const ghost_bar = if (v.supports_kitty_graphics) ghost_bar_half else ghost_bar_cell;
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
             const y: u16 = @intCast(2 + index * v.workspaceRows());
             const ghost = v.dragged_workspace == v.workspace_offset + index;
             const tinted = ws.active or ghost;
-            const style = if (ghost) ghost_name else if (ws.active) active_name else panel;
-            const meta = if (ghost) ghost_meta else if (ws.active) active_meta else panel;
+            const style = if (tinted) active_name else panel;
+            const meta = if (tinted) active_meta else panel;
             const bar = if (ghost) ghost_bar else active_bar;
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
@@ -398,7 +410,7 @@ pub const View = struct {
                 try w.print("\x1b[{d};{d}H", .{ y + 1, link.start + 1 });
                 try drawPorts(w, ws, link.end - link.start, false);
             }
-            if (badge_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;{s}m{s}", .{ y + 1, v.width - 1 - badge_width, if (ws.git_push.phase == .failed) "243;139;168" else "166;227;161", badge });
+            if (badge_width > 0) try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, v.width - 1 - badge_width, gitColor(ws.git_push.phase), badge });
             if (tinted) {
                 try w.print("\x1b[{d};1H{s}", .{ y + 2, meta });
                 try w.splatByteAll(' ', v.width - 1);
@@ -406,7 +418,7 @@ pub const View = struct {
             const divider = index + 1 < @min(workspaces.len - v.workspace_offset, v.workspaceCapacity());
             // Without a resource row, the separator underlines the status row,
             // text included, as between agents.
-            const rule = if (divider and v.workspaceRows() == 2) "\x1b[4;58:2::65:70:77m" else "";
+            const rule = if (divider and v.workspaceRows() == 2) rule_underline else "";
             try w.print("\x1b[{d};2H{s}{s}", .{ y + 2, meta, rule });
             if (rule.len > 0) {
                 try w.splatByteAll(' ', v.width - 3);
@@ -431,22 +443,22 @@ pub const View = struct {
             {
                 const text = if (ws.working == 0) "○" else try std.fmt.bufPrint(&text_buf, "●{s}", .{compactCount(&number_buf, ws.working)});
                 if (displayWidth(text) + attention_width <= room) {
-                    try statusPart(w, text, if (ws.working > 0) "\x1b[38;2;249;226;175m" else "\x1b[38;2;166;227;161m", &room);
+                    try statusPart(w, text, if (ws.working > 0) comptime "\x1b[1m" ++ palette.fg(.accent) else palette.fg(.muted), &room);
                     has_status = true;
                 }
             }
             if (attention_width > 0) {
-                try statusPart(w, attention, "\x1b[1;38;2;243;139;168m", &room);
+                try statusPart(w, attention, comptime "\x1b[1m" ++ palette.fg(.warm), &room);
                 has_status = true;
             }
             if (ws.unread > 0) {
-                if (has_status) try w.writeAll("\x1b[22;38;2;90;97;108m · ");
+                if (has_status) try w.writeAll(if (tinted) comptime "\x1b[22m" ++ palette.fg(.muted) ++ " · " else comptime "\x1b[22m" ++ palette.fg(.faint) ++ " · ");
                 try w.print("\x1b[{d};{d}H", .{ y + 2, v.unreadRange(ws).start + 1 });
                 var unread_room = unread_width;
-                try statusPart(w, unread, "\x1b[1;38;2;148;226;213m", &unread_room);
+                try statusPart(w, unread, comptime "\x1b[1m" ++ palette.fg(.accent), &unread_room);
             }
             if (ws.stats.tools > 0) try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ y + 2, v.width - 1 - metadata_width, meta, rule, metadata });
-            if (ws.active) for ([_]u16{ y + 1, y + 2 }) |row| try w.print("\x1b[{d};1H{s}", .{ row, bar });
+            if (tinted) for ([_]u16{ y + 1, y + 2 }) |row| try w.print("\x1b[{d};1H{s}", .{ row, bar });
             try w.writeAll(panel);
             if (v.workspaceRows() == 3 and y + 2 < v.middle() - 2) {
                 if (tinted) {
@@ -454,17 +466,17 @@ pub const View = struct {
                     try w.splatByteAll(' ', v.width - 1);
                 }
                 try w.print("\x1b[{d};2H{s}", .{ y + 3, meta });
-                if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
-                try drawResources(w, ws.resources, v, v.resource_hover == ws.id);
+                if (divider) try w.writeAll(rule_underline);
+                try drawResources(w, ws.resources, v, v.resource_hover == ws.id, tinted);
                 try w.writeAll("\x1b[24;59m");
                 try w.writeAll(panel);
-                if (ws.active) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, bar, panel });
+                if (tinted) try w.print("\x1b[{d};1H{s}{s}", .{ y + 3, bar, panel });
             }
         }
         if (v.workspace_count > v.workspaceCapacity()) {
             try w.print("\x1b[{d};{d}H{s} <  > ", .{ v.middle() - 1, v.width - 7, panel });
         }
-        try w.print("\x1b[{d};2H{s}\x1b[38;2;55;61;70m", .{ v.middle(), panel });
+        try w.print("\x1b[{d};2H{s}" ++ palette.fg(.line), .{ v.middle(), panel });
         for (0..v.width - 3) |_| try w.writeAll("─");
         if (entries.len == 0) {
             try v.line(w, v.middle() + 2, if (v.search != null) "No matching agents" else "No agents yet", panel);
@@ -507,7 +519,7 @@ pub const View = struct {
         }
         if (v.search != null) try v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
         if (v.thumb()) |t| for (t.start..t.start + t.len) |row| {
-            try w.print("\x1b[{d};{d}H{s}\x1b[38;2;112;119;130m┃", .{ v.middle() + 3 + row, v.width, panel });
+            try w.print("\x1b[{d};{d}H{s}" ++ palette.fg(.faint) ++ "┃", .{ v.middle() + 3 + row, v.width, panel });
         };
         try w.writeAll("\x1b[0m");
     }
@@ -528,10 +540,11 @@ pub const View = struct {
         return thinking[@intCast(@mod(@divFloor(now_ms, 80), thinking.len))];
     }
     fn drawAgent(v: View, w: *std.Io.Writer, e: Entry, x: u16, y: u16, grouped: bool, last_in_group: bool, divider: bool, ghost: bool, now_ms: i64, dream: ?corgi_animation.Dream) !void {
-        // Grouped rows select with the active workspace's tint; the rail stays unbroken.
-        const row_bg: [3]u8 = if (ghost) .{ 44, 54, 67 } else if (!e.focused) .{ 24, 27, 32 } else if (grouped) .{ 34, 44, 58 } else .{ 35, 40, 47 };
-        var bg_buf: [24]u8 = undefined;
-        const bg = std.fmt.bufPrint(&bg_buf, "\x1b[48;2;{d};{d};{d}m", .{ row_bg[0], row_bg[1], row_bg[2] }) catch unreachable;
+        // Focused and dragged rows take the selected tint; in a group the rail stays unbroken.
+        const row_bg: palette.Token = if (ghost or e.focused) .selected else .bg;
+        const bg = switch (row_bg) {
+            inline else => |t| palette.bg(t),
+        };
         for (0..2) |row| {
             if (y + row >= v.listEnd()) break;
             try w.print("\x1b[{d};{d}H\x1b[0m{s}", .{ y + row + 1, x + 1, bg });
@@ -539,43 +552,53 @@ pub const View = struct {
         }
         if (grouped) {
             // The guide sits in the margin column, so agent text keeps its columns.
-            // Beside the selected agent it turns heavy and blue, without a gap.
-            const rail = if (e.focused) "\x1b[0;38;2;137;180;250m" else "\x1b[0;38;2;112;119;130m";
+            // Beside the selected agent it turns heavy and accented, without a gap.
+            const rail = if (e.focused) (palette.Style{ .fg = .accent }).sgr() else (palette.Style{ .fg = .line }).sgr();
             const branch = if (e.focused) (if (last_in_group) "┗" else "┣") else if (last_in_group) "╰" else "├";
             try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ y + 1, x + 1, rail, bg, branch });
             if (!last_in_group and y + 1 < v.listEnd()) try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + 1, if (e.focused) "┃" else "│" });
             try w.print("\x1b[0m{s}", .{bg});
         }
-        const dot = e.indicator();
-        try w.print("\x1b[{d};{d}H\x1b[22m{s}{s}\x1b[{d};{d}H\x1b[1;38;2;226;230;233m", .{ y + 1, x + 2, dot.color, dot.icon, y + 1, x + 5 });
+        const dot = e.indicator(row_bg == .selected);
+        try w.print("\x1b[{d};{d}H\x1b[22m{s}{s}", .{ y + 1, x + 2, dot.color, dot.icon });
         const room = v.width - 6;
         // Within a group, a dotted line under the text separates agents. Only
         // Kitty-graphics hosts get it; elsewhere the style could degrade to a
         // solid underline, so those terminals get no separator at all.
         const dotted = grouped and !last_in_group and v.supports_kitty_graphics;
-        const underline = if (ghost) "\x1b[4;58:2::137;180;250m" else if (dotted) "\x1b[4:4m\x1b[58:2::65:70:77m" else if (divider) "\x1b[4;58:2::65:70:77m" else "";
+        const underline = if (ghost) ghost_underline else if (dotted) dotted_underline else if (divider) rule_underline else "";
         // Dotted lines start under the name, leaving the guide and activity clear.
         const underline_x: u16 = if (dotted) 5 else 2;
         const compacting = e.state == .working and e.compacting;
         const waiting = e.state == .working and e.subagents.waiting and !compacting;
-        // Without sleeping corgis, a faint Z marks an idle agent; unseen ones are brighter.
+        // Without sleeping corgis, a dim Z marks an idle agent; unseen ones are
+        // brighter. Selected rows take muted, as faint is too dim on them.
         const napping = e.state == .idle and !v.sleeping_corgis;
         const activity = activityGlyph(e, waiting, napping, spinnerFrame(compacting, now_ms));
-        const activity_color = if (!napping) "\x1b[22;38;2;125;132;143m" else if (e.attention == .finished) "\x1b[22;38;2;108;112;134m" else "\x1b[22;38;2;70;74;88m";
+        const activity_color = if (row_bg == .selected)
+            comptime "\x1b[22m" ++ palette.fg(.muted)
+        else if (napping and e.attention != .finished)
+            "\x1b[22m" ++ nap_fg
+        else
+            comptime "\x1b[22m" ++ palette.fg(.faint);
         var name: [160]u8 = undefined;
         const provider = if (e.name.len > 0) directoryLabel(&name, e.name, null) else if (e.provider) |known| @tagName(known) else "";
         var figure_buf: [8]u8 = undefined;
-        const figure = contextFigure(&figure_buf, e, compacting, row_bg);
+        const figure = contextFigure(&figure_buf, e, compacting, row_bg.rgb());
         const figure_width = if (figure) |f| displayWidth(f.text) else 0;
-        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;226;230;233m" });
+        try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 5, if (grouped and e.focused) comptime "\x1b[1m" ++ palette.fg(.strong) else comptime "\x1b[22m" ++ palette.fg(.text) });
         try writeEllipsis(w, provider, room -| (figure_width + @as(usize, if (figure_width > 0) 1 else 0)));
         try w.writeAll("\x1b[22m");
-        if (figure) |f| try w.print("\x1b[{d};{d}H\x1b[38;2;{d};{d};{d}m{s}", .{ y + 1, x + v.width - 1 - figure_width, f.color[0], f.color[1], f.color[2], f.text });
+        if (figure) |f| {
+            try w.print("\x1b[{d};{d}H", .{ y + 1, x + v.width - 1 - figure_width });
+            try palette.writeFg(w, f.color);
+            try w.writeAll(f.text);
+        }
         // Underline the existing second row, including its padding, without
         // consuming another terminal row or changing the entry hit area.
         try w.print("\x1b[{d};{d}H{s}", .{ y + 2, x + underline_x, underline });
         try w.splatByteAll(' ', v.width - 1 - underline_x);
-        try w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}\x1b[38;2;226;230;233m", .{
+        try w.print("\x1b[{d};{d}H{s}{s}{s}\x1b[{d};{d}H{s}" ++ palette.fg(.text), .{
             y + 2,
             x + 2,
             if (dotted) "\x1b[24m" else "",
@@ -605,8 +628,9 @@ pub const View = struct {
         const presentation = corgi_animation.observe(animation_key, mode, now_ms);
         // Unseen and focused naps stay bright; only the list's dreamer puffs.
         const sleep: corgi_animation.Sleep = .{
-            .background = if (e.focused) .{ 35, 40, 47 } else .{ 24, 27, 32 },
+            .background = row_bg.rgb(),
             .bright = e.focused or e.attention == .finished,
+            .selected = row_bg == .selected,
             .puff_ms = if (dream) |d| (if (d.key == animation_key) d.puff_ms else null) else null,
         };
         if (mode == .herding) {
@@ -621,16 +645,16 @@ pub const View = struct {
             const text = if (detail.len == 0) "" else directoryLabel(&clean, detail, null);
             if (presentation != null and presentation.?.reveal_started_ms != null) {
                 try presentation.?.writeCorgi(w, detail_room, e.state == .working, sleep);
-                try w.print("\x1b[{d};{d}H\x1b[38;2;226;230;233m", .{ y + 2, x + 5 });
+                try w.print("\x1b[{d};{d}H" ++ palette.fg(.text), .{ y + 2, x + 5 });
                 try writeRevealedDetail(w, text, detail_room, presentation.?.revealedColumns(detail_room, now_ms), presentation.?.revealPosition(detail_room, now_ms));
             } else try writeEllipsis(w, text, detail_room);
         }
         if (badge_width > 0) {
-            const color = if (e.subagents.blocked > 0) "\x1b[38;2;243;139;168m" else "\x1b[38;2;148;226;213m";
+            const color = if (e.subagents.blocked > 0) palette.fg(.warm) else palette.fg(.accent);
             try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, x + v.width - 1 - badge_width, color, badge });
         }
         try w.writeAll("\x1b[24;59m");
-        if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H\x1b[48;2;137;180;250m \x1b[0m", .{ y + row + 1, x + 1 });
+        if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H" ++ palette.bg(.strong) ++ " \x1b[0m", .{ y + row + 1, x + 1 });
     }
     /// Context appears on the name line only near compaction.
     fn contextFigure(buf: []u8, e: Entry, compacting: bool, background: [3]u8) ?struct { text: []const u8, color: [3]u8 } {
@@ -649,10 +673,10 @@ pub const View = struct {
     }
     fn drawGroup(v: View, w: *std.Io.Writer, e: Entry, y: u16) !void {
         const g = e.group;
-        const bg = if (e.focused) selected_bg else "\x1b[48;2;24;27;32m";
+        const bg = if (e.focused) selected_bg else palette.bg(.bg);
         try w.print("\x1b[{d};1H\x1b[0m{s}", .{ y + 1, bg });
         try w.splatByteAll(' ', v.width - 1);
-        try w.print("\x1b[{d};1H\x1b[38;2;150;158;170m{s}", .{ y + 1, if (g.folded) "▸" else "▾" });
+        try w.print("\x1b[{d};1H" ++ palette.fg(.muted) ++ "{s}", .{ y + 1, if (g.folded) "▸" else "▾" });
         // Right side: working and attention counts, then the agent count.
         var digits: [24]u8 = undefined;
         var count_buf: [24]u8 = undefined;
@@ -666,17 +690,17 @@ pub const View = struct {
         const status_width = displayWidth(working) + displayWidth(attention) + @as(usize, if (both) 1 else 0);
         const status_x = count_x -| (status_width + @as(usize, if (status_width > 0) 1 else 0));
         try w.print("\x1b[{d};{d}H{s}", .{ y + 1, count_x + 1, count });
-        if (status_width > 0) try w.print("\x1b[{d};{d}H\x1b[38;2;249;226;175m{s}{s}\x1b[1;38;2;243;139;168m{s}\x1b[22m", .{ y + 1, status_x + 1, working, if (both) " " else "", attention });
+        if (status_width > 0) try w.print("\x1b[{d};{d}H\x1b[1m" ++ palette.fg(.accent) ++ "{s}{s}" ++ palette.fg(.warm) ++ "{s}\x1b[22m", .{ y + 1, status_x + 1, working, if (both) " " else "", attention });
         // Name, then a rule that leaves one space on each side.
         var label: [160]u8 = undefined;
         const text = directoryLabel(&label, e.name, null);
         const name_room = status_x -| 5;
-        try w.print("\x1b[{d};3H{s}", .{ y + 1, if (g.current) "\x1b[1;38;2;182;206;240m" else "\x1b[1;38;2;226;230;233m" });
+        try w.print("\x1b[{d};3H{s}", .{ y + 1, if (g.current) comptime "\x1b[1m" ++ palette.fg(.strong) else comptime "\x1b[1m" ++ palette.fg(.text) });
         try writeEllipsis(w, text, name_room);
         const name_end = 2 + @min(displayWidth(text), name_room);
         if (status_x > name_end + 2) {
             // A heavy, bright rule so each header stands out from its agents.
-            try w.print("\x1b[{d};{d}H\x1b[22;38;2;150;158;170m", .{ y + 1, name_end + 2 });
+            try w.print("\x1b[{d};{d}H\x1b[22m" ++ palette.fg(.muted), .{ y + 1, name_end + 2 });
             for (name_end + 1..status_x - 1) |_| try w.writeAll("━");
         }
     }
@@ -696,17 +720,17 @@ pub const View = struct {
     }
     fn drawScope(v: View, w: *std.Io.Writer) !void {
         if (v.middle() >= v.rows - 1) return;
-        try w.print("\x1b[{d};2H\x1b[1;38;2;226;230;233m", .{v.middle() + 1});
+        try w.print("\x1b[{d};2H\x1b[1m" ++ palette.fg(.strong), .{v.middle() + 1});
         // Stop before the New button's leading space.
         const room: usize = v.width -| 11;
         try writeClipped(w, "agents", room);
         var label: [163]u8 = undefined;
         const qualifier = v.scopeQualifier(&label);
         if (qualifier.len > 0) {
-            try w.print("\x1b[22;38;2;125;132;143m{s}\x1b[1;38;2;161;194;178m", .{if (v.scopeStart() == 9) ": " else " "});
+            try w.print("\x1b[22m" ++ palette.fg(.faint) ++ "{s}\x1b[1m" ++ palette.fg(.muted), .{if (v.scopeStart() == 9) ": " else " "});
             try w.writeAll(qualifier);
         }
-        try w.print("\x1b[22;38;2;125;132;143m{s}", .{v.scopeArrow()});
+        try w.print("\x1b[22m" ++ palette.fg(.faint) ++ "{s}", .{v.scopeArrow()});
     }
     fn line(v: View, w: *std.Io.Writer, y: u16, text: []const u8, style: []const u8) !void {
         if (y >= v.rows) return;
@@ -715,19 +739,16 @@ pub const View = struct {
     }
 };
 
-/// Context colors for the row figure and the card's meter: grey, amber from
-/// 70% of the way to compaction, red from 85%, faded into the background while
+/// Context colors for the row figure and the card's meter: muted, warm from
+/// 70% of the way to compaction, hot from 85%, faded into the background while
 /// the agent compacts.
 pub fn contextColor(band: context_window.View.Band, compacting: bool, background: [3]u8) [3]u8 {
-    const tone: [3]u8 = switch (band) {
-        .calm => .{ 166, 173, 200 },
-        .near => .{ 250, 179, 135 },
-        .high => .{ 243, 139, 168 },
+    const tone: palette.Token = switch (band) {
+        .calm => .muted,
+        .near => .warm,
+        .high => .hot,
     };
-    if (!compacting) return tone;
-    var dim: [3]u8 = undefined;
-    for (&dim, tone, background) |*out, t, b| out.* = @intCast((@as(u16, t) * 2 + @as(u16, b) * 3) / 5);
-    return dim;
+    return if (compacting) palette.mix(tone.rgb(), background, 60) else tone.rgb();
 }
 
 fn subagentBadge(buf: []u8, status: agents.Subagents, children: usize) []const u8 {
@@ -763,13 +784,14 @@ fn shownReading(prefs: Resources, work: resources.Work, reading: usize) bool {
     const available = if (reading == 0) work.cpu != null else work.memory != null;
     return prefs.enabled and available;
 }
-fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool) !void {
+/// `tinted` rows sit on the selected background, which takes muted or brighter.
+fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool, tinted: bool) !void {
     const width = v.width -| 3;
     const prefs = v.resources;
     const details = resourceCardFits(v) and width >= 2 and (shownReading(prefs, work, 0) or shownReading(prefs, work, 1));
     const hover = details and hovered;
-    const normal = if (hover) "\x1b[22;38;2;214;222;232m" else "\x1b[22;38;2;125;137;155m";
-    if (hover) try w.writeAll("\x1b[48;2;48;57;70m");
+    const normal = if (hover) comptime "\x1b[22m" ++ palette.fg(.text) else if (tinted) comptime "\x1b[22m" ++ palette.fg(.muted) else comptime "\x1b[22m" ++ palette.fg(.faint);
+    if (hover) try w.writeAll(selected_bg);
     const readings_width = width - @as(usize, if (details) 2 else 0);
     var buffers: [2][32]u8 = undefined;
     const values = [_][]const u8{
@@ -788,8 +810,8 @@ fn drawResources(w: *std.Io.Writer, work: resources.Work, v: View, hovered: bool
             try w.splatByteAll(' ', room);
             continue;
         }
-        // Only CPU alerts, in an amber softer than the working dot's.
-        try w.writeAll(if (i == 0 and work.cpu_pressure) "\x1b[22;38;2;214;190;140m" else normal);
+        // Only CPU alerts.
+        try w.writeAll(if (i == 0 and work.cpu_pressure) comptime "\x1b[22m" ++ palette.fg(.warm) else normal);
         try w.writeAll(label);
         if (room >= 7) try w.writeByte(' ');
         const used: usize = label.len + @as(usize, if (room >= 7) 1 else 0);
@@ -808,19 +830,19 @@ test "resource row omits unavailable metrics and I/O, and preserves real zeros" 
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const view = View.init(100, 30, true, 0, 0);
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, view, false);
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first }, view, false, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "--") == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'M') == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "›") == null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, view, false);
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 0, .written = 0 }, view, false, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 0%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory 0M") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "›") != null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 3_000_000, .written = 1_000_000 }, view, false);
+    try drawResources(&output.writer, .{ .id = WorkspaceId.first, .known = true, .cpu = 0, .memory = 0, .read = 3_000_000, .written = 1_000_000 }, view, false, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "↕") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "M/s") == null);
 }
@@ -830,24 +852,24 @@ test "resource readings turn off as a whole" {
     defer output.deinit();
     const hot: resources.Work = .{ .id = WorkspaceId.first, .known = true, .cpu = 182, .memory = 3 << 30, .read = 0, .written = 0, .cpu_pressure = true };
     var view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
-    try drawResources(&output.writer, hot, view, false);
+    try drawResources(&output.writer, hot, view, false, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 182%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory 3.0G") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[22;38;2;214;190;140mCPU") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[22m" ++ palette.fg(.warm) ++ "CPU") != null);
     output.clearRetainingCapacity();
     // Narrower sidebars shorten labels rather than clipping values.
-    try drawResources(&output.writer, hot, view.withWidth(26), false);
+    try drawResources(&output.writer, hot, view.withWidth(26), false, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "CPU 182%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Mem 3.0G") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Memory") == null);
     output.clearRetainingCapacity();
-    try drawResources(&output.writer, hot, view.withWidth(20), false);
+    try drawResources(&output.writer, hot, view.withWidth(20), false, false);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "C 182%") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "M 3.0G") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "Mem") == null);
     output.clearRetainingCapacity();
     view.resources.enabled = false;
-    try drawResources(&output.writer, hot, view, false);
+    try drawResources(&output.writer, hot, view, false, false);
     try std.testing.expect(std.mem.indexOfScalar(u8, output.written(), 'C') == null);
     view.resources.enabled = true;
     const entries = [_]WorkspaceEntry{.{ .id = WorkspaceId.first, .name = "a", .cwd = "", .active = true, .resources = hot }};
@@ -884,11 +906,11 @@ test "readings off removes the resource row and moves the separator under the st
     try view.draw(&output.writer, &.{}, &entries);
     const frame = output.written();
     try std.testing.expect(std.mem.indexOf(u8, frame, "182%") == null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;2H\x1b[0;38;2;155;163;175;48;2;24;27;32m\x1b[4;58:2::65:70:77m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;58:2::65:70:77m⚒12") != null);
-    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[5;2H\x1b[1;38;2;182;206;240;48;2;34;44;58msecond") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[4;2H" ++ panel ++ rule_underline) != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, rule_underline ++ "⚒12") != null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[5;2H" ++ active_name ++ "second") != null);
     // The last workspace has no separator.
-    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[6;2H\x1b[0;38;2;155;163;175;48;2;34;44;58m\x1b[4;") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame, "\x1b[6;2H" ++ active_meta ++ "\x1b[4;") == null);
     try std.testing.expect(resourceAt(view, &entries, 3, 4) == null);
 }
 
@@ -921,7 +943,7 @@ fn writeExit(w: *std.Io.Writer, frame: []const u8, progress: f64) !void {
                         var cursor = p + color_prefix.len;
                         var color: [3]u8 = undefined;
                         var valid = true;
-                        for (&color, [_]u8{ 24, 27, 32 }, 0..) |*channel, background, n| {
+                        for (&color, palette.Token.bg.rgb(), 0..) |*channel, background, n| {
                             const start = cursor;
                             while (cursor < end and std.ascii.isDigit(frame[cursor])) : (cursor += 1) {}
                             const value = std.fmt.parseInt(u8, frame[start..cursor], 10) catch {
@@ -1013,17 +1035,19 @@ fn writeRevealedDetail(w: *std.Io.Writer, text: []const u8, room: usize, reveale
             // column steps; smoothstep avoids a sudden brightness jump.
             const t = std.math.clamp((position - @as(f64, @floatFromInt(used + width))) / corgi_animation.Presentation.reveal_feather, 0, 1);
             const amount = t * t * (3 - 2 * t);
+            const dim = palette.Token.faint.rgb();
+            const bright = palette.Token.text.rgb();
             var color: [3]u8 = undefined;
-            for ([_]u8{ 108, 112, 134 }, [_]u8{ 226, 230, 233 }, &color) |dim, bright, *channel| {
-                channel.* = @intFromFloat(@round(@as(f64, @floatFromInt(dim)) + @as(f64, @floatFromInt(bright - dim)) * amount));
+            for (dim, bright, &color) |from, to, *channel| {
+                channel.* = @intFromFloat(@round(@as(f64, @floatFromInt(from)) + @as(f64, @floatFromInt(to - from)) * amount));
             }
-            try w.print("\x1b[38;2;{d};{d};{d}m", .{ color[0], color[1], color[2] });
+            try palette.writeFg(w, color);
         }
         try w.writeAll(bytes);
         used += width;
     }
     try w.splatByteAll(' ', limit - used);
-    if (edge != null) try w.writeAll("\x1b[38;2;226;230;233m");
+    if (edge != null) try w.writeAll(palette.fg(.text));
 }
 
 // Keep the root and the longest whole-component suffix that fits.
@@ -1138,7 +1162,7 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try view.draw(&output.writer, &.{}, &entries);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrst") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "abcdefghijklmnopqrstu") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;23H\x1b[38;2;166;227;161m↑123") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[3;23H" ++ palette.fg(.warm) ++ "↑123") != null);
 }
 
 test "active workspace bar follows graphics support independently of the badge" {
@@ -1156,14 +1180,30 @@ test "active workspace bar follows graphics support independently of the badge" 
         view.corgi_badge = case.mode;
         view.supports_kitty_graphics = case.supported;
         try view.draw(&output.writer, &.{}, &entries);
-        const bar = if (case.supported) "\x1b[0;38;2;137;180;250;48;2;34;44;58m▌" else "\x1b[0;48;2;137;180;250m ";
+        const bar = if (case.supported) active_bar_half else active_bar_cell;
         for ([_][]const u8{ "\x1b[6;1H", "\x1b[7;1H", "\x1b[8;1H" }) |row| {
             var buf: [96]u8 = undefined;
             try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, bar })) != null);
         }
-        try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;1H\x1b[0;38;2;137;180;250") == null);
-        try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;182;206;240;48;2;34;44;58mProject") != null);
+        var other: [96]u8 = undefined;
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&other, "\x1b[3;1H{s}", .{bar})) == null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), active_name ++ "Project") != null);
     }
+}
+
+test "a dragged workspace takes the selected tint and a strong bar" {
+    const entries = [_]WorkspaceEntry{ .{ .id = @enumFromInt(1), .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = @enumFromInt(2), .name = "Project", .cwd = "/tmp", .active = true } };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.len, 0);
+    view.dragged_workspace = 0;
+    try view.draw(&output.writer, &.{}, &entries);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), active_name ++ "Other") != null);
+    for ([_][]const u8{ "\x1b[3;1H", "\x1b[4;1H", "\x1b[5;1H" }) |row| {
+        var buf: [96]u8 = undefined;
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, ghost_bar_cell })) != null);
+    }
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[6;1H" ++ active_bar_cell) != null);
 }
 
 test "subagent badge shares the second row without reserving empty space" {
@@ -1174,7 +1214,7 @@ test "subagent badge shares the second row without reserving empty space" {
         const view = View.init(100, 30, true, 0, 1).withWidth(width);
         try view.draw(&output.writer, &.{entry}, &.{});
         var expected: [100]u8 = undefined;
-        const position = try std.fmt.bufPrint(&expected, "\x1b[18;{d}H\x1b[38;2;148;226;213m↳2", .{width - 3});
+        const position = try std.fmt.bufPrint(&expected, comptime "\x1b[18;{d}H" ++ palette.fg(.accent) ++ "↳2", .{width - 3});
         try std.testing.expect(std.mem.indexOf(u8, output.written(), position) != null);
         try std.testing.expect(std.mem.indexOf(u8, output.written(), "Waiting on") != null);
         try std.testing.expectEqual(Hit{ .entry = 0 }, view.hit(width - 3, 17));
@@ -1192,20 +1232,20 @@ test "workspace status uses agent colors and keeps usage on its second row" {
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
     const entries = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = false, .working = 1, .attention = 2, .unread = 3, .stats = .{ .tools = 12, .input = 1200, .output = 300, .tokens_known = true } }};
     try view.draw(&output.writer, &.{}, &entries);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;2H\x1b[0;38;2;155;163;175;48;2;24;27;32m\x1b[22m\x1b[38;2;249;226;175m●1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;243;139;168m ●2") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;148;226;213m3 unread →") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[4;2H" ++ panel ++ "\x1b[22m\x1b[1m" ++ palette.fg(.accent) ++ "●1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.warm) ++ " ●2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.accent) ++ "3 unread →") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "⚒12") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;24H\x1b[0;38;2;155;163;175;48;2;24;27;32m⚒12") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;24H" ++ panel ++ "⚒12") != null);
     output.clearRetainingCapacity();
     const empty = [_]WorkspaceEntry{.{ .id = @enumFromInt(1), .name = "Project", .cwd = "/tmp", .active = true }};
     try view.draw(&output.writer, &.{}, &empty);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "unread") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "●0") == null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "⚒0") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;2H\x1b[0;38;2;155;163;175;48;2;34;44;58m\x1b[22m\x1b[38;2;166;227;161m○") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[4;2H" ++ active_meta ++ "\x1b[22m" ++ palette.fg(.muted) ++ "○") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "—") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;25H\x1b[0;38;2;155;163;175;48;2;24;27;32m⚒0") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4;25H" ++ panel ++ "⚒0") == null);
     output.clearRetainingCapacity();
     var away = empty;
     away[0].active = false;
@@ -1218,7 +1258,7 @@ test "workspace status uses agent colors and keeps usage on its second row" {
     away[0].stats = .{ .tools = 999_000, .input = 999_000, .output = 999_000, .tokens_known = true };
     try view.draw(&output.writer, &.{}, &away);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "unread") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[1;38;2;243;139;168m ●1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.warm) ++ " ●1") != null);
 }
 
 test "unread label and arrow share their hit area across sidebar widths" {
@@ -1231,7 +1271,7 @@ test "unread label and arrow share their hit area across sidebar widths" {
         try view.draw(&output.writer, &.{}, &.{ws});
         const range = view.unreadRange(ws);
         var expected: [100]u8 = undefined;
-        const label = try std.fmt.bufPrint(&expected, "\x1b[4;{d}H\x1b[22m\x1b[1;38;2;148;226;213m3 unread →", .{range.start + 1});
+        const label = try std.fmt.bufPrint(&expected, comptime "\x1b[4;{d}H\x1b[22m\x1b[1m" ++ palette.fg(.accent) ++ "3 unread →", .{range.start + 1});
         try std.testing.expect(std.mem.indexOf(u8, output.written(), label) != null);
         try std.testing.expect(view.unreadHit(ws, @intCast(range.start), 3));
         try std.testing.expect(view.unreadHit(ws, @intCast(range.end - 1), 3));
@@ -1267,7 +1307,7 @@ test "compaction herds on the second agent row ahead of waiting and summaries" {
     // Too narrow to herd: the text stays, and the pile still moves.
     output.clearRetainingCapacity();
     try view.withWidth(23).drawAt(&output.writer, &.{entry}, &.{}, 1000);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[18;5H\x1b[38;2;226;230;233mCompacting…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[18;5H" ++ palette.fg(.text) ++ "Compacting…") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "⣿") != null);
 }
 
@@ -1337,7 +1377,7 @@ fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
     return if (count == 1) std.fmt.bufPrint(buf, "Open {s} ↗", .{name}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "Open {s} ↗ {d}", .{ name, count }) catch "Open Link ↗";
 }
 /// A label still `naming` its link starts "Open ...". Keep all three dots in
-/// place; only their blue intensity travels gently. Quantized to 80ms so idle
+/// place; only their brightness travels gently. Quantized to 80ms so idle
 /// viewers do not emit a different frame every poll.
 fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, naming: bool, now_ms: i64) !void {
     if (!naming) return writeClipped(w, label, width);
@@ -1345,9 +1385,11 @@ fn writePortLabel(w: *std.Io.Writer, label: []const u8, width: usize, naming: bo
     for (0..@min(3, width -| 5)) |i| {
         const phase = @mod(@divFloor(now_ms, 80) * 80 - @as(i64, @intCast(i)) * 160, 1800);
         const glow: u32 = if (phase < 640) @intCast(320 - @abs(phase - 320)) else 0;
-        try w.print("\x1b[38;2;{d};{d};{d}m.", .{ 125 + glow * 45 / 320, 164 + glow * 35 / 320, 220 + glow * 25 / 320 });
+        const color = palette.mix(palette.Token.muted.rgb(), palette.Token.strong.rgb(), @intCast(glow * 100 / 320));
+        try palette.writeFg(w, color);
+        try w.writeByte('.');
     }
-    try w.writeAll("\x1b[38;2;137;180;250m");
+    try w.writeAll(palette.fg(.text));
     if (width > 8) try writeClipped(w, label[8..], width - 8);
 }
 fn statusMetadataWidth(ws: WorkspaceEntry) usize {
@@ -1410,11 +1452,11 @@ fn portLine(writer: ?*std.Io.Writer, ws: WorkspaceEntry, width: usize, hit: ?usi
         if (writer) |w| try w.print("\x1b]8;id=corgi-port-{d};{s}\x1b\\", .{ ws.id, target });
     }
     if (writer) |w| {
-        try w.writeAll("\x1b[4;38;2;137;180;250m");
+        try w.writeAll(comptime "\x1b[4m" ++ palette.fg(.text));
         try writePortLabel(w, label, width, portName(ws) == null, os.milliTimestamp());
         if (count == 1) try w.writeAll("\x1b]8;;\x1b\\");
-        try w.writeAll("\x1b[24;38;2;155;163;175m");
-        if (divider) try w.writeAll("\x1b[4;58:2::65:70:77m");
+        try w.writeAll(comptime "\x1b[24m" ++ palette.fg(.muted));
+        if (divider) try w.writeAll(rule_underline);
     }
     return null;
 }
@@ -1441,7 +1483,7 @@ pub const ScopeMenu = struct {
     pub fn draw(menu: ScopeMenu, w: *std.Io.Writer, side: View, cols: u16, rows: u16, workspaces: []const WorkspaceEntry, scope: Scope) !void {
         const b = bounds(side, cols, rows);
         if (b.h < 4 or b.w < 16) return;
-        const border = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
+        const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
         for (0..b.h) |y| {
             try w.print("\x1b[{d};{d}H{s}", .{ b.y + y + 1, b.x + 1, border });
             try w.writeAll(if (y == 0) "╭" else if (y == b.h - 1) "╰" else "│");
@@ -1462,16 +1504,17 @@ pub const ScopeMenu = struct {
     }
     fn row(menu: ScopeMenu, w: *std.Io.Writer, b: layout.Rect, y: u16, option: Scope, scope: Scope, text: []const u8, count: usize) !void {
         const hovered = menu.hovered == option;
-        const style = if (hovered) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
+        const style = if (hovered) (palette.Style{ .fg = .strong, .bg = .selected }).sgr() else (palette.Style{ .fg = .text, .bg = .surface }).sgr();
         const line = b.y + y + 1;
         try w.print("\x1b[{d};{d}H{s}", .{ line, b.x + 2, style });
         try w.splatByteAll(' ', b.w - 2);
-        if (option == scope) try w.print("\x1b[{d};{d}H\x1b[38;2;166;227;161m✓{s}", .{ line, b.x + 3, style });
+        if (option == scope) try w.print(comptime "\x1b[{d};{d}H" ++ palette.fg(.strong) ++ "✓{s}", .{ line, b.x + 3, style });
         var number_buf: [24]u8 = undefined;
         const number = compactCount(&number_buf, count);
         const count_width = displayWidth(number);
         const right = b.x + b.w - 2 - count_width;
-        try w.print("\x1b[{d};{d}H\x1b[38;2;125;132;143m{s}{s}", .{ line, right + 1, number, style });
+        // Faint is too dim on the hovered row's selected background.
+        try w.print("\x1b[{d};{d}H{s}{s}{s}", .{ line, right + 1, if (hovered) palette.fg(.muted) else palette.fg(.faint), number, style });
         try w.print("\x1b[{d};{d}H", .{ line, b.x + 5 });
         try writeEllipsis(w, text, (right -| (b.x + 4)) -| 2);
     }
@@ -1499,7 +1542,7 @@ pub const PortMenu = struct {
         const rect = bounds(cols, rows);
         if (rect.w < 8 or rect.h < 4) return;
         for (0..rect.h) |row| {
-            try w.print("\x1b[{d};{d}H\x1b[0;38;2;155;163;175;48;2;35;40;47m", .{ rect.y + row + 1, rect.x + 1 });
+            try w.print("\x1b[{d};{d}H" ++ (palette.Style{ .fg = .muted, .bg = .surface }).sgr(), .{ rect.y + row + 1, rect.x + 1 });
             try w.splatByteAll(' ', rect.w);
         }
         try w.print("\x1b[{d};{d}H", .{ rect.y + 1, rect.x + 2 });
@@ -1513,7 +1556,7 @@ pub const PortMenu = struct {
             try w.print("\x1b[{d};{d}H{s} {s} \x1b]8;id=corgi-popup-{d}-{d};{s}\x1b\\", .{
                 rect.y + 3 + index - offset,
                 rect.x + 1,
-                if (index == selected) "\x1b[38;2;137;180;250;48;2;49;56;68m" else "\x1b[38;2;137;180;250;48;2;35;40;47m",
+                if (index == selected) comptime palette.fg(.text) ++ selected_bg else comptime palette.fg(.text) ++ palette.bg(.surface),
                 if (index == selected) "›" else " ",
                 ws.id,
                 index,
@@ -1675,7 +1718,16 @@ test "idle face replaces stale activity while working activity remains useful" {
         has_spinner = has_spinner or std.mem.indexOf(u8, output.written(), glyph) != null;
     }
     try std.testing.expect(has_spinner);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;249;226;175m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[1m" ++ palette.fg(.accent) ++ "●") != null);
+}
+
+/// Warm while commits wait to be pushed, accent while pushing or just pushed, hot when it failed.
+fn gitColor(phase: git_push.Phase) []const u8 {
+    return switch (phase) {
+        .idle => palette.fg(.warm),
+        .pushing, .succeeded => palette.fg(.accent),
+        .failed => palette.fg(.hot),
+    };
 }
 
 /// Keep the right edge fixed: expansion covers the name, never moves the badge.
@@ -1718,8 +1770,12 @@ pub fn drawGitAction(w: *std.Io.Writer, v: View, workspaces: []const WorkspaceEn
         var buf: [64]u8 = undefined;
         const label = gitLabel(&buf, ws, true);
         if (label.len == 0) return;
-        const color = if (ws.git_push.phase == .failed) "243;139;168" else "166;227;161";
-        try w.print("\x1b]8;;\x1b\\\x1b[{d};{d}H\x1b[0;1;38;2;{s};48;2;48;62;58m{s}\x1b[0m", .{ 3 + i * v.workspaceRows(), v.width - 1 - displayWidth(label), color, label });
+        const style = switch (ws.git_push.phase) {
+            .idle => (palette.Style{ .fg = .warm, .bg = .selected, .bold = true }).sgr(),
+            .pushing, .succeeded => (palette.Style{ .fg = .accent, .bg = .selected, .bold = true }).sgr(),
+            .failed => (palette.Style{ .fg = .hot, .bg = .selected, .bold = true }).sgr(),
+        };
+        try w.print("\x1b]8;;\x1b\\\x1b[{d};{d}H{s}{s}\x1b[0m", .{ 3 + i * v.workspaceRows(), v.width - 1 - displayWidth(label), style, label });
         return;
     }
 }
@@ -1750,7 +1806,7 @@ fn drawGitError(w: *std.Io.Writer, message: []const u8, cols: u16, rows: u16, px
     const y = @min(@as(usize, py) + 1, rows - 1 - height);
     try w.writeAll("\x1b7\x1b]8;;\x1b\\");
     for (0..height) |row| {
-        try w.print("\x1b[{d};{d}H\x1b[0;38;2;243;139;168;48;2;30;30;46m", .{ y + row + 1, x + 1 });
+        try w.print("\x1b[{d};{d}H" ++ (palette.Style{ .fg = .hot, .bg = .bg }).sgr(), .{ y + row + 1, x + 1 });
         try w.writeAll(if (row == 0) "╭" else if (row == height - 1) "╰" else "│");
         for (0..width - 2) |_| try w.writeAll(if (row == 0 or row == height - 1) "─" else " ");
         try w.writeAll(if (row == 0) "╮" else if (row == height - 1) "╯" else "│");
@@ -1770,21 +1826,21 @@ pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u1
     const height = 3 + count * 2 + @as(usize, if (has_footer) 1 else 0);
     const x: usize = @min(@as(usize, px) + 2, cols - width);
     const y: usize = @min(@as(usize, py) + 1, rows - 1 - height);
-    const base = "\x1b[0;38;2;205;214;244;48;2;30;30;46m";
+    const base = (palette.Style{ .fg = .text, .bg = .bg }).sgr();
     try w.writeAll("\x1b7\x1b]8;;\x1b\\");
     for (0..height) |row| {
-        try w.print("\x1b[{d};{d}H{s}", .{ y + row + 1, x + 1, base });
+        try w.print("\x1b[{d};{d}H" ++ (palette.Style{ .fg = .line, .bg = .bg }).sgr(), .{ y + row + 1, x + 1 });
         try w.writeAll(if (row == 0) "╭" else if (row == height - 1) "╰" else "│");
         for (0..width - 2) |_| try w.writeAll(if (row == 0 or row == height - 1) "─" else " ");
         try w.writeAll(if (row == 0) "╮" else if (row == height - 1) "╯" else "│");
     }
     var buf: [160]u8 = undefined;
-    try w.print("\x1b[{d};{d}H\x1b[1;38;2;166;227;161m", .{ y + 2, x + 3 });
+    try w.print(comptime "\x1b[{d};{d}H\x1b[1m" ++ palette.fg(.strong), .{ y + 2, x + 3 });
     try writeEllipsis(w, try std.fmt.bufPrint(&buf, "↑ {d} unpushed commit{s}", .{ ws.git_ahead orelse 0, if (ws.git_ahead == 1) "" else "s" }), width - 4);
     for (ws.git_commits[0..count], 0..) |item, i| {
-        try w.print("\x1b[{d};{d}H{s}\x1b[38;2;249;226;175m{s}  \x1b[38;2;205;214;244m", .{ y + 3 + i * 2, x + 3, base, item.hash });
+        try w.print(comptime "\x1b[{d};{d}H{s}" ++ palette.fg(.muted) ++ "{s}  " ++ palette.fg(.text), .{ y + 3 + i * 2, x + 3, base, item.hash });
         try writeEllipsis(w, item.subject, (width - 6) -| item.hash.len);
-        try w.print("\x1b[{d};{d}H\x1b[38;2;127;132;156m", .{ y + 4 + i * 2, x + 5 });
+        try w.print(comptime "\x1b[{d};{d}H" ++ palette.fg(.faint), .{ y + 4 + i * 2, x + 5 });
         var age_buf: [48]u8 = undefined;
         const age = relativeTime(&age_buf, item.timestamp, os.timestamp());
         const timing = try std.fmt.bufPrint(&buf, "{s} · {s}", .{ item.date, age });
@@ -1796,7 +1852,7 @@ pub fn drawGitTooltip(w: *std.Io.Writer, ws: WorkspaceEntry, cols: u16, rows: u1
         try writeEllipsis(w, timing, (width - 6) -| (if (author_room > 0) @min(displayWidth(item.author), author_room) + 3 else @as(usize, 0)));
     }
     if (has_footer) {
-        try w.print("\x1b[{d};{d}H{s}\x1b[38;2;127;132;156m", .{ y + height - 1, x + 3, base });
+        try w.print(comptime "\x1b[{d};{d}H{s}" ++ palette.fg(.faint), .{ y + height - 1, x + 3, base });
         const footer = if (ws.git_commits.len == 0) "Commit details unavailable" else try std.fmt.bufPrint(&buf, "+{d} more", .{remaining});
         try writeEllipsis(w, footer, width - 4);
     }
@@ -1901,7 +1957,7 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
         "▸ blog ━━━━━━━━━━━━━━ 1● 1 │",
     };
     for (expected, rows) |want, got| try std.testing.expectEqualStrings(want, got);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[0;38;2;137;180;250m\x1b[48;2;34;44;58m┣") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime (palette.Style{ .fg = .accent }).sgr() ++ selected_bg ++ "┣") != null);
     // Without Kitty graphics there is no separator; with it, a dotted one under the text.
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[4:4m") == null);
     output.clearRetainingCapacity();
@@ -1911,7 +1967,7 @@ test "grouped list draws one-row headers with a margin guide and measures rows p
     try rich.draw(&output.writer, &entries, &.{});
     var dotted: [64]u8 = undefined;
     try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&dotted, "\x1b[{d};5H\x1b[4:4m", .{top + 3})) != null);
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), "\x1b[4:4m\x1b[58:2::65:70:77m") / 2);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), dotted_underline) / 2);
 }
 
 test "grouped scrolling fits more rows when headers are shorter" {
@@ -2043,18 +2099,18 @@ test "reveal pads short text and never splits a wide glyph or moves the ellipsis
 }
 
 test "closing card keeps its glyphs and geometry while all colors fade into the panel" {
-    const frame = "\x1b[19;1H\x1b[0;48;2;35;40;47m \x1b[1;38;2;226;230;233mAgent\x1b[4;58:2::65:70:77m corgi";
+    const frame = comptime "\x1b[19;1H" ++ (palette.Style{ .bg = .surface }).sgr() ++ " \x1b[1m" ++ palette.fg(.strong) ++ "Agent" ++ rule_underline ++ " corgi";
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     try writeExit(&output.writer, frame, 0);
     try std.testing.expectEqualStrings(frame, output.written());
     output.clearRetainingCapacity();
     try writeExit(&output.writer, frame, 0.5);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "38;2;125;129;133mAgent") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fgRgb(palette.mix(palette.Token.strong.rgb(), palette.Token.bg.rgb(), 50)) ++ "Agent") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[19;1H") != null);
     output.clearRetainingCapacity();
     try writeExit(&output.writer, frame, 1);
-    try std.testing.expectEqualStrings("\x1b[19;1H\x1b[0;48;2;24;27;32m \x1b[1;38;2;24;27;32mAgent\x1b[4;58:2::24:27:32m corgi", output.written());
+    try std.testing.expectEqualStrings(comptime "\x1b[19;1H" ++ (palette.Style{ .bg = .bg }).sgr() ++ " \x1b[1m" ++ palette.fg(.bg) ++ "Agent\x1b[4m" ++ palette.underline(.bg) ++ " corgi", output.written());
 }
 
 test "only one sleeping corgi puffs at a time, and turning them off leaves a faint Z" {
@@ -2075,11 +2131,17 @@ test "only one sleeping corgi puffs at a time, and turning them off leaves a fai
     }
     try std.testing.expect(puffed);
     try std.testing.expectEqual(entries.len, std.mem.count(u8, output.written(), "~ᐯ◡ᴥ◡ᐯ"));
+    // A focused row is selected, where the sleeper is muted.
+    entries[0].focused = true;
+    output.clearRetainingCapacity();
+    try view.drawAt(&output.writer, &entries, &.{}, now);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, output.written(), comptime palette.fg(.muted) ++ "~ᐯ◡ᴥ◡ᐯ"));
+    entries[0].focused = false;
     view.sleeping_corgis = false;
     output.clearRetainingCapacity();
     try view.drawAt(&output.writer, &entries, &.{}, 0);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᐯ◡ᴥ◡ᐯ") == null);
-    try std.testing.expectEqual(entries.len, std.mem.count(u8, output.written(), "\x1b[22;38;2;70;74;88mᶻ"));
+    try std.testing.expectEqual(entries.len, std.mem.count(u8, output.written(), "\x1b[22m" ++ nap_fg ++ "ᶻ"));
     // Question marks outside escape sequences would be a placeholder label.
     try std.testing.expectEqual(std.mem.count(u8, output.written(), "\x1b[?"), std.mem.count(u8, output.written(), "?"));
 }
@@ -2098,12 +2160,12 @@ test "context shows on the name line only near compaction and dims while compact
     host.feed(output.written());
     const text = try host.text();
     defer a.free(text);
-    // 74% of the window is 74% of the way: amber, and the name gives way.
+    // 74% of the window is 74% of the way: warm, and the name gives way.
     try std.testing.expect(std.mem.indexOf(u8, text, "migrate checkpoin… 74%") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;250;179;135m74%") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.warm) ++ "74%") != null);
     // 46% of the way shows nothing.
     try std.testing.expect(std.mem.indexOf(u8, text, "api refactor") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "46%") == null);
-    // 38% of a 1M window is 95% of the way to a learned 400k: red, faded toward the row.
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[38;2;111;71;86m38%") != null);
+    // 38% of a 1M window is 95% of the way to a learned 400k: hot, faded toward the row.
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fgRgb(palette.mix(palette.Token.hot.rgb(), palette.Token.bg.rgb(), 60)) ++ "38%") != null);
 }
