@@ -9,6 +9,7 @@ const bindings = @import("bindings.zig");
 const sidebar = @import("sidebar.zig");
 const Action = @import("action.zig").Action;
 const Rect = @import("layout.zig").Rect;
+const palette = @import("palette.zig");
 
 pub const State = struct {
     command_mode: bool = false,
@@ -73,19 +74,19 @@ pub const State = struct {
         var out: std.Io.Writer.Allocating = .init(a);
         errdefer out.deinit();
         const w = &out.writer;
-        try w.writeAll("\x1b[0;48;2;24;27;32m\x1b[2J\x1b[?25l");
+        try w.writeAll(comptime (palette.Style{ .bg = .bg }).sgr() ++ "\x1b[2J\x1b[?25l");
         const b = bounds(cols, rows);
         if (b.w < 32 or b.h < 12) {
             s.page_rows = 1;
             s.max_scroll = 0;
             s.scroll = 0;
             try at(w, b, 0, 0, "Help needs 32 × 12", .text);
-            if (b.h > 1) try at(w, b, 0, 1, "Esc back", .mint);
+            if (b.h > 1) try at(w, b, 0, 1, "Esc back", .bright);
             try w.writeAll("\x1b[0m");
             return out.toOwnedSlice();
         }
         try box(w, b);
-        try at(w, b, 2, 0, " Corgi ", .mint);
+        try at(w, b, 2, 0, " Corgi ", .bright);
         try at(w, b, 3, 1, "Keyboard shortcuts", .bright);
         if (b.w >= 60) try at(w, b, b.w - 17, 1, km.name(preset), .dim);
         try at(w, b, 3, 3, "PREFIX", .dim);
@@ -105,7 +106,7 @@ pub const State = struct {
         s.max_scroll = total -| capacity;
         s.scroll = @min(s.scroll, s.max_scroll);
         const right: u16 = 3 + (b.w - 9) / 2 + 3;
-        if (dual) for (4..b.h - 2) |y| try at(w, b, right - 2, y, "│", .dim);
+        if (dual) for (4..b.h - 2) |y| try at(w, b, right - 2, y, "│", .rule);
         for (&columns, 0..) |*column, i| {
             const base: usize = if (dual or i == 0) 0 else columns[0].rows.items.len + 1;
             const x: usize = if (!dual or i == 0) 4 else right + 1;
@@ -124,13 +125,13 @@ pub const State = struct {
         else
             "All shortcuts";
         try clippedAt(w, b, 3, b.h - 2, b.w - 21, if (b.w < 60 and total > capacity) scroll_keys else footer, .dim);
-        try at(w, b, b.w - 16, b.h - 2, "[ Esc Back ]", .mint);
+        try at(w, b, b.w - 16, b.h - 2, "[ Esc Back ]", .bright);
         try w.writeAll("\x1b[0m");
         return out.toOwnedSlice();
     }
 };
 
-const Style = enum { text, bright, mint, dim, direct, keycap, attention };
+const Style = enum { text, bright, dim, rule, direct, keycap, attention };
 const Part = struct {
     x: u16,
     text: BoundedText(192),
@@ -167,14 +168,14 @@ const Column = struct {
     }
     fn heading(c: *Column, label: []const u8) !void {
         var row: Row = .{};
-        row.add(0, label, .mint);
+        row.add(0, label, .bright);
         var rule: [160]u8 = undefined;
         var len: usize = 0;
         for (0..c.width -| (label.len + 2)) |_| {
             @memcpy(rule[len..][0..3], "─");
             len += 3;
         }
-        row.add(label.len + 2, rule[0..len], .dim);
+        row.add(label.len + 2, rule[0..len], .rule);
         try c.rows.append(a, row);
     }
     fn group(c: *Column, label: []const u8) !void {
@@ -200,7 +201,7 @@ const Column = struct {
     }
     fn binding(c: *Column, label: []const u8, key: []const u8, indent: usize, direct: bool) !void {
         const key_width = sidebar.displayWidth(key);
-        const style: Style = if (direct) .direct else .mint;
+        const style: Style = if (direct) .direct else .bright;
         if (indent + sidebar.displayWidth(label) + 3 + key_width <= c.width) {
             var row: Row = .{};
             row.add(indent, label, .text);
@@ -265,16 +266,16 @@ const Column = struct {
             } else try c.wrapped(label, indent, .text, false);
             if (indent + keys_width <= c.width) {
                 const x = c.width - keys_width;
-                row.command(x, k1.?, .mint, first);
-                row.add(x + w1, " / ", .mint);
-                row.command(x + w1 + 3, k2.?, .mint, second);
+                row.command(x, k1.?, .bright, first);
+                row.add(x + w1, " / ", .bright);
+                row.command(x + w1 + 3, k2.?, .bright, second);
                 try c.rows.append(a, row);
             } else {
                 var start = c.rows.items.len;
-                try c.wrapped(k1.?, indent, .mint, true);
+                try c.wrapped(k1.?, indent, .bright, true);
                 c.mark(start, first);
                 start = c.rows.items.len;
-                try c.wrapped(k2.?, indent, .mint, true);
+                try c.wrapped(k2.?, indent, .bright, true);
                 c.mark(start, second);
             }
         }
@@ -336,7 +337,7 @@ fn direction(c: *Column, x: usize, title: []const u8, caption: []const u8, compt
         var key = bindings.find(c.preset, act) orelse continue;
         key.mods = .{};
         var buf: [16]u8 = undefined;
-        c.rows.items[start + place.row].command(x + place.x, try std.fmt.bufPrint(&buf, "[{f}]", .{key}), .mint, act);
+        c.rows.items[start + place.row].command(x + place.x, try std.fmt.bufPrint(&buf, "[{f}]", .{key}), .bright, act);
     }
 }
 fn panes(c: *Column) !void {
@@ -363,9 +364,9 @@ fn panes(c: *Column) !void {
         var right_key: [16]u8 = undefined;
         var down_key: [16]u8 = undefined;
         var row: Row = .{};
-        row.command(2, try std.fmt.bufPrint(&right_key, "{f}", .{bindings.first(c.preset, .{ .split = .right }, true).?}), .mint, .{ .split = .right });
+        row.command(2, try std.fmt.bufPrint(&right_key, "{f}", .{bindings.first(c.preset, .{ .split = .right }, true).?}), .bright, .{ .split = .right });
         row.command(5, "Right", .text, .{ .split = .right });
-        row.command(right + 2, try std.fmt.bufPrint(&down_key, "{f}", .{bindings.first(c.preset, .{ .split = .down }, true).?}), .mint, .{ .split = .down });
+        row.command(right + 2, try std.fmt.bufPrint(&down_key, "{f}", .{bindings.first(c.preset, .{ .split = .down }, true).?}), .bright, .{ .split = .down });
         row.command(right + 5, "Down", .text, .{ .split = .down });
         try c.rows.append(a, row);
     } else try c.pair("Right / down", .{ .split = .right }, .{ .split = .down }, 4);
@@ -394,14 +395,14 @@ pub fn bounds(cols: u16, rows: u16) Rect {
 }
 fn color(style: Style) []const u8 {
     return switch (style) {
-        .text => "\x1b[0;38;2;201;208;215;48;2;35;40;47m",
-        .bright => "\x1b[1;38;2;226;230;233;48;2;35;40;47m",
-        .mint => "\x1b[1;38;2;161;194;178;48;2;35;40;47m",
-        .dim => "\x1b[0;38;2;112;124;135;48;2;35;40;47m",
-        .direct => "\x1b[0;38;2;219;194;152;48;2;35;40;47m",
-        .keycap => "\x1b[1;38;2;24;27;32;48;2;161;194;178m",
-        // The sidebar's unseen-completion dot.
-        .attention => "\x1b[0;38;2;148;226;213;48;2;35;40;47m",
+        .text => (palette.Style{ .fg = .text, .bg = .surface }).sgr(),
+        .bright => (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr(),
+        .dim => (palette.Style{ .fg = .faint, .bg = .surface }).sgr(),
+        .rule => (palette.Style{ .fg = .line, .bg = .surface }).sgr(),
+        .direct => (palette.Style{ .fg = .muted, .bg = .surface }).sgr(),
+        .keycap => palette.keycap,
+        // The sidebar's needs-input dot.
+        .attention => (palette.Style{ .fg = .warm, .bg = .surface, .bold = true }).sgr(),
     };
 }
 fn clippedAt(w: *std.Io.Writer, b: Rect, x: usize, y: usize, room: usize, value: []const u8, style: Style) !void {
@@ -414,7 +415,7 @@ fn at(w: *std.Io.Writer, b: Rect, x: usize, y: usize, value: []const u8, style: 
 }
 fn box(w: *std.Io.Writer, b: Rect) !void {
     for (0..b.h) |y| {
-        try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + y + 1, b.x + 1, color(.dim), if (y == 0) "╭" else if (y + 1 == b.h) "╰" else "│" });
+        try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + y + 1, b.x + 1, color(.rule), if (y == 0) "╭" else if (y + 1 == b.h) "╰" else "│" });
         if (y == 0 or y + 1 == b.h) {
             for (0..b.w - 2) |_| try w.writeAll("─");
         } else try w.splatByteAll(' ', b.w - 2);

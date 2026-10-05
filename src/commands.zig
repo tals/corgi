@@ -1,5 +1,6 @@
 const std = @import("std");
 const Direction = @import("layout.zig").Direction;
+const palette = @import("palette.zig");
 
 /// A resize menu row: the key it shows and the resize a click performs.
 pub const Entry = struct {
@@ -57,6 +58,7 @@ pub const TabMenu = struct {
         return null;
     }
     const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
+    const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
     fn bounds(m: TabMenu, width: u16, height: u16) Bounds {
         const w = @min(width, if (m.pane) @as(u16, 30) else 20);
         return .{
@@ -78,29 +80,29 @@ pub const TabMenu = struct {
         const b = m.bounds(width, height);
         if (b.padding > 0) {
             for ([_]u16{ 0, @intCast(m.entries().len + 1) }) |row| {
-                try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m+", .{ b.y + row + 1, b.x + 1 });
+                try w.print("\x1b[{d};{d}H" ++ border ++ "+", .{ b.y + row + 1, b.x + 1 });
                 try w.splatByteAll('-', b.width - 2);
                 try w.writeByte('+');
             }
         }
         for (m.entries(), 0..) |entry, index| {
-            const row_style = if (index == m.highlighted) "\x1b[1;38;2;24;27;32;48;2;161;194;178m" else "\x1b[22;38;2;226;230;233m";
-            try w.print("\x1b[{d};{d}H\x1b[0;38;2;100;108;121;48;2;35;40;47m|{s}", .{ b.y + index + b.padding + 1, b.x + 1, row_style });
+            const row_style = if (index == m.highlighted) (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr() else (palette.Style{ .fg = .strong, .bg = .surface }).sgr();
+            try w.print("\x1b[{d};{d}H" ++ border ++ "|{s}", .{ b.y + index + b.padding + 1, b.x + 1, row_style });
             const show_key = b.width >= 14;
             const len = @min(entry.label.len, b.width - @as(u16, if (show_key) 6 else 2));
             try w.writeAll(entry.label[0..len]);
             try w.splatByteAll(' ', b.width - 2 - len - @as(u16, if (show_key) 2 else 0));
             if (show_key) try w.print("{c} ", .{entry.key});
-            try w.writeAll("\x1b[0;38;2;100;108;121;48;2;35;40;47m|");
+            try w.writeAll(border ++ "|");
         }
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
 };
-/// Key-cap and label colors for a resize-menu row, by highlight and reachability.
-fn rowColors(selected: bool, enabled: bool) struct { key: []const u8, label: []const u8 } {
-    if (selected) return .{ .key = "\x1b[1;38;2;24;27;32m", .label = "\x1b[38;2;24;27;32m" };
-    if (enabled) return .{ .key = "\x1b[1;38;2;161;194;178m", .label = "\x1b[38;2;226;230;233m" };
-    return .{ .key = "\x1b[38;2;86;94;105m", .label = "\x1b[38;2;86;94;105m" };
+/// Key and label styles for a resize-menu row: a keycap when the row can run,
+/// and the label on the row's background.
+fn rowColors(enabled: bool, selected: bool) struct { key: []const u8, label: []const u8 } {
+    if (!enabled) return .{ .key = palette.fg(.faint), .label = palette.fg(.faint) };
+    return .{ .key = palette.keycap, .label = if (selected) (palette.Style{ .fg = .strong, .bg = .selected }).sgr() else (palette.Style{ .fg = .strong, .bg = .surface }).sgr() };
 }
 pub const ResizeView = struct {
     x: u16,
@@ -142,11 +144,11 @@ pub const ResizeView = struct {
     }
     pub fn draw(v: ResizeView, w: *std.Io.Writer) !void {
         for (0..v.rows + 3) |row| {
-            try w.print("\x1b[{d};{d}H\x1b[0;48;2;35;40;47m", .{ v.y + row + 1, v.x + 1 });
+            try w.print("\x1b[{d};{d}H" ++ (palette.Style{ .bg = .surface }).sgr(), .{ v.y + row + 1, v.x + 1 });
             try w.splatByteAll(' ', v.width);
         }
         try v.line(w, 0, " Resize panes", true);
-        try w.print("\x1b[{d};{d}H\x1b[38;2;155;163;175m x", .{ v.y + 1, v.x + v.width - 1 });
+        try w.print("\x1b[{d};{d}H" ++ palette.fg(.muted) ++ " x", .{ v.y + 1, v.x + v.width - 1 });
         try v.line(w, 1, " Shortcut or click", false);
         const col_width = v.width / v.columns;
         for (v.items(), 0..) |entry, index| {
@@ -154,13 +156,13 @@ pub const ResizeView = struct {
             const col = index / v.rows;
             const enabled = !entry.needs_pane or v.has_pane;
             const selected = enabled and v.highlighted == entry.key;
-            try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) "\x1b[48;2;161;194;178m" else "\x1b[48;2;35;40;47m" });
+            try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 3, v.x + col * col_width + 1, if (selected) palette.bg(.selected) else palette.bg(.surface) });
             try w.splatByteAll(' ', col_width);
-            const rc = rowColors(selected, enabled);
-            try w.print("\x1b[{d};{d}H{s} {s}  \x1b[22m{s}", .{ v.y + row + 3, v.x + col * col_width + 1, rc.key, if (entry.key == 9) "⇥" else &.{entry.key}, rc.label });
+            const rc = rowColors(enabled, selected);
+            try w.print("\x1b[{d};{d}H{s} {s} {s} ", .{ v.y + row + 3, v.x + col * col_width + 1, rc.key, if (entry.key == 9) "⇥" else &.{entry.key}, rc.label });
             try w.writeAll(entry.label[0..@min(entry.label.len, col_width -| 5)]);
         }
-        try w.writeAll("\x1b[48;2;35;40;47m");
+        try w.writeAll(palette.bg(.surface));
         if (v.pages > 1) {
             var footer: [64]u8 = undefined;
             const previous = try std.fmt.bufPrint(&footer, " < {d}/{d}", .{ v.page + 1, v.pages });
@@ -172,7 +174,7 @@ pub const ResizeView = struct {
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
     fn line(v: ResizeView, w: *std.Io.Writer, row: u16, text: []const u8, bold: bool) !void {
-        try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 1, v.x + 1, if (bold) "\x1b[1;38;2;226;230;233m" else "\x1b[22;38;2;155;163;175m" });
+        try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 1, v.x + 1, if (bold) comptime "\x1b[1m" ++ palette.fg(.strong) else comptime "\x1b[22m" ++ palette.fg(.muted) });
         try w.writeAll(text[0..@min(text.len, v.width)]);
     }
 };

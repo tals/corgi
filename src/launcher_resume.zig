@@ -8,6 +8,7 @@ const Provider = agents.Provider;
 const layout = @import("layout.zig");
 const sidebar = @import("sidebar.zig");
 const naming = @import("name_dialog.zig");
+const palette = @import("palette.zig");
 const launch_history = @import("launch.zig").history;
 const Entry = launch_history.Entry;
 const History = launch_history.History;
@@ -321,10 +322,15 @@ pub const View = struct {
 
     // ---------- Drawing ----------
 
-    const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
-    const row_style = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
-    const selected_style = "\x1b[0;38;2;226;230;233;48;2;47;64;59m";
-    const dim = "\x1b[38;2;112;124;135m";
+    const panel = (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
+    const rule = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
+    const row_style = (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+    const selected_style = (palette.Style{ .fg = .strong, .bg = .selected }).sgr();
+    const dim = palette.fg(.faint);
+    /// The run's rail; faint is too dim on a selected row.
+    fn rail(selected: bool) []const u8 {
+        return if (selected) palette.fg(.muted) else dim;
+    }
 
     pub const Columns = struct { title: u16, folder: u16, last: u16 };
     /// Title, folder and last-message widths for an inner width; the last
@@ -351,7 +357,7 @@ pub const View = struct {
         var total: usize = 0;
         for (c.history.entries) |*e| total += @intFromBool(c.listed(e, .folder));
         var heading: [std.fs.max_path_bytes + 32]u8 = undefined;
-        try w.print("\x1b[{d};{d}H{s}\x1b[1;38;2;226;230;233mResume{s}", .{ y, x + 3, panel, panel });
+        try w.print("\x1b[{d};{d}H{s}\x1b[1m" ++ palette.fg(.strong) ++ "Resume{s}", .{ y, x + 3, panel, panel });
         try sidebar.writeEllipsis(w, try std.fmt.bufPrint(&heading, " · {d} in {s}", .{ total, std.fs.path.basename(c.folder) }), cols.title + 3);
         if (cols.last > 12) {
             try w.print("\x1b[{d};{d}H", .{ y, x + 3 + 9 + cols.title + 2 });
@@ -382,7 +388,7 @@ pub const View = struct {
         const scope = v.scope.label();
         const field = width -| @as(u16, @intCast(scope.len + 19));
         if (v.searching) {
-            try w.writeAll("\x1b[38;2;226;230;233m");
+            try w.writeAll(palette.fg(.strong));
             try sidebar.writeEllipsis(w, v.query.name(), field -| 1);
             try w.writeAll("\x1b[7m \x1b[27m");
         } else {
@@ -391,7 +397,8 @@ pub const View = struct {
         }
         try w.print("\x1b[{d};{d}H", .{ y, x + width - 2 - @as(u16, @intCast(scope.len + 2 + 6)) });
         try writeKey(w, "tab", panel);
-        try w.print(" \x1b[0;1;38;2;226;230;233;48;2;58;68;79m {s} {s}", .{ scope, panel });
+        try w.writeAll(" ");
+        try writeKey(w, scope, panel);
         // Column headings.
         try w.print("\x1b[{d};{d}H{s}", .{ y + 1, x + 3 + 9, panel });
         try sidebar.writeEllipsis(w, "Title", cols.title);
@@ -416,7 +423,7 @@ pub const View = struct {
             const thumb: usize = @max(1, list_height * list_height / rows.len);
             const top = (list_height - thumb) * first / (rows.len - list_height);
             for (0..list_height) |k| {
-                try w.print("\x1b[{d};{d}H{s}{s}", .{ list_top + k, x + width - 2, panel, if (k >= top and k < top + thumb) "┃" else "│" });
+                try w.print("\x1b[{d};{d}H{s}", .{ list_top + k, x + width - 2, if (k >= top and k < top + thumb) panel ++ "┃" else rule ++ "│" });
             }
         }
     }
@@ -430,7 +437,7 @@ pub const View = struct {
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 3, panel });
                 const text = dayLabel(&label, at, c.now);
                 try w.writeAll(text);
-                try w.writeByte(' ');
+                try w.writeAll(comptime " " ++ palette.fg(.line));
                 for (0..width -| @as(u16, @intCast(6 + text.len))) |_| try w.writeAll("─");
             },
             .heading => |which| {
@@ -450,7 +457,7 @@ pub const View = struct {
                 try w.splatByteAll(' ', width -| 3);
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, if (selected) "›" else " " });
                 // The rail above runs on, dashed, into the conversations left out.
-                if (n > 0) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row, x + 3, dim, style });
+                if (n > 0) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row, x + 3, rail(selected), style });
                 try w.print("\x1b[{d};{d}H", .{ row, x + 3 + 9 });
                 if (n > 0) try w.print("Show {d} more…", .{n}) else try w.writeAll("Search every folder…");
                 try w.print("\x1b[{d};{d}H", .{ row, x + width - 3 - 10 });
@@ -464,7 +471,7 @@ pub const View = struct {
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, if (selected) "›" else " " });
                 if (named) {
                     try w.print("\x1b[{d};{d}H{s}", .{ row, x + 3, providerLabel(e.provider) });
-                } else try w.print("\x1b[{d};{d}H{s}│{s}", .{ row, x + 3, dim, style });
+                } else try w.print("\x1b[{d};{d}H{s}│{s}", .{ row, x + 3, rail(selected), style });
                 var col: u16 = x + 3 + 9;
                 try w.print("\x1b[{d};{d}H", .{ row, col });
                 const branch = if (line == .entry) otherBranch(c, e) else "";
@@ -472,28 +479,28 @@ pub const View = struct {
                 if (branch.len > 0 and cols.title > 16) {
                     const room = cols.title -| @as(u16, @intCast(@min(branch.len, cols.title / 2) + 1));
                     try sidebar.writeEllipsis(w, title, room);
-                    try w.print("\x1b[{d};{d}H\x1b[38;2;249;226;175m", .{ row, col + room + 1 });
+                    try w.print("\x1b[{d};{d}H" ++ palette.fg(.muted), .{ row, col + room + 1 });
                     try sidebar.writeEllipsis(w, branch, cols.title - room - 1);
                     try w.writeAll(style);
                 } else try sidebar.writeEllipsis(w, title, cols.title);
                 col += cols.title + 2;
                 if (cols.folder > 0) {
-                    try w.print("\x1b[{d};{d}H\x1b[38;2;137;180;250m", .{ row, col });
+                    try w.print("\x1b[{d};{d}H" ++ palette.fg(.muted), .{ row, col });
                     try sidebar.writeEllipsis(w, std.fs.path.basename(e.cwd), cols.folder - 1);
                     try w.writeAll(style);
                     col += cols.folder;
                 }
                 if (line == .open) {
-                    try w.print("\x1b[{d};{d}H\x1b[38;2;137;180;250m", .{ row, col });
+                    try w.print("\x1b[{d};{d}H" ++ palette.fg(.muted), .{ row, col });
                     try sidebar.writeEllipsis(w, "↗ open in a tab", cols.last);
                 } else if (cols.last > 12) {
                     try w.print("\x1b[{d};{d}H", .{ row, col });
                     var room = cols.last;
                     if (e.interrupted) {
-                        try w.writeAll("\x1b[38;2;243;139;168m✕ ");
+                        try w.writeAll(comptime palette.fg(.hot) ++ "✕ ");
                         room -|= 2;
                     }
-                    try w.writeAll(if (selected) "\x1b[38;2;201;208;215m" else dim);
+                    try w.writeAll(if (selected) palette.fg(.text) else dim);
                     try sidebar.writeEllipsis(w, e.last, room);
                 }
                 var age: [8]u8 = undefined;
@@ -567,8 +574,9 @@ fn providerLabel(p: Provider) []const u8 {
         .codex => "Codex",
     };
 }
-fn writeKey(w: *std.Io.Writer, key_label: []const u8, after: []const u8) !void {
-    try w.print("\x1b[0;1;38;2;226;230;233;48;2;74;83;94m {s} {s}", .{ key_label, after });
+/// Draw a keycap, then restore the surrounding style.
+pub fn writeKey(w: *std.Io.Writer, key: []const u8, after: []const u8) !void {
+    try w.print(palette.keycap ++ " {s} {s}", .{ key, after });
 }
 fn contains(text: []const u8, query: []const u8) bool {
     if (query.len > text.len) return false;

@@ -19,6 +19,8 @@ const launch_preview = @import("launch.zig").preview;
 const launch_history = @import("launch.zig").history;
 const History = launch_history.History;
 const launcher_resume = @import("launcher_resume.zig");
+const writeKey = launcher_resume.writeKey;
+const palette = @import("palette.zig");
 const Text = metadata.Text;
 const Option = launch_preview.Option;
 const Preview = launch_preview.Preview;
@@ -361,9 +363,9 @@ pub const Menu = struct {
         return y == b.y and x >= span.x and x < span.x + span.w;
     }
     fn drawTitle(w: *std.Io.Writer, b: layout.Rect, panel: []const u8) !void {
-        try w.print("\x1b[{d};{d}H\x1b[1;38;2;226;230;233m New agent {s}", .{ b.y + 1, b.x + 3, panel });
+        try w.print("\x1b[{d};{d}H\x1b[1m" ++ palette.fg(.strong) ++ " New agent {s}", .{ b.y + 1, b.x + 3, panel });
         const span = manageSpan(b) orelse return;
-        // Like a footer hint: a keycap, then the label in the border's grey.
+        // Like a footer hint: a keycap, then a faint label.
         try w.print("\x1b[{d};{d}H{s} ", .{ b.y + 1, span.x + 1, panel });
         try writeKey(w, "m", panel);
         try w.writeAll(manage_label);
@@ -420,32 +422,34 @@ pub const Menu = struct {
         var offset = editor.cursor -| (width -| 1);
         while (offset < editor.cursor and editor.text[offset] & 0xc0 == 0x80) offset += 1;
         const end = editor.byteAtColumn(offset, width);
-        try w.print("\x1b[{d};{d}H\x1b[48;2;{s}m", .{ y, x, if (focused) "47;64;59" else "43;48;55" });
+        try w.print("\x1b[{d};{d}H" ++ palette.bg(.selected), .{ y, x });
         try w.splatByteAll(' ', width);
         try w.print("\x1b[{d};{d}H", .{ y, x });
         if (editor.len == 0) try sidebar.writeEllipsis(w, placeholder, width) else {
             if (focused and editor.selected) try w.writeAll("\x1b[7m");
             for (editor.text[offset..end]) |ch| try w.writeByte(if (ch < 32 or ch == 127) ' ' else ch);
         }
-        try w.writeAll("\x1b[0;38;2;201;208;215;48;2;35;40;47m");
+        try w.writeAll((palette.Style{ .fg = .text, .bg = .surface }).sgr());
     }
     fn drawManager(m: *const Menu, w: *std.Io.Writer, cols: u16, rows: u16, side: sidebar.View) !void {
         const b = m.bounds(cols, rows, side);
         if (b.w < 40 or b.h < m.rowsHeight()) return;
-        const panel = "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
+        const panel = (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+        const rule = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
         for (0..b.h) |y| {
-            try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + y + 1, b.x + 1, panel, if (y == 0) "╭" else if (y == b.h - 1) "╰" else "│" });
+            try w.print("\x1b[{d};{d}H{s}{s}", .{ b.y + y + 1, b.x + 1, rule, if (y == 0) "╭" else if (y == b.h - 1) "╰" else "│" });
             if (y == 0 or y == b.h - 1) {
                 for (0..b.w - 2) |_| try w.writeAll("─");
             } else try w.splatByteAll(' ', b.w - 2);
             try w.writeAll(if (y == 0) "╮" else if (y == b.h - 1) "╯" else "│");
         }
-        try w.print("\x1b[{d};{d}H Manage agents ", .{ b.y + 1, b.x + 3 });
+        try w.print("\x1b[{d};{d}H{s} Manage agents ", .{ b.y + 1, b.x + 3, panel });
         const name_width: u16 = @min(24, b.w / 3);
         const command_x = b.x + 10 + name_width;
         try w.print("\x1b[{d};{d}HShow\x1b[{d};{d}HAgent\x1b[{d};{d}HAccount", .{ b.y + 3, b.x + 4, b.y + 3, b.x + 10, b.y + 3, command_x });
-        try w.print("\x1b[{d};{d}H", .{ b.y + 4, b.x + 4 });
+        try w.print("\x1b[{d};{d}H{s}", .{ b.y + 4, b.x + 4, rule });
         for (0..b.w - 6) |_| try w.writeAll("─");
+        try w.writeAll(panel);
         const n = m.count() - 2;
         for (0..n) |i| {
             const row = m.rowAt(i).?;
@@ -466,12 +470,12 @@ pub const Menu = struct {
         const field_y = b.y + n + 6;
         const input_x = b.x + 5;
         const width = b.w -| 10;
-        const dim = "\x1b[38;2;112;124;135m";
+        const dim = palette.fg(.faint);
         for (0..2) |i| {
             const top = field_y + i * 4;
             const focused = m.selected == .add and m.name_focused == (i == 1);
             try w.print("\x1b[{d};{d}H{s}{s}", .{ top, b.x + 4, dim, if (i == 0) "Command" else "Name" });
-            const border = if (focused) "\x1b[38;2;139;190;167m" else dim;
+            const border = if (focused) palette.fg(.accent) else palette.fg(.line);
             for (0..3) |line| {
                 try w.print("\x1b[{d};{d}H{s}{s}", .{ top + line + 1, b.x + 4, border, if (line == 0) "┌" else if (line == 2) "└" else "│" });
                 if (line != 1) {
@@ -532,9 +536,10 @@ pub const Menu = struct {
         if (m.managing) return m.drawManager(w, cols, rows, side);
         const b = m.bounds(cols, rows, side);
         if (b.w < 24 or b.h < m.rowsHeight()) return;
-        const panel = "\x1b[0;38;2;112;124;135;48;2;35;40;47m";
+        const panel = (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
+        const rule = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
         for (0..b.h) |row| {
-            try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, panel });
+            try w.print("\x1b[{d};{d}H{s}", .{ b.y + row + 1, b.x + 1, rule });
             try w.writeAll(if (row == 0) "╭" else if (row == b.h - 1) "╰" else "│");
             if (row == 0 or row == b.h - 1) {
                 for (0..b.w - 2) |_| try w.writeAll("─");
@@ -562,10 +567,10 @@ pub const Menu = struct {
             const selected = current == m.selected and !m.resume_view.focused;
             const row = b.y + 3 + visible + @as(usize, if (current == .manage) 2 else 0);
             if (current == .manage) {
-                try w.print("\x1b[{d};{d}H{s}\x1b[38;2;112;124;135m", .{ row - 1, b.x + 4, panel });
+                try w.print("\x1b[{d};{d}H{s}", .{ row - 1, b.x + 4, rule });
                 for (0..b.w - 6) |_| try w.writeAll("─");
             }
-            const style = if (selected) "\x1b[0;38;2;226;230;233;48;2;47;64;59m" else "\x1b[0;38;2;201;208;215;48;2;35;40;47m";
+            const style = if (selected) (palette.Style{ .fg = .strong, .bg = .selected }).sgr() else (palette.Style{ .fg = .text, .bg = .surface }).sgr();
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, style });
             try w.splatByteAll(' ', b.w - 2);
             try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 2, if (selected) "›" else " " });
@@ -580,7 +585,8 @@ pub const Menu = struct {
                 continue;
             }
             if (current == .manage) {
-                const button = if (selected) "\x1b[0;1;38;2;242;247;244;48;2;65;94;80m" else "\x1b[0;1;38;2;226;230;233;48;2;58;68;79m";
+                // A step above a selected row, so the button keeps its edge.
+                const button = if (selected) (palette.Style{ .fg = .strong, .bg = .line, .bold = true }).sgr() else (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr();
                 try w.print("\x1b[{d};{d}H{s}", .{ row, b.x + 4, button });
                 try sidebar.writeEllipsis(w, " → Manage agents… ", b.w -| 6);
                 try w.writeAll(style);
@@ -609,10 +615,10 @@ pub const Menu = struct {
                 if (width == 0) continue;
                 try w.print("\x1b[{d};{d}H", .{ row, x + @as(u16, if (column == 0) 4 else 0) });
                 if (column == 5 and m.trackable(current)) try w.writeAll("\x1b[4m");
-                if (column == 1 and yolo) try w.writeAll("\x1b[1;38;2;255;255;255m");
+                if (column == 1 and yolo) try w.writeAll(comptime "\x1b[1m" ++ palette.fg(.strong));
                 const room = width -| @as(u16, if (column == 0) 6 else if (column == 5) 1 else 2);
                 if (column == 5) {
-                    try m.usageCell(current).write(w, room, style);
+                    try m.usageCell(current).write(w, room, style, selected);
                 } else try sidebar.writeEllipsis(w, values[column], room);
                 try w.writeAll("\x1b[24m");
                 if (column == 1 and yolo) try w.writeAll(style);
@@ -621,7 +627,7 @@ pub const Menu = struct {
         }
         if (m.hasResume()) {
             // A rule across the gap between the agents and the conversations.
-            try w.print("\x1b[{d};{d}H{s}", .{ m.resumeTop(b) - 1, b.x + 4, panel });
+            try w.print("\x1b[{d};{d}H{s}", .{ m.resumeTop(b) - 1, b.x + 4, rule });
             for (0..b.w - 6) |_| try w.writeAll("─");
             if (m.resume_view.expanded) {
                 try m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rows, side));
@@ -667,11 +673,6 @@ pub const Menu = struct {
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
 };
-
-/// Draw a one-letter keycap, then restore the surrounding style.
-fn writeKey(w: *std.Io.Writer, key: []const u8, after: []const u8) !void {
-    try w.print("\x1b[0;1;38;2;226;230;233;48;2;74;83;94m {s} {s}", .{ key, after });
-}
 
 test "launcher menu bounds" {
     const side = sidebar.View.init(80, 24, true, 0, 0);

@@ -3,6 +3,7 @@ const std = @import("std");
 const metadata = @import("usage.zig").account;
 const sidebar = @import("sidebar.zig");
 const account_cache = @import("usage.zig").account_cache;
+const palette = @import("palette.zig");
 
 pub const Cell = struct {
     const Window = struct {
@@ -55,7 +56,8 @@ pub const Cell = struct {
         return cell.minimumWidth() + cell.len * 7; // Six bar cells and one space per limit.
     }
 
-    pub fn write(cell: Cell, w: *std.Io.Writer, width: usize, row_style: []const u8) !void {
+    /// `selected` rows need brighter grays: faint text and empty cells vanish on them.
+    pub fn write(cell: Cell, w: *std.Io.Writer, width: usize, row_style: []const u8, selected: bool) !void {
         if (cell.len == 0) return sidebar.writeEllipsis(w, cell.fallback.text(), width);
         const minimum = cell.minimumWidth();
         if (width < minimum) {
@@ -71,21 +73,23 @@ pub const Cell = struct {
         }
         const extra = (width - minimum) / cell.len;
         const bar_width: usize = if (extra >= 3) @min(6, extra - 1) else 0;
+        const empty = if (selected) palette.fg(.line) else palette.fg(.selected);
+        const quiet = if (selected) palette.fg(.muted) else palette.fg(.faint);
         for (cell.windows[0..cell.len], 0..) |window, i| {
-            if (i > 0) try w.writeAll("\x1b[38;2;83;97;106m │ ");
-            try w.print("{s}\x1b[1;38;2;169;200;184m{s}{s} ", .{ row_style, window.label.text(), row_style });
-            const color = if (window.used >= 100) "237;163;152" else if (window.used >= 80) "229;195;139" else "169;200;184";
+            if (i > 0) try w.writeAll(comptime palette.fg(.line) ++ " │ ");
+            try w.print("{s}" ++ palette.fg(.muted) ++ "{s}{s} ", .{ row_style, window.label.text(), row_style });
+            const color = if (window.used >= 100) palette.fg(.hot) else if (window.used >= 80) palette.fg(.warm) else palette.fg(.accent);
             if (bar_width > 0) {
                 const filled = (bar_width * window.used + 50) / 100;
-                try w.print("\x1b[38;2;{s}m", .{color});
+                try w.writeAll(color);
                 for (0..bar_width) |j| {
-                    if (j == filled) try w.writeAll("\x1b[38;2;83;97;106m");
+                    if (j == filled) try w.writeAll(empty);
                     try w.writeAll("━");
                 }
                 try w.print("{s} ", .{row_style});
             }
-            try w.print("\x1b[1;38;2;{s}m{d}%{s}\x1b[38;2;83;97;106m · \x1b[38;2;147;159;169m{s}{s}", .{
-                if (window.used >= 80) color else "220;225;229", window.used, row_style, window.reset.text(), row_style,
+            try w.print("\x1b[1m{s}{d}%{s}" ++ palette.fg(.line) ++ " · {s}{s}{s}", .{
+                if (window.used >= 80) color else palette.fg(.strong), window.used, row_style, quiet, window.reset.text(), row_style,
             });
         }
     }
@@ -125,8 +129,8 @@ test "cached readings have no extra indicator and statuses remain readable" {
         var b_buffer: [2048]u8 = undefined;
         var a_writer = std.Io.Writer.fixed(&a_buffer);
         var b_writer = std.Io.Writer.fixed(&b_buffer);
-        try cached.write(&a_writer, width, "\x1b[0m");
-        try fresh.write(&b_writer, width, "\x1b[0m");
+        try cached.write(&a_writer, width, "\x1b[0m", false);
+        try fresh.write(&b_writer, width, "\x1b[0m", false);
         try std.testing.expectEqualStrings(b_writer.buffered(), a_writer.buffered());
         try std.testing.expect(std.mem.indexOf(u8, a_writer.buffered(), "cached") == null);
     }
@@ -141,12 +145,12 @@ test "text-only usage fits both limits without bars and clips within its cell" {
     const cell = Cell.init(.{ .{ .minutes = 300, .used = 0 }, .{ .minutes = 10080, .used = 100 } }, 100);
     var buffer: [2048]u8 = undefined;
     var w = std.Io.Writer.fixed(&buffer);
-    try cell.write(&w, cell.minimumWidth(), "\x1b[0m");
+    try cell.write(&w, cell.minimumWidth(), "\x1b[0m", false);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "━") == null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), " │ ") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "100%") != null);
     try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "(cached)") == null);
     w = std.Io.Writer.fixed(&buffer);
-    try cell.write(&w, 25, "\x1b[0m");
+    try cell.write(&w, 25, "\x1b[0m", false);
     try std.testing.expect(sidebar.displayWidth(w.buffered()) <= 25);
 }

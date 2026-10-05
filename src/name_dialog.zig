@@ -6,6 +6,7 @@ const WorkspaceId = workspace.Workspace.Id;
 const keys = @import("keys.zig");
 const launch_command = @import("launch.zig").command;
 const sidebar = @import("sidebar.zig");
+const palette = @import("palette.zig");
 
 pub const Target = union(enum) { pane: layout.PaneId, rename: layout.TabId, workspace_name: ?WorkspaceId, agent_command: usize };
 pub const Result = enum { none, save, cancel };
@@ -169,8 +170,8 @@ pub const View = struct {
         return .none;
     }
     pub fn draw(v: View, d: Dialog, w: *std.Io.Writer, number: usize) !void {
-        const panel = "\x1b[0;38;2;205;214;244;48;2;24;24;37m";
-        const border = "\x1b[0;38;2;137;180;250;48;2;24;24;37m";
+        const panel = (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+        const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
         for (0..v.height) |row| {
             try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 1, v.x + 1, border });
             if (row == 0 or row + 1 == v.height) {
@@ -191,10 +192,10 @@ pub const View = struct {
             .pane => "rename pane",
             .workspace_name => |id| if (id == null) "new workspace: name" else "edit workspace: name",
         };
-        try w.print("\x1b[{d};{d}H{s}\x1b[1m{s}", .{ v.title_y + 1, v.x + 2, panel, title[0..@min(title.len, v.width - 2)] });
+        try w.print("\x1b[{d};{d}H{s}\x1b[1m" ++ palette.fg(.strong) ++ "{s}", .{ v.title_y + 1, v.x + 2, panel, title[0..@min(title.len, v.width - 2)] });
         if ((d.failed or d.overflow) and v.height >= 7) {
             const msg = if (d.target == .agent_command) "Could not save command; max 2048 bytes." else "Could not save. Check folder or capacity.";
-            try w.print("\x1b[{d};{d}H{s}\x1b[38;2;243;139;168m{s}", .{ v.title_y + 2, v.x + 2, panel, msg[0..@min(msg.len, v.width - 2)] });
+            try w.print("\x1b[{d};{d}H{s}" ++ palette.fg(.hot) ++ "{s}", .{ v.title_y + 2, v.x + 2, panel, msg[0..@min(msg.len, v.width - 2)] });
         }
         if (d.target == .agent_command and !d.failed and !d.overflow and v.height >= 7) {
             var hint: [160]u8 = undefined;
@@ -204,19 +205,20 @@ pub const View = struct {
             try w.print("\x1b[{d};{d}H{s}", .{ v.title_y + 2, v.x + 2, panel });
             try sidebar.writeEllipsis(w, text, v.width - 2);
         }
-        try w.print("\x1b[{d};{d}H\x1b[0;38;2;205;214;244;48;2;49;50;68m", .{ v.field_y + 1, v.x + 2 });
+        try w.print("\x1b[{d};{d}H" ++ (palette.Style{ .fg = .text, .bg = .selected }).sgr(), .{ v.field_y + 1, v.x + 2 });
         try w.splatByteAll(' ', v.width - 2);
         try w.print("\x1b[{d};{d}H", .{ v.field_y + 1, v.x + 2 });
         if (d.len == 0 and d.target != .pane and d.target != .agent_command) {
             // This is a preview of the current position, never an editable/saved name.
-            try w.print("\x1b[38;2;125;132;143m{d}", .{number});
+            try w.print(palette.fg(.muted) ++ "{d}", .{number});
         } else {
-            if (d.selected) try w.writeAll("\x1b[38;2;24;27;32;48;2;137;180;250m");
+            if (d.selected) try w.writeAll("\x1b[7m");
             const end = d.byteAtColumn(v.offset, v.width - 2);
             for (d.text[v.offset..end]) |byte| try w.writeByte(if (d.target == .agent_command and byte < 32) ' ' else byte);
         }
         for (v.buttons(), 0..) |b, i| {
-            try w.print("\x1b[{d};{d}H{s}", .{ v.buttons_y + 1, b.x + 1, if (i == 0) "\x1b[1;38;2;24;27;32;48;2;137;180;250m" else "\x1b[1;38;2;205;214;244;48;2;49;50;68m" });
+            const style = if (i == 0) (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr() else (palette.Style{ .fg = .text, .bg = .selected, .bold = true }).sgr();
+            try w.print("\x1b[{d};{d}H{s}", .{ v.buttons_y + 1, b.x + 1, style });
             if (b.padded) try w.writeByte(' ');
             try w.writeAll(b.label);
             if (b.padded) try w.writeByte(' ');

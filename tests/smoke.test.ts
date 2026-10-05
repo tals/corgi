@@ -18,6 +18,7 @@ import {
   ROOT,
   EXE,
   FAKE,
+  PALETTE,
   screen_text,
   scrollbar,
   layout_tree,
@@ -1032,7 +1033,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
       found = false;
     for (let i = 0; i < 100; i++) {
       data = (await this.get_type("frame")).data;
-      if (data.includes("\x1b[1;38;2;24;27;32;48;2;161;194;178mSplit right")) {
+      if (data.includes(`\x1b[0;1;38;2;${PALETTE.strong};48;2;${PALETTE.selected}mSplit right`)) {
         found = true;
         break;
       }
