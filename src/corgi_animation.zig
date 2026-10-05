@@ -267,7 +267,7 @@ pub const Playback = struct {
         self.started_ms = now_ms;
         const duration: i64 = switch (routine) {
             .idle => minimum_idle_ms,
-            .sniff => @as(i64, @intCast(2 + self.random.random().uintLessThan(u32, 3))) * frames.sniff.len * 200,
+            .sniff => @as(i64, @intCast(1 + self.random.random().uintLessThan(u32, 2))) * frames.sniff.len * 200,
             .fetch => max_activity_ms,
         };
         self.deadline_ms = now_ms + duration;
@@ -590,8 +590,8 @@ test "activities finish whole loops within budget and rest for at least ten seco
             const duration = playback.deadline_ms - 100;
             try std.testing.expect(duration <= Playback.max_activity_ms);
             if (routine == .sniff) {
-                try std.testing.expect(duration >= 4800);
-                try std.testing.expectEqual(@as(i64, 0), @mod(duration, frames.sniff.len * 200));
+                const loop: i64 = frames.sniff.len * 200;
+                try std.testing.expect(duration == loop or duration == 2 * loop);
             }
             playback.update(true, playback.deadline_ms - 1);
             try std.testing.expectEqual(routine, playback.routine);
