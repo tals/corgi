@@ -68,7 +68,9 @@ Leave a cell inside a box for its border. Geometry outside the parent throws.
 Text clips to the widget; only explicit newlines start another row.
 
 Set `data-fg` / `data-bg` to a six-digit hex color or a palette name: `fg`, `bg`,
-`muted`, `line`, `accent`, `surface`, `selected`, `danger`, `warm`. Other styles
+`muted`, `line`, `accent`, `surface`, `selected`, `danger`, `warm`. The `corgi`
+theme also names every token in `src/palette.zig` (`faint`, `text`, `strong`,
+`hot`, ...); see `docs/ui_styleguide.md`. Other styles
 are `data-bold`, `data-underline`, and `data-underline-color`. Styles inherit from
 the nearest widget. Use these attributes for widget appearance so ANSI can match
 it; arbitrary CSS decoration is not included in exported frames.
@@ -109,7 +111,7 @@ repainting. No framework or reactive state library is required.
 const ui = TermHTML.mount(root, { theme: 'ink', kitty: false, ascii: false });
 ui.render();                         // redraw current HTML/control state
 ui.select(listElement, 2);            // select a visible option; emit change
-ui.theme = 'paper'; ui.render();      // switch between built-in palettes
+ui.theme = 'corgi'; ui.render();      // ink, paper, or corgi (Corgi's palette)
 ui.setKitty(true);                    // enable the optional underline extensions
 ui.open('#dialog'); ui.close();       // modal focus trap and focus restoration
 ui.toText();                         // fixed-width rows separated by newlines
@@ -133,10 +135,12 @@ consistent. **Cell-exact layout does not guarantee identical screenshot pixels:*
 browser and terminal font rasterization, bold, underline shape, and antialiasing
 can differ. Match the font, cell metrics, device scale, and terminal settings.
 
-Text supports printable ASCII and these box/block glyphs:
-`─│┌┐└┘├┤┬┴┼█▀▄▁▂▃▅▆▇`. Unsupported characters become `?`, including emoji,
-wide characters, combining marks, and control characters. Terminal output expects
-UTF-8, truecolor, VT cursor positioning, and single-cell widths for those glyphs.
+Text supports printable ASCII, these box/block glyphs:
+`─│┌┐└┘├┤┬┴┼╭╮╰╯━┃╸▌█▀▄▁▂▃▅▆▇`, and Corgi's symbols `●○◌✓↳↻↑▾›…·≥≈—`.
+Rounded corners draw square in the browser. Unsupported characters become `?`,
+including emoji, wide characters, combining marks, and control characters.
+Terminal output expects UTF-8, truecolor, VT cursor positioning, and single-cell
+widths for those glyphs.
 The `ascii` option changes generated borders/bars; it does not convert your text.
 
 Kitty mode is **off by default**. It enables only styled and colored underlines:

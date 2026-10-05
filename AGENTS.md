@@ -99,6 +99,9 @@ pass `os.io()`, which is `std.testing.io` in tests. Use `os.milliTimestamp`,
 `os.sleep` and `os.Timer` for time, and `compat.timedWait` to wait on a
 condition with a timeout.
 
+**UI colors.** Take them from `palette.zig` tokens, never RGB literals.
+`docs/ui_styleguide.md` says which token means what.
+
 **Types.** Prefer concrete types (`*Server`, `*Client`) to `anytype`; circular
 imports are fine in Zig. Keep `anytype` for real generics or test fakes.
 Avoid `anyerror` returns.

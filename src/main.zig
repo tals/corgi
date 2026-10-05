@@ -538,6 +538,7 @@ test {
     _ = @import("observation.zig");
     _ = @import("onboarding.zig");
     _ = @import("os.zig");
+    _ = @import("palette.zig");
     _ = @import("pane.zig");
     _ = @import("passes.zig");
     _ = @import("peer.zig");

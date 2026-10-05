@@ -15,7 +15,7 @@ ui.open('#dialog') / ui.close() handle modal focus. ui.setKitty(true) opts into
 styled/colored underlines only (https://sw.kovidgoyal.net/kitty/underlines/).
 ui.toANSI(), ui.toText(), and ui.snapshot() export the current cell frame.
 
-Use ASCII plus box/block glyphs; unsupported characters become ?. Text clips.
+Use ASCII plus box/block glyphs and Corgi's symbols; others become ?. Text clips.
 Match --th-cw/ch/font-size/font to the terminal (defaults: 9x20 cells, 14px Menlo).
 Layout is cell-exact; font rasterization can differ across browser and terminal.
 ANSI exports are snapshots, not an interactive terminal runtime.
@@ -218,7 +218,7 @@ No images, proportional type, or fractional layout.</span>
       <input id="command-filter" data-tui="input" data-x="2" data-y="2" data-w="58" aria-label="Find a command" placeholder="Type to filter commands..." autocomplete="off" spellcheck="false">
       <div id="command-list" data-tui="list" data-x="2" data-y="5" data-w="58" data-h="8" aria-label="Commands" data-fg="fg">
         <span data-value="run">Run a session</span>
-        <span data-value="theme">Switch ink / paper theme</span>
+        <span data-value="theme">Switch theme</span>
         <span data-value="kitty">Toggle Kitty extensions</span>
         <span data-value="controls">Go to Controls</span>
         <span data-value="queue">Go to Task queue</span>
@@ -259,10 +259,12 @@ Its log will stay in the task queue.</span>
 (function (global) {
   "use strict";
   const ESC = "\x1b[";
-  const glyphs = new Set("─│┌┐└┘├┤┬┴┼█▀▄▁▂▃▅▆▇");
+  const glyphs = new Set("─│┌┐└┘├┤┬┴┼╭╮╰╯━┃╸▌█▀▄▁▂▃▅▆▇●○◌✓↳↻↑▾›…·≥≈—");
   const themes = {
     ink: { bg: "#101419", fg: "#d5dce3", muted: "#82909e", line: "#3c4c59", accent: "#b7df80", surface: "#1a232c", selected: "#2b3e42", danger: "#ec9a91", warm: "#e9c581" },
     paper: { bg: "#ece8de", fg: "#303a3b", muted: "#63706f", line: "#949e94", accent: "#326747", surface: "#deded1", selected: "#c3d5c1", danger: "#9b3b35", warm: "#865f20" },
+    // Corgi's palette: src/palette.zig is the source, and its tests check this line.
+    corgi: { bg: "#181b20", surface: "#23282f", selected: "#333941", line: "#505a65", faint: "#83909e", muted: "#a5aeb8", text: "#d1d6db", strong: "#eef1f4", accent: "#a1c2b2", warm: "#e5c38b", hot: "#eda398", fg: "#d1d6db", danger: "#eda398" },
   };
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
   const number = (v, fallback) => v === undefined || v === null || v === "" ? fallback : Number(v);
@@ -275,7 +277,7 @@ Its log will stay in the task queue.</span>
   const rgb = value => value.slice(1).match(/../g).map(x => parseInt(x, 16)).join(";");
   const styleKey = c => `${c.fg}/${c.bg}/${+c.bold}/${c.underline}/${c.underlineColor || ""}`;
   // Top, right, bottom, left; browser strokes share the exact cell boundaries.
-  const lines = { "─": "0101", "│": "1010", "┌": "0110", "┐": "0011", "└": "1100", "┘": "1001", "├": "1110", "┤": "1011", "┬": "0111", "┴": "1101", "┼": "1111" };
+  const lines = { "─": "0101", "│": "1010", "┌": "0110", "┐": "0011", "└": "1100", "┘": "1001", "╭": "0110", "╮": "0011", "╰": "1100", "╯": "1001", "├": "1110", "┤": "1011", "┬": "0111", "┴": "1101", "┼": "1111" };
   const blocks = { "█": [0, 8], "▀": [0, 4], "▄": [4, 4], "▁": [7, 1], "▂": [6, 2], "▃": [5, 3], "▅": [3, 5], "▆": [2, 6], "▇": [1, 7] };
 
   class Frame {
@@ -725,7 +727,8 @@ Its log will stay in the task queue.</span>
   });
   $("workspaces").addEventListener("activate", () => { view("controls"); $("session-name").focus(); });
   $("theme").onclick = () => {
-    screen.theme = screen.theme === "ink" ? "paper" : "ink";
+    const order = Object.keys(TermHTML.themes);
+    screen.theme = order[(order.indexOf(screen.theme) + 1) % order.length];
     $("theme").textContent = `Theme: ${screen.theme}`;
     status(`Theme / ${screen.theme}`);
   };
