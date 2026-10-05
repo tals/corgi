@@ -105,7 +105,7 @@ pub const Line = union(enum) {
     open: u16,
     /// Matches left out of the current scope.
     elsewhere: u16,
-    /// Expands the list; the value counts conversations not shown yet.
+    /// Expands the list; the value counts the conversations it starts on.
     more: u16,
 };
 /// Entries plus a heading per day, at most.
@@ -158,8 +158,8 @@ pub const View = struct {
         const entries = c.history.entries;
         if (v.search().len > 0) return v.found(c, out);
         if (!v.expanded) {
-            // The newest in this folder; "more" counts what the expanded
-            // list adds in its starting scope.
+            // The newest in this folder; "more" counts the expanded list's
+            // starting scope.
             var total: usize = 0;
             for (entries, 0..) |*e, i| {
                 total += @intFromBool(c.listed(e, .workspace));
@@ -167,7 +167,7 @@ pub const View = struct {
                 out[n] = .{ .entry = @intCast(i) };
                 n += 1;
             }
-            out[n] = .{ .more = @intCast(total -| n) };
+            out[n] = .{ .more = @intCast(total) };
             return out[0 .. n + 1];
         }
         var day: ?i64 = null;
@@ -217,7 +217,7 @@ pub const View = struct {
         }
         return out[0..n];
     }
-    /// Matches in the current scope, for the results heading.
+    /// Closed conversations listed in `rows`.
     fn count(rows: []const Line) usize {
         var n: usize = 0;
         for (rows) |line| n += @intFromBool(line == .entry);
@@ -459,7 +459,7 @@ pub const View = struct {
                 try w.splatByteAll(' ', width -| 3);
                 try w.print("\x1b[{d};{d}H{s}", .{ row, x + 1, if (selected) "›" else " " });
                 // The rail above runs on, dashed, into the conversations left out.
-                if (n > 0) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row - 1, x + 3, panel, style });
+                if (n > count(rows)) try w.print("\x1b[{d};{d}H{s}┊{s}", .{ row - 1, x + 3, panel, style });
                 // In the agents' keycap column.
                 try w.print("\x1b[{d};{d}H", .{ row, x + 3 });
                 try writeKey(w, "/", style);
@@ -648,8 +648,8 @@ test "collapsed shows this folder's newest closed conversations, then more" {
     try std.testing.expectEqual(@as(usize, collapsed_rows + 1), rows.len);
     try std.testing.expectEqual(@as(u16, 0), rows[0].entry);
     try std.testing.expectEqual(@as(u16, 4), rows[1].entry);
-    // The search starts on the workspace, so c counts among the rest.
-    try std.testing.expectEqual(@as(u16, 2), rows[collapsed_rows].more);
+    // The search starts on the workspace, so c counts too.
+    try std.testing.expectEqual(@as(u16, 7), rows[collapsed_rows].more);
     // A gap sits above the "more" row.
     try std.testing.expectEqual(@as(?usize, collapsed_rows - 1), v.collapsedHit(c, collapsed_rows - 1));
     try std.testing.expectEqual(@as(?usize, null), v.collapsedHit(c, collapsed_rows));
