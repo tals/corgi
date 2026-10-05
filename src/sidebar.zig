@@ -1375,7 +1375,8 @@ fn portPending(ws: WorkspaceEntry) bool {
     for (0..urlCount(ws)) |i| if (workspaceUrlPending(ws, i)) return true;
     return false;
 }
-/// The link button's name, or null while inference is still naming it.
+/// The link button's name, empty when it has none, or null while inference is
+/// still naming it.
 fn portName(ws: WorkspaceEntry) ?[]const u8 {
     var name = workspaceUrlName(ws, 0);
     // A common name is useful for duplicate app endpoints; distinct apps keep
@@ -1384,13 +1385,14 @@ fn portName(ws: WorkspaceEntry) ?[]const u8 {
         name = "";
         break;
     };
-    if (name.len > 0) return name;
-    return if (portPending(ws)) null else "Link";
+    return if (name.len == 0 and portPending(ws)) null else name;
 }
 fn portLabel(ws: WorkspaceEntry, buf: []u8) []const u8 {
     const count = urlCount(ws);
-    const name = portName(ws) orelse "...";
-    return if (count == 1) std.fmt.bufPrint(buf, "Open {s} ↗", .{name}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "Open {s} ↗ {d}", .{ name, count }) catch "Open Link ↗";
+    // A name stands alone; without one the button says what it does.
+    const name = portName(ws) orelse "Open ...";
+    const text = if (name.len > 0) name else "Open Link";
+    return if (count == 1) std.fmt.bufPrint(buf, "{s} ↗", .{text}) catch "Open Link ↗" else std.fmt.bufPrint(buf, "{s} ↗ {d}", .{ text, count }) catch "Open Link ↗";
 }
 /// A label still `naming` its link starts "Open ...". Keep all three dots in
 /// place; only their brightness travels gently. Quantized to 80ms so idle
@@ -1581,7 +1583,7 @@ pub const PortMenu = struct {
             const name = workspaceUrlName(ws, index);
             var label_buf: [384]u8 = undefined;
             const naming = name.len == 0 and workspaceUrlPending(ws, index);
-            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "Open {s} · {s}", .{ name, url }) else if (naming) try std.fmt.bufPrint(&label_buf, "Open ... · {s}", .{url}) else url;
+            const label = if (name.len > 0) try std.fmt.bufPrint(&label_buf, "{s} · {s}", .{ name, url }) else if (naming) try std.fmt.bufPrint(&label_buf, "Open ... · {s}", .{url}) else url;
             try writePortLabel(w, label, rect.w - 4, naming, os.milliTimestamp());
             try w.writeAll("\x1b]8;;\x1b\\");
         }
@@ -1670,8 +1672,8 @@ test "inferred link names share clipped hit geometry and name chooser destinatio
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try (PortMenu{ .workspace = @enumFromInt(1) }).draw(&out.writer, ws, 100, 30);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open Finance Dashboard · http://localhost:3000") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Open API Docs · http://localhost:3001") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "Finance Dashboard · http://localhost:3000") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "API Docs · http://localhost:3001") != null);
 }
 
 test "only a link still being named animates its placeholder dots" {
@@ -1691,7 +1693,7 @@ test "only a link still being named animates its placeholder dots" {
     try std.testing.expectEqualStrings("Docs", portName(ws).?);
     out.clearRetainingCapacity();
     try writePortLabel(&out.writer, portLabel(ws, &buf), 40, portName(ws) == null, 0);
-    try std.testing.expectEqualStrings("Open Docs ↗", out.written());
+    try std.testing.expectEqualStrings("Docs ↗", out.written());
 }
 
 test "corgi frames occupy one column per glyph in the terminal" {

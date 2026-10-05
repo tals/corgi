@@ -193,7 +193,7 @@ inferred. The three stationary dots have a subtle blue glimmer; the title
 replaces them when it arrives. The shared inference worker tries to name the
 destination from the owning pane's visible terminal text,
 terminal title, working directory, workspace name, process name, PID, and URL.
-For example, it can change the shortcut to `Open Finance ↗`. It sends at most
+For example, it can change the shortcut to `Finance ↗`. It sends at most
 1,600 bytes of visible terminal text and bounded metadata; it does not ask the
 model to fetch the page or inspect other panes.
 

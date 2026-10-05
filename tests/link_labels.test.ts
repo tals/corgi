@@ -81,7 +81,7 @@ class LinkLabels extends Runtime {
     this.assertEqual(payload.pid, info.pid);
     this.assertEqual(payload.url, `http://localhost:${info.port}`);
     const viewer = await Viewer.create(this);
-    this.assertIn("Open Finance ↗", (await viewer.poll()).data);
+    this.assertIn("Finance ↗", (await viewer.poll()).data);
     this.assertIn(
       "\x1b]22;pointer\x1b\\",
       (await viewer.input("\x1b[<35;14;3M")).data,
@@ -96,7 +96,7 @@ class LinkLabels extends Runtime {
       3,
       async () => (await this.endpoints()).length === 0,
     );
-    this.assertNotIn("Open Finance", (await viewer.poll()).data);
+    this.assertNotIn("Finance ↗", (await viewer.poll()).data);
   }
   async test_pending_dots_glimmer_then_resolve_without_changing_the_url() {
     writeFileSync(this.control, JSON.stringify({ label: "Finance", delay: 4 }));
@@ -129,7 +129,7 @@ class LinkLabels extends Runtime {
       10,
     );
     const final = (await viewer.poll()).data;
-    this.assertIn("Open Finance ↗", final);
+    this.assertIn("Finance ↗", final);
     this.assertEqual(colors(final), []);
   }
   async test_inflight_result_and_cached_name_survive_reload_without_rebilling() {
@@ -198,7 +198,7 @@ class LinkLabels extends Runtime {
     );
     await sleep(2.2);
     const viewer = await Viewer.create(this);
-    this.assertNotIn("Open Stale App", (await viewer.poll()).data);
+    this.assertNotIn("Stale App ↗", (await viewer.poll()).data);
   }
 }
 registerCase("LinkLabels", LinkLabels, { inherited: false });
