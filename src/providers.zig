@@ -176,6 +176,29 @@ test "shared hook codec preserves permission context and rejects child observati
     }
 }
 
+test "a background Agent call names the subagent it launched" {
+    const alloc = std.testing.allocator;
+    const launched = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"hook_event_name":"PostToolUse","session_id":"a","tool_name":"Agent",
+        \\"tool_input":{"description":"Lane A","subagent_type":"general-purpose","run_in_background":true},
+        \\"tool_response":{"isAsync":true,"status":"async_launched","agentId":"a1","description":"Lane A"}}
+    , .{});
+    defer launched.deinit();
+    const finished = try std.json.parseFromSlice(std.json.Value, alloc,
+        \\{"hook_event_name":"PostToolUse","session_id":"a","tool_name":"Agent",
+        \\"tool_input":{"description":"Lane B","subagent_type":"Explore"},
+        \\"tool_response":{"status":"completed","agentId":"a2"}}
+    , .{});
+    defer finished.deinit();
+    const backend = Backend.init(.claude);
+    const hook = backend.hook(launched.value).?;
+    try std.testing.expectEqualStrings("a1", hook.subagent);
+    try std.testing.expectEqualStrings("general-purpose", hook.subagent_type);
+    try std.testing.expectEqualStrings("Lane A", hook.description);
+    // A foreground call has already finished its subagent.
+    try std.testing.expectEqualStrings("", backend.hook(finished.value).?.subagent);
+}
+
 test {
     _ = @import("providers/claude.zig");
     _ = @import("providers/codex.zig");

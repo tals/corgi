@@ -407,11 +407,31 @@ class Observations extends Runtime {
           timestamp: new Date().toISOString(),
         }) + "\n",
       );
+    const launch = (id: string, description: string) =>
+      this.hook("PostToolUse", "claude", {
+        tool_name: "Agent",
+        tool_input: { description, subagent_type: "general-purpose" },
+        tool_response: { status: "async_launched", agentId: id },
+      });
     await this.hook("UserPromptSubmit", "claude");
+    await launch("a1", "Lane A");
+    await launch("a2", "Lane B");
+    // Each counts from its launch, while the turn that launched it runs.
+    let seen = await parent();
+    this.assertEqual(seen.agent.state, "working");
+    this.assertEqual(seen.agent.subagents, {
+      running: 2,
+      blocked: 0,
+      waiting: false,
+    });
+    this.assertEqual(seen.children, {
+      "Lane A": "working",
+      "Lane B": "working",
+    });
     await stop(lane("a1", "Lane A"), lane("a2", "Lane B"));
     turnEnded();
     await this.settleTranscript();
-    let seen = await parent();
+    seen = await parent();
     this.assertEqual(seen.agent.state, "working");
     this.assertEqual(seen.agent.subagents, {
       running: 2,

@@ -439,14 +439,16 @@ pub const Registry = struct {
             child.observed_at = @max(child.observed_at, snapshot.observed_at);
         }
     }
-    /// A hook updates its conversation. A Claude Stop also lists the subagents
-    /// still running, which become the conversation's children. Without any,
-    /// it pauses while its Monitors or a wakeup it scheduled can wake it.
+    /// A hook updates its conversation. A Claude subagent started in the
+    /// background becomes the conversation's child at once, and each Stop
+    /// lists the ones still running. Without any, it pauses while its
+    /// Monitors or a wakeup it scheduled can wake it.
     pub fn observeHook(registry: *Registry, actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
         const accepted = actor.state.last_seq;
         const ding = actor.observeHook(event, seq, watched, now);
         // Only an accepted hook advances last_seq; a rejected one's list may be stale.
         if (actor.state.last_seq == accepted or actor.provider() != .claude) return ding;
+        if (event.subagent.len > 0) registry.observeLaunch(actor, event, now);
         const listed = background_tasks.Children.claude(event.background_tasks);
         if (listed == null and event.kind != .session_end) return ding;
         const children = listed orelse background_tasks.Children{};
@@ -461,18 +463,7 @@ pub const Registry = struct {
     pub fn observeSubagents(registry: *Registry, parent: *Actor, children: *const background_tasks.Children, now: i64) void {
         parent.state.subagents.running = children.running;
         parent.children_observed_at = now;
-        for (children.slice()) |meta| {
-            const child = registry.get(.claude, meta.id.text()) catch |err| {
-                if (registry.full_failure.changed(err)) log.warn("dropping Claude subagents: {}", .{err});
-                continue;
-            };
-            if (!registry.linkChild(parent, child)) continue;
-            child.role = .initTruncated(meta.agent_type.text());
-            child.state.setName(meta.agent_type.text());
-            child.state.setActivity(meta.description.text());
-            child.state.state = .working;
-            child.observed_at = now;
-        }
+        for (children.slice()) |*meta| _ = registry.adoptSubagent(parent, meta, now);
         if (!children.complete()) return;
         for (registry.items.items) |child| {
             const owner = child.parent orelse continue;
@@ -480,6 +471,30 @@ pub const Registry = struct {
             child.state.state = .idle;
             child.observed_at = now;
         }
+    }
+    /// A subagent counts from its launch, long before the Stop that ends the
+    /// turn which launched it.
+    fn observeLaunch(registry: *Registry, parent: *Actor, event: providers.Hook, now: i64) void {
+        if (event.subagent.len > @FieldType(background_tasks.Children.Child, "id").capacity) return;
+        if (registry.find(.claude, event.subagent)) |known| if (known.state.state == .working) return;
+        const meta: background_tasks.Children.Child = .{ .id = .ascii(event.subagent), .description = .initTruncated(event.description), .agent_type = .ascii(event.subagent_type) };
+        if (!registry.adoptSubagent(parent, &meta, now)) return;
+        parent.state.subagents.running +|= 1;
+        parent.children_observed_at = now;
+    }
+    /// Makes a launched or listed subagent a working child of `parent`.
+    fn adoptSubagent(registry: *Registry, parent: *Actor, meta: *const background_tasks.Children.Child, now: i64) bool {
+        const child = registry.get(.claude, meta.id.text()) catch |err| {
+            if (registry.full_failure.changed(err)) log.warn("dropping Claude subagents: {}", .{err});
+            return false;
+        };
+        if (!registry.linkChild(parent, child)) return false;
+        child.role = .initTruncated(meta.agent_type.text());
+        child.state.setName(meta.agent_type.text());
+        child.state.setActivity(meta.description.text());
+        child.state.state = .working;
+        child.observed_at = now;
+        return true;
     }
     /// An initial hook may establish identity when integration was enabled after
     /// startup. Once associated, only SessionStart selects another conversation.
@@ -733,6 +748,50 @@ test "a Claude parent works on while its Stop lists subagents, which become its 
     try std.testing.expect(parent.confirmStop(5, .completed, 510));
     try std.testing.expectEqual(agents.State.idle, parent.state.state);
     try std.testing.expectEqual(@as(u64, 1), parent.state.observation.completed);
+}
+
+test "a Claude subagent counts from its launch until a Stop's list leaves it out" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const parent = try registry.get(.claude, "parent");
+    const lines = [_][]const u8{
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"parent"}
+        ,
+        \\{"hook_event_name":"PostToolUse","session_id":"parent","tool_name":"Agent",
+        \\"tool_input":{"description":"Lane A","subagent_type":"general-purpose"},"tool_response":{"status":"async_launched","agentId":"a1"}}
+        ,
+        \\{"hook_event_name":"PostToolUse","session_id":"parent","tool_name":"Agent",
+        \\"tool_input":{"description":"Lane B","subagent_type":"general-purpose"},"tool_response":{"status":"async_launched","agentId":"a2"}}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"parent","background_tasks":[
+        \\{"id":"a2","type":"subagent","status":"running","description":"Lane B","agent_type":"general-purpose"}]}
+    };
+    var hooks: [lines.len]providers.Hook = undefined;
+    var parsed: [lines.len]std.json.Parsed(std.json.Value) = undefined;
+    for (lines, &hooks, &parsed) |line, *hook, *value| {
+        value.* = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, line, .{});
+        hook.* = providers.Backend.init(.claude).hook(value.value).?;
+    }
+    defer for (parsed) |value| value.deinit();
+    _ = registry.observeHook(parent, hooks[0], 1, false, 100);
+    _ = registry.observeHook(parent, hooks[1], 2, false, 200);
+    // The turn that launched it is still running.
+    try std.testing.expectEqual(agents.State.working, parent.state.state);
+    try std.testing.expectEqual(agents.Subagents{ .running = 1 }, parent.state.subagents);
+    try std.testing.expectEqual(@as(i64, 200), parent.children_observed_at);
+    const a1 = registry.find(.claude, "a1").?;
+    try std.testing.expectEqual(parent.id, a1.parent.?);
+    try std.testing.expectEqual(agents.State.working, a1.state.state);
+    try std.testing.expectEqualStrings("Lane A", a1.state.activity.text());
+    // A repeated report of the same launch counts it once.
+    _ = registry.observeHook(parent, hooks[1], 3, false, 300);
+    try std.testing.expectEqual(@as(u32, 1), parent.state.subagents.running);
+    _ = registry.observeHook(parent, hooks[2], 4, false, 400);
+    try std.testing.expectEqual(@as(u32, 2), parent.state.subagents.running);
+    // Lane A finished before the turn ended, so the Stop's list leaves it out.
+    _ = registry.observeHook(parent, hooks[3], 5, false, 500);
+    try std.testing.expectEqual(agents.Subagents{ .running = 1, .waiting = true }, parent.state.subagents);
+    try std.testing.expectEqual(agents.State.idle, a1.state.state);
 }
 
 test "a Claude session's end ends the subagents its last Stop listed" {

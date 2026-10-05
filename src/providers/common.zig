@@ -173,6 +173,9 @@ pub const Hook = struct {
     session_crons: std.json.Value = .null,
     /// The background task a finished Monitor call started.
     monitor: []const u8 = "",
+    /// The subagent a finished Agent call started in the background, and its type.
+    subagent: []const u8 = "",
+    subagent_type: []const u8 = "",
     // The tool's main argument, for a readable label when there is no description.
     target: []const u8 = "",
     asking: bool = false,
@@ -208,6 +211,8 @@ pub const Hooks = struct {
             // permission or elicitation notification reopens it.
             .Notification => if (notification != null) .notification else return null,
         };
+        const response = field(value, "tool_response");
+        const launched = kind == .tool_finish and std.mem.eql(u8, str(response, "status"), "async_launched");
         return .{
             .kind = kind,
             .session = str(value, "session_id"),
@@ -220,7 +225,9 @@ pub const Hooks = struct {
             .description = str(field(value, "tool_input"), "description"),
             .background_tasks = field(value, "background_tasks"),
             .session_crons = field(value, "session_crons"),
-            .monitor = if (kind == .tool_finish and std.mem.eql(u8, tool, "Monitor")) str(field(value, "tool_response"), "taskId") else "",
+            .monitor = if (kind == .tool_finish and std.mem.eql(u8, tool, "Monitor")) str(response, "taskId") else "",
+            .subagent = if (launched) str(response, "agentId") else "",
+            .subagent_type = if (launched) str(field(value, "tool_input"), "subagent_type") else "",
             .target = target(field(value, "tool_input")),
             .asking = kind == .tool_start and (std.mem.eql(u8, tool, "AskUserQuestion") or std.mem.eql(u8, tool, "request_user_input")),
             .permission_notification = kind == .notification and notification == .permission_prompt,
