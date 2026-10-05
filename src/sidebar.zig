@@ -32,13 +32,10 @@ const panel = (palette.Style{ .fg = .muted, .bg = .bg }).sgr();
 const button = (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr();
 const active_name = (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr();
 const active_meta = (palette.Style{ .fg = .muted, .bg = .selected }).sgr();
-// Kitty-graphics hosts (kitty, Ghostty, WezTerm) draw block elements to fill
-// the cell, so a half block joins into one bar. Elsewhere the font's glyph can
-// leave gaps between rows, so paint the whole cell instead.
-const active_bar_half = (palette.Style{ .fg = .accent, .bg = .selected }).sgr() ++ "▌";
-const active_bar_cell = (palette.Style{ .bg = .accent }).sgr() ++ " ";
-const ghost_bar_half = (palette.Style{ .fg = .strong, .bg = .selected }).sgr() ++ "▌";
-const ghost_bar_cell = (palette.Style{ .bg = .strong }).sgr() ++ " ";
+// Stacked half blocks join into one bar on hosts that draw block elements
+// themselves; one that takes the glyph from the font may leave gaps between rows.
+const active_bar = (palette.Style{ .fg = .accent, .bg = .selected }).sgr() ++ "▌";
+const ghost_bar = (palette.Style{ .fg = .strong, .bg = .selected }).sgr() ++ "▌";
 const rule_underline = "\x1b[4m" ++ palette.underline(.line);
 const dotted_underline = "\x1b[4:4m" ++ palette.underline(.line);
 const ghost_underline = "\x1b[4m" ++ palette.underline(.strong);
@@ -387,15 +384,13 @@ pub const View = struct {
             try writeEllipsis(w, "workspaces", v.width -| 17);
         } else try v.line(w, 0, "workspaces", comptime "\x1b[1m" ++ palette.fg(.strong));
         try w.print("\x1b[1;{d}H" ++ button ++ "[ + ]{s}", .{ v.width - 10, panel });
-        const active_bar = if (v.supports_kitty_graphics) active_bar_half else active_bar_cell;
-        // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
-        const ghost_bar = if (v.supports_kitty_graphics) ghost_bar_half else ghost_bar_cell;
         for (workspaces[v.workspace_offset..@min(workspaces.len, v.workspace_offset + v.workspaceCapacity())], 0..) |ws, index| {
             const y: u16 = @intCast(2 + index * v.workspaceRows());
             const ghost = v.dragged_workspace == v.workspace_offset + index;
             const tinted = ws.active or ghost;
             const style = if (tinted) active_name else panel;
             const meta = if (tinted) active_meta else panel;
+            // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
             const bar = if (ghost) ghost_bar else active_bar;
             try w.print("\x1b[{d};1H{s}", .{ y + 1, style });
             try w.splatByteAll(' ', v.width - 1);
@@ -654,7 +649,9 @@ pub const View = struct {
             try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 2, x + v.width - 1 - badge_width, color, badge });
         }
         try w.writeAll("\x1b[24;59m");
-        if (ghost) for (0..2) |row| try w.print("\x1b[{d};{d}H" ++ palette.bg(.strong) ++ " \x1b[0m", .{ y + row + 1, x + 1 });
+        // Without the group rail, the focused agent takes the active workspace's bar.
+        const bar = if (ghost) ghost_bar else if (e.focused and !grouped) active_bar else "";
+        if (bar.len > 0) for (0..2) |row| try w.print("\x1b[{d};{d}H{s}\x1b[0m", .{ y + row + 1, x + 1, bar });
     }
     /// Context appears on the name line only near compaction.
     fn contextFigure(buf: []u8, e: Entry, compacting: bool, background: [3]u8) ?struct { text: []const u8, color: [3]u8 } {
@@ -1165,28 +1162,19 @@ test "unpushed badge retains its columns beside a long workspace name" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime "\x1b[3;23H" ++ palette.fg(.warm) ++ "↑123") != null);
 }
 
-test "active workspace bar follows graphics support independently of the badge" {
+test "active workspace bar is a half block with or without Kitty graphics" {
     const entries = [_]WorkspaceEntry{ .{ .id = @enumFromInt(1), .name = "Other", .cwd = "/tmp", .active = false }, .{ .id = @enumFromInt(2), .name = "Project", .cwd = "/tmp", .active = true } };
-    for ([_]struct { supported: bool, mode: corgi_badge.Mode }{
-        .{ .supported = true, .mode = .image },
-        .{ .supported = true, .mode = .emoji },
-        .{ .supported = true, .mode = .none },
-        .{ .supported = false, .mode = .emoji },
-        .{ .supported = false, .mode = .none },
-    }) |case| {
+    for ([_]bool{ true, false }) |supported| {
         var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer output.deinit();
         var view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.len, 0);
-        view.corgi_badge = case.mode;
-        view.supports_kitty_graphics = case.supported;
+        view.supports_kitty_graphics = supported;
         try view.draw(&output.writer, &.{}, &entries);
-        const bar = if (case.supported) active_bar_half else active_bar_cell;
         for ([_][]const u8{ "\x1b[6;1H", "\x1b[7;1H", "\x1b[8;1H" }) |row| {
             var buf: [96]u8 = undefined;
-            try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, bar })) != null);
+            try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, active_bar })) != null);
         }
-        var other: [96]u8 = undefined;
-        try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&other, "\x1b[3;1H{s}", .{bar})) == null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[3;1H" ++ active_bar) == null);
         try std.testing.expect(std.mem.indexOf(u8, output.written(), active_name ++ "Project") != null);
     }
 }
@@ -1201,9 +1189,37 @@ test "a dragged workspace takes the selected tint and a strong bar" {
     try std.testing.expect(std.mem.indexOf(u8, output.written(), active_name ++ "Other") != null);
     for ([_][]const u8{ "\x1b[3;1H", "\x1b[4;1H", "\x1b[5;1H" }) |row| {
         var buf: [96]u8 = undefined;
-        try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, ghost_bar_cell })) != null);
+        try std.testing.expect(std.mem.indexOf(u8, output.written(), try std.fmt.bufPrint(&buf, "{s}{s}", .{ row, ghost_bar })) != null);
     }
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[6;1H" ++ active_bar_cell) != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "\x1b[6;1H" ++ active_bar) != null);
+}
+
+test "agent rows take the workspace bars: active when focused outside groups, strong when dragged" {
+    const group: Entry = .{ .target = .{ .group = @enumFromInt(1) }, .name = "corgi", .provider = .codex, .state = .idle, .attention = .none, .group = .{ .agents = 2, .current = true } };
+    const agents_only = [_]Entry{
+        .{ .target = .{ .pane = @enumFromInt(1) }, .name = "api refactor", .provider = .codex, .state = .idle, .attention = .none, .focused = true },
+        .{ .target = .{ .pane = @enumFromInt(2) }, .name = "release notes", .provider = .claude, .state = .idle, .attention = .none },
+    };
+    const grouped = [_]Entry{group} ++ agents_only;
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var view = View.init(100, 30, true, 0, agents_only.len).withEntries(&agents_only);
+    for ([_]?usize{ null, 1 }) |dragged| {
+        view.dragged = dragged;
+        try view.draw(&output.writer, &agents_only, &.{});
+        for (0..4) |row| {
+            var buf: [96]u8 = undefined;
+            const active = try std.fmt.bufPrint(&buf, "\x1b[{d};1H{s}", .{ view.middle() + 3 + row, active_bar });
+            try std.testing.expectEqual(row < 2, std.mem.indexOf(u8, output.written(), active) != null);
+            const strong = try std.fmt.bufPrint(&buf, "\x1b[{d};1H{s}", .{ view.middle() + 3 + row, ghost_bar });
+            try std.testing.expectEqual(dragged != null and row >= 2, std.mem.indexOf(u8, output.written(), strong) != null);
+        }
+        output.clearRetainingCapacity();
+    }
+    view.dragged = null;
+    view = view.withEntries(&grouped);
+    try view.draw(&output.writer, &grouped, &.{});
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), active_bar) == null);
 }
 
 test "subagent badge shares the second row without reserving empty space" {

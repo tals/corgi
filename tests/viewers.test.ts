@@ -23,9 +23,9 @@ import {
 
 // A tinted workspace title row: the active workspace, or the one being dragged.
 const tinted = `\x1b[0;1;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m`;
-// Workspace bars without Kitty graphics: accent when active, strong when dragged.
-const activeBar = `\x1b[0;48;2;${PALETTE.accent}m `;
-const ghostBar = `\x1b[0;48;2;${PALETTE.strong}m `;
+// Workspace bars: accent when active, strong when dragged.
+const activeBar = `\x1b[0;38;2;${PALETTE.accent};48;2;${PALETTE.selected}m▌`;
+const ghostBar = `\x1b[0;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m▌`;
 
 class ViewerScenarios extends Viewers {
   async test_ghostty_setup_toggle_preserves_config_and_routes_tabs() {
