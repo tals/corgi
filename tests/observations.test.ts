@@ -370,5 +370,83 @@ class Observations extends Runtime {
     write("system", "turn_duration");
     await this.until(async () => (await this.state()).completed === 2);
   }
+  async test_claude_works_on_while_its_stop_lists_running_subagents() {
+    this.pane = (
+      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
+    ).pane;
+    const lane = (id: string, description: string) => ({
+      id,
+      type: "subagent",
+      status: "running",
+      description,
+      agent_type: "general-purpose",
+    });
+    const stop = (...lanes: any[]) =>
+      this.hook("Stop", "claude", { background_tasks: lanes });
+    const parent = async () => {
+      const snapshot = await this.session();
+      const id = snapshot.panes.find((p: any) => p.id === this.pane).agent
+        .conversation;
+      const conversations = snapshot.conversations;
+      return {
+        ...conversations.find((c: any) => c.id === id),
+        children: Object.fromEntries(
+          conversations
+            .filter((c: any) => c.parent === id)
+            .map((c: any) => [c.agent.activity, c.agent.state]),
+        ),
+      };
+    };
+    const turnEnded = () =>
+      appendFileSync(
+        this.log,
+        JSON.stringify({
+          type: "system",
+          subtype: "turn_duration",
+          sessionId: "session",
+          timestamp: new Date().toISOString(),
+        }) + "\n",
+      );
+    await this.hook("UserPromptSubmit", "claude");
+    await stop(lane("a1", "Lane A"), lane("a2", "Lane B"));
+    turnEnded();
+    await this.settleTranscript();
+    let seen = await parent();
+    this.assertEqual(seen.agent.state, "working");
+    this.assertEqual(seen.agent.subagents, {
+      running: 2,
+      blocked: 0,
+      waiting: true,
+    });
+    this.assertEqual(seen.children, {
+      "Lane A": "working",
+      "Lane B": "working",
+    });
+    this.assertEqual((await this.state()).completed, 0);
+    // The list holds across a reload; nothing re-reads it.
+    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.settle();
+    seen = await parent();
+    this.assertEqual(seen.agent.subagents, {
+      running: 2,
+      blocked: 0,
+      waiting: true,
+    });
+    this.assertTrue(seen.children_observed_at > 0);
+    await stop(lane("a2", "Lane B"));
+    seen = await parent();
+    this.assertEqual(seen.agent.subagents, {
+      running: 1,
+      blocked: 0,
+      waiting: true,
+    });
+    this.assertEqual(seen.children, { "Lane A": "idle", "Lane B": "working" });
+    await stop();
+    turnEnded();
+    await this.until(async () => (await this.state()).completed === 1);
+    seen = await parent();
+    this.assertEqual(seen.agent.state, "idle");
+    this.assertEqual(seen.children, { "Lane A": "idle", "Lane B": "idle" });
+  }
 }
 registerCase("Observations", Observations, { inherited: false });

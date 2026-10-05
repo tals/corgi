@@ -39,6 +39,7 @@ pub const Claude = struct {
         .summary_model = "claude-haiku-4-5-20251001",
         .limits = .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .minutes = .{ 300, 10080 }, .reset = .iso8601 },
         .prompt_turns = true,
+        .children_at_stop = true,
         .screen = .{ .idle_title = "✳ " },
     };
 
@@ -48,6 +49,9 @@ pub const Claude = struct {
     pub const MessageType = enum { assistant, user, result, control_request, control_response };
     /// A message's content block kind (the block's `type` field).
     pub const BlockType = enum { text, tool_use, tool_result };
+    /// The kinds of in-flight work a Stop hook's `background_tasks` lists
+    /// that Corgi reads (the entry's `type` field).
+    pub const TaskType = enum { shell, subagent };
     /// A transcript JSONL line's `type`. The dashed kinds name the
     /// conversation or the session it continued in.
     pub const TranscriptLine = enum { assistant, user, system, attachment, @"agent-name", @"custom-title", @"ai-title", @"continued-in" };

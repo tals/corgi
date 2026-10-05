@@ -561,7 +561,7 @@ pub const Server = struct {
                     if (hook) |h| if (s.runtime.conversations.find(q.provider, h.session)) |actor| {
                         const now = os.microTimestamp();
                         const from = Lifecycle.of(actor);
-                        const ding = actor.observeHook(h, q.seq orelse now, s.actorWatched(actor.id), now);
+                        const ding = s.runtime.conversations.observeHook(actor, h, q.seq orelse now, s.actorWatched(actor.id), now);
                         logHook(actor, from, q.event, null);
                         s.attention(ding, actor.state.state);
                         s.runtime.changed();
@@ -583,7 +583,7 @@ pub const Server = struct {
                     }
                     const now = os.microTimestamp();
                     const from = Lifecycle.of(actor);
-                    const ding = actor.observeHook(hook.?, seq, s.actorWatched(actor.id), now);
+                    const ding = s.runtime.conversations.observeHook(actor, hook.?, seq, s.actorWatched(actor.id), now);
                     logHook(actor, from, q.event, p.id);
                     s.attention(ding, actor.state.state);
                     s.runtime.changed();
@@ -769,6 +769,8 @@ pub const Server = struct {
             const actor = p.attachment.actor.?;
             const from = Lifecycle.of(actor);
             actor.state.abandonTurn(now);
+            // Claude's title shows idle only once none of its subagents run.
+            if (actor.state.subagents.running > 0) s.runtime.conversations.observeSubagents(actor, &.{}, now);
             logState(actor, from, p.id, "screen", "interrupted");
             p.detection.idle_since = 0;
             p.detection.interrupt_key_at = 0;

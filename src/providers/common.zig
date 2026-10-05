@@ -96,6 +96,9 @@ pub const Info = struct {
     /// Hooks and transcripts carry no turn id or commentary: prompt ids key
     /// turns, and the current tool is the activity.
     prompt_turns: bool = false,
+    /// Each Stop lists the subagents still running, so the last list holds
+    /// until the next instead of going stale with time.
+    children_at_stop: bool = false,
     screen: Screen = .{},
 
     /// `config_env` when set, else `config_dir` under $HOME. The caller owns it.

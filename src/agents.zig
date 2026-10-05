@@ -154,10 +154,25 @@ pub const Agent = struct {
         if (recorded) a.changed_at = now;
         return recorded and outcome == .completed;
     }
+    /// The agent stopped its own turn while subagents it started in the
+    /// background run on. It keeps working, with no receipt, until a later
+    /// stop finds none left.
+    pub fn awaitSubagents(a: *Agent, now: i64) void {
+        a.permission_review = null;
+        a.observation.pending_stop = false;
+        a.subagents.waiting = true;
+        a.state = .working;
+        a.compacting = false;
+        a.activity = .{};
+        a.tool = .{};
+        a.tool_active = false;
+        a.changed_at = now;
+    }
     /// The turn ended without evidence of its outcome: no receipt is recorded,
     /// and a late Stop can still begin a normal completion check.
     pub fn abandonTurn(a: *Agent, now: i64) void {
         a.permission_review = null;
+        a.subagents.waiting = false;
         a.state = .idle;
         a.compacting = false;
         a.activity = .{};

@@ -1,6 +1,7 @@
 //! Provider task identities are the unit of work, not individual OS processes.
 const std = @import("std");
 const common = @import("../providers/common.zig");
+const TaskType = @import("../providers/claude.zig").Claude.TaskType;
 const clean = @import("../agents.zig").clean;
 const BoundedText = @import("../bounded_text.zig").BoundedText;
 pub const capacity = 32;
@@ -54,9 +55,7 @@ pub const Inventory = struct {
         if (value != .array) return null;
         var t: Inventory = .{ .observed_at = now };
         for (value.array.items) |item| {
-            if (!std.mem.eql(u8, common.str(item, "type"), "shell")) continue;
-            const status = common.str(item, "status");
-            if (std.mem.eql(u8, status, "completed") or std.mem.eql(u8, status, "failed") or std.mem.eql(u8, status, "killed")) continue;
+            if (claudeTask(item) != .shell) continue;
             t.append(common.str(item, "id"), common.str(item, "description"), common.str(item, "command"));
         }
         return t;
@@ -67,6 +66,53 @@ pub const Inventory = struct {
         return .{ .items = items, .observed_at = t.observed_at, .live = t.live, .truncated = t.truncated };
     }
 };
+
+/// The subagents a Claude Stop lists as still running.
+pub const Children = struct {
+    pub const Child = struct {
+        id: BoundedText(96) = .{},
+        description: BoundedText(160) = .{},
+        agent_type: BoundedText(80) = .{},
+    };
+    items: [capacity]Child = @splat(.{}),
+    len: usize = 0,
+    /// Every listed subagent, including any past `capacity`.
+    running: u32 = 0,
+
+    /// Null when the event lists no work at all; only Stop does.
+    pub fn claude(value: std.json.Value) ?Children {
+        if (value != .array) return null;
+        var out: Children = .{};
+        for (value.array.items) |item| {
+            if (claudeTask(item) != .subagent) continue;
+            const id = common.str(item, "id");
+            if (id.len == 0 or id.len > 96 or out.listed(id)) continue;
+            out.running +|= 1;
+            if (out.len == capacity) continue;
+            out.items[out.len] = .{ .id = .ascii(id), .description = .initTruncated(common.str(item, "description")), .agent_type = .ascii(common.str(item, "agent_type")) };
+            out.len += 1;
+        }
+        return out;
+    }
+    pub fn slice(c: *const Children) []const Child {
+        return c.items[0..c.len];
+    }
+    pub fn listed(c: *const Children, id: []const u8) bool {
+        for (c.slice()) |child| if (std.mem.eql(u8, child.id.text(), id)) return true;
+        return false;
+    }
+    /// Whether every listed subagent fit; only then is an unlisted one over.
+    pub fn complete(c: *const Children) bool {
+        return c.running == c.len;
+    }
+};
+
+/// The kind of a Claude task that is still in flight, if Corgi reads it.
+fn claudeTask(item: std.json.Value) ?TaskType {
+    const status = common.str(item, "status");
+    if (std.mem.eql(u8, status, "completed") or std.mem.eql(u8, status, "failed") or std.mem.eql(u8, status, "killed")) return null;
+    return std.meta.stringToEnum(TaskType, common.str(item, "type"));
+}
 
 /// Keep shell syntax, flags and inline programs out of display labels. Provider
 /// prose is useful, but is bounded too so it cannot dominate the tooltip.
@@ -152,6 +198,29 @@ test "provider tasks retain identity, descriptions and bounded categories" {
     }
     try std.testing.expectEqual(capacity, t.len);
     try std.testing.expect(t.truncated);
+}
+
+test "a Claude Stop lists its running subagents apart from its commands" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\[{"id":"b1","type":"shell","status":"running","description":"Run tests","command":"bun test"},
+        \\{"id":"a1","type":"subagent","status":"running","description":"Lane A: sidebar","agent_type":"general-purpose"},
+        \\{"id":"a1","type":"subagent","status":"running","description":"Lane A: sidebar"},
+        \\{"id":"a2","type":"subagent","status":"pending","description":"Review","agent_type":"Explore"},
+        \\{"id":"a3","type":"subagent","status":"completed","description":"Done"},
+        \\{"id":"m1","type":"monitor","status":"running","description":"Watch"}]
+    , .{});
+    defer parsed.deinit();
+    const children = Children.claude(parsed.value).?;
+    try std.testing.expectEqual(@as(u32, 2), children.running);
+    try std.testing.expect(children.complete());
+    try std.testing.expectEqualStrings("Lane A: sidebar", children.items[0].description.text());
+    try std.testing.expectEqualStrings("general-purpose", children.items[0].agent_type.text());
+    try std.testing.expect(children.listed("a2") and !children.listed("a3") and !children.listed("b1"));
+    try std.testing.expectEqual(@as(usize, 1), Inventory.claude(parsed.value, 1).?.len);
+    try std.testing.expect(Children.claude(.null) == null);
+    const empty = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, "[]", .{});
+    defer empty.deinit();
+    try std.testing.expectEqual(@as(u32, 0), Children.claude(empty.value).?.running);
 }
 
 test "task labels summarize commands and bound provider prose" {

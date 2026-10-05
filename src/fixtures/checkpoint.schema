@@ -74,6 +74,7 @@ $.conversations[].parent: optional
 $.conversations[].parent?: u32
 $.conversations[].workspace: u32
 $.conversations[].observed_at: i64
+$.conversations[].children_observed_at: i64
 $.next_conversation: u32
 $.live: bool
 $.saved_at: i64

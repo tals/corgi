@@ -81,6 +81,8 @@ pub const Actor = struct {
         actor.compactionChanged(was_compacting, now);
         switch (actor.provider()) {
             .claude => {
+                // Its own activity ends a wait; only a Stop can begin one.
+                actor.state.subagents.waiting = false;
                 if (background_tasks.Inventory.claude(event.background_tasks, now)) |tasks| actor.background_tasks = tasks;
                 if (event.kind == .session_end) actor.background_tasks = .{};
             },
@@ -387,6 +389,45 @@ pub const Registry = struct {
             child.observed_at = @max(child.observed_at, snapshot.observed_at);
         }
     }
+    /// A hook updates its conversation. A Claude Stop also lists the subagents
+    /// still running, which become the conversation's children.
+    pub fn observeHook(registry: *Registry, actor: *Actor, event: providers.Hook, seq: i64, watched: bool, now: i64) bool {
+        const accepted = actor.state.last_seq;
+        const ding = actor.observeHook(event, seq, watched, now);
+        // Only an accepted hook advances last_seq; a rejected one's list may be stale.
+        if (actor.state.last_seq == accepted or actor.provider() != .claude) return ding;
+        const listed = background_tasks.Children.claude(event.background_tasks);
+        if (listed == null and event.kind != .session_end) return ding;
+        const children = listed orelse background_tasks.Children{};
+        registry.observeSubagents(actor, &children, now);
+        if (event.kind == .stop and children.running > 0) actor.state.awaitSubagents(now);
+        return ding;
+    }
+    /// Claude's subagents as listed when its turn last stopped: listed ones
+    /// work, and a known one missing from a complete list has ended.
+    pub fn observeSubagents(registry: *Registry, parent: *Actor, children: *const background_tasks.Children, now: i64) void {
+        parent.state.subagents.running = children.running;
+        parent.children_observed_at = now;
+        for (children.slice()) |meta| {
+            const child = registry.get(.claude, meta.id.text()) catch |err| {
+                if (registry.full_failure.changed(err)) log.warn("dropping Claude subagents: {}", .{err});
+                continue;
+            };
+            if (!registry.linkChild(parent, child)) continue;
+            child.role = .initTruncated(meta.agent_type.text());
+            child.state.setName(meta.agent_type.text());
+            child.state.setActivity(meta.description.text());
+            child.state.state = .working;
+            child.observed_at = now;
+        }
+        if (!children.complete()) return;
+        for (registry.items.items) |child| {
+            const owner = child.parent orelse continue;
+            if (owner != parent.id or child.state.state == .idle or children.listed(child.state.sessionId())) continue;
+            child.state.state = .idle;
+            child.observed_at = now;
+        }
+    }
     /// An initial hook may establish identity when integration was enabled after
     /// startup. Once associated, only SessionStart selects another conversation.
     /// A delayed event from a known conversation does not change UI selection.
@@ -574,6 +615,92 @@ test "a second attachment does not erase a stop awaiting transcript confirmation
     try std.testing.expect(actor.confirmStop(10, .completed, 102));
     try std.testing.expectEqual(@as(u64, 1), actor.state.observation.completed);
     try std.testing.expect(!actor.confirmStop(10, .completed, 103));
+}
+
+test "a Claude parent works on while its Stop lists subagents, which become its children" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const parent = try registry.get(.claude, "parent");
+    parent.workspace = @enumFromInt(3);
+    const lines = [_][]const u8{
+        \\{"hook_event_name":"UserPromptSubmit","session_id":"parent"}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"parent","background_tasks":[
+        \\{"id":"a1","type":"subagent","status":"running","description":"Lane A: sidebar","agent_type":"general-purpose"},
+        \\{"id":"a2","type":"subagent","status":"running","description":"Lane B: cards","agent_type":"Explore"},
+        \\{"id":"b1","type":"shell","status":"running","description":"Run tests","command":"bun test"}]}
+        ,
+        \\{"hook_event_name":"PreToolUse","session_id":"parent","tool_name":"Bash"}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"parent","background_tasks":[
+        \\{"id":"a2","type":"subagent","status":"running","description":"Lane B: cards","agent_type":"Explore"}]}
+        ,
+        \\{"hook_event_name":"Stop","session_id":"parent","background_tasks":[]}
+    };
+    var hooks: [lines.len]providers.Hook = undefined;
+    var parsed: [lines.len]std.json.Parsed(std.json.Value) = undefined;
+    for (lines, &hooks, &parsed) |line, *hook, *value| {
+        value.* = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, line, .{});
+        hook.* = providers.Backend.init(.claude).hook(value.value).?;
+    }
+    defer for (parsed) |value| value.deinit();
+    _ = registry.observeHook(parent, hooks[0], 1, false, 100);
+    // Its own turn ends, but the lanes it started run on: no receipt yet.
+    try std.testing.expect(!registry.observeHook(parent, hooks[1], 2, false, 200));
+    try std.testing.expectEqual(agents.State.working, parent.state.state);
+    try std.testing.expectEqual(agents.Subagents{ .running = 2, .waiting = true }, parent.state.subagents);
+    try std.testing.expect(!parent.confirmStop(2, .completed, 210));
+    try std.testing.expectEqual(@as(u64, 0), parent.state.observation.completed);
+    try std.testing.expectEqual(@as(i64, 200), parent.children_observed_at);
+    try std.testing.expectEqual(@as(usize, 1), parent.background_tasks.len);
+    const a1 = registry.find(.claude, "a1").?;
+    const a2 = registry.find(.claude, "a2").?;
+    try std.testing.expectEqual(parent.id, a1.parent.?);
+    try std.testing.expectEqual(parent.workspace, a1.workspace);
+    try std.testing.expectEqual(agents.State.working, a1.state.state);
+    try std.testing.expectEqualStrings("Lane A: sidebar", a1.state.activity.text());
+    try std.testing.expectEqualStrings("Explore", a2.role.text());
+    try std.testing.expectEqual(@as(i64, 200), a2.observed_at);
+    // Its own work ends the wait but keeps the count.
+    _ = registry.observeHook(parent, hooks[2], 3, false, 300);
+    try std.testing.expectEqual(agents.Subagents{ .running = 2 }, parent.state.subagents);
+    // A lane finishing wakes it, and that turn's Stop lists the rest.
+    try std.testing.expect(!registry.observeHook(parent, hooks[3], 4, false, 400));
+    try std.testing.expectEqual(agents.Subagents{ .running = 1, .waiting = true }, parent.state.subagents);
+    try std.testing.expectEqual(agents.State.idle, a1.state.state);
+    try std.testing.expectEqual(agents.State.working, a2.state.state);
+    // A replayed list is rejected with its hook.
+    _ = registry.observeHook(parent, hooks[1], 4, false, 450);
+    try std.testing.expectEqual(agents.State.idle, a1.state.state);
+    // The last Stop finishes the whole job once.
+    _ = registry.observeHook(parent, hooks[4], 5, false, 500);
+    try std.testing.expectEqual(agents.Subagents{}, parent.state.subagents);
+    try std.testing.expectEqual(agents.State.idle, a2.state.state);
+    try std.testing.expect(parent.state.observation.pending_stop);
+    try std.testing.expect(parent.confirmStop(5, .completed, 510));
+    try std.testing.expectEqual(agents.State.idle, parent.state.state);
+    try std.testing.expectEqual(@as(u64, 1), parent.state.observation.completed);
+}
+
+test "a Claude session's end ends the subagents its last Stop listed" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    const parent = try registry.get(.claude, "parent");
+    const stop = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"Stop","session_id":"parent","background_tasks":[{"id":"a1","type":"subagent","status":"running","description":"Lane A"}]}
+    , .{});
+    defer stop.deinit();
+    const end = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"hook_event_name":"SessionEnd","session_id":"parent"}
+    , .{});
+    defer end.deinit();
+    const backend = providers.Backend.init(.claude);
+    _ = registry.observeHook(parent, backend.hook(stop.value).?, 1, false, 100);
+    try std.testing.expectEqual(agents.State.working, registry.find(.claude, "a1").?.state.state);
+    _ = registry.observeHook(parent, backend.hook(end.value).?, 2, false, 200);
+    try std.testing.expectEqual(agents.State.done, parent.state.state);
+    try std.testing.expectEqual(agents.Subagents{}, parent.state.subagents);
+    try std.testing.expectEqual(agents.State.idle, registry.find(.claude, "a1").?.state.state);
 }
 
 test "first hook establishes identity without process detection but cannot revive a replaced source" {

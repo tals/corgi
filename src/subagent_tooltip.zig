@@ -112,13 +112,15 @@ pub fn childCount(all: []const protocol.Conversation, parent: ActorId) usize {
 }
 pub fn childrenAvailable(all: []const protocol.Conversation, parent: ActorId, now: i64) bool {
     const root = find(all, parent) orelse return false;
+    // A list that holds until the next one does not age.
+    const lasting = if (root.agent.provider) |provider| provider.info().children_at_stop else false;
     const age = now - root.children_observed_at;
-    if (root.children_observed_at <= 0 or age < 0 or age > fresh_window) return false;
+    if (root.children_observed_at <= 0 or (!lasting and (age < 0 or age > fresh_window))) return false;
     // Omit the whole section when child status cannot be presented reliably.
     for (all) |child| {
         if (!descendant(all, child, parent)) continue;
         const child_age = now - child.observed_at;
-        if (child.agent.state == .unknown or child.observed_at <= 0 or child_age < 0 or child_age > fresh_window) return false;
+        if (child.agent.state == .unknown or child.observed_at <= 0 or (!lasting and (child_age < 0 or child_age > fresh_window))) return false;
     }
     return true;
 }
@@ -1529,6 +1531,30 @@ test "unavailable or stale child discovery makes no subagent claims" {
     all[0].agent.subagents = .{};
     try draw(&output.writer, all[0..1], entry, 100, 30, 5, 14);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "No subagents") != null);
+}
+
+test "Claude's child list holds until its next Stop" {
+    const now = os.microTimestamp();
+    const old = now - 10 * fresh_window;
+    const agent: protocol.Agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "parent", .activity = "", .cwd = "", .tool_active = false, .subagents = .{ .running = 1, .waiting = true } };
+    const lane: protocol.Agent = .{ .provider = .claude, .state = .working, .attention = .none, .session = "a1", .name = "general-purpose", .activity = "Lane A: sidebar", .cwd = "", .tool_active = false };
+    var all = [_]protocol.Conversation{
+        .{ .id = @enumFromInt(1), .agent = agent, .children_observed_at = old },
+        .{ .id = @enumFromInt(2), .parent = @enumFromInt(1), .agent = lane, .observed_at = old },
+    };
+    var entry: sidebar.Entry = .{ .target = .{ .pane = @enumFromInt(1) }, .conversation = @enumFromInt(1), .provider = .claude, .state = .working, .attention = .none, .subagents = agent.subagents };
+    presentChildren(&entry, &all, now);
+    try std.testing.expectEqual(@as(usize, 1), entry.children);
+    try std.testing.expect(entry.subagents.waiting);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try draw(&output.writer, &all, entry, 100, 30, 5, 14);
+    for ([_][]const u8{ "Lane A: sidebar", "Including subagents" }) |text| try std.testing.expect(std.mem.indexOf(u8, output.written(), text) != null);
+    // No Stop has listed any yet.
+    all[0].children_observed_at = 0;
+    presentChildren(&entry, &all, now);
+    try std.testing.expectEqual(@as(usize, 0), entry.children);
+    try std.testing.expect(!entry.subagents.waiting);
 }
 
 test "compact token counts round through unit boundaries without overflow" {

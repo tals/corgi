@@ -141,6 +141,7 @@ pub const Conversation = struct {
     parent: ?ActorId = null,
     workspace: WorkspaceId = .none,
     observed_at: i64 = 0,
+    children_observed_at: i64 = 0,
 };
 pub const Binding = struct {
     actor: ActorId = .none,
@@ -277,6 +278,7 @@ pub fn capture(alloc: std.mem.Allocator, r: *runtime.Runtime, live: bool) !State
         .parent = actor.parent,
         .workspace = actor.workspace,
         .observed_at = if (live) actor.observed_at else 0,
+        .children_observed_at = if (live) actor.children_observed_at else 0,
     };
     return .{
         .link_labels = if (live) r.link_labels else .{},
@@ -335,6 +337,7 @@ pub fn restore(r: *runtime.Runtime, state: State, live: bool, socket: []const u8
         actor.parent = saved.parent;
         actor.workspace = if (r.workspaces.index(saved.workspace) != null) saved.workspace else .none;
         actor.observed_at = if (live) saved.observed_at else 0;
+        actor.children_observed_at = if (live) saved.children_observed_at else 0;
     }
     r.conversations.next_id = state.next_conversation;
     for (r.conversations.items.items) |actor| if (actor.parent) |parent| {
