@@ -611,7 +611,6 @@ $.replies.agent.history.history.entries[].cwd: string
 $.replies.agent.history.history.entries[].branch: string
 $.replies.agent.history.history.entries[].updated_at: i64
 $.replies.agent.history.history.entries[].interrupted: bool
-$.replies.agent.history.history.entries[].chore: bool
 $.launch_preview.pending: bool
 $.launch_preview.options.codex.signed_in: optional
 $.launch_preview.options.codex.signed_in?: bool
@@ -669,6 +668,5 @@ $.launch_history.entries[].cwd: string
 $.launch_history.entries[].branch: string
 $.launch_history.entries[].updated_at: i64
 $.launch_history.entries[].interrupted: bool
-$.launch_history.entries[].chore: bool
 $.launch_history.removed[].provider: enum codex claude
 $.launch_history.removed[].session: string

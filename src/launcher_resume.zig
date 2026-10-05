@@ -55,9 +55,9 @@ pub const Context = struct {
             .everywhere => true,
         };
     }
-    /// Listed without a search: closed, in `scope`, and more than a commit.
+    /// Listed without a search: closed and in `scope`.
     fn listed(c: Context, e: *const Entry, scope: Scope) bool {
-        return c.opened(e) == null and c.inScope(e, scope) and !e.chore;
+        return c.opened(e) == null and c.inScope(e, scope);
     }
 };
 
@@ -184,8 +184,7 @@ pub const View = struct {
         }
         return out[0..n];
     }
-    /// Search results: open matches first, then closed ones in scope,
-    /// commit chores included.
+    /// Search results: open matches first, then closed ones in scope.
     fn found(v: *const View, c: Context, out: *[max_lines]Line) []Line {
         var n: usize = 0;
         const entries = c.history.entries;
@@ -636,20 +635,19 @@ test "collapsed shows this folder's newest closed conversations, then more" {
     var entries: [9]Entry = undefined;
     const names = "abcdefghi";
     for (&entries, 0..) |*e, i| e.* = testEntry(names[i..][0..1], "/w/corgi", "Work", 900 - @as(i64, @intCast(i)));
-    entries[1].chore = true;
     entries[2].cwd = "/w/other";
     const open = [_]Open{.{ .provider = .claude, .session = .initTruncated("d"), .pane = @enumFromInt(4) }};
     const c: Context = .{ .history = .{ .pending = false, .entries = &entries }, .folder = "/w/corgi", .workspace_folder = "/w", .open = &open, .now = 1000 };
     var v: View = .{};
     var storage: [max_lines]Line = undefined;
     const rows = v.lines(c, &storage);
-    // a, e, f, g, h and i are listed; b is a chore, c is in another folder
-    // of the workspace, d is open.
+    // a, b, e, f, g, h and i are listed; c is in another folder of the
+    // workspace, d is open.
     try std.testing.expectEqual(@as(usize, collapsed_rows + 1), rows.len);
     try std.testing.expectEqual(@as(u16, 0), rows[0].entry);
-    try std.testing.expectEqual(@as(u16, 4), rows[1].entry);
+    try std.testing.expectEqual(@as(u16, 4), rows[2].entry);
     // The search starts on the workspace, so c counts too.
-    try std.testing.expectEqual(@as(u16, 7), rows[collapsed_rows].more);
+    try std.testing.expectEqual(@as(u16, 8), rows[collapsed_rows].more);
     // A gap sits above the "more" row.
     try std.testing.expectEqual(@as(?usize, collapsed_rows - 1), v.collapsedHit(c, collapsed_rows - 1));
     try std.testing.expectEqual(@as(?usize, null), v.collapsedHit(c, collapsed_rows));

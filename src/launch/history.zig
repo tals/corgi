@@ -29,8 +29,6 @@ pub const Entry = struct {
     updated_at: i64 = 0,
     /// The last turn stopped before the agent finished it.
     interrupted: bool = false,
-    /// It only asked for a commit, like `$commit-all`.
-    chore: bool = false,
 };
 pub const History = struct {
     pending: bool = true,
@@ -159,16 +157,6 @@ fn clip(alloc: std.mem.Allocator, text: []const u8, limit: usize) ![]const u8 {
     while (len > 0 and !std.unicode.utf8ValidateSlice(out.items[0..len])) len -= 1;
     out.shrinkRetainingCapacity(len);
     return out.toOwnedSlice(alloc);
-}
-
-/// A request that only asks for a commit.
-fn chore(first: []const u8, title: []const u8) bool {
-    const prompt = std.mem.trim(u8, first, " .!");
-    if (std.ascii.startsWithIgnoreCase(prompt, "$commit")) return true;
-    for ([_][]const u8{ "commit", "commit it", "commit all", "commit all changes", "commit pending changes", "commit all pending changes" }) |known| {
-        if (std.ascii.eqlIgnoreCase(prompt, known)) return true;
-    }
-    return std.ascii.startsWithIgnoreCase(title, "commit all") or std.ascii.startsWithIgnoreCase(title, "commit pending");
 }
 
 /// Text a user typed, as opposed to what a client wrote into the prompt.
@@ -301,7 +289,6 @@ fn readClaude(path: []const u8, stat: std.Io.File.Stat) ?Entry {
         if (entry.last.len == 0) entry.last = entry.first;
         if (entry.first.len == 0) entry.first = entry.last;
         if (entry.first.len == 0) return null;
-        entry.chore = chore(entry.first, entry.title);
         return copy(a, entry) catch null;
     }
 }
@@ -457,7 +444,6 @@ fn codexEntries(arena: std.mem.Allocator, cache: *Cache, rollouts: *Rollouts, pa
                     entry.interrupted = t.interrupted;
                 }
             } else |_| {};
-            entry.chore = chore(entry.first, entry.title);
             try out.append(arena, try copy(arena, entry));
         }
         const next = str(result, "nextCursor");
@@ -923,7 +909,6 @@ test "Claude transcripts from the SDK or continued elsewhere are skipped" {
     ;
     const entry = claudeEntry(arena.allocator(), "s", renamed, renamed, false, 0).?;
     try std.testing.expectEqualStrings("Release prep", entry.title);
-    try std.testing.expect(chore(entry.first, entry.title));
 }
 
 test "a tail that starts mid-line skips the partial line" {
@@ -961,13 +946,6 @@ test "a Codex rollout tail yields the last typed prompt and an abort" {
     , false);
     try std.testing.expectEqualStrings("try again", resumed.last);
     try std.testing.expect(!resumed.interrupted);
-}
-
-test "commit chores" {
-    try std.testing.expect(chore("$commit-all", ""));
-    try std.testing.expect(chore("Commit pending changes.", ""));
-    try std.testing.expect(chore("anything", "Commit all changes"));
-    try std.testing.expect(!chore("ok fixup the previous commit", "Commit message improvements"));
 }
 
 test "clip keeps one line within its byte limit at a UTF-8 boundary" {
