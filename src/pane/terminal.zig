@@ -27,6 +27,8 @@ pub const Terminal = struct {
     title_revision: u64 = 0,
     exited: bool = false,
     exit_status: c_int = 0,
+    /// Started a program rather than a shell, so the pane ends with it.
+    runs_command: bool = false,
     pending: std.ArrayList(u8) = .empty,
     /// The text the program last copied with OSC 52, until the daemon
     /// passes it to a viewer.
@@ -175,6 +177,7 @@ pub const Terminal = struct {
                 os.exec(&.{ shell, "-l" }) catch c._exit(127);
         }
         t.pid = pid;
+        t.runs_command = command != null;
         os.nonblock(t.fd);
         os.cloexec(t.fd);
     }

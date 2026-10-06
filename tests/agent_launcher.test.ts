@@ -91,6 +91,8 @@ if (args.includes('app-server')) { const p = Bun.spawn([process.execPath, ${JSON
 if (args.includes('--version')) { console.log('codex fixture'); process.exit(0); }
 if (args[0] === 'auth' && args[1] === 'status') throw new Error('background preview must not invoke auth status');
 appendFileSync(${JSON.stringify(this.launches)}, JSON.stringify({cwd:process.cwd(),args}) + '\\n');
+if (args.at(-1) === 'refused') { console.log('That session is running in the background.'); process.exit(1); }
+if (args.at(-1) === 'quits') process.exit(0);
 console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
 `,
     );
@@ -1381,6 +1383,39 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     this.assertEqual(launch.args, ["--resume", session]);
     this.assertEqual(realpathSync(launch.cwd), this.launchDir);
     this.assertNotIn("New agent", (await view.poll()).data);
+  }
+  resume(session: string) {
+    return this.command("agent.resume", {
+      workspace: this.ws,
+      cwd: this.launchDir,
+      provider: "claude",
+      session,
+    }).then((created: any) => created.pane);
+  }
+  async test_a_failed_agent_keeps_its_tab_until_closed() {
+    const failed = await this.resume("refused");
+    await this.until(async () => {
+      const { text } = await this.command("pane.read", {
+        target: failed,
+        view: "screen",
+      });
+      return (
+        text.includes("running in the background") &&
+        text.includes("# Exited with code 1")
+      );
+    }, 20);
+    // It no longer holds the conversation, so Resume starts it again.
+    const kept = (await this.panes()).find((p: any) => p.id === failed);
+    this.assertEqual(kept.session, "");
+    // One that quits closes as before.
+    const quits = await this.resume("quits");
+    await this.until(
+      async () => !(await this.panes()).some((p: any) => p.id === quits),
+      20,
+    );
+    this.assertTrue((await this.panes()).some((p: any) => p.id === failed));
+    await this.command("pane.close", { target: failed });
+    this.assertFalse((await this.panes()).some((p: any) => p.id === failed));
   }
   async test_preview_project_model() {
     const project = join(this.temp.name, "project");

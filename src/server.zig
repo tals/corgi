@@ -1134,7 +1134,10 @@ pub const Server = struct {
             var pi: usize = 0;
             while (pi < s.runtime.panes.items.len) {
                 const p = &s.runtime.panes.items[pi];
-                if (closable and p.terminal.exited) {
+                if (p.failed()) {
+                    if (p.keepFailed()) s.dirty = true;
+                    pi += 1;
+                } else if (closable and p.terminal.exited) {
                     s.close(p.id) catch |err| {
                         log.warn("removing exited pane {d}: {}", .{ @intFromEnum(p.id), err });
                         pi += 1; // Leave it for the next pass rather than spin.

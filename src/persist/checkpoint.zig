@@ -32,6 +32,7 @@ pub const Screen = struct {
     fd: i32 = -1,
     exited: bool = true,
     exit_status: i32 = 0,
+    runs_command: bool = false,
     initial_input: ?[]const u8 = null,
     pub fn capture(alloc: std.mem.Allocator, t: *Terminal, live: bool) !Screen {
         // Transfer retained terminal state, not every byte ever emitted. Repaint
@@ -46,6 +47,7 @@ pub const Screen = struct {
             .fd = if (live) t.fd else -1,
             .exited = t.exited,
             .exit_status = t.exit_status,
+            .runs_command = t.runs_command,
             .initial_input = if (live) t.initial_input else null,
         };
     }
@@ -65,6 +67,7 @@ pub const Screen = struct {
             t.owner = .candidate;
             t.exited = screen.exited;
             t.exit_status = screen.exit_status;
+            t.runs_command = screen.runs_command;
             t.imported = true;
             t.redraw_pending = true;
             if (t.fd >= 0) os.cloexec(t.fd);

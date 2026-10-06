@@ -109,6 +109,26 @@ pub const Pane = struct {
         const launch = p.launch orelse return "";
         return launch.typed(alloc, p.resume_hint.args());
     }
+    /// Whether an agent Corgi started exited with an error. Its pane stays,
+    /// with its last screen and how it ended, until someone closes it.
+    pub fn failed(p: *const Pane) bool {
+        const t = p.terminal;
+        return t.exited and t.runs_command and p.launch != null and t.exit_status != 0;
+    }
+    /// Writes how a failed agent ended and lets go of its process and
+    /// conversation. True the first time, when the screen changed.
+    pub fn keepFailed(p: *Pane) bool {
+        const t = p.terminal;
+        // Already let go, here or before a reload.
+        if (t.pid < 0) return false;
+        _ = t.read();
+        p.dropGhost();
+        p.attachment.detach();
+        var buf: [96]u8 = undefined;
+        t.feed(ending(&buf, @bitCast(t.exit_status)));
+        t.stop();
+        return true;
+    }
 
     pub fn refreshCwd(p: *Pane) void {
         if (p.terminal.exited) return;
@@ -150,6 +170,14 @@ pub const Ghost = struct {
         return @min(g.changed_at + quiet_ms, drawn + longest_ms);
     }
 };
+/// The line a failed agent's pane ends with.
+fn ending(buf: []u8, status: u32) []const u8 {
+    const w = std.posix.W;
+    return (if (w.IFSIGNALED(status))
+        std.fmt.bufPrint(buf, "\x1b[0m\r\n\x1b[2m# Ended by signal {d}\x1b[0m\r\n", .{@intFromEnum(w.TERMSIG(status))})
+    else
+        std.fmt.bufPrint(buf, "\x1b[0m\r\n\x1b[2m# Exited with code {d}\x1b[0m\r\n", .{w.EXITSTATUS(status)})) catch unreachable;
+}
 fn screenHash(t: *Terminal) ?u64 {
     const text = t.liveText() catch return null;
     defer a.free(text);
@@ -670,6 +698,52 @@ test "closing a running agent keeps it for its own workspace; shells and agents 
     try std.testing.expectEqualStrings("CLAUDE_CONFIG_DIR=~/.work claude", kept.launch.?.command.text());
     try std.testing.expectEqual(agent_id, kept.pane);
     try std.testing.expectEqual(@as(?u8, 0), kept.tab_index);
+}
+
+test "an agent that failed stays with how it ended; one that quit, a shell and a script do not" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const ws = try r.workspaces.add("failed", "/tmp");
+    const p = try testPane(&r, ws, "refused");
+    p.launch = .{ .agent = .{ .provider = .claude } };
+    try p.resize(60, 6);
+    try testGhost(p, "OLD");
+    p.terminal.feed("\r\nThat session is running in the background");
+    // Reaped already, so letting go signals nothing.
+    p.terminal.pid = 42;
+    p.terminal.runs_command = true;
+    p.terminal.exited = true;
+    p.terminal.exit_status = 1 << 8;
+    try std.testing.expect(p.failed());
+    try std.testing.expect(p.keepFailed());
+    try std.testing.expect(p.ghost == null);
+    try std.testing.expect(p.attachment.actor == null);
+    const text = try p.terminal.text();
+    defer a.free(text);
+    try std.testing.expect(std.mem.indexOf(u8, text, "running in the background") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "# Exited with code 1") != null);
+    // A later pass, or one after a reload, writes nothing more.
+    const revision = p.terminal.surface_revision;
+    try std.testing.expect(p.failed());
+    try std.testing.expect(!p.keepFailed());
+    try std.testing.expectEqual(revision, p.terminal.surface_revision);
+
+    const Case = struct { status: c_int, runs_command: bool = true, agent: bool = true };
+    for ([_]Case{
+        .{ .status = 0 },
+        // Recovery starts a shell in an agent's pane.
+        .{ .status = 1 << 8, .runs_command = false },
+        .{ .status = 1 << 8, .agent = false },
+    }) |case| {
+        const other = try testPane(&r, ws, null);
+        if (case.agent) other.launch = .{ .agent = .{ .provider = .codex } };
+        other.terminal.runs_command = case.runs_command;
+        other.terminal.exited = true;
+        other.terminal.exit_status = case.status;
+        try std.testing.expect(!other.failed());
+    }
+    var buf: [96]u8 = undefined;
+    try std.testing.expect(std.mem.indexOf(u8, ending(&buf, 9), "# Ended by signal 9") != null);
 }
 
 test "a closed split's tab goes back after the tab it shared" {

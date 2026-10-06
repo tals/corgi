@@ -93,6 +93,8 @@ screen until the agent has drawn and settled. A closed agent that undo could
 reopen comes back as undo brings it back instead: with the command that started
 it, its old screen faded under the band, and in its old tab place when it
 closed in this workspace. Resuming does not change which agent `New` starts.
+When an agent Corgi started exits with an error, as a refused resume does, its
+tab stays with its last screen and `# Exited with code N` until you close it.
 
 **Show N more…** or `/` expands the list into a table grouped by day. `/`
 searches titles, first prompts and last messages; every word must match. Tab
