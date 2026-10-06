@@ -93,6 +93,11 @@ screen until the agent has drawn and settled. A closed agent that undo could
 reopen comes back as undo brings it back instead: with the command that started
 it, its old screen faded under the band, and in its old tab place when it
 closed in this workspace. Resuming does not change which agent `New` starts.
+A Claude conversation that Claude's background daemon still runs, such as one
+sent there with `/bg`, opens with `claude attach` instead, since `claude
+--resume` refuses it; closing its tab leaves it running there. Corgi checks the
+records live Claude processes keep in `~/.claude/sessions/` at that moment.
+Saved launcher commands still resume, since they may use another account.
 When an agent Corgi started exits with an error, as a refused resume does, its
 tab stays with its last screen and `# Exited with code N` until you close it.
 

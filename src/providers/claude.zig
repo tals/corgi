@@ -108,6 +108,17 @@ pub const Claude = struct {
             return if (std.mem.eql(u8, owner, conversation)) line else null;
         }
     };
+    /// What a live Claude process records in `<config>/sessions/<pid>.json`;
+    /// field names are the wire keys.
+    pub const SessionRecord = struct {
+        pid: c_int = 0,
+        sessionId: []const u8 = "",
+        kind: ?SessionKind = null,
+        /// The background job's short id, which `claude attach` takes.
+        jobId: []const u8 = "",
+    };
+    /// Who runs a live session: a terminal, or Claude's background daemon.
+    pub const SessionKind = enum { interactive, bg };
     /// A subagent's own transcript, kept beside its session's in a folder
     /// named for the session.
     pub fn subagentTranscript(buf: []u8, transcript: []const u8, session: []const u8, agent: []const u8) ?[]const u8 {

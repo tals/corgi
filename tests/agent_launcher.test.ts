@@ -1417,6 +1417,29 @@ console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'c
     await this.command("pane.close", { target: failed });
     this.assertFalse((await this.panes()).some((p: any) => p.id === failed));
   }
+  async test_resume_attaches_to_a_session_claudes_daemon_runs() {
+    // A live background process holds it, so `--resume` would refuse it.
+    const held = "19e909c5-911c-4ab9-b49f-e5bbc7682b4a";
+    const sessions = join(this.env.CLAUDE_CONFIG_DIR!, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeFileSync(
+      join(sessions, `${process.pid}.json`),
+      JSON.stringify({
+        pid: process.pid,
+        sessionId: held,
+        kind: "bg",
+        jobId: "19e909c5",
+      }),
+    );
+    const attached = await this.resume(held);
+    const shown = (await this.panes()).find((p: any) => p.id === attached);
+    this.assertEqual(shown.restoring, "claude attach 19e909c5");
+    await this.until(() => existsSync(this.launches), 20);
+    this.assertEqual(JSON.parse(lines(this.launches).at(-1)!).args, [
+      "attach",
+      "19e909c5",
+    ]);
+  }
   async test_preview_project_model() {
     const project = join(this.temp.name, "project");
     mkdirSync(join(project, ".claude"), { recursive: true });

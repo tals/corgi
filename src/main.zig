@@ -497,6 +497,7 @@ test {
     _ = @import("bindings.zig");
     _ = @import("bounded_text.zig");
     _ = @import("claude_credentials.zig");
+    _ = @import("claude_daemon.zig");
     _ = @import("cli.zig");
     _ = @import("client.zig");
     _ = @import("clock.zig");

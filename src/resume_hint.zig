@@ -2,6 +2,7 @@
 //! and offer the command that resumes it.
 const std = @import("std");
 const agents = @import("agents.zig");
+const claude_daemon = @import("claude_daemon.zig");
 
 pub const ResumeHint = struct {
     name: agents.Text = .{},
@@ -48,7 +49,15 @@ pub const ResumeHint = struct {
         const provider = r.provider orelse return null;
         return provider.info().resumeArgs(.{ .id = r.session.text() }) catch null;
     }
+    /// The job Claude's background daemon runs the session as, if it does.
+    /// `claude --resume` refuses such a session; `claude attach` opens it.
+    pub fn backgroundJob(r: *const ResumeHint) ?claude_daemon.JobId {
+        if (r.provider != .claude or r.args() == null) return null;
+        return claude_daemon.job(r.session.text());
+    }
+    /// The command that reopens the session now, or "" when none is known.
     pub fn command(r: ResumeHint, alloc: std.mem.Allocator) ![]const u8 {
+        if (r.backgroundJob()) |job| return claude_daemon.attachCommand(alloc, job);
         const argv = r.args() orelse return alloc.dupe(u8, "");
         var out: std.Io.Writer.Allocating = .init(alloc);
         errdefer out.deinit();

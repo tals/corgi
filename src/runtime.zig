@@ -17,6 +17,7 @@ const pane_label = @import("pane.zig").label;
 const conversations = @import("conversations.zig");
 const detection = @import("detection.zig");
 const ResumeHint = @import("resume_hint.zig").ResumeHint;
+const claude_daemon = @import("claude_daemon.zig");
 const agent_order = @import("agent_order.zig");
 const launch_command = @import("launch.zig").command;
 const inference_setup = @import("inference.zig").setup;
@@ -40,6 +41,9 @@ pub const Pane = struct {
     resume_hint: ResumeHint = .{},
     /// How Corgi started the pane's agent, so a reopened one starts the same way.
     launch: ?Launch = null,
+    /// The Claude background job a reopened agent attached to, since
+    /// `claude --resume` refuses a session the daemon still runs.
+    background_job: ?claude_daemon.JobId = null,
     /// A resumed agent's old screen, shown until the agent catches up.
     ghost: ?Ghost = null,
 
@@ -106,6 +110,7 @@ pub const Pane = struct {
     /// The command a resumed agent runs, shown while its ghost is up.
     pub fn restoring(p: *const Pane, alloc: std.mem.Allocator) ![]const u8 {
         if (p.ghost == null) return "";
+        if (p.background_job) |job| return claude_daemon.attachCommand(alloc, job);
         const launch = p.launch orelse return "";
         return launch.typed(alloc, p.resume_hint.args());
     }
@@ -527,7 +532,10 @@ pub const Runtime = struct {
     /// `old`, a faded screen, or a blank one until the agent has drawn its own.
     pub fn resumeAgent(r: *Runtime, opts: Create, launch: Launch, hint: ResumeHint, old: ?[]const u8) !layout.PaneId {
         const provider = hint.provider orelse return error.InvalidSession;
-        const typed = try launch.typed(a, hint.args() orelse return error.InvalidSession);
+        // A saved command may name another account, whose daemon this one
+        // can't see, so only a launcher row attaches.
+        const job = if (launch == .agent) hint.backgroundJob() else null;
+        const typed = if (job) |id| try claude_daemon.attachCommand(a, id) else try launch.typed(a, hint.args() orelse return error.InvalidSession);
         defer a.free(typed);
         const command = try launch.paneCommand(a, opts.executable, typed);
         defer a.free(command);
@@ -542,6 +550,7 @@ pub const Runtime = struct {
         const p = r.pane(id).?;
         p.resume_hint = hint;
         p.launch = launch;
+        p.background_job = job;
         // Its conversation shows at once, by name, before the agent reports in.
         if (r.conversations.get(provider, hint.session.text())) |actor| {
             actor.state.reopened(os.microTimestamp());
@@ -744,6 +753,19 @@ test "an agent that failed stays with how it ended; one that quit, a shell and a
     }
     var buf: [96]u8 = undefined;
     try std.testing.expect(std.mem.indexOf(u8, ending(&buf, 9), "# Ended by signal 9") != null);
+}
+
+test "a reopened agent that Claude's daemon runs shows the attach it runs" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const p = try testPane(&r, try r.workspaces.add("attach", "/tmp"), null);
+    try testGhost(p, "OLD");
+    p.launch = .{ .agent = .{ .provider = .claude, .yolo = true } };
+    p.resume_hint = .{ .provider = .claude, .session = .ascii("19e909c5-911c-4ab9-b49f-e5bbc7682b4a") };
+    p.background_job = .ascii("19e909c5");
+    const shown = try p.restoring(a);
+    defer a.free(shown);
+    try std.testing.expectEqualStrings("claude attach 19e909c5", shown);
 }
 
 test "a closed split's tab goes back after the tab it shared" {
