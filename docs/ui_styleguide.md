@@ -18,14 +18,14 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 | Token | Use |
 |---|---|
 | `bg` | Sidebar, cards, panels |
-| `surface` | Raised areas on `bg`: launcher panel, menus, dialogs |
-| `selected` | Selected row; a hovered agent row takes `mix(bg, selected, 50)`. Inputs and buttons on `surface`. Empty meter and spark cells |
-| `line` | Borders, rules. Keycap background |
+| `surface` | Raised areas on `bg`: launcher panel, menus, dialogs. The panel behind a limits spark |
+| `selected` | Selected row; a hovered agent row takes `mix(bg, selected, 50)`. Inputs and buttons on `surface`. Empty meter cells |
+| `line` | Borders, rules. Keycap background. The stipple over a limits spark's time left |
 | `faint` | Labels, column headings, secondary numbers, footers |
 | `muted` | Secondary text: model, subtitle |
 | `text` | Body text |
 | `strong` | Titles, buttons, key names. The number a table ranks by. Use with bold |
-| `accent` | Live: working, current step, graphs, usage below 80%. Current focus: outline, bar, input border |
+| `accent` | Live: working, current step, graphs, usage below 80% (short limit-spark bars fade toward `faint`). Current focus: outline, bar, input border |
 | `warm` | Needs the user: input wait, unpushed commits, limit at 80% or more, context near full |
 | `hot` | Limit at 100%. Failure |
 

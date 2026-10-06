@@ -32,7 +32,7 @@ const Tone = enum {
     /// Column labels, footers and secondary figures.
     faint,
     border,
-    /// Spark cells for time still ahead in a window.
+    /// The stipple over a spark's time still ahead in a window.
     remaining,
     /// Live: usage that is fine, the current step.
     live,
@@ -53,7 +53,7 @@ const Tone = enum {
             .muted => palette.fg(.muted),
             .faint => palette.fg(.faint),
             .border => palette.fg(.line),
-            .remaining => palette.fg(.selected),
+            .remaining => palette.fg(.line),
             .live => palette.fg(.accent),
             .working => comptime "\x1b[1m" ++ palette.fg(.accent),
             .warm => comptime "\x1b[1m" ++ palette.fg(.warm),
@@ -69,7 +69,7 @@ const Tone = enum {
             .muted => .muted,
             .faint => .faint,
             .border => .line,
-            .remaining => .selected,
+            .remaining => .line,
             .live, .working => .accent,
             .warm, .warm_cell => .warm,
             .hot, .hot_cell => .hot,
@@ -852,12 +852,16 @@ fn limitsMessage(option: launch_preview.Option) []const u8 {
     };
 }
 const blocks = [_][]const u8{ "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█" };
+fn eighths(used: u8) usize {
+    return std.math.clamp((@as(usize, used) * 8 + 50) / 100, 1, 8);
+}
 fn block(used: u8) []const u8 {
-    return blocks[std.math.clamp((@as(usize, used) * 8 + 50) / 100, 1, 8) - 1];
+    return blocks[eighths(used) - 1];
 }
 /// One window across the pane: its label, a spark from the window's start to
-/// its reset, the percent used, and the time until the reset. Every cell sits
-/// on one baseline: time left is a dim floor, and a slot with no reading is a
+/// its reset, the percent used, and the time until the reset. The spark sits on
+/// a panel that shows each bar's full height, so low usage doesn't read as a
+/// progress bar. Time left is stippled, and a slot with no reading is a
 /// gray bar at the last reading's level (usage only rises within a window), or
 /// the floor before the first reading.
 fn limitLine(card: Card, row: usize, pane: usize, window: metadata.Window, spark: limit_history.Spark, fresh: bool, now: i64) !void {
@@ -868,17 +872,17 @@ fn limitLine(card: Card, row: usize, pane: usize, window: metadata.Window, spark
     for (0..limit_history.cells) |i| {
         const at = pane + 3 + i;
         if (i >= elapsed) {
-            try card.cell(row, at, 1, "▁", .remaining, false);
+            try sparkCell(card, row, at, "⢕", Tone.remaining.ansi());
             continue;
         }
         // The current slot shows the latest reading even before it is recorded.
         const reading = spark[i] orelse (if (fresh and i + 1 == elapsed) window.used else null);
         const value = reading orelse {
-            try card.cell(row, at, 1, if (last) |previous| block(previous) else "▁", .faint, false);
+            try sparkCell(card, row, at, if (last) |previous| block(previous) else "▁", Tone.faint.ansi());
             continue;
         };
         last = value;
-        try card.cell(row, at, 1, block(value), if (fresh) sparkTone(value) else .faint, false);
+        try sparkCell(card, row, at, block(value), if (fresh) barInk(value) else Tone.faint.ansi());
     }
     var percent: [8]u8 = undefined;
     const figure: Tone = if (!fresh) .muted else if (window.used >= 100) .hot else if (window.used >= 80) .warm else .title;
@@ -888,9 +892,22 @@ fn limitLine(card: Card, row: usize, pane: usize, window: metadata.Window, spark
     const status_text = if (!fresh) "stale" else try std.fmt.bufPrint(&reset, "↻ {s}", .{window.countdown(now, &countdown) orelse "unknown"});
     try card.cell(row, pane + 20, 9, status_text, .faint, false);
 }
-fn sparkTone(used: u8) Tone {
-    return if (used >= 100) .hot_cell else if (used >= 80) .warm_cell else .live;
+fn sparkCell(card: Card, row: usize, offset: usize, glyph: []const u8, ink: []const u8) !void {
+    try card.w.print("\x1b[{d};{d}H{s}{s}{s}{s}", .{ row + 1, card.x + 4 + offset, base, palette.bg(.surface), ink, glyph });
 }
+/// Warm past 80% and hot at the limit. Below that, accent fades toward gray
+/// the shorter the bar, so a low, flat run doesn't read as a progress bar.
+fn barInk(used: u8) []const u8 {
+    if (used >= 100) return Tone.hot_cell.ansi();
+    if (used >= 80) return Tone.warm_cell.ansi();
+    return shallow_inks[eighths(used) - 1];
+}
+const shallow_inks = blk: {
+    const fade = [_]u8{ 75, 45, 15, 0, 0, 0, 0, 0 };
+    var inks: [fade.len][]const u8 = undefined;
+    for (&inks, fade) |*ink, percent| ink.* = palette.fgRgb(palette.mix(palette.Token.accent.rgb(), palette.Token.faint.rgb(), percent));
+    break :blk inks;
+};
 /// Spark cells that cover time already passed in the window.
 fn elapsedCells(window: metadata.Window, now: i64) usize {
     const minutes = window.minutes orelse return 0;
@@ -1397,14 +1414,14 @@ test "accounts without agents keep their limits and short terminals fall back" {
     try std.testing.expect(std.mem.indexOf(u8, short.written(), "Top agents") != null);
 }
 
-fn expectSparkCell(line: []const u8, i: usize, glyph: []const u8, tone: Tone) !void {
+fn expectSparkCell(line: []const u8, i: usize, glyph: []const u8, ink: []const u8) !void {
     var buf: [128]u8 = undefined;
     // limitLine draws row 5, pane offset 87, spark from pane + 3, on a card at x = 0.
-    const expected = try std.fmt.bufPrint(&buf, "\x1b[6;{d}H{s}{s}{s}", .{ 4 + 87 + 3 + i, base, tone.ansi(), glyph });
+    const expected = try std.fmt.bufPrint(&buf, "\x1b[6;{d}H{s}{s}{s}{s}", .{ 4 + 87 + 3 + i, base, palette.bg(.surface), ink, glyph });
     try std.testing.expect(std.mem.indexOf(u8, line, expected) != null);
 }
 
-test "sparks ghost unobserved slots and floor the time left" {
+test "sparks ghost unobserved slots and stipple the time left" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     const now: i64 = 1_000_000;
@@ -1413,17 +1430,18 @@ test "sparks ghost unobserved slots and floor the time left" {
     const spark: limit_history.Spark = .{ 4, 11, null, null, 33, 45, null, null, null, null, null };
     try limitLine(.{ .w = &output.writer, .x = 0, .width = 122 }, 5, 87, window, spark, true, now);
     const line = output.written();
-    try expectSparkCell(line, 0, "▁", .live);
-    try expectSparkCell(line, 1, "▁", .live);
+    // Short bars fade toward gray; from half height they are plain accent.
+    try expectSparkCell(line, 0, "▁", shallow_inks[0]);
+    try expectSparkCell(line, 1, "▁", shallow_inks[0]);
     // Missed slots show a gray bar at the last reading's level.
-    try expectSparkCell(line, 2, "▁", .faint);
-    try expectSparkCell(line, 3, "▁", .faint);
-    try expectSparkCell(line, 4, "▃", .live);
-    try expectSparkCell(line, 5, "▄", .live);
-    try expectSparkCell(line, 6, "▄", .faint);
+    try expectSparkCell(line, 2, "▁", Tone.faint.ansi());
+    try expectSparkCell(line, 3, "▁", Tone.faint.ansi());
+    try expectSparkCell(line, 4, "▃", shallow_inks[2]);
+    try expectSparkCell(line, 5, "▄", Tone.live.ansi());
+    try expectSparkCell(line, 6, "▄", Tone.faint.ansi());
     // The current slot shows the latest reading before history records it.
-    try expectSparkCell(line, 7, "▄", .live);
-    for (8..11) |i| try expectSparkCell(line, i, "▁", .remaining);
+    try expectSparkCell(line, 7, "▄", Tone.live.ansi());
+    for (8..11) |i| try expectSparkCell(line, i, "⢕", Tone.remaining.ansi());
     try std.testing.expect(std.mem.indexOf(u8, line, "┈") == null);
     try std.testing.expect(std.mem.indexOf(u8, line, "52%") != null);
     try std.testing.expect(std.mem.indexOf(u8, line, "↻ 1h 40m") != null);
@@ -1433,26 +1451,26 @@ test "sparks ghost unobserved slots and floor the time left" {
     defer first.deinit();
     const early: metadata.Window = .{ .minutes = 300, .used = 40, .reset_at = now + 220 * 60 };
     try limitLine(.{ .w = &first.writer, .x = 0, .width = 122 }, 5, 87, early, @splat(null), true, now);
-    try expectSparkCell(first.written(), 0, "▁", .faint);
-    try expectSparkCell(first.written(), 1, "▁", .faint);
-    try expectSparkCell(first.written(), 2, "▃", .live);
-    try expectSparkCell(first.written(), 3, "▁", .remaining);
+    try expectSparkCell(first.written(), 0, "▁", Tone.faint.ansi());
+    try expectSparkCell(first.written(), 1, "▁", Tone.faint.ansi());
+    try expectSparkCell(first.written(), 2, "▃", shallow_inks[2]);
+    try expectSparkCell(first.written(), 3, "⢕", Tone.remaining.ansi());
 
     var stale: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer stale.deinit();
     try limitLine(.{ .w = &stale.writer, .x = 0, .width = 122 }, 5, 87, window, spark, false, now);
     try std.testing.expect(std.mem.indexOf(u8, stale.written(), "stale") != null);
     try std.testing.expect(std.mem.indexOf(u8, stale.written(), "↻") == null);
-    try expectSparkCell(stale.written(), 5, "▄", .faint);
-    try expectSparkCell(stale.written(), 7, "▄", .faint);
+    try expectSparkCell(stale.written(), 5, "▄", Tone.faint.ansi());
+    try expectSparkCell(stale.written(), 7, "▄", Tone.faint.ansi());
 
     // Cells past 80% are warm and hot without bold; the figure stays bold.
     var high: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer high.deinit();
     const full: metadata.Window = .{ .minutes = 300, .used = 100, .reset_at = now + 100 * 60 };
     try limitLine(.{ .w = &high.writer, .x = 0, .width = 122 }, 5, 87, full, .{ 50, 85, 100, null, null, null, null, null, null, null, null }, true, now);
-    try expectSparkCell(high.written(), 1, "▇", .warm_cell);
-    try expectSparkCell(high.written(), 2, "█", .hot_cell);
+    try expectSparkCell(high.written(), 1, "▇", Tone.warm_cell.ansi());
+    try expectSparkCell(high.written(), 2, "█", Tone.hot_cell.ansi());
     var figure: [64]u8 = undefined;
     try std.testing.expect(std.mem.indexOf(u8, high.written(), try std.fmt.bufPrint(&figure, "{s}100%", .{Tone.hot.ansi()})) != null);
 }
