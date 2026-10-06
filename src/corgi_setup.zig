@@ -41,6 +41,7 @@ pub const Choice = enum {
 const Preferences = @import("preferences.zig").Preferences;
 const corgi_animation = @import("corgi_animation.zig");
 const ghostty = @import("ghostty_integration.zig");
+const host_clipboard = @import("host_clipboard.zig");
 const km = @import("keymap.zig");
 
 const providers = @import("providers.zig");
@@ -57,6 +58,8 @@ const Line = union(enum) {
     /// Dim text aligned with row labels.
     hint: []const u8,
     option: Choice,
+    /// Whether a viewer over SSH can paste images; nothing to choose.
+    image_paste,
     /// Requirements or status for the highlighted (or current) summarizer.
     detail,
     divider,
@@ -76,6 +79,7 @@ const lines = [_]Line{
     .{ .heading = "Ghostty" },
     .{ .option = .ghostty },
     .{ .hint = "Cmd+1-9, Cmd+T/W, Ctrl+Tab · reload with Cmd+Shift+," },
+    .image_paste,
     .spacer,
     .{ .heading = "Workspace resources" },
     .{ .option = .readings },
@@ -161,6 +165,8 @@ const preview_period_ms = 6_000;
 pub const Menu = struct {
     selected: Choice,
     integration: ghostty.State = .unavailable,
+    /// The host terminal's clipboard; null when the viewer has no terminal.
+    image_paste: ?*const host_clipboard.State = null,
 
     pub fn open(status: setup.Status) Menu {
         return .{ .selected = @enumFromInt(@intFromEnum(status.choice)) };
@@ -222,6 +228,14 @@ pub const Menu = struct {
                 .lead => |label| try put(w, b, marker_x, y, panel, label),
                 .hint => |label| try put(w, b, label_x, y, panel, label),
                 .option => |choice| try m.drawOption(w, b, y, choice, status, prefs, now_ms),
+                .image_paste => {
+                    var buffer: [48]u8 = undefined;
+                    const clipboard = m.image_paste orelse continue;
+                    const state = clipboard.status(&buffer);
+                    try put(w, b, label_x, y, text, "Image paste over SSH");
+                    const on = clipboard.support == .on;
+                    try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + b.w - 3 - sidebar.displayWidth(state), if (on) row_normal.accent else panel, state });
+                },
                 .detail => {
                     var buffer: [96]u8 = undefined;
                     const in_use: Choice = @enumFromInt(@intFromEnum(status.choice));
@@ -462,4 +476,18 @@ test "sleeping corgis row shows its state, offers the opposite, and naps beside 
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "[ Enter Turn on ]") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "~ᐯ◡ᴥ◡ᐯ") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
+}
+
+test "a viewer over SSH sees whether it can paste images" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var menu = Menu.open(.{});
+    try menu.drawAt(&output.writer, .{}, .{}, 100, 40, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Image paste over SSH") == null);
+    var clipboard: host_clipboard.State = .{ .support = .unsupported };
+    menu.image_paste = &clipboard;
+    output.clearRetainingCapacity();
+    try menu.drawAt(&output.writer, .{}, .{}, 100, 40, 0);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Image paste over SSH") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "○ no paste events") != null);
 }

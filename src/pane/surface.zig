@@ -113,6 +113,8 @@ pub const Modes = struct {
     kitty: u5,
     mouse_event: @FieldType(vt.input.MouseEncodeOptions, "event"),
     mouse_format: @FieldType(vt.input.MouseEncodeOptions, "format"),
+    /// The program takes pastes as Kitty paste events (mode 5522).
+    paste_events: bool = false,
 };
 /// A receipt for a particular terminal and requested viewport. It is independent
 /// of Ghostty's dirty flags, which other render consumers are allowed to clear.
@@ -167,6 +169,7 @@ pub fn modes(t: *const terminal.Terminal) Modes {
         .kitty = t.vt.screens.active.kitty_keyboard.current().int(),
         .mouse_event = t.vt.flags.mouse_event,
         .mouse_format = t.vt.flags.mouse_format,
+        .paste_events = t.vt.modes.get(.kitty_paste_events),
     };
 }
 

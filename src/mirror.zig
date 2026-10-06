@@ -117,6 +117,7 @@ pub const Terminal = struct {
         const modes = view.modes;
         const screen_ = &t.inner.vt;
         screen_.modes.set(.bracketed_paste, modes.bracketed_paste);
+        screen_.modes.set(.kitty_paste_events, modes.paste_events);
         screen_.modes.set(.cursor_keys, modes.cursor_keys);
         screen_.modes.set(.keypad_keys, modes.keypad_keys);
         screen_.modes.set(.backarrow_key_mode, modes.backarrow);

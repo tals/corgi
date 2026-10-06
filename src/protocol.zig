@@ -74,6 +74,9 @@ pub const Request = union(enum) {
     @"viewer.sync": Sync,
     @"viewer.search": Search,
     @"pane.acknowledge": Acknowledge,
+    /// A paste from a viewer's terminal clipboard for a program that takes
+    /// paste events; the daemon offers it in the program's own event.
+    @"pane.paste": Paste,
     @"conversation.list",
     @"conversation.acknowledge": struct { conversation: ActorId, through: u64, attention_at: ?i64 = null },
     @"pane.surface": struct { pane: layout.PaneId },
@@ -140,6 +143,13 @@ pub const Request = union(enum) {
         resources_hash: ?u64 = null,
     };
     pub const Search = struct { pane: layout.PaneId, needle: []const u8, skip: usize = 0 };
+    pub const Paste = struct {
+        pane: layout.PaneId,
+        /// The clipboard's text, base64.
+        text: ?[]const u8 = null,
+        /// The clipboard's image, saved in the paste folder beside the socket.
+        image: ?struct { mime: []const u8, path: []const u8 } = null,
+    };
     /// A viewer acknowledges only what it showed, for the binding it showed.
     pub const Acknowledge = struct {
         pane: layout.PaneId,
@@ -228,6 +238,7 @@ pub fn Reply(comptime op: Op) type {
         .@"viewer.open" => Opened,
         .@"viewer.sync" => View(std.json.Value, std.json.Value),
         .@"viewer.search" => Terminal.SearchResult,
+        .@"pane.paste" => struct { pasted: bool = false },
         .@"agent.command.preview" => struct { resolution: launch_command.Resolution },
         .@"agent.history" => struct { history: History },
         .@"inference.configure" => struct { saved: bool = false, inference: inference_setup.Status = .{} },
@@ -327,6 +338,7 @@ pub fn check(op: Op) Check {
         .@"agent.subscribe",
         .@"viewer.search",
         .@"pane.acknowledge",
+        .@"pane.paste",
         .@"conversation.list",
         .@"conversation.acknowledge",
         .@"pane.surface",
@@ -404,6 +416,7 @@ pub fn exclusion(op: Op) Exclusion {
         .@"viewer.sync",
         .@"viewer.search",
         .@"pane.acknowledge",
+        .@"pane.paste",
         .@"conversation.list",
         .@"conversation.acknowledge",
         .@"pane.surface",
@@ -718,6 +731,7 @@ test "every op decodes a sample request" {
         .@"viewer.sync" = "{\"viewer_protocol\":3,\"interests\":[{\"pane\":1,\"cols\":80,\"rows\":24}],\"ack\":2}",
         .@"viewer.search" = "{\"pane\":1,\"needle\":\"x\",\"skip\":1}",
         .@"pane.acknowledge" = "{\"pane\":1,\"session\":\"s\",\"through\":2,\"binding\":1,\"conversation\":0,\"attention_at\":-1}",
+        .@"pane.paste" = "{\"pane\":1,\"text\":\"aGk=\",\"image\":{\"mime\":\"image/png\",\"path\":\"/tmp/corgi-1/paste/a.png\"}}",
         .@"conversation.list" = "{}",
         .@"conversation.acknowledge" = "{\"conversation\":1,\"through\":2,\"attention_at\":3}",
         .@"pane.surface" = "{\"pane\":1}",

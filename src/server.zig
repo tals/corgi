@@ -436,6 +436,7 @@ pub const Server = struct {
             .@"viewer.sync" => |q| try viewer_protocol.sync(s, cl, arena, q),
             .@"viewer.search" => |q| try viewer_protocol.search(s, cl, q),
             .@"pane.acknowledge" => |q| try viewer_protocol.acknowledge(s, cl, q),
+            .@"pane.paste" => |q| try viewer_protocol.paste(s, cl, arena, q),
             .@"viewer.list" => cl.queue(.{ .ok = true, .viewers = try viewer_protocol.viewers(s, arena) }),
             .action => |q| try viewer_protocol.action(s, cl, q),
             .focus => |q| try viewer_protocol.focus(s, cl, q),

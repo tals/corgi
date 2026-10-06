@@ -15,6 +15,7 @@ const ports = @import("trackers.zig").ports;
 const sound = @import("sound.zig");
 const url_opener = @import("url_opener.zig");
 const corgi_badge = @import("corgi_badge.zig");
+const host_clipboard = @import("host_clipboard.zig");
 pub const View = controller.Controller;
 
 pub fn open(view: *View, cwd: []const u8, theme: Theme, socket: []const u8) !u64 {
@@ -147,6 +148,12 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     const cwd = try std.process.currentPathAlloc(os.io(), a);
     defer a.free(cwd);
     var bell_seq = try openMode(&view, cwd, probe.theme, socket, start_onboarding);
+    // Pasted images are saved beside the socket, on the daemon's machine.
+    const paste_folder = try std.fs.path.join(a, &.{ std.fs.path.dirname(socket) orelse ".", "paste" });
+    defer a.free(paste_folder);
+    probe.clipboard.folder = paste_folder;
+    view.host_clipboard = &probe.clipboard;
+    if (view.remote_links) try probe.clipboard.start(os.milliTimestamp());
     var openers: url_opener.Openers = .{};
     defer openers.reap();
     var previous: []const u8 = "";
@@ -169,6 +176,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     while (view.input_state.attached) {
         openers.reap();
         try probe.expire(input);
+        try answerClipboard(&view, &probe.clipboard);
         var image_output: std.Io.Writer.Allocating = .init(a);
         defer image_output.deinit();
         try probe.badge.upload(&image_output.writer, os.milliTimestamp());
@@ -261,6 +269,20 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         }
     }
     return null;
+}
+/// Hands the host clipboard's paste and what a read brought to the view,
+/// and writes the requests both make.
+fn answerClipboard(view: *View, clipboard: *host_clipboard.State) !void {
+    clipboard.tick(os.milliTimestamp());
+    if (clipboard.takeEvent()) |listing| view.pasteEvent(listing) catch |err| view.notice(@errorName(err));
+    if (clipboard.takeResult()) |result| {
+        defer result.deinit();
+        view.pasteResult(result) catch |err| view.notice(@errorName(err));
+    }
+    if (clipboard.out.items.len > 0) {
+        try os.writeAll(1, clipboard.out.items);
+        clipboard.out.clearRetainingCapacity();
+    }
 }
 /// How often a viewer syncs while the daemon reports nothing new. Under a
 /// second, so the daemon keeps counting the viewer as watching.

@@ -40,6 +40,8 @@ const agent_drag = @import("agent_drag.zig");
 const workspace_drag = @import("workspace_drag.zig");
 const clock = @import("clock.zig");
 const ghostty_integration = @import("ghostty_integration.zig");
+const host_clipboard = @import("host_clipboard.zig");
+const paste_card = @import("paste_card.zig");
 const subagent_tooltip = @import("subagent_tooltip.zig");
 const vt = @import("pane.zig").terminal.vt;
 const Command = @import("protocol.zig").Command;
@@ -80,6 +82,35 @@ const Paste = union(enum) {
     /// A menu without a text field owns the keyboard: drop the text.
     discard,
 };
+const PasteCard = struct {
+    pane: layout.PaneId,
+    notice: host_clipboard.Notice,
+    /// The button went down on one of its links; its release copies it.
+    pressed: bool = false,
+    copied: bool = false,
+};
+/// What an input sequence does to the paste card: Esc closes it and does
+/// nothing else; a click or any other key closes it and goes on; pointer
+/// motion, releases and focus changes leave it open. A click on its link
+/// stays with the card, which stays open.
+const CardEffect = enum { keep, close, dismiss, capture };
+fn cardEffect(seq: []const u8) CardEffect {
+    if (std.mem.eql(u8, seq, "\x1b[27u") or std.mem.eql(u8, seq, "\x1b[27;1u")) return .dismiss;
+    if (std.mem.startsWith(u8, seq, "\x1b[<")) {
+        if (seq[seq.len - 1] == 'm') return .keep;
+        const button = std.fmt.parseInt(u16, seq[3 .. std.mem.indexOfScalar(u8, seq, ';') orelse return .keep], 10) catch return .keep;
+        return if (button & 32 != 0) .keep else .close;
+    }
+    if (std.mem.eql(u8, seq, "\x1b[I") or std.mem.eql(u8, seq, "\x1b[O")) return .keep;
+    return .close;
+}
+/// The paste keys Ghostty passes on as keys when it has no text to paste.
+fn pasteKey(k: keyboard.Key) ?host_clipboard.Key {
+    if (k.codepoint != 'v' or k.mods.alt) return null;
+    if (k.mods.super and !k.mods.ctrl and !k.mods.shift) return .cmd;
+    if (k.mods.ctrl and k.mods.shift and !k.mods.super) return .ctrl_shift;
+    return null;
+}
 /// A pressed link or port row, tracked until release confirms it wasn't a drag.
 const PortClick = struct {
     x: u16,
@@ -149,6 +180,12 @@ pub const Controller = struct {
     launched: layout.PaneId = .none,
     sidebar_rows: sidebar_rows.State = .{},
     remote_links: bool = false,
+    /// The host terminal's clipboard, read over SSH; the paste being read
+    /// goes to `paste_target`.
+    host_clipboard: ?*host_clipboard.State = null,
+    paste_target: ?Paste = null,
+    /// Why a paste brought no image, over the pane it was meant for.
+    paste_card: ?PasteCard = null,
     tab_menu: ?commands.TabMenu = null,
     port_menu: ?sidebar.PortMenu = null,
     /// Workspace ids whose group is folded in the grouped "All" list.
@@ -976,6 +1013,11 @@ pub const Controller = struct {
     }
     /// Puts `text` on the host clipboard and keeps it for `paste`.
     fn copyText(s: *Self, text: []const u8) !void {
+        try s.copyQuietly(text);
+        s.copy_feedback_until = clock.milliTimestamp() + 2000;
+    }
+    /// `copyText` without the toast, for a caller that confirms it itself.
+    fn copyQuietly(s: *Self, text: []const u8) !void {
         if (s.clipboard) |old| a.free(old);
         s.clipboard = null;
         s.clipboard = try a.dupe(u8, text);
@@ -984,7 +1026,6 @@ pub const Controller = struct {
         _ = std.base64.standard.Encoder.encode(encoded, text);
         const osc = try std.fmt.allocPrint(a, "\x1b]52;c;{s}\x07", .{encoded});
         try s.queueEffect(.{ .write_terminal = osc });
-        s.copy_feedback_until = clock.milliTimestamp() + 2000;
         s.dirty = true;
     }
     /// The agent `New` repeats in the current workspace.
@@ -1475,6 +1516,7 @@ pub const Controller = struct {
         s.closeMenu();
         s.corgi_setup = corgi_setup.Menu.open(s.runtime.inference);
         s.corgi_setup.?.integration = if (s.remote_links) .unavailable else ghostty_integration.state();
+        s.corgi_setup.?.image_paste = s.host_clipboard;
         s.dirty = true;
     }
     pub fn openOnboarding(s: *Self, mode: onboarding.Mode) void {
@@ -1612,6 +1654,7 @@ pub const Controller = struct {
     }
     fn key(s: *Self, byte: u8) !void {
         const cl = &s.input_state;
+        if (byte == 27 and s.paste_card != null) return s.closePasteCard();
         if (s.onboarding) |*wizard| {
             if (byte == 3) {
                 cl.attached = false;
@@ -1872,6 +1915,8 @@ pub const Controller = struct {
             try s.sendInput(p.terminal, &.{byte});
             p.agent.observation.acknowledge(p.agent.observation.completed);
             p.agent.attention = .none;
+            // Ctrl+V asks an agent to paste an image from its own machine.
+            if (byte == 22 and p.agent.provider != null) _ = s.imageHint(.ctrl);
         }
     }
     /// The keyboard's owner when a paste begins, in `key`'s order.
@@ -1885,6 +1930,136 @@ pub const Controller = struct {
     fn pastePane(s: *Self) ?*Pane {
         const target = s.input_state.paste orelse return null;
         return if (target == .pane) s.pane(target.pane) else null;
+    }
+    /// A paste from the host's clipboard listed `listing`: read what it
+    /// brings for the keyboard's owner.
+    pub fn pasteEvent(s: *Self, listing: []const u8) !void {
+        const clipboard = s.host_clipboard orelse return;
+        s.closePasteCard();
+        const target = s.pasteTarget();
+        if (target == .discard) return;
+        // A program that takes paste events gets the clipboard itself.
+        var buf: [2][]const u8 = undefined;
+        const types = host_clipboard.relayTypes(listing, &buf);
+        if (target == .pane and types.len > 0) if (s.pane(target.pane)) |p| if (p.terminal.emulator().*.modes.get(.kitty_paste_events)) {
+            if (try clipboard.relay(types, os.milliTimestamp())) s.paste_target = target else s.notice(host_clipboard.Failure.busy.message());
+            return;
+        };
+        switch (host_clipboard.choose(listing, target == .pane)) {
+            .read => |mime| if (try clipboard.request(mime, os.milliTimestamp())) {
+                s.paste_target = target;
+            } else s.notice(host_clipboard.Failure.busy.message()),
+            .refuse => |failure| s.notice(failure.message()),
+            .nothing => {},
+        }
+    }
+    pub fn pasteResult(s: *Self, result: host_clipboard.Result) !void {
+        const target = s.paste_target orelse return;
+        s.paste_target = null;
+        switch (result) {
+            .text => |text| try s.pasteClipboardText(target, text),
+            .path => |path| try s.pasteText(target, path),
+            .relay => |relayed| try s.relayPaste(target, relayed),
+            .failed => |failure| s.notice(failure.message()),
+        }
+    }
+    fn pasteClipboardText(s: *Self, target: Paste, text: []u8) !void {
+        // The check Ghostty makes before a paste reaches Corgi.
+        if (!vt.input.isSafePasteWith(text, .{ .bracketed = true })) return s.notice("Paste refused: it contains an end-of-paste marker");
+        try s.pasteText(target, text);
+    }
+    /// Has the daemon offer the clipboard in the program's own paste event,
+    /// or pastes it as text or an image's path when the daemon can't.
+    fn relayPaste(s: *Self, target: Paste, relayed: host_clipboard.Relay) !void {
+        var encoded: ?[]u8 = null;
+        defer if (encoded) |bytes| a.free(bytes);
+        if (relayed.text) |text| {
+            encoded = try a.alloc(u8, std.base64.standard.Encoder.calcSize(text.len));
+            _ = std.base64.standard.Encoder.encode(encoded.?, text);
+        }
+        if (s.connection.call(.@"pane.paste", .{
+            .pane = target.pane,
+            .text = encoded,
+            .image = if (relayed.image) |image| .{ .mime = image.mime, .path = image.path } else null,
+        })) |reply| {
+            defer reply.deinit();
+            if (reply.value.pasted) return;
+        } else |_| {}
+        if (relayed.text) |text| return s.pasteClipboardText(target, text);
+        if (relayed.image) |image| return s.pasteText(target, image.path);
+    }
+    /// Pastes `text` as the host terminal would have: control characters
+    /// become spaces, and a pane gets it bracketed if it asked to be.
+    fn pasteText(s: *Self, target: Paste, text: []u8) !void {
+        s.input_state.active = true;
+        s.dirty = true;
+        switch (target) {
+            .pane => |id| {
+                const p = s.pane(id) orelse return s.notice("The pane closed before the paste arrived");
+                const parts = vt.input.encodePaste(text, .{ .bracketed = p.terminal.emulator().*.modes.get(.bracketed_paste) });
+                for (parts) |part| try s.sendInput(p.terminal, part);
+            },
+            else => {
+                const parts = vt.input.encodePaste(text, .{ .bracketed = true });
+                for (parts[1]) |byte| try s.pasteByte(target, byte);
+            },
+        }
+    }
+    /// Explains, over SSH, why a key that usually pastes an image didn't.
+    /// Opens the card over the focused pane when `pressed` was likely an
+    /// attempt to paste an image that can't work over SSH.
+    fn imageHint(s: *Self, pressed: host_clipboard.Key) bool {
+        const clipboard = s.host_clipboard orelse return false;
+        const p = s.focused() orelse return false;
+        const agent = if (p.agent.provider) |provider| provider.info().name else "The program";
+        var host_buf: [64]u8 = undefined;
+        const host = if (os.c.gethostname(&host_buf, host_buf.len) == 0) blk: {
+            const full = std.mem.sliceTo(&host_buf, 0);
+            break :blk full[0 .. std.mem.indexOfScalar(u8, full, '.') orelse full.len];
+        } else "this machine";
+        const found = clipboard.notice(pressed, agent, host) orelse return false;
+        s.paste_card = .{ .pane = p.id, .notice = found };
+        s.dirty = true;
+        return true;
+    }
+    /// `cardEffect`, except on the card's links. Over SSH the terminal opens
+    /// a link on Cmd-click and swallows that release; a plain click's release
+    /// reaches Corgi, which copies the link instead.
+    fn cardInput(s: *Self, seq: []const u8) CardEffect {
+        const card = if (s.paste_card) |*card| card else return .keep;
+        if (!std.mem.startsWith(u8, seq, "\x1b[<")) return cardEffect(seq);
+        var fields = std.mem.splitScalar(u8, seq[3 .. seq.len - 1], ';');
+        const button = std.fmt.parseInt(u16, fields.next() orelse return .keep, 10) catch return .keep;
+        const x = (std.fmt.parseInt(u16, fields.next() orelse return .keep, 10) catch return .keep) -| 1;
+        const y = (std.fmt.parseInt(u16, fields.next() orelse return .keep, 10) catch return .keep) -| 1;
+        const on_link = if (s.cardPlacement()) |at| paste_card.linkAt(&card.notice, at, x, y) else false;
+        if (button & 32 != 0) return .keep;
+        if (seq[seq.len - 1] == 'm') {
+            if (!card.pressed) return .keep;
+            card.pressed = false;
+            if (on_link) {
+                s.copyQuietly(host_clipboard.nightly_url) catch |err| s.notice(@errorName(err));
+                card.copied = true;
+                s.dirty = true;
+            }
+            return .capture;
+        }
+        if (button & 3 == 0 and button < 64 and on_link) {
+            card.pressed = true;
+            return .capture;
+        }
+        return .close;
+    }
+    fn cardPlacement(s: *Self) ?paste_card.Placement {
+        const card = if (s.paste_card) |*card| card else return null;
+        const p = s.focused() orelse return null;
+        if (p.id != card.pane) return null;
+        return paste_card.locate(s.layoutView(), s.runtime.panes.items, s.area(), &card.notice);
+    }
+    fn closePasteCard(s: *Self) void {
+        if (s.paste_card == null) return;
+        s.paste_card = null;
+        s.dirty = true;
     }
     fn pasteByte(s: *Self, target: Paste, byte: u8) !void {
         switch (target) {
@@ -1911,6 +2086,7 @@ pub const Controller = struct {
             }
             const rest = cl.keybuf.items[used..];
             if (rest[0] != 27) {
+                s.closePasteCard();
                 s.link_tooltip.cancel();
                 s.dirty = true;
                 if (cl.paste) |target| try s.pasteByte(target, rest[0]) else try s.key(rest[0]);
@@ -1934,6 +2110,19 @@ pub const Controller = struct {
                 len += 1;
             }
             var seq = rest[0..len];
+            if (s.paste_card != null) switch (s.cardInput(seq)) {
+                .keep => {},
+                .close => s.closePasteCard(),
+                .dismiss => {
+                    s.closePasteCard();
+                    used += len;
+                    continue;
+                },
+                .capture => {
+                    used += len;
+                    continue;
+                },
+            };
             if (!std.mem.startsWith(u8, seq, "\x1b[<")) {
                 s.link_tooltip.cancel();
                 s.dirty = true;
@@ -1942,6 +2131,12 @@ pub const Controller = struct {
             defer encoded.deinit();
             if (cl.paste == null) {
                 if (keyboard.decode(seq)) |key_event| {
+                    // Ghostty passes its paste key on only when it had no text
+                    // to paste. Over SSH it can't be pasted here: say why.
+                    if (pasteKey(key_event)) |pressed| if (s.imageHint(pressed)) {
+                        used += len;
+                        continue;
+                    };
                     if (s.onboarding == null and s.name_dialog == null and s.workspace_chooser == null and (s.prefix or !s.hasMenu())) {
                         if (bindings.chord(s.prefs.preset, s.prefix, key_event)) |act| {
                             s.prefix = false;
@@ -2998,6 +3193,8 @@ pub const Controller = struct {
             .scope_menu = s.scope_menu,
             .scope_label = s.scopeLabel(),
             .corgi_setup = s.corgi_setup,
+            .paste_card = if (s.paste_card) |card| if (s.focused()) |p| (if (p.id == card.pane) card.notice else null) else null else null,
+            .paste_copied = if (s.paste_card) |card| card.copied else false,
             .inference = s.runtime.inference,
             .tab_drop_x = s.tabDropX(),
             .dialog = s.name_dialog,
@@ -3077,6 +3274,49 @@ test "a paste goes to the field that owned the keyboard when it began" {
     s.name_dialog = null;
     s.beginPrefix();
     try std.testing.expect(s.pasteTarget() == .discard);
+}
+
+test "a paste read from the host clipboard goes where a paste would" {
+    var clipboard: host_clipboard.State = .{ .support = .on };
+    defer clipboard.deinit();
+    var s: Controller = .{ .connection = undefined, .executable = "", .host_clipboard = &clipboard };
+    defer s.input_state.deinit();
+    s.name_dialog = naming.Dialog.init(.{ .rename = @enumFromInt(1) }, "");
+    // Text is read for the dialog; an image has nowhere to go.
+    try s.pasteEvent("image/png text/plain");
+    try std.testing.expect(s.paste_target.? == .name);
+    try std.testing.expect(std.mem.endsWith(u8, clipboard.out.items, ";dGV4dC9wbGFpbg==\x1b\\"));
+    const text = try a.dupe(u8, "a\x03b");
+    defer a.free(text);
+    try s.pasteResult(.{ .text = text });
+    try std.testing.expectEqualStrings("a b", s.name_dialog.?.name());
+    try std.testing.expect(s.paste_target == null);
+    clipboard.reading = null;
+    try s.pasteEvent("image/png");
+    try std.testing.expectEqualStrings(host_clipboard.Failure.not_pane.message(), s.message.text());
+    // Text that could end a bracketed paste is refused, as Ghostty would.
+    s.paste_target = .name;
+    const unsafe = try a.dupe(u8, "x\x1b[201~y");
+    defer a.free(unsafe);
+    try s.pasteResult(.{ .text = unsafe });
+    try std.testing.expectEqualStrings("a b", s.name_dialog.?.name());
+}
+
+test "esc closes the paste card and does nothing else; a click or another key also closes it" {
+    try std.testing.expectEqual(CardEffect.dismiss, cardEffect("\x1b[27u"));
+    try std.testing.expectEqual(CardEffect.close, cardEffect("\x1b[<0;5;5M"));
+    try std.testing.expectEqual(CardEffect.close, cardEffect("\x1b[<64;5;5M"));
+    try std.testing.expectEqual(CardEffect.keep, cardEffect("\x1b[<35;5;5M"));
+    try std.testing.expectEqual(CardEffect.keep, cardEffect("\x1b[<0;5;5m"));
+    try std.testing.expectEqual(CardEffect.keep, cardEffect("\x1b[I"));
+    try std.testing.expectEqual(CardEffect.close, cardEffect("\x1b[A"));
+    try std.testing.expectEqual(host_clipboard.Key.cmd, pasteKey(keyboard.decode("\x1b[118;9u").?).?);
+    try std.testing.expectEqual(host_clipboard.Key.ctrl_shift, pasteKey(keyboard.decode("\x1b[118;6u").?).?);
+    try std.testing.expect(pasteKey(keyboard.decode("\x1b[118;5u").?) == null);
+    var s: Controller = .{ .connection = undefined, .executable = "" };
+    s.paste_card = .{ .pane = @enumFromInt(1), .notice = .{} };
+    try s.key(27);
+    try std.testing.expect(s.paste_card == null);
 }
 
 test "escape in the launcher's search clears the query, then closes the launcher" {

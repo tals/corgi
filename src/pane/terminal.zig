@@ -33,6 +33,11 @@ pub const Terminal = struct {
     /// The text the program last copied with OSC 52, until the daemon
     /// passes it to a viewer.
     copied: ?[]u8 = null,
+    /// A viewer's clipboard behind the paste event last sent the program,
+    /// until the program reads it with the event's password.
+    held: ?[]vt.clipboard.Content = null,
+    /// Answering a clipboard read, which may run past the input backlog.
+    answering: bool = false,
     initial_input: ?[]const u8 = null,
     synchronized_since: ?i64 = null,
     restoring: bool = false,
@@ -71,6 +76,7 @@ pub const Terminal = struct {
         handler.effects.title_changed = titleChanged;
         handler.effects.device_attributes = attributes;
         handler.effects.clipboard_write = clipboardWrite;
+        handler.effects.clipboard_read = clipboardRead;
         t.stream = .init(.{ .handler = handler, .allocator = a });
         return t;
     }
@@ -91,6 +97,52 @@ pub const Terminal = struct {
         };
         return .unsupported;
     }
+    /// Only a paste the user made reaches the program: its event's one-time
+    /// password grants one read of what the viewer held for it. OSC 52 and
+    /// any other read are refused.
+    fn clipboardRead(handler: *vt.TerminalStream.Handler, request: vt.clipboard.Read) void {
+        const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
+        const held = t.held orelse return request.reply(.denied);
+        if (!request.granted) return request.reply(.denied);
+        defer t.release();
+        var available: [2][]const u8 = undefined;
+        for (held, 0..) |content, i| available[i] = content.mime;
+        t.answering = true;
+        defer t.answering = false;
+        request.reply(.{ .success = .{ .contents = held, .available = available[0..held.len] } });
+    }
+    /// Sends the program a paste event offering `contents`, at most two.
+    /// Without paste events the text is pasted as text; false when there
+    /// was none.
+    pub fn pasteEvent(t: *Terminal, contents: []const vt.clipboard.Content) !bool {
+        t.release();
+        const held = try a.alloc(vt.clipboard.Content, contents.len);
+        var used: usize = 0;
+        errdefer {
+            for (held[0..used]) |content| free(content);
+            a.free(held);
+        }
+        for (contents, held) |content, *kept| {
+            const mime = try a.dupe(u8, content.mime);
+            errdefer a.free(mime);
+            kept.* = .{ .mime = mime, .data = try a.dupe(u8, content.data) };
+            used += 1;
+        }
+        t.held = held;
+        const events = t.vt.modes.get(.kitty_paste_events);
+        defer if (!events) t.release();
+        return t.stream.handler.paste(.{ .contents = .{ .memory = held } });
+    }
+    fn release(t: *Terminal) void {
+        const held = t.held orelse return;
+        for (held) |content| free(content);
+        a.free(held);
+        t.held = null;
+    }
+    fn free(content: vt.clipboard.Content) void {
+        a.free(content.mime);
+        a.free(content.data);
+    }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
         const prefix = providers.Codex.titleSession(t.vt.getTitle() orelse "");
@@ -104,7 +156,13 @@ pub const Terminal = struct {
     }
     fn reply(handler: *vt.TerminalStream.Handler, bytes: []const u8) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
-        if (!t.restoring) t.send(bytes) catch {};
+        if (t.restoring) return;
+        // A clipboard answer, bounded by the paste it answers.
+        if (t.answering) {
+            t.pending.appendSlice(a, bytes) catch return;
+            return t.flush();
+        }
+        t.send(bytes) catch {};
     }
     const AttrCallback = @typeInfo(@FieldType(vt.TerminalStream.Handler.Effects, "device_attributes")).optional.child;
     const Attributes = @typeInfo(@typeInfo(AttrCallback).pointer.child).@"fn".return_type.?;
@@ -200,6 +258,7 @@ pub const Terminal = struct {
         t.stop();
         t.pending.deinit(a);
         if (t.copied) |bytes| a.free(bytes);
+        t.release();
         t.stream.deinit();
         t.links.deinit();
         t.render.deinit(a);
@@ -466,6 +525,40 @@ test "a program's clipboard copy is kept until passed on, and reads are refused"
     // Reads, X11 selections and clears never reach a viewer.
     t.feed("\x1b]52;c;?\x07\x1b]52;s;dGV4dA==\x07\x1b]52;c;\x07");
     try std.testing.expectEqual(null, t.copied);
+}
+
+test "a paste event's password grants the program one read of the held clipboard" {
+    const t = try Terminal.create(20, 4);
+    defer t.destroy();
+    t.feed("\x1b[?5522h");
+    try std.testing.expect(try t.pasteEvent(&.{ .{ .mime = "text/plain", .data = "hi" }, .{ .mime = "image/png", .data = "PNG" } }));
+    const event = t.pending.items;
+    try std.testing.expect(std.mem.startsWith(u8, event, "\x1b]5522;type=read:status=OK:pw="));
+    const start = std.mem.indexOf(u8, event, "pw=").? + 3;
+    var pw_buf: [64]u8 = undefined;
+    const pw = pw_buf[0 .. std.mem.indexOfPos(u8, event, start, "\x1b\\").? - start];
+    @memcpy(pw, event[start..][0..pw.len]);
+    t.pending.clearRetainingCapacity();
+    // Without the password the read is refused.
+    t.feed("\x1b]5522;type=read;aW1hZ2UvcG5n\x1b\\");
+    try std.testing.expect(std.mem.indexOf(u8, t.pending.items, "status=EPERM") != null);
+    t.pending.clearRetainingCapacity();
+    var read_buf: [128]u8 = undefined;
+    const read = try std.fmt.bufPrint(&read_buf, "\x1b]5522;type=read:pw={s}:name=YXBw;aW1hZ2UvcG5n\x1b\\", .{pw});
+    t.feed(read);
+    try std.testing.expect(std.mem.indexOf(u8, t.pending.items, "status=DATA") != null);
+    try std.testing.expect(std.mem.indexOf(u8, t.pending.items, ";UE5H") != null);
+    try std.testing.expect(t.held == null);
+    t.pending.clearRetainingCapacity();
+    // Once.
+    t.feed(read);
+    try std.testing.expect(std.mem.indexOf(u8, t.pending.items, "status=EPERM") != null);
+    t.pending.clearRetainingCapacity();
+    // A program that doesn't take paste events gets the text as a paste.
+    t.feed("\x1b[?5522l\x1b[?2004h");
+    try std.testing.expect(try t.pasteEvent(&.{.{ .mime = "text/plain", .data = "hi" }}));
+    try std.testing.expectEqualStrings("\x1b[200~hi\x1b[201~", t.pending.items);
+    try std.testing.expect(t.held == null);
 }
 
 test "synchronized redraw retains completed cells and cursor even during text capture" {

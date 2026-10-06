@@ -66,6 +66,7 @@ $.view.surfaces[].modes.modify_other: bool
 $.view.surfaces[].modes.kitty: u5
 $.view.surfaces[].modes.mouse_event: enum none x10 normal button any
 $.view.surfaces[].modes.mouse_format: enum x10 utf8 sgr urxvt sgr_pixels
+$.view.surfaces[].modes.paste_events: bool
 $.view.surfaces[].stamp.identity: u64
 $.view.surfaces[].stamp.revision: u64
 $.view.surfaces[].stamp.offset: optional

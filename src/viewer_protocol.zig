@@ -18,6 +18,7 @@ const WorkspaceId = workspace.Workspace.Id;
 const Request = protocol.Request;
 const Action = @import("action.zig").Action;
 const migrations = @import("persist.zig").migrations;
+const vt = @import("pane.zig").terminal.vt;
 
 pub fn open(s: *Server, cl: *Client, q: Request.Open) !void {
     if (cl.subscribed or cl.launch_preview != null or cl.viewer) return error.AlreadyAttached;
@@ -151,6 +152,29 @@ pub fn acknowledge(s: *Server, cl: *Client, q: Request.Acknowledge) !void {
         s.dirty = true;
     }
     cl.queue(.{ .ok = true });
+}
+
+/// Offers a viewer's clipboard to a program that takes paste events. The
+/// image must be one the viewer saved in the paste folder beside the socket.
+pub fn paste(s: *Server, cl: *Client, arena: std.mem.Allocator, q: Request.Paste) !void {
+    const p = s.runtime.pane(q.pane) orelse return error.NoPane;
+    var contents: [2]vt.clipboard.Content = undefined;
+    var n: usize = 0;
+    if (q.text) |encoded| {
+        const decoder = std.base64.standard.Decoder;
+        const text = try arena.alloc(u8, try decoder.calcSizeForSlice(encoded));
+        try decoder.decode(text, encoded);
+        contents[n] = .{ .mime = "text/plain", .data = text };
+        n += 1;
+    }
+    if (q.image) |image| {
+        const folder = try std.fs.path.join(arena, &.{ std.fs.path.dirname(s.socket) orelse ".", "paste" });
+        if (!std.mem.startsWith(u8, image.mime, "image/") or !std.mem.eql(u8, std.fs.path.dirname(image.path) orelse "", folder)) return error.InvalidTarget;
+        const data = try std.Io.Dir.cwd().readFileAlloc(os.io(), image.path, arena, .limited(32 * 1024 * 1024));
+        contents[n] = .{ .mime = image.mime, .data = data };
+        n += 1;
+    }
+    cl.reply(.@"pane.paste", .{ .pasted = try p.terminal.pasteEvent(contents[0..n]) });
 }
 
 /// The `viewer.sync` reply as the daemon writes it.

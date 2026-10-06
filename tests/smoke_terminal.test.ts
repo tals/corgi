@@ -9,7 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   deadline,
   EXE,
@@ -31,6 +31,17 @@ const file = (path: string) => readFileSync(path, "utf8");
 const json = (path: string) => JSON.parse(file(path));
 const hash = (path: string) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
+const b64 = (data: string | Buffer) => Buffer.from(data).toString("base64");
+/** Kitty clipboard packets as Ghostty sends them. */
+const packet = (status: string, rest = "") =>
+  `\x1b]5522;type=read:status=${status}${rest}\x1b\\`;
+const paste = (pw: string, listing: string) =>
+  packet("OK", `:pw=${b64(pw)}`) +
+  packet("DATA", `:mime=Lg==:pw=${b64(pw)};${b64(listing)}`) +
+  packet("DONE", `:pw=${b64(pw)}`);
+/** The read a viewer sends with a paste's password. */
+const read = (pw: string, types: string) =>
+  `\x1b]5522;type=read:id=corgi:pw=${b64(pw)}:name=${b64("Corgi")};${b64(types)}\x1b\\`;
 
 class SmokeTerminal extends Runtime {
   async test_kitty_badge_confirms_chunked_upload_after_wrong_id_acknowledgement() {
@@ -64,6 +75,152 @@ class SmokeTerminal extends Runtime {
     pty.write("badge-input-ok\r");
     await this.until(() => existsSync(received));
     this.assertEqual(file(received), "badge-input-ok");
+  }
+
+  /** Plays Ghostty for a viewer over SSH: paste events and reads allowed. */
+  async pasteEventsOn(pty: Pty) {
+    await pty.waitFor("\x1b[?5522$p");
+    pty.write("\x1b[?5522;2$y");
+    await pty.waitFor("\x1b]5522;type=read:id=corgi-probe;Lg==\x1b\\");
+    pty.write(
+      packet("OK", ":id=corgi-probe") +
+        packet("DATA", `:id=corgi-probe:mime=Lg==;${b64("image/png\n")}`) +
+        packet("DONE", ":id=corgi-probe"),
+    );
+    await pty.waitFor("\x1b[?5522h");
+  }
+  async sshViewer() {
+    const pty = await Pty.spawn([EXE, "attach"], {
+      env: { ...this.env, SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" },
+      cwd: this.temp.name,
+      cols: 100,
+      rows: 30,
+    });
+    this.pty = pty;
+    await this.pasteEventsOn(pty);
+    return pty;
+  }
+  async test_cmd_v_without_paste_events_opens_a_card_at_the_caret() {
+    const received = join(this.temp.name, "card-input");
+    await this.open_pane({
+      command: `stty raw -echo; printf CARD_READY; exec cat > ${quote(received)}`,
+    });
+    const pty = await Pty.spawn([EXE, "attach"], {
+      env: { ...this.env, SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" },
+      cwd: this.temp.name,
+      cols: 100,
+      rows: 30,
+    });
+    this.pty = pty;
+    // Play Ghostty 1.3.1: it names itself and has no paste events.
+    await pty.waitFor("\x1b[>0q");
+    pty.write("\x1bP>|ghostty 1.3.1\x1b\\\x1b[?5522;0$y");
+    await pty.waitFor("CARD_READY");
+    // Ghostty passes Cmd+V on as a key when it had no text to paste.
+    pty.write("\x1b[118;9u");
+    await pty.waitFor("Ghostty 1.3.1 can't send images over SSH.");
+    this.assertIn("Image not pasted", pty.output);
+    this.assertIn("⇧⌘-click opens · click copies", pty.output);
+    this.assertIn(
+      "\x1b]8;;https://github.com/ghostty-org/ghostty/releases/tag/tip\x1b\\\x1b[4mGhostty Nightly",
+      pty.output,
+    );
+    // A plain click on the download link copies it; the card stays open.
+    // (Cmd+Shift-click opens it in the terminal, which never tells Corgi.)
+    const url = "https://github.com/ghostty-org/ghostty/releases/tag/tip";
+    const link = /\x1b\[(\d+);(\d+)H\x1b\[[0-9;]*mDownload: /.exec(pty.output)!;
+    const [row, column] = [Number(link[1]), Number(link[2]) + "Download: ".length + 2];
+    let offset = pty.output.length;
+    pty.write(`\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`);
+    await pty.waitFor((output) => output.slice(offset).includes("Copied to clipboard"));
+    this.assertIn(`\x1b]52;c;${b64(url)}\x07`, pty.output.slice(offset));
+    this.assertIn("Image not pasted", pty.output.slice(offset));
+    // Esc closes the card and reaches nothing else; the next key goes through.
+    offset = pty.output.length;
+    pty.write("\x1b[27u");
+    await pty.waitFor((output) => output.slice(offset).includes("\x1b[?2026l"));
+    this.assertNotIn("Image not pasted", pty.output.slice(offset));
+    pty.write("x");
+    await this.until(() => existsSync(received) && file(received) === "x");
+  }
+  async test_relays_a_paste_to_a_program_that_takes_paste_events() {
+    const received = join(this.temp.name, "relayed");
+    const program = join(this.temp.name, "paste_events.ts");
+    // Takes a paste event, then reads the image with the event's password.
+    writeFileSync(
+      program,
+      `const fs = require("fs");
+process.stdin.setRawMode(true);
+process.stdout.write("\\x1b[?5522hRELAY_READY");
+let input = "";
+let asked = false;
+process.stdin.on("data", (chunk) => {
+  input += chunk.toString("latin1");
+  const event = input.match(/status=OK:pw=([^\\x1b]+)\\x1b\\\\[\\s\\S]*status=DONE/);
+  if (!asked && event) {
+    asked = true;
+    input = "";
+    process.stdout.write("\\x1b]5522;type=read:pw=" + event[1] + ":name=YXBw;aW1hZ2UvcG5n\\x1b\\\\");
+  } else if (asked && input.includes("status=DONE")) {
+    const chunks = [...input.matchAll(/status=DATA[^;]*;([A-Za-z0-9+/=]+)/g)];
+    fs.writeFileSync(process.argv[2], Buffer.concat(chunks.map((m) => Buffer.from(m[1], "base64"))));
+  }
+});
+`,
+    );
+    await this.open_pane({
+      command: shellJoin([process.execPath, program, received]),
+    });
+    const pty = await this.sshViewer();
+    await pty.waitFor("RELAY_READY");
+    pty.write(paste("relay", "text/plain image/png\n"));
+    await pty.waitFor(read("relay", "text/plain image/png"));
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from("relayed image"),
+    ]);
+    pty.write(
+      packet("OK", ":id=corgi") +
+        packet("DATA", `:id=corgi:mime=${b64("text/plain")};${b64("caption")}`) +
+        packet("DATA", `:id=corgi:mime=${b64("image/png")};${b64(png)}`) +
+        packet("DONE", ":id=corgi"),
+    );
+    await this.until(() => existsSync(received) && readFileSync(received).equals(png));
+  }
+  async test_image_paste_over_ssh_saves_the_image_and_pastes_its_path() {
+    const received = join(this.temp.name, "paste-input");
+    await this.open_pane({
+      command: `stty raw -echo; printf PASTE_READY; exec cat > ${quote(received)}`,
+    });
+    const pty = await this.sshViewer();
+    await pty.waitFor("PASTE_READY");
+    pty.write(paste("first", "image/png\n"));
+    await pty.waitFor(read("first", "image/png"));
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from("image bytes"),
+    ]);
+    const mime = `:id=corgi:mime=${b64("image/png")}`;
+    pty.write(
+      packet("OK", ":id=corgi") +
+        packet("DATA", `${mime};${b64(png.subarray(0, 9))}`) +
+        packet("DATA", `${mime};${b64(png.subarray(9))}`) +
+        packet("DONE", ":id=corgi"),
+    );
+    const name = createHash("sha256").update(png).digest("hex").slice(0, 32);
+    const saved = join(dirname(this.path), "paste", `${name}.png`);
+    await this.until(() => existsSync(received) && file(received) === saved);
+    this.assertTrue(readFileSync(saved).equals(png));
+    this.assertEqual(statSync(saved).mode & 0o777, 0o600);
+    // With text on the clipboard too, the text is what pastes.
+    pty.write(paste("second", "text/plain image/png\n"));
+    await pty.waitFor(read("second", "text/plain"));
+    pty.write(
+      packet("OK", ":id=corgi") +
+        packet("DATA", `:id=corgi:mime=${b64("text/plain")};${b64(" and text")}`) +
+        packet("DONE", ":id=corgi"),
+    );
+    await this.until(() => file(received) === saved + " and text");
   }
 
   async assertAgentExited(pane: number) {

@@ -24,6 +24,8 @@ const subagent_tooltip = @import("subagent_tooltip.zig");
 const live_usage = @import("usage.zig").live;
 const surface = @import("pane.zig").surface;
 const corgi_animation = @import("corgi_animation.zig");
+const paste_card = @import("paste_card.zig");
+const Notice = @import("host_clipboard.zig").Notice;
 pub const Pane = mirror.Pane;
 pub const Buffer = std.Io.Writer.Allocating;
 pub const Pointer = struct { x: u16, y: u16 };
@@ -48,6 +50,10 @@ pub const Ui = struct {
     git_hover: ?WorkspaceId = null,
     agent_launcher: ?AgentLauncherMenu = null,
     corgi_setup: ?CorgiSetupMenu = null,
+    /// Why a paste brought no image, for the focused pane, and whether a
+    /// click copied its link.
+    paste_card: ?Notice = null,
+    paste_copied: bool = false,
     inference: inference_setup.Status = .{},
     message: []const u8,
     copy_mode: bool,
@@ -150,6 +156,12 @@ pub fn tabDrop(view: layout.View, width: u16, x: u16) ?TabDrop {
 /// link preview. Panes keep the row otherwise. It moves to the bottom-right
 /// corner when the pointer is where it would go.
 /// No modal overlay, menu, or dialog is covering the panes.
+/// Where the paste card goes. Menus and dialogs take precedence; then the
+/// card waits.
+fn placeCard(view: layout.View, panes: anytype, area: layout.Rect, notice: *const Notice, ui: Ui) ?paste_card.Placement {
+    if (!noOverlay(ui) or ui.copy_mode) return null;
+    return paste_card.locate(view, panes, area, notice);
+}
 fn noOverlay(ui: Ui) bool {
     return ui.scope_menu == null and ui.agent_launcher == null and ui.corgi_setup == null and ui.agent_search == null and
         ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null;
@@ -379,8 +391,14 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
         if (side.width > 0 and ui.agent_search == null and ui.menu == null and ui.tab_menu == null and ui.port_menu == null and ui.dialog == null)
             try corgi_badge.place(w);
     }
+    const paste_at = if (ui.paste_card) |*notice| placeCard(view, panes, area, notice, ui) else null;
+    if (paste_at) |at| if (ui.pointer) |pointer| {
+        if (paste_card.linkAt(&ui.paste_card.?, at, pointer.x, pointer.y)) link_pointer = true;
+    };
     if (ui.prefix) try drawPrefixBar(w, area, ui.prefs.preset, ui.prefs.prefix) else {
-        const text: []const u8 = hovered_uri orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
+        // A card that doesn't fit its pane says why in the status line instead.
+        const unplaced: ?[]const u8 = if (ui.paste_card != null and paste_at == null) ui.paste_card.?.body.text() else null;
+        const text: []const u8 = hovered_uri orelse unplaced orelse if (ui.message.len > 0) ui.message else if (ui.copy_mode) "SCROLL  j/k move  y copy viewport  q exit" else "";
         try writeChip(w, text, width, height, ui.pointer);
     }
     // The prefix bar covers the area's last row.
@@ -395,6 +413,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             };
         };
     };
+    if (paste_at) |at| try paste_card.draw(w, &ui.paste_card.?, at, ui.paste_copied);
     if (ui.link_tooltip and ui.agent_launcher == null and ui.corgi_setup == null) if (ui.pointer) |pointer| {
         if (ui.resource_card) |card| {
             if (card_rect) |rect| {

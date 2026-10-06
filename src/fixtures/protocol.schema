@@ -130,6 +130,12 @@ $.requests|pane.acknowledge.conversation: optional
 $.requests|pane.acknowledge.conversation?: u32
 $.requests|pane.acknowledge.attention_at: optional
 $.requests|pane.acknowledge.attention_at?: i64
+$.requests|pane.paste.pane: u32
+$.requests|pane.paste.text: optional
+$.requests|pane.paste.text?: string
+$.requests|pane.paste.image: optional
+$.requests|pane.paste.image?.mime: string
+$.requests|pane.paste.image?.path: string
 $.requests|conversation.list: {}
 $.requests|conversation.acknowledge.conversation: u32
 $.requests|conversation.acknowledge.through: u64
@@ -569,6 +575,7 @@ $.replies.viewer.search.match?.x: u16
 $.replies.viewer.search.match?.y: u16
 $.replies.viewer.search.match?.end_x: u16
 $.replies.viewer.search.match?.end_y: u16
+$.replies.pane.paste.pasted: bool
 $.replies.inference.configure.saved: bool
 $.replies.inference.configure.inference.choice: enum auto codex claude off
 $.replies.inference.configure.inference.provider: optional
