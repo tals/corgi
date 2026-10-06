@@ -26,6 +26,7 @@ import {
   writeExecutable,
 } from "./support";
 import { FAKE, PALETTE, Runtime } from "./runtime";
+import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
 const file = (path: string) => readFileSync(path, "utf8");
 const json = (path: string) => JSON.parse(file(path));
@@ -272,12 +273,22 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.pty = pty;
     await this.until(async () => (await this.panes()).length > 0);
     const pane = (await this.panes())[0].id;
+    const session = "01901234-1234-1234-1234-123456789abc";
     const transcript = join(this.temp.name, "sounds.jsonl");
     writeFileSync(
       transcript,
-      JSON.stringify({ type: "session_meta", payload: { id: "sounds" } }) +
+      JSON.stringify({ type: "session_meta", payload: { id: session } }) +
         "\n",
     );
+    const terminal = write_codex_terminal(join(this.temp.name, "codex"), session);
+    const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
+    observer.paths[session] = transcript;
+    try {
+      await this.command("pane.input", { target: pane, data: `exec ${quote(terminal)}\r` });
+      await this.until(async () => (await this.panes()).find((p: any) => p.id === pane).session === session);
+    } finally {
+      await observer.close();
+    }
     let turn = "initial";
     const hook = async (event: string, seq: number) => {
       if (event === "UserPromptSubmit") turn = String(seq);
@@ -285,10 +296,10 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
         op: "hook",
         pane,
         provider: "codex",
-        seq,
+        seq: Date.now() * 1000 + seq,
         event: {
           hook_event_name: event,
-          session_id: "sounds",
+          session_id: session,
           turn_id: turn,
           transcript_path: transcript,
           tool_name: "request_user_input",
@@ -515,8 +526,15 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
       await this.until(
         async () =>
           (await this.panes()).find((p: any) => p.id === pane).session ===
-          "ordinary-" + provider,
+          (provider === "codex" ? "" : "ordinary-" + provider),
       );
+      if (provider === "codex") {
+        await this.settle();
+        this.assertEqual((await this.panes()).find((p: any) => p.id === pane).session, "");
+        await this.command("pane.input", { target: pane, data: "exit\r" });
+        await this.assertAgentExited(pane);
+        continue;
+      }
       for (const [command, state] of [
         ["work", "working"],
         ["block", "blocked"],

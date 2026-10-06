@@ -517,6 +517,7 @@ test {
     _ = @import("import.zig");
     _ = @import("inference.zig");
     _ = @import("integration.zig");
+    _ = @import("codex_config.zig");
     _ = @import("json.zig");
     _ = @import("keyboard.zig");
     _ = @import("keymap.zig");

@@ -24,6 +24,7 @@ for await (const line of (await import('node:readline')).createInterface({input:
   const v = JSON.parse(line);
   if (v.method === 'initialize') emit({id:v.id,result:{version:'fixture'}});
   else if (v.method === 'initialized') emit({method:'ready'});
+  else if (v.method === 'config/read') emit({id:v.id,result:{config:{},layers:[{name:{type:'user',file:process.env.CODEX_HOME+'/config.toml',profile:null},version:'fixture',config:{tui:{terminal_title:['thread-id']}}}]}});
   else if (v.method === 'test/approval') { ensureTurn(); emit(claude ? {type:'control_request',request_id:'permission-1',request:{subtype:'can_use_tool',tool_name:'Bash'}} : {id:900,method:'item/commandExecution/requestApproval',params:{threadId:'t'}}); }
   else if (v.method === 'test/flood') for(let i=0;i<150;i++) emit({type:'fixture',n:i});
   else if (v.method === 'test/tool-start') { ensureTurn(); const id=v.params.id; emit(claude ? {type:'assistant',message:{content:[{type:'tool_use',id,name:'Bash',input:{}}]}} : {method:'item/started',params:{threadId:'t',turnId:activeTurn,item:{id,type:'commandExecution'}}}); }

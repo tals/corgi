@@ -11,6 +11,8 @@ import { join } from "node:path";
 import { Runtime, EXE, PALETTE, screen_text } from "./runtime";
 import { registerCase, run, quote, sleep, writeExecutable } from "./support";
 
+import { CodexObserver, write_codex_terminal } from "./provider_sim";
+
 class SmokeInput extends Runtime {
   async test_panes_use_full_height_and_translate_first_row_input() {
     const fixture = join(this.temp.name, "screen.ts");
@@ -41,15 +43,15 @@ class SmokeInput extends Runtime {
     await this.rpc({
       op: "hook",
       pane: first,
-      provider: "codex",
+      provider: "claude",
       seq: 1,
       event: { hook_event_name: "SessionStart", session_id: "geometry" },
     });
     let frame = (await this.get_type("frame")).data;
-    while (!frame.includes("codex"))
+    while (!frame.includes("claude"))
       frame = (await this.get_type("frame")).data;
     this.assertIn("\x1b[2;30H\x1b[?25h", frame);
-    this.assertTrue(screen_text(frame).some((row) => row.includes("codex")));
+    this.assertTrue(screen_text(frame).some((row) => row.includes("claude")));
     await this.input("\x1b[<4;29;2M\x1b[<36;31;2M\x1b[<4;31;2m");
     frame = (await this.get_type("frame")).data;
     while (!frame.startsWith("\x1b]52;c;"))
@@ -112,11 +114,13 @@ class SmokeInput extends Runtime {
     this.assertEqual(readFileSync(pasted, "utf8"), "PASTED");
   }
   async test_sidebar_hook_lifecycle_focus_and_removal() {
+    const session = "01901234-1234-1234-1234-123456789abc";
+    const terminal = write_codex_terminal(join(this.temp.name, "codex"), session);
     const one = (
       await this.open_pane({
         cwd: this.temp.name,
         title: "Alpha",
-        command: "sleep 30",
+        command: `read ready; exec ${quote(terminal)}`,
       })
     ).pane;
     await this.open_pane({
@@ -130,15 +134,23 @@ class SmokeInput extends Runtime {
     const transcript = join(this.temp.name, "sidebar.jsonl");
     writeFileSync(
       transcript,
-      JSON.stringify({ type: "session_meta", payload: { id: "sidebar" } }) +
+      JSON.stringify({ type: "session_meta", payload: { id: session } }) +
         "\n",
     );
+    const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
+    observer.paths[session] = transcript;
+    try {
+      await this.command("pane.input", { target: one, data: "\r" });
+      await this.until(async () => (await this.panes()).find((p: any) => p.id === one).session === session);
+    } finally {
+      await observer.close();
+    }
     let turn = 0;
     const hook = async (event: string, extra: any = {}) => {
       if (event === "UserPromptSubmit") turn++;
       const payload = {
         hook_event_name: event,
-        session_id: "sidebar",
+        session_id: session,
         ...extra,
         transcript_path: transcript,
         turn_id: String(turn),
@@ -188,6 +200,7 @@ class SmokeInput extends Runtime {
     await this.rpc({ op: "action", name: "rename", value: "Renamed" });
     screen = await this.tab_frame("Renamed");
     this.assertNotIn("Renamed", screen.map((r) => r.slice(0, 27)).join("\n"));
+    await hook("PostToolUse", { tool_name: "request_user_input" });
     await hook("PostToolUse", { tool_name: "Bash" });
     await this.agent_frame("codex", "▶", "thinking");
     await hook("UserPromptSubmit");
@@ -198,7 +211,7 @@ class SmokeInput extends Runtime {
     await this.agent_frame("codex", "○", "", PALETTE.muted);
     this.assertEqual(
       (await this.session()).conversations.find(
-        (c: any) => c.agent.session === "sidebar",
+        (c: any) => c.agent.session === session,
       ).agent.state,
       "done",
     );

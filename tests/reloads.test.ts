@@ -22,6 +22,7 @@ import {
 } from "./support";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
+import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
 // Rewrites current state the way the previous build wrote it (checkpoint 4,
 // handoff 3), because a relabeled current file isn't a valid old one. It
@@ -99,6 +100,17 @@ function handoffV3(m) {
 `;
 
 class Reloads extends Runtime {
+  async pair(pane: number, session: string) {
+    const terminal = write_codex_terminal(join(this.temp.name, "codex"), session);
+    const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
+    try {
+      await this.command("pane.input", { target: pane, data: `exec ${quote(terminal)}\r` });
+      await this.until(async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.session === session);
+    } finally {
+      await observer.close();
+    }
+  }
+
   async new(command = "exec /bin/sh", title = "") {
     return (
       await this.command("pane.create", {
@@ -372,6 +384,8 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     );
   }
   async test_cold_recovery_preserves_layout_cwd_history_and_resume_hint() {
+    this.env.SHELL = "/bin/bash";
+    await this.restart_runtime();
     const project = join(this.temp.name, "project");
     mkdirSync(project);
     const physicalProject = realpathSync(project);
@@ -386,19 +400,20 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     await this.until(
       async () => (await this.session()).panes[0].cwd === physicalProject,
     );
+    await this.pair(first, "01901234-1234-1234-1234-123456789abc");
     await this.rpc({
       op: "hook",
       provider: "codex",
       pane: first,
       event: {
         hook_event_name: "SessionStart",
-        session_id: "session-123",
+        session_id: "01901234-1234-1234-1234-123456789abc",
         cwd: physicalProject,
       },
     });
     await this.until(
       async () =>
-        (await this.session()).panes[0].agent.session === "session-123",
+        (await this.session()).panes[0].agent.session === "01901234-1234-1234-1234-123456789abc",
     );
     const before = await this.session(),
       saved = (await this.rpc({ op: "recovery.save", protocol: 1 })).path;
@@ -424,15 +439,15 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertEqual(after.panes[0].id, first);
     this.assertNotEqual(after.panes[0].pid, before.panes[0].pid);
     await this.until(async () =>
-      (await this.screen(first)).includes("codex resume 'session-123'"),
+      (await this.screen(first)).includes("codex resume '01901234-1234-1234-1234-123456789abc'"),
     );
     const text = await this.screen(first);
     this.assertIn("BEFORE_CRASH", text);
-    this.assertIn("codex resume 'session-123'", text);
+    this.assertIn("codex resume '01901234-1234-1234-1234-123456789abc'", text);
     this.assertEqual(after.panes[0].cwd, physicalProject);
     const restored = after.panes[0].agent;
     this.assertEqual(restored.provider, "codex");
-    this.assertEqual(restored.session, "session-123");
+    this.assertEqual(restored.session, "01901234-1234-1234-1234-123456789abc");
     this.assertEqual(restored.state, "unknown");
     this.assertEqual(restored.conversation, before.panes[0].agent.conversation);
     const actor = after.conversations.find(
@@ -450,8 +465,8 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
   async test_recovery_prefills_editable_command_until_enter() {
     const fish = await run(["which", "fish"], { check: false });
     for (const shell of [
-      "/bin/sh",
-      "/bin/zsh",
+      "/bin/bash",
+      existsSync("/bin/zsh") ? "/bin/zsh" : "",
       fish.code === 0 ? fish.stdout.trim() : "",
     ]) {
       if (!shell) continue;
@@ -475,32 +490,33 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
         );
         writeFileSync(config, `codex() { ${body}; }\n`);
       }
+      await this.pair(first, "01901234-1234-1234-1234-123456789def");
       await this.rpc({
         op: "hook",
         provider: "codex",
         pane: first,
-        event: { hook_event_name: "SessionStart", session_id: "session-ready" },
+        event: { hook_event_name: "SessionStart", session_id: "01901234-1234-1234-1234-123456789def" },
       });
       await this.until(async () =>
         (await this.session()).panes.some(
-          (p: any) => p.id === first && p.agent.session === "session-ready",
+          (p: any) => p.id === first && p.agent.session === "01901234-1234-1234-1234-123456789def",
         ),
       );
       await this.rpc({ op: "recovery.save", protocol: 1 });
       await this.restart_runtime();
       await this.until(async () =>
-        (await this.screen(first)).includes("codex resume 'session-ready'"),
+        (await this.screen(first)).includes("codex resume '01901234-1234-1234-1234-123456789def'"),
       );
       this.assertFalse(existsSync(marker));
       await this.command("pane.input", { data: "\r", target: first });
       await this.until(
         () =>
           existsSync(marker) &&
-          readFileSync(marker, "utf8").trim() === "resume session-ready",
+          readFileSync(marker, "utf8").trim() === "resume 01901234-1234-1234-1234-123456789def",
       );
       this.assertEqual(
         readFileSync(marker, "utf8").trim(),
-        "resume session-ready",
+        "resume 01901234-1234-1234-1234-123456789def",
       );
       await this.command("pane.input", { target: first, data: "exit\r" });
       await this.until(

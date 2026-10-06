@@ -6,6 +6,7 @@ const agents = @import("agents.zig");
 const detection = @import("detection.zig");
 const discovery = @import("discovery.zig");
 const protocol = @import("protocol.zig");
+const Pool = @import("inference.zig").Pool;
 pub fn hook(provider: Provider, path: []const u8) !void {
     const pane = os.env("CORGI_PANE") orelse return;
     const id = std.fmt.parseInt(u32, pane, 10) catch return;
@@ -140,6 +141,21 @@ pub fn mergedConfig(allocator: std.mem.Allocator, provider: Provider, existing: 
     }
     if (!changed) return null;
     return try std.json.Stringify.valueAlloc(allocator, root, .{ .whitespace = .indent_2 });
+}
+
+pub fn installCodexTitle() !void {
+    const directory = try Provider.codex.info().configDir(a);
+    defer a.free(directory);
+    var dir = std.Io.Dir.cwd().openDir(os.io(), directory, .{}) catch |err| {
+        if (err == error.FileNotFound) return;
+        return err;
+    };
+    defer dir.close(os.io());
+    const path = try std.fs.path.join(a, &.{ directory, "config.toml" });
+    defer a.free(path);
+    var pool: Pool = .{ .config = .{ .provider = .codex, .timeout_ms = 3000 } };
+    defer pool.deinit();
+    try pool.installCodexTitle(path);
 }
 
 pub fn install(provider: Provider) !void {

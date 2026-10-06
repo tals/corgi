@@ -889,6 +889,10 @@ pub const Server = struct {
                 var msg: [180]u8 = undefined;
                 s.notice(std.fmt.bufPrint(&msg, "{t} hooks: {s}; automatic detection is active", .{ provider, @errorName(err) }) catch "Hook setup failed; automatic detection is active");
             };
+            if (provider == .codex) integration.installCodexTitle() catch |err| {
+                log.warn("Codex title setup: {}", .{err});
+                s.notice("Codex session pairing setup failed; see server.log");
+            };
         };
         defer {
             for (s.clients.items) |*cl| cl.deinit();

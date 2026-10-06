@@ -59,11 +59,22 @@ class Files extends Runtime {
     mkdirSync(dirname(this.index), { recursive: true });
     this.rename("Investigate missing session details");
     this.tool_index = 0;
+    await this.pair(A, "Investigate missing session details");
     await this.hook("SessionStart");
     await this.until(
       async () =>
         (await this.state()).name === "Investigate missing session details",
     );
+  }
+  async pair(session: string, name: string) {
+    const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
+    try {
+      await this.attachment.select(session);
+      await this.until(async () => (await this.state()).session === session);
+    } finally {
+      await observer.close();
+    }
+    await this.until(async () => (await this.state()).name === name, 7);
   }
   async tearDown() {
     if (this.sim) await this.sim.close();
@@ -114,6 +125,7 @@ class Files extends Runtime {
   }
   async start() {
     await this.hook("UserPromptSubmit");
+    await this.settle();
     this.append_record("event_msg", {
       type: "task_started",
       turn_id: "current",
@@ -217,6 +229,7 @@ class Files extends Runtime {
   async test_session_switch_keeps_names_and_evidence_separate() {
     await this.start();
     this.rename("Second conversation", B);
+    await this.pair(B, "Second conversation");
     await this.hook("SessionStart", "second", B);
     await this.until(async () => {
       const s = await this.state();
@@ -227,6 +240,7 @@ class Files extends Runtime {
     await this.settle();
     this.assertEqual((await this.state()).activity, "");
     this.assertEqual((await this.state()).completed, 0);
+    await this.attachment.select(A);
     await this.hook("SessionStart");
     await this.until(async () => (await this.state()).session === A);
     this.assertEqual(

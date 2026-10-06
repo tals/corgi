@@ -10,7 +10,10 @@ import {
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { EXE, registerCase, sleep } from "./support";
+import { EXE, registerCase, sleep, shellJoin } from "./support";
+
+import { CodexObserver, write_codex_terminal } from "./provider_sim";
+const SESSION = "01901234-1234-1234-1234-123456789abc";
 
 class Observations extends Runtime {
   pane!: number;
@@ -19,17 +22,25 @@ class Observations extends Runtime {
   turn = 0;
   async setUp() {
     await super.setUp();
+    const terminal = write_codex_terminal(join(this.temp.name, "codex"), SESSION);
     this.pane = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
+      await this.command("pane.create", { workspace: 1, command: shellJoin([terminal]) })
     ).pane;
     this.log = join(this.temp.name, "transcript.jsonl");
     writeFileSync(
       this.log,
-      JSON.stringify({ type: "session_meta", payload: { id: "session" } }) +
+      JSON.stringify({ type: "session_meta", payload: { id: SESSION } }) +
         "\n",
     );
     this.seq = Math.floor(Date.now() * 1000);
     this.turn = 0;
+    const observer = new CodexObserver(this.env.CODEX_HOME!, [SESSION]);
+    try {
+      await this.until(async () => (await this.state()).agent.session === SESSION);
+    } finally {
+      await observer.close();
+    }
+    await this.advance(5);
     await this.hook("SessionStart", "codex", { turn_id: "" });
   }
   async hook(
@@ -45,7 +56,7 @@ class Observations extends Runtime {
       seq: this.seq,
       event: {
         hook_event_name: event,
-        session_id: "session",
+        session_id: SESSION,
         ...(provider === "codex" ? { turn_id: String(this.turn) } : {}),
         transcript_path: this.log,
         ...extra,
@@ -167,7 +178,7 @@ class Observations extends Runtime {
       op: "pane.acknowledge",
       protocol: 1,
       pane: this.pane,
-      session: "session",
+      session: SESSION,
       through: 1,
       attention_at: stamp,
     });
@@ -182,7 +193,7 @@ class Observations extends Runtime {
       op: "pane.acknowledge",
       protocol: 1,
       pane: this.pane,
-      session: "session",
+      session: SESSION,
       through: old,
     });
     this.assertTrue((await this.state()).unread);
@@ -199,7 +210,7 @@ class Observations extends Runtime {
       op: "pane.acknowledge",
       protocol: 1,
       pane: this.pane,
-      session: "session",
+      session: SESSION,
       through: 2,
     });
     this.assertFalse((await this.state()).unread);
@@ -258,7 +269,7 @@ class Observations extends Runtime {
     await this.hook("UserPromptSubmit");
     writeFileSync(
       this.log,
-      JSON.stringify({ type: "session_meta", payload: { id: "session" } }) +
+      JSON.stringify({ type: "session_meta", payload: { id: SESSION } }) +
         "\n" +
         "x".repeat(300000) +
         "\n",
@@ -343,7 +354,7 @@ class Observations extends Runtime {
         JSON.stringify({
           type: kind,
           subtype,
-          sessionId: "session",
+          sessionId: SESSION,
           timestamp: new Date().toISOString(),
         }) + "\n",
       );
@@ -404,7 +415,7 @@ class Observations extends Runtime {
         JSON.stringify({
           type: "system",
           subtype: "turn_duration",
-          sessionId: "session",
+          sessionId: SESSION,
           timestamp: new Date().toISOString(),
         }) + "\n",
       );
@@ -418,13 +429,13 @@ class Observations extends Runtime {
     await launch("a1", "Lane A");
     await launch("a2", "Lane B");
     // Lane A writes its own transcript, beside the session's.
-    const lanes = join(this.temp.name, "session", "subagents");
+    const lanes = join(this.temp.name, SESSION, "subagents");
     mkdirSync(lanes, { recursive: true });
     writeFileSync(
       join(lanes, "agent-a1.jsonl"),
       JSON.stringify({
         type: "assistant",
-        sessionId: "session",
+        sessionId: SESSION,
         isSidechain: true,
         agentId: "a1",
         timestamp: new Date().toISOString(),
@@ -515,7 +526,7 @@ class Observations extends Runtime {
           pid: claude.pid,
           event: {
             hook_event_name: event,
-            session_id: "session",
+            session_id: SESSION,
             transcript_path: this.log,
             ...extra,
           },
@@ -526,7 +537,7 @@ class Observations extends Runtime {
           this.log,
           JSON.stringify({
             type,
-            sessionId: "session",
+            sessionId: SESSION,
             timestamp: new Date().toISOString(),
             ...extra,
           }) + "\n",

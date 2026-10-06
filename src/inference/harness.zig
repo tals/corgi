@@ -17,6 +17,7 @@ const output_limit = 8192;
 const binary = @import("../base64.zig");
 const live_usage = @import("../usage.zig").live;
 const metadata = @import("../usage.zig").account;
+const codex_config = @import("../codex_config.zig");
 
 // Every pool's harnesses share one cap: the summary pool's connections,
 // the launcher's metadata harness, and the conversation reader's, which
@@ -343,6 +344,20 @@ pub const Pool = struct {
             s.close();
             slot.* = null;
         };
+    }
+    /// Startup configuration only; no conversation or model request is created.
+    pub fn installCodexTitle(p: *Pool, path: []const u8) !void {
+        const stopping: std.atomic.Value(bool) = .init(false);
+        const deadline = os.milliTimestamp() + p.config.timeout_ms;
+        var connection = try p.open(.{ .instructions = "", .content = "" });
+        defer connection.close();
+        const settings = try connection.rpc("config/read", .{ .includeLayers = true }, &stopping, deadline);
+        defer settings.deinit();
+        const edit = try codex_config.edit(a, field(settings.value, "result"), path) orelse return;
+        defer a.free(edit.value);
+        try codex_config.backup(path);
+        const written = try connection.rpc("config/value/write", edit, &stopping, deadline);
+        written.deinit();
     }
     /// Serial, blocking worker interface; never call from the UI/server loop.
     /// Cancellation/timeout tears down that conversation so a late result can

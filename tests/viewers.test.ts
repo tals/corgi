@@ -21,6 +21,8 @@ import {
   writeExecutable,
 } from "./support";
 
+import { CodexObserver, write_codex_terminal } from "./provider_sim";
+
 // A tinted workspace title row: the active workspace, or the one being dragged.
 const tinted = `\x1b[0;1;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m`;
 // Workspace bars: accent when active, strong when dragged.
@@ -575,7 +577,7 @@ class ViewerScenarios extends Viewers {
   }
 
   async test_workspace_away_usage_resets_on_visit_and_respects_other_viewers() {
-    const pane = await this.new(),
+    const pane = await this.new("exec /bin/sh"),
       home = (await this.session()).workspaces[0].id;
     const other = (
       await this.command("workspace.create", {
@@ -583,6 +585,7 @@ class ViewerScenarios extends Viewers {
         cwd: this.temp.name,
       })
     ).workspace;
+    const session = "01901234-1234-1234-1234-123456789abc";
     const path = join(this.temp.name, "usage.jsonl");
     const tokenLine = (i: number, o: number) => ({
       type: "event_msg",
@@ -595,20 +598,29 @@ class ViewerScenarios extends Viewers {
       path,
       JSON.stringify({
         type: "session_meta",
-        payload: { id: "usage", instructions: "x".repeat(24 * 1024) },
+        payload: { id: session, instructions: "x".repeat(24 * 1024) },
       }) +
         "\n" +
         JSON.stringify(tokenLine(100, 10)) +
         "\n",
     );
+    const terminal = write_codex_terminal(join(this.temp.name, "codex"), session);
+    const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
+    observer.paths[session] = path;
+    try {
+      await this.command("pane.input", { target: pane, data: `exec ${quote(terminal)}\r` });
+      await this.until(async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.session === session);
+    } finally {
+      await observer.close();
+    }
     await this.rpc({
       op: "hook",
       pane,
       provider: "codex",
-      seq: 1,
+      seq: Date.now() * 1000,
       event: {
         hook_event_name: "SessionStart",
-        session_id: "usage",
+        session_id: session,
         transcript_path: path,
       },
     });
@@ -642,11 +654,11 @@ class ViewerScenarios extends Viewers {
       op: "hook",
       pane,
       provider: "codex",
-      seq: 2,
+      seq: Date.now() * 1000,
       event: {
         hook_event_name: "PreToolUse",
         tool_name: "request_user_input",
-        session_id: "usage",
+        session_id: session,
       },
     });
     this.assertIn(`\x1b[1m\x1b[38;2;${PALETTE.warm}m ●1`, (await a.poll()).data);

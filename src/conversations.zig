@@ -501,12 +501,18 @@ pub const Registry = struct {
         child.observed_at = now;
         return true;
     }
-    /// An initial hook may establish identity when integration was enabled after
-    /// startup. Once associated, only SessionStart selects another conversation.
+    /// An initial Claude hook may establish identity after startup.
+    /// Once associated, only Claude SessionStart selects another conversation.
     /// A delayed event from a known conversation does not change UI selection.
     pub fn routeHook(registry: *Registry, binding: *Attachment, provider: agents.Provider, event: providers.Hook) !?*Actor {
         const session = event.session;
         if (session.len == 0) return null;
+        // Shared Codex daemons inherit pane variables from unrelated clients.
+        // Only terminal/protocol observation may select their conversations.
+        if (provider == .codex) {
+            const actor = registry.find(provider, session) orelse return null;
+            return if (binding.knows(actor.id)) actor else null;
+        }
         if (event.kind == .session_start or
             (binding.actor == null and binding.known_len == 0 and
                 (binding.provisional.provider == provider or binding.generation == 1)))
@@ -1134,4 +1140,22 @@ test "hook models replace the transcript model and survive events without one" {
     // Another session's hook is rejected and cannot change the model.
     _ = actor.observeHook(.{ .kind = .prompt, .session = "b", .model = "gpt-6-sol" }, 4, false, 40);
     try std.testing.expectEqualStrings("gpt-6-luna", actor.model.id.text());
+}
+
+test "Codex hooks cannot establish or switch a pane identity" {
+    var registry: Registry = .{ .allocator = std.testing.allocator };
+    defer registry.deinit();
+    var binding: Attachment = .{};
+    const event: providers.Hook = .{ .kind = .session_start, .session = "a" };
+    try std.testing.expectEqual(null, try registry.routeHook(&binding, .codex, event));
+    try std.testing.expectEqual(@as(usize, 0), registry.items.items.len);
+    const a = try registry.get(.codex, "a");
+    binding.select(a);
+    const b = try registry.get(.codex, "b");
+    binding.select(b);
+    b.state.state = .done;
+    try std.testing.expectEqual(a, (try registry.routeHook(&binding, .codex, event)).?);
+    try std.testing.expectEqual(b, binding.actor.?);
+    binding.detach();
+    try std.testing.expectEqual(null, try registry.routeHook(&binding, .codex, event));
 }

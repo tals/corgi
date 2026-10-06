@@ -1154,11 +1154,11 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.rpc({
       op: "hook",
       pane: third,
-      provider: "codex",
+      provider: "claude",
       seq: 1,
       event: { hook_event_name: "SessionStart", session_id: "numbering" },
     });
-    await this.agent_frame("codex", "○");
+    await this.agent_frame("claude", "○");
     await this.rpc({
       op: "hook",
       pane: first,
