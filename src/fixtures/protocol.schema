@@ -44,6 +44,13 @@ $.requests|session.command.command|agent.resume.workspace: u32
 $.requests|session.command.command|agent.resume.cwd: string
 $.requests|session.command.command|agent.resume.provider: enum codex claude
 $.requests|session.command.command|agent.resume.session: string
+$.requests|session.command.command|agent.rename.target: u32
+$.requests|session.command.command|agent.rename.name: optional
+$.requests|session.command.command|agent.rename.name?: string
+$.requests|session.command.command|agent.fork.target: u32
+$.requests|session.command.command|agent.fork.name: optional
+$.requests|session.command.command|agent.fork.name?: string
+$.requests|session.command.command|agent.fork.check: bool
 $.requests|session.command.command|pane.create.workspace: u32
 $.requests|session.command.command|pane.create.from: optional
 $.requests|session.command.command|pane.create.from?: u32

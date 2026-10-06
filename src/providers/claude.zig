@@ -23,6 +23,9 @@ pub const Claude = struct {
         // The harness has no tools, MCP servers or saved sessions.
         .inference_args = &.{ "--safe-mode", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--tools", "", "--no-session-persistence" },
         .resume_args = .{ "claude", "--resume" },
+        .fork_args = .{ "--resume", "--fork-session" },
+        .fork_session_flag = "--session-id",
+        .name_flag = "--name",
         .config_env = "CLAUDE_CONFIG_DIR",
         .config_dir = ".claude",
         .hooks_file = "settings.json",
@@ -116,6 +119,10 @@ pub const Claude = struct {
         kind: ?SessionKind = null,
         /// The background job's short id, which `claude attach` takes.
         jobId: []const u8 = "",
+        /// The session's messaging socket, which Claude's own agent view
+        /// renames it through; `peerProtocol` is its version.
+        messagingSocketPath: []const u8 = "",
+        peerProtocol: u32 = 0,
     };
     /// Who runs a live session: a terminal, or Claude's background daemon.
     pub const SessionKind = enum { interactive, bg };

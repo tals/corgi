@@ -66,6 +66,17 @@ pub const random: std.Random = .{ .ptr = undefined, .fillFn = fillRandom };
 fn fillRandom(_: *anyopaque, buf: []u8) void {
     io().random(buf);
 }
+/// A random version 4 UUID in its 36-character form.
+pub fn uuid() [36]u8 {
+    var bytes: [16]u8 = undefined;
+    random.bytes(&bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = std.fmt.bytesToHex(bytes, .lower);
+    var out: [36]u8 = undefined;
+    _ = std.fmt.bufPrint(&out, "{s}-{s}-{s}-{s}-{s}", .{ hex[0..8], hex[8..12], hex[12..16], hex[16..20], hex[20..32] }) catch unreachable;
+    return out;
+}
 pub fn writeAll(fd: c_int, bytes: []const u8) !void {
     var offset: usize = 0;
     while (offset < bytes.len) {

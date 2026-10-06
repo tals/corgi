@@ -17,6 +17,8 @@ const pane_label = @import("pane.zig").label;
 const conversations = @import("conversations.zig");
 const detection = @import("detection.zig");
 const ResumeHint = @import("resume_hint.zig").ResumeHint;
+const clock = @import("clock.zig");
+const agent_rename = @import("agent_rename.zig");
 const claude_daemon = @import("claude_daemon.zig");
 const agent_order = @import("agent_order.zig");
 const launch_command = @import("launch.zig").command;
@@ -148,6 +150,25 @@ pub const Pane = struct {
     }
 };
 
+/// A name a new Codex fork takes as soon as it can be renamed: once its
+/// daemon runs it, or its input box shows empty.
+pub const WantedName = struct {
+    /// How long Corgi keeps trying.
+    pub const wait_ms = 20_000;
+    pane: layout.PaneId,
+    name: agent_rename.Name,
+    deadline: i64,
+};
+
+/// A `/rename` typed into a Codex pane's input box, not yet submitted.
+pub const TypedRename = struct {
+    /// How long Codex has to show it before Corgi leaves it unsubmitted.
+    pub const wait_ms = 2000;
+    pane: layout.PaneId,
+    name: agent_rename.Name,
+    deadline: i64,
+};
+
 /// A resumed agent's old screen, faded, or a blank one when Corgi kept none.
 /// Viewers see it in place of the pane until the agent has drawn its own and
 /// stopped changing it, so the agent's first redraws don't flicker.
@@ -239,6 +260,46 @@ pub const Launch = union(enum) {
         }
         return out.toOwnedSlice();
     }
+    /// The command as a person would type it, copying conversation
+    /// `session` into a new one, with the id `new_session` and the name
+    /// `name` where the agent takes them at launch.
+    pub fn forking(l: Launch, alloc: std.mem.Allocator, provider: agents.Provider, session: []const u8, new_session: ?[]const u8, name: ?[]const u8) ![]const u8 {
+        var out: std.Io.Writer.Allocating = .init(alloc);
+        errdefer out.deinit();
+        const base = try l.typed(alloc, null);
+        defer alloc.free(base);
+        const info = provider.info();
+        try out.writer.print("{s} {s} ", .{ base, info.fork_args[0] });
+        try quote(&out.writer, session);
+        if (info.fork_args[1].len > 0) try out.writer.print(" {s}", .{info.fork_args[1]});
+        if (info.fork_session_flag) |flag| if (new_session) |id| {
+            try out.writer.print(" {s} ", .{flag});
+            try quote(&out.writer, id);
+        };
+        if (info.name_flag) |flag| if (name) |text| {
+            try out.writer.print(" {s} ", .{flag});
+            try quote(&out.writer, text);
+        };
+        return out.toOwnedSlice();
+    }
+    fn quote(w: *std.Io.Writer, text: []const u8) !void {
+        const quoted = try os.shellQuote(a, text);
+        defer a.free(quoted);
+        try w.writeAll(quoted);
+    }
+    /// How the launcher would start an agent someone started by hand:
+    /// skipping permission checks when its command line did.
+    pub fn observed(provider: agents.Provider, pid: c_int) Launch {
+        var launch: Launch = .{ .agent = .{ .provider = provider } };
+        if (pid <= 0) return launch;
+        const bytes = a.alloc(u8, detection.process_buffer) catch return launch;
+        defer a.free(bytes);
+        const process = os.processArgs(pid, bytes, .{}) orelse return launch;
+        for (process.args()) |arg| {
+            if (std.mem.eql(u8, arg, provider.info().yolo_flag)) launch.agent.yolo = true;
+        }
+        return launch;
+    }
     /// What a pane runs for `typed`. A provider runs through `corgi agent`,
     /// which finds its binary and clears Claude's nesting markers.
     pub fn paneCommand(l: Launch, alloc: std.mem.Allocator, executable: []const u8, typed_command: []const u8) ![]const u8 {
@@ -257,6 +318,11 @@ pub const Runtime = struct {
     /// Shells `stopShell` signalled that are not yet collected.
     stopped: std.ArrayList(c_int) = .empty,
     sessions: std.ArrayList(native.Session) = .empty,
+    /// `/rename`s typed into Codex panes, each waiting for its input box to
+    /// show it before Enter submits it.
+    renames: std.ArrayList(TypedRename) = .empty,
+    /// Names forks take once their agents can be renamed.
+    wanted_names: std.ArrayList(WantedName) = .empty,
     next_session: NativeId = .first,
     last_agent: agents.Provider = .codex,
     agent_yolo: providers.Each(bool, false) = .{},
@@ -317,6 +383,8 @@ pub const Runtime = struct {
         for (r.closed.items) |p| p.deinit();
         r.closed.deinit(a);
         r.stopped.deinit(a);
+        r.renames.deinit(a);
+        r.wanted_names.deinit(a);
         for (r.sessions.items) |*session| session.destroy();
         r.sessions.deinit(a);
         r.workspaces.deinit();
@@ -561,6 +629,177 @@ pub const Runtime = struct {
         if (old) |screen| p.terminal.feed(screen);
         p.ghost = .{ .terminal = frozen, .revision = p.terminal.surface_revision, .text = screenHash(p.terminal), .old_screen = old != null };
         return id;
+    }
+    /// Starts a copy of pane `id`'s conversation in a new tab right after
+    /// the pane's own, with its row right under the pane's. The copy takes
+    /// `wanted` once its agent can be renamed.
+    pub fn forkAgent(r: *Runtime, opts: Create, id: layout.PaneId, wanted: ?[]const u8) !layout.PaneId {
+        const rename_to = if (wanted) |text| std.mem.trim(u8, text, " ") else null;
+        if (rename_to) |text| if (!agent_rename.validName(text)) return error.InvalidName;
+        try r.wanted_names.ensureUnusedCapacity(a, 1);
+        const p = r.pane(id) orelse return error.NoPane;
+        const agent = p.agent();
+        const provider, const session = try forkSource(p);
+        const launch = p.launch orelse Launch.observed(provider, p.detection.pid);
+        const name: agents.Text = if (rename_to) |text| .initTruncated(text) else agent.name;
+        const new_session: ?[36]u8 = if (provider.info().fork_session_flag != null) os.uuid() else null;
+        const typed = try launch.forking(a, provider, session, if (new_session) |*picked| picked else null, rename_to);
+        defer a.free(typed);
+        var forked = opts;
+        forked.command = try launch.paneCommand(a, opts.executable, typed);
+        defer a.free(forked.command.?);
+        forked.interactive_command = launch == .command;
+        const ws = r.workspaces.owner(id) orelse return error.NoPane;
+        const source_tab = ws.model.tabs[ws.model.tabForPane(id).?].id;
+        const created = try r.create(forked);
+        const fork = r.pane(created).?;
+        fork.launch = launch;
+        // Its row shows at once, under its new name or the one it copies.
+        if (new_session) |*picked| if (r.conversations.get(provider, picked)) |actor| {
+            actor.state.reopened(clock.microTimestamp());
+            if (actor.state.name.len == 0) actor.state.name = name;
+            actor.workspace = ws.id;
+            fork.attachment.select(actor);
+        } else |err| log.warn("showing a fork: {}", .{err});
+        // An agent without a launch flag for it takes the name once it can.
+        if (provider.info().name_flag == null) if (rename_to) |text| {
+            r.wanted_names.appendAssumeCapacity(.{ .pane = created, .name = .initTruncated(text), .deadline = clock.milliTimestamp() + WantedName.wait_ms });
+        };
+        ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, ws.model.tabIndex(source_tab).? + 1);
+        ws.model.revision +%= 1;
+        // Without a saved order the sidebar follows the tabs.
+        if (ws.agent_order.len > 0) {
+            var live: [agent_order.capacity]agent_order.Target = undefined;
+            const placed = if (r.agentTargets(ws, &live)) |targets| ws.agent_order.moveAfter(targets, .{ .pane = created }, .{ .pane = id }) else |err| err;
+            placed catch |err| log.warn("placing a fork's row: {}", .{err});
+        }
+        return created;
+    }
+    /// The provider and conversation a fork of pane `p` copies, once there
+    /// is one: a whole id (a title shows only a prefix), and for Claude a
+    /// transcript, which it writes with the first message.
+    pub fn forkSource(p: *Pane) !struct { agents.Provider, []const u8 } {
+        const agent = p.agent();
+        const provider = agent.provider orelse return error.NoConversation;
+        const session = agent.sessionId();
+        if (session.len != 36 or !(providers.SessionRef{ .id = session }).valid()) return error.NoConversation;
+        const transcript = agent.transcriptPath();
+        if (provider == .claude and transcript.len > 0) _ = os.lstat(transcript) catch return error.NoConversation;
+        return .{ provider, session };
+    }
+    /// Every pane and native session in `ws`, in layout order. Shells count,
+    /// so a pause in agent detection keeps their saved place.
+    pub fn agentTargets(r: *const Runtime, ws: *const workspace.Workspace, out: *[agent_order.capacity]agent_order.Target) ![]const agent_order.Target {
+        var count: usize = 0;
+        for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
+            for (r.panes.items) |p| if (ws.model.tabForPane(p.id) == tab_index) {
+                if (count == out.len) return error.TooManyAgents;
+                out[count] = .{ .pane = p.id };
+                count += 1;
+            };
+        }
+        for (r.sessions.items) |session| if (session.workspace_id == ws.id) {
+            if (count == out.len) return error.TooManyAgents;
+            out[count] = .{ .native = session.id };
+            count += 1;
+        };
+        return out[0..count];
+    }
+
+    /// How a pane's conversation renames: through its agent's socket, or by
+    /// typing `/rename` into a Codex that runs without its daemon.
+    const RenameRoute = union(enum) { claude: agent_rename.Peer, codex_daemon, codex_typed };
+    fn renameRoute(p: *Pane) !RenameRoute {
+        if (p.terminal.exited) return error.NoConversation;
+        const agent = p.agent();
+        switch (agent.provider orelse return error.NoConversation) {
+            .claude => {
+                if (agent.session.len == 0) return error.NoConversation;
+                return .{ .claude = agent_rename.claudePeer(agent.sessionId()) orelse return error.RenameUnavailable };
+            },
+            .codex => {
+                // Codex's daemon runs the thread when its observer just found it there.
+                if (agent.session.len == 36 and clock.microTimestamp() - agent.protocol_at < 5 * std.time.us_per_s) return .codex_daemon;
+                return if (agent_rename.codexEmpty(p.terminal)) .codex_typed else error.AgentBusy;
+            },
+        }
+    }
+    /// Renames pane `id`'s conversation in its agent's own records. Without
+    /// a name, only checks that it can.
+    pub fn renameAgent(r: *Runtime, id: layout.PaneId, wanted: ?[]const u8) !void {
+        const p = r.pane(id) orelse return error.NoPane;
+        const name = if (wanted) |text| std.mem.trim(u8, text, " ") else null;
+        if (name) |text| if (!agent_rename.validName(text)) return error.InvalidName;
+        const route = try renameRoute(p);
+        defer if (route == .claude) route.claude.deinit();
+        const text = name orelse return;
+        switch (route) {
+            .claude => |peer| try agent_rename.renameClaude(peer, p.agent().sessionId(), text),
+            .codex_daemon => try agent_rename.renameCodex(p.agent().sessionId(), text),
+            .codex_typed => {
+                var buf: [agent_rename.max_name + 16]u8 = undefined;
+                const typed = try agent_rename.command(&buf, text);
+                // The command fits on the input row, or it wraps and can't be checked.
+                if (typed.len + 4 > p.terminal.vt.cols) return error.InvalidName;
+                for (r.renames.items) |pending| if (pending.pane == id) return error.AgentBusy;
+                try r.renames.ensureUnusedCapacity(a, 1);
+                try agent_rename.paste(p.terminal, typed);
+                r.renames.appendAssumeCapacity(.{ .pane = id, .name = .initTruncated(text), .deadline = clock.milliTimestamp() + TypedRename.wait_ms });
+                return;
+            },
+        }
+        r.renamed(p, text);
+    }
+    /// Presses Enter on each typed `/rename` once its Codex shows it, and
+    /// drops one that hasn't shown in time. Then gives each new agent its
+    /// wanted name once it can take it.
+    pub fn advanceRenames(r: *Runtime, now: i64) void {
+        r.advanceTyped(now);
+        var i: usize = 0;
+        while (i < r.wanted_names.items.len) {
+            const wanted = r.wanted_names.items[i];
+            if (r.renameAgent(wanted.pane, wanted.name.text())) {
+                _ = r.wanted_names.swapRemove(i);
+            } else |err| switch (err) {
+                // Still starting, or busy for now.
+                error.NoConversation, error.RenameUnavailable, error.AgentBusy => if (now < wanted.deadline) {
+                    i += 1;
+                } else {
+                    log.warn("a fork never took its name: {}", .{err});
+                    _ = r.wanted_names.swapRemove(i);
+                },
+                else => {
+                    log.warn("naming a fork: {}", .{err});
+                    _ = r.wanted_names.swapRemove(i);
+                },
+            }
+        }
+    }
+    fn advanceTyped(r: *Runtime, now: i64) void {
+        var i: usize = 0;
+        while (i < r.renames.items.len) {
+            const pending = r.renames.items[i];
+            const p = r.pane(pending.pane) orelse {
+                _ = r.renames.swapRemove(i);
+                continue;
+            };
+            var buf: [agent_rename.max_name + 16]u8 = undefined;
+            const typed = agent_rename.command(&buf, pending.name.text()) catch unreachable;
+            if (agent_rename.codexHolds(p.terminal, typed)) {
+                if (agent_rename.submit(p.terminal)) r.renamed(p, pending.name.text()) else |err| log.warn("submitting /rename: {}", .{err});
+            } else if (now < pending.deadline) {
+                i += 1;
+                continue;
+            } else log.warn("Codex never showed /rename in its input box", .{});
+            _ = r.renames.swapRemove(i);
+        }
+    }
+    /// The new name shows at once; the agent's own records confirm it. A
+    /// pane name would hide it, so it goes.
+    fn renamed(r: *Runtime, p: *Pane, name: []const u8) void {
+        p.agent().setName(name);
+        p.label = .{};
+        r.changed();
     }
     pub fn createWorkspace(r: *Runtime, name: []const u8, opts: Create) !WorkspaceId {
         const id = try r.workspaces.add(name, opts.cwd);
@@ -814,6 +1053,32 @@ test "resuming a conversation finds the newest agent closed with it, in any work
     try std.testing.expectEqual(@as(?usize, 1), r.closedConversation(.claude, "once"));
     try std.testing.expectEqual(null, r.closedConversation(.codex, "once"));
     try std.testing.expectEqual(null, r.closedConversation(.claude, "never"));
+}
+
+test "a fork starts the way its source did, copying the conversation" {
+    const alloc = std.testing.allocator;
+    const Case = struct { launch: Launch, provider: agents.Provider, new_session: ?[]const u8, name: ?[]const u8, typed: []const u8 };
+    for ([_]Case{
+        .{
+            .launch = .{ .agent = .{ .provider = .claude, .yolo = true } },
+            .provider = .claude,
+            .new_session = "new",
+            .name = "it's (fork)",
+            .typed = "claude --dangerously-skip-permissions --resume 'old' --fork-session --session-id 'new' --name 'it'\\''s (fork)'",
+        },
+        .{ .launch = .{ .agent = .{ .provider = .codex } }, .provider = .codex, .new_session = "ignored", .name = "ignored", .typed = "codex fork 'old'" },
+        .{
+            .launch = .{ .command = try launch_command.Command.init("codex -m gpt-6") },
+            .provider = .codex,
+            .new_session = null,
+            .name = null,
+            .typed = "codex -m gpt-6 fork 'old'",
+        },
+    }) |case| {
+        const typed = try case.launch.forking(alloc, case.provider, "old", case.new_session, case.name);
+        defer alloc.free(typed);
+        try std.testing.expectEqualStrings(case.typed, typed);
+    }
 }
 
 test "a launch resumes the way it started, with the session quoted" {

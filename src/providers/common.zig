@@ -60,6 +60,15 @@ pub const Info = struct {
     inference_args: []const []const u8,
     /// argv before the session id that resumes a conversation.
     resume_args: [2][]const u8,
+    /// The words before and after the session id that fork a conversation
+    /// into a new one; the second may be empty.
+    fork_args: [2][]const u8,
+    /// Flag that picks a fork's new session id, so Corgi knows the fork
+    /// before the agent reports it.
+    fork_session_flag: ?[]const u8 = null,
+    /// Flag that names a session at launch, which a new fork takes before
+    /// anything outside it could rename it.
+    name_flag: ?[]const u8 = null,
 
     // Configuration and accounts.
     /// Environment variable overriding the configuration directory, and its

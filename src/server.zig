@@ -958,6 +958,7 @@ pub const Server = struct {
                     s.last_pause_check = now;
                     s.checkPauses();
                 }
+                s.runtime.advanceRenames(clock.milliTimestamp());
                 codex.reconcile(&s.runtime);
                 var snapshots: [layout.max_panes]?codex_observer.Snapshot = undefined;
                 codex.take(&snapshots);

@@ -492,6 +492,7 @@ test {
     _ = @import("agent_launcher.zig");
     _ = @import("agent_navigation.zig");
     _ = @import("agent_order.zig");
+    _ = @import("agent_rename.zig");
     _ = @import("agents.zig");
     _ = @import("base64.zig");
     _ = @import("bindings.zig");

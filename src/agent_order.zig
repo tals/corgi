@@ -43,6 +43,23 @@ pub const Order = struct {
             if (index(live, other) == null) return error.InvalidDestination;
             if (std.meta.eql(target, other)) return;
         }
+        var next = self.without(live, target);
+        const at = if (before) |other| index(next.slice(), other).? else next.len;
+        std.mem.copyBackwards(Target, next.items[at + 1 .. next.len + 1], next.items[at..next.len]);
+        next.items[at] = target;
+        next.len += 1;
+        self.* = next;
+    }
+    /// `move`, placing `target` right after `other`.
+    pub fn moveAfter(self: *Order, live: []const Target, target: Target, other: Target) !void {
+        if (live.len > capacity) return error.TooManyAgents;
+        const next = self.without(live, target);
+        const at = index(next.slice(), other) orelse return error.InvalidDestination;
+        return self.move(live, target, if (at + 1 < next.len) next.items[at + 1] else null);
+    }
+    /// The order pruned to `live`, with `live`'s unlisted targets appended
+    /// in layout order, leaving out `target`.
+    fn without(self: *const Order, live: []const Target, target: Target) Order {
         var next: Order = .{};
         for (self.slice()) |item| if (index(live, item) != null and !std.meta.eql(item, target)) {
             next.items[next.len] = item;
@@ -52,11 +69,7 @@ pub const Order = struct {
             next.items[next.len] = item;
             next.len += 1;
         };
-        const at = if (before) |other| index(next.slice(), other).? else next.len;
-        std.mem.copyBackwards(Target, next.items[at + 1 .. next.len + 1], next.items[at..next.len]);
-        next.items[at] = target;
-        next.len += 1;
-        self.* = next;
+        return next;
     }
 };
 
@@ -75,4 +88,17 @@ test "agent order mixes pane and native identities and reconciles removal and in
     try std.testing.expectError(error.InvalidDestination, order.move(&.{ b, c, d }, b, a));
     try std.testing.expectEqualSlices(Target, &.{ d, b, c }, order.slice());
     try std.testing.expectError(error.InvalidAgentOrder, Order.restore(&.{ a, a }));
+}
+
+test "a target moved after another lands right below it" {
+    const a: Target = .{ .pane = @enumFromInt(1) };
+    const b: Target = .{ .pane = @enumFromInt(2) };
+    const c: Target = .{ .pane = @enumFromInt(3) };
+    const fork: Target = .{ .pane = @enumFromInt(4) };
+    var order = try Order.restore(&.{ c, a, b });
+    try order.moveAfter(&.{ a, b, c, fork }, fork, c);
+    try std.testing.expectEqualSlices(Target, &.{ c, fork, a, b }, order.slice());
+    try order.moveAfter(&.{ a, b, c, fork }, fork, b);
+    try std.testing.expectEqualSlices(Target, &.{ c, a, b, fork }, order.slice());
+    try std.testing.expectError(error.InvalidDestination, order.moveAfter(&.{ a, fork }, fork, b));
 }

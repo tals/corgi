@@ -663,7 +663,7 @@ pub const Controller = struct {
     }
     /// Whether a tab menu's target (pane, workspace, or tab) has disappeared.
     fn tabMenuStale(s: *Self, context: commands.TabMenu) bool {
-        if (context.pane) return s.pane(@enumFromInt(context.tab)) == null;
+        if (context.pane or context.agent) return s.pane(@enumFromInt(context.tab)) == null;
         if (context.workspace) return s.runtime.workspaces.index(@enumFromInt(context.tab)) == null;
         return s.tabIndex(@enumFromInt(context.tab)) == null;
     }
@@ -674,10 +674,48 @@ pub const Controller = struct {
         s.selection = null;
         s.tab_menu = .{ .tab = @intFromEnum(s.model().tabs[index].id), .anchor_x = x };
     }
+    /// Opens agent pane `id`'s menu. The daemon says whether its agent can
+    /// be renamed now, and whether it has a conversation to fork.
+    fn openAgentMenu(s: *Self, id: layout.PaneId, x: u16, y: u16) void {
+        s.closeMenu();
+        s.search_mode = false;
+        s.cancelDividers();
+        s.selection = null;
+        _ = s.pane(id) orelse return;
+        var opened: commands.TabMenu = .{ .tab = @intFromEnum(id), .agent = true, .anchor_x = x, .anchor_y = y };
+        if (s.connection.call(.@"session.command", .{ .command = .{ .@"agent.rename" = .{ .target = id } } })) |response| {
+            response.deinit();
+        } else |_| opened.off.insert(.rename);
+        if (s.connection.call(.@"session.command", .{ .command = .{ .@"agent.fork" = .{ .target = id, .check = true } } })) |response| {
+            response.deinit();
+        } else |_| opened.off.insert(.fork);
+        opened.highlightFirst();
+        s.tab_menu = opened;
+        s.dirty = true;
+    }
     /// Runs a row of the open tab menu; `item` comes from its `entries()`.
     fn tabMenuAction(s: *Self, item: commands.TabMenu.Item) !void {
         const context = s.tab_menu orelse return;
         s.closeMenu();
+        if (context.agent) {
+            const pane_id: layout.PaneId = @enumFromInt(context.tab);
+            const p = s.pane(pane_id) orelse return;
+            switch (item) {
+                .rename => {
+                    s.name_dialog = naming.Dialog.init(.{ .agent = pane_id }, if (p.label.len > 0) p.label else p.agent.name);
+                    s.prepareName();
+                },
+                .fork => {
+                    var buf: [naming.name_limit]u8 = undefined;
+                    const title = if (p.label.len > 0) p.label else if (p.agent.name.len > 0) p.agent.name else p.agent.providerName();
+                    s.name_dialog = naming.Dialog.init(.{ .fork = pane_id }, forkName(&buf, title));
+                    s.prepareName();
+                },
+                .close => try s.close(pane_id),
+                else => {},
+            }
+            return;
+        }
         if (context.pane) {
             const pane_id: layout.PaneId = @enumFromInt(context.tab);
             if (s.pane(pane_id) == null) return;
@@ -703,7 +741,7 @@ pub const Controller = struct {
                         else => .zoom,
                     });
                 },
-                .new => {},
+                .new, .fork => {},
             }
             return;
         }
@@ -836,6 +874,23 @@ pub const Controller = struct {
                         dialog.failed = true;
                         return;
                     };
+                },
+                .agent => |id| if (dialog.name().len > 0) {
+                    s.edit(.{ .@"agent.rename" = .{ .target = id, .name = dialog.name() } }) catch |err| {
+                        s.dismissName();
+                        s.notice(agentMessage(err, " Could not rename this agent"));
+                        return;
+                    };
+                },
+                .fork => |id| {
+                    // An emptied name keeps the one the copy takes over.
+                    const name = if (dialog.name().len > 0) dialog.name() else null;
+                    const created = s.execute(.{ .@"agent.fork" = .{ .target = id, .name = name } }) catch |err| {
+                        s.dismissName();
+                        s.notice(agentMessage(err, " Could not fork this agent"));
+                        return;
+                    };
+                    s.focusPane(created.pane) catch {};
                 },
             }
         };
@@ -1803,7 +1858,7 @@ pub const Controller = struct {
         if (s.tab_menu) |context| {
             switch (byte) {
                 27 => s.closeMenu(),
-                13 => try s.tabMenuAction(context.entries()[context.highlighted].item),
+                13 => if (context.highlightedItem()) |item| try s.tabMenuAction(item),
                 'j', 9 => s.moveTabMenu(true),
                 'k' => s.moveTabMenu(false),
                 else => if (context.itemFor(byte)) |item| {
@@ -2658,12 +2713,15 @@ pub const Controller = struct {
             if (!release and (button == 64 or button == 65)) s.moveTabMenu(button == 65);
             if (!release and button == 0) {
                 s.ui_mouse_down = true;
-                if (context.hit(s.width, s.height, x, y)) |index| try s.tabMenuAction(context.entries()[index].item) else s.closeMenu();
-            } else if (!release and (button == 35 or button == 32)) {
                 if (context.hit(s.width, s.height, x, y)) |index| {
+                    const item = context.entries()[index].item;
+                    if (!context.off.contains(item)) try s.tabMenuAction(item);
+                } else s.closeMenu();
+            } else if (!release and (button == 35 or button == 32)) {
+                if (context.hit(s.width, s.height, x, y)) |index| if (!context.off.contains(context.entries()[index].item)) {
                     s.tab_menu.?.highlighted = index;
                     s.dirty = true;
-                }
+                };
             }
             return;
         }
@@ -2757,6 +2815,7 @@ pub const Controller = struct {
                     .entry => |index| if (entries[index].exit == null) {
                         const target = entries[index].target;
                         try s.selectAgent(target);
+                        if (button == 2 and target == .pane) s.openAgentMenu(target.pane, x, y);
                         if (button == 0 and target != .group) {
                             // Selecting another workspace can scroll the list.
                             // Capture the post-selection viewport and identity.
@@ -3021,7 +3080,11 @@ pub const Controller = struct {
         if (s.selection) |selection| if (s.pane(selection.pane) == null) {
             s.selection = null;
         };
-        if (s.name_dialog) |dialog| if ((dialog.target == .rename and s.tabIndex(dialog.target.rename) == null) or (dialog.target == .pane and s.pane(dialog.target.pane) == null)) s.dismissName();
+        if (s.name_dialog) |dialog| if (switch (dialog.target) {
+            .rename => |id| s.tabIndex(id) == null,
+            .pane, .agent, .fork => |id| s.pane(id) == null,
+            else => false,
+        }) s.dismissName();
         s.dirty = true;
     }
     pub fn expireInput(s: *Self) !void {
@@ -3227,6 +3290,23 @@ fn direction(key: u8) ?layout.Direction {
         else => null,
     };
 }
+/// `title (fork)`, shortening the title so the name fits a dialog.
+fn forkName(buf: *[naming.name_limit]u8, title: []const u8) []const u8 {
+    const suffix = " (fork)";
+    var end = @min(title.len, buf.len - suffix.len);
+    while (end > 0 and end < title.len and title[end] & 0xc0 == 0x80) end -= 1;
+    return std.fmt.bufPrint(buf, "{s}{s}", .{ title[0..end], suffix }) catch unreachable;
+}
+/// What a viewer says when an agent rename or fork fails with `err`.
+fn agentMessage(err: anyerror, fallback: []const u8) []const u8 {
+    return switch (err) {
+        error.AgentBusy => " Codex is busy: rename it once its input box is empty",
+        error.RenameUnavailable => " This agent can't be renamed from outside",
+        error.NoConversation => " This agent has no conversation yet",
+        error.InvalidName => " Names are one line of up to 80 characters",
+        else => fallback,
+    };
+}
 fn gitPushMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.GitPreviewChanged => git_push.preview_changed,
@@ -3330,4 +3410,12 @@ test "escape in the launcher's search clears the query, then closes the launcher
     try std.testing.expectEqualStrings("", s.agent_launcher.?.resume_view.query.name());
     try s.key(27);
     try std.testing.expect(s.agent_launcher == null);
+}
+
+test "a fork's name is its title marked as a fork, cut to fit" {
+    var buf: [naming.name_limit]u8 = undefined;
+    try std.testing.expectEqualStrings("refactor (fork)", forkName(&buf, "refactor"));
+    const long = forkName(&buf, "x" ** 72 ++ "⑂⑂");
+    try std.testing.expectEqualStrings("x" ** 72 ++ " (fork)", long);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(long));
 }

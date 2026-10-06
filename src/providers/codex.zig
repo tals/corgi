@@ -32,6 +32,7 @@ pub const Codex = struct {
             "-c", "web_search=\"disabled\"",
         },
         .resume_args = .{ "codex", "resume" },
+        .fork_args = .{ "fork", "" },
         .app_bundles = &.{ "Codex.app", "ChatGPT.app" },
         // Package wrappers stay executable when their native binary is missing.
         .version_prefix = "codex-cli ",

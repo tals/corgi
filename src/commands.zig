@@ -24,11 +24,17 @@ pub const TabMenu = struct {
     anchor_y: u16 = 0,
     workspace: bool = false,
     pane: bool = false,
+    /// An agent row's menu; `tab` is the agent's pane.
+    agent: bool = false,
     source: ?u32 = null,
     highlighted: usize = 0,
-    /// What a row does to the menu's tab, workspace or pane.
-    pub const Item = enum { new, rename, @"clear-name", swap, @"split-right", @"split-down", zoom, close };
-    pub const Row = struct { item: Item, key: u8, label: []const u8 };
+    /// Rows shown crossed out, which neither keys nor clicks run.
+    off: std.EnumSet(Item) = .initEmpty(),
+    /// What a row does to the menu's tab, workspace, pane or agent.
+    pub const Item = enum { new, rename, @"clear-name", swap, @"split-right", @"split-down", zoom, fork, close };
+    /// `icon` sits in a column before the labels. A `rule` sets the row
+    /// apart below a line, and the highlight never starts on it.
+    pub const Row = struct { item: Item, key: u8, label: []const u8, icon: []const u8 = "", rule: bool = false };
     const actions = [_]Row{
         .{ .item = .new, .key = 'c', .label = "New tab" },
         .{ .item = .rename, .key = 'T', .label = "Rename" },
@@ -43,7 +49,13 @@ pub const TabMenu = struct {
         .{ .item = .zoom, .key = 'z', .label = "Zoom / unzoom" },
         .{ .item = .close, .key = 'X', .label = "Close pane" },
     };
+    const agent_actions = [_]Row{
+        .{ .item = .rename, .key = 'T', .label = "Rename" },
+        .{ .item = .fork, .key = 'f', .label = "Fork", .icon = "⑂" },
+        .{ .item = .close, .key = 'X', .label = "Close", .rule = true },
+    };
     pub fn entries(m: TabMenu) []const Row {
+        if (m.agent) return &agent_actions;
         if (m.pane) return if (m.source != null) &pane_actions else pane_actions[1..];
         return if (m.workspace) actions[1..] else &actions;
     }
@@ -54,8 +66,32 @@ pub const TabMenu = struct {
             'x' => 'X',
             else => key,
         };
-        for (m.entries()) |row| if (row.key == shown) return row.item;
+        for (m.entries()) |row| if (row.key == shown) return if (m.off.contains(row.item)) null else row.item;
         return null;
+    }
+    /// The highlighted row's item, unless it is crossed out.
+    pub fn highlightedItem(m: TabMenu) ?Item {
+        const item = m.entries()[m.highlighted].item;
+        return if (m.off.contains(item)) null else item;
+    }
+    /// Highlights the first row that runs above any rule, so Enter right
+    /// after opening never closes anything. With none, nothing is highlighted.
+    pub fn highlightFirst(m: *TabMenu) void {
+        m.highlighted = 0;
+        for (m.entries(), 0..) |row, index| if (!row.rule and !m.off.contains(row.item)) {
+            m.highlighted = index;
+            return;
+        };
+    }
+    /// Screen lines the rows take: one each, and one per rule.
+    fn lines(m: TabMenu) usize {
+        var count = m.entries().len;
+        for (m.entries()) |row| count += @intFromBool(row.rule);
+        return count;
+    }
+    fn hasIcons(m: TabMenu) bool {
+        for (m.entries()) |row| if (row.icon.len > 0) return true;
+        return false;
     }
     const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
     const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
@@ -63,35 +99,78 @@ pub const TabMenu = struct {
         const w = @min(width, if (m.pane) @as(u16, 30) else 20);
         return .{
             .x = @min(m.anchor_x, width - w),
-            .y = @min(m.anchor_y, height -| (m.entries().len + 2)),
+            .y = @min(m.anchor_y, height -| (m.lines() + 2)),
             .width = w,
-            .padding = if (height >= m.entries().len + 2) 1 else 0,
+            .padding = if (height >= m.lines() + 2) 1 else 0,
         };
     }
+    /// The row under `x`, `y`; null on a rule or outside the rows.
     pub fn hit(m: TabMenu, width: u16, height: u16, x: u16, y: u16) ?usize {
         const b = m.bounds(width, height);
-        if (x < b.x + 1 or x >= b.x + b.width - 1 or y < b.y + b.padding or y >= b.y + b.padding + m.entries().len) return null;
-        return y - b.y - b.padding;
+        if (x < b.x + 1 or x >= b.x + b.width - 1) return null;
+        var line = b.y + b.padding;
+        for (m.entries(), 0..) |row, index| {
+            if (row.rule) line += 1;
+            if (y == line) return index;
+            line += 1;
+        }
+        return null;
     }
+    /// Moves the highlight to the next row that runs, past crossed-out ones.
     pub fn move(m: *TabMenu, next: bool) void {
-        m.highlighted = if (next) (m.highlighted + 1) % m.entries().len else (m.highlighted + m.entries().len - 1) % m.entries().len;
+        const len = m.entries().len;
+        for (0..len) |_| {
+            m.highlighted = if (next) (m.highlighted + 1) % len else (m.highlighted + len - 1) % len;
+            if (!m.off.contains(m.entries()[m.highlighted].item)) return;
+        }
     }
     pub fn draw(m: TabMenu, w: *std.Io.Writer, width: u16, height: u16) !void {
         const b = m.bounds(width, height);
         if (b.padding > 0) {
-            for ([_]u16{ 0, @intCast(m.entries().len + 1) }) |row| {
+            for ([_]u16{ 0, @intCast(m.lines() + 1) }) |row| {
                 try w.print("\x1b[{d};{d}H" ++ border ++ "+", .{ b.y + row + 1, b.x + 1 });
                 try w.splatByteAll('-', b.width - 2);
                 try w.writeByte('+');
             }
         }
+        // Icons take a column of their own, so labels line up.
+        const icons = m.hasIcons() and b.width >= 18;
+        var line = b.y + b.padding + 1;
         for (m.entries(), 0..) |entry, index| {
-            const row_style = if (index == m.highlighted) (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr() else (palette.Style{ .fg = .strong, .bg = .surface }).sgr();
-            try w.print("\x1b[{d};{d}H" ++ border ++ "|{s}", .{ b.y + index + b.padding + 1, b.x + 1, row_style });
+            if (entry.rule) {
+                try w.print("\x1b[{d};{d}H" ++ border ++ "| ", .{ line, b.x + 1 });
+                try w.splatByteAll('-', b.width -| 4);
+                try w.writeAll(" |");
+                line += 1;
+            }
+            const off = m.off.contains(entry.item);
+            const highlighted = !off and index == m.highlighted;
+            const row_style = if (off)
+                (palette.Style{ .fg = .faint, .bg = .surface }).sgr()
+            else if (highlighted)
+                (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr()
+            else
+                (palette.Style{ .fg = .strong, .bg = .surface }).sgr();
+            try w.print("\x1b[{d};{d}H" ++ border ++ "|{s}", .{ line, b.x + 1, row_style });
+            line += 1;
+            var used: u16 = 0;
+            if (icons) {
+                const icon_style = if (off)
+                    (palette.Style{ .fg = .faint, .bg = .surface }).sgr()
+                else if (highlighted)
+                    (palette.Style{ .fg = .muted, .bg = .selected }).sgr()
+                else
+                    (palette.Style{ .fg = .muted, .bg = .surface }).sgr();
+                try w.print(" {s}{s}{s} ", .{ icon_style, if (entry.icon.len > 0) entry.icon else " ", row_style });
+                used = 3;
+            }
             const show_key = b.width >= 14;
-            const len = @min(entry.label.len, b.width - @as(u16, if (show_key) 6 else 2));
+            const room = b.width - 2 - used - @as(u16, if (show_key) 2 else 0);
+            const len: u16 = @intCast(@min(entry.label.len, room));
+            if (off) try w.writeAll((palette.Style{ .fg = .faint, .bg = .surface, .strike = true }).sgr());
             try w.writeAll(entry.label[0..len]);
-            try w.splatByteAll(' ', b.width - 2 - len - @as(u16, if (show_key) 2 else 0));
+            if (off) try w.writeAll(row_style);
+            try w.splatByteAll(' ', room - len);
             if (show_key) try w.print("{c} ", .{entry.key});
             try w.writeAll(border ++ "|");
         }
@@ -193,4 +272,39 @@ test "menu keys pick the rows each menu shows" {
     try std.testing.expectEqual(null, pane.itemFor('s'));
     const swap: TabMenu = .{ .tab = 1, .anchor_x = 0, .pane = true, .source = 2 };
     try std.testing.expectEqual(TabMenu.Item.swap, swap.itemFor('s').?);
+    const agent: TabMenu = .{ .tab = 1, .anchor_x = 0, .agent = true };
+    try std.testing.expectEqual(TabMenu.Item.rename, agent.itemFor('r').?);
+    try std.testing.expectEqual(TabMenu.Item.fork, agent.itemFor('f').?);
+    try std.testing.expectEqual(TabMenu.Item.close, agent.itemFor('x').?);
+    try std.testing.expectEqual(null, agent.itemFor('c'));
+}
+
+test "crossed-out rows take no key, click or highlight" {
+    var menu: TabMenu = .{ .tab = 1, .anchor_x = 0, .agent = true, .off = .initMany(&.{ .rename, .fork }) };
+    try std.testing.expectEqual(null, menu.itemFor('r'));
+    try std.testing.expectEqual(null, menu.itemFor('f'));
+    try std.testing.expectEqual(null, menu.highlightedItem());
+    // Close sits apart below a rule; the menu never opens on it.
+    menu.highlightFirst();
+    try std.testing.expectEqual(null, menu.highlightedItem());
+    try std.testing.expectEqual(null, menu.hit(80, 24, 5, 3));
+    try std.testing.expectEqual(2, menu.hit(80, 24, 5, 4).?);
+    menu.move(true);
+    try std.testing.expectEqual(TabMenu.Item.close, menu.highlightedItem().?);
+    menu.move(true);
+    try std.testing.expectEqual(TabMenu.Item.close, menu.highlightedItem().?);
+    menu.off = .initOne(.fork);
+    menu.move(false);
+    try std.testing.expectEqual(TabMenu.Item.rename, menu.highlightedItem().?);
+    menu.move(false);
+    try std.testing.expectEqual(TabMenu.Item.close, menu.highlightedItem().?);
+
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try menu.draw(&out.writer, 80, 24);
+    const struck = comptime (palette.Style{ .fg = .faint, .bg = .surface, .strike = true }).sgr();
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), struck ++ "Fork") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), struck ++ "Rename") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "⑂") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "| ---------------- |") != null);
 }

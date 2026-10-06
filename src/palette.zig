@@ -78,11 +78,13 @@ pub const Style = struct {
     fg: ?Token = null,
     bg: ?Token = null,
     bold: bool = false,
+    strike: bool = false,
 
     pub fn sgr(comptime s: Style) []const u8 {
         return comptime blk: {
             var out: []const u8 = "\x1b[0";
             if (s.bold) out = out ++ ";1";
+            if (s.strike) out = out ++ ";9";
             if (s.fg) |t| out = out ++ ";38;2;" ++ channels(t);
             if (s.bg) |t| out = out ++ ";48;2;" ++ channels(t);
             break :blk out ++ "m";

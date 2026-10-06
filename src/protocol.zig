@@ -45,6 +45,14 @@ pub const Rejection = error{
     NoWorkspace,
     NothingToPush,
     TooManyPushes,
+    /// The agent's screen shows something other than an empty input box.
+    AgentBusy,
+    /// The agent offers no way to rename it from outside.
+    RenameUnavailable,
+    /// The pane's agent has no conversation to rename or fork yet.
+    NoConversation,
+    /// Not one line of printable text, or longer than an agent takes.
+    InvalidName,
 };
 /// A reply's `err` as a `Rejection`; any other name is `ServerRejected`.
 pub fn rejection(name: []const u8) (Rejection || error{ServerRejected}) {
@@ -642,6 +650,14 @@ pub const Command = union(enum) {
     /// Continue `provider`'s conversation `session` in a new tab, in the
     /// folder it ran in.
     @"agent.resume": struct { workspace: WorkspaceId, cwd: []const u8, provider: providers.Provider, session: []const u8 },
+    /// Renames the conversation pane `target` shows, in its agent's own
+    /// records. Without a name it only checks that it can.
+    @"agent.rename": struct { target: layout.PaneId, name: ?[]const u8 = null },
+    /// Copies the conversation pane `target` shows into a new conversation,
+    /// in a new tab after its own. The copy takes `name` as soon as its
+    /// agent can be renamed; without one it keeps the name it copies. With
+    /// `check` it only checks that there is a conversation to copy.
+    @"agent.fork": struct { target: layout.PaneId, name: ?[]const u8 = null, check: bool = false },
     @"pane.create": struct {
         workspace: WorkspaceId,
         from: ?layout.PaneId = null,

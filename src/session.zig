@@ -57,22 +57,7 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
         .@"agent.move" => |q| {
             const ws = try r.getWorkspace(q.workspace);
             var live: [ordering.capacity]ordering.Target = undefined;
-            var count: usize = 0;
-            // Include shells so a temporary loss of agent detection does not
-            // erase their saved position. IDs are validated within this workspace.
-            for (ws.model.tabs[0..ws.model.count], 0..) |_, tab_index| {
-                for (r.panes.items) |p| if (ws.model.tabForPane(p.id) == tab_index) {
-                    if (count == live.len) return error.TooManyAgents;
-                    live[count] = .{ .pane = p.id };
-                    count += 1;
-                };
-            }
-            for (r.sessions.items) |session| if (session.workspace_id == ws.id) {
-                if (count == live.len) return error.TooManyAgents;
-                live[count] = .{ .native = session.id };
-                count += 1;
-            };
-            try ws.agent_order.move(live[0..count], q.target, q.before);
+            try ws.agent_order.move(try r.agentTargets(ws, &live), q.target, q.before);
         },
         .@"agent.command" => |q| {
             if (q.index >= r.agent_commands.len) return error.InvalidCommand;
@@ -126,6 +111,18 @@ pub fn execute(r: *Runtime, ctx: Context, cmd: Command, alloc: std.mem.Allocator
             // Resuming is not choosing what `New` starts, so the last agent stays.
             const launch: runtime.Launch = .{ .agent = .{ .provider = q.provider, .yolo = r.agent_yolo.get(q.provider) } };
             return location(r, try r.resumeAgent(opts, launch, .{ .provider = q.provider, .session = try agents.Text.init(q.session) }, null));
+        },
+        .@"agent.rename" => |q| {
+            try r.renameAgent(q.target, q.name);
+            return location(r, q.target);
+        },
+        .@"agent.fork" => |q| {
+            if (q.check) {
+                _ = try runtime.Runtime.forkSource(r.pane(q.target) orelse return error.NoPane);
+                return location(r, q.target);
+            }
+            const ws = r.workspaces.owner(q.target) orelse return error.NoPane;
+            return location(r, try r.forkAgent(try spawnOptions(r, ctx, ws.id, q.target, ""), q.target, q.name));
         },
         .@"pane.create" => |q| {
             var opts = try spawnOptions(r, ctx, q.workspace, q.from, q.cwd);
