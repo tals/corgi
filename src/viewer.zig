@@ -16,6 +16,7 @@ const sound = @import("sound.zig");
 const url_opener = @import("url_opener.zig");
 const corgi_badge = @import("corgi_badge.zig");
 const host_clipboard = @import("host_clipboard.zig");
+const fork_motion = @import("fork_motion.zig");
 pub const View = controller.Controller;
 
 pub fn open(view: *View, cwd: []const u8, theme: Theme, socket: []const u8) !u64 {
@@ -26,6 +27,7 @@ fn openMode(view: *View, cwd: []const u8, theme: Theme, socket: []const u8, star
     // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
     // attaching viewer's environment: one daemon can serve both terminals.
     view.iterm2_pointer = std.mem.eql(u8, os.env("TERM_PROGRAM") orelse "", "iTerm.app");
+    view.branch_glyphs = branchGlyphs(os.env("TERM") orelse "") or branchGlyphs(os.env("TERM_PROGRAM") orelse "");
     view.loadPreferences();
     if (start_onboarding) view.openOnboarding(.welcome);
     const opened = view.connection.call(.@"viewer.open", .{
@@ -163,6 +165,9 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     defer if (probe.badge.uploaded) {
         os.writeAll(1, corgi_badge.remove) catch {};
     };
+    defer if (view.name_dialog) |d| if (d.hero.motion != null) {
+        os.writeAll(1, fork_motion.remove) catch {};
+    };
     // Opened once the first sync names this viewer.
     var waker: ?c_int = null;
     var watch_opened = false;
@@ -192,6 +197,9 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
             probe.changed = false;
         }
         const size = dimensions();
+        view.cell_pixels = size.cell;
+        // Over SSH, TERM may not name the terminal; XTVERSION does.
+        if (branchGlyphs(probe.clipboard.terminal.text())) view.branch_glyphs = true;
         if (view.width != size.cols or view.height != size.rows) {
             view.width = size.cols;
             view.height = size.rows;
@@ -221,7 +229,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
                     watch_opened = true;
                 }
             }
-            next_sync = os.milliTimestamp() + 30;
+            next_sync = os.milliTimestamp() + view.frameDelay();
             const frame = try view.frame();
             if (!std.mem.eql(u8, previous, frame)) try os.writeAll(1, frame);
             if (previous.len > 0) a.free(previous);
@@ -299,8 +307,18 @@ fn watch(socket: []const u8, viewer: u32) ?c_int {
     os.nonblock(fd);
     return fd;
 }
-fn dimensions() struct { cols: u16, rows: u16 } {
+fn dimensions() struct { cols: u16, rows: u16, cell: ?fork_motion.Cell } {
     var size = std.mem.zeroes(c.struct_winsize);
     _ = c.ioctl(0, c.TIOCGWINSZ, &size);
-    return .{ .cols = if (size.ws_col == 0) 100 else std.math.clamp(size.ws_col, 10, 500), .rows = if (size.ws_row == 0) 30 else std.math.clamp(size.ws_row, 4, 200) };
+    // Terminals that report pixels pad under a cell, so this is the cell.
+    const cell: ?fork_motion.Cell = if (size.ws_col == 0 or size.ws_row == 0 or size.ws_xpixel < size.ws_col or size.ws_ypixel < size.ws_row)
+        null
+    else
+        .{ .width = size.ws_xpixel / size.ws_col, .height = size.ws_ypixel / size.ws_row };
+    return .{ .cols = if (size.ws_col == 0) 100 else std.math.clamp(size.ws_col, 10, 500), .rows = if (size.ws_row == 0) 30 else std.math.clamp(size.ws_row, 4, 200), .cell = cell };
+}
+/// Whether a terminal by this name draws Kitty's branch drawing characters:
+/// Ghostty and Kitty do.
+fn branchGlyphs(name: []const u8) bool {
+    return std.ascii.indexOfIgnoreCase(name, "ghostty") != null or std.ascii.indexOfIgnoreCase(name, "kitty") != null;
 }

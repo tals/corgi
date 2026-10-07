@@ -26,6 +26,7 @@ const rpc = @import("rpc.zig");
 const navigation = @import("navigation.zig");
 const Action = @import("action.zig").Action;
 const corgi_badge = @import("corgi_badge.zig");
+const fork_motion = @import("fork_motion.zig");
 const sidebar_rows = @import("sidebar_rows.zig");
 const agent_launcher = @import("agent_launcher.zig");
 const launch_preview_stream = @import("launch_preview_stream.zig");
@@ -173,6 +174,10 @@ pub const Controller = struct {
     sidebar_open: bool = true,
     corgi_badge: corgi_badge.Mode = .none,
     supports_kitty_graphics: bool = false,
+    /// The host's cell in pixels, when it reports it.
+    cell_pixels: ?fork_motion.Cell = null,
+    /// Whether the host draws Kitty's branch drawing characters.
+    branch_glyphs: bool = false,
     /// The "All" list's scroll; each workspace keeps its own list's.
     all_offset: usize = 0,
     /// A tab this viewer launched or restored; its agent scrolls into view
@@ -709,6 +714,7 @@ pub const Controller = struct {
                     var buf: [naming.name_limit]u8 = undefined;
                     const title = if (p.label.len > 0) p.label else if (p.agent.name.len > 0) p.agent.name else p.agent.providerName();
                     s.name_dialog = naming.Dialog.init(.{ .fork = pane_id }, forkName(&buf, title));
+                    try s.startHero();
                     s.prepareName();
                 },
                 .close => try s.close(pane_id),
@@ -836,7 +842,30 @@ pub const Controller = struct {
         s.dirty = true;
     }
     pub fn dismissName(s: *Self) void {
+        // The hero's images go with it.
+        if (s.name_dialog) |d| if (d.hero.motion != null) {
+            if (a.dupe(u8, fork_motion.remove)) |remove| s.queueEffect(.{ .write_terminal = remove }) catch {} else |_| {}
+        };
         s.name_dialog = null;
+    }
+    /// Sets the fork card's hero moving, where the host shows Kitty images
+    /// and reports its cell size; elsewhere it shows at rest.
+    fn startHero(s: *Self) !void {
+        const d = if (s.name_dialog) |*d| d else return;
+        d.hero.glyphs = s.branch_glyphs;
+        const cell = s.cell_pixels orelse return;
+        if (!s.supports_kitty_graphics) return;
+        var images: std.Io.Writer.Allocating = .init(a);
+        defer images.deinit();
+        try fork_motion.upload(a, &images.writer, cell);
+        try s.queueEffect(.{ .write_terminal = try images.toOwnedSlice() });
+        d.hero.motion = .{ .start = clock.milliTimestamp() + fork_motion.lead_ms, .cell = cell };
+    }
+    /// How long the viewer waits between frames: a display frame while the
+    /// fork card's hero moves.
+    pub fn frameDelay(s: *const Self) i64 {
+        const d = s.name_dialog orelse return 30;
+        return if (fork_motion.moving(d.hero, clock.milliTimestamp())) 16 else 30;
     }
     fn renamePane(s: *Self, id: layout.PaneId, name: []const u8) !void {
         try s.edit(.{ .@"pane.rename" = .{ .target = id, .name = name } });

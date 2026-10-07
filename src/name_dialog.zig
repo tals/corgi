@@ -7,6 +7,8 @@ const keys = @import("keys.zig");
 const launch_command = @import("launch.zig").command;
 const sidebar = @import("sidebar.zig");
 const palette = @import("palette.zig");
+const fork_motion = @import("fork_motion.zig");
+const clock = @import("clock.zig");
 
 pub const Target = union(enum) {
     pane: layout.PaneId,
@@ -35,6 +37,8 @@ pub const Dialog = struct {
     selected: bool = true,
     failed: bool = false,
     overflow: bool = false,
+    /// The fork card's hero.
+    hero: fork_motion.Hero = .{},
 
     pub fn init(target: Target, initial: []const u8) Dialog {
         var d: Dialog = .{ .target = target };
@@ -344,7 +348,7 @@ pub const View = struct {
                 try w.writeAll(border ++ "│");
             }
         }
-        if (card.hero_y) |y| try drawHero(w, v.x + (v.width - hero_width) / 2, y);
+        if (card.hero_y) |y| try fork_motion.draw(w, v.x + (v.width - fork_motion.width) / 2, y, d.hero, clock.milliTimestamp());
         try v.centered(w, v.title_y, comptime (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr(), "Fork this agent");
         if (d.overflow)
             try v.centered(w, card.subtitle_y, comptime (palette.Style{ .fg = .hot, .bg = .surface }).sgr(), "Names fit in 80 characters")
@@ -389,19 +393,6 @@ const card_label_widths = [3]u16{ 13, 8, 10 };
 const selection = palette.fgRgb(palette.Token.strong.rgb()) ++ palette.bgRgb(palette.mix(palette.Token.selected.rgb(), palette.Token.accent.rgb(), 30));
 const create_fill = "\x1b[0m" ++ palette.bgRgb(palette.mix(palette.Token.surface.rgb(), palette.Token.accent.rgb(), 22));
 const create_label = create_fill ++ "\x1b[1m" ++ palette.fgRgb(palette.Token.accent.rgb());
-
-/// The fork card's hero: the corgi where the path splits, the original going
-/// on (●) and its copy branching off (◆).
-const hero_width = 19;
-fn drawHero(w: *std.Io.Writer, x: u16, y: u16) !void {
-    const line = comptime (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
-    const corgi = comptime (palette.Style{ .fg = .text, .bg = .surface }).sgr();
-    const original = comptime (palette.Style{ .fg = .muted, .bg = .surface }).sgr();
-    const copy = comptime (palette.Style{ .fg = .accent, .bg = .surface }).sgr();
-    try w.print("\x1b[{d};{d}H" ++ line ++ "╭───── " ++ original ++ "●", .{ y + 1, x + 12 });
-    try w.print("\x1b[{d};{d}H" ++ corgi ++ "~ᐯ•ᴥ•ᐯ " ++ line ++ "────┤", .{ y + 2, x + 1 });
-    try w.print("\x1b[{d};{d}H" ++ line ++ "╰───── " ++ copy ++ "◆", .{ y + 3, x + 12 });
-}
 
 test "name editing supports selection, insertion, cursor movement and clear" {
     var d = Dialog.init(.{ .rename = @enumFromInt(1) }, "original");
@@ -458,7 +449,7 @@ test "the fork card is roomy where it fits and plain where it doesn't" {
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
     try v.draw(d, &out.writer, 0);
-    for ([_][]const u8{ "Fork this agent", "Create Fork", "^C", "Clear", "Cancel", "~ᐯ•ᴥ•ᐯ", selection ++ "refactor (fork)" }) |text| {
+    for ([_][]const u8{ "Fork this agent", "Create Fork", "^C", "Clear", "Cancel", "┤", "●", selection ++ "refactor (fork)" }) |text| {
         try std.testing.expect(std.mem.indexOf(u8, out.written(), text) != null);
     }
 }
