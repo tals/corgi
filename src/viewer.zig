@@ -17,6 +17,7 @@ const url_opener = @import("url_opener.zig");
 const corgi_badge = @import("corgi_badge.zig");
 const host_clipboard = @import("host_clipboard.zig");
 const fork_motion = @import("fork_motion.zig");
+const frame_diff = @import("frame_diff.zig");
 pub const View = controller.Controller;
 
 pub fn open(view: *View, cwd: []const u8, theme: Theme, socket: []const u8) !u64 {
@@ -160,6 +161,11 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     defer openers.reap();
     var previous: []const u8 = "";
     defer if (previous.len > 0) a.free(previous);
+    var host: ?*frame_diff.Differ = null;
+    defer if (host) |d| d.destroy();
+    // The host has not taken the last output yet (a slow SSH link): later
+    // frames wait, and the next one written carries all their changes.
+    var held = false;
     probe.badge = .{};
     try os.writeAll(1, corgi_badge.query);
     defer if (probe.badge.uploaded) {
@@ -216,7 +222,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         if (input.items.len > 4) input.clearRetainingCapacity();
         try view.expireInput();
         const now = os.milliTimestamp();
-        if (view.dirty or now >= next_sync) {
+        if (view.dirty or now >= next_sync or (held and writable())) {
             // Frames keep their clock for animations; the daemon is asked
             // only when it said something changed, or often enough that it
             // still counts this viewer as watching.
@@ -231,11 +237,16 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
             }
             next_sync = os.milliTimestamp() + view.frameDelay();
             const frame = try view.frame();
-            if (!std.mem.eql(u8, previous, frame)) try os.writeAll(1, frame);
-            if (previous.len > 0) a.free(previous);
-            previous = frame;
-            try presented(&view);
             view.dirty = false;
+            held = !std.mem.eql(u8, previous, frame) and !writable();
+            if (held) {
+                a.free(frame);
+            } else {
+                if (!std.mem.eql(u8, previous, frame)) try present(&host, frame, view.width, view.height);
+                if (previous.len > 0) a.free(previous);
+                previous = frame;
+                try presented(&view);
+            }
         }
         for (view.effects.items) |effect| switch (effect) {
             .open_url => |url| if (!view.remote_links) {
@@ -244,9 +255,10 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
             .write_terminal => |data| try os.writeAll(1, data),
         };
         view.clearEffects();
-        var polls = [2]c.struct_pollfd{
+        var polls = [3]c.struct_pollfd{
             .{ .fd = 0, .events = c.POLLIN, .revents = 0 },
             .{ .fd = waker orelse -1, .events = c.POLLIN, .revents = 0 },
+            .{ .fd = if (held) 1 else -1, .events = c.POLLOUT, .revents = 0 },
         };
         _ = c.poll(&polls, polls.len, 16);
         const poll = polls[0];
@@ -277,6 +289,24 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
         }
     }
     return null;
+}
+/// Writes what the host needs to show `frame`, diffed against what it shows.
+fn present(host: *?*frame_diff.Differ, frame: []const u8, cols: u16, rows: u16) !void {
+    if (host.*) |d| if (d.cols != cols or d.rows != rows) {
+        d.destroy();
+        host.* = null;
+    };
+    if (host.* == null) host.* = try frame_diff.Differ.create(cols, rows);
+    var out: std.Io.Writer.Allocating = .init(a);
+    defer out.deinit();
+    try host.*.?.diff(&out.writer, frame);
+    if (out.written().len > 0) try os.writeAll(1, out.written());
+}
+/// Whether the terminal takes output now. Linux reports no output queue for
+/// a pty, so a host falling behind shows only as stdout filling up.
+fn writable() bool {
+    var poll = [1]c.struct_pollfd{.{ .fd = 1, .events = c.POLLOUT, .revents = 0 }};
+    return c.poll(&poll, 1, 0) > 0 and poll[0].revents & c.POLLOUT != 0;
 }
 /// Hands the host clipboard's paste and what a read brought to the view,
 /// and writes the requests both make.

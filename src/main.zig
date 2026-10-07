@@ -510,6 +510,7 @@ test {
     _ = @import("discovery.zig");
     _ = @import("failure.zig");
     _ = @import("fork_motion.zig");
+    _ = @import("frame_diff.zig");
     _ = @import("fs_watch.zig");
     _ = @import("ghostty_integration.zig");
     _ = @import("host_clipboard.zig");
@@ -605,16 +606,16 @@ test "every source file is in the test root" {
 test "the daemon and the viewer never import each other" {
     // Files that run only in `corgi attach`.
     const viewer: std.StaticStringMap(void) = .initComptime(.{
-        .{"agent_drag.zig"},            .{"agent_launcher.zig"},  .{"agent_navigation.zig"}, .{"bindings.zig"},
-        .{"client.zig"},                .{"commands.zig"},        .{"controller.zig"},       .{"corgi_animation.zig"},
-        .{"corgi_badge.zig"},           .{"corgi_frames.zig"},    .{"corgi_setup.zig"},      .{"fork_motion.zig"},
-        .{"ghostty_integration.zig"},   .{"host_clipboard.zig"},  .{"host_probe.zig"},       .{"keymap.zig"},
-        .{"launch_preview_stream.zig"}, .{"launcher_resume.zig"}, .{"launcher_usage.zig"},   .{"link_tooltip.zig"},
-        .{"mirror.zig"},                .{"name_dialog.zig"},     .{"navigation.zig"},       .{"onboarding.zig"},
-        .{"paste_card.zig"},            .{"preferences.zig"},     .{"render.zig"},           .{"resource_tooltip.zig"},
-        .{"shortcut_help.zig"},         .{"sidebar.zig"},         .{"sidebar_rows.zig"},     .{"sound.zig"},
-        .{"subagent_tooltip.zig"},      .{"url_opener.zig"},      .{"viewer.zig"},           .{"viewer_test.zig"},
-        .{"workspace_drag.zig"},
+        .{"agent_drag.zig"},       .{"agent_launcher.zig"},        .{"agent_navigation.zig"}, .{"bindings.zig"},
+        .{"client.zig"},           .{"commands.zig"},              .{"controller.zig"},       .{"corgi_animation.zig"},
+        .{"corgi_badge.zig"},      .{"corgi_frames.zig"},          .{"corgi_setup.zig"},      .{"fork_motion.zig"},
+        .{"frame_diff.zig"},       .{"ghostty_integration.zig"},   .{"host_clipboard.zig"},   .{"host_probe.zig"},
+        .{"keymap.zig"},           .{"launch_preview_stream.zig"}, .{"launcher_resume.zig"},  .{"launcher_usage.zig"},
+        .{"link_tooltip.zig"},     .{"mirror.zig"},                .{"name_dialog.zig"},      .{"navigation.zig"},
+        .{"onboarding.zig"},       .{"paste_card.zig"},            .{"preferences.zig"},      .{"render.zig"},
+        .{"resource_tooltip.zig"}, .{"shortcut_help.zig"},         .{"sidebar.zig"},          .{"sidebar_rows.zig"},
+        .{"sound.zig"},            .{"subagent_tooltip.zig"},      .{"url_opener.zig"},       .{"viewer.zig"},
+        .{"viewer_test.zig"},      .{"workspace_drag.zig"},
     });
     // Files that own daemon state, the daemon's workers and updater, and their tests.
     const core: std.StaticStringMap(void) = .initComptime(.{

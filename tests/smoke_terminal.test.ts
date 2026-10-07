@@ -122,25 +122,35 @@ class SmokeTerminal extends Runtime {
     await pty.waitFor("Ghostty 1.3.1 can't send images over SSH.");
     this.assertIn("Image not pasted", pty.output);
     this.assertIn("⇧⌘-click opens · click copies", pty.output);
-    this.assertIn(
-      "\x1b]8;;https://github.com/ghostty-org/ghostty/releases/tag/tip\x1b\\\x1b[4mGhostty Nightly",
+    this.assertRegex(
       pty.output,
+      /\x1b\]8;;https:\/\/github\.com\/ghostty-org\/ghostty\/releases\/tag\/tip\x1b\\(?:\x1b\[[0-9;:]*m)*\x1b\[4m(?:\x1b\[[0-9;:]*m)*Ghostty Nightly/,
     );
     // A plain click on the download link copies it; the card stays open.
     // (Cmd+Shift-click opens it in the terminal, which never tells Corgi.)
     const url = "https://github.com/ghostty-org/ghostty/releases/tag/tip";
-    const link = /\x1b\[(\d+);(\d+)H\x1b\[[0-9;]*mDownload: /.exec(pty.output)!;
-    const [row, column] = [Number(link[1]), Number(link[2]) + "Download: ".length + 2];
+    // The row may be redrawn from its border: count what precedes the label.
+    const link = /\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H)[^])*?)Download: /.exec(pty.output)!;
+    const before = [...link[3].replace(/\x1b\[[0-9;:]*m|\x1b\]8;[^\x1b]*\x1b\\/g, "")].length;
+    const [row, column] = [Number(link[1]), Number(link[2]) + before + "Download: ".length + 2];
     let offset = pty.output.length;
     pty.write(`\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`);
     await pty.waitFor((output) => output.slice(offset).includes("Copied to clipboard"));
     this.assertIn(`\x1b]52;c;${b64(url)}\x07`, pty.output.slice(offset));
-    this.assertIn("Image not pasted", pty.output.slice(offset));
+    // The viewer sends only changed cells; a resize redraws the whole screen.
+    const wholeFrame = async (rows: number) => {
+      const start = pty.output.length;
+      pty.resize(100, rows);
+      await pty.waitFor((output) => /\x1b\[H\x1b\[J[^]*\x1b\[\?2026l/.test(output.slice(start)));
+      const frame = pty.output.slice(start);
+      return frame.slice(frame.lastIndexOf("\x1b[H\x1b[J"));
+    };
+    this.assertIn("Image not pasted", await wholeFrame(31));
     // Esc closes the card and reaches nothing else; the next key goes through.
     offset = pty.output.length;
     pty.write("\x1b[27u");
     await pty.waitFor((output) => output.slice(offset).includes("\x1b[?2026l"));
-    this.assertNotIn("Image not pasted", pty.output.slice(offset));
+    this.assertNotIn("Image not pasted", await wholeFrame(30));
     pty.write("x");
     await this.until(() => existsSync(received) && file(received) === "x");
   }
