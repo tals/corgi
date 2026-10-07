@@ -350,7 +350,7 @@ class Smoke extends Runtime {
     await this.attach();
     this.assertNotIn("📌", (await this.frame_with("Custom")).join("\n"));
     await this.input("\x02W");
-    await this.frame_with("edit workspace: name");
+    await this.frame_with("Rename workspace");
     await this.input("\x03\r");
     await this.frame_with("one");
     await this.until(async () => (await this.workspaces())[0].name === "one");
@@ -443,7 +443,7 @@ class Smoke extends Runtime {
     this.assertTrue(screen[0].startsWith(" workspaces"));
     this.assertTrue(screen[11].startsWith(" agents"));
     await this.click(21, 1);
-    await this.frame_with("new workspace: name");
+    await this.frame_with("New workspace");
     await this.input("Project\r");
     await this.frame_with("No agents yet");
     const ws = (await this.workspaces()).find((w: any) => w.active);
@@ -456,11 +456,11 @@ class Smoke extends Runtime {
     this.assertEqual((await this.focused()).id, first);
     await this.input("\x1b[<2;4;6M\x1b[<2;4;6m");
     await this.click_text(await this.frame_with("r  Rename"), "Rename");
-    await this.frame_with("edit workspace: name");
+    await this.frame_with("Rename workspace");
     await this.input("Edited\r");
     screen = await this.frame_with("Edited");
     this.assertNotIn("workspace: default folder", screen.join("\n"));
-    this.assertNotIn("edit workspace: name", screen.join("\n"));
+    this.assertNotIn("Rename workspace", screen.join("\n"));
     const edited = (await this.workspaces()).find((w: any) => w.id === ws.id);
     this.assertEqual(
       [edited.name, edited.cwd],
@@ -699,7 +699,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     await this.attach();
     await this.get_type("frame");
     await this.input("\x02T");
-    await this.frame_with("rename tab");
+    await this.frame_with("Rename tab");
     const [other] = await this.viewer();
     this.assertFalse(other.state.dialog);
     await this.input("\x1b[200~Private title");
@@ -842,7 +842,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
       first,
     );
     await this.click_text(menu, "Rename");
-    await this.frame_with("edit workspace: name");
+    await this.frame_with("Rename workspace");
     await this.input("Renamed\r");
     await this.frame_with("Renamed");
     this.assertEqual(
@@ -879,7 +879,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     this.assertEqual((await this.focused()).id, second);
     await this.input("\x1b[200~touch CONTEXT_LEAK\r\x1b[201~");
     await this.click_text(menu, "Rename");
-    await this.frame_with("rename tab");
+    await this.frame_with("Rename tab");
     await this.input("First\r");
     screen = await this.tab_frame("First");
     this.assertEqual((await this.focused()).id, first);
@@ -962,7 +962,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     this.assertTrue(menu.some((row) => row.includes("│ Close")));
     await this.input("\x1b[");
     await this.input("B\r");
-    await this.frame_with("rename t", 10, 4);
+    await this.frame_with("Rename t", 10, 4);
     await this.input("Tiny\r");
     await this.tab_frame("Tiny", 10, 4);
   }
@@ -1176,16 +1176,16 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     this.assertEqual(labels(screen), "1 2 +");
     this.assertNotIn(" 3 ", screen[0]);
     await this.input("\x02T");
-    await this.frame_with("rename tab");
+    await this.frame_with("Rename tab");
     await this.rpc({ op: "action", name: "move-tab", value: "right" });
-    await this.frame_with("│2");
+    await this.frame_with("│  2");
     await this.input("\r");
     screen = await this.tabs_are("1 2");
     this.assertEqual(labels(screen), "1 2 +");
     await this.input("\x02TPinned\r");
     await this.tab_frame("Pinned");
     await this.input("\x02T\x03");
-    await this.frame_with("│2");
+    await this.frame_with("│  2");
     await this.input("\r");
     screen = await this.tabs_are("1 2");
     this.assertEqual(labels(screen), "1 2 +");
@@ -1248,26 +1248,26 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.attach();
     await this.get_type("frame");
     await this.input("\x02T");
-    let dialog = await this.frame_with("rename tab");
+    let dialog = await this.frame_with("Rename tab");
     this.assertTrue(
-      dialog.some((row) => row.includes("┌") && row.includes("┐")),
+      dialog.some((row) => row.includes("╭") && row.includes("╮")),
     );
-    await this.click_text(dialog, "^C clear");
+    await this.click_text(dialog, "^C  clear");
     await this.input("ac\x1b[Db");
-    dialog = await this.frame_with("│abc");
-    await this.click_text(dialog, "↵ save");
+    dialog = await this.frame_with("│  abc");
+    await this.click_text(dialog, "↵  save");
     await this.tab_frame("abc");
     await this.input("\x02T");
-    dialog = await this.frame_with("rename tab");
+    dialog = await this.frame_with("Rename tab");
     await this.input("discarded");
-    await this.frame_with("│discarded");
-    await this.click_text(dialog, "esc cancel");
+    await this.frame_with("│  discarded");
+    await this.click_text(dialog, "esc  cancel");
     this.assertNotIn("discarded", (await this.tab_frame("abc"))[0]);
     await this.input("\x02T");
-    await this.frame_with("rename tab");
+    await this.frame_with("Rename tab");
     await this.input("\x03\x1b[200~new\rname\x1b[201~");
-    dialog = await this.frame_with("│newname");
-    await this.click_text(dialog, "↵ save");
+    dialog = await this.frame_with("│  newname");
+    await this.click_text(dialog, "↵  save");
     await this.tab_frame("newname");
     this.assertEqual(await this.tab_count(), 1);
     this.assertEqual((await this.session()).closed_panes, 0);
@@ -1276,7 +1276,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.attach();
     await this.get_type("frame");
     await this.input("\x02T");
-    await this.frame_with("rename tab");
+    await this.frame_with("Rename tab");
     await this.open_pane({ cwd: this.temp.name, title: "Other" });
     await this.input("Original\r");
     await this.tab_frame("Original");

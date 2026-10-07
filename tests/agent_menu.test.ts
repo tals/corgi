@@ -223,7 +223,7 @@ class AgentMenu extends Viewers {
     this.assertTrue(screen_text(viewer.state.data, 100, 30).some((row) => row.includes("Close")));
     // Crossed-out rows take no key; Close closes the pane.
     await viewer.input("r");
-    this.assertFalse(screen_text(viewer.state.data, 100, 30).some((row) => row.includes("rename agent")));
+    this.assertFalse(screen_text(viewer.state.data, 100, 30).some((row) => row.includes("Rename agent")));
     await viewer.input("x");
     await this.until(async () => !(await this.panes()).some((p: any) => p.id === pane));
   }

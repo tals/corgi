@@ -164,6 +164,8 @@ pub const View = struct {
     card: ?Card = null,
     const Card = struct { hero_y: ?u16, subtitle_y: u16, label_y: u16 };
     const Button = struct { x: u16, width: u16, label: []const u8, padded: bool };
+    /// A plain dialog's button: a keycap, and a label beside it when there is room.
+    const Key = struct { x: u16, width: u16, key: []const u8, label: []const u8 = "", cap: bool };
     pub fn init(width: u16, height: u16, d: Dialog) View {
         if (d.target == .fork) if (forkCard(width, height, d)) |v| return v;
         const w = @min(width, @max(10, @max(@min(width -| 2, 36), @min(width * 3 / 5, 70))));
@@ -171,7 +173,25 @@ pub const View = struct {
         const y = (height - h) / 2;
         const field_y = y + @as(u16, if (h >= 7) 3 else if (h >= 5) 2 else 1);
         const x = (width - w) / 2;
-        return .{ .x = x, .y = y, .width = w, .height = h, .title_y = y + @as(u16, if (h >= 5) 1 else 0), .field_y = field_y, .buttons_y = field_y + 1, .offset = scroll(d, w - 2), .text_x = x + 1, .text_width = w - 2, .fork = d.target == .fork };
+        // A gutter inside the border, then a column of the field's fill
+        // beside the text, when the dialog is wide enough for them.
+        const padded = w >= 20;
+        const inset: u16 = if (padded) 3 else 1;
+        return .{
+            .x = x,
+            .y = y,
+            .width = w,
+            .height = h,
+            .title_y = y + @as(u16, if (h >= 5) 1 else 0),
+            .field_y = field_y,
+            // A row apart from the field when there is one to spare.
+            .buttons_y = field_y + @as(u16, if (h >= 7) 2 else 1),
+            .offset = scroll(d, w - 2 * inset),
+            .text_x = x + inset,
+            .text_width = w - 2 * inset,
+            .padded = padded,
+            .fork = d.target == .fork,
+        };
     }
     /// The first byte that shows, keeping the cursor inside `columns`.
     fn scroll(d: Dialog, columns: u16) usize {
@@ -225,22 +245,25 @@ pub const View = struct {
         }
         return result;
     }
-    fn buttons(v: View) [3]Button {
+    /// Keycaps with their labels, like the launcher's footer; narrower
+    /// dialogs keep only the caps, and the narrowest only the keys.
+    fn buttons(v: View) [3]Key {
         const inner = v.width - 2;
+        const names = [3][]const u8{ "↵", "^C", "esc" };
+        const labels = [3][]const u8{ if (v.fork) "fork" else "save", "clear", "cancel" };
+        // The columns each key takes, without its cap's spaces.
+        const key_widths = [3]u16{ 1, 2, 3 };
         const full = inner >= 32;
-        const compact = inner >= 23;
-        const labels: [3][]const u8 = if (full)
-            .{ if (v.fork) "↵ fork" else "↵ save", "^C clear", "esc cancel" }
-        else if (compact)
-            .{ if (v.fork) "fork" else "save", "clear", "cancel" }
-        else
-            .{ "↵", "^C", "esc" };
-        const widths: [3]u16 = if (full) .{ 8, 10, 12 } else if (compact) .{ 6, 7, 8 } else .{ 1, 2, 3 };
-        var x = v.x + 1 + (inner - widths[0] - widths[1] - widths[2] - 2) / 2;
-        var result: [3]Button = undefined;
-        for (labels, widths, 0..) |label, w, i| {
-            result[i] = .{ .x = x, .width = w, .label = label, .padded = full or compact };
-            x += w + 1;
+        const caps = inner >= 14;
+        const gap: u16 = if (inner >= 36) 2 else 1;
+        var widths: [3]u16 = undefined;
+        for (&widths, key_widths, labels) |*size, key, label|
+            size.* = if (full) key + 3 + @as(u16, @intCast(label.len)) else if (caps) key + 2 else key;
+        var x = v.x + 1 + (inner -| (widths[0] + widths[1] + widths[2] + 2 * gap)) / 2;
+        var result: [3]Key = undefined;
+        for (names, labels, widths, 0..) |key, label, size, i| {
+            result[i] = .{ .x = x, .width = size, .key = key, .label = if (full) label else "", .cap = caps };
+            x += size + gap;
         }
         return result;
     }
@@ -258,7 +281,9 @@ pub const View = struct {
             };
             return .none;
         }
-        if (y == v.field_y and x >= v.text_x and x < v.text_x + v.text_width) return .{ .field = v.offset + (x - v.text_x) };
+        // The field's fill beside the text answers too.
+        const fill: u16 = @intFromBool(v.padded);
+        if (y == v.field_y and x + fill >= v.text_x and x < v.text_x + v.text_width + fill) return .{ .field = v.offset + @min(x -| v.text_x, v.text_width) };
         if (y == v.buttons_y) for (v.buttons(), 0..) |b, i| {
             if (x >= b.x and x < b.x + b.width) return switch (i) {
                 0 => .save,
@@ -268,62 +293,74 @@ pub const View = struct {
         };
         return .none;
     }
+    /// Drawn like the launcher and the menus: a rounded box on `surface`, a
+    /// gutter inside it, the field inset on `selected`, and keycap buttons.
     pub fn draw(v: View, d: Dialog, w: *std.Io.Writer, number: usize) !void {
         if (v.card) |card| return v.drawCard(card, d, w);
-        const panel = (palette.Style{ .fg = .text, .bg = .surface }).sgr();
-        const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
+        const panel = comptime (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+        const border = comptime (palette.Style{ .fg = .line, .bg = .surface }).sgr();
         for (0..v.height) |row| {
             try w.print("\x1b[{d};{d}H{s}", .{ v.y + row + 1, v.x + 1, border });
             if (row == 0 or row + 1 == v.height) {
-                try w.writeAll(if (row == 0) "┌" else "└");
+                try w.writeAll(if (row == 0) "╭" else "╰");
                 for (0..v.width - 2) |_| try w.writeAll("─");
-                try w.writeAll(if (row == 0) "┐" else "┘");
+                try w.writeAll(if (row == 0) "╮" else "╯");
             } else {
-                try w.writeAll("│");
-                try w.writeAll(panel);
+                try w.writeAll("│" ++ panel);
                 try w.splatByteAll(' ', v.width - 2);
-                try w.writeAll(border);
-                try w.writeAll("│");
+                try w.writeAll(border ++ "│");
             }
         }
         const title = switch (d.target) {
             .agent_command => "Agent launch command",
-            .rename => "rename tab",
-            .pane => "rename pane",
-            .agent => "rename agent",
+            .rename => "Rename tab",
+            .pane => "Rename pane",
+            .agent => "Rename agent",
             .fork => "Fork this agent",
-            .workspace_name => |id| if (id == null) "new workspace: name" else "edit workspace: name",
+            .workspace_name => |id| if (id == null) "New workspace" else "Rename workspace",
         };
-        try w.print("\x1b[{d};{d}H{s}\x1b[1m" ++ palette.fg(.strong) ++ "{s}", .{ v.title_y + 1, v.x + 2, panel, title[0..@min(title.len, v.width - 2)] });
+        // Text lines up with the field's fill.
+        const left = v.text_x - @intFromBool(v.padded);
+        const room = v.x + v.width - 1 - left - @intFromBool(v.padded);
+        try w.print("\x1b[{d};{d}H" ++ comptime (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr() ++ "{s}", .{ v.title_y + 1, left + 1, title[0..@min(title.len, room)] });
         if ((d.failed or d.overflow) and v.height >= 7) {
             const msg = if (d.target == .agent_command) "Could not save command; max 2048 bytes." else "Could not save. Check folder or capacity.";
-            try w.print("\x1b[{d};{d}H{s}" ++ palette.fg(.hot) ++ "{s}", .{ v.title_y + 2, v.x + 2, panel, msg[0..@min(msg.len, v.width - 2)] });
+            try w.print("\x1b[{d};{d}H" ++ comptime (palette.Style{ .fg = .hot, .bg = .surface }).sgr() ++ "{s}", .{ v.title_y + 2, left + 1, msg[0..@min(msg.len, room)] });
         }
         if (d.target == .agent_command and !d.failed and !d.overflow and v.height >= 7) {
             var hint: [160]u8 = undefined;
             const launch = launch_command;
             const provider = launch.identify(d.name());
             const text = try std.fmt.bufPrint(&hint, "{s} · {s} · empty saves delete", .{ std.fs.path.basename(launch.shell()), if (provider) |known| @tagName(known) else "resolved at launch" });
-            try w.print("\x1b[{d};{d}H{s}", .{ v.title_y + 2, v.x + 2, panel });
-            try sidebar.writeEllipsis(w, text, v.width - 2);
+            try w.print("\x1b[{d};{d}H" ++ comptime (palette.Style{ .fg = .muted, .bg = .surface }).sgr(), .{ v.title_y + 2, left + 1 });
+            try sidebar.writeEllipsis(w, text, room);
         }
-        try w.print("\x1b[{d};{d}H" ++ (palette.Style{ .fg = .text, .bg = .selected }).sgr(), .{ v.field_y + 1, v.text_x + 1 });
-        try w.splatByteAll(' ', v.text_width);
+        try w.print("\x1b[{d};{d}H" ++ comptime (palette.Style{ .fg = .text, .bg = .selected }).sgr(), .{ v.field_y + 1, left + 1 });
+        try w.splatByteAll(' ', v.text_width + 2 * @as(u16, @intFromBool(v.padded)));
         try w.print("\x1b[{d};{d}H", .{ v.field_y + 1, v.text_x + 1 });
         if (d.len == 0 and d.target != .pane and d.target != .agent_command and d.target != .agent and d.target != .fork) {
             // This is a preview of the current position, never an editable/saved name.
             try w.print(palette.fg(.muted) ++ "{d}", .{number});
         } else {
-            if (d.selected) try w.writeAll("\x1b[7m");
+            if (d.selected) try w.writeAll(selection);
             const end = d.byteAtColumn(v.offset, v.text_width);
             for (d.text[v.offset..end]) |byte| try w.writeByte(if (d.target == .agent_command and byte < 32) ' ' else byte);
         }
         for (v.buttons(), 0..) |b, i| {
-            const style = if (i == 0) (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr() else (palette.Style{ .fg = .text, .bg = .selected, .bold = true }).sgr();
-            try w.print("\x1b[{d};{d}H{s}", .{ v.buttons_y + 1, b.x + 1, style });
-            if (b.padded) try w.writeByte(' ');
-            try w.writeAll(b.label);
-            if (b.padded) try w.writeByte(' ');
+            try w.print("\x1b[{d};{d}H", .{ v.buttons_y + 1, b.x + 1 });
+            if (!b.cap) {
+                // Too narrow for caps: the bare key.
+                try w.print(comptime (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr() ++ "{s}", .{b.key});
+                continue;
+            }
+            try w.print(palette.keycap ++ " {s} ", .{b.key});
+            if (b.label.len == 0) continue;
+            // The first button saves; its label is the one that stands out.
+            const label = if (i == 0)
+                comptime (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr()
+            else
+                comptime (palette.Style{ .fg = .muted, .bg = .surface }).sgr();
+            try w.print("{s} {s}", .{ label, b.label });
         }
         try v.placeCursor(d, w);
     }
