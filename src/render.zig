@@ -375,7 +375,7 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 try surface.writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
             }
             try w.writeAll("\x1b[0m");
-            if (p.restoring.len > 0) try drawRestoring(w, r, p.restoring, os.milliTimestamp() - p.restoring_since);
+            if (p.restoring.len > 0) try drawRestoring(w, r, p.restoring, os.milliTimestamp() - p.restoring_since, if (p.forking) .forking else .restoring);
             break;
         };
     }
@@ -639,7 +639,7 @@ test "tab drop slots follow midpoints and clipped visible tabs" {
 /// A band over the bottom of a reopened agent's faded old screen, naming
 /// the command it resumes with. The agent's first drawing replaces the
 /// screen beneath, and the band goes with it.
-fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, command: []const u8, shown_ms: i64) !void {
+fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, command: []const u8, shown_ms: i64, dig: corgi_animation.Dig) !void {
     if (r.w < 8 or r.h < 2) return;
     var lines: [8][]const u8 = undefined;
     var count: usize = 0;
@@ -658,7 +658,7 @@ fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, command: []const u8, shown_m
         try w.splatByteAll(' ', r.w);
     }
     try w.print("\x1b[{d};{d}H", .{ top + 2, r.x + 3 });
-    try corgi_animation.writeUnearth(w, r.w - 4, shown_ms);
+    try corgi_animation.writeUnearth(w, r.w - 4, shown_ms, dig);
     try w.writeAll("\x1b[22m" ++ comptime palette.fg(.muted));
     for (lines[0..shown], 0..) |line, i| try w.print("\x1b[{d};{d}H{s}", .{ top + 3 + i, r.x + 3, line });
     try w.writeAll("\x1b[0m");
@@ -872,7 +872,7 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
 test "the restoring band sits on a pane's bottom rows and wraps its command" {
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
-    try drawRestoring(&out.writer, .{ .x = 10, .y = 1, .w = 20, .h = 10 }, "claude --resume 'abcdefghijklmnop' --yolo-flag", 0);
+    try drawRestoring(&out.writer, .{ .x = 10, .y = 1, .w = 20, .h = 10 }, "claude --resume 'abcdefghijklmnop' --yolo-flag", 0, .restoring);
     const drawn = out.written();
     // Three command lines and a padding row on each side, ending on the pane's last row.
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[5;11H") == null);
@@ -884,9 +884,14 @@ test "the restoring band sits on a pane's bottom rows and wraps its command" {
     try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[10;13Hp' --yolo-flag") != null);
     out.clearRetainingCapacity();
     // A short pane keeps the title and drops the command.
-    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 20, .h = 2 }, "claude --resume 'x'", 0);
+    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 20, .h = 2 }, "claude --resume 'x'", 0, .restoring);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Restoring…") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "claude") == null);
+    out.clearRetainingCapacity();
+    // A fork's band says so, over the command it runs.
+    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 40, .h = 6 }, "codex fork 'x'", 3000, .forking);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), comptime palette.fg(.accent) ++ "Forking…") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "codex fork 'x'") != null);
 }
 
 /// The text `bytes` shows, without its escape sequences.

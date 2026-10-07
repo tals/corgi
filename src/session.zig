@@ -428,6 +428,7 @@ fn build(allocator: std.mem.Allocator, r: *Runtime, viewer: bool) !protocol.Snap
             .exited = p.terminal.exited,
             .agent = agentView(p.agent(), if (p.attachment.actor) |actor| actor.id else .none),
             .restoring = try p.restoring(allocator),
+            .forking = if (p.ghost) |g| g.fork != null else false,
         };
     }
     const sessions = try allocator.alloc(protocol.Native, r.sessions.items.len);

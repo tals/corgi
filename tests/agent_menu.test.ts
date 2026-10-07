@@ -94,6 +94,11 @@ class AgentMenu extends Viewers {
       [tabs.indexOf(tab(source)), tabs.indexOf(tab(pane)), tabs.indexOf(tab(after))],
       [0, 1, 2],
     );
+    // Until the fork draws, its source's screen shows under "Forking…" and
+    // the command it runs.
+    const forked = snapshot.panes.find((p: any) => p.id === pane);
+    this.assertTrue(forked.forking);
+    this.assertIn(`--resume '${CLAUDE_ID}' --fork-session`, forked.restoring);
     const args = await this.until(async () => {
       const found = (await this.screen(pane))
         .split("\n")

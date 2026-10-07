@@ -96,7 +96,10 @@ pub const Pane = struct {
         return true;
     }
     fn dropGhost(p: *Pane) void {
-        if (p.ghost) |g| g.terminal.destroy();
+        if (p.ghost) |g| {
+            g.terminal.destroy();
+            if (g.fork) |command| a.free(command);
+        }
         p.ghost = null;
     }
     pub fn resize(p: *Pane, cols: u16, rows: u16) !void {
@@ -109,9 +112,10 @@ pub const Pane = struct {
             g.text = screenHash(p.terminal);
         }
     }
-    /// The command a resumed agent runs, shown while its ghost is up.
+    /// The command a resumed or forked agent runs, shown while its ghost is up.
     pub fn restoring(p: *const Pane, alloc: std.mem.Allocator) ![]const u8 {
-        if (p.ghost == null) return "";
+        const g = p.ghost orelse return "";
+        if (g.fork) |command| return alloc.dupe(u8, command);
         if (p.background_job) |job| return claude_daemon.attachCommand(alloc, job);
         const launch = p.launch orelse return "";
         return launch.typed(alloc, p.resume_hint.args());
@@ -169,9 +173,10 @@ pub const TypedRename = struct {
     deadline: i64,
 };
 
-/// A resumed agent's old screen, faded, or a blank one when Corgi kept none.
-/// Viewers see it in place of the pane until the agent has drawn its own and
-/// stopped changing it, so the agent's first redraws don't flicker.
+/// A resumed agent's old screen, faded, or a blank one when Corgi kept none;
+/// for a fork, the screen it forked from. Viewers see it in place of the
+/// pane until the agent has drawn its own and stopped changing it, so the
+/// agent's first redraws don't flicker.
 pub const Ghost = struct {
     /// How long the agent's screen holds still before it shows.
     pub const quiet_ms = 300;
@@ -188,6 +193,8 @@ pub const Ghost = struct {
     /// When the agent first drew, and when its screen last changed.
     drawn_at: ?i64 = null,
     changed_at: i64 = 0,
+    /// A fork's command, owned, which the band shows under "Forking…".
+    fork: ?[]u8 = null,
 
     /// When the ghost goes if the agent's screen holds still; null until
     /// the agent draws.
@@ -607,10 +614,8 @@ pub const Runtime = struct {
         defer a.free(typed);
         const command = try launch.paneCommand(a, opts.executable, typed);
         defer a.free(command);
-        const frozen = try Terminal.create(opts.cols, opts.rows);
+        const frozen = try frozenScreen(opts, old);
         errdefer frozen.destroy();
-        frozen.applyTheme(opts.theme);
-        if (old) |screen| frozen.feed(screen);
         var resumed = opts;
         resumed.command = command;
         resumed.interactive_command = launch == .command;
@@ -626,9 +631,24 @@ pub const Runtime = struct {
             if (actor.workspace == WorkspaceId.none) actor.workspace = opts.workspace;
             p.attachment.select(actor);
         } else |err| log.warn("attaching a resumed agent: {}", .{err});
-        if (old) |screen| p.terminal.feed(screen);
-        p.ghost = .{ .terminal = frozen, .revision = p.terminal.surface_revision, .text = screenHash(p.terminal), .old_screen = old != null };
+        haunt(p, frozen, old, null);
         return id;
+    }
+    /// A ghost's terminal, holding `old` when there is one, the size and
+    /// theme a pane created with `opts` starts at.
+    fn frozenScreen(opts: Create, old: ?[]const u8) !*Terminal {
+        const frozen = try Terminal.create(opts.cols, opts.rows);
+        errdefer frozen.destroy();
+        frozen.applyTheme(opts.theme);
+        if (old) |screen| frozen.feed(screen);
+        return frozen;
+    }
+    /// Shows `frozen` over new pane `p` until its agent has drawn its own
+    /// screen. The pane starts from `old` too, so an agent that redraws the
+    /// same screen ends the ghost early.
+    fn haunt(p: *Pane, frozen: *Terminal, old: ?[]const u8, fork: ?[]u8) void {
+        if (old) |screen| p.terminal.feed(screen);
+        p.ghost = .{ .terminal = frozen, .revision = p.terminal.surface_revision, .text = screenHash(p.terminal), .old_screen = old != null, .fork = fork };
     }
     /// Starts a copy of pane `id`'s conversation in a new tab right after
     /// the pane's own, with its row right under the pane's. The copy takes
@@ -649,11 +669,22 @@ pub const Runtime = struct {
         forked.command = try launch.paneCommand(a, opts.executable, typed);
         defer a.free(forked.command.?);
         forked.interactive_command = launch == .command;
+        // Its source's screen, faded, shows at once under "Forking…", laid
+        // out as it was, until the fork draws its own.
+        forked.cols = p.terminal.vt.cols;
+        forked.rows = p.terminal.vt.rows;
+        const old = try p.terminal.fadedSnapshot();
+        defer a.free(old);
+        const frozen = try frozenScreen(forked, old);
+        errdefer frozen.destroy();
+        const shown = try a.dupe(u8, typed);
+        errdefer a.free(shown);
         const ws = r.workspaces.owner(id) orelse return error.NoPane;
         const source_tab = ws.model.tabs[ws.model.tabForPane(id).?].id;
         const created = try r.create(forked);
         const fork = r.pane(created).?;
         fork.launch = launch;
+        haunt(fork, frozen, old, shown);
         // Its row shows at once, under its new name or the one it copies.
         if (new_session) |*picked| if (r.conversations.get(provider, picked)) |actor| {
             actor.state.reopened(clock.microTimestamp());
@@ -992,6 +1023,22 @@ test "an agent that failed stays with how it ended; one that quit, a shell and a
     }
     var buf: [96]u8 = undefined;
     try std.testing.expect(std.mem.indexOf(u8, ending(&buf, 9), "# Ended by signal 9") != null);
+}
+
+test "a fork's ghost shows the command it runs, not a resume" {
+    var r: Runtime = .{};
+    defer r.deinit();
+    const p = try testPane(&r, try r.workspaces.add("fork", "/tmp"), null);
+    try testGhost(p, "SOURCE");
+    p.launch = .{ .agent = .{ .provider = .claude } };
+    p.resume_hint = .{ .provider = .claude, .session = .ascii("19e909c5-911c-4ab9-b49f-e5bbc7682b4a") };
+    p.ghost.?.fork = try a.dupe(u8, "claude --resume 'src' --fork-session");
+    const shown = try p.restoring(a);
+    defer a.free(shown);
+    try std.testing.expectEqualStrings("claude --resume 'src' --fork-session", shown);
+    // The ghost takes its command with it.
+    p.dropGhost();
+    try std.testing.expectEqualStrings("", try p.restoring(a));
 }
 
 test "a reopened agent that Claude's daemon runs shows the attach it runs" {

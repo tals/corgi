@@ -543,6 +543,8 @@ pub const Pane = struct {
     agent: Agent,
     /// The command a reopened agent runs, until it draws over its old screen.
     restoring: []const u8 = "",
+    /// That command forks: the old screen is the one it forked from.
+    forking: bool = false,
 };
 pub const Native = struct {
     agent: ?Agent = null,

@@ -145,6 +145,8 @@ pub const Pane = struct {
     terminal: *Terminal,
     /// The command a reopened agent runs while its old screen shows.
     restoring: []const u8 = "",
+    /// Its command forks, so the band says "Forking…".
+    forking: bool = false,
     /// When this viewer first saw it restoring, which its animation starts from.
     restoring_since: i64 = 0,
 };
@@ -230,6 +232,7 @@ pub const Runtime = struct {
                 .agent = info.agent,
                 .terminal = term,
                 .restoring = info.restoring,
+                .forking = info.forking,
                 .restoring_since = if (was_restoring) previous.?.restoring_since else now,
             });
         }

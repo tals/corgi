@@ -513,6 +513,7 @@ $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
 $.snapshot.panes[].agent.paused: bool
 $.snapshot.panes[].restoring: string
+$.snapshot.panes[].forking: bool
 $.snapshot.native_sessions[].agent: optional
 $.snapshot.native_sessions[].agent?.conversation: u32
 $.snapshot.native_sessions[].agent?.subagents.running: u32
