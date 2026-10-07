@@ -1,7 +1,7 @@
 //! List prices used only to rank agents by comparable spend. Figures are
 //! standard-tier USD per million tokens, stored in thousandths of a dollar.
 //! Anthropic: platform.claude.com pricing; OpenAI: developers.openai.com/api/docs/pricing
-//! (both as of 2026-09).
+//! (both as of 2026-10).
 const std = @import("std");
 
 pub const Price = struct {
@@ -22,6 +22,7 @@ const table = [_]Entry{
     .{ .id = "claude-opus-4", .price = .{ .label = "opus", .input = 5_000, .output = 25_000 } },
     .{ .id = "claude-sonnet-5", .price = .{ .label = "sonnet", .input = 2_000, .output = 10_000 } },
     .{ .id = "claude-sonnet-4", .price = .{ .label = "sonnet", .input = 3_000, .output = 15_000 } },
+    .{ .id = "claude-haiku-5-5", .price = .{ .label = "haiku", .input = 100, .output = 500 } },
     .{ .id = "claude-haiku-4-5", .price = .{ .label = "haiku", .input = 1_000, .output = 5_000 } },
     .{ .id = "gpt-6-astra", .price = .{ .label = "astra", .input = 10_000, .output = 50_000 } },
     .{ .id = "gpt-6-sol", .price = .{ .label = "sol", .input = 2_000, .output = 10_000 } },
@@ -31,7 +32,7 @@ const table = [_]Entry{
     .{ .id = "fable", .price = .{ .label = "fable", .input = 10_000, .output = 50_000 } },
     .{ .id = "opus", .price = .{ .label = "opus", .input = 4_000, .output = 20_000 } },
     .{ .id = "sonnet", .price = .{ .label = "sonnet", .input = 2_000, .output = 10_000 } },
-    .{ .id = "haiku", .price = .{ .label = "haiku", .input = 1_000, .output = 5_000 } },
+    .{ .id = "haiku", .price = .{ .label = "haiku", .input = 100, .output = 500 } },
 };
 
 /// The longest table id that prefixes `model`, so dated and context suffixes
@@ -58,6 +59,8 @@ test "model ids match their base model and family aliases" {
     try std.testing.expectEqual(@as(u64, 4_000), lookup("claude-opus-5-5[1m]").?.input);
     try std.testing.expectEqual(@as(u64, 5_000), lookup("claude-opus-5").?.input);
     try std.testing.expectEqual(@as(u64, 1_000), lookup("claude-haiku-4-5-20251001").?.input);
+    try std.testing.expectEqual(@as(u64, 100), lookup("claude-haiku-5-5").?.input);
+    try std.testing.expectEqual(@as(u64, 100), lookup("haiku").?.input);
     try std.testing.expectEqual(@as(u64, 5_000), lookup("claude-opus-4-7").?.input);
     try std.testing.expectEqual(@as(u64, 15_000), lookup("claude-opus-4-20250514").?.input);
     try std.testing.expectEqualStrings("luna", lookup("gpt-6-luna").?.label);

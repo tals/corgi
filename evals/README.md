@@ -8,7 +8,7 @@ bun run evals/run.ts                   # build driver and evaluate both defaults
 bun run evals/run.ts --repeat 3        # exercise output variability
 ```
 
-Defaults are Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) and GPT-6 Luna (`gpt-6-luna`). Calls use the installed Claude/Codex CLI and its existing login, with the same tool restrictions as Corgi. They consume model usage. No extra SDK, API key, or evaluator model is required.
+Defaults are Claude Haiku 5.5 (`claude-haiku-5-5`) and GPT-6 Luna (`gpt-6-luna`). Calls use the installed Claude/Codex CLI and its existing login, with the same tool restrictions as Corgi. They consume model usage. No extra SDK, API key, or evaluator model is required.
 
 For a new model or a focused regression:
 

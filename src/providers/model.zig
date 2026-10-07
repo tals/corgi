@@ -45,7 +45,7 @@ fn nativeMillion(family: []const u8, major: u8, minor: u8) bool {
         .opus => major > 4 or (major == 4 and minor >= 7),
         .sonnet => major >= 5,
         .fable, .mythos => true,
-        .haiku => false,
+        .haiku => major >= 5,
     };
 }
 
@@ -217,6 +217,7 @@ test "ids resolve to the names Claude Code and Codex show, across provider spell
         .{ "claude-sonnet-5-5", "claude-sonnet-5-5", "Sonnet 5.5", 1_000_000 },
         .{ "claude-sonnet-4-6[1m]", "claude-sonnet-4-6", "Sonnet 4.6 (1M context)", 1_000_000 },
         .{ "claude-opus-5-5[1m]", "claude-opus-5-5", "Opus 5.5", 1_000_000 },
+        .{ "claude-haiku-5-5", "claude-haiku-5-5", "Haiku 5.5", 1_000_000 },
         .{ "claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001", "Haiku 4.5", 200_000 },
         .{ "claude-fable-5-1", "claude-fable-5-1", "Fable 5.1", 1_000_000 },
         .{ "claude-mythos-5", "claude-mythos-5", "Mythos 5", 1_000_000 },

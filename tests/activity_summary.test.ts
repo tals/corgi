@@ -330,7 +330,7 @@ class SummaryCases extends Summaries {
     );
     this.assertEqual(
       (await this.session()).system_model,
-      "claude-haiku-4-5-20251001",
+      "claude-haiku-5-5",
     );
     writeFileSync(
       this.control,

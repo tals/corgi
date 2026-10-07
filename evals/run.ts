@@ -5,7 +5,7 @@ import { resolve, join } from "node:path";
 import { grade, scorecard, validateCases, type Result, type Observation } from "./score";
 
 const root = resolve(import.meta.dir, "..");
-const defaults = ["claude:claude-haiku-4-5-20251001", "codex:gpt-6-luna"];
+const defaults = ["claude:claude-haiku-5-5", "codex:gpt-6-luna"];
 const usage = `Activity abstention evals (live model calls using existing CLI logins)
   bun run evals/run.ts [--model PROVIDER:MODEL] [--repeat N] [--case ID]
                       [--out DIR] [--no-build] [--driver PATH] [--list]

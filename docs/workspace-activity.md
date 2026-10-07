@@ -131,9 +131,9 @@ whether Auto has settled, and launch counts.
 
 Without a saved choice, `CORGI_INFERENCE_PROVIDER` (`auto`, `codex`, `claude`,
 or `off`) sets the starting choice. Unknown values disable inference rather than
-silently sending data to a different provider. GPT-6 Luna (`gpt-6-luna`) with
-low reasoning effort is the Codex default; Claude Haiku 4.5
-(`claude-haiku-4-5-20251001`) is the Claude default. The setup screen shows the
+silently sending data to a different provider. GPT-6 Luna (`gpt-6-luna`) is the
+Codex default and Claude Haiku 5.5 (`claude-haiku-5-5`) the Claude default, both
+at low reasoning effort. The setup screen shows the
 model beside each provider. `CORGI_INFERENCE_MODEL` overrides the model for either provider;
 `CORGI_SUMMARY_MODEL` remains a legacy fallback. `CORGI_INFERENCE_BIN`
 optionally selects the native harness executable; otherwise the normal

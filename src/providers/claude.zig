@@ -20,8 +20,8 @@ pub const Claude = struct {
         .home_paths = &.{ ".claude/local/claude", ".local/bin/claude", ".bun/bin/claude", ".npm-global/bin/claude", ".volta/bin/claude" },
         .system_paths = &.{ "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude" },
         .native_args = &.{ "--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio" },
-        // The harness has no tools, MCP servers or saved sessions.
-        .inference_args = &.{ "--safe-mode", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--tools", "", "--no-session-persistence" },
+        // The harness has no tools, MCP servers or saved sessions, and thinks at low effort like Codex's.
+        .inference_args = &.{ "--safe-mode", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--tools", "", "--no-session-persistence", "--effort", "low" },
         .resume_args = .{ "claude", "--resume" },
         .fork_args = .{ "--resume", "--fork-session" },
         .fork_session_flag = "--session-id",
@@ -39,7 +39,7 @@ pub const Claude = struct {
         .profile_flags = &.{"--profile"},
         .settings_flags = &.{"--settings"},
         .yolo_flag = "--dangerously-skip-permissions",
-        .summary_model = "claude-haiku-4-5-20251001",
+        .summary_model = "claude-haiku-5-5",
         .limits = .{ .windows = .{ "five_hour", "seven_day" }, .used = "utilization", .minutes = .{ 300, 10080 }, .reset = .iso8601 },
         .prompt_turns = true,
         .children_at_stop = true,
