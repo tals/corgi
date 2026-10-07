@@ -432,7 +432,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual(a.state.pane, left);
     this.assertIn("Rename pane", a.state.data);
     this.assertIn("Swap with focused pane", a.state.data);
-    await a.input("T");
+    await a.input("r");
     await a.input("Logs\r");
     this.assertEqual(a.state.pane, left);
     this.assertEqual(

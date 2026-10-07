@@ -36,37 +36,34 @@ pub const TabMenu = struct {
     /// apart below a line, and the highlight never starts on it.
     pub const Row = struct { item: Item, key: u8, label: []const u8, icon: []const u8 = "", rule: bool = false };
     const actions = [_]Row{
-        .{ .item = .new, .key = 'c', .label = "New tab" },
-        .{ .item = .rename, .key = 'T', .label = "Rename" },
-        .{ .item = .close, .key = 'X', .label = "Close" },
+        .{ .item = .new, .key = 'n', .label = "New tab" },
+        .{ .item = .rename, .key = 'r', .label = "Rename" },
+        .{ .item = .close, .key = 'x', .label = "Close" },
     };
     const pane_actions = [_]Row{
         .{ .item = .swap, .key = 's', .label = "Swap with focused pane" },
-        .{ .item = .rename, .key = 'T', .label = "Rename pane" },
-        .{ .item = .@"clear-name", .key = 'C', .label = "Clear pane name" },
+        .{ .item = .rename, .key = 'r', .label = "Rename pane" },
+        .{ .item = .@"clear-name", .key = 'c', .label = "Clear pane name" },
         .{ .item = .@"split-right", .key = 'v', .label = "Split right" },
-        .{ .item = .@"split-down", .key = '-', .label = "Split down" },
+        .{ .item = .@"split-down", .key = 'd', .label = "Split down" },
         .{ .item = .zoom, .key = 'z', .label = "Zoom / unzoom" },
-        .{ .item = .close, .key = 'X', .label = "Close pane" },
+        .{ .item = .close, .key = 'x', .label = "Close pane" },
     };
     const agent_actions = [_]Row{
-        .{ .item = .rename, .key = 'T', .label = "Rename" },
+        .{ .item = .rename, .key = 'r', .label = "Rename" },
         .{ .item = .fork, .key = 'f', .label = "Fork", .icon = "⑂" },
-        .{ .item = .close, .key = 'X', .label = "Close", .rule = true },
+        .{ .item = .close, .key = 'x', .label = "Close", .rule = true },
     };
     pub fn entries(m: TabMenu) []const Row {
         if (m.agent) return &agent_actions;
         if (m.pane) return if (m.source != null) &pane_actions else pane_actions[1..];
         return if (m.workspace) actions[1..] else &actions;
     }
-    /// The row a key picks: its shown key, or `r` and `x` for rename and close.
+    /// The row a key picks. Keys are the menu's own, lowercase, and Shift
+    /// picks the same row.
     pub fn itemFor(m: TabMenu, key: u8) ?Item {
-        const shown: u8 = switch (key) {
-            'r' => 'T',
-            'x' => 'X',
-            else => key,
-        };
-        for (m.entries()) |row| if (row.key == shown) return if (m.off.contains(row.item)) null else row.item;
+        const lower = std.ascii.toLower(key);
+        for (m.entries()) |row| if (row.key == lower) return if (m.off.contains(row.item)) null else row.item;
         return null;
     }
     /// The highlighted row's item, unless it is crossed out.
@@ -93,10 +90,17 @@ pub const TabMenu = struct {
         for (m.entries()) |row| if (row.icon.len > 0) return true;
         return false;
     }
+    /// The widest label, with the icon column when there is one.
+    fn labelWidth(m: TabMenu) u16 {
+        var widest: usize = 0;
+        for (m.entries()) |row| widest = @max(widest, row.label.len);
+        return @intCast(widest + @as(usize, if (m.hasIcons()) 2 else 0));
+    }
     const Bounds = struct { x: u16, y: u16, width: u16, padding: u16 };
     const border = (palette.Style{ .fg = .line, .bg = .surface }).sgr();
     fn bounds(m: TabMenu, width: u16, height: u16) Bounds {
-        const w = @min(width, if (m.pane) @as(u16, 30) else 20);
+        // Borders, a gutter each side, and a keycap with its space.
+        const w = @min(width, @max(20, m.labelWidth() + 10));
         return .{
             .x = @min(m.anchor_x, width - w),
             .y = @min(m.anchor_y, height -| (m.lines() + 2)),
@@ -124,55 +128,62 @@ pub const TabMenu = struct {
             if (!m.off.contains(m.entries()[m.highlighted].item)) return;
         }
     }
+    /// Drawn like the launcher: a rounded box on `surface`, `›` on the
+    /// highlighted row, and each row's key as a cap before its label.
     pub fn draw(m: TabMenu, w: *std.Io.Writer, width: u16, height: u16) !void {
         const b = m.bounds(width, height);
+        if (b.width < 4) return;
+        const inner = b.width - 2;
         if (b.padding > 0) {
             for ([_]u16{ 0, @intCast(m.lines() + 1) }) |row| {
-                try w.print("\x1b[{d};{d}H" ++ border ++ "+", .{ b.y + row + 1, b.x + 1 });
-                try w.splatByteAll('-', b.width - 2);
-                try w.writeByte('+');
+                try w.print("\x1b[{d};{d}H" ++ border ++ "{s}", .{ b.y + row + 1, b.x + 1, if (row == 0) "╭" else "╰" });
+                for (0..inner) |_| try w.writeAll("─");
+                try w.writeAll(if (row == 0) "╮" else "╯");
             }
         }
-        // Icons take a column of their own, so labels line up.
+        // A narrow menu gives up its keycaps, then its icons, before labels.
+        const keys = b.width >= 16;
         const icons = m.hasIcons() and b.width >= 18;
+        const gutter: u16 = if (keys) 2 else 1;
         var line = b.y + b.padding + 1;
         for (m.entries(), 0..) |entry, index| {
             if (entry.rule) {
-                try w.print("\x1b[{d};{d}H" ++ border ++ "| ", .{ line, b.x + 1 });
-                try w.splatByteAll('-', b.width -| 4);
-                try w.writeAll(" |");
+                try w.print("\x1b[{d};{d}H" ++ border ++ "│", .{ line, b.x + 1 });
+                try w.splatByteAll(' ', gutter);
+                for (0..inner -| 2 * gutter) |_| try w.writeAll("─");
+                try w.splatByteAll(' ', gutter);
+                try w.writeAll("│");
                 line += 1;
             }
             const off = m.off.contains(entry.item);
             const highlighted = !off and index == m.highlighted;
-            const row_style = if (off)
-                (palette.Style{ .fg = .faint, .bg = .surface }).sgr()
-            else if (highlighted)
-                (palette.Style{ .fg = .strong, .bg = .selected, .bold = true }).sgr()
+            const row_style = if (highlighted)
+                (palette.Style{ .fg = .strong, .bg = .selected }).sgr()
             else
-                (palette.Style{ .fg = .strong, .bg = .surface }).sgr();
-            try w.print("\x1b[{d};{d}H" ++ border ++ "|{s}", .{ line, b.x + 1, row_style });
+                (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+            const dim = (palette.Style{ .fg = .faint, .bg = .surface }).sgr();
+            try w.print("\x1b[{d};{d}H" ++ border ++ "│{s}", .{ line, b.x + 1, row_style });
+            try w.splatByteAll(' ', inner);
+            try w.print("\x1b[{d};{d}H" ++ border ++ "│\x1b[{d};{d}H{s}", .{ line, b.x + b.width, line, b.x + 2, row_style });
             line += 1;
-            var used: u16 = 0;
+            var used = gutter;
+            try w.writeAll(if (!keys) " " else if (highlighted) "› " else "  ");
+            if (keys) {
+                // A row that cannot run shows its key flat, like its label.
+                try w.print("{s} {c} {s} ", .{ if (off) dim else palette.keycap, entry.key, row_style });
+                used += 4;
+            }
             if (icons) {
-                const icon_style = if (off)
-                    (palette.Style{ .fg = .faint, .bg = .surface }).sgr()
-                else if (highlighted)
+                const icon_style = if (off) dim else if (highlighted)
                     (palette.Style{ .fg = .muted, .bg = .selected }).sgr()
                 else
                     (palette.Style{ .fg = .muted, .bg = .surface }).sgr();
-                try w.print(" {s}{s}{s} ", .{ icon_style, if (entry.icon.len > 0) entry.icon else " ", row_style });
-                used = 3;
+                try w.print("{s}{s}{s} ", .{ icon_style, if (entry.icon.len > 0) entry.icon else " ", row_style });
+                used += 2;
             }
-            const show_key = b.width >= 14;
-            const room = b.width - 2 - used - @as(u16, if (show_key) 2 else 0);
-            const len: u16 = @intCast(@min(entry.label.len, room));
+            const len = @min(entry.label.len, inner -| used);
             if (off) try w.writeAll((palette.Style{ .fg = .faint, .bg = .surface, .strike = true }).sgr());
             try w.writeAll(entry.label[0..len]);
-            if (off) try w.writeAll(row_style);
-            try w.splatByteAll(' ', room - len);
-            if (show_key) try w.print("{c} ", .{entry.key});
-            try w.writeAll(border ++ "|");
         }
         try w.writeAll("\x1b[0m\x1b[?25l");
     }
@@ -260,15 +271,19 @@ pub const ResizeView = struct {
 
 test "menu keys pick the rows each menu shows" {
     const tab: TabMenu = .{ .tab = 1, .anchor_x = 0 };
-    try std.testing.expectEqual(TabMenu.Item.new, tab.itemFor('c').?);
+    try std.testing.expectEqual(TabMenu.Item.new, tab.itemFor('n').?);
     try std.testing.expectEqual(TabMenu.Item.rename, tab.itemFor('r').?);
     try std.testing.expectEqual(TabMenu.Item.close, tab.itemFor('x').?);
+    // Shift picks the same row.
+    try std.testing.expectEqual(TabMenu.Item.rename, tab.itemFor('R').?);
+    try std.testing.expectEqual(TabMenu.Item.close, tab.itemFor('X').?);
     try std.testing.expectEqual(null, tab.itemFor('v'));
     const workspace: TabMenu = .{ .tab = 1, .anchor_x = 0, .workspace = true };
-    try std.testing.expectEqual(null, workspace.itemFor('c'));
+    try std.testing.expectEqual(null, workspace.itemFor('n'));
     const pane: TabMenu = .{ .tab = 1, .anchor_x = 0, .pane = true };
-    try std.testing.expectEqual(TabMenu.Item.@"split-down", pane.itemFor('-').?);
-    try std.testing.expectEqual(TabMenu.Item.@"clear-name", pane.itemFor('C').?);
+    try std.testing.expectEqual(TabMenu.Item.@"split-down", pane.itemFor('d').?);
+    try std.testing.expectEqual(TabMenu.Item.@"clear-name", pane.itemFor('c').?);
+    try std.testing.expectEqual(null, pane.itemFor('-'));
     try std.testing.expectEqual(null, pane.itemFor('s'));
     const swap: TabMenu = .{ .tab = 1, .anchor_x = 0, .pane = true, .source = 2 };
     try std.testing.expectEqual(TabMenu.Item.swap, swap.itemFor('s').?);
@@ -276,7 +291,7 @@ test "menu keys pick the rows each menu shows" {
     try std.testing.expectEqual(TabMenu.Item.rename, agent.itemFor('r').?);
     try std.testing.expectEqual(TabMenu.Item.fork, agent.itemFor('f').?);
     try std.testing.expectEqual(TabMenu.Item.close, agent.itemFor('x').?);
-    try std.testing.expectEqual(null, agent.itemFor('c'));
+    try std.testing.expectEqual(null, agent.itemFor('n'));
 }
 
 test "crossed-out rows take no key, click or highlight" {
@@ -306,5 +321,9 @@ test "crossed-out rows take no key, click or highlight" {
     try std.testing.expect(std.mem.indexOf(u8, out.written(), struck ++ "Fork") != null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), struck ++ "Rename") == null);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "⑂") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "| ---------------- |") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "│  " ++ "─" ** 14 ++ "  │") != null);
+    // Rows that run show their key as a cap; crossed-out ones show it flat.
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), palette.keycap ++ " r ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), comptime (palette.Style{ .fg = .faint, .bg = .surface }).sgr() ++ " f ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "╭" ++ "─" ** 18 ++ "╮") != null);
 }

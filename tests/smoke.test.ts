@@ -455,7 +455,7 @@ class Smoke extends Runtime {
     await this.agent_frame("claude", "○");
     this.assertEqual((await this.focused()).id, first);
     await this.input("\x1b[<2;4;6M\x1b[<2;4;6m");
-    await this.click_text(await this.frame_with("|Rename"), "Rename");
+    await this.click_text(await this.frame_with("r  Rename"), "Rename");
     await this.frame_with("edit workspace: name");
     await this.input("Edited\r");
     screen = await this.frame_with("Edited");
@@ -834,9 +834,9 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.attach();
     await this.frame_with("Target");
     await this.input("\x1b[<2;5;6M\x1b[<2;5;6m");
-    const menu = await this.frame_with("|Rename");
-    this.assertTrue(menu.some((row) => row.includes("|Close")));
-    this.assertFalse(menu.some((row) => row.includes("|New tab")));
+    const menu = await this.frame_with("r  Rename");
+    this.assertTrue(menu.some((row) => row.includes("x  Close")));
+    this.assertFalse(menu.some((row) => row.includes("n  New tab")));
     this.assertEqual(
       (await this.workspaces()).find((w: any) => w.active).id,
       first,
@@ -850,14 +850,14 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
       "Renamed",
     );
     await this.input("\x1b[<2;5;6M\x1b[<2;5;6m");
-    await this.click_text(await this.frame_with("|Close"), "Close");
+    await this.click_text(await this.frame_with("x  Close"), "Close");
     await this.until(async () => (await this.workspaces()).length === 1);
     this.assertEqual(
       (await this.panes()).map((p: any) => p.id),
       [pane],
     );
     await this.input("\x1b[<2;5;3M\x1b[<2;5;3m");
-    await this.frame_with("|Rename");
+    await this.frame_with("r  Rename");
     await this.input("\x1b[B\r");
     await this.frame_with("Cannot close the last workspace");
     this.assertEqual(
@@ -873,9 +873,9 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.attach();
     let screen = await this.tab_frame("Two");
     await this.right_click_tab(screen, "One");
-    let menu = await this.frame_with("|New tab");
-    this.assertTrue(menu.some((row) => row.includes("|Rename")));
-    this.assertTrue(menu.some((row) => row.includes("|Close")));
+    let menu = await this.frame_with("n  New tab");
+    this.assertTrue(menu.some((row) => row.includes("r  Rename")));
+    this.assertTrue(menu.some((row) => row.includes("x  Close")));
     this.assertEqual((await this.focused()).id, second);
     await this.input("\x1b[200~touch CONTEXT_LEAK\r\x1b[201~");
     await this.click_text(menu, "Rename");
@@ -885,7 +885,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     this.assertEqual((await this.focused()).id, first);
     await this.rpc({ op: "focus", pane: second });
     await this.right_click_tab(screen, "First");
-    menu = await this.frame_with("|New tab");
+    menu = await this.frame_with("n  New tab");
     await this.click_text(menu, "New tab");
     await this.choose_terminal();
     await this.until(async () => (await this.tab_count()) === 3);
@@ -906,7 +906,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.attach();
     let screen = await this.tab_frame("Second");
     await this.right_click_tab(screen, "First");
-    const menu = await this.frame_with("|New tab");
+    const menu = await this.frame_with("n  New tab");
     await this.rpc({ op: "focus", pane: second });
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     await this.click_text(menu, "Close");
@@ -919,13 +919,13 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.rpc({ op: "focus", pane: second });
     screen = await this.tab_frame("Gone");
     await this.right_click_tab(screen, "Gone");
-    await this.frame_with("|New tab");
+    await this.frame_with("n  New tab");
     await this.command("pane.close", { target: gone });
     let cleared = false;
     for (let i = 0; i < 100; i++) {
       screen = screen_text((await this.get_type("frame")).data);
       if (
-        !screen.join("\n").includes("|New tab") &&
+        !screen.join("\n").includes("n  New tab") &&
         !screen[0].includes("Gone")
       ) {
         cleared = true;
@@ -942,23 +942,24 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.attach();
     let screen = await this.frame_with(" 1 ");
     await this.right_click_tab(screen, " 1 ");
-    await this.frame_with("|New tab");
+    await this.frame_with("n  New tab");
     await this.click(79, 23);
     screen = screen_text((await this.client!.poll()).data);
-    this.assertNotIn("|New tab", screen.join("\n"));
+    this.assertNotIn("n  New tab", screen.join("\n"));
     await this.right_click_tab(screen, " 1 ");
-    await this.frame_with("|New tab");
+    await this.frame_with("n  New tab");
     await this.input("\x1b");
     await sleep(0.1);
     await this.client!.poll();
     screen = screen_text((await this.client!.poll()).data);
-    this.assertNotIn("|New tab", screen.join("\n"));
+    this.assertNotIn("n  New tab", screen.join("\n"));
     await this.write({ op: "size", cols: 10, rows: 4 });
     screen = await this.frame_with(" 1 ", 10, 4);
     await this.right_click_tab(screen, " 1 ");
-    const menu = await this.frame_with("|New tab", 10, 4);
-    this.assertTrue(menu.some((row) => row.includes("|Rename")));
-    this.assertTrue(menu.some((row) => row.includes("|Close")));
+    // Too narrow for keycaps: just the labels.
+    const menu = await this.frame_with("│ New tab", 10, 4);
+    this.assertTrue(menu.some((row) => row.includes("│ Rename")));
+    this.assertTrue(menu.some((row) => row.includes("│ Close")));
     await this.input("\x1b[");
     await this.input("B\r");
     await this.frame_with("rename t", 10, 4);
@@ -1033,7 +1034,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
       found = false;
     for (let i = 0; i < 100; i++) {
       data = (await this.get_type("frame")).data;
-      if (data.includes(`\x1b[0;1;38;2;${PALETTE.strong};48;2;${PALETTE.selected}mSplit right`)) {
+      if (data.includes(`\x1b[0;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m Split right`)) {
         found = true;
         break;
       }

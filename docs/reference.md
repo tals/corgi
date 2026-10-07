@@ -142,7 +142,7 @@ Headers show either the custom name or the automatic number, centered in a minim
 
 **Rename tab** opens a bordered dialog. Type to replace the selection, or move the cursor with Left/Right, Home/End and edit with Backspace/Delete. Ctrl-C, Ctrl-U, or **Clear** empties the field; saving an empty field removes the custom name and restores automatic numbering. The number shown in an empty field is a preview, not saved text. A number you explicitly type is a custom name and stays fixed. Save, Clear, and Cancel are clickable. Cancel leaves the existing name unchanged.
 
-Right-click a tab title for Herdr's tab menu: **New tab**, **Rename**, and **Close**. Actions target the clicked tab; opening or dismissing the menu does not switch tabs. Click a row, or use Up/Down (or j/k) and Enter. Escape or a click outside dismisses it. New tab opens the agent picker; Close immediately ends all of that tab's panes.
+Right-click a tab title for Herdr's tab menu: **New tab**, **Rename**, and **Close**. Actions target the clicked tab; opening or dismissing the menu does not switch tabs. Click a row, press the key on its cap, or use Up/Down (or j/k) and Enter. Escape or a click outside dismisses it. New tab opens the agent picker; Close immediately ends all of that tab's panes.
 
 Every shortcut of every preset, as `corgi keys` prints it. `prefix` is the
 prefix key, released before the next one; a key without it is held with its
