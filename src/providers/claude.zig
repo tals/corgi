@@ -48,6 +48,8 @@ pub const Claude = struct {
 
     pub const hook_events = &.{ "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd", "PreCompact", "Notification", "PostToolUseFailure" };
 
+    pub const ControlMethod = enum { initialize, get_usage };
+    pub const AuthMethod = enum { @"claude.ai", api_key, api_key_helper, oauth_token, third_party, none };
     /// Claude's stream-json envelope kind (the `type` field).
     pub const MessageType = enum { assistant, user, result, control_request, control_response };
     /// A message's content block kind (the block's `type` field).

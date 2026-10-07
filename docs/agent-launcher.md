@@ -12,8 +12,7 @@ open. Choose Codex or Claude Code to launch and remember that provider.
 Providers that are not installed are hidden: the daemon checks `CORGI_CODEX_BIN`
 / `CORGI_CLAUDE_BIN`, `PATH`, and the usual install locations without running
 anything, and skips previews for missing providers. Providers confirmed signed out
-are also hidden. Unknown status (including blocked Keychain access) stays visible,
-so usage-access controls remain reachable. A pinned
+are also hidden. Unknown status, including failed account checks, stays visible. A pinned
 popover supports Up/Down, Tab/Shift-Tab, Home/End, Enter, and Escape.
 Below the providers, a `New terminal` row opens a plain shell tab in the same
 directory; press t in the popover to open one directly. Pressing Cmd+T (the prefix, then c) or Ctrl+T again
@@ -72,11 +71,19 @@ repeats that workspace's choice. The session snapshot and checkpoint include
 `last_agent`, the latest choice anywhere, with a Codex default for older data,
 and each workspace's `last_agent`, null until an agent starts there.
 
-Account previews use Codex `account/read` without token refresh and Claude's
-isolated credential helper, followed by bounded usage/profile requests. Silent
-reads never request Keychain interaction; Track usage explicitly permits access.
-They show an email, API-key mode, or login status; no credential values are displayed.
-Reads are bounded and run on the preview worker.
+Account previews use Codex `account/read` without token refresh and Claude
+`auth status --json`. Claude quota reads use a persistent, isolated headless CLI
+with `initialize` and `get_usage` control requests (`skip_behaviors: true`). No
+model prompts, tools, hooks, MCP servers, saved sessions, or status-line commands
+are used. Claude handles credential storage and any authentication UI itself;
+Corgi does not read tokens or Keychain entries.
+
+Account checks are shared across directories for one minute. Public quota readings
+are cached per account/profile across reloads; refreshes are at most once a minute,
+with five-minute backoff after failures. Unsupported or malformed usage replies
+preserve the detected account and the last reading's original age. The experimental
+control protocol may be unavailable on older Claude versions; that does not hide
+the agent. Reads are bounded and run on the preview worker.
 
 ## Resume a closed conversation
 
@@ -206,18 +213,18 @@ its current plan and usage preview. Separate profiles do not inherit those value
 
 Account preview metadata and request deadlines persist under
 `$XDG_STATE_HOME/corgi/account-previews` (or `~/.local/state/corgi/account-previews`).
-Files are private and named by credential fingerprints; credentials are never
-stored in this cache. Like CodexBar's `ClaudeOAuthUsageRateLimitGate`, Claude 429
-responses honor `Retry-After` (seconds or HTTP date), with a five-minute fallback
-and a one-minute minimum. Explicit tracking requests do not bypass this gate.
-The profile request runs independently of usage, so a usage failure does not hide
+Files are private; credentials are never stored in this cache. Claude cache names
+hash the executable, config directory, and public account identity reported by the
+CLI. Logins without a public email remain launchable but do not share cached quota
+readings. Claude usage failures back off for five minutes across directories and
+reloads. Account status is checked independently, so a usage failure does not hide
 account identity. Failed refreshes keep showing the last successful usage reading
 without a cache indicator. Its successful-fetch timestamp persists with the value;
-retries, profile reads, and reloads do not renew it. At ten minutes old, usage shows
+retries, account reads, and reloads do not renew it. At ten minutes old, usage shows
 `Unavailable` until a successful refresh. The picker includes the reason, such as
-`Unavailable · server returned 429`, an expired access token, or an invalid response.
+`Unavailable · Claude usage request unsupported` or `request timed out`.
 Recent cached values keep their normal presentation even when a refresh fails.
-A credential change uses a separate cache.
+An account or config-directory change uses a separate Claude cache.
 Each usage reading is also filed into a per-account history under
 `$XDG_STATE_HOME/corgi/limit-history` (or `~/.local/state/corgi/limit-history`),
 keyed by provider and account rather than credential, so token refreshes keep it.

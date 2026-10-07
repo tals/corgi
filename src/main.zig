@@ -7,7 +7,6 @@ const integration = @import("integration.zig");
 const updates = @import("updates.zig");
 const viewer_version = @import("viewer_version.zig");
 const herdr_adapter = @import("import.zig").herdr;
-const claude_credentials = @import("claude_credentials.zig");
 const rpc = @import("rpc.zig");
 const protocol = @import("protocol.zig");
 const WorkspaceId = @import("workspace.zig").Workspace.Id;
@@ -54,7 +53,6 @@ fn providerArg(name: []const u8) !agents.Provider {
 }
 const Command = enum {
     __herdr_import,
-    @"__claude-credentials",
     @"__update-start",
     update,
     attach,
@@ -123,11 +121,6 @@ fn run(process_args: std.process.Args) !void {
     const command = std.meta.stringToEnum(Command, cmd);
     if (command == .__herdr_import) return herdr_adapter.importBridge(args[2..]);
     if (try updates.internal(args)) return;
-    if (command == .@"__claude-credentials") {
-        if (args.len != 3) return error.Usage;
-        const mode = std.meta.stringToEnum(claude_credentials.Interaction, args[2]) orelse return error.Usage;
-        return claude_credentials.serve(mode);
-    }
     const path = try os.socketPath();
     defer a.free(path);
     const exe = try std.process.executablePathAlloc(os.io(), a);
@@ -497,7 +490,6 @@ test {
     _ = @import("base64.zig");
     _ = @import("bindings.zig");
     _ = @import("bounded_text.zig");
-    _ = @import("claude_credentials.zig");
     _ = @import("claude_daemon.zig");
     _ = @import("cli.zig");
     _ = @import("client.zig");

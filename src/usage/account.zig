@@ -129,12 +129,14 @@ pub fn claudeAccount(value: std.json.Value) Info {
     const logged = field(value, "loggedIn");
     if (logged != .bool) return info;
     info.signed_in = logged.bool;
-    const api = std.mem.eql(u8, str(value, "authMethod"), "api_key");
+    const method = std.meta.stringToEnum(Claude.AuthMethod, str(value, "authMethod"));
+    const api = method == .api_key or method == .api_key_helper;
+    const external = method == .third_party;
     const email = str(value, "email");
-    info.account = .ascii(if (!logged.bool) "Not signed in" else if (api) "API key" else if (email.len > 0) email else "Signed in");
+    info.account = .ascii(if (!logged.bool) "Not signed in" else if (api) "API key" else if (external) "External provider" else if (email.len > 0) email else "Signed in");
     if (logged.bool) {
         info.plan = if (api) .ascii("API") else Claude.plan(str(value, "subscriptionType"), "");
-        if (api) info.limits = .metered;
+        if (api or external) info.limits = .metered;
     }
     return info;
 }
@@ -187,6 +189,15 @@ test "signed out and API accounts do not borrow subscription details" {
     try std.testing.expectEqualStrings("API key", info.account.text());
     try std.testing.expectEqualStrings("API", info.plan.text());
     try std.testing.expect(info.limits == .metered);
+    for ([_][]const u8{ "api_key", "api_key_helper", "third_party" }) |method| {
+        const bytes = try std.json.Stringify.valueAlloc(std.testing.allocator, .{ .loggedIn = true, .authMethod = method }, .{});
+        defer std.testing.allocator.free(bytes);
+        const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, bytes, .{});
+        defer parsed.deinit();
+        const claude = claudeAccount(parsed.value);
+        try std.testing.expectEqual(true, claude.signed_in.?);
+        try std.testing.expect(claude.limits == .metered);
+    }
 }
 
 test "reset countdown rounds up and belongs to its window" {

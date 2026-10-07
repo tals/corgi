@@ -8,6 +8,7 @@ pub const preview = @import("launch/preview.zig");
 pub const history = @import("launch/history.zig");
 
 test {
+    _ = @import("launch/claude.zig");
     _ = @import("launch/command.zig");
     _ = @import("launch/preview.zig");
     _ = @import("launch/history.zig");

@@ -46,35 +46,16 @@ class Launcher extends Runtime {
   launches!: string;
   ws!: number;
   launchDir!: string;
-  consentLog!: string;
 
   async configure() {
     const root = this.temp.name;
-    writeExecutable(
-      join(root, "curl"),
-      `import { readFileSync } from 'node:fs';
-const args = process.argv.slice(2);
-if (args.join(' ').includes('fixture-token')) throw new Error('token exposed in argv');
-const input = await Bun.stdin.text();
-if (!input.includes('Authorization: Bearer fixture-token')) throw new Error('missing private auth header');
-process.stdout.write('HTTP/2 200\\r\\n\\r\\n');
-console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'claude@example.com'}} : {five_hour:{utilization:12},seven_day:{utilization:48}}));
-`,
-    );
-    this.env.PATH = `${root}:${this.env.PATH ?? ""}`;
-    // The daemon watches where Claude writes transcripts from the start.
+    this.env.CORGI_CLAUDE_BIN = join(root, "claude-metadata");
+    this.env.CORGI_CLAUDE_TEST_LAUNCHES = join(root, "launches.jsonl");
     mkdirSync(join(this.env.CLAUDE_CONFIG_DIR!, "projects"), { recursive: true });
-    writeFileSync(
-      join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"),
-      JSON.stringify({
-        claudeAiOauth: {
-          accessToken: "fixture-token",
-          subscriptionType: "max",
-          expiresAt: Date.now() + 60000,
-        },
-      }),
-    );
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), "{}");
+    writeExecutable(this.env.CORGI_CLAUDE_BIN!, `await import(${JSON.stringify(join(ROOT, "tests/claude_metadata.ts"))});`);
   }
+
   async setUp() {
     await super.setUp();
     writeFileSync(
@@ -298,7 +279,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
   async test_signed_out_claude_is_hidden_but_manageable() {
     await this.run_cli("shutdown");
     await this.until(() => !existsSync(this.path));
-    unlinkSync(join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"));
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ loggedIn: false }));
     for (const key of Object.keys(this.env))
       if (
         key.startsWith("CLAUDE_CODE_USE_") ||
@@ -977,322 +958,101 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
       this.assertNotIn("New agent", (await view.poll()).data);
     }
   }
-  async test_claude_subscription_usage_and_private_auth_header() {
-    await this.run_cli("shutdown");
-    await this.until(() => !existsSync(this.path));
-    const root = this.temp.name;
-    writeExecutable(
-      join(root, "curl"),
-      `const args = process.argv.slice(2);
-if (args.join(' ').includes('fixture-token')) throw new Error('token exposed');
-if (!['https://api.anthropic.com/api/oauth/usage','https://api.anthropic.com/api/oauth/profile'].includes(args.at(-1))) throw new Error('wrong endpoint');
-if (!(await Bun.stdin.text()).includes('Authorization: Bearer fixture-token')) throw new Error('missing authorization');
-process.stdout.write('HTTP/2 200\\r\\n\\r\\n');
-console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'claude@example.com'}} : {five_hour:{utilization:12,resets_at:'2099-01-01T12:00:00.000000+00:00'},seven_day:{utilization:48,resets_at:'2099-01-04T12:00:00Z'}}));
-`,
-    );
-    this.env.PATH = `${root}:${this.env.PATH ?? ""}`;
-    writeFileSync(
-      join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"),
-      JSON.stringify({
-        claudeAiOauth: {
-          accessToken: "fixture-token",
-          subscriptionType: "max",
-          expiresAt: Date.now() + 60000,
-        },
-      }),
-    );
-    await this.run_cli("start");
-    const ws = (await this.session()).workspaces[0].id;
-    const preview = async () =>
-      (
-        await this.rpc({
-          op: "agent.preview",
-          protocol: 1,
-          workspace: ws,
-          cwd: this.launchDir,
-        })
-      ).preview;
-    await this.until(async () => !(await preview()).pending, 12);
-    const option = (await preview()).options.claude;
-    this.assertEqual(option.plan, "Max");
-    this.assertEqual(windows(option), claudeWindows);
-    this.assertNotIn("fixture-token", JSON.stringify(await preview()));
-    this.assertTrue(option.limits.windows.every((w: any) => w.reset_at !== null));
-    const view = await Viewer.create(this, 160, 30);
-    await view.input("\x02a");
-    const row = await this.until(
-      async () =>
-        screen_text((await view.poll()).data, 160, 30).find(
-          (row) => row.includes("Claude Code") && hasLimits(row, 12, 48),
-        ),
-      12,
-    );
-    this.assertRegex(row!, /\b5h.*12% · \d+d(?: \d+h)?\s*│\s*7d.*48% · \d+d(?: \d+h)?/);
-  }
-  accountCacheFixture() {
-    const root = this.temp.name,
-      log = join(root, "account-requests.jsonl"),
-      mode = join(root, "usage-mode");
-    writeFileSync(mode, "ok");
-    writeExecutable(
-      join(root, "curl"),
-      `import { appendFileSync, readFileSync } from 'node:fs';
-const args = process.argv.slice(2); await Bun.stdin.text();
-if (args.join(' ').includes('fixture-token')) throw new Error('token exposed');
-const endpoint = args.at(-1).split('/').at(-1);
-appendFileSync(${JSON.stringify(log)}, JSON.stringify(endpoint) + '\\n');
-const limited = endpoint === 'usage' && readFileSync(${JSON.stringify(mode)}, 'utf8') === 'limited';
-process.stdout.write(limited ? 'HTTP/2 429\\r\\nRetry-After: 120\\r\\n\\r\\n' : 'HTTP/2 200\\r\\n\\r\\n');
-console.log(JSON.stringify(limited ? {error:{type:'rate_limit_error'}} : endpoint === 'profile' ? {account:{email:'claude@example.com'}} : {five_hour:{utilization:12},seven_day:{utilization:48}}));
-`,
-    );
-    return [log, mode] as const;
-  }
   async directoryPreview(name: string) {
     const directory = join(this.temp.name, name);
     mkdirSync(directory, { recursive: true });
-    const preview = async () =>
-      (
-        await this.rpc({
-          op: "agent.preview",
-          protocol: 1,
-          workspace: this.ws,
-          cwd: directory,
-        })
-      ).preview;
+    const preview = async () => (await this.rpc({ op: "agent.preview", protocol: 1, workspace: this.ws, cwd: directory })).preview;
     await this.until(async () => !(await preview()).pending, 12);
     return (await preview()).options.claude;
   }
-  async test_account_requests_shared_across_directories_reload_and_credentials() {
-    const [log] = this.accountCacheFixture();
-    for (let i = 0; i < 10; i++) await this.directoryPreview("dir" + i);
-    this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 1);
-    this.assertEqual(
-      lines(log).filter((line) => line === '"profile"').length,
-      1,
-    );
+  metadataRequests() {
+    const path = join(this.env.CLAUDE_CONFIG_DIR!, "metadata-requests.jsonl");
+    return existsSync(path) ? lines(path).map((line) => JSON.parse(line)) : [];
+  }
+  metadataCache() {
+    const dir = join(this.env.XDG_STATE_HOME!, "corgi/account-previews");
+    return join(dir, readdirSync(dir).find((name) => name.startsWith("claude-cli-") && name.endsWith(".json"))!);
+  }
+  expireMetadataUsage() {
+    const path = this.metadataCache(), state = json(path);
+    state.next_usage = 0;
+    writeFileSync(path, JSON.stringify(state));
+  }
+  async test_claude_control_usage_reuses_process_and_cache_without_credentials() {
+    // A stale credential file must not override Claude's own auth status.
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "" } }));
+    const first = await this.directoryPreview("first");
+    this.assertEqual(first.account, "claude@example.com");
+    this.assertTrue(first.signed_in);
+    this.assertEqual(windows(first), claudeWindows);
+    this.assertEqual(first.limits.windows[0].reset_at, 4070952000);
+    for (let i = 0; i < 5; i++) await this.directoryPreview("shared" + i);
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "get_usage").length, 1);
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "auth").length, 1);
+    this.expireMetadataUsage();
+    await this.directoryPreview("refresh");
+    const requests = this.metadataRequests().filter((r) => r.kind === "get_usage");
+    this.assertEqual(requests.length, 2);
+    this.assertEqual(requests[0].pid, requests[1].pid);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     await this.directoryPreview("after-reload");
-    this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 1);
-    const credentials = join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json");
-    const data = json(credentials);
-    data.claudeAiOauth.accessToken = "fixture-token-other";
-    writeFileSync(credentials, JSON.stringify(data));
-    await this.directoryPreview("other-account");
-    this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 2);
-    const cache = join(this.env.XDG_STATE_HOME!, "corgi/account-previews");
-    this.assertNotIn(
-      "fixture-token",
-      readdirSync(cache)
-        .filter((name) => name.endsWith(".json"))
-        .map((name) => name + content(join(cache, name)))
-        .join(""),
-    );
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "get_usage").length, 2);
+    this.assertFalse(existsSync(this.launches));
   }
-  async test_rate_limit_keeps_identity_and_cached_usage_and_honors_cooldown() {
-    const [log, mode] = this.accountCacheFixture();
-    const initial = await this.directoryPreview("initial");
-    const fetchedAt = initial.usage_fetched_at;
-    this.assertGreaterEqual(fetchedAt, Math.floor(Date.now() / 1000) - 10);
-    const cacheDir = join(this.env.XDG_STATE_HOME!, "corgi/account-previews");
-    const cache = join(
-      cacheDir,
-      readdirSync(cacheDir).find(
-        (name) => name.startsWith("claude-") && name.endsWith(".json"),
-      )!,
-    );
-    const state = json(cache);
-    state.next_usage = 0;
-    state.next_profile = 0;
-    writeFileSync(cache, JSON.stringify(state));
-    writeFileSync(mode, "limited");
-    const option = await this.directoryPreview("limited");
-    this.assertEqual(option.account, "claude@example.com");
-    this.assertEqual(windows(option), claudeWindows);
-    this.assertEqual(option.usage_fetched_at, fetchedAt);
-    this.assertEqual(option.usage_error, "server returned 429");
-    this.assertEqual(json(cache).info.usage_fetched_at, fetchedAt);
-    this.assertGreaterEqual(json(cache).next_usage, Date.now() / 1000 + 115);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
-    const reloaded = await this.directoryPreview("still-limited");
-    this.assertEqual(windows(reloaded), claudeWindows);
-    this.assertEqual(reloaded.usage_fetched_at, fetchedAt);
-    this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 2);
-
-    const aged = json(cache);
-    aged.info.usage_fetched_at = Math.floor(Date.now() / 1000) - 601;
-    writeFileSync(cache, JSON.stringify(aged));
-    // Viewers hide an expired reading; the preview keeps it with its age.
-    const stale = await this.directoryPreview("stale");
-    this.assertEqual(windows(stale), claudeWindows);
-    this.assertEqual(stale.usage_fetched_at, aged.info.usage_fetched_at);
-    this.assertEqual(stale.usage_error, "server returned 429");
-    this.assertEqual(windows(json(cache).info), claudeWindows);
-    this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 2);
-
-    aged.next_usage = 0;
-    writeFileSync(cache, JSON.stringify(aged));
-    const failed = await this.directoryPreview("stale-failed-refresh");
+  async test_claude_usage_failure_keeps_account_and_stale_measurement() {
+    const first = await this.directoryPreview("first");
+    this.expireMetadataUsage();
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ mode: "unsupported" }));
+    const failed = await this.directoryPreview("unsupported");
+    this.assertTrue(failed.signed_in);
+    this.assertEqual(failed.account, first.account);
     this.assertEqual(windows(failed), claudeWindows);
-    this.assertEqual(failed.usage_fetched_at, aged.info.usage_fetched_at);
-    this.assertEqual(json(cache).info.usage_fetched_at, aged.info.usage_fetched_at);
-
-    const retry = json(cache);
-    retry.next_usage = 0;
-    writeFileSync(cache, JSON.stringify(retry));
-    writeFileSync(mode, "ok");
-    const refreshed = await this.directoryPreview("refreshed");
-    this.assertEqual(windows(refreshed), claudeWindows);
-    this.assertGreaterEqual(refreshed.usage_fetched_at, fetchedAt);
-    this.assertEqual(json(cache).info.usage_fetched_at, refreshed.usage_fetched_at);
-    this.assertEqual(refreshed.usage_error, "");
-
-    const credentials = join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json");
-    const expired = json(credentials);
-    expired.claudeAiOauth.expiresAt = Date.now() - 1;
-    writeFileSync(credentials, JSON.stringify(expired));
-    const requests = lines(log).length;
-    const expiredToken = await this.directoryPreview("expired-token");
-    this.assertEqual(windows(expiredToken), claudeWindows);
-    this.assertEqual(expiredToken.usage_fetched_at, refreshed.usage_fetched_at);
-    this.assertEqual(expiredToken.usage_error, "access token expired");
-    this.assertEqual(lines(log).length, requests);
-  }
-  async test_first_usage_429_still_fetches_profile() {
-    const [log, mode] = this.accountCacheFixture();
-    writeFileSync(mode, "limited");
-    const option = await this.directoryPreview("limited-first");
-    this.assertEqual(option.account, "claude@example.com");
-    this.assertEqual(option.limits, { rate_limited: {} });
-    this.assertEqual(option.usage_error, "server returned 429");
-    await this.directoryPreview("another-directory");
-    this.assertEqual(lines(log).filter((line) => line === '"usage"').length, 1);
+    this.assertEqual(failed.usage_fetched_at, first.usage_fetched_at);
+    this.assertEqual(failed.usage_error, "Claude usage request unsupported");
+    await this.directoryPreview("cooldown");
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "get_usage").length, 2);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
-    await this.until(async () => screen_text((await view.poll()).data, 120, 30).some(
-      (row) => row.includes("Claude Code") && row.includes("Unavailable · server returned 429"),
-    ));
+    await this.until(async () => (await view.poll()).data.includes("Claude Code"));
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), "{}");
+    this.expireMetadataUsage();
+    const recovered = await this.directoryPreview("recovered");
+    this.assertEqual(recovered.usage_error, "");
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "start").length, 2);
   }
-  async consentFixture(allowed = false, deny = false) {
-    await this.run_cli("shutdown");
-    await this.until(() => !existsSync(this.path));
-    const root = this.temp.name;
-    const credentials = JSON.stringify({
-      claudeAiOauth: {
-        accessToken: "fixture-token",
-        subscriptionType: "max",
-        expiresAt: Date.now() + 60000,
-      },
-    });
-    const fixture = join(root, "credentials-fixture.json");
-    writeFileSync(
-      fixture,
-      JSON.stringify({
-        silent: allowed ? { credentials } : { needs_consent: true },
-        interactive: deny
-          ? { needs_consent: true, delay_ms: 250 }
-          : { credentials, delay_ms: 250 },
-      }),
-    );
-    this.consentLog = join(root, "credential-access.log");
-    this.env.CORGI_TEST_CLAUDE_CREDENTIALS = fixture;
-    this.env.CORGI_TEST_CLAUDE_CREDENTIAL_LOG = this.consentLog;
-    writeExecutable(
-      join(root, "curl"),
-      `const args = process.argv.slice(2);
-if (args.join(' ').includes('fixture-token')) throw new Error('token exposed');
-if (!(await Bun.stdin.text()).includes('Authorization: Bearer fixture-token')) throw new Error('missing authorization');
-process.stdout.write('HTTP/2 200\\r\\n\\r\\n');
-console.log(JSON.stringify(args.at(-1).endsWith('/profile') ? {account:{email:'claude@example.com'}} : {five_hour:{utilization:12},seven_day:{utilization:48}}));
-`,
-    );
-    this.env.PATH = `${root}:${this.env.PATH ?? ""}`;
-    await this.run_cli("start");
-    this.ws = (await this.session()).workspaces[0].id;
-    await this.command("pane.create", {
-      workspace: this.ws,
-      cwd: this.launchDir,
-      command: "sleep 120",
-    });
-    return Viewer.create(this, 100, 30);
+  async test_claude_account_switch_does_not_reuse_other_accounts_usage() {
+    await this.directoryPreview("first");
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ email: "other@example.com", mode: "malformed" }));
+    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    const other = await this.directoryPreview("other");
+    this.assertTrue(other.signed_in);
+    this.assertEqual(other.account, "other@example.com");
+    this.assertEqual(other.limits, { none: {} });
+    this.assertEqual(other.usage_error, "Claude usage unavailable");
   }
-  async usageRows(view: Viewer) {
-    return screen_text((await view.poll()).data, 100, 30);
+  async test_claude_unknown_auth_remains_launchable() {
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ authMalformed: true }));
+    const unknown = await this.directoryPreview("unknown");
+    this.assertIsNone(unknown.signed_in);
+    this.assertEqual(unknown.usage_error, "Claude account unavailable");
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "start").length, 0);
+    const view = await Viewer.create(this, 120, 30);
+    await view.input("\x02a");
+    await this.clickText(view, "Claude Code");
+    await this.until(() => existsSync(this.launches));
+    await this.until(async () => (await view.poll()).data.includes("LAUNCH FIXTURE READY"));
   }
-  async test_track_usage_is_explicit_and_does_not_launch_an_agent() {
-    const view = await this.consentFixture();
-    await this.until(() => existsSync(this.consentLog));
-    this.assertEqual(lines(this.consentLog), ["silent"]);
-    await this.clickViewer(view, 26, 15);
-    await this.until(async () =>
-      (await this.usageRows(view)).some(
-        (row) => row.includes("Claude Code") && row.includes("Track usage"),
-      ),
-    );
-    this.assertEqual(lines(this.consentLog), ["silent"]);
-    await view.input("\x1b");
-    await this.clickViewer(view, 26, 15);
-    const rows = await this.usageRows(view),
-      y = rows.findIndex((row) => row.includes("Claude Code"));
-    const x = rows[y].indexOf("Track usage"),
-      count = (await this.session()).panes.length;
-    await this.clickViewer(view, x + 1, y + 1);
-    await this.clickViewer(view, x + 1, y + 1);
-    await this.until(async () =>
-      (await this.usageRows(view)).some(
-        (row) => row.includes("Claude Code") && hasLimits(row, 12, 48),
-      ),
-    );
-    this.assertEqual(lines(this.consentLog), ["silent", "interactive"]);
-    this.assertEqual((await this.session()).panes.length, count);
-    this.assertFalse(existsSync(this.launches));
-    this.assertIn("New agent", (await view.poll()).data);
-  }
-  async test_denied_tracking_is_not_retried_interactively() {
-    const view = await this.consentFixture(false, true);
-    await this.clickViewer(view, 26, 15);
-    await this.until(async () =>
-      (await view.poll()).data.includes("Track usage"),
-    );
-    await view.input("\x1b[B");
-    await view.input("u");
-    await this.until(
-      () =>
-        lines(this.consentLog).filter((line) => line === "interactive")
-          .length === 1,
-    );
-    await this.until(async () =>
-      (await view.poll()).data.includes("Track usage"),
-    );
-    const another = join(this.temp.name, "another");
-    mkdirSync(another);
-    const preview = async () =>
-      (
-        await this.rpc({
-          op: "agent.preview",
-          protocol: 1,
-          workspace: this.ws,
-          cwd: another,
-        })
-      ).preview;
-    await this.until(async () => !(await preview()).pending);
-    this.assertEqual(lines(this.consentLog), [
-      "silent",
-      "interactive",
-      "silent",
-    ]);
-    this.assertTrue((await preview()).options.claude.usage_needs_consent);
-    this.assertFalse(existsSync(this.launches));
-  }
-  async test_already_authorized_usage_loads_silently() {
-    const view = await this.consentFixture(true);
-    await this.clickViewer(view, 26, 15);
-    await this.until(async () =>
-      (await this.usageRows(view)).some((row) => hasLimits(row, 12, 48)),
-    );
-    this.assertNotIn("Track usage", (await view.poll()).data);
-    this.assertEqual(lines(this.consentLog), ["silent"]);
+  async test_claude_usage_timeout_reaps_child_and_keeps_login() {
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ mode: "hang" }));
+    const info = await this.directoryPreview("hanging");
+    this.assertTrue(info.signed_in);
+    this.assertEqual(info.usage_error, "request timed out");
+    const pid = this.metadataRequests().find((r) => r.kind === "start").pid;
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    this.assertFalse(alive);
+    await this.directoryPreview("after-timeout");
+    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "start").length, 1);
   }
   async test_corgi_setup_changes_inference_provider() {
     const view = await Viewer.create(this, 100, 30);
