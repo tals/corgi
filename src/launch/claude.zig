@@ -8,6 +8,7 @@ const discovery = @import("../discovery.zig");
 const subprocess = @import("../subprocess.zig");
 const Claude = @import("../providers/claude.zig").Claude;
 const common = @import("../providers/common.zig");
+const json = @import("../json.zig");
 const metadata = @import("../usage.zig").account;
 const account_cache = @import("../usage.zig").account_cache;
 const a = os.allocator;
@@ -20,6 +21,10 @@ pub const Client = struct {
     identity: ?[]const u8 = null,
     account: metadata.Info = .{},
     next_auth: i64 = 0,
+    /// The model Claude Code runs when none is configured, as its picker
+    /// resolves "default"; empty until read.
+    default_model: metadata.Text = .{},
+    default_checked: bool = false,
 
     pub fn deinit(c: *Client) void {
         c.close();
@@ -76,8 +81,14 @@ pub const Client = struct {
                 c.close();
                 if (c.identity) |previous| a.free(previous);
                 c.identity = identity;
+                c.default_model = .{};
+                c.default_checked = false;
             } else a.free(identity);
             c.account = account;
+        }
+        if (c.account.signed_in == true and !c.default_checked and c.session == null) {
+            c.default_checked = true;
+            c.start(executable, stopping, quit, os.milliTimestamp() + 5000) catch c.close();
         }
         if (c.account.signed_in != true or c.account.limits == .metered or c.account.usage_error.len != 0) {
             c.close();
@@ -108,18 +119,22 @@ pub const Client = struct {
     }
     fn usage(c: *Client, executable: []const u8, info: *metadata.Info, stopping: *const std.atomic.Value(bool), quit: *const subprocess.Quit) !void {
         const deadline = os.milliTimestamp() + 5000;
-        if (c.session == null) {
-            c.session = try native.Session.startWithOptions(native.Session.Id.none, .claude, "/tmp", .{
-                .executable = executable,
-                .inference = true,
-                .args = &.{ "--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--no-session-persistence", "--setting-sources", "", "--settings", "{\"disableAllHooks\":true,\"remoteControlAtStartup\":false}", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--tools", "" },
-            });
-            const initialized = try c.request(.initialize, stopping, quit, deadline);
-            initialized.deinit();
-        }
+        if (c.session == null) try c.start(executable, stopping, quit, deadline);
         const reply = try c.request(.get_usage, stopping, quit, deadline);
         defer reply.deinit();
         try applyUsage(info, common.field(common.field(reply.value, "response"), "response"));
+    }
+    /// Starts the control session; its initialize reply names the default model.
+    fn start(c: *Client, executable: []const u8, stopping: *const std.atomic.Value(bool), quit: *const subprocess.Quit, deadline: i64) !void {
+        c.session = try native.Session.startWithOptions(native.Session.Id.none, .claude, "/tmp", .{
+            .executable = executable,
+            .inference = true,
+            .args = &.{ "--print", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--no-session-persistence", "--setting-sources", "", "--settings", "{\"disableAllHooks\":true,\"remoteControlAtStartup\":false}", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--tools", "" },
+        });
+        const initialized = try c.request(.initialize, stopping, quit, deadline);
+        defer initialized.deinit();
+        const model = defaultModel(common.field(common.field(initialized.value, "response"), "response"));
+        if (model.len > 0) c.default_model = .ascii(model);
     }
     fn request(c: *Client, method: Claude.ControlMethod, stopping: *const std.atomic.Value(bool), quit: *const subprocess.Quit, deadline: i64) !std.json.Parsed(std.json.Value) {
         c.next_id += 1;
@@ -162,6 +177,14 @@ pub const Client = struct {
     }
 };
 
+/// The model the picker's "default" entry resolves to.
+fn defaultModel(value: std.json.Value) []const u8 {
+    for (json.list(value, "models")) |model| {
+        if (std.mem.eql(u8, common.str(model, "value"), "default")) return common.str(model, "resolvedModel");
+    }
+    return "";
+}
+
 fn applyUsage(info: *metadata.Info, value: std.json.Value) !void {
     const available = common.field(value, "rate_limits_available");
     if (available != .bool) return error.InvalidUsage;
@@ -190,4 +213,13 @@ test "Claude control usage preserves login on unsupported or malformed quota dat
     try applyUsage(&info, valid.value);
     try std.testing.expectEqual(@as(u8, 0), info.limits.windows[0].?.used);
     try std.testing.expectEqual(@as(u8, 33), info.limits.windows[1].?.used);
+}
+
+test "Claude initialize names the default model" {
+    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"models":[{"value":"opus","resolvedModel":"claude-opus-5-5"},{"value":"default","resolvedModel":"claude-sonnet-5-5"}]}
+    , .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("claude-sonnet-5-5", defaultModel(parsed.value));
+    try std.testing.expectEqualStrings("", defaultModel(.null));
 }

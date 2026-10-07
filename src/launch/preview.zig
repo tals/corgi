@@ -173,6 +173,9 @@ fn option(provider: Provider, pool: *inference.Pool, claude_client: *claude.Clie
         },
         .claude => claude_client.preview(stopping, &w.quit),
     };
+    if (provider == .claude and result.model.len == 0 and claude_client.default_model.len > 0) {
+        result.setModel(claude_client.default_model.text(), "Claude Code default");
+    }
     result.signed_in = account.signed_in;
     result.account = account.account;
     result.plan = account.plan;
