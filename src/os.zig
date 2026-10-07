@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const corgi_options = @import("corgi_options");
 pub const c = @cImport({
+    // glibc's fortified variadic wrappers cannot be translated by Zig.
+    @cUndef("_FORTIFY_SOURCE");
     @cInclude("unistd.h");
     @cInclude("pwd.h");
     @cInclude("stdlib.h");

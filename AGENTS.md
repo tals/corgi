@@ -26,7 +26,7 @@ Corgi requires exactly Zig 0.16.0. Zig breaks its APIs between minor releases,
 and the pinned Ghostty commit targets 0.16.0. Another `zig` may be first on
 PATH; running it fails with `Your Zig version vX does not meet the required
 build version of v0.16.0`. `scripts/zig` uses `$ZIG`, a 0.16.0 `zig` on PATH,
-or the project copy in `.tools/zig-aarch64-macos-0.16.0/`, and refuses any other
+or the host's project copy in `.tools/zig-<arch>-<os>-0.16.0/`, and refuses any other
 version.
 
 ## Zig style
