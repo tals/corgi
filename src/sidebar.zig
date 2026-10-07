@@ -69,7 +69,7 @@ pub const Entry = struct {
     cwd: []const u8 = "",
     tool_active: bool = false,
     compacting: bool = false,
-    /// Idle until its Monitors or a wakeup it scheduled wake it.
+    /// Idle until its background shells or a wakeup it scheduled wake it.
     paused: bool = false,
     unread: bool = false,
     activity: []const u8 = "",

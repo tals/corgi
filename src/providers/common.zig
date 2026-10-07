@@ -180,8 +180,6 @@ pub const Hook = struct {
     background_tasks: std.json.Value = .null,
     /// The wakeups a Claude Stop lists as scheduled.
     session_crons: std.json.Value = .null,
-    /// The background task a finished Monitor call started.
-    monitor: []const u8 = "",
     /// The subagent a finished Agent call started in the background, and its type.
     subagent: []const u8 = "",
     subagent_type: []const u8 = "",
@@ -234,7 +232,6 @@ pub const Hooks = struct {
             .description = str(field(value, "tool_input"), "description"),
             .background_tasks = field(value, "background_tasks"),
             .session_crons = field(value, "session_crons"),
-            .monitor = if (kind == .tool_finish and std.mem.eql(u8, tool, "Monitor")) str(response, "taskId") else "",
             .subagent = if (launched) str(response, "agentId") else "",
             .subagent_type = if (launched) str(field(value, "tool_input"), "subagent_type") else "",
             .target = target(field(value, "tool_input")),
@@ -335,20 +332,4 @@ test "hooks carry the session's current model" {
     , .{});
     defer parsed.deinit();
     try std.testing.expectEqualStrings("gpt-6-astra", (Hooks{}).decode(parsed.value).?.model);
-}
-
-test "a finished Monitor call names the task it started" {
-    const alloc = std.testing.allocator;
-    const monitor = try std.json.parseFromSlice(std.json.Value, alloc,
-        \\{"hook_event_name":"PostToolUse","session_id":"a","tool_name":"Monitor","tool_input":{"command":"tail -F log","description":"errors"},"tool_response":{"taskId":"b8eldxmdy","timeoutMs":1800000,"persistent":false}}
-    , .{});
-    defer monitor.deinit();
-    const hook = (Hooks{}).decode(monitor.value).?;
-    try std.testing.expectEqualStrings("b8eldxmdy", hook.monitor);
-    try std.testing.expectEqualStrings("tail -F log", hook.target);
-    const bash = try std.json.parseFromSlice(std.json.Value, alloc,
-        \\{"hook_event_name":"PostToolUse","session_id":"a","tool_name":"Bash","tool_input":{"command":"bun test","run_in_background":true},"tool_response":{"backgroundTaskId":"byko6x45i"}}
-    , .{});
-    defer bash.deinit();
-    try std.testing.expectEqualStrings("", (Hooks{}).decode(bash.value).?.monitor);
 }

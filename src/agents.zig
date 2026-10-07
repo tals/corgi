@@ -61,8 +61,8 @@ pub const Agent = struct {
     // actual prompt (or a protocol waiting flag) establishes human attention.
     permission_review: ?u8 = null,
     compacting: bool = false,
-    /// The turn ended while the agent waits to be woken by a Monitor it
-    /// started or a wakeup it scheduled. Only an idle agent shows it.
+    /// The turn ended while the agent waits to be woken by a background
+    /// shell or a wakeup it scheduled. Only an idle agent shows it.
     paused: bool = false,
     cwd: Path = .{},
     last_seq: i64 = 0,

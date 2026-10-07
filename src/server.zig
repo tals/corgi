@@ -1059,7 +1059,7 @@ pub const Server = struct {
                     const prior = Lifecycle.of(actor);
                     const turned = actor.observeTranscriptTurn(result.spoke_at);
                     if (actor.observeTaskEnds(&result.ended) or turned) {
-                        logState(actor, prior, null, "transcript", if (turned) "turn after pause" else "its Monitors ended");
+                        logState(actor, prior, null, "transcript", if (turned) "turn after pause" else "its shells ended");
                         s.dirty = true;
                         s.runtime.changed();
                     }

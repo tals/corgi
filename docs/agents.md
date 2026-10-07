@@ -47,15 +47,15 @@ provider can reuse the sources it actually supports.
   A→B→A. Repeating or decorating the same conversation title leaves its revision
   unchanged. Identified active conversations can continue being polled after selection
   changes. Idle detached conversations are retained but not continuously polled.
-- A Claude Stop pauses a conversation that waits to be woken by a Monitor it
-  started or a one-shot wakeup it scheduled (ScheduleWakeup, a `/loop` tick);
-  the sidebar shows `‖` in place of `○` or `●`. Background shell commands
-  don't pause it: Claude wakes for them too, but nothing says it is waiting on
-  them. The pause ends with the next hook or conversation line in the
-  transcript; once the transcript reports each Monitor it waited on ended
-  (stopped from Claude's task list, which wakes nothing); or once the Claude
-  process that sent its hooks exits, which the daemon checks every second. A
-  hook that names no Claude process never pauses.
+- A Claude Stop pauses a conversation that waits to be woken by a background
+  shell (a command or a Monitor) or a one-shot wakeup it scheduled
+  (ScheduleWakeup, a `/loop` tick); the sidebar shows `‖` in place of `○` or
+  `●`. A shell left running on purpose, like a dev server, pauses it too:
+  Claude would wake if it exited. The pause ends with the next hook or
+  conversation line in the transcript; once the transcript reports each shell
+  it waited on ended (stopped from Claude's task list, which wakes nothing);
+  or once the Claude process that sent its hooks exits, which the daemon
+  checks every second. A hook that names no Claude process never pauses.
 - Transcript, summary, and usage workers address actors rather than panes.
   Transcript readers retain their position while rotating a bounded set of open
   files. Completion confirmation can therefore finish after a pane switches away.

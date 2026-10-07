@@ -107,57 +107,42 @@ pub const Children = struct {
     }
 };
 
-/// The Monitors a Claude conversation started and still runs. Each event a
-/// Monitor prints, and its own end, wakes the conversation.
-pub const Monitors = struct {
-    pub const limit = 4;
-    items: [limit]TaskId = @splat(.{}),
+/// The background shells a Claude Stop lists as running: commands and
+/// Monitors alike. Each one's end, and each event a Monitor prints, wakes
+/// the conversation.
+pub const Shells = struct {
+    items: [capacity]TaskId = @splat(.{}),
     len: usize = 0,
 
-    /// A Monitor that has started; the oldest gives way when full.
-    pub fn add(m: *Monitors, id: []const u8) void {
-        const task = TaskId.init(id) catch return;
-        if (id.len == 0 or m.listed(id)) return;
-        if (m.len == limit) {
-            std.mem.copyForwards(TaskId, m.items[0 .. limit - 1], m.items[1..]);
-            m.len -= 1;
-        }
-        m.items[m.len] = task;
-        m.len += 1;
-    }
-    /// Keeps only the Monitors a Claude Stop lists as still running. A Stop
-    /// that lists no work at all keeps none.
-    pub fn retain(m: *Monitors, value: std.json.Value) void {
-        var kept: usize = 0;
-        for (m.items[0..m.len]) |task| {
-            if (!running(value, task.text())) continue;
-            m.items[kept] = task;
-            kept += 1;
-        }
-        m.len = kept;
-    }
-    /// Drops the Monitors the transcript reports ended.
-    pub fn drop(m: *Monitors, ended: *const Ended) void {
-        var kept: usize = 0;
-        for (m.items[0..m.len]) |task| {
-            if (ended.listed(task.text())) continue;
-            m.items[kept] = task;
-            kept += 1;
-        }
-        m.len = kept;
-    }
-    pub fn slice(m: *const Monitors) []const TaskId {
-        return m.items[0..m.len];
-    }
-    fn listed(m: *const Monitors, id: []const u8) bool {
-        for (m.slice()) |task| if (std.mem.eql(u8, task.text(), id)) return true;
-        return false;
-    }
-    fn running(value: std.json.Value, id: []const u8) bool {
-        if (value != .array) return false;
+    /// Empty when the Stop lists no work at all.
+    pub fn claude(value: std.json.Value) Shells {
+        var out: Shells = .{};
+        if (value != .array) return out;
         for (value.array.items) |item| {
-            if (claudeTask(item) == .shell and std.mem.eql(u8, common.str(item, "id"), id)) return true;
+            if (claudeTask(item) != .shell) continue;
+            const id = common.str(item, "id");
+            const task = TaskId.init(id) catch continue;
+            if (id.len == 0 or out.listed(id) or out.len == capacity) continue;
+            out.items[out.len] = task;
+            out.len += 1;
         }
+        return out;
+    }
+    /// Drops the shells the transcript reports ended.
+    pub fn drop(sh: *Shells, ended: *const Ended) void {
+        var kept: usize = 0;
+        for (sh.items[0..sh.len]) |task| {
+            if (ended.listed(task.text())) continue;
+            sh.items[kept] = task;
+            kept += 1;
+        }
+        sh.len = kept;
+    }
+    pub fn slice(sh: *const Shells) []const TaskId {
+        return sh.items[0..sh.len];
+    }
+    fn listed(sh: *const Shells, id: []const u8) bool {
+        for (sh.slice()) |task| if (std.mem.eql(u8, task.text(), id)) return true;
         return false;
     }
 };
@@ -334,42 +319,35 @@ test "task labels summarize commands and bound provider prose" {
     }
 }
 
-test "a Claude Stop keeps the Monitors it lists as running, and the transcript ends them" {
-    var monitors: Monitors = .{};
-    monitors.add("m1");
-    monitors.add("m2");
-    monitors.add("m2");
-    monitors.add("");
-    try std.testing.expectEqual(@as(usize, 2), monitors.len);
+test "a Claude Stop lists the shells that can wake it, and the transcript ends them" {
     const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
         \\[{"id":"m1","type":"shell","status":"running","command":"tail -F build.log"},
         \\{"id":"m2","type":"shell","status":"completed"},
-        \\{"id":"b1","type":"shell","status":"running","command":"bun test"}]
+        \\{"id":"m1","type":"shell","status":"running"},
+        \\{"id":"b1","type":"shell","status":"pending","command":"bun test"},
+        \\{"id":"a1","type":"subagent","status":"running"},
+        \\{"id":"","type":"shell","status":"running"}]
     , .{});
     defer parsed.deinit();
-    monitors.retain(parsed.value);
-    try std.testing.expectEqual(@as(usize, 1), monitors.len);
-    try std.testing.expectEqualStrings("m1", monitors.slice()[0].text());
+    var shells = Shells.claude(parsed.value);
+    try std.testing.expectEqual(@as(usize, 2), shells.len);
+    try std.testing.expectEqualStrings("m1", shells.slice()[0].text());
+    try std.testing.expectEqualStrings("b1", shells.slice()[1].text());
     var ended: Ended = .{};
-    ended.add("b1");
-    monitors.drop(&ended);
-    try std.testing.expectEqual(@as(usize, 1), monitors.len);
+    ended.add("x1");
+    shells.drop(&ended);
+    try std.testing.expectEqual(@as(usize, 2), shells.len);
     ended.add("m1");
-    monitors.drop(&ended);
-    try std.testing.expectEqual(@as(usize, 0), monitors.len);
-    monitors.add("m1");
-    monitors.retain(.null);
-    try std.testing.expectEqual(@as(usize, 0), monitors.len);
+    ended.add("b1");
+    shells.drop(&ended);
+    try std.testing.expectEqual(@as(usize, 0), shells.len);
+    try std.testing.expectEqual(@as(usize, 0), Shells.claude(.null).len);
     for (0..Ended.limit + 1) |i| {
         var id: [8]u8 = undefined;
-        const name = try std.fmt.bufPrint(&id, "t{d}", .{i});
-        ended.add(name);
-        monitors.add(name);
+        ended.add(try std.fmt.bufPrint(&id, "t{d}", .{i}));
     }
     try std.testing.expectEqual(Ended.limit, ended.len);
-    try std.testing.expect(!ended.listed("b1") and !ended.listed("t0") and ended.listed("t1") and ended.listed("t16"));
-    try std.testing.expectEqual(Monitors.limit, monitors.len);
-    try std.testing.expectEqualStrings("t13", monitors.slice()[0].text());
+    try std.testing.expect(!ended.listed("x1") and !ended.listed("t0") and ended.listed("t1") and ended.listed("t16"));
 }
 
 test "only a one-shot cron is a wakeup the conversation waits on" {
