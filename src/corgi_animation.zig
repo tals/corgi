@@ -393,9 +393,10 @@ fn tint(out: *std.Io.Writer, current: *?[3]u8, color: [3]u8) !void {
     try writeColor(out, color);
 }
 
-// While a reopened agent resumes, or a fork starts, the corgi digs the
-// word out from under dirt, nearest letter first, flinging the dirt onto a
-// pile behind it, then turns and wags.
+// While a reopened agent resumes, or a fork starts, the corgi sits left of
+// the word and digs it out from the left, flinging the dirt back onto a
+// pile behind it, then turns and wags. Each letter loosens, crumbles and
+// rises out of the dirt.
 pub const Dig = enum {
     restoring,
     forking,
@@ -406,10 +407,15 @@ pub const Dig = enum {
             .forking => &.{ "F", "o", "r", "k", "i", "n", "g", "…" },
         };
     }
-    /// The cells the scene takes: the word and a gap, the corgi, the dirt
-    /// in flight and the pile.
+    /// The columns the word takes.
+    pub fn wordWidth(d: Dig) usize {
+        return d.letters().len;
+    }
+    /// The columns before the word: the pile, the dirt in flight, the corgi
+    /// and a gap.
+    pub const lead = 17;
     pub fn width(d: Dig) usize {
-        return d.letters().len + 17;
+        return lead + d.letters().len;
     }
 };
 const max_unearth_width = Dig.restoring.width();
@@ -417,18 +423,12 @@ const unearth_step_ms = 80;
 /// Steps the corgi digs at each letter.
 const unearth_dig_steps = 2;
 const buried = [_][]const u8{ "⣶", "⣿", "⣷", "⣾", "⣿", "⣶", "⣷", "⣿", "⣾", "⣶" };
-/// A clod's flight from behind the corgi, a cell a step, before it lands;
-/// columns count from the end of the word.
-const clod = [_]struct { col: usize, glyph: []const u8 }{
-    .{ .col = 8, .glyph = "⠂" },
-    .{ .col = 9, .glyph = "⠁" },
-    .{ .col = 10, .glyph = "⠁" },
-    .{ .col = 11, .glyph = "⠂" },
-    .{ .col = 12, .glyph = "⠄" },
-};
-const pile_col = 13;
+/// A clod's flight back from the corgi, a cell a step, before it lands.
+const clod = [_][]const u8{ "⠄", "⠂", "⠁", "⠁", "⠂" };
+const clod_col = 4;
+const corgi_col = 9;
 /// The pile column each letter's clod lands on, and the pile's heights.
-const pile_order = [_]usize{ 1, 2, 0, 3, 1, 2, 1, 2, 0, 3 };
+const pile_order = [_]usize{ 1, 0, 3, 2 };
 const pile_glyph = [_][]const u8{ " ", "⣀", "⣤", "⣶", "⣿" };
 /// Pixel art, not a UI color.
 const dirt = [3]u8{ 150, 126, 96 };
@@ -438,37 +438,39 @@ const UnearthCell = struct { glyph: []const u8 = " ", color: [3]u8 = dirt, bold:
 
 fn unearthScene(dig: Dig, step: usize, cells: *[max_unearth_width]UnearthCell) []const UnearthCell {
     const word = dig.letters();
-    const len = word.len;
     cells.* = @splat(.{});
-    for (word, 0..) |letter, i| {
-        const at = (len - 1 - i) * unearth_dig_steps;
-        cells[i] = if (step < at) .{ .glyph = buried[i % buried.len] } else .{
-            .glyph = letter,
-            .color = blend(dirt, restored, @as(f64, @floatFromInt(@min(step - at, 2))) / 2),
-            .bold = true,
-        };
-    }
     var heights: [4]usize = @splat(0);
-    for (0..len) |n| {
-        if (step < n * unearth_dig_steps) continue;
-        const age = step - n * unearth_dig_steps;
-        const column = pile_order[n % pile_order.len];
-        if (age < clod.len) cells[len + clod[age].col] = .{ .glyph = clod[age].glyph } else heights[column] = @min(heights[column] + 1, pile_glyph.len - 1);
+    for (word, 0..) |letter, i| {
+        const at = i * unearth_dig_steps;
+        // Packed dirt, loosened, crumbs, then the letter rising to the accent.
+        cells[Dig.lead + i] = if (step < at) .{ .glyph = buried[i % buried.len] } else switch (step - at) {
+            0 => .{ .glyph = "⣤" },
+            1 => .{ .glyph = "⠤" },
+            2 => .{ .glyph = letter, .bold = true },
+            3 => .{ .glyph = letter, .color = blend(dirt, restored, 0.5), .bold = true },
+            else => .{ .glyph = letter, .color = restored, .bold = true },
+        };
+        if (step < at) continue;
+        const age = step - at;
+        if (age < clod.len) cells[clod_col + clod.len - 1 - age] = .{ .glyph = clod[age] } else {
+            const column = pile_order[i % pile_order.len];
+            heights[column] = @min(heights[column] + 1, pile_glyph.len - 1);
+        }
     }
-    for (heights, 0..) |height, i| cells[len + pile_col + i] = .{ .glyph = pile_glyph[height] };
-    const dug = len * unearth_dig_steps;
-    const dog = if (step < dug) (if (step % 2 == 1) "‹o[/\\]~" else "‹o[\\/]~") else if (step - dug < 5) "ᐱ•ᴥ•ᐱ" else "ᐯ•ᴥ•ᐯ";
-    var col: usize = if (step < dug) len + 1 else len + 2;
-    if (step >= dug) {
-        cells[col] = .{ .glyph = wagTail(step / 2), .color = awake_color };
+    for (heights, 0..) |height, i| cells[i] = .{ .glyph = pile_glyph[height] };
+    const dug = word.len * unearth_dig_steps + 2;
+    var col: usize = corgi_col;
+    const dog = if (step < dug) (if (step % 2 == 1) "~[/\\]o›" else "~[\\/]o›") else blk: {
         col += 1;
-    }
+        cells[corgi_col + 6] = .{ .glyph = wagTail(step / 2), .color = awake_color };
+        break :blk if (step - dug < 5) "ᐱ•ᴥ•ᐱ" else "ᐯ•ᴥ•ᐯ";
+    };
     var glyphs = (std.unicode.Utf8View.init(dog) catch unreachable).iterator();
     while (glyphs.nextCodepointSlice()) |glyph| : (col += 1) cells[col] = .{ .glyph = glyph, .color = awake_color };
     return cells[0..dig.width()];
 }
-/// The band's title `shown_ms` after it appeared, in `width` cells.
-/// Narrower than the scene, it is the word alone.
+/// The card's title `shown_ms` after it appeared: the scene, `dig.width()`
+/// cells, or the word alone in fewer than `width` cells.
 pub fn writeUnearth(out: *std.Io.Writer, width: usize, shown_ms: i64, dig: Dig) !void {
     if (width < dig.width()) {
         try out.writeAll("\x1b[1m");
@@ -1160,7 +1162,7 @@ test "the corgi is gray: text awake, faint asleep, muted asleep on a selected ro
     output.clearRetainingCapacity();
     try writeUnearth(&output.writer, Dig.restoring.width(), 3000, .restoring);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.accent) ++ "Restoring…") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.text) ++ "~ᐯ•ᴥ•ᐯ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.text) ++ "ᐯ•ᴥ•ᐯ~") != null);
 }
 
 test "one sleeper dreams per period, holds through its puff, and rarely repeats" {
@@ -1235,23 +1237,27 @@ test "content reveal preserves the old pose and cancels when a corgi returns" {
     try std.testing.expect(presentation.reveal_started_ms == null);
 }
 
-test "the corgi digs the word out nearest letter first, then turns and wags" {
+test "the corgi digs the word out from the left, then turns and wags" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     var plain: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer plain.deinit();
     const Case = struct { ms: i64, text: []const u8 };
     for ([_]Case{
-        .{ .ms = 0, .text = "⣶⣿⣷⣾⣿⣶⣷⣿⣾… ‹o[\\/]~⠂        " },
-        .{ .ms = 700, .text = "⣶⣿⣷⣾⣿ring… ‹o[\\/]~⠂ ⠁ ⠄ ⣀⣀ " },
-        .{ .ms = 1700, .text = "Restoring…  ~ᐱ•ᴥ•ᐱ   ⠂ ⣤⣶⣶⣀" },
-        .{ .ms = 3000, .text = "Restoring…  ~ᐯ•ᴥ•ᐯ     ⣤⣶⣶⣤" },
+        .{ .ms = 0, .text = "        ⠄~[\\/]o› ⣤⣿⣷⣾⣿⣶⣷⣿⣾⣶" },
+        .{ .ms = 700, .text = "⣀⣀  ⠂ ⠁ ⠄~[\\/]o› Rest⣤⣶⣷⣿⣾⣶" },
+        .{ .ms = 1700, .text = "⣤⣶⣤⣤ ⠁   ~[/\\]o› Restoring…" },
+        .{ .ms = 3000, .text = "⣶⣶⣤⣤      ᐯ•ᴥ•ᐯ~ Restoring…" },
     }) |case| {
         output.clearRetainingCapacity();
         try writeUnearth(&output.writer, Dig.restoring.width(), case.ms, .restoring);
         try std.testing.expectEqualStrings(case.text, try withoutColors(&plain, output.written()));
     }
-    // A narrow band shows the word alone.
+    // A letter loosens, crumbles, then rises out of the dirt into the accent.
+    output.clearRetainingCapacity();
+    try writeUnearth(&output.writer, Dig.restoring.width(), 700, .restoring);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), comptime palette.fg(.accent) ++ "Res") != null);
+    // A narrow card shows the word alone.
     output.clearRetainingCapacity();
     try writeUnearth(&output.writer, Dig.restoring.width() - 1, 0, .restoring);
     try std.testing.expectEqualStrings("Restoring…", try withoutColors(&plain, output.written()));
@@ -1264,8 +1270,8 @@ test "a fork's corgi digs out its own, shorter word" {
     defer plain.deinit();
     const Case = struct { ms: i64, text: []const u8 };
     for ([_]Case{
-        .{ .ms = 0, .text = "⣶⣿⣷⣾⣿⣶⣷… ‹o[\\/]~⠂        " },
-        .{ .ms = 3000, .text = "Forking…  ~ᐯ•ᴥ•ᐯ     ⣀⣶⣶⣀" },
+        .{ .ms = 0, .text = "        ⠄~[\\/]o› ⣤⣿⣷⣾⣿⣶⣷⣿" },
+        .{ .ms = 3000, .text = "⣤⣤⣤⣤      ᐯ•ᴥ•ᐯ~ Forking…" },
     }) |case| {
         output.clearRetainingCapacity();
         try writeUnearth(&output.writer, Dig.forking.width(), case.ms, .forking);

@@ -685,13 +685,20 @@ pub const Runtime = struct {
         const fork = r.pane(created).?;
         fork.launch = launch;
         haunt(fork, frozen, old, shown);
-        // Its row shows at once, under its new name or the one it copies.
-        if (new_session) |*picked| if (r.conversations.get(provider, picked)) |actor| {
-            actor.state.reopened(clock.microTimestamp());
-            if (actor.state.name.len == 0) actor.state.name = name;
-            actor.workspace = ws.id;
-            fork.attachment.select(actor);
-        } else |err| log.warn("showing a fork: {}", .{err});
+        // Its row and card show at once, under its new name or the one it
+        // copies: as its conversation when Corgi picked the id, otherwise
+        // until the agent reports one.
+        if (new_session) |*picked| {
+            if (r.conversations.get(provider, picked)) |actor| {
+                actor.state.reopened(clock.microTimestamp());
+                if (actor.state.name.len == 0) actor.state.name = name;
+                actor.workspace = ws.id;
+                fork.attachment.select(actor);
+            } else |err| log.warn("showing a fork: {}", .{err});
+        } else {
+            fork.attachment.provisional.provider = provider;
+            fork.attachment.provisional.name = name;
+        }
         // An agent without a launch flag for it takes the name once it can.
         if (provider.info().name_flag == null) if (rename_to) |text| {
             r.wanted_names.appendAssumeCapacity(.{ .pane = created, .name = .initTruncated(text), .deadline = clock.milliTimestamp() + WantedName.wait_ms });

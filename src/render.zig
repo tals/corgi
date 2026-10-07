@@ -375,7 +375,15 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
                 try surface.writeRowHovered(w, state, p.terminal.hyperlinks(), p.id, row, r.w, ui.dialog != null, hovered);
             }
             try w.writeAll("\x1b[0m");
-            if (p.restoring.len > 0) try drawRestoring(w, r, p.restoring, os.milliTimestamp() - p.restoring_since, if (p.forking) .forking else .restoring);
+            if (p.restoring.len > 0) {
+                var meta: [320]u8 = undefined;
+                try drawRestoring(w, r, .{
+                    .command = p.restoring,
+                    .name = if (p.label.len > 0) p.label else if (p.agent.name.len > 0) p.agent.name else p.agent.providerName(),
+                    .meta = restoringMeta(&meta, &p, ui.conversations),
+                    .dig = if (p.forking) .forking else .restoring,
+                }, os.milliTimestamp() - p.restoring_since);
+            }
             break;
         };
     }
@@ -639,28 +647,154 @@ test "tab drop slots follow midpoints and clipped visible tabs" {
 /// A band over the bottom of a reopened agent's faded old screen, naming
 /// the command it resumes with. The agent's first drawing replaces the
 /// screen beneath, and the band goes with it.
-fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, command: []const u8, shown_ms: i64, dig: corgi_animation.Dig) !void {
-    if (r.w < 8 or r.h < 2) return;
-    var lines: [8][]const u8 = undefined;
+/// What a reopened or forked agent's card says under the corgi digging its
+/// title out.
+const Restoring = struct {
+    command: []const u8,
+    name: []const u8,
+    /// Provider, model and folder.
+    meta: []const u8,
+    dig: corgi_animation.Dig,
+};
+/// "claude · Opus 4.7 · ~/dev/corgi", leaving out a model Corgi hasn't seen.
+fn restoringMeta(buf: []u8, p: *const Pane, conversations: []const protocol.Conversation) []const u8 {
+    var dir: [160]u8 = undefined;
+    const folder = sidebar.directoryLabel(&dir, if (p.agent.cwd.len > 0) p.agent.cwd else p.cwd, os.env("HOME"));
+    const model = for (conversations) |c| {
+        if (c.id == p.agent.conversation) break c.model_name;
+    } else "";
+    const shown = if (model.len > 0)
+        std.fmt.bufPrint(buf, "{s} · {s} · {s}", .{ p.agent.providerName(), model, folder })
+    else
+        std.fmt.bufPrint(buf, "{s} · {s}", .{ p.agent.providerName(), folder });
+    return shown catch folder;
+}
+/// A command's words as a shell reads them, each flag kept with its value,
+/// as slices of the command.
+fn shellUnits(command: []const u8, out: [][]const u8) []const []const u8 {
+    var words: [64][2]usize = undefined;
     var count: usize = 0;
-    var rest = command;
-    while (rest.len > 0 and count < lines.len) : (count += 1) {
-        var it = (std.unicode.Utf8View.init(rest) catch return).iterator();
-        for (0..r.w - 4) |_| _ = it.nextCodepointSlice() orelse break;
-        lines[count] = rest[0..it.i];
-        rest = rest[it.i..];
+    var i: usize = 0;
+    while (i < command.len) {
+        while (i < command.len and command[i] == ' ') i += 1;
+        if (i == command.len) break;
+        const start = i;
+        var quoted = false;
+        while (i < command.len) : (i += 1) {
+            if (command[i] == '\\' and !quoted) {
+                i += 1;
+            } else if (command[i] == '\'') {
+                quoted = !quoted;
+            } else if (command[i] == ' ' and !quoted) break;
+        }
+        // The last word Corgi keeps takes the rest.
+        if (count == words.len) {
+            words[count - 1][1] = command.len;
+            break;
+        }
+        words[count] = .{ start, @min(i, command.len) };
+        count += 1;
     }
-    const shown = @min(count, r.h -| 3);
-    const height = @min(r.h, shown + 3);
-    const top = r.y + r.h - height;
-    for (0..height) |row| {
-        try w.print("\x1b[{d};{d}H" ++ bar, .{ top + row + 1, r.x + 1 });
-        try w.splatByteAll(' ', r.w);
+    var units: usize = 0;
+    var k: usize = 0;
+    while (k < count and units < out.len) : (k += 1) {
+        const start = words[k][0];
+        if (command[start] == '-' and k + 1 < count and command[words[k + 1][0]] != '-') k += 1;
+        out[units] = command[start..words[k][1]];
+        units += 1;
     }
-    try w.print("\x1b[{d};{d}H", .{ top + 2, r.x + 3 });
-    try corgi_animation.writeUnearth(w, r.w - 4, shown_ms, dig);
-    try w.writeAll("\x1b[22m" ++ comptime palette.fg(.muted));
-    for (lines[0..shown], 0..) |line, i| try w.print("\x1b[{d};{d}H{s}", .{ top + 3 + i, r.x + 3, line });
+    return out[0..units];
+}
+/// Lines of the command after "$ ", breaking between words as a shell
+/// prints it: " \\" ends each line but the last, and the rest indent four.
+const CommandLine = struct { first: usize, count: usize };
+fn commandLines(units: []const []const u8, width: usize, out: []CommandLine) []const CommandLine {
+    var count: usize = 0;
+    var start: usize = 0;
+    var used: usize = 2;
+    for (units, 0..) |unit, i| {
+        const cells = sidebar.displayWidth(unit);
+        if (i > start and used + 1 + cells + 2 > width and count + 1 < out.len) {
+            out[count] = .{ .first = start, .count = i - start };
+            count += 1;
+            start = i;
+            used = 4 + cells;
+        } else used += cells + @intFromBool(i > start);
+    }
+    out[count] = .{ .first = start, .count = units.len - start };
+    return out[0 .. count + 1];
+}
+/// A card over a reopened or forked agent's old screen until the agent draws
+/// its own: the corgi digs the title out, centered; the agent's name,
+/// provider, model and folder, and the command it runs sit under it. Rows
+/// that don't fit go, the command first.
+fn drawRestoring(w: *std.Io.Writer, r: layout.Rect, band: Restoring, shown_ms: i64) !void {
+    const panel = comptime (palette.Style{ .fg = .text, .bg = .surface }).sgr();
+    const border = comptime (palette.Style{ .fg = .line, .bg = .surface }).sgr();
+    const word = band.dig.wordWidth();
+    const lead = corgi_animation.Dig.lead;
+    if (r.w < word + 4 or r.h == 0) return;
+    var unit_buf: [64][]const u8 = undefined;
+    const units = shellUnits(band.command, &unit_buf);
+    const text = @max(sidebar.displayWidth(band.name), sidebar.displayWidth(band.meta), @min(sidebar.displayWidth(band.command) + 2, 58));
+    const bw: usize = @min(r.w, @max(text + 6, word + 2 * lead + 6));
+    const inner = bw -| 6;
+    var line_buf: [16]CommandLine = undefined;
+    const lines = commandLines(units, inner, &line_buf);
+    // Borders and padding, the title, then a gap and the details that fit.
+    var details: usize = 2 + lines.len;
+    while (details > 0 and 6 + details > r.h) details = if (details > 2) 2 else 0;
+    const bh: usize = if (details > 0) 6 + details else @min(r.h, 5);
+    const bx = r.x + (r.w - bw) / 2;
+    const by = r.y + (r.h - bh) / 2;
+    if (bh >= 3) {
+        for (0..bh) |row| {
+            try w.print("\x1b[{d};{d}H" ++ border, .{ by + row + 1, bx + 1 });
+            const edge = row == 0 or row + 1 == bh;
+            try w.writeAll(if (row == 0) "╭" else if (row + 1 == bh) "╰" else "│");
+            if (edge) {
+                for (0..bw - 2) |_| try w.writeAll("─");
+            } else {
+                try w.writeAll(panel);
+                try w.splatByteAll(' ', bw - 2);
+                try w.writeAll(border);
+            }
+            try w.writeAll(if (row == 0) "╮" else if (row + 1 == bh) "╯" else "│");
+        }
+    } else for (0..bh) |row| {
+        try w.print("\x1b[{d};{d}H" ++ panel, .{ by + row + 1, bx + 1 });
+        try w.splatByteAll(' ', bw);
+    }
+    // The title is centered; the corgi's scene sits before it when it fits.
+    const title_y = by + @min(bh / 2, 2);
+    const word_x = bx + (bw - word) / 2;
+    const scene = word_x >= bx + 1 + lead;
+    try w.print("\x1b[{d};{d}H" ++ panel, .{ title_y + 1, (if (scene) word_x - lead else word_x) + 1 });
+    try corgi_animation.writeUnearth(w, if (scene) band.dig.width() else word, shown_ms, band.dig);
+    if (details == 0) return w.writeAll("\x1b[0m");
+    const x = bx + 3;
+    const y = by + 4;
+    try w.print("\x1b[{d};{d}H" ++ comptime (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr(), .{ y + 1, x + 1 });
+    try sidebar.writeEllipsis(w, band.name, inner);
+    try w.print("\x1b[{d};{d}H" ++ comptime (palette.Style{ .fg = .muted, .bg = .surface }).sgr(), .{ y + 2, x + 1 });
+    try sidebar.writeEllipsis(w, band.meta, inner);
+    if (details > 2) for (lines, 0..) |line, i| {
+        var text_buf: [512]u8 = undefined;
+        var out: std.Io.Writer = .fixed(&text_buf);
+        for (units[line.first..][0..line.count], 0..) |unit, n| {
+            if (n > 0) out.writeByte(' ') catch break;
+            out.writeAll(unit) catch break;
+        }
+        if (i + 1 < lines.len) out.writeAll(" \\") catch {};
+        try w.print("\x1b[{d};{d}H", .{ y + 3 + i, x + 1 });
+        if (i == 0) {
+            try w.writeAll(comptime (palette.Style{ .fg = .muted, .bg = .surface, .bold = true }).sgr() ++ "$ " ++ (palette.Style{ .fg = .faint, .bg = .surface }).sgr());
+            try sidebar.writeEllipsis(w, out.buffered(), inner -| 2);
+        } else {
+            try w.writeAll(comptime (palette.Style{ .fg = .faint, .bg = .surface }).sgr() ++ "    ");
+            try sidebar.writeEllipsis(w, out.buffered(), inner -| 4);
+        }
+    };
     try w.writeAll("\x1b[0m");
 }
 
@@ -869,29 +1003,58 @@ test "badge redraw preserves cached pixels and shifts only the workspace heading
     try std.testing.expect(testDrawsAt(emoji, "\x1b[1;6H", "workspaces"));
 }
 
-test "the restoring band sits on a pane's bottom rows and wraps its command" {
+test "a reopened agent's card sits mid-pane: title centered, details left, command wrapped" {
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
-    try drawRestoring(&out.writer, .{ .x = 10, .y = 1, .w = 20, .h = 10 }, "claude --resume 'abcdefghijklmnop' --yolo-flag", 0, .restoring);
+    const band: Restoring = .{
+        .command = "claude --dangerously-skip-permissions --resume '4ee5c02d-691c-4045-8744-930f330494fd'",
+        .name = "corgi menu work",
+        .meta = "claude · Opus 4.7 · ~/dev/corgi",
+        .dig = .restoring,
+    };
+    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 80, .h = 24 }, band, 3000);
     const drawn = out.written();
-    // Three command lines and a padding row on each side, ending on the pane's last row.
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[5;11H") == null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[6;11H") != null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[11;11H") != null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, comptime "\x1b[7;13H\x1b[1m" ++ palette.fg(.accent) ++ "Restoring…") != null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[8;13Hclaude --resume ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[9;13H'abcdefghijklmno") != null);
-    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[10;13Hp' --yolo-flag") != null);
+    const border = comptime (palette.Style{ .fg = .line, .bg = .surface }).sgr();
+    // A 64-column box, ten rows tall, in the middle of the pane.
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[8;9H" ++ border ++ "╭") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[17;9H" ++ border ++ "╰") != null);
+    // The title centered, the corgi's scene before it.
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[10;19H") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, comptime palette.fg(.accent) ++ "Restoring…") != null);
+    // The details from the box's left padding.
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[12;12H" ++ comptime (palette.Style{ .fg = .strong, .bg = .surface, .bold = true }).sgr() ++ "corgi menu work") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[13;12H" ++ comptime (palette.Style{ .fg = .muted, .bg = .surface }).sgr() ++ "claude · Opus 4.7 · ~/dev/corgi") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "$ " ++ comptime (palette.Style{ .fg = .faint, .bg = .surface }).sgr() ++ "claude --dangerously-skip-permissions \\") != null);
+    try std.testing.expect(std.mem.indexOf(u8, drawn, "\x1b[15;12H" ++ comptime (palette.Style{ .fg = .faint, .bg = .surface }).sgr() ++ "    --resume '4ee5c02d-691c-4045-8744-930f330494fd'") != null);
+
+    // A small pane keeps the title, alone, and drops the details.
     out.clearRetainingCapacity();
-    // A short pane keeps the title and drops the command.
-    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 20, .h = 2 }, "claude --resume 'x'", 0, .restoring);
+    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 40, .h = 6 }, band, 3000);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), "Restoring…") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "claude") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "corgi menu work") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "o›") == null);
+
+    // A fork's card says so.
     out.clearRetainingCapacity();
-    // A fork's band says so, over the command it runs.
-    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 40, .h = 6 }, "codex fork 'x'", 3000, .forking);
+    var fork = band;
+    fork.dig = .forking;
+    try drawRestoring(&out.writer, .{ .x = 0, .y = 0, .w = 80, .h = 24 }, fork, 3000);
     try std.testing.expect(std.mem.indexOf(u8, out.written(), comptime palette.fg(.accent) ++ "Forking…") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.written(), "codex fork 'x'") != null);
+}
+
+test "a command wraps between its words, each flag kept with its value" {
+    var units_buf: [64][]const u8 = undefined;
+    const units = shellUnits("CLAUDE_CONFIG_DIR=~/.w claude --model opus --resume 'it'\\''s' --fork-session", &units_buf);
+    const want = [_][]const u8{ "CLAUDE_CONFIG_DIR=~/.w", "claude", "--model opus", "--resume 'it'\\''s'", "--fork-session" };
+    try std.testing.expectEqual(want.len, units.len);
+    for (want, units) |expected, unit| try std.testing.expectEqualStrings(expected, unit);
+    var lines_buf: [16]CommandLine = undefined;
+    // "$ CLAUDE_CONFIG_DIR=~/.w claude --model opus \\", then indented lines.
+    const lines = commandLines(units, 46, &lines_buf);
+    try std.testing.expectEqual(@as(usize, 2), lines.len);
+    try std.testing.expectEqual(CommandLine{ .first = 0, .count = 3 }, lines[0]);
+    try std.testing.expectEqual(CommandLine{ .first = 3, .count = 2 }, lines[1]);
+    try std.testing.expectEqual(@as(usize, 1), commandLines(units, 200, &lines_buf).len);
 }
 
 /// The text `bytes` shows, without its escape sequences.

@@ -126,6 +126,9 @@ class AgentMenu extends Viewers {
     const source = await this.new();
     await this.hook(source, "codex", CODEX_ID);
     const { pane } = await this.command("agent.fork", { target: source, name: "Copy" });
+    // Before Codex reports the fork, its row already says what it is.
+    const early = (await this.session()).panes.find((p: any) => p.id === pane).agent;
+    this.assertEqual([early.provider, early.name], ["codex", "Copy"]);
     // Codex picks the fork's id itself and reports it once it runs.
     await this.hook(pane, "codex", "44444444-4444-4444-8444-444444444444");
     const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
