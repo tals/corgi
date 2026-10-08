@@ -1,6 +1,6 @@
 import { milliTimestamp } from "../clock";
 import { run as subprocessRun } from "../subprocess";
-import { access, realpath } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Ref, State } from "./git_push";
 import { Text } from "../providers";
@@ -56,7 +56,37 @@ type Cached = {
   seen: number;
   commits: Commits;
   ref: Ref;
+  /** The upstream's full ref name, such as "refs/remotes/origin/main". */
+  tracking?: string;
+  /** `gitStamp` when git last ran, and when that was. */
+  stamp?: string;
+  checked?: number;
 };
+/** How long an unchanged repository goes without running git. */
+const recheck_ms = 60000;
+/** The files a repository's branch state comes from, as their change times.
+ * While they stay the same, git would answer the same. Null when `.git` is a
+ * file (a worktree or submodule), whose state lives elsewhere. */
+export async function gitStamp(root: string, cached: Cached): Promise<string | null> {
+  const git = join(root, ".git");
+  try {
+    if (!(await stat(git)).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  const files = ["HEAD", "config", "packed-refs"];
+  for (const name of [cached.ref.branch, cached.tracking ?? ""])
+    if (name.startsWith("refs/")) files.push(name);
+  const stamps = await Promise.all(
+    files.map((file) =>
+      stat(join(git, file), { bigint: true }).then(
+        (s) => `${s.ino}:${s.mtimeNs}:${s.size}`,
+        () => "-",
+      ),
+    ),
+  );
+  return stamps.join(" ");
+}
 export class Tracker {
   thread: Promise<void> | null = null;
   done = false;
@@ -132,7 +162,7 @@ export class Tracker {
     return (await this.refreshInto(cwd, now)).ahead;
   }
   save(key: string, refs: string, ahead: bigint | null, now: number) {
-    const c = {
+    const c: Cached = {
       refs,
       ahead,
       seen: now,
@@ -163,6 +193,22 @@ export class Tracker {
       (cached.seen === now || (!cached.refs && now - cached.seen < 30000))
     )
       return cached;
+    const before = cached ? await gitStamp(root, cached) : null;
+    if (cached?.stamp !== undefined && before === cached.stamp && now - cached.checked! < recheck_ms) {
+      cached.seen = now;
+      return cached;
+    }
+    const result = await this.query(root, key, cached, now),
+      after = await gitStamp(root, result);
+    // After a change while git ran, or a switch to files not yet stamped,
+    // the next refresh runs git again.
+    if (after !== null && (cached === undefined || before === after)) {
+      result.stamp = after;
+      result.checked = now;
+    }
+    return result;
+  }
+  private async query(root: string, key: string, cached: Cached | undefined, now: number): Promise<Cached> {
     const refs = await command(root, ["rev-parse", "--verify", "HEAD"]);
     if (refs === null) return this.save(key, "", null, now);
     const branch = await command(root, ["symbolic-ref", "--quiet", "HEAD"]);
@@ -181,10 +227,12 @@ export class Tracker {
       result.ref = ref;
       return result;
     }
+    const upstream_ref = (await command(root, ["rev-parse", "--symbolic-full-name", "@{upstream}"])) ?? "";
     const fingerprint = upstream + ".." + refs;
     if (cached && cached.refs === fingerprint && cached.ahead !== null) {
       cached.seen = now;
       cached.ref = ref;
+      cached.tracking = upstream_ref;
       return cached;
     }
     const count = await command(root, ["rev-list", "--count", fingerprint]);
@@ -192,6 +240,7 @@ export class Tracker {
     const ahead = /^\d+$/.test(count) ? BigInt(count) : null,
       result = this.save(key, fingerprint, ahead, now);
     result.ref = ref;
+    result.tracking = upstream_ref;
     if (ahead !== null && ahead > 0n) {
       const output = await command(root, [
         "log",

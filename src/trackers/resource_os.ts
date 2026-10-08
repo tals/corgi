@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { systemCall, sysconf } from "../native_bridge";
+import { processTree } from "../os";
 export type Identity = {
   pid: number;
   parent: number;
@@ -61,7 +62,8 @@ function linuxStat(pid: number) {
     return null;
   }
 }
-export function inventory(): Inventory {
+/** The host's processes; on Linux, only the trees under `roots` when given. */
+export function inventory(roots?: number[]): Inventory {
   if (process.platform === "darwin") {
     if (!native) throw Error("NativeBoundaryUnavailable");
     const result = native({ op: "resource.inventory" });
@@ -75,6 +77,14 @@ export function inventory(): Inventory {
   }
   if (process.platform !== "linux") throw Error("UnsupportedPlatform");
   const items: Identity[] = [];
+  const tree = roots ? processTree(roots) : null;
+  if (tree) {
+    for (const pid of tree) {
+      const s = linuxStat(pid);
+      if (s) items.push(s.identity);
+    }
+    return { items, truncated: tree.length === 16384 };
+  }
   let truncated = false;
   for (const name of readdirSync("/proc")) {
     if (!/^\d+$/.test(name)) continue;

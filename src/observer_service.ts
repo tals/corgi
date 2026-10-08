@@ -288,7 +288,7 @@ export async function tick(server: any) {
         !pane.terminal.exited && (workers.settling || pane.detectionDue(now)),
     );
     const jobs = detection.foregroundJobs(
-      panes.map((pane: any) => pane.terminal.fd),
+      panes.map((pane: any) => ({ fd: pane.terminal.fd, pid: pane.terminal.pid })),
     );
     for (const pane of panes) {
       detectPane(server, pane, jobs.get(pane.terminal.fd) ?? null);

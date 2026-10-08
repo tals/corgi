@@ -94,3 +94,35 @@ test("test clock advance makes a tracker refresh deadline due", async () => {
     clock.reset();
   }
 });
+test("an unchanged repository reuses its answer until its refs move", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-git-"));
+  try {
+    const repo = join(root, "repo");
+    await mkdir(repo);
+    await git(repo, "init", "-b", "main");
+    await git(repo, "config", "user.email", "test@example.com");
+    await git(repo, "config", "user.name", "Test");
+    await git(repo, "commit", "--allow-empty", "-m", "base");
+    await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+    await git(repo, "config", "remote.origin.url", join(root, "remote"));
+    await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+    await git(repo, "branch", "--set-upstream-to=origin/main");
+    await git(repo, "commit", "--allow-empty", "-m", "one");
+    await git(repo, "commit", "--allow-empty", "-m", "two");
+    const t = new Tracker();
+    expect(await t.refresh(repo, 1000)).toBe(2n);
+    const cached = [...t.cache.values()][0];
+    expect(cached.checked).toBe(1000);
+    expect(await t.refresh(repo, 4000)).toBe(2n);
+    expect(cached.checked).toBe(1000);
+    // A fetch moves the upstream.
+    await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD~1");
+    expect(await t.refresh(repo, 7000)).toBe(1n);
+    // An unchanged repository still runs git once its recheck is due.
+    const again = [...t.cache.values()][0];
+    expect(await t.refresh(repo, 70000)).toBe(1n);
+    expect(again.checked).toBe(70000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

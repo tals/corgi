@@ -387,7 +387,7 @@ export class Tracker {
     return true;
   }
   sample(now = clock.milliTimestamp()) {
-    const inventory = native.inventory(),
+    const inventory = native.inventory(this.roots.map((r) => r.pid)),
       index = new Map(inventory.items.map((p, i) => [p.pid, i])),
       roots = this.roots.map((r) => ({ ...r }));
     for (const k of this.origins.keys())

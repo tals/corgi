@@ -13,6 +13,7 @@ import {
   processArgs,
   processPath,
   processJob,
+  processTree,
   PathSearch,
   shellQuote,
   shellEscape,
@@ -42,6 +43,21 @@ test("a process's own arguments, executable and environment are readable", () =>
 test("a process's parent and executable are readable", () => {
   expect(processJob(process.pid)!.ppid).toBe(process.ppid);
   expect(processPath(process.pid)).toBe(process.execPath);
+});
+test("a process tree lists the roots and their descendants, not the host", async () => {
+  const child = Bun.spawn(["/bin/sh", "-c", "sleep 30 & echo $!; wait"], { stdout: "pipe" });
+  let grandchild = 0;
+  try {
+    const reader = child.stdout.getReader();
+    grandchild = Number(new TextDecoder().decode((await reader.read()).value).trim());
+    const tree = processTree([child.pid]);
+    if (tree === null) return; // No CONFIG_PROC_CHILDREN, or not Linux: callers scan the host.
+    expect(tree.sort()).toEqual([child.pid, grandchild].sort());
+    expect(processTree([-1])).toEqual([]);
+  } finally {
+    if (grandchild > 0) process.kill(grandchild, "SIGKILL");
+    child.kill("SIGKILL");
+  }
 });
 test("PATH search takes absolute entries only", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-path-"));

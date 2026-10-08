@@ -3,8 +3,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { networkInterfaces, endianness } from "node:os";
 import { readFile, readdir, readlink } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { identify } from "../detection";
+import { processTree } from "../os";
 import type { Runtime } from "../runtime";
 export type Kind = "loopback" | "tailscale" | "vpn" | "network";
 export type Interface = {
@@ -134,6 +136,22 @@ export function processes(text: string): Process[] {
           },
         ]
       : [];
+  });
+}
+/** The panes' processes, as `ps -o pid=,ppid=,pgid=,comm=` lists them, read
+ * from the panes' own trees. Null where the kernel can't list children. */
+export function paneProcesses(roots: Root[]): Process[] | null {
+  const tree = processTree(roots.map((r) => r.pid));
+  if (!tree) return null;
+  return tree.flatMap((pid) => {
+    try {
+      const text = readFileSync(`/proc/${pid}/stat`, "utf8"),
+        end = text.lastIndexOf(")"),
+        fields = text.slice(end + 2).split(" ");
+      return [{ pid, parent: Number(fields[1]), group: Number(fields[2]), name: text.slice(text.indexOf("(") + 1, end) }];
+    } catch {
+      return [];
+    }
   });
 }
 export function workload(p: Process, root: Root) {
@@ -276,6 +294,30 @@ export function sockets(
  * /proc. lsof walks every descriptor on the host, which takes seconds on a
  * busy Linux machine. */
 export async function procInventory(list: Process[], roots: Root[]): Promise<string> {
+  const held: { process: Process; fds: [string, string][] }[] = [];
+  for (const p of list) {
+    if (owner(p.pid, list, roots) === null) continue;
+    const dir = `/proc/${p.pid}/fd`;
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      continue;
+    }
+    const fds: [string, string][] = [];
+    for (const entry of entries) {
+      let link: string;
+      try {
+        link = await readlink(`${dir}/${entry}`);
+      } catch {
+        continue;
+      }
+      if (link.startsWith("socket:[") && link.endsWith("]")) fds.push([entry, link.slice("socket:[".length, -1)]);
+    }
+    if (fds.length) held.push({ process: p, fds });
+  }
+  // The host's socket tables are read only when a pane's process has a socket.
+  if (!held.length) return "";
   const table = new Map<string, Socket>();
   for (const [name, socket] of [
     ["/proc/net/tcp", { transport: "TCP", ipv6: false }],
@@ -292,25 +334,10 @@ export async function procInventory(list: Process[], roots: Root[]): Promise<str
     procSockets(text, { ...socket, address: "", listening: false }, table);
   }
   let out = "";
-  for (const p of list) {
-    if (owner(p.pid, list, roots) === null) continue;
-    const dir = `/proc/${p.pid}/fd`;
-    let entries: string[];
-    try {
-      entries = await readdir(dir);
-    } catch {
-      continue;
-    }
+  for (const { process: p, fds } of held) {
     let named = false;
-    for (const entry of entries) {
-      let link: string;
-      try {
-        link = await readlink(`${dir}/${entry}`);
-      } catch {
-        continue;
-      }
-      if (!link.startsWith("socket:[") || !link.endsWith("]")) continue;
-      const socket = table.get(link.slice("socket:[".length, -1));
+    for (const [entry, inode] of fds) {
+      const socket = table.get(inode);
       if (!socket) continue;
       if (!named) out += `p${p.pid}\nc${basename(p.name)}\n`;
       named = true;
@@ -517,14 +544,17 @@ export class Tracker {
     return changed;
   }
   async scan() {
-    const ps = await command(
-      ["ps", "-axo", "pid=,ppid=,pgid=,comm="],
-      false,
-      this.abort.signal,
-    );
-    if (ps === null) return;
-    const list = processes(ps),
-      all = interfaces(),
+    let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
+    if (!list) {
+      const ps = await command(
+        ["ps", "-axo", "pid=,ppid=,pgid=,comm="],
+        false,
+        this.abort.signal,
+      );
+      if (ps === null) return;
+      list = processes(ps);
+    }
+    const all = interfaces(),
       files =
         process.platform === "linux"
           ? await procInventory(list, this.roots).catch(() => null)

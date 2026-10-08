@@ -2,7 +2,7 @@ import path from "node:path";
 import { readFileSync, readdirSync } from "node:fs";
 import { Agent, Provider, Text, type State } from "./agents";
 import { n, ptr, processArgs } from "./native_bridge";
-import { processJob, processArgs as readProcessArgs } from "./os";
+import { processJob, processTree, processArgs as readProcessArgs } from "./os";
 export type Job = { pid: number; provider: Provider };
 export const process_buffer = 1024 * 1024;
 function name(p: string): Provider | null {
@@ -322,14 +322,25 @@ export function foreground(fd: number): Job | null {
   return null;
 }
 
-export function foregroundJobs(fds: number[]) {
+/** A foreground group's members, found among the panes' own processes, or
+ * with getpgid across the host where the kernel can't list children. */
+function groupMembers(pgid: number, roots: number[]): number[] | null {
+  const tree = processTree(roots);
+  if (tree) return tree.filter((pid) => processJob(pid)?.pgid === pgid).sort((a, b) => a - b);
+  const pids = new Int32Array(4096);
+  const count = n.probe_group_pids(pgid, ptr(pids), pids.length);
+  if (count < 0 || count === pids.length) return null;
+  return [...pids.subarray(0, count)];
+}
+
+export function foregroundJobs(terminals: { fd: number; pid: number }[]) {
   const result = new Map<number, Job | null>();
   if (process.platform === "darwin") {
-    for (const fd of fds) result.set(fd, foreground(fd));
+    for (const { fd } of terminals) result.set(fd, foreground(fd));
     return result;
   }
   const groups = new Map<number, number[]>();
-  for (const fd of fds) {
+  for (const { fd } of terminals) {
     const pgid = n.probe_foreground(fd);
     result.set(fd, null);
     if (pgid <= 0) continue;
@@ -344,17 +355,16 @@ export function foregroundJobs(fds: number[]) {
     groups.set(pgid, members);
   }
   if (!groups.size) return result;
-  for (const [pgid, terminals] of [...groups]) {
-    const pids = new Int32Array(4096);
-    const count = n.probe_group_pids(pgid, ptr(pids), pids.length);
-    if (count < 0 || count === pids.length) continue;
-    for (let i = 0; i < count; i++) {
-      const pid = pids[i];
+  for (const [pgid, fds] of [...groups]) {
+    const roots = terminals.filter((t) => fds.includes(t.fd)).map((t) => t.pid);
+    const members = groupMembers(pgid, roots);
+    if (!members) continue;
+    for (const pid of members) {
       if (pid <= 0 || pid === pgid) continue;
       const argv = processArgs(pid);
       const provider = argv.complete ? identify(argv.argv) : null;
       if (!provider) continue;
-      for (const fd of terminals) result.set(fd, { pid, provider });
+      for (const fd of fds) result.set(fd, { pid, provider });
       break;
     }
     groups.delete(pgid);

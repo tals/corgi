@@ -1,6 +1,8 @@
 import {
   mkdirSync,
   readFileSync,
+  readdirSync,
+  existsSync,
   readSync,
   readlinkSync,
   openSync,
@@ -275,6 +277,35 @@ export function processArgs(
   } catch {
     return null;
   }
+}
+// Linux lists a task's children only with CONFIG_PROC_CHILDREN.
+let task_children: boolean | null = null;
+/** The PIDs in the trees under `roots`, roots included, read from each
+ * task's children rather than every process on the host. Null where the
+ * kernel can't list children (macOS, or Linux without CONFIG_PROC_CHILDREN). */
+export function processTree(roots: number[], limit = 16384): number[] | null {
+  if (process.platform !== "linux") return null;
+  task_children ??= existsSync(`/proc/self/task/${process.pid}/children`);
+  if (!task_children) return null;
+  const seen = new Set<number>(),
+    pending = roots.filter((pid) => pid > 0);
+  while (pending.length && seen.size < limit) {
+    const pid = pending.pop()!;
+    if (seen.has(pid)) continue;
+    let tasks: string[];
+    try {
+      tasks = readdirSync(`/proc/${pid}/task`);
+    } catch {
+      continue;
+    }
+    seen.add(pid);
+    for (const task of tasks)
+      try {
+        for (const child of readFileSync(`/proc/${pid}/task/${task}/children`, "latin1").split(" "))
+          if (child) pending.push(Number(child));
+      } catch {}
+  }
+  return [...seen];
 }
 export type ProcessJob = { ppid: number; pgid: number; tpgid: number };
 export function processJob(pid: number): ProcessJob | null {

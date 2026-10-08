@@ -656,6 +656,11 @@ export class Controller {
       this.scope_menu !== null
     );
   }
+  /** Open UI that can change with no input, such as the launcher's preview
+   * arriving; the viewer keeps drawing at full rate while it shows. */
+  overlayOpen(): boolean {
+    return this.hasMenu() || this.name_dialog !== null || this.paste_card !== null || this.copy_feedback_until !== 0;
+  }
   private tabIndex(id: number): number | null {
     const i = this.model().tabs.slice(0, this.model().count).findIndex((tab) => tab.id === id);
     return i < 0 ? null : i;

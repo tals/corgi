@@ -21,6 +21,9 @@ export { Controller as View };
 /** How often a viewer syncs while the daemon reports nothing new. Under a
  * second, so the daemon keeps counting the viewer as watching. */
 const quiet_sync_ms = 500;
+/** How long after input or a change on screen frames keep their full rate.
+ * After that a still screen is drawn only as often as the viewer syncs. */
+const idle_after_ms = 1000;
 
 export async function open(view: Controller, cwd: string, theme: unknown, socket: string): Promise<number | bigint> {
   return openMode(view, cwd, theme, socket, false);
@@ -193,6 +196,7 @@ export async function run(connection: Transport, socket: string, probe: Probe, i
     let synced = 0;
     let next_sync = 0;
     let typed = false;
+    let active_at = Date.now();
     const poll = new Poll();
     stdin.listen((bytes) => {
       for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
@@ -249,7 +253,8 @@ export async function run(connection: Transport, socket: string, probe: Probe, i
             if (!watch_opened) {
               waker = watch(socket, view.input_state.viewer_id, () => {
                 woken = true;
-                if (typed) next_sync = 0;
+                // An idle viewer draws the change now rather than at its next quiet frame.
+                if (typed || Date.now() - active_at >= idle_after_ms) next_sync = 0;
                 typed = false;
                 poll.notify("waker");
               }, () => {
@@ -260,8 +265,9 @@ export async function run(connection: Transport, socket: string, probe: Probe, i
               watch_opened = true;
             }
           }
-          next_sync = Date.now() + view.frameDelay();
           const frame = view.frame();
+          if (view.dirty || previous !== frame || view.overlayOpen()) active_at = now;
+          next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
           view.dirty = false;
           held = previous !== frame && !writable();
           if (!held) {
@@ -281,12 +287,13 @@ export async function run(connection: Transport, socket: string, probe: Probe, i
           } else writeAll(effect.write_terminal);
         }
         view.clearEffects();
-        await poll.wait(16, held);
+        await poll.wait(Date.now() - active_at < idle_after_ms ? 16 : Math.max(1, next_sync - Date.now()), held);
         // Input reaches the daemon with a frame's sync, so send it now, and
         // show the first change after it (its echo) without waiting a frame.
         if (poll.stdin) {
           typed = true;
           next_sync = 0;
+          active_at = Date.now();
         }
         poll.stdin = false;
         poll.woken = false;
