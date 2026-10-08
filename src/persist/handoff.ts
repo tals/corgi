@@ -120,12 +120,19 @@ export async function replace(server: Server, requester: Client, executable: str
       p.terminal.flush();
       pending ||= p.terminal.pendingBytes > 0;
     }
-    for (const s of server.runtime.sessions) {
-      s.flush();
-      pending ||= !s.exited && s.output.length > 0;
-    }
+    // Queued session input travels in the handoff.
+    for (const s of server.runtime.sessions) s.flush();
     if (!pending) break;
-    if (Date.now() >= deadline) throw Error("ReloadInputBackpressure");
+    if (Date.now() >= deadline) {
+      // A program that stops reading must not block reloads; its unread input is lost.
+      for (const p of server.runtime.panes) {
+        const bytes = p.terminal.pendingBytes;
+        if (!bytes) continue;
+        console.error(`reload: dropped ${bytes} unread input bytes for pane ${p.id}`);
+        p.terminal.dropPending();
+      }
+      break;
+    }
     await Bun.sleep(5);
   }
   await (server as any).summaries?.pause();

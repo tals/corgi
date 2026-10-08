@@ -502,7 +502,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     });
     await this.until(async () => (await this.screen(first)).includes("ROLLBACK_OK"));
   }
-  async test_backpressure_rejects_reload_without_dropping_accepted_input() {
+  async test_reload_drops_input_a_blocked_pane_never_read() {
     const program = join(this.temp.name, "blocked.ts"),
       gate = join(this.temp.name, "gate"),
       received = join(this.temp.name, "received");
@@ -527,20 +527,12 @@ process.stdin.resume();
         data: "a".repeat(65536),
         target: first,
       });
-    const response = await this.raw_rpc({
-      op: "server.reload",
-      protocol: 1,
-      executable: EXE,
-    });
-    this.assertEqual(response.err, "ReloadInputBackpressure");
-    this.assertEqual((await this.session()).server_pid, before.server_pid);
-    writeFileSync(gate, "");
-    await this.until(() => existsSync(received) && statSync(received).size === 8 * 65536);
     await this.reload();
+    this.assertNotEqual((await this.session()).server_pid, before.server_pid);
+    writeFileSync(gate, "");
     await this.command("pane.input", { data: "END", target: first });
-    await this.until(() =>
-      readFileSync(received).equals(Buffer.concat([Buffer.alloc(8 * 65536, 97), Buffer.from("END")])),
-    );
+    await this.until(() => existsSync(received) && readFileSync(received).toString().endsWith("END"));
+    this.assertTrue(statSync(received).size < 8 * 65536 + 3);
   }
   async test_native_cold_recovery_displays_resume_without_starting_agent() {
     this.env.SHELL = "/bin/bash";

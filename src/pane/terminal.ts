@@ -266,6 +266,10 @@ export class Terminal extends EventEmitter {
   takeCopied(): string | null {
     return this.native({ op: "takeCopied" });
   }
+  /** Discards input the program has not read yet. */
+  dropPending(): void {
+    this.native({ op: "takePending" });
+  }
   restore(bytes: Uint8Array): void {
     this.native({ op: "restore", text: Buffer.from(bytes).toString() });
   }
