@@ -22,3 +22,7 @@ export function description(preset: Preset): string {
     cmux: "Command shortcuts",
   }[preset];
 }
+/** The description where a preset gets a narrow column. */
+export function shortDescription(preset: Preset): string {
+  return { corgi: "Made for Corgi", tmux: "Classic splits", herdr: "Home row", cmux: "Command keys" }[preset];
+}

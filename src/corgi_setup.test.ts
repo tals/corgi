@@ -1,179 +1,237 @@
-// Mirrors the tests in corgi_setup.zig.
 import { expect, test } from "bun:test";
-import { Menu, choices, status, testing, type Choice } from "./corgi_setup";
+import { Menu, items, status, type Hit } from "./corgi_setup";
 import * as shellPicker from "./shell_picker";
 import { Preferences } from "./preferences";
 import { State as ClipboardState } from "./host_clipboard";
 import * as corgiAnimation from "./corgi_animation";
-import { Writer, displayWidth } from "./text";
+import { Writer } from "./text";
 
-function rowOf(cols: number, rows: number, choice: Choice): number | null {
-  const b = Menu.bounds(cols, rows);
-  for (let y = b.y; y < b.y + b.h; y++)
-    for (let x = b.x; x < b.x + b.w; x++) if (Menu.hit(cols, rows, x, y) === choice) return y;
-  return null;
+/** The screen's text after replaying the cursor moves in `ansi`. */
+function screen(ansi: string, cols: number, rows: number): string[] {
+  const grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
+  let x = 0,
+    y = 0;
+  for (const m of ansi.matchAll(/\x1b\[([\d;?]*)([A-Za-z])|([\s\S])/gu)) {
+    if (m[2] === "H") {
+      const [r, c] = (m[1] || "1;1").split(";").map(Number);
+      y = r - 1;
+      x = c - 1;
+    } else if (m[3] !== undefined) {
+      if (y < rows && x < cols) grid[y][x] = m[3];
+      x++;
+    }
+  }
+  return grid.map(row => row.join(""));
+}
+function draw(menu: Menu, cols = 100, rows = 30, now = 0, s = status(), prefs = new Preferences()): string[] {
+  const w = new Writer();
+  menu.drawAt(w, s, prefs, cols, rows, now);
+  return screen(w.s, cols, rows);
+}
+function hits(menu: Menu, cols = 100, rows = 30, s = status(), prefs = new Preferences()): Hit[] {
+  const out: Hit[] = [];
+  for (let y = 0; y < rows; y++) {
+    const seen = new Set<string>();
+    for (let x = 0; x < cols; x++) {
+      const hit = menu.hit(cols, rows, x, y, s, prefs);
+      if (hit && !seen.has(JSON.stringify(hit))) {
+        seen.add(JSON.stringify(hit));
+        out.push(hit);
+      }
+    }
+  }
+  return out;
 }
 
-test("setup modal is centered and its rows are clickable inside the frame", () => {
-  const b = Menu.bounds(100, 30);
-  expect(b.x).toBe(Math.floor((100 - b.w) / 2));
-  expect(b.y).toBe(Math.floor((30 - b.h) / 2));
-  const auto = rowOf(100, 30, "auto")!;
-  expect(rowOf(100, 30, "off")).toBe(auto + 3);
-  expect(rowOf(100, 30, "off")!).toBeLessThan(rowOf(100, 30, "ghostty")!);
-  expect(rowOf(100, 30, "ghostty")!).toBeLessThan(rowOf(100, 30, "keyboard")!);
-  expect(rowOf(100, 30, "readings")!).toBeLessThan(rowOf(100, 30, "sleeping_corgis")!);
-  expect(rowOf(100, 30, "sleeping_corgis")!).toBeLessThan(rowOf(100, 30, "shell")!);
-  expect(rowOf(100, 30, "shell")!).toBeLessThan(rowOf(100, 30, "keyboard")!);
-  expect(rowOf(100, 30, "import")).toBe(rowOf(100, 30, "keyboard")! + 1);
-  expect(Menu.hit(100, 30, b.x + 6, b.y + 2)).toBeNull();
-  expect(Menu.hit(100, 30, b.x, auto)).toBeNull();
-  // Short terminals drop spacer rows but keep every choice reachable.
-  for (const choice of choices) expect(rowOf(80, testing.heightFor("minimal"), choice)).not.toBeNull();
-  const menu = Menu.open(status({ choice: "claude" }));
-  menu.move(true);
-  expect(menu.selected).toBe("off");
-  menu.move(true);
-  expect(menu.selected).toBe("ghostty");
-  for (let i = 0; i < 20; i++) menu.move(true);
-  expect(menu.selected).toBe("import");
-  menu.selected = "auto";
-  menu.move(false);
-  expect(menu.selected).toBe("auto");
+test("setup lists every setting beside the selected one's options", () => {
+  const menu = Menu.open();
+  const rows = draw(menu, 100, 30, 0, status({ choice: "claude" }));
+  const top = rows.findIndex(row => row.includes("Corgi setup"));
+  expect(rows[top].indexOf("╭")).toBe(8);
+  expect(rows[top + 2]).toMatch(/Summaries\s+Claude\s+│\s+Activity summaries/);
+  expect(rows.join("\n")).toContain("● Claude");
+  expect(rows.join("\n")).toContain("↑↓ move   enter choose   esc close");
+  // List rows and options are clickable, in order.
+  const s = status({ choice: "claude" });
+  const found = hits(menu, 100, 30, s);
+  expect(found.filter(hit => "item" in hit)).toEqual(items.map(item => ({ item })));
+  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2, 3].map(option => ({ option })));
+  expect(menu.hit(100, 30, 0, 0, s, new Preferences())).toBeNull();
+  expect(menu.contains(100, 30, 50, top + 1)).toBe(true);
+  // Too small for the frame: nothing draws.
+  expect(draw(menu, 20, 8).join("").trim()).toBe("");
 });
 
-test("setup modal explains the automatic choice", () => {
-  const menu = Menu.open(status());
-  let w = new Writer();
-  menu.draw(
-    w,
+test("Enter opens a setting's options on the one in use, and Esc returns", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status({ choice: "claude" });
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.focus).toBe("options");
+  expect(menu.cursor).toBe(2);
+  // The option in use has nothing to apply.
+  expect(menu.enter(s, prefs)).toBeNull();
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "off" });
+  expect(draw(menu, 100, 30, 0, s).join("\n")).toContain("Activity text stays blank; links say Open Link");
+  expect(menu.back()).toBe(true);
+  expect(menu.back()).toBe(false);
+  menu.move(true, s, prefs);
+  expect(menu.item).toBe("sleeping_corgis");
+  for (let i = 0; i < 20; i++) menu.move(true, s, prefs);
+  expect(menu.item).toBe("import");
+});
+
+test("the automatic choice says whom it follows", () => {
+  const menu = Menu.open();
+  let text = draw(
+    menu,
+    100,
+    30,
+    0,
     status({
       choice: "auto",
       provider: "claude",
       launches: { claude: 3, codex: 1 },
       models: { claude: "claude-haiku-5-5" },
     }),
-    new Preferences(),
+  ).join("\n");
+  expect(text).toContain("Following you → Claude · Haiku 5.5");
+  expect(text).toContain("Since start: codex 1× · claude 3×");
+  text = draw(
+    menu,
     100,
     30,
-  );
-  expect(w.s).toContain("Following you → Claude · Haiku 5.5");
-  expect(w.s).toContain("Since start: codex 1× · claude 3×");
-  expect(w.s).toContain("[ Enter Keep ]");
-  w = new Writer();
-  menu.draw(
-    w,
+    0,
     status({
       choice: "auto",
       provider: "codex",
       locked: true,
-      model: "gpt-6-luna",
       models: { codex: "gpt-6-luna", claude: "claude-haiku-5-5" },
     }),
-    new Preferences(),
-    100,
-    30,
-  );
-  expect(w.s).toContain("Settled on Codex · GPT-6 Luna");
-  expect(w.s).toContain("GPT-6 Luna · your Codex login");
-  expect(w.s).toContain("Haiku 5.5 · your Claude login");
-  expect(w.s).toContain("ᐯoᴥ°ᐯ");
-  expect(displayWidth("ᐯoᴥ°ᐯ")).toBe([..."ᐯoᴥ°ᐯ"].length);
-  w = new Writer();
-  menu.draw(w, status(), new Preferences(), 20, 8);
-  expect(w.s.length).toBe(0);
+  ).join("\n");
+  expect(text).toContain("Settled on Codex · GPT-6 Luna");
+  expect(text).toContain("Haiku 5.5 · your Claude login");
 });
 
-test("resource readings are one on/off row", () => {
-  const menu = Menu.open(status());
-  const prefs = new Preferences();
-  menu.selected = "readings";
-  let w = new Writer();
-  menu.drawAt(w, status(), prefs, 100, 40, 0);
-  expect(w.s).toContain("Resource readings");
-  expect(w.s).toContain("[ Enter Turn off ]");
-  expect(w.s).not.toContain("[x]");
-  menu.move(true);
-  expect(menu.selected as string).toBe("sleeping_corgis");
-  menu.selected = "readings";
+test("on/off settings flip from the list and offer the opposite", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "readings";
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("enter turn off");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "readings", on: false });
+  expect(menu.focus).toBe("list");
   prefs.resources.enabled = false;
-  w = new Writer();
-  menu.drawAt(w, status(), prefs, 100, 40, 0);
-  expect(w.s).toContain("[ Enter Turn on ]");
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Resources\s+Off/);
+  // Command keys can't change where Ghostty isn't local.
+  menu.item = "ghostty";
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.focus).toBe("list");
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Mac only");
+  menu.integration = "disabled";
+  expect(menu.enter(s, prefs)).toEqual({ kind: "ghostty", on: true });
 });
 
-test("sleeping corgis row shows its state, offers the opposite, and naps beside the label", () => {
-  const menu = Menu.open(status());
-  const prefs = new Preferences();
-  menu.selected = "sleeping_corgis";
-  let w = new Writer();
-  menu.drawAt(w, status(), prefs, 100, 40, 0);
-  expect(w.s).toContain("Sleeping corgis");
-  expect(w.s).toContain("● On");
-  expect(w.s).toContain("[ Enter Turn off ]");
-  expect(w.s).toContain("~ᐯ◡ᴥ◡ᐯ");
-  expect(w.s).toContain("ᶻ");
+test("sleeping corgis preview both choices beside them", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences();
+  menu.item = "sleeping_corgis";
+  const on = (now: number) => draw(menu, 100, 30, now, status(), prefs).find(row => row.includes("● On"))!;
+  expect(on(0)).toContain("~ᐯ◡ᴥ◡ᐯ ᶻ");
   // Between puffs the preview rests without a Z.
-  w = new Writer();
-  menu.drawAt(w, status(), prefs, 100, 40, corgiAnimation.puff_duration_ms);
-  expect(w.s).not.toContain("ᶻ");
-  prefs.sleeping_corgis = false;
-  w = new Writer();
-  menu.drawAt(w, status(), prefs, 100, 40, 0);
-  expect(w.s).toContain("○ Off");
-  expect(w.s).toContain("[ Enter Turn on ]");
-  expect(w.s).toContain("~ᐯ◡ᴥ◡ᐯ");
-  expect(w.s).not.toContain("ᶻ");
+  expect(on(corgiAnimation.puff_duration_ms)).not.toContain("ᶻ");
+  const off = draw(menu, 100, 30, 0, status(), prefs).find(row => row.includes("○ Off"))!;
+  expect(off).toContain("~ᐯ◡ᴥ◡ᐯ");
+  expect(off).not.toContain("ᶻ");
 });
 
-test("a viewer sees whether it can paste images", () => {
-  const menu = Menu.open(status());
-  let w = new Writer();
-  menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
-  expect(w.s).not.toContain("Image paste");
+test("image paste explains whether this viewer can paste images", () => {
+  const menu = Menu.open();
+  menu.item = "image_paste";
+  expect(draw(menu).join("\n")).toContain("This viewer has no terminal to paste from.");
   const clipboard = new ClipboardState();
   clipboard.support = "unsupported";
   menu.image_paste = clipboard;
-  w = new Writer();
-  menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
-  expect(w.s).toContain("Image paste");
-  expect(w.s).toContain("○ no paste events");
+  const text = draw(menu).join("\n");
+  expect(text).toMatch(/Image paste\s+Off/);
+  expect(text).toContain("○ no paste events");
 });
 
-test("the shell row opens a picker in the same frame", () => {
-  const menu = Menu.open(status());
+test("shell options are the shell picker's entries", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
   menu.shell = shellPicker.status({
     path: "/bin/zsh",
     source: "account",
     default: "/bin/zsh",
     default_source: "account",
   });
-  menu.selected = "shell";
-  let w = new Writer();
-  menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
-  expect(w.s).toContain("zsh · your account  →");
-  expect(w.s).toContain("New panes and splits start in this login shell");
-  expect(w.s).toContain("[ Enter Open → ]");
-  menu.picker = shellPicker.Picker.open(menu.shell, ["/bin/bash", "/bin/zsh"]);
-  w = new Writer();
-  menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
-  expect(w.s).toContain("Shell for new panes");
-  expect(w.s).not.toContain("Activity summaries");
-  expect(w.s).toContain("[ Enter Keep ]");
-  // Rows are clickable inside the frame, in entry order.
-  const hits: number[] = [];
-  for (let y = 0; y < 40; y++) {
-    const hit = menu.pickerHit(100, 40, 50, y);
-    if (hit !== null) hits.push(hit);
+  menu.shells = ["/bin/bash", "/bin/zsh"];
+  menu.item = "shell";
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/Shell\s+zsh/);
+  expect(text).toContain("● Default   zsh · your account");
+  expect(menu.enter(s, prefs)).toBeNull();
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "shell", entry: { path: "/bin/bash" } });
+  menu.move(true, s, prefs);
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "shell", entry: "other" });
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toContain("enter type a path");
+  // Too short for every entry: the cursor's stays in view.
+  const visible = hits(menu, 100, 12, s, prefs).filter(hit => "option" in hit);
+  expect(visible.at(-1)).toEqual({ option: 3 });
+});
+
+test("shortcuts grow the frame into onboarding's preset detail", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "keyboard";
+  menu.openOptions(s, prefs);
+  // The growth starts with the first frame after Enter.
+  let text = draw(menu, 140, 36, 1000, s, prefs).join("\n");
+  expect(text).toContain("Summaries");
+  expect(text).not.toContain("PREFIX");
+  text = draw(menu, 140, 36, 1100, s, prefs).join("\n");
+  expect(text).not.toContain("Summaries");
+  expect(text).not.toContain("PREFIX");
+  text = draw(menu, 140, 36, 2000, s, prefs).join("\n");
+  expect(text).toContain("Corgi setup › Shortcuts");
+  expect(text).toContain("PREFIX    [ Ctrl+B ]  Release, then press a key.");
+  expect(text).toContain("[ ? Full keymap ]");
+  expect(text).toContain("v Right");
+  // The detail follows the preset under the cursor.
+  menu.move(true, s, prefs);
+  text = draw(menu, 140, 36, 2100, s, prefs).join("\n");
+  expect(text).toContain("% Right");
+  expect(text).toContain("○ tmux       Classic splits");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "preset", preset: "tmux" });
+  // Clicks land on the grown frame's options.
+  expect(hits(menu, 140, 36, s, prefs).filter(hit => "item" in hit)).toEqual([]);
+  expect(menu.back()).toBe(true);
+  text = draw(menu, 140, 36, 2200, s, prefs).join("\n");
+  text = draw(menu, 140, 36, 3000, s, prefs).join("\n");
+  expect(text).toContain("Summaries");
+  expect(text).not.toContain("PREFIX");
+});
+
+test("without room for the preset detail, a line of keys stands in", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "keyboard";
+  menu.openOptions(s, prefs);
+  for (const [cols, rows] of [
+    [64, 24],
+    [100, 18],
+  ]) {
+    draw(menu, cols, rows, 0, s, prefs);
+    const text = draw(menu, cols, rows, 1000, s, prefs).join("\n");
+    expect(text).toContain("Ctrl+B then   c tab   v - split   h j k l focus");
+    expect(text).not.toContain("PREFIX");
   }
-  expect(hits).toEqual([0, 1, 2, 3]);
-  expect(menu.pickerContains(100, 40, 50, 0)).toBe(false);
-  // Too short for every entry: the selected one stays in view.
-  menu.picker.selected = 3;
-  const visible: number[] = [];
-  for (let y = 0; y < 6; y++) {
-    const hit = menu.pickerHit(100, 6, 50, y);
-    if (hit !== null) visible.push(hit);
-  }
-  expect(visible).toEqual([2, 3]);
 });

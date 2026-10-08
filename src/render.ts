@@ -474,10 +474,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     }
   }
   if (u.corgi_setup !== null && u.pointer)
-    link_pointer =
-      (u.corgi_setup.picker
-        ? u.corgi_setup.pickerHit(width, height, u.pointer.x, u.pointer.y)
-        : SetupMenu.hit(width, height, u.pointer.x, u.pointer.y)) !== null;
+    link_pointer = u.corgi_setup.hit(width, height, u.pointer.x, u.pointer.y, u.inference, u.prefs) !== null;
   if (u.pointer) {
     const pointer = u.pointer;
     if (u.menu) {
@@ -523,7 +520,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         }
       }
     }
-    w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, u.dialog !== null, hovered));
+    // Dialogs and Corgi setup dim the panes behind them.
+    w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, u.dialog !== null || u.corgi_setup !== null, hovered));
     w.write("\x1b[0m");
     if (p.restoring.length > 0) {
       drawRestoring(

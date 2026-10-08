@@ -750,30 +750,49 @@ function paneAnnotation(source: catalog.Source, handoff: boolean, pane: catalog.
 }
 // Rendering and mouse hit regions share one layout at every supported size.
 export function presetLayout(b: Rect) {
-  const compact = b.h < 32;
   const card_w = b.w >= 100 ? 32 : 24;
   const x = card_w + 7;
-  const width = b.w - x - 4;
+  const detail = detailLayout(b.x + x, b.y + 6, b.w - x - 4, b.h < 32);
+  return {
+    cards: km.available_presets.map((_, i) => new Rect(b.x + 3, b.y + 6 + i * 4, card_w, 4)),
+    hero: detail.hero,
+    prefix: detail.prefix,
+    split: detail.split,
+    focus: detail.focus,
+    detail_x: x,
+    summary_y: 6 + detail.summary_y,
+    help_y: 6 + detail.help_y,
+  };
+}
+/** The keys a preset teaches, from the detail's top-left corner. Onboarding
+ * draws it beside the preset cards; Corgi setup beside its preset options.
+ * The summary and help rows count from `y`. */
+export function detailLayout(x: number, y: number, width: number, compact: boolean) {
   const hero_h = compact ? 3 : 6;
   const prefix_h = width < 64 ? 4 : 3;
-  const panes_y = 6 + hero_h + prefix_h;
+  const panes_y = hero_h + prefix_h;
   const panes_h = compact ? 6 : 7;
   const split_w = Math.floor((width - 2) / 2);
   const summary_y = panes_y + panes_h + (compact ? 0 : 1);
   return {
-    cards: km.available_presets.map((_, i) => new Rect(b.x + 3, b.y + 6 + i * 4, card_w, 4)),
-    hero: new Rect(b.x + x, b.y + 6 + prefix_h, width, hero_h),
-    prefix: new Rect(b.x + x, b.y + 6, width, prefix_h),
-    split: new Rect(b.x + x, b.y + panes_y, split_w, panes_h),
-    focus: new Rect(b.x + x + split_w + 2, b.y + panes_y, width - split_w - 2, panes_h),
-    detail_x: x,
+    hero: new Rect(x, y + prefix_h, width, hero_h),
+    prefix: new Rect(x, y, width, prefix_h),
+    split: new Rect(x, y + panes_y, split_w, panes_h),
+    focus: new Rect(x + split_w + 2, y + panes_y, width - split_w - 2, panes_h),
     summary_y,
     help_y: summary_y + (compact ? 2 : 3),
   };
 }
+/** Rows the preset detail takes. */
+export function detailHeight(width: number, compact: boolean): number {
+  return detailLayout(0, 0, width, compact).help_y + 1;
+}
+/** What the preset detail shows: the preset, its prefix, and which of
+ * onboarding's controls has keyboard focus (1 prefix, 2 full keymap). */
+export type Keys = { preset: km.Preset; prefix: km.Prefix; focus: number };
 /** An action's key on a card. Under cmux, whose cards teach held keys, a
  * prefixed key names the prefix too. */
-function cardKey(s: State, act: Action): string {
+export function cardKey(s: Pick<Keys, "preset" | "prefix">, act: Action): string {
   const b = bindings.find(s.preset, act);
   if (!b) return "";
   return (s.preset === "cmux" && b.prefixed ? km.prefixName(s.prefix) + " " : "") + bindings.compact(b);
@@ -781,8 +800,6 @@ function cardKey(s: State, act: Action): string {
 const action = (name: string, value?: string) => (value === undefined ? { name } : { name, value }) as Action;
 function drawPresets(w: Writer, b: Rect, s: State) {
   const layout = presetLayout(b);
-  const direct = s.preset === "cmux";
-  const prefix_name = km.prefixName(s.prefix);
   km.available_presets.forEach((preset, i) => {
     const card = layout.cards[i];
     const picked = s.preset === preset;
@@ -790,13 +807,15 @@ function drawPresets(w: Writer, b: Rect, s: State) {
     const dot = picked ? "●" : "○";
     const paw = preset === "corgi" ? "🐕 " : "";
     put(w, card, 2, 1, `${dot} ${paw}${km.name(preset)}`, picked ? selected_style : bright);
-    const description =
-      card.w >= 32
-        ? km.description(preset)
-        : { corgi: "Made for Corgi", tmux: "Classic splits", herdr: "Home row", cmux: "Command keys" }[preset];
+    const description = card.w >= 32 ? km.description(preset) : km.shortDescription(preset);
     put(w, card, 4, 2, description, picked ? selected_style : dim);
   });
-
+  drawPresetDetail(w, layout.prefix.x, layout.prefix.y, layout.prefix.w, b.h < 32, s);
+}
+export function drawPresetDetail(w: Writer, x: number, y: number, width: number, compact: boolean, s: Keys) {
+  const layout = detailLayout(x, y, width, compact);
+  const direct = s.preset === "cmux";
+  const prefix_name = km.prefixName(s.prefix);
   const hero = layout.hero;
   const narrow = hero.w < 64;
   box(w, hero, false);
@@ -859,7 +878,7 @@ function drawPresets(w: Writer, b: Rect, s: State) {
   );
 
   // The Command band applies to all direct keys; detach uses the portable prefix.
-  const detail = new Rect(b.x + layout.detail_x, b.y, hero.w, b.h);
+  const detail = new Rect(x, y, width, layout.help_y + 2);
   const col = Math.floor(detail.w / 3);
   put(w, detail, 0, layout.summary_y, "TABS", dim);
   put(w, detail, col, layout.summary_y, narrow ? "COPY" : "SCROLL / COPY", dim);

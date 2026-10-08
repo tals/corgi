@@ -902,36 +902,48 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
   async test_corgi_setup_changes_inference_provider() {
     const view = await Viewer.create(this, 100, 30);
     const text = async () => screen_text((await view.poll()).data, 100, 30).join("\n");
+    // A setting in the list, left of the options, which may repeat its name.
+    const clickSetting = async (label: string) => {
+      const rows = screen_text((await view.poll()).data, 100, 30);
+      const y = rows.findIndex(row => row.indexOf(label) >= 0 && row.indexOf(label) < 30);
+      this.assertGreaterEqual(y, 0, `missing ${label}`);
+      return this.clickViewer(view, rows[y].indexOf(label) + 1, y + 1);
+    };
     await view.input("\x02i");
     await this.until(async () => (await text()).includes("Corgi setup"));
     this.assertIn("Who writes activity summaries", await text());
     this.assertIn("● Auto", await text());
     this.assertEqual((await this.session()).inference.choice, "auto");
-    await view.input("\x1b[B\x1b[B\r");
+    // Enter opens the options on the one in use.
+    await view.input("\r\x1b[B\x1b[B\r");
     await this.until(async () => (await this.session()).inference.choice === "claude");
     // Choosing a setting keeps setup open; only Esc closes it.
     await this.until(async () => (await text()).includes("● Claude"));
     this.assertIn("Corgi setup", await text());
-    await this.clickText(view, "no summaries, plain links", 100);
+    await this.clickText(view, "No summaries, plain links", 100);
     await this.until(async () => (await this.session()).inference.choice === "off");
     this.assertIsNone((await this.session()).inference.provider);
     const readSaved = () => JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"));
     this.assertNotIn("When busy", await text());
     this.assertNotIn("Process card on hover", await text());
     this.assertNotIn("Amber alerts", await text());
-    await this.clickText(view, "Resource readings", 100);
+    // The first click selects a setting; the next flips it.
+    await clickSetting("Resources");
+    await clickSetting("Resources");
     await this.until(async () => readSaved().resources.enabled === false);
-    await this.until(async () => /Resource readings\s+○ Off/.test(await text()));
+    await this.until(async () => /Resources\s+Off/.test(await text()));
     // Mouse motion selects the setup row before a keyboard activation.
-    const setupRows = screen_text((await view.poll()).data, 100, 40);
-    const resourceRow = setupRows.findIndex(row => row.includes("Resource readings"));
+    await clickSetting("Summaries");
+    const setupRows = screen_text((await view.poll()).data, 100, 30);
+    const resourceRow = setupRows.findIndex(row => row.includes("Resources"));
     this.assertGreaterEqual(resourceRow, 0);
-    await view.input(`\x1b[<35;${setupRows[resourceRow].indexOf("Resource readings") + 1};${resourceRow + 1}M`);
+    await view.input(`\x1b[<35;${setupRows[resourceRow].indexOf("Resources") + 1};${resourceRow + 1}M`);
     await view.input("\r");
     await this.until(async () => readSaved().resources.enabled === true);
-    await this.until(async () => /Resource readings\s+● On/.test(await text()));
+    await this.until(async () => /Resources\s+On/.test(await text()));
     this.assertEqual(readSaved().sleeping_corgis, true);
-    await this.clickText(view, "Sleeping corgis", 100);
+    await clickSetting("Sleeping corgis");
+    await clickSetting("Sleeping corgis");
     await this.until(async () => readSaved().sleeping_corgis === false);
     this.assertEqual(readSaved().resources, { enabled: true });
     await view.input("\x1b");

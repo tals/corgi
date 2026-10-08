@@ -42,7 +42,7 @@ import * as agentLauncher from "./agent_launcher";
 import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./agent_launcher";
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
-import { Menu as SetupMenu, Choice as SetupChoice, type Choice as SetupChoiceT } from "./corgi_setup";
+import { Menu as SetupMenu, Summarizer, type Apply as SetupApply } from "./corgi_setup";
 import * as shellPicker from "./shell_picker";
 import { installedShells } from "./launch/command";
 import { State as LinkTooltip, type Target as TooltipTarget } from "./link_tooltip";
@@ -1861,10 +1861,11 @@ export class Controller {
   }
   private openSetup(): void {
     this.closeMenu();
-    const setup = SetupMenu.open(this.runtime.inference);
+    const setup = SetupMenu.open();
     setup.integration = this.remote_links ? "unavailable" : ghosttyIntegration.state();
     setup.image_paste = this.host_clipboard;
     setup.shell = this.runtime.shell;
+    setup.shells = installedShells();
     this.corgi_setup = setup;
     this.dirty = true;
   }
@@ -1880,64 +1881,81 @@ export class Controller {
     this.onboarding = onboarding.State.start(mode, this.prefs.preset, this.prefs.prefix);
     this.dirty = true;
   }
-  private async applySetup(choice: SetupChoiceT): Promise<void> {
-    if (choice === "shell") {
-      if (this.corgi_setup) this.corgi_setup.picker = shellPicker.Picker.open(this.runtime.shell, installedShells());
-      this.dirty = true;
-      return;
-    }
-    if (choice === "keyboard" || choice === "import")
-      return this.openOnboarding(choice === "keyboard" ? "keyboard" : "import");
-    if (choice === "readings") {
-      this.prefs.resources.enabled = !this.prefs.resources.enabled;
-      try {
-        preferences.update({ resources: this.prefs.resources });
-      } catch (error) {
-        this.notice((error as Error).message);
-      }
-      this.dirty = true;
-      return;
-    }
-    if (choice === "sleeping_corgis") {
-      this.prefs.sleeping_corgis = !this.prefs.sleeping_corgis;
-      try {
-        preferences.update({ sleeping_corgis: this.prefs.sleeping_corgis });
-      } catch (error) {
-        this.notice((error as Error).message);
-      }
-      this.dirty = true;
-      return;
-    }
-    if (choice === "ghostty") {
-      const integration_state = this.remote_links ? "unavailable" : ghosttyIntegration.state();
-      this.dirty = true;
-      if (integration_state === "unavailable") {
-        this.notice(" Ghostty integration requires a local macOS viewer");
-        return;
-      }
-      if (integration_state === "failed") {
-        this.notice(" Could not read Ghostty config; no changes made");
-        return;
-      }
-      try {
-        await ghosttyIntegration.sync(
-          integration_state === "enabled" ? null : { preset: this.prefs.preset, prefix: this.prefs.prefix },
-        );
-      } catch (error) {
-        this.notice(` Ghostty integration: ${(error as Error).message}`);
-        return;
-      }
-      if (this.corgi_setup) this.corgi_setup.integration = ghosttyIntegration.state();
-      this.notice(
-        integration_state === "enabled"
-          ? " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"
-          : " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,",
-      );
-      return;
-    }
-    // The setup screen stays open; the daemon republishes status, which
-    // moves the "in use" marker.
+  /** Carries out what Enter or a click in Corgi setup asked for. */
+  private async applySetup(apply: SetupApply | null): Promise<void> {
     this.dirty = true;
+    if (apply === null) return;
+    switch (apply.kind) {
+      case "shell":
+        return this.chooseShell(apply.entry);
+      case "import":
+        this.openOnboarding("import");
+        this.onboarding?.changeSource(apply.source);
+        return;
+      case "keymap":
+        return this.openHelp();
+      case "preset":
+        // Command keys need Ghostty set up first; onboarding walks through it.
+        if (apply.preset === "cmux") {
+          this.openOnboarding("keyboard");
+          if (this.onboarding) {
+            this.onboarding.preset = "cmux";
+            this.onboarding.step = "connect";
+          }
+          return;
+        }
+        return this.saveKeys(apply.preset, this.prefs.prefix);
+      case "prefix":
+        return this.saveKeys(this.prefs.preset, this.prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b");
+      case "readings":
+        this.prefs.resources.enabled = apply.on;
+        try {
+          preferences.update({ resources: this.prefs.resources });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
+      case "sleeping_corgis":
+        this.prefs.sleeping_corgis = apply.on;
+        try {
+          preferences.update({ sleeping_corgis: this.prefs.sleeping_corgis });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
+      case "ghostty":
+        return this.toggleGhostty();
+      case "summaries":
+        return this.configureSummaries(apply.choice);
+    }
+  }
+  private async toggleGhostty(): Promise<void> {
+    const integration_state = this.remote_links ? "unavailable" : ghosttyIntegration.state();
+    if (integration_state === "unavailable") {
+      this.notice(" Ghostty integration requires a local macOS viewer");
+      return;
+    }
+    if (integration_state === "failed") {
+      this.notice(" Could not read Ghostty config; no changes made");
+      return;
+    }
+    try {
+      await ghosttyIntegration.sync(
+        integration_state === "enabled" ? null : { preset: this.prefs.preset, prefix: this.prefs.prefix },
+      );
+    } catch (error) {
+      this.notice(` Ghostty integration: ${(error as Error).message}`);
+      return;
+    }
+    if (this.corgi_setup) this.corgi_setup.integration = ghosttyIntegration.state();
+    this.notice(
+      integration_state === "enabled"
+        ? " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"
+        : " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,",
+    );
+  }
+  /** The setup screen stays open; the daemon republishes status, which moves the in-use mark. */
+  private async configureSummaries(choice: Summarizer): Promise<void> {
     let response: any;
     try {
       response = await call(this.connection, "inference.configure", { choice });
@@ -1951,25 +1969,19 @@ export class Controller {
         ? "Auto (follows your agents)"
         : choice === "off"
           ? "Off"
-          : Provider.info(SetupChoice.provider(choice)!).label;
+          : Provider.info(Summarizer.provider(choice)!).label;
     this.notice(` Summaries and link names: ${label}${saved ? "" : " (not saved for next start)"}`);
   }
-  /** Enter in the shell picker: Other… asks for a path; the rest go to the
-   * daemon, and the picker returns to setup. */
-  private async chooseShell(): Promise<void> {
-    const setup = this.corgi_setup,
-      picker = setup?.picker;
-    if (!setup || !picker) return;
-    const entry = picker.entries[picker.selected];
-    this.dirty = true;
+  /** A shell option: Other… asks for a path; the rest go to the daemon. */
+  private async chooseShell(entry: shellPicker.Entry): Promise<void> {
     if (entry === "other") {
+      const setting = this.runtime.shell.setting;
       // Setup draws over dialogs, so it closes first.
       this.closeMenu();
-      this.name_dialog = Dialog.init({ shell: null }, picker.shell.setting);
+      this.name_dialog = Dialog.init({ shell: null }, setting);
       return;
     }
-    setup.picker = null;
-    if (picker.selected !== picker.in_use) await this.configureShell(entry === "default" ? "" : entry.path);
+    await this.configureShell(entry === "default" ? "" : entry.path);
   }
   /** False when the daemon finds no executable shell for the setting. */
   private async configureShell(shell: string): Promise<boolean> {
@@ -2004,41 +2016,56 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    let reload: boolean;
     try {
-      preferences.update({ preset: wizard.preset, prefix: wizard.prefix, onboarding_complete: true });
+      reload = await this.storeKeys(wizard.preset, wizard.prefix);
     } catch (error) {
       wizard.fail(error as Error);
       this.dirty = true;
       return;
     }
-    this.prefs.preset = wizard.preset;
-    this.prefs.prefix = wizard.prefix;
-    this.prefs.onboarding_complete = true;
-    // An enabled Ghostty block types the old prefix and keys until re-rendered.
-    let reload = false;
-    if (!this.remote_links) {
-      try {
-        reload = await ghosttyIntegration.refresh({ preset: this.prefs.preset, prefix: this.prefs.prefix });
-      } catch {
-        reload = false;
-      }
-    }
     const target = wizard.progress?.workspace ?? null;
     const mode = wizard.mode;
     wizard.deinit();
     this.onboarding = null;
-    if (mode === "keyboard") {
-      this.notice(
-        this.prefs.preset === "cmux"
-          ? " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
-          : ` Shortcuts: ${keymap.name(this.prefs.preset)} · prefix ${keymap.prefixName(this.prefs.prefix)}${reload ? ". Reload Ghostty: Cmd+Shift+," : ""}`,
-      );
-    } else if (target !== null && target !== undefined) {
+    if (mode === "keyboard") this.keysNotice(reload);
+    else if (target !== null && target !== undefined) {
       await this.refresh();
       this.switchWorkspace(target);
       if (this.model().count === 0) this.openLauncher(true);
     } else if (mode === "welcome") this.openLauncher(true);
     this.dirty = true;
+  }
+  /** Saves the shortcut preset and prefix; true when Ghostty needs a reload. */
+  private async storeKeys(preset: keymap.Preset, prefix: keymap.Prefix): Promise<boolean> {
+    preferences.update({ preset, prefix, onboarding_complete: true });
+    this.prefs.preset = preset;
+    this.prefs.prefix = prefix;
+    this.prefs.onboarding_complete = true;
+    // An enabled Ghostty block types the old prefix and keys until re-rendered.
+    if (this.remote_links) return false;
+    try {
+      return await ghosttyIntegration.refresh({ preset, prefix });
+    } catch {
+      return false;
+    }
+  }
+  private keysNotice(reload: boolean): void {
+    this.notice(
+      this.prefs.preset === "cmux"
+        ? " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
+        : ` Shortcuts: ${keymap.name(this.prefs.preset)} · prefix ${keymap.prefixName(this.prefs.prefix)}${reload ? ". Reload Ghostty: Cmd+Shift+," : ""}`,
+    );
+  }
+  private async saveKeys(preset: keymap.Preset, prefix: keymap.Prefix): Promise<void> {
+    let reload: boolean;
+    try {
+      reload = await this.storeKeys(preset, prefix);
+    } catch (error) {
+      this.notice(` ${(error as Error).message}`);
+      return;
+    }
+    this.keysNotice(reload);
   }
   private cyclePane(next: boolean): void {
     if (this.model().count === 0) return;
@@ -2102,51 +2129,41 @@ export class Controller {
       this.closeMenu();
       if (byte === 27) return;
     }
-    if (this.corgi_setup?.picker) {
-      const picker = this.corgi_setup.picker;
-      switch (byte) {
-        case 27:
-        case 113:
-          this.corgi_setup.picker = null;
-          break;
-        case 13:
-        case 32:
-          await this.chooseShell();
-          break;
-        case 106:
-        case 14:
-        case 9:
-          picker.move(true);
-          break;
-        case 107:
-        case 16:
-          picker.move(false);
-          break;
-        default:
-          break;
-      }
-      this.dirty = true;
-      return;
-    }
     if (this.corgi_setup) {
-      const setup = this.corgi_setup;
+      const setup = this.corgi_setup,
+        s = this.runtime.inference,
+        shortcuts = setup.item === "keyboard" && setup.focus === "options";
       switch (byte) {
         case 27:
         case 113:
-          this.closeMenu();
+          if (!setup.back()) this.closeMenu();
           break;
         case 13:
         case 32:
-          await this.applySetup(setup.selected);
+          await this.applySetup(setup.enter(s, this.prefs));
           break;
         case 106:
         case 14:
         case 9:
-          setup.move(true);
+          setup.move(true, s, this.prefs);
           break;
         case 107:
         case 16:
-          setup.move(false);
+          setup.move(false, s, this.prefs);
+          break;
+        case 108:
+          setup.openOptions(s, this.prefs);
+          break;
+        case 104:
+          setup.back();
+          break;
+        // The preset detail's own keys: [ P change ] and [ ? Full keymap ].
+        case 112:
+        case 80:
+          if (shortcuts) await this.applySetup({ kind: "prefix" });
+          break;
+        case 63:
+          if (shortcuts) await this.applySetup({ kind: "keymap" });
           break;
         default:
           break;
@@ -2814,9 +2831,12 @@ export class Controller {
         else if (parsed_key === "down") this.moveAgentPicker(true);
         else this.agent_picker.query.sequence(text);
       } else if (this.corgi_setup) {
-        const menu = this.corgi_setup.picker ?? this.corgi_setup;
-        if (parsed_key === "up" || parsed_key === "shift_tab") menu.move(false);
-        else if (parsed_key === "down") menu.move(true);
+        const setup = this.corgi_setup,
+          s = this.runtime.inference;
+        if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
+        else if (parsed_key === "down") setup.move(true, s, this.prefs);
+        else if (parsed_key === "right") setup.openOptions(s, this.prefs);
+        else if (parsed_key === "left") setup.back();
         this.dirty = true;
       } else if (this.agent_launcher) {
         const launch = this.agent_launcher;
@@ -3213,32 +3233,17 @@ export class Controller {
       if (release) this.ui_mouse_down = false;
       return;
     }
-    if (this.corgi_setup?.picker) {
-      const setup = this.corgi_setup,
-        picker = this.corgi_setup.picker,
-        entry = setup.pickerHit(this.width, this.height, x, y);
-      if (!release && button === 0) {
-        this.ui_mouse_down = true;
-        if (entry !== null) {
-          picker.selected = entry;
-          await this.chooseShell();
-        } else if (!setup.pickerContains(this.width, this.height, x, y)) setup.picker = null;
-      } else if (!release && (button === 35 || button === 32)) {
-        if (entry !== null) picker.selected = entry;
-      } else if (!release && (button === 64 || button === 65)) picker.move(button === 65);
-      this.dirty = true;
-      return;
-    }
     if (this.corgi_setup) {
+      const setup = this.corgi_setup,
+        s = this.runtime.inference,
+        hit = setup.hit(this.width, this.height, x, y, s, this.prefs);
       if (!release && button === 0) {
         this.ui_mouse_down = true;
-        const choice = SetupMenu.hit(this.width, this.height, x, y);
-        if (choice !== null) await this.applySetup(choice);
-        else if (!SetupMenu.contains(this.width, this.height, x, y)) this.closeMenu();
+        if (hit !== null) await this.applySetup(setup.click(hit, s, this.prefs));
+        else if (!setup.contains(this.width, this.height, x, y)) this.closeMenu();
       } else if (!release && (button === 35 || button === 32)) {
-        const choice = SetupMenu.hit(this.width, this.height, x, y);
-        if (choice !== null) this.corgi_setup.selected = choice;
-      } else if (!release && (button === 64 || button === 65)) this.corgi_setup.move(button === 65);
+        if (hit !== null) setup.hover(hit, s, this.prefs);
+      } else if (!release && (button === 64 || button === 65)) setup.move(button === 65, s, this.prefs);
       this.dirty = true;
       return;
     }
