@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { Entry, identify, wrapperBody, analyze } from "./command";
+import { Entry, identify, wrapperBody, analyze, shell } from "./command";
+import { loginShell } from "../os";
 test("command labels skip inline assignments and wrappers without changing source", () => {
   for (const s of [
     "FOO=123 claude code --whatever",
@@ -90,4 +91,19 @@ test("opaque shell expansion leaves account undetermined", () => {
   const unknown = analyze("CLAUDE_CONFIG_DIR=$WORK_PROFILE claude", "/tmp");
   expect(unknown.default_account).toBe(false);
   expect(unknown.account).toBe("Account cannot be determined");
+});
+test("panes use an absolute SHELL, else the account's login shell", () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = "/bin/bash";
+    expect(shell()).toBe("/bin/bash");
+    for (const value of [undefined, "", "zsh"]) {
+      if (value === undefined) delete process.env.SHELL;
+      else process.env.SHELL = value;
+      expect(shell()).toBe(loginShell() ?? "/bin/sh");
+    }
+  } finally {
+    if (saved === undefined) delete process.env.SHELL;
+    else process.env.SHELL = saved;
+  }
 });

@@ -137,6 +137,12 @@ export function processCwd(pid: number): string | null {
     ? cwd.toString("utf8", 0, cwd.indexOf(0))
     : null;
 }
+/** The account's login shell, or null when the account database has none. */
+export function loginShell(): string | null {
+  const buffer = Buffer.alloc(max_path_bytes),
+    len = n.probe_login_shell(ptr(buffer), buffer.length);
+  return len > 0 ? buffer.toString("utf8", 0, len) : null;
+}
 export function processPath(pid: number, buffer: Uint8Array = Buffer.alloc(max_path_bytes)): string | null {
   if (process.platform === "linux") {
     try {

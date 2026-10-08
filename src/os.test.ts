@@ -12,8 +12,20 @@ import {
   shellEscape,
   SocketPath,
   env,
+  loginShell,
 } from "./os";
 
+test("the login shell comes from the account database, not SHELL", () => {
+  const account =
+    process.platform === "darwin"
+      ? Bun.spawnSync(["dscl", ".", "-read", `/Users/${env("USER")}`, "UserShell"])
+          .stdout.toString()
+          .replace(/^UserShell:\s*/, "")
+      : Bun.spawnSync(["getent", "passwd", String(process.getuid!())])
+          .stdout.toString()
+          .split(":")[6];
+  expect(loginShell()).toBe(account.trim());
+});
 test("a process's own arguments, executable and environment are readable", () => {
   const buf = Buffer.alloc(1024 * 1024),
     bare = processArgs(process.pid, buf)!;

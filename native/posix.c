@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <limits.h>
 #include <poll.h>
+#include <pwd.h>
 #ifdef __APPLE__
 #include <util.h>
 #else
@@ -77,6 +78,15 @@ int probe_fixture_exit(int code) {
 int probe_foreground(int fd) { return tcgetpgrp(fd); }
 int probe_getpgrp(void) { return getpgrp(); }
 int probe_dup_above(int fd, int minimum) { return fcntl(fd,F_DUPFD_CLOEXEC,minimum); }
+// The account's login shell, from Directory Services, NSS or /etc/passwd.
+int probe_login_shell(char *buffer, int cap) {
+    struct passwd *user=getpwuid(getuid());
+    if(!user||!user->pw_shell) return -ENOENT;
+    size_t len=strlen(user->pw_shell);
+    if(len>=(size_t)cap) return -ENAMETOOLONG;
+    memcpy(buffer,user->pw_shell,len);
+    return (int)len;
+}
 int probe_send(int sock, const int *fds, int count) {
     if (count<1 || count>64) return -1;
     char payload='F';

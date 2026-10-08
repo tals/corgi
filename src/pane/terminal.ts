@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { dirname } from "node:path";
 import { n, ptr, call, symbols, ReadyLoop, READ, nativeRoot } from "../native_bridge";
+import * as launch_command from "../launch/command";
 import type { View } from "./surface";
 import type { Link } from "./hyperlinks";
 import type { Pointer } from "bun:ffi";
@@ -99,9 +100,10 @@ export class Terminal extends EventEmitter {
     const fds = new Int32Array(2);
     if (n.probe_pty(ptr(fds))) throw Error("OpenPtyFailed");
     const [master, slave] = fds;
-    const shell = process.env.SHELL || "/bin/sh";
+    const shell = launch_command.shell();
     const env: Record<string, string | undefined> = {
       ...process.env,
+      SHELL: shell,
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       CORGI_SOCKET: socket,

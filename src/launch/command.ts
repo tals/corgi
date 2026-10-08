@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Provider } from "../providers";
 import { Model } from "../providers/model";
+import * as os from "../os";
 export const capacity = 6,
   max_length = 2048;
 export type Command = string;
@@ -111,18 +112,11 @@ export class Entry {
     return this.name || (p ? `${Provider.info(p).name} command` : "Shell command");
   }
 }
+/** SHELL is inherited from the user's session; the account covers app/launchd starts. */
 export function shell() {
   const s = process.env.SHELL;
   if (s?.startsWith("/")) return s;
-  try {
-    const u = process.getuid?.(),
-      row = readFileSync("/etc/passwd", "utf8")
-        .split("\n")
-        .find(r => Number(r.split(":")[2]) === u);
-    return row?.split(":")[6] || "/bin/sh";
-  } catch {
-    return "/bin/sh";
-  }
+  return os.loginShell() ?? "/bin/sh";
 }
 export function flags() {
   return "-ic";

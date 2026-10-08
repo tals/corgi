@@ -24,6 +24,7 @@ export const lib = dlopen(`${nativeRoot}/lib/libcorgi_probe.${suffix}`, {
   probe_process_args: { args: ["i32", "ptr", "usize"], returns: FFIType.i64_fast },
   probe_getpgrp: { args: [], returns: "i32" },
   probe_dup_above: { args: ["i32", "i32"], returns: "i32" },
+  probe_login_shell: { args: ["ptr", "i32"], returns: "i32" },
   probe_winsize: { args: ["i32", "ptr"], returns: "i32" },
   probe_fixture_children: { args: ["ptr"], returns: "i32" },
   probe_fixture_exit: { args: ["i32"], returns: "i32" },
