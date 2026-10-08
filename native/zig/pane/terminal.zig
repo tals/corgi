@@ -3,11 +3,9 @@ pub const vt = @import("ghostty-vt");
 const os = @import("../os.zig");
 const c = os.c;
 const a = os.allocator;
-const layout = @import("../layout.zig");
 const hyperlink = @import("hyperlinks.zig");
-const providers = @import("../providers.zig");
 const detection = @import("../detection.zig");
-const launch_command = @import("../launch.zig").command;
+const BoundedText = @import("../bounded_text.zig").BoundedText;
 const Theme = @import("../theme.zig").Theme;
 pub const Terminal = struct {
     vt: vt.Terminal,
@@ -23,7 +21,7 @@ pub const Terminal = struct {
     /// still owns. Only `Runtime.adopt` makes them ours to signal.
     owner: Owner = .runtime,
     title_pid: c_int = 0,
-    title_prefix: ?providers.SessionPrefix = null,
+    title_prefix: ?SessionPrefix = null,
     title_revision: u64 = 0,
     exited: bool = false,
     exit_status: c_int = 0,
@@ -145,7 +143,7 @@ pub const Terminal = struct {
     }
     fn titleChanged(handler: *vt.TerminalStream.Handler) void {
         const t: *Terminal = @fieldParentPtr("vt", handler.terminal);
-        const prefix = providers.Codex.titleSession(t.vt.getTitle() orelse "");
+        const prefix = titleSession(t.vt.getTitle() orelse "");
         if (!std.meta.eql(t.title_prefix, prefix)) {
             t.title_revision +%= 1;
             t.title_prefix = prefix;
@@ -207,37 +205,6 @@ pub const Terminal = struct {
             if (!try finder.feed()) break;
         }
         return .{};
-    }
-    pub fn spawn(t: *Terminal, cwd: []const u8, socket: []const u8, id: layout.PaneId, executable: []const u8, command: ?[]const u8, interactive_command: bool) !void {
-        var ws = std.mem.zeroes(c.struct_winsize);
-        ws.ws_col = t.vt.cols;
-        ws.ws_row = t.vt.rows;
-        const pid = c.forkpty(&t.fd, null, null, &ws);
-        if (pid < 0) return error.ForkFailed;
-        if (pid == 0) {
-            const dir = a.dupeZ(u8, cwd) catch c._exit(127);
-            if (c.chdir(dir) != 0) c._exit(127);
-            os.setenv("TERM", "xterm-256color") catch c._exit(127);
-            os.setenv("COLORTERM", "truecolor") catch c._exit(127);
-            os.setenv("CORGI_SOCKET", socket) catch c._exit(127);
-            os.setenv("CORGI_BIN", executable) catch c._exit(127);
-            // A new interactive pane is not a tool/subagent of the Codex
-            // process that may have originally started the daemon.
-            _ = c.unsetenv("CODEX_THREAD_ID");
-            const path = std.fmt.allocPrint(a, "{s}:{s}", .{ std.fs.path.dirname(executable) orelse ".", os.env("PATH") orelse "/usr/bin:/bin" }) catch c._exit(127);
-            os.setenv("PATH", path) catch c._exit(127);
-            const pane = std.fmt.allocPrint(a, "{d}", .{@intFromEnum(id)}) catch c._exit(127);
-            os.setenv("CORGI_PANE", pane) catch c._exit(127);
-            const shell = launch_command.shell();
-            if (command) |cmd|
-                os.exec(&.{ shell, if (interactive_command) launch_command.flags() else "-lc", cmd }) catch c._exit(127)
-            else
-                os.exec(&.{ shell, "-l" }) catch c._exit(127);
-        }
-        t.pid = pid;
-        t.runs_command = command != null;
-        os.nonblock(t.fd);
-        os.cloexec(t.fd);
     }
     // Release the process/PTY while retaining the Ghostty screen and scrollback.
     pub fn stop(t: *Terminal) void {
@@ -499,6 +466,27 @@ pub const Terminal = struct {
         return out.toOwnedSlice(a);
     }
 };
+/// A Codex session id, or its truncated start, in a terminal title.
+const SessionPrefix = BoundedText(36);
+/// The one session id a Codex title names, or null for none or several.
+fn titleSession(title: []const u8) ?SessionPrefix {
+    var words = std.mem.tokenizeAny(u8, title, " |\t");
+    var found: ?SessionPrefix = null;
+    while (words.next()) |word| {
+        const n: usize = if (word.len == 36) 36 else if (word.len == 32 and std.mem.endsWith(u8, word, "...")) 29 else continue;
+        var valid = true;
+        for (word[0..n], 0..) |ch, i| {
+            if (i == 8 or i == 13 or i == 18 or i == 23) {
+                if (ch != '-') valid = false;
+            } else if (!std.ascii.isHex(ch)) valid = false;
+        }
+        if (!valid) continue;
+        if (found != null) return null;
+        found = .initTruncated(word[0..n]);
+    }
+    return found;
+}
+
 test "Ghostty keeps fragmented escapes, unicode, alternate screen and resize" {
     const t = try Terminal.create(20, 4);
     defer t.destroy();

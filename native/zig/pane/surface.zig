@@ -1,11 +1,13 @@
 const std = @import("std");
 const terminal = @import("terminal.zig");
 const vt = terminal.vt;
-const layout = @import("../layout.zig");
 const hyperlink = @import("hyperlinks.zig");
 
+/// The daemon's id for a pane, which link ids carry.
+pub const PaneId = enum(u32) { _ };
+
 pub const Surface = struct {
-    pane: layout.PaneId,
+    pane: PaneId,
     cols: u16,
     rows: u16,
     lines: []const []const u8,
@@ -14,7 +16,7 @@ pub const Surface = struct {
 
 /// Each line starts with its own style and ends with SGR reset. Coordinates,
 /// cursor visibility, and all surrounding UI belong to the consuming viewer.
-pub fn capture(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal.Terminal) !Surface {
+pub fn capture(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal) !Surface {
     try t.updateRender();
     const state = &t.render;
     const lines = try allocator.alloc([]const u8, state.rows);
@@ -39,11 +41,11 @@ pub fn capture(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal.Ter
     };
 }
 
-pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool) !void {
+pub fn writeRow(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool) !void {
     return writeRowHovered(w, state, links, pane, row, cols, dimmed, null);
 }
 
-pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: layout.PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
+pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: []const hyperlink.Link, pane: PaneId, row: usize, cols: u16, dimmed: bool, hovered: ?u64) !void {
     const cells = state.row_data.items(.cells)[row];
     var active_link: ?u64 = null;
     var link_index: usize = 0;
@@ -126,7 +128,7 @@ pub const View = struct { surface: Surface, bottom: usize, offset: usize, modes:
 
 /// Borrow a viewport for a synchronous capture; never change another viewer's
 /// scroll or selection. A pending synchronized redraw keeps its completed frame.
-pub fn captureView(allocator: std.mem.Allocator, id: layout.PaneId, t: *terminal.Terminal, offset: ?usize) !View {
+pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal, offset: ?usize) !View {
     const screen = t.vt.screens.active;
     const pages = &screen.pages;
     const bottom = pages.total_rows -| t.vt.rows;
