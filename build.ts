@@ -18,10 +18,13 @@ if(!existsSync(`${root}/node_modules/@earendil-works/pi-tui`)){
   process.exit(await again.exited);
 }
 const args=[`${root}/scripts/zig`,"build","--build-file",`${root}/native/build.zig`,"-Doptimize=ReleaseFast"];
-if(buildTarget!==`${process.platform}-${process.arch}`)args.push(`-Dtarget=${arch==="arm64"?"aarch64":"x86_64"}-${platform==="darwin"?"macos.13.0":"linux-gnu"}`);
+// An explicit --target builds for the oldest systems a release supports, not this machine.
+if(process.argv.slice(2).some(arg=>arg==="--target"||arg.startsWith("--target=")))args.push(`-Dtarget=${arch==="arm64"?"aarch64":"x86_64"}-${platform==="darwin"?"macos.13.0":"linux-gnu.2.28"}`);
 args.push("--prefix",nativeRoot);
-if(process.env.CORGI_PROBE_SYSROOT)args.push("--sysroot",process.env.CORGI_PROBE_SYSROOT);
+const sysroot=option("sysroot",process.env.CORGI_PROBE_SYSROOT??"");
+if(sysroot)args.push("--sysroot",sysroot);
 if(!process.argv.includes("--no-native")){const native=Bun.spawn(args,{stdout:"inherit",stderr:"inherit"});if(await native.exited)throw Error("Native build failed");}
+if(process.argv.includes("--native-only"))process.exit(0);
 mkdirSync(`${root}/dist`,{recursive:true});
 const suffix=platform==="darwin"?"dylib":"so";
 const files=[`lib/libcorgi_probe.${suffix}`,`lib/libcorgi_system.${suffix}`,`lib/libcorgi_fd.${suffix}`,"bin/pty-exec","bin/corgi-hook"];

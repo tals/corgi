@@ -47,9 +47,8 @@ Each environment has its own runtime, preferences and saved state. Named environ
 survive restarts and reboots. Temporary environments print a reconnect command and
 keep running after detach; shutdown still requires confirmation.
 
-The published installer and releases are still built by the Zig pipeline on
-the `archive/corgi_v0_zig` branch; the Bun build is not yet released or
-code-signed on macOS.
+`./publish.sh` builds, signs and publishes a release; see
+[releases](docs/releases.md).
 
 Multiple terminals can attach to the same runtime. They share workspaces, tabs, and split arrangement. Each viewer has its own selected workspace, tab, pane, menus, zoom, and scroll position. A pane takes the size of the most recently used viewer displaying it (typing, clicking, or resizing counts as use); other viewers clip or pad it. Detaching one viewer leaves the others connected.
 

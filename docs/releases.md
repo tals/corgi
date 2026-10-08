@@ -8,11 +8,17 @@ B2 or S3. The publisher uses Bun and an S3-compatible endpoint.
 ## One-time publisher setup
 
 Run the publisher on an Apple Silicon Mac with Zig 0.16.0, Bun, and a persistent
-macOS code-signing certificate with its private key. `scripts/sign-macos` discovers
-a Developer ID Application or Apple Development identity; you can configure one
-explicitly. Developer ID is the appropriate identity for general external
-distribution. Apple Development is useful for early private testing; this script
-does not notarize releases or promise Gatekeeper approval for quarantined files.
+macOS code-signing certificate with its private key. Without `codesignIdentity`,
+the publisher uses the keychain's one Developer ID Application identity (or else
+its one Apple Development identity). Developer ID is the appropriate identity for
+general external distribution; Apple Development is useful for early private testing.
+
+The macOS binary is signed with the hardened runtime and the JIT entitlements Bun
+needs (`scripts/entitlements.plist`); the native libraries it embeds are signed by
+the same identity first. To notarize as well, store App Store Connect credentials
+with `xcrun notarytool store-credentials` and name the profile as `notaryProfile`.
+Notarization matters only for files a browser downloads; the installer's curl
+download is not quarantined.
 
 Create an Ed25519 release key **outside the checkout**, and back it up securely:
 
@@ -31,6 +37,7 @@ Create `~/.config/corgi/release.json` (or set `CORGI_RELEASE_CONFIG`):
   "signingKey": "/Users/you/.config/corgi/release-key.pem",
   "credentialsFile": "/Users/you/.config/corgi/r2-credentials.json",
   "codesignIdentity": "Developer ID Application: Your Name (TEAMID)",
+  "notaryProfile": "corgi-notary",
   "sentry": {
     "dsn": "https://KEY@oORG.ingest.us.sentry.io/PROJECT_ID",
     "org": "your-org",
@@ -39,7 +46,9 @@ Create `~/.config/corgi/release.json` (or set `CORGI_RELEASE_CONFIG`):
 }
 ```
 
-`sentry` is optional; see [Crash reports](#crash-reports).
+`notaryProfile`, `macosSdk` and `sentry` are optional; see
+[Crash reports](#crash-reports) for `sentry`. `macosSdk` names the macOS SDK to
+build against; the default is Xcode's on a Mac and `.tools/macos-sdk` elsewhere.
 
 `publicBaseUrl` must map to the **root of this bucket**, including any CDN routing
 prefix. Use a stable domain you control so you can move storage without replacing
@@ -77,10 +86,12 @@ clients continue to use the same public hostname.
 ./publish.sh
 ```
 
-The root script forwards all arguments to `scripts/release`. The command runs Zig and updater integration tests, builds and signs macOS arm64
-(macOS 13+) locally using the SDK selected by `xcrun`, cross-compiles a
-static Linux amd64 musl executable, checks both binary formats, and embeds the
-version, source commit, feed URL, and public key. It signs a manifest, uploads
+The root script forwards all arguments to `scripts/release`. The command runs the
+typecheck, unit tests and the release and updater integration suites. It then
+compiles both platforms with Bun: Linux amd64 (glibc 2.28 or newer) and macOS arm64
+(macOS 13+, against the SDK selected by `xcrun`). It signs the macOS binary, checks
+both binary formats, and starts the Mac's binary on a private runtime to run a shell
+in a pane. Both binaries embed the version, source commit, feed URL, and public key. It signs a manifest, uploads
 immutable artifacts, and verifies their public downloads before advancing
 `channels/stable.json`. No Git tags or remotes are changed. Version numbers are
 UTC datetime plus the first 12 Git hash characters (for example,
@@ -89,11 +100,11 @@ full source commit. Never reuse a version for different bytes.
 
 Publishing pins the commit at HEAD when the command starts and builds it in a
 temporary detached Git worktree. Staged, unstaged, and untracked changes are
-excluded. Your index, working files, and development `zig-out` and `.zig-cache`
-directories stay untouched, so you can keep editing, building, and committing
+excluded. Your index, working files, and development `dist`, `native/zig-out` and
+`native/.zig-cache` directories stay untouched, so you can keep editing, building, and committing
 while it publishes. The installer template also comes from the pinned commit.
 The existing publisher drives the release using your usual external configuration,
-signing keys, and Zig compiler (including a compiler installed under `.tools`).
+signing keys, Zig compiler and macOS SDK (including copies under `.tools`).
 
 Isolated artifacts are saved in `corgi-releases/VERSION` under the repository's
 common Git directory (normally `.git/corgi-releases/VERSION`); the exact location
@@ -106,9 +117,7 @@ or a build/upload error. Saved artifacts remain available for retry:
 
 This resumes the saved source commit even if you have made newer commits or have
 pending edits, without rebuilding timestamped signatures. The configuration must
-still match the prepared release. Previously prepared releases under
-`zig-out/releases/VERSION` can also be resumed; the publisher checks that location
-if the version is absent from the new directory. A local publisher lock in the
+still match the prepared release. A local publisher lock in the
 common Git directory serializes runs across linked worktrees of this repository.
 Use a **single publishing host**
 or a CI concurrency group: object-store publication is not a distributed transaction.
@@ -121,29 +130,32 @@ For a build-only check of committed HEAD:
 ```
 
 Build-only results are not publishable. `codesignIdentity: "-"` permits an ad-hoc
-macOS build in this mode only. For Linux the script verifies that the ELF has no
-dynamic interpreter; executing Linux integration tests still requires Linux.
+macOS build in this mode only, and lets the build run on Linux too: Zig and Bun
+cross-compile the macOS binary against `.tools/macos-sdk`, and the smoke test runs
+the Linux binary instead. Signing still needs the Mac.
 
 ## Crash reports
 
 With `sentry` configured, release builds embed the DSN (`-Dsentry-dsn`) and the
-daemon and viewer report fatal signals and Zig panics to that Sentry project
-(a native project; the free plan is enough). Development builds have no DSN and
+daemon and viewer report fatal signals in the native layer and uncaught
+JavaScript exceptions to that Sentry project (a native project; the free plan
+is enough). Development builds have no DSN and
 send nothing. sentry-native's in-process handler saves a report under
 `$XDG_STATE_HOME/corgi/crash` (default `~/.local/state/corgi/crash`); the next
 daemon or viewer to start posts it with curl. A report that fails to send is
 dropped. Hooks and other short CLI commands do not report.
 
-Reports carry raw addresses. The publisher keeps the macOS debug info as
-`corgi-macos-aarch64.dSYM` beside the release artifacts and, before any asset
-goes public, uploads it and the Linux executable (which keeps its DWARF) with
-`sentry-cli debug-files upload`; Sentry symbolicates from those. Install
+Native reports carry raw addresses. The publisher keeps the debug info of the
+macOS native libraries as dSYMs in `dsym/` beside the release artifacts and,
+before any asset goes public, uploads them and the Linux native libraries (which
+keep their DWARF, in `native/linux-x86_64/`) with `sentry-cli debug-files
+upload`; Sentry symbolicates from those. Install
 sentry-cli (`brew install getsentry/tools/sentry-cli`) and authenticate it once
 with `sentry-cli login` using an organization auth token, or export
-`SENTRY_AUTH_TOKEN`. `--build-only` makes the dSYM but uploads nothing.
+`SENTRY_AUTH_TOKEN`. `--build-only` makes the dSYMs but uploads nothing.
 
-To symbolicate a macOS address by hand, use the image's load address from the
-report: `atos -o corgi-macos-aarch64.dSYM -arch arm64 -l LOAD_ADDRESS ADDRESS`.
+To symbolicate a macOS address by hand, use the library's load address from the
+report: `atos -o dsym/libcorgi_probe.dylib.dSYM -arch arm64 -l LOAD_ADDRESS ADDRESS`.
 
 ## Install and use
 
@@ -213,8 +225,8 @@ restarted merely to refresh a viewer.
 
 ## Compatibility and trust contract
 
-`src/updates.zig` defines a compatibility epoch combined with the pinned Ghostty
-dependency hash. **Bump that epoch whenever a runtime/checkpoint/viewer change
+`src/updates.ts` defines a compatibility epoch combined with the terminal
+checkpoint fingerprint (`terminal_abi` in `src/persist/handoff.ts`). **Bump that epoch whenever a runtime/checkpoint/viewer change
 cannot safely coexist across versions.** The candidate validates it during
 handoff as well as the updater checking it before handoff. Marketing/release
 version changes do not change the terminal checkpoint fingerprint.
@@ -222,16 +234,15 @@ version changes do not change the terminal checkpoint fingerprint.
 The manifest is one JSON envelope containing the exact signed `payload` string
 and a hexadecimal Ed25519 signature. Schema 1 requires both supported targets,
 each with an HTTPS URL, SHA-256, and byte size. Production builds reject HTTP;
-`-Dupdate-test-mode=true` exists only for isolated localhost fixtures and is never
-used by the publisher. Preserve the release key: key rotation requires an
+test builds (`bun build.ts --test`) accept a localhost feed only for isolated
+fixtures, and the publisher never ships one. Preserve the release key: key rotation requires an
 explicit client migration, not merely changing a bucket setting.
 
 ## Validation
 
 ```sh
-./scripts/zig build test
-bun test tests/release.test.ts
-bun test tests/updates.test.ts
+bun build.ts --test
+bun test ./tests/release.test.ts ./tests/updates.test.ts
 ```
 
 The updater suite builds two test releases and runs isolated real daemons against
