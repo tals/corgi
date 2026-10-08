@@ -18,9 +18,12 @@ test("wire names used by the CLI and the test suites parse", () => {
     value: 2,
   });
   expect(parse("rename", "Renamed").value).toBe("Renamed");
+  expect(parse("wake")).toEqual({ name: "wake", value: "agent" });
+  expect(parse("wake", "shell")).toEqual({ name: "wake", value: "shell" });
   for (const [name, value, error] of [
     ["close_tab", "", "UnknownAction"],
     ["focus", "north", "BadValue"],
+    ["wake", "codex", "BadValue"],
     ["resize", "", "BadValue"],
     ["tab", "two", "BadValue"],
   ])

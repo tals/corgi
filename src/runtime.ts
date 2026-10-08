@@ -113,6 +113,8 @@ export class Pane {
   launch: Launch | null = null;
   background_job: string | null = null;
   ghost: Ghost | null = null;
+  /** Recovered with nothing running: its old screen, faded, until `Runtime.wake`. */
+  dormant = false;
   static quiet_detection_ms = 2000;
   constructor(
     public id: number,
@@ -171,13 +173,30 @@ export class Pane {
       }
     }
   }
+  /** The command a reopened agent runs while its old screen shows, or a
+   * dormant one will run. */
   restoring() {
-    return this.ghost
-      ? (this.ghost.fork ??
-          (this.background_job
-            ? attachCommand(new Text(this.background_job))
-            : (this.launch?.typed(this.resume_hint.args()) ?? "")))
-      : "";
+    if (!this.ghost && !this.dormant) return "";
+    return (
+      this.ghost?.fork ??
+      (this.background_job
+        ? attachCommand(new Text(this.background_job))
+        : (this.resumeLaunch()?.typed(this.resume_hint.args()) ?? ""))
+    );
+  }
+  /** How its agent comes back: as it was launched, or as its provider starts. */
+  resumeLaunch() {
+    return this.launch ?? (this.resume_hint.provider ? new Launch({ provider: this.resume_hint.provider }) : null);
+  }
+  /** Shows its saved screen, faded, with nothing running until `Runtime.wake`. */
+  async sleep() {
+    const t = await Terminal.create(this.terminal.cols, this.terminal.rows);
+    t.feed(this.terminal.fadedSnapshot());
+    t.exited = true;
+    this.terminal.destroy();
+    this.terminal = t;
+    this.dormant = true;
+    this.background_job = this.resumeLaunch()?.agent ? (this.resume_hint.backgroundJob()?.text() ?? null) : null;
   }
   failed() {
     return (
@@ -301,7 +320,7 @@ export class Runtime {
   }
   attachments(actor: any) {
     return (
-      this.panes.filter(p => !p.terminal.exited && p.attachment.actor === actor).length +
+      this.panes.filter(p => (p.dormant || !p.terminal.exited) && p.attachment.actor === actor).length +
       this.sessions.filter(s => !s.exited && s.members.includes(actor)).length
     );
   }
@@ -364,7 +383,7 @@ export class Runtime {
       p.terminal.read();
       p.terminal.reap();
       p.resume_hint.observe(p.agent());
-      const running = !p.terminal.exited && p.attachment.actor !== null;
+      const running = (p.dormant || !p.terminal.exited) && p.attachment.actor !== null;
       this.stopShell(p.terminal);
       if (running && p.resume_hint.args() !== null) {
         if (this.closedCount(owner.id) === closed_per_workspace) {
@@ -439,7 +458,7 @@ export class Runtime {
     saved.deinit();
     return id;
   }
-  async frozenScreen(opts: Create, old: string | Uint8Array | null) {
+  async frozenScreen(opts: Pick<Create, "cols" | "rows" | "theme">, old: string | Uint8Array | null) {
     const t = await Terminal.create(opts.cols, opts.rows);
     t.applyTheme(opts.theme);
     if (old) t.feed(old);
@@ -469,20 +488,61 @@ export class Runtime {
       throw e;
     }
     const p = this.pane(id)!;
+    this.resumed(p, opts.workspace, launch, hint, job);
+    this.haunt(p, frozen, old, null);
+    return id;
+  }
+  resumed(p: Pane, workspace: number, launch: Launch, hint: ResumeHint, job: Text | null) {
     p.resume_hint = hint;
     p.launch = launch;
     p.background_job = job?.text() ?? null;
     try {
-      const actor = this.conversations.get(hint.provider, hint.session.text());
+      const actor = this.conversations.get(hint.provider!, hint.session.text());
       actor.state.reopened(Date.now() * 1000);
       if (!actor.state.name.len) actor.state.name = hint.name;
-      if (!actor.workspace) actor.workspace = opts.workspace;
+      if (!actor.workspace) actor.workspace = workspace;
       p.attachment.select(actor);
     } catch (error) {
       console.warn("attaching a resumed agent:", error);
     }
-    this.haunt(p, frozen, old, null);
-    return id;
+  }
+  /** Starts a dormant pane's agent in place, its old screen held as a ghost
+   * until the agent draws; or a shell with the command typed but not run. */
+  async wake(id: number, opts: Pick<Create, "socket" | "executable" | "theme">, shell: boolean) {
+    const p = this.pane(id);
+    if (!p) throw Error("NoPane");
+    if (!p.dormant) throw Error("NotDormant");
+    const hint = p.resume_hint,
+      launch = p.resumeLaunch(),
+      args = hint.args();
+    if (!launch || !args) throw Error("InvalidSession");
+    const job = launch.agent ? hint.backgroundJob() : null,
+      typed = job ? attachCommand(job) : launch.typed(args),
+      old = p.terminal.fadedSnapshot(),
+      { cols, rows } = p.terminal,
+      frozen = shell ? null : await this.frozenScreen({ cols, rows, theme: opts.theme }, old),
+      t = await Terminal.create(cols, rows);
+    try {
+      t.applyTheme(opts.theme);
+      if (shell) {
+        t.feed(old);
+        t.feed(hint.banner(Math.trunc(Date.now() / 1000)));
+      }
+      const command = shell ? null : launch.paneCommand(opts.executable, typed);
+      await t.spawn(await Store.directory(p.cwd), opts.socket, id, opts.executable, command, !launch.agent);
+    } catch (e) {
+      t.destroy();
+      frozen?.destroy();
+      throw e;
+    }
+    p.terminal.destroy();
+    p.terminal = t;
+    p.dormant = false;
+    if (frozen) {
+      this.resumed(p, this.workspaces.owner(id)!.id, launch, hint, job);
+      this.haunt(p, frozen, old, null);
+    } else t.prefill(typed);
+    this.changed();
   }
   static forkSource(p: Pane): [Provider, string] {
     const a = p.agent(),

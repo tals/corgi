@@ -533,7 +533,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
           command: p.restoring,
           name: p.label.length > 0 ? p.label : p.agent.name.length > 0 ? p.agent.name : providerName(p.agent),
           meta: restoringMeta(p, u.conversations),
-          dig: p.forking ? "forking" : "restoring",
+          dig: p.dormant ? "asleep" : p.forking ? "forking" : "restoring",
         },
         Date.now() - p.restoring_since,
       );
@@ -672,13 +672,14 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   return w.buffered();
 }
 
-/** What a reopened or forked agent's card says under the corgi digging its title out. */
+/** What a reopened or forked agent's card says under the corgi digging its
+ * title out, or a dormant one's under the corgi asleep. */
 export interface Restoring {
   command: string;
   name: string;
   /** Provider, model and folder. */
   meta: string;
-  dig: corgiAnimation.Dig;
+  dig: corgiAnimation.Dig | "asleep";
 }
 /** "claude · Opus 4.7 · ~/dev/corgi", leaving out a model Corgi hasn't seen. */
 function restoringMeta(p: Pane, conversations: any[]): string {
@@ -743,7 +744,8 @@ export function commandLines(units: string[], width: number, limit = 16): Comman
 export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: number): void {
   const panel = new Style({ fg: "text", bg: "surface" }).sgr();
   const border = new Style({ fg: "line", bg: "surface" }).sgr();
-  const word = corgiAnimation.Dig.wordWidth(band.dig);
+  const asleep = band.dig === "asleep";
+  const word = band.dig === "asleep" ? corgiAnimation.Asleep.wordWidth : corgiAnimation.Dig.wordWidth(band.dig);
   const lead = corgiAnimation.Dig.lead;
   if (r.w < word + 4 || r.h === 0) return;
   const units = shellUnits(band.command);
@@ -751,8 +753,9 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
   const bw = Math.min(r.w, Math.max(text + 6, word + 2 * lead + 6));
   const inner = sat(bw, 6);
   const lines = commandLines(units, inner);
-  // Borders and padding, the title, then a gap and the details that fit.
-  let details = 2 + lines.length;
+  // Borders and padding, the title, then a gap and the details that fit:
+  // asleep, they end with a gap and what Esc does.
+  let details = 2 + lines.length + (asleep ? 2 : 0);
   while (details > 0 && 6 + details > r.h) details = details > 2 ? 2 : 0;
   const bh = details > 0 ? 6 + details : Math.min(r.h, 5);
   const bx = r.x + Math.floor((r.w - bw) / 2);
@@ -780,7 +783,8 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
   const word_x = bx + Math.floor((bw - word) / 2);
   const scene = word_x >= bx + 1 + lead;
   w.write(`\x1b[${title_y + 1};${(scene ? word_x - lead : word_x) + 1}H` + panel);
-  w.write(corgiAnimation.writeUnearth(scene ? corgiAnimation.Dig.width(band.dig) : word, shown_ms, band.dig));
+  if (band.dig === "asleep") w.write(corgiAnimation.writeAsleep(scene ? corgiAnimation.Asleep.width : word));
+  else w.write(corgiAnimation.writeUnearth(scene ? corgiAnimation.Dig.width(band.dig) : word, shown_ms, band.dig));
   if (details === 0) return w.write("\x1b[0m");
   const x = bx + 3;
   const y = by + 4;
@@ -806,6 +810,12 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
         writeEllipsis(w, out, sat(inner, 4));
       }
     });
+  if (asleep && details > 2) {
+    w.write(`\x1b[${y + 4 + lines.length};${x + 1}H` + new Style({ fg: "muted", bg: "surface", bold: true }).sgr());
+    writeEllipsis(w, "Esc", inner);
+    w.write(new Style({ fg: "faint", bg: "surface" }).sgr());
+    writeEllipsis(w, " opens a shell instead", sat(inner, 3));
+  }
   w.write("\x1b[0m");
 }
 /** The box-drawing glyph joining a divider cell with its neighbors on each side. */

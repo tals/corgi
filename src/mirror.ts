@@ -256,10 +256,13 @@ export interface Pane {
   cwd: string;
   agent: Agent;
   terminal: Terminal;
-  /** The command a reopened agent runs while its old screen shows. */
+  /** The command a reopened agent runs while its old screen shows, or a
+   * dormant one will run. */
   restoring: string;
   /** Its command forks, so the band says "Forking…". */
   forking: boolean;
+  /** Nothing runs yet: Enter starts `restoring` here. */
+  dormant: boolean;
   /** When this viewer first saw it restoring, which its animation starts from. */
   restoring_since: number;
 }
@@ -400,7 +403,7 @@ export class Runtime {
           term = new Terminal(conn, info.id, info.cols, info.rows);
           created.push(term);
         }
-        const was_restoring = previous ? previous.restoring.length > 0 : false;
+        const was_restoring = previous ? previous.restoring.length > 0 && !previous.dormant : false;
         panes.push({
           id: info.id,
           binding: info.binding ?? 0,
@@ -410,6 +413,7 @@ export class Runtime {
           terminal: term,
           restoring: info.restoring ?? "",
           forking: info.forking === true,
+          dormant: info.dormant === true,
           restoring_since: was_restoring ? previous!.restoring_since : now,
         });
       }

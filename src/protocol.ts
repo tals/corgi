@@ -147,6 +147,7 @@ const commands: Record<string, string> = {
   "pane.close": "target!",
   "tab.close": "target!",
   "pane.restore": "workspace!",
+  "pane.wake": "target! shell",
   "workspace.create": "name cwd!",
   "workspace.edit": "target! name cwd",
   "workspace.close": "target! close_contents",
@@ -179,6 +180,7 @@ const defaults: Record<string, Record<string, unknown>> = {
   "tab.merge": { direction: "right" },
   "pane.read": { lines: 100, view: "history" },
   "pane.send": { enter: false },
+  "pane.wake": { shell: false },
   "agent.move": { before: null },
 };
 export function decodeCommand(value: unknown): Command {
@@ -205,7 +207,7 @@ export function decodeCommand(value: unknown): Command {
     if (["name", "cwd", "command", "original", "text", "data", "title", "session"].includes(field))
       validate(item, defaults[name]?.[field] === null ? "?string" : "string");
     if (
-      ["check", "resolve", "close_contents", "enter", "enabled"].includes(field) ||
+      ["check", "resolve", "close_contents", "enter", "enabled", "shell"].includes(field) ||
       (field === "hidden" && name !== "agent.visibility")
     )
       validate(item, "bool");

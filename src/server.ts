@@ -131,8 +131,8 @@ export class Server {
   }
   private bindPanes(): void {
     for (const pane of this.runtime.panes)
-      if (!this.watched.has(pane)) {
-        this.watched.add(pane);
+      if (!this.watched.has(pane.terminal)) {
+        this.watched.add(pane.terminal);
         pane.terminal.on("change", () => {
           this.runtime.wrote();
           this.dirty = true;
@@ -341,7 +341,7 @@ export class Server {
       }
       if (p.failed()) {
         if (p.keepFailed()) this.dirty = true;
-      } else if (p.terminal.exited) this.runtime.close(p.id);
+      } else if (p.terminal.exited && !p.dormant) this.runtime.close(p.id);
     }
     await this.followWorkspaceDirectories();
     this.runtime.reapStopped();

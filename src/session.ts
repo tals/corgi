@@ -184,6 +184,9 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       break;
     case "pane.restore":
       return location(r, await r.reopen(spawnOptions(r, ctx, q.workspace, null, "")));
+    case "pane.wake":
+      await r.wake(q.target, ctx, q.shell);
+      return location(r, q.target);
     case "pane.close":
       location(r, q.target);
       r.close(q.target);
@@ -466,6 +469,7 @@ function build(r: Runtime, viewer: boolean) {
       agent: agentView(p.agent(), p.attachment.actor?.id ?? 0),
       restoring: p.restoring(),
       forking: p.ghost?.fork !== null && p.ghost !== null,
+      dormant: p.dormant,
     })),
     native_sessions: r.sessions.map(s => ({
       agent: agentView(s.attachment.agent(), s.attachment.actor?.id ?? 0),

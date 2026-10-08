@@ -146,6 +146,10 @@ libc.symbols.lseek(fd, 0n, 0);
   async screen(pane: number) {
     return (await this.command("pane.read", { target: pane, view: "screen" })).text;
   }
+  /** Its output with wrapped lines joined, so a long prompt can't split a command. */
+  async history(pane: number) {
+    return (await this.command("pane.read", { target: pane, view: "history" })).text;
+  }
 
   async test_workspace_automatic_and_custom_names_survive_handoff() {
     const first = await this.new(),
@@ -398,11 +402,21 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       after.workspaces.map((w: any) => [w.id, w.model.tabs]),
     );
     this.assertEqual(after.panes[0].id, first);
-    this.assertNotEqual(after.panes[0].pid, before.panes[0].pid);
+    this.assertEqual([after.panes[0].dormant, after.panes[0].pid], [true, -1]);
+    this.assertEqual(after.panes[0].restoring, "codex resume '01901234-1234-1234-1234-123456789abc'");
+    this.assertIn("BEFORE_CRASH", await this.screen(first));
+    const viewer = await Viewer.create(this);
+    await viewer.focus(first);
+    await viewer.input("\x1b");
+    await this.until(async () => {
+      await viewer.poll();
+      return !(await this.session()).panes[0].dormant;
+    });
     await this.until(async () =>
-      (await this.screen(first)).includes("codex resume '01901234-1234-1234-1234-123456789abc'"),
+      (await this.history(first)).includes("codex resume '01901234-1234-1234-1234-123456789abc'"),
     );
-    const text = await this.screen(first);
+    this.assertNotEqual((await this.session()).panes[0].pid, before.panes[0].pid);
+    const text = await this.history(first);
     this.assertIn("BEFORE_CRASH", text);
     this.assertIn("codex resume '01901234-1234-1234-1234-123456789abc'", text);
     this.assertEqual(after.panes[0].cwd, physicalProject);
@@ -458,8 +472,9 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       );
       await this.rpc({ op: "recovery.save", protocol: 1 });
       await this.restart_runtime();
+      await this.command("pane.wake", { target: first, shell: true });
       await this.until(async () =>
-        (await this.screen(first)).includes("codex resume '01901234-1234-1234-1234-123456789def'"),
+        (await this.history(first)).includes("codex resume '01901234-1234-1234-1234-123456789def'"),
       );
       this.assertFalse(existsSync(marker));
       await this.command("pane.input", { data: "\r", target: first });
@@ -471,6 +486,44 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       await this.command("pane.input", { target: first, data: "exit\r" });
       await this.until(async () => !(await this.session()).panes.some((p: any) => p.id === first));
     }
+  }
+  async test_cold_recovery_waits_for_enter_then_resumes_the_agent_in_its_pane() {
+    const resumes = join(this.temp.name, "resumes.jsonl"),
+      session = "01901234-1234-1234-1234-123456789aaa";
+    this.env.CORGI_CODEX_BIN = writeExecutable(
+      join(this.temp.name, "codex-resume"),
+      `import { appendFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+if (!args.includes('resume')) process.exit(0);
+appendFileSync(${JSON.stringify(resumes)}, JSON.stringify(args) + '\\n');
+console.log('RESUMED_FIXTURE');
+await Bun.sleep(120000);
+`,
+    );
+    await this.restart_runtime();
+    const first = await this.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh");
+    await this.until(async () => (await this.screen(first)).includes("BEFORE_CRASH"));
+    await this.pair(first, session);
+    await this.rpc({ op: "recovery.save", protocol: 1 });
+    await this.restart_runtime();
+    const pane = async () => (await this.session()).panes.find((p: any) => p.id === first);
+    this.assertEqual([(await pane()).dormant, (await pane()).pid], [true, -1]);
+    this.assertEqual((await pane()).restoring, `codex resume '${session}'`);
+    await this.reload();
+    this.assertTrue((await pane()).dormant);
+    const viewer = await Viewer.create(this);
+    await viewer.focus(first);
+    this.assertIn("Enter to resume", (await viewer.poll()).data);
+    await viewer.input("ls");
+    this.assertTrue((await pane()).dormant);
+    await viewer.input("\r");
+    await this.until(() => existsSync(resumes));
+    this.assertEqual(JSON.parse(readFileSync(resumes, "utf8")).slice(-2), ["resume", session]);
+    const woken = await pane();
+    this.assertEqual([woken.dormant, woken.pid > 0], [false, true]);
+    this.assertEqual((await this.session()).panes.length, 1);
+    await this.until(async () => (await this.screen(first)).includes("RESUMED_FIXTURE"));
+    this.assertIn("BEFORE_CRASH", await this.history(first));
   }
   async test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes() {
     const first = await this.new();

@@ -173,6 +173,7 @@ export function capture(r: Runtime, live: boolean) {
         detection: live ? p.detection : new Tracker(),
         resume_hint: p.resume_hint,
         launch: p.launch,
+        dormant: p.dormant,
       };
     }),
     closed: r.closed.map(p => ({
@@ -308,6 +309,7 @@ export async function restore(
     pane.detection = hydrate(new Tracker(), p.detection);
     pane.resume_hint = hydrate(new ResumeHint(), p.resume_hint);
     pane.launch = p.launch ? Launch.from(p.launch) : null;
+    pane.dormant = live && p.dormant === true;
     r.panes.push(pane);
   }
   for (const w of r.workspaces.items)
@@ -375,14 +377,8 @@ async function safeDirectory(cwd: string): Promise<string> {
   }
 }
 async function recoverPane(p: Pane, socket: string, executable: string): Promise<void> {
-  const command = p.resume_hint.command(),
-    cwd = await safeDirectory(p.cwd);
-  p.terminal.feed(
-    command
-      ? p.resume_hint.banner(Math.trunc(Date.now() / 1000))
-      : "\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n",
-  );
-  await p.terminal.spawn(cwd, socket, p.id, executable, null, false);
-  p.terminal.prefill(command);
-  p.cwd = cwd;
+  p.cwd = await safeDirectory(p.cwd);
+  if (p.resume_hint.args() !== null) return p.sleep();
+  p.terminal.feed("\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
+  await p.terminal.spawn(p.cwd, socket, p.id, executable, null, false);
 }

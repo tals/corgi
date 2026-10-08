@@ -67,6 +67,8 @@ $.requests|session.command.command|pane.split.title: string
 $.requests|session.command.command|pane.close.target: u32
 $.requests|session.command.command|tab.close.target: u32
 $.requests|session.command.command|pane.restore.workspace: u32
+$.requests|session.command.command|pane.wake.target: u32
+$.requests|session.command.command|pane.wake.shell: bool
 $.requests|session.command.command|workspace.create.name: string
 $.requests|session.command.command|workspace.create.cwd: string
 $.requests|session.command.command|workspace.edit.target: u32
@@ -520,6 +522,7 @@ $.snapshot.panes[].agent.compacting: bool
 $.snapshot.panes[].agent.paused: bool
 $.snapshot.panes[].restoring: string
 $.snapshot.panes[].forking: bool
+$.snapshot.panes[].dormant: bool
 $.snapshot.native_sessions[].agent: optional
 $.snapshot.native_sessions[].agent?.conversation: u32
 $.snapshot.native_sessions[].agent?.subagents.running: u32

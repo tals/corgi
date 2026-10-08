@@ -493,6 +493,17 @@ test("a reopened agent's card sits mid-pane: title centered, details left, comma
   out = new Writer();
   drawRestoring(out, new Rect(0, 0, 80, 24), { ...band, dig: "forking" }, 3000);
   expect(out.buffered()).toContain(palette.fg("accent") + "Forking…");
+
+  // A dormant agent's corgi sleeps until Enter, and the card says what Esc does.
+  out = new Writer();
+  drawRestoring(out, new Rect(0, 0, 80, 24), { ...band, dig: "asleep" }, 3000);
+  const asleep = out.buffered();
+  expect(asleep).toContain("\x1b[18;9H" + border + "╰");
+  expect(asleep).toContain("~ᐯ◡ᴥ◡ᐯ");
+  expect(asleep).toContain(palette.fg("accent") + "Enter to resume");
+  expect(asleep).toContain("\x1b[16;12H" + new palette.Style({ fg: "muted", bg: "surface", bold: true }).sgr() + "Esc");
+  expect(asleep).toContain(" opens a shell instead");
+  expect(asleep).not.toContain("Restoring…");
 });
 
 test("a command wraps between its words, each flag kept with its value", () => {

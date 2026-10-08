@@ -172,6 +172,7 @@ $.panes[].launch?: one of
 $.panes[].launch?|agent.provider: enum codex claude
 $.panes[].launch?|agent.yolo: bool
 $.panes[].launch?|command: custom bounded_text.BoundedText(2048)
+$.panes[].dormant: bool
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16

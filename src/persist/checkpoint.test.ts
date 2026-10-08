@@ -177,6 +177,33 @@ test("conversation checkpoint restores shared bindings and detached unread state
     r.deinit();
   }
 });
+test("cold recovery leaves an agent's pane dormant over its old screen, and a live reload keeps it so", async () => {
+  const r = fresh(),
+    ws = r.workspaces.items[0],
+    shell = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp"),
+    agent = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+  r.panes.push(shell, agent);
+  r.workspaces.next_pane_id = ws.model.next_id;
+  agent.terminal.feed("OLD OUTPUT");
+  agent.attachment.select(r.conversations.get("codex", "dormant-session"));
+  const cold = new Runtime(),
+    live = new Runtime();
+  try {
+    await restore(cold, cp.capture(r, false), false);
+    const [recovered, sleeping] = cold.panes;
+    expect([recovered.dormant, recovered.terminal.pid > 0]).toEqual([false, true]);
+    expect([sleeping.dormant, sleeping.terminal.exited, sleeping.terminal.pid]).toEqual([true, true, -1]);
+    expect(sleeping.terminal.text()).toContain("OLD OUTPUT");
+    expect(sleeping.restoring()).toBe("codex resume 'dormant-session'");
+    await restore(live, cp.capture(cold, true), true);
+    expect(live.panes.map(p => p.dormant)).toEqual([false, true]);
+    expect(live.panes[1].terminal.exited).toBe(true);
+  } finally {
+    live.deinit();
+    cold.deinit();
+    r.deinit();
+  }
+});
 test("legacy pane checkpoint migrates identity into an actor", async () => {
   const tree = json.parse(readFileSync(resolve(fixtures, "checkpoint-v4.json"), "utf8"));
   tree.version = 1;

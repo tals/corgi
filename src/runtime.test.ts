@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { Runtime, Pane, Launch, Ghost, ending } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { n, ptr, waitpid } from "./native_bridge";
-import { Text } from "./providers";
+import { Provider, Text } from "./providers";
 import { Workspace } from "./workspace";
 function add(r: Runtime, w: Workspace, split: number | null = null) {
   w.model.next_id = r.workspaces.next_pane_id;
@@ -187,6 +187,67 @@ test("a launch resumes the way it started, with the session quoted", () => {
     "codex resume 'session'\\''quote'",
   );
   expect(new Launch(undefined, "custom").paneCommand("/bin/corgi", "custom")).toBe("custom");
+});
+function dormant(r: Runtime, w: Workspace, launch: Launch | null) {
+  const p = add(r, w);
+  p.terminal.feed("OLD SCREEN");
+  p.launch = launch;
+  p.attachment.select(r.conversations.get("codex", "agent-session"));
+  p.resume_hint.observe(p.agent());
+  return p;
+}
+const wakeOptions = { socket: "/tmp/unused-wake.sock", executable: process.execPath, theme: {} };
+test("a dormant agent keeps its old screen with nothing running, and closing it keeps it to reopen", async () => {
+  const { r, w } = setup();
+  try {
+    const p = dormant(r, w, null),
+      actor = p.attachment.actor;
+    await p.sleep();
+    expect([p.dormant, p.terminal.exited, p.terminal.pid]).toEqual([true, true, -1]);
+    expect(p.terminal.text()).toContain("OLD SCREEN");
+    expect(p.restoring()).toBe("codex resume 'agent-session'");
+    expect(r.attachments(actor)).toBe(1);
+    r.close(p.id);
+    expect(r.closedCount(w.id)).toBe(1);
+  } finally {
+    r.deinit();
+  }
+});
+test("waking a dormant agent starts it in its own pane behind its old screen", async () => {
+  const { r, w } = setup();
+  try {
+    const p = dormant(r, w, new Launch(undefined, "true")),
+      actor = p.attachment.actor!;
+    await p.sleep();
+    expect(actor.state.state).toBe("unknown");
+    const asleep = p.terminal;
+    await r.wake(p.id, wakeOptions, false);
+    expect(r.pane(p.id)).toBe(p);
+    expect(p.dormant).toBe(false);
+    expect(p.terminal).not.toBe(asleep);
+    expect(p.terminal.pid).toBeGreaterThan(0);
+    expect(p.ghost?.terminal.text()).toContain("OLD SCREEN");
+    expect(p.restoring()).toBe("true resume 'agent-session'");
+    expect(actor.state.state).toBe("idle");
+    await expect(r.wake(p.id, wakeOptions, false)).rejects.toThrow("NotDormant");
+  } finally {
+    r.deinit();
+  }
+});
+test("waking a dormant agent into a shell types its command without running it", async () => {
+  const { r, w } = setup();
+  try {
+    const p = dormant(r, w, new Launch({ provider: "codex", yolo: true }));
+    await p.sleep();
+    await r.wake(p.id, wakeOptions, true);
+    expect(p.dormant).toBe(false);
+    expect(p.ghost).toBeNull();
+    expect(p.terminal.pid).toBeGreaterThan(0);
+    expect(p.terminal.text()).toContain("OLD SCREEN");
+    expect(p.terminal.initial_input).toBe(`codex ${Provider.info("codex").yolo_flag} resume 'agent-session'`);
+  } finally {
+    r.deinit();
+  }
 });
 function ghost(p: Pane, old: string | null) {
   const frozen = Terminal.create(20, 4);

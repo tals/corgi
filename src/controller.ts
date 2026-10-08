@@ -521,7 +521,7 @@ export class Controller {
               subagents: { ...p.agent.subagents },
               unread: unread(p.agent.observation),
               activity: p.agent.activity,
-              reopened: p.restoring.length > 0,
+              reopened: p.restoring.length > 0 && !p.dormant,
             }),
           );
         }
@@ -1074,6 +1074,15 @@ export class Controller {
     this.launched = id;
     this.copy_mode = false;
   }
+  private async wake(shell: boolean): Promise<void> {
+    const p = this.focused();
+    if (!p || !p.dormant) return;
+    try {
+      await this.edit({ "pane.wake": { target: p.id, shell } });
+    } catch {
+      this.notice(shell ? " Could not open a shell here" : " Could not resume this agent");
+    }
+  }
   private attention(): void {
     for (const priority of ["needs_input", "finished"]) {
       let best: Pane | null = null;
@@ -1124,6 +1133,8 @@ export class Controller {
         break;
       case "undo-close":
         return this.undoClose();
+      case "wake":
+        return this.wake(act.value === "shell");
       case "attention":
         return this.attention();
       case "rename-tab":
@@ -1244,6 +1255,8 @@ export class Controller {
     }
   }
   private sendInput(term: Terminal, bytes: string | Uint8Array | number[]): void {
+    // Nothing reads a dormant pane's input; `key` wakes it on Enter or Esc.
+    if (this.pane(term.id)?.dormant) return;
     if (!this.copy_mode && bytes.length > 0 && !term.atBottom()) {
       term.scrollViewport("bottom");
       term.clearSelection();
@@ -2464,6 +2477,10 @@ export class Controller {
       return;
     }
     const p = this.focused();
+    if (p?.dormant) {
+      if (byte === 13 || byte === 27) await this.perform({ name: "wake", value: byte === 13 ? "agent" : "shell" });
+      return;
+    }
     if (p) {
       this.sendInput(p.terminal, [byte]);
       acknowledge(p.agent.observation, p.agent.observation.completed);
