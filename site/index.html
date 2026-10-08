@@ -196,6 +196,73 @@ footer a { color: var(--muted); }
   .btn .ico { display: inline-block; }
   .cmd .btn { padding: 4px 6px; }
 }
+/* ---- The guided session: a split corgi a user drives, with notes that
+   point at what's worth seeing. Notes take the accent as a guide color. */
+.sim-band { gap: 12px; }
+.band[hidden] { display: none; }
+.sim-host { position: relative; justify-self: center; max-width: 100%; }
+.sim-stage { margin-top: 0; outline: none; }
+#v-sim { outline: none; }
+.sim-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.sim-layer > * { position: absolute; }
+.sim-in { animation: sim-in .3s ease-out both; }
+.sim-out { animation: sim-out .22s ease-in both; }
+@keyframes sim-in { from { opacity: 0; translate: 0 3px; } }
+@keyframes sim-out { to { opacity: 0; } }
+
+/* A stop pauses the session and darkens all but what the note is about.
+   Then the ring, the wire and the note come in, in that order. */
+.sim-dim { overflow: visible; pointer-events: none; animation: sim-dim .4s ease-out both; }
+.sim-dim > rect { fill: rgb(6 7 9 / .66); }
+@keyframes sim-dim { from { opacity: 0; } }
+.sim-ring.sim-in { animation: sim-ring .35s .2s cubic-bezier(.2, .8, .3, 1.2) both; }
+@keyframes sim-ring { from { opacity: 0; scale: 1.25; } }
+.sim-box.sim-in { animation-delay: .75s; }
+.sim-layer .sim-out { animation: sim-out .22s ease-in both; }
+
+/* A ring on what the note means, and a wire into the note. */
+.sim-ring { border-radius: 4px; outline: 1px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 4px rgb(123 241 168 / .08); }
+.sim-wire { left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+.sim-wire path { fill: none; stroke: var(--accent); stroke-width: 1; stroke-linejoin: miter; stroke-dasharray: var(--len) var(--len); stroke-dashoffset: var(--len); animation: sim-draw .45s .4s ease-out forwards; }
+.sim-wire circle { fill: var(--accent); }
+@keyframes sim-draw { to { stroke-dashoffset: 0; } }
+
+/* The note: a title, then one line that shows rather than tells. Set on the
+   terminal's grid at its font size. */
+.sim-box { box-sizing: border-box; display: grid; align-content: center; gap: .2em; white-space: pre; text-align: left; background: color-mix(in srgb, var(--accent) 7%, var(--pane)); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / .5); line-height: 1.3; }
+.sim-box b { color: var(--accent); font-weight: 700; }
+.sim-box .ln { color: var(--text); }
+.sim-box .k { color: var(--strong); font-weight: 700; background: var(--line); padding: 0 .4ch; border-radius: 2px; }
+.sim-box .c { color: #a9b1f5; }
+.sim-box .lk { color: var(--strong); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.sim-box .ar { color: var(--faint); }
+
+/* Keys the user presses, shown once at the bottom of the screen. */
+.sim-keys { position: absolute; z-index: 4; left: 50%; bottom: 18px; translate: -50% 0; display: flex; gap: 4px; pointer-events: none; opacity: 0; transition: opacity .2s; }
+.sim-keys.on { opacity: 1; }
+.sim-keys kbd { font-size: 13px; padding: 2px 8px; border-radius: 4px; background: var(--selected); box-shadow: 0 0 0 1px var(--line), 0 4px 12px rgb(0 0 0 / .5); }
+.sim-keys kbd.flash { animation: keyflash .25s ease-out; }
+
+/* The tour's pointer glides between stops and dips on a click. */
+#v-sim .sim-cursor { left: 0; top: 0; transition: left .55s cubic-bezier(.3, .7, .2, 1), top .55s cubic-bezier(.3, .7, .2, 1), opacity .3s; transform-origin: 0 0; }
+#v-sim .sim-cursor.press svg { transform: scale(.82); transition: transform .08s; }
+#v-sim .sim-cursor svg { transition: transform .15s; }
+#v-sim .sim-cursor.locate { animation: locate 1.1s cubic-bezier(.3, .6, .2, 1); }
+#v-sim.taken .sim-cursor { opacity: 0; }
+#v-sim.detached .badge { display: none; }
+
+/* Stops: where the tour is, and a way to jump. */
+.sim-chapters { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.sim-chapters button { position: relative; font: inherit; color: var(--faint); background: none; border: 0; padding: 3px 1ch 5px; cursor: pointer; }
+.sim-chapters button:hover { color: var(--text); }
+.sim-chapters button::after { content: ""; position: absolute; left: 1ch; right: 1ch; bottom: 1px; height: 1px; background: var(--surface); }
+.sim-chapters button[aria-current="step"] { color: var(--strong); }
+.sim-chapters button[aria-current="step"]::after { background: linear-gradient(90deg, var(--accent) var(--p, 0%), var(--line) var(--p, 0%)); }
+@media (prefers-reduced-motion: reduce) {
+  .sim-in, .sim-out, .sim-dim, .sim-ring.sim-in, .sim-wire path { animation: none; stroke-dashoffset: 0; }
+  #v-sim .sim-cursor { transition: none; }
+}
+
 </style>
 </head>
 <body>
@@ -206,7 +273,7 @@ footer a { color: var(--muted); }
       <h1>corgi</h1>
       <button class="sprite" id="sprite" type="button" aria-label="Throw the ball" title="Throw the ball"></button>
     </div>
-    <p class="lede">Friendly helper for your agents.</p>
+    <p class="lede">Terminal multiplexer for humans and agents.</p>
     <p class="love" id="love" role="img" aria-label="A love letter to the modern terminal.">A love letter to the modern terminal. &lt;3</p>
     <div class="get">
       <div class="cmd">
@@ -217,7 +284,21 @@ footer a { color: var(--muted); }
     </div>
   </header>
 
-  <section class="band" aria-label="Keeps watch">
+  <section class="band sim-band" aria-label="A corgi session">
+    <div class="sim-host" id="sim-host">
+      <div class="stage sim-stage"><div class="screen" id="v-sim" tabindex="0" aria-label="A simulated corgi session. Hover the agents, click to switch, or type in the shell." style="--cols:124;--max:14px">
+        <div class="cursor sim-cursor" id="sim-cursor" aria-hidden="true">
+          <svg class="arrow" viewBox="0 0 14 20"><path d="M1 1v15.5l4-3.8 2.7 5.8 2.4-1.1-2.6-5.6H13z" fill="#fff" stroke="#000" stroke-width="1" stroke-linejoin="round"/></svg>
+          <svg class="hand" viewBox="0 0 18 20"><path d="M6 1.2c.9 0 1.6.7 1.6 1.6V8h.3V7.2c0-.8.7-1.4 1.5-1.4s1.4.6 1.4 1.4V8h.3c0-.7.6-1.3 1.4-1.3s1.4.6 1.4 1.4v.7c.8 0 1.4.6 1.4 1.4v3.6c0 2.8-2.2 5-5 5h-1.4c-1.7 0-3.2-.9-4.1-2.3L2.3 11.6c-.4-.7-.2-1.5.4-1.9.7-.4 1.5-.2 1.9.4l-.2-.1V2.8c0-.9.7-1.6 1.6-1.6z" fill="#fff" stroke="#000" stroke-width="1" stroke-linejoin="round"/></svg>
+        </div>
+      </div></div>
+      <div class="sim-layer" id="sim-layer" aria-live="polite"></div>
+      <div class="sim-keys" id="sim-keys" aria-hidden="true"></div>
+    </div>
+    <ol class="sim-chapters" id="sim-chapters" aria-label="Tour stops"></ol>
+  </section>
+
+  <section class="band" aria-label="Keeps watch" hidden>
     <h2>keeps watch</h2>
     <div class="line">
       <p>Every agent, what it's doing, and who needs you.</p>
@@ -2018,6 +2099,635 @@ copyBtn.addEventListener("click", () => {
   };
   try { navigator.clipboard.writeText(text).catch(select); } catch { select(); }
 });
+
+// ---------------------------------------------------------------- the tour
+// A corgi session in split panes, built from keeps watch's frames. The tour
+// plays a user at work and stops now and then to point at something worth
+// seeing. Hover or click and the visitor takes over; the tour comes back a
+// few seconds after the pointer leaves.
+(() => {
+const COLS = WATCH_COLS, ROWS = WATCH_ROWS_N, SW = 34;
+const simEl = document.getElementById("v-sim"), host = document.getElementById("sim-host"), layer = document.getElementById("sim-layer");
+const keysEl = document.getElementById("sim-keys"), chaptersEl = document.getElementById("sim-chapters"), pointer = document.getElementById("sim-cursor");
+const screen = new Screen(simEl, COLS, ROWS, { badge: true });
+const rowText = (g, r) => g[r].map(([ch]) => ch).join("");
+
+// ---- state
+// moonlander splits into Claude, a finished Claude and a shell; corgi holds
+// three agents in its first tab and two in its second.
+const right = (a, b, ratio = 0.52) => ({ dir: "right", ratio, a, b }), down = (a, b, ratio = 0.5) => ({ dir: "down", ratio, a, b });
+const pane = (id) => ({ id });
+function tabsOf(ws) {
+  if (ws === "C") return [right(pane("C0"), down(pane("C2"), pane("C1"), 0.56)), right(pane("C3"), pane("C4"), 0.5)];
+  return [S.split === 1 ? pane("M0") : S.split === 2 ? right(pane("M0"), pane("M1")) : right(pane("M0"), down(pane("M1"), pane("sh"), 0.42))];
+}
+const S = {};
+function reset() {
+  Object.assign(S, {
+    ws: "M", split: 3, tab: { M: 0, C: 0 }, focus: { M: "M0", C: "C0" }, read: new Set(),
+    typed: "", history: [], server: false, link: 0, linkAt: 0,
+    hover: null, card: null, res: null, wsHover: null, linkHover: false,
+    git: "ahead", gitAt: 0, gitHover: false, approvedAt: null, tagged: false, host: null,
+  });
+}
+reset();
+const agentOf = (id) => (id === "sh" ? -1 : Number(id.slice(1)));
+const unread = () => (S.read.has(4) ? 0 : 1) + (S.tagged && !S.read.has(2) ? 1 : 0);
+
+// ---- the sidebar, from corgi's frames
+const SIDE = new Map();
+function sidebar() {
+  const ws = S.ws, ahead = S.git === "none" ? 0 : 1, fi = agentOf(S.focus[ws]), un = Math.min(1, unread());
+  const key = [ws, ahead, un, fi, [...S.read].sort().join(",")].join(":");
+  if (SIDE.has(key)) return SIDE.get(key);
+  const g = blank(ROWS, COLS);
+  F[`w34_${ws}${un}${ahead}`].forEach((row, r) => row.forEach((cell, c) => (g[r][c] = cell)));
+  const rest = F[`w34_e${ws}00`];
+  rest.forEach((row, r) => row.forEach((cell, c) => (g[AGENT_TOP + r][c] = cell)));
+  for (let i = 0; i < AGENTS[ws]; i++) {
+    const read = ws === "C" && S.read.has(i) ? 1 : 0, focus = i === fi ? 1 : 0;
+    const frame = F[ws === "C" && i === COMPACTOR ? `w34_eC${focus}0p` : `w34_e${ws}${focus}${read}`] ?? rest;
+    for (const y of [WATCH_ROWS[i], WATCH_ROWS[i] + 1]) frame[y - AGENT_TOP].forEach((cell, c) => (g[y][c] = cell));
+  }
+  tidySidebar(g);
+  const head = AGENT_TOP - 2, text = rowText(g, head), from = text.indexOf("agents") + 6, to = text.indexOf(" New");
+  for (let c = from; c < to; c++) g[head][c] = [" ", g[head][0][1]];
+  SIDE.set(key, g);
+  return g;
+}
+const LINK_ROW = WS_ROWS.M[0], LINK_TEXT = "Game ↗";
+const linkCol = () => rowText(sidebar(), LINK_ROW).indexOf(LINK_TEXT);
+const groundOf = (g, r, c) => STYLES[g[r][c][1]][1];
+
+// ---- panes
+const TAB_ON = style("strong", "selected", true), TAB_OFF = style("faint", "bg"), TAB_ADD = style("strong", "surface", true);
+const EDGE_ON = style("accent", null, true), EDGE = style("line");
+const PATH = style("#9fd39a"), URL = style("#a9b1f5"), VITE = style("accent", null, true), CURSOR = style(null, "text");
+function leaves(node, x, y, w, h, out = []) {
+  if (node.id) { out.push({ id: node.id, x, y, w, h }); return out; }
+  if (node.dir === "right") {
+    const aw = Math.max(1, Math.round((w - 1) * node.ratio));
+    leaves(node.a, x, y, aw, h, out); leaves(node.b, x + aw + 1, y, w - aw - 1, h, out);
+  } else {
+    const ah = Math.max(1, Math.round((h - 1) * node.ratio));
+    leaves(node.a, x, y, w, ah, out); leaves(node.b, x, y + ah + 1, w, h - ah - 1, out);
+  }
+  return out;
+}
+function layout() {
+  const root = tabsOf(S.ws)[S.tab[S.ws]] ?? tabsOf(S.ws)[0];
+  return root.id ? leaves(root, SW, 1, COLS - SW, ROWS - 1) : leaves(root, SW + 1, 2, COLS - SW - 2, ROWS - 3);
+}
+const prompt = (dir) => [[dir, PATH], [" $ ", A.hint]];
+function shellRows(t, focused) {
+  const rows = [...S.history];
+  if (S.server) rows.push([...prompt("~/moonlander"), ["bun run dev", A.text]], [["$ vite", A.out]], [],
+    [["  VITE", VITE], [" v7.1  ready in 212 ms", A.out]], [],
+    [["  ➜  Local:   ", A.text], ["http://localhost:3000/", URL]], [["  ➜  press h + enter to show help", A.out]]);
+  else rows.push([...prompt("~/moonlander"), [S.typed, A.text], [focused && Math.floor(t / 530) % 2 === 0 ? " " : "", CURSOR]]);
+  return rows;
+}
+// Release notes, once its tag is allowed.
+function tagRows(t, w) {
+  const spin = SPIN_CLAUDE[Math.floor(t / 120) % SPIN_CLAUDE.length];
+  return [
+    [["> draft notes for 0.9 and tag it", A.user]], [],
+    ...[["Bash", "git log --oneline v0.8..HEAD", "41 commits"], ["Write", "docs/notes/0.9.md", "Wrote 38 lines"], ["Bash", 'git tag -a v0.9 -m "corgi 0.9"', "Tagged v0.9"]]
+      .flatMap(([verb, arg, out]) => [[["⏺ ", A.done], [verb, A.tool], [`(${arg})`, A.text]], [["  ⎿  " + out, A.out]]]), [],
+    S.tagged ? [["⏺ ", A.text], ["Tagged and pushed v0.9.", A.text]] : [[spin + " Pushing the tag… ", ORANGE], [`(${Math.floor(3 + (t - S.approvedAt) / 1000)}s)`, A.hint]], [],
+    ...claudeBottom(w)];
+}
+function paneRows(id, t, w, focused) {
+  if (id === "sh") return shellRows(t, focused);
+  if (id === "C2" && S.approvedAt != null) return tagRows(t, w);
+  // keeps watch's sessions; its hidden band won't read this.
+  W.compacting = false;
+  // The shorter telling keeps watch wrote for phones reads at a glance.
+  return closeBox(phoneRows(id, t, w), w);
+}
+function drawPane(g, l, t) {
+  const focused = l.id === S.focus[S.ws], rows = paneRows(l.id, t, l.w - 2, focused);
+  // A shell fills from the top; an agent's input sits at the bottom.
+  const top = l.id === "sh" ? l.y + Math.min(0, l.h - rows.length) : l.y + l.h - rows.length;
+  rows.forEach((row, n) => {
+    const r = top + n;
+    if (r < l.y || r >= l.y + l.h) return;
+    const runs = row.runs ?? row;
+    if (row.band) put(g, r, l.x, " ".repeat(l.w), faded(row.band, 0));
+    let c = l.x + 1;
+    for (const [text, s] of runs) c = put(g, r, c, ellipsis(text, l.x + l.w - 1 - c), faded(s, 0));
+  });
+}
+function drawPanes(g, t) {
+  for (let r = 0; r < ROWS; r++) put(g, r, SW, " ".repeat(COLS - SW), R.pane);
+  const tabs = tabsOf(S.ws);
+  let c = SW;
+  tabs.forEach((_, i) => { c = put(g, 0, c, `    ${i + 1}     `, i === S.tab[S.ws] ? TAB_ON : TAB_OFF); });
+  put(g, 0, c, " + ", TAB_ADD);
+  const ls = layout();
+  if (ls.length > 1) {
+    // Every pane's outline; the focused one's in the accent.
+    const on = new Map();
+    for (const l of ls) for (let x = l.x - 1; x <= l.x + l.w; x++) for (let y = l.y - 1; y <= l.y + l.h; y++) {
+      if (x !== l.x - 1 && x !== l.x + l.w && y !== l.y - 1 && y !== l.y + l.h) continue;
+      const k = y * 1000 + x;
+      on.set(k, on.get(k) || l.id === S.focus[S.ws]);
+    }
+    const GLYPH = { ud: "│", lr: "─", dr: "┌", dl: "┐", ur: "└", ul: "┘", udr: "├", udl: "┤", dlr: "┬", ulr: "┴", udlr: "┼" };
+    for (const [k, hi] of on) {
+      const y = Math.floor(k / 1000), x = k % 1000, has = (dx, dy) => on.has((y + dy) * 1000 + x + dx);
+      const key = (has(0, -1) ? "u" : "") + (has(0, 1) ? "d" : "") + (has(-1, 0) ? "l" : "") + (has(1, 0) ? "r" : "");
+      put(g, y, x, GLYPH[key] ?? "┼", hi ? EDGE_ON : EDGE);
+    }
+  }
+  for (const l of ls) drawPane(g, l, t);
+}
+
+// ---- a frame
+const sample = (t) => Math.floor(t / 1000) % RES_SAMPLES;
+const resLeft = (ws) => Math.max(0, Math.min(SW, COLS - (RES_BOX[ws].right - RES_BOX[ws].left + 1) - 1));
+function cardFor(ws, i) {
+  const early = ws === "C" && i === COMPACTOR, read = ws === "C" && S.read.has(i) ? 1 : 0;
+  return early ? [EARLY_CARD, EARLY_BOX] : [CARDS[ws][i][read], CARD_BOX[ws][i]];
+}
+function gitLabel(now) {
+  if (S.git === "pushing") return { text: ` Pushing ${GIT_SPIN[Math.floor(now / 80) % GIT_SPIN.length]}`, fg: "accent" };
+  if (S.git === "pushed") return { text: " Pushed ✓", fg: "accent" };
+  if (S.git === "ahead" && S.gitHover) return { text: " Push ↑2", fg: "warm" };
+  return null;
+}
+function hostGrid(t) {
+  const g = blank(ROWS, COLS);
+  const rows = [[...prompt("~/dev"), ["corgi", A.text]], [...prompt("~/dev"), [S.host.typed, A.text], [Math.floor(t / 530) % 2 === 0 ? " " : "", CURSOR]]];
+  rows.forEach((runs, r) => { let c = 1; for (const [text, s] of runs) c = put(g, r, c, text, faded(s, 0)); });
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (g[r][c][1] === PLAIN) g[r][c] = [g[r][c][0], R.pane];
+  return g;
+}
+function compose(t) {
+  if (S.host) return hostGrid(t);
+  const now = performance.now();
+  if (S.git === "pushing" && now - S.gitAt > 1800) Object.assign(S, { git: "pushed", gitAt: now });
+  if (S.git === "pushed" && now - S.gitAt > 1500) Object.assign(S, { git: "none", gitHover: false });
+  const g = animate(sidebar(), t);
+  // Resources sample once a second, as in keeps watch.
+  for (const ws of ["C", "M"]) {
+    const row = RES_ROW[ws], text = rowText(g, row), cpu = text.match(/\d+%/), mem = text.match(/\d[\d.]*[GM]\b/);
+    if (cpu) put(g, row, cpu.index, RES_TOTALS[ws][sample(t)][0].padEnd(cpu[0].length));
+    if (mem) put(g, row, mem.index, RES_TOTALS[ws][sample(t)][1].padEnd(mem[0].length));
+  }
+  // moonlander's link shows once its dev server is up, a letter at a time.
+  const lc = linkCol(), shown = Math.min(LINK_TEXT.length, S.server ? Math.floor((now - S.linkAt) / 70) : 0);
+  if (lc >= 0) for (let k = shown; k < LINK_TEXT.length; k++) g[LINK_ROW][lc + k] = [" ", style("muted", groundOf(g, LINK_ROW, lc - 1))];
+  S.link = shown;
+  // Release notes once allowed: working, then finished and unread.
+  if (S.ws === "C" && S.approvedAt != null) {
+    const [r0, r1] = [WATCH_ROWS[2], WATCH_ROWS[2] + 1], bg = groundOf(g, r0, 2);
+    if (S.tagged) {
+      put(g, r0, 1, "●", style("accent", bg, true)); put(g, r0, 4, "Release notes", style("strong", bg, true));
+      put(g, r1, 1, "   ~ᐯ◡ᴥ◡ᐯ".padEnd(SW - 3), style(bg === "selected" ? "muted" : "faint", bg));
+    } else {
+      put(g, r0, 1, "▶", style("accent", bg, true));
+      put(g, r1, 1, `${GIT_SPIN[Math.floor(t / 80) % GIT_SPIN.length]}  Pushing the tag`.padEnd(SW - 3), style("text", bg));
+      put(g, r1, 1, GIT_SPIN[Math.floor(t / 80) % GIT_SPIN.length], style(bg === "selected" ? "muted" : "faint", bg));
+    }
+  }
+  if (unread() > 1) { const text = rowText(g, 3), at = text.indexOf("1 unread"); if (at >= 0) put(g, 3, at, "2"); }
+  const label = gitLabel(now);
+  if (label) put(g, 2, SW - 2 - Array.from(label.text).length, label.text, style(label.fg, "selected", true));
+  // The workspace not shown fades back until the pointer comes to it.
+  const other = S.ws === "C" ? "M" : "C";
+  if (S.wsHover !== other && S.res !== other) for (const r of WS_ROWS[other]) for (let c = 0; c < SW - 1; c++) {
+    const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc] = STYLES[s];
+    if (fg) g[r][c] = [ch, style(mix(fg, "bg", 0.45), bg, bold, ul, ulc)];
+  }
+  if (S.res) for (let c = 1; c < SW - 2; c++) {
+    const row = RES_ROW[S.res], [ch, s] = g[row][c], [fg, , bold, ul, ulc] = STYLES[s];
+    g[row][c] = [ch, style(fg === "faint" || fg === "muted" ? "text" : fg, "selected", bold, ul, ulc)];
+  }
+  if (S.hover != null) for (const r of [WATCH_ROWS[S.hover], WATCH_ROWS[S.hover] + 1]) for (let c = 0; c < SW - 2; c++) {
+    const [ch, s] = g[r][c], [fg, bg, bold, ul, ulc] = STYLES[s];
+    if (bg === "bg") g[r][c] = [ch, style(fg, HOVER_BG, bold, ul, ulc)];
+  }
+  drawPanes(g, t);
+  if (S.linkHover) CHIP.forEach((cell, c) => (g[ROWS - 1][c] = cell));
+  if (S.res) overlay(g, RES[S.res][sample(t)], RES_BOX[S.res], SW, resLeft(S.res));
+  else if (S.card != null) { const [frame, box] = cardFor(S.ws, S.card); overlay(g, frame, box, SW, box.left); }
+  else if (S.gitHover && S.git !== "none") overlay(g, F.git, GIT_BOX, SW, GIT_BOX.left);
+  return g;
+}
+
+// ---- notes: a ring on each target, a small box, and wires between
+const SVG = "http://www.w3.org/2000/svg";
+const STEPS4 = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // right, down, left, up
+const TURN = 5, CROSS = 6, GAP = 30;
+const cellPx = () => {
+  const term = simEl.getBoundingClientRect(), box = host.getBoundingClientRect();
+  return { cw: term.width / COLS, rh: term.height / ROWS, x: term.left - box.left, y: term.top - box.top };
+};
+const NOTE = { spec: null, els: null, plan: null, frozen: null };
+const el = (tag, cls, html = "") => Object.assign(document.createElement(tag), { className: cls, innerHTML: html });
+function noteOn(spec) {
+  noteOff(true);
+  const box = el("div", "sim-box sim-in", `<b>${spec.title}</b>${spec.line ? `<span class="ln">${spec.line}</span>` : ""}`);
+  const wire = document.createElementNS(SVG, "svg");
+  wire.classList.add("sim-wire");
+  // Everything the note isn't about darkens.
+  const dim = document.createElementNS(SVG, "svg");
+  dim.classList.add("sim-dim");
+  NOTE.spec = spec; NOTE.plan = null; NOTE.frozen = null;
+  NOTE.els = { box, wire, dim, rings: [] };
+  layer.append(dim, wire, box);
+}
+function noteOff(now = false) {
+  if (!NOTE.els) return;
+  const nodes = [NOTE.els.box, NOTE.els.wire, NOTE.els.dim, ...NOTE.els.rings];
+  NOTE.spec = NOTE.els = NOTE.plan = NOTE.frozen = null;
+  if (now || still) return nodes.forEach((n) => n.remove());
+  nodes.forEach((n) => n.classList?.add("sim-out") ?? (n.style.opacity = 0));
+  setTimeout(() => nodes.forEach((n) => n.remove()), 260);
+}
+// Cells a wire may pass: blanks freely, a line only straight across it.
+function kinds(g, blocked) {
+  const n = ROWS * COLS, cost = new Float32Array(n).fill(Infinity), line = new Uint8Array(n), gap = new Uint8Array(n);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const ch = g[r][c][0], i = r * COLS + c;
+    if (blocked(r, c)) continue;
+    if (ch === " ") cost[i] = 0;
+    else if (ch === "│") { cost[i] = CROSS; line[i] = 1; }
+    else if (ch === "─") { cost[i] = CROSS; line[i] = 2; }
+    gap[i] = ch === " " && c > 0 && c < COLS - 1 && /\S/.test(g[r][c - 1][0]) && /\S/.test(g[r][c + 1][0]) ? 1 : 0;
+  }
+  return { cost, line, gap };
+}
+// Cheapest wire from a target's edge to a cell beside the box.
+function route(k, t, b) {
+  const { cost, line, gap } = k, N = ROWS * COLS * 4, dist = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), heap = [];
+  const push = (s, d) => { heap.push([d, s]); for (let i = heap.length - 1; i > 0;) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; for (let i = 0; ;) { const a = 2 * i + 1, c = a + 1; let m = i; if (a < heap.length && heap[a][0] < heap[m][0]) m = a; if (c < heap.length && heap[c][0] < heap[m][0]) m = c; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
+  const crosses = (i, d) => !line[i] || (line[i] === 1 ? d % 2 === 0 : d % 2 === 1);
+  const seed = (r, c, d) => {
+    if (r < 0 || c < 0 || r >= ROWS || c >= COLS) return;
+    const i = r * COLS + c, s = i * 4 + d;
+    if (cost[i] === Infinity || !crosses(i, d) || cost[i] >= dist[s]) return;
+    dist[s] = cost[i]; push(s, cost[i]);
+  };
+  for (let r = t.r0; r <= t.r1; r++) { seed(r, t.c1 + 1, 0); seed(r, t.c0 - 1, 2); }
+  for (let c = t.c0; c <= t.c1; c++) { seed(t.r0 - 1, c, 3); seed(t.r1 + 1, c, 1); }
+  while (heap.length) {
+    const [d, s] = pop();
+    if (d > dist[s]) continue;
+    const i = s >> 2, dir = s & 3, r = Math.floor(i / COLS), c = i % COLS;
+    for (let nd = 0; nd < 4; nd++) {
+      if (nd === (dir + 2) % 4 || (line[i] && nd !== dir)) continue;
+      const nr = r + STEPS4[nd][0], nc = c + STEPS4[nd][1];
+      if (nr < 0 || nc < 0 || nr >= ROWS || nc >= COLS) continue;
+      const ni = nr * COLS + nc;
+      if (cost[ni] === Infinity || !crosses(ni, nd)) continue;
+      const d2 = d + 1 + cost[ni] + (nd === dir ? 0 : TURN) + (gap[ni] && nd % 2 ? GAP : 0), ns = ni * 4 + nd;
+      if (d2 < dist[ns]) { dist[ns] = d2; prev[ns] = s; push(ns, d2); }
+    }
+  }
+  // Into the box's side (cheaper) or its top or bottom.
+  const ends = [];
+  for (let r = b.r; r < b.r + b.h; r++) ends.push([r, b.c - 1, 0, 0], [r, b.c + b.w, 2, 0]);
+  for (let c = b.c; c < b.c + b.w; c++) ends.push([b.r - 1, c, 1, 3], [b.r + b.h, c, 3, 3]);
+  let best = null;
+  for (const [r, c, into, extra] of ends) {
+    if (r < 0 || c < 0 || r >= ROWS || c >= COLS) continue;
+    const s = (r * COLS + c) * 4 + into;
+    if (dist[s] === Infinity || (best && dist[s] + extra >= best.score)) continue;
+    best = { score: dist[s] + extra, s, into };
+  }
+  if (!best) return null;
+  const cells = [];
+  for (let s = best.s; s >= 0; s = prev[s]) cells.push(s);
+  cells.reverse();
+  return { cells: cells.map((q) => ({ r: Math.floor((q >> 2) / COLS), c: (q >> 2) % COLS })), out: cells[0] & 3, into: best.into, t };
+}
+const overlaps = (a, b, m = 0) => a.r0 - m <= b.r1 && b.r0 - m <= a.r1 && a.c0 - m <= b.c1 && b.c0 - m <= a.c1;
+// The box: near the middle of its region, over as little text as it can.
+function placeBox(g, spec, w, h, targets) {
+  const reg = spec.region ?? { r0: 2, r1: ROWS - 2, c0: SW + 2, c1: COLS - 3 };
+  const mr = (reg.r0 + reg.r1 - h) / 2, mc = (reg.c0 + reg.c1 - w) / 2;
+  let best = null;
+  for (let r = reg.r0; r + h - 1 <= reg.r1; r++) for (let c = reg.c0; c + w - 1 <= reg.c1; c++) {
+    const box = { r0: r, r1: r + h - 1, c0: c, c1: c + w - 1 };
+    if (targets.some((t) => overlaps(box, t, 2))) continue;
+    // Text under the box counts most; text right beside it, a little.
+    let ink = 0;
+    for (let rr = r - 1; rr <= r + h; rr++) for (let cc = c - 2; cc < c + w + 2; cc++) {
+      if (g[rr]?.[cc] == null || g[rr][cc][0] === " ") continue;
+      ink += rr >= r && rr < r + h && cc >= c && cc < c + w ? 1 : 0.25;
+    }
+    const score = 4 * ink + 1.5 * Math.abs(r - mr) + 0.4 * Math.abs(c - mc);
+    if (!best || score < best.score) best = { r, c, w, h, score };
+  }
+  return best;
+}
+// Key caps carry a little padding each: a cell apiece.
+const textWidth = (html) => Array.from(html.replace(/<[^>]+>/g, "").replace(/&[a-z]+;/g, "x")).length + (html.match(/class="k"/g) ?? []).length;
+function plan(g) {
+  const spec = NOTE.spec, targets = spec.targets?.(g).filter(Boolean) ?? [];
+  const lines = spec.line ? 2 : 1, w = Math.max(textWidth(spec.title), spec.line ? textWidth(spec.line) : 0) + 4, h = lines + 1;
+  const box = placeBox(g, spec, w, h, targets);
+  if (!box) return null;
+  const inBox = (r, c) => r >= box.r && r < box.r + box.h && c >= box.c && c < box.c + box.w;
+  const wires = targets.map((t) => {
+    const others = targets.filter((o) => o !== t);
+    return route(kinds(g, (r, c) => inBox(r, c) || others.some((o) => r >= o.r0 - 1 && r <= o.r1 + 1 && c >= o.c0 - 1 && c <= o.c1 + 1) || (r >= t.r0 && r <= t.r1 && c >= t.c0 && c <= t.c1)), t, box);
+  });
+  return { box, targets, wires, key: JSON.stringify(targets) };
+}
+function drawNote(g) {
+  if (!NOTE.spec) return;
+  const targets = NOTE.spec.targets?.(g).filter(Boolean) ?? [];
+  if (!NOTE.plan || NOTE.plan.key !== JSON.stringify(targets)) NOTE.plan = plan(g);
+  const p = NOTE.plan, e = NOTE.els;
+  if (!p) return;
+  const { cw, rh, x, y } = cellPx(), fs = getComputedStyle(simEl).fontSize;
+  // Rings, one a target.
+  while (e.rings.length < p.targets.length) { const ring = el("div", "sim-ring sim-in"); e.rings.push(ring); layer.append(ring); }
+  const ringOf = (t) => ({ x: x + t.c0 * cw - 3, y: y + t.r0 * rh - 2, w: (t.c1 - t.c0 + 1) * cw + 6, h: (t.r1 - t.r0 + 1) * rh + 4 });
+  p.targets.forEach((t, k) => { const q = ringOf(t); Object.assign(e.rings[k].style, { left: `${q.x}px`, top: `${q.y}px`, width: `${q.w}px`, height: `${q.h}px` }); });
+  // The dim: the whole terminal, with a hole over each ring.
+  const tw = COLS * cw, th = ROWS * rh;
+  const holes = p.targets.map((t) => { const q = ringOf(t); return `<rect x="${q.x - x - 2}" y="${q.y - y - 2}" width="${q.w + 4}" height="${q.h + 4}" rx="5"/>`; }).join("");
+  if (e.dim.dataset.holes !== holes + tw) {
+    e.dim.dataset.holes = holes + tw;
+    Object.assign(e.dim.style, { left: `${x}px`, top: `${y}px`, width: `${tw}px`, height: `${th}px` });
+    e.dim.setAttribute("viewBox", `0 0 ${tw} ${th}`);
+    e.dim.innerHTML = `<defs><mask id="sim-hole"><rect width="${tw}" height="${th}" fill="#fff"/><g fill="#000">${holes}</g></mask></defs><rect width="${tw}" height="${th}" mask="url(#sim-hole)"/>`;
+  }
+  const bx = x + p.box.c * cw, by = y + p.box.r * rh, bw = p.box.w * cw, bh = p.box.h * rh;
+  Object.assign(e.box.style, { left: `${bx}px`, top: `${by}px`, width: `${bw}px`, height: `${bh}px`, fontSize: fs, padding: `0 ${2 * cw - 1}px` });
+  // Wires through cell centers, turning only at right angles.
+  const cx = (c) => x + (c + 0.5) * cw, cy = (r) => y + (r + 0.5) * rh;
+  let d = "", dots = "", len = 0;
+  p.wires.forEach((wv, k) => {
+    if (!wv) return;
+    const ring = ringOf(p.targets[k]), first = wv.cells[0], last = wv.cells[wv.cells.length - 1];
+    const start = [[ring.x + ring.w + 1, cy(first.r)], [cx(first.c), ring.y + ring.h + 1], [ring.x - 1, cy(first.r)], [cx(first.c), ring.y - 1]][wv.out];
+    const end = [[bx, cy(last.r)], [cx(last.c), by], [bx + bw, cy(last.r)], [cx(last.c), by + bh]][wv.into];
+    const pts = [start, ...wv.cells.map((q) => [cx(q.c), cy(q.r)]), end].map(([px, py]) => [Math.round(px) + 0.5, Math.round(py) + 0.5]);
+    const knees = pts.filter((pt, i) => i === 0 || i === pts.length - 1 || !((pt[0] === pts[i - 1][0] && pt[0] === pts[i + 1][0]) || (pt[1] === pts[i - 1][1] && pt[1] === pts[i + 1][1])));
+    d += "M" + knees.map((pt) => pt.join(" ")).join(" L");
+    for (let i = 1; i < knees.length; i++) len += Math.abs(knees[i][0] - knees[i - 1][0]) + Math.abs(knees[i][1] - knees[i - 1][1]);
+    dots += `<circle r="2.5" cx="${knees[0][0]}" cy="${knees[0][1]}"/>`;
+  });
+  if (e.wire.dataset.d !== d) {
+    e.wire.dataset.d = d;
+    e.wire.innerHTML = `<path d="${d}"/>${dots}`;
+    e.wire.style.setProperty("--len", Math.ceil(len + 4));
+  }
+}
+
+// ---- finding things on screen
+function find(g, text, { r0 = 0, r1 = ROWS - 1, c0 = 0, c1 = COLS - 1 } = {}) {
+  for (let r = r0; r <= r1; r++) {
+    const at = rowText(g, r).slice(c0, c1 + 1).indexOf(text);
+    if (at >= 0) return { r0: r, r1: r, c0: c0 + at, c1: c0 + at + Array.from(text).length - 1 };
+  }
+  return null;
+}
+const paneRect = (id) => layout().find((l) => l.id === id);
+const inPane = (id) => { const l = paneRect(id); return l && { r0: l.y, r1: l.y + l.h - 1, c0: l.x, c1: l.x + l.w - 1 }; };
+const agentRows = (i) => ({ r0: WATCH_ROWS[i], r1: WATCH_ROWS[i] + 1, c0: 1, c1: SW - 3 });
+
+// What the tour says at each stop: a title and one line that shows it.
+const k = (s) => `<span class="k">${s}</span>`, ar = `<span class="ar"> → </span>`;
+const NOTES = {
+  panes: { title: "Panes and tabs", line: `${k("Ctrl-B v")} ${k("Ctrl-B -")} ${k("Ctrl-B c")}`, targets: (g) => [find(g, "    1     ", { r0: 0, r1: 0, c0: SW })] },
+  systems: { title: "Find your systems", line: `<span class="c">bun run dev</span>${ar}<span class="lk">Game ↗</span>`, targets: (g) => [find(g, "bun run dev", inPane("sh") ?? {}), find(g, LINK_TEXT, { r0: LINK_ROW, r1: LINK_ROW })] },
+  agents: { title: "Every agent, live", line: `<b>▶</b> working  <b style="color:var(--warm)">●</b> needs you  <b>●</b> done`, targets: () => [{ r0: AGENT_TOP, r1: WATCH_ROWS[4] + 1, c0: 1, c1: SW - 3 }] },
+  needs: { title: "Needs you", line: "click, you're there", targets: (g) => [agentRows(2), find(g, "Do you want to proceed?", inPane("C2") ?? {})] },
+  story: { title: "Every step, on hover", line: "phases · tokens · context", targets: (g) => { const at = find(g, "Recent"), box = CARD_BOX.C[0]; return [at && { r0: at.r0 + 1, r1: at.r0 + 5, c0: box.left + 3, c1: box.right - 3 }]; } },
+  push: { title: "Unpushed work", line: `<span style="color:var(--warm)">↑2</span>${ar}Pushed ✓`, targets: (g) => [find(g, "Push ↑2", { r0: 2, r1: 2 })] },
+  resources: { title: "CPU and memory", line: "per workspace, live", targets: () => [{ r0: RES_ROW.C, r1: RES_ROW.C, c0: 1, c1: SW - 3 }], region: { r0: 14, r1: ROWS - 2, c0: SW + 2, c1: COLS - 3 } },
+  background: { title: "Runs in the background", line: `${k("Ctrl-B d")} close${ar}<span class="c">$ corgi</span> back`, targets: () => [], region: { r0: 4, r1: 18, c0: 30, c1: 94 } },
+  back: { title: "While you were away", line: "finished, waiting for you", targets: (g) => [find(g, "unread →", { r0: 3, r1: 3 })], region: { r0: 6, r1: ROWS - 2, c0: SW + 2, c1: COLS - 3 } },
+};
+
+// ---- the pointer and the keys
+const P = { r: 10, c: 60, shown: false };
+function go(r, c) {
+  Object.assign(P, { r, c });
+  if (!P.shown && !still) { P.shown = true; pointer.classList.add("on"); pointer.classList.remove("locate"); void pointer.offsetWidth; pointer.classList.add("locate"); }
+  placePointer();
+}
+function placePointer() {
+  const { cw, rh } = cellPx();
+  pointer.style.left = `${(P.c + 0.4) * cw}px`;
+  pointer.style.top = `${(P.r + 0.5) * rh}px`;
+}
+const goTo = (t) => t && go(Math.round((t.r0 + t.r1) / 2), Math.round((t.c0 + t.c1) / 2));
+function press(hand = true) {
+  pointer.classList.toggle("over", hand);
+  pointer.classList.add("press");
+  setTimeout(() => pointer.classList.remove("press"), 140);
+}
+let keysTimer = 0;
+function keys(...names) {
+  keysEl.innerHTML = names.map((n) => `<kbd class="flash">${n}</kbd>`).join("");
+  keysEl.classList.add("on");
+  clearTimeout(keysTimer);
+  keysTimer = setTimeout(() => keysEl.classList.remove("on"), 1300);
+}
+function type(text, per, into) {
+  Array.from(text).forEach((ch, i) => tour.later(i * per, () => into(ch)));
+}
+
+// ---- the tour: stops, each a set-up and a few beats
+const atSide = (g, text) => find(g, text, { c1: SW - 2 });
+const now = () => performance.now();
+const startServer = () => Object.assign(S, { server: true, linkAt: now() + 500, typed: "" });
+const ready = () => { reset(); Object.assign(S, { server: true, linkAt: -1e9 }); };
+const inC = () => { ready(); S.ws = "C"; };
+const STOPS = [
+  { name: "panes", ms: 6200, enter: () => { reset(); S.split = 1; }, beats: [
+    [300, () => goTo(inPane("M0"))],
+    [900, () => keys("Ctrl-B", "v")], [1150, () => Object.assign(S, { split: 2, focus: { ...S.focus, M: "M1" } })],
+    [2000, () => keys("Ctrl-B", "-")], [2250, () => Object.assign(S, { split: 3, focus: { ...S.focus, M: "sh" } })],
+    [2900, () => noteOn(NOTES.panes)], [5700, () => noteOff()]] },
+  { name: "systems", ms: 9600, enter: () => { reset(); S.focus.M = "sh"; }, beats: [
+    [200, () => { const l = paneRect("sh"); go(l.y + 1, l.x + 20); }],
+    [700, () => press(false)],
+    [1000, () => type("bun run dev", 70, (ch) => (S.typed += ch))],
+    [1950, () => { keys("⏎"); startServer(); }],
+    [2900, () => noteOn(NOTES.systems)], [6300, () => noteOff()],
+    [6600, () => goTo(find(compose(0), LINK_TEXT, { r0: LINK_ROW, r1: LINK_ROW }))],
+    [7200, () => { S.linkHover = true; pointer.classList.add("over"); }], [9000, () => (S.linkHover = false)]] },
+  { name: "agents", ms: 5800, enter: () => { ready(); }, beats: [
+    [200, () => go(WS_ROWS.C[0], 8)], [800, () => { press(); S.ws = "C"; }],
+    [1300, () => noteOn(NOTES.agents)], [5000, () => noteOff()]] },
+  { name: "needs you", ms: 7000, enter: inC, beats: [
+    [200, () => go(WATCH_ROWS[2], 12)], [600, () => (S.hover = 2)],
+    [1000, () => { press(); Object.assign(S, { hover: null, focus: { ...S.focus, C: "C2" } }); }],
+    [1400, () => noteOn(NOTES.needs)], [4600, () => noteOff()],
+    [5000, () => keys("1")], [5200, () => (S.approvedAt = now())]] },
+  { name: "on hover", ms: 6000, enter: () => { inC(); S.approvedAt = now() - 4000; }, beats: [
+    [200, () => go(WATCH_ROWS[0], 12)], [700, () => Object.assign(S, { hover: 0, card: 0 })],
+    [1200, () => noteOn(NOTES.story)], [4500, () => noteOff()], [5100, () => Object.assign(S, { hover: null, card: null })]] },
+  { name: "push", ms: 6400, enter: () => { inC(); S.approvedAt = now() - 8000; }, beats: [
+    [200, () => go(2, SW - 4)], [700, () => (S.gitHover = true)],
+    [1100, () => noteOn(NOTES.push)], [3800, () => noteOff()],
+    [4100, () => { press(); Object.assign(S, { git: "pushing", gitAt: now() }); }]] },
+  { name: "resources", ms: 5400, enter: () => { inC(); Object.assign(S, { approvedAt: now() - 12000, git: "none" }); }, beats: [
+    [200, () => go(RES_ROW.C, 10)], [700, () => (S.res = "C")],
+    [1100, () => noteOn(NOTES.resources)], [4300, () => noteOff()], [4800, () => (S.res = null)]] },
+  { name: "background", ms: 10200, enter: () => { inC(); Object.assign(S, { approvedAt: now() - 15000, git: "none" }); }, beats: [
+    [300, () => go(12, 80)], [600, () => keys("Ctrl-B", "d")], [850, () => (S.host = { typed: "" })],
+    [1300, () => noteOn(NOTES.background)], [4600, () => noteOff()],
+    [4900, () => type("corgi", 90, (ch) => S.host && (S.host.typed += ch))], [5500, () => keys("⏎")],
+    [5700, () => Object.assign(S, { host: null, tagged: true })],
+    [6300, () => { goTo(find(compose(0), "unread →", { r0: 3, r1: 3 })); noteOn(NOTES.back); }], [9600, () => noteOff()]] },
+];
+
+const tour = {
+  i: 0, at: 0, beat: 0, pending: [], taken: false, resumeAt: 0,
+  start(i) {
+    this.i = i % STOPS.length; this.at = now(); this.beat = 0; this.pending = [];
+    noteOff(true);
+    STOPS[this.i].enter();
+    pointer.classList.remove("over");
+    markChapter();
+  },
+  later(ms, fn) { this.pending.push([now() + ms, fn]); },
+  tick() {
+    if (this.frozen) { this.pending.forEach(([, fn]) => fn()); this.pending = []; return; }
+    if (this.taken) {
+      if (!this.inside && now() >= this.resumeAt) { this.taken = false; simEl.classList.remove("taken"); P.shown = false; this.start(this.i + 1); }
+      return;
+    }
+    const stop = STOPS[this.i], t = now() - this.at;
+    while (this.beat < stop.beats.length && stop.beats[this.beat][0] <= t) stop.beats[this.beat++][1]();
+    this.pending = this.pending.filter(([at, fn]) => (at <= now() ? (fn(), false) : true));
+    chaptersEl.querySelectorAll("button")[this.i]?.style.setProperty("--p", `${Math.min(100, (100 * t) / stop.ms)}%`);
+    if (t >= stop.ms) this.start(this.i + 1);
+  },
+};
+// For checking a stop by hand: simFreeze(stop, ms) holds the tour there.
+window.simFreeze = (i, ms) => { tour.frozen = false; tour.start(i); tour.at = now() - ms; tour.tick(); tour.frozen = true; };
+window.simThaw = () => { tour.frozen = false; };
+STOPS.forEach((stop, i) => {
+  const b = chaptersEl.appendChild(document.createElement("li")).appendChild(document.createElement("button"));
+  b.type = "button"; b.textContent = stop.name;
+  b.addEventListener("click", () => { tour.taken = false; simEl.classList.remove("taken"); tour.start(i); });
+});
+function markChapter() {
+  chaptersEl.querySelectorAll("button").forEach((b, k) => (k === tour.i ? b.setAttribute("aria-current", "step") : (b.removeAttribute("aria-current"), b.style.removeProperty("--p"))));
+}
+
+// ---- the visitor's own hands
+const cellAt = (e) => { const b = simEl.getBoundingClientRect(); return { col: Math.floor((e.clientX - b.left) / (b.width / COLS)), row: Math.floor((e.clientY - b.top) / (b.height / ROWS)) }; };
+const side = ({ col }) => col < SW - 1;
+const agentAt = (at) => (side(at) ? WATCH_ROWS.slice(0, AGENTS[S.ws]).findIndex((y) => at.row === y || at.row === y + 1) : -1);
+const linkAt = ({ row, col }) => { const lc = linkCol(); return row === LINK_ROW && S.link >= LINK_TEXT.length && col >= lc && col < lc + LINK_TEXT.length; };
+const gitAt = ({ row, col }) => row === 2 && S.git === "ahead" && col >= SW - 2 - (S.gitHover ? 8 : 2) && col < SW - 2;
+const resAt = (at) => (side(at) ? (at.row === RES_ROW.C ? "C" : at.row === RES_ROW.M ? "M" : null) : null);
+const wsAt = (at) => (side(at) ? (WS_ROWS.C.includes(at.row) ? "C" : WS_ROWS.M.includes(at.row) ? "M" : null) : null);
+const unreadAt = ({ row, col }) => { if (row !== 3 || col >= SW - 1) return false; const t = find(compose(0), "unread →", { r0: 3, r1: 3 }); return !!t && col >= t.c0 - 2 && col <= t.c1; };
+const tabAt = ({ row, col }) => (row === 0 && col >= SW ? Math.floor((col - SW) / 10) : -1);
+const paneAt = ({ row, col }) => layout().find((l) => row >= l.y - 1 && row <= l.y + l.h && col >= l.x - 1 && col <= l.x + l.w)?.id;
+const within = ({ col, row }, box) => row >= box.top && row <= box.bottom && col >= box.left && col <= box.right;
+function focusAgent(i) {
+  const id = S.ws + i, tab = tabsOf(S.ws).findIndex((root) => leaves(root, 0, 0, 90, 20).some((l) => l.id === id));
+  S.tab[S.ws] = Math.max(0, tab);
+  S.focus[S.ws] = id;
+  if (S.ws === "C") S.read.add(i);
+}
+// The visitor takes over by moving the pointer over the screen or clicking,
+// not by a pointer that happens to rest where the page scrolled.
+function takeOver() {
+  if (tour.taken) return;
+  Object.assign(tour, { taken: true, inside: true });
+  simEl.classList.add("taken");
+  noteOff();
+  keysEl.classList.remove("on");
+}
+simEl.addEventListener("mouseenter", () => { tour.inside = true; });
+simEl.addEventListener("mouseleave", () => {
+  tour.inside = false; tour.resumeAt = now() + 4000;
+  Object.assign(S, { hover: null, card: null, res: null, wsHover: null, linkHover: false, gitHover: false });
+});
+simEl.addEventListener("mousemove", (e) => {
+  if (!tour.taken && !e.movementX && !e.movementY) return;
+  takeOver();
+  if (S.host) return;
+  const at = cellAt(e), i = agentAt(at);
+  S.wsHover = wsAt(at);
+  if (S.res && within(at, { ...RES_BOX[S.res], left: resLeft(S.res), right: resLeft(S.res) + RES_BOX[S.res].right - RES_BOX[S.res].left }) && !resAt(at)) return;
+  S.linkHover = linkAt(at);
+  S.res = S.linkHover ? null : resAt(at);
+  S.gitHover = gitAt(at) || (S.gitHover && S.git !== "none" && within(at, GIT_BOX));
+  const card = S.card == null ? null : cardFor(S.ws, S.card)[1];
+  if (card && within(at, card)) return;
+  S.hover = !S.linkHover && !S.res && i >= 0 ? i : null;
+  S.card = S.hover;
+  simEl.style.cursor = S.linkHover || S.res || i >= 0 || gitAt(at) || wsAt(at) || tabAt(at) >= 0 || unreadAt(at) ? "pointer" : "";
+});
+simEl.addEventListener("click", (e) => {
+  takeOver();
+  const at = cellAt(e);
+  simEl.focus({ preventScroll: true });
+  if (S.host) return;
+  if (linkAt(at) || S.res) return;
+  if (gitAt(at)) return Object.assign(S, { git: "pushing", gitAt: now() });
+  if (unreadAt(at)) { if (S.ws !== "C") S.ws = "C"; focusAgent(S.tagged && !S.read.has(2) ? 2 : 4); return Object.assign(S, { card: null }); }
+  const i = agentAt(at);
+  if (i >= 0) { focusAgent(i); return Object.assign(S, { card: null, hover: null }); }
+  const ws = wsAt(at);
+  if (ws) return Object.assign(S, { ws, hover: null, card: null });
+  const tab = tabAt(at), tabs = tabsOf(S.ws).length;
+  if (tab >= 0 && tab < tabs) { S.tab[S.ws] = tab; S.focus[S.ws] = layout()[0].id; return; }
+  const id = paneAt(at);
+  if (id) S.focus[S.ws] = id;
+});
+// Typing reaches the shell when it has focus: `bun run dev` starts the server.
+simEl.addEventListener("keydown", (e) => {
+  if (S.host || S.focus[S.ws] !== "sh" || S.ws !== "M" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "Enter") {
+    const cmd = S.typed.trim();
+    if (cmd === "bun run dev" && !S.server) startServer();
+    else if (!S.server) { S.history.push([...prompt("~/moonlander"), [S.typed, A.text]]); if (cmd) S.history.push([[cmd === "clear" ? "" : `zsh: try bun run dev`, A.out]]); if (cmd === "clear") S.history = []; S.typed = ""; }
+  } else if (e.key === "Backspace") S.typed = S.typed.slice(0, -1);
+  else if (e.key.length === 1 && !S.server) S.typed += e.key;
+  else return;
+  e.preventDefault();
+});
+
+// ---- fit and run
+const band = host.closest(".band");
+let seen = false, last = now();
+function fit() {
+  const room = band.clientWidth - 26;
+  const fs = Math.min(14, Math.max(5, room / (COLS * 0.6)));
+  simEl.style.setProperty("--fs", `${fs}px`);
+  if (NOTE.plan) NOTE.plan = null;
+}
+new ResizeObserver(fit).observe(band);
+document.fonts?.ready.then(fit);
+new IntersectionObserver(([entry]) => { seen = entry.isIntersecting; }).observe(simEl);
+fit();
+tour.start(0);
+function run() {
+  const t = now(), dt = t - last;
+  last = t;
+  // Off screen, the tour waits where it is.
+  if (!seen) { tour.at += dt; tour.pending.forEach((p) => (p[0] += dt)); return; }
+  simEl.classList.toggle("detached", !!S.host);
+  {
+    tour.tick();
+    // A note pauses the session: the screen holds the frame it opened on.
+    const g = NOTE.spec && !tour.taken ? (NOTE.frozen ??= compose(t)) : compose(t);
+    screen.paint(g);
+    drawNote(g);
+    placePointer();
+  }
+}
+run();
+setInterval(run, 50);
+})();
+
 </script>
 </body>
 </html>
