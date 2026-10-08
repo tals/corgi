@@ -2,7 +2,7 @@ import { milliTimestamp } from "../clock";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { networkInterfaces, endianness } from "node:os";
-import { readFile, readdir, readlink } from "node:fs/promises";
+import { open, readFile, readdir, readlink, stat } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { identify } from "../detection";
@@ -393,9 +393,117 @@ async function command(argv: string[], allowPartial = false, signal?: AbortSigna
     return allowPartial && (e as any).code === 1 && typeof (e as any).stdout === "string" ? (e as any).stdout : null;
   }
 }
-export async function probe(e: Endpoint, signal?: AbortSignal) {
+/** What a server's output or command line says about one of its ports. A URL
+ * names the scheme; an address, "port N" or a --port flag does not. */
+export type Announcement = "http" | "https" | "address" | "flag";
+const strength: Record<Announcement, number> = { flag: 1, address: 2, http: 3, https: 3 };
+const stronger = (a: Announcement, than: Announcement | null) => strength[a] > (than ? strength[than] : 0);
+const serving = /\b(listen|serv|running|started|starting|ready|available|bound|open)/i;
+// A distributed job logs its own sockets; those are not for browsers.
+const internal = /\b(c10d|nccl|gloo|rdzv|rendezvous|tcpstore)\b/i;
+/** Whether `text` says a server listens on `port`: a URL with the port, or an
+ * address or "port N" on a line about serving. Ports nobody printed, like the
+ * ones NCCL or ZMQ bind with port 0, stay unannounced. */
+export function announcement(text: string, port: number): Announcement | null {
+  const digits = String(port);
+  if (!text.includes(digits)) return null;
+  // ":8080", "0.0.0.0:8080", "[::]:8080", "localhost:8080" or "port 8080", but
+  // not "server.js:8080:12".
+  const address = new RegExp(
+    `(?:^|[\\s(=@"'])(?:localhost|\\d{1,3}(?:\\.\\d{1,3}){3}|\\[[0-9A-Fa-f:.]*\\]|::|\\*)?:${digits}(?![\\d:])|\\bport\\b\\W{0,3}${digits}(?!\\d)`,
+    "i",
+  );
+  let found: Announcement | null = null;
+  for (const line of text.split("\n")) {
+    if (!line.includes(digits) || internal.test(line)) continue;
+    for (const m of line.matchAll(/\b(https?):\/\/(?:\[[0-9A-Fa-f:.]*\]|[\w.-]+):(\d{1,5})(?!\d)/gi))
+      if (Number(m[2]) === port) return m[1].toLowerCase() === "https" ? "https" : "http";
+    if (serving.test(line) && address.test(line)) found = "address";
+  }
+  return found;
+}
+const portFlags = new Set(["--port", "-p", "--http-port", "--listen", "--bind", "-b", "--address", "--addr"]);
+/** Whether a command line chose `port` with a flag such as `--port 8000` or
+ * `--bind 0.0.0.0:8000`. */
+export function flagged(args: string[], port: number): boolean {
+  const digits = String(port);
+  return args.some((arg, i) => {
+    const equals = arg.indexOf("="),
+      value = equals < 0 ? args[i + 1] : arg.slice(equals + 1);
+    return (
+      portFlags.has(equals < 0 ? arg : arg.slice(0, equals)) &&
+      value !== undefined &&
+      (value === digits || value.endsWith(":" + digits))
+    );
+  });
+}
+/** A listening process's command line, and the files its stdout and stderr
+ * write to. An agent's background command writes to a file, not the pane. */
+export type Origin = { args: string[]; outputs: string[] };
+export async function origins(pids: number[], signal?: AbortSignal): Promise<Map<number, Origin>> {
+  const out = new Map(pids.map(pid => [pid, { args: [], outputs: [] } as Origin]));
+  const words = (text: string) => text.split(/[\0\s]+/).filter(Boolean);
+  if (process.platform === "linux") {
+    for (const [pid, origin] of out) {
+      try {
+        origin.args = words(await readFile(`/proc/${pid}/cmdline`, "utf8"));
+      } catch {}
+      for (const fd of [1, 2])
+        try {
+          const target = await readlink(`/proc/${pid}/fd/${fd}`);
+          if (!origin.outputs.includes(target)) origin.outputs.push(target);
+        } catch {}
+    }
+    return out;
+  }
+  const list = pids.join(","),
+    ps = await command(["ps", "-o", "pid=,args=", "-p", list], true, signal),
+    lsof = await command(["lsof", "-nP", "-a", "-p", list, "-d", "1,2", "-Fpn"], true, signal);
+  for (const line of ps?.split("\n") ?? []) {
+    const m = line.match(/^\s*(\d+)\s+(.*)$/);
+    if (!m) continue;
+    const origin = out.get(Number(m[1]));
+    if (origin) origin.args = words(m[2]);
+  }
+  let origin: Origin | undefined;
+  for (const line of lsof?.split("\n") ?? []) {
+    if (line.startsWith("p")) origin = out.get(Number(line.slice(1)));
+    else if (line.startsWith("n") && origin && !origin.outputs.includes(line.slice(1)))
+      origin.outputs.push(line.slice(1));
+  }
+  return out;
+}
+/** The start and end of an output file, where servers print their address.
+ * Anything but a regular file reads as empty: reading a pipe would take the
+ * output from its reader. */
+export async function outputText(path: string): Promise<string> {
+  const window = 64 * 1024;
+  try {
+    if (!(await stat(path)).isFile()) return "";
+    const handle = await open(path, "r");
+    try {
+      const { size } = await handle.stat(),
+        read = async (position: number, length: number) => {
+          const buffer = Buffer.alloc(length),
+            { bytesRead } = await handle.read(buffer, 0, length, position);
+          return buffer.subarray(0, bytesRead).toString();
+        };
+      if (size <= 2 * window) return await read(0, size);
+      return (await read(0, window)) + "\n" + (await read(size - window, window));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return "";
+  }
+}
+/** The wait after a probe that got no answer: 15 s, doubling up to 5 min. */
+export function retryDelay(failures: number) {
+  return Math.min(15000 * 2 ** Math.max(0, failures - 1), 300000);
+}
+export async function probe(e: Endpoint, announced: Announcement, signal?: AbortSignal) {
   const address = wildcard(e.bind_address) ? (e.ipv6 ? "::1" : "127.0.0.1") : e.bind_address;
-  for (const scheme of ["http", "https"] as const) {
+  for (const scheme of announced === "http" || announced === "https" ? [announced] : (["http", "https"] as const)) {
     const target = `${scheme}://${e.ipv6 ? "[" + address + "]" : address}:${e.port}/`,
       result = await command(
         [
@@ -426,6 +534,14 @@ export async function probe(e: Endpoint, signal?: AbortSignal) {
   }
   return { scheme: "unknown" as const, status: null };
 }
+/** What the tracker has learned about one listener across scans. */
+export type Lead = {
+  seen_at: number;
+  checked_at: number;
+  announced: Announcement | null;
+  failures: number;
+};
+const leadKey = (e: Endpoint) => `${e.pid} ${e.pane} ${e.port} ${e.ipv6} ${e.transport} ${e.bind_address}`;
 export class Tracker {
   current = new Snapshot();
   pending = new Snapshot();
@@ -435,6 +551,8 @@ export class Tracker {
   stopping = false;
   next_refresh = 0;
   abort = new AbortController();
+  leads = new Map<string, Lead>();
+  origins = new Map<number, Origin>();
   deinit() {
     this.stopping = true;
     this.abort.abort();
@@ -477,7 +595,7 @@ export class Tracker {
       });
     this.pending = new Snapshot();
     this.done = false;
-    this.thread = this.scan()
+    this.thread = this.scan(pane => runtime.pane(pane)?.terminal.history() ?? "")
       .catch(() => {
         this.pending = new Snapshot();
       })
@@ -486,7 +604,58 @@ export class Tracker {
       });
     return changed;
   }
-  async scan() {
+  /** Reads what each listener's pane, output files and command line say about
+   * its port: on every scan for its first 30 s, then every 15 s, until it
+   * answers HTTP. */
+  async judge(listeners: Endpoint[], now: number, paneText: (pane: number) => string) {
+    const keys = new Set(listeners.map(leadKey)),
+      pids = new Set(listeners.map(e => e.pid));
+    for (const key of this.leads.keys()) if (!keys.has(key)) this.leads.delete(key);
+    for (const pid of this.origins.keys()) if (!pids.has(pid)) this.origins.delete(pid);
+    const pending = listeners.filter(e => {
+      const lead = this.leads.get(leadKey(e));
+      return e.http_status === null && (!lead || now - lead.checked_at >= (now - lead.seen_at < 30000 ? 0 : 15000));
+    });
+    if (!pending.length) return;
+    const unknown = [...new Set(pending.map(e => e.pid))].filter(pid => !this.origins.has(pid));
+    if (unknown.length)
+      for (const [pid, origin] of await origins(unknown, this.abort.signal)) this.origins.set(pid, origin);
+    const texts = new Map<string, string>(),
+      read = async (source: string, load: () => string | Promise<string>) => {
+        if (!texts.has(source)) texts.set(source, await load());
+        return texts.get(source)!;
+      };
+    for (const e of pending) {
+      const key = leadKey(e),
+        lead = this.leads.get(key) ?? { seen_at: now, checked_at: 0, announced: null, failures: 0 },
+        origin = this.origins.get(e.pid),
+        sources = [await read(`pane ${e.pane}`, () => paneText(e.pane))];
+      for (const path of origin?.outputs ?? []) sources.push(await read(path, () => outputText(path)));
+      let found: Announcement | null = origin && flagged(origin.args, e.port) ? "flag" : null;
+      for (const text of sources) {
+        const said = announcement(text, e.port);
+        if (said && stronger(said, found)) found = said;
+      }
+      // A stronger announcement, like the URL a server prints once it is
+      // ready, ends the wait left by probes that got no answer.
+      if (found && stronger(found, lead.announced)) {
+        lead.announced = found;
+        lead.failures = 0;
+        e.probed_at = 0;
+      }
+      lead.checked_at = now;
+      this.leads.set(key, lead);
+    }
+  }
+  /** Only announced listeners are probed. */
+  due(e: Endpoint, now: number) {
+    const lead = this.leads.get(leadKey(e));
+    if (e.transport !== "tcp" || !lead?.announced) return false;
+    if (e.probed_at === 0) return true;
+    const wait = e.http_status === null ? retryDelay(lead.failures) : browserResponse(e.http_status) ? 60000 : 15000;
+    return now - e.probed_at > wait;
+  }
+  async scan(paneText: (pane: number) => string) {
     let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
     if (!list) {
       const ps = await command(["ps", "-axo", "pid=,ppid=,pgid=,comm="], false, this.abort.signal);
@@ -531,16 +700,17 @@ export class Tracker {
       }
       works.push(work);
     }
+    const listeners = works.flatMap(w => w.endpoints).filter(e => e.transport === "tcp");
+    await this.judge(listeners, now, paneText);
     for (let i = 0; i < 4 && !this.stopping; i++) {
-      const oldest = works
-        .flatMap(w => w.endpoints)
-        .filter(e => e.transport === "tcp" && now - e.probed_at > (browserResponse(e.http_status) ? 60000 : 15000))
-        .sort((a, b) => a.probed_at - b.probed_at)[0];
-      if (!oldest) break;
-      const result = await probe(oldest, this.abort.signal);
+      const oldest = listeners.filter(e => this.due(e, now)).sort((a, b) => a.probed_at - b.probed_at)[0],
+        lead = oldest && this.leads.get(leadKey(oldest));
+      if (!lead?.announced) break;
+      const result = await probe(oldest, lead.announced, this.abort.signal);
       oldest.scheme = result.scheme;
       oldest.http_status = result.status;
       oldest.probed_at = now;
+      lead.failures = result.status === null ? lead.failures + 1 : 0;
     }
     this.pending = Object.assign(new Snapshot(), {
       processes_available: true,

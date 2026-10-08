@@ -13,9 +13,17 @@ import {
   matching,
   workload,
   socketCommand,
+  announcement,
+  flagged,
+  outputText,
+  retryDelay,
+  Tracker,
   type Endpoint,
   type Interface,
 } from "./ports";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 test("socket inventory scopes descendants without widening network selection", () => {
   const list = processes("10 1 10 sh\n11 10 10 bun\n12 11 12 server\n20 1 20 other\n21 20 20 server");
   const roots = [{ pid: 10, pane: 1, workspace: 1, agent_pid: 0 }];
@@ -152,4 +160,56 @@ test("proc socket tables read like lsof's addresses", () => {
   expect(table.get("102")!.address).toBe("*:4000");
   expect(table.get("103")!.listening).toBe(false);
   expect(table.get("104")!.address).toBe("[::1]:9000");
+});
+
+test("servers announce ports by URL, address or port number", () => {
+  expect(announcement("  ➜  Local:   http://localhost:5173/\n", 5173)).toBe("http");
+  expect(announcement("INFO:     Uvicorn running on https://0.0.0.0:8443 (Press CTRL+C to quit)", 8443)).toBe("https");
+  expect(announcement("Starting vLLM server on http://[::]:8000", 8000)).toBe("http");
+  expect(announcement("Server listening on port 3000", 3000)).toBe("address");
+  expect(announcement("listening on [::]:8080", 8080)).toBe("address");
+  expect(announcement("2026/10/08 Listening on :8080", 8080)).toBe("address");
+  expect(announcement("Local: http://localhost:5174/", 5173)).toBeNull();
+  expect(announcement("connected to 127.0.0.1:3000", 3000)).toBeNull();
+});
+test("internal and incidental mentions of a port are not announcements", () => {
+  expect(announcement("NCCL INFO Bootstrap : Using eth0:10.0.0.5<42201>", 42201)).toBeNull();
+  expect(announcement("[c10d] The server socket has started to listen on [::]:29500.", 29500)).toBeNull();
+  expect(announcement("    at Server.listen (/app/server.js:3000:12)", 3000)).toBeNull();
+  expect(announcement("I captured connections to ports 42201, 35031", 42201)).toBeNull();
+  expect(announcement("", 3000)).toBeNull();
+});
+test("command lines announce ports chosen with a port or bind flag", () => {
+  expect(flagged(["vllm", "serve", "Qwen/Qwen3-8B", "--port", "8000"], 8000)).toBe(true);
+  expect(flagged(["jupyter", "lab", "--port=8888"], 8888)).toBe(true);
+  expect(flagged(["gunicorn", "-b", "0.0.0.0:8000", "app:app"], 8000)).toBe(true);
+  expect(flagged(["vite", "--port", "5173"], 5174)).toBe(false);
+  expect(flagged(["torchrun", "--master_port", "29500", "train.py"], 29500)).toBe(false);
+  expect(flagged(["python", "-m", "http.server", "8000"], 8000)).toBe(false);
+  expect(flagged(["serve", "--port"], 8000)).toBe(false);
+});
+test("output files are read at both ends; other files read as empty", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-ports-")),
+    log = join(dir, "server.log");
+  writeFileSync(log, "Local: http://localhost:5173/\n" + "x".repeat(300 * 1024) + "\nready on port 6006\n");
+  const text = await outputText(log);
+  expect(announcement(text, 5173)).toBe("http");
+  expect(announcement(text, 6006)).toBe("address");
+  expect(text.length).toBeLessThan(140 * 1024);
+  const fifo = join(dir, "fifo");
+  Bun.spawnSync(["mkfifo", fifo]);
+  expect(await outputText(fifo)).toBe("");
+  expect(await outputText(join(dir, "missing"))).toBe("");
+});
+test("probes that get no answer back off up to five minutes", () => {
+  expect([1, 2, 3, 4, 5, 6, 9].map(retryDelay)).toEqual([15000, 30000, 60000, 120000, 240000, 300000, 300000]);
+});
+test("only listeners whose pane printed their port are probed", async () => {
+  const tracker = new Tracker(),
+    printed = endpoint({ pid: 999999, port: 5173, scheme: "unknown", http_status: null }),
+    silent = endpoint({ pid: 999999, port: 42201, scheme: "unknown", http_status: null });
+  await tracker.judge([printed, silent], 100000, () => "  ➜  Local:   http://localhost:5173/");
+  expect(tracker.due(printed, 100000)).toBe(true);
+  expect(tracker.due(silent, 100000)).toBe(false);
+  expect(tracker.due(silent, 10_000_000)).toBe(false);
 });
