@@ -21,4 +21,4 @@ zig-pkg/
 /junk/
 
 # Repeatable live-model eval outputs; curated scorecards can be checked in separately.
-/native/corgi/evals/results/
+/evals/results/

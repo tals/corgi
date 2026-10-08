@@ -25,6 +25,8 @@
 - `native/zig/`: the Zig sources the native layer compiles, kept from
   Corgi's Zig era. Change them only for the native layer's sake.
 - `tests/`: integration suites, run against `dist/corgi-test`.
+- `evals/`: live activity-summary evals (`bun test evals` has no model calls;
+  `bun run evals/run.ts` calls the real models). See `evals/README.md`.
 - `assets/`: help text, sounds and other files built into the binary.
 - `scripts/zig`: the pinned Zig toolchain.
 
