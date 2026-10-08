@@ -164,13 +164,16 @@ export async function publish(store: Store, assets: Asset[], envelope: Uint8Arra
 }
 function shellQuote(value: string) { return "'" + value.replaceAll("'", "'\\''") + "'"; }
 const installTemplate = readFileSync(join(import.meta.dir, "install.sh.in"), "utf8");
-export function installer(base: string, version: string, binaries: Record<string, { sha256: string }>, template = installTemplate) {
+export function installer(base: string, version: string, binaries: Record<string, { sha256: string; size: number }>, template = installTemplate) {
   const values: Record<string, string> = {
     BASE: shellQuote(base), VERSION: shellQuote(releaseVersion(version)),
     MAC_SHA256: shellQuote(binaries["macos-aarch64"].sha256),
     LINUX_SHA256: shellQuote(binaries["linux-x86_64"].sha256),
+    MAC_SIZE: String(binaries["macos-aarch64"].size),
+    LINUX_SIZE: String(binaries["linux-x86_64"].size),
   };
-  return template.replace(/@(BASE|VERSION|MAC_SHA256|LINUX_SHA256)@/g, (_, key) => values[key]);
+  for (const size of [values.MAC_SIZE, values.LINUX_SIZE]) if (!/^[1-9]\d*$/.test(size)) throw new Error("Invalid binary size.");
+  return template.replace(/@(BASE|VERSION|MAC_SHA256|LINUX_SHA256|MAC_SIZE|LINUX_SIZE)@/g, (_, key) => values[key]);
 }
 // Finds the one Developer ID Application (or else Apple Development) identity in the keychain.
 async function signingIdentity(run: (argv: string[], capture?: boolean) => Promise<string>) {

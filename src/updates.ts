@@ -154,12 +154,13 @@ export async function command(args:string[],socket:string,exe:string){
 export function background(socket:string,exe:string){const root=managed(release(exe),exe);if(!root||existsSync(join(root,"auto-off")))return;spawn(exe,["__update-worker",socket],{env:{...process.env,CORGI_APP_EXE:exe},stdio:"ignore",detached:true}).unref();}
 async function worker(exe:string,socket:string){const rel=release(exe),root=managed(rel,exe);if(!root)return;const unlock=await lock(root,`worker-${Bun.hash.wyhash(socket,0n).toString(16)}.lock`,false);if(!unlock)return;
   try{let next=0;while(!existsSync(join(root,"auto-off"))){if(!await hello(socket))return;const now=Date.now();if(now>=next){try{await feed(rel,root,true,false);}catch(error){recordError(root,error);}next=now+3600000+Math.random()*300000;}await Bun.sleep(30000);}}finally{unlock();}}
+// The installer's uninstall mode recognizes this launcher by its exec line.
+export const launcher=(root:string)=>`#!/bin/sh\nset -eu\nroot=${quote(root)}\nv=$(cat "$root/current")\ncase "$v" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec "$root/releases/$v/corgi" "$@"\n`;
 async function install(rel:Release,exe:string,root:string,bin:string,manifest:string){
   if(!isAbsolute(root)||!isAbsolute(bin))throw Error("AbsoluteInstallPathRequired");privateDirectory(root);const unlock=await lock(root,"activation.lock",true);
   try{if(existsSync(join(root,"current")))throw Error("AlreadyInstalled");const bytes=readFileSync(manifest,"utf8"),m=parse(rel,bytes);if(m.version!==rel.version||m.commit!==rel.commit)throw Error("WrongReleaseManifest");verifyFile(exe,m.targets[platform]);
     const dest=executable(root,rel.version),dir=dirname(dest);privateDirectory(dir);copyFileSync(exe,dest);chmodSync(dest,0o700);write(dir,"manifest.json",bytes);
-    const launcher=`#!/bin/sh\nset -eu\nroot=${quote(root)}\nv=$(cat "$root/current")\ncase "$v" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec "$root/releases/$v/corgi" "$@"\n`;
-    mkdirSync(dirname(bin),{recursive:true});writeFileSync(bin,launcher,{flag:"wx",mode:0o755});write(root,"current",rel.version);console.error(`Installed Corgi ${rel.version} at ${bin}\nAdd its directory to PATH if needed, then run corgi.`);
+    mkdirSync(dirname(bin),{recursive:true});writeFileSync(bin,launcher(root),{flag:"wx",mode:0o755});write(root,"current",rel.version);
   }finally{unlock?.();}
 }
 export async function internal(args:string[],exe:string):Promise<boolean>{

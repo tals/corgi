@@ -17,9 +17,16 @@ macOS Apple Silicon (13+) or Linux amd64:
 curl -fsSL https://corgi.computer/install.sh | bash
 ```
 
-Accept the PATH setup prompt, open a new terminal, and run `corgi`.
-You can also run `~/.local/bin/corgi` directly.
+The installer adds `~/.local/bin` to PATH for your shell, then Enter starts
+Corgi. After that, run `corgi`.
 Updates download in the background and apply on the next launch.
+
+To uninstall, quit Corgi and run the installer with `uninstall`. It keeps
+saved sessions and settings in `~/.local/state/corgi`.
+
+```sh
+curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
+```
 
 ## Development
 

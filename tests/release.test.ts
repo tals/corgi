@@ -1,9 +1,12 @@
 import { test, expect } from "bun:test";
 import { publish, releaseVersion, installer, loadCredentials, cleanCommit, timestampVersion, publishedVersion, versionParts, releaseOptions, releasePaths, releaseCommit, withReleaseCheckout, releaseEnvironment, macosSdk, validateBinary, type Store } from "../scripts/release.ts";
-import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink } from "node:fs/promises";
 import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { n, pair, readUntil, write } from "../src/native_ffi";
+import { nativeRoot } from "../src/native_paths";
+import { launcher } from "../src/updates";
 const bytes = (s: string) => new TextEncoder().encode(s);
 class MemoryStore implements Store {
   files = new Map<string, Uint8Array>();
@@ -13,6 +16,7 @@ class MemoryStore implements Store {
   async put(key: string, value: Uint8Array) { this.writes.push(key); this.files.set(key, value); }
   async publicGet(key: string) { if (key === this.fail) throw new Error("Offline"); return this.files.get(key)!; }
 }
+const testInstaller = () => installer("https://example.invalid", "1.2.3", { "macos-aarch64": { sha256: "mac", size: 1 }, "linux-x86_64": { sha256: "linux", size: 2 } });
 const assets = ["macos", "linux", "manifest.json"].map(name => ({ key: `releases/1.2.3/${name}`, bytes: bytes(name), type: "application/octet-stream" }));
 test("publication verifies every platform before advancing the channel", async () => {
   const store = new MemoryStore();
@@ -41,7 +45,7 @@ test("versions are stable semantic versions and cannot become paths", () => {
   expect(releaseVersion("1.2.3")).toBe("1.2.3");
 });
 test("installer pins both checksums and shell-quotes the base URL", () => {
-  const script = installer("https://example.com/a'b", "1.2.3", { "macos-aarch64": { sha256: "mac" }, "linux-x86_64": { sha256: "linux" } });
+  const script = installer("https://example.com/a'b", "1.2.3", { "macos-aarch64": { sha256: "mac", size: 1 }, "linux-x86_64": { sha256: "linux", size: 2 } });
   expect(script).toContain("'https://example.com/a'\\''b'");
   expect(script).toContain("${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}");
   const p = Bun.spawnSync(["/bin/sh", "-n"], { stdin: Buffer.from(script) });
@@ -300,16 +304,18 @@ test("CLI runs the committed build script and cleans up after failure", async ()
 
 test("PATH setup handles shell configs, spaces, duplicates and opting out", async () => {
   const base = await mkdtemp(join(tmpdir(), "corgi path test "));
-  const script = installer("https://example.com", "1.2.3", {"macos-aarch64": {sha256:"mac"}, "linux-x86_64": {sha256:"linux"}}).split("# Offer PATH setup")[1];
+  const script = testInstaller().replace(/\nmain "\$@"\n$/, "\nsetup_path\n");
   const run = (home: string, shell: string, setup: string, path = "/usr/bin:/bin") => {
-    const p = Bun.spawnSync(["/bin/sh", "-c", "set -eu\n# Offer PATH setup" + script], {env: {...process.env, HOME:home, SHELL:shell, PATH:path, CORGI_INSTALL_BIN:home+"/.local/bin/corgi", CORGI_UPDATE_PATH:setup, ZDOTDIR:home+"/zsh config", XDG_CONFIG_HOME:home+"/config"}});
+    const p = Bun.spawnSync(["/bin/sh", "-c", script], {env: {...process.env, HOME:home, SHELL:shell, PATH:path, CORGI_INSTALL_BIN:home+"/.local/bin/corgi", CORGI_UPDATE_PATH:setup, ZDOTDIR:home+"/zsh config", XDG_CONFIG_HOME:home+"/config"}});
     expect(p.exitCode).toBe(0);
+    return p.stdout.toString();
   };
   try {
     const bashHome = join(base, "bash");
     await import("node:fs/promises").then(fs => fs.mkdir(bashHome));
     await writeFile(join(bashHome, ".bash_profile"), '# existing\n. "$HOME/.bashrc"\n');
-    run(bashHome, "/bin/bash", "1"); run(bashHome, "/bin/bash", "1");
+    expect(run(bashHome, "/bin/bash", "1")).toContain("✓ Added ~/.local/bin to PATH in ~/.bashrc and ~/.bash_profile\n");
+    expect(run(bashHome, "/bin/bash", "1")).toContain("✓ Added ~/.local/bin to PATH in ~/.bashrc and ~/.bash_profile (already done)\n");
     const profile = await Bun.file(join(bashHome, ".bash_profile")).text();
     expect(profile.startsWith("# existing\n")).toBe(true);
     expect(profile.match(/export PATH/g)?.length).toBe(1);
@@ -322,9 +328,114 @@ test("PATH setup handles shell configs, spaces, duplicates and opting out", asyn
     expect(await Bun.file(join(zshHome,"zsh config/.zshrc")).text()).toContain("export PATH");
     const fishHome = join(base,"fish"); run(fishHome,"/usr/bin/fish","1");
     expect(await Bun.file(join(fishHome,"config/fish/conf.d/corgi.fish")).text()).toContain("fish_add_path");
-    const skipHome = join(base,"skip"); run(skipHome,"/bin/bash","0");
+    const skipHome = join(base,"skip");
+    expect(run(skipHome,"/bin/bash","0")).toContain("Left PATH alone");
     expect(await Bun.file(join(skipHome,".bashrc")).exists()).toBe(false);
-    run(skipHome,"/bin/bash","1",skipHome+"/.local/bin:/usr/bin:/bin");
+    expect(run(skipHome,"/bin/bash","1",skipHome+"/.local/bin:/usr/bin:/bin")).toContain("✓ Added ~/.local/bin to PATH (already done)\n");
     expect(await Bun.file(join(skipHome,".bashrc")).exists()).toBe(false);
   } finally { await rm(base,{recursive:true,force:true}); }
+});
+
+test("rerunning the installer skips finished steps without downloading", async () => {
+  const home = await mkdtemp(join(tmpdir(), "corgi reinstall test "));
+  try {
+    const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi");
+    await mkdir(root, { recursive: true }); await mkdir(join(home, ".local/bin"));
+    await writeFile(join(root, "current"), "1.2.3"); await writeFile(bin, "#!/bin/sh\n"); await chmod(bin, 0o755);
+    const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", PATH:join(home, ".local/bin")+":/usr/bin:/bin"};
+    delete env.CORGI_PANE;
+    const p = Bun.spawnSync(["/bin/sh", "-c", testInstaller()], {env});
+    expect(p.stderr.toString()).toBe("");
+    expect(p.exitCode).toBe(0);
+    const out = p.stdout.toString();
+    for (const line of ["✓ Downloaded corgi (already done)", "✓ Installed corgi 1.2.3 at ~/.local/bin/corgi (already done)", "✓ Added ~/.local/bin to PATH (already done)", "Run corgi to start."]) expect(out).toContain(line);
+    expect(out).not.toContain("\x1b");
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test("the launch button gives corgi the terminal device, not /dev/tty", async () => {
+  // Bun can't wait for input on /dev/tty on macOS, so a corgi reading it ignores every key.
+  const home = await mkdtemp(join(tmpdir(), "corgi launch test "));
+  const [master, slave] = pair(true);
+  try {
+    const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi");
+    await mkdir(root, { recursive: true }); await mkdir(join(home, ".local/bin"));
+    await writeFile(join(root, "current"), "1.2.3"); await writeFile(bin, '#!/bin/sh\necho "stdin is $(tty)."\n'); await chmod(bin, 0o755);
+    const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", TERM:"xterm-256color", PATH:join(home, ".local/bin")+":/usr/bin:/bin"};
+    delete env.CORGI_PANE; delete env.NO_COLOR;
+    const p = Bun.spawn([`${nativeRoot}/bin/pty-exec`, "/bin/sh", "-c", testInstaller()], {env, stdin:slave, stdout:slave, stderr:slave});
+    await readUntil(master, "esc to skip", 10_000);
+    write(master, "\r");
+    const out = await readUntil(master, ".\r\n", 10_000);
+    expect(out).toMatch(/stdin is \/dev\/(ttys\d+|pts\/\d+)\./);
+    expect(await p.exited).toBe(0);
+  } finally { n.probe_close(master); n.probe_close(slave); await rm(home, { recursive: true, force: true }); }
+});
+
+// A home with an installed Corgi, the installer's PATH lines, Ghostty keybindings and saved state.
+async function installedHome(name: string) {
+  const home = await mkdtemp(join(tmpdir(), `corgi ${name} test `));
+  const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi");
+  await mkdir(join(root, "releases/1.2.3"), { recursive: true }); await mkdir(join(home, ".local/bin"));
+  await writeFile(join(root, "current"), "1.2.3"); await writeFile(join(root, "releases/1.2.3/corgi"), "");
+  await writeFile(bin, launcher(root)); await chmod(bin, 0o755);
+  const path = 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac';
+  await writeFile(join(home, ".bashrc"), `# mine\nalias ll='ls -l'\n\n# Corgi\n${path}\n`);
+  await mkdir(join(home, ".config/fish/conf.d"), { recursive: true });
+  await writeFile(join(home, ".config/fish/conf.d/corgi.fish"), '\n# Corgi\nfish_add_path "$HOME/.local/bin"\n');
+  const ghostty = join(home, "Library/Application Support/com.mitchellh.ghostty/config");
+  await mkdir(join(ghostty, ".."), { recursive: true });
+  await writeFile(ghostty, "font-size = 13\n# BEGIN CORGI GHOSTTY INTEGRATION\nkeybind = super+t=text:\\x02c\n# END CORGI GHOSTTY INTEGRATION\ntheme = dark\n");
+  await mkdir(join(home, ".local/state/corgi"), { recursive: true });
+  return { home, root, bin, ghostty };
+}
+function uninstall(home: string) {
+  const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", PATH:"/usr/bin:/bin"};
+  for (const name of ["CORGI_PANE", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "ZDOTDIR", "CORGI_INSTALL_ROOT", "CORGI_INSTALL_BIN"]) delete env[name];
+  const p = Bun.spawnSync(["/bin/sh", "-c", testInstaller(), "sh", "uninstall"], {env});
+  return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() };
+}
+test("uninstall removes what the installer added and keeps saved sessions", async () => {
+  const { home, root, bin, ghostty } = await installedHome("uninstall");
+  try {
+    const first = uninstall(home);
+    expect(first.err).toBe("");
+    expect(first.code).toBe(0);
+    for (const line of ["✓ Removed ~/.local/bin/corgi\n", "✓ Removed ~/.local/share/corgi\n", "✓ Removed ~/.local/bin from PATH in ~/.bashrc and ~/.config/fish/conf.d/corgi.fish\n", "✓ Removed Corgi's keybindings from ~/Library/Application Support/com.mitchellh.ghostty/config", "– Kept saved sessions and settings in ~/.local/state/corgi"]) expect(first.out).toContain(line);
+    expect(await Bun.file(bin).exists()).toBe(false);
+    expect(await stat(root).catch(() => null)).toBeNull();
+    expect(await Bun.file(join(home, ".bashrc")).text()).toBe("# mine\nalias ll='ls -l'\n");
+    expect(await Bun.file(join(home, ".config/fish/conf.d/corgi.fish")).exists()).toBe(false);
+    expect(await Bun.file(ghostty).text()).toBe("font-size = 13\ntheme = dark\n");
+    expect(await stat(join(home, ".local/state/corgi")).catch(() => null)).not.toBeNull();
+    const again = uninstall(home);
+    expect(again.code).toBe(0);
+    for (const line of ["✓ Removed ~/.local/bin/corgi (already done)", "✓ Removed ~/.local/share/corgi (already done)", "✓ Removed ~/.local/bin from PATH (already done)"]) expect(again.out).toContain(line);
+    expect(again.out).not.toContain("Ghostty");
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+test("uninstall keeps ~/.local/bin on PATH while other programs live there", async () => {
+  const { home } = await installedHome("shared bin");
+  try {
+    await writeFile(join(home, ".local/bin/claude"), "");
+    const result = uninstall(home);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("– Kept ~/.local/bin on PATH for claude");
+    expect(await Bun.file(join(home, ".bashrc")).text()).toContain("# Corgi\n");
+    expect(await Bun.file(join(home, ".config/fish/conf.d/corgi.fish")).exists()).toBe(true);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+test("uninstall refuses while Corgi runs from the install", async () => {
+  const { home, root, bin } = await installedHome("running");
+  const running = join(root, "releases/1.2.3/corgi");
+  await rm(running); await symlink("/bin/sleep", running);
+  const p = Bun.spawn([running, "30"]);
+  const pane = Bun.spawn(["/bin/sh", "-c", `sleep 30; : ${running}`]);
+  try {
+    await Bun.sleep(100);
+    const result = uninstall(home);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain(`Corgi is running from ~/.local/share/corgi (PIDs ${p.pid}).`);
+    expect(await Bun.file(bin).exists()).toBe(true);
+  } finally { p.kill(); pane.kill(); await rm(home, { recursive: true, force: true }); }
 });

@@ -1,68 +1,341 @@
 #!/bin/sh
+# Installs Corgi: curl -fsSL https://corgi.computer/install.sh | bash
+# Uninstalls it:   curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
+# Everything runs from main, so a truncated download runs nothing.
 set -eu
 
-# Download the release for this machine; refuse unsupported platforms.
-case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64) target=macos-aarch64; expected=@MAC_SHA256@ ;;
-  Linux-x86_64) target=linux-x86_64; expected=@LINUX_SHA256@ ;;
-  *) echo 'Corgi supports macOS arm64 and Linux amd64.' >&2; exit 1 ;;
-esac
 base=@BASE@
 version=@VERSION@
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-trap 'exit 1' HUP INT TERM
+root=${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}
+bin=${CORGI_INSTALL_BIN:-$HOME/.local/bin/corgi}
+dir=$(dirname "$bin")
+path_line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
+fish_line='fish_add_path "$HOME/.local/bin"'
+fish_rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/corgi.fish"
+tmp= watcher= tty_mode= on_path= below=
+esc=$(printf '\033')
 
-download() {
-  curl --disable -fsSL --proto '=https' --proto-redir '=https' \
-    --connect-timeout 10 --max-time 300 "$base/releases/$version/$1" -o "$tmp/$2"
-}
-download "corgi-$target" corgi
-if command -v sha256sum >/dev/null 2>&1; then
-  actual=$(sha256sum "$tmp/corgi" | cut -d ' ' -f 1)
+# Progress, colors and the launch button need a terminal; logs get plain lines.
+live=
+if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && ( : </dev/tty ) 2>/dev/null; then live=1; fi
+if [ -n "$live" ] && [ -z "${NO_COLOR:-}" ]; then
+  bold="$esc[1m" dim="$esc[2m" strike="$esc[9m" unstrike="$esc[29m" cap="$esc[7m"
+  green="$esc[32m" yellow="$esc[33m" red="$esc[31m" off="$esc[0m" key=' ⏎ '
 else
-  actual=$(shasum -a 256 "$tmp/corgi" | cut -d ' ' -f 1)
+  bold= dim= strike= unstrike= cap= green= yellow= red= off= key='[⏎]'
 fi
-[ "$actual" = "$expected" ] || { echo 'Corgi checksum mismatch' >&2; exit 1; }
 
-# Corgi verifies the signed manifest and installs its auto-update launcher.
-download manifest.json manifest.json
-chmod 700 "$tmp/corgi"
-"$tmp/corgi" __install "${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}" \
-  "${CORGI_INSTALL_BIN:-$HOME/.local/bin/corgi}" "$tmp/manifest.json"
+ok() { printf '  %s✓%s %s\n' "$green" "$off" "$1"; }
+already() { printf '  %s✓ %s%s%s (already done)%s\n' "$dim" "$strike" "$1" "$unstrike" "$off"; }
+skipped() { printf '  %s– %s%s\n' "$dim" "$1" "$off"; }
+warn() { printf '  %s!%s %s\n' "$yellow" "$off" "$1"; }
+fail() {
+  stop_progress
+  printf '  %s✗ %s%s\n' "$red" "$1" "$off" >&2
+  exit 1
+}
+home() { case $1 in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf %s "$1" ;; esac; }
+mb() { t=$((($1 + 50000) / 100000)); printf '%d.%d MB' $((t / 10)) $((t % 10)); }
 
-# Offer PATH setup only for the default install location.
-[ "${CORGI_INSTALL_BIN:-$HOME/.local/bin/corgi}" = "$HOME/.local/bin/corgi" ] || exit 0
-case ":$PATH:" in *":$HOME/.local/bin:"*) exit 0 ;; esac
-line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
-login_rc=
-shell=${SHELL:-sh}
-case "${shell##*/}" in
-  zsh) rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
-  bash)
-    rc="$HOME/.bashrc"
-    login_rc="$HOME/.profile"
-    for file in "$HOME/.bash_profile" "$HOME/.bash_login"; do
-      if [ -f "$file" ]; then login_rc=$file; break; fi
-    done ;;
-  fish) rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/corgi.fish"
-    line='fish_add_path "$HOME/.local/bin"' ;;
-  *) echo 'Add ~/.local/bin to your PATH, or run ~/.local/bin/corgi.'; exit 0 ;;
-esac
-setup=${CORGI_UPDATE_PATH:-ask}
-if [ "$setup" = ask ] && ( : </dev/tty ) 2>/dev/null; then
-  printf 'Add ~/.local/bin to PATH in %s %s? [Y/n] ' "$rc" "$login_rc" >/dev/tty
-  read -r answer </dev/tty || answer=n
-  case "$answer" in ''|y|Y|yes) setup=1 ;; esac
-fi
-if [ "$setup" = 1 ]; then
+stop_progress() {
+  [ -n "$watcher" ] || return 0
+  kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+  watcher=
+  printf '\r%s[K' "$esc"
+}
+cleanup() {
+  stop_progress
+  [ -z "$tty_mode" ] || stty "$tty_mode" </dev/tty 2>/dev/null || true
+  [ -z "$live" ] || printf '%s[?25h' "$esc"
+  [ -z "$tmp" ] || rm -rf "$tmp"
+}
+interrupted() {
+  [ -z "$live" ] || printf '\r%s%s\n' "${below:+$esc[${below}B}" ''
+  exit 130
+}
+
+fetch() {
+  curl --disable -fsSL --proto '=https' --proto-redir '=https' \
+    --connect-timeout 10 --max-time 300 "$base/releases/$version/$1" -o "$tmp/$2" \
+    2>"$tmp/error" || fail "Couldn't download $1: $(cat "$tmp/error")"
+}
+
+# Redraws "↓ Downloading corgi  23.8 / 67.2 MB  ━━━━━━━━────────  35%" until killed.
+progress() {
+  while :; do
+    got=0
+    [ ! -f "$tmp/corgi" ] || got=$(($(wc -c <"$tmp/corgi")))
+    [ "$got" -le "$size" ] || got=$size
+    fill= rest= i=0
+    while [ $i -lt 24 ]; do
+      if [ $i -lt $((got * 24 / size)) ]; then fill="${fill}━"; else rest="${rest}─"; fi
+      i=$((i + 1))
+    done
+    printf '\r%s[K  %s↓%s Downloading corgi  %s / %s  %s%s%s%s%s%s  %d%%' "$esc" \
+      "$green" "$off" "$(mb "$got")" "$(mb "$size")" "$green" "$fill" "$off" "$dim" "$rest" "$off" \
+      $((got * 100 / size))
+    sleep 0.1
+  done
+}
+
+install_corgi() {
+  if [ -f "$root/current" ]; then
+    already 'Downloaded corgi'
+    already "Installed corgi $(cat "$root/current") at $(home "$bin")"
+    [ -x "$bin" ] || fail "Corgi is installed in $(home "$root"), but $(home "$bin") is missing.
+    Uninstall with: curl -fsSL $base/install.sh | bash -s uninstall"
+    return
+  fi
+  [ ! -e "$bin" ] || fail "$(home "$bin") already exists. Set CORGI_INSTALL_BIN to install elsewhere."
+  tmp=$(mktemp -d)
+  ok "Staging in $(home "$tmp")"
+
+  start=$(date +%s)
+  if [ -n "$live" ]; then
+    progress &
+    watcher=$!
+    fetch "corgi-$target" corgi
+    stop_progress
+  else
+    printf '  ↓ Downloading corgi  %s\n' "$(mb "$size")"
+    fetch "corgi-$target" corgi
+  fi
+  ok "Downloaded corgi  $(mb "$size") in $(($(date +%s) - start))s"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$tmp/corgi" | cut -d ' ' -f 1)
+  else
+    actual=$(shasum -a 256 "$tmp/corgi" | cut -d ' ' -f 1)
+  fi
+  [ "$actual" = "$expected" ] || fail 'Corgi checksum mismatch'
+  ok "Verified checksum  ${dim}sha256 $(printf '%.12s' "$expected")…$off"
+
+  # Corgi verifies the signed manifest and installs its auto-update launcher.
+  fetch manifest.json manifest.json
+  chmod 700 "$tmp/corgi"
+  "$tmp/corgi" __install "$root" "$bin" "$tmp/manifest.json" </dev/null 2>"$tmp/error" ||
+    fail "Couldn't install corgi: $(cat "$tmp/error")"
+  ok "Installed corgi at $(home "$bin")"
+}
+
+# Puts the default install directory on PATH for new shells.
+setup_path() {
+  [ "$bin" = "$HOME/.local/bin/corgi" ] || return 0
+  case ":$PATH:" in *":$dir:"*)
+    on_path=1
+    already "Added $(home "$dir") to PATH"
+    return ;;
+  esac
+  if [ "${CORGI_UPDATE_PATH:-1}" = 0 ]; then
+    skipped 'Left PATH alone (CORGI_UPDATE_PATH=0)'
+    return
+  fi
+  line=$path_line
+  login_rc=
+  shell=${SHELL:-sh}
+  case "${shell##*/}" in
+    zsh) rc="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    bash)
+      rc="$HOME/.bashrc"
+      login_rc="$HOME/.profile"
+      for file in "$HOME/.bash_profile" "$HOME/.bash_login"; do
+        if [ -f "$file" ]; then login_rc=$file; break; fi
+      done ;;
+    fish) rc=$fish_rc line=$fish_line ;;
+    *) warn "Add $(home "$dir") to PATH to run corgi by name."; return ;;
+  esac
+  added= files=
   for file in "$rc" "$login_rc"; do
     [ -n "$file" ] || continue
-    mkdir -p "$(dirname "$file")"
+    files="$files${files:+ and }$(home "$file")"
     if ! grep -qxF "$line" "$file" 2>/dev/null; then
+      mkdir -p "$(dirname "$file")"
       printf '\n# Corgi\n%s\n' "$line" >>"$file"
+      added=1
     fi
   done
-  echo 'PATH configured for new shells.'
-fi
-printf 'To use corgi in this terminal, run:\n  %s\n' "$line"
+  if [ -n "$added" ]; then
+    ok "Added $(home "$dir") to PATH in $files"
+  else
+    already "Added $(home "$dir") to PATH in $files"
+  fi
+  # Running fish sessions share fish_user_paths, so this terminal gets it too.
+  if [ "${shell##*/}" = fish ] && [ -x "$shell" ]; then
+    "$shell" -c 'fish_add_path -- $argv' "$dir" </dev/null >/dev/null 2>&1 || true
+    on_path=1
+  fi
+}
+
+# One frame of the launch button; the corgi wags its tail while it waits.
+button() {
+  printf '\r    %s│%s  %s   %sLFG!%s   %s%s%s  %s│%s' "$green" "$off" "$1" \
+    "$bold" "$off" "$cap" "$key" "$off" "$green" "$off"
+}
+
+launch() {
+  if [ -n "$on_path" ]; then cmd=corgi; else cmd=$(home "$bin"); fi
+  if [ -n "${CORGI_PANE:-}" ]; then
+    printf '\n  Run %s%s%s in a terminal outside Corgi.\n\n' "$bold" "$cmd" "$off"
+    return
+  fi
+  if [ -z "$live" ]; then
+    printf '\n  Run %s%s%s to start.\n\n' "$bold" "$cmd" "$off"
+    return
+  fi
+  # Drop keys pressed during the install so they don't press the button.
+  stty -icanon min 0 time 0 </dev/tty
+  dd bs=256 count=1 </dev/tty >/dev/null 2>&1 || true
+  stty time 2 </dev/tty
+  printf '\n    %s╭───────────────────────╮%s\n\n' "$green" "$off"
+  printf '    %s╰───────────────────────╯%s\n' "$green" "$off"
+  printf '      %sesc to skip%s%s[2A' "$dim" "$off" "$esc"
+  below=2
+  go=
+  while [ -z "$go" ]; do
+    for dog in '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ◡ᴥ◡ᐯ' '^ᐯ•ᴥ•ᐯ' \
+      '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐱ' '~ᐯ•ᴥ•ᐱ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐯ'; do
+      button "$dog"
+      case $(dd bs=1 count=1 </dev/tty 2>/dev/null | od -An -tx1 | tr -d ' \n') in
+        0a|0d) go=yes; break ;;
+        1b|71) go=no; break ;;
+      esac
+    done
+  done
+  stty "$tty_mode" </dev/tty
+  tty_mode=
+  below=
+  if [ "$go" = no ]; then
+    printf '%s[2B\r%s[K      %sRun %s%s%s%s anytime.%s\n\n' "$esc" "$esc" \
+      "$dim" "$off$bold" "$cmd" "$off" "$dim" "$off"
+    return
+  fi
+  button '~ᐯ◡ᴥ◡ᐯ'
+  printf '%s[2B\r%s[K\n' "$esc" "$esc"
+  case ":$PATH:" in *":$dir:"*) ;; *) PATH="$dir:$PATH"; export PATH ;; esac
+  trap - EXIT
+  cleanup
+  # Bun can't wait for input on /dev/tty on macOS, so corgi reads the terminal itself.
+  exec "$bin" <&1
+}
+
+# Removes the installer's PATH lines, unless other programs still live in that directory.
+unsetup_path() {
+  others=$(ls -A "$dir" 2>/dev/null |
+    awk 'NR <= 3 { printf "%s%s", (NR > 1 ? ", " : ""), $0 } END { if (NR > 3) printf ", …" }')
+  if [ -n "$others" ]; then
+    skipped "Kept $(home "$dir") on PATH for $others"
+    return
+  fi
+  files= fish_removed=
+  for file in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.profile" \
+    "$HOME/.bash_profile" "$HOME/.bash_login" "$fish_rc"; do
+    grep -qx '# Corgi' "$file" 2>/dev/null || continue
+    # Drops "# Corgi", the PATH line under it, and the blank line the installer put above.
+    awk -v a="$path_line" -v b="$fish_line" '
+      { line[NR] = $0 }
+      END {
+        for (i = 1; i <= NR; i++) {
+          if (line[i] == "# Corgi" && (line[i + 1] == a || line[i + 1] == b)) {
+            if (n && kept[n] == "") n--
+            i++
+            continue
+          }
+          kept[++n] = line[i]
+        }
+        for (i = 1; i <= n; i++) print kept[i]
+      }' "$file" >"$tmp/rc"
+    ! cmp -s "$tmp/rc" "$file" || continue
+    if [ "$file" = "$fish_rc" ] && ! grep -q '[^[:space:]]' "$tmp/rc"; then
+      rm -f "$file"
+      fish_removed=1
+    else
+      cat "$tmp/rc" >"$file"
+    fi
+    files="$files${files:+ and }$(home "$file")"
+  done
+  if [ -n "$files" ]; then
+    ok "Removed $(home "$dir") from PATH in $files"
+  else
+    already "Removed $(home "$dir") from PATH"
+  fi
+  # The fish line also put the directory in fish_user_paths, which every fish shares.
+  fish=$(command -v fish 2>/dev/null) || fish=
+  if [ -n "$fish_removed" ] && [ -n "$fish" ]; then
+    "$fish" -c 'if set -l i (contains -i -- $argv[1] $fish_user_paths); set -e fish_user_paths[$i]; end' \
+      "$dir" </dev/null >/dev/null 2>&1 || true
+  fi
+}
+
+# Corgi's Ghostty keybindings type its shortcuts as text, which breaks Ghostty's own without it.
+unghostty() {
+  native="$HOME/Library/Application Support/com.mitchellh.ghostty"
+  xdg="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
+  for file in "$native/config.ghostty" "$native/config" "$xdg/config.ghostty" "$xdg/config"; do
+    grep -qxF '# BEGIN CORGI GHOSTTY INTEGRATION' "$file" 2>/dev/null &&
+      grep -qxF '# END CORGI GHOSTTY INTEGRATION' "$file" || continue
+    awk '$0 == "# BEGIN CORGI GHOSTTY INTEGRATION" { skip = 1 } !skip { print }
+      $0 == "# END CORGI GHOSTTY INTEGRATION" { skip = 0 }' "$file" >"$tmp/ghostty"
+    cat "$tmp/ghostty" >"$file"
+    ok "Removed Corgi's keybindings from $(home "$file") ${dim}(reload Ghostty with ⌘⇧,)$off"
+  done
+}
+
+# Removes what the installer added. Saved sessions and settings stay.
+uninstall() {
+  printf '\n  %sCorgi%s %suninstall%s\n\n' "$bold" "$off" "$dim" "$off"
+  # Only processes that are a release binary; panes merely started through one don't count.
+  pids=$(pgrep -f -- "^$root/releases/" 2>/dev/null | tr '\n' ' ')
+  [ -z "$pids" ] || fail "Corgi is running from $(home "$root") (PIDs ${pids% }).
+    Quit it, then run this again. corgi shutdown stops it and every pane in it."
+  tmp=$(mktemp -d)
+  if [ ! -e "$bin" ]; then
+    already "Removed $(home "$bin")"
+  elif grep -qF 'exec "$root/releases/$v/corgi"' "$bin" 2>/dev/null; then
+    rm -f "$bin"
+    ok "Removed $(home "$bin")"
+  else
+    skipped "Left $(home "$bin") alone; it isn't Corgi's launcher"
+  fi
+  if [ ! -e "$root" ]; then
+    already "Removed $(home "$root")"
+  elif [ -f "$root/current" ] || [ -d "$root/releases" ]; then
+    rm -rf "$root"
+    ok "Removed $(home "$root")"
+  else
+    skipped "Left $(home "$root") alone; it isn't a Corgi install"
+  fi
+  [ "$bin" != "$HOME/.local/bin/corgi" ] || unsetup_path
+  unghostty
+  state="${XDG_STATE_HOME:-$HOME/.local/state}/corgi"
+  [ ! -d "$state" ] || skipped "Kept saved sessions and settings in $(home "$state")"
+  printf '\n  ~ᐯ•ᴥ•ᐯ  Bye! To reinstall: curl -fsSL %s/install.sh | bash\n\n' "$base"
+}
+
+main() {
+  trap cleanup EXIT
+  trap 'exit 1' HUP TERM
+  trap interrupted INT
+  case ${1:-} in
+    '') ;;
+    uninstall | --uninstall) uninstall; return ;;
+    *) echo 'Usage: install.sh [uninstall]' >&2; exit 2 ;;
+  esac
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) target=macos-aarch64 platform='macOS arm64' expected=@MAC_SHA256@ size=@MAC_SIZE@ ;;
+    Linux-x86_64) target=linux-x86_64 platform='Linux amd64' expected=@LINUX_SHA256@ size=@LINUX_SIZE@ ;;
+    *) echo 'Corgi supports macOS arm64 and Linux amd64.' >&2; exit 1 ;;
+  esac
+  if [ -n "$live" ]; then
+    # Keys typed while it works would otherwise land in the progress line.
+    tty_mode=$(stty -g </dev/tty)
+    stty -echo </dev/tty
+    printf '%s[?25l' "$esc"
+  fi
+  printf '\n  %sCorgi%s %s%s · %s%s\n\n' "$bold" "$off" "$dim" "$version" "$platform" "$off"
+  install_corgi
+  setup_path
+  launch
+}
+
+main "$@"

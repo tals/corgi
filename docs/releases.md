@@ -161,24 +161,30 @@ report: `atos -o dsym/libcorgi_probe.dylib.dSYM -arch arm64 -l LOAD_ADDRESS ADDR
 
 ```sh
 curl -fsSL https://corgi.computer/install.sh | bash
-# Accept the PATH setup prompt, then open a new terminal.
-corgi
+# Press Enter to start Corgi.
 ```
 
 The installer is a short, readable shell script generated from
 [`scripts/install.sh.in`](../scripts/install.sh.in). It needs only curl and standard
-macOS/Linux utilities and runs without sudo. If `~/.local/bin` is missing from
-PATH, it asks before adding a line to the current shell configuration (bash, zsh,
-or fish). The prompt reads `/dev/tty`, so piping the script to bash still works.
-It leaves existing configuration intact and avoids adding duplicate lines.
-Without a terminal it prints the PATH command instead; `CORGI_UPDATE_PATH=1`
-opts into configuration for unattended installs, and `CORGI_UPDATE_PATH=0` skips
-it. Open a new terminal afterward, or run the printed command in the current one.
+macOS/Linux utilities and runs without sudo. It prints each step and strikes
+through the ones an earlier run already did. If `~/.local/bin` is missing from
+PATH, it adds a line to the current shell configuration (bash, zsh, or fish),
+leaving existing configuration intact and skipping duplicates; open fish
+sessions pick it up too. `CORGI_UPDATE_PATH=0` skips this. On a terminal it
+ends with a button: Enter starts Corgi, Esc skips. Keys come from `/dev/tty`,
+so piping the script to bash still works. Without a terminal it prints plain
+lines and the command to run.
 
 The installer pins the initial binary's checksum, then the binary verifies the
 signed release manifest before installing. As with any shell installer, the
 initial script is trusted through its HTTPS origin. The installer refuses to
-overwrite an existing `corgi` command or managed installation.
+overwrite an existing `corgi` command. Over an existing managed installation it
+downloads nothing; updates arrive through the channel instead.
+
+`bash -s uninstall` reverses the installer: it removes the launcher, the
+install root, the PATH lines it added and Corgi's Ghostty keybindings. It
+keeps the PATH lines while other programs live in `~/.local/bin`, keeps saved
+state, and refuses while any process runs from the install root.
 
 `~/.local/bin/corgi` is a small launcher. Executables and their signed manifests
 live in private version directories under `~/.local/share/corgi/releases`.
