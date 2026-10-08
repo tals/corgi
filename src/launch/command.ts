@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { Provider } from "../providers";
 import { Model } from "../providers/model";
 import * as os from "../os";
+import * as settings from "../settings";
 export const capacity = 6,
   max_length = 2048;
 export type Command = string;
@@ -112,8 +113,18 @@ export class Entry {
     return this.name || (p ? `${Provider.info(p).name} command` : "Shell command");
   }
 }
-/** SHELL is inherited from the user's session; the account covers app/launchd starts. */
+/** The shell from settings.json, else SHELL from the user's session, else the
+ * account's login shell, which covers app/launchd starts. */
 export function shell() {
+  const configured = settings.shell();
+  if (configured !== null) {
+    if (configured.startsWith("/")) {
+      if (os.isExecutable(configured)) return configured;
+    } else {
+      const found = os.findExecutable(configured);
+      if (found) return found;
+    }
+  }
   const s = process.env.SHELL;
   if (s?.startsWith("/")) return s;
   return os.loginShell() ?? "/bin/sh";

@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Provider, Each } from "../providers";
-import { atomicWrite } from "../os";
-import { Store } from "../workspace";
+import * as settings from "../settings";
 import type { Choice } from "./harness";
 export { Provider };
 export type { Choice };
@@ -49,21 +47,11 @@ export function initial(saved: Choice | null) {
   return ["auto", "codex", "claude", "off"].includes(name) ? (name as Choice) : "off";
 }
 export function load(file: string): Choice | null {
-  try {
-    const data = readFileSync(file);
-    if (data.length > 65536) return null;
-    const v = JSON.parse(data.toString()).inference;
-    return ["auto", "codex", "claude", "off"].includes(v) ? v : null;
-  } catch {
-    return null;
-  }
+  const v = settings.read(file).inference;
+  return v === "auto" || v === "codex" || v === "claude" || v === "off" ? v : null;
 }
 export function save(file: string, choice: Choice) {
-  atomicWrite(file, JSON.stringify({ inference: choice }, null, 2), 0o600, false);
+  settings.update(file, { inference: choice });
 }
 
-export function path(socket: string) {
-  const state = Store.statePath(socket);
-  if (!state.endsWith("workspaces.json")) throw Error("InvalidStatePath");
-  return state.slice(0, -"workspaces.json".length) + "settings.json";
-}
+export const path = settings.path;

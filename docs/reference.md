@@ -217,6 +217,17 @@ session snapshots, pane surfaces, and operations with explicit targets for the
 viewer-owned UI. The former `attach`/`input`/`size` socket operations have been removed;
 `corgi attach` uses `viewer.open` and `viewer.sync`.
 
+New panes run a login shell: the `shell` setting in `settings.json` (beside
+`workspaces.json`, default `~/.local/state/corgi/settings.json`) when it names
+an executable, as an absolute path or a name on the runtime's PATH; otherwise
+`$SHELL` as the runtime inherited it, when absolute; otherwise your account's
+login shell; otherwise `/bin/sh`. Panes get `SHELL` set to the shell they run.
+The setting applies to panes opened after you save the file:
+
+```json
+{ "shell": "/bin/zsh" }
+```
+
 ## Agent integration
 
 The left sidebar is split 50/50: workspaces above, agents from the selected workspace below, in tab order until manually reordered. Click + beside workspaces to enter just a name (the focused pane’s current directory is inherited), click a workspace to switch, and right-click for **Rename** and **Close**. Menu actions target the clicked workspace. Close ends its panes and native sessions and removes the workspace; the last workspace cannot be closed. `prefix w` creates, `prefix W` edits, and `prefix {` / `prefix }` switch workspaces. Each workspace retains its tabs; each viewer remembers its focused pane within them. Processes keep running while hidden. New tabs and splits inherit the focused pane’s current directory (a targeted split inherits its target pane’s directory), falling back to the workspace’s default folder when empty; explicit RPC `cwd` overrides it. Changing a default folder does not change existing shells. Workspace names, IDs, and default folders are saved automatically across restarts. Each viewer owns its selection; tabs and processes are not restored after a daemon restart. State lives at `$XDG_STATE_HOME/corgi/workspaces.json` (default `~/.local/state/corgi/workspaces.json`), or beside an explicit `CORGI_SOCKET` as `<socket>.workspaces.json`. `corgi workspace list`, `new NAME [--cwd DIR]`, `switch ID [--viewer ID]`, `edit ID [--name NAME|--clear] [--cwd DIR]`, and `close ID` provide CLI access; close requires an empty workspace with no native sessions. Each entry has two rows: a colored status circle followed by the working directory, then an activity icon beneath the circle and the agent name. The activity icon is blank when idle, 🧠 while thinking, and 🔧 during a known tool call or its approval prompt. Paths under your home use `~`; long paths are shortened from the left so the current directory remains visible. Hook-reported directories take precedence over the foreground process directory; native sessions show their launch directory. Tab names, tool names, and routine lifecycle messages are omitted. An agent nearing compaction ends its first row with how full its context window is; see [Context](agents.md#context).

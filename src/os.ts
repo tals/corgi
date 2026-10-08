@@ -333,6 +333,15 @@ export class PathSearch {
     return null;
   }
 }
+export function isExecutable(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 export function findExecutable(name: string, buffer: Uint8Array | number = max_path_bytes) {
   return PathSearch.init(env("PATH") ?? "", name).next(buffer);
 }
