@@ -80,19 +80,22 @@ progress() {
 }
 
 install_corgi() {
+  for path in "$root" "$bin"; do
+    case $path in /*) ;; *) fail "Install paths must be absolute: $path" ;; esac
+  done
   installed=
-  if [ -f "$root/current" ]; then
-    installed=$(cat "$root/current")
-    [ -x "$bin" ] || fail "Corgi is installed in $(home "$root"), but $(home "$bin") is missing.
-    Uninstall with: curl -fsSL $base/install.sh | bash -s uninstall"
-    # Release versions are fixed-width UTC timestamps, so they order as text.
-    if ! LC_ALL=C expr "x$version" \> "x$installed" >/dev/null; then
-      already 'Downloaded corgi'
+  [ ! -f "$root/current" ] || installed=$(cat "$root/current")
+  # Release versions are fixed-width UTC timestamps, so they order as text.
+  if [ -n "$installed" ] && ! LC_ALL=C expr "x$version" \> "x$installed" >/dev/null; then
+    already 'Downloaded corgi'
+    write_launcher
+    if [ "$was" = same ]; then
       already "Installed corgi $installed at $(home "$bin")"
-      return
+    else
+      already "Installed corgi $installed"
+      ok "Restored the launcher at $(home "$bin")"
     fi
-  else
-    [ ! -e "$bin" ] || fail "$(home "$bin") already exists. Set CORGI_INSTALL_BIN to install elsewhere."
+    return
   fi
   tmp=$(mktemp -d)
   ok "Staging in $(home "$tmp")"
@@ -117,19 +120,48 @@ install_corgi() {
   [ "$actual" = "$expected" ] || fail 'Corgi checksum mismatch'
   ok "Verified checksum  ${dim}sha256 $(printf '%.12s' "$expected")…$off"
 
-  # Corgi verifies the signed manifest and installs its auto-update launcher, or
-  # stages itself over an older installation for the next launch to activate.
+  # Corgi verifies the signed manifest and installs itself, or stages itself over
+  # an older installation for the next launch to activate.
   fetch manifest.json manifest.json
   chmod 700 "$tmp/corgi"
-  "$tmp/corgi" __install "$root" "$bin" "$tmp/manifest.json" </dev/null 2>"$tmp/error" ||
+  "$tmp/corgi" __install "$root" "$tmp/manifest.json" </dev/null 2>"$tmp/error" ||
     fail "Couldn't install corgi: $(cat "$tmp/error")"
+  write_launcher
   if [ -z "$installed" ]; then
-    ok "Installed corgi at $(home "$bin")"
-  elif [ -f "$root/auto-off" ]; then
+    case $was in
+      other) ok "Installed corgi at $(home "$bin")  ${dim}replaced the file there$off" ;;
+      *) ok "Installed corgi at $(home "$bin")" ;;
+    esac
+    return
+  fi
+  [ "$was" = same ] || ok "Restored the launcher at $(home "$bin")"
+  if [ -f "$root/auto-off" ]; then
     ok "Staged the update from $installed  ${dim}automatic updates are off; corgi update switches to it$off"
   else
     ok "Updated corgi from $installed  ${dim}it takes over when corgi next starts$off"
   fi
+}
+
+# Writes the launcher that runs the current release over whatever is at $bin,
+# and sets was to what it found there: a launcher (same), nothing (missing) or
+# something else (other). Uninstall recognizes the launcher by its exec line.
+write_launcher() {
+  mkdir -p "$dir"
+  quoted=$(printf %s "$root" | sed "s/'/'\\\\''/g")
+  cat >"$bin.new" <<EOF
+#!/bin/sh
+set -eu
+root='$quoted'
+v=\$(cat "\$root/current")
+case "\$v" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac
+exec "\$root/releases/\$v/corgi" "\$@"
+EOF
+  chmod 755 "$bin.new"
+  if [ ! -e "$bin" ]; then was=missing
+  elif grep -qF 'exec "$root/releases/$v/corgi"' "$bin" 2>/dev/null; then was=same
+  else was=other
+  fi
+  mv -f "$bin.new" "$bin"
 }
 
 # Puts the default install directory on PATH for new shells.

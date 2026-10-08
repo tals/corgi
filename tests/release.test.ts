@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { n, pair, readUntil, write } from "../src/native_ffi";
 import { nativeRoot } from "../src/native_paths";
-import { launcher } from "../src/updates";
 const bytes = (s: string) => new TextEncoder().encode(s);
 class MemoryStore implements Store {
   files = new Map<string, Uint8Array>();
@@ -336,37 +335,49 @@ test("PATH setup handles shell configs, spaces, duplicates and opting out", asyn
   } finally { await rm(base,{recursive:true,force:true}); }
 });
 
-test("rerunning the installer skips finished steps without downloading", async () => {
-  const home = await mkdtemp(join(tmpdir(), "corgi reinstall test "));
+// A home with release 1.2.3 installed but no launcher, and the installer run from it.
+async function releaseHome(name: string) {
+  const home = await mkdtemp(join(tmpdir(), `corgi ${name} test `));
+  const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi"), release = join(root, "releases/1.2.3/corgi");
+  await mkdir(join(root, "releases/1.2.3"), { recursive: true });
+  await writeFile(join(root, "current"), "1.2.3"); await writeFile(release, '#!/bin/sh\necho "release 1.2.3 $*"\n'); await chmod(release, 0o755);
+  const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", PATH:join(home, ".local/bin")+":/usr/bin:/bin"};
+  for (const name of ["CORGI_PANE", "CORGI_INSTALL_ROOT", "CORGI_INSTALL_BIN"]) delete env[name];
+  const run = () => { const p = Bun.spawnSync(["/bin/sh", "-c", testInstaller()], {env}); return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() }; };
+  return { home, root, bin, env, run };
+}
+
+test("rerunning the installer downloads nothing and repairs the launcher", async () => {
+  const { home, bin, run } = await releaseHome("reinstall");
   try {
-    const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi");
-    await mkdir(root, { recursive: true }); await mkdir(join(home, ".local/bin"));
-    await writeFile(join(root, "current"), "1.2.3"); await writeFile(bin, "#!/bin/sh\n"); await chmod(bin, 0o755);
-    const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", PATH:join(home, ".local/bin")+":/usr/bin:/bin"};
-    delete env.CORGI_PANE;
-    const p = Bun.spawnSync(["/bin/sh", "-c", testInstaller()], {env});
-    expect(p.stderr.toString()).toBe("");
-    expect(p.exitCode).toBe(0);
-    const out = p.stdout.toString();
-    for (const line of ["✓ Downloaded corgi (already done)", "✓ Installed corgi 1.2.3 at ~/.local/bin/corgi (already done)", "✓ Added ~/.local/bin to PATH (already done)", "Run corgi to start."]) expect(out).toContain(line);
-    expect(out).not.toContain("\x1b");
+    const missing = run();
+    expect(missing.err).toBe("");
+    expect(missing.code).toBe(0);
+    for (const line of ["✓ Downloaded corgi (already done)", "✓ Installed corgi 1.2.3 (already done)", "✓ Restored the launcher at ~/.local/bin/corgi\n"]) expect(missing.out).toContain(line);
+    expect(Bun.spawnSync([bin, "hi"]).stdout.toString()).toBe("release 1.2.3 hi\n");
+    const again = run();
+    expect(again.code).toBe(0);
+    for (const line of ["✓ Downloaded corgi (already done)", "✓ Installed corgi 1.2.3 at ~/.local/bin/corgi (already done)", "✓ Added ~/.local/bin to PATH (already done)", "Run corgi to start."]) expect(again.out).toContain(line);
+    expect(again.out).not.toContain("Restored");
+    expect(again.out).not.toContain("\x1b");
+    // A development build copied over the launcher.
+    await writeFile(bin, "#!/bin/sh\necho dev build\n");
+    expect(run().out).toContain("✓ Restored the launcher at ~/.local/bin/corgi\n");
+    expect(Bun.spawnSync([bin, "hi"]).stdout.toString()).toBe("release 1.2.3 hi\n");
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
 test("the installer updates an older installation and leaves a newer one", async () => {
-  const home = await mkdtemp(join(tmpdir(), "corgi update test "));
+  const { home, root, env, run } = await releaseHome("update");
   try {
-    const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi"), stub = join(home, "stub");
-    await mkdir(root, { recursive: true }); await mkdir(join(home, ".local/bin")); await mkdir(stub);
-    await writeFile(join(root, "current"), "1.2.4"); await writeFile(bin, "#!/bin/sh\n"); await chmod(bin, 0o755);
     // A failing curl shows whether it downloads, without the network.
-    await writeFile(join(stub, "curl"), "#!/bin/sh\necho stubbed >&2\nexit 22\n"); await chmod(join(stub, "curl"), 0o755);
-    const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", PATH:`${stub}:${join(home, ".local/bin")}:/usr/bin:/bin`};
-    delete env.CORGI_PANE;
-    const run = () => { const p = Bun.spawnSync(["/bin/sh", "-c", testInstaller()], {env}); return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() }; };
+    const stub = join(home, "stub");
+    await mkdir(stub); await writeFile(join(stub, "curl"), "#!/bin/sh\necho stubbed >&2\nexit 22\n"); await chmod(join(stub, "curl"), 0o755);
+    env.PATH = `${stub}:${env.PATH}`;
+    await writeFile(join(root, "current"), "1.2.4");
     const newer = run();
     expect(newer.code).toBe(0);
-    expect(newer.out).toContain("✓ Installed corgi 1.2.4 at ~/.local/bin/corgi (already done)");
+    expect(newer.out).toContain("✓ Installed corgi 1.2.4 (already done)");
     await writeFile(join(root, "current"), "1.2.2");
     const older = run();
     expect(older.code).toBe(1);
@@ -377,14 +388,11 @@ test("the installer updates an older installation and leaves a newer one", async
 
 test("the launch button gives corgi the terminal device, not /dev/tty", async () => {
   // Bun can't wait for input on /dev/tty on macOS, so a corgi reading it ignores every key.
-  const home = await mkdtemp(join(tmpdir(), "corgi launch test "));
+  const { home, root, env } = await releaseHome("launch");
   const [master, slave] = pair(true);
   try {
-    const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi");
-    await mkdir(root, { recursive: true }); await mkdir(join(home, ".local/bin"));
-    await writeFile(join(root, "current"), "1.2.3"); await writeFile(bin, '#!/bin/sh\necho "stdin is $(tty)."\n'); await chmod(bin, 0o755);
-    const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", TERM:"xterm-256color", PATH:join(home, ".local/bin")+":/usr/bin:/bin"};
-    delete env.CORGI_PANE; delete env.NO_COLOR;
+    await writeFile(join(root, "releases/1.2.3/corgi"), '#!/bin/sh\necho "stdin is $(tty)."\n');
+    env.TERM = "xterm-256color"; delete env.NO_COLOR;
     const p = Bun.spawn([`${nativeRoot}/bin/pty-exec`, "/bin/sh", "-c", testInstaller()], {env, stdin:slave, stdout:slave, stderr:slave});
     await readUntil(master, "esc to skip", 10_000);
     write(master, "\r");
@@ -396,11 +404,8 @@ test("the launch button gives corgi the terminal device, not /dev/tty", async ()
 
 // A home with an installed Corgi, the installer's PATH lines, Ghostty keybindings and saved state.
 async function installedHome(name: string) {
-  const home = await mkdtemp(join(tmpdir(), `corgi ${name} test `));
-  const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi");
-  await mkdir(join(root, "releases/1.2.3"), { recursive: true }); await mkdir(join(home, ".local/bin"));
-  await writeFile(join(root, "current"), "1.2.3"); await writeFile(join(root, "releases/1.2.3/corgi"), "");
-  await writeFile(bin, launcher(root)); await chmod(bin, 0o755);
+  const { home, root, bin, env } = await releaseHome(name);
+  expect(Bun.spawnSync(["/bin/sh", "-c", testInstaller().replace(/\nmain "\$@"\n$/, "\nwrite_launcher\n")], {env}).exitCode).toBe(0);
   const path = 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac';
   await writeFile(join(home, ".bashrc"), `# mine\nalias ll='ls -l'\n\n# Corgi\n${path}\n`);
   await mkdir(join(home, ".config/fish/conf.d"), { recursive: true });

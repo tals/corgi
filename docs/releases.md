@@ -177,10 +177,11 @@ lines and the command to run.
 
 The installer pins the initial binary's checksum, then the binary verifies the
 signed release manifest before installing. As with any shell installer, the
-initial script is trusted through its HTTPS origin. The installer refuses to
-overwrite an existing `corgi` command. Over an older managed installation it
-downloads its release and stages it, as a background download would; the next
-`corgi` launch activates it. Over the same or a newer one it downloads nothing.
+initial script is trusted through its HTTPS origin. Over an older managed
+installation it downloads its release and stages it, as a background download
+would; the next `corgi` launch activates it. Over the same or a newer one it
+downloads nothing. Every run writes the launcher at `~/.local/bin/corgi`,
+replacing whatever is there, such as a development build copied over it.
 
 `bash -s uninstall` reverses the installer: it removes the launcher, the
 install root, the PATH lines it added and Corgi's Ghostty keybindings. It

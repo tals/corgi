@@ -1,8 +1,8 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { spawn } from "node:child_process";
-import { atomicWrite, quote } from "./os";
+import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
 import * as rpc from "./rpc";
 import { path as recoveryPath } from "./persist/recovery";
@@ -154,20 +154,19 @@ export async function command(args:string[],socket:string,exe:string){
 export function background(socket:string,exe:string){const root=managed(release(exe),exe);if(!root||existsSync(join(root,"auto-off")))return;spawn(exe,["__update-worker",socket],{env:{...process.env,CORGI_APP_EXE:exe},stdio:"ignore",detached:true}).unref();}
 async function worker(exe:string,socket:string){const rel=release(exe),root=managed(rel,exe);if(!root)return;const unlock=await lock(root,`worker-${Bun.hash.wyhash(socket,0n).toString(16)}.lock`,false);if(!unlock)return;
   try{let next=0;while(!existsSync(join(root,"auto-off"))){if(!await hello(socket))return;const now=Date.now();if(now>=next){try{await feed(rel,root,true,false);}catch(error){recordError(root,error);}next=now+3600000+Math.random()*300000;}await Bun.sleep(30000);}}finally{unlock();}}
-// The installer's uninstall mode recognizes this launcher by its exec line.
-export const launcher=(root:string)=>`#!/bin/sh\nset -eu\nroot=${quote(root)}\nv=$(cat "$root/current")\ncase "$v" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec "$root/releases/$v/corgi" "$@"\n`;
-async function install(rel:Release,exe:string,root:string,bin:string,manifest:string){
-  if(!isAbsolute(root)||!isAbsolute(bin))throw Error("AbsoluteInstallPathRequired");privateDirectory(root);const unlock=await lock(root,"activation.lock",true);
+// The installer writes the launcher that runs the current release.
+async function install(rel:Release,exe:string,root:string,manifest:string){
+  if(!isAbsolute(root))throw Error("AbsoluteInstallPathRequired");privateDirectory(root);const unlock=await lock(root,"activation.lock",true);
   try{const current=read(root,"current");if(current!==null&&compare(rel.version,current)<=0)throw Error("AlreadyInstalled");
     const bytes=readFileSync(manifest,"utf8"),m=parse(rel,bytes);if(m.version!==rel.version||m.commit!==rel.commit)throw Error("WrongReleaseManifest");verifyFile(exe,m.targets[platform]);
     const dest=executable(root,rel.version),dir=dirname(dest);privateDirectory(dir);try{verifyFile(dest,m.targets[platform]);}catch{copyFileSync(exe,dest);chmodSync(dest,0o700);}write(dir,"manifest.json",bytes);
     // Over an older installation it stages the release, as a background download would; the next launch activates it.
     if(current!==null){const staged=read(root,"staged");if(staged===null||compare(staged,rel.version)<0)write(root,"staged",rel.version);return;}
-    mkdirSync(dirname(bin),{recursive:true});writeFileSync(bin,launcher(root),{flag:"wx",mode:0o755});write(root,"current",rel.version);
+    write(root,"current",rel.version);
   }finally{unlock?.();}
 }
 export async function internal(args:string[],exe:string):Promise<boolean>{
   switch(args[0]){case "__update-info":{const r=release(exe);console.log(JSON.stringify({version:r.version,commit:r.commit,update_abi:abi,platform,test_mode:r.test_mode}));return true;}
     case "__update-worker":if(args.length!==2)return false;await worker(exe,args[1]);return true;
-    case "__install":if(args.length!==4)return false;await install(release(exe),exe,args[1],args[2],args[3]);return true;default:return false;}
+    case "__install":if(args.length!==3)return false;await install(release(exe),exe,args[1],args[2]);return true;default:return false;}
 }

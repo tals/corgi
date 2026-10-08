@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { EXE, Pty, deadline } from "./support";
+import { installer } from "../scripts/release.ts";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
 const keys = generateKeyPairSync("ed25519");
 const publicKey = Buffer.from(keys.publicKey.export({ type: "spki", format: "der" })).subarray(-32).toString("hex");
@@ -70,7 +71,10 @@ beforeEach(async () => {
   delete env.CORGI_PANE;
   const manifest = join(home, "manifest.json");
   await writeFile(manifest, manifests.get("1.0.0")!);
-  await exec([fixture("1.0.0"), "__install", root, bin, manifest]);
+  await exec([fixture("1.0.0"), "__install", root, manifest]);
+  // The installer writes the launcher.
+  const script = installer(url, "1.0.0", { "macos-aarch64": { sha256: "", size: 1 }, "linux-x86_64": { sha256: "", size: 1 } });
+  await exec(["/bin/sh", "-c", script.replace(/\nmain "\$@"\n$/, "\nwrite_launcher\n")], { ...env, CORGI_INSTALL_ROOT: root, CORGI_INSTALL_BIN: bin });
   await cli(["update", "auto", "off"]);
 }, 30_000);
 afterEach(async () => {
@@ -114,11 +118,11 @@ test("background download stages without activating, next start works offline", 
 test("installing over an older release stages it for the next start", async () => {
   const manifest = join(home, "manifest.json");
   await writeFile(manifest, manifests.get("1.0.1")!);
-  await exec([fixture("1.0.1"), "__install", root, bin, manifest]);
+  await exec([fixture("1.0.1"), "__install", root, manifest]);
   expect((await readFile(join(root, "staged"), "utf8"))).toBe("1.0.1");
   expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.0");
   await writeFile(manifest, manifests.get("1.0.0")!);
-  expect((await exec([fixture("1.0.0"), "__install", root, bin, manifest], env, false)).err).toContain("AlreadyInstalled");
+  expect((await exec([fixture("1.0.0"), "__install", root, manifest], env, false)).err).toContain("AlreadyInstalled");
   await cli(["update", "auto", "on"]);
   unavailable = true;
   await cli(["start"]);
