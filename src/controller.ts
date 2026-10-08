@@ -2,6 +2,7 @@
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { hostname } from "node:os";
+import { basename } from "node:path";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as keymap from "./keymap";
@@ -42,6 +43,8 @@ import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
 import { Menu as SetupMenu, Choice as SetupChoice, type Choice as SetupChoiceT } from "./corgi_setup";
+import * as shellPicker from "./shell_picker";
+import { installedShells } from "./launch/command";
 import { State as LinkTooltip, type Target as TooltipTarget } from "./link_tooltip";
 import * as resourceTooltip from "./resource_tooltip";
 import * as preferences from "./preferences";
@@ -1015,6 +1018,11 @@ export class Controller {
             return;
           }
         }
+      } else if ("shell" in target) {
+        if (!(await this.configureShell(dialog.name()))) {
+          dialog.failed = true;
+          return;
+        }
       } else if ("fork" in target) {
         // An emptied name keeps the one the copy takes over.
         const name = dialog.name().length > 0 ? dialog.name() : null;
@@ -1843,6 +1851,7 @@ export class Controller {
     const setup = SetupMenu.open(this.runtime.inference);
     setup.integration = this.remote_links ? "unavailable" : ghosttyIntegration.state();
     setup.image_paste = this.host_clipboard;
+    setup.shell = this.runtime.shell;
     this.corgi_setup = setup;
     this.dirty = true;
   }
@@ -1859,6 +1868,11 @@ export class Controller {
     this.dirty = true;
   }
   private async applySetup(choice: SetupChoiceT): Promise<void> {
+    if (choice === "shell") {
+      if (this.corgi_setup) this.corgi_setup.picker = shellPicker.Picker.open(this.runtime.shell, installedShells());
+      this.dirty = true;
+      return;
+    }
     if (choice === "keyboard" || choice === "import")
       return this.openOnboarding(choice === "keyboard" ? "keyboard" : "import");
     if (choice === "readings") {
@@ -1926,6 +1940,39 @@ export class Controller {
           ? "Off"
           : Provider.info(SetupChoice.provider(choice)!).label;
     this.notice(` Summaries and link names: ${label}${saved ? "" : " (not saved for next start)"}`);
+  }
+  /** Enter in the shell picker: Other… asks for a path; the rest go to the
+   * daemon, and the picker returns to setup. */
+  private async chooseShell(): Promise<void> {
+    const setup = this.corgi_setup,
+      picker = setup?.picker;
+    if (!setup || !picker) return;
+    const entry = picker.entries[picker.selected];
+    this.dirty = true;
+    if (entry === "other") {
+      // Setup draws over dialogs, so it closes first.
+      this.closeMenu();
+      this.name_dialog = Dialog.init({ shell: null }, picker.shell.setting);
+      return;
+    }
+    setup.picker = null;
+    if (picker.selected !== picker.in_use) await this.configureShell(entry === "default" ? "" : entry.path);
+  }
+  /** False when the daemon finds no executable shell for the setting. */
+  private async configureShell(shell: string): Promise<boolean> {
+    let response: any;
+    try {
+      response = await call(this.connection, "shell.configure", { shell });
+    } catch (error) {
+      if ((error as Error).message === "ShellNotFound") return false;
+      this.notice(" Corgi setup: the runtime did not accept the change");
+      return true;
+    }
+    const status = shellPicker.status(response.shell);
+    this.runtime.shell = status;
+    if (this.corgi_setup) this.corgi_setup.shell = status;
+    this.notice(` New panes start in ${basename(status.path)}${status.source === "setting" ? "" : " (the default)"}`);
+    return true;
   }
   private movePortMenu(next: boolean): void {
     const links = this.port_menu;
@@ -2041,6 +2088,32 @@ export class Controller {
     if (this.scope_menu !== null) {
       this.closeMenu();
       if (byte === 27) return;
+    }
+    if (this.corgi_setup?.picker) {
+      const picker = this.corgi_setup.picker;
+      switch (byte) {
+        case 27:
+        case 113:
+          this.corgi_setup.picker = null;
+          break;
+        case 13:
+        case 32:
+          await this.chooseShell();
+          break;
+        case 106:
+        case 14:
+        case 9:
+          picker.move(true);
+          break;
+        case 107:
+        case 16:
+          picker.move(false);
+          break;
+        default:
+          break;
+      }
+      this.dirty = true;
+      return;
     }
     if (this.corgi_setup) {
       const setup = this.corgi_setup;
@@ -2724,8 +2797,9 @@ export class Controller {
         else if (parsed_key === "down") this.moveAgentPicker(true);
         else this.agent_picker.query.sequence(text);
       } else if (this.corgi_setup) {
-        if (parsed_key === "up" || parsed_key === "shift_tab") this.corgi_setup.move(false);
-        else if (parsed_key === "down") this.corgi_setup.move(true);
+        const menu = this.corgi_setup.picker ?? this.corgi_setup;
+        if (parsed_key === "up" || parsed_key === "shift_tab") menu.move(false);
+        else if (parsed_key === "down") menu.move(true);
         this.dirty = true;
       } else if (this.agent_launcher) {
         const launch = this.agent_launcher;
@@ -3120,6 +3194,22 @@ export class Controller {
     const tabs_width = this.width - tabs_x;
     if (this.ui_mouse_down) {
       if (release) this.ui_mouse_down = false;
+      return;
+    }
+    if (this.corgi_setup?.picker) {
+      const setup = this.corgi_setup,
+        picker = this.corgi_setup.picker,
+        entry = setup.pickerHit(this.width, this.height, x, y);
+      if (!release && button === 0) {
+        this.ui_mouse_down = true;
+        if (entry !== null) {
+          picker.selected = entry;
+          await this.chooseShell();
+        } else if (!setup.pickerContains(this.width, this.height, x, y)) setup.picker = null;
+      } else if (!release && (button === 35 || button === 32)) {
+        if (entry !== null) picker.selected = entry;
+      } else if (!release && (button === 64 || button === 65)) picker.move(button === 65);
+      this.dirty = true;
       return;
     }
     if (this.corgi_setup) {

@@ -17,9 +17,12 @@ export type Target =
   /** The conversation an agent pane shows, named in its agent's own records. */
   | { agent: number }
   /** The name a copy of an agent pane's conversation starts with. */
-  | { fork: number };
-export const targetKind = (t: Target): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" =>
-  Object.keys(t)[0] as any;
+  | { fork: number }
+  /** The shell new panes run, typed from the shell picker. */
+  | { shell: null };
+export const targetKind = (
+  t: Target,
+): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" | "shell" => Object.keys(t)[0] as any;
 /** Whether names keep non-ASCII text, which the agents' own names carry. */
 function unicodeTarget(t: Target): boolean {
   return "agent_command" in t || "agent" in t || "fork" in t;
@@ -433,9 +436,11 @@ export class View {
               ? "Rename agent"
               : kind === "fork"
                 ? "Fork this agent"
-                : (d.target as { workspace_name: number | null }).workspace_name === null
-                  ? "New workspace"
-                  : "Rename workspace";
+                : kind === "shell"
+                  ? "Shell for new panes"
+                  : (d.target as { workspace_name: number | null }).workspace_name === null
+                    ? "New workspace"
+                    : "Rename workspace";
     // Text lines up with the field's fill.
     const left = v.text_x - (v.padded ? 1 : 0);
     const room = v.x + v.width - 1 - left - (v.padded ? 1 : 0);
@@ -448,12 +453,18 @@ export class View {
       const msg =
         kind === "agent_command"
           ? "Could not save command; max 2048 bytes."
-          : "Could not save. Check folder or capacity.";
+          : kind === "shell"
+            ? "No executable shell there."
+            : "Could not save. Check folder or capacity.";
       w.write(
         `\x1b[${v.title_y + 2};${left + 1}H` +
           new Style({ fg: "hot", bg: "surface" }).sgr() +
           msg.slice(0, Math.min(msg.length, room)),
       );
+    }
+    if (kind === "shell" && !d.failed && !d.overflow && v.height >= 7) {
+      w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "muted", bg: "surface" }).sgr());
+      writeEllipsis(w, "A path or a name on PATH; empty uses the default", room);
     }
     if (kind === "agent_command" && !d.failed && !d.overflow && v.height >= 7) {
       const provider = identify(d.name());
@@ -464,7 +475,7 @@ export class View {
     w.write(`\x1b[${v.field_y + 1};${left + 1}H` + new Style({ fg: "text", bg: "selected" }).sgr());
     w.splat(" ", v.text_width + 2 * (v.padded ? 1 : 0));
     w.write(`\x1b[${v.field_y + 1};${v.text_x + 1}H`);
-    if (d.len === 0 && kind !== "pane" && kind !== "agent_command" && kind !== "agent" && kind !== "fork") {
+    if (d.len === 0 && (kind === "rename" || kind === "workspace_name")) {
       // This is a preview of the current position, never an editable/saved name.
       w.write(palette.fg("muted") + `${number}`);
     } else {

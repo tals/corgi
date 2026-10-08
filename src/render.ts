@@ -474,7 +474,10 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     }
   }
   if (u.corgi_setup !== null && u.pointer)
-    link_pointer = SetupMenu.hit(width, height, u.pointer.x, u.pointer.y) !== null;
+    link_pointer =
+      (u.corgi_setup.picker
+        ? u.corgi_setup.pickerHit(width, height, u.pointer.x, u.pointer.y)
+        : SetupMenu.hit(width, height, u.pointer.x, u.pointer.y)) !== null;
   if (u.pointer) {
     const pointer = u.pointer;
     if (u.menu) {

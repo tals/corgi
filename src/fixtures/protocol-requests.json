@@ -74,6 +74,9 @@
   "inference.configure": {
     "choice": "claude"
   },
+  "shell.configure": {
+    "shell": "/bin/zsh"
+  },
   "git.push": {
     "workspace": 1,
     "ref": {

@@ -1,6 +1,7 @@
 // Mirrors the tests in corgi_setup.zig.
 import { expect, test } from "bun:test";
 import { Menu, choices, status, testing, type Choice } from "./corgi_setup";
+import * as shellPicker from "./shell_picker";
 import { Preferences } from "./preferences";
 import { State as ClipboardState } from "./host_clipboard";
 import * as corgiAnimation from "./corgi_animation";
@@ -22,7 +23,8 @@ test("setup modal is centered and its rows are clickable inside the frame", () =
   expect(rowOf(100, 30, "off")!).toBeLessThan(rowOf(100, 30, "ghostty")!);
   expect(rowOf(100, 30, "ghostty")!).toBeLessThan(rowOf(100, 30, "keyboard")!);
   expect(rowOf(100, 30, "readings")!).toBeLessThan(rowOf(100, 30, "sleeping_corgis")!);
-  expect(rowOf(100, 30, "sleeping_corgis")!).toBeLessThan(rowOf(100, 30, "keyboard")!);
+  expect(rowOf(100, 30, "sleeping_corgis")!).toBeLessThan(rowOf(100, 30, "shell")!);
+  expect(rowOf(100, 30, "shell")!).toBeLessThan(rowOf(100, 30, "keyboard")!);
   expect(rowOf(100, 30, "import")).toBe(rowOf(100, 30, "keyboard")! + 1);
   expect(Menu.hit(100, 30, b.x + 6, b.y + 2)).toBeNull();
   expect(Menu.hit(100, 30, b.x, auto)).toBeNull();
@@ -136,4 +138,42 @@ test("a viewer sees whether it can paste images", () => {
   menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
   expect(w.s).toContain("Image paste");
   expect(w.s).toContain("○ no paste events");
+});
+
+test("the shell row opens a picker in the same frame", () => {
+  const menu = Menu.open(status());
+  menu.shell = shellPicker.status({
+    path: "/bin/zsh",
+    source: "account",
+    default: "/bin/zsh",
+    default_source: "account",
+  });
+  menu.selected = "shell";
+  let w = new Writer();
+  menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
+  expect(w.s).toContain("zsh · your account  →");
+  expect(w.s).toContain("New panes and splits start in this login shell");
+  expect(w.s).toContain("[ Enter Open → ]");
+  menu.picker = shellPicker.Picker.open(menu.shell, ["/bin/bash", "/bin/zsh"]);
+  w = new Writer();
+  menu.drawAt(w, status(), new Preferences(), 100, 40, 0);
+  expect(w.s).toContain("Shell for new panes");
+  expect(w.s).not.toContain("Activity summaries");
+  expect(w.s).toContain("[ Enter Keep ]");
+  // Rows are clickable inside the frame, in entry order.
+  const hits: number[] = [];
+  for (let y = 0; y < 40; y++) {
+    const hit = menu.pickerHit(100, 40, 50, y);
+    if (hit !== null) hits.push(hit);
+  }
+  expect(hits).toEqual([0, 1, 2, 3]);
+  expect(menu.pickerContains(100, 40, 50, 0)).toBe(false);
+  // Too short for every entry: the selected one stays in view.
+  menu.picker.selected = 3;
+  const visible: number[] = [];
+  for (let y = 0; y < 6; y++) {
+    const hit = menu.pickerHit(100, 6, 50, y);
+    if (hit !== null) visible.push(hit);
+  }
+  expect(visible).toEqual([2, 3]);
 });

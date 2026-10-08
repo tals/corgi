@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { Entry, identify, wrapperBody, analyze, shell } from "./command";
-import { mkdtempSync, rmSync } from "node:fs";
+import { Entry, identify, wrapperBody, analyze, shell, shellStatus, installedShells } from "./command";
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findExecutable, loginShell } from "../os";
@@ -121,6 +121,60 @@ test("panes use the configured shell, then an absolute SHELL, then the account's
     for (const [key, value] of Object.entries(saved))
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("the shell status says what panes run with and without the setting", () => {
+  const saved = { SHELL: process.env.SHELL, CORGI_ENV_DIR: process.env.CORGI_ENV_DIR },
+    root = mkdtempSync(join(tmpdir(), "corgi-shell-"));
+  try {
+    process.env.CORGI_ENV_DIR = root;
+    process.env.SHELL = "/bin/bash";
+    expect(shellStatus()).toEqual({
+      setting: "",
+      path: "/bin/bash",
+      source: "env",
+      default: "/bin/bash",
+      default_source: "env",
+    });
+    settings.update(settings.path(), { shell: "/bin/sh" });
+    expect(shellStatus()).toMatchObject({
+      setting: "/bin/sh",
+      path: "/bin/sh",
+      source: "setting",
+      default: "/bin/bash",
+    });
+    settings.update(settings.path(), { shell: "/bin/zshh" });
+    expect(shellStatus()).toMatchObject({ setting: "/bin/zshh", path: "/bin/bash", source: "env" });
+    delete process.env.SHELL;
+    expect(shellStatus().default_source).toBe(loginShell() ? "account" : "fallback");
+  } finally {
+    for (const [key, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("installed shells skip multiplexers, missing files and second names for one shell", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-shells-"));
+  try {
+    symlinkSync("/bin/sh", join(root, "sh-link"));
+    writeFileSync(
+      join(root, "shells"),
+      [
+        "# comment",
+        "/bin/sh",
+        join(root, "sh-link"),
+        "/usr/bin/tmux",
+        "/bin/missing",
+        "relative",
+        "/bin/bash",
+        "",
+      ].join("\n"),
+    );
+    expect(installedShells(join(root, "shells"))).toEqual(["/bin/bash", "/bin/sh"]);
+    expect(installedShells(join(root, "absent"))).toEqual([]);
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

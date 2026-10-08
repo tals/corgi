@@ -217,16 +217,25 @@ session snapshots, pane surfaces, and operations with explicit targets for the
 viewer-owned UI. The former `attach`/`input`/`size` socket operations have been removed;
 `corgi attach` uses `viewer.open` and `viewer.sync`.
 
-New panes run a login shell: the `shell` setting in `settings.json` (beside
-`workspaces.json`, default `~/.local/state/corgi/settings.json`) when it names
-an executable, as an absolute path or a name on the runtime's PATH; otherwise
-`$SHELL` as the runtime inherited it, when absolute; otherwise your account's
-login shell; otherwise `/bin/sh`. Panes get `SHELL` set to the shell they run.
-The setting applies to panes opened after you save the file:
+New panes run a login shell. To choose it, open **Corgi setup** (click the
+corgi badge or press `prefix i`), then **Panes › Shell**: the picker lists
+**Default**, each installed shell in `/etc/shells`, and **Other…** for a path.
+The choice is the `shell` setting in `settings.json` (beside
+`workspaces.json`, default `~/.local/state/corgi/settings.json`), which you can
+also edit by hand:
 
 ```json
 { "shell": "/bin/zsh" }
 ```
+
+The setting counts when it names an executable, as an absolute path or a name
+on the runtime's PATH. Otherwise, the default is `$SHELL` as the runtime
+inherited it, when absolute; then your account's login shell; then `/bin/sh`.
+Panes get `SHELL` set to the shell they run. A change applies to panes opened
+after it. Clients can use
+`corgi rpc '{"op":"shell.configure","protocol":1,"shell":"zsh"}'` (an empty
+`shell` clears it); the session snapshot's `shell` field reports the setting,
+the shell new panes run and where it came from.
 
 ## Agent integration
 

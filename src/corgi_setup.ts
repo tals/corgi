@@ -1,6 +1,7 @@
 //! Setup modal opened from the corgi badge (or `prefix i`), centered on screen.
 //! Viewer-owned; summarizer choices send `inference.configure` to the daemon,
-//! resource and sleeping corgi choices update viewer preferences.
+//! resource and sleeping corgi choices update viewer preferences, and Shell
+//! opens the shell picker in the same frame.
 //! Mirrors corgi_setup.zig.
 import * as palette from "./palette";
 import { Style, keycap, colors, bgRgb, mix } from "./palette";
@@ -13,9 +14,11 @@ import type { Preferences } from "./preferences";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
+import * as shellPicker from "./shell_picker";
+import type { ShellStatus } from "./launch/command";
 
 export type Choice =
-  "auto" | "codex" | "claude" | "off" | "ghostty" | "readings" | "sleeping_corgis" | "keyboard" | "import";
+  "auto" | "codex" | "claude" | "off" | "ghostty" | "readings" | "sleeping_corgis" | "shell" | "keyboard" | "import";
 export const choices: Choice[] = [
   "auto",
   "codex",
@@ -24,6 +27,7 @@ export const choices: Choice[] = [
   "ghostty",
   "readings",
   "sleeping_corgis",
+  "shell",
   "keyboard",
   "import",
 ];
@@ -41,6 +45,7 @@ const labels: Record<Choice, string> = {
   ghostty: "Command-key integration",
   readings: "Resource readings",
   sleeping_corgis: "Sleeping corgis",
+  shell: "Shell",
   keyboard: "Keyboard shortcuts",
   import: "Import sessions",
 };
@@ -97,6 +102,10 @@ const lines: Line[] = [
   "spacer",
   { heading: "Idle agents" },
   { option: "sleeping_corgis" },
+  "spacer",
+  { heading: "Panes" },
+  { option: "shell" },
+  { hint: "New panes and splits start in this login shell" },
   "spacer",
   { heading: "Shortcuts & import" },
   { option: "keyboard" },
@@ -174,6 +183,10 @@ export class Menu {
   integration: IntegrationState = "unavailable";
   /** The host terminal's clipboard; null when the viewer has no terminal. */
   image_paste: ClipboardState | null = null;
+  /** The shell new panes run, as the daemon last published it. */
+  shell: ShellStatus = shellPicker.status();
+  /** Shown in place of the choices while open; Esc returns to them. */
+  picker: shellPicker.Picker | null = null;
   static open(s: Status): Menu {
     const menu = new Menu();
     menu.selected = s.choice;
@@ -193,6 +206,17 @@ export class Menu {
     const line = lineAt(rows, y - b.y - 1);
     return line !== null && typeof line === "object" && "option" in line ? line.option : null;
   }
+  /** The shell picker entry under a click, while it is open. */
+  pickerHit(cols: number, rows: number, x: number, y: number): number | null {
+    const l = this.picker && pickerLayout(this.picker, cols, rows);
+    if (!l || x <= l.b.x || x >= l.b.x + l.b.w - 1) return null;
+    const row = y - l.b.y - l.first;
+    return row >= 0 && row < l.visible ? l.offset + row : null;
+  }
+  pickerContains(cols: number, rows: number, x: number, y: number): boolean {
+    const l = this.picker && pickerLayout(this.picker, cols, rows);
+    return l ? l.b.contains(x, y) : false;
+  }
   move(next: boolean): void {
     const index = choices.indexOf(this.selected);
     this.selected = choices[next ? Math.min(index + 1, choices.length - 1) : sat(index, 1)];
@@ -201,28 +225,10 @@ export class Menu {
     return this.drawAt(w, s, prefs, cols, rows, Date.now());
   }
   drawAt(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number, now_ms: number): void {
+    if (this.picker) return drawPicker(w, this.picker, cols, rows);
     const b = Menu.bounds(cols, rows);
     if (!usable(b)) return;
-    // Shadow one row below and two columns right, clipped to the screen.
-    if (b.y + b.h < rows) {
-      w.write(`\x1b[${b.y + b.h + 1};${b.x + 3}H${shadow}`);
-      w.splat(" ", Math.min(b.w, sat(cols, b.x + 2)));
-    }
-    for (let row = 1; row < b.h; row++) {
-      const room = Math.min(2, sat(cols, b.x + b.w));
-      if (room === 0) break;
-      w.write(`\x1b[${b.y + row + 1};${b.x + b.w + 1}H${shadow}`);
-      w.splat(" ", room);
-    }
-    for (let row = 0; row < b.h; row++) {
-      const line = row === 0 || row === b.h - 1 ? null : lineAt(rows, row - 1);
-      const divider = line === "divider";
-      w.write(`\x1b[${b.y + row + 1};${b.x + 1}H${border}`);
-      w.write(row === 0 ? "╭" : row === b.h - 1 ? "╰" : divider ? "├" : "│");
-      if (row === 0 || row === b.h - 1 || divider) w.write("─".repeat(b.w - 2));
-      else w.splat(" ", b.w - 2);
-      w.write(row === 0 ? "╮" : row === b.h - 1 ? "╯" : divider ? "┤" : "│");
-    }
+    frame(w, b, cols, rows, row => lineAt(rows, row - 1) === "divider");
     w.write(`\x1b[${b.y + 1};${b.x + 3}H${text} ᐯ•ᴥ•ᐯ ${bright}Corgi setup `);
     w.write(`\x1b[${b.y + 1};${b.x + b.w - 7}H${panel} esc `);
     for (let row = 1; row < b.h - 1; row++) {
@@ -289,6 +295,12 @@ export class Menu {
       case "sleeping_corgis":
         right = prefs.sleeping_corgis ? { text: "● On", style: p.accent } : { text: "○ Off", style: p.quiet };
         break;
+      case "shell":
+        right = {
+          text: `${shellPicker.summary(this.shell)}  →`,
+          style: shellPicker.missing(this.shell) ? p.warn : p.muted,
+        };
+        break;
       case "keyboard":
         right = { text: keysLabel(prefs), style: p.muted };
         break;
@@ -337,6 +349,7 @@ export class Menu {
         return prefs.resources.enabled ? "Turn off" : "Turn on";
       case "sleeping_corgis":
         return prefs.sleeping_corgis ? "Turn off" : "Turn on";
+      case "shell":
       case "keyboard":
       case "import":
         return "Open →";
@@ -348,6 +361,83 @@ export class Menu {
 function keysLabel(prefs: Preferences): string {
   if (prefs.preset === "cmux") return "cmux · Cmd  →";
   return `${km.name(prefs.preset)} · ${km.prefixName(prefs.prefix)}  →`;
+}
+interface PickerLayout {
+  b: Rect;
+  /** Rows below the top border: the first entry, and the divider. */
+  first: number;
+  divider: number;
+  visible: number;
+  offset: number;
+}
+/** The picker keeps the setup frame's width; short terminals drop the
+ * spacers, then scroll the entries to keep the selected one in view. */
+function pickerLayout(picker: shellPicker.Picker, cols: number, rows: number): PickerLayout | null {
+  const count = picker.entries.length,
+    spacers = rows >= count + 6,
+    chrome = spacers ? 6 : 4,
+    visible = Math.max(0, Math.min(count, rows - chrome)),
+    w = Math.min(cols, max_width);
+  if (w < min_width || visible === 0) return null;
+  const h = visible + chrome,
+    first = spacers ? 2 : 1;
+  return {
+    b: new Rect(Math.floor((cols - w) / 2), Math.floor((rows - h) / 2), w, h),
+    first,
+    divider: first + visible + (spacers ? 1 : 0),
+    visible,
+    offset: Math.min(Math.max(0, picker.selected - visible + 1), count - visible),
+  };
+}
+function drawPicker(w: Writer, picker: shellPicker.Picker, cols: number, rows: number): void {
+  const l = pickerLayout(picker, cols, rows);
+  if (!l) return;
+  const b = l.b;
+  frame(w, b, cols, rows, row => row === l.divider);
+  w.write(`\x1b[${b.y + 1};${b.x + 3}H${bright} Shell for new panes `);
+  w.write(`\x1b[${b.y + 1};${b.x + b.w - 7}H${panel} esc `);
+  for (let row = 0; row < l.visible; row++) {
+    const index = l.offset + row,
+      entry = picker.entries[index],
+      y = b.y + l.first + row,
+      p = index === picker.selected ? row_selected : row_normal,
+      used = index === picker.in_use;
+    w.write(`\x1b[${y + 1};${b.x + 2}H${p.text}`);
+    w.splat(" ", b.w - 2);
+    if (index === picker.selected) w.write(`\x1b[${y + 1};${b.x + marker_x + 1}H${p.accent}›`);
+    w.write(`\x1b[${y + 1};${b.x + label_x + 1}H${used ? p.accent : p.quiet}${used ? "●" : "○"} ${p.label}`);
+    writeEllipsis(w, picker.label(entry), summary_x - label_x - 3);
+    const gone = used && entry !== "default" && shellPicker.missing(picker.shell);
+    w.write(`\x1b[${y + 1};${b.x + summary_x + 1}H${gone ? p.warn : p.muted}`);
+    writeEllipsis(w, picker.detail(entry), sat(b.w, summary_x + 3));
+  }
+  const y = b.y + l.divider + 1;
+  put(w, b, marker_x, y, panel, "↑↓ choose · esc back");
+  const shown = `[ Enter ${picker.action()} ]`;
+  w.write(`\x1b[${y + 1};${b.x + b.w - 3 - displayWidth(shown) + 1}H${keycap}${shown}`);
+  w.write("\x1b[0m\x1b[?25l");
+}
+/** The modal's shadow and rounded border, with a divider on the rows that ask. */
+function frame(w: Writer, b: Rect, cols: number, rows: number, divider: (row: number) => boolean): void {
+  // Shadow one row below and two columns right, clipped to the screen.
+  if (b.y + b.h < rows) {
+    w.write(`\x1b[${b.y + b.h + 1};${b.x + 3}H${shadow}`);
+    w.splat(" ", Math.min(b.w, sat(cols, b.x + 2)));
+  }
+  for (let row = 1; row < b.h; row++) {
+    const room = Math.min(2, sat(cols, b.x + b.w));
+    if (room === 0) break;
+    w.write(`\x1b[${b.y + row + 1};${b.x + b.w + 1}H${shadow}`);
+    w.splat(" ", room);
+  }
+  for (let row = 0; row < b.h; row++) {
+    const split = row !== 0 && row !== b.h - 1 && divider(row);
+    w.write(`\x1b[${b.y + row + 1};${b.x + 1}H${border}`);
+    w.write(row === 0 ? "╭" : row === b.h - 1 ? "╰" : split ? "├" : "│");
+    if (row === 0 || row === b.h - 1 || split) w.write("─".repeat(b.w - 2));
+    else w.splat(" ", b.w - 2);
+    w.write(row === 0 ? "╮" : row === b.h - 1 ? "╯" : split ? "┤" : "│");
+  }
 }
 function put(w: Writer, b: Rect, x: number, y: number, style: string, value: string): void {
   w.write(`\x1b[${y + 1};${b.x + x + 1}H${style}`);

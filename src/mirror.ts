@@ -10,6 +10,8 @@ import * as viewerVersion from "./viewer_version";
 import { commandEntry } from "./agent_launcher";
 import type { Entry as CommandEntry } from "./launch/command";
 import { status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
+import { status as shellStatus } from "./shell_picker";
+import type { ShellStatus } from "./launch/command";
 import type { Provider } from "./providers";
 import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
@@ -357,6 +359,7 @@ export class Runtime {
   release_commit = "";
   staged_version = "";
   inference: SetupStatus = setupStatus();
+  shell: ShellStatus = shellStatus();
   system_working = false;
   system_usage = new UsageView();
   ports: any = { workspaces: [] };
@@ -427,6 +430,7 @@ export class Runtime {
     this.release_commit = snapshot.release_commit ?? "";
     this.staged_version = snapshot.staged_version ?? "";
     this.inference = setupStatus(snapshot.inference);
+    this.shell = shellStatus(snapshot.shell);
     this.system_usage = usageView(snapshot.system_usage);
     this.system_working = snapshot.system_working === true;
     this.ports = snapshot.ports ?? { workspaces: [] };

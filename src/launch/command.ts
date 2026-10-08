@@ -1,5 +1,5 @@
 import { basename, resolve as pathResolve, join } from "node:path";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Provider } from "../providers";
@@ -113,22 +113,72 @@ export class Entry {
     return this.name || (p ? `${Provider.info(p).name} command` : "Shell command");
   }
 }
-/** The shell from settings.json, else SHELL from the user's session, else the
- * account's login shell, which covers app/launchd starts. */
-export function shell() {
-  const configured = settings.shell();
-  if (configured !== null) {
-    if (configured.startsWith("/")) {
-      if (os.isExecutable(configured)) return configured;
-    } else {
-      const found = os.findExecutable(configured);
-      if (found) return found;
-    }
-  }
-  const s = process.env.SHELL;
-  if (s?.startsWith("/")) return s;
-  return os.loginShell() ?? "/bin/sh";
+/** Where the shell new panes run comes from. */
+export type ShellSource = "setting" | "env" | "account" | "fallback";
+/** The shell new panes run, as the daemon publishes it. */
+export interface ShellStatus {
+  /** settings.json's shell as written; empty without one. */
+  setting: string;
+  path: string;
+  source: ShellSource;
+  /** What panes run without the setting. */
+  default: string;
+  default_source: Exclude<ShellSource, "setting">;
 }
+/** A shell setting as an executable: an absolute path, or a name on PATH. */
+export function locate(value: string): string | null {
+  return value.startsWith("/") ? (os.isExecutable(value) ? value : null) : os.findExecutable(value);
+}
+/** SHELL from the user's session, else the account's login shell, which
+ * covers app/launchd starts. */
+function fallback(): { path: string; source: ShellStatus["default_source"] } {
+  const s = process.env.SHELL;
+  if (s?.startsWith("/")) return { path: s, source: "env" };
+  const account = os.loginShell();
+  return account ? { path: account, source: "account" } : { path: "/bin/sh", source: "fallback" };
+}
+/** The shell from settings.json, else the fallback. */
+export function shell() {
+  const setting = settings.shell();
+  return (setting !== null ? locate(setting) : null) ?? fallback().path;
+}
+export function shellStatus(): ShellStatus {
+  const setting = settings.shell() ?? "",
+    chosen = setting ? locate(setting) : null,
+    other = fallback();
+  return {
+    setting,
+    path: chosen ?? other.path,
+    source: chosen ? "setting" : other.source,
+    default: other.path,
+    default_source: other.source,
+  };
+}
+/** Shells that /etc/shells lists and that are installed, by name, leaving
+ * out multiplexers, restricted shells and the ones that refuse logins. */
+export function installedShells(file = "/etc/shells"): string[] {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  const seen = new Set<string>(),
+    out: string[] = [];
+  for (const line of text.split("\n")) {
+    const path = line.trim();
+    if (!path.startsWith("/") || not_shells.has(basename(path)) || !os.isExecutable(path)) continue;
+    let real = path;
+    try {
+      real = realpathSync(path);
+    } catch {}
+    if (seen.has(real)) continue;
+    seen.add(real);
+    out.push(path);
+  }
+  return out.sort((a, b) => basename(a).localeCompare(basename(b)) || a.localeCompare(b));
+}
+const not_shells = new Set(["tmux", "screen", "byobu", "nologin", "false", "git-shell", "rbash"]);
 export function flags() {
   return "-ic";
 }

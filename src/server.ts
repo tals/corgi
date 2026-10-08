@@ -15,6 +15,8 @@ import { SocketPath, listen } from "./os";
 import * as json from "./json";
 import * as recovery from "./persist/recovery";
 import * as launch from "./launch_service";
+import * as launch_command from "./launch/command";
+import * as settings from "./settings";
 import * as integration from "./integration";
 import * as observers from "./observer_service";
 import * as trackers from "./trackers";
@@ -550,6 +552,15 @@ export class Server {
       case "inference.configure": {
         const inference = await import("./inference_service");
         await inference.configure(this, cl, q);
+        return;
+      }
+      case "shell.configure": {
+        const shell = q.shell.trim();
+        if (shell && launch_command.locate(shell) === null) throw Error("ShellNotFound");
+        settings.update(settings.path(this.socket), { shell: shell || undefined });
+        this.runtime.changed();
+        this.dirty = true;
+        cl.reply(op, { shell: launch_command.shellStatus() });
         return;
       }
       case "git.push": {

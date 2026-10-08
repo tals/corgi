@@ -53,6 +53,7 @@ export const operations = [
   "server.reload",
   "recovery.save",
   "inference.configure",
+  "shell.configure",
   "git.push",
   "onboarding.status",
   "onboarding.handoff",
@@ -414,6 +415,7 @@ const requests: Partial<Record<Op, Fields>> = {
   "pane.surface": { pane: "u32" },
   "server.reload": { executable: ["string", ""] },
   "inference.configure": { choice: "auto|codex|claude|off" },
+  "shell.configure": { shell: "string" },
   "git.push": { workspace: "u32", ref: "ref" },
   "onboarding.status": { operation: "u64" },
   "onboarding.handoff": { operation: "u64", viewer_pgid: "i32", socket: ["string", ""] },
@@ -462,6 +464,7 @@ const rejections = new Set([
   "RenameUnavailable",
   "NoConversation",
   "InvalidName",
+  "ShellNotFound",
 ]);
 export function rejection(name: string): string {
   return rejections.has(name) ? name : "ServerRejected";

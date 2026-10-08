@@ -152,6 +152,7 @@ $.requests|pane.surface.pane: u32
 $.requests|server.reload.executable: string
 $.requests|recovery.save: {}
 $.requests|inference.configure.choice: enum auto codex claude off
+$.requests|shell.configure.shell: string
 $.requests|git.push.workspace: u32
 $.requests|git.push.ref.root: string
 $.requests|git.push.ref.head: string
@@ -286,6 +287,11 @@ $.snapshot.inference.launches.codex: u32
 $.snapshot.inference.launches.claude: u32
 $.snapshot.inference.models.codex: string
 $.snapshot.inference.models.claude: string
+$.snapshot.shell.setting: string
+$.snapshot.shell.path: string
+$.snapshot.shell.source: enum setting env account fallback
+$.snapshot.shell.default: string
+$.snapshot.shell.default_source: enum env account fallback
 $.snapshot.system_working: bool
 $.snapshot.system_usage.tokens.input: u64
 $.snapshot.system_usage.tokens.cached_input: u64

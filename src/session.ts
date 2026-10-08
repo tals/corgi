@@ -2,7 +2,7 @@ import { Runtime, Launch } from "./runtime";
 import type { Create } from "./runtime";
 import { Model, Tab, max_tabs } from "./layout";
 import { label } from "./pane/label";
-import { Entry, resolve, analyze } from "./launch/command";
+import { Entry, resolve, analyze, shellStatus } from "./launch/command";
 import { ResumeHint } from "./resume_hint";
 import { Text, Each } from "./providers";
 import { logicalKey } from "./keys";
@@ -420,6 +420,7 @@ function build(r: Runtime, viewer: boolean) {
     system_model: text((r.system_model as any).id),
     system_model_name: text((r.system_model as any).name),
     inference: r.inference,
+    shell: shellStatus(),
     system_usage: r.system_usage,
     system_working: r.system_working,
     server_pid: process.pid,
