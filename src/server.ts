@@ -187,6 +187,7 @@ export class Server {
     this.dirty = false;
   }
   async run(): Promise<void> {
+    this.runtime.ports.configure(settings.smartLinks(settings.path(this.socket)));
     try {
       let selected: number | null = null;
       if (this.listener < 0) {
@@ -561,6 +562,14 @@ export class Server {
         this.runtime.changed();
         this.dirty = true;
         cl.reply(op, { shell: launch_command.shellStatus() });
+        return;
+      }
+      case "smart_links.configure": {
+        settings.update(settings.path(this.socket), { smart_links: q.enabled });
+        this.runtime.ports.configure(q.enabled);
+        this.runtime.changed();
+        this.dirty = true;
+        cl.reply(op, { smart_links: q.enabled });
         return;
       }
       case "git.push": {

@@ -52,12 +52,21 @@ export const Summarizer = {
 };
 
 export type Item =
-  "summaries" | "sleeping_corgis" | "readings" | "shell" | "keyboard" | "ghostty" | "image_paste" | "import";
+  | "summaries"
+  | "sleeping_corgis"
+  | "readings"
+  | "clever_corgi"
+  | "shell"
+  | "keyboard"
+  | "ghostty"
+  | "image_paste"
+  | "import";
 /** The list, top to bottom; null leaves a gap between groups. */
 const list: (Item | null)[] = [
   "summaries",
   "sleeping_corgis",
   "readings",
+  "clever_corgi",
   null,
   "shell",
   "keyboard",
@@ -72,6 +81,7 @@ const labels: Record<Item, string> = {
   summaries: "Summaries",
   sleeping_corgis: "Sleeping corgis",
   readings: "Resources",
+  clever_corgi: "Clever Corgi",
   shell: "Shell",
   keyboard: "Shortcuts",
   ghostty: "Command keys",
@@ -87,7 +97,7 @@ const sources: Record<catalog.Source, { label: string; detail: string }> = {
 /** What Enter or a click asks the controller to do. */
 export type Apply =
   | { kind: "summaries"; choice: Summarizer }
-  | { kind: "readings" | "sleeping_corgis" | "ghostty"; on: boolean }
+  | { kind: "readings" | "sleeping_corgis" | "smart_links" | "ghostty"; on: boolean }
   | { kind: "shell"; entry: shellPicker.Entry }
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
@@ -110,9 +120,13 @@ interface Option {
   arrow?: boolean;
   /** A sleeping corgi before the detail: puffing for On, still for Off. */
   sprite?: "puff" | "still";
+  /** A toggle in a group: On or Off at the right edge, as in the list. */
+  toggle?: boolean;
 }
 type Line =
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
+  /** One line under a setting in a group, aligned with its name. */
+  | { tag: "brief"; text: string }
   | { tag: "blank" }
   | { tag: "keys"; keys: [string, string][] }
   | { tag: "status"; text: string; tone: "accent" | "warm" | "faint" }
@@ -167,7 +181,7 @@ const row_resting: Row = {
 const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
 
 const list_w = 26;
-const body_max = 11;
+const body_max = list.length;
 /** The options column beside onboarding's preset detail. */
 const options_w = 34;
 const two_pane_cols = 80;
@@ -266,6 +280,8 @@ export class Menu {
   shell: ShellStatus = shellPicker.status();
   /** Shells /etc/shells lists, offered beside the default. */
   shells: string[] = [];
+  /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
+  smart_links = true;
   /** The frame's growth toward the preset detail, eased between draws. */
   private grow = { from: 0, to: 0, at_ms: 0 };
   static open(): Menu {
@@ -457,6 +473,9 @@ export class Menu {
         case "warn":
           w.write(at(x0, y) + (line.tag === "warn" ? warm : panel));
           return writeEllipsis(w, line.text, right - x0);
+        case "brief":
+          w.write(at(x0 + 4, y) + panel);
+          return writeEllipsis(w, line.text, right - x0 - 4);
         case "status":
           w.write(at(x0 + 2, y) + (line.tone === "accent" ? row_normal.accent : line.tone === "warm" ? warm : panel));
           return writeEllipsis(w, line.text, right - x0 - 2);
@@ -500,6 +519,11 @@ export class Menu {
       w.write(at(x0 + 2, y) + (o.mark === "on" && !o.disabled ? p.accent : p.quiet) + (o.mark === "on" ? "●" : "○"));
     w.write(at(x0 + 4, y) + (o.disabled ? p.quiet : p.label));
     writeEllipsis(w, o.label, Math.min(label_w, sat(right, x0 + 4)));
+    if (o.toggle !== undefined) {
+      const value = o.toggle ? "● On" : "○ Off";
+      w.write(at(x + width - 2 - displayWidth(value), y) + (o.toggle ? p.accent : p.quiet) + value);
+      return;
+    }
     let dx = x0 + 4 + label_w + 3;
     if (o.sprite) {
       // On puffs every few seconds; Off naps dim and still.
@@ -593,6 +617,23 @@ export class Menu {
           ...onOff(prefs.resources.enabled, "readings", ["show the readings row", "hide the row"]).map(option),
           blank,
           { tag: "note", text: "Sampling stops once every viewer turns it off." },
+        ];
+      case "clever_corgi":
+        return [
+          title("Clever Corgi"),
+          blank,
+          ...this.clever().flatMap((c): Line[] => [
+            option({
+              label: c.label,
+              detail: "",
+              mark: "none",
+              apply: { kind: c.kind, on: !c.on },
+              action: c.on ? "turn off" : "turn on",
+              toggle: c.on,
+            }),
+            { tag: "brief", text: c.brief },
+            blank,
+          ]),
         ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
@@ -710,6 +751,17 @@ export class Menu {
         ];
     }
   }
+  /** Clever Corgi's settings, each turned on or off in the group's pane. */
+  private clever(): { kind: "smart_links"; label: string; brief: string; on: boolean }[] {
+    return [
+      {
+        kind: "smart_links",
+        label: "Smart Links",
+        brief: "Digs up likely HTTP links for an Open ↗ button.",
+        on: this.smart_links,
+      },
+    ];
+  }
   /** The preset under the cursor, or the one in use. */
   private previewPreset(prefs: Preferences): km.Preset {
     if (this.item !== "keyboard" || this.focus !== "options") return prefs.preset;
@@ -726,6 +778,8 @@ export class Menu {
         return flag(prefs.sleeping_corgis);
       case "readings":
         return flag(prefs.resources.enabled);
+      case "clever_corgi":
+        return { text: "", tone: "faint" };
       case "shell":
         if (shellPicker.missing(this.shell)) return { text: "not found", tone: "warm" };
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };

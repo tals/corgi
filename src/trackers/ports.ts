@@ -553,6 +553,12 @@ export class Tracker {
   abort = new AbortController();
   leads = new Map<string, Lead>();
   origins = new Map<number, Origin>();
+  /** Off, no port is probed and no link is offered. */
+  enabled = true;
+  configure(enabled: boolean) {
+    this.enabled = enabled;
+    this.next_refresh = 0;
+  }
   deinit() {
     this.stopping = true;
     this.abort.abort();
@@ -691,7 +697,7 @@ export class Tracker {
                 x.transport === e.transport &&
                 x.bind_address === e.bind_address,
             );
-        if (old) {
+        if (old && this.enabled) {
           e.scheme = old.scheme;
           e.http_status = old.http_status;
           e.probed_at = old.probed_at;
@@ -700,9 +706,9 @@ export class Tracker {
       }
       works.push(work);
     }
-    const listeners = works.flatMap(w => w.endpoints).filter(e => e.transport === "tcp");
+    const listeners = this.enabled ? works.flatMap(w => w.endpoints).filter(e => e.transport === "tcp") : [];
     await this.judge(listeners, now, paneText);
-    for (let i = 0; i < 4 && !this.stopping; i++) {
+    for (let i = 0; i < 4 && this.enabled && !this.stopping; i++) {
       const oldest = listeners.filter(e => this.due(e, now)).sort((a, b) => a.probed_at - b.probed_at)[0],
         lead = oldest && this.leads.get(leadKey(oldest));
       if (!lead?.announced) break;

@@ -41,3 +41,19 @@ test("the shell setting is a nonblank string; anything else is unset", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("smart links stay on unless the setting is false", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-settings-")),
+    file = join(root, "settings.json");
+  try {
+    expect(settings.smartLinks(file)).toBe(true);
+    for (const value of [true, "false", 0, null]) {
+      writeFileSync(file, JSON.stringify({ smart_links: value }));
+      expect(settings.smartLinks(file)).toBe(true);
+    }
+    writeFileSync(file, JSON.stringify({ smart_links: false }));
+    expect(settings.smartLinks(file)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

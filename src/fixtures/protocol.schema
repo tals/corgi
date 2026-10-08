@@ -155,6 +155,7 @@ $.requests|server.reload.executable: string
 $.requests|recovery.save: {}
 $.requests|inference.configure.choice: enum auto codex claude off
 $.requests|shell.configure.shell: string
+$.requests|smart_links.configure.enabled: bool
 $.requests|git.push.workspace: u32
 $.requests|git.push.ref.root: string
 $.requests|git.push.ref.head: string
@@ -294,6 +295,7 @@ $.snapshot.shell.path: string
 $.snapshot.shell.source: enum setting env account fallback
 $.snapshot.shell.default: string
 $.snapshot.shell.default_source: enum env account fallback
+$.snapshot.smart_links: bool
 $.snapshot.system_working: bool
 $.snapshot.system_usage.tokens.input: u64
 $.snapshot.system_usage.tokens.cached_input: u64

@@ -364,6 +364,7 @@ export class Runtime {
   inference: SetupStatus = setupStatus();
   shell: ShellStatus = shellStatus();
   system_working = false;
+  smart_links = true;
   system_usage = new UsageView();
   ports: any = { workspaces: [] };
   resources: any = { workspaces: [] };
@@ -437,6 +438,7 @@ export class Runtime {
     this.shell = shellStatus(snapshot.shell);
     this.system_usage = usageView(snapshot.system_usage);
     this.system_working = snapshot.system_working === true;
+    this.smart_links = snapshot.smart_links !== false;
     this.ports = snapshot.ports ?? { workspaces: [] };
     this.last_agent = snapshot.last_agent ?? "codex";
     this.agent_yolo = { codex: snapshot.agent_yolo?.codex === true, claude: snapshot.agent_yolo?.claude === true };

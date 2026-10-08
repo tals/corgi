@@ -424,6 +424,7 @@ function build(r: Runtime, viewer: boolean) {
     system_model_name: text((r.system_model as any).name),
     inference: r.inference,
     shell: shellStatus(),
+    smart_links: r.ports.enabled,
     system_usage: r.system_usage,
     system_working: r.system_working,
     server_pid: process.pid,

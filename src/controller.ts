@@ -1866,6 +1866,7 @@ export class Controller {
     setup.image_paste = this.host_clipboard;
     setup.shell = this.runtime.shell;
     setup.shells = installedShells();
+    setup.smart_links = this.runtime.smart_links;
     this.corgi_setup = setup;
     this.dirty = true;
   }
@@ -1925,6 +1926,8 @@ export class Controller {
         return;
       case "ghostty":
         return this.toggleGhostty();
+      case "smart_links":
+        return this.configureSmartLinks(apply.on);
       case "summaries":
         return this.configureSummaries(apply.choice);
     }
@@ -1971,6 +1974,17 @@ export class Controller {
           ? "Off"
           : Provider.info(Summarizer.provider(choice)!).label;
     this.notice(` Summaries and link names: ${label}${saved ? "" : " (not saved for next start)"}`);
+  }
+  private async configureSmartLinks(enabled: boolean): Promise<void> {
+    try {
+      await call(this.connection, "smart_links.configure", { enabled });
+    } catch {
+      this.notice(" Corgi setup: the runtime did not accept the change");
+      return;
+    }
+    this.runtime.smart_links = enabled;
+    if (this.corgi_setup) this.corgi_setup.smart_links = enabled;
+    this.notice(enabled ? " Smart Links on" : " Smart Links off: Corgi won't connect to pane ports");
   }
   /** A shell option: Other… asks for a path; the rest go to the daemon. */
   private async chooseShell(entry: shellPicker.Entry): Promise<void> {
