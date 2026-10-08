@@ -652,6 +652,42 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     await this.input(`\x1b[<0;${end};1m`);
     await this.tabs_are("First Second Third");
   }
+  async test_the_wheel_scrolls_the_tab_bar_and_the_active_tab_scrolls_into_view() {
+    for (let index = 1; index <= 6; index++)
+      await this.open_pane({ cwd: this.temp.name, title: `T${index}` });
+    await this.attach();
+    // Four tabs fit beside the sidebar; the last one opened is in view.
+    await this.tabs_are("T3 T4 T5 T6");
+    await this.input("\x1b[<64;40;1M");
+    await this.tabs_are("T2 T3 T4 T5");
+    await this.input("\x1b[<64;40;1M".repeat(3));
+    await this.tabs_are("T1 T2 T3 T4");
+    await this.input("\x1b[<65;40;1M");
+    await this.tabs_are("T2 T3 T4 T5");
+    // The horizontal wheel scrolls it too.
+    await this.input("\x1b[<67;40;1M");
+    await this.tabs_are("T3 T4 T5 T6");
+    await this.rpc({ op: "action", name: "next" });
+    await this.tabs_are("T1 T2 T3 T4");
+    await this.rpc({ op: "action", name: "prev" });
+    await this.tabs_are("T3 T4 T5 T6");
+    await this.rpc({ op: "action", name: "prev" });
+    await this.tabs_are("T3 T4 T5 T6");
+    await this.rpc({ op: "action", name: "tab", value: "1" });
+    let screen = await this.tabs_are("T1 T2 T3 T4");
+    // A dragged tab can scroll to a drop out of view.
+    const x = screen[0].indexOf("T1") + 1;
+    await this.input(`\x1b[<0;${x};1M` + `\x1b[<65;${x};1M`.repeat(2));
+    // The drop marker sits before T3, now under the pointer.
+    screen = await this.tabs_are("│ T3 T4 T5 T6");
+    const end = screen[0].lastIndexOf(" + ") + 1;
+    await this.input(`\x1b[<32;${end};1M\x1b[<0;${end};1m`);
+    await this.tabs_are("T4 T5 T6 T1");
+    this.assertEqual(
+      (await this.session()).workspaces[0].model.tabs.map((t: any) => t.title),
+      ["T2", "T3", "T4", "T5", "T6", "T1"],
+    );
+  }
   async test_multiple_viewers_share_input_most_recent_sizes_and_detach_independently() {
     await this.attach();
     await this.get_type("frame");

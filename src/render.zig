@@ -96,16 +96,61 @@ fn tabExtent(tab: layout.Tab, index: usize, first: usize, remaining: usize) usiz
     // Clip only when even the first tab cannot fit; avoid tiny trailing tabs.
     return if (index == first) @min(width, remaining) else if (width <= remaining) width else 0;
 }
+/// The first tab shown: the scroll offset, kept where tabs still fill `width`.
 pub fn tabStart(view: layout.View, width: u16) usize {
+    return @min(view.selection.offset, maxTabStart(view, width));
+}
+/// The first tab once scrolled to the end, from which every later tab fits.
+pub fn maxTabStart(view: layout.View, width: u16) usize {
     const model = view.model;
-    if (model.count == 0) return 0;
-    var start = view.selection.active;
-    var used = tabWidth(model.tabs[start], start);
-    while (start > 0 and used + tabWidth(model.tabs[start - 1], start - 1) <= width) {
-        start -= 1;
-        used += tabWidth(model.tabs[start], start);
+    var start = model.count;
+    var used: usize = 0;
+    while (start > 0) : (start -= 1) {
+        used += tabWidth(model.tabs[start - 1], start - 1);
+        if (used > width) break;
     }
+    return @min(start, model.count -| 1);
+}
+/// The smallest scroll change that shows tab `index`.
+pub fn revealTab(view: layout.View, width: u16, index: usize) usize {
+    var start = tabStart(view, width);
+    if (index < start) return index;
+    var used: usize = 0;
+    for (view.model.tabs[start .. index + 1], start..) |tab, i| used += tabWidth(tab, i);
+    while (start < index and used > width) : (start += 1) used -= tabWidth(view.model.tabs[start], start);
     return start;
+}
+fn tabsBefore(model: *const layout.Model, index: usize) usize {
+    var used: usize = 0;
+    for (model.tabs[0..index], 0..) |tab, i| used += tabWidth(tab, i);
+    return used;
+}
+pub const TabThumb = struct { start: usize, len: usize };
+/// The scrollbar knob's columns within the shown tabs, drawn along their
+/// bottom edge; null while every tab fits. The knob keeps one short length,
+/// so only its position tells how far the tabs are scrolled.
+pub fn tabThumb(view: layout.View, width: u16) ?TabThumb {
+    const available = width -| 3;
+    const last = tabsBefore(view.model, maxTabStart(view, available));
+    const track = addTabX(view, width);
+    if (last == 0 or track < 2) return null;
+    const len = @min(6, track - 1);
+    const start = ((track - len) * tabsBefore(view.model, tabStart(view, available)) + last / 2) / last;
+    return .{ .start = @min(start, track - len), .len = len };
+}
+const track_rule = "\x1b[4:4m" ++ palette.underline(.line);
+const thumb_rule = "\x1b[4m" ++ palette.underline(.text);
+/// Writes a tab's cells from column `left`, underlined as the scrollbar's
+/// track or thumb while the tabs overflow.
+fn writeTabCells(w: *std.Io.Writer, cells: []const u8, left: usize, thumb: ?TabThumb) !void {
+    const t = thumb orelse return w.writeAll(cells);
+    var lit: ?bool = null;
+    for (cells, left..) |byte, column| {
+        const on = column >= t.start and column < t.start + t.len;
+        if (lit != on) try w.writeAll(if (on) thumb_rule else track_rule);
+        lit = on;
+        try w.writeByte(byte);
+    }
 }
 
 pub fn addTabX(view: layout.View, width: u16) u16 {
@@ -250,6 +295,9 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
     var x: usize = 0;
     const tab_space = width - side.tabX() -| 3;
     const start = tabStart(view, tab_space);
+    // The scrollbar shows while the pointer is where the wheel scrolls the tabs.
+    const over_tabs = if (ui.pointer) |pointer| pointer.y == 0 and pointer.x >= side.tabX() and noOverlay(ui) else false;
+    const thumb = if (over_tabs) tabThumb(view, width - side.tabX()) else null;
     for (model.tabs[start..model.count], start..) |tab, i| {
         const len = tabExtent(tab, i, start, tab_space - x);
         if (len == 0) break;
@@ -261,9 +309,10 @@ pub fn frame(view: layout.View, panes: anytype, width: u16, height: u16, ui: Ui)
             tab.title.text()[0..@min(tab.title.text().len, 16)];
         const text_len = @min(text.len, len);
         const padding = (len - text_len) / 2;
-        try w.splatByteAll(' ', padding);
-        try w.writeAll(text[0..text_len]);
-        try w.splatByteAll(' ', len - text_len - padding);
+        // A tab is at most 18 columns wide.
+        var cells: [18]u8 = @splat(' ');
+        @memcpy(cells[padding..][0..text_len], text[0..text_len]);
+        try writeTabCells(w, cells[0..len], x, thumb);
         x += len;
     }
     try w.writeAll(button ++ " + ");
@@ -632,15 +681,76 @@ test "tab drop slots follow midpoints and clipped visible tabs" {
     _ = try m.newTab("three");
     selection.reconcile(&m);
     selection.active = 2;
+    selection.offset = 2;
     try std.testing.expectEqual(@as(usize, 0), tabDrop(view, 40, 4).?.index);
     try std.testing.expectEqual(@as(usize, 1), tabDrop(view, 40, 5).?.index);
     try std.testing.expectEqual(@as(usize, 3), tabDrop(view, 40, 35).?.index);
-    // Only the focused tab fits: the left gap is before tab three, not tab one.
+    // Scrolled to the end, only tab three fits: the left gap is before it, not tab one.
     try std.testing.expectEqual(@as(usize, 2), tabDrop(view, 13, 0).?.index);
     try std.testing.expectEqual(@as(usize, 3), tabDrop(view, 13, 12).?.index);
     try std.testing.expectEqual(@as(u16, 9), tabDrop(view, 13, 12).?.x);
     try std.testing.expect(tabDrop(view, 13, 13) == null);
     try std.testing.expect(tabDrop(view, 3, 0) == null);
+}
+
+test "the tab bar scrolls by whole tabs and reveals a tab with the smallest change" {
+    var m: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &m, .selection = &selection };
+    for (0..6) |_| _ = try m.newTab("");
+    selection.reconcile(&m);
+    // Forty columns fit four ten-column tabs.
+    try std.testing.expectEqual(@as(usize, 2), maxTabStart(view, 40));
+    try std.testing.expectEqual(@as(usize, 0), tabStart(view, 40));
+    try std.testing.expectEqual(@as(usize, 0), revealTab(view, 40, 3));
+    try std.testing.expectEqual(@as(usize, 1), revealTab(view, 40, 4));
+    try std.testing.expectEqual(@as(usize, 2), revealTab(view, 40, 5));
+    selection.offset = 9;
+    try std.testing.expectEqual(@as(usize, 2), tabStart(view, 40));
+    try std.testing.expectEqual(@as(usize, 2), revealTab(view, 40, 3));
+    try std.testing.expectEqual(@as(usize, 1), revealTab(view, 40, 1));
+    try std.testing.expectEqual(@as(usize, 0), maxTabStart(view, 60));
+    // A tab wider than the bar shows alone.
+    try std.testing.expectEqual(@as(usize, 5), maxTabStart(view, 5));
+    try std.testing.expectEqual(@as(usize, 4), revealTab(view, 5, 4));
+}
+
+test "the tab bar underlines its scrollbar only while hovered and overflowing" {
+    var m: layout.Model = .{};
+    var selection: layout.Selection = .{};
+    const view: layout.View = .{ .model = &m, .selection = &selection };
+    for (0..4) |_| _ = try m.newTab("");
+    selection.reconcile(&m);
+    try std.testing.expect(tabThumb(view, 43) == null);
+    const ui: Ui = .{ .sidebar_open = false, .pointer = .{ .x = 5, .y = 0 }, .message = "", .copy_mode = false };
+    const fits = try frame(view, @as([]const Pane, &.{}), 43, 10, ui);
+    defer a.free(fits);
+    try std.testing.expect(std.mem.indexOf(u8, fits, track_rule) == null);
+    try std.testing.expect(std.mem.indexOf(u8, fits, thumb_rule) == null);
+    for (0..2) |_| _ = try m.newTab("");
+    selection.reconcile(&m);
+    try std.testing.expectEqual(TabThumb{ .start = 0, .len = 6 }, tabThumb(view, 43).?);
+    selection.offset = 1;
+    try std.testing.expectEqual(TabThumb{ .start = 17, .len = 6 }, tabThumb(view, 43).?);
+    selection.offset = 2;
+    try std.testing.expectEqual(TabThumb{ .start = 34, .len = 6 }, tabThumb(view, 43).?);
+    selection.offset = 0;
+    // The knob starts the first tab; the dotted track runs on under all four.
+    const hovered = try frame(view, @as([]const Pane, &.{}), 43, 10, ui);
+    defer a.free(hovered);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, hovered, thumb_rule));
+    try std.testing.expectEqual(@as(usize, 4), std.mem.count(u8, hovered, track_rule));
+    // Off the tab row, with no pointer, or under a menu, it hides.
+    for ([_]Ui{
+        .{ .sidebar_open = false, .pointer = .{ .x = 5, .y = 1 }, .message = "", .copy_mode = false },
+        .{ .sidebar_open = false, .message = "", .copy_mode = false },
+        .{ .sidebar_open = false, .pointer = .{ .x = 5, .y = 0 }, .tab_menu = .{ .tab = @intFromEnum(m.tabs[0].id), .anchor_x = 0 }, .message = "", .copy_mode = false },
+    }) |case| {
+        const plain = try frame(view, @as([]const Pane, &.{}), 43, 10, case);
+        defer a.free(plain);
+        try std.testing.expect(std.mem.indexOf(u8, plain, track_rule) == null);
+        try std.testing.expect(std.mem.indexOf(u8, plain, thumb_rule) == null);
+    }
 }
 
 /// The box-drawing glyph joining a divider cell with its neighbors on each side.

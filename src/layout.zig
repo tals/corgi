@@ -268,6 +268,10 @@ pub const Selection = struct {
     tabs: [max_tabs]TabState = @splat(.{ .id = .none, .focus = .none }),
     count: usize = 0,
     active: usize = 0,
+    /// The first tab the tab bar shows.
+    offset: usize = 0,
+    /// The active index the tab bar last scrolled into view.
+    revealed: ?usize = null,
     pub fn reconcile(s: *Selection, m: *const Model) void {
         const old = s.*;
         var selected = if (old.count > 0) old.tabs[old.active].id else TabId.none;

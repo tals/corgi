@@ -112,6 +112,15 @@ fn pasteKey(k: keyboard.Key) ?host_clipboard.Key {
     if (k.mods.ctrl and k.mods.shift and !k.mods.super) return .ctrl_shift;
     return null;
 }
+/// Whether a wheel report scrolls the tab bar toward later tabs, with either
+/// wheel and any modifier; null for other buttons.
+fn tabWheel(button: u16) ?bool {
+    return switch (button & 0xe3) {
+        64, 66 => false,
+        65, 67 => true,
+        else => null,
+    };
+}
 /// A pressed link or port row, tracked until release confirms it wasn't a drag.
 const PortClick = struct {
     x: u16,
@@ -2332,12 +2341,29 @@ pub const Controller = struct {
             return error.InvalidInput;
         }
     }
+    /// Columns the tab bar's tabs may take, left of its "+" button.
+    fn tabSpace(s: *Self) u16 {
+        return s.width - s.sidebarView(&.{}).tabX() -| 3;
+    }
+    fn scrollTabs(s: *Self, forward: bool) void {
+        const view = s.layoutView();
+        const start = render.tabStart(view, s.tabSpace());
+        s.nav().offset = if (forward) @min(start + 1, render.maxTabStart(view, s.tabSpace())) else start -| 1;
+        s.dirty = true;
+    }
+    /// Scrolls the tab bar to show the active tab whenever another one becomes active.
+    fn revealTab(s: *Self) void {
+        const selection = s.nav();
+        if (s.model().count == 0 or selection.revealed == selection.active) return;
+        selection.offset = render.revealTab(s.layoutView(), s.tabSpace(), selection.active);
+        selection.revealed = selection.active;
+    }
     fn validTabDrag(s: *Self, drag: *TabDrag) bool {
         const tabs_x = s.sidebarView(&.{}).tabX();
         const m = s.model();
         if (drag.workspace_id != s.current().id or drag.width != s.width or
             drag.tabs_x != tabs_x or drag.count != m.count or
-            drag.first != render.tabStart(s.layoutView(), s.width - tabs_x -| 3) or
+            drag.first != render.tabStart(s.layoutView(), s.tabSpace()) or
             s.hasMenu() or s.name_dialog != null)
             drag.cancelled = true;
         for (m.tabs[0..m.count], 0..) |tab, i| {
@@ -2566,11 +2592,17 @@ pub const Controller = struct {
         };
         if (cl.tab_drag) |*drag| {
             const valid = s.validTabDrag(drag);
+            const wheel = if (release) null else tabWheel(button);
+            if (valid) if (wheel) |forward| {
+                s.scrollTabs(forward);
+                drag.first = render.tabStart(s.layoutView(), s.tabSpace());
+                drag.dragging = true;
+            };
             const drop = if (valid and y == 0 and x >= drag.tabs_x)
                 render.tabDrop(s.layoutView(), s.width - drag.tabs_x, x - drag.tabs_x)
             else
                 null;
-            if (button == 32 and !release) {
+            if ((button == 32 and !release) or wheel != null) {
                 if (drop != null and x != drag.start_x) drag.dragging = true;
                 drag.drop = drop;
             }
@@ -2912,6 +2944,7 @@ pub const Controller = struct {
             }
             return;
         }
+        if (y == 0 and x >= tabs_x and !release) if (tabWheel(button)) |forward| return s.scrollTabs(forward);
         if (y == 0 and button == 0 and !release) {
             const add_x = tabs_x + render.addTabX(s.layoutView(), tabs_width);
             if (x >= add_x and x < add_x + 3) {
@@ -2931,7 +2964,7 @@ pub const Controller = struct {
                     .start_x = x,
                     .width = s.width,
                     .tabs_x = tabs_x,
-                    .first = render.tabStart(s.layoutView(), tabs_width -| 3),
+                    .first = render.tabStart(s.layoutView(), s.tabSpace()),
                     .count = s.model().count,
                 };
                 for (s.model().tabs[0..s.model().count], 0..) |tab, i| cl.tab_drag.?.ids[i] = tab.id;
@@ -3249,6 +3282,7 @@ pub const Controller = struct {
         var agent_storage: [sidebar.max_entries]sidebar.Entry = undefined;
         const entries = if (s.agent_picker != null) s.pickerEntries(&agent_storage) else s.sidebarEntries(&agent_storage);
         if (s.agent_picker == null) s.revealLaunched(entries);
+        s.revealTab();
         var workspace_storage: [workspace.max_workspaces]sidebar.WorkspaceEntry = undefined;
         if (s.pointer) |pointer| {
             const hit = sidebar.gitActionWorkspace(s.sidebarView(entries), s.workspaceEntries(&workspace_storage), s.git_hover, pointer.x, pointer.y);
