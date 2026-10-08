@@ -99,17 +99,10 @@ export function encode(request: Request, evidence: Evidence) {
       return;
     }
     if (!bounded.terminal) throw Error("InputTooLarge");
-    bounded.terminal = tail(
-      bounded.terminal,
-      Math.floor(Buffer.byteLength(bounded.terminal) / 2),
-    );
+    bounded.terminal = tail(bounded.terminal, Math.floor(Buffer.byteLength(bounded.terminal) / 2));
   }
 }
-export async function infer(
-  pool: Pool,
-  request: Request,
-  stopping?: any,
-): Promise<Result> {
+export async function infer(pool: Pool, request: Request, stopping?: any): Promise<Result> {
   let name: Name | null = null;
   try {
     const response = await pool.infer(
@@ -137,8 +130,7 @@ type Entry = {
   name: Name;
 };
 export function validateName(name: Name) {
-  if (name.len && parseName(name.text()) === null)
-    throw Error("InvalidCheckpoint");
+  if (name.len && parseName(name.text()) === null) throw Error("InvalidCheckpoint");
 }
 export class Cache {
   entries: (Entry | null)[] = Array(capacity).fill(null);
@@ -147,20 +139,10 @@ export class Cache {
     for (let i = 0; i < saved.entries.length; i++) {
       const e = saved.entries[i];
       if (!e) continue;
-      if (
-        !e.generation ||
-        e.generation > saved.generation ||
-        (e.pending && !e.attempted)
-      )
+      if (!e.generation || e.generation > saved.generation || (e.pending && !e.attempted))
         throw Error("InvalidCheckpoint");
       validateName(e.name);
-      if (
-        saved.entries
-          .slice(0, i)
-          .some(
-            (p) => p && (p.generation === e.generation || equal(p.key, e.key)),
-          )
-      )
+      if (saved.entries.slice(0, i).some(p => p && (p.generation === e.generation || equal(p.key, e.key))))
         throw Error("InvalidCheckpoint");
     }
     return saved;
@@ -193,7 +175,7 @@ export class Cache {
           owner = runtime.workspaces.owner(endpoint.pane);
         if (!p || p.terminal.exited || owner?.id !== work.id) continue;
         const key = keyOf(work.id, endpoint);
-        let index = this.entries.findIndex((e) => e && equal(e.key, key));
+        let index = this.entries.findIndex(e => e && equal(e.key, key));
         if (index < 0) index = this.entries.indexOf(null);
         if (index < 0) continue;
         this.entries[index] ??= {
@@ -233,8 +215,7 @@ export class Cache {
   apply(result: Result, _now: number) {
     if (result.slot < 0 || result.slot >= capacity) return false;
     const e = this.entries[result.slot];
-    if (!e || e.generation !== result.generation || !equal(e.key, result.key))
-      return false;
+    if (!e || e.generation !== result.generation || !equal(e.key, result.key)) return false;
     const pending = e.pending;
     e.pending = false;
     if (result.name) {
@@ -246,17 +227,17 @@ export class Cache {
   }
   name(workspace: number, endpoint: ports.Endpoint) {
     const key = keyOf(workspace, endpoint);
-    return this.entries.find((e) => e && equal(e.key, key))?.name.text() ?? "";
+    return this.entries.find(e => e && equal(e.key, key))?.name.text() ?? "";
   }
   pending(workspace: number, endpoint: ports.Endpoint) {
     const key = keyOf(workspace, endpoint);
-    return this.entries.find((e) => e && equal(e.key, key))?.pending ?? false;
+    return this.entries.find(e => e && equal(e.key, key))?.pending ?? false;
   }
   snapshot(source: ports.Snapshot) {
     return Object.assign(new ports.Snapshot(), source, {
-      workspaces: source.workspaces.map((w) => ({
+      workspaces: source.workspaces.map(w => ({
         ...w,
-        endpoints: w.endpoints.map((e) => ({
+        endpoints: w.endpoints.map(e => ({
           ...e,
           label: this.name(w.id, e),
           label_pending: this.pending(w.id, e),

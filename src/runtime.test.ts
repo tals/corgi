@@ -6,8 +6,7 @@ import { Text } from "./providers";
 import { Workspace } from "./workspace";
 function add(r: Runtime, w: Workspace, split: number | null = null) {
   w.model.next_id = r.workspaces.next_pane_id;
-  const id =
-    split === null ? w.model.newTab("") : w.model.split(split, "horizontal");
+  const id = split === null ? w.model.newTab("") : w.model.split(split, "horizontal");
   r.workspaces.next_pane_id = w.model.next_id;
   const p = new Pane(id, Terminal.create(20, 4), "/tmp");
   r.panes.push(p);
@@ -19,14 +18,23 @@ function setup() {
   r.workspaces.items = [w];
   return { r, w };
 }
-test("stopping a Bun-owned shell leaves child collection to Bun",async()=>{
-  const r=new Runtime(),terminal=Terminal.create(20,4);
-  const child=Bun.spawn(["/bin/sleep","30"],{stdin:"ignore",stdout:"ignore",stderr:"ignore"});
-  terminal.child=child;terminal.pid=child.pid;
-  try{
-    r.stopShell(terminal);expect(r.stopped).toEqual([]);r.reapStopped();
+test("stopping a Bun-owned shell leaves child collection to Bun", async () => {
+  const r = new Runtime(),
+    terminal = Terminal.create(20, 4);
+  const child = Bun.spawn(["/bin/sleep", "30"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  terminal.child = child;
+  terminal.pid = child.pid;
+  try {
+    r.stopShell(terminal);
+    expect(r.stopped).toEqual([]);
+    r.reapStopped();
     expect(await child.exited).toBeGreaterThan(0);
-  }finally{if(child.exitCode===null)child.kill();await child.exited;terminal.destroy();r.deinit();}
+  } finally {
+    if (child.exitCode === null) child.kill();
+    await child.exited;
+    terminal.destroy();
+    r.deinit();
+  }
 });
 test("only attached conversations and their subagents are followed", () => {
   const { r, w } = setup();
@@ -128,11 +136,7 @@ test("a reopened agent that Claude's daemon runs shows the attach it runs", () =
   const { r, w } = setup();
   try {
     const p = add(r, w);
-    p.ghost = new Ghost(
-      Terminal.create(20, 4),
-      p.terminal.surface_revision,
-      "",
-    );
+    p.ghost = new Ghost(Terminal.create(20, 4), p.terminal.surface_revision, "");
     p.background_job = "job";
     expect(p.restoring()).toBe("claude attach job");
   } finally {
@@ -171,40 +175,23 @@ test("resuming a conversation finds the newest agent closed with it, in any work
   }
 });
 test("a fork starts the way its source did, copying the conversation", () => {
-  expect(
-    new Launch({ provider: "codex", yolo: true }).forking("codex", "session"),
-  ).toBe("codex --dangerously-bypass-approvals-and-sandbox fork 'session'");
-  expect(
-    new Launch(undefined, "custom --model opus").forking(
-      "claude",
-      "old",
-      "new",
-      "Name",
-    ),
-  ).toBe(
+  expect(new Launch({ provider: "codex", yolo: true }).forking("codex", "session")).toBe(
+    "codex --dangerously-bypass-approvals-and-sandbox fork 'session'",
+  );
+  expect(new Launch(undefined, "custom --model opus").forking("claude", "old", "new", "Name")).toBe(
     "custom --model opus --resume 'old' --fork-session --session-id 'new' --name 'Name'",
   );
 });
 test("a launch resumes the way it started, with the session quoted", () => {
-  expect(
-    new Launch({ provider: "codex" }).typed([
-      "codex",
-      "resume",
-      "session'quote",
-    ]),
-  ).toBe("codex resume 'session'\\''quote'");
-  expect(
-    new Launch(undefined, "custom").paneCommand("/bin/corgi", "custom"),
-  ).toBe("custom");
+  expect(new Launch({ provider: "codex" }).typed(["codex", "resume", "session'quote"])).toBe(
+    "codex resume 'session'\\''quote'",
+  );
+  expect(new Launch(undefined, "custom").paneCommand("/bin/corgi", "custom")).toBe("custom");
 });
 function ghost(p: Pane, old: string | null) {
   const frozen = Terminal.create(20, 4);
   if (old) frozen.feed(old);
-  p.ghost = new Ghost(
-    frozen,
-    p.terminal.surface_revision,
-    p.terminal.liveText(),
-  );
+  p.ghost = new Ghost(frozen, p.terminal.surface_revision, p.terminal.liveText());
   p.ghost.old_screen = old !== null;
 }
 test("a reopened agent's ghost shows until the agent draws and holds still", () => {

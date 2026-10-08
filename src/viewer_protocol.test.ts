@@ -1,20 +1,8 @@
 import { test, expect } from "bun:test";
 import * as json from "./json";
 import type { View as WireView } from "./protocol";
-import {
-  validateInterests,
-  queue,
-  targetViewer,
-  viewerShowing,
-  copy,
-  action,
-  viewers,
-} from "./viewer_protocol";
-import {
-  version,
-  compatible,
-  require as requireVersion,
-} from "./viewer_version";
+import { validateInterests, queue, targetViewer, viewerShowing, copy, action, viewers } from "./viewer_protocol";
+import { version, compatible, require as requireVersion } from "./viewer_version";
 function peer(id = 1) {
   return {
     viewer: true,
@@ -33,32 +21,41 @@ function peer(id = 1) {
     },
   };
 }
-test("a viewer reads the view the daemon writes",()=>{
-  const written:WireView<{revision:number}>={type:"view",viewer_protocol:3,session:{revision:4},session_hash:7,
-    resources:null,resources_hash:9,surfaces:[],bell_seq:2,bell_kind:"needs_input",controls:[{seq:5,kind:"focus",id:1}],viewer:3,detach:true};
-  const read=json.parse(json.stringify(written));
-  expect(read.session.revision).toBe(4);expect(read.resources).toBeNull();expect(read.session_hash).toBe(7);
-  expect(read.resources_hash).toBe(9);expect(read.bell_kind).toBe("needs_input");expect(read.controls[0].seq).toBe(5);
-  expect(read.viewer).toBe(3);expect(read.detach).toBe(true);
-  written.session_hash=0xffffffffffffffffn;
+test("a viewer reads the view the daemon writes", () => {
+  const written: WireView<{ revision: number }> = {
+    type: "view",
+    viewer_protocol: 3,
+    session: { revision: 4 },
+    session_hash: 7,
+    resources: null,
+    resources_hash: 9,
+    surfaces: [],
+    bell_seq: 2,
+    bell_kind: "needs_input",
+    controls: [{ seq: 5, kind: "focus", id: 1 }],
+    viewer: 3,
+    detach: true,
+  };
+  const read = json.parse(json.stringify(written));
+  expect(read.session.revision).toBe(4);
+  expect(read.resources).toBeNull();
+  expect(read.session_hash).toBe(7);
+  expect(read.resources_hash).toBe(9);
+  expect(read.bell_kind).toBe("needs_input");
+  expect(read.controls[0].seq).toBe(5);
+  expect(read.viewer).toBe(3);
+  expect(read.detach).toBe(true);
+  written.session_hash = 0xffffffffffffffffn;
   expect(json.parse(json.stringify(written)).session_hash).toBe(0xffffffffffffffffn);
 });
 test("viewer wire version checked on every exchange", () => {
   expect(version).toBe(3);
   expect(compatible({ viewer_protocol: 3 })).toBe(true);
-  for (const value of [
-    null,
-    3,
-    {},
-    { viewer_protocol: "3" },
-    { viewer_protocol: 2 },
-  ])
+  for (const value of [null, 3, {}, { viewer_protocol: "3" }, { viewer_protocol: 2 }])
     expect(() => requireVersion(value)).toThrow("IncompatibleViewerProtocol");
 });
 test("interest bounds and repeated pane validation match daemon", () => {
-  expect(() =>
-    validateInterests([{ pane: 1, cols: 500, rows: 200 }]),
-  ).not.toThrow();
+  expect(() => validateInterests([{ pane: 1, cols: 500, rows: 200 }])).not.toThrow();
   for (const i of [
     { pane: 1, cols: 0, rows: 1 },
     { pane: 1, cols: 501, rows: 1 },
@@ -71,9 +68,7 @@ test("interest bounds and repeated pane validation match daemon", () => {
       { pane: 1, cols: 1, rows: 1 },
     ]),
   ).toThrow("InvalidTarget");
-  expect(() =>
-    validateInterests(Array(65).fill({ pane: 1, cols: 1, rows: 1 })),
-  ).toThrow("TooManyPanes");
+  expect(() => validateInterests(Array(65).fill({ pane: 1, cols: 1, rows: 1 }))).toThrow("TooManyPanes");
 });
 test("unqualified controls target oldest live viewer and pane routes reject ambiguity", () => {
   const one = peer(),
@@ -91,9 +86,7 @@ test("controls remain ordered and bounded", () => {
   queue(target, { kind: "focus", id: 1 });
   expect(target.controls[0].seq).toBe(1);
   for (let i = 1; i < 64; i++) queue(target, { kind: "focus", id: i });
-  expect(() => queue(target, { kind: "workspace", id: 1 })).toThrow(
-    "ViewerBusy",
-  );
+  expect(() => queue(target, { kind: "workspace", id: 1 })).toThrow("ViewerBusy");
 });
 test("OSC52 copy chooses most recently active interested viewer and replaces pending copy", () => {
   const one = peer(),
@@ -103,7 +96,7 @@ test("OSC52 copy chooses most recently active interested viewer and replaces pen
   queue(two, { kind: "focus", id: 3 });
   copy(s, 1, "new");
   expect(one.controls).toHaveLength(0);
-  expect(two.controls.map((c) => c.kind)).toEqual(["focus", "action"]);
+  expect(two.controls.map(c => c.kind)).toEqual(["focus", "action"]);
   expect(two.controls.at(-1).value).toBe("new");
   expect(two.controls.at(-1).seq).toBe(3);
 });
@@ -112,9 +105,7 @@ test("relaunch validates absolute executable and goes to viewer showing pane", (
     source = peer(2);
   source.viewer = false;
   const s = { clients: [target, source] };
-  expect(() =>
-    action(s, source, { name: "relaunch", value: "relative", pane: 1 }),
-  ).toThrow("InvalidExecutable");
+  expect(() => action(s, source, { name: "relaunch", value: "relative", pane: 1 })).toThrow("InvalidExecutable");
   action(s, source, { name: "relaunch", value: "/usr/bin/corgi", pane: 1 });
   expect(source.result).toEqual({ ok: true, viewer: 1, queued: true });
   expect(target.controls[0].name).toBe("relaunch");

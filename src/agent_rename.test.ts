@@ -3,26 +3,13 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import {
-  validName,
-  peerIn,
-  codexEmpty,
-  codexHolds,
-  command,
-  max_name,
-} from "./agent_rename";
+import { validName, peerIn, codexEmpty, codexHolds, command, max_name } from "./agent_rename";
 import { Terminal } from "./pane/terminal";
 
 test("names are one printable line", () => {
   expect(validName("refactor ⑂")).toBe(true);
   expect(validName(new Uint8Array([0xff]))).toBe(false);
-  for (const name of [
-    "",
-    "two\nlines",
-    "bell\x07",
-    "\udfff",
-    "x".repeat(max_name + 1),
-  ])
+  for (const name of ["", "two\nlines", "bell\x07", "\udfff", "x".repeat(max_name + 1)])
     expect(validName(name)).toBe(false);
 });
 test("a session's peer is its live record's socket and key", async () => {
@@ -35,18 +22,11 @@ test("a session's peer is its live record's socket and key", async () => {
       ["3.json", "gone", 1, 2147483647, socket],
       ["4.json", "keyless", 1, process.pid, "/tmp/cc-socks/4.sock"],
     ])
-      writeFileSync(
-        join(root, String(file)),
-        JSON.stringify({ sessionId, peerProtocol, pid, messagingSocketPath }),
-      );
+      writeFileSync(join(root, String(file)), JSON.stringify({ sessionId, peerProtocol, pid, messagingSocketPath }));
     const digest = createHash("sha256").update(socket).digest("hex");
-    writeFileSync(
-      join(root, `${process.pid}.${digest}.key`),
-      '{"peerToken":"secret"}',
-    );
+    writeFileSync(join(root, `${process.pid}.${digest}.key`), '{"peerToken":"secret"}');
     expect(await peerIn(root, "LIVE")).toEqual({ socket, token: "secret" });
-    for (const session of ["future", "gone", "keyless", "missing"])
-      expect(await peerIn(root, session)).toBeNull();
+    for (const session of ["future", "gone", "keyless", "missing"]) expect(await peerIn(root, session)).toBeNull();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -61,43 +41,22 @@ function screen(t: Terminal, input: string, footer: string) {
 test("only Codex's empty input box reads as empty", () => {
   const t = Terminal.create(60, 8);
   try {
-    screen(
-      t,
-      "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m",
-      "\x1b[1m?\x1b[0m for shortcuts",
-    );
+    screen(t, "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m", "\x1b[1m?\x1b[0m for shortcuts");
     expect(codexEmpty(t)).toBe(true);
     expect(codexHolds(t, "Ask Codex to do anything")).toBe(false);
     for (const [input, footer] of [
       ["\x1b[1m›\x1b[0m Ask Codex to do anything", ""],
-      [
-        "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m",
-        "\x1b[1m?\x1b[0m / \x1b[1mesc\x1b[0m close",
-      ],
-      [
-        "\x1b[1;7m› 1. Yes, proceed (y)\x1b[0m",
-        "\x1b[1m?\x1b[0m for shortcuts",
-      ],
-      [
-        "\x1b[1;2m› \x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m",
-        "\x1b[1m?\x1b[0m for shortcuts",
-      ],
+      ["\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m", "\x1b[1m?\x1b[0m / \x1b[1mesc\x1b[0m close"],
+      ["\x1b[1;7m› 1. Yes, proceed (y)\x1b[0m", "\x1b[1m?\x1b[0m for shortcuts"],
+      ["\x1b[1;2m› \x1b[0m\x1b[2mAsk Codex to do anything\x1b[0m", "\x1b[1m?\x1b[0m for shortcuts"],
     ]) {
       screen(t, input, footer);
       expect(codexEmpty(t)).toBe(false);
     }
-    screen(
-      t,
-      "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m",
-      "\x1b[2mreverse-i-search: \x1b[0m",
-    );
+    screen(t, "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m", "\x1b[2mreverse-i-search: \x1b[0m");
     t.feed("\x1b[5;21H");
     expect(codexEmpty(t)).toBe(false);
-    screen(
-      t,
-      "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m",
-      "\x1b[1m?\x1b[0m for shortcuts",
-    );
+    screen(t, "\x1b[1m›\x1b[0m \x1b[2mAsk Codex to do anything\x1b[0m", "\x1b[1m?\x1b[0m for shortcuts");
     t.feed("\x1b]0;[ ! ] Action Required | codex\x07");
     expect(codexEmpty(t)).toBe(false);
   } finally {

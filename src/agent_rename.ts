@@ -11,27 +11,17 @@ export const max_name = 80;
 export function validName(value: string | Uint8Array) {
   let name: string;
   try {
-    name =
-      typeof value === "string"
-        ? value
-        : new TextDecoder("utf-8", { fatal: true }).decode(value);
+    name = typeof value === "string" ? value : new TextDecoder("utf-8", { fatal: true }).decode(value);
   } catch {
     return false;
   }
-  return (
-    name.length > 0 &&
-    Buffer.byteLength(name) <= max_name &&
-    !/[\x00-\x1f\x7f\ud800-\udfff]/u.test(name)
-  );
+  return name.length > 0 && Buffer.byteLength(name) <= max_name && !/[\x00-\x1f\x7f\ud800-\udfff]/u.test(name);
 }
 export interface Peer {
   socket: string;
   token: string;
 }
-export async function peerIn(
-  folder: string,
-  session: string,
-): Promise<Peer | null> {
+export async function peerIn(folder: string, session: string): Promise<Peer | null> {
   let files: string[];
   try {
     files = await readdir(folder);
@@ -54,14 +44,9 @@ export async function peerIn(
       } catch {
         continue;
       }
-      const digest = createHash("sha256")
-          .update(record.messagingSocketPath)
-          .digest("hex"),
-        key = JSON.parse(
-          await readFile(join(folder, `${record.pid}.${digest}.key`), "utf8"),
-        );
-      if (key.peerToken)
-        return { socket: record.messagingSocketPath, token: key.peerToken };
+      const digest = createHash("sha256").update(record.messagingSocketPath).digest("hex"),
+        key = JSON.parse(await readFile(join(folder, `${record.pid}.${digest}.key`), "utf8"));
+      if (key.peerToken) return { socket: record.messagingSocketPath, token: key.peerToken };
     } catch {}
   }
   return null;
@@ -98,10 +83,7 @@ export async function renameClaude(peer: Peer, session: string, name: string) {
   );
 }
 export async function renameCodex(id: string, name: string) {
-  const socket = join(
-    Provider.info("codex").configDir(),
-    "app-server-control/app-server-control.sock",
-  );
+  const socket = join(Provider.info("codex").configDir(), "app-server-control/app-server-control.sock");
   await new Promise<void>((resolve, reject) => {
     const connection = createConnection(socket),
       request = 1;
@@ -110,7 +92,7 @@ export async function renameCodex(id: string, name: string) {
       connection.destroy();
       reject(new Error("TimedOut"));
     }, 3000);
-    connection.once("error", (e) => {
+    connection.once("error", e => {
       clearTimeout(timer);
       reject(e);
     });
@@ -123,7 +105,7 @@ export async function renameCodex(id: string, name: string) {
         }) + "\n",
       ),
     );
-    connection.on("data", (data) => {
+    connection.on("data", data => {
       buffer += data;
       for (const line of buffer.split("\n").slice(0, -1)) {
         try {
@@ -142,8 +124,7 @@ export function command(name: string) {
   return "/rename " + name;
 }
 function input(t: any) {
-  if ((t.title ?? t.vt?.getTitle?.() ?? "").includes("[ ! ] Action Required"))
-    return null;
+  if ((t.title ?? t.vt?.getTitle?.() ?? "").includes("[ ! ] Action Required")) return null;
   const frame = t.capture?.(0) ?? t.surface?.(0);
   if (!frame) return null;
   const surface = frame.surface ?? frame,
@@ -175,31 +156,22 @@ function input(t: any) {
           bold = false;
           faint = false;
         } else if (code === 27) inverse = false;
-        else if (code === 38 || code === 48 || code === 58)
-          i += codes[i + 1] === 2 ? 4 : 2;
+        else if (code === 38 || code === 48 || code === 58) i += codes[i + 1] === 2 ? 4 : 2;
       }
-    } else
-      for (const text of match[2])
-        characters.push({ text, bold, faint, inverse });
+    } else for (const text of match[2]) characters.push({ text, bold, faint, inverse });
   }
   const marker = characters[0];
-  if (
-    marker?.text !== "›" ||
-    characters[1]?.text !== " " ||
-    !marker.bold ||
-    marker.faint ||
-    marker.inverse
-  )
+  if (marker?.text !== "›" || characters[1]?.text !== " " || !marker.bold || marker.faint || marker.inverse)
     return null;
   const text = characters
     .slice(2)
-    .map((c) => c.text)
+    .map(c => c.text)
     .join("")
     .trimEnd();
-  const visible = characters.slice(2).filter((c) => c.text.trim().length > 0);
+  const visible = characters.slice(2).filter(c => c.text.trim().length > 0);
   return {
     text,
-    placeholder: visible.length > 0 && visible.every((c) => c.faint),
+    placeholder: visible.length > 0 && visible.every(c => c.faint),
     text_end: 2 + visibleWidth(text),
     cursor: cursor.x,
     below: surface.lines
@@ -210,21 +182,11 @@ function input(t: any) {
 }
 export function codexEmpty(t: any) {
   const row = input(t);
-  return (
-    !!row &&
-    row.cursor === 2 &&
-    row.placeholder &&
-    row.below.includes("? for shortcuts")
-  );
+  return !!row && row.cursor === 2 && row.placeholder && row.below.includes("? for shortcuts");
 }
 export function codexHolds(t: any, text: string) {
   const row = input(t);
-  return (
-    !!row &&
-    !row.placeholder &&
-    row.text === text &&
-    row.cursor === row.text_end
-  );
+  return !!row && !row.placeholder && row.text === text && row.cursor === row.text_end;
 }
 export async function paste(t: any, text: string) {
   const mode = t.bracketed_paste ?? t.modes?.bracketed_paste ?? false;
@@ -232,26 +194,16 @@ export async function paste(t: any, text: string) {
 }
 export async function submit(t: any) {
   const modes = t.surface?.(0)?.modes ?? {};
-  await t.send(
-    encode(
-      { codepoint: 13, mods: {} },
-      { kitty: !!(modes.kitty & 1), alt_escape: modes.alt_escape },
-    ),
-  );
+  await t.send(encode({ codepoint: 13, mods: {} }, { kitty: !!(modes.kitty & 1), alt_escape: modes.alt_escape }));
 }
 function renamed(runtime: Runtime, pane: Pane, name: string) {
   pane.agent().setName(name);
   pane.label = "";
   runtime.changed();
 }
-export async function renamePane(
-  pane: Pane,
-  name: string | null,
-  runtime: Runtime,
-) {
+export async function renamePane(pane: Pane, name: string | null, runtime: Runtime) {
   const agent = pane.agent();
-  if (pane.terminal.exited || !agent.provider)
-    throw new Error("NoConversation");
+  if (pane.terminal.exited || !agent.provider) throw new Error("NoConversation");
   if (name !== null && !validName(name)) throw new Error("InvalidName");
   if (agent.provider === "claude") {
     if (!agent.session.len) throw new Error("NoConversation");
@@ -273,10 +225,8 @@ export async function renamePane(
   if (!codexEmpty(pane.terminal)) throw new Error("AgentBusy");
   if (name === null) return;
   const text = command(name);
-  if (Buffer.byteLength(text) + 4 > pane.terminal.cols)
-    throw new Error("InvalidName");
-  if (runtime.renames.some((r) => r.pane === pane.id))
-    throw new Error("AgentBusy");
+  if (Buffer.byteLength(text) + 4 > pane.terminal.cols) throw new Error("InvalidName");
+  if (runtime.renames.some(r => r.pane === pane.id)) throw new Error("AgentBusy");
   await paste(pane.terminal, text);
   runtime.renames.push({
     pane: pane.id,
@@ -311,9 +261,7 @@ export async function advance(runtime: Runtime, now: number) {
     } catch (e) {
       if (
         now >= wanted.deadline ||
-        !["NoConversation", "RenameUnavailable", "AgentBusy"].includes(
-          (e as Error).message,
-        )
+        !["NoConversation", "RenameUnavailable", "AgentBusy"].includes((e as Error).message)
       )
         runtime.wanted_names.splice(i, 1);
     }

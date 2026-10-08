@@ -10,11 +10,7 @@ export const read_budget = 64 * 1024,
   initial_tail = 256 * 1024,
   record_limit = 64 * 1024;
 export type Result = { actor: number; seq: number; outcome: Outcome };
-export async function verifySession(
-  file: FileHandle,
-  provider: string,
-  session: string,
-) {
+export async function verifySession(file: FileHandle, provider: string, session: string) {
   if (provider === "claude") return;
   const chunks: Buffer[] = [];
   let size = 0;
@@ -26,14 +22,8 @@ export async function verifySession(
     chunks.push(chunk.subarray(0, end >= 0 ? end : bytesRead));
     size += bytesRead;
     if (end >= 0) {
-      const rollout = Codex.Rollout.decode(
-        parse(Buffer.concat(chunks).toString()),
-      );
-      if (
-        rollout.type !== "session_meta" ||
-        str(rollout.payload, "id") !== session
-      )
-        throw Error("WrongSession");
+      const rollout = Codex.Rollout.decode(parse(Buffer.concat(chunks).toString()));
+      if (rollout.type !== "session_meta" || str(rollout.payload, "id") !== session) throw Error("WrongSession");
       return;
     }
   }
@@ -51,11 +41,7 @@ export function completion(agent: Agent, line: string): Outcome | null {
   if (stamp === null || stamp < Math.trunc(agent.last_seq / 1000)) return null;
   if (agent.provider === "codex") {
     const rollout = Codex.Rollout.decode(v);
-    if (
-      rollout.type !== "event_msg" ||
-      !agent.turn.len ||
-      str(rollout.payload, "turn_id") !== agent.turnId()
-    )
+    if (rollout.type !== "event_msg" || !agent.turn.len || str(rollout.payload, "turn_id") !== agent.turnId())
       return null;
     const kind = rollout.payloadType();
     if (kind === "turn_aborted") return "interrupted";
@@ -66,8 +52,7 @@ export function completion(agent: Agent, line: string): Outcome | null {
   if (agent.provider === "claude") {
     const decoded = Claude.Line.decode(v);
     if (!decoded || decoded.sessionId !== agent.sessionId()) return null;
-    if (decoded.type === "system" && decoded.subtype === "turn_duration")
-      return "completed";
+    if (decoded.type === "system" && decoded.subtype === "turn_duration") return "completed";
     const attachment = field(v, "attachment");
     if (
       decoded.type === "attachment" &&
@@ -100,17 +85,13 @@ export class Tail {
         end = complete ? at : input.length,
         segment = input.subarray(start, end);
       start = end + Number(complete);
-      if (
-        !this.discard &&
-        this.partial.length + segment.length > record_limit
-      ) {
+      if (!this.discard && this.partial.length + segment.length > record_limit) {
         this.partial = Buffer.alloc(0);
         this.discard = true;
       }
       if (!this.discard) this.partial = Buffer.concat([this.partial, segment]);
       if (complete) {
-        if (!this.discard)
-          found = completion(agent, this.partial.toString()) ?? found;
+        if (!this.discard) found = completion(agent, this.partial.toString()) ?? found;
         this.partial = Buffer.alloc(0);
         this.discard = false;
       }
@@ -142,21 +123,11 @@ export class Tail {
         this.inode = stat.ino;
         this.device = stat.dev;
       }
-      if (
-        stat.ino !== this.inode ||
-        named.ino !== this.inode ||
-        named.dev !== this.device ||
-        stat.size < this.offset
-      )
+      if (stat.ino !== this.inode || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
         throw Error("Replaced");
       if (stat.size === this.offset) return null;
       const bytes = Buffer.alloc(read_budget);
-      const { bytesRead } = await file.read(
-        bytes,
-        0,
-        bytes.length,
-        this.offset,
-      );
+      const { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
       this.offset += bytesRead;
       return this.ingest(agent, bytes.subarray(0, bytesRead));
     } finally {
@@ -184,22 +155,13 @@ export class Worker {
   }
   reconcile(actors: Array<{ id: number; state: Agent }>) {
     this.requests = actors
-      .filter(
-        (a) =>
-          a.state.observation.pending_stop &&
-          a.state.transcript.len &&
-          a.state.session.len,
-      )
-      .map((a) => ({ actor: a.id, agent: a.state.snapshot() }));
+      .filter(a => a.state.observation.pending_stop && a.state.transcript.len && a.state.session.len)
+      .map(a => ({ actor: a.id, agent: a.state.snapshot() }));
   }
   batch(limit = 64) {
     const count = Math.min(limit, this.requests.length);
-    const out = Array.from(
-      { length: count },
-      (_, i) => this.requests[(this.cursor + i) % this.requests.length],
-    );
-    if (this.requests.length)
-      this.cursor = (this.cursor + count) % this.requests.length;
+    const out = Array.from({ length: count }, (_, i) => this.requests[(this.cursor + i) % this.requests.length]);
+    if (this.requests.length) this.cursor = (this.cursor + count) % this.requests.length;
     return out;
   }
   take() {
@@ -223,8 +185,7 @@ export class Worker {
           t.seq = req.agent.last_seq;
         }
         const now = Date.now();
-        if (t.finished || now < t.next_check || this.results.length >= 64)
-          continue;
+        if (t.finished || now < t.next_check || this.results.length >= 64) continue;
         t.attempts = Math.min(0xffffffff, t.attempts + 1);
         t.next_check = now + (t.attempts < 20 ? 250 : 2000);
         try {

@@ -19,7 +19,9 @@ export function cleanup(): void {
       writeAll(keyboard.disable);
       keyboard_enabled = false;
     }
-    writeAll("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?5522l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\");
+    writeAll(
+      "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?5522l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\",
+    );
     if (cursor_blink_saved) {
       writeAll("\x1b[?12r");
       cursor_blink_saved = false;
@@ -63,7 +65,7 @@ async function attachOnce(path: string, start_onboarding: boolean): Promise<stri
     await stdin.collect(
       150,
       () => probe.theme.complete(),
-      (bytes) => {
+      bytes => {
         for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
       },
     );

@@ -129,7 +129,11 @@ export class Cell {
         }
         w.write(`${row_style} `);
       }
-      w.write(`\x1b[1m${window.used >= 80 ? color : fg("strong")}${String(window.used).padStart(3)}%${row_style}` + fg("line") + ` · ${quiet}`);
+      w.write(
+        `\x1b[1m${window.used >= 80 ? color : fg("strong")}${String(window.used).padStart(3)}%${row_style}` +
+          fg("line") +
+          ` · ${quiet}`,
+      );
       w.write(padded(window.reset, slot.reset));
       w.write(row_style);
     });

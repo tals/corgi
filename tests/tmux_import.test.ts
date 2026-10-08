@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { registerCase, TestCase, run, quote, sleep } from "./support";
 import { screen_text } from "./runtime";
@@ -48,13 +41,7 @@ class TmuxImport extends TestCase {
       join(root, "left"),
       "/bin/sleep 120",
     );
-    this.left = await this.tmux(
-      "display-message",
-      "-p",
-      "-t",
-      "tmux-fixture:0",
-      "#{pane_id}",
-    );
+    this.left = await this.tmux("display-message", "-p", "-t", "tmux-fixture:0", "#{pane_id}");
     const top = await this.tmux(
       "split-window",
       "-h",
@@ -85,13 +72,7 @@ class TmuxImport extends TestCase {
       join(root, "bottom"),
       "/bin/sleep 120",
     );
-    this.savedLayout = await this.tmux(
-      "display-message",
-      "-p",
-      "-t",
-      "tmux-fixture:0",
-      "#{window_layout}",
-    );
+    this.savedLayout = await this.tmux("display-message", "-p", "-t", "tmux-fixture:0", "#{window_layout}");
     this.fixture.env.TMUX = join(root, "tmux.sock") + ",0,0";
     await this.fixture.start();
   }
@@ -108,9 +89,7 @@ class TmuxImport extends TestCase {
   }
 
   async tmux(...args: string[]) {
-    return (
-      await run([...this.tmuxBase, ...args], { env: this.fixture.env })
-    ).stdout.trim();
+    return (await run([...this.tmuxBase, ...args], { env: this.fixture.env })).stdout.trim();
   }
 
   async checkImport(zoomedPane?: string) {
@@ -126,25 +105,18 @@ class TmuxImport extends TestCase {
     const v = await Viewer.create(this.fixture, 100, 34);
     await v.input("\r");
     await v.input("1");
-    const text = async () =>
-      screen_text((await v.poll()).data, 100, 34).join("\n");
-    await this.fixture.until(async () =>
-      (await text()).includes("tmux-fixture"),
-    );
+    const text = async () => screen_text((await v.poll()).data, 100, 34).join("\n");
+    await this.fixture.until(async () => (await text()).includes("tmux-fixture"));
     this.assertIn("[x] tmux-fixture", await text());
     await v.input("\r");
-    await this.fixture.until(async () =>
-      (await text()).includes("You're ready to go"),
-    );
+    await this.fixture.until(async () => (await text()).includes("You're ready to go"));
     const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
     const ws = snapshot.workspaces.find((w: any) => w.name === "tmux-fixture");
     this.assertEqual(ws.model.tabs.length, 1);
     const tab = ws.model.tabs[0];
     this.assertEqual(tab.title, "nested");
     const panes = Object.fromEntries(
-      snapshot.panes
-        .filter((p: any) => p.workspace === ws.id)
-        .map((p: any) => [p.id, p]),
+      snapshot.panes.filter((p: any) => p.workspace === ws.id).map((p: any) => [p.id, p]),
     );
     this.assertEqual(Object.keys(panes).length, 3);
     this.assertTrue(Object.values(panes).every((p: any) => p.pid > 0));
@@ -154,30 +126,13 @@ class TmuxImport extends TestCase {
       const split = node.split;
       return [split.axis, split.ratio, shape(split.first), shape(split.second)];
     };
-    this.assertEqual(shape(tab.root), [
-      "horizontal",
-      500,
-      "left",
-      ["vertical", 500, "top", "bottom"],
-    ]);
+    this.assertEqual(shape(tab.root), ["horizontal", 500, "left", ["vertical", 500, "top", "bottom"]]);
     this.assertEqual(
-      await this.tmux(
-        "display-message",
-        "-p",
-        "-t",
-        "tmux-fixture:0",
-        "#{window_zoomed_flag}",
-      ),
+      await this.tmux("display-message", "-p", "-t", "tmux-fixture:0", "#{window_zoomed_flag}"),
       zoomedPane ? "1" : "0",
     );
     this.assertEqual(
-      await this.tmux(
-        "display-message",
-        "-p",
-        "-t",
-        "tmux-fixture:0",
-        "#{window_layout}",
-      ),
+      await this.tmux("display-message", "-p", "-t", "tmux-fixture:0", "#{window_layout}"),
       this.savedLayout,
     );
     this.assertEqual(await this.tmux(...listArgs), before);
@@ -188,10 +143,7 @@ class TmuxImport extends TestCase {
   }
   async test_collapsed_workspace_expands_and_imports_hidden_terminals() {
     for (let i = 1; i <= 5; i++) {
-      await this.tmux(
-        "new-window", "-d", "-t", "tmux-fixture", "-n", `extra-${i}`,
-        "/bin/sleep 120",
-      );
+      await this.tmux("new-window", "-d", "-t", "tmux-fixture", "-n", `extra-${i}`, "/bin/sleep 120");
     }
     const v = await Viewer.create(this.fixture, 76, 26);
     await v.input("\r1");
@@ -199,7 +151,7 @@ class TmuxImport extends TestCase {
     const text = async () => (await rows()).join("\n");
     const click = async (label: string) => {
       const screen = await rows();
-      const y = screen.findIndex((row) => row.includes(label));
+      const y = screen.findIndex(row => row.includes(label));
       this.assertTrue(y >= 0, `Missing ${label}`);
       const x = [...screen[y].slice(0, screen[y].indexOf(label))].length;
       await v.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
@@ -244,20 +196,13 @@ class TmuxImport extends TestCase {
   async importSelected() {
     const viewer = await Viewer.create(this.fixture, 100, 34);
     await viewer.input("\r1");
-    const text = async () =>
-      screen_text((await viewer.poll()).data, 100, 34).join("\n");
-    await this.fixture.until(async () =>
-      (await text()).includes("[x] tmux-fixture"),
-    );
+    const text = async () => screen_text((await viewer.poll()).data, 100, 34).join("\n");
+    await this.fixture.until(async () => (await text()).includes("[x] tmux-fixture"));
     await viewer.input("\r");
-    await this.fixture.until(async () =>
-      (await text()).includes("You're ready to go"),
-    );
+    await this.fixture.until(async () => (await text()).includes("You're ready to go"));
     await viewer.input("\r");
     const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
-    const workspace = snapshot.workspaces.find(
-      (w: any) => w.name === "tmux-fixture",
-    );
+    const workspace = snapshot.workspaces.find((w: any) => w.name === "tmux-fixture");
     return {
       viewer,
       panes: snapshot.panes.filter((p: any) => p.workspace === workspace.id),
@@ -267,13 +212,7 @@ class TmuxImport extends TestCase {
   async test_scrollback_and_quoted_command_wait_for_return() {
     // tee opens this path only when it starts, making early execution observable.
     const file = join(this.fixture.root, "a b'c\\d$(not-a-command)");
-    await this.tmux(
-      "respawn-pane",
-      "-k",
-      "-t",
-      this.left,
-      "/bin/bash --noprofile --norc",
-    );
+    await this.tmux("respawn-pane", "-k", "-t", this.left, "/bin/bash --noprofile --norc");
     await this.tmux(
       "send-keys",
       "-t",
@@ -286,28 +225,19 @@ class TmuxImport extends TestCase {
     unlinkSync(file);
     const { panes } = await this.importSelected();
     const pane = panes.find((p: any) => basename(p.cwd) === "left");
-    const history = async () =>
-      (await this.command("pane.read", { target: pane.id, lines: 1000 })).text;
+    const history = async () => (await this.command("pane.read", { target: pane.id, lines: 1000 })).text;
     await this.fixture.until(async () => {
       const text = await history();
-      return (
-        text.lastIndexOf("/usr/bin/tee") >
-        text.indexOf("# Press Return to restart")
-      );
+      return text.lastIndexOf("/usr/bin/tee") > text.indexOf("# Press Return to restart");
     });
     this.assertIn("BACKSCROLL_0", await history());
     this.assertIn("BACKSCROLL_159", await history());
     await sleep(0.15);
-    this.assertFalse(
-      existsSync(file),
-      "import must not execute the suggested command",
-    );
+    this.assertFalse(existsSync(file), "import must not execute the suggested command");
     await this.command("pane.input", { target: pane.id, data: "\r" });
     await this.fixture.until(() => existsSync(file));
     await this.command("pane.input", { target: pane.id, data: "RESTARTED\n" });
-    await this.fixture.until(() =>
-      readFileSync(file, "utf8").includes("RESTARTED"),
-    );
+    await this.fixture.until(() => readFileSync(file, "utf8").includes("RESTARTED"));
   }
 
   async test_two_tig_panes_restore_context_and_restart_independently() {
@@ -335,15 +265,7 @@ class TmuxImport extends TestCase {
       { env: this.fixture.env },
     );
     for (const pane of [this.left, this.bottom]) {
-      await this.tmux(
-        "respawn-pane",
-        "-k",
-        "-t",
-        pane,
-        "-c",
-        cwd,
-        "/bin/bash --noprofile --norc",
-      );
+      await this.tmux("respawn-pane", "-k", "-t", pane, "-c", cwd, "/bin/bash --noprofile --norc");
       await this.tmux(
         "send-keys",
         "-t",
@@ -353,15 +275,9 @@ class TmuxImport extends TestCase {
       );
       await this.tmux("send-keys", "-t", pane, "Enter");
       await this.fixture
-        .until(async () =>
-          (await this.tmux("capture-pane", "-p", "-t", pane)).includes(
-            "IMPORTED_TIG_COMMIT",
-          ),
-        )
-        .catch(async (error) => {
-          throw new Error(
-            `${error}\n${await this.tmux("capture-pane", "-p", "-t", pane)}`,
-          );
+        .until(async () => (await this.tmux("capture-pane", "-p", "-t", pane)).includes("IMPORTED_TIG_COMMIT"))
+        .catch(async error => {
+          throw new Error(`${error}\n${await this.tmux("capture-pane", "-p", "-t", pane)}`);
         });
     }
     const source = await this.tmux(
@@ -374,50 +290,27 @@ class TmuxImport extends TestCase {
     const { panes } = await this.importSelected();
     const imported = panes.filter((p: any) => basename(p.cwd) === "left");
     this.assertEqual(imported.length, 2);
-    const foreground = async (pid: number) =>
-      (await run(["ps", "-p", String(pid), "-o", "tpgid="])).stdout.trim();
+    const foreground = async (pid: number) => (await run(["ps", "-p", String(pid), "-o", "tpgid="])).stdout.trim();
     for (const pane of imported) {
-      const history = async () =>
-        (await this.command("pane.read", { target: pane.id, lines: 1000 }))
-          .text;
+      const history = async () => (await this.command("pane.read", { target: pane.id, lines: 1000 })).text;
       await this.fixture.until(async () => {
         const text = await history();
-        return (
-          text.lastIndexOf("tig --all") >
-          text.indexOf("# Press Return to restart")
-        );
+        return text.lastIndexOf("tig --all") > text.indexOf("# Press Return to restart");
       });
       this.assertIn("SHELL_CONTEXT_BEFORE_TIG", await history());
       this.assertIn("IMPORTED_TIG_COMMIT", await history());
       const text = await history();
       this.assertIn("TIG_SCROLLBACK_0", text);
-      this.assertTrue(
-        text.indexOf("TIG_SCROLLBACK_0") <
-          text.lastIndexOf("SHELL_CONTEXT_BEFORE_TIG"),
-      );
-      this.assertTrue(
-        text.lastIndexOf("SHELL_CONTEXT_BEFORE_TIG") <
-          text.indexOf("IMPORTED_TIG_COMMIT"),
-      );
+      this.assertTrue(text.indexOf("TIG_SCROLLBACK_0") < text.lastIndexOf("SHELL_CONTEXT_BEFORE_TIG"));
+      this.assertTrue(text.lastIndexOf("SHELL_CONTEXT_BEFORE_TIG") < text.indexOf("IMPORTED_TIG_COMMIT"));
       this.assertEqual(await foreground(pane.pid), String(pane.pid));
       await this.command("pane.input", { target: pane.id, data: "\r" });
-      await this.fixture.until(
-        async () => (await foreground(pane.pid)) !== String(pane.pid),
-      );
+      await this.fixture.until(async () => (await foreground(pane.pid)) !== String(pane.pid));
       const job = await foreground(pane.pid);
-      this.assertIn(
-        "tig",
-        (await run(["ps", "-p", job, "-o", "comm="])).stdout,
-      );
+      this.assertIn("tig", (await run(["ps", "-p", job, "-o", "comm="])).stdout);
     }
     this.assertEqual(
-      await this.tmux(
-        "list-panes",
-        "-t",
-        "tmux-fixture:0",
-        "-F",
-        "#{pane_id} #{pane_pid} #{pane_current_command}",
-      ),
+      await this.tmux("list-panes", "-t", "tmux-fixture:0", "-F", "#{pane_id} #{pane_pid} #{pane_current_command}"),
       source,
     );
   }
@@ -429,15 +322,10 @@ class TmuxImport extends TestCase {
     }
     const viewer = await Viewer.create(this.fixture, 100, 34);
     await viewer.input("\r1");
-    const text = async () =>
-      screen_text((await viewer.poll()).data, 100, 34).join("\n");
-    await this.fixture.until(async () =>
-      (await text()).includes("[x] recent-c"),
-    );
+    const text = async () => screen_text((await viewer.poll()).data, 100, 34).join("\n");
+    await this.fixture.until(async () => (await text()).includes("[x] recent-c"));
     await viewer.input("\r");
-    await this.fixture.until(async () =>
-      (await text()).includes("You're ready to go"),
-    );
+    await this.fixture.until(async () => (await text()).includes("You're ready to go"));
     const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
     const names = snapshot.workspaces.map((w: any) => w.name);
     this.assertFalse(names.includes("tmux-fixture"));
@@ -452,8 +340,7 @@ registerCase("tmux import", TmuxImport, {
   skip: !TMUX ? "tmux is required" : undefined,
   skipTests: !TIG
     ? {
-        test_two_tig_panes_restore_context_and_restart_independently:
-          "tig is required",
+        test_two_tig_panes_restore_context_and_restart_independently: "tig is required",
       }
     : {},
 });

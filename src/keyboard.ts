@@ -19,14 +19,27 @@ export interface Key {
 }
 /** Kitty's functional key codes Ghostty encodes; others stay unparsed. */
 function functional(cp: number): boolean {
-  return [27, 13, 9, 127].includes(cp) || (cp >= 57344 && cp <= 57388) || (cp >= 57399 && cp <= 57427) || [57441, 57442, 57443, 57444, 57447, 57448, 57449, 57450].includes(cp);
+  return (
+    [27, 13, 9, 127].includes(cp) ||
+    (cp >= 57344 && cp <= 57388) ||
+    (cp >= 57399 && cp <= 57427) ||
+    [57441, 57442, 57443, 57444, 57447, 57448, 57449, 57450].includes(cp)
+  );
 }
 // Decode ordinary cursor keys as well as CSI-u so the child's application
 // cursor mode, rather than the host's mode, determines their encoding.
 // Reject extensions we did not request instead of losing fields.
 export function decode(bytes: string): Key | null {
   if (bytes.length === 3 && bytes[0] === "\x1b" && (bytes[1] === "[" || bytes[1] === "O")) {
-    const cps: Record<string, number> = { A: arrow_up, B: arrow_down, C: arrow_right, D: arrow_left, P: f1, Q: f1 + 1, S: f1 + 3 };
+    const cps: Record<string, number> = {
+      A: arrow_up,
+      B: arrow_down,
+      C: arrow_right,
+      D: arrow_left,
+      P: f1,
+      Q: f1 + 1,
+      S: f1 + 3,
+    };
     if (bytes[2] === "R") return bytes[1] === "O" ? { codepoint: f1 + 2, mods: {} } : null;
     const cp = cps[bytes[2]];
     return cp === undefined ? null : { codepoint: cp, mods: {} };
@@ -45,7 +58,14 @@ export function decode(bytes: string): Key | null {
   if (bits & 48) return null;
   return {
     codepoint: cp,
-    mods: { shift: !!(bits & 1), alt: !!(bits & 2), ctrl: !!(bits & 4), super: !!(bits & 8), caps_lock: !!(bits & 64), num_lock: !!(bits & 128) },
+    mods: {
+      shift: !!(bits & 1),
+      alt: !!(bits & 2),
+      ctrl: !!(bits & 4),
+      super: !!(bits & 8),
+      caps_lock: !!(bits & 64),
+      num_lock: !!(bits & 128),
+    },
   };
 }
 export function encode(
@@ -59,17 +79,10 @@ export function encode(
     alt_esc_prefix?: boolean;
   } = {},
 ): string {
-  const bits =
-      (key.mods.shift ? 1 : 0) |
-      (key.mods.alt ? 2 : 0) |
-      (key.mods.ctrl ? 4 : 0) |
-      (key.mods.super ? 8 : 0),
+  const bits = (key.mods.shift ? 1 : 0) | (key.mods.alt ? 2 : 0) | (key.mods.ctrl ? 4 : 0) | (key.mods.super ? 8 : 0),
     kitty = options.kitty || options.kitty_flags?.disambiguate,
     application = options.application_cursor || options.cursor_key_application;
-  const cp =
-    ({ 57344: 27, 57345: 13, 57346: 9, 57347: 127 } as Record<number, number>)[
-      key.codepoint
-    ] ?? key.codepoint;
+  const cp = ({ 57344: 27, 57345: 13, 57346: 9, 57347: 127 } as Record<number, number>)[key.codepoint] ?? key.codepoint;
   const arrows: Record<number, string> = {
     [arrow_up]: "A",
     [arrow_down]: "B",
@@ -78,10 +91,7 @@ export function encode(
     57356: "H",
     57357: "F",
   };
-  if (arrows[cp])
-    return bits
-      ? `\x1b[1;${bits + 1}${arrows[cp]}`
-      : `\x1b${application ? "O" : "["}${arrows[cp]}`;
+  if (arrows[cp]) return bits ? `\x1b[1;${bits + 1}${arrows[cp]}` : `\x1b${application ? "O" : "["}${arrows[cp]}`;
   if (cp >= f1 && cp <= f1 + 3)
     return bits
       ? `\x1b[1;${bits + 1}${String.fromCharCode(80 + cp - f1)}`
@@ -100,20 +110,12 @@ export function encode(
     57374: 23,
     57375: 24,
   };
-  if (numbered[cp])
-    return `\x1b[${numbered[cp]}${bits ? ";" + (bits + 1) : ""}~`;
-  if (kitty && (bits || cp === 27))
-    return `\x1b[${cp}${bits ? ";" + (bits + 1) : ""}u`;
-  if (
-    cp === 13 &&
-    bits &&
-    (bits !== 2 || !(options.alt_escape || options.alt_esc_prefix))
-  )
+  if (numbered[cp]) return `\x1b[${numbered[cp]}${bits ? ";" + (bits + 1) : ""}~`;
+  if (kitty && (bits || cp === 27)) return `\x1b[${cp}${bits ? ";" + (bits + 1) : ""}u`;
+  if (cp === 13 && bits && (bits !== 2 || !(options.alt_escape || options.alt_esc_prefix)))
     return `\x1b[27;${bits + 1};13~`;
-  if (cp === 9 && key.mods.shift && !key.mods.ctrl && !key.mods.alt)
-    return "\x1b[Z";
+  if (cp === 9 && key.mods.shift && !key.mods.ctrl && !key.mods.alt) return "\x1b[Z";
   let text = String.fromCodePoint(cp);
-  if (key.mods.ctrl && cp >= 64 && cp <= 127)
-    text = String.fromCharCode(cp & 31);
+  if (key.mods.ctrl && cp >= 64 && cp <= 127) text = String.fromCharCode(cp & 31);
   return (key.mods.alt ? "\x1b" : "") + text;
 }

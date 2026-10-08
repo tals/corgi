@@ -11,9 +11,7 @@ const C = "01921234-1234-1234-1234-123456789abc",
   E = "01941234-1234-1234-1234-123456789abc";
 class Children extends Titles {
   async conversation(session: string) {
-    return (await this.session()).conversations.find(
-      (c: any) => c.agent.session === session,
-    );
+    return (await this.session()).conversations.find((c: any) => c.agent.session === session);
   }
   stamp() {
     return new Date().toISOString();
@@ -37,13 +35,7 @@ class Children extends Titles {
       },
     };
   }
-  create_child(
-    session: string,
-    parent: string,
-    role: string,
-    name: string,
-    boundary = true,
-  ) {
+  create_child(session: string, parent: string, role: string, name: string, boundary = true) {
     const path = join(this.temp.name, session + ".jsonl"),
       stamp = this.stamp();
     const metadata: any = {
@@ -63,7 +55,7 @@ class Children extends Titles {
       },
       this.token_event(11, [1200, 850, 120], [100, 50, 20]),
     ];
-    writeFileSync(path, records.map((r) => JSON.stringify(r) + "\n").join(""));
+    writeFileSync(path, records.map(r => JSON.stringify(r) + "\n").join(""));
     this.sim.set_turn(session, "work-" + session, "inProgress");
     this.sim.names[session] = name;
     this.sim.paths[session] = path;
@@ -83,8 +75,8 @@ class Children extends Titles {
     this.create_child(D, A, "Explorer", "Map sessions");
     this.create_child(E, C, "Reviewer", "Check accounting");
     await this.until(async () => {
-      const all = await Promise.all([C, D, E].map((s) => this.conversation(s)));
-      return all.every((c) => c && c.usage.known);
+      const all = await Promise.all([C, D, E].map(s => this.conversation(s)));
+      return all.every(c => c && c.usage.known);
     });
     const root = await this.conversation(A),
       child = await this.conversation(C),
@@ -101,52 +93,30 @@ class Children extends Titles {
       b = await Viewer.create(this, 120, 40);
     await this.until(async () => (await a.poll()).data.includes("↳2"));
     let rows = screen_text(a.state.data, 120, 40);
-    const y = rows.findIndex((r) => r.includes("↳2")),
+    const y = rows.findIndex(r => r.includes("↳2")),
       x = rows[y].indexOf("↳2");
     await a.input(`\x1b[<35;${x + 1};${y + 1}M`);
     this.assertNotIn("Including subagents", a.state.data);
     await a.advance(0.6);
     let frame = (await a.poll()).data;
-    for (const text of [
-      "Total",
-      "Including subagents",
-      "Trace usage",
-      "Check accounting",
-    ])
-      this.assertIn(text, frame);
-    const childRows = screen_text(frame, 120, 40).filter(
-      (r) => r.includes("↳") && r.includes("70+"),
-    );
+    for (const text of ["Total", "Including subagents", "Trace usage", "Check accounting"]) this.assertIn(text, frame);
+    const childRows = screen_text(frame, 120, 40).filter(r => r.includes("↳") && r.includes("70+"));
     this.assertEqual(childRows.length, 3);
-    this.assertTrue(childRows.every((r) => r.includes("50+")));
+    this.assertTrue(childRows.every(r => r.includes("50+")));
     this.assertNotIn("Including subagents", (await b.poll()).data);
     let screen = screen_text(frame, 120, 40);
-    const border = screen.find((r) => r.includes("╭") && r.includes("╮"))!;
-    this.assertEqual(
-      border.slice(border.indexOf("╭"), border.indexOf("╮") + 1).length,
-      88,
-    );
+    const border = screen.find(r => r.includes("╭") && r.includes("╮"))!;
+    this.assertEqual(border.slice(border.indexOf("╭"), border.indexOf("╮") + 1).length, 88);
     // Token totals are bold in the palette's strong gray.
-    this.assertRegex(
-      frame,
-      new RegExp(`\\x1b\\[1m\\x1b\\[38;2;${PALETTE.strong}m≥?\\d`),
-    );
+    this.assertRegex(frame, new RegExp(`\\x1b\\[1m\\x1b\\[38;2;${PALETTE.strong}m≥?\\d`));
     writeFileSync("/tmp/corgi-subagents-screen.txt", screen.join("\n"));
-    writeFileSync(
-      "/tmp/corgi-subagents-frame.json",
-      JSON.stringify({ cols: 120, rows: 40, frame }),
-    );
+    writeFileSync("/tmp/corgi-subagents-frame.json", JSON.stringify({ cols: 120, rows: 40, frame }));
     for (const hoverY of [y - 1, y]) {
       await a.input(`\x1b[<35;6;${hoverY + 1}M`);
       this.assertNotIn("Including subagents", a.state.data);
       await a.advance(0.6);
       frame = (await a.poll()).data;
-      for (const text of [
-        "Total",
-        "Including subagents",
-        "Trace usage",
-        "Check accounting",
-      ])
+      for (const text of ["Total", "Including subagents", "Trace usage", "Check accounting"])
         this.assertIn(text, frame);
     }
     await a.request({ op: "size", cols: 64, rows: 13 });
@@ -155,8 +125,7 @@ class Children extends Titles {
     await a.input(`\x1b[<35;6;${smallY + 1}M`);
     await a.advance(0.6);
     const small = (await a.poll()).data;
-    for (const text of ["Total", "+3 more", "Including subagents"])
-      this.assertIn(text, small);
+    for (const text of ["Total", "+3 more", "Including subagents"]) this.assertIn(text, small);
     await a.request({ op: "size", cols: 120, rows: 40 });
     appendFileSync(
       path,
@@ -165,17 +134,10 @@ class Children extends Titles {
         JSON.stringify(this.token_event(13, [1250, 860, 125], [50, 10, 5])) +
         "\n",
     );
-    await this.until(
-      async () => (await this.conversation(C)).usage.tokens.input === 150,
-    );
+    await this.until(async () => (await this.conversation(C)).usage.tokens.input === 150);
     const second = await this.create_attachment(C);
     await this.until(async () => (await second.state()).session === C);
-    this.assertEqual(
-      (await this.session()).conversations.filter(
-        (c: any) => c.agent.session === C,
-      ).length,
-      1,
-    );
+    this.assertEqual((await this.session()).conversations.filter((c: any) => c.agent.session === C).length, 1);
     this.assertEqual((await this.conversation(C)).usage.tokens.output, 25);
     await a.focus(this.pane);
     await sleep(0.3);
@@ -188,21 +150,13 @@ class Children extends Titles {
     const path = this.create_child(C, A, "Explorer", "Legacy child", false);
     await this.until(async () => !!(await this.conversation(C))?.usage.partial);
     this.assertEqual((await this.conversation(C)).usage.tokens.input, 0);
-    appendFileSync(
-      path,
-      JSON.stringify(this.token_event(12, [1230, 860, 125], [30, 10, 5])) +
-        "\n",
-    );
-    await this.until(
-      async () => (await this.conversation(C)).usage.tokens.input === 30,
-    );
+    appendFileSync(path, JSON.stringify(this.token_event(12, [1230, 860, 125], [30, 10, 5])) + "\n");
+    await this.until(async () => (await this.conversation(C)).usage.tokens.input === 30);
     this.create_child(D, A, "Explorer", "Second child");
     this.create_child(E, A, "Reviewer", "Third child");
     await this.until(async () => !!(await this.conversation(E)));
     this.child_error = true;
-    await this.until(
-      async () => (await this.conversation(A)).children_observed_at === 0,
-    );
+    await this.until(async () => (await this.conversation(A)).children_observed_at === 0);
     this.assertIsNotNone(await this.conversation(C));
     this.assertEqual((await this.conversation(C)).usage.tokens.input, 30);
     const viewer = await Viewer.create(this, 120, 40);
@@ -212,26 +166,14 @@ class Children extends Titles {
     await viewer.advance(0.6);
     let frame = (await viewer.poll()).data;
     this.assertIn("Total", frame);
-    for (const t of [
-      "No subagents",
-      "Updating child details",
-      "Including subagents",
-      "Explorer",
-      "Reviewer",
-      "↳",
-    ])
+    for (const t of ["No subagents", "Updating child details", "Including subagents", "Explorer", "Reviewer", "↳"])
       this.assertNotIn(t, frame);
     this.child_error = false;
-    await this.until(
-      async () => (await this.conversation(A)).children_observed_at > 0,
-    );
+    await this.until(async () => (await this.conversation(A)).children_observed_at > 0);
     this.assertIn("Including subagents", (await viewer.poll()).data);
     this.sim.set_turn(C, "work-" + C, "completed");
-    for (const child of this.children)
-      if (child.id === C) child.status.type = "idle";
-    await this.until(
-      async () => (await this.conversation(C)).agent.state === "idle",
-    );
+    for (const child of this.children) if (child.id === C) child.status.type = "idle";
+    await this.until(async () => (await this.conversation(C)).agent.state === "idle");
     this.assertEqual((await this.conversation(C)).usage.tokens.input, 30);
     this.assertEqual(this.errors, []);
   }
@@ -282,9 +224,7 @@ class NativeUsage extends Runtime {
         message: { id: 1, method: "test/event", params: { method, params } },
       });
     await this.until(async () =>
-      (await this.session()).conversations.some(
-        (c: any) => c.agent.session === "solo" && c.usage.known,
-      ),
+      (await this.session()).conversations.some((c: any) => c.agent.session === "solo" && c.usage.known),
     );
     const a = await Viewer.create(this, 100, 30),
       b = await Viewer.create(this, 100, 30);
@@ -296,25 +236,14 @@ class NativeUsage extends Runtime {
       this.assertNotIn("Total", a.state.data);
       await a.advance(0.6);
       frame = (await a.poll()).data;
-      for (const t of ["Total", "🔧", "6.6k", "8.1k", "Tokens", "Cached"])
-        this.assertIn(t, frame);
+      for (const t of ["Total", "🔧", "6.6k", "8.1k", "Tokens", "Cached"]) this.assertIn(t, frame);
       this.assertNotIn("Running a tool", frame);
-      for (const t of ["No subagents", "Updating child details"])
-        this.assertNotIn(t, frame);
-      this.assertRegex(
-        screen_text(frame, 100, 30).join("\n"),
-        /now\s+●\s+\.{1,3}/,
-      );
+      for (const t of ["No subagents", "Updating child details"]) this.assertNotIn(t, frame);
+      this.assertRegex(screen_text(frame, 100, 30).join("\n"), /now\s+●\s+\.{1,3}/);
       this.assertNotIn("Total", (await b.poll()).data);
     }
-    writeFileSync(
-      "/tmp/corgi-agent-hover-screen.txt",
-      screen_text(frame, 100, 30).join("\n"),
-    );
-    writeFileSync(
-      "/tmp/corgi-agent-hover-frame.json",
-      JSON.stringify({ cols: 100, rows: 30, frame }),
-    );
+    writeFileSync("/tmp/corgi-agent-hover-screen.txt", screen_text(frame, 100, 30).join("\n"));
+    writeFileSync("/tmp/corgi-agent-hover-frame.json", JSON.stringify({ cols: 100, rows: 30, frame }));
     await a.input("\x1b[<35;40;10M");
     this.assertNotIn("Total", (await a.poll()).data);
     await a.request({ op: "size", cols: 64, rows: 13 });
@@ -342,10 +271,7 @@ class NativeUsage extends Runtime {
         session: native,
         message: { id: 1, method: "test/event", params: { method, params } },
       });
-    const actor = async () =>
-      (await this.session()).conversations.find(
-        (c: any) => c.agent.session === "native-child",
-      );
+    const actor = async () => (await this.session()).conversations.find((c: any) => c.agent.session === "native-child");
     await send("turn/started", {
       threadId: "native-child",
       turn: { id: "work" },
@@ -368,9 +294,7 @@ class NativeUsage extends Runtime {
       threadId: "native-child",
       tokenUsage: first,
     });
-    await this.until(
-      async () => (await actor()).observed_at > restored.observed_at,
-    );
+    await this.until(async () => (await actor()).observed_at > restored.observed_at);
     this.assertEqual((await actor()).usage.tokens.input, 0);
     this.assertTrue((await actor()).usage.partial);
     await send("thread/tokenUsage/updated", {

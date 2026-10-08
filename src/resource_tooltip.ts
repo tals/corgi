@@ -99,7 +99,7 @@ export class State {
     const list = (work.processes ?? []).slice(0, process_capacity);
     // std.mem.sort is stable, as Array.sort is.
     list.sort((a, b) => (less(this.sort, a, b) ? -1 : less(this.sort, b, a) ? 1 : 0));
-    this.order = list.map((p) => ({ pid: p.pid, start: String(p.start) }));
+    this.order = list.map(p => ({ pid: p.pid, start: String(p.start) }));
     this.count = list.length;
     this.frozen = freeze;
   }
@@ -200,7 +200,20 @@ function statusText(work: any): string {
 export function draw(w: Writer, rect: Rect, name: string, snapshot: any, state: State): void {
   if (state.workspace === null) return;
   const found = (snapshot?.workspaces ?? []).find((item: any) => item.id === state.workspace);
-  const work = { known: false, partial: false, count: 0, cpu: null, memory: null, read: null, written: null, cpu_pressure: false, processes: [], history: [], ...(found ?? {}), id: state.workspace };
+  const work = {
+    known: false,
+    partial: false,
+    count: 0,
+    cpu: null,
+    memory: null,
+    read: null,
+    written: null,
+    cpu_pressure: false,
+    processes: [],
+    history: [],
+    ...(found ?? {}),
+    id: state.workspace,
+  };
   w.write("\x1b7\x1b]8;;\x1b\\" + text + "\x1b[?25l");
   for (let row = 0; row < rect.h; row++) {
     w.write(`\x1b[${rect.y + row + 1};${rect.x + 1}H`);
@@ -209,7 +222,14 @@ export function draw(w: Writer, rect: Rect, name: string, snapshot: any, state: 
   box(w, rect, ` ${name} / resources `, strong);
   const status = statusText(work);
   at(w, rect.x + 2, rect.y + 1, work.cpu_pressure ? warm : text, status, rect.w - 20);
-  right(w, rect.x + rect.w - 16, rect.y + 1, faint, `live / ${Math.floor((snapshot?.interval_ms ?? 2000) / 1000)}s`, 13);
+  right(
+    w,
+    rect.x + rect.w - 16,
+    rect.y + 1,
+    faint,
+    `live / ${Math.floor((snapshot?.interval_ms ?? 2000) / 1000)}s`,
+    13,
+  );
   const gw = Math.floor((rect.w - 6) / 3);
   (["cpu", "memory", "io"] as Sort[]).forEach((metric, i) => {
     graph(w, new Rect(rect.x + 2 + i * (gw + 1), rect.y + 3, gw, 7), work, metric);
@@ -234,7 +254,9 @@ export function draw(w: Writer, rect: Rect, name: string, snapshot: any, state: 
   const count = Math.min(state.count, sat(rect.h, 19));
   state.order.slice(0, count).forEach((key, i) => {
     const y = header + 1 + i;
-    const p: Process | undefined = work.processes.find((item: Process) => item.pid === key.pid && String(item.start) === key.start);
+    const p: Process | undefined = work.processes.find(
+      (item: Process) => item.pid === key.pid && String(item.start) === key.start,
+    );
     right(w, rect.x + 2, y, faint, `${key.pid}`, 7);
     if (p) {
       at(w, rect.x + 10, y, text, `${p.provider ? (p.provider === "claude" ? "* " : "† ") : ""}${p.name}`, rect.w - 43);
@@ -245,6 +267,13 @@ export function draw(w: Writer, rect: Rect, name: string, snapshot: any, state: 
     } else at(w, rect.x + 10, y, faint, "Sample not available", rect.w - 43);
   });
   at(w, rect.x + 2, rect.y + rect.h - 3, faint, "* Claude Code   † Codex", rect.w - 4);
-  at(w, rect.x + 2, rect.y + rect.h - 2, faint, `${work.count} local processes / ${snapshot?.memory_kind ?? "RSS"}${work.partial ? " / partial" : ""} / ${count} shown`, rect.w - 4);
+  at(
+    w,
+    rect.x + 2,
+    rect.y + rect.h - 2,
+    faint,
+    `${work.count} local processes / ${snapshot?.memory_kind ?? "RSS"}${work.partial ? " / partial" : ""} / ${count} shown`,
+    rect.w - 4,
+  );
   w.write("\x1b[0m\x1b8\x1b[?25l");
 }

@@ -12,23 +12,13 @@ function session(provider: "codex" | "claude" = "codex") {
 function ingest(transport: Session, registry: Registry, value: any) {
   return transport.ingest(registry, JSON.stringify(value));
 }
-function start(
-  transport: Session,
-  registry: Registry,
-  thread: string,
-  turn: string,
-) {
+function start(transport: Session, registry: Registry, thread: string, turn: string) {
   return ingest(transport, registry, {
     method: "turn/started",
     params: { threadId: thread, turn: { id: turn } },
   });
 }
-function finish(
-  transport: Session,
-  registry: Registry,
-  thread: string,
-  turn: string,
-) {
+function finish(transport: Session, registry: Registry, thread: string, turn: string) {
   return ingest(transport, registry, {
     method: "turn/completed",
     params: { threadId: thread, turn: { id: turn, status: "completed" } },
@@ -238,10 +228,7 @@ test("native events snapshots and hooks share exactly one receipt regardless of 
         method: "turn/completed",
         params: { threadId: identity, turn: { id: "t", status: outcome } },
       };
-      if (nativeFirst)
-        expect(ingest(transport, registry, completion)).toBe(
-          outcome === "completed",
-        );
+      if (nativeFirst) expect(ingest(transport, registry, completion)).toBe(outcome === "completed");
       const snapshot = new Snapshot(
         {
           pane: 0,
@@ -257,9 +244,7 @@ test("native events snapshots and hooks share exactly one receipt regardless of 
       snapshot.turn = new Text("t");
       snapshot.outcome = outcome;
       snapshot.observed_at = actor.state.last_seq + 1;
-      expect(actor.observeSnapshot(snapshot, false, 0)).toBe(
-        !nativeFirst && outcome === "completed",
-      );
+      expect(actor.observeSnapshot(snapshot, false, 0)).toBe(!nativeFirst && outcome === "completed");
       expect(ingest(transport, registry, completion)).toBe(false);
       expect(
         actor.observeHook(

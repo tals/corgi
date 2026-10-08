@@ -38,10 +38,7 @@ export class Conversation {
       this.len--;
     }
     this.recent[this.len++] = new Text(
-      `Turn: ${turnTag(turn)}\nActivity: ${label.text()}\nEvidence: ${evidence.slice(0, 512)}`.slice(
-        0,
-        2048,
-      ),
+      `Turn: ${turnTag(turn)}\nActivity: ${label.text()}\nEvidence: ${evidence.slice(0, 512)}`.slice(0, 2048),
     );
     this.previous = label;
   }
@@ -51,18 +48,12 @@ export function codex(turn: any) {
   if (!Array.isArray(items)) return new Text();
   let latest = "",
     out = "";
-  for (const item of items)
-    if (str(item, "type") === "agentMessage") latest = str(item, "text");
+  for (const item of items) if (str(item, "type") === "agentMessage") latest = str(item, "text");
   if (latest) out = `Latest agent update: ${latest.slice(0, 1400)}\n`;
   for (const item of items) {
-    if (
-      str(item, "type") !== "userMessage" ||
-      !Array.isArray(field(item, "content"))
-    )
-      continue;
+    if (str(item, "type") !== "userMessage" || !Array.isArray(field(item, "content"))) continue;
     out += "User request: ";
-    for (const part of field(item, "content"))
-      if (str(part, "type") === "text") out += str(part, "text");
+    for (const part of field(item, "content")) if (str(part, "type") === "text") out += str(part, "text");
     break;
   }
   return new Text(out.slice(0, 2048));

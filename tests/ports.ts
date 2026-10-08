@@ -44,13 +44,6 @@ setInterval(() => {}, 1000);
 `,
   );
   const mode = options.single ? "single" : options.status ? "status" : "full";
-  const command = shellJoin([
-    "bun",
-    script,
-    ready,
-    mode,
-    options.cert ?? "",
-    options.key ?? "",
-  ]);
+  const command = shellJoin(["bun", script, ready, mode, options.cert ?? "", options.key ?? ""]);
   return { command, ready, script };
 }

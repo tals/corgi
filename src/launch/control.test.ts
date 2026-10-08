@@ -19,8 +19,7 @@ function fixture(mode: string) {
     async close() {
       const child = c.child;
       c.close();
-      if (child && child.exitCode === null && child.signalCode === null)
-        await once(child, "exit");
+      if (child && child.exitCode === null && child.signalCode === null) await once(child, "exit");
       rmSync(root, { recursive: true, force: true });
     },
   };
@@ -36,9 +35,7 @@ test("read-only control rejects unexpected provider requests", async () => {
 test("control messages retain the native four MiB limit", async () => {
   const f = fixture("overflow");
   try {
-    await expect(f.c.request("get_usage")).rejects.toThrow(
-      "NativeMessageTooLarge",
-    );
+    await expect(f.c.request("get_usage")).rejects.toThrow("NativeMessageTooLarge");
   } finally {
     await f.close();
   }

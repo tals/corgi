@@ -48,15 +48,9 @@ export function installed() {
   return result;
 }
 export function applyModel(out: Option, value: any, source: string) {
-  if (typeof value?.model === "string" && value.model)
-    out.setModel(value.model, source);
+  if (typeof value?.model === "string" && value.model) out.setModel(value.model, source);
 }
-function readModel(
-  out: Option,
-  root: string,
-  relative: string,
-  source: string,
-) {
+function readModel(out: Option, root: string, relative: string, source: string) {
   try {
     const file = join(root, relative),
       s = statSync(file);
@@ -68,28 +62,12 @@ export function claudeModel(cwd: string) {
   const out = new Option();
   out.source = new Text("Account default / provider selection");
   try {
-    readModel(
-      out,
-      Provider.info("claude").configDir(),
-      "settings.json",
-      "User settings",
-    );
+    readModel(out, Provider.info("claude").configDir(), "settings.json", "User settings");
   } catch {}
   readModel(out, cwd, ".claude/settings.json", "Project settings (if trusted)");
-  readModel(
-    out,
-    cwd,
-    ".claude/settings.local.json",
-    "Local settings (if trusted)",
-  );
-  if (process.env.ANTHROPIC_MODEL)
-    out.setModel(process.env.ANTHROPIC_MODEL, "ANTHROPIC_MODEL");
-  readModel(
-    out,
-    "/Library/Application Support/ClaudeCode",
-    "managed-settings.json",
-    "Managed settings",
-  );
+  readModel(out, cwd, ".claude/settings.local.json", "Local settings (if trusted)");
+  if (process.env.ANTHROPIC_MODEL) out.setModel(process.env.ANTHROPIC_MODEL, "ANTHROPIC_MODEL");
+  readModel(out, "/Library/Application Support/ClaudeCode", "managed-settings.json", "Managed settings");
   return out;
 }
 export class Worker {
@@ -126,13 +104,10 @@ export class Worker {
   request(cwd: string, access: boolean) {
     if (Buffer.byteLength(cwd) > 4096) return new Preview();
     const now = Date.now();
-    let job = this.jobs.find((j) => j.cwd === cwd);
+    let job = this.jobs.find(j => j.cwd === cwd);
     if (job) {
       job.used = now;
-      if (
-        (now - job.updated > 60000 && !job.queued) ||
-        (access && !job.accessing && !job.request_access)
-      ) {
+      if ((now - job.updated > 60000 && !job.queued) || (access && !job.accessing && !job.request_access)) {
         job.queued = true;
         job.request_access ||= access;
         job.preview.pending = true;
@@ -153,10 +128,7 @@ export class Worker {
     };
     if (this.jobs.length >= 32)
       this.jobs.splice(
-        this.jobs.reduce(
-          (best, j, i, a) => (j.used < a[best].used ? i : best),
-          0,
-        ),
+        this.jobs.reduce((best, j, i, a) => (j.used < a[best].used ? i : best), 0),
         1,
       );
     this.jobs.push(job);
@@ -168,7 +140,7 @@ export class Worker {
     this.running = true;
     try {
       for (;;) {
-        const job = this.jobs.find((job) => job.queued);
+        const job = this.jobs.find(job => job.queued);
         if (!job || this.stopping) break;
         await this.run(job);
       }
@@ -198,10 +170,7 @@ export class Worker {
         }
       }
       try {
-        const account =
-          p === "claude"
-            ? await this.claude_client.preview(this, this.quit)
-            : await this.codexAccount();
+        const account = p === "claude" ? await this.claude_client.preview(this, this.quit) : await this.codexAccount();
         for (const key of [
           "signed_in",
           "account",
@@ -243,16 +212,9 @@ export class Worker {
       cache.state.next_usage = now + interval;
       cache.save();
       try {
-        cache.state.update(
-          await this.pool.configuredAccount(),
-          Math.floor(Date.now() / 1000),
-        );
+        cache.state.update(await this.pool.configuredAccount(), Math.floor(Date.now() / 1000));
       } catch (e) {
-        cache.state.failed(
-          (e as Error).message === "Timeout"
-            ? "request timed out"
-            : "account read failed",
-        );
+        cache.state.failed((e as Error).message === "Timeout" ? "request timed out" : "account read failed");
       }
       cache.save();
       return cache.state.display(Math.floor(Date.now() / 1000));

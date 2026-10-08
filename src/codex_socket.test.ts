@@ -11,9 +11,7 @@ test("Unix WebSocket client initializes and reads responses without selecting se
   const server = Bun.serve({
     unix: socket,
     fetch(req, server) {
-      return server.upgrade(req)
-        ? undefined
-        : new Response("bad", { status: 400 });
+      return server.upgrade(req) ? undefined : new Response("bad", { status: 400 });
     },
     websocket: {
       message(ws, message) {
@@ -45,17 +43,12 @@ test("Unix WebSocket client initializes and reads responses without selecting se
   }
 });
 test("title prefixes refuse collisions and unloaded children read idle", () => {
-  const ids = [
-    "01901234-1234-1234-1234-123456789abc",
-    "01901234-1234-1234-1234-123456789def",
-  ];
+  const ids = ["01901234-1234-1234-1234-123456789abc", "01901234-1234-1234-1234-123456789def"];
   expect(unique(ids, new Text(ids[0].slice(0, 29)))).toBeNull();
   expect(unique(ids, new Text(ids[0]))).toBe(ids[0]);
   expect(threadState({ type: "notLoaded" })).toBe("idle");
   expect(threadState({ type: "systemError" })).toBe("idle");
-  expect(
-    threadState({ type: "active", activeFlags: ["waitingOnApproval"] }),
-  ).toBe("blocked");
+  expect(threadState({ type: "active", activeFlags: ["waitingOnApproval"] })).toBe("blocked");
   expect(
     isActiveWait(
       {

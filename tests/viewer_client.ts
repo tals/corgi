@@ -23,8 +23,7 @@ export class Viewer {
     this.reader = (async () => {
       const decoder = new TextDecoder();
       try {
-        for await (const chunk of proc.stdout)
-          this.lines.feed(decoder.decode(chunk, { stream: true }));
+        for await (const chunk of proc.stdout) this.lines.feed(decoder.decode(chunk, { stream: true }));
         this.lines.feed(decoder.decode());
         this.lines.end(new Error(`Viewer exited: ${await stderr}`));
       } catch (error) {
@@ -49,12 +48,10 @@ export class Viewer {
       (this.proc.stdin as Bun.FileSink).write(JSON.stringify(request) + "\n");
       await (this.proc.stdin as Bun.FileSink).flush();
       this.state = JSON.parse(await this.lines.next(5000));
-      this.events = this.events.filter((event) => !event._display);
+      this.events = this.events.filter(event => !event._display);
       for (const effect of this.state.effects)
-        if ("write_terminal" in effect)
-          this.events.push({ type: "frame", data: effect.write_terminal });
-      if (this.state.rang)
-        this.events.push({ type: "bell", kind: this.state.bell_kind });
+        if ("write_terminal" in effect) this.events.push({ type: "frame", data: effect.write_terminal });
+      if (this.state.rang) this.events.push({ type: "bell", kind: this.state.bell_kind });
       this.events.push({
         type: "frame",
         data: this.state.data,
@@ -101,10 +98,5 @@ export class Viewer {
   }
 }
 export async function pump(runtime: any) {
-  if (
-    runtime.client &&
-    !runtime.client.closed &&
-    !runtime.client.state.detached
-  )
-    await runtime.client.poll();
+  if (runtime.client && !runtime.client.closed && !runtime.client.state.detached) await runtime.client.poll();
 }

@@ -72,22 +72,18 @@ export function typed(text: string) {
       "<user_instructions",
       "<turn_aborted",
       "<user_shell_command",
-    ].some((p) => s.startsWith(p))
+    ].some(p => s.startsWith(p))
   );
 }
 export function complete(bytes: string, mid: boolean) {
-  const start = mid
-      ? bytes.indexOf("\n") < 0
-        ? bytes.length
-        : bytes.indexOf("\n") + 1
-      : 0,
+  const start = mid ? (bytes.indexOf("\n") < 0 ? bytes.length : bytes.indexOf("\n") + 1) : 0,
     end = bytes.lastIndexOf("\n");
   return bytes.slice(start, Math.max(start, end));
 }
 const records = (s: string, mid = false) =>
   complete(s, mid)
     .split("\n")
-    .flatMap((l) => {
+    .flatMap(l => {
       try {
         return [JSON.parse(l)];
       } catch {
@@ -98,16 +94,10 @@ function claudeText(v: any): string | null {
   if (v.type !== "user" || v.isMeta || v.toolUseResult) return null;
   const c = v.message?.content;
   if (typeof c === "string") return c;
-  if (!Array.isArray(c) || c.some((p) => p.type !== "text")) return null;
-  return c.map((p) => p.text ?? "").join(" ");
+  if (!Array.isArray(c) || c.some(p => p.type !== "text")) return null;
+  return c.map(p => p.text ?? "").join(" ");
 }
-export function claudeEntry(
-  session: string,
-  head: string,
-  tail: string,
-  mid = false,
-  mtime = 0,
-): Entry | null {
+export function claudeEntry(session: string, head: string, tail: string, mid = false, mtime = 0): Entry | null {
   const e: Entry = {
     provider: "claude",
     session,
@@ -152,8 +142,7 @@ export function claudeEntry(
         if (!e.cwd) e.cwd = v.cwd ?? "";
         const t = claudeText(v);
         if (t === null) break;
-        if (t.replace(/^[ \n\t]+/, "").startsWith("[Request interrupted"))
-          e.interrupted = true;
+        if (t.replace(/^[ \n\t]+/, "").startsWith("[Request interrupted")) e.interrupted = true;
         else if (typed(t)) {
           e.last = t;
           e.interrupted = false;
@@ -180,14 +169,8 @@ export function codexTail(tail: string, mid = false) {
     interrupted = false;
   for (const v of records(tail, mid)) {
     if (v.payload?.type === "turn_aborted") interrupted = true;
-    else if (
-      v.type === "response_item" &&
-      v.payload?.type === "message" &&
-      v.payload?.role === "user"
-    ) {
-      const t = (v.payload.content ?? [])
-        .map((p: any) => p.text ?? "")
-        .join(" ");
+    else if (v.type === "response_item" && v.payload?.type === "message" && v.payload?.role === "user") {
+      const t = (v.payload.content ?? []).map((p: any) => p.text ?? "").join(" ");
       if (typed(t)) {
         last = t;
         interrupted = false;
@@ -197,10 +180,7 @@ export function codexTail(tail: string, mid = false) {
   return { last, interrupted };
 }
 export class Cache {
-  files = new Map<
-    string,
-    { stamp: string; entry: Entry | null; seen: boolean }
-  >();
+  files = new Map<string, { stamp: string; entry: Entry | null; seen: boolean }>();
   deinit() {
     this.files.clear();
   }
@@ -236,13 +216,7 @@ export async function readClaude(path: string, s: any): Promise<Entry | null> {
   for (;;) {
     const start = Math.max(0, s.size - span),
       tail = await readAt(path, start, s.size - start),
-      e = claudeEntry(
-        basename(path, ".jsonl"),
-        head,
-        tail,
-        start > 0,
-        Math.floor(s.mtimeMs / 1000),
-      );
+      e = claudeEntry(basename(path, ".jsonl"), head, tail, start > 0, Math.floor(s.mtimeMs / 1000));
     if (!e) return null;
     if (!e.last && start > 0 && span < 2 * 1024 * 1024) {
       span *= 2;
@@ -296,11 +270,10 @@ export class Store {
     this.gone.push({ provider: p, session: s, revision: this.revision });
   }
   replace(found: Entry[], read: Provider[]) {
-    const seen = new Set(found.map((e) => e.provider + ":" + e.session));
+    const seen = new Set(found.map(e => e.provider + ":" + e.session));
     for (const e of found) this.put(e);
     for (const [key, item] of this.items)
-      if (read.includes(item.entry.provider) && !seen.has(key))
-        this.remove(item.entry.provider, item.entry.session);
+      if (read.includes(item.entry.provider) && !seen.has(key)) this.remove(item.entry.provider, item.entry.session);
   }
 }
 export type Update = {
@@ -337,28 +310,25 @@ export class Worker {
   snapshot(): History {
     return {
       pending: !this.ready,
-      entries: [...this.store.items.values()]
-        .map((i) => clone(i.entry))
-        .sort((a, b) => b.updated_at - a.updated_at),
+      entries: [...this.store.items.values()].map(i => clone(i.entry)).sort((a, b) => b.updated_at - a.updated_at),
     };
   }
   update(epoch: bigint | number, revision: bigint | number): Update | null {
     if (!this.ready) return null;
-    const full =
-      BigInt(epoch) !== this.epoch || BigInt(revision) < this.store.forgot;
+    const full = BigInt(epoch) !== this.epoch || BigInt(revision) < this.store.forgot;
     if (!full && BigInt(revision) === this.store.revision) return null;
     return {
       epoch: this.epoch,
       revision: this.store.revision,
       full,
       entries: [...this.store.items.values()]
-        .filter((i) => full || i.revision > BigInt(revision))
-        .map((i) => clone(i.entry))
+        .filter(i => full || i.revision > BigInt(revision))
+        .map(i => clone(i.entry))
         .sort((a, b) => b.updated_at - a.updated_at),
       removed: full
         ? []
         : this.store.gone
-            .filter((g) => g.revision > BigInt(revision))
+            .filter(g => g.revision > BigInt(revision))
             .map(({ provider, session }) => ({ provider, session })),
     };
   }
@@ -425,19 +395,12 @@ export class Worker {
                 ...old,
                 last: summary.last || old.last,
                 interrupted: summary.interrupted,
-                updated_at: Math.max(
-                  old.updated_at,
-                  Math.floor(metadata.mtimeMs / 1000),
-                ),
+                updated_at: Math.max(old.updated_at, Math.floor(metadata.mtimeMs / 1000)),
               });
           } catch {
             this.store.remove("codex", session);
           }
-        } else if (
-          path.endsWith("session_index.jsonl") ||
-          path.includes("/sessions/")
-        )
-          listCodex = true;
+        } else if (path.endsWith("session_index.jsonl") || path.includes("/sessions/")) listCodex = true;
       }
     }
     if (listCodex) {
@@ -445,9 +408,7 @@ export class Worker {
         const reply = await this.pool.listThreads(null);
         for (const item of reply.result?.data ?? []) {
           if (!item.id || !item.preview || !item.cwd) continue;
-          const summary = item.path
-            ? await this.cached(item.path, "codex")
-            : null;
+          const summary = item.path ? await this.cached(item.path, "codex") : null;
           if (item.path) this.rollouts.set(item.path, item.id);
           const entry: Entry = {
             provider: "codex",
@@ -474,13 +435,7 @@ export class Worker {
       const c = this.cache.lookup(path, s);
       return c
         ? c.entry
-        : this.cache.store(
-            path,
-            s,
-            provider === "claude"
-              ? await readClaude(path, s)
-              : await readCodex(path, s),
-          );
+        : this.cache.store(path, s, provider === "claude" ? await readClaude(path, s) : await readCodex(path, s));
     } catch {
       return null;
     }
@@ -548,10 +503,7 @@ export class Worker {
       try {
         if ((await stat(e.cwd)).isDirectory()) kept.push(e);
       } catch {}
-    this.store.replace(
-      kept.sort((a, b) => b.updated_at - a.updated_at).slice(0, capacity),
-      read,
-    );
+    this.store.replace(kept.sort((a, b) => b.updated_at - a.updated_at).slice(0, capacity), read);
     this.cache.sweep();
     this.ready = true;
   }

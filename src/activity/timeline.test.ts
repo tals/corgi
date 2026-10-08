@@ -30,13 +30,7 @@ test("checkpoints partition own usage, coalesce repeated labels, and remain boun
   expect(timeline.pending(current).tokens.total()).toBe(10n);
   timeline.checkpoint("b", testing, current, 4000);
   expect(timeline.len).toBe(3);
-  for (let i = 0; i < 16; i++)
-    timeline.checkpoint(
-      "b",
-      i % 2 === 0 ? reading : testing,
-      current,
-      5000 + i,
-    );
+  for (let i = 0; i < 16; i++) timeline.checkpoint("b", i % 2 === 0 ? reading : testing, current, 5000 + i);
   expect(timeline.len).toBe(16);
   expect(timeline.pending(current).tokens.total()).toBe(0n);
 });
@@ -91,12 +85,7 @@ test("activity transitions charge the previous phase and pending retains repeate
 
 test("usage after a finished compaction belongs to the next named phase", () => {
   const timeline = new Timeline();
-  timeline.checkpoint(
-    "turn",
-    parseLabel("Compacting context")!,
-    new View(),
-    1000,
-  );
+  timeline.checkpoint("turn", parseLabel("Compacting context")!, new View(), 1000);
   const current = view(10n);
   timeline.finish(current);
   current.tokens.input = 20n;

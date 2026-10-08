@@ -7,18 +7,8 @@ export const info = new Info({
   scripts: ["/@openai/codex/bin/codex.js"],
   package: "@openai/codex",
   binary_env: "CORGI_CODEX_BIN",
-  home_paths: [
-    ".local/bin/codex",
-    ".bun/bin/codex",
-    ".npm-global/bin/codex",
-    ".volta/bin/codex",
-    ".cargo/bin/codex",
-  ],
-  system_paths: [
-    "/opt/homebrew/bin/codex",
-    "/usr/local/bin/codex",
-    "/usr/bin/codex",
-  ],
+  home_paths: [".local/bin/codex", ".bun/bin/codex", ".npm-global/bin/codex", ".volta/bin/codex", ".cargo/bin/codex"],
+  system_paths: ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/usr/bin/codex"],
   native_args: ["app-server", "--listen", "stdio://"],
   inference_args: [
     "-c",

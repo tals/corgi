@@ -7,9 +7,7 @@ test("Claude control usage preserves login on unsupported or malformed quota dat
   info.signed_in = true;
   info.account = new Text("account@example.com");
   expect(() => applyUsage(info, null)).toThrow("InvalidUsage");
-  expect(() => applyUsage(info, { rate_limits_available: false })).toThrow(
-    "UsageUnavailable",
-  );
+  expect(() => applyUsage(info, { rate_limits_available: false })).toThrow("UsageUnavailable");
   expect(info.signed_in).toBe(true);
   expect(info.account.text()).toBe("account@example.com");
   expect(info.limits).toBe("none");
@@ -29,6 +27,13 @@ test("Claude control usage preserves login on unsupported or malformed quota dat
 });
 
 test("Claude initialize names the default model", () => {
-  expect(defaultModel({ models: [{ value: "opus", resolvedModel: "claude-opus-5-5" }, { value: "default", resolvedModel: "claude-sonnet-5-5" }] })).toBe("claude-sonnet-5-5");
+  expect(
+    defaultModel({
+      models: [
+        { value: "opus", resolvedModel: "claude-opus-5-5" },
+        { value: "default", resolvedModel: "claude-sonnet-5-5" },
+      ],
+    }),
+  ).toBe("claude-sonnet-5-5");
   expect(defaultModel(null)).toBe("");
 });

@@ -1,11 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-  limits,
-  Window,
-  claudeAccount,
-  codexAccount,
-  resetCountdown,
-} from "./account";
+import { limits, Window, claudeAccount, codexAccount, resetCountdown } from "./account";
 import { timestampMs } from "../providers/common";
 test("signed out and API accounts do not borrow subscription details", () => {
   const out = claudeAccount({

@@ -31,7 +31,8 @@ function fail(message: string): never {
 /** Runs to completion with this terminal; a failure ends the launch with its status. */
 function run(command: string[], quiet: "stdout" | "all" | "" = "") {
   const result = Bun.spawnSync(command, {
-    env, stdin: "inherit",
+    env,
+    stdin: "inherit",
     stdout: quiet ? "ignore" : "inherit",
     stderr: quiet === "all" ? "ignore" : "inherit",
   });
@@ -96,7 +97,10 @@ while (args.length) {
 if (environment) {
   // Retain the original state root in child shells so selecting another named
   // environment never nests it inside the current environment's XDG root.
-  const base = resolve(env.PWD || process.cwd(), env.CORGI_ENV_BASE || env.XDG_STATE_HOME || join(env.HOME!, ".local/state"));
+  const base = resolve(
+    env.PWD || process.cwd(),
+    env.CORGI_ENV_BASE || env.XDG_STATE_HOME || join(env.HOME!, ".local/state"),
+  );
   let dir: string, socket: string;
   if (environment === "temp") {
     if (env.CORGI_PANE) fail("launch a fresh environment from a terminal outside Corgi");
@@ -108,14 +112,22 @@ if (environment) {
     // the full state path so different state roots cannot share a runtime.
     const hash = createHash("sha256").update(dir).digest("hex").slice(0, 32);
     socket = `/tmp/corgi-env-${uid}-${hash}/control.sock`;
-    if (env.CORGI_PANE && env.CORGI_SOCKET !== socket) fail("launch a different environment from a terminal outside Corgi");
+    if (env.CORGI_PANE && env.CORGI_SOCKET !== socket)
+      fail("launch a different environment from a terminal outside Corgi");
   }
   // Only newly created directories are private; existing ones keep their permissions.
   for (const path of [join(dir, "state"), dirname(socket)]) mkdirSync(path, { recursive: true, mode: 0o700 });
-  Object.assign(env, { CORGI_SOCKET: socket, XDG_STATE_HOME: join(dir, "state"), CORGI_ENV_BASE: base, CORGI_ENV_DIR: dir });
+  Object.assign(env, {
+    CORGI_SOCKET: socket,
+    XDG_STATE_HOME: join(dir, "state"),
+    CORGI_ENV_BASE: base,
+    CORGI_ENV_DIR: dir,
+  });
   if (environment === "temp") {
     console.error(`corgi: temporary environment ${dir}`);
-    console.error(`corgi: reconnect: CORGI_ENV_DIR=${dir} CORGI_SOCKET=${socket} XDG_STATE_HOME=${env.XDG_STATE_HOME} bun run go.ts`);
+    console.error(
+      `corgi: reconnect: CORGI_ENV_DIR=${dir} CORGI_SOCKET=${socket} XDG_STATE_HOME=${env.XDG_STATE_HOME} bun run go.ts`,
+    );
   } else {
     console.error(`corgi: environment ${environmentName} (${dir})`);
   }

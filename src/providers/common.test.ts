@@ -40,4 +40,3 @@ test("hooks carry the session's current model", () => {
     })?.model,
   ).toBe("gpt-6-astra");
 });
-

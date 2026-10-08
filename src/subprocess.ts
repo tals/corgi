@@ -93,10 +93,7 @@ export async function run(argv: string[], options: Options): Promise<Output> {
       const size = n.probe_read(fd, ptr(buffer), buffer.length);
       if (size === -4) continue;
       if (size <= 0) break;
-      if (error)
-        stderr = Buffer.concat([stderr, buffer.subarray(0, size)]).subarray(
-          -cap,
-        );
+      if (error) stderr = Buffer.concat([stderr, buffer.subarray(0, size)]).subarray(-cap);
       else {
         if (stdout.length + size > cap) {
           stop("OutputTooLarge");
@@ -113,22 +110,14 @@ export async function run(argv: string[], options: Options): Promise<Output> {
       cwd: options.cwd,
       env: options.env,
       detached: true,
-      stdio: [
-        options.input === undefined ? "ignore" : "pipe",
-        outWrite,
-        options.stderr ? errWrite : "ignore",
-      ],
+      stdio: [options.input === undefined ? "ignore" : "pipe", outWrite, options.stderr ? errWrite : "ignore"],
     });
     close(outWrite);
     if (errWrite >= 0) close(errWrite);
     const exited = new Promise<Term>((resolve, reject) => {
-      child!.once("error", (error) => reject(spawnError(error)));
+      child!.once("error", error => reject(spawnError(error)));
       child!.once("exit", (code, signal) =>
-        resolve(
-          signal
-            ? { signal: signal.replace(/^SIG/, "") }
-            : { exited: code ?? 0 },
-        ),
+        resolve(signal ? { signal: signal.replace(/^SIG/, "") } : { exited: code ?? 0 }),
       );
     });
     timer = setTimeout(() => stop("TimedOut"), options.timeout_ms);

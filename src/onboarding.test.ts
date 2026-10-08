@@ -6,12 +6,7 @@ const conn: any = {
     throw Error("UnexpectedRpc");
   },
 };
-function attach(
-  state: State,
-  source: "tmux" | "herdr",
-  items: any[],
-  message = "",
-) {
+function attach(state: State, source: "tmux" | "herdr", items: any[], message = "") {
   const worker = new Worker(source);
   worker.done = true;
   worker.catalog.workspaces = items;
@@ -21,9 +16,7 @@ function attach(
 }
 test("onboarding offers only platform-supported presets and import sources", async () => {
   const state = new State();
-  expect(state.frame(100, 34).includes("cmux")).toBe(
-    process.platform === "darwin",
-  );
+  expect(state.frame(100, 34).includes("cmux")).toBe(process.platform === "darwin");
   await state.key("k", conn);
   expect(state.preset).toBe(process.platform === "darwin" ? "cmux" : "herdr");
   await state.key("j", conn);
@@ -31,9 +24,7 @@ test("onboarding offers only platform-supported presets and import sources", asy
   await state.key("4", conn);
   expect(state.preset).toBe(process.platform === "darwin" ? "cmux" : "corgi");
   state.step = "import";
-  expect(state.frame(100, 34).includes("cmux")).toBe(
-    process.platform === "darwin",
-  );
+  expect(state.frame(100, 34).includes("cmux")).toBe(process.platform === "darwin");
   if (process.platform !== "darwin") {
     await state.key("3", conn);
     expect(state.source).toBe("tmux");
@@ -47,9 +38,7 @@ test("tmux selects at most three recent groups once per discovery", () => {
   attach(
     state,
     "tmux",
-    ["first", "second", "third", "fourth"].map((name, i) =>
-      workspace({ id: String(i), name, tabs: [] }),
-    ),
+    ["first", "second", "third", "fourth"].map((name, i) => workspace({ id: String(i), name, tabs: [] })),
   );
   state.selectDefaults();
   expect(state.selected.slice(0, 4)).toEqual([true, true, true, false]);
@@ -80,17 +69,13 @@ test("workspace previews keep recovery rows and handoff selection aligned while 
       id: "t2",
       name: "split",
       nodes: [],
-      panes: ["two", "three", "four", "five"].map((name, i) =>
-        pane({ id: String(i + 2), name }),
-      ),
+      panes: ["two", "three", "four", "five"].map((name, i) => pane({ id: String(i + 2), name })),
     },
     {
       id: "t3",
       name: "hidden-tab",
       nodes: [],
-      panes: ["six", "seven", "eight"].map((name, i) =>
-        pane({ id: String(i + 6), name }),
-      ),
+      panes: ["six", "seven", "eight"].map((name, i) => pane({ id: String(i + 6), name })),
     },
   ];
   const state = new State();

@@ -10,33 +10,52 @@ export const targets = [
   { name: "macos-aarch64", bun: "darwin-arm64" },
   { name: "linux-x86_64", bun: "linux-x64" },
 ] as const;
-type Target = typeof targets[number];
+type Target = (typeof targets)[number];
 // The native layer, in the paths build.ts embeds it from.
 const nativeFiles = (target: Target) => {
   const suffix = target.name.startsWith("macos") ? "dylib" : "so";
-  return [`lib/libcorgi_probe.${suffix}`, `lib/libcorgi_system.${suffix}`, `lib/libcorgi_fd.${suffix}`, "bin/pty-exec", "bin/corgi-hook"];
+  return [
+    `lib/libcorgi_probe.${suffix}`,
+    `lib/libcorgi_system.${suffix}`,
+    `lib/libcorgi_fd.${suffix}`,
+    "bin/pty-exec",
+    "bin/corgi-hook",
+  ];
 };
 export const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 export function releaseVersion(value: string) {
   if (/^\d{8}T\d{6}Z-[a-f0-9]{7,40}$/.test(value)) return value;
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw new Error("Version must be UTC datetime + Git hash, or MAJOR.MINOR.PATCH.");
-  if (value.split(".").some(n => !Number.isSafeInteger(Number(n)))) throw new Error("Version components are too large.");
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value))
+    throw new Error("Version must be UTC datetime + Git hash, or MAJOR.MINOR.PATCH.");
+  if (value.split(".").some(n => !Number.isSafeInteger(Number(n))))
+    throw new Error("Version components are too large.");
   return value;
 }
 export function timestampVersion(commit: string, date = new Date()) {
   if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("Expected a full Git commit hash.");
-  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z") + "-" + commit.slice(0, 12);
+  return (
+    date
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace(/\.\d{3}Z$/, "Z") +
+    "-" +
+    commit.slice(0, 12)
+  );
 }
 export function publishedVersion(value: string, commit: string) {
-  if (!/^\d{8}T\d{6}Z-[a-f0-9]{12}$/.test(value) || value.slice(17) !== commit.slice(0, 12)) throw new Error("Release version must be UTC datetime + the first 12 characters of HEAD.");
-  const iso = `${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6,8)}T${value.slice(9,11)}:${value.slice(11,13)}:${value.slice(13,15)}.000Z`;
+  if (!/^\d{8}T\d{6}Z-[a-f0-9]{12}$/.test(value) || value.slice(17) !== commit.slice(0, 12))
+    throw new Error("Release version must be UTC datetime + the first 12 characters of HEAD.");
+  const iso = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}.000Z`;
   const date = new Date(iso);
-  if (!Number.isFinite(date.getTime()) || timestampVersion(commit, date) !== value) throw new Error("Invalid release datetime.");
+  if (!Number.isFinite(date.getTime()) || timestampVersion(commit, date) !== value)
+    throw new Error("Invalid release datetime.");
   return value;
 }
 export function versionParts(value: string) {
   releaseVersion(value);
-  return value.includes("T") ? [Number(value.slice(0, 8)), Number(value.slice(9, 15)), 0] : value.split(".").map(Number);
+  return value.includes("T")
+    ? [Number(value.slice(0, 8)), Number(value.slice(9, 15)), 0]
+    : value.split(".").map(Number);
 }
 function git(cwd: string, ...args: string[]) {
   const p = Bun.spawnSync(["git", "--no-optional-locks", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -44,11 +63,13 @@ function git(cwd: string, ...args: string[]) {
   return p.stdout.toString().trim();
 }
 export function cleanCommit(cwd = repo) {
-  if (git(cwd, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none")) throw new Error("Release checkout is dirty.");
+  if (git(cwd, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"))
+    throw new Error("Release checkout is dirty.");
   return git(cwd, "rev-parse", "HEAD");
 }
 export function releaseOptions(argv: string[]) {
-  let version: string | undefined, mode = "";
+  let version: string | undefined,
+    mode = "";
   for (const arg of argv) {
     if (["--dry-run", "--build-only", "--publish-only"].includes(arg) && !mode) mode = arg;
     else if (!arg.startsWith("--") && !version) version = releaseVersion(arg);
@@ -67,10 +88,15 @@ export function releasePaths(cwd: string) {
 export async function releaseCommit(cwd: string, options: ReturnType<typeof releaseOptions>, releases: string) {
   if (options.mode !== "--publish-only") return git(cwd, "rev-parse", "HEAD");
   const prepared = JSON.parse(await readFile(join(releases, options.version!, "prepared.json"), "utf8"));
-  if (!/^[a-f0-9]{40}$/.test(prepared.commit) || prepared.version !== options.version) throw new Error("Invalid prepared release source/version.");
+  if (!/^[a-f0-9]{40}$/.test(prepared.commit) || prepared.version !== options.version)
+    throw new Error("Invalid prepared release source/version.");
   return prepared.commit as string;
 }
-export async function withReleaseCheckout<T>(cwd: string, commit: string, run: (source: string) => Promise<T>): Promise<T> {
+export async function withReleaseCheckout<T>(
+  cwd: string,
+  commit: string,
+  run: (source: string) => Promise<T>,
+): Promise<T> {
   const base = await realpath(await mkdtemp(join(tmpdir(), "corgi-release-")));
   const source = join(base, "source");
   let added = false;
@@ -84,7 +110,8 @@ export async function withReleaseCheckout<T>(cwd: string, commit: string, run: (
     await rm(base, { recursive: true, force: true });
   }
 }
-const os = process.platform === "darwin" ? "macos" : process.platform, arch = process.arch === "arm64" ? "aarch64" : "x86_64";
+const os = process.platform === "darwin" ? "macos" : process.platform,
+  arch = process.arch === "arm64" ? "aarch64" : "x86_64";
 // The release target this machine runs.
 const host = () => `${os}-${arch}`;
 export function releaseEnvironment(cwd: string, source: string, env = process.env) {
@@ -94,8 +121,10 @@ export function releaseEnvironment(cwd: string, source: string, env = process.en
   if (!compiler) {
     const zig = Bun.which("zig", { PATH: env.PATH });
     const installed = zig && Bun.spawnSync([zig, "version"], { env, stdout: "pipe", stderr: "pipe" });
-    compiler = installed && installed.exitCode === 0 && installed.stdout.toString().trim() === "0.16.0"
-      ? "zig" : join(cwd, `.tools/zig-${arch}-${os}-0.16.0/zig`);
+    compiler =
+      installed && installed.exitCode === 0 && installed.stdout.toString().trim() === "0.16.0"
+        ? "zig"
+        : join(cwd, `.tools/zig-${arch}-${os}-0.16.0/zig`);
   }
   return { ...env, ZIG: compiler, ZIG_LOCAL_CACHE_DIR: join(source, "native/.zig-cache") };
 }
@@ -108,20 +137,42 @@ export function macosSdk(cwd: string, config: { macosSdk?: string }, platform = 
     return p.stdout.toString().trim();
   }
   const copy = join(cwd, ".tools/macos-sdk");
-  if (!existsSync(join(copy, "SDKSettings.json"))) throw new Error(`No macOS SDK at ${copy}; copy one there or set macosSdk in the release config.`);
+  if (!existsSync(join(copy, "SDKSettings.json")))
+    throw new Error(`No macOS SDK at ${copy}; copy one there or set macosSdk in the release config.`);
   return copy;
 }
 export function validateBinary(name: string, bytes: Uint8Array) {
   const b = Buffer.from(bytes);
   if (name === "macos-aarch64") {
-    if (b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== 0x0100000c) throw new Error("Expected an arm64 Mach-O binary.");
+    if (b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== 0x0100000c)
+      throw new Error("Expected an arm64 Mach-O binary.");
   } else {
-    if (b.length < 64 || b.subarray(0, 4).toString("hex") !== "7f454c46" || b[4] !== 2 || b[5] !== 1 || b.readUInt16LE(18) !== 62) throw new Error("Expected an amd64 ELF binary.");
-    const offset = Number(b.readBigUInt64LE(32)), size = b.readUInt16LE(54), count = b.readUInt16LE(56);
+    if (
+      b.length < 64 ||
+      b.subarray(0, 4).toString("hex") !== "7f454c46" ||
+      b[4] !== 2 ||
+      b[5] !== 1 ||
+      b.readUInt16LE(18) !== 62
+    )
+      throw new Error("Expected an amd64 ELF binary.");
+    const offset = Number(b.readBigUInt64LE(32)),
+      size = b.readUInt16LE(54),
+      count = b.readUInt16LE(56);
     if (size < 56 || offset + size * count > b.length) throw new Error("Malformed ELF program headers.");
   }
 }
-type Config = { publicBaseUrl: string; endpoint: string; region: string; bucket: string; signingKey: string; codesignIdentity: string; notaryProfile?: string; macosSdk?: string; credentialsFile?: string; sentry?: SentryConfig };
+type Config = {
+  publicBaseUrl: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  signingKey: string;
+  codesignIdentity: string;
+  notaryProfile?: string;
+  macosSdk?: string;
+  credentialsFile?: string;
+  sentry?: SentryConfig;
+};
 // Release builds send crash reports to this Sentry project, which gets their debug files.
 type SentryConfig = { dsn: string; org: string; project: string };
 export async function loadCredentials(config: Pick<Config, "credentialsFile">, env = process.env) {
@@ -129,15 +180,25 @@ export async function loadCredentials(config: Pick<Config, "credentialsFile">, e
   let secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
   if (!accessKeyId && !secretAccessKey && config.credentialsFile) {
     const info = await stat(config.credentialsFile);
-    if (!info.isFile() || (info.mode & 0o077)) throw new Error("Credentials file must be private; run chmod 600 on it.");
+    if (!info.isFile() || info.mode & 0o077) throw new Error("Credentials file must be private; run chmod 600 on it.");
     let stored;
-    try { stored = JSON.parse(await readFile(config.credentialsFile, "utf8")); }
-    catch { throw new Error("Credentials file must contain valid JSON with accessKeyId and secretAccessKey."); }
+    try {
+      stored = JSON.parse(await readFile(config.credentialsFile, "utf8"));
+    } catch {
+      throw new Error("Credentials file must contain valid JSON with accessKeyId and secretAccessKey.");
+    }
     accessKeyId = stored?.accessKeyId;
     secretAccessKey = stored?.secretAccessKey;
   }
-  if (typeof accessKeyId !== "string" || !accessKeyId.trim() || typeof secretAccessKey !== "string" || !secretAccessKey.trim()) {
-    throw new Error("Set both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or configure a private credentialsFile for R2/S3.");
+  if (
+    typeof accessKeyId !== "string" ||
+    !accessKeyId.trim() ||
+    typeof secretAccessKey !== "string" ||
+    !secretAccessKey.trim()
+  ) {
+    throw new Error(
+      "Set both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or configure a private credentialsFile for R2/S3.",
+    );
   }
   return { accessKeyId, secretAccessKey };
 }
@@ -152,43 +213,65 @@ export async function publish(store: Store, assets: Asset[], envelope: Uint8Arra
   // Existing immutable objects can be reused only when their bytes match.
   for (const asset of assets) {
     const previous = await store.get(asset.key);
-    if (previous && sha256(previous) !== sha256(asset.bytes)) throw new Error(`Refusing to overwrite ${asset.key}; choose a new version.`);
+    if (previous && sha256(previous) !== sha256(asset.bytes))
+      throw new Error(`Refusing to overwrite ${asset.key}; choose a new version.`);
     if (!previous) await store.put(asset.key, asset.bytes, asset.type, "public, max-age=31536000, immutable");
-    if (sha256(await store.publicGet(asset.key)) !== sha256(asset.bytes)) throw new Error(`Public verification failed: ${asset.key}`);
+    if (sha256(await store.publicGet(asset.key)) !== sha256(asset.bytes))
+      throw new Error(`Public verification failed: ${asset.key}`);
   }
   await store.put("install.sh", installer, "text/x-shellscript", "no-cache, max-age=0");
-  if (sha256(await store.publicGet("install.sh")) !== sha256(installer)) throw new Error("Public installer verification failed");
+  if (sha256(await store.publicGet("install.sh")) !== sha256(installer))
+    throw new Error("Public installer verification failed");
   // Single-object signed envelope: there is no signature/manifest pairing race.
   await store.put("channels/stable.json", envelope, "application/json", "no-cache, max-age=0");
-  if (sha256(await store.publicGet("channels/stable.json")) !== sha256(envelope)) throw new Error("Channel was published, but public verification failed; check CDN caching before retrying.");
+  if (sha256(await store.publicGet("channels/stable.json")) !== sha256(envelope))
+    throw new Error("Channel was published, but public verification failed; check CDN caching before retrying.");
 }
-function shellQuote(value: string) { return "'" + value.replaceAll("'", "'\\''") + "'"; }
+function shellQuote(value: string) {
+  return "'" + value.replaceAll("'", "'\\''") + "'";
+}
 const installTemplate = readFileSync(join(import.meta.dir, "install.sh.in"), "utf8");
-export function installer(base: string, version: string, binaries: Record<string, { sha256: string; size: number }>, template = installTemplate) {
+export function installer(
+  base: string,
+  version: string,
+  binaries: Record<string, { sha256: string; size: number }>,
+  template = installTemplate,
+) {
   const values: Record<string, string> = {
-    BASE: shellQuote(base), VERSION: shellQuote(releaseVersion(version)),
+    BASE: shellQuote(base),
+    VERSION: shellQuote(releaseVersion(version)),
     MAC_SHA256: shellQuote(binaries["macos-aarch64"].sha256),
     LINUX_SHA256: shellQuote(binaries["linux-x86_64"].sha256),
     MAC_SIZE: String(binaries["macos-aarch64"].size),
     LINUX_SIZE: String(binaries["linux-x86_64"].size),
   };
-  for (const size of [values.MAC_SIZE, values.LINUX_SIZE]) if (!/^[1-9]\d*$/.test(size)) throw new Error("Invalid binary size.");
+  for (const size of [values.MAC_SIZE, values.LINUX_SIZE])
+    if (!/^[1-9]\d*$/.test(size)) throw new Error("Invalid binary size.");
   return template.replace(/@(BASE|VERSION|MAC_SHA256|LINUX_SHA256|MAC_SIZE|LINUX_SIZE)@/g, (_, key) => values[key]);
 }
 // Finds the one Developer ID Application (or else Apple Development) identity in the keychain.
 async function signingIdentity(run: (argv: string[], capture?: boolean) => Promise<string>) {
   const identities = await run(["/usr/bin/security", "find-identity", "-v", "-p", "codesigning"], true);
   for (const kind of ["Developer ID Application:", "Apple Development:"]) {
-    const matches = identities.split("\n").filter(line => line.includes(`"${kind}`)).map(line => line.trim().split(/\s+/)[1]);
+    const matches = identities
+      .split("\n")
+      .filter(line => line.includes(`"${kind}`))
+      .map(line => line.trim().split(/\s+/)[1]);
     if (matches.length === 1) return matches[0];
-    if (matches.length > 1) throw new Error(`Multiple ${kind} identities; set codesignIdentity to a certificate SHA-1.`);
+    if (matches.length > 1)
+      throw new Error(`Multiple ${kind} identities; set codesignIdentity to a certificate SHA-1.`);
   }
   throw new Error("No signing identity found. Install a Developer ID Application certificate with its private key.");
 }
 // Bun's JIT needs these under the hardened runtime. Native libraries are
 // signed by the same identity before Bun embeds them.
 const entitlements = join(import.meta.dir, "entitlements.plist");
-async function codesign(run: (argv: string[], capture?: boolean) => Promise<string>, identity: string, path: string, options: { identifier?: string; entitlements?: boolean } = {}) {
+async function codesign(
+  run: (argv: string[], capture?: boolean) => Promise<string>,
+  identity: string,
+  path: string,
+  options: { identifier?: string; entitlements?: boolean } = {},
+) {
   const args = ["/usr/bin/codesign", "--force", "--sign", identity, "--options", "runtime", "--timestamp"];
   if (options.identifier) args.push("--identifier", options.identifier);
   if (options.entitlements) args.push("--entitlements", entitlements);
@@ -197,27 +280,54 @@ async function codesign(run: (argv: string[], capture?: boolean) => Promise<stri
 }
 // The native libraries' debug maps point into the build cache, which goes
 // away with the release checkout, so their debug info is kept as dSYMs.
-async function writeDsyms(run: (argv: string[], capture?: boolean) => Promise<string>, native: string, files: string[], out: string) {
+async function writeDsyms(
+  run: (argv: string[], capture?: boolean) => Promise<string>,
+  native: string,
+  files: string[],
+  out: string,
+) {
   await mkdir(out, { recursive: true });
   for (const file of files) {
-    const binary = join(native, file), dsym = join(out, file.split("/").pop()! + ".dSYM");
+    const binary = join(native, file),
+      dsym = join(out, file.split("/").pop()! + ".dSYM");
     await run(["xcrun", "dsymutil", binary, "-o", dsym]);
     const uuid = async (path: string) => (await run(["xcrun", "dwarfdump", "--uuid", path], true)).split(" ")[1];
-    if (await uuid(binary) !== await uuid(dsym)) throw new Error(`The dSYM does not match ${file}.`);
+    if ((await uuid(binary)) !== (await uuid(dsym))) throw new Error(`The dSYM does not match ${file}.`);
   }
 }
 // Runs a shell in a pane on a private runtime: Bun, the embedded native
 // libraries and the PTY helper all load and work.
 async function smokeTest(binary: string) {
   const home = await mkdtemp("/tmp/corgi-smoke-");
-  const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, XDG_STATE_HOME: join(home, "state"), CODEX_HOME: join(home, ".codex"), CLAUDE_CONFIG_DIR: join(home, ".claude"), CORGI_SOCKET: join(home, "s.sock"), SHELL: "/bin/sh", TMPDIR: home };
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: home,
+    XDG_STATE_HOME: join(home, "state"),
+    CODEX_HOME: join(home, ".codex"),
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    CORGI_SOCKET: join(home, "s.sock"),
+    SHELL: "/bin/sh",
+    TMPDIR: home,
+  };
   const cli = async (...args: string[]) => {
     const p = Bun.spawn([binary, ...args], { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    const [out, err, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
     if (code) throw new Error(`Smoke test failed: corgi ${args[0]}: ${err.trim() || code}`);
     return out;
   };
-  const rpc = async (command?: unknown) => JSON.parse(await cli("rpc", JSON.stringify(command ? { op: "session.command", protocol: 1, command } : { op: "session.snapshot", protocol: 1 })));
+  const rpc = async (command?: unknown) =>
+    JSON.parse(
+      await cli(
+        "rpc",
+        JSON.stringify(
+          command ? { op: "session.command", protocol: 1, command } : { op: "session.snapshot", protocol: 1 },
+        ),
+      ),
+    );
   try {
     await cli("start");
     const session = await rpc();
@@ -237,13 +347,15 @@ async function smokeTest(binary: string) {
 async function command(cwd: string, env: typeof process.env, argv: string[], capture = false) {
   const child = Bun.spawn(argv, { cwd, env, stdout: capture ? "pipe" : "inherit", stderr: "inherit", stdin: "ignore" });
   const output = capture ? await new Response(child.stdout).text() : "";
-  if (await child.exited !== 0) throw new Error(`Command failed: ${argv[0]} ${argv.slice(1, 3).join(" ")}`);
+  if ((await child.exited) !== 0) throw new Error(`Command failed: ${argv[0]} ${argv.slice(1, 3).join(" ")}`);
   return output.trim();
 }
 async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "--help") {
-    console.log("Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + Linux amd64, signs the macOS binary on a Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.");
+    console.log(
+      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + Linux amd64, signs the macOS binary on a Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.",
+    );
     return;
   }
   if (argv[0] === "--init-key") {
@@ -253,7 +365,11 @@ async function main() {
     const { privateKey, publicKey } = generateKeyPairSync("ed25519");
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     await writeFile(path, privateKey.export({ type: "pkcs8", format: "pem" }), { flag: "wx", mode: 0o600 });
-    console.log(`Created ${path}\nPublic key: ${Buffer.from(publicKey.export({ type: "spki", format: "der" })).subarray(-32).toString("hex")}`);
+    console.log(
+      `Created ${path}\nPublic key: ${Buffer.from(publicKey.export({ type: "spki", format: "der" }))
+        .subarray(-32)
+        .toString("hex")}`,
+    );
     return;
   }
   const options = releaseOptions(argv);
@@ -264,44 +380,65 @@ async function main() {
   const version = publishedVersion(options.version || timestampVersion(commit), commit);
   const out = join(releases, version);
   if (mode === "--dry-run") {
-    console.log(`Release ${version}: test → build Linux amd64 and macOS arm64 → sign macOS → smoke-test → sign manifest → upload debug files to Sentry → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`);
+    console.log(
+      `Release ${version}: test → build Linux amd64 and macOS arm64 → sign macOS → smoke-test → sign manifest → upload debug files to Sentry → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
+    );
     return;
   }
-  const config: Config = JSON.parse(await readFile(process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json"), "utf8"));
+  const config: Config = JSON.parse(
+    await readFile(process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json"), "utf8"),
+  );
   config.publicBaseUrl = config.publicBaseUrl.replace(/\/+$/, "");
   for (const url of [config.publicBaseUrl, config.endpoint]) {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Use credential-free HTTPS URLs without query strings or fragments.");
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash)
+      throw new Error("Use credential-free HTTPS URLs without query strings or fragments.");
   }
   // Only a Mac can sign the macOS binary; a build-only run elsewhere leaves it ad-hoc signed.
   const mac = process.platform === "darwin" && process.arch === "arm64";
   if (config.codesignIdentity === "-") {
-    if (mode !== "--build-only") throw new Error("Ad-hoc signing is only allowed with --build-only. Configure a persistent macOS signing identity for publishing.");
-  } else if (!mac && mode !== "--publish-only") throw new Error("Run releases on an Apple Silicon Mac (macOS signing requires it), or build-only with codesignIdentity \"-\".");
+    if (mode !== "--build-only")
+      throw new Error(
+        "Ad-hoc signing is only allowed with --build-only. Configure a persistent macOS signing identity for publishing.",
+      );
+  } else if (!mac && mode !== "--publish-only")
+    throw new Error(
+      'Run releases on an Apple Silicon Mac (macOS signing requires it), or build-only with codesignIdentity "-".',
+    );
   if (config.sentry) {
     const { dsn, org, project } = config.sentry;
-    if (![dsn, org, project].every(v => typeof v === "string" && v)) throw new Error("sentry needs dsn, org and project.");
+    if (![dsn, org, project].every(v => typeof v === "string" && v))
+      throw new Error("sentry needs dsn, org and project.");
     if (new URL(dsn).protocol !== "https:") throw new Error("Use an HTTPS Sentry DSN.");
-    if (mode !== "--build-only" && !Bun.which("sentry-cli")) throw new Error("Install sentry-cli to upload debug files: brew install getsentry/tools/sentry-cli");
+    if (mode !== "--build-only" && !Bun.which("sentry-cli"))
+      throw new Error("Install sentry-cli to upload debug files: brew install getsentry/tools/sentry-cli");
   }
   const credentials = mode === "--build-only" ? undefined : await loadCredentials(config);
   const key = createPrivateKey(await readFile(config.signingKey));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("The release signing key must be Ed25519.");
-  const publicKey = Buffer.from(createPublicKey(key).export({ type: "spki", format: "der" })).subarray(-32).toString("hex");
+  const publicKey = Buffer.from(createPublicKey(key).export({ type: "spki", format: "der" }))
+    .subarray(-32)
+    .toString("hex");
   await mkdir(dirname(out), { recursive: true });
   const lock = paths.lock;
-  await mkdir(lock).catch(() => { throw new Error(`Another publisher is running (or left ${lock}); remove it only after confirming no publisher is running.`); });
+  await mkdir(lock).catch(() => {
+    throw new Error(
+      `Another publisher is running (or left ${lock}); remove it only after confirming no publisher is running.`,
+    );
+  });
   const run = async (source: string) => {
     const env = releaseEnvironment(repo, source);
     const runCommand = (argv: string[], capture = false) => command(source, env, argv, capture);
     const checkSource = () => {
-      if (cleanCommit(source) !== commit) throw new Error("Release checkout changed. Choose a new release after finishing edits.");
+      if (cleanCommit(source) !== commit)
+        throw new Error("Release checkout changed. Choose a new release after finishing edits.");
     };
     checkSource();
     console.log(`Release ${version} from ${commit} (isolated committed tree).\nArtifacts: ${out}`);
     if (mode !== "--publish-only") {
       // Rebuilding a prepared version could change timestamped macOS signatures.
-      if (await Bun.file(join(out, "prepared.json")).exists()) throw new Error("Release already prepared. Use --publish-only to resume, or choose another version.");
+      if (await Bun.file(join(out, "prepared.json")).exists())
+        throw new Error("Release already prepared. Use --publish-only to resume, or choose another version.");
       // build.ts installs the locked dependencies the checks below need.
       await runCommand([process.execPath, "build.ts", "--test"]);
       await runCommand([process.execPath, "typecheck.ts"]);
@@ -309,21 +446,48 @@ async function main() {
       // The updater suite runs copies of the test build as two releases.
       await runCommand([process.execPath, "test", "./tests/release.test.ts", "./tests/updates.test.ts"]);
       await mkdir(out, { recursive: true });
-      const identity = config.codesignIdentity === "-" ? "-" : config.codesignIdentity || await signingIdentity(runCommand);
+      const identity =
+        config.codesignIdentity === "-" ? "-" : config.codesignIdentity || (await signingIdentity(runCommand));
       const binaries: Record<string, { url: string; sha256: string; size: number }> = {};
       for (const target of targets) {
-        const native = join(out, "native", target.name), build = join(out, "build", target.name, "corgi");
+        const native = join(out, "native", target.name),
+          build = join(out, "build", target.name, "corgi");
         const files = nativeFiles(target);
         const macos = target.name === "macos-aarch64";
-        const nativeArgs = [process.execPath, "build.ts", "--target", target.bun, "--native-root", native, "--native-only"];
+        const nativeArgs = [
+          process.execPath,
+          "build.ts",
+          "--target",
+          target.bun,
+          "--native-root",
+          native,
+          "--native-only",
+        ];
         if (macos) nativeArgs.push("--sysroot", macosSdk(repo, config));
         await runCommand(nativeArgs);
         if (macos && mac) {
           await writeDsyms(runCommand, native, files, join(out, "dsym"));
           if (identity !== "-") for (const file of files) await codesign(runCommand, identity, join(native, file));
         }
-        const args = [process.execPath, "build.ts", "--target", target.bun, "--native-root", native, "--no-native", "--outfile", build,
-          "--release-version", version, "--release-commit", commit, "--update-url", config.publicBaseUrl, "--update-public-key", publicKey];
+        const args = [
+          process.execPath,
+          "build.ts",
+          "--target",
+          target.bun,
+          "--native-root",
+          native,
+          "--no-native",
+          "--outfile",
+          build,
+          "--release-version",
+          version,
+          "--release-commit",
+          commit,
+          "--update-url",
+          config.publicBaseUrl,
+          "--update-public-key",
+          publicKey,
+        ];
         if (config.sentry) args.push("--sentry-dsn", config.sentry.dsn);
         await runCommand(args);
         if (macos && identity !== "-") {
@@ -332,44 +496,110 @@ async function main() {
             // Notarization doesn't change the binary; Gatekeeper looks the ticket up online.
             const zip = join(out, "build", target.name, "corgi.zip");
             await runCommand(["/usr/bin/ditto", "-c", "-k", "--keepParent", build, zip]);
-            await runCommand(["xcrun", "notarytool", "submit", zip, "--keychain-profile", config.notaryProfile, "--wait"]);
+            await runCommand([
+              "xcrun",
+              "notarytool",
+              "submit",
+              zip,
+              "--keychain-profile",
+              config.notaryProfile,
+              "--wait",
+            ]);
           }
         }
         const bytes = await readFile(build);
         validateBinary(target.name, bytes);
         await writeFile(join(out, `corgi-${target.name}`), bytes, { mode: 0o755 });
-        binaries[target.name] = { url: `${config.publicBaseUrl}/releases/${version}/corgi-${target.name}`, sha256: sha256(bytes), size: bytes.length };
+        binaries[target.name] = {
+          url: `${config.publicBaseUrl}/releases/${version}/corgi-${target.name}`,
+          sha256: sha256(bytes),
+          size: bytes.length,
+        };
       }
       const local = join(out, `corgi-${host()}`);
       if (!binaries[host()]) throw new Error(`No release target runs on ${host()}, so nothing can check the build.`);
       const info = JSON.parse(await runCommand([local, "__update-info"], true));
-      if (info.version !== version || info.commit !== commit || info.test_mode) throw new Error("Release metadata mismatch or unsafe test build.");
+      if (info.version !== version || info.commit !== commit || info.test_mode)
+        throw new Error("Release metadata mismatch or unsafe test build.");
       await smokeTest(local);
-      const payload = JSON.stringify({ schema_version: 1, version, commit, update_abi: info.update_abi, targets: binaries });
+      const payload = JSON.stringify({
+        schema_version: 1,
+        version,
+        commit,
+        update_abi: info.update_abi,
+        targets: binaries,
+      });
       const envelope = JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), key).toString("hex") });
       await writeFile(join(out, "manifest.json"), envelope);
       const template = await readFile(join(source, "scripts/install.sh.in"), "utf8");
       const install = installer(config.publicBaseUrl, version, binaries, template);
       await writeFile(join(out, "install.sh"), install);
       checkSource();
-      await writeFile(join(out, "prepared.json"), JSON.stringify({ version, commit, publicBaseUrl: config.publicBaseUrl, publicKey, publishable: mode !== "--build-only" && identity !== "-", sentry: config.sentry?.dsn, hashes: { ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])), "manifest.json": sha256(envelope), "install.sh": sha256(install) } }, null, 2));
+      await writeFile(
+        join(out, "prepared.json"),
+        JSON.stringify(
+          {
+            version,
+            commit,
+            publicBaseUrl: config.publicBaseUrl,
+            publicKey,
+            publishable: mode !== "--build-only" && identity !== "-",
+            sentry: config.sentry?.dsn,
+            hashes: {
+              ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])),
+              "manifest.json": sha256(envelope),
+              "install.sh": sha256(install),
+            },
+          },
+          null,
+          2,
+        ),
+      );
     }
-    if (mode === "--build-only") { console.log(`Both platforms built and verified in ${out}. Nothing published.`); return; }
+    if (mode === "--build-only") {
+      console.log(`Both platforms built and verified in ${out}. Nothing published.`);
+      return;
+    }
     const prepared = JSON.parse(await readFile(join(out, "prepared.json"), "utf8"));
-    if (!prepared.publishable || prepared.version !== version || prepared.commit !== commit || prepared.publicKey !== publicKey || prepared.publicBaseUrl !== config.publicBaseUrl) throw new Error("Prepared release does not match this release source/configuration.");
-    if (prepared.sentry && prepared.sentry !== config.sentry?.dsn) throw new Error("Prepared release reports crashes to a Sentry project this configuration does not name.");
-    for (const [name, digest] of Object.entries(prepared.hashes)) if (sha256(await readFile(join(out, name))) !== digest) throw new Error(`Prepared artifact changed: ${name}`);
-    const s3 = new Bun.S3Client({ endpoint: config.endpoint, region: config.region, bucket: config.bucket, ...credentials });
+    if (
+      !prepared.publishable ||
+      prepared.version !== version ||
+      prepared.commit !== commit ||
+      prepared.publicKey !== publicKey ||
+      prepared.publicBaseUrl !== config.publicBaseUrl
+    )
+      throw new Error("Prepared release does not match this release source/configuration.");
+    if (prepared.sentry && prepared.sentry !== config.sentry?.dsn)
+      throw new Error("Prepared release reports crashes to a Sentry project this configuration does not name.");
+    for (const [name, digest] of Object.entries(prepared.hashes))
+      if (sha256(await readFile(join(out, name))) !== digest) throw new Error(`Prepared artifact changed: ${name}`);
+    const s3 = new Bun.S3Client({
+      endpoint: config.endpoint,
+      region: config.region,
+      bucket: config.bucket,
+      ...credentials,
+    });
     const store: Store = {
-      async get(path) { const file = s3.file(path); return await file.exists() ? new Uint8Array(await file.arrayBuffer()) : null; },
+      async get(path) {
+        const file = s3.file(path);
+        return (await file.exists()) ? new Uint8Array(await file.arrayBuffer()) : null;
+      },
       async put(path, bytes, type, cache) {
         checkSource();
         const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
-        const response = await fetch(url, { method: "PUT", body: new Uint8Array(bytes), headers: { "Content-Type": type, "Cache-Control": cache }, signal: AbortSignal.timeout(300_000) });
+        const response = await fetch(url, {
+          method: "PUT",
+          body: new Uint8Array(bytes),
+          headers: { "Content-Type": type, "Cache-Control": cache },
+          signal: AbortSignal.timeout(300_000),
+        });
         if (!response.ok) throw new Error(`Upload failed for ${path}: HTTP ${response.status}`);
       },
       async publicGet(path) {
-        const response = await fetch(`${config.publicBaseUrl}/${path}`, { cache: "no-store", signal: AbortSignal.timeout(300_000) });
+        const response = await fetch(`${config.publicBaseUrl}/${path}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(300_000),
+        });
         if (!response.ok) throw new Error(`Public download failed for ${path}: HTTP ${response.status}`);
         return new Uint8Array(await response.arrayBuffer());
       },
@@ -377,22 +607,52 @@ async function main() {
     const previousChannel = await store.get("channels/stable.json");
     if (previousChannel) {
       const current = JSON.parse(JSON.parse(Buffer.from(previousChannel).toString()).payload).version;
-      const old = versionParts(current), next = versionParts(version);
+      const old = versionParts(current),
+        next = versionParts(version);
       const first = next.findIndex((n, i) => n !== old[i]);
-      if (first >= 0 && next[first] < old[first]) throw new Error(`Refusing to move stable backwards from ${current} to ${version}.`);
+      if (first >= 0 && next[first] < old[first])
+        throw new Error(`Refusing to move stable backwards from ${current} to ${version}.`);
     }
     // Crashes can arrive as soon as the channel moves; Sentry symbolicates
     // them with these files.
     if (prepared.sentry) {
-      await runCommand(["sentry-cli", "debug-files", "upload", "--org", config.sentry!.org, "--project", config.sentry!.project, "--wait",
-        join(out, "dsym"), join(out, "native", "linux-x86_64")]);
+      await runCommand([
+        "sentry-cli",
+        "debug-files",
+        "upload",
+        "--org",
+        config.sentry!.org,
+        "--project",
+        config.sentry!.project,
+        "--wait",
+        join(out, "dsym"),
+        join(out, "native", "linux-x86_64"),
+      ]);
     }
-    const assets = await Promise.all([...targets.map(t => `corgi-${t.name}`), "manifest.json", "install.sh"].map(async name => ({ key: `releases/${version}/${name}`, bytes: await readFile(join(out, name)), type: name.endsWith(".json") ? "application/json" : name.endsWith(".sh") ? "text/x-shellscript" : "application/octet-stream" })));
+    const assets = await Promise.all(
+      [...targets.map(t => `corgi-${t.name}`), "manifest.json", "install.sh"].map(async name => ({
+        key: `releases/${version}/${name}`,
+        bytes: await readFile(join(out, name)),
+        type: name.endsWith(".json")
+          ? "application/json"
+          : name.endsWith(".sh")
+            ? "text/x-shellscript"
+            : "application/octet-stream",
+      })),
+    );
     await publish(store, assets, await readFile(join(out, "manifest.json")), await readFile(join(out, "install.sh")));
-    console.log(`Published Corgi ${version} for macOS arm64 and Linux amd64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}\nNo Git tags or remotes were changed.`);
+    console.log(
+      `Published Corgi ${version} for macOS arm64 and Linux amd64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}\nNo Git tags or remotes were changed.`,
+    );
   };
   try {
     await withReleaseCheckout(repo, commit, run);
-  } finally { await rm(lock, { recursive: true }); }
+  } finally {
+    await rm(lock, { recursive: true });
+  }
 }
-if (import.meta.main) main().catch(error => { console.error(error.message); process.exitCode = 1; });
+if (import.meta.main)
+  main().catch(error => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });

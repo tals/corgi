@@ -27,9 +27,6 @@ export function parse(raw: string) {
   if (value.label === null) return { label: null };
   if (typeof value.label !== "string") throw Error("InvalidDecision");
   return {
-    label:
-      value.label.trim().toLowerCase() === "null"
-        ? null
-        : validateLabel(value.label),
+    label: value.label.trim().toLowerCase() === "null" ? null : validateLabel(value.label),
   };
 }

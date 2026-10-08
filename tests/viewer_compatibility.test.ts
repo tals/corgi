@@ -1,9 +1,4 @@
-import {
-  createConnection,
-  createServer,
-  type Server,
-  type Socket,
-} from "node:net";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
@@ -19,7 +14,7 @@ class ReplyProxy {
     public path: string,
     public upstream: string,
   ) {
-    this.server = createServer((client) => this.forward(client));
+    this.server = createServer(client => this.forward(client));
   }
   async start() {
     await new Promise<void>((resolve, reject) => {
@@ -34,8 +29,8 @@ class ReplyProxy {
       replies = new Lines();
     client.setEncoding("utf8");
     server.setEncoding("utf8");
-    client.on("data", (data) => requests.feed(String(data)));
-    server.on("data", (data) => replies.feed(String(data)));
+    client.on("data", data => requests.feed(String(data)));
+    server.on("data", data => replies.feed(String(data)));
     client.on("close", () => {
       server.destroy();
       requests.end();
@@ -52,11 +47,9 @@ class ReplyProxy {
           server.write(line + "\n");
           const upstreamReply = await replies.next(30000);
           let reply = upstreamReply;
-          if (request.op === "viewer.open" && this.open_reply !== null)
-            reply = JSON.stringify(this.open_reply);
+          if (request.op === "viewer.open" && this.open_reply !== null) reply = JSON.stringify(this.open_reply);
           if (request.op === "viewer.sync") {
-            if (this.sync_reply !== null)
-              reply = JSON.stringify(this.sync_reply);
+            if (this.sync_reply !== null) reply = JSON.stringify(this.sync_reply);
             this.synced = true;
           }
           client.write(reply + "\n");
@@ -70,7 +63,7 @@ class ReplyProxy {
   }
   async close() {
     for (const connection of this.connections) connection.destroy();
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
+    await new Promise<void>(resolve => this.server.close(() => resolve()));
   }
 }
 
@@ -86,10 +79,7 @@ class ViewerCompatibility extends Runtime {
     this.assertEqual(code, 1, output);
     this.assertIn("this viewer is incompatible with the server", output);
     this.assertIn("requires viewer protocol 3", output);
-    this.assertIn(
-      "Reattach using the same Corgi version as the server",
-      output,
-    );
+    this.assertIn("Reattach using the same Corgi version as the server", output);
     this.assertNotIn("MissingField", output);
     this.assertNotIn("panic:", output);
   }
@@ -111,8 +101,7 @@ class ViewerCompatibility extends Runtime {
   async test_server_rechecks_sync_on_inherited_connection() {
     const client = await JsonSocket.connect(this.path);
     try {
-      const call = (request: any) =>
-        client.request({ protocol: 1, ...request });
+      const call = (request: any) => client.request({ protocol: 1, ...request });
       const opened = await call({
         op: "viewer.open",
         viewer_protocol: 3,
@@ -182,10 +171,7 @@ class ViewerCompatibility extends Runtime {
     proxy.sync_reply = { viewer_protocol: 4 };
     const code = await pty.proc.exited;
     this.assert_explanation(code, pty.output);
-    this.assertLess(
-      pty.output.indexOf("\x1b[?1049l"),
-      pty.output.indexOf("this viewer is incompatible"),
-    );
+    this.assertLess(pty.output.indexOf("\x1b[?1049l"), pty.output.indexOf("this viewer is incompatible"));
     this.assertEqual(await pty.settings(), before);
   }
   async test_new_viewer_rejects_unversioned_open_reply() {

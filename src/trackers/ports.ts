@@ -38,7 +38,7 @@ export class Snapshot {
   workspaces: Work[] = [];
   workspace(id: number): Work {
     return (
-      this.workspaces.find((w) => w.id === id) ?? {
+      this.workspaces.find(w => w.id === id) ?? {
         id,
         background: 0,
         endpoints: [],
@@ -53,9 +53,7 @@ export class Snapshot {
   }
 }
 export function sshViewer() {
-  return ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].some(
-    (k) => !!process.env[k],
-  );
+  return ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"].some(k => !!process.env[k]);
 }
 export function loopback(address: string) {
   return address.startsWith("127.") || address === "::1";
@@ -65,41 +63,25 @@ export function wildcard(address: string) {
 }
 export function kind(name: string, address: string): Kind {
   if (loopback(address)) return "loopback";
-  const tunnel = ["utun", "tun", "wg", "ppp", "tap"].some((p) =>
-      name.startsWith(p),
-    ),
+  const tunnel = ["utun", "tun", "wg", "ppp", "tap"].some(p => name.startsWith(p)),
     parts = address.split("."),
     second = Number(parts[1]);
   if (
     name.startsWith("tailscale") ||
-    (tunnel &&
-      ((parts[0] === "100" && second >= 64 && second <= 127) ||
-        address.startsWith("fd7a:115c:a1e0:")))
+    (tunnel && ((parts[0] === "100" && second >= 64 && second <= 127) || address.startsWith("fd7a:115c:a1e0:")))
   )
     return "tailscale";
   return tunnel ? "vpn" : "network";
 }
 export function host(e: Endpoint, remote: boolean) {
-  if (
-    !remote &&
-    (["127.0.0.1", "::1"].includes(e.bind_address) || wildcard(e.bind_address))
-  )
-    return "localhost";
+  if (!remote && (["127.0.0.1", "::1"].includes(e.bind_address) || wildcard(e.bind_address))) return "localhost";
   const rank = { loopback: 0, tailscale: 1, vpn: 2, network: 3 };
   const found = e.interfaces
     .filter(
-      (i) =>
-        !(remote && i.kind === "loopback") &&
-        !i.address.startsWith("fe80:") &&
-        !i.address.startsWith("169.254."),
+      i => !(remote && i.kind === "loopback") && !i.address.startsWith("fe80:") && !i.address.startsWith("169.254."),
     )
-    .sort(
-      (a, b) => rank[a.kind] - rank[b.kind] || Number(a.ipv6) - Number(b.ipv6),
-    )[0];
-  return (
-    found?.address ??
-    (!remote && !wildcard(e.bind_address) ? e.bind_address : null)
-  );
+    .sort((a, b) => rank[a.kind] - rank[b.kind] || Number(a.ipv6) - Number(b.ipv6))[0];
+  return found?.address ?? (!remote && !wildcard(e.bind_address) ? e.bind_address : null);
 }
 export function browserResponse(status: number | null) {
   return status !== null && status >= 200 && status < 400;
@@ -107,9 +89,7 @@ export function browserResponse(status: number | null) {
 export function url(e: Endpoint, remote: boolean): string | null {
   if (e.scheme === "unknown" || !browserResponse(e.http_status)) return null;
   const address = host(e, remote);
-  return address
-    ? `${e.scheme}://${address.includes(":") ? "[" + address + "]" : address}:${e.port}`
-    : null;
+  return address ? `${e.scheme}://${address.includes(":") ? "[" + address + "]" : address}:${e.port}` : null;
 }
 export type Root = {
   pid: number;
@@ -124,7 +104,7 @@ export type Process = {
   name: string;
 };
 export function processes(text: string): Process[] {
-  return text.split("\n").flatMap((l) => {
+  return text.split("\n").flatMap(l => {
     const m = l.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
     return m
       ? [
@@ -141,14 +121,16 @@ export function processes(text: string): Process[] {
 /** The panes' processes, as `ps -o pid=,ppid=,pgid=,comm=` lists them, read
  * from the panes' own trees. Null where the kernel can't list children. */
 export function paneProcesses(roots: Root[]): Process[] | null {
-  const tree = processTree(roots.map((r) => r.pid));
+  const tree = processTree(roots.map(r => r.pid));
   if (!tree) return null;
-  return tree.flatMap((pid) => {
+  return tree.flatMap(pid => {
     try {
       const text = readFileSync(`/proc/${pid}/stat`, "utf8"),
         end = text.lastIndexOf(")"),
         fields = text.slice(end + 2).split(" ");
-      return [{ pid, parent: Number(fields[1]), group: Number(fields[2]), name: text.slice(text.indexOf("(") + 1, end) }];
+      return [
+        { pid, parent: Number(fields[1]), group: Number(fields[2]), name: text.slice(text.indexOf("(") + 1, end) },
+      ];
     } catch {
       return [];
     }
@@ -157,32 +139,24 @@ export function paneProcesses(roots: Root[]): Process[] | null {
 export function workload(p: Process, root: Root) {
   if (p.pid === root.agent_pid) return false;
   const name = basename(p.name).replace(/^-+/, "");
-  return (
-    !["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu"].includes(
-      name,
-    ) && identify([name]) === null
-  );
+  return !["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu"].includes(name) && identify([name]) === null;
 }
-export function owner(
-  pid: number,
-  list: Process[],
-  roots: Root[],
-): Root | null {
+export function owner(pid: number, list: Process[], roots: Root[]): Root | null {
   let current = pid;
   for (let i = 0; i <= list.length; i++) {
-    const root = roots.find((r) => r.pid === current);
+    const root = roots.find(r => r.pid === current);
     if (root) return root;
-    const parent = list.find((p) => p.pid === current)?.parent;
+    const parent = list.find(p => p.pid === current)?.parent;
     if (parent === undefined || parent <= 1 || parent === current) return null;
     current = parent;
   }
   return null;
 }
 export function socketCommand(list: Process[], roots: Root[]): string[] {
-  const owned = list.filter((process) => owner(process.pid, list, roots) !== null);
+  const owned = list.filter(process => owner(process.pid, list, roots) !== null);
   // lsof's default OR selection would include every network socket despite -p.
   // With no owned processes, a harmless self query still checks availability.
-  const pids = owned.map((process) => process.pid).join(",") || String(process.pid);
+  const pids = owned.map(process => process.pid).join(",") || String(process.pid);
   if (pids.length > 60000) return ["lsof", "-nP", "-iTCP", "-iUDP", "-FpcftPnT"];
   return ["lsof", "-nP", "-a", "-p", pids, "-iTCP", "-iUDP", "-FpcftPnT"];
 }
@@ -198,16 +172,9 @@ export function interfaces(): Interface[] {
   return out;
 }
 export function matching(address: string, ipv6: boolean, all: Interface[]) {
-  return all.filter(
-    (i) => i.ipv6 === ipv6 && (wildcard(address) || address === i.address),
-  );
+  return all.filter(i => i.ipv6 === ipv6 && (wildcard(address) || address === i.address));
 }
-export function sockets(
-  text: string,
-  list: Process[],
-  roots: Root[],
-  all: Interface[],
-): Endpoint[] {
+export function sockets(text: string, list: Process[], roots: Root[], all: Interface[]): Endpoint[] {
   const out: Endpoint[] = [];
   let pid = 0,
     name = "",
@@ -216,13 +183,9 @@ export function sockets(
     address = "",
     listening = false;
   const flush = () => {
-    if (
-      !address ||
-      !(transport === "udp" || (transport === "tcp" && listening))
-    )
-      return;
+    if (!address || !(transport === "udp" || (transport === "tcp" && listening))) return;
     const root = owner(pid, list, roots),
-      p = list.find((p) => p.pid === pid);
+      p = list.find(p => p.pid === pid);
     if (!root || !p || !workload(p, root)) return;
     const local = address.split("->")[0],
       colon = local.lastIndexOf(":");
@@ -232,12 +195,8 @@ export function sockets(
     if (!Number.isInteger(port) || port <= 0 || port > 65535) return;
     if (
       out.some(
-        (e) =>
-          e.pid === pid &&
-          e.port === port &&
-          e.ipv6 === ipv6 &&
-          e.bind_address === bind &&
-          e.transport === transport,
+        e =>
+          e.pid === pid && e.port === port && e.ipv6 === ipv6 && e.bind_address === bind && e.transport === transport,
       )
     )
       return;
@@ -358,7 +317,7 @@ export interface Socket {
 export function procSockets(text: string, kind_of: Socket, table: Map<string, Socket>): void {
   const lines = text.split("\n").slice(1);
   rows: for (const line of lines) {
-    const columns = line.split(" ").filter((field) => field.length > 0);
+    const columns = line.split(" ").filter(field => field.length > 0);
     if (columns.length < 10) continue;
     const local = columns[1];
     const colon = local.indexOf(":");
@@ -379,7 +338,7 @@ export function procSockets(text: string, kind_of: Socket, table: Map<string, So
       if (endianness() === "LE") bytes.writeUInt32LE(parseInt(word, 16), i * 4);
       else bytes.writeUInt32BE(parseInt(word, 16), i * 4);
     }
-    const shown = bytes.every((b) => b === 0) ? "*" : kind_of.ipv6 ? ntop6(bytes) : Array.from(bytes).join(".");
+    const shown = bytes.every(b => b === 0) ? "*" : kind_of.ipv6 ? ntop6(bytes) : Array.from(bytes).join(".");
     table.set(inode, {
       ...kind_of,
       address: kind_of.ipv6 && shown !== "*" ? `[${shown}]:${port}` : `${shown}:${port}`,
@@ -393,7 +352,7 @@ function ntop6(bytes: Buffer): string {
   const words = Array.from({ length: 8 }, (_, i) => bytes.readUInt16BE(i * 2));
   // The longest run of two or more zero words becomes "::".
   let best = { base: -1, len: 0 };
-  for (let i = 0; i < 8; ) {
+  for (let i = 0; i < 8;) {
     if (words[i] !== 0) {
       i++;
       continue;
@@ -421,11 +380,7 @@ function ntop6(bytes: Buffer): string {
   if (best.base >= 0 && best.base + best.len === 8) out += ":";
   return out;
 }
-async function command(
-  argv: string[],
-  allowPartial = false,
-  signal?: AbortSignal,
-) {
+async function command(argv: string[], allowPartial = false, signal?: AbortSignal) {
   try {
     const { stdout } = await promisify(execFile)(argv[0], argv.slice(1), {
       timeout: 2000,
@@ -435,17 +390,11 @@ async function command(
     return stdout;
   } catch (e) {
     // A selected PID may exit before lsof reaches it; other records remain valid.
-    return allowPartial && (e as any).code === 1 && typeof (e as any).stdout === "string"
-      ? (e as any).stdout
-      : null;
+    return allowPartial && (e as any).code === 1 && typeof (e as any).stdout === "string" ? (e as any).stdout : null;
   }
 }
 export async function probe(e: Endpoint, signal?: AbortSignal) {
-  const address = wildcard(e.bind_address)
-    ? e.ipv6
-      ? "::1"
-      : "127.0.0.1"
-    : e.bind_address;
+  const address = wildcard(e.bind_address) ? (e.ipv6 ? "::1" : "127.0.0.1") : e.bind_address;
   for (const scheme of ["http", "https"] as const) {
     const target = `${scheme}://${e.ipv6 ? "[" + address + "]" : address}:${e.port}/`,
       result = await command(
@@ -473,13 +422,7 @@ export async function probe(e: Endpoint, signal?: AbortSignal) {
         signal,
       ),
       status = Number(result);
-    if (
-      result !== null &&
-      Number.isInteger(status) &&
-      status >= 100 &&
-      status <= 599
-    )
-      return { scheme, status };
+    if (result !== null && Number.isInteger(status) && status >= 100 && status <= 599) return { scheme, status };
   }
   return { scheme: "unknown" as const, status: null };
 }
@@ -505,7 +448,7 @@ export class Tracker {
       if (!this.done) return false;
       this.thread = null;
       const valid = this.roots.every(
-        (root) =>
+        root =>
           runtime.pane(root.pane)?.terminal.pid === root.pid &&
           runtime.workspaces.owner(root.pane)?.id === root.workspace,
       );
@@ -518,8 +461,8 @@ export class Tracker {
     if (now < this.next_refresh) return changed;
     this.next_refresh = now + 3000;
     this.roots = runtime.panes
-      .filter((p) => !p.terminal.exited)
-      .flatMap((p) => {
+      .filter(p => !p.terminal.exited)
+      .flatMap(p => {
         const w = runtime.workspaces.owner(p.id);
         return w
           ? [
@@ -546,11 +489,7 @@ export class Tracker {
   async scan() {
     let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
     if (!list) {
-      const ps = await command(
-        ["ps", "-axo", "pid=,ppid=,pgid=,comm="],
-        false,
-        this.abort.signal,
-      );
+      const ps = await command(["ps", "-axo", "pid=,ppid=,pgid=,comm="], false, this.abort.signal);
       if (ps === null) return;
       list = processes(ps);
     }
@@ -563,21 +502,19 @@ export class Tracker {
       works: Work[] = [],
       now = milliTimestamp();
     for (const root of this.roots) {
-      if (works.some((w) => w.id === root.workspace)) continue;
+      if (works.some(w => w.id === root.workspace)) continue;
       const work: Work = { id: root.workspace, background: 0, endpoints: [] };
       for (const p of list) {
         const o = owner(p.pid, list, this.roots);
-        if (o?.workspace === root.workspace && workload(p, o))
-          work.background++;
+        if (o?.workspace === root.workspace && workload(p, o)) work.background++;
       }
       for (const endpoint of endpoints) {
-        if (owner(endpoint.pid, list, this.roots)?.workspace !== root.workspace)
-          continue;
+        if (owner(endpoint.pid, list, this.roots)?.workspace !== root.workspace) continue;
         const e = { ...endpoint },
           old = this.current
             .workspace(work.id)
             .endpoints.find(
-              (x) =>
+              x =>
                 x.pid === e.pid &&
                 x.pane === e.pane &&
                 x.port === e.port &&
@@ -596,13 +533,8 @@ export class Tracker {
     }
     for (let i = 0; i < 4 && !this.stopping; i++) {
       const oldest = works
-        .flatMap((w) => w.endpoints)
-        .filter(
-          (e) =>
-            e.transport === "tcp" &&
-            now - e.probed_at >
-              (browserResponse(e.http_status) ? 60000 : 15000),
-        )
+        .flatMap(w => w.endpoints)
+        .filter(e => e.transport === "tcp" && now - e.probed_at > (browserResponse(e.http_status) ? 60000 : 15000))
         .sort((a, b) => a.probed_at - b.probed_at)[0];
       if (!oldest) break;
       const result = await probe(oldest, this.abort.signal);

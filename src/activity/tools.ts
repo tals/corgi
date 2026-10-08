@@ -56,8 +56,7 @@ export class Call {
     this.value = clip(this.value + v, 240);
   }
   bound(start: number, dropped: boolean) {
-    if (Buffer.byteLength(this.value) > start + 120)
-      this.value = clip(this.value, start + 117);
+    if (Buffer.byteLength(this.value) > start + 120) this.value = clip(this.value, start + 117);
     else if (!dropped) return;
     this.append("…");
   }
@@ -70,9 +69,7 @@ export class Call {
   }
   patchFiles(patch: string) {
     let found = false;
-    for (const match of patch.matchAll(
-      /\*\*\* (?:Update File: |Add File: |Delete File: )([^\\\n"'`]+)/g,
-    )) {
+    for (const match of patch.matchAll(/\*\*\* (?:Update File: |Add File: |Delete File: )([^\\\n"'`]+)/g)) {
       if (found) this.append(", ");
       this.append(shortPath(match[1]));
       found = true;
@@ -126,8 +123,7 @@ export class Tracker {
   recent: Array<Call | null> = [null, null, null];
   dirty = false;
   bind(turn: string) {
-    if (!turn || turn === this.turn.text() || Buffer.byteLength(turn) > 160)
-      return;
+    if (!turn || turn === this.turn.text() || Buffer.byteLength(turn) > 160) return;
     Object.assign(this, new Tracker());
     this.turn = new Turn(turn);
     this.dirty = true;
@@ -145,14 +141,12 @@ export class Tracker {
         if (!call) continue;
         out.running++;
         if (!call.live || call.text() === this.recent[2]?.text()) continue;
-        if (!active)
-          evidence += "Currently running tools (not yet completed):\n";
+        if (!active) evidence += "Currently running tools (not yet completed):\n";
         if (active < 4) evidence += call.text() + "\n";
         active++;
       }
     if (active > 4) evidence += "Additional tools are running.\n";
-    if (this.completed)
-      evidence += "Recent completed tools (oldest to newest):\n";
+    if (this.completed) evidence += "Recent completed tools (oldest to newest):\n";
     for (const call of this.recent) if (call) evidence += call.text() + "\n";
     out.evidence = new Text(clip(evidence, 2048));
     return out;
@@ -161,18 +155,14 @@ export class Tracker {
     return Bun.hash.wyhash(id, 0n) | 1n;
   }
   save(call: Call, live: boolean) {
-    let slot = this.pending.findIndex((p) => p?.id === call.id);
+    let slot = this.pending.findIndex(p => p?.id === call.id);
     if (slot < 0) {
       slot = this.next_pending;
       this.next_pending = (this.next_pending + 1) % 64;
     }
     const old = this.pending[slot];
     call.live = live || (old?.id === call.id && old.live) || false;
-    if (
-      (!old || old.text() !== call.text() || old.live !== call.live) &&
-      call.live
-    )
-      this.dirty = true;
+    if ((!old || old.text() !== call.text() || old.live !== call.live) && call.live) this.dirty = true;
     this.pending[slot] = call;
   }
   finish(call: Call, live: boolean) {
@@ -188,7 +178,7 @@ export class Tracker {
     this.recent[2] = call;
   }
   finishId(id: bigint, live: boolean) {
-    const slot = this.pending.findIndex((c) => c?.id === id);
+    const slot = this.pending.findIndex(c => c?.id === id);
     if (slot < 0) return;
     this.finish(this.pending[slot]!, live);
     this.pending[slot] = null;
@@ -198,35 +188,25 @@ export class Tracker {
       kind = r.type,
       p = r.payload,
       type = r.payloadType();
-    if (
-      kind === "turn_context" ||
-      (kind === "event_msg" && type === "task_started")
-    ) {
+    if (kind === "turn_context" || (kind === "event_msg" && type === "task_started")) {
       this.bind(str(p, "turn_id"));
       return;
     }
-    if (
-      kind === "event_msg" &&
-      ["task_complete", "turn_complete", "turn_aborted"].includes(type ?? "")
-    ) {
+    if (kind === "event_msg" && ["task_complete", "turn_complete", "turn_aborted"].includes(type ?? "")) {
       const turn = str(p, "turn_id");
       if (!turn || turn === this.turn.text()) this.ended = true;
       return;
     }
     if (kind !== "response_item" || !this.turn.len || this.ended) return;
-    if (
-      type === "message" &&
-      str(p, "role") === "assistant" &&
-      str(p, "phase") === "commentary"
-    ) {
+    if (type === "message" && str(p, "role") === "assistant" && str(p, "phase") === "commentary") {
       const content = field(p, "content");
       if (Array.isArray(content)) {
         this.commentary = new Text(
           clip(
             "Latest agent update: " +
               content
-                .filter((c) => str(c, "type") === "output_text")
-                .map((c) => str(c, "text"))
+                .filter(c => str(c, "type") === "output_text")
+                .map(c => str(c, "text"))
                 .join(""),
             2048,
           ),
@@ -239,21 +219,11 @@ export class Tracker {
     if (!id) return;
     const key = this.key(id);
     if (this.seen.includes(key)) return;
-    if (
-      ["function_call_output", "custom_tool_call_output"].includes(type ?? "")
-    ) {
+    if (["function_call_output", "custom_tool_call_output"].includes(type ?? "")) {
       this.finishId(key, live);
       return;
     }
-    if (
-      ![
-        "function_call",
-        "custom_tool_call",
-        "local_shell_call",
-        "web_search_call",
-      ].includes(type ?? "")
-    )
-      return;
+    if (!["function_call", "custom_tool_call", "local_shell_call", "web_search_call"].includes(type ?? "")) return;
     const call = new Call();
     call.id = key;
     call.append((str(p, "name") || type) + ": ");
@@ -261,22 +231,14 @@ export class Tracker {
     if (input) {
       try {
         const args = JSON.parse(input),
-          detail =
-            ["description", "cmd", "command", "code", "query"]
-              .map((k) => str(args, k))
-              .find(Boolean) ?? input;
+          detail = ["description", "cmd", "command", "code", "query"].map(k => str(args, k)).find(Boolean) ?? input;
         call.detail(detail);
       } catch {
         const start = Buffer.byteLength(call.value);
-        if (
-          input.trimStart().startsWith("*** Begin Patch") &&
-          call.patchFiles(input)
-        )
-          call.bound(start, false);
+        if (input.trimStart().startsWith("*** Begin Patch") && call.patchFiles(input)) call.bound(start, false);
         else if (!call.script(input)) call.detail(input);
       }
-    } else if (type === "web_search_call")
-      call.detail(str(field(p, "action"), "query"));
+    } else if (type === "web_search_call") call.detail(str(field(p, "action"), "query"));
     if (type === "web_search_call" && str(p, "status") === "completed") {
       this.finish(call, live);
       return;
@@ -308,15 +270,7 @@ export class Tracker {
         const call = new Call();
         call.id = key;
         call.append(str(block, "name") + ": ");
-        for (const name of [
-          "description",
-          "command",
-          "file_path",
-          "pattern",
-          "query",
-          "url",
-          "prompt",
-        ]) {
+        for (const name of ["description", "command", "file_path", "pattern", "query", "url", "prompt"]) {
           const detail = str(field(block, "input"), name);
           if (!detail) continue;
           call.detail(name === "file_path" ? shortPath(detail) : detail);

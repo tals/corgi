@@ -10,16 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import {
-  JsonSocket,
-  EXE,
-  quote,
-  registerCase,
-  run,
-  shellJoin,
-  sleep,
-  writeExecutable,
-} from "./support";
+import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, writeExecutable } from "./support";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
@@ -105,7 +96,9 @@ class Reloads extends Runtime {
     const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
     try {
       await this.command("pane.input", { target: pane, data: `exec ${quote(terminal)}\r` });
-      await this.until(async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.session === session);
+      await this.until(
+        async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.session === session,
+      );
     } finally {
       await observer.close();
     }
@@ -127,7 +120,9 @@ class Reloads extends Runtime {
   candidate(mutation: string) {
     const candidate = join(this.temp.name, "candidate"),
       transformer = join(this.temp.name, "mutate.ts");
-    writeExecutable(transformer, `#!/usr/bin/env bun
+    writeExecutable(
+      transformer,
+      `#!/usr/bin/env bun
 import { readFileSync, writeSync, ftruncateSync } from 'node:fs';
 import { dlopen, FFIType } from 'bun:ffi';
 const libc = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', {
@@ -142,16 +137,14 @@ ${mutation};
 libc.symbols.lseek(fd, 0n, 0);
 ftruncateSync(fd, 0); writeSync(fd, JSON.stringify(m));
 libc.symbols.lseek(fd, 0n, 0);
-`);
-    writeFileSync(candidate,
-      `#!/bin/sh\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`,
-      { mode: 0o700 });
+`,
+    );
+    writeFileSync(candidate, `#!/bin/sh\nbun ${quote(transformer)} "$2"\nexec ${quote(EXE)} "$@"\n`, { mode: 0o700 });
     chmodSync(candidate, 0o700);
     return candidate;
   }
   async screen(pane: number) {
-    return (await this.command("pane.read", { target: pane, view: "screen" }))
-      .text;
+    return (await this.command("pane.read", { target: pane, view: "screen" })).text;
   }
 
   async test_workspace_automatic_and_custom_names_survive_handoff() {
@@ -164,9 +157,7 @@ libc.symbols.lseek(fd, 0n, 0);
       target: first,
       data: `cd ${quote(folder)}\r`,
     });
-    await this.until(
-      async () => (await this.session()).workspaces[0].name === "project",
-    );
+    await this.until(async () => (await this.session()).workspaces[0].name === "project");
     this.assertEqual((await this.session()).workspaces[0].custom_name, "");
     await this.command("workspace.edit", { name: "Override", target: ws });
     await this.reload();
@@ -174,9 +165,7 @@ libc.symbols.lseek(fd, 0n, 0);
     await this.until(async () => (await this.session()).panes[0].cwd === "/");
     this.assertEqual((await this.session()).workspaces[0].name, "Override");
     await this.command("workspace.edit", { name: "", target: ws });
-    await this.until(
-      async () => (await this.session()).workspaces[0].name === "/",
-    );
+    await this.until(async () => (await this.session()).workspaces[0].name === "/");
   }
   async test_handoff_preserves_processes_viewers_and_queued_controls() {
     const first = await this.new(),
@@ -209,14 +198,9 @@ libc.symbols.lseek(fd, 0n, 0);
     this.assertIn("After handoff", b.state.data);
     await a.input("\x1b");
     await a.input("printf 'AFTER_%s\\n' RELOAD\r");
-    await this.until(async () =>
-      (await this.screen(first)).includes("AFTER_RELOAD"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("AFTER_RELOAD"));
     await this.command("pane.input", { target: first, data: "exit\r" });
-    await this.until(
-      async () =>
-        !(await this.session()).panes.some((p: any) => p.id === first),
-    );
+    await this.until(async () => !(await this.session()).panes.some((p: any) => p.id === first));
   }
   async test_failed_candidate_rolls_back_and_can_retry() {
     const first = await this.new(),
@@ -230,20 +214,16 @@ libc.symbols.lseek(fd, 0n, 0);
       });
       this.assertEqual(response.err, "ReloadCandidateFailed");
       this.assertEqual(before.server_pid, (await this.session()).server_pid);
-      this.assertEqual(
-        before.panes[0].pid,
-        (await this.session()).panes[0].pid,
-      );
+      this.assertEqual(before.panes[0].pid, (await this.session()).panes[0].pid);
       this.assertEqual((await a.poll()).pane, first);
     }
     await this.reload();
     await a.input("printf 'STILL_%s\\n' HERE\r");
-    await this.until(async () =>
-      (await this.screen(first)).includes("STILL_HERE"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("STILL_HERE"));
   }
   async test_v2_migration_preserves_processes_viewers_and_inference_counts() {
-    const first = await this.new(), viewer = await Viewer.create(this);
+    const first = await this.new(),
+      viewer = await Viewer.create(this);
     const before = await this.session();
     const executable = this.candidate(`${DOWNGRADE}
 handoffV3(m);
@@ -262,8 +242,10 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertTrue(result.ok, readFileSync(join(this.temp.name, "server.log"), "utf8"));
     this.assertNotEqual(result.server_pid, before.server_pid);
     const after = await this.session();
-    this.assertEqual(before.panes.map((p: any) => [p.id, p.pid]),
-      after.panes.map((p: any) => [p.id, p.pid]));
+    this.assertEqual(
+      before.panes.map((p: any) => [p.id, p.pid]),
+      after.panes.map((p: any) => [p.id, p.pid]),
+    );
     this.assertEqual(after.inference.launches, { codex: 7, claude: 4 });
     this.assertEqual((await viewer.poll()).pane, first);
     await viewer.input("printf 'MIGRATED_%s\\n' ALIVE\r");
@@ -282,7 +264,12 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     const saved = (await this.rpc({ op: "recovery.save", protocol: 1 })).path;
     await this.run_cli("shutdown");
     await this.until(() => {
-      try { process.kill(before.server_pid, 0); return false; } catch { return true; }
+      try {
+        process.kill(before.server_pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
     });
     const original = JSON.parse(readFileSync(saved, "utf8"));
     new Function("state", `${DOWNGRADE}checkpointV4(state);`)(original);
@@ -328,9 +315,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       client.close();
     }
     await a.input("SURVIVED\\n\x1b[201~\r");
-    await this.until(async () =>
-      (await this.screen(first)).includes("PASTE_SURVIVED"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("PASTE_SURVIVED"));
   }
   async test_native_session_retains_pid_approvals_and_transport() {
     const session = (
@@ -340,48 +325,30 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
         cwd: this.temp.name,
       })
     ).session;
-    await this.until(
-      async () => (await this.rpc({ op: "native.list" })).sessions[0].ready,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].ready);
     await this.rpc({
       op: "native.send",
       session,
       message: { method: "test/approval" },
     });
-    await this.until(
-      async () =>
-        (await this.rpc({ op: "native.list" })).sessions[0].pending_requests ===
-        1,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].pending_requests === 1);
     const before = await this.rpc({ op: "native.events", session });
     const pid = (await this.rpc({ op: "native.list" })).sessions[0].pid;
     await this.reload();
-    this.assertEqual(
-      (await this.rpc({ op: "native.events", session })).pending_requests,
-      before.pending_requests,
-    );
-    this.assertEqual(
-      (await this.rpc({ op: "native.list" })).sessions[0].pid,
-      pid,
-    );
+    this.assertEqual((await this.rpc({ op: "native.events", session })).pending_requests, before.pending_requests);
+    this.assertEqual((await this.rpc({ op: "native.list" })).sessions[0].pid, pid);
     await this.rpc({
       op: "native.send",
       session,
       message: { id: 900, result: {} },
     });
-    await this.until(
-      async () =>
-        (await this.rpc({ op: "native.list" })).sessions[0].pending_requests ===
-        0,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].pending_requests === 0);
     await this.rpc({
       op: "native.send",
       session,
       message: { method: "test/exit" },
     });
-    await this.until(
-      async () => (await this.rpc({ op: "native.list" })).sessions[0].exited,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].exited);
   }
   async test_cold_recovery_preserves_layout_cwd_history_and_resume_hint() {
     this.env.SHELL = "/bin/bash";
@@ -389,17 +356,12 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     const project = join(this.temp.name, "project");
     mkdirSync(project);
     const physicalProject = realpathSync(project);
-    const first = await this.new(
-      "printf 'BEFORE_%s\\n' CRASH; exec /bin/sh",
-      "Kept title",
-    );
+    const first = await this.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh", "Kept title");
     await this.command("pane.input", {
       target: first,
       data: `cd ${quote(project)}\r`,
     });
-    await this.until(
-      async () => (await this.session()).panes[0].cwd === physicalProject,
-    );
+    await this.until(async () => (await this.session()).panes[0].cwd === physicalProject);
     await this.pair(first, "01901234-1234-1234-1234-123456789abc");
     await this.rpc({
       op: "hook",
@@ -412,8 +374,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       },
     });
     await this.until(
-      async () =>
-        (await this.session()).panes[0].agent.session === "01901234-1234-1234-1234-123456789abc",
+      async () => (await this.session()).panes[0].agent.session === "01901234-1234-1234-1234-123456789abc",
     );
     const before = await this.session(),
       saved = (await this.rpc({ op: "recovery.save", protocol: 1 })).path;
@@ -450,17 +411,13 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertEqual(restored.session, "01901234-1234-1234-1234-123456789abc");
     this.assertEqual(restored.state, "unknown");
     this.assertEqual(restored.conversation, before.panes[0].agent.conversation);
-    const actor = after.conversations.find(
-      (a: any) => a.id === restored.conversation,
-    );
+    const actor = after.conversations.find((a: any) => a.id === restored.conversation);
     this.assertEqual(actor.observed_at, 0);
     await this.command("pane.input", {
       target: first,
       data: "\x15printf 'NEW_%s\\n' SHELL\r",
     });
-    await this.until(async () =>
-      (await this.screen(first)).includes("NEW_SHELL"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("NEW_SHELL"));
   }
   async test_recovery_prefills_editable_command_until_enter() {
     const fish = await run(["which", "fish"], { check: false });
@@ -484,10 +441,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
           `set -g fish_greeting; function fish_prompt; printf '❯ '; end; function codex; printf '%s ' $argv > ${quote(marker)}; end\n`,
         );
       } else {
-        const config = join(
-          this.temp.name,
-          shell.endsWith("zsh") ? ".zshrc" : ".profile",
-        );
+        const config = join(this.temp.name, shell.endsWith("zsh") ? ".zshrc" : ".profile");
         writeFileSync(config, `codex() { ${body}; }\n`);
       }
       await this.pair(first, "01901234-1234-1234-1234-123456789def");
@@ -511,18 +465,11 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       await this.command("pane.input", { data: "\r", target: first });
       await this.until(
         () =>
-          existsSync(marker) &&
-          readFileSync(marker, "utf8").trim() === "resume 01901234-1234-1234-1234-123456789def",
+          existsSync(marker) && readFileSync(marker, "utf8").trim() === "resume 01901234-1234-1234-1234-123456789def",
       );
-      this.assertEqual(
-        readFileSync(marker, "utf8").trim(),
-        "resume 01901234-1234-1234-1234-123456789def",
-      );
+      this.assertEqual(readFileSync(marker, "utf8").trim(), "resume 01901234-1234-1234-1234-123456789def");
       await this.command("pane.input", { target: first, data: "exit\r" });
-      await this.until(
-        async () =>
-          !(await this.session()).panes.some((p: any) => p.id === first),
-      );
+      await this.until(async () => !(await this.session()).panes.some((p: any) => p.id === first));
     }
   }
   async test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes() {
@@ -553,9 +500,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       target: first,
       data: "printf 'ROLLBACK_%s\\n' OK\r",
     });
-    await this.until(async () =>
-      (await this.screen(first)).includes("ROLLBACK_OK"),
-    );
+    await this.until(async () => (await this.screen(first)).includes("ROLLBACK_OK"));
   }
   async test_backpressure_rejects_reload_without_dropping_accepted_input() {
     const program = join(this.temp.name, "blocked.ts"),
@@ -590,15 +535,11 @@ process.stdin.resume();
     this.assertEqual(response.err, "ReloadInputBackpressure");
     this.assertEqual((await this.session()).server_pid, before.server_pid);
     writeFileSync(gate, "");
-    await this.until(
-      () => existsSync(received) && statSync(received).size === 8 * 65536,
-    );
+    await this.until(() => existsSync(received) && statSync(received).size === 8 * 65536);
     await this.reload();
     await this.command("pane.input", { data: "END", target: first });
     await this.until(() =>
-      readFileSync(received).equals(
-        Buffer.concat([Buffer.alloc(8 * 65536, 97), Buffer.from("END")]),
-      ),
+      readFileSync(received).equals(Buffer.concat([Buffer.alloc(8 * 65536, 97), Buffer.from("END")])),
     );
   }
   async test_native_cold_recovery_displays_resume_without_starting_agent() {
@@ -611,18 +552,13 @@ process.stdin.resume();
         cwd: this.temp.name,
       })
     ).session;
-    await this.until(
-      async () => (await this.rpc({ op: "native.list" })).sessions[0].ready,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].ready);
     await this.rpc({
       op: "native.send",
       session: ident,
       message: { method: "test/approval" },
     });
-    await this.until(
-      async () =>
-        (await this.rpc({ op: "native.list" })).sessions[0].session_id === "t",
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].session_id === "t");
     await this.rpc({ op: "recovery.save", protocol: 1 });
     await this.restart_runtime();
     const sessions = (await this.rpc({ op: "native.list" })).sessions;
@@ -630,9 +566,7 @@ process.stdin.resume();
     this.assertEqual(sessions[0].pid, -1);
     this.assertEqual((await this.session()).panes.length, 1);
     const pane = (await this.session()).panes[0].id;
-    await this.until(async () =>
-      (await this.screen(pane)).includes("codex resume 't'"),
-    );
+    await this.until(async () => (await this.screen(pane)).includes("codex resume 't'"));
     const text = await this.screen(pane);
     this.assertIn("codex resume 't'", text);
     this.assertIn("requestApproval", text);
@@ -645,9 +579,7 @@ process.stdin.resume();
       target: first,
       data: `cd ${quote(folder)}\r`,
     });
-    await this.until(
-      async () => (await this.session()).panes[0].cwd === realpathSync(folder),
-    );
+    await this.until(async () => (await this.session()).panes[0].cwd === realpathSync(folder));
     await this.rpc({ op: "recovery.save", protocol: 1 });
     await this.run_cli("shutdown");
     await this.until(() => !existsSync(this.path));
@@ -656,14 +588,8 @@ process.stdin.resume();
     if (existsSync(workspaceState)) rmSync(workspaceState);
     await this.run_cli("start");
     this.assertEqual((await this.session()).panes[0].id, first);
-    this.assertIn(
-      "# Recovered saved output; new shell.",
-      await this.screen(first),
-    );
-    this.assertEqual(
-      (await this.session()).panes[0].cwd,
-      realpathSync(this.temp.name),
-    );
+    this.assertIn("# Recovered saved output; new shell.", await this.screen(first));
+    this.assertEqual((await this.session()).panes[0].cwd, realpathSync(this.temp.name));
   }
   async test_pipelined_requests_remain_ordered_across_handoff() {
     await this.new();
@@ -730,17 +656,10 @@ process.stdin.resume();
     const pid = (await this.rpc({ op: "native.list" })).sessions[0].pid;
     await this.reload();
     writeFileSync(gate, "");
-    await this.until(
-      async () => (await this.rpc({ op: "native.list" })).sessions[0].ready,
-    );
-    this.assertEqual(
-      pid,
-      (await this.rpc({ op: "native.list" })).sessions[0].pid,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].ready);
+    this.assertEqual(pid, (await this.rpc({ op: "native.list" })).sessions[0].pid);
     await this.until(async () =>
-      (await this.rpc({ op: "native.events", session: ident })).events.some(
-        (e: any) => JSON.parse(e.line).id === 42,
-      ),
+      (await this.rpc({ op: "native.events", session: ident })).events.some((e: any) => JSON.parse(e.line).id === 42),
     );
   }
   async test_removed_attachment_cannot_create_a_shell_or_block_reload() {

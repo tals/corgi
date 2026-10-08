@@ -1,24 +1,7 @@
 /** Real viewer launch controls and read-only agent previews. */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  readdirSync,
-  writeFileSync,
-  unlinkSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-  registerCase,
-  writeExecutable,
-  shellJoin,
-  quote,
-  sleep,
-  EXE,
-  ROOT,
-  JsonSocket,
-} from "./support";
+import { registerCase, writeExecutable, shellJoin, quote, sleep, EXE, ROOT, JsonSocket } from "./support";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 
@@ -35,11 +18,12 @@ function lines(path: string) {
 function windows(info: any): unknown {
   return info.limits.windows?.map((w: any) => w && [w.minutes, w.used]);
 }
-const claudeWindows = [[300, 12], [10080, 48]];
+const claudeWindows = [
+  [300, 12],
+  [10080, 48],
+];
 function hasLimits(row: string, short: number, weekly: number): boolean {
-  return new RegExp(
-    String.raw`\b5h(?:\s+━+)?\s+${short}%.*\b7d(?:\s+━+)?\s+${weekly}%`,
-  ).test(row);
+  return new RegExp(String.raw`\b5h(?:\s+━+)?\s+${short}%.*\b7d(?:\s+━+)?\s+${weekly}%`).test(row);
 }
 
 class Launcher extends Runtime {
@@ -53,15 +37,15 @@ class Launcher extends Runtime {
     this.env.CORGI_CLAUDE_TEST_LAUNCHES = join(root, "launches.jsonl");
     mkdirSync(join(this.env.CLAUDE_CONFIG_DIR!, "projects"), { recursive: true });
     writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), "{}");
-    writeExecutable(this.env.CORGI_CLAUDE_BIN!, `await import(${JSON.stringify(join(ROOT, "tests/claude_metadata.ts"))});`);
+    writeExecutable(
+      this.env.CORGI_CLAUDE_BIN!,
+      `await import(${JSON.stringify(join(ROOT, "tests/claude_metadata.ts"))});`,
+    );
   }
 
   async setUp() {
     await super.setUp();
-    writeFileSync(
-      this.path + ".viewer.json",
-      JSON.stringify({ onboarding_complete: true }),
-    );
+    writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     this.launches = join(this.temp.name, "launches.jsonl");
     const harness = join(ROOT, "tests/inference_harness.ts");
     writeExecutable(
@@ -99,26 +83,20 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
   }
   async clickText(view: Viewer, label: string, cols = 120) {
     const rows = screen_text((await view.poll()).data, cols, 30);
-    const y = rows.findIndex((row) => row.includes(label));
+    const y = rows.findIndex(row => row.includes(label));
     this.assertGreaterEqual(y, 0, `missing ${label}`);
     return this.clickViewer(view, rows[y].indexOf(label) + 1, y + 1);
   }
   async assertSelected(view: Viewer, label: string, cols = 120) {
     const rows = screen_text((await view.poll()).data, cols, 30);
     this.assertTrue(
-      rows.some((row) =>
-        new RegExp(
-          "› +([0-9t→] +)?" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        ).test(row),
-      ),
+      rows.some(row => new RegExp("› +([0-9t→] +)?" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(row)),
       rows.join("\n"),
     );
   }
   async managerAction(view: Viewer, name: string, action: string) {
     const rows = screen_text((await view.poll()).data, 120, 30);
-    const y = rows.findLastIndex(
-      (row) => row.includes(name) && row.includes("[Edit]"),
-    );
+    const y = rows.findLastIndex(row => row.includes(name) && row.includes("[Edit]"));
     this.assertGreaterEqual(y, 0);
     return this.clickViewer(view, rows[y].indexOf(action) + 1, y + 1);
   }
@@ -139,28 +117,19 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: false,
     });
     await this.clickText(view, "Paste a command");
-    const source =
-      "FOO=123 claude code --whatever 'two words' --prompt '" +
-      "x".repeat(100) +
-      "'\n";
+    const source = "FOO=123 claude code --whatever 'two words' --prompt '" + "x".repeat(100) + "'\n";
     await view.input("\x1b[200~" + source + "\x1b[201~");
     this.assertIn("Claude Code", (await view.poll()).data);
     await view.input("\r");
     await this.waitSaved(0, source.trim());
     this.assertFalse(existsSync(this.launches));
-    this.assertEqual(
-      (await this.session()).agent_commands[0].command,
-      source.trim(),
-    );
+    this.assertEqual((await this.session()).agent_commands[0].command, source.trim());
     await this.managerAction(view, "Claude Code", "[✓]");
     this.assertTrue((await this.session()).agent_commands[0].hidden);
     await this.clickText(view, "[Done]");
     const rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertFalse(rows.some((row) => row.includes("Codex")));
-    this.assertEqual(
-      rows.filter((row) => row.includes("Claude Code")).length,
-      1,
-    );
+    this.assertFalse(rows.some(row => row.includes("Codex")));
+    this.assertEqual(rows.filter(row => row.includes("Claude Code")).length, 1);
     await this.clickText(view, "Manage agents");
     await this.managerAction(view, "Claude Code", "[ ]");
     await this.managerAction(view, "Claude Code", "[Edit]");
@@ -196,40 +165,29 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertIn("FOO=123 claude --model sonnet", (await view.poll()).data);
     await this.clickText(view, "[Add]");
     await this.waitSaved(0, "FOO=123 claude --model sonnet");
-    this.assertEqual(
-      (await this.session()).agent_commands[0].command.length,
-      "FOO=123 claude --model sonnet".length,
-    );
+    this.assertEqual((await this.session()).agent_commands[0].command.length, "FOO=123 claude --model sonnet".length);
     this.assertFalse(existsSync(this.launches));
     await this.managerAction(view, "Codex", "[Edit]");
     await view.input("codex --model example");
     await this.clickText(view, "[Save]");
     await this.waitSaved(1, "codex --model example");
     this.assertTrue((await this.session()).agent_hidden.codex);
-    this.assertEqual(
-      (await this.session()).agent_commands[1].command,
-      "codex --model example",
-    );
+    this.assertEqual((await this.session()).agent_commands[1].command, "codex --model example");
     this.assertIn("Paste a command", (await view.poll()).data);
     await view.input("abc");
     await view.input("\x1b[D");
     await view.input("X");
     this.assertIn("abXc", (await view.poll()).data);
     await view.input("\x1b");
-    await this.until(async () =>
-      (await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("New agent"));
   }
   async test_command_name_and_semantic_account_preview() {
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
     await this.clickText(view, "Manage agents");
-    const source =
-      "ANTHROPIC_API_KEY=fixture-secret claude --model sonnet --dangerously-skip-permissions";
+    const source = "ANTHROPIC_API_KEY=fixture-secret claude --model sonnet --dangerously-skip-permissions";
     await view.input(source);
-    await this.until(async () =>
-      (await view.poll()).data.includes("API key - identity unavailable"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("API key - identity unavailable"));
     this.assertIn("Skips permission checks", (await view.poll()).data);
     this.assertIn("Claude Code - Sonnet", (await view.poll()).data);
     await view.input("\tTeam assistant");
@@ -244,24 +202,15 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\tRenamed assistant\r");
     await this.until(async () => {
       await view.poll();
-      return (await this.session()).agent_commands[0].name.startsWith(
-        "Renamed assistant",
-      );
+      return (await this.session()).agent_commands[0].name.startsWith("Renamed assistant");
     });
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
-    this.assertTrue(
-      (await this.session()).agent_commands[0].name.startsWith(
-        "Renamed assistant",
-      ),
-    );
+    this.assertTrue((await this.session()).agent_commands[0].name.startsWith("Renamed assistant"));
   }
   async test_custom_agent_account_in_picker() {
     const config = join(this.temp.name, "work-profile");
     mkdirSync(config);
-    writeFileSync(
-      join(config, ".claude.json"),
-      JSON.stringify({ oauthAccount: { emailAddress: "work@example.com" } }),
-    );
+    writeFileSync(join(config, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "work@example.com" } }));
     await this.command("agent.command", {
       index: 0,
       command: `CLAUDE_CONFIG_DIR=${quote(config)} claude --dangerously-skip-permissions`,
@@ -270,9 +219,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const view = await Viewer.create(this, 160, 30);
     await view.input("\x02a");
     const rows = screen_text((await view.poll()).data, 160, 30);
-    const row = rows.find(
-      (row) => row.includes("Work") && row.includes("work@example.com"),
-    );
+    const row = rows.find(row => row.includes("Work") && row.includes("work@example.com"));
     this.assertIn("✓", row);
     this.assertIn("(cached)", row);
   }
@@ -283,12 +230,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     for (const key of Object.keys(this.env))
       if (
         key.startsWith("CLAUDE_CODE_USE_") ||
-        [
-          "ANTHROPIC_API_KEY",
-          "ANTHROPIC_AUTH_TOKEN",
-          "CLAUDE_CODE_OAUTH_TOKEN",
-          "ANTHROPIC_BASE_URL",
-        ].includes(key)
+        ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"].includes(key)
       )
         delete this.env[key];
     await this.run_cli("start");
@@ -306,9 +248,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertFalse((await preview()).options.claude.signed_in);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
-    await this.until(
-      async () => !(await view.poll()).data.includes("Claude Code"),
-    );
+    await this.until(async () => !(await view.poll()).data.includes("Claude Code"));
     await view.input("\x1b");
     await view.input("\x02a");
     this.assertNotIn("Claude Code", (await view.poll()).data);
@@ -334,16 +274,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     if (name === "fish") {
       config = join(root, ".config/fish/config.fish");
       mkdirSync(join(root, ".config/fish"), { recursive: true });
-      writeFileSync(
-        config,
-        `function launchit\n ${quote(script)} --preset $argv\nend\nalias myagent launchit\n`,
-      );
+      writeFileSync(config, `function launchit\n ${quote(script)} --preset $argv\nend\nalias myagent launchit\n`);
     } else {
       config = join(root, name === "bash" ? ".bashrc" : ".zshrc");
-      writeFileSync(
-        config,
-        `launchit() { ${quote(script)} --preset "$@"; }\nalias myagent='launchit --fixed'\n`,
-      );
+      writeFileSync(config, `launchit() { ${quote(script)} --preset "$@"; }\nalias myagent='launchit --fixed'\n`);
     }
     await this.run_cli("start");
     const ws = (await this.session()).workspaces[0].id;
@@ -353,12 +287,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const saved = (await this.session()).agent_commands[0].command;
     this.assertNotIn("myagent", saved);
     this.assertNotIn("launchit", saved);
-    writeFileSync(
-      config,
-      name === "fish"
-        ? "function myagent\n echo WRONG\nend\n"
-        : "alias myagent=false\n",
-    );
+    writeFileSync(config, name === "fish" ? "function myagent\n echo WRONG\nend\n" : "alias myagent=false\n");
     await this.command("agent.command.create", {
       workspace: ws,
       cwd: this.launchDir,
@@ -367,12 +296,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.until(() => existsSync(result));
     this.assertEqual(json(result), {
       foo: "123 with spaces",
-      args: [
-        "--preset",
-        ...(name === "fish" ? [] : ["--fixed"]),
-        "--whatever",
-        "two words",
-      ],
+      args: ["--preset", ...(name === "fish" ? [] : ["--fixed"]), "--whatever", "two words"],
     });
   }
   async test_bash_alias_and_inline_environment() {
@@ -401,8 +325,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\x02a");
     await this.clickText(view, "Manage agents");
     await view.input("cc\r");
-    const expanded =
-      "command claude --allow-dangerously-skip-permissions --dangerously-skip-permissions";
+    const expanded = "command claude --allow-dangerously-skip-permissions --dangerously-skip-permissions";
     await this.waitSaved(0, expanded);
     const entry = (await this.session()).agent_commands[0];
     this.assertEqual(entry.command, expanded);
@@ -410,10 +333,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     writeFileSync(config, "function cc\n false\nend\n");
     await this.managerAction(view, "Claude Code", "[✓]");
     await this.managerAction(view, "Claude Code", "[ ]");
-    this.assertEqual(
-      (await this.session()).agent_commands[0].command,
-      entry.command,
-    );
+    this.assertEqual((await this.session()).agent_commands[0].command, entry.command);
     this.assertFalse(existsSync(this.launches));
   }
   async test_debounced_preview_is_frozen_on_add_and_delete_is_inline() {
@@ -435,9 +355,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     // Continuous typing stays inside the debounce window.
     await view.input("cc");
     this.assertEqual(existsSync(log) ? content(log) : "", baseline);
-    await this.until(async () =>
-      (await view.poll()).data.includes("[Show command]"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("[Show command]"));
     await this.clickText(view, "[Show command]");
     this.assertIn("command claude --model original", (await view.poll()).data);
     this.assertEqual((await this.session()).agent_commands[0].command, "");
@@ -451,7 +369,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertEqual(content(log), before);
     await this.managerAction(view, "Claude Code", "[Edit]");
     const rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertTrue(rows.some((row) => row.includes("│ cc ")));
+    this.assertTrue(rows.some(row => row.includes("│ cc ")));
     this.assertNotIn("Runs:", (await view.poll()).data);
     await this.clickText(view, "[Show command]");
     this.assertIn("command claude --model original", (await view.poll()).data);
@@ -466,10 +384,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertEqual((await this.session()).agent_commands[0].command, "");
     this.assertNotIn("[Delete]", (await view.poll()).data);
     this.assertFalse(existsSync(this.launches));
-    writeFileSync(
-      config,
-      prefix + "sleep .3\nalias cc 'claude --model stale'\n",
-    );
+    writeFileSync(config, prefix + "sleep .3\nalias cc 'claude --model stale'\n");
     const previous = content(log);
     await view.input("cc");
     await this.until(async () => {
@@ -484,57 +399,22 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const view = await Viewer.create(this, 140, 30);
     this.assertIn("New", screen_text((await view.poll()).data, 140, 30)[14]);
     await this.clickViewer(view, 26, 15);
-    await this.until(
-      async () => (await view.poll()).data.includes("fixture-codex"),
-      12,
-    );
+    await this.until(async () => (await view.poll()).data.includes("fixture-codex"), 12);
     const text = screen_text((await view.poll()).data, 140, 30).join("\n");
-    for (const value of [
-      "Claude Code",
-      "Opus",
-      "codex@example.com",
-      "claude@example.com",
-    ])
-      this.assertIn(value, text);
+    for (const value of ["Claude Code", "Opus", "codex@example.com", "claude@example.com"]) this.assertIn(value, text);
     this.assertNotIn("User settings", text);
     const rows = screen_text((await view.poll()).data, 140, 30);
     this.assertTrue(
-      rows.some(
-        (row) =>
-          row.includes("Codex") &&
-          row.includes("fixture-codex") &&
-          row.includes("codex@example.com"),
-      ),
+      rows.some(row => row.includes("Codex") && row.includes("fixture-codex") && row.includes("codex@example.com")),
     );
     this.assertTrue(
-      rows.some(
-        (row) =>
-          row.includes("Claude Code") &&
-          row.includes("Opus") &&
-          row.includes("claude@example.com"),
-      ),
+      rows.some(row => row.includes("Claude Code") && row.includes("Opus") && row.includes("claude@example.com")),
     );
-    this.assertTrue(
-      rows.some(
-        (row) =>
-          row.includes("Codex") &&
-          row.includes("Pro 200") &&
-          hasLimits(row, 23, 61),
-      ),
-    );
-    this.assertTrue(
-      rows.some(
-        (row) =>
-          row.includes("Claude Code") &&
-          row.includes("Max") &&
-          hasLimits(row, 12, 48),
-      ),
-    );
+    this.assertTrue(rows.some(row => row.includes("Codex") && row.includes("Pro 200") && hasLimits(row, 23, 61)));
+    this.assertTrue(rows.some(row => row.includes("Claude Code") && row.includes("Max") && hasLimits(row, 12, 48)));
     this.assertFalse(existsSync(this.launches));
     this.assertEqual((await this.session()).panes.length, 1);
-    const y = rows.findIndex(
-      (row) => row.includes("Claude Code") && row.includes("Opus"),
-    );
+    const y = rows.findIndex(row => row.includes("Claude Code") && row.includes("Opus"));
     await this.clickViewer(view, rows[y].indexOf("Claude Code") + 1, y + 1);
     await this.until(() => existsSync(this.launches));
     this.assertEqual((await this.session()).last_agent, "claude");
@@ -555,7 +435,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const view = await Viewer.create(this, 120, 30);
     await this.clickViewer(view, 26, 15);
     const rows = screen_text((await view.poll()).data, 120, 30);
-    const y = rows.findIndex((row) => row.includes("Codex"));
+    const y = rows.findIndex(row => row.includes("Codex"));
     await this.clickViewer(view, rows[y].indexOf("·") + 1, y + 1);
     this.assertEqual((await this.session()).agent_yolo, {
       codex: true,
@@ -577,10 +457,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("k");
     await view.input("a");
     await this.until(() => existsSync(this.launches));
-    this.assertIn(
-      "--dangerously-bypass-approvals-and-sandbox",
-      JSON.parse(lines(this.launches)[0]).args,
-    );
+    this.assertIn("--dangerously-bypass-approvals-and-sandbox", JSON.parse(lines(this.launches)[0]).args);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     this.assertEqual((await this.session()).agent_yolo, {
       codex: true,
@@ -592,29 +469,21 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       provider: "claude",
     });
     await this.until(() => lines(this.launches).length === 2);
-    this.assertIn(
-      "--dangerously-skip-permissions",
-      JSON.parse(lines(this.launches)[1]).args,
-    );
+    this.assertIn("--dangerously-skip-permissions", JSON.parse(lines(this.launches)[1]).args);
     await this.command("agent.yolo", { provider: "codex", enabled: false });
     await this.command("agent.create", {
       workspace: this.ws,
       provider: "codex",
     });
     await this.until(() => lines(this.launches).length === 3);
-    this.assertNotIn(
-      "--dangerously-bypass-approvals-and-sandbox",
-      JSON.parse(lines(this.launches)[2]).args,
-    );
+    this.assertNotIn("--dangerously-bypass-approvals-and-sandbox", JSON.parse(lines(this.launches)[2]).args);
   }
   async test_hover_and_dismiss_do_not_launch() {
     const view = await Viewer.create(this, 80, 24);
     this.assertIn("New agent", (await view.input("\x1b[<35;21;12M")).data);
     this.assertEqual((await this.session()).panes.length, 1);
     await view.input("\x1b[<35;75;2M");
-    await this.until(
-      async () => !(await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => !(await view.poll()).data.includes("New agent"));
     await this.clickViewer(view, 26, 12);
     this.assertIn("New agent", (await view.poll()).data);
     await this.clickViewer(view, 75, 2);
@@ -665,10 +534,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
   async test_reopening_uses_pushed_preview_on_first_frame() {
     const view = await Viewer.create(this, 160, 30);
     await view.input("\x02a");
-    await this.until(
-      async () => (await view.poll()).data.includes("claude@example.com"),
-      12,
-    );
+    await this.until(async () => (await view.poll()).data.includes("claude@example.com"), 12);
     await this.clickViewer(view, 158, 2);
     for (let i = 0; i < 3; i++) {
       const shown = await view.input("\x1b[<35;21;15M");
@@ -707,9 +573,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const view = await Viewer.create(this, 100, 30);
     await view.focus(pane);
     await view.input("\x1b[<35;21;15M");
-    await this.until(async () =>
-      (await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("New agent"));
     await view.input("\x1b[B");
     await this.assertSelected(view, "Claude Code", 100);
     await view.input("\x1b[B");
@@ -732,17 +596,13 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\t");
     await this.assertSelected(view, "Codex", 100);
     await view.input("\x1b");
-    await this.until(
-      async () => !(await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => !(await view.poll()).data.includes("New agent"));
     await sleep(0.6);
     this.assertNotIn("New agent", (await view.poll()).data);
     this.assertEqual(readFileSync(keys).length, 0);
     await view.input("\x1b[<35;98;2M");
     await view.input("\x1b[<35;21;15M");
-    await this.until(async () =>
-      (await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("New agent"));
     await this.clickViewer(view, 26, 15);
     await view.input("\x1bOB");
     await this.assertSelected(view, "Claude Code", 100);
@@ -764,14 +624,9 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
       this.assertEqual((await this.session()).panes.length, before);
       await view.input("\x1b[H");
       await view.input("\x1b[B");
-      this.assertRegex(
-        (await view.poll()).data,
-        / a \S* launch  \S* y \S* YOLO/,
-      );
+      this.assertRegex((await view.poll()).data, / a \S* launch  \S* y \S* YOLO/);
       await view.input(launch);
-      await this.until(
-        async () => (await this.session()).panes.length === before + 1,
-      );
+      await this.until(async () => (await this.session()).panes.length === before + 1);
       this.assertEqual((await this.session()).last_agent, "claude");
     }
     await view.input("\x1b[<35;21;15M");
@@ -780,22 +635,18 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\x02A");
     this.assertEqual((await this.session()).panes.length, before);
     await view.input("A");
-    await this.until(
-      async () => (await this.session()).panes.length === before + 1,
-    );
+    await this.until(async () => (await this.session()).panes.length === before + 1);
   }
   async test_numbered_agent_shortcuts_follow_visible_rows() {
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
     let rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertTrue(rows.some((row) => /0 +Codex/.test(row)));
-    this.assertTrue(rows.some((row) => /1 +Claude Code/.test(row)));
-    this.assertTrue(rows.some((row) => /t +New terminal/.test(row)));
+    this.assertTrue(rows.some(row => /0 +Codex/.test(row)));
+    this.assertTrue(rows.some(row => /1 +Claude Code/.test(row)));
+    this.assertTrue(rows.some(row => /t +New terminal/.test(row)));
     let before = (await this.session()).panes.length;
     await view.input("1");
-    await this.until(
-      async () => (await this.session()).panes.length === before + 1,
-    );
+    await this.until(async () => (await this.session()).panes.length === before + 1);
     this.assertEqual((await this.session()).last_agent, "claude");
     await this.command("agent.visibility", {
       hidden: { codex: true, claude: false },
@@ -808,15 +659,13 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     });
     await view.input("\x02a");
     rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertTrue(rows.some((row) => /0 +Claude Code/.test(row)));
-    this.assertTrue(rows.some((row) => /1 +Custom sleeper/.test(row)));
+    this.assertTrue(rows.some(row => /0 +Claude Code/.test(row)));
+    this.assertTrue(rows.some(row => /1 +Custom sleeper/.test(row)));
     before = (await this.session()).panes.length;
     await view.input("9");
     this.assertEqual((await this.session()).panes.length, before);
     await view.input("1");
-    await this.until(
-      async () => (await this.session()).panes.length === before + 1,
-    );
+    await this.until(async () => (await this.session()).panes.length === before + 1);
     this.assertNotIn("New agent", (await view.poll()).data);
   }
   async test_selection_survives_dismiss_and_other_viewer_launch() {
@@ -828,24 +677,20 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await this.assertSelected(view, "New terminal");
     await this.clickText(view, "Manage agents");
     await view.input("\x1b");
-    await this.until(async () =>
-      (await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("New agent"));
     await this.assertSelected(view, "New terminal");
     await view.input("\x1b");
     const other = await Viewer.create(this, 120, 30);
     await other.input("\x02a");
     await other.input("1");
-    await this.until(
-      async () => (await this.session()).last_agent === "claude",
-    );
+    await this.until(async () => (await this.session()).last_agent === "claude");
     await view.input("\x02a");
     await this.assertSelected(view, "New terminal");
     await view.input("\x1b");
     await view.input("\x1b[<35;118;2M");
     await view.input("\x1b[<35;21;15M");
     const rows = screen_text((await view.poll()).data, 120, 30);
-    const y = rows.findIndex((row) => row.includes("Codex"));
+    const y = rows.findIndex(row => row.includes("Codex"));
     await view.input(`\x1b[<35;${rows[y].indexOf("Codex") + 1};${y + 1}M`);
     await view.input("\x1b[<35;118;2M");
     this.assertNotIn("New agent", (await view.poll()).data);
@@ -856,9 +701,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
     await view.input("1");
-    await this.until(
-      async () => (await this.session()).workspaces[0].last_agent === "claude",
-    );
+    await this.until(async () => (await this.session()).workspaces[0].last_agent === "claude");
     const other = (
       await this.command("workspace.create", {
         name: "Other",
@@ -870,19 +713,14 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\x02a");
     await this.assertSelected(view, "Claude Code");
     await view.input("0");
-    const workspace = async (id: number) =>
-      (await this.session()).workspaces.find((ws: any) => ws.id === id);
-    await this.until(
-      async () => (await workspace(other)).last_agent === "codex",
-    );
+    const workspace = async (id: number) => (await this.session()).workspaces.find((ws: any) => ws.id === id);
+    await this.until(async () => (await workspace(other)).last_agent === "codex");
     this.assertEqual((await this.session()).last_agent, "codex");
     await view.request({ op: "workspace", workspace: this.ws });
     await view.input("\x02a");
     await this.assertSelected(view, "Claude Code");
     await view.input("\x1b");
-    await this.until(
-      async () => !(await view.poll()).data.includes("New agent"),
-    );
+    await this.until(async () => !(await view.poll()).data.includes("New agent"));
     await this.command("agent.create", { workspace: this.ws });
     this.assertEqual((await this.session()).last_agent, "claude");
     this.assertEqual((await workspace(other)).last_agent, "codex");
@@ -923,25 +761,19 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertIn("New terminal", (await view.input("\x02a")).data);
     const before = (await this.session()).panes.length;
     await view.input("t");
-    await this.until(
-      async () => (await this.session()).panes.length === before + 1,
-    );
+    await this.until(async () => (await this.session()).panes.length === before + 1);
     this.assertNotIn("New agent", (await view.poll()).data);
     await view.input("\x02a");
     await this.assertSelected(view, "New terminal", 100);
     this.assertRegex((await view.poll()).data, / a \S* open/);
     await view.input("\r");
-    await this.until(
-      async () => (await this.session()).panes.length === before + 2,
-    );
+    await this.until(async () => (await this.session()).panes.length === before + 2);
     await view.input("\x02a");
     await view.input("\x02a");
     this.assertEqual((await this.session()).panes.length, before + 2);
     this.assertIn("New agent", (await view.poll()).data);
     await view.input("t");
-    await this.until(
-      async () => (await this.session()).panes.length === before + 3,
-    );
+    await this.until(async () => (await this.session()).panes.length === before + 3);
     this.assertNotIn("New agent", (await view.poll()).data);
     this.assertFalse(existsSync(this.launches));
   }
@@ -952,51 +784,57 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
       this.assertIn("New agent", (await view.input("\x1b[<35;21;15M")).data);
       const before = (await this.session()).panes.length;
       await view.input(launch);
-      await this.until(
-        async () => (await this.session()).panes.length === before + 1,
-      );
+      await this.until(async () => (await this.session()).panes.length === before + 1);
       this.assertNotIn("New agent", (await view.poll()).data);
     }
   }
   async directoryPreview(name: string) {
     const directory = join(this.temp.name, name);
     mkdirSync(directory, { recursive: true });
-    const preview = async () => (await this.rpc({ op: "agent.preview", protocol: 1, workspace: this.ws, cwd: directory })).preview;
+    const preview = async () =>
+      (await this.rpc({ op: "agent.preview", protocol: 1, workspace: this.ws, cwd: directory })).preview;
     await this.until(async () => !(await preview()).pending, 12);
     return (await preview()).options.claude;
   }
   metadataRequests() {
     const path = join(this.env.CLAUDE_CONFIG_DIR!, "metadata-requests.jsonl");
-    return existsSync(path) ? lines(path).map((line) => JSON.parse(line)) : [];
+    return existsSync(path) ? lines(path).map(line => JSON.parse(line)) : [];
   }
   metadataCache() {
     const dir = join(this.env.XDG_STATE_HOME!, "corgi/account-previews");
-    return join(dir, readdirSync(dir).find((name) => name.startsWith("claude-cli-") && name.endsWith(".json"))!);
+    return join(
+      dir,
+      readdirSync(dir).find(name => name.startsWith("claude-cli-") && name.endsWith(".json"))!,
+    );
   }
   expireMetadataUsage() {
-    const path = this.metadataCache(), state = json(path);
+    const path = this.metadataCache(),
+      state = json(path);
     state.next_usage = 0;
     writeFileSync(path, JSON.stringify(state));
   }
   async test_claude_control_usage_reuses_process_and_cache_without_credentials() {
     // A stale credential file must not override Claude's own auth status.
-    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "" } }));
+    writeFileSync(
+      join(this.env.CLAUDE_CONFIG_DIR!, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "", refreshToken: "" } }),
+    );
     const first = await this.directoryPreview("first");
     this.assertEqual(first.account, "claude@example.com");
     this.assertTrue(first.signed_in);
     this.assertEqual(windows(first), claudeWindows);
     this.assertEqual(first.limits.windows[0].reset_at, 4070952000);
     for (let i = 0; i < 5; i++) await this.directoryPreview("shared" + i);
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "get_usage").length, 1);
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "auth").length, 1);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 1);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "auth").length, 1);
     this.expireMetadataUsage();
     await this.directoryPreview("refresh");
-    const requests = this.metadataRequests().filter((r) => r.kind === "get_usage");
+    const requests = this.metadataRequests().filter(r => r.kind === "get_usage");
     this.assertEqual(requests.length, 2);
     this.assertEqual(requests[0].pid, requests[1].pid);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     await this.directoryPreview("after-reload");
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "get_usage").length, 2);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 2);
     this.assertFalse(existsSync(this.launches));
   }
   async test_claude_usage_failure_keeps_account_and_stale_measurement() {
@@ -1010,7 +848,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(failed.usage_fetched_at, first.usage_fetched_at);
     this.assertEqual(failed.usage_error, "Claude usage request unsupported");
     await this.directoryPreview("cooldown");
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "get_usage").length, 2);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 2);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
     await this.until(async () => (await view.poll()).data.includes("Claude Code"));
@@ -1018,11 +856,14 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.expireMetadataUsage();
     const recovered = await this.directoryPreview("recovered");
     this.assertEqual(recovered.usage_error, "");
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "start").length, 2);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 2);
   }
   async test_claude_account_switch_does_not_reuse_other_accounts_usage() {
     await this.directoryPreview("first");
-    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"), JSON.stringify({ email: "other@example.com", mode: "malformed" }));
+    writeFileSync(
+      join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"),
+      JSON.stringify({ email: "other@example.com", mode: "malformed" }),
+    );
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     const other = await this.directoryPreview("other");
     this.assertTrue(other.signed_in);
@@ -1035,7 +876,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const unknown = await this.directoryPreview("unknown");
     this.assertIsNone(unknown.signed_in);
     this.assertEqual(unknown.usage_error, "Claude account unavailable");
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "start").length, 0);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 0);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02a");
     await this.clickText(view, "Claude Code");
@@ -1047,38 +888,34 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const info = await this.directoryPreview("hanging");
     this.assertTrue(info.signed_in);
     this.assertEqual(info.usage_error, "request timed out");
-    const pid = this.metadataRequests().find((r) => r.kind === "start").pid;
+    const pid = this.metadataRequests().find(r => r.kind === "start").pid;
     let alive = true;
-    try { process.kill(pid, 0); } catch { alive = false; }
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
     this.assertFalse(alive);
     await this.directoryPreview("after-timeout");
-    this.assertEqual(this.metadataRequests().filter((r) => r.kind === "start").length, 1);
+    this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 1);
   }
   async test_corgi_setup_changes_inference_provider() {
     const view = await Viewer.create(this, 100, 30);
-    const text = async () =>
-      screen_text((await view.poll()).data, 100, 30).join("\n");
+    const text = async () => screen_text((await view.poll()).data, 100, 30).join("\n");
     await view.input("\x02i");
     await this.until(async () => (await text()).includes("Corgi setup"));
     this.assertIn("Who writes activity summaries", await text());
     this.assertIn("● Auto", await text());
     this.assertEqual((await this.session()).inference.choice, "auto");
     await view.input("\x1b[B\x1b[B\r");
-    await this.until(
-      async () => (await this.session()).inference.choice === "claude",
-    );
+    await this.until(async () => (await this.session()).inference.choice === "claude");
     // Choosing a setting keeps setup open; only Esc closes it.
     await this.until(async () => (await text()).includes("● Claude"));
     this.assertIn("Corgi setup", await text());
     await this.clickText(view, "no summaries, plain links", 100);
-    await this.until(
-      async () => (await this.session()).inference.choice === "off",
-    );
+    await this.until(async () => (await this.session()).inference.choice === "off");
     this.assertIsNone((await this.session()).inference.provider);
-    const readSaved = () =>
-      JSON.parse(
-        readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"),
-      );
+    const readSaved = () => JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"));
     this.assertNotIn("When busy", await text());
     this.assertNotIn("Process card on hover", await text());
     this.assertNotIn("Amber alerts", await text());
@@ -1125,18 +962,12 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     // The newest closed conversations sit under the agents.
     await this.until(async () => {
       const rows = screen_text((await view.input("\x02a")).data, 120, 30);
-      const shown = rows.some(
-        (row) =>
-          row.includes("Sidebar flicker fixture") &&
-          row.includes("does it work on linux?"),
-      );
+      const shown = rows.some(row => row.includes("Sidebar flicker fixture") && row.includes("does it work on linux?"));
       if (!shown) await view.input("\x1b");
       return shown;
     }, 20);
     await view.input("/flicker");
-    await this.until(async () =>
-      (await view.poll()).data.includes("1 in this workspace"),
-    );
+    await this.until(async () => (await view.poll()).data.includes("1 in this workspace"));
     await view.input("\r");
     await this.until(() => existsSync(this.launches), 20);
     const launch = JSON.parse(lines(this.launches).at(-1)!);
@@ -1159,20 +990,14 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
         target: failed,
         view: "screen",
       });
-      return (
-        text.includes("running in the background") &&
-        text.includes("# Exited with code 1")
-      );
+      return text.includes("running in the background") && text.includes("# Exited with code 1");
     }, 20);
     // It no longer holds the conversation, so Resume starts it again.
     const kept = (await this.panes()).find((p: any) => p.id === failed);
     this.assertEqual(kept.session, "");
     // One that quits closes as before.
     const quits = await this.resume("quits");
-    await this.until(
-      async () => !(await this.panes()).some((p: any) => p.id === quits),
-      20,
-    );
+    await this.until(async () => !(await this.panes()).some((p: any) => p.id === quits), 20);
     this.assertTrue((await this.panes()).some((p: any) => p.id === failed));
     await this.command("pane.close", { target: failed });
     this.assertFalse((await this.panes()).some((p: any) => p.id === failed));
@@ -1195,22 +1020,13 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const shown = (await this.panes()).find((p: any) => p.id === attached);
     this.assertEqual(shown.restoring, "claude attach 19e909c5");
     await this.until(() => existsSync(this.launches), 20);
-    this.assertEqual(JSON.parse(lines(this.launches).at(-1)!).args, [
-      "attach",
-      "19e909c5",
-    ]);
+    this.assertEqual(JSON.parse(lines(this.launches).at(-1)!).args, ["attach", "19e909c5"]);
   }
   async test_preview_project_model() {
     const project = join(this.temp.name, "project");
     mkdirSync(join(project, ".claude"), { recursive: true });
-    writeFileSync(
-      join(project, ".claude/settings.json"),
-      JSON.stringify({ model: "haiku" }),
-    );
-    writeFileSync(
-      join(project, ".claude/settings.local.json"),
-      JSON.stringify({ model: "sonnet" }),
-    );
+    writeFileSync(join(project, ".claude/settings.json"), JSON.stringify({ model: "haiku" }));
+    writeFileSync(join(project, ".claude/settings.local.json"), JSON.stringify({ model: "sonnet" }));
     const preview = async () =>
       (
         await this.rpc({

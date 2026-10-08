@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 let data = "";
-await new Promise<void>((resolve) => {
+await new Promise<void>(resolve => {
   const timer = setTimeout(finish, 2000);
   function finish() {
     clearTimeout(timer);

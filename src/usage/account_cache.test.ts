@@ -6,15 +6,9 @@ import { Info, Window, expired } from "./account";
 import { Text } from "../providers/common";
 test("HTTP retry gate honors seconds and dates with a one-minute floor", () => {
   const now = 1700000000;
-  expect(
-    nextAttempt(response("HTTP/2 429\r\nRetry-After: 120\r\n\r\n{}", now), now),
-  ).toBe(now + 120);
-  expect(nextAttempt({ status: 429, retry_at: null, body: "" }, now)).toBe(
-    now + 300,
-  );
-  expect(nextAttempt({ status: 429, retry_at: now + 1, body: "" }, now)).toBe(
-    now + 60,
-  );
+  expect(nextAttempt(response("HTTP/2 429\r\nRetry-After: 120\r\n\r\n{}", now), now)).toBe(now + 120);
+  expect(nextAttempt({ status: 429, retry_at: null, body: "" }, now)).toBe(now + 300);
+  expect(nextAttempt({ status: 429, retry_at: now + 1, body: "" }, now)).toBe(now + 60);
   const r = response(
     "HTTP/1.1 200 Connection established\r\n\r\nHTTP/2 429\r\nretry-after: Tue, 14 Nov 2023 22:15:20 GMT\r\n\r\n{}",
     now,
@@ -28,10 +22,7 @@ test("partial account refresh retains usage until a fresh reading or sign-out", 
   fresh.signed_in = true;
   fresh.account = new Text("user@example.com");
   fresh.limits = {
-    windows: [
-      new Window({ minutes: 300, used: 12, reset_at: 1700001000 }),
-      null,
-    ],
+    windows: [new Window({ minutes: 300, used: 12, reset_at: 1700001000 }), null],
   };
   s.update(fresh, 1000);
   fresh.limits = "none";
@@ -83,9 +74,7 @@ test("usage age follows successful fetches and expires at ten minutes", () => {
   state.next_usage = 2000;
   state.update(Object.assign(new Info(), { signed_in: true }), 1500);
   const recent = state.display(1599);
-  expect(
-    typeof recent.limits === "object" && recent.limits.windows[1]?.used,
-  ).toBe(48);
+  expect(typeof recent.limits === "object" && recent.limits.windows[1]?.used).toBe(48);
   expect(expired(recent.usage_fetched_at, 1599)).toBe(false);
   const old = state.display(1600);
   expect(typeof old.limits).toBe("object");
@@ -104,10 +93,9 @@ test("usage failures preserve recent readings and give stale readings a reason",
   fresh.limits = { windows: [null, new Window({ minutes: 10080, used: 48 })] };
   state.update(fresh, 1000);
   state.failedResponse(429);
-  expect(
-    typeof state.display(1100).limits === "object" &&
-      (state.display(1100).limits as any).windows[1]?.used,
-  ).toBe(48);
+  expect(typeof state.display(1100).limits === "object" && (state.display(1100).limits as any).windows[1]?.used).toBe(
+    48,
+  );
   expect(state.display(1600).usage_error.text()).toBe("server returned 429");
   state.failedResponse(503);
   expect(state.display(1600).usage_error.text()).toBe("server returned 503");

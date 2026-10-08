@@ -29,9 +29,7 @@ export function truncateUtf8(value: string | Uint8Array, capacity: number) {
 }
 export function ascii(value: string, capacity: number) {
   const bytes = Buffer.from(value).subarray(0, capacity);
-  return Array.from(bytes, (b) =>
-    b >= 32 && b < 127 ? String.fromCharCode(b) : " ",
-  ).join("");
+  return Array.from(bytes, b => (b >= 32 && b < 127 ? String.fromCharCode(b) : " ")).join("");
 }
 export function BoundedText(capacity: number) {
   return class Bounded {
@@ -57,8 +55,7 @@ export function BoundedText(capacity: number) {
       if (typeof value === "string") bytes = Buffer.from(value);
       else if (Array.isArray(value)) {
         for (const n of value) {
-          if (typeof n !== "number" || !Number.isInteger(n))
-            throw Error("UnexpectedToken");
+          if (typeof n !== "number" || !Number.isInteger(n)) throw Error("UnexpectedToken");
           if (n < 0 || n > 255) throw Error("Overflow");
         }
         bytes = Buffer.from(value);

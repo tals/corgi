@@ -20,7 +20,19 @@ import * as agentNavigation from "./agent_navigation";
 import { Picker as AgentPicker } from "./agent_navigation";
 import { State as Navigation } from "./navigation";
 import * as navigation from "./navigation";
-import { Runtime, call, unread, acknowledge, providerName, statsAny, type Transport, type Pane, type Terminal, type Workspace, type Native } from "./mirror";
+import {
+  Runtime,
+  call,
+  unread,
+  acknowledge,
+  providerName,
+  statsAny,
+  type Transport,
+  type Pane,
+  type Terminal,
+  type Workspace,
+  type Native,
+} from "./mirror";
 import { parse as parseAction, needsPane, type Action } from "./action";
 import * as corgiBadge from "./corgi_badge";
 import * as forkMotion from "./fork_motion";
@@ -134,7 +146,16 @@ interface PortClick {
   drag_selects: boolean;
   cancelled: boolean;
 }
-const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortClick => ({ url: "", menu: null, pane: null, px: 0, py: 0, drag_selects: false, cancelled: false, ...fields });
+const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortClick => ({
+  url: "",
+  menu: null,
+  pane: null,
+  px: 0,
+  py: 0,
+  drag_selects: false,
+  cancelled: false,
+  ...fields,
+});
 class InputState {
   viewer_id = 0;
   last_control: number | bigint = 0;
@@ -260,7 +281,8 @@ export class Controller {
     const response = await call(this.connection, "session.command", { command });
     const result = { pane: Number(response.result?.pane ?? 0), workspace: Number(response.result?.workspace ?? 0) };
     await this.refresh();
-    if (this.runtime.panes.length === 0 && this.runtime.workspaces.items.length === 1) this.input_state.attached = false;
+    if (this.runtime.panes.length === 0 && this.runtime.workspaces.items.length === 1)
+      this.input_state.attached = false;
     this.dirty = true;
     return result;
   }
@@ -315,7 +337,9 @@ export class Controller {
   }
   sidebarView(entries: Entry[]): sidebar.View {
     const offset = this.agent_picker ? this.agent_picker.offset : this.agentOffset().get();
-    let view = sidebar.View.init(this.width, this.height, this.sidebar_open, offset, entries.length).withSearch(this.agentSearch()).withWidth(this.prefs.sidebar_width);
+    let view = sidebar.View.init(this.width, this.height, this.sidebar_open, offset, entries.length)
+      .withSearch(this.agentSearch())
+      .withWidth(this.prefs.sidebar_width);
     // Workspace rows, and so paging, depend on whether readings are shown.
     view.resources = this.prefs.resources;
     view = view.withWorkspaces(this.runtime.workspaces.items.length, this.workspace_offset).withEntries(entries);
@@ -349,7 +373,8 @@ export class Controller {
   }
   loadPreferences(): void {
     this.prefs = preferences.load();
-    if (!this.prefs.onboarding_complete) this.onboarding = Object.assign(new onboarding.State(), { preset: this.prefs.preset, prefix: this.prefs.prefix });
+    if (!this.prefs.onboarding_complete)
+      this.onboarding = Object.assign(new onboarding.State(), { preset: this.prefs.preset, prefix: this.prefs.prefix });
   }
   private groupFolded(id: number): boolean {
     return this.folded_groups.includes(id);
@@ -374,9 +399,18 @@ export class Controller {
     const side = this.sidebarView([]);
     const on_label = this.pointer !== null && side.hit(this.pointer.x, this.pointer.y).tag === "agent_scope";
     if (this.scope_menu) {
-      const inside = this.pointer !== null && sidebar.ScopeMenu.bounds(side, this.width, this.height).contains(this.pointer.x, this.pointer.y);
+      const inside =
+        this.pointer !== null &&
+        sidebar.ScopeMenu.bounds(side, this.width, this.height).contains(this.pointer.x, this.pointer.y);
       if (side.width === 0 || (!this.scope_menu.pinned && !on_label && !inside)) this.closeMenu();
-    } else if (on_label && !this.launcher_hover_blocked && !this.hasMenu() && this.name_dialog === null && !this.ui_mouse_down && !this.copy_mode) {
+    } else if (
+      on_label &&
+      !this.launcher_hover_blocked &&
+      !this.hasMenu() &&
+      this.name_dialog === null &&
+      !this.ui_mouse_down &&
+      !this.copy_mode
+    ) {
       this.openScopeMenu(false);
     }
   }
@@ -398,7 +432,7 @@ export class Controller {
     return this.inheritedCwd(this.current(), p ? p.id : null);
   }
   private workspaceIds(): number[] {
-    return this.runtime.workspaces.items.map((ws) => ws.id);
+    return this.runtime.workspaces.items.map(ws => ws.id);
   }
   workspaceEntries(): WorkspaceEntry[] {
     return this.runtime.workspaces.items.map((ws, i) => {
@@ -462,7 +496,12 @@ export class Controller {
       const first_agent = entries.length;
       for (let tab_index = 0; tab_index < ws.model.count; tab_index++) {
         for (const p of this.runtime.panes) {
-          if (p.agent.provider === null || ws.model.tabForPane(p.id) !== tab_index || entries.length === sidebar.max_entries) continue;
+          if (
+            p.agent.provider === null ||
+            ws.model.tabForPane(p.id) !== tab_index ||
+            entries.length === sidebar.max_entries
+          )
+            continue;
           entries.push(
             sidebar.entry({
               conversation: p.agent.conversation,
@@ -505,14 +544,16 @@ export class Controller {
         entries.push(e);
       }
       // std.sort.insertion is stable.
-      const sorted = entries.slice(first_agent).sort((l, r) => (sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0));
+      const sorted = entries
+        .slice(first_agent)
+        .sort((l, r) => (sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0));
       entries.splice(first_agent, sorted.length, ...sorted);
     });
     const now = microTimestamp();
     for (const entry of entries) {
       if ("group" in entry.target) continue;
       subagentTooltip.presentChildren(entry, this.runtime.conversations, now);
-      const conversation = this.runtime.conversations.find((c) => c.id === entry.conversation);
+      const conversation = this.runtime.conversations.find(c => c.id === entry.conversation);
       if (conversation) entry.context = contextView(conversation.context);
     }
     return entries;
@@ -524,8 +565,11 @@ export class Controller {
   private firstUnreadAgent(workspace_index: number): Target | null {
     const ws = this.runtime.workspaces.items[workspace_index];
     for (let tab_index = 0; tab_index < ws.model.count; tab_index++)
-      for (const p of this.runtime.panes) if (p.agent.provider !== null && ws.model.tabForPane(p.id) === tab_index && unread(p.agent.observation)) return { pane: p.id };
-    for (const session of this.runtime.sessions) if (session.workspace === ws.id && unread(session.observation)) return { native: session.id };
+      for (const p of this.runtime.panes)
+        if (p.agent.provider !== null && ws.model.tabForPane(p.id) === tab_index && unread(p.agent.observation))
+          return { pane: p.id };
+    for (const session of this.runtime.sessions)
+      if (session.workspace === ws.id && unread(session.observation)) return { native: session.id };
     return null;
   }
   private selectAgent(target: Target): void {
@@ -539,7 +583,7 @@ export class Controller {
       this.focusPane(target.pane);
       this.dirty = true;
     } else if ("native" in target) {
-      const session = this.runtime.sessions.find((s) => s.id === target.native);
+      const session = this.runtime.sessions.find(s => s.id === target.native);
       if (session) {
         if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
         this.noticeNativeSession(session);
@@ -567,7 +611,8 @@ export class Controller {
   private focusedAgent(): Target | null {
     if (this.native_notice !== null) {
       const id = this.native_notice;
-      for (const session of this.runtime.sessions) if (session.id === id && session.workspace === this.current().id) return { native: id };
+      for (const session of this.runtime.sessions)
+        if (session.id === id && session.workspace === this.current().id) return { native: id };
     }
     const p = this.focused();
     if (p && p.agent.provider !== null) return { pane: p.id };
@@ -581,7 +626,10 @@ export class Controller {
   private navigateAgent(next: boolean | null): void {
     this.rememberAgent();
     const entries = this.agentEntries();
-    const target = next !== null ? agentNavigation.relative(entries, this.focusedAgent(), next) : this.navigation.agentHistory(this.runtime.workspaces).destination(entries, this.focusedAgent());
+    const target =
+      next !== null
+        ? agentNavigation.relative(entries, this.focusedAgent(), next)
+        : this.navigation.agentHistory(this.runtime.workspaces).destination(entries, this.focusedAgent());
     if (target) this.selectAgent(target);
     else this.notice(entries.length === 0 ? " No agents in this workspace" : " No previous agent in this workspace");
   }
@@ -607,7 +655,7 @@ export class Controller {
     const picker = this.agent_picker!;
     const filtered = picker.list(entries);
     picker.reconcile(filtered, this.sidebarView(filtered).capacity);
-    return filtered.map((entry) => ({ ...entry, focused: sidebar.sameTarget(picker.selected, entry.target) }));
+    return filtered.map(entry => ({ ...entry, focused: sidebar.sameTarget(picker.selected, entry.target) }));
   }
   private moveAgentPicker(next: boolean): void {
     const entries = this.pickerEntries();
@@ -628,12 +676,16 @@ export class Controller {
     return this.model().count === 0 ? null : this.pane(this.nav().tab().focus);
   }
   notice(msg: string): void {
-    this.message = Array.from(Buffer.from(msg).subarray(0, 512), (ch) => (ch >= 32 && ch < 127 ? String.fromCharCode(ch) : " ")).join("");
+    this.message = Array.from(Buffer.from(msg).subarray(0, 512), ch =>
+      ch >= 32 && ch < 127 ? String.fromCharCode(ch) : " ",
+    ).join("");
     this.native_notice = null;
     this.dirty = true;
   }
   private noticeNativeSession(session: Native): void {
-    this.notice(` ${session.provider} native session ${session.id}: ${session.state}. Inspect: corgi native events ${session.id}`);
+    this.notice(
+      ` ${session.provider} native session ${session.id}: ${session.state}. Inspect: corgi native events ${session.id}`,
+    );
     this.native_notice = session.id;
   }
   menu(): ResizeView | null {
@@ -662,7 +714,9 @@ export class Controller {
     return this.hasMenu() || this.name_dialog !== null || this.paste_card !== null || this.copy_feedback_until !== 0;
   }
   private tabIndex(id: number): number | null {
-    const i = this.model().tabs.slice(0, this.model().count).findIndex((tab) => tab.id === id);
+    const i = this.model()
+      .tabs.slice(0, this.model().count)
+      .findIndex(tab => tab.id === id);
     return i < 0 ? null : i;
   }
   /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
@@ -757,7 +811,13 @@ export class Controller {
         case "split-down":
         case "zoom":
           this.focusPane(pane_id);
-          await this.perform(item === "split-right" ? { name: "split", value: "right" } : item === "split-down" ? { name: "split", value: "down" } : { name: "zoom" });
+          await this.perform(
+            item === "split-right"
+              ? { name: "split", value: "right" }
+              : item === "split-down"
+                ? { name: "split", value: "down" }
+                : { name: "zoom" },
+          );
           break;
         default:
           break;
@@ -774,7 +834,11 @@ export class Controller {
           try {
             await this.closeWorkspace(context.tab, true);
           } catch (error) {
-            this.notice((error as Error).message === "LastWorkspace" ? " Cannot close the last workspace" : " Could not close workspace");
+            this.notice(
+              (error as Error).message === "LastWorkspace"
+                ? " Cannot close the last workspace"
+                : " Could not close workspace",
+            );
           }
           break;
         default:
@@ -972,7 +1036,15 @@ export class Controller {
   }
   private async create(split: Axis | null, cwd: string, command: string | null, title: string): Promise<number> {
     const operation = split
-      ? { "pane.split": { target: this.model().count > 0 ? this.nav().tab().focus : 0, direction: split === "horizontal" ? "right" : "down", cwd, command, title } }
+      ? {
+          "pane.split": {
+            target: this.model().count > 0 ? this.nav().tab().focus : 0,
+            direction: split === "horizontal" ? "right" : "down",
+            cwd,
+            command,
+            title,
+          },
+        }
       : { "pane.create": { workspace: this.current().id, cwd, command, title } };
     const id = (await this.execute(operation)).pane;
     this.focusPane(id);
@@ -997,7 +1069,8 @@ export class Controller {
   private attention(): void {
     for (const priority of ["needs_input", "finished"]) {
       let best: Pane | null = null;
-      for (const p of this.runtime.panes) if (p.agent.attention === priority && (best === null || p.agent.changed_at < best.agent.changed_at)) best = p;
+      for (const p of this.runtime.panes)
+        if (p.agent.attention === priority && (best === null || p.agent.changed_at < best.agent.changed_at)) best = p;
       if (best) {
         this.focusPane(best.id);
         this.dirty = true;
@@ -1021,7 +1094,10 @@ export class Controller {
       case "workspace-next":
       case "workspace-prev": {
         const count = this.runtime.workspaces.items.length;
-        const index = act.name === "workspace-next" ? (this.workspaceIndex() + 1) % count : (this.workspaceIndex() + count - 1) % count;
+        const index =
+          act.name === "workspace-next"
+            ? (this.workspaceIndex() + 1) % count
+            : (this.workspaceIndex() + count - 1) % count;
         return this.switchWorkspace(this.runtime.workspaces.items[index].id);
       }
       case "new":
@@ -1060,7 +1136,8 @@ export class Controller {
         break;
       case "goto-workspace": {
         const number = Number(act.value);
-        if (number >= 1 && number <= this.runtime.workspaces.items.length) this.switchWorkspace(this.runtime.workspaces.items[number - 1].id);
+        if (number >= 1 && number <= this.runtime.workspaces.items.length)
+          this.switchWorkspace(this.runtime.workspaces.items[number - 1].id);
         break;
       }
       case "new-agent":
@@ -1120,7 +1197,8 @@ export class Controller {
       case "close":
       case "close-tab":
         if (this.model().count === 0) throw Error("NoPane");
-        if (act.name === "split") await this.create(act.value === "down" ? "vertical" : "horizontal", this.currentCwd(), null, "");
+        if (act.name === "split")
+          await this.create(act.value === "down" ? "vertical" : "horizontal", this.currentCwd(), null, "");
         else if (act.name === "zoom") this.nav().tab().zoom = !this.nav().tab().zoom;
         else if (act.name === "close") await this.close(this.nav().tab().focus);
         else await this.edit({ "tab.close": { target: this.selectedTab().id } });
@@ -1219,7 +1297,9 @@ export class Controller {
       if (!launch.managing) {
         const index = Row.custom(row);
         if (index !== null) {
-          const created = await this.execute({ "agent.command.create": { workspace: launch.workspace, cwd: launch.cwd, index } });
+          const created = await this.execute({
+            "agent.command.create": { workspace: launch.workspace, cwd: launch.cwd, index },
+          });
           this.closeMenu();
           this.focusPane(created.pane);
           this.launched = created.pane;
@@ -1282,12 +1362,18 @@ export class Controller {
     launch.resolution_checked = now;
     let response: any;
     try {
-      response = await call(this.connection, "agent.command.preview", { workspace: launch.workspace, cwd: launch.cwd, request: launch.request_id, command: launch.draft.text() });
+      response = await call(this.connection, "agent.command.preview", {
+        workspace: launch.workspace,
+        cwd: launch.cwd,
+        request: launch.request_id,
+        command: launch.draft.text(),
+      });
     } catch {
       return;
     }
     launch.resolution = agentLauncher.resolution(response.resolution);
-    if (!launch.resolution.pending && !launch.name_customized && launch.resolution.error_message.length === 0) launch.name_editor = Dialog.init({ rename: 0 }, launch.resolution.semantics.suggested_name);
+    if (!launch.resolution.pending && !launch.name_customized && launch.resolution.error_message.length === 0)
+      launch.name_editor = Dialog.init({ rename: 0 }, launch.resolution.semantics.suggested_name);
     this.dirty = true;
   }
   private async deleteLauncherCommand(index: number): Promise<void> {
@@ -1336,7 +1422,10 @@ export class Controller {
           hidden,
           resolve: false,
           original: launch.editor.name(),
-          name: launch.name_editor.name().length > 0 ? launch.name_editor.name() : launch.resolution.semantics.suggested_name,
+          name:
+            launch.name_editor.name().length > 0
+              ? launch.name_editor.name()
+              : launch.resolution.semantics.suggested_name,
           semantics: launch.resolution.semantics,
         },
       });
@@ -1477,7 +1566,13 @@ export class Controller {
   private async pollLauncher(): Promise<void> {
     this.updateLaunchPreview();
     await this.previewInlineCommand(false);
-    if (this.agent_launcher && this.agent_launcher.managing && this.agent_launcher.save_requested && !this.agent_launcher.resolution.pending) await this.saveInlineCommand();
+    if (
+      this.agent_launcher &&
+      this.agent_launcher.managing &&
+      this.agent_launcher.save_requested &&
+      !this.agent_launcher.resolution.pending
+    )
+      await this.saveInlineCommand();
     const side = this.sidebarView([]);
     const hit = this.pointer ? side.hit(this.pointer.x, this.pointer.y).tag : "none";
     const on_button = hit === "agent_new" || hit === "agent_options";
@@ -1491,13 +1586,21 @@ export class Controller {
         this.closeLauncher();
         return;
       }
-      const inside = this.pointer !== null && launch.bounds(this.width, this.height, side).contains(this.pointer.x, this.pointer.y);
+      const inside =
+        this.pointer !== null && launch.bounds(this.width, this.height, side).contains(this.pointer.x, this.pointer.y);
       if (!launch.pinned && !on_button && !inside) {
         this.closeMenu();
         return;
       }
       launch.last = this.lastAgent();
-    } else if (on_button && !this.launcher_hover_blocked && !this.hasMenu() && this.name_dialog === null && !this.ui_mouse_down && !this.copy_mode) {
+    } else if (
+      on_button &&
+      !this.launcher_hover_blocked &&
+      !this.hasMenu() &&
+      this.name_dialog === null &&
+      !this.ui_mouse_down &&
+      !this.copy_mode
+    ) {
       this.openLauncher(false);
     }
   }
@@ -1508,7 +1611,8 @@ export class Controller {
     if (launch) {
       launch.preview = this.launch_previews.current(launch.cwd);
       // An open launcher keeps its list, unless it had none yet.
-      if (launch.history.entries.length === 0 && this.launch_previews.history.entries.length > 0) this.showHistory(launch);
+      if (launch.history.entries.length === 0 && this.launch_previews.history.entries.length > 0)
+        this.showHistory(launch);
       launch.normalize();
       this.revealResume();
     }
@@ -1529,7 +1633,8 @@ export class Controller {
       const at = Math.trunc(Math.max(Number(c.observed_at ?? 0), c.agent.changed_at) / 1_000_000);
       known.push({ provider, session: c.agent.session, name: c.agent.name, at });
     }
-    for (const stop of this.stopped) known.push({ provider: stop.provider, session: stop.session, name: "", at: stop.at });
+    for (const stop of this.stopped)
+      known.push({ provider: stop.provider, session: stop.session, name: "", at: stop.at });
     return launcherResume.merge(this.launch_previews.history.entries.map(launcherResume.historyEntry), known);
   }
   /** Note the conversations panes stop running, and when, so a closed one
@@ -1544,7 +1649,7 @@ export class Controller {
     }
     const now = nowSeconds();
     for (const was of this.running) {
-      if (running.some((is) => is.provider === was.provider && is.session === was.session)) continue;
+      if (running.some(is => is.provider === was.provider && is.session === was.session)) continue;
       if (this.stopped.length === 32) this.stopped.shift();
       this.stopped.push({ provider: was.provider, session: was.session, at: now });
     }
@@ -1655,7 +1760,9 @@ export class Controller {
     const view = launch.resume_view;
     const c = launch.resumeContext();
     const rows = view.lines(c);
-    const page = view.expanded ? Math.max(1, launch.resumeArea(this.width, this.height, this.sidebarView([])).height - 3) : launcherResume.collapsed_rows;
+    const page = view.expanded
+      ? Math.max(1, launch.resumeArea(this.width, this.height, this.sidebarView([])).height - 3)
+      : launcherResume.collapsed_rows;
     if (parsed === null) {
       if (view.searching) view.query.sequence(seq);
       this.dirty = true;
@@ -1706,7 +1813,9 @@ export class Controller {
         return this.selectAgent({ pane: open.pane });
       }
     if (byteLength(e.cwd) > 4096 || byteLength(e.session) > 256) throw Error("NameTooLong");
-    const command = { "agent.resume": { workspace: this.current().id, cwd: e.cwd, provider: e.provider, session: e.session } };
+    const command = {
+      "agent.resume": { workspace: this.current().id, cwd: e.cwd, provider: e.provider, session: e.session },
+    };
     this.closeMenu();
     let created: { pane: number };
     try {
@@ -1720,7 +1829,14 @@ export class Controller {
     this.dirty = true;
   }
   private portWorkspaceEntry(id: number): WorkspaceEntry {
-    return sidebar.workspaceEntry({ id, name: "", cwd: "", active: false, ports: this.runtime.ports, remote_links: this.remote_links });
+    return sidebar.workspaceEntry({
+      id,
+      name: "",
+      cwd: "",
+      active: false,
+      ports: this.runtime.ports,
+      remote_links: this.remote_links,
+    });
   }
   private openSetup(): void {
     this.closeMenu();
@@ -1743,7 +1859,8 @@ export class Controller {
     this.dirty = true;
   }
   private async applySetup(choice: SetupChoiceT): Promise<void> {
-    if (choice === "keyboard" || choice === "import") return this.openOnboarding(choice === "keyboard" ? "keyboard" : "import");
+    if (choice === "keyboard" || choice === "import")
+      return this.openOnboarding(choice === "keyboard" ? "keyboard" : "import");
     if (choice === "readings") {
       this.prefs.resources.enabled = !this.prefs.resources.enabled;
       try {
@@ -1776,13 +1893,19 @@ export class Controller {
         return;
       }
       try {
-        await ghosttyIntegration.sync(integration_state === "enabled" ? null : { preset: this.prefs.preset, prefix: this.prefs.prefix });
+        await ghosttyIntegration.sync(
+          integration_state === "enabled" ? null : { preset: this.prefs.preset, prefix: this.prefs.prefix },
+        );
       } catch (error) {
         this.notice(` Ghostty integration: ${(error as Error).message}`);
         return;
       }
       if (this.corgi_setup) this.corgi_setup.integration = ghosttyIntegration.state();
-      this.notice(integration_state === "enabled" ? " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+," : " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,");
+      this.notice(
+        integration_state === "enabled"
+          ? " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"
+          : " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,",
+      );
       return;
     }
     // The setup screen stays open; the daemon republishes status, which
@@ -1796,7 +1919,12 @@ export class Controller {
       return;
     }
     const saved = response.saved === true;
-    const label = choice === "auto" ? "Auto (follows your agents)" : choice === "off" ? "Off" : Provider.info(SetupChoice.provider(choice)!).label;
+    const label =
+      choice === "auto"
+        ? "Auto (follows your agents)"
+        : choice === "off"
+          ? "Off"
+          : Provider.info(SetupChoice.provider(choice)!).label;
     this.notice(` Summaries and link names: ${label}${saved ? "" : " (not saved for next start)"}`);
   }
   private movePortMenu(next: boolean): void {
@@ -1840,7 +1968,11 @@ export class Controller {
     wizard.deinit();
     this.onboarding = null;
     if (mode === "keyboard") {
-      this.notice(this.prefs.preset === "cmux" ? " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+," : ` Shortcuts: ${keymap.name(this.prefs.preset)} · prefix ${keymap.prefixName(this.prefs.prefix)}${reload ? ". Reload Ghostty: Cmd+Shift+," : ""}`);
+      this.notice(
+        this.prefs.preset === "cmux"
+          ? " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
+          : ` Shortcuts: ${keymap.name(this.prefs.preset)} · prefix ${keymap.prefixName(this.prefs.prefix)}${reload ? ". Reload Ghostty: Cmd+Shift+," : ""}`,
+      );
     } else if (target !== null && target !== undefined) {
       await this.refresh();
       this.switchWorkspace(target);
@@ -1851,13 +1983,13 @@ export class Controller {
   private cyclePane(next: boolean): void {
     if (this.model().count === 0) return;
     const selection = new Selection();
-    selection.tabs = this.nav().tabs.map((tab) => ({ ...tab }));
+    selection.tabs = this.nav().tabs.map(tab => ({ ...tab }));
     selection.count = this.nav().count;
     selection.active = this.nav().active;
     selection.tab().zoom = false;
     const list = new LayoutView(this.model(), selection).placements(this.area());
     if (list.length === 0) return;
-    let index = list.findIndex((p) => p.id === this.nav().tab().focus);
+    let index = list.findIndex(p => p.id === this.nav().tab().focus);
     if (index < 0) index = 0;
     this.focusPane(list[next ? (index + 1) % list.length : (index + list.length - 1) % list.length].id);
   }
@@ -1974,7 +2106,11 @@ export class Controller {
         launch.pinned = true;
         return this.resumeKey(byte);
       }
-      const recognized = [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47].includes(byte) || (byte === 117 ? launch.trackable(launch.selected) || launch.shortcutRow(byte) !== null : launch.shortcutRow(byte) !== null);
+      const recognized =
+        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47].includes(byte) ||
+        (byte === 117
+          ? launch.trackable(launch.selected) || launch.shortcutRow(byte) !== null
+          : launch.shortcutRow(byte) !== null);
       if (!launch.pinned && !recognized) {
         this.closeMenu();
       } else {
@@ -2265,7 +2401,8 @@ export class Controller {
   }
   /** The keyboard's owner when a paste begins, in `key`'s order. */
   private pasteTarget(): Paste {
-    if (this.agent_launcher) return this.agent_launcher.managing && this.agent_launcher.selected === "add" ? "launcher" : "discard";
+    if (this.agent_launcher)
+      return this.agent_launcher.managing && this.agent_launcher.selected === "add" ? "launcher" : "discard";
     if (this.agent_picker) return "picker";
     if (this.name_dialog) return "name";
     if (this.hasMenu()) return "discard";
@@ -2501,7 +2638,12 @@ export class Controller {
             used += len;
             continue;
           }
-          if (this.onboarding === null && this.name_dialog === null && this.workspace_chooser === null && (this.prefix || !this.hasMenu())) {
+          if (
+            this.onboarding === null &&
+            this.name_dialog === null &&
+            this.workspace_chooser === null &&
+            (this.prefix || !this.hasMenu())
+          ) {
             const act = bindings.chord(this.prefs.preset, this.prefix, key_event);
             if (act) {
               this.prefix = false;
@@ -2514,11 +2656,19 @@ export class Controller {
           // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
           const legacy = Array.from(Buffer.from(viewerNative.encodeKey(null, key_event.codepoint, key_event.mods)));
           const owned = this.hasMenu() || this.name_dialog !== null || this.copy_mode || this.search_mode;
-          if (owned || (legacy.length === 1 && (legacy[0] === keymap.prefixByte(this.prefs.prefix) || bindings.lookup(this.prefs.preset, false, legacy[0], {}) !== null))) {
+          if (
+            owned ||
+            (legacy.length === 1 &&
+              (legacy[0] === keymap.prefixByte(this.prefs.prefix) ||
+                bindings.lookup(this.prefs.preset, false, legacy[0], {}) !== null))
+          ) {
             seq = legacy;
           } else {
             const p = this.focused();
-            if (p) seq = Array.from(Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event.codepoint, key_event.mods)));
+            if (p)
+              seq = Array.from(
+                Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event.codepoint, key_event.mods)),
+              );
           }
           if (seq.length === 0) {
             used += len;
@@ -2583,7 +2733,13 @@ export class Controller {
         if (launch.resume_view.focused && !launch.managing) {
           launch.pinned = true;
           this.resumeSequence(text, parsed_key);
-        } else if (launch.managing && launch.selected === "add" && text !== "\x1b[A" && text !== "\x1b[B" && text !== "\x1b[Z") {
+        } else if (
+          launch.managing &&
+          launch.selected === "add" &&
+          text !== "\x1b[A" &&
+          text !== "\x1b[B" &&
+          text !== "\x1b[Z"
+        ) {
           launch.input().sequence(text);
           this.dirty = true;
         } else if (parsed_key === "up") {
@@ -2734,7 +2890,8 @@ export class Controller {
     if (resource_rect && resource_rect.contains(x, y)) {
       // The card can cover workspace rows on narrower screens. A
       // workspace press dismisses it and reaches normal navigation.
-      resource_workspace_press = !release && (button === 0 || button === 2) && this.sidebarView([]).hit(x, y).tag === "workspace";
+      resource_workspace_press =
+        !release && (button === 0 || button === 2) && this.sidebarView([]).hit(x, y).tag === "workspace";
       if (!resource_workspace_press) {
         this.pointer = { x, y };
         if (!release && button === 0) this.resource_card.click(resource_rect, x, y);
@@ -2881,7 +3038,10 @@ export class Controller {
       const ids = this.workspaceIds();
       let side = this.sidebarView([]);
       if (!release && (button === 64 || button === 65) && drag.valid(side, ids)) {
-        this.workspace_offset = button === 64 ? sat(side.workspace_offset, 1) : Math.min(side.workspace_offset + 1, sat(ids.length, side.workspaceCapacity()));
+        this.workspace_offset =
+          button === 64
+            ? sat(side.workspace_offset, 1)
+            : Math.min(side.workspace_offset + 1, sat(ids.length, side.workspaceCapacity()));
         side = this.sidebarView([]);
         drag.dragging = true;
       }
@@ -2928,7 +3088,10 @@ export class Controller {
         drag.first = render.tabStart(this.layoutView(), this.tabSpace());
         drag.dragging = true;
       }
-      const drop = valid && y === 0 && x >= drag.tabs_x ? render.tabDrop(this.layoutView(), this.width - drag.tabs_x, x - drag.tabs_x) : null;
+      const drop =
+        valid && y === 0 && x >= drag.tabs_x
+          ? render.tabDrop(this.layoutView(), this.width - drag.tabs_x, x - drag.tabs_x)
+          : null;
       if ((button === 32 && !release) || wheel !== null) {
         if (drop !== null && x !== drag.start_x) drag.dragging = true;
         drag.drop = drop;
@@ -3155,7 +3318,8 @@ export class Controller {
         if (found.tag === "save") await this.finishName(true);
         else if (found.tag === "cancel") await this.finishName(false);
         else if (found.tag === "clear") dialog.clear();
-        else if (found.tag === "field") dialog.position(dialog.byteAtColumn(dialog_view.offset, found.field - dialog_view.offset));
+        else if (found.tag === "field")
+          dialog.position(dialog.byteAtColumn(dialog_view.offset, found.field - dialog_view.offset));
         this.dirty = true;
       }
       return;
@@ -3167,7 +3331,9 @@ export class Controller {
       return;
     }
     // Do not activate Git or URL controls hidden behind the resource card.
-    const git_hit = resource_workspace_press ? null : sidebar.gitActionWorkspace(side, this.workspaceEntries(), this.git_hover, x, y);
+    const git_hit = resource_workspace_press
+      ? null
+      : sidebar.gitActionWorkspace(side, this.workspaceEntries(), this.git_hover, x, y);
     this.git_hover = git_hit ? git_hit.id : null;
     if (!release && button === 0 && git_hit !== null && !this.copy_mode) {
       this.ui_mouse_down = true;
@@ -3176,7 +3342,10 @@ export class Controller {
       const index = this.runtime.workspaces.index(ws.id);
       if (index === null) return;
       try {
-        await call(this.connection, "git.push", { workspace: ws.id, ref: this.runtime.workspaces.items[index].git_ref });
+        await call(this.connection, "git.push", {
+          workspace: ws.id,
+          ref: this.runtime.workspaces.items[index].git_ref,
+        });
       } catch (error) {
         this.notice(gitPushMessage((error as Error).message));
       }
@@ -3200,7 +3369,14 @@ export class Controller {
     }
     if ((side.width > 0 && x < side.width) || (y === 0 && x < tabs_x)) {
       if (!release && (button === 64 || button === 65)) {
-        if (y < side.middle()) this.workspace_offset = button === 64 ? sat(side.workspace_offset, 1) : Math.min(side.workspace_offset + 1, sat(this.runtime.workspaces.items.length, side.workspaceCapacity()));
+        if (y < side.middle())
+          this.workspace_offset =
+            button === 64
+              ? sat(side.workspace_offset, 1)
+              : Math.min(
+                  side.workspace_offset + 1,
+                  sat(this.runtime.workspaces.items.length, side.workspaceCapacity()),
+                );
         else this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
@@ -3224,7 +3400,10 @@ export class Controller {
               const view = this.sidebarView(updated);
               const at = agentNavigation.indexOf(updated, target);
               if (at !== null && view.offset === side.offset) {
-                const owner = "pane" in target ? this.runtime.workspaces.owner(target.pane)!.id : this.runtime.sessions.find((s) => s.id === (target as { native: number }).native)!.workspace;
+                const owner =
+                  "pane" in target
+                    ? this.runtime.workspaces.owner(target.pane)!.id
+                    : this.runtime.sessions.find(s => s.id === (target as { native: number }).native)!.workspace;
                 this.agent_drag = AgentDrag.init(view, at, x, y, owner, this.current().id);
               }
             }
@@ -3247,7 +3426,10 @@ export class Controller {
             this.workspace_offset = sat(side.workspace_offset, side.workspaceCapacity());
             break;
           case "workspace_next":
-            this.workspace_offset = Math.min(side.workspace_offset + side.workspaceCapacity(), sat(this.runtime.workspaces.items.length, side.workspaceCapacity()));
+            this.workspace_offset = Math.min(
+              side.workspace_offset + side.workspaceCapacity(),
+              sat(this.runtime.workspaces.items.length, side.workspaceCapacity()),
+            );
             break;
           case "workspace": {
             const index = found.workspace;
@@ -3256,7 +3438,12 @@ export class Controller {
               this.search_mode = false;
               this.cancelDividers();
               this.selection = null;
-              this.tab_menu = new TabMenu({ tab: this.runtime.workspaces.items[index].id, workspace: true, anchor_x: x, anchor_y: y });
+              this.tab_menu = new TabMenu({
+                tab: this.runtime.workspaces.items[index].id,
+                workspace: true,
+                anchor_x: x,
+                anchor_y: y,
+              });
             } else {
               const id = this.runtime.workspaces.items[index].id;
               const ws_entries = this.workspaceEntries();
@@ -3267,7 +3454,7 @@ export class Controller {
                 if (target) {
                   this.selectAgent(target);
                   const updated = this.sidebarEntries();
-                  const i = updated.findIndex((entry) => sidebar.sameTarget(entry.target, target));
+                  const i = updated.findIndex(entry => sidebar.sameTarget(entry.target, target));
                   if (i >= 0) this.agentOffset().set(Math.min(i, this.sidebarView(updated).maxOffset()));
                 }
               } else {
@@ -3275,7 +3462,8 @@ export class Controller {
                 // Switching can scroll the list; capture the post-switch viewport.
                 const after = this.sidebarView([]);
                 const at = ids.indexOf(id);
-                if (after.workspace_offset === side.workspace_offset && at >= 0) this.workspace_drag = WorkspaceDrag.init(after, ids, at, x, y);
+                if (after.workspace_offset === side.workspace_offset && at >= 0)
+                  this.workspace_drag = WorkspaceDrag.init(after, ids, at, x, y);
               }
             }
             break;
@@ -3314,7 +3502,9 @@ export class Controller {
             tabs_x,
             first: render.tabStart(this.layoutView(), this.tabSpace()),
             count: this.model().count,
-            ids: this.model().tabs.slice(0, this.model().count).map((tab) => tab.id),
+            ids: this.model()
+              .tabs.slice(0, this.model().count)
+              .map(tab => tab.id),
             dragging: false,
             cancelled: false,
             drop: null,
@@ -3342,7 +3532,13 @@ export class Controller {
         this.closeMenu();
         this.selection = null;
         this.cancelDividers();
-        this.tab_menu = new TabMenu({ pane: true, tab: p.id, source: source !== p.id ? source : null, anchor_x: x, anchor_y: y });
+        this.tab_menu = new TabMenu({
+          pane: true,
+          tab: p.id,
+          source: source !== p.id ? source : null,
+          anchor_x: x,
+          anchor_y: y,
+        });
         this.ui_mouse_down = true;
         this.dirty = true;
         return;
@@ -3360,7 +3556,15 @@ export class Controller {
           if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
           if (!link.uri.startsWith("http://") && !link.uri.startsWith("https://")) continue;
           if (byteLength(link.uri) > 4096) continue;
-          cl.port_click = portClick({ x, y, url: link.uri, pane: p.id, px: x - p.rect.x, py: y - p.rect.y, drag_selects: plain_link });
+          cl.port_click = portClick({
+            x,
+            y,
+            url: link.uri,
+            pane: p.id,
+            px: x - p.rect.x,
+            py: y - p.rect.y,
+            drag_selects: plain_link,
+          });
           return;
         }
       }
@@ -3462,7 +3666,16 @@ export class Controller {
     const dialog = this.name_dialog;
     if (dialog) {
       const target = dialog.target;
-      const stale = "rename" in target ? this.tabIndex(target.rename) === null : "pane" in target ? this.pane(target.pane) === null : "agent" in target ? this.pane(target.agent) === null : "fork" in target ? this.pane(target.fork) === null : false;
+      const stale =
+        "rename" in target
+          ? this.tabIndex(target.rename) === null
+          : "pane" in target
+            ? this.pane(target.pane) === null
+            : "agent" in target
+              ? this.pane(target.agent) === null
+              : "fork" in target
+                ? this.pane(target.fork) === null
+                : false;
       if (stale) this.dismissName();
     }
     this.dirty = true;
@@ -3483,7 +3696,11 @@ export class Controller {
       this.dirty = true;
     }
     const cl = this.input_state;
-    if (cl.attached && cl.keybuf.length > 0 && Date.now() - cl.escape_at > (cl.paste !== null || cl.keybuf.length === 1 ? 40 : 1000)) {
+    if (
+      cl.attached &&
+      cl.keybuf.length > 0 &&
+      Date.now() - cl.escape_at > (cl.paste !== null || cl.keybuf.length === 1 ? 40 : 1000)
+    ) {
       if (cl.paste !== null) {
         const p = this.pastePane();
         if (p) this.sendInput(p.terminal, cl.keybuf);
@@ -3540,7 +3757,8 @@ export class Controller {
     }
     if (this.pointer) {
       const from = this.pointer;
-      if (sidebar.resourceAt(view, entries, from.x, from.y)?.id === id) this.resource_aim = { x: from.x, y: from.y, at: 0 };
+      if (sidebar.resourceAt(view, entries, from.x, from.y)?.id === id)
+        this.resource_aim = { x: from.x, y: from.y, at: 0 };
     }
     if (this.resource_aim) {
       if (resourceTooltip.aimed(rect, this.resource_aim, x, y)) this.resource_aim.at = milliTimestamp();
@@ -3549,12 +3767,27 @@ export class Controller {
   }
   /** No modal, drag, or selection is claiming the pointer right now. */
   private hoverIdle(): boolean {
-    return !this.hasMenu() && this.menu() === null && this.name_dialog === null && !this.copy_mode && this.selection === null && this.workspace_drag === null;
+    return (
+      !this.hasMenu() &&
+      this.menu() === null &&
+      this.name_dialog === null &&
+      !this.copy_mode &&
+      this.selection === null &&
+      this.workspace_drag === null
+    );
   }
   private linkTooltipReady(): boolean {
     let target: TooltipTarget | null = null;
     const pointer = this.pointer;
-    if (pointer && !this.hasMenu() && this.menu() === null && this.name_dialog === null && !this.copy_mode && this.selection === null && !this.ui_mouse_down) {
+    if (
+      pointer &&
+      !this.hasMenu() &&
+      this.menu() === null &&
+      this.name_dialog === null &&
+      !this.copy_mode &&
+      this.selection === null &&
+      !this.ui_mouse_down
+    ) {
       if (this.resourceHoverContains(pointer.x, pointer.y)) return true;
       const ws = sidebar.resourceAt(this.sidebarView([]), this.workspaceEntries(), pointer.x, pointer.y);
       if (ws && resourceTooltip.geometry(this.width, this.height, this.sidebarView([]).width, pointer.y) !== null) {
@@ -3562,7 +3795,13 @@ export class Controller {
         this.resource_card.anchor = pointer.y;
       }
       if (corgiBadge.hit(this.corgi_badge, this.sidebarView([]).width, pointer.x, pointer.y)) target = { usage: true };
-      const git = sidebar.gitActionWorkspace(this.sidebarView([]), this.workspaceEntries(), this.git_hover, pointer.x, pointer.y);
+      const git = sidebar.gitActionWorkspace(
+        this.sidebarView([]),
+        this.workspaceEntries(),
+        this.git_hover,
+        pointer.x,
+        pointer.y,
+      );
       if (git) {
         target = { git: git.id };
         if (git.git_push.phase === "failed") return true;
@@ -3579,8 +3818,17 @@ export class Controller {
   frame(): string {
     if (this.onboarding) return this.onboarding.frame(this.width, this.height);
     if (this.prefix && this.help_visible) {
-      const hand = this.pointer !== null && this.help.pointsAt(this.width, this.height, this.pointer.x, this.pointer.y, this.prefs.preset);
-      return this.help.frame(this.width, this.height, this.prefs.preset, this.prefs.prefix, Date.now(), hand ? render.handShape(this.iterm2_pointer) : "default");
+      const hand =
+        this.pointer !== null &&
+        this.help.pointsAt(this.width, this.height, this.pointer.x, this.pointer.y, this.prefs.preset);
+      return this.help.frame(
+        this.width,
+        this.height,
+        this.prefs.preset,
+        this.prefs.prefix,
+        Date.now(),
+        hand ? render.handShape(this.iterm2_pointer) : "default",
+      );
     }
     if (this.workspace_chooser !== null) {
       const index = this.workspace_chooser;
@@ -3588,11 +3836,13 @@ export class Controller {
       output.write(new Style({ fg: "text", bg: "surface" }).sgr() + "\x1b[2J\x1b[H Workspaces\r\n\r\n");
       const capacity = sat(this.height, 5);
       const start = sat(index, sat(capacity, 1));
-      this.runtime.workspaces.items.slice(start, Math.min(this.runtime.workspaces.items.length, start + capacity)).forEach((ws, k) => {
-        output.write(start + k === index ? " › " : "   ");
-        writeEllipsis(output, ws.name, sat(this.width, 5));
-        output.write("\r\n");
-      });
+      this.runtime.workspaces.items
+        .slice(start, Math.min(this.runtime.workspaces.items.length, start + capacity))
+        .forEach((ws, k) => {
+          output.write(start + k === index ? " › " : "   ");
+          writeEllipsis(output, ws.name, sat(this.width, 5));
+          output.write("\r\n");
+        });
       output.write("\r\n ↑↓ choose · Enter switch · Esc close\x1b[0m\x1b[?25l");
       return output.buffered();
     }
@@ -3601,7 +3851,13 @@ export class Controller {
     if (!this.agent_picker) this.revealLaunched(entries);
     this.revealTab();
     if (this.pointer) {
-      const hit = sidebar.gitActionWorkspace(this.sidebarView(entries), this.workspaceEntries(), this.git_hover, this.pointer.x, this.pointer.y);
+      const hit = sidebar.gitActionWorkspace(
+        this.sidebarView(entries),
+        this.workspaceEntries(),
+        this.git_hover,
+        this.pointer.x,
+        this.pointer.y,
+      );
       this.git_hover = hit ? hit.id : null;
     } else this.git_hover = null;
     if (this.agent_drag) this.agent_drag.valid(this.sidebarView(entries), this.current().id);
@@ -3629,7 +3885,10 @@ export class Controller {
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: tooltip_ready && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
-        message: this.agent_picker && (this.width < 40 || this.height < 13) ? " Agent search: enlarge terminal or Esc" : this.message,
+        message:
+          this.agent_picker && (this.width < 40 || this.height < 13)
+            ? " Agent search: enlarge terminal or Esc"
+            : this.message,
         copy_feedback: this.copy_feedback_until > milliTimestamp(),
         copy_mode: this.copy_mode,
         prefix: this.prefix,
@@ -3649,15 +3908,29 @@ export class Controller {
         sidebar_open: this.sidebar_open,
         corgi_badge: this.corgi_badge,
         supports_kitty_graphics: this.supports_kitty_graphics,
-        dragged_workspace: this.workspace_drag && this.workspace_drag.preview !== null ? new sidebar.Preview(this.workspace_drag.source, this.workspace_drag.preview) : null,
-        dragged_agent: this.agent_drag && this.agent_drag.preview !== null ? new sidebar.Preview(this.agent_drag.source, this.agent_drag.preview) : null,
-        resizing: this.sidebar_drag ? "horizontal" : this.input_state.divider && !this.input_state.divider.cancelled ? this.input_state.divider.hit.axis : null,
+        dragged_workspace:
+          this.workspace_drag && this.workspace_drag.preview !== null
+            ? new sidebar.Preview(this.workspace_drag.source, this.workspace_drag.preview)
+            : null,
+        dragged_agent:
+          this.agent_drag && this.agent_drag.preview !== null
+            ? new sidebar.Preview(this.agent_drag.source, this.agent_drag.preview)
+            : null,
+        resizing: this.sidebar_drag
+          ? "horizontal"
+          : this.input_state.divider && !this.input_state.divider.cancelled
+            ? this.input_state.divider.hit.axis
+            : null,
         sidebar_offset: this.agent_picker ? this.agent_picker.offset : this.agentOffset().get(),
         agents: entries,
         conversations: this.runtime.conversations,
         system_model: this.runtime.system_model,
         system_model_name: this.runtime.system_model_name,
-        release: { running: this.runtime.release_version, commit: this.runtime.release_commit, staged: this.runtime.staged_version },
+        release: {
+          running: this.runtime.release_version,
+          commit: this.runtime.release_commit,
+          staged: this.runtime.staged_version,
+        },
         system_usage: this.runtime.system_usage,
         system_working: this.runtime.system_working,
         accounts: new subagentTooltip.Accounts({

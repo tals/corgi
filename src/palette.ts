@@ -27,12 +27,7 @@ export function bgRgb(c: Rgb) {
 }
 export function mix(a: Rgb, b: Rgb, percentage: number): Rgb {
   return a.map((v, i) =>
-    Math.floor(
-      (v * (100 - Math.min(100, percentage)) +
-        b[i] * Math.min(100, percentage) +
-        50) /
-        100,
-    ),
+    Math.floor((v * (100 - Math.min(100, percentage)) + b[i] * Math.min(100, percentage) + 50) / 100),
   ) as Rgb;
 }
 export class Style {
@@ -48,10 +43,8 @@ export class Style {
     const fields = ["0"];
     if (this.value.bold) fields.push("1");
     if (this.value.strike) fields.push("9");
-    if (this.value.fg)
-      fields.push("38", "2", ...colors[this.value.fg].map(String));
-    if (this.value.bg)
-      fields.push("48", "2", ...colors[this.value.bg].map(String));
+    if (this.value.fg) fields.push("38", "2", ...colors[this.value.fg].map(String));
+    if (this.value.bg) fields.push("48", "2", ...colors[this.value.bg].map(String));
     return `\x1b[${fields.join(";")}m`;
   }
 }
@@ -67,9 +60,7 @@ export function luminance(rgb: Rgb) {
   return rgb.reduce((sum, channel, index) => {
     const value = channel / 255;
     return (
-      sum +
-      [0.2126, 0.7152, 0.0722][index] *
-        (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+      sum + [0.2126, 0.7152, 0.0722][index] * (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
     );
   }, 0);
 }
@@ -79,14 +70,10 @@ export function contrast(first: Token, second: Token) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 export function termhtmlTheme() {
-  const hex = (token: Token) =>
-    "#" +
-    colors[token].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const hex = (token: Token) => "#" + colors[token].map(value => value.toString(16).padStart(2, "0")).join("");
   return (
     "corgi: { " +
-    (Object.keys(colors) as Token[])
-      .map((token) => `${token}: "${hex(token)}", `)
-      .join("") +
+    (Object.keys(colors) as Token[]).map(token => `${token}: "${hex(token)}", `).join("") +
     `fg: "${hex("text")}", danger: "${hex("hot")}" },`
   );
 }

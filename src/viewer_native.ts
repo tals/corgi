@@ -23,8 +23,29 @@ export function updateRender(handle: Pointer | bigint): void {
   if (n.viewer_update_render(handle as Pointer) < 0) throw Error("OutOfMemory");
 }
 /** The pane's rows inside a rectangle, each starting at its own position. */
-export function rows(handle: Pointer | bigint, pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: number | bigint | null): string {
-  const size = Number(n.viewer_rows(handle as Pointer, pane, x, y, w, h, dimmed, hovered !== null, hovered === null ? 0n : BigInt(hovered)));
+export function rows(
+  handle: Pointer | bigint,
+  pane: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  dimmed: boolean,
+  hovered: number | bigint | null,
+): string {
+  const size = Number(
+    n.viewer_rows(
+      handle as Pointer,
+      pane,
+      x,
+      y,
+      w,
+      h,
+      dimmed,
+      hovered !== null,
+      hovered === null ? 0n : BigInt(hovered),
+    ),
+  );
   return take(size).toString();
 }
 /** The render state's cursor in the viewport; only a visible one when `visible`. */
@@ -51,7 +72,14 @@ export interface Mods {
   num_lock?: boolean;
 }
 function modBits(mods: Mods): number {
-  return (mods.shift ? 1 : 0) | (mods.alt ? 2 : 0) | (mods.ctrl ? 4 : 0) | (mods.super ? 8 : 0) | (mods.caps_lock ? 64 : 0) | (mods.num_lock ? 128 : 0);
+  return (
+    (mods.shift ? 1 : 0) |
+    (mods.alt ? 2 : 0) |
+    (mods.ctrl ? 4 : 0) |
+    (mods.super ? 8 : 0) |
+    (mods.caps_lock ? 64 : 0) |
+    (mods.num_lock ? 128 : 0)
+  );
 }
 /** A key encoded for a pane's program, or with default options when `handle` is null. */
 export function encodeKey(handle: Pointer | bigint | null, codepoint: number, mods: Mods): string {

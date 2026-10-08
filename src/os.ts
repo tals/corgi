@@ -47,13 +47,7 @@ export const random = {
 };
 export const uuid = () => randomUUID();
 export function setenv(name: string, value: string) {
-  if (
-    name.includes("\0") ||
-    name.includes("=") ||
-    !name ||
-    value.includes("\0")
-  )
-    throw Error("SetEnvFailed");
+  if (name.includes("\0") || name.includes("=") || !name || value.includes("\0")) throw Error("SetEnvFailed");
   process.env[name] = value;
 }
 export function environMap() {
@@ -76,24 +70,14 @@ export class Stat {
     return (this.mode & 0o170000) === 0o100000;
   }
 }
-function asStat(value: {
-  dev: number | bigint;
-  ino: number | bigint;
-  mode: number | bigint;
-  uid: number | bigint;
-}) {
+function asStat(value: { dev: number | bigint; ino: number | bigint; mode: number | bigint; uid: number | bigint }) {
   let dev = BigInt(value.dev);
   if (process.platform === "linux") {
     const major = ((dev >> 8n) & 0xfffn) | ((dev >> 32n) & 0xfffff000n);
     const minor = (dev & 0xffn) | ((dev >> 12n) & 0xffffff00n);
     dev = (major << 32n) | minor;
   }
-  return new Stat(
-    dev,
-    BigInt(value.ino),
-    Number(value.mode),
-    Number(value.uid),
-  );
+  return new Stat(dev, BigInt(value.ino), Number(value.mode), Number(value.uid));
 }
 export function lstat(path: string): Stat {
   try {
@@ -149,21 +133,11 @@ export function processCwd(pid: number): string | null {
     cwd = Buffer.alloc(max_path_bytes),
     exe = Buffer.alloc(max_path_bytes),
     args = Buffer.alloc(max_path_bytes);
-  return n.probe_macos_process(
-    pid,
-    ptr(values),
-    ptr(cwd),
-    ptr(exe),
-    ptr(args),
-    max_path_bytes,
-  ) & 4
+  return n.probe_macos_process(pid, ptr(values), ptr(cwd), ptr(exe), ptr(args), max_path_bytes) & 4
     ? cwd.toString("utf8", 0, cwd.indexOf(0))
     : null;
 }
-export function processPath(
-  pid: number,
-  buffer: Uint8Array = Buffer.alloc(max_path_bytes),
-): string | null {
+export function processPath(pid: number, buffer: Uint8Array = Buffer.alloc(max_path_bytes)): string | null {
   if (process.platform === "linux") {
     try {
       const value = readlinkSync(`/proc/${pid}/exe`);
@@ -179,14 +153,7 @@ export function processPath(
     cwd = Buffer.alloc(buffer.length),
     args = Buffer.alloc(buffer.length),
     exe = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  return n.probe_macos_process(
-    pid,
-    ptr(values),
-    ptr(cwd),
-    ptr(exe),
-    ptr(args),
-    buffer.length,
-  ) & 8
+  return n.probe_macos_process(pid, ptr(values), ptr(cwd), ptr(exe), ptr(args), buffer.length) & 8
     ? exe.toString("utf8", 0, exe.indexOf(0))
     : null;
 }
@@ -253,13 +220,9 @@ export function processArgs(
   if (process.platform !== "linux") return null;
   try {
     if (want.env && bytes.length <= max_path_bytes) return null;
-    const size = want.env
-        ? Math.floor((bytes.length - max_path_bytes) / 2)
-        : bytes.length,
+    const size = want.env ? Math.floor((bytes.length - max_path_bytes) / 2) : bytes.length,
       area = bytes.subarray(0, size);
-    if (want.env)
-      out.exe =
-        processPath(pid, bytes.subarray(bytes.length - max_path_bytes)) ?? "";
+    if (want.env) out.exe = processPath(pid, bytes.subarray(bytes.length - max_path_bytes)) ?? "";
     const len = readFile(`/proc/${pid}/cmdline`, area);
     if (!len) return null;
     const whole = len < area.length && area[len - 1] === 0,
@@ -270,8 +233,7 @@ export function processArgs(
     if (want.env) {
       const rest = bytes.subarray(size, bytes.length - max_path_bytes),
         used = readFile(`/proc/${pid}/environ`, rest);
-      for (const entry of rest.toString("utf8", 0, used).split("\0"))
-        out.addEnv(entry);
+      for (const entry of rest.toString("utf8", 0, used).split("\0")) out.addEnv(entry);
     }
     return out;
   } catch {
@@ -288,7 +250,7 @@ export function processTree(roots: number[], limit = 16384): number[] | null {
   task_children ??= existsSync(`/proc/self/task/${process.pid}/children`);
   if (!task_children) return null;
   const seen = new Set<number>(),
-    pending = roots.filter((pid) => pid > 0);
+    pending = roots.filter(pid => pid > 0);
   while (pending.length && seen.size < limit) {
     const pid = pending.pop()!;
     if (seen.has(pid)) continue;
@@ -326,12 +288,7 @@ export function processJob(pid: number): ProcessJob | null {
         .trim()
         .split(/ +/),
       numbers = fields.slice(1, 6).map(Number);
-    if (
-      numbers.length !== 5 ||
-      numbers.some(
-        (v) => !Number.isInteger(v) || v < -2147483648 || v > 2147483647,
-      )
-    )
+    if (numbers.length !== 5 || numbers.some(v => !Number.isInteger(v) || v < -2147483648 || v > 2147483647))
       return null;
     return { ppid: numbers[0], pgid: numbers[1], tpgid: numbers[4] };
   } catch {
@@ -370,10 +327,7 @@ export class PathSearch {
     return null;
   }
 }
-export function findExecutable(
-  name: string,
-  buffer: Uint8Array | number = max_path_bytes,
-) {
+export function findExecutable(name: string, buffer: Uint8Array | number = max_path_bytes) {
   return PathSearch.init(env("PATH") ?? "", name).next(buffer);
 }
 export function shellQuote(text: string): string {
@@ -392,18 +346,10 @@ export function shellEscape(args: Array<string | Uint8Array>): string | null {
     }
     if (
       /[\x00-\x1f\x7f]/.test(text) ||
-      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
-        text,
-      )
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)
     )
       return null;
-    out.push(
-      text
-        ? text.replace(/[^a-zA-Z0-9_@%+:,.\/-]/g, (ch) =>
-            ch.codePointAt(0)! < 128 ? "\\" + ch : ch,
-          )
-        : "''",
-    );
+    out.push(text ? text.replace(/[^a-zA-Z0-9_@%+:,.\/-]/g, ch => (ch.codePointAt(0)! < 128 ? "\\" + ch : ch)) : "''");
   }
   return out.join(" ");
 }
@@ -418,10 +364,7 @@ export function exec(args: string[]): never {
   throw Error("ExecFailed");
 }
 export function socketPath(): string {
-  return (
-    env("CORGI_SOCKET") ??
-    `/tmp/corgi-${process.getuid?.() ?? userInfo().uid}/control.sock`
-  );
+  return env("CORGI_SOCKET") ?? `/tmp/corgi-${process.getuid?.() ?? userInfo().uid}/control.sock`;
 }
 export function statePath(name: string): string {
   return join(
@@ -432,12 +375,7 @@ export function statePath(name: string): string {
     name,
   );
 }
-export function atomicWrite(
-  path: string,
-  data: string | Uint8Array,
-  mode = 0o600,
-  private_parent = true,
-): void {
+export function atomicWrite(path: string, data: string | Uint8Array, mode = 0o600, private_parent = true): void {
   if (private_parent) privateDirectory(dirname(path));
   else mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -497,8 +435,7 @@ export class SocketPath {
   release() {
     if (this.inode === null) return;
     try {
-      if (lstatSync(this.path, { bigint: true }).ino === this.inode)
-        unlinkSync(this.path);
+      if (lstatSync(this.path, { bigint: true }).ino === this.inode) unlinkSync(this.path);
     } catch {}
   }
 }
@@ -515,18 +452,11 @@ export function privateDirectory(parent: string) {
       throw Error("UnsafeSocketDirectory");
     }
   }
-  if (
-    stat.uid !== (process.getuid?.() ?? userInfo().uid) ||
-    !stat.isDir() ||
-    (stat.mode & 0o077) !== 0
-  )
+  if (stat.uid !== (process.getuid?.() ?? userInfo().uid) || !stat.isDir() || (stat.mode & 0o077) !== 0)
     throw Error("UnsafeSocketDirectory");
 }
 export function unixAddress(path: string) {
-  if (
-    Buffer.byteLength(path) >= (process.platform === "darwin" ? 104 : 108) ||
-    path.includes("\0")
-  )
+  if (Buffer.byteLength(path) >= (process.platform === "darwin" ? 104 : 108) || path.includes("\0"))
     throw Error("NameTooLong");
   return path;
 }
@@ -550,14 +480,7 @@ export function listen(path: string): number {
   privateDirectory(dirname(path));
   unixAddress(path);
   const fd = n.probe_listen(Buffer.from(path + "\0"));
-  if (fd < 0)
-    throw Error(
-      fd === -98 || fd === -48
-        ? "AddressInUse"
-        : fd === -13
-          ? "AccessDenied"
-          : "BindFailed",
-    );
+  if (fd < 0) throw Error(fd === -98 || fd === -48 ? "AddressInUse" : fd === -13 ? "AccessDenied" : "BindFailed");
   return fd;
 }
 export function nonblock(fd: number) {
@@ -611,7 +534,6 @@ export async function capture(
     timeout_ms: options.timeout ?? 10000,
     stderr: true,
   });
-  if (!output.ok())
-    throw Error(output.stderr.toString().trim() || "ChildFailed");
+  if (!output.ok()) throw Error(output.stderr.toString().trim() || "ChildFailed");
   return output.stdout.toString();
 }

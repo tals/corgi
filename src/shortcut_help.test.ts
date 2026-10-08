@@ -48,7 +48,8 @@ test("agents lead with the attention jump, its key a keycap that fits", () => {
 });
 
 test("agents list closing and reopening; panes list closing only", () => {
-  const shows = (c: Column, action: Action) => c.rows.some((row) => row.some((part) => part.action !== null && same(part.action, action)));
+  const shows = (c: Column, action: Action) =>
+    c.rows.some(row => row.some(part => part.action !== null && same(part.action, action)));
   for (const preset of available_presets) {
     const agents = new Column(47, preset);
     navigation(agents);

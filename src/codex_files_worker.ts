@@ -8,8 +8,6 @@ self.onmessage = (event: MessageEvent<{ path: string }>) => {
   self.postMessage({
     changed,
     stamp: index.stamp,
-    entries: changed
-      ? [...index.names].map(([id, name]) => [id, name.text()])
-      : [],
+    entries: changed ? [...index.names].map(([id, name]) => [id, name.text()]) : [],
   });
 };

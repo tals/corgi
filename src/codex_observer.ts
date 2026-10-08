@@ -55,20 +55,12 @@ export class Snapshot {
   deinit() {}
 }
 export function unique(ids: any[], prefix: Text) {
-  const matching = ids.filter(
-    (id) =>
-      typeof id === "string" &&
-      id.length === 36 &&
-      id.startsWith(prefix.text()),
-  );
+  const matching = ids.filter(id => typeof id === "string" && id.length === 36 && id.startsWith(prefix.text()));
   return matching.length === 1 ? matching[0] : null;
 }
 export function needsInput(status: any) {
   const flags = field(status, "activeFlags");
-  return (
-    Array.isArray(flags) &&
-    flags.some((f) => ["waitingOnApproval", "waitingOnUserInput"].includes(f))
-  );
+  return Array.isArray(flags) && flags.some(f => ["waitingOnApproval", "waitingOnUserInput"].includes(f));
 }
 export function threadState(status: any): State {
   switch (str(status, "type")) {
@@ -125,14 +117,10 @@ export async function snapshot(client: Client, req: Request, session: string) {
   let state = threadState(field(thread, "status"));
   if (state === "unknown") state = "initializing";
   const out = new Snapshot(req, session, state);
-  if (
-    Number.isInteger(field(thread, "updatedAt")) &&
-    field(thread, "updatedAt") > 0
-  )
+  if (Number.isInteger(field(thread, "updatedAt")) && field(thread, "updatedAt") > 0)
     out.updated_at = field(thread, "updatedAt");
   out.name = new Name(str(thread, "name"));
-  if (path.isAbsolute(str(thread, "path")))
-    out.transcript = transcriptPath(str(thread, "path"));
+  if (path.isAbsolute(str(thread, "path"))) out.transcript = transcriptPath(str(thread, "path"));
   const turns = await client.call("thread/turns/list", {
       threadId: session,
       limit: 1,
@@ -146,8 +134,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
     if (id && Buffer.byteLength(id) <= 128) {
       out.turn = new Turn(id);
       const status = str(data[0], "status");
-      if (["completed", "interrupted", "failed"].includes(status))
-        out.outcome = status as any;
+      if (["completed", "interrupted", "failed"].includes(status)) out.outcome = status as any;
     }
   }
   try {
@@ -160,12 +147,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
     if (!Array.isArray(data)) throw Error("BadResponse");
     out.background_tasks.observed_at = out.observed_at;
     out.background_tasks.live = true;
-    for (const item of data)
-      out.background_tasks.append(
-        str(item, "processId"),
-        "",
-        str(item, "command"),
-      );
+    for (const item of data) out.background_tasks.append(str(item, "processId"), "", str(item, "command"));
     out.background_tasks.truncated ||= field(body, "nextCursor") !== null;
     if (out.background_tasks.len)
       out.evidence = new SummaryText(
@@ -173,7 +155,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
           "Currently running background tasks:\n" +
           out.background_tasks.items
             .slice(0, 4)
-            .map((t) => t.label.text() + "\n")
+            .map(t => t.label.text() + "\n")
             .join("") +
           out.evidence.text()
         ).slice(0, 2048),
@@ -192,11 +174,11 @@ export async function snapshot(client: Client, req: Request, session: string) {
         useStateDbOnly: true,
         limit: 100,
       },
-      (thread) => {
+      thread => {
         if (str(thread, "parentThreadId") !== session) return;
         any = true;
         const id = str(thread, "id");
-        if (out.children.some((c) => c.session === id)) return;
+        if (out.children.some(c => c.session === id)) return;
         if (str(field(thread, "status"), "type") === "active") {
           if (needsInput(field(thread, "status"))) out.subagents.blocked++;
           else out.subagents.running++;
@@ -207,14 +189,10 @@ export async function snapshot(client: Client, req: Request, session: string) {
         const child = new Child();
         child.session = id;
         child.state = threadState(field(thread, "status"));
-        child.name = Name.ascii(
-          str(thread, "name") || str(thread, "agentNickname"),
-        );
+        child.name = Name.ascii(str(thread, "name") || str(thread, "agentNickname"));
         child.role = Role.ascii(str(thread, "agentRole"));
-        if (path.isAbsolute(str(thread, "path")))
-          child.transcript = transcriptPath(str(thread, "path"));
-        if (Number.isInteger(field(thread, "updatedAt")))
-          child.updated_at = field(thread, "updatedAt");
+        if (path.isAbsolute(str(thread, "path"))) child.transcript = transcriptPath(str(thread, "path"));
+        if (Number.isInteger(field(thread, "updatedAt"))) child.updated_at = field(thread, "updatedAt");
         out.children.push(child);
       },
       "TooManyThreads",
@@ -236,7 +214,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
           limit: 100,
           sortDirection: "desc",
         },
-        (e) => isActiveWait(e, out.turn.text(), session),
+        e => isActiveWait(e, out.turn.text(), session),
         "TooManyItems",
       );
     } catch {}
@@ -251,10 +229,7 @@ export class Worker {
   timer: ReturnType<typeof setInterval> | null = null;
   running = false;
   constructor() {
-    this.socket = path.join(
-      Codex.info.configDir(),
-      "app-server-control/app-server-control.sock",
-    );
+    this.socket = path.join(Codex.info.configDir(), "app-server-control/app-server-control.sock");
   }
   static start() {
     const w = new Worker();
@@ -283,9 +258,7 @@ export class Worker {
         p.terminal.title_pid !== p.detection.pid
       )
         continue;
-      const prefix = Codex.titleSession(
-        p.terminal.vt?.getTitle?.() ?? p.terminal.title ?? "",
-      );
+      const prefix = Codex.titleSession(p.terminal.vt?.getTitle?.() ?? p.terminal.title ?? "");
       if (!prefix) continue;
       this.requests.push({
         pane: p.id,
@@ -298,25 +271,15 @@ export class Worker {
       if (this.requests.length === 64) break;
     }
     const actors = runtime.conversations.items;
-    for (
-      let offset = 0;
-      offset < actors.length && this.requests.length < 64;
-      offset++
-    ) {
+    for (let offset = 0; offset < actors.length && this.requests.length < 64; offset++) {
       const actor = actors[(this.cursor + offset) % actors.length];
       if (
         actor.state.provider !== "codex" ||
         actor.state.session.len !== 36 ||
-        (!["working", "blocked"].includes(actor.state.state) &&
-          !actor.child_refresh)
+        (!["working", "blocked"].includes(actor.state.state) && !actor.child_refresh)
       )
         continue;
-      if (
-        panes.some(
-          (p: any) => !p.terminal.exited && p.attachment.actor === actor,
-        )
-      )
-        continue;
+      if (panes.some((p: any) => !p.terminal.exited && p.attachment.actor === actor)) continue;
       this.requests.push({
         pane: 0,
         pid: 0,
@@ -339,7 +302,7 @@ export class Worker {
         client,
         "thread/loaded/list",
         { limit: 100 },
-        (id) => {
+        id => {
           if (typeof id === "string") ids.push(id);
         },
         "TooManyThreads",
@@ -350,10 +313,7 @@ export class Worker {
         if (!session) continue;
         try {
           const s = await snapshot(client, req, session);
-          this.results = this.results.filter(
-            (old) =>
-              old.request.pane !== req.pane || old.request.actor !== req.actor,
-          );
+          this.results = this.results.filter(old => old.request.pane !== req.pane || old.request.actor !== req.actor);
           this.results.push(s);
         } catch {}
       }

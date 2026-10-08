@@ -39,12 +39,7 @@ export function stop(server: Server) {
   services.get(server)?.stop();
   services.delete(server);
 }
-export async function request(
-  server: Server,
-  client: Client,
-  op: string,
-  q: any,
-) {
+export async function request(server: Server, client: Client, op: string, q: any) {
   const s = service(server);
   if (op === "agent.history") {
     const reader = s.startHistory();
@@ -58,8 +53,7 @@ export async function request(
   }
   const ws = server.runtime.getWorkspace(q.workspace),
     cwd = q.cwd || ws.cwd;
-  if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096)
-    throw Error("InvalidDirectory");
+  if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
   if (op === "agent.command.preview") {
     client.reply(op, {
       resolution: s.command_previews.request(q.request, q.command ?? "", cwd),
@@ -67,12 +61,8 @@ export async function request(
     return;
   }
   const subscribe = op === "agent.subscribe";
-  if (subscribe && (client.viewer || client.subscribed))
-    throw Error("AlreadyAttached");
-  const preview =
-    op === "agent.track_usage"
-      ? s.launch_previews.trackUsage(cwd)
-      : s.launch_previews.preview(cwd);
+  if (subscribe && (client.viewer || client.subscribed)) throw Error("AlreadyAttached");
+  const preview = op === "agent.track_usage" ? s.launch_previews.trackUsage(cwd) : s.launch_previews.preview(cwd);
   if (subscribe) {
     client.launch_preview = {
       cwd,
@@ -89,23 +79,13 @@ export function publish(server: Server, client: Client) {
   const subscription = client.launch_preview as Subscription | null;
   if (!subscription) return;
   const s = service(server);
-  if (
-    !subscription ||
-    !s ||
-    client.dead ||
-    client.output.length ||
-    Date.now() - subscription.checked < 100
-  )
-    return;
+  if (!subscription || !s || client.dead || client.output.length || Date.now() - subscription.checked < 100) return;
   subscription.checked = Date.now();
   if (subscription.history_asked) {
     s.startHistory();
   }
   if (subscription.history_asked && s.launch_history) {
-    const update = s.launch_history.update(
-      subscription.history_epoch,
-      subscription.history_sent,
-    );
+    const update = s.launch_history.update(subscription.history_epoch, subscription.history_sent);
     if (update) {
       client.queue({ type: "agent.history", update });
       subscription.history_epoch = update.epoch;

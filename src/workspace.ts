@@ -1,12 +1,5 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
-import {
-  mkdir,
-  open,
-  rename,
-  readFile,
-  realpath,
-  stat,
-} from "node:fs/promises";
+import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
 import { Model, cleanLabel } from "./layout";
 import { Order } from "./agent_order";
 import { Ref, State } from "./trackers/git_push";
@@ -58,11 +51,9 @@ export class Store {
   next_pane_id = 1;
   static statePath(socket: string) {
     const e = process.env;
-    if (e.CORGI_ENV_DIR)
-      return join(e.CORGI_ENV_DIR, "state", "corgi", "workspaces.json");
+    if (e.CORGI_ENV_DIR) return join(e.CORGI_ENV_DIR, "state", "corgi", "workspaces.json");
     if (e.CORGI_SOCKET !== undefined) return `${socket}.workspaces.json`;
-    if (e.XDG_STATE_HOME)
-      return join(e.XDG_STATE_HOME, "corgi", "workspaces.json");
+    if (e.XDG_STATE_HOME) return join(e.XDG_STATE_HOME, "corgi", "workspaces.json");
     if (!e.HOME) throw Error("NoHome");
     return join(e.HOME, ".local", "state", "corgi", "workspaces.json");
   }
@@ -77,7 +68,7 @@ export class Store {
             version: 2,
             active: selected,
             next_id: this.next_id,
-            workspaces: this.items.map((w) => ({
+            workspaces: this.items.map(w => ({
               id: w.id,
               name: w.customName(),
               cwd: w.cwd,
@@ -119,7 +110,7 @@ export class Store {
         !Number.isInteger(x.id) ||
         x.id <= 0 ||
         x.id >= d.next_id ||
-        items.some((w) => w.id === x.id) ||
+        items.some(w => w.id === x.id) ||
         typeof x.cwd !== "string" ||
         !isAbsolute(x.cwd)
       )
@@ -128,7 +119,7 @@ export class Store {
       w.rename(x.name);
       items.push(w);
     }
-    if (!items.some((w) => w.id === d.active)) invalid();
+    if (!items.some(w => w.id === d.active)) invalid();
     this.items = items;
     this.next_id = d.next_id;
     return d.active as number;
@@ -137,34 +128,24 @@ export class Store {
     this.items = [];
   }
   index(id: number) {
-    const i = this.items.findIndex((w) => w.id === id);
+    const i = this.items.findIndex(w => w.id === id);
     return i < 0 ? null : i;
   }
   get(id: number) {
-    return this.items.find((w) => w.id === id) ?? null;
+    return this.items.find(w => w.id === id) ?? null;
   }
   owner(pane: number) {
-    return this.items.find((w) => w.model.tabForPane(pane) !== null) ?? null;
+    return this.items.find(w => w.model.tabForPane(pane) !== null) ?? null;
   }
   moveBefore(id: number, before: number) {
     const from = this.index(id);
-    if (from === null || this.index(before) === null)
-      throw Error("NoWorkspace");
+    if (from === null || this.index(before) === null) throw Error("NoWorkspace");
     const [w] = this.items.splice(from, 1);
-    this.items.splice(
-      before === id ? this.items.length : this.index(before)!,
-      0,
-      w,
-    );
+    this.items.splice(before === id ? this.items.length : this.index(before)!, 0, w);
   }
   static async directory(path: string) {
     const home = process.env.HOME ?? ".",
-      expanded =
-        path === "~"
-          ? home
-          : path.startsWith("~/")
-            ? join(home, path.slice(2))
-            : path || ".";
+      expanded = path === "~" ? home : path.startsWith("~/") ? join(home, path.slice(2)) : path || ".";
     const p = await realpath(expanded);
     if (!(await stat(p)).isDirectory()) throw Error("NotDir");
     return p;

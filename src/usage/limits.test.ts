@@ -27,7 +27,5 @@ test("windows follow their length across provider slots and unknown resets have 
     week = new Window({ minutes: 10080, used: 84, reset_at: 10080 * 60 });
   state.record([week, null], 60);
   expect(state.record([null, week], 120)[1][0]).toBe(84);
-  expect(
-    state.record([new Window({ minutes: 300, used: 5 }), null], 60)[0][0],
-  ).toBeNull();
+  expect(state.record([new Window({ minutes: 300, used: 5 }), null], 60)[0][0]).toBeNull();
 });

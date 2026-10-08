@@ -1,13 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-  Inventory,
-  Children,
-  Shells,
-  Ended,
-  classify,
-  claudeWakeup,
-  capacity,
-} from "./background_tasks";
+import { Inventory, Children, Shells, Ended, classify, claudeWakeup, capacity } from "./background_tasks";
 test("provider tasks retain identity, descriptions and bounded categories", () => {
   const inventory = Inventory.claude(
     [
@@ -36,8 +28,7 @@ test("provider tasks retain identity, descriptions and bounded categories", () =
     ["echo 'test server'", "commands"],
   ] as const)
     expect(classify(command)).toBe(group);
-  for (let i = 0; i < capacity + 1; i++)
-    inventory.append(`task-${i}`, "Build", "bun run build");
+  for (let i = 0; i < capacity + 1; i++) inventory.append(`task-${i}`, "Build", "bun run build");
   expect(inventory.len).toBe(capacity);
   expect(inventory.truncated).toBe(true);
 });
@@ -88,29 +79,13 @@ test("a Claude Stop lists its running subagents apart from its commands", () => 
 test("task labels summarize commands and bound provider prose", () => {
   const inventory = new Inventory();
   for (const [i, [description, command, label]] of [
-    [
-      "",
-      "./scripts/zig build test -Doptimize=ReleaseSafe -Dcodesign=false",
-      "Running tests",
-    ],
-    [
-      "",
-      "bun run dev --host 0.0.0.0 --port 3000",
-      "Running development server",
-    ],
+    ["", "./scripts/zig build test -Doptimize=ReleaseSafe -Dcodesign=false", "Running tests"],
+    ["", "bun run dev --host 0.0.0.0 --port 3000", "Running development server"],
     ["", "python3 -c 'a very long inline program'", "Running Python task"],
-    [
-      "",
-      "sh -c 'cd /long/path && complex-command --many-flags'",
-      "Running shell task",
-    ],
+    ["", "sh -c 'cd /long/path && complex-command --many-flags'", "Running shell task"],
     ["Check parser", "bun test", "Check parser"],
     ["bun test", "bun test", "Running tests"],
-    [
-      "Run the parser tests and validate all generated fixtures",
-      "bun test",
-      "Run the parser tests and validate…",
-    ],
+    ["Run the parser tests and validate all generated fixtures", "bun test", "Run the parser tests and validate…"],
   ].entries()) {
     inventory.append(String(i), description, command);
     expect(inventory.items[i].label.text()).toBe(label);

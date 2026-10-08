@@ -24,23 +24,14 @@ const fresh = () => {
 };
 const roundtrip = (state: any) => json.parse(json.stringify(state));
 const restore = (r: Runtime, state: any, live: boolean) =>
-  cp.restore(
-    r,
-    roundtrip(state),
-    live,
-    "/tmp/unused-checkpoint.sock",
-    "/tmp/corgi",
-  );
+  cp.restore(r, roundtrip(state), live, "/tmp/unused-checkpoint.sock", "/tmp/corgi");
 for (const version of [2, 3, 4, 5])
   test(
     version === 5
       ? "V5 fixture is current and restores as saved"
       : `V${version} fixture migrates before typed decoding and restores unchanged terminal data`,
     async () => {
-      const bytes = readFileSync(
-          resolve(fixtures, `checkpoint-v${version}.json`),
-          "utf8",
-        ),
+      const bytes = readFileSync(resolve(fixtures, `checkpoint-v${version}.json`), "utf8"),
         decoded = migrations.decode("checkpoint", bytes),
         r = new Runtime();
       try {
@@ -48,17 +39,12 @@ for (const version of [2, 3, 4, 5])
         expect(decoded.migrated).toBe(version !== 5);
         expect(decoded.value.version).toBe(migrations.checkpoint_version);
         if (version === 2) {
-          expect(
-            decoded.value.panes[0].binding.provisional.provider,
-          ).toBeNull();
+          expect(decoded.value.panes[0].binding.provisional.provider).toBeNull();
           expect(decoded.value.panes[0].resume_hint.provider).toBeNull();
           await restore(r, decoded.value, true);
           expect(r.panes[0].terminal.text()).toContain("other");
           expect(r.workspaces.items[0].customName()).toBe("other");
-          expect(
-            migrations.decode("checkpoint", json.stringify(decoded.value))
-              .migrated,
-          ).toBe(false);
+          expect(migrations.decode("checkpoint", json.stringify(decoded.value)).migrated).toBe(false);
         } else {
           await restore(r, decoded.value, false);
           expect(r.conversations.items.length).toBe(1);
@@ -66,8 +52,7 @@ for (const version of [2, 3, 4, 5])
           expect(r.panes[0].agent().observation.unread()).toBe(true);
           expect(r.panes[1].attachment.actor).toBeNull();
           expect(r.panes[0].terminal.text()).toContain("v3 history");
-          if (version === 4)
-            expect(r.panes[0].resume_hint.session.text()).toBe("v3-shared");
+          if (version === 4) expect(r.panes[0].resume_hint.session.text()).toBe("v3-shared");
           if (version === 5) expect(bytes).not.toContain("\\u0000");
         }
       } finally {
@@ -77,9 +62,7 @@ for (const version of [2, 3, 4, 5])
   );
 test.skip("generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE=1 only)", () => {});
 test("saved checkpoint format matches its version", () => {
-  expect(schema).toBe(
-    readFileSync(resolve(fixtures, "checkpoint.schema"), "utf8"),
-  );
+  expect(schema).toBe(readFileSync(resolve(fixtures, "checkpoint.schema"), "utf8"));
   const r = fresh();
   try {
     validateCheckpoint(roundtrip(cp.capture(r, true)));
@@ -172,9 +155,7 @@ test("conversation checkpoint restores shared bindings and detached unread state
     await restore(next, cp.capture(r, true), true);
     expect(next.conversations.items.length).toBe(2);
     const actor = next.conversations.byId(shared.id)!;
-    expect(actor.status_inference.previous.text()).toBe(
-      "Explaining cursor visibility",
-    );
+    expect(actor.status_inference.previous.text()).toBe("Explaining cursor visibility");
     expect(actor.status_inference.len).toBe(1);
     expect(next.panes[0].attachment.actor).toBe(actor);
     expect(next.panes[1].attachment.actor).toBe(actor);
@@ -182,13 +163,9 @@ test("conversation checkpoint restores shared bindings and detached unread state
     expect(next.panes[0].attachment.hook_seq).toBe(50);
     actor.acknowledge(1, null);
     expect(next.panes[1].agent().observation.unread()).toBe(false);
-    expect(
-      next.conversations.byId(detached.id)!.state.observation.unread(),
-    ).toBe(true);
+    expect(next.conversations.byId(detached.id)!.state.observation.unread()).toBe(true);
     expect(next.conversations.byId(detached.id)!.parent).toBe(shared.id);
-    expect(next.conversations.get("claude", "next").id).toBeGreaterThan(
-      detached.id,
-    );
+    expect(next.conversations.get("claude", "next").id).toBeGreaterThan(detached.id);
     await restore(cold, cp.capture(r, false), false);
     const historical = cold.conversations.byId(shared.id)!;
     expect(historical.state.state).toBe("unknown");
@@ -201,9 +178,7 @@ test("conversation checkpoint restores shared bindings and detached unread state
   }
 });
 test("legacy pane checkpoint migrates identity into an actor", async () => {
-  const tree = json.parse(
-    readFileSync(resolve(fixtures, "checkpoint-v4.json"), "utf8"),
-  );
+  const tree = json.parse(readFileSync(resolve(fixtures, "checkpoint-v4.json"), "utf8"));
   tree.version = 1;
   delete tree.conversations;
   delete tree.next_conversation;
@@ -240,20 +215,15 @@ test("live compaction restores its clearing source including older checkpoints",
     try {
       const saved = cp.capture(r, true);
       expect(saved.conversations[0].screen_compacting).toBe(item.owned);
-      if (item.saved === null)
-        Reflect.deleteProperty(saved.conversations[0], "screen_compacting");
+      if (item.saved === null) Reflect.deleteProperty(saved.conversations[0], "screen_compacting");
       else saved.conversations[0].screen_compacting = item.saved;
       await restore(next, saved, true);
       const restored = next.conversations.byId(actor.id)!;
       expect(restored.screen_compacting).toBe(item.owned);
-      expect(restored.activity_timeline.points[0].label.text()).toBe(
-        "Compacting context",
-      );
+      expect(restored.activity_timeline.points[0].label.text()).toBe("Compacting context");
       restored.observeCompactionScreen(false, Date.now() * 1000);
       expect(restored.state.compacting).toBe(!item.owned);
-      expect(cp.capture(r, false).conversations[0].agent.compacting).toBe(
-        false,
-      );
+      expect(cp.capture(r, false).conversations[0].agent.compacting).toBe(false);
     } finally {
       next.deinit();
       r.deinit();
@@ -337,7 +307,7 @@ test("link cache and spent inference attempts survive live checkpoints only", as
     }
     const invalid = new links.Cache();
     Object.assign(invalid, r.link_labels);
-    invalid.entries = r.link_labels.entries.map((e) => (e ? { ...e } : null));
+    invalid.entries = r.link_labels.entries.map(e => (e ? { ...e } : null));
     invalid.entries[0]!.name = new Text("Too many words here");
     expect(() => links.Cache.restore(invalid)).toThrow("InvalidCheckpoint");
     invalid.entries[0]!.name = new Text("Finance");
@@ -357,14 +327,10 @@ test("checkpoint capture copies durable values and rejects invalid saved primiti
     expect(state.workspaces[0].name).toBe("test");
     const invalid = roundtrip(state);
     invalid.revision = -1;
-    await expect(restore(new Runtime(), invalid, true)).rejects.toThrow(
-      "Overflow",
-    );
+    await expect(restore(new Runtime(), invalid, true)).rejects.toThrow("Overflow");
     invalid.revision = 0;
     invalid.agent_commands[0].command = "x".repeat(2049);
-    await expect(restore(new Runtime(), invalid, true)).rejects.toThrow(
-      "LengthMismatch",
-    );
+    await expect(restore(new Runtime(), invalid, true)).rejects.toThrow("LengthMismatch");
   } finally {
     r.deinit();
   }

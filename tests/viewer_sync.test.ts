@@ -2,19 +2,14 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
-import {
-  EXE,
-  JsonSocket,
-  registerCase,
-  shellJoin,
-  sleep,
-  writeExecutable,
-} from "./support";
+import { EXE, JsonSocket, registerCase, shellJoin, sleep, writeExecutable } from "./support";
 
 // Viewer stamps and session hashes contain u64 values. The default JSON.parse
 // rounds them and makes an unchanged receipt look stale.
 function parseWire(line: string) {
-  let quoted = false, escaped = false, result = "";
+  let quoted = false,
+    escaped = false,
+    result = "";
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
     if (quoted) {
@@ -23,13 +18,13 @@ function parseWire(line: string) {
       else if (char === "\\") escaped = true;
       else if (char === '"') quoted = false;
     } else if (char === '"') {
-      quoted = true; result += char;
+      quoted = true;
+      result += char;
     } else if (char >= "0" && char <= "9") {
       let end = i + 1;
       while (end < line.length && line[end] >= "0" && line[end] <= "9") end++;
       const digits = line.slice(i, end);
-      result += digits.length >= 16 && BigInt(digits) > BigInt(Number.MAX_SAFE_INTEGER)
-        ? `"${digits}"` : digits;
+      result += digits.length >= 16 && BigInt(digits) > BigInt(Number.MAX_SAFE_INTEGER) ? `"${digits}"` : digits;
       i = end - 1;
     } else result += char;
   }
@@ -38,8 +33,11 @@ function parseWire(line: string) {
 
 function wireRequest(value: Record<string, any>) {
   return JSON.stringify(value, (key, item) =>
-    (key === "identity" || key === "session_hash" || key === "resources_hash") && typeof item === "string" && /^\d{16,}$/.test(item)
-      ? `__RAW_U64_${item}__` : item,
+    (key === "identity" || key === "session_hash" || key === "resources_hash") &&
+    typeof item === "string" &&
+    /^\d{16,}$/.test(item)
+      ? `__RAW_U64_${item}__`
+      : item,
   ).replace(/"__RAW_U64_(\d+)__"/g, "$1");
 }
 
@@ -77,11 +75,7 @@ class WireViewer {
     if ("err" in reply) throw new Error(JSON.stringify(reply));
     return reply;
   }
-  async sync(
-    offset: any = null,
-    accept = true,
-    options: Record<string, any> = {},
-  ) {
+  async sync(offset: any = null, accept = true, options: Record<string, any> = {}) {
     const reply = await this.call({
       op: "viewer.sync",
       session_hash: this.session_hash,
@@ -139,8 +133,7 @@ class ViewerSync extends Runtime {
     });
     this.assertEqual(reply.surfaces, []);
     this.assertLess(viewer.response_bytes, 400);
-    for (let i = 0; i < 10; i++)
-      this.assertEqual((await viewer.sync()).surfaces, []);
+    for (let i = 0; i < 10; i++) this.assertEqual((await viewer.sync()).surfaces, []);
     await this.command("pane.rename", {
       target: pane,
       name: "Renamed metadata",
@@ -148,10 +141,7 @@ class ViewerSync extends Runtime {
     const renamed = await viewer.sync();
     this.assertIsNotNone(renamed.session);
     this.assertEqual(renamed.surfaces, []);
-    this.assertEqual(
-      viewer.session.panes.find((p: any) => p.id === pane).name,
-      "Renamed metadata",
-    );
+    this.assertEqual(viewer.session.panes.find((p: any) => p.id === pane).name, "Renamed metadata");
     await this.rpc({
       op: "action",
       name: "rename",
@@ -161,11 +151,7 @@ class ViewerSync extends Runtime {
     const control = await viewer.sync();
     this.assertEqual(control.controls[0].value, "Queued");
     this.assertEqual(control.surfaces, []);
-    this.assertEqual(
-      (await viewer.sync(null, true, { ack: control.controls[0].seq }))
-        .controls,
-      [],
-    );
+    this.assertEqual((await viewer.sync(null, true, { ack: control.controls[0].seq })).controls, []);
   }
 
   async test_output_modes_viewport_resize_and_theme_invalidate_receipts() {
@@ -190,19 +176,13 @@ process.stdin.resume();
     this.assertTrue((await viewer.sync()).surfaces.length);
     this.assertEqual(viewer.known, live);
     viewer.cols = 90;
-    this.assertEqual(
-      (await viewer.sync(null, true, { active: true })).surfaces[0].surface
-        .cols,
-      90,
-    );
+    this.assertEqual((await viewer.sync(null, true, { active: true })).surfaces[0].surface.cols, 90);
     this.assertEqual((await viewer.sync()).surfaces, []);
     const before = viewer.text();
     await this.command("pane.input", { target: pane, data: "m" });
     await this.until(async () => {
       await viewer.sync();
-      return (
-        viewer.frame.modes.cursor_keys && viewer.frame.modes.bracketed_paste
-      );
+      return viewer.frame.modes.cursor_keys && viewer.frame.modes.bracketed_paste;
     });
     this.assertEqual(viewer.text(), before);
     this.assertEqual((await viewer.sync()).surfaces, []);
@@ -224,10 +204,7 @@ process.stdin.resume();
     });
     await this.until(async () => {
       const reply = await viewer.sync(null, false);
-      return reply.surfaces.length &&
-        reply.surfaces[0].surface.lines.join("").includes("LATEST_OUTPUT")
-        ? reply
-        : null;
+      return reply.surfaces.length && reply.surfaces[0].surface.lines.join("").includes("LATEST_OUTPUT") ? reply : null;
     });
     this.assertTrue((await viewer.sync(null, false)).surfaces.length);
     this.assertTrue((await viewer.sync()).surfaces.length);
@@ -288,10 +265,7 @@ await Bun.sleep(60000);
     await this.command("pane.rename", { target: pane, name: "Woken" });
     this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
     await viewer.sync();
-    this.assertEqual(
-      viewer.session.panes.find((p: any) => p.id === pane).name,
-      "Woken",
-    );
+    this.assertEqual(viewer.session.panes.find((p: any) => p.id === pane).name, "Woken");
     await this.rpc({
       op: "action",
       name: "rename",
@@ -345,9 +319,7 @@ await Bun.sleep(60000);
     const viewer = await Viewer.create(this);
     this.addCleanup(() => viewer.close());
     await viewer.focus(pane);
-    await this.until(async () =>
-      (await viewer.poll()).data.includes("one NEEDLE two NEEDLE"),
-    );
+    await this.until(async () => (await viewer.poll()).data.includes("one NEEDLE two NEEDLE"));
     const first = (await viewer.input("\x02s/NEEDLE\r")).data;
     const second = (await viewer.input("n")).data;
     this.assertNotEqual(first, second);

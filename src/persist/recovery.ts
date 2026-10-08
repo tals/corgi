@@ -6,17 +6,13 @@ import * as checkpoint from "./checkpoint";
 import * as json from "../json";
 export { atomicWrite };
 export function path(socket: string): string {
-  const root =
-    process.env.XDG_STATE_HOME ??
-    join(process.env.HOME ?? "/", ".local", "state");
+  const root = process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? "/", ".local", "state");
   const standard = `/tmp/corgi-${process.getuid?.() ?? 0}/control.sock`;
   return join(
     root,
     "corgi",
     "recovery",
-    socket === standard
-      ? "recovery.json"
-      : `runtime-${Bun.hash.wyhash(socket, 0n).toString(16)}.json`,
+    socket === standard ? "recovery.json" : `runtime-${Bun.hash.wyhash(socket, 0n).toString(16)}.json`,
   );
 }
 export async function save(r: Runtime, socket: string): Promise<void> {
@@ -24,11 +20,7 @@ export async function save(r: Runtime, socket: string): Promise<void> {
   mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
   atomicWrite(dest, json.stringify(checkpoint.capture(r, false)));
 }
-export async function load(
-  r: Runtime,
-  socket: string,
-  executable: string,
-): Promise<boolean> {
+export async function load(r: Runtime, socket: string, executable: string): Promise<boolean> {
   const source = path(socket);
   let bytes: string;
   try {
@@ -46,10 +38,7 @@ export async function load(
     try {
       atomicWrite(source, json.stringify(decoded.value));
     } catch (error) {
-      console.error(
-        `recovery snapshot ${source} could not be rewritten after migration:`,
-        error,
-      );
+      console.error(`recovery snapshot ${source} could not be rewritten after migration:`, error);
     }
   }
   return true;

@@ -18,9 +18,7 @@ export class Viewers extends Runtime {
     ).pane;
   }
   async geometry() {
-    return Object.fromEntries(
-      (await this.session()).panes.map((p: any) => [p.id, [p.cols, p.rows]]),
-    );
+    return Object.fromEntries((await this.session()).panes.map((p: any) => [p.id, [p.cols, p.rows]]));
   }
   async mark_agent(pane: number, name: string) {
     await this.command("pane.rename", { target: pane, name });

@@ -8,22 +8,15 @@ export class Random {
     let value = seed;
     this.state = Array.from({ length: 4 }, () => {
       value = BigInt.asUintN(64, value + 0x9e3779b97f4a7c15n);
-      let z = BigInt.asUintN(
-        64,
-        (value ^ (value >> 30n)) * 0xbf58476d1ce4e5b9n,
-      );
+      let z = BigInt.asUintN(64, (value ^ (value >> 30n)) * 0xbf58476d1ce4e5b9n);
       z = BigInt.asUintN(64, (z ^ (z >> 27n)) * 0x94d049bb133111ebn);
       return z ^ (z >> 31n);
     });
   }
   next(): bigint {
-    const rotate = (v: bigint, n: bigint) =>
-      BigInt.asUintN(64, (v << n) | (v >> (64n - n)));
+    const rotate = (v: bigint, n: bigint) => BigInt.asUintN(64, (v << n) | (v >> (64n - n)));
     const s = this.state,
-      r = BigInt.asUintN(
-        64,
-        rotate(BigInt.asUintN(64, s[0] + s[3]), 23n) + s[0],
-      ),
+      r = BigInt.asUintN(64, rotate(BigInt.asUintN(64, s[0] + s[3]), 23n) + s[0]),
       t = BigInt.asUintN(64, s[1] << 17n);
     s[2] ^= s[0];
     s[3] ^= s[1];
@@ -47,9 +40,7 @@ export class Random {
       lz = Math.min(lz, 1022);
     }
     const bytes = Buffer.alloc(8);
-    bytes.writeBigUInt64LE(
-      (BigInt(1022 - lz) << 52n) | (rand & 0xfffffffffffffn),
-    );
+    bytes.writeBigUInt64LE((BigInt(1022 - lz) << 52n) | (rand & 0xfffffffffffffn));
     return bytes.readDoubleLE();
   }
   int(n: number): number {
@@ -85,9 +76,7 @@ export class Throw {
         seed,
       });
     }
-    const angle =
-        ((kind === 1 ? 15 + 35 * r.float() : 30 + 15 * r.float()) * Math.PI) /
-        180,
+    const angle = ((kind === 1 ? 15 + 35 * r.float() : 30 + 15 * r.float()) * Math.PI) / 180,
       force = kind === 1 ? 1.8 + 0.8 * r.float() : 2.6 + 0.8 * r.float(),
       speed = force * Math.cos(angle);
     return new Throw({
@@ -132,9 +121,7 @@ export class Ball {
     const share = kept[0] + (kept[1] - kept[0]) * this.random.float(),
       along = this.vx * ny - this.vy * nx,
       slip = along + this.spin,
-      rub =
-        -Math.sign(slip) *
-        Math.min((2 / 7) * Math.abs(slip), 0.15 * (1 + share) * -into),
+      rub = -Math.sign(slip) * Math.min((2 / 7) * Math.abs(slip), 0.15 * (1 + share) * -into),
       out = -share * into;
     this.spin += 2.5 * rub;
     this.vx = (along + rub) * ny + out * nx;
@@ -157,8 +144,7 @@ export class Ball {
       rolling = this.y === 0 && this.vy === 0;
     if (rolling) {
       const drag = 0.6 / (2 * width - 12);
-      this.vx =
-        Math.abs(this.vx) <= 0.25 ? 0 : this.vx - Math.sign(this.vx) * drag;
+      this.vx = Math.abs(this.vx) <= 0.25 ? 0 : this.vx - Math.sign(this.vx) * drag;
       this.spin = -this.vx;
     } else {
       this.vy -= 0.16;
@@ -174,10 +160,7 @@ export class Ball {
       const depth = (surface - this.y) / 2;
       this.x -= depth;
       this.y = Math.max(0, this.y + depth);
-      this.bounce(
-        [-Math.SQRT1_2, Math.SQRT1_2],
-        rolling ? [0.25, 0.65] : [0.7, 0.9],
-      );
+      this.bounce([-Math.SQRT1_2, Math.SQRT1_2], rolling ? [0.25, 0.65] : [0.7, 0.9]);
     } else if (this.y < 0) this.land();
     if (this.x >= far) {
       this.x = far;
@@ -218,8 +201,7 @@ export function chase(width: number, value: Throw, ticks: number) {
     } else if (ready && cell >= x + 7) up = tick;
     if (tick === ticks) {
       result.ball = Object.assign(Object.create(Ball.prototype), ball);
-      if (up !== null)
-        result.dog = { x, pose: ran ? gait_right[x % 4] : gait_right[1] };
+      if (up !== null) result.dog = { x, pose: ran ? gait_right[x % 4] : gait_right[1] };
     }
     const near = up !== null ? x + 7 : 6;
     if ((ready && cell <= near && ball.reachable()) || tick === 1000) {
@@ -241,8 +223,7 @@ export function fetchScene(width: number, value: Throw, tick: number) {
   };
   const rest = "~ᐯ•ᴥ•ᐯ",
     held = "~ᐯ•●•ᐯ";
-  if (stage(16))
-    return { dog: Math.floor(p / 2) === 4 ? "~ᐯ◡ᴥ◡ᐯ" : rest, x: 0, ball: null };
+  if (stage(16)) return { dog: Math.floor(p / 2) === 4 ? "~ᐯ◡ᴥ◡ᐯ" : rest, x: 0, ball: null };
   const run = chase(width, value, p);
   if (stage(run.caught))
     return {
@@ -256,8 +237,7 @@ export function fetchScene(width: number, value: Throw, tick: number) {
   if (stage(2)) return { dog: "~[||]o●", x: stop, ball: null };
   if (stage(5)) return { dog: held, x: stop, ball: null };
   if (stage(turn)) return { dog: gait_left_carry[1], x: stop - 1, ball: null };
-  if (stage(stop))
-    return { dog: gait_left_carry[p % 4], x: stop - 1 - p, ball: null };
+  if (stage(stop)) return { dog: gait_left_carry[p % 4], x: stop - 1 - p, ball: null };
   if (stage(3)) return { dog: held, x: 0, ball: null };
   return { dog: rest, x: 0, ball: null };
 }
@@ -265,8 +245,7 @@ export function fetchTicks(width: number, value: Throw) {
   const run = chase(width, value, 0);
   return 16 + run.caught + 2 * ((run.stop > 0 ? 2 : 0) + run.stop + 13);
 }
-const fetchPace = (width: number, value: Throw) =>
-  Math.max(fetchTicks(width, value), 192);
+const fetchPace = (width: number, value: Throw) => Math.max(fetchTicks(width, value), 192);
 const wagTail = (step: number) => ["~", "-", "~", "^"][step % 4];
 export function writeFetch(width: number, value: Throw, tick: number): string {
   const scene = fetchScene(width, value, tick),
@@ -288,8 +267,7 @@ export function writeFetch(width: number, value: Throw, tick: number): string {
   }
   return out;
 }
-const frame = (room: number, value: string) =>
-  [...value].slice(0, Math.max(0, room)).join("");
+const frame = (room: number, value: string) => [...value].slice(0, Math.max(0, room)).join("");
 export type Routine = "idle" | "sniff" | "fetch";
 export class Playback {
   static minimum_idle_ms = 10000;
@@ -308,49 +286,27 @@ export class Playback {
     if (routine === "fetch") this.throw = Throw.random(this.random);
     this.deadline_ms =
       now +
-      (routine === "idle"
-        ? 10000
-        : routine === "sniff"
-          ? (1 + this.random.int(2)) * frames.sniff.length * 200
-          : 9600);
+      (routine === "idle" ? 10000 : routine === "sniff" ? (1 + this.random.int(2)) * frames.sniff.length * 200 : 9600);
   }
   update(active: boolean, now: number) {
     const before = this.active;
     this.active = active;
     if (!active) return;
     if (!before) {
-      this.enter(
-        (["idle", "sniff", "fetch"] as Routine[])[this.random.int(3)],
-        now,
-      );
+      this.enter((["idle", "sniff", "fetch"] as Routine[])[this.random.int(3)], now);
       return;
     }
     if (now < this.deadline_ms) return;
     if (this.routine !== "idle") this.enter("idle", now);
-    else if (this.random.int(100) < 35)
-      this.enter(this.random.boolean() ? "sniff" : "fetch", now);
+    else if (this.random.int(100) < 35) this.enter(this.random.boolean() ? "sniff" : "fetch", now);
     else this.deadline_ms = now + 2000;
   }
   write(room: number, now: number): string {
     const elapsed = Math.max(0, now - this.started_ms);
-    if (this.routine === "idle")
-      return frame(
-        room,
-        frames.wag[Math.floor(elapsed / 200) % frames.wag.length],
-      );
-    if (this.routine === "sniff")
-      return frame(
-        room,
-        frames.sniff[Math.floor(elapsed / 200) % frames.sniff.length],
-      );
+    if (this.routine === "idle") return frame(room, frames.wag[Math.floor(elapsed / 200) % frames.wag.length]);
+    if (this.routine === "sniff") return frame(room, frames.sniff[Math.floor(elapsed / 200) % frames.sniff.length]);
     if (room >= 18)
-      return writeFetch(
-        room,
-        this.throw,
-        Math.floor(
-          (Math.min(elapsed, 9599) * fetchPace(room, this.throw)) / 9600,
-        ),
-      );
+      return writeFetch(room, this.throw, Math.floor((Math.min(elapsed, 9599) * fetchPace(room, this.throw)) / 9600));
     const phase = Math.floor((Math.min(elapsed, 9599) * 4) / 9600);
     return (
       (room > 0 ? wagTail(Math.floor(elapsed / 300)) : "") +
@@ -379,10 +335,7 @@ export class Fetch {
       palette.fg("text") +
       (at !== null
         ? writeFetch(room, this.throw, at)
-        : frame(
-            room,
-            frames.wag[Math.floor(Math.max(0, now) / 200) % frames.wag.length],
-          ))
+        : frame(room, frames.wag[Math.floor(Math.max(0, now) / 200) % frames.wag.length]))
     );
   }
 }
@@ -411,8 +364,7 @@ export function herdScene(width: number, step: number) {
     const nose = width - step,
       letters = [...spread];
     letters[9] = Math.min(spread[9], nose - 1);
-    for (let i = 9; i > 0; i--)
-      letters[i - 1] = Math.min(spread[i - 1], letters[i] - 1);
+    for (let i = 9; i > 0; i--) letters[i - 1] = Math.min(spread[i - 1], letters[i] - 1);
     return {
       letters,
       lit: letters.map((at, i) => at === i || at < spread[i]),
@@ -444,8 +396,7 @@ export function writeHerd(width: number, step: number) {
   for (let col = 0; col < width; col++) {
     if (col >= scene.x && at < dog.length) {
       const glyph = dog[at++];
-      out +=
-        tint("text") + (glyph === "~" ? wagTail(Math.floor(step / 2)) : glyph);
+      out += tint("text") + (glyph === "~" ? wagTail(Math.floor(step / 2)) : glyph);
     } else if (letter < 10 && scene.letters[letter] === col) {
       out += tint(scene.lit[letter] ? "text" : "faint") + herd_word[letter++];
     } else out += " ";
@@ -460,16 +411,11 @@ export const Dig = {
 };
 const blend = (from: palette.Rgb, to: palette.Rgb, amount: number) =>
   from.map((v, i) => Math.round(v + (to[i] - v) * amount)) as palette.Rgb;
-export function writeUnearth(
-  width: number,
-  shown_ms: number,
-  dig: Dig,
-): string {
+export function writeUnearth(width: number, shown_ms: number, dig: Dig): string {
   const word = [...(dig === "restoring" ? "Restoring…" : "Forking…")],
     dirt: palette.Rgb = [150, 126, 96],
     restored = palette.colors.accent;
-  if (width < Dig.width(dig))
-    return "\x1b[1m" + palette.fg("accent") + word.join("");
+  if (width < Dig.width(dig)) return "\x1b[1m" + palette.fg("accent") + word.join("");
   const step = Math.floor(Math.max(0, shown_ms) / 80),
     cells = Array.from({ length: Dig.width(dig) }, () => ({
       glyph: " ",
@@ -488,24 +434,17 @@ export function writeUnearth(
           ? { glyph: age === 0 ? "⣤" : "⠤", color: dirt, bold: false }
           : {
               glyph: letter,
-              color:
-                age === 2
-                  ? dirt
-                  : age === 3
-                    ? blend(dirt, restored, 0.5)
-                    : restored,
+              color: age === 2 ? dirt : age === 3 ? blend(dirt, restored, 0.5) : restored,
               bold: true,
             };
     if (age < 0) continue;
-    if (age < 5)
-      cells[8 - age] = { glyph: clod[age], color: dirt, bold: false };
+    if (age < 5) cells[8 - age] = { glyph: clod[age], color: dirt, bold: false };
     else {
       const column = [1, 0, 3, 2][i % 4];
       heights[column] = Math.min(heights[column] + 1, 4);
     }
   }
-  for (const [i, h] of heights.entries())
-    cells[i].glyph = [" ", "⣀", "⣤", "⣶", "⣿"][h];
+  for (const [i, h] of heights.entries()) cells[i].glyph = [" ", "⣀", "⣤", "⣶", "⣿"][h];
   const dug = word.length * 2 + 2;
   let col = 9;
   let dog: string;
@@ -519,8 +458,7 @@ export function writeUnearth(
     };
     dog = step - dug < 5 ? "ᐱ•ᴥ•ᐱ" : "ᐯ•ᴥ•ᐯ";
   }
-  for (const glyph of dog)
-    cells[col++] = { glyph, color: palette.colors.text, bold: false };
+  for (const glyph of dog) cells[col++] = { glyph, color: palette.colors.text, bold: false };
   let bold: boolean | null = null;
   let color: palette.Rgb | null = null;
   let out = "";
@@ -551,11 +489,7 @@ export const puff_steps = 5,
   puff_step_ms = 900,
   puff_duration_ms = 4500,
   dream_period_ms = 11000;
-export function pick(
-  sleepers: bigint[],
-  period: bigint,
-  skip: bigint | null,
-): bigint | null {
+export function pick(sleepers: bigint[], period: bigint, skip: bigint | null): bigint | null {
   let best: bigint | null = null,
     bestScore = 0n;
   for (const key of sleepers) {
@@ -571,17 +505,13 @@ export function pick(
   return best;
 }
 export type Dream = { key: bigint; puff_ms: number };
-export function dreamer(
-  sleepers: (bigint | number)[],
-  now_ms: number,
-): { key: bigint; puff_ms: number } | null {
+export function dreamer(sleepers: (bigint | number)[], now_ms: number): { key: bigint; puff_ms: number } | null {
   const keys = sleepers.map(BigInt),
     now = Math.max(0, now_ms),
     period = BigInt(Math.floor(now / 11000)),
     elapsed = now % 11000;
   if (elapsed >= 4500) return null;
-  const previous =
-      period > 0n && keys.length > 1 ? pick(keys, period - 1n, null) : null,
+  const previous = period > 0n && keys.length > 1 ? pick(keys, period - 1n, null) : null,
     key = pick(keys, period, previous);
   return key === null ? null : { key, puff_ms: elapsed };
 }
@@ -590,18 +520,10 @@ export function puffAmount(puff_ms: number | null, col: number): number | null {
   const step = Math.floor(puff_ms / 900),
     t = Math.floor((puff_ms % 900) / 150) / 6,
     shift = t * t * (3 - 2 * t),
-    amount =
-      col - 7 === step
-        ? (1 - shift) * (1 - step / 5)
-        : col - 7 === step + 1
-          ? shift * (1 - (step + 1) / 5)
-          : 0;
+    amount = col - 7 === step ? (1 - shift) * (1 - step / 5) : col - 7 === step + 1 ? shift * (1 - (step + 1) / 5) : 0;
   return amount > 0 ? amount : null;
 }
-export function idle(
-  width: number,
-  sleep: Sleep | Partial<Sleep> = {},
-): string {
+export function idle(width: number, sleep: Sleep | Partial<Sleep> = {}): string {
   const s = new Sleep(sleep),
     grey = s.selected ? palette.colors.muted : palette.colors.faint,
     body = s.bright || s.selected ? grey : blend(s.background, grey, 0.42),
@@ -613,9 +535,7 @@ export function idle(
       const amount = puffAmount(s.puff_ms, col);
       out +=
         amount !== null
-          ? palette.fgRgb(blend(s.background, grey, amount)) +
-            ((col - 7) % 2 === 0 ? "ᶻ" : "z") +
-            palette.fgRgb(body)
+          ? palette.fgRgb(blend(s.background, grey, amount)) + ((col - 7) % 2 === 0 ? "ᶻ" : "z") + palette.fgRgb(body)
           : " ";
     }
   }
@@ -641,12 +561,8 @@ export class Presentation {
     } else if (this.mode === "asleep") {
       this.last_corgi = null;
       this.reveal_started_ms = null;
-    } else if (this.mode === "awake" && this.last_corgi)
-      this.reveal_started_ms = now;
-    if (
-      this.reveal_started_ms !== null &&
-      now - this.reveal_started_ms >= 450
-    ) {
+    } else if (this.mode === "awake" && this.last_corgi) this.reveal_started_ms = now;
+    if (this.reveal_started_ms !== null && now - this.reveal_started_ms >= 450) {
       this.reveal_started_ms = null;
       this.last_corgi = null;
     }
@@ -661,30 +577,19 @@ export class Presentation {
   revealPosition(room: number, now: number) {
     return this.reveal_started_ms === null
       ? room + 3
-      : ((room + 3) *
-          Math.max(0, Math.min(450, now - this.reveal_started_ms))) /
-          450;
+      : ((room + 3) * Math.max(0, Math.min(450, now - this.reveal_started_ms))) / 450;
   }
   revealedColumns(room: number, now: number) {
     return Math.min(room, Math.floor(this.revealPosition(room, now)));
   }
   writeHerding(room: number, now: number) {
-    return writeHerd(
-      room,
-      Math.floor(Math.max(0, now - this.herd_started_ms) / 110),
-    );
+    return writeHerd(room, Math.floor(Math.max(0, now - this.herd_started_ms) / 110));
   }
   writeCorgi(room: number, working: boolean, sleep: Sleep) {
     const pose = this.last_corgi;
     if (!pose) return "";
     if (pose.mode === "asleep" && !working) return idle(room, sleep);
-    return (
-      palette.fg("text") +
-      (pose.mode === "asleep" ? new Playback() : this.playback).write(
-        room,
-        pose.at_ms,
-      )
-    );
+    return palette.fg("text") + (pose.mode === "asleep" ? new Playback() : this.playback).write(room, pose.at_ms);
   }
   hide() {
     this.playback.active = false;
@@ -704,22 +609,16 @@ export function beginFrame() {
 export function endFrame() {
   for (const slot of slots) if (!slot.seen) slot.presentation.hide();
 }
-export function observe(
-  key: number | bigint,
-  mode: Mode,
-  now: number,
-): Presentation | null {
+export function observe(key: number | bigint, mode: Mode, now: number): Presentation | null {
   const id = BigInt(key);
-  let slot = slots.find((s) => s.key === id);
+  let slot = slots.find(s => s.key === id);
   if (!slot) {
     if (mode === "content") return null;
-    slot = slots.find((s) => !s.seen && !s.presentation.last_corgi);
+    slot = slots.find(s => !s.seen && !s.presentation.last_corgi);
     if (!slot) throw Error("AnimationCapacity");
     slot.key = id;
     slot.presentation = new Presentation();
-    slot.presentation.playback.random = new Random(
-      randomBytes(8).readBigUInt64LE(),
-    );
+    slot.presentation.playback.random = new Random(randomBytes(8).readBigUInt64LE());
   }
   slot.seen = true;
   slot.presentation.update(mode, now);

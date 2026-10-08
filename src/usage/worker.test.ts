@@ -5,11 +5,7 @@ import { View as ToolView } from "../activity/tools";
 import { test, expect } from "bun:test";
 import { Tail, Result as UsageResult, type Request } from "./worker";
 import { Agent, Text, Path } from "../agents";
-import {
-  Result as ActivityResult,
-  Request as ActivityRequest,
-  Slot,
-} from "../activity/worker";
+import { Result as ActivityResult, Request as ActivityRequest, Slot } from "../activity/worker";
 import { Actor } from "../conversations";
 import { hash } from "../activity/summary";
 function request(provider: "codex" | "claude"): Request {
@@ -49,9 +45,7 @@ test("usage tail frames records, ignores history and advances baselines while wa
   expect(t.ingest(r, "\n", baseline.length + call.length).tools).toBe(1n);
   expect(t.ingest(r, call + "\n", 0).any()).toBe(false);
   r.since = 3000;
-  expect(t.ingest(r, line("1970-01-01T00:00:02.500Z", 150, 20), 0).any()).toBe(
-    false,
-  );
+  expect(t.ingest(r, line("1970-01-01T00:00:02.500Z", 150, 20), 0).any()).toBe(false);
   const delta = t.ingest(r, line("1970-01-01T00:00:04.000Z", 180, 25), 0);
   expect(delta.input).toBe(30n);
   expect(delta.output).toBe(5n);
@@ -247,8 +241,7 @@ test("Claude transcripts report the tasks whose queued notice says they ended", 
       type: "queue-operation",
       operation: "enqueue",
       sessionId: "b",
-      content:
-        "<task-notification>\n<task-id>m3</task-id>\n<status>completed</status>\n</task-notification>",
+      content: "<task-notification>\n<task-id>m3</task-id>\n<status>completed</status>\n</task-notification>",
     },
     {
       type: "queue-operation",
@@ -272,13 +265,7 @@ test("a Claude subagent's own transcript counts its usage from when it was track
   req.child = true;
   req.tracked_since = 2000;
   req.agent.session = new Text("a1");
-  function message(
-    agentId: string,
-    id: string,
-    seconds: number,
-    input: number,
-    output: number,
-  ) {
+  function message(agentId: string, id: string, seconds: number, input: number, output: number) {
     return {
       type: "assistant",
       sessionId: "s",

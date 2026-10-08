@@ -22,12 +22,7 @@ export const ItemType = [
   "imageView",
   "imageGeneration",
 ] as const;
-export const RolloutKind = [
-  "session_meta",
-  "turn_context",
-  "event_msg",
-  "response_item",
-] as const;
+export const RolloutKind = ["session_meta", "turn_context", "event_msg", "response_item"] as const;
 export const EventKind = [
   "task_started",
   "task_complete",
@@ -92,15 +87,8 @@ export class Codex {
       session: thread || str(field(result, "thread"), "id"),
       thread,
       turn: str(turn, "id"),
-      phase:
-        method === "turn/started"
-          ? "working"
-          : method === "turn/completed"
-            ? "completed"
-            : "none",
-      outcome: ["completed", "interrupted", "failed"].includes(status)
-        ? (status as any)
-        : "completed",
+      phase: method === "turn/started" ? "working" : method === "turn/completed" ? "completed" : "none",
+      outcome: ["completed", "interrupted", "failed"].includes(status) ? (status as any) : "completed",
       request_id: method ? field(v, "id") : null,
       response_id: v && typeof v === "object" && ("result" in v || "error" in v) ? field(v, "id") : null,
       initialize: str(v, "id") === "__corgi_init",
@@ -116,19 +104,8 @@ export class Codex {
   static titleSession(title: string) {
     let found: Text | null = null;
     for (const word of title.split(/[ |\t]+/)) {
-      const s =
-        word.length === 36
-          ? word
-          : word.length === 32 && word.endsWith("...")
-            ? word.slice(0, 29)
-            : "";
-      if (
-        !s ||
-        !/^([\da-f]{8})-([\da-f]{4})-([\da-f]{4})-([\da-f]{4})-([\da-f]{5}|[\da-f]{12})$/i.test(
-          s,
-        )
-      )
-        continue;
+      const s = word.length === 36 ? word : word.length === 32 && word.endsWith("...") ? word.slice(0, 29) : "";
+      if (!s || !/^([\da-f]{8})-([\da-f]{4})-([\da-f]{4})-([\da-f]{4})-([\da-f]{5}|[\da-f]{12})$/i.test(s)) continue;
       if (found) return null;
       found = new Text(s);
     }

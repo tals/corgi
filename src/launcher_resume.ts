@@ -67,7 +67,11 @@ export class Context {
     return null;
   }
   static within(folder: string, path: string): boolean {
-    return folder.length > 0 && path.startsWith(folder) && (path.length === folder.length || path[folder.length] === "/" || folder[folder.length - 1] === "/");
+    return (
+      folder.length > 0 &&
+      path.startsWith(folder) &&
+      (path.length === folder.length || path[folder.length] === "/" || folder[folder.length - 1] === "/")
+    );
   }
   inScope(e: Entry, scope: Scope): boolean {
     switch (scope) {
@@ -107,7 +111,7 @@ export function merge(entries: Entry[], known: Known[]): Entry[] {
     if (slot.name.length === 0) slot.name = k.name;
     slot.at = Math.max(slot.at, k.at);
   }
-  const out = entries.map((e) => {
+  const out = entries.map(e => {
     const merged = { ...e };
     const k = by_session.get(`${e.provider}:${e.session}`);
     if (!k) return merged;
@@ -147,7 +151,11 @@ function keyOf(c: Context, line: Line): Key | null {
 }
 function keyEql(k: Key, other: Key): boolean {
   if (k === "more") return other === "more";
-  return other !== "more" && k.conversation.provider === other.conversation.provider && k.conversation.session === other.conversation.session;
+  return (
+    other !== "more" &&
+    k.conversation.provider === other.conversation.provider &&
+    k.conversation.session === other.conversation.session
+  );
 }
 export type Hit = { row: number } | "scope";
 
@@ -263,7 +271,7 @@ export class View {
   }
   /** Closed conversations listed in `rows`. */
   static count(rows: Line[]): number {
-    return rows.filter((line) => "entry" in line).length;
+    return rows.filter(line => "entry" in line).length;
   }
   /** The selected row's index in `rows`: the kept selection when still
    * listed, else the first row that can be selected. */
@@ -371,7 +379,10 @@ export class View {
     // Marker, provider and their gaps, the gap after the title, and the age.
     const room = sat(inner, 16);
     const folder = this.expanded && this.scope !== "folder" && room >= 60 ? 15 : 0;
-    const title = sat(room, folder) >= 70 ? Math.max(30, Math.floor(((room - folder) * 2) / 5)) : Math.min(sat(room, folder), Math.max(24, Math.floor((sat(room, folder) * 3) / 5)));
+    const title =
+      sat(room, folder) >= 70
+        ? Math.max(30, Math.floor(((room - folder) * 2) / 5))
+        : Math.min(sat(room, folder), Math.max(24, Math.floor((sat(room, folder) * 3) / 5)));
     return { title, folder, last: sat(sat(sat(room, folder), title), 2) };
   }
   /** Rows the collapsed list takes, its heading and the gap above the
@@ -446,16 +457,39 @@ export class View {
     }
     rows.slice(first, Math.min(rows.length, first + list_height)).forEach((line, k) => {
       const row = list_top + k;
-      this.drawLine(w, c, line, rows, this.focused && at === first + k, startsRun(c, rows, first + k, first), x, row, width, cols);
+      this.drawLine(
+        w,
+        c,
+        line,
+        rows,
+        this.focused && at === first + k,
+        startsRun(c, rows, first + k, first),
+        x,
+        row,
+        width,
+        cols,
+      );
     });
     if (rows.length > list_height) {
       const thumb = Math.max(1, Math.floor((list_height * list_height) / rows.length));
       const top = Math.floor(((list_height - thumb) * first) / (rows.length - list_height));
-      for (let k = 0; k < list_height; k++) w.write(`\x1b[${list_top + k};${x + width - 2}H${k >= top && k < top + thumb ? panel + "┃" : rule + "│"}`);
+      for (let k = 0; k < list_height; k++)
+        w.write(`\x1b[${list_top + k};${x + width - 2}H${k >= top && k < top + thumb ? panel + "┃" : rule + "│"}`);
     }
   }
   /** `named` rows show their agent's name; the rows below continue its run as a rail. */
-  private drawLine(w: Writer, c: Context, line: Line, rows: Line[], selected: boolean, named: boolean, x: number, row: number, width: number, cols: Columns): void {
+  private drawLine(
+    w: Writer,
+    c: Context,
+    line: Line,
+    rows: Line[],
+    selected: boolean,
+    named: boolean,
+    x: number,
+    row: number,
+    width: number,
+    cols: Columns,
+  ): void {
     const style = selected ? selected_style : row_style;
     if ("day" in line) {
       w.write(`\x1b[${row};${x + 3}H${panel}`);
@@ -466,7 +500,8 @@ export class View {
       return;
     }
     if ("heading" in line) {
-      const text = line.heading === "open" ? "Open · jumps to its tab" : `${View.count(rows)} in ${scopeLabel(this.scope)}`;
+      const text =
+        line.heading === "open" ? "Open · jumps to its tab" : `${View.count(rows)} in ${scopeLabel(this.scope)}`;
       w.write(`\x1b[${row};${x + 3}H${panel}\x1b[1m${text}\x1b[22m`);
       return;
     }
@@ -581,7 +616,7 @@ export function writeKey(w: Writer, key: string, after: string): void {
   w.write(keycap + ` ${key} ${after}`);
 }
 function lowerAscii(text: string): string {
-  return text.replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32));
+  return text.replace(/[A-Z]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 32));
 }
 function contains(text: string, query: string): boolean {
   return lowerAscii(text).includes(lowerAscii(query));
@@ -597,7 +632,20 @@ export function dayLabel(seconds: number, now: number): string {
   if (days === 1) return "Yesterday";
   const date = new Date(seconds * 1000);
   const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
   if (days < 7) return weekdays[date.getDay()];
   const month = months[date.getMonth()];
   const this_year = new Date(now * 1000).getFullYear() === date.getFullYear();

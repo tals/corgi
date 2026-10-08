@@ -16,22 +16,15 @@ test("preview stream handles partial and consecutive messages and ignores old di
   expect(stream.feed(first.slice(100) + "\n")).toBe(true);
   expect(stream.current("/a").options.codex.model).toBe("initial");
   preview.options.codex.model = "updated";
-  let changed = stream.feed(
-    JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n",
-  );
+  let changed = stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n");
   preview.options.codex.model = "wrong directory";
-  changed =
-    stream.feed(
-      JSON.stringify({ type: "agent.preview", cwd: "/b", preview }) + "\n",
-    ) || changed;
+  changed = stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/b", preview }) + "\n") || changed;
   expect(changed).toBe(true);
   expect(stream.current("/a").options.codex.model).toBe("updated");
   expect(stream.current("/b").options.codex.model).toBe("");
   preview.pending = true;
   preview.options.codex.model = "";
-  stream.feed(
-    JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n",
-  );
+  stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n");
   expect(stream.preview.pending).toBe(true);
   expect(stream.preview.options.codex.model).toBe("updated");
 });

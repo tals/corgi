@@ -1,11 +1,7 @@
 import { test, expect } from "bun:test";
 import { validate, Node } from "./layout";
 test("import trees reject reused panes, cycles and disconnected nodes", () => {
-  const good: Node[] = [
-    { pane: 0 },
-    { pane: 1 },
-    { split: { axis: "horizontal", ratio: 600, first: 0, second: 1 } },
-  ];
+  const good: Node[] = [{ pane: 0 }, { pane: 1 }, { split: { axis: "horizontal", ratio: 600, first: 0, second: 1 } }];
   validate(good, 2);
   for (const mutate of [
     (n: Node[]) => (n[1] = { pane: 0 }),

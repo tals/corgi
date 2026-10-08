@@ -20,7 +20,10 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
       // Viewer-local delays (hover cards, command preview debounce).
       if (op === "advance") advance(Number(value.ms));
       if (op === "action") {
-        const act = parseAction(typeof value.name === "string" ? value.name : "", typeof value.value === "string" ? value.value : "");
+        const act = parseAction(
+          typeof value.name === "string" ? value.name : "",
+          typeof value.value === "string" ? value.value : "",
+        );
         // viewer.sync execs the new binary before perform; the driver cannot.
         if (act.name === "relaunch") throw Error("UnknownAction");
         await view.perform(act);
@@ -29,7 +32,13 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
       if (op === "workspace") view.switchWorkspace(typedId(value, "workspace"));
       // The stdio driver has no host terminal to negotiate image support.
       if (op === "badge") {
-        view.corgi_badge = !value.visible ? "none" : value.emoji !== undefined ? (value.emoji ? "emoji" : "image") : "image";
+        view.corgi_badge = !value.visible
+          ? "none"
+          : value.emoji !== undefined
+            ? value.emoji
+              ? "emoji"
+              : "image"
+            : "image";
         view.supports_kitty_graphics = view.corgi_badge === "image";
       }
       if (op === "size") {
@@ -108,7 +117,7 @@ class Lines {
     waiter?.();
   }
   async next(): Promise<string | null> {
-    while (this.ready.length === 0 && !this.ended) await new Promise<void>((resolve) => (this.waiter = resolve));
+    while (this.ready.length === 0 && !this.ended) await new Promise<void>(resolve => (this.waiter = resolve));
     return this.ready.shift() ?? null;
   }
   close() {

@@ -16,7 +16,13 @@ interface Entry {
   /** How far this workspace's own agent list is scrolled. */
   agent_offset: number;
 }
-const emptyEntry = (id = 0): Entry => ({ id, value: new Selection(), agents: new AgentHistory(), launcher: null, agent_offset: 0 });
+const emptyEntry = (id = 0): Entry => ({
+  id,
+  value: new Selection(),
+  agents: new AgentHistory(),
+  launcher: null,
+  agent_offset: 0,
+});
 export interface Intent {
   edit: Record<string, unknown> | null;
   focus: number | null;
@@ -95,15 +101,29 @@ export class State {
       case "swap": {
         const other = new LayoutView(model, selected).neighbor(act.value as any, area);
         if (other === null) return { edit: null, focus: null };
-        return act.name === "focus" ? { edit: null, focus: other } : { edit: { "pane.swap": { target: pane, other } }, focus: null };
+        return act.name === "focus"
+          ? { edit: null, focus: other }
+          : { edit: { "pane.swap": { target: pane, other } }, focus: null };
       }
       case "move-tab":
-        return { edit: moveTab(model, tab, act.value === "left" ? Math.max(0, selected.active - 1) : Math.min(selected.active + 2, model.count)), focus: null };
+        return {
+          edit: moveTab(
+            model,
+            tab,
+            act.value === "left" ? Math.max(0, selected.active - 1) : Math.min(selected.active + 2, model.count),
+          ),
+          focus: null,
+        };
       case "break":
-        return "pane" in model.nodes[model.tabs[selected.active].root]! ? { edit: null, focus: null } : { edit: { "pane.move": { target: pane, destination: { new_tab: "" } } }, focus: pane };
+        return "pane" in model.nodes[model.tabs[selected.active].root]!
+          ? { edit: null, focus: null }
+          : { edit: { "pane.move": { target: pane, destination: { new_tab: "" } } }, focus: pane };
       case "next":
       case "prev":
-        return { edit: null, focus: selected.tabs[(selected.active + (act.name === "next" ? 1 : model.count - 1)) % model.count].focus };
+        return {
+          edit: null,
+          focus: selected.tabs[(selected.active + (act.name === "next" ? 1 : model.count - 1)) % model.count].focus,
+        };
       case "tab":
       case "join": {
         const number = Number(act.value);
@@ -112,7 +132,10 @@ export class State {
         const target = selected.tabs[tab_index].focus;
         if (act.name === "join") {
           if (tab_index === selected.active) throw Error("NoTab");
-          return { edit: { "pane.move": { target: pane, destination: { beside: { other: target, direction: "right" } } } }, focus: pane };
+          return {
+            edit: { "pane.move": { target: pane, destination: { beside: { other: target, direction: "right" } } } },
+            focus: pane,
+          };
         }
         return { edit: null, focus: target };
       }

@@ -68,10 +68,7 @@ export function logicalKey(name: string): LogicalKey {
     mods[mod] = true;
   }
   const codepoint =
-    named[key] ??
-    (key.length === 1 && key.charCodeAt(0) >= 32 && key.charCodeAt(0) < 127
-      ? key.charCodeAt(0)
-      : null);
+    named[key] ?? (key.length === 1 && key.charCodeAt(0) >= 32 && key.charCodeAt(0) < 127 ? key.charCodeAt(0) : null);
   if (codepoint === null) throw new Error("InvalidKey");
   return { codepoint, mods };
 }

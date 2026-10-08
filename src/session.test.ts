@@ -14,14 +14,12 @@ function setup() {
 }
 function pane(r: Runtime, w: Workspace, split: number | null = null) {
   w.model.next_id = r.workspaces.next_pane_id;
-  const id =
-    split === null ? w.model.newTab("") : w.model.split(split, "horizontal");
+  const id = split === null ? w.model.newTab("") : w.model.split(split, "horizontal");
   r.workspaces.next_pane_id = w.model.next_id;
   r.panes.push(new Pane(id, Terminal.create(20, 4), "/tmp"));
   return id;
 }
-const topology = (r: Runtime) =>
-  stringify(r.workspaces.items.map((w) => w.model));
+const topology = (r: Runtime) => stringify(r.workspaces.items.map(w => w.model));
 test("moving a pane or tab into a full workspace fails and changes nothing", async () => {
   const { r, home, away } = setup();
   try {
@@ -66,10 +64,7 @@ test("a tab cannot merge into itself, and missing destinations change nothing", 
       tab = location(r, one).tab,
       before = topology(r);
     for (const [cmd, error] of [
-      [
-        { "tab.merge": { target: tab, other: split, direction: "right" } },
-        "InvalidDestination",
-      ],
+      [{ "tab.merge": { target: tab, other: split, direction: "right" } }, "InvalidDestination"],
       [
         {
           "pane.move": {
@@ -88,27 +83,12 @@ test("a tab cannot merge into itself, and missing destinations change nothing", 
         },
         "NoPane",
       ],
-      [
-        { "pane.move": { target: 99999, destination: { new_tab: "" } } },
-        "NoPane",
-      ],
+      [{ "pane.move": { target: 99999, destination: { new_tab: "" } } }, "NoPane"],
       [{ "pane.swap": { target: one, other: 99999 } }, "NoPane"],
-      [
-        { "tab.move": { target: tab, destination: { before: 99999 } } },
-        "NoTab",
-      ],
-      [
-        { "tab.move": { target: tab, destination: { workspace: 99 } } },
-        "NoWorkspace",
-      ],
-      [
-        { "pane.resize": { target: two, axis: "horizontal", ratio: 600 } },
-        "NoSplit",
-      ],
-      [
-        { "pane.resize": { target: one, axis: "horizontal", ratio: 50 } },
-        "InvalidRatio",
-      ],
+      [{ "tab.move": { target: tab, destination: { before: 99999 } } }, "NoTab"],
+      [{ "tab.move": { target: tab, destination: { workspace: 99 } } }, "NoWorkspace"],
+      [{ "pane.resize": { target: two, axis: "horizontal", ratio: 600 } }, "NoSplit"],
+      [{ "pane.resize": { target: one, axis: "horizontal", ratio: 50 } }, "InvalidRatio"],
     ] as const)
       await expect(execute(r, ctx, cmd)).rejects.toThrow(error);
     expect(topology(r)).toBe(before);
@@ -134,8 +114,7 @@ test("merging a tab moves its whole tree beside a pane in any workspace", async 
     expect(home.model.count).toBe(1);
     const root = home.model.nodes[home.model.tabs[0].root]!;
     expect("split" in root).toBe(true);
-    if ("split" in root)
-      expect(home.model.firstPane(root.split.first)).toBe(target);
+    if ("split" in root) expect(home.model.firstPane(root.split.first)).toBe(target);
     const lone = pane(r, away),
       rev = home.model.revision,
       otherRev = away.model.revision;
@@ -163,8 +142,7 @@ test("swapping panes exchanges their places, across workspaces too", async () =>
       tab = location(r, left).tab;
     await execute(r, ctx, { "pane.swap": { target: left, other: right } });
     const root = home.model.nodes[home.model.tabs[0].root]!;
-    if ("split" in root)
-      expect(home.model.firstPane(root.split.first)).toBe(right);
+    if ("split" in root) expect(home.model.firstPane(root.split.first)).toBe(right);
     const rev = home.model.revision,
       otherRev = away.model.revision;
     const swapped = await execute(r, ctx, {
@@ -212,7 +190,7 @@ test("a viewer's snapshot leaves out conversations nothing is attached to", () =
     r.conversations.get("claude", "detached");
     r.pane(pane(r, home))!.attachment.select(attached);
     const shown = viewerSnapshot(r).conversations;
-    expect(shown.map((a) => a.id)).toEqual([attached.id, child.id]);
+    expect(shown.map(a => a.id)).toEqual([attached.id, child.id]);
     expect(shown[0].attachments).toBe(1);
     expect(snapshot(r).conversations.length).toBe(3);
   } finally {

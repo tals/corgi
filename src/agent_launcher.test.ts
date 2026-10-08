@@ -6,7 +6,8 @@ import { analyze } from "./launch/command";
 import { Terminal } from "./pane/terminal";
 import { Writer, displayWidth } from "./text";
 
-const menu = (fields: Partial<Menu> = {}) => new Menu({ workspace: 1, selected: "codex", last: "codex", pinned: true, ...fields });
+const menu = (fields: Partial<Menu> = {}) =>
+  new Menu({ workspace: 1, selected: "codex", last: "codex", pinned: true, ...fields });
 const now = () => Math.floor(Date.now() / 1000);
 
 test("launcher menu bounds", () => {
@@ -29,8 +30,28 @@ test("conversations sit below the agents and their rows hit-test", () => {
   m.history = {
     pending: false,
     entries: [
-      { provider: "claude", session: "a", title: "First", first: "", last: "", cwd: "/w", branch: "", updated_at: 5, interrupted: false },
-      { provider: "codex", session: "b", title: "Second", first: "", last: "", cwd: "/w", branch: "", updated_at: 4, interrupted: false },
+      {
+        provider: "claude",
+        session: "a",
+        title: "First",
+        first: "",
+        last: "",
+        cwd: "/w",
+        branch: "",
+        updated_at: 5,
+        interrupted: false,
+      },
+      {
+        provider: "codex",
+        session: "b",
+        title: "Second",
+        first: "",
+        last: "",
+        cwd: "/w",
+        branch: "",
+        updated_at: 4,
+        interrupted: false,
+      },
     ],
   };
   const b = m.bounds(120, 40, side);
@@ -71,7 +92,9 @@ test("single-line limit groups survive narrow terminal rendering", () => {
   const m = menu();
   m.preview.pending = false;
   const at = now();
-  m.preview.options.codex.limits = { windows: [null, { minutes: 10080, used: 48, reset_at: at + 6 * 86400 + 18 * 3600 }] } as any;
+  m.preview.options.codex.limits = {
+    windows: [null, { minutes: 10080, used: 48, reset_at: at + 6 * 86400 + 18 * 3600 }],
+  } as any;
   m.preview.options.claude.limits = {
     windows: [
       { minutes: 300, used: 17, reset_at: at + 99 * 60 },
@@ -113,7 +136,7 @@ test("single-line limit groups survive narrow terminal rendering", () => {
     expect(found).toEqual([1, 1]);
     // Codex reports only a weekly limit; it sits under Claude's.
     for (const needle of ["7d", "·"]) {
-      const columns = rows.map((line) => displayWidth(line.slice(0, line.lastIndexOf(needle))));
+      const columns = rows.map(line => displayWidth(line.slice(0, line.lastIndexOf(needle))));
       expect(columns[0]).toBe(columns[1]);
     }
     const b = m.bounds(cols, 24, side);

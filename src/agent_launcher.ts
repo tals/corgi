@@ -19,8 +19,31 @@ export type PerProvider<T> = { codex: T; claude: T };
 const providers: Provider[] = ["codex", "claude"];
 
 /** Launcher rows: one per provider, then saved commands and a plain terminal. */
-export type Row = "codex" | "claude" | "custom0" | "custom1" | "custom2" | "custom3" | "custom4" | "custom5" | "terminal" | "add" | "manage";
-export const rows: Row[] = ["codex", "claude", "custom0", "custom1", "custom2", "custom3", "custom4", "custom5", "terminal", "add", "manage"];
+export type Row =
+  | "codex"
+  | "claude"
+  | "custom0"
+  | "custom1"
+  | "custom2"
+  | "custom3"
+  | "custom4"
+  | "custom5"
+  | "terminal"
+  | "add"
+  | "manage";
+export const rows: Row[] = [
+  "codex",
+  "claude",
+  "custom0",
+  "custom1",
+  "custom2",
+  "custom3",
+  "custom4",
+  "custom5",
+  "terminal",
+  "add",
+  "manage",
+];
 export const Row = {
   of(provider: Provider): Row {
     return provider;
@@ -188,24 +211,27 @@ export class Menu {
     if (row === "manage") return this.managing;
     if (row === "add") return this.managing;
     const index = Row.custom(row);
-    if (index !== null) return this.commands[index].command.length > 0 && (this.managing || !this.commands[index].hidden);
+    if (index !== null)
+      return this.commands[index].command.length > 0 && (this.managing || !this.commands[index].hidden);
     if (row === "terminal") return !this.managing;
     if (this.managing) return true;
     const provider = Row.agent(row)!;
-    return this.preview.installed[provider] && !this.hidden[provider] && this.preview.options[provider].signed_in !== false;
+    return (
+      this.preview.installed[provider] && !this.hidden[provider] && this.preview.options[provider].signed_in !== false
+    );
   }
   emptyCommand(): number | null {
-    const i = this.commands.findIndex((entry) => entry.command.length === 0);
+    const i = this.commands.findIndex(entry => entry.command.length === 0);
     return i < 0 ? null : i;
   }
   countRows(): number {
     return this.count() - 2;
   }
   count(): number {
-    return rows.filter((row) => this.shown(row)).length;
+    return rows.filter(row => this.shown(row)).length;
   }
   rowAt(index: number): Row | null {
-    return rows.filter((row) => this.shown(row))[index] ?? null;
+    return rows.filter(row => this.shown(row))[index] ?? null;
   }
   position(row: Row): number {
     let n = 0;
@@ -236,13 +262,19 @@ export class Menu {
     this.normalize();
     const n = this.count();
     const index = this.position(this.selected);
-    this.selected = this.rowAt(wrap ? (next ? index + 1 : index + n - 1) % n : next ? Math.min(index + 1, n - 1) : sat(index, 1))!;
+    this.selected = this.rowAt(
+      wrap ? (next ? index + 1 : index + n - 1) % n : next ? Math.min(index + 1, n - 1) : sat(index, 1),
+    )!;
   }
   /** Rows the menu needs: border, headings, agent rows and a gap, the
    * conversations and a gap, footer and border. */
   rowsHeight(): number {
     if (this.managing) return this.count() + 20;
-    const conversations = !this.hasResume() ? 0 : this.resume_view.expanded ? 8 : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
+    const conversations = !this.hasResume()
+      ? 0
+      : this.resume_view.expanded
+        ? 8
+        : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
     return 5 + this.count() + conversations;
   }
   bounds(cols: number, rowsCount: number, side: SidebarView): Rect {
@@ -255,7 +287,12 @@ export class Menu {
       width = Math.max(width, Math.min(cols, 104));
       height = Math.min(rowsCount, Math.max(30, height));
     }
-    return new Rect(Math.min(sat(side.width, 10), cols - width), Math.min(side.middle() + 1, rowsCount - height), width, height);
+    return new Rect(
+      Math.min(sat(side.width, 10), cols - width),
+      Math.min(side.middle() + 1, rowsCount - height),
+      width,
+      height,
+    );
   }
   /** Every row's usage shares one grid, so limits and resets line up. */
   usageGrid(): Grid {
@@ -267,7 +304,7 @@ export class Menu {
     return grid;
   }
   columnSizes(): { preferred: number[]; usage_minimum: number } {
-    const widths = headings.map((heading) => displayWidth(heading));
+    const widths = headings.map(heading => displayWidth(heading));
     for (const row of rows) {
       if (!this.shown(row) || (Row.agent(row) === null && Row.custom(row) === null)) continue;
       const custom = Row.custom(row);
@@ -381,7 +418,8 @@ export class Menu {
     if (!this.hasResume()) return null;
     const b = this.bounds(cols, rowsCount, side);
     if (x <= b.x || x >= b.x + b.w - 1) return null;
-    if (this.resume_view.expanded) return this.resume_view.hit(this.resumeContext(), this.resumeArea(cols, rowsCount, side), x + 1, y + 1);
+    if (this.resume_view.expanded)
+      return this.resume_view.hit(this.resumeContext(), this.resumeArea(cols, rowsCount, side), x + 1, y + 1);
     // Below the collapsed list's heading.
     const lines_top = this.resumeTop(b) + 1;
     if (y + 1 < lines_top) return null;
@@ -431,12 +469,20 @@ export class Menu {
     this.save_requested = false;
     this.edit_index = Row.custom(row);
     this.edit_provider = Row.agent(row);
-    const source = this.edit_index !== null ? this.commands[this.edit_index].inputText() : this.edit_provider !== null ? this.edit_provider : "";
+    const source =
+      this.edit_index !== null
+        ? this.commands[this.edit_index].inputText()
+        : this.edit_provider !== null
+          ? this.edit_provider
+          : "";
     this.editor = Dialog.init({ agent_command: 0 }, source);
     this.name_focused = false;
     this.show_command = false;
     this.name_customized = this.edit_index !== null;
-    this.name_editor = Dialog.init({ rename: 0 }, this.edit_index !== null ? this.commands[this.edit_index].label() : "");
+    this.name_editor = Dialog.init(
+      { rename: 0 },
+      this.edit_index !== null ? this.commands[this.edit_index].label() : "",
+    );
     if (this.edit_index !== null) {
       try {
         this.draft.set(source);
@@ -457,11 +503,23 @@ export class Menu {
     if (info.account.length > 0) return info.account;
     if (info.default_account && info.provider) {
       const o = this.preview.options[info.provider];
-      return o.account.length > 0 ? o.account : this.preview.pending ? "Reading default account…" : "Default account · unavailable";
+      return o.account.length > 0
+        ? o.account
+        : this.preview.pending
+          ? "Reading default account…"
+          : "Default account · unavailable";
     }
     return "Account unknown";
   }
-  private static drawInput(w: Writer, editor: Dialog, placeholder: string, x: number, y: number, width: number, focused: boolean): void {
+  private static drawInput(
+    w: Writer,
+    editor: Dialog,
+    placeholder: string,
+    x: number,
+    y: number,
+    width: number,
+    focused: boolean,
+  ): void {
     let offset = sat(editor.cursor, sat(width, 1));
     while (offset < editor.cursor && (editor.text[offset] & 0xc0) === 0x80) offset += 1;
     const end = editor.byteAtColumn(offset, width);
@@ -471,7 +529,11 @@ export class Menu {
     if (editor.len === 0) writeEllipsis(w, placeholder, width);
     else {
       if (focused && editor.selected) w.write("\x1b[7m");
-      w.write(Buffer.from(Uint8Array.from(editor.text.subarray(offset, end), (ch) => (ch < 32 || ch === 127 ? 32 : ch))).toString());
+      w.write(
+        Buffer.from(
+          Uint8Array.from(editor.text.subarray(offset, end), ch => (ch < 32 || ch === 127 ? 32 : ch)),
+        ).toString(),
+      );
     }
     w.write(new Style({ fg: "text", bg: "surface" }).sgr());
   }
@@ -500,9 +562,14 @@ export class Menu {
       const custom = Row.custom(row);
       const hidden = custom !== null ? m.commands[custom].hidden : m.hidden[Row.agent(row)!];
       const label = custom !== null ? m.commands[custom].label() : Provider.info(Row.agent(row)!).label;
-      const info = custom !== null ? m.commands[custom].semantics : Object.assign(new Semantics(), { provider: Row.agent(row)!, default_account: true });
+      const info =
+        custom !== null
+          ? m.commands[custom].semantics
+          : Object.assign(new Semantics(), { provider: Row.agent(row)!, default_account: true });
       const source = m.account(info);
-      w.write(`\x1b[${b.y + 5 + i};${b.x + 2}H${m.selected === row ? "›" : " "} [${hidden ? " " : "✓"}]\x1b[${b.y + 5 + i};${b.x + 10}H`);
+      w.write(
+        `\x1b[${b.y + 5 + i};${b.x + 2}H${m.selected === row ? "›" : " "} [${hidden ? " " : "✓"}]\x1b[${b.y + 5 + i};${b.x + 10}H`,
+      );
       writeEllipsis(w, label, name_width - 2);
       w.write(`\x1b[${b.y + 5 + i};${command_x}H`);
       writeEllipsis(w, cleanControls(source), sat(sat(b.x + b.w, 19), command_x));
@@ -525,7 +592,15 @@ export class Menu {
         w.write(line === 0 ? "┐" : line === 2 ? "┘" : "│");
       }
       w.write(panel);
-      Menu.drawInput(w, i === 0 ? m.editor : m.name_editor, i === 0 ? "Paste a command…" : "Suggested automatically", input_x + 1, top + 2, width, focused);
+      Menu.drawInput(
+        w,
+        i === 0 ? m.editor : m.name_editor,
+        i === 0 ? "Paste a command…" : "Suggested automatically",
+        input_x + 1,
+        top + 2,
+        width,
+        focused,
+      );
     }
     if (m.editor.len > 0) {
       const matches = m.draft.text() === m.editor.name();
@@ -547,7 +622,11 @@ export class Menu {
       w.write(`\x1b[${field_y + 10};${b.x + 4}H${dim}`);
       if (resolved) {
         const mode = info.yolo ? info.mode : "";
-        writeEllipsis(w, `${info.modelLabel()}${info.model.length > 0 && mode.length > 0 ? " · " : ""}${mode}`, b.w - 26);
+        writeEllipsis(
+          w,
+          `${info.modelLabel()}${info.model.length > 0 && mode.length > 0 ? " · " : ""}${mode}`,
+          b.w - 26,
+        );
         w.write(`\x1b[${field_y + 10};${b.x + b.w - 17}H[${m.show_command ? "Hide" : "Show"} command]`);
         if (m.show_command) {
           w.write(`\x1b[${field_y + 12};${b.x + 4}HRuns: `);
@@ -557,7 +636,9 @@ export class Menu {
     }
     const action = m.edit_index !== null || m.edit_provider !== null ? "Save" : "Add";
     w.write(`${panel}\x1b[${field_y + 12 + (m.show_command ? 2 : 0)};${b.x + b.w - 19}H[Cancel]  [${action}]`);
-    w.write(`\x1b[${b.y + b.h - 1};${b.x + 4}H${dim}Tab: command / name\x1b[${b.y + b.h - 1};${b.x + b.w - 9}H${panel}[Done]\x1b[?25l`);
+    w.write(
+      `\x1b[${b.y + b.h - 1};${b.x + 4}H${dim}Tab: command / name\x1b[${b.y + b.h - 1};${b.x + b.w - 9}H${panel}[Done]\x1b[?25l`,
+    );
     if (m.selected === "add") {
       const editor = m.name_focused ? m.name_editor : m.editor;
       let offset = sat(editor.cursor, sat(width, 1));
@@ -588,7 +669,14 @@ export class Menu {
       if (width === 0 || (m.managing && column !== 0)) return;
       w.write(`\x1b[${b.y + 2};${heading_x + (column === 0 ? 4 : 0)}H${panel}`);
       const room = sat(width, column === 0 ? 6 : column === 5 ? 1 : 2);
-      const label = column === 1 && room < 4 ? "Y" : column === 5 && room < displayWidth(heading) ? (room >= 14 ? "Usage · resets" : "Usage") : heading;
+      const label =
+        column === 1 && room < 4
+          ? "Y"
+          : column === 5 && room < displayWidth(heading)
+            ? room >= 14
+              ? "Usage · resets"
+              : "Usage"
+            : heading;
       writeEllipsis(w, label, room);
       heading_x += width;
     });
@@ -601,7 +689,9 @@ export class Menu {
         w.write(`\x1b[${row - 1};${b.x + 4}H${rule}`);
         w.write("─".repeat(b.w - 6));
       }
-      const style = selected ? new Style({ fg: "strong", bg: "selected" }).sgr() : new Style({ fg: "text", bg: "surface" }).sgr();
+      const style = selected
+        ? new Style({ fg: "strong", bg: "selected" }).sgr()
+        : new Style({ fg: "text", bg: "surface" }).sgr();
       w.write(`\x1b[${row};${b.x + 2}H${style}`);
       w.splat(" ", b.w - 2);
       w.write(`\x1b[${row};${b.x + 2}H${selected ? "›" : " "}`);
@@ -616,7 +706,9 @@ export class Menu {
       }
       if (current === "manage") {
         // A step above a selected row, so the button keeps its edge.
-        const button = selected ? new Style({ fg: "strong", bg: "line", bold: true }).sgr() : new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
+        const button = selected
+          ? new Style({ fg: "strong", bg: "line", bold: true }).sgr()
+          : new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
         w.write(`\x1b[${row};${b.x + 4}H${button}`);
         writeEllipsis(w, " → Manage agents… ", sat(b.w, 6));
         w.write(style);
@@ -624,9 +716,19 @@ export class Menu {
       }
       if (m.managing) {
         const provider = Row.agent(current)!;
-        const status = !m.preview.installed[provider] ? "Not installed" : m.preview.options[provider].signed_in === false ? "Not signed in" : m.hidden[provider] ? "Hidden" : "In picker";
+        const status = !m.preview.installed[provider]
+          ? "Not installed"
+          : m.preview.options[provider].signed_in === false
+            ? "Not signed in"
+            : m.hidden[provider]
+              ? "Hidden"
+              : "In picker";
         w.write(`\x1b[${row};${b.x + 4}H`);
-        writeEllipsis(w, `${Provider.info(provider).label} · ${status}   [${m.hidden[provider] ? "Add" : "Remove"}]`, sat(b.w, 6));
+        writeEllipsis(
+          w,
+          `${Provider.info(provider).label} · ${status}   [${m.hidden[provider] ? "Add" : "Remove"}]`,
+          sat(b.w, 6),
+        );
         continue;
       }
       if (current === "terminal") {
@@ -723,9 +825,10 @@ export class Menu {
   }
 }
 function unavailableCell(o: Option): Cell {
-  const reason = o.usage_error.length > 0 ? o.usage_error : o.usage_fetched_at > 0 ? "last success 10m+ ago" : "no usage received";
+  const reason =
+    o.usage_error.length > 0 ? o.usage_error : o.usage_fetched_at > 0 ? "last success 10m+ ago" : "no usage received";
   return Cell.unavailable(reason);
 }
 function cleanControls(text: string): string {
-  return Buffer.from(Uint8Array.from(Buffer.from(text), (ch) => (ch < 32 || ch === 127 ? 32 : ch))).toString();
+  return Buffer.from(Uint8Array.from(Buffer.from(text), ch => (ch < 32 || ch === 127 ? 32 : ch))).toString();
 }

@@ -20,15 +20,10 @@ test("preferences round trip and fall back to defaults", async () => {
       agents: "all",
       sidebar_width: 44,
     });
-    await writeFile(
-      file,
-      '{"resources":{"enabled":false,"io":false,"alerts":true}}',
-    );
+    await writeFile(file, '{"resources":{"enabled":false,"io":false,"alerts":true}}');
     expect((await read(file)).resources).toEqual({ enabled: false });
     await writeFile(file, '{"preset":"cmux","onboarding_complete":true}');
-    expect((await read(file)).preset).toBe(
-      process.platform === "darwin" ? "cmux" : "corgi",
-    );
+    expect((await read(file)).preset).toBe(process.platform === "darwin" ? "cmux" : "corgi");
     await writeFile(file, "{broken");
     expect(await read(file)).toEqual(new Preferences());
   } finally {

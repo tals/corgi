@@ -21,9 +21,7 @@ process.stdin.resume();
     );
     const pane = await this.new(shellJoin(["bun", fixture, capture]));
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: pane, view: "screen" })
-      ).text.includes("SELECT_ME"),
+      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("SELECT_ME"),
     );
     await this.mark_agent(pane, "Mouse agent");
     const viewer = await this.newViewer();
@@ -34,11 +32,8 @@ process.stdin.resume();
     await viewer.input("\x1b[<32;37;2M");
     await viewer.input("\x1b[<32;5;2M");
     await viewer.input("\x1b[<0;5;2m");
-    const forwarded =
-      "\x1b[<35;2;1M\x1b[<0;1;1M\x1b[<32;9;1M\x1b[<32;1;1M\x1b[<0;1;1m";
-    await this.until(() =>
-      readFileSync(capture).includes(Buffer.from(forwarded)),
-    );
+    const forwarded = "\x1b[<35;2;1M\x1b[<0;1;1M\x1b[<32;9;1M\x1b[<32;1;1M\x1b[<0;1;1m";
+    await this.until(() => readFileSync(capture).includes(Buffer.from(forwarded)));
     this.assertNotIn("Copied to clipboard", viewer.state.data);
     // Shift-drag stays with corgi and copies.
     await viewer.input("\x1b[<4;29;2M");
@@ -46,19 +41,12 @@ process.stdin.resume();
     await viewer.input("\x1b[<4;37;2m");
     const effects = viewer.state.effects;
     this.assertTrue(effects.length, "shift drag did not copy");
-    const encoded = effects[0].write_terminal
-      .split("52;c;", 2)[1]
-      .split("\x07", 1)[0];
+    const encoded = effects[0].write_terminal.split("52;c;", 2)[1].split("\x07", 1)[0];
     this.assertEqual(Buffer.from(encoded, "base64").toString(), "SELECT_ME");
     this.assertIn("Copied to clipboard", viewer.state.data);
     await viewer.input("\x1b[<64;29;2M");
-    await this.until(() =>
-      readFileSync(capture).includes(Buffer.from("\x1b[<64;1;1M")),
-    );
-    this.assertEqual(
-      readFileSync(capture).toString(),
-      forwarded + "\x1b[<64;1;1M",
-    );
+    await this.until(() => readFileSync(capture).includes(Buffer.from("\x1b[<64;1;1M")));
+    this.assertEqual(readFileSync(capture).toString(), forwarded + "\x1b[<64;1;1M");
   }
 
   async test_program_copy_reaches_the_viewer_showing_it() {
@@ -70,20 +58,14 @@ process.stdin.resume();
       target: pane,
     });
     const copy = `\x1b]52;c;${Buffer.from("COPIED").toString("base64")}\x07`;
-    await this.until(async () =>
-      (await viewer.poll()).effects.some(
-        (effect: any) => effect.write_terminal === copy,
-      ),
-    );
+    await this.until(async () => (await viewer.poll()).effects.some((effect: any) => effect.write_terminal === copy));
     this.assertIn("Copied to clipboard", viewer.state.data);
   }
 
   async test_drag_freezes_text_and_release_copies_then_resumes() {
     const pane = await this.new("printf 'SELECT_ME\\n'; exec /bin/sh");
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: pane, view: "screen" })
-      ).text.includes("SELECT_ME"),
+      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("SELECT_ME"),
     );
     const a = await this.newViewer(),
       b = await this.newViewer();
@@ -96,9 +78,7 @@ process.stdin.resume();
       target: pane,
     });
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: pane, view: "screen" })
-      ).text.includes("NEW_OUTPUT"),
+      (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("NEW_OUTPUT"),
     );
     this.assertEqual((await a.poll()).data, held);
     this.assertIn("NEW_OUTPUT", (await b.poll()).data);

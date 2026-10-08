@@ -15,11 +15,7 @@ export const info = new Info({
     ".npm-global/bin/claude",
     ".volta/bin/claude",
   ],
-  system_paths: [
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-    "/usr/bin/claude",
-  ],
+  system_paths: ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude"],
   native_args: [
     "--print",
     "--verbose",

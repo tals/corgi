@@ -9,8 +9,7 @@ class RawBytes extends String {
 }
 export type Step = (value: any) => void;
 export function object(value: any): Record<string, any> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw Error("InvalidCheckpoint");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("InvalidCheckpoint");
   return value;
 }
 function items(value: any, key: string): any[] {
@@ -33,8 +32,7 @@ export function fixedText(bytes: any = "", len: any = 0): string | RawBytes {
   const n = integer(len);
   let buffer: Buffer;
   if (typeof bytes === "string") buffer = Buffer.from(bytes);
-  else if (Array.isArray(bytes))
-    buffer = Buffer.from(bytes.map((byte) => integer(byte, 255)));
+  else if (Array.isArray(bytes)) buffer = Buffer.from(bytes.map(byte => integer(byte, 255)));
   else throw Error("InvalidCheckpoint");
   if (n > buffer.length) throw Error("InvalidCheckpoint");
   const selected = buffer.subarray(0, n);
@@ -113,7 +111,7 @@ function promote(value: any) {
         continue;
       }
       const actors = items(value, "conversations");
-      let actor = actors.find((candidate) => {
+      let actor = actors.find(candidate => {
         const saved = object(candidate);
         if (!("agent" in saved)) throw Error("InvalidCheckpoint");
         const other = identity(saved.agent);
@@ -137,13 +135,10 @@ function checkpoint2To3(value: any) {
     for (const entry of items(value, collection)) {
       if (collection === "panes") optionalProvider(entry, "agent");
       optionalProvider(entry, "resume_hint");
-      if (entry.binding !== undefined && entry.binding !== null)
-        optionalProvider(entry.binding, "provisional");
+      if (entry.binding !== undefined && entry.binding !== null) optionalProvider(entry.binding, "provisional");
     }
-  for (const actor of items(value, "conversations"))
-    optionalProvider(actor, "agent");
-  for (const command of items(value, "agent_commands"))
-    optionalProvider(command, "semantics");
+  for (const actor of items(value, "conversations")) optionalProvider(actor, "agent");
+  for (const command of items(value, "agent_commands")) optionalProvider(command, "semantics");
   promote(value);
 }
 function checkpoint3To4(value: any) {
@@ -151,11 +146,7 @@ function checkpoint3To4(value: any) {
     try {
       const info = object(object(command).semantics),
         mode = object(info.mode);
-      if (
-        mode.len === 23 &&
-        fixedText(mode.bytes, mode.len) === "Skips permission checks"
-      )
-        info.yolo = true;
+      if (mode.len === 23 && fixedText(mode.bytes, mode.len) === "Skips permission checks") info.yolo = true;
     } catch {}
   }
 }
@@ -209,8 +200,7 @@ function checkpoint4To5(value: any) {
   }
   for (const pane of items(value, "closed")) wrapped(object(pane), "label");
   if ("link_labels" in object(value))
-    for (const entry of items(value.link_labels, "entries"))
-      if (entry !== null) wrapped(object(entry), "name");
+    for (const entry of items(value.link_labels, "entries")) if (entry !== null) wrapped(object(entry), "name");
   for (const command of items(value, "agent_commands")) {
     const fields = object(command);
     paired(fields, "bytes", "len");
@@ -221,8 +211,7 @@ function checkpoint4To5(value: any) {
     paired(fields, "original", "original_len");
     wrapped(fields, "name");
     if ("semantics" in fields)
-      for (const key of ["suggested_name", "model", "account", "mode"])
-        wrapped(object(fields.semantics), key);
+      for (const key of ["suggested_name", "model", "account", "mode"]) wrapped(object(fields.semantics), key);
   }
   byProvider(value, "agent_yolo", "boolean");
   byProvider(value, "agent_hidden", "boolean");
@@ -233,8 +222,7 @@ function handoff1To2(value: any) {
   const launches = object(summaries).launches;
   if (launches === undefined) return;
   const fields = object(launches);
-  if (!("count" in fields))
-    fields.count = { values: [fields.codex ?? 0, fields.claude ?? 0] };
+  if (!("count" in fields)) fields.count = { values: [fields.codex ?? 0, fields.claude ?? 0] };
   delete fields.codex;
   delete fields.claude;
 }
@@ -255,8 +243,7 @@ function handoff2To3(value: any) {
 }
 function requestText(request: any) {
   const fields = object(request);
-  for (const key of ["session", "turn", "name"])
-    paired(fields, key, key + "_len");
+  for (const key of ["session", "turn", "name"]) paired(fields, key, key + "_len");
   wrapped(fields, "evidence");
   if ("conversation" in fields) recentText(fields.conversation);
 }
@@ -283,10 +270,8 @@ function handoff3To4(value: any) {
         byProvider(launches, "count", "integer");
       }
     }
-    for (const entry of items(summaries, "slots"))
-      if ("slot" in object(entry)) slotText(entry.slot);
-    for (const result of items(summaries, "link_results"))
-      if (result !== null) wrapped(object(result), "name");
+    for (const entry of items(summaries, "slots")) if ("slot" in object(entry)) slotText(entry.slot);
+    for (const result of items(summaries, "link_results")) if (result !== null) wrapped(object(result), "name");
   }
   for (const client of items(value, "clients")) {
     const saved = object(client).launch_preview;
@@ -295,16 +280,10 @@ function handoff3To4(value: any) {
     paired(fields, "cwd", "len");
     if (!("preview" in fields)) continue;
     for (const option of items(fields.preview, "options"))
-      for (const key of ["model", "source", "account", "plan", "usage_error"])
-        wrapped(object(option), key);
+      for (const key of ["model", "source", "account", "plan", "usage_error"]) wrapped(object(option), key);
     byProvider(fields.preview, "options", "object");
     byProvider(fields.preview, "installed", "boolean");
   }
 }
-export const checkpoint: Step[] = [
-  table,
-  checkpoint2To3,
-  checkpoint3To4,
-  checkpoint4To5,
-];
+export const checkpoint: Step[] = [table, checkpoint2To3, checkpoint3To4, checkpoint4To5];
 export const handoff: Step[] = [handoff1To2, handoff2To3, handoff3To4];

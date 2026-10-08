@@ -10,7 +10,13 @@ test("usage groups keep each limit in its slot and show its reset", () => {
   expect(cell.windows[0]).toBeNull();
   expect(cell.windows[1]!.label).toBe("7d");
   expect(cell.windows[1]!.reset).toBe("3d 4h");
-  const zero = Cell.init([{ minutes: 300, used: 0, reset_at: 8200 }, { minutes: 10080, used: 100, reset_at: 273700 }], 100);
+  const zero = Cell.init(
+    [
+      { minutes: 300, used: 0, reset_at: 8200 },
+      { minutes: 10080, used: 100, reset_at: 273700 },
+    ],
+    100,
+  );
   expect(zero.windows[0]!.used).toBe(0);
   expect(zero.windows[0]!.reset).toBe("2h 15m");
   const other = Cell.init([{ minutes: 1440, used: 12, reset_at: null }, null], 100);
@@ -20,8 +26,20 @@ test("usage groups keep each limit in its slot and show its reset", () => {
 });
 
 test("cached readings have no extra indicator and statuses remain readable", () => {
-  const fresh = Cell.init([{ minutes: 300, used: 12, reset_at: null }, { minutes: 10080, used: 48, reset_at: null }], 1100);
-  const cached = Cell.init([{ minutes: 300, used: 12, reset_at: null }, { minutes: 10080, used: 48, reset_at: null }], 1100);
+  const fresh = Cell.init(
+    [
+      { minutes: 300, used: 12, reset_at: null },
+      { minutes: 10080, used: 48, reset_at: null },
+    ],
+    1100,
+  );
+  const cached = Cell.init(
+    [
+      { minutes: 300, used: 12, reset_at: null },
+      { minutes: 10080, used: 48, reset_at: null },
+    ],
+    1100,
+  );
   const grid = new Grid();
   grid.add(fresh);
   expect(grid.holds(cached)).toBe(true);
@@ -41,7 +59,13 @@ test("cached readings have no extra indicator and statuses remain readable", () 
 });
 
 test("text-only usage fits both limits without bars and clips within its cell", () => {
-  const cell = Cell.init([{ minutes: 300, used: 0, reset_at: null }, { minutes: 10080, used: 100, reset_at: null }], 100);
+  const cell = Cell.init(
+    [
+      { minutes: 300, used: 0, reset_at: null },
+      { minutes: 10080, used: 100, reset_at: null },
+    ],
+    100,
+  );
   const grid = new Grid();
   grid.add(cell);
   let w = new Writer();
@@ -66,7 +90,13 @@ test("usage rows line up on one grid at every width", () => {
   const now = 100;
   const cells = [
     Cell.init([null, { minutes: 10080, used: 6, reset_at: now + 4 * 86400 + 18 * 3600 }], now),
-    Cell.init([{ minutes: 300, used: 70, reset_at: now + 3 * 60 }, { minutes: 10080, used: 84, reset_at: now + 10 * 3600 + 43 * 60 }], now),
+    Cell.init(
+      [
+        { minutes: 300, used: 70, reset_at: now + 3 * 60 },
+        { minutes: 10080, used: 84, reset_at: now + 10 * 3600 + 43 * 60 },
+      ],
+      now,
+    ),
     Cell.init([{ minutes: 300, used: 100, reset_at: now + 2 * 3600 + 15 * 60 }, null], now),
   ];
   const grid = new Grid();

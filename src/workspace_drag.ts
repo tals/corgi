@@ -51,10 +51,6 @@ export class Drag {
     this.drop = drop;
   }
   before() {
-    return this.drop
-      ? this.drop.index === this.count
-        ? this.ids[this.source]
-        : this.ids[this.drop.index]
-      : null;
+    return this.drop ? (this.drop.index === this.count ? this.ids[this.source] : this.ids[this.drop.index]) : null;
   }
 }

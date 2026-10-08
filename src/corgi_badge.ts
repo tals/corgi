@@ -9,42 +9,22 @@ export const remove = "\x1b_Ga=d,d=I,i=730031,q=2\x1b\\";
 export const hide = "\x1b_Ga=d,d=i,i=730031,p=1,q=2\x1b\\";
 export const emoji = "🐕";
 export type Mode = "none" | "emoji" | "image";
-export function hit(
-  mode: Mode,
-  sidebar_width: number,
-  x: number,
-  y: number,
-): boolean {
+export function hit(mode: Mode, sidebar_width: number, x: number, y: number): boolean {
   if (!sidebar_width) return false;
-  return mode === "emoji"
-    ? x >= 1 && x < 3 && y === 0
-    : mode === "image"
-      ? x >= 1 && x < 4 && y < 2
-      : false;
+  return mode === "emoji" ? x >= 1 && x < 3 && y === 0 : mode === "image" ? x >= 1 && x < 4 && y < 2 : false;
 }
 export class State {
-  status:
-    | "probing"
-    | "supported"
-    | "uploading"
-    | "confirming"
-    | "ready"
-    | "unavailable" = "probing";
+  status: "probing" | "supported" | "uploading" | "confirming" | "ready" | "unavailable" = "probing";
   supports_kitty_graphics = false;
   uploaded = false;
   retry_at = 0;
   attempts = 0;
   probe_deadline: number | null = null;
   mode(): Mode {
-    return this.status === "ready"
-      ? "image"
-      : this.status === "unavailable"
-        ? "emoji"
-        : "none";
+    return this.status === "ready" ? "image" : this.status === "unavailable" ? "emoji" : "none";
   }
   accept(sequence: string): boolean {
-    if (!sequence.startsWith(reply_prefix) || !sequence.endsWith("\x1b\\"))
-      return false;
+    if (!sequence.startsWith(reply_prefix) || !sequence.endsWith("\x1b\\")) return false;
     const rest = sequence.slice(reply_prefix.length, -2),
       separator = rest.indexOf(";");
     if (separator < 0) return false;
@@ -70,21 +50,13 @@ export class State {
     const message = rest.slice(separator + 1);
     if (message === "OK") {
       this.supports_kitty_graphics = true;
-      if (
-        this.status === "probing" ||
-        (this.status === "unavailable" && !this.uploaded)
-      )
-        this.status = "supported";
-      else if (this.status === "uploading" || this.status === "confirming")
-        this.status = "ready";
+      if (this.status === "probing" || (this.status === "unavailable" && !this.uploaded)) this.status = "supported";
+      else if (this.status === "uploading" || this.status === "confirming") this.status = "ready";
       if (this.status === "ready") {
         this.attempts = 0;
         this.retry_at = 0;
       }
-    } else if (
-      (this.status === "ready" || this.status === "confirming") &&
-      message.startsWith("ENOENT")
-    ) {
+    } else if ((this.status === "ready" || this.status === "confirming") && message.startsWith("ENOENT")) {
       this.status = this.attempts < 3 ? "supported" : "unavailable";
       this.retry_at = 0;
     } else this.status = "unavailable";

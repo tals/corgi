@@ -18,7 +18,8 @@ export type Target =
   | { agent: number }
   /** The name a copy of an agent pane's conversation starts with. */
   | { fork: number };
-export const targetKind = (t: Target): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" => Object.keys(t)[0] as any;
+export const targetKind = (t: Target): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" =>
+  Object.keys(t)[0] as any;
 /** Whether names keep non-ASCII text, which the agents' own names carry. */
 function unicodeTarget(t: Target): boolean {
   return "agent_command" in t || "agent" in t || "fork" in t;
@@ -28,7 +29,8 @@ export type Result = "none" | "save" | "cancel";
 export const name_limit = 80;
 const max_length = 2048;
 const capacity = 4096;
-export type Hit = { tag: "none" } | { tag: "save" } | { tag: "clear" } | { tag: "cancel" } | { tag: "field"; field: number };
+export type Hit =
+  { tag: "none" } | { tag: "save" } | { tag: "clear" } | { tag: "cancel" } | { tag: "field"; field: number };
 
 function sequenceLength(byte: number): number {
   if (byte < 0x80) return 1;
@@ -267,7 +269,10 @@ export class View {
       const v = View.forkCard(width, height, d);
       if (v) return v;
     }
-    const w = Math.min(width, Math.max(10, Math.max(Math.min(Math.max(0, width - 2), 36), Math.min(Math.floor((width * 3) / 5), 70))));
+    const w = Math.min(
+      width,
+      Math.max(10, Math.max(Math.min(Math.max(0, width - 2), 36), Math.min(Math.floor((width * 3) / 5), 70))),
+    );
     const h = Math.min(height, 7);
     const y = Math.floor((height - h) / 2);
     const field_y = y + (h >= 7 ? 3 : h >= 5 ? 2 : 1);
@@ -371,24 +376,28 @@ export class View {
     if (x < v.x || x >= v.x + v.width || y < v.y || y >= v.y + v.height) return { tag: "cancel" };
     if (v.card !== null) {
       // The field and the buttons are three rows tall, padded around.
-      if (y + 1 >= v.field_y && y <= v.field_y + 1 && x + 2 >= v.text_x && x < v.text_x + v.text_width + 2) return { tag: "field", field: v.offset + Math.max(0, x - v.text_x) };
+      if (y + 1 >= v.field_y && y <= v.field_y + 1 && x + 2 >= v.text_x && x < v.text_x + v.text_width + 2)
+        return { tag: "field", field: v.offset + Math.max(0, x - v.text_x) };
       if (y + 1 >= v.buttons_y && y <= v.buttons_y + 1) {
         const buttons = v.cardButtons();
         for (let i = 0; i < buttons.length; i++) {
           const b = buttons[i];
-          if (x >= b.x && x < b.x + b.width) return i === 0 ? { tag: "save" } : i === 1 ? { tag: "clear" } : { tag: "cancel" };
+          if (x >= b.x && x < b.x + b.width)
+            return i === 0 ? { tag: "save" } : i === 1 ? { tag: "clear" } : { tag: "cancel" };
         }
       }
       return { tag: "none" };
     }
     // The field's fill beside the text answers too.
     const fill = v.padded ? 1 : 0;
-    if (y === v.field_y && x + fill >= v.text_x && x < v.text_x + v.text_width + fill) return { tag: "field", field: v.offset + Math.min(Math.max(0, x - v.text_x), v.text_width) };
+    if (y === v.field_y && x + fill >= v.text_x && x < v.text_x + v.text_width + fill)
+      return { tag: "field", field: v.offset + Math.min(Math.max(0, x - v.text_x), v.text_width) };
     if (y === v.buttons_y) {
       const buttons = v.buttons();
       for (let i = 0; i < buttons.length; i++) {
         const b = buttons[i];
-        if (x >= b.x && x < b.x + b.width) return i === 0 ? { tag: "save" } : i === 1 ? { tag: "clear" } : { tag: "cancel" };
+        if (x >= b.x && x < b.x + b.width)
+          return i === 0 ? { tag: "save" } : i === 1 ? { tag: "clear" } : { tag: "cancel" };
       }
     }
     return { tag: "none" };
@@ -430,10 +439,21 @@ export class View {
     // Text lines up with the field's fill.
     const left = v.text_x - (v.padded ? 1 : 0);
     const room = v.x + v.width - 1 - left - (v.padded ? 1 : 0);
-    w.write(`\x1b[${v.title_y + 1};${left + 1}H` + new Style({ fg: "strong", bg: "surface", bold: true }).sgr() + title.slice(0, Math.min(title.length, room)));
+    w.write(
+      `\x1b[${v.title_y + 1};${left + 1}H` +
+        new Style({ fg: "strong", bg: "surface", bold: true }).sgr() +
+        title.slice(0, Math.min(title.length, room)),
+    );
     if ((d.failed || d.overflow) && v.height >= 7) {
-      const msg = kind === "agent_command" ? "Could not save command; max 2048 bytes." : "Could not save. Check folder or capacity.";
-      w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr() + msg.slice(0, Math.min(msg.length, room)));
+      const msg =
+        kind === "agent_command"
+          ? "Could not save command; max 2048 bytes."
+          : "Could not save. Check folder or capacity.";
+      w.write(
+        `\x1b[${v.title_y + 2};${left + 1}H` +
+          new Style({ fg: "hot", bg: "surface" }).sgr() +
+          msg.slice(0, Math.min(msg.length, room)),
+      );
     }
     if (kind === "agent_command" && !d.failed && !d.overflow && v.height >= 7) {
       const provider = identify(d.name());
@@ -450,7 +470,9 @@ export class View {
     } else {
       if (d.selected) w.write(selection);
       const end = d.byteAtColumn(v.offset, v.text_width);
-      const shown = Uint8Array.from(d.text.subarray(v.offset, end), (byte) => (kind === "agent_command" && byte < 32 ? 32 : byte));
+      const shown = Uint8Array.from(d.text.subarray(v.offset, end), byte =>
+        kind === "agent_command" && byte < 32 ? 32 : byte,
+      );
       w.write(Buffer.from(shown).toString());
     }
     v.buttons().forEach((b, i) => {
@@ -463,7 +485,10 @@ export class View {
       w.write(keycap + ` ${b.key} `);
       if (b.label.length === 0) return;
       // The first button saves; its label is the one that stands out.
-      const label = i === 0 ? new Style({ fg: "strong", bg: "surface", bold: true }).sgr() : new Style({ fg: "muted", bg: "surface" }).sgr();
+      const label =
+        i === 0
+          ? new Style({ fg: "strong", bg: "surface", bold: true }).sgr()
+          : new Style({ fg: "muted", bg: "surface" }).sgr();
       w.write(`${label} ${b.label}`);
     });
     v.placeCursor(d, w);
@@ -492,10 +517,20 @@ export class View {
         w.write(border + "│");
       }
     }
-    if (card.hero_y !== null) w.write(forkMotion.draw(v.x + Math.floor((v.width - forkMotion.width) / 2), card.hero_y, d.hero, milliTimestamp()));
+    if (card.hero_y !== null)
+      w.write(
+        forkMotion.draw(v.x + Math.floor((v.width - forkMotion.width) / 2), card.hero_y, d.hero, milliTimestamp()),
+      );
     v.centered(w, v.title_y, new Style({ fg: "strong", bg: "surface", bold: true }).sgr(), "Fork this agent");
-    if (d.overflow) v.centered(w, card.subtitle_y, new Style({ fg: "hot", bg: "surface" }).sgr(), "Names fit in 80 characters");
-    else v.centered(w, card.subtitle_y, new Style({ fg: "muted", bg: "surface" }).sgr(), "Copies the conversation into a new tab");
+    if (d.overflow)
+      v.centered(w, card.subtitle_y, new Style({ fg: "hot", bg: "surface" }).sgr(), "Names fit in 80 characters");
+    else
+      v.centered(
+        w,
+        card.subtitle_y,
+        new Style({ fg: "muted", bg: "surface" }).sgr(),
+        "Copies the conversation into a new tab",
+      );
     w.write(`\x1b[${card.label_y + 1};${v.text_x - 1}H` + new Style({ fg: "faint", bg: "surface" }).sgr() + "Name");
     // A field three rows tall, with two columns of fill beside the text.
     for (let row = 0; row < 3; row++) {
@@ -514,7 +549,13 @@ export class View {
       const pad = Math.floor((b.width - card_label_widths[i]) / 2);
       w.write(`\x1b[${v.buttons_y + 1};${b.x + 1 + pad}H`);
       if (i === 0) w.write(create_label + "↵ Create Fork");
-      else w.write(new Style({ fg: "muted", bg: "selected" }).sgr() + b.label.slice(0, key_end) + new Style({ fg: "text", bg: "selected", bold: true }).sgr() + b.label.slice(key_end));
+      else
+        w.write(
+          new Style({ fg: "muted", bg: "selected" }).sgr() +
+            b.label.slice(0, key_end) +
+            new Style({ fg: "text", bg: "selected", bold: true }).sgr() +
+            b.label.slice(key_end),
+        );
     });
     v.placeCursor(d, w);
   }

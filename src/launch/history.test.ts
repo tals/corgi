@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import { claudeEntry, codexTail, clip, Worker, type Entry } from "./history";
-const lines = (...v: any[]) =>
-  v.map((x) => JSON.stringify(x)).join("\n") + "\n";
+const lines = (...v: any[]) => v.map(x => JSON.stringify(x)).join("\n") + "\n";
 const user = (content: any, extra: any = {}) => ({
   type: "user",
   cwd: "/work",
@@ -48,10 +47,7 @@ test("Claude transcripts from the SDK or continued elsewhere are skipped", () =>
 });
 test("a tail that starts mid-line skips the partial line", () => {
   const head = lines(user("first")),
-    tail =
-      'ext":"cut"}]}}\n' +
-      lines(user("latest")) +
-      '{"type":"user","message":{"content":"unfinished';
+    tail = 'ext":"cut"}]}}\n' + lines(user("latest")) + '{"type":"user","message":{"content":"unfinished';
   expect(claudeEntry("s", head, tail, true)).toMatchObject({
     first: "first",
     last: "latest",
@@ -68,9 +64,7 @@ test("a Claude conversation dates from its last prompt or reply, not its file", 
     { type: "system", timestamp: "2026-09-25T10:00:00.000Z" },
     { type: "custom-title", customTitle: "Release" },
   );
-  expect(claudeEntry("s", t, t, false, 1790600000)!.updated_at).toBe(
-    1790244000,
-  );
+  expect(claudeEntry("s", t, t, false, 1790600000)!.updated_at).toBe(1790244000);
 });
 test("a Codex rollout tail yields the last typed prompt and an abort", () => {
   const message = (text: string) => ({

@@ -2,42 +2,21 @@
 import { max_panes, max_tabs, Axis } from "../layout";
 import { Node, validate } from "./layout";
 import type { Workspace } from "./catalog";
-const text = (v: any, k: string): string =>
-  typeof v?.[k] === "string" ? v[k] : "";
+const text = (v: any, k: string): string => (typeof v?.[k] === "string" ? v[k] : "");
 const list = (v: any, k: string): any[] => (Array.isArray(v?.[k]) ? v[k] : []);
-const first = (v: any, keys: string[]): string =>
-  keys.map((k) => text(v, k)).find(Boolean) ?? "";
-const id = (v: any) =>
-  first(v, ["id", "ref", "workspace_id", "pane_id", "surface_id"]);
+const first = (v: any, keys: string[]): string => keys.map(k => text(v, k)).find(Boolean) ?? "";
+const id = (v: any) => first(v, ["id", "ref", "workspace_id", "pane_id", "surface_id"]);
 const title = (v: any) =>
-  first(v, [
-    "title",
-    "name",
-    "label",
-    "ref",
-    "id",
-    "workspace_id",
-    "pane_id",
-    "surface_id",
-  ]) || "Untitled";
-const cwd = (v: any) =>
-  first(v, [
-    "cwd",
-    "current_directory",
-    "requested_working_directory",
-    "working_directory",
-  ]);
-const matches = (v: any, handle: string) =>
-  !!handle && (id(v) === handle || text(v, "ref") === handle);
+  first(v, ["title", "name", "label", "ref", "id", "workspace_id", "pane_id", "surface_id"]) || "Untitled";
+const cwd = (v: any) => first(v, ["cwd", "current_directory", "requested_working_directory", "working_directory"]);
+const matches = (v: any, handle: string) => !!handle && (id(v) === handle || text(v, "ref") === handle);
 const recognizable = (v: any) =>
   !!v &&
   typeof v === "object" &&
   !Array.isArray(v) &&
   (!!id(v) || !!first(v, ["title", "name", "label", "cwd", "url"]));
 const recognizableWorkspace = (v: any) =>
-  recognizable(v) ||
-  list(v, "panes").length > 0 ||
-  list(v, "surfaces").length > 0;
+  recognizable(v) || list(v, "panes").length > 0 || list(v, "surfaces").length > 0;
 type Rect = { x: number; y: number; w: number; h: number };
 type SourcePane = {
   value: any;
@@ -49,9 +28,8 @@ const number = (v: any): number | null =>
   typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1e9 ? v : null;
 function rect(p: any): Rect | null {
   const f = p?.pixel_frame,
-    values = ["x", "y", "width", "height"].map((k) => number(f?.[k]));
-  if (values.some((v) => v === null) || values[2]! <= 0 || values[3]! <= 0)
-    return null;
+    values = ["x", "y", "width", "height"].map(k => number(f?.[k]));
+  if (values.some(v => v === null) || values[2]! <= 0 || values[3]! <= 0) return null;
   return { x: values[0]!, y: values[1]!, w: values[2]!, h: values[3]! };
 }
 const ratio = (n: number) => Math.max(100, Math.min(900, Math.round(n * 1000)));
@@ -62,19 +40,10 @@ function append(nodes: Node[], node: Node): number {
   nodes.push(node);
   return nodes.length - 1;
 }
-function snapshotTree(
-  nodes: Node[],
-  value: any,
-  panes: SourcePane[],
-  depth: number,
-): void {
+function snapshotTree(nodes: Node[], value: any, panes: SourcePane[], depth: number): void {
   if (depth >= max_panes || nodes.length >= max_panes * 2 - 1) fail();
-  if (
-    value?.pane &&
-    typeof value.pane === "object" &&
-    !Array.isArray(value.pane)
-  ) {
-    const i = panes.findIndex((p) => matches(p.value, id(value.pane)));
+  if (value?.pane && typeof value.pane === "object" && !Array.isArray(value.pane)) {
+    const i = panes.findIndex(p => matches(p.value, id(value.pane)));
     if (i < 0) fail();
     append(nodes, { pane: i });
     return;
@@ -82,13 +51,7 @@ function snapshotTree(
   const children = list(value, "children"),
     axis = text(value, "direction"),
     share = number(value?.split);
-  if (
-    !["horizontal", "vertical"].includes(axis) ||
-    share === null ||
-    share <= 0 ||
-    share >= 1 ||
-    children.length !== 2
-  )
+  if (!["horizontal", "vertical"].includes(axis) || share === null || share <= 0 || share >= 1 || children.length !== 2)
     fail();
   snapshotTree(nodes, children[0], panes, depth + 1);
   const first = nodes.length - 1;
@@ -113,7 +76,7 @@ function balanced(nodes: Node[], indices: number[], axis: Axis): number {
   });
 }
 function geometry(nodes: Node[], panes: SourcePane[], indices: number[]): void {
-  if (indices.some((i) => !panes[i].rect)) fail();
+  if (indices.some(i => !panes[i].rect)) fail();
   if (indices.length === 1) {
     append(nodes, { pane: indices[0] });
     return;
@@ -121,10 +84,8 @@ function geometry(nodes: Node[], panes: SourcePane[], indices: number[]): void {
   for (const axis of ["horizontal", "vertical"] as Axis[]) {
     const start = (r: Rect) => (axis === "horizontal" ? r.x : r.y),
       size = (r: Rect) => (axis === "horizontal" ? r.w : r.h);
-    const min = Math.min(...indices.map((i) => start(panes[i].rect!))),
-      max = Math.max(
-        ...indices.map((i) => start(panes[i].rect!) + size(panes[i].rect!)),
-      );
+    const min = Math.min(...indices.map(i => start(panes[i].rect!))),
+      max = Math.max(...indices.map(i => start(panes[i].rect!) + size(panes[i].rect!)));
     for (const candidate of indices) {
       const cut = start(panes[candidate].rect!);
       if (cut <= min || cut >= max) continue;
@@ -141,12 +102,7 @@ function geometry(nodes: Node[], panes: SourcePane[], indices: number[]): void {
         } else if (a >= cut - 0.01) right.push(i);
         else break;
       }
-      if (
-        !left.length ||
-        !right.length ||
-        left.length + right.length !== indices.length
-      )
-        continue;
+      if (!left.length || !right.length || left.length + right.length !== indices.length) continue;
       geometry(nodes, panes, left);
       const first = nodes.length - 1;
       geometry(nodes, panes, right);
@@ -163,17 +119,9 @@ function geometry(nodes: Node[], panes: SourcePane[], indices: number[]): void {
   }
   fail();
 }
-function project(
-  out: Node[],
-  source: Node[],
-  index: number,
-  mapping: (number | null)[],
-): number | null {
+function project(out: Node[], source: Node[], index: number, mapping: (number | null)[]): number | null {
   const node = source[index];
-  if ("pane" in node)
-    return mapping[node.pane] === null
-      ? null
-      : append(out, { pane: mapping[node.pane]! });
+  if ("pane" in node) return mapping[node.pane] === null ? null : append(out, { pane: mapping[node.pane]! });
   const left = project(out, source, node.split.first, mapping),
     right = project(out, source, node.split.second, mapping);
   if (left === null) return right;
@@ -223,10 +171,8 @@ export function convert(ws: any, details: any = {}): Workspace | null {
   let source = list(ws, "panes");
   const flat = !source.length && list(ws, "surfaces").length > 0;
   if (flat) source = [ws];
-  if (!source.length)
-    return workspaceOnly(ws, "Couldn't read its panes or tabs");
-  if (source.length > max_panes)
-    return workspaceOnly(ws, "Too many panes for one import");
+  if (!source.length) return workspaceOnly(ws, "Couldn't read its panes or tabs");
+  if (source.length > max_panes) return workspaceOnly(ws, "Too many panes for one import");
   const panes: SourcePane[] = [],
     seen = new Set<string>();
   let total = 0,
@@ -244,22 +190,17 @@ export function convert(ws: any, details: any = {}): Workspace | null {
       surfaces.push(surface);
     }
     total += surfaces.length;
-    if (total > max_panes)
-      return workspaceOnly(ws, "Too many surfaces for one import");
+    if (total > max_panes) return workspaceOnly(ws, "Too many surfaces for one import");
     layers = Math.max(layers, surfaces.length);
-    if (layers > max_tabs)
-      return workspaceOnly(ws, "Too many tabs for one import");
+    if (layers > max_tabs) return workspaceOnly(ws, "Too many tabs for one import");
     let rectangle = rect(p);
     if (!rectangle) {
-      const detail = list(details, "panes").find((d) => matches(p, id(d)));
+      const detail = list(details, "panes").find(d => matches(p, id(d)));
       if (detail) rectangle = rect(detail);
     }
     const handle = first(p, ["selected_surface_id", "selected_surface_ref"]);
-    let selected = surfaces.findIndex((s) => matches(s, handle));
-    if (selected < 0)
-      selected = surfaces.findIndex(
-        (s) => s.selected === true || s.selected_in_pane === true,
-      );
+    let selected = surfaces.findIndex(s => matches(s, handle));
+    if (selected < 0) selected = surfaces.findIndex(s => s.selected === true || s.selected_in_pane === true);
     if (selected < 0) selected = 0;
     panes.push({ value: p, surfaces, selected, rect: rectangle });
   }
@@ -291,8 +232,7 @@ export function convert(ws: any, details: any = {}): Workspace | null {
       mapping: (number | null)[] = Array(panes.length).fill(null);
     for (const [i, p] of panes.entries()) {
       if (layer >= p.surfaces.length) continue;
-      const si =
-          layer === 0 ? p.selected : layer - 1 < p.selected ? layer - 1 : layer,
+      const si = layer === 0 ? p.selected : layer - 1 < p.selected ? layer - 1 : layer,
         surface = p.surfaces[si];
       mapping[i] = output.length;
       output.push({
@@ -316,12 +256,7 @@ export function convert(ws: any, details: any = {}): Workspace | null {
     validate(projected, output.length);
     tabs.push({
       id: `${id(ws)}:${layer}`,
-      name:
-        output.length === 1
-          ? output[0].name
-          : layer === 0
-            ? title(ws)
-            : `${title(ws)} (${layer + 1})`,
+      name: output.length === 1 ? output[0].name : layer === 0 ? title(ws) : `${title(ws)} (${layer + 1})`,
       panes: output,
       nodes: projected,
     });
@@ -335,11 +270,7 @@ export function convert(ws: any, details: any = {}): Workspace | null {
     session: 0,
     activity: 0,
     handoff: false,
-    recovery: partial
-      ? "partial"
-      : approximate && source.length > 1
-        ? "layout"
-        : "full",
+    recovery: partial ? "partial" : approximate && source.length > 1 ? "layout" : "full",
     recovery_note: partial
       ? "Some pane or tab details couldn't be read"
       : approximate && source.length > 1

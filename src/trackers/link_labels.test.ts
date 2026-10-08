@@ -31,12 +31,7 @@ test("link guesses are bounded display names and stale endpoint results cannot a
     attempted: true,
     name: new Text(),
   };
-  expect(
-    cache.apply(
-      { slot: 0, key, generation: 1n, name: parseName("Finance") },
-      0,
-    ),
-  ).toBe(false);
+  expect(cache.apply({ slot: 0, key, generation: 1n, name: parseName("Finance") }, 0)).toBe(false);
   expect(
     cache.apply(
       {
@@ -48,12 +43,7 @@ test("link guesses are bounded display names and stale endpoint results cannot a
       0,
     ),
   ).toBe(false);
-  expect(
-    cache.apply(
-      { slot: 0, key, generation: 2n, name: parseName("Finance") },
-      0,
-    ),
-  ).toBe(true);
+  expect(cache.apply({ slot: 0, key, generation: 2n, name: parseName("Finance") }, 0)).toBe(true);
   expect(cache.name(1, endpoint())).toBe("Finance");
   expect(cache.name(1, endpoint({ pid: 4 }))).toBe("");
 });
@@ -111,5 +101,5 @@ test("endpoint naming survives failed probes and missing scans without spending 
   expect(cache.name(1, endpoint())).toBe("Finance");
   terminal.exited = true;
   expect(cache.reconcile(runtime, worker, 0)).toBe(true);
-  expect(cache.entries.every((e) => e === null)).toBe(true);
+  expect(cache.entries.every(e => e === null)).toBe(true);
 });

@@ -8,8 +8,7 @@ import * as km from "./keymap";
 import * as bindings from "./bindings";
 import { Style as PaletteStyle, keycap } from "./palette";
 
-type Style =
-  "text" | "bright" | "dim" | "rule" | "direct" | "keycap" | "attention";
+type Style = "text" | "bright" | "dim" | "rule" | "direct" | "keycap" | "attention";
 export interface Part {
   x: number;
   text: string;
@@ -42,13 +41,7 @@ export class Column {
   group(label: string) {
     this.line(2, label, "bright");
   }
-  wrapped(
-    text: string,
-    indent: number,
-    style: Style,
-    right = false,
-    action: Action | null = null,
-  ) {
+  wrapped(text: string, indent: number, style: Style, right = false, action: Action | null = null) {
     const room = Math.max(1, this.width - indent);
     while (text) {
       let end = 0,
@@ -61,22 +54,11 @@ export class Column {
       if (end < text.length && gap > 0) end = gap;
       if (!end) end = [...text][0].length;
       const slice = text.slice(0, end).trim();
-      this.line(
-        right ? this.width - displayWidth(slice) : indent,
-        slice,
-        style,
-        action,
-      );
+      this.line(right ? this.width - displayWidth(slice) : indent, slice, style, action);
       text = text.slice(end).trimStart();
     }
   }
-  binding(
-    label: string,
-    key: string,
-    indent: number,
-    direct = false,
-    action: Action | null = null,
-  ) {
+  binding(label: string, key: string, indent: number, direct = false, action: Action | null = null) {
     if (indent + displayWidth(label) + 3 + displayWidth(key) <= this.width)
       this.rows.push([
         { x: indent, text: label, style: "text", action },
@@ -104,8 +86,7 @@ export class Column {
     this.wrapped(label, indent + 2, "bright", false, action);
     this.rows[start].push({ x: indent, text: "●", style: "attention", action });
     const last = this.rows.at(-1)![0];
-    if (last.x + displayWidth(last.text) + 3 + displayWidth(cap) > this.width)
-      this.space();
+    if (last.x + displayWidth(last.text) + 3 + displayWidth(cap) > this.width) this.space();
     this.rows.at(-1)!.push({
       x: Math.max(0, this.width - displayWidth(cap)),
       text: cap,
@@ -116,16 +97,14 @@ export class Column {
   alsoHeld(label: string, action: Action, indent: number) {
     const shown = bindings.find(this.preset, action),
       held = bindings.first(this.preset, action, false);
-    if (shown?.prefixed && held)
-      this.binding(label, bindings.format(held), indent, true, action);
+    if (shown?.prefixed && held) this.binding(label, bindings.format(held), indent, true, action);
   }
   pair(label: string, a: Action, b: Action, indent: number) {
     const one = spelling(this.preset, a),
       two = spelling(this.preset, b);
     if (one === null || two === null) return;
     const width = displayWidth(one) + 3 + displayWidth(two);
-    if (indent + displayWidth(label) + 3 + width > this.width)
-      this.wrapped(label, indent, "text");
+    if (indent + displayWidth(label) + 3 + width > this.width) this.wrapped(label, indent, "text");
     const row: Part[] = [];
     if (indent + displayWidth(label) + 3 + width <= this.width)
       row.push({ x: indent, text: label, style: "text", action: null });
@@ -151,30 +130,17 @@ export class Column {
 export function spelling(preset: km.Preset, action: Action) {
   const shown = bindings.find(preset, action);
   if (!shown) return null;
-  if (shown.prefixed)
-    return (preset === "cmux" ? "P " : "") + bindings.format(shown);
+  if (shown.prefixed) return (preset === "cmux" ? "P " : "") + bindings.format(shown);
   const fallback = bindings.first(preset, action, true);
-  return (
-    bindings.format(shown) +
-    (fallback ? " · P " + bindings.format(fallback) : "")
-  );
+  return bindings.format(shown) + (fallback ? " · P " + bindings.format(fallback) : "");
 }
-const act = (name: string, value?: any) =>
-  value === undefined ? ({ name } as Action) : ({ name, value } as Action);
+const act = (name: string, value?: any) => (value === undefined ? ({ name } as Action) : ({ name, value } as Action));
 export function navigation(c: Column) {
   c.heading("TABS");
   c.action("New tab → agent picker", act("new"), 2);
   c.alsoHeld("Also works directly", act("new"), 4);
   c.pair("Next / previous", act("next"), act("prev"), 2);
-  c.binding(
-    "Select tab",
-    c.preset === "tmux"
-      ? "0–9"
-      : c.preset === "cmux"
-        ? "Ctrl+1–9 · P 1–9"
-        : "1–9",
-    2,
-  );
+  c.binding("Select tab", c.preset === "tmux" ? "0–9" : c.preset === "cmux" ? "Ctrl+1–9 · P 1–9" : "1–9", 2);
   c.action("Rename", act("rename-tab"), 2);
   c.action("Close", act("close-tab"), 2);
   c.space();
@@ -200,14 +166,7 @@ export function navigation(c: Column) {
   c.alsoHeld("Reopen directly", act("undo-close"), 4);
   c.action("Mute / unmute", act("mute"), 4);
 }
-function direction(
-  c: Column,
-  x: number,
-  title: string,
-  caption: string,
-  tag: string,
-  start: number,
-) {
+function direction(c: Column, x: number, title: string, caption: string, tag: string, start: number) {
   while (c.rows.length < start + 4) c.space();
   c.rows[start].push({ x: x + 2, text: title, style: "bright", action: null });
   c.rows[start + 1].push({
@@ -236,14 +195,7 @@ function direction(
 export function panes(c: Column) {
   c.heading("PANES");
   const top = c.rows.length;
-  direction(
-    c,
-    0,
-    "Focus",
-    c.preset === "cmux" ? "Cmd+Option" : "Move focus",
-    "focus",
-    top,
-  );
+  direction(c, 0, "Focus", c.preset === "cmux" ? "Cmd+Option" : "Move focus", "focus", top);
   if (bindings.find(c.preset, act("swap", "up")))
     direction(
       c,
@@ -474,7 +426,14 @@ export class State {
     return { name: "none" };
   }
   /** The screen, with the host pointer set to `pointer_shape`. */
-  frame(cols: number, rows: number, preset: km.Preset, prefix: km.Prefix, now: number, pointer_shape = "default"): string {
+  frame(
+    cols: number,
+    rows: number,
+    preset: km.Preset,
+    prefix: km.Prefix,
+    now: number,
+    pointer_shape = "default",
+  ): string {
     const w = new Writer();
     // Synchronized, so the corgi's frames redraw the screen without tearing.
     w.write("\x1b[?2026h" + new PaletteStyle({ bg: "bg" }).sgr() + "\x1b[2J\x1b[?25l");
@@ -495,7 +454,14 @@ export class State {
     if (b.w >= 60) at(w, b, b.w - 17, 1, km.name(preset), "dim");
     at(w, b, 3, 3, "PREFIX", "dim");
     at(w, b, 11, 3, `[ ${km.prefixName(prefix)} ]`, "keycap");
-    at(w, b, 23, 3, preset === "cmux" ? "P = prefix · Cmd = hold" : b.w < 76 ? "then key" : "Release, then press the key.", "dim");
+    at(
+      w,
+      b,
+      23,
+      3,
+      preset === "cmux" ? "P = prefix · Cmd = hold" : b.w < 76 ? "then key" : "Release, then press the key.",
+      "dim",
+    );
 
     const { dual, columns, total } = columnsFor(b, preset);
     const capacity = b.h - 8;

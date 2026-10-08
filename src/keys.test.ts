@@ -30,12 +30,6 @@ test("logical CLI modifiers parse once", () => {
 });
 test("kitty decoder preserves unsupported extensions", () => {
   expect(decode("\x1b[97;5u")?.mods.ctrl).toBe(true);
-  for (const seq of [
-    "\x1b[97;0u",
-    "\x1b[97;33u",
-    "\x1b[97;5:2u",
-    "\x1b[57390u",
-    "\x1b[R",
-  ])
+  for (const seq of ["\x1b[97;0u", "\x1b[97;33u", "\x1b[97;5:2u", "\x1b[57390u", "\x1b[R"])
     expect(decode(seq)).toBeNull();
 });

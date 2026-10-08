@@ -63,23 +63,13 @@ const table: Array<{ id: string; price: Price }> = [
 export function lookup(model: string): Price | null {
   let best: (typeof table)[number] | null = null;
   for (const entry of table) {
-    if (
-      !model.startsWith(entry.id) ||
-      (model.length > entry.id.length && /[0-9]/.test(model[entry.id.length]))
-    )
+    if (!model.startsWith(entry.id) || (model.length > entry.id.length && /[0-9]/.test(model[entry.id.length])))
       continue;
     if (!best || entry.id.length > best.id.length) best = entry;
   }
   return best?.price ?? null;
 }
-export function equivalent(
-  price: Price,
-  reference: Price,
-  uncached_input: bigint,
-  output: bigint,
-) {
-  const n =
-    (uncached_input * price.input) / reference.input +
-    (output * price.output) / reference.output;
+export function equivalent(price: Price, reference: Price, uncached_input: bigint, output: bigint) {
+  const n = (uncached_input * price.input) / reference.input + (output * price.output) / reference.output;
   return n > max ? max : n;
 }

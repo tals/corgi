@@ -8,9 +8,7 @@ export const sub = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
 export function number(v: any, key: string): bigint | null {
   const n = field(v, key);
   if (typeof n === "bigint") return n >= 0n && n <= max ? n : null;
-  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0
-    ? BigInt(n)
-    : null;
+  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? BigInt(n) : null;
 }
 export class Counts {
   tools = 0n;
@@ -43,8 +41,7 @@ export class Window {
   }
   record(since: number, delta: Counts) {
     if (since !== this.since) return false;
-    const changed =
-      delta.any() || (delta.tokens_known && !this.counts.tokens_known);
+    const changed = delta.any() || (delta.tokens_known && !this.counts.tokens_known);
     this.counts.add(delta);
     return changed;
   }
@@ -95,15 +92,9 @@ export class Tracker {
   tokens(id: string, input: bigint, output: bigint, baseline: boolean) {
     return this.tokensCached(id, input, 0n, output, baseline);
   }
-  tokensCached(
-    id: string,
-    input: bigint,
-    cached: bigint,
-    output: bigint,
-    baseline: boolean,
-  ) {
+  tokensCached(id: string, input: bigint, cached: bigint, output: bigint, baseline: boolean) {
     const hash = Tracker.key(id);
-    const old = this.samples.find((sample) => sample.id === hash);
+    const old = this.samples.find(sample => sample.id === hash);
     if (old) {
       const delta = new Counts({
         input: sub(input, old.input),
@@ -131,7 +122,7 @@ export class Tracker {
     });
   }
   hasSample(id: string) {
-    return this.samples.some((sample) => sample.id === Tracker.key(id));
+    return this.samples.some(sample => sample.id === Tracker.key(id));
   }
   codexNotification(id: string, value: any, active: boolean) {
     const known = this.hasSample(id),
@@ -149,9 +140,7 @@ export class Tracker {
   codexTokens(id: string, total: any, camel: boolean) {
     const input = number(total, camel ? "inputTokens" : "input_tokens"),
       output = number(total, camel ? "outputTokens" : "output_tokens");
-    return input === null || output === null
-      ? new Counts()
-      : this.tokens(id, input, output, true);
+    return input === null || output === null ? new Counts() : this.tokens(id, input, output, true);
   }
   claudeMessage(message: any) {
     let delta = new Counts();
@@ -163,10 +152,7 @@ export class Tracker {
       const cached = number(usage, "cache_read_input_tokens") ?? 0n;
       delta = this.tokensCached(
         id,
-        add(
-          add(input, cached),
-          number(usage, "cache_creation_input_tokens") ?? 0n,
-        ),
+        add(add(input, cached), number(usage, "cache_creation_input_tokens") ?? 0n),
         cached,
         output,
         false,
@@ -175,33 +161,21 @@ export class Tracker {
     const content = field(message, "content");
     if (Array.isArray(content))
       for (const block of content)
-        if (str(block, "type") === "tool_use")
-          delta.tools = add(delta.tools, this.tool(str(block, "id")));
+        if (str(block, "type") === "tool_use") delta.tools = add(delta.tools, this.tool(str(block, "id")));
     return delta;
   }
   transcript(provider: string, session: string, value: any) {
     if (provider === "claude") {
       const line = Claude.Line.of(value, session);
-      return line?.type === "assistant"
-        ? this.claudeMessage(line.message)
-        : new Counts();
+      return line?.type === "assistant" ? this.claudeMessage(line.message) : new Counts();
     }
     const r = Codex.Rollout.decode(value),
       kind = r.payloadType();
     if (r.type === "event_msg" && kind === "token_count")
-      return this.codexTokens(
-        "codex",
-        field(field(r.payload, "info"), "total_token_usage"),
-        false,
-      );
+      return this.codexTokens("codex", field(field(r.payload, "info"), "total_token_usage"), false);
     if (
       r.type === "response_item" &&
-      [
-        "function_call",
-        "custom_tool_call",
-        "web_search_call",
-        "local_shell_call",
-      ].includes(kind ?? "")
+      ["function_call", "custom_tool_call", "web_search_call", "local_shell_call"].includes(kind ?? "")
     )
       return new Counts({
         tools: this.tool(str(r.payload, "call_id") || str(r.payload, "id")),

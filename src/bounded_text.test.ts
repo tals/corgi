@@ -21,9 +21,7 @@ test("JSON is a plain string and a value that does not fit is rejected", () => {
     wire = JSON.stringify({ name: T.initTruncated("corgi") });
   expect(wire).toBe('{"name":"corgi"}');
   expect(T.fromJSON(JSON.parse(wire).name).text()).toBe("corgi");
-  expect(() => T.fromJSON(JSON.parse('{"name":"nine bytes"}').name)).toThrow(
-    "LengthMismatch",
-  );
+  expect(() => T.fromJSON(JSON.parse('{"name":"nine bytes"}').name)).toThrow("LengthMismatch");
   expect(T.jsonParseFromValue(JSON.parse(wire).name).text()).toBe("corgi");
   expect(T.jsonParse('"corgi"').text()).toBe("corgi");
   expect(() => T.fromJSON({ name: "corgi" })).toThrow("UnexpectedToken");

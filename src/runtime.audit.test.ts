@@ -12,9 +12,7 @@ class LocalRuntime extends Runtime {
     const id = ws.model.newTab("");
     ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
     this.workspaces.next_pane_id = ws.model.next_id;
-    this.panes.push(
-      new Pane(id, Terminal.create(opts.cols, opts.rows), opts.cwd),
-    );
+    this.panes.push(new Pane(id, Terminal.create(opts.cols, opts.rows), opts.cwd));
     this.changed();
     return id;
   }
@@ -66,12 +64,7 @@ test("a resumed pane survives conversation capacity errors", async () => {
     }),
     warn = spyOn(console, "warn").mockImplementation(() => {});
   try {
-    const id = await r.resumeAgent(
-      opts,
-      new Launch({ provider: "codex" }),
-      hint,
-      null,
-    );
+    const id = await r.resumeAgent(opts, new Launch({ provider: "codex" }), hint, null);
     expect(r.pane(id)).not.toBeNull();
     expect(r.pane(id)?.ghost).not.toBeNull();
     expect(warn).toHaveBeenCalled();
@@ -84,10 +77,7 @@ test("a resumed pane survives conversation capacity errors", async () => {
 test("a fork survives conversation capacity and sidebar placement errors", async () => {
   const { r, ws, opts } = fixture(),
     source = await r.create(opts),
-    actor = r.conversations.get(
-      "claude",
-      "12345678-1234-1234-1234-123456789abc",
-    );
+    actor = r.conversations.get("claude", "12345678-1234-1234-1234-123456789abc");
   r.pane(source)!.attachment.select(actor);
   actor.state.provider = "claude";
   actor.state.session = new Text("12345678-1234-1234-1234-123456789abc");
@@ -114,9 +104,7 @@ test("a fork survives conversation capacity and sidebar placement errors", async
 test("fork names trim ASCII spaces while tabs remain invalid", async () => {
   const { r, opts } = fixture();
   try {
-    await expect(r.forkAgent(opts, 99, " \tname ")).rejects.toThrow(
-      "InvalidName",
-    );
+    await expect(r.forkAgent(opts, 99, " \tname ")).rejects.toThrow("InvalidName");
   } finally {
     r.deinit();
   }

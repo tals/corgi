@@ -17,21 +17,12 @@ test("command labels skip inline assignments and wrappers without changing sourc
   expect(identify("echo claude")).toBeNull();
 });
 test("wrapper bodies preserve quoting and reject complex functions", () => {
-  expect(wrapperBody("alias c='claude --model sonnet'")).toBe(
-    "claude --model sonnet",
-  );
-  expect(wrapperBody('c ()\n{\n claude --model sonnet "$@";\n}')).toBe(
-    "claude --model sonnet",
-  );
-  expect(() => wrapperBody('c ()\n{\n echo first; claude "$@";\n}')).toThrow(
-    "ComplexShellFunction",
-  );
+  expect(wrapperBody("alias c='claude --model sonnet'")).toBe("claude --model sonnet");
+  expect(wrapperBody('c ()\n{\n claude --model sonnet "$@";\n}')).toBe("claude --model sonnet");
+  expect(() => wrapperBody('c ()\n{\n echo first; claude "$@";\n}')).toThrow("ComplexShellFunction");
 });
 test("command semantics isolate explicit credential and profile settings", () => {
-  const a = analyze(
-    "ANTHROPIC_API_KEY=private claude --model sonnet --dangerously-skip-permissions",
-    ".",
-  );
+  const a = analyze("ANTHROPIC_API_KEY=private claude --model sonnet --dangerously-skip-permissions", ".");
   expect(a.provider).toBe("claude");
   expect(a.account).toBe("API key - identity unavailable");
   expect(a.yolo).toBe(true);
@@ -42,25 +33,18 @@ test("command semantics isolate explicit credential and profile settings", () =>
 });
 
 test("command semantics distinguish default accounts from auth overrides", () => {
-  const base = analyze(
-    "command claude --model sonnet --dangerously-skip-permissions",
-    "/tmp",
-  );
+  const base = analyze("command claude --model sonnet --dangerously-skip-permissions", "/tmp");
   expect(base.default_account).toBe(true);
   expect(base.model).toBe("sonnet");
   expect(base.mode).toBe("Skips permission checks");
   expect(base.modelLabel()).toBe("Sonnet");
   expect(base.suggested_name).toBe("Claude Code - Sonnet");
-  expect(
-    analyze("claude --dangerously-skip-permissions", "/tmp").suggested_name,
-  ).toBe("Claude Code");
+  expect(analyze("claude --dangerously-skip-permissions", "/tmp").suggested_name).toBe("Claude Code");
   const api = analyze("ANTHROPIC_API_KEY=private-value claude", "/tmp");
   expect(api.default_account).toBe(false);
   expect(api.account).toBe("API key - identity unavailable");
   expect(api.account).not.toContain("private-value");
-  expect(analyze("codex --profile work", "/tmp").account).toBe(
-    "Profile selected; identity unknown",
-  );
+  expect(analyze("codex --profile work", "/tmp").account).toBe("Profile selected; identity unknown");
 });
 
 test("explicit Codex home uses only that profile's cached public identity", async () => {

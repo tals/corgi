@@ -4,11 +4,13 @@ import { isatty } from "node:tty";
 
 export type Daemon = { pid: number; command: string };
 export function daemons(output: string, uid: number, executables: string): Daemon[] {
-  const corgis = new Set(executables.split("\n").flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(.+)$/);
-    return match && /(?:^|\/)corgi$/.test(match[2]) ? [Number(match[1])] : [];
-  }));
-  return output.split("\n").flatMap((line) => {
+  const corgis = new Set(
+    executables.split("\n").flatMap(line => {
+      const match = line.match(/^\s*(\d+)\s+(.+)$/);
+      return match && /(?:^|\/)corgi$/.test(match[2]) ? [Number(match[1])] : [];
+    }),
+  );
+  return output.split("\n").flatMap(line => {
     const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
     if (!match || Number(match[1]) !== uid || !corgis.has(Number(match[2]))) return [];
     const command = match[3];
@@ -45,30 +47,32 @@ const finished: Partial<Record<State, State>> = { stopping: "stopped", terminati
 export async function stopOthers(actions: Actions): Promise<Row[]> {
   const main = await actions.mainPid();
   const rows: Row[] = (await actions.list())
-    .filter((daemon) => daemon.pid !== main)
-    .map((daemon) => ({ daemon, label: "", state: "stopping", ms: 0 }));
+    .filter(daemon => daemon.pid !== main)
+    .map(daemon => ({ daemon, label: "", state: "stopping", ms: 0 }));
   if (!rows.length) return rows;
   const start = actions.now();
   const asked = new Map<Row, boolean>();
   for (const row of rows) {
-    actions.socket(row.daemon)
-      .then(async (socket) => {
+    actions
+      .socket(row.daemon)
+      .then(async socket => {
         row.label = socket?.replace(/\/control\.sock$/, "") ?? "";
-        asked.set(row, socket !== undefined && await actions.shutdown(socket));
+        asked.set(row, socket !== undefined && (await actions.shutdown(socket)));
       })
       .catch(() => asked.set(row, false));
   }
   actions.show(rows, false);
   for (;;) {
-    const pending = rows.filter((row) => row.state in finished);
+    const pending = rows.filter(row => row.state in finished);
     if (!pending.length) break;
     const elapsed = actions.now() - start;
-    const alive = await actions.list(pending.map((row) => row.daemon.pid));
+    const alive = await actions.list(pending.map(row => row.daemon.pid));
     // A PID whose command changed was reused; the daemon is gone.
     const due: Row[] = [];
     for (const row of pending) {
       row.ms = elapsed;
-      if (!alive.some((d) => d.pid === row.daemon.pid && d.command === row.daemon.command)) row.state = finished[row.state]!;
+      if (!alive.some(d => d.pid === row.daemon.pid && d.command === row.daemon.command))
+        row.state = finished[row.state]!;
       else if (elapsed >= GIVE_UP_AFTER_MS) row.state = "stuck";
       else if (row.state === "stopping" && (elapsed >= TERM_AFTER_MS || asked.get(row) === false)) due.push(row);
       else if (row.state === "terminating" && elapsed >= KILL_AFTER_MS) due.push(row);
@@ -77,13 +81,16 @@ export async function stopOthers(actions: Actions): Promise<Row[]> {
     if (due.length) {
       const current = await actions.mainPid();
       for (const row of due) {
-        if (row.daemon.pid === current) { row.state = "stopped"; continue; }
+        if (row.daemon.pid === current) {
+          row.state = "stopped";
+          continue;
+        }
         actions.signal(row.daemon.pid, row.state === "stopping" ? "SIGTERM" : "SIGKILL");
         row.state = row.state === "stopping" ? "terminating" : "killing";
       }
     }
     actions.show(rows, false);
-    if (rows.some((row) => row.state in finished)) await actions.pause();
+    if (rows.some(row => row.state in finished)) await actions.pause();
   }
   actions.show(rows, true);
   return rows;
@@ -97,16 +104,20 @@ async function rpc(socket: string, value: object): Promise<any> {
     function finish(error?: Error, result?: any) {
       clearTimeout(timer);
       connection.destroy();
-      if (error) reject(error); else resolve(result);
+      if (error) reject(error);
+      else resolve(result);
     }
     connection.on("connect", () => connection.write(JSON.stringify(value) + "\n"));
-    connection.on("error", (error) => finish(error));
-    connection.on("data", (chunk) => {
+    connection.on("error", error => finish(error));
+    connection.on("data", chunk => {
       data += chunk.toString();
       if (data.length > 65536) return finish(new Error("oversized daemon reply"));
       if (!data.includes("\n")) return;
-      try { finish(undefined, JSON.parse(data.slice(0, data.indexOf("\n")))); }
-      catch (error) { finish(error as Error); }
+      try {
+        finish(undefined, JSON.parse(data.slice(0, data.indexOf("\n"))));
+      } catch (error) {
+        finish(error as Error);
+      }
     });
   });
 }
@@ -119,7 +130,7 @@ async function output(command: string[]): Promise<string> {
 }
 
 const color = isatty(2) && !process.env.NO_COLOR;
-const paint = (code: string, text: string) => color ? `\x1b[${code}m${text}\x1b[0m` : text;
+const paint = (code: string, text: string) => (color ? `\x1b[${code}m${text}\x1b[0m` : text);
 const spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 const looks: Record<State, [string, string, string]> = {
   stopping: ["36", "", "shutting down"],
@@ -133,7 +144,8 @@ const looks: Record<State, [string, string, string]> = {
 
 /** Redraws the rows in place on a terminal; elsewhere prints each daemon once it settles. */
 function renderer() {
-  let drawn = 0, frame = 0;
+  let drawn = 0,
+    frame = 0;
   const printed = new Set<Row>();
   return (rows: Row[], done: boolean) => {
     const line = (row: Row) => {
@@ -153,13 +165,19 @@ function renderer() {
     }
     frame++;
     const header = `${paint("1", "corgi:")} stopping ${rows.length} other daemon${rows.length === 1 ? "" : "s"}`;
-    process.stderr.write((drawn ? `\x1b[${drawn}F` : "") + [header, ...rows.map(line)].map((text) => `\x1b[2K${text}\n`).join(""));
+    process.stderr.write(
+      (drawn ? `\x1b[${drawn}F` : "") + [header, ...rows.map(line)].map(text => `\x1b[2K${text}\n`).join(""),
+    );
     drawn = rows.length + 1;
     if (done) {
-      const slowest = Math.max(...rows.map((row) => row.ms));
-      const stuck = rows.filter((row) => row.state === "stuck").length;
-      const summary = stuck ? paint("31", `${stuck} of ${rows.length} other daemons still running`) : `stopped ${rows.length} other daemon${rows.length === 1 ? "" : "s"}`;
-      process.stderr.write(`\x1b[${drawn}F\x1b[2K${paint("1", "corgi:")} ${summary} in ${(slowest / 1000).toFixed(1)}s\n\x1b[${drawn - 1}E`);
+      const slowest = Math.max(...rows.map(row => row.ms));
+      const stuck = rows.filter(row => row.state === "stuck").length;
+      const summary = stuck
+        ? paint("31", `${stuck} of ${rows.length} other daemons still running`)
+        : `stopped ${rows.length} other daemon${rows.length === 1 ? "" : "s"}`;
+      process.stderr.write(
+        `\x1b[${drawn}F\x1b[2K${paint("1", "corgi:")} ${summary} in ${(slowest / 1000).toFixed(1)}s\n\x1b[${drawn - 1}E`,
+      );
     }
   };
 }
@@ -179,7 +197,8 @@ export function systemActions(mainSocket: string): Actions {
     async mainPid() {
       try {
         const reply = await rpc(mainSocket, { op: "hello", protocol: 1 });
-        if (!Number.isSafeInteger(reply.server_pid) || reply.server_pid <= 0) throw new Error("cannot identify main daemon");
+        if (!Number.isSafeInteger(reply.server_pid) || reply.server_pid <= 0)
+          throw new Error("cannot identify main daemon");
         return reply.server_pid;
       } catch (error) {
         if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code || "")) return undefined;
@@ -188,22 +207,36 @@ export function systemActions(mainSocket: string): Actions {
     },
     async socket(daemon) {
       const listing = await output(["lsof", "-nP", "-a", "-p", String(daemon.pid), "-U", "-Fn"]);
-      const sockets = new Set(listing.split("\n").filter((line) => line.startsWith("n/") && !line.includes(" ->")).map((line) => line.slice(1).replace(/ type=\w+$/, "")));
+      const sockets = new Set(
+        listing
+          .split("\n")
+          .filter(line => line.startsWith("n/") && !line.includes(" ->"))
+          .map(line => line.slice(1).replace(/ type=\w+$/, "")),
+      );
       for (const socket of sockets) {
         if (socket === mainSocket) continue;
         try {
           if ((await rpc(socket, { op: "hello", protocol: 1 })).server_pid === daemon.pid) return socket;
-        } catch { /* Try the next socket. */ }
+        } catch {
+          /* Try the next socket. */
+        }
       }
       return undefined;
     },
     async shutdown(socket) {
-      try { await rpc(socket, { op: "shutdown" }); return true; }
-      catch { return false; }
+      try {
+        await rpc(socket, { op: "shutdown" });
+        return true;
+      } catch {
+        return false;
+      }
     },
     signal(pid, signal) {
-      try { process.kill(pid, signal); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+      try {
+        process.kill(pid, signal);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
     },
     pause: () => Bun.sleep(100),
     now: () => performance.now(),

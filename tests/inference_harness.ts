@@ -17,8 +17,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     method = value.method,
     ident = value.id;
   if (method === "initialize") emit({ id: ident, result: {} });
-  else if (method === "thread/list")
-    emit({ id: ident, result: { data: [], nextCursor: null } });
+  else if (method === "thread/list") emit({ id: ident, result: { data: [], nextCursor: null } });
   else if (method === "config/read")
     emit({
       id: ident,
@@ -73,21 +72,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     turns++;
     const turn = "turn-" + turns;
     const controlPath = process.env.CORGI_INFERENCE_TEST_CONTROL;
-    const control = controlPath
-      ? JSON.parse(readFileSync(controlPath, "utf8"))
-      : {};
+    const control = controlPath ? JSON.parse(readFileSync(controlPath, "utf8")) : {};
     if (log) {
       appendFileSync(log, content + "\n");
-      appendFileSync(
-        log + ".sessions",
-        JSON.stringify({ pid: process.pid, thread, turn: turns }) + "\n",
-      );
+      appendFileSync(log + ".sessions", JSON.stringify({ pid: process.pid, thread, turn: turns }) + "\n");
     }
     await Bun.sleep((control.delay || 0) * 1000);
-    let result =
-      "label" in control
-        ? control.label
-        : JSON.stringify({ pid: process.pid, thread, turn: turns });
+    let result = "label" in control ? control.label : JSON.stringify({ pid: process.pid, thread, turn: turns });
     if (codex) schema = value.params.outputSchema;
     const structured = {
       label: "label" in control ? control.label : "Tracing pane focus",

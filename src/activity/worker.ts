@@ -46,8 +46,7 @@ export class Result {
   stale(agent: Agent) {
     if (agent.state !== "working") return "not_working";
     if (agent.turn_epoch !== this.request.turn_epoch) return "turn_changed";
-    if (agent.activity_generation !== this.request.generation)
-      return "evidence_changed";
+    if (agent.activity_generation !== this.request.generation) return "evidence_changed";
     return null;
   }
   apply(actor: Actor) {
@@ -66,19 +65,9 @@ export class Result {
     }
     agent.activity = new Text(this.label.text());
     agent.activity_inferred = true;
-    actor.status_inference.remember(
-      agent.turnId(),
-      this.request.evidence.text(),
-      this.label,
-    );
+    actor.status_inference.remember(agent.turnId(), this.request.evidence.text(), this.label);
     const now = clock.milliTimestamp();
-    if (!agent.compacting)
-      actor.activity_timeline.checkpoint(
-        agent.turnId(),
-        this.label,
-        actor.usageView(now),
-        now,
-      );
+    if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), this.label, actor.usageView(now), now);
     return true;
   }
 }
@@ -97,24 +86,16 @@ export class Slot {
   result: Result | null = null;
   constructor(public request: Request) {}
   ready(now: number, away: boolean) {
-    if (!this.active || now < this.next || !this.request.evidence.len)
-      return false;
+    if (!this.active || now < this.next || !this.request.evidence.len) return false;
     if (this.retry) return true;
     if (this.attempted_evidence === null) return true;
-    if (this.attempted_evidence === summary.hash(this.request.evidence))
-      return false;
+    if (this.attempted_evidence === summary.hash(this.request.evidence)) return false;
     if (away && now - this.attempted_at < away_interval_ms) return false;
-    if (this.attempted_commentary !== summary.hash(this.commentary))
-      return true;
-    return (
-      now - this.tools_changed_at >= tool_quiet_ms ||
-      now - this.tools_pending_since >= tool_wait_ms
-    );
+    if (this.attempted_commentary !== summary.hash(this.commentary)) return true;
+    return now - this.tools_changed_at >= tool_quiet_ms || now - this.tools_pending_since >= tool_wait_ms;
   }
   combine() {
-    this.request.evidence = new summary.Text(
-      (this.tool_evidence.text() + this.commentary.text()).slice(0, 2048),
-    );
+    this.request.evidence = new summary.Text((this.tool_evidence.text() + this.commentary.text()).slice(0, 2048));
   }
   updateTools(evidence: Text, now: number) {
     if (this.tool_evidence.text() !== evidence.text()) {
@@ -148,14 +129,11 @@ export class Worker {
   link_cursor = 0;
   prefer_links = true;
   submitLink(request: links.Request) {
-    if (request.slot >= 0 && request.slot < links.capacity)
-      this.link_requests[request.slot] = { ...request };
+    if (request.slot >= 0 && request.slot < links.capacity) this.link_requests[request.slot] = { ...request };
   }
   cancelLink(slot: number, generation: bigint) {
-    if (this.link_requests[slot]?.generation === generation)
-      this.link_requests[slot] = null;
-    if (this.link_results[slot]?.generation === generation)
-      this.link_results[slot] = null;
+    if (this.link_requests[slot]?.generation === generation) this.link_requests[slot] = null;
+    if (this.link_results[slot]?.generation === generation) this.link_results[slot] = null;
   }
   takeLinks() {
     const out = this.link_results;
@@ -200,9 +178,7 @@ export class Worker {
     return this.choice === "off";
   }
   status() {
-    const provider = this.applied
-        ? this.active
-        : setup.resolve(this.choice, this.launches, this.remembered),
+    const provider = this.applied ? this.active : setup.resolve(this.choice, this.launches, this.remembered),
       s = new setup.Status();
     s.choice = this.choice;
     s.provider = provider;
@@ -238,9 +214,7 @@ export class Worker {
   }
   applyChoice() {
     const provider =
-      this.locked && this.choice === "auto"
-        ? this.active
-        : setup.resolve(this.choice, this.launches, this.remembered);
+      this.locked && this.choice === "auto" ? this.active : setup.resolve(this.choice, this.launches, this.remembered);
     if (this.applied && provider === this.active) return;
     this.implementation.use(provider);
     this.active = provider;
@@ -265,9 +239,7 @@ export class Worker {
   capture() {
     if (!this.paused || this.running) throw Error("InferenceBusy");
     return {
-      slots: this.slots.flatMap((slot, index) =>
-        slot ? [{ index, slot }] : [],
-      ),
+      slots: this.slots.flatMap((slot, index) => (slot ? [{ index, slot }] : [])),
       link_requests: this.link_requests.filter(Boolean),
       link_results: this.link_results,
       pool: this.implementation.pool.capture(),
@@ -307,57 +279,45 @@ export class Worker {
       (worker as any)[key] = saved[key];
     worker.implementation.next_request = BigInt(saved.next_request);
     for (const entry of saved.slots) {
-      if (entry.index >= max_actors || worker.slots[entry.index])
-        throw Error("InvalidCheckpoint");
+      if (entry.index >= max_actors || worker.slots[entry.index]) throw Error("InvalidCheckpoint");
       const request = hydrate(new Request(), entry.slot.request);
-      request.panes = request.panes.slice(
-        0,
-        entry.slot.request.panes_len ?? request.panes.length,
-      );
+      request.panes = request.panes.slice(0, entry.slot.request.panes_len ?? request.panes.length);
       const slot = hydrate(new Slot(request), entry.slot);
       slot.request = request;
-      if (request.panes.length > 64 || request.conversation.recent.length > 4)
-        throw Error("InvalidCheckpoint");
+      if (request.panes.length > 64 || request.conversation.recent.length > 4) throw Error("InvalidCheckpoint");
       for (const key of ["attempted_evidence", "attempted_commentary"] as const)
         if (entry.slot[key] !== null) slot[key] = BigInt(entry.slot[key]);
       if (entry.slot.result) {
         slot.result = hydrate(
-          new Result(
-            hydrate(new Request(), entry.slot.result.request),
-            entry.slot.result.label ? new Text() : null,
-          ),
+          new Result(hydrate(new Request(), entry.slot.result.request), entry.slot.result.label ? new Text() : null),
           entry.slot.result,
         );
       }
       if (slot.result)
         slot.result.request.panes = slot.result.request.panes.slice(
           0,
-          entry.slot.result.request.panes_len ??
-            slot.result.request.panes.length,
+          entry.slot.result.request.panes_len ?? slot.result.request.panes.length,
         );
       worker.slots[entry.index] = slot;
     }
     for (const request of saved.link_requests) {
-      if (request.slot >= links.capacity || worker.link_requests[request.slot])
-        throw Error("InvalidCheckpoint");
+      if (request.slot >= links.capacity || worker.link_requests[request.slot]) throw Error("InvalidCheckpoint");
       worker.link_requests[request.slot] = {
         ...request,
         generation: BigInt(request.generation),
         key: { ...request.key, address: BigInt(request.key.address) },
       };
     }
-    worker.link_results = saved.link_results.map(
-      (result: any, index: number) => {
-        if (!result) return null;
-        if (result.slot !== index) throw Error("InvalidCheckpoint");
-        return {
-          ...result,
-          generation: BigInt(result.generation),
-          key: { ...result.key, address: BigInt(result.key.address) },
-          name: result.name ? hydrate(new Text(), result.name) : null,
-        };
-      },
-    );
+    worker.link_results = saved.link_results.map((result: any, index: number) => {
+      if (!result) return null;
+      if (result.slot !== index) throw Error("InvalidCheckpoint");
+      return {
+        ...result,
+        generation: BigInt(result.generation),
+        key: { ...result.key, address: BigInt(result.key.address) },
+        name: result.name ? hydrate(new Text(), result.name) : null,
+      };
+    });
     worker.implementation.pool.restore(saved.pool);
     worker.system_meter = worker.implementation.pool.system_usage.meter;
     return worker;
@@ -371,19 +331,9 @@ export class Worker {
     this.implementation.deinit();
     this.slots.fill(null);
   }
-  submit(
-    owner: Actor,
-    evidence: Text,
-    progress: ToolView | null,
-    panes: any[],
-  ) {
+  submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[]) {
     const agent = owner.state;
-    if (
-      !["working", "blocked"].includes(agent.state) ||
-      !agent.turn.len ||
-      this.off()
-    )
-      return;
+    if (!["working", "blocked"].includes(agent.state) || !agent.turn.len || this.off()) return;
     const req = Object.assign(new Request(), {
       actor: owner.id,
       provider: owner.provider(),
@@ -395,16 +345,15 @@ export class Worker {
       conversation: owner.status_inference,
       name: agent.name,
       panes: panes
-        .filter((p) => p.attachment.actor === owner)
+        .filter(p => p.attachment.actor === owner)
         .slice(0, 64)
-        .map((p) => p.id),
+        .map(p => p.id),
     });
-    let index = this.slots.findIndex((s) => s?.request.actor === owner.id);
-    if (index < 0) index = this.slots.findIndex((s) => !s);
+    let index = this.slots.findIndex(s => s?.request.actor === owner.id);
+    if (index < 0) index = this.slots.findIndex(s => !s);
     if (index < 0) return;
     let slot = this.slots[index];
-    if (!slot || !slot.request.sameTurn(req))
-      slot = this.slots[index] = new Slot(req);
+    if (!slot || !slot.request.sameTurn(req)) slot = this.slots[index] = new Slot(req);
     slot.request.panes = req.panes;
     slot.request.name = req.name;
     slot.request.conversation = req.conversation;
@@ -412,22 +361,18 @@ export class Worker {
     slot.commentary = evidence;
     slot.request.generation = agent.activity_generation;
     slot.combine();
-    if (progress && agent.turnId() === progress.turn.text())
-      slot.observeTools(progress, clock.milliTimestamp());
+    if (progress && agent.turnId() === progress.turn.text()) slot.observeTools(progress, clock.milliTimestamp());
   }
   tools(actor: number, agent: Agent, progress: ToolView) {
     if (agent.turnId() !== progress.turn.text()) return;
-    const slot = this.slots.find(
-      (s) =>
-        s?.request.actor === actor && s.request.turn_epoch === agent.turn_epoch,
-    );
+    const slot = this.slots.find(s => s?.request.actor === actor && s.request.turn_epoch === agent.turn_epoch);
     slot?.observeTools(progress, clock.milliTimestamp());
   }
   reconcile(actors: Actor[]) {
-    this.slots = this.slots.map((slot) => {
+    this.slots = this.slots.map(slot => {
       if (!slot) return null;
       const actor = actors.find(
-        (a) =>
+        a =>
           a.id === slot.request.actor &&
           ["working", "blocked"].includes(a.state.state) &&
           a.state.turn_epoch === slot.request.turn_epoch,
@@ -479,9 +424,7 @@ export class Worker {
       let index = -1;
       for (let n = 0; n < max_actors; n++) {
         const i = (this.cursor + n) % max_actors;
-        if (
-          this.slots[i]?.ready(now, now - this.observed_at >= away_after_ms)
-        ) {
+        if (this.slots[i]?.ready(now, now - this.observed_at >= away_after_ms)) {
           index = i;
           break;
         }
@@ -511,10 +454,7 @@ export class Worker {
       this.prefer_links = true;
       const slot = this.slots[index]!,
         request = Object.assign(new Request(), slot.request),
-        tools =
-          request.completed_tools > slot.attempted_tools
-            ? request.completed_tools - slot.attempted_tools
-            : 0n;
+        tools = request.completed_tools > slot.attempted_tools ? request.completed_tools - slot.attempted_tools : 0n;
       slot.attempt(now);
       this.cursor = (index + 1) % max_actors;
       this.next_global = now + 1000;
@@ -524,9 +464,7 @@ export class Worker {
             provider: request.provider,
             turn: summary.turnTag(turn),
             evidence: request.evidence.text(),
-            history: request.conversation.recent
-              .slice(0, request.conversation.len)
-              .map((e) => e.text()),
+            history: request.conversation.recent.slice(0, request.conversation.len).map(e => e.text()),
           },
           turn,
           request.conversation.key(request.actor),
@@ -541,13 +479,11 @@ export class Worker {
         );
       this.system_meter = this.implementation.pool.system_usage.meter;
       const current = this.slots[index];
-      let discard: "not_working" | "turn_changed" | "evidence_changed" | null =
-        "not_working";
+      let discard: "not_working" | "turn_changed" | "evidence_changed" | null = "not_working";
       if (current) {
         if (!current.request.sameTurn(request)) discard = "turn_changed";
         else if (attempt.decision) {
-          if (current.request.generation !== request.generation)
-            discard = "evidence_changed";
+          if (current.request.generation !== request.generation) discard = "evidence_changed";
           else {
             if (current.result) outcome(current.result.number, "superseded");
             current.result = new Result(request, attempt.decision.label);

@@ -6,13 +6,13 @@ test("settle applies in-flight port and git scans without awaiting pushes", asyn
     resolvePort!: () => void,
     resolveGit!: () => void;
   const ports: any = {
-      thread: new Promise<void>((r) => (resolvePort = r)),
+      thread: new Promise<void>(r => (resolvePort = r)),
       busy() {
         return this.thread !== null;
       },
     },
     git_status: any = {
-      thread: new Promise<void>((r) => (resolveGit = r)),
+      thread: new Promise<void>(r => (resolveGit = r)),
       busy() {
         return this.thread !== null;
       },

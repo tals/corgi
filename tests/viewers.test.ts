@@ -11,15 +11,7 @@ import {
 import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text, layout_tree } from "./runtime";
-import {
-  EXE,
-  JsonSocket,
-  quote,
-  registerCase,
-  shellJoin,
-  sleep,
-  writeExecutable,
-} from "./support";
+import { EXE, JsonSocket, quote, registerCase, shellJoin, sleep, writeExecutable } from "./support";
 
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -34,14 +26,8 @@ class ViewerScenarios extends Viewers {
     delete this.env.SSH_CONNECTION;
     delete this.env.SSH_TTY;
     this.env.XDG_CONFIG_HOME = join(this.temp.name, ".config");
-    const config = join(
-      this.temp.name,
-      "Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-    );
-    mkdirSync(
-      join(this.temp.name, "Library/Application Support/com.mitchellh.ghostty"),
-      { recursive: true },
-    );
+    const config = join(this.temp.name, "Library/Application Support/com.mitchellh.ghostty/config.ghostty");
+    mkdirSync(join(this.temp.name, "Library/Application Support/com.mitchellh.ghostty"), { recursive: true });
     const original = "font-size = 14\nkeybind = cmd+1=goto_tab:1\n";
     writeFileSync(config, original);
     chmodSync(config, 0o640);
@@ -52,9 +38,7 @@ class ViewerScenarios extends Viewers {
     // open after Enter; its row shows the current state.
     const ghosttyRow = (data: string) => {
       const screen = screen_text(data, 100, 30);
-      const y = screen.findIndex((row) =>
-        row.includes("Command-key integration"),
-      );
+      const y = screen.findIndex(row => row.includes("Command-key integration"));
       this.assertTrue(y >= 0, screen);
       return { y, row: screen[y] };
     };
@@ -97,8 +81,7 @@ class ViewerScenarios extends Viewers {
         })
       ).pane,
     );
-    for (const [i, pane] of agents.entries())
-      await this.mark_agent(pane, `Agent-${i}`);
+    for (const [i, pane] of agents.entries()) await this.mark_agent(pane, `Agent-${i}`);
     const other = (
       await this.command("workspace.create", {
         name: "Elsewhere",
@@ -123,7 +106,7 @@ class ViewerScenarios extends Viewers {
     }
     const screen = screen_text(a.state.data, 100, 16);
     this.assertTrue(
-      screen.some((row) => row.slice(0, 27).includes("Agent-5")),
+      screen.some(row => row.slice(0, 27).includes("Agent-5")),
       screen,
     );
     this.assertEqual((await a.input("\x02]")).pane, agents[0]);
@@ -159,8 +142,8 @@ class ViewerScenarios extends Viewers {
     const sidebar = () =>
       screen_text(a.state.data, 100, 30)
         .slice(0, -1)
-        .map((row) => row.slice(0, 27));
-    this.assertFalse(sidebar().some((row) => row.includes("Outside-agent")));
+        .map(row => row.slice(0, 27));
+    this.assertFalse(sidebar().some(row => row.includes("Outside-agent")));
     this.assertIn("agents: " + homeWs.name.slice(0, 6), sidebar()[14]);
     await a.input("\x1b[<35;5;15M");
     this.assertNotIn("This workspace", a.state.data);
@@ -171,11 +154,9 @@ class ViewerScenarios extends Viewers {
     this.assertIn("All", rows[17]);
     this.assertIn("2", rows[17]);
     this.assertTrue(rows[18].trim().startsWith("╰"));
-    this.assertFalse(rows.slice(15).some((row) => row.includes("Other")));
+    this.assertFalse(rows.slice(15).some(row => row.includes("Other")));
     await a.input("\x1b[<35;60;5M");
-    await this.until(
-      async () => !(await a.poll()).data.includes("This workspace"),
-    );
+    await this.until(async () => !(await a.poll()).data.includes("This workspace"));
     await a.input("\x1b[<35;10;15M");
     await a.input("\x1b[<0;8;18M\x1b[<0;8;18m");
     rows = sidebar();
@@ -188,17 +169,14 @@ class ViewerScenarios extends Viewers {
     await a.input("\x1b[<0;8;20M\x1b[<0;8;20m");
     rows = sidebar();
     this.assertTrue(rows[19].startsWith("▸ Other"));
-    this.assertFalse(rows.some((line) => line.includes("Outside-agent")));
+    this.assertFalse(rows.some(line => line.includes("Outside-agent")));
     await a.input("\x1b[<0;8;20M\x1b[<0;8;20m");
     this.assertIn("Outside-agent", sidebar()[20]);
     await a.input("\x1b[<0;8;21M\x1b[<0;8;21m");
     this.assertEqual(a.state.pane, outsider);
     this.assertEqual(a.state.workspace, other);
-    this.assertTrue(sidebar().some((line) => line.includes("Alpha")));
-    this.assertEqual(
-      JSON.parse(readFileSync(preferences, "utf8")).agents,
-      "all",
-    );
+    this.assertTrue(sidebar().some(line => line.includes("Alpha")));
+    this.assertEqual(JSON.parse(readFileSync(preferences, "utf8")).agents, "all");
     await a.close();
     a = await this.newViewer();
     await a.focus(first);
@@ -208,23 +186,20 @@ class ViewerScenarios extends Viewers {
     await a.input("\x1b[<0;8;17M\x1b[<0;8;17m");
     rows = sidebar();
     this.assertIn("agents: Other", rows[14]);
-    this.assertFalse(rows.some((line) => line.includes("Alpha")));
-    this.assertTrue(rows.some((line) => line.includes("Outside-agent")));
+    this.assertFalse(rows.some(line => line.includes("Alpha")));
+    this.assertTrue(rows.some(line => line.includes("Outside-agent")));
     this.assertEqual(a.state.workspace, other);
-    this.assertEqual(
-      JSON.parse(readFileSync(preferences, "utf8")).agents,
-      "workspace",
-    );
+    this.assertEqual(JSON.parse(readFileSync(preferences, "utf8")).agents, "workspace");
     await a.focus(first);
     rows = sidebar();
     this.assertIn("agents: " + homeWs.name.slice(0, 6), rows[14]);
-    this.assertTrue(rows.some((line) => line.includes("Alpha")));
-    this.assertFalse(rows.some((line) => line.includes("Outside-agent")));
+    this.assertTrue(rows.some(line => line.includes("Alpha")));
+    this.assertFalse(rows.some(line => line.includes("Outside-agent")));
     await a.close();
     a = await this.newViewer();
     await a.focus(outsider);
     this.assertIn("agents: Other", sidebar()[14]);
-    this.assertFalse(sidebar().some((line) => line.includes("Alpha")));
+    this.assertFalse(sidebar().some(line => line.includes("Alpha")));
   }
 
   async test_agent_sidebar_search_input_mouse_and_stale_targets() {
@@ -259,18 +234,9 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await a.input("\r")).pane, second);
     await a.input("\x02gAlpha");
     const screen = screen_text(a.state.data, 100, 30);
-    const row = screen.findIndex(
-      (line, i) => i >= 16 && line.slice(0, 27).includes("Alpha"),
-    );
+    const row = screen.findIndex((line, i) => i >= 16 && line.slice(0, 27).includes("Alpha"));
     const col = screen[row].indexOf("Alpha");
-    this.assertEqual(
-      (
-        await a.input(
-          `\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`,
-        )
-      ).pane,
-      first,
-    );
+    this.assertEqual((await a.input(`\x1b[<0;${col + 1};${row + 1}M\x1b[<0;${col + 1};${row + 1}m`)).pane, first);
     await a.input("\x02gBeta");
     await this.command("pane.close", { target: second });
     await a.poll();
@@ -288,19 +254,16 @@ class ViewerScenarios extends Viewers {
     await this.mark_agent(first, "Alpha");
     const rest: number[] = [];
     for (let i = 0; i < 5; i++) rest.push(await this.new());
-    for (const [i, pane] of rest.entries())
-      await this.mark_agent(pane, `Agent-${i}`);
+    for (const [i, pane] of rest.entries()) await this.mark_agent(pane, `Agent-${i}`);
     const a = await this.newViewer(100, 24);
     await a.focus(first);
-    await this.until(async () =>
-      (await a.poll()).data.includes("PANE_CONTENT_VISIBLE"),
-    );
+    await this.until(async () => (await a.poll()).data.includes("PANE_CONTENT_VISIBLE"));
     const before = screen_text(a.state.data, 100, 24);
     await a.input("\x02gAgent-4");
     const after = screen_text(a.state.data, 100, 24);
     this.assertEqual(
-      before.slice(0, -1).map((row) => row.slice(28)),
-      after.slice(0, -1).map((row) => row.slice(28)),
+      before.slice(0, -1).map(row => row.slice(28)),
+      after.slice(0, -1).map(row => row.slice(28)),
     );
     this.assertEqual(before.slice(0, 11), after.slice(0, 11));
     this.assertIn("/ Agent-4", after[12]);
@@ -309,7 +272,7 @@ class ViewerScenarios extends Viewers {
       "Alpha",
       after
         .slice(13, -1)
-        .map((row) => row.slice(0, 27))
+        .map(row => row.slice(0, 27))
         .join("\n"),
     );
     this.assertEqual(a.state.pane, first);
@@ -324,9 +287,7 @@ class ViewerScenarios extends Viewers {
     for (const _ of rest) await a.input("\x1b[B");
     this.assertEqual(a.state.pane, first);
     let screen = screen_text(a.state.data, 100, 24);
-    this.assertTrue(
-      screen.slice(13, -1).some((row) => row.slice(0, 27).includes("Agent-4")),
-    );
+    this.assertTrue(screen.slice(13, -1).some(row => row.slice(0, 27).includes("Agent-4")));
     this.assertEqual((await a.input("\r")).pane, rest.at(-1));
     await a.request({ op: "size", cols: 40, rows: 18 });
     await a.input("\x02gAlpha");
@@ -360,8 +321,7 @@ class ViewerScenarios extends Viewers {
           command: "sleep 60",
         })
       ).pane;
-    for (const [i, pane] of foreign.entries())
-      await this.mark_agent(pane, `Other-${i}`);
+    for (const [i, pane] of foreign.entries()) await this.mark_agent(pane, `Other-${i}`);
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(first);
@@ -437,10 +397,7 @@ class ViewerScenarios extends Viewers {
     await a.input("r");
     await a.input("Logs\r");
     this.assertEqual(a.state.pane, left);
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === right).name,
-      "Logs",
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === right).name, "Logs");
     this.assertEqual((await b.poll()).pane, right);
     await a.input("\x1b[<2;85;5M\x1b[<2;85;5m");
     await a.input("s");
@@ -450,10 +407,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual(tree.second.pane, left);
     await a.input("\x1b[<2;35;5M\x1b[<2;35;5m");
     await a.input("C");
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === right).name,
-      "",
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === right).name, "");
   }
 
   async test_pane_name_survives_reload_and_reopen() {
@@ -461,10 +415,7 @@ class ViewerScenarios extends Viewers {
       a = await this.newViewer();
     await this.mark_agent(pane, "Build");
     await this.run_cli("reload", EXE);
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === pane).name,
-      "Build",
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === pane).name, "Build");
     await this.new();
     await a.focus(pane);
     await a.input("\x1b[<2;35;5M\x1b[<2;35;5m");
@@ -474,10 +425,7 @@ class ViewerScenarios extends Viewers {
       (await this.session()).panes.map((p: any) => p.id),
     );
     await a.action("undo-close");
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === a.state.pane).name,
-      "Build",
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === a.state.pane).name, "Build");
   }
 
   async test_workspace_drag_order_marker_and_cancellation() {
@@ -609,7 +557,9 @@ class ViewerScenarios extends Viewers {
     observer.paths[session] = path;
     try {
       await this.command("pane.input", { target: pane, data: `exec ${quote(terminal)}\r` });
-      await this.until(async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.session === session);
+      await this.until(
+        async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.session === session,
+      );
     } finally {
       await observer.close();
     }
@@ -637,19 +587,12 @@ class ViewerScenarios extends Viewers {
           payload: { type: "function_call", call_id: String(n) },
         }) + "\n",
       );
-      appendFileSync(
-        path,
-        JSON.stringify({ ...tokenLine(i, o), timestamp: stamp }) + "\n",
-      );
+      appendFileSync(path, JSON.stringify({ ...tokenLine(i, o), timestamp: stamp }) + "\n");
     };
-    const counts = async () =>
-      (await this.session()).workspaces.find((w: any) => w.id === home).stats;
+    const counts = async () => (await this.session()).workspaces.find((w: any) => w.id === home).stats;
     append(1, 150, 20);
     await this.until(async () => (await counts()).tools === 1);
-    this.assertEqual(
-      [(await counts()).input, (await counts()).output],
-      [50, 10],
-    );
+    this.assertEqual([(await counts()).input, (await counts()).output], [50, 10]);
     await this.rpc({
       op: "hook",
       pane,
@@ -676,10 +619,7 @@ class ViewerScenarios extends Viewers {
     await a.request({ op: "workspace", workspace: other });
     append(3, 230, 35);
     await this.until(async () => (await counts()).tools === 1);
-    this.assertEqual(
-      [(await counts()).input, (await counts()).output],
-      [30, 5],
-    );
+    this.assertEqual([(await counts()).input, (await counts()).output], [30, 5]);
     const b = await this.newViewer();
     await b.request({ op: "workspace", workspace: home });
     this.assertEqual((await counts()).tools, 0);
@@ -726,10 +666,7 @@ class ViewerScenarios extends Viewers {
     await this.until(async () => (await counts()).input === 100);
     this.assertEqual((await counts()).tools, 1);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
-    this.assertEqual(
-      [(await counts()).tools, (await counts()).input, (await counts()).output],
-      [1, 100, 10],
-    );
+    this.assertEqual([(await counts()).tools, (await counts()).input, (await counts()).output], [1, 100, 10]);
     await send("thread/tokenUsage/updated", {
       threadId: "t",
       tokenUsage: usage,
@@ -757,11 +694,7 @@ class ViewerScenarios extends Viewers {
     this.assertIn("Rename", a.state.data);
     await a.input("\r");
     await a.input("Renamed\r");
-    this.assertEqual(
-      (await this.session()).workspaces.find((w: any) => w.id === ws)
-        .custom_name,
-      "Renamed",
-    );
+    this.assertEqual((await this.session()).workspaces.find((w: any) => w.id === ws).custom_name, "Renamed");
     await a.input("\x1b[<2;5;6M\x1b[<2;5;6m");
     await a.input("\x1b[B\r");
     this.assertEqual((await this.session()).workspaces.length, 1);
@@ -774,10 +707,8 @@ class ViewerScenarios extends Viewers {
       two = join(this.temp.name, "two");
     mkdirSync(one);
     mkdirSync(two);
-    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" }))
-      .pane;
-    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" }))
-      .pane;
+    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
+    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(first);
@@ -822,10 +753,7 @@ class ViewerScenarios extends Viewers {
       "two",
     );
     await a.action("new");
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === a.state.pane).cwd,
-      realpathSync(one),
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === a.state.pane).cwd, realpathSync(one));
   }
 
   async test_viewer_creation_inherits_its_own_focused_directory() {
@@ -833,19 +761,14 @@ class ViewerScenarios extends Viewers {
       two = join(this.temp.name, "two");
     mkdirSync(one);
     mkdirSync(two);
-    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" }))
-      .pane;
-    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" }))
-      .pane;
+    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
+    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(first);
     await b.focus(second);
     await b.action("split", "right");
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === b.state.pane).cwd,
-      realpathSync(two),
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === b.state.pane).cwd, realpathSync(two));
     const target = (await this.rpc({ op: "viewer.list" })).viewers[0].id;
     await this.rpc({ op: "focus", pane: second, viewer: target });
     for (const op of ["new", "split"]) {
@@ -856,10 +779,7 @@ class ViewerScenarios extends Viewers {
         viewer: target,
       });
       const created = (await this.client!.poll()).pane;
-      this.assertEqual(
-        (await this.session()).panes.find((p: any) => p.id === created).cwd,
-        realpathSync(two),
-      );
+      this.assertEqual((await this.session()).panes.find((p: any) => p.id === created).cwd, realpathSync(two));
     }
   }
 
@@ -897,9 +817,7 @@ class ViewerScenarios extends Viewers {
       b = await this.newViewer();
     await a.focus(first);
     await b.focus(second);
-    const pid = Object.fromEntries(
-      (await this.session()).panes.map((p: any) => [p.id, p.pid]),
-    );
+    const pid = Object.fromEntries((await this.session()).panes.map((p: any) => [p.id, p.pid]));
     await a.action("split", "right");
     const split = a.state.pane;
     await b.poll();
@@ -910,10 +828,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual(b.state.pane, split);
     await a.action("close");
     this.assertEqual((await b.poll()).pane, first);
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === first).pid,
-      pid[first],
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === first).pid, pid[first]);
     this.assertEqual((await this.session()).panes.length, 2);
   }
 
@@ -943,9 +858,7 @@ class ViewerScenarios extends Viewers {
       "i=0; while [ $i -lt 80 ]; do printf 'ROW_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh",
     );
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: first, view: "screen" })
-      ).text.includes("ROW_079"),
+      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("ROW_079"),
     );
     const a = await this.newViewer(),
       b = await this.newViewer();
@@ -955,10 +868,7 @@ class ViewerScenarios extends Viewers {
     this.assertIn("ROW_000", a.state.data);
     this.assertNotIn("ROW_000", (await b.poll()).data);
     this.assertIn("ROW_079", b.state.data);
-    this.assertIn(
-      "ROW_079",
-      (await this.command("pane.read", { target: first, view: "screen" })).text,
-    );
+    this.assertIn("ROW_079", (await this.command("pane.read", { target: first, view: "screen" })).text);
     await a.input("yy");
     this.assertEqual(a.state.effects.length, 2);
     this.assertEqual(a.state.effects[0], a.state.effects[1]);
@@ -984,15 +894,9 @@ class ViewerScenarios extends Viewers {
     await a.input("STAYS_HERE\\n\x1b[201~\r");
     await this.command("pane.input", { target: first, data: "\r" });
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: first, view: "screen" })
-      ).text.includes("PASTE_STAYS_HERE"),
+      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("PASTE_STAYS_HERE"),
     );
-    this.assertNotIn(
-      "PASTE_STAYS_HERE",
-      (await this.command("pane.read", { target: second, view: "screen" }))
-        .text,
-    );
+    this.assertNotIn("PASTE_STAYS_HERE", (await this.command("pane.read", { target: second, view: "screen" })).text);
   }
 
   async test_independent_edits_from_stale_viewers_compose() {
@@ -1023,10 +927,7 @@ class ViewerScenarios extends Viewers {
     const invalid: [any, string][] = [
       [{ "pane.move": { target: first } }, "MissingField"],
       [{ "pane.swap": { target: first, other: 99999 } }, "NoPane"],
-      [
-        { "split.ratio": { target: first, other: second, ratio: 650 } },
-        "MissingField",
-      ],
+      [{ "split.ratio": { target: first, other: second, ratio: 650 } }, "MissingField"],
       [
         {
           "split.ratio": {
@@ -1049,11 +950,7 @@ class ViewerScenarios extends Viewers {
       ],
     ];
     for (const [command, error] of invalid) {
-      this.assertEqual(
-        (await this.raw_rpc({ op: "session.command", protocol: 1, command }))
-          .err,
-        error,
-      );
+      this.assertEqual((await this.raw_rpc({ op: "session.command", protocol: 1, command })).err, error);
       this.assertEqual((await this.session()).workspaces, before);
     }
   }
@@ -1093,10 +990,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual(a.state.pane, first);
     await a.action("undo-close");
     this.assertNotIn(a.state.pane, [first, split]);
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === a.state.pane).name,
-      "Split",
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === a.state.pane).name, "Split");
     this.assertEqual((await b.poll()).pane, first);
   }
 
@@ -1105,9 +999,7 @@ class ViewerScenarios extends Viewers {
       "printf 'SEARCH_MARKER_unique\\n'; i=0; while [ $i -lt 80 ]; do printf 'tail_%03d\\n' $i; i=$((i+1)); done; exec /bin/sh",
     );
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: first, view: "screen" })
-      ).text.includes("tail_079"),
+      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("tail_079"),
     );
     const a = await this.newViewer(),
       b = await this.newViewer();
@@ -1118,10 +1010,7 @@ class ViewerScenarios extends Viewers {
     await a.input("y");
     const effect = a.state.effects[0].write_terminal;
     const encoded = effect.split("52;c;", 2)[1].split("\x07", 1)[0];
-    this.assertEqual(
-      Buffer.from(encoded, "base64").toString(),
-      "SEARCH_MARKER_unique",
-    );
+    this.assertEqual(Buffer.from(encoded, "base64").toString(), "SEARCH_MARKER_unique");
     this.assertNotIn("SEARCH_MARKER_unique", (await b.poll()).data);
   }
 
@@ -1134,11 +1023,7 @@ class ViewerScenarios extends Viewers {
     await this.command("pane.close", { target: first });
     await a.input("_SHOULD_DISAPPEAR\x1b[201~");
     this.assertEqual(a.state.pane, second);
-    this.assertNotIn(
-      "SHOULD_DISAPPEAR",
-      (await this.command("pane.read", { target: second, view: "screen" }))
-        .text,
-    );
+    this.assertNotIn("SHOULD_DISAPPEAR", (await this.command("pane.read", { target: second, view: "screen" })).text);
   }
 
   async test_viewer_encodes_keys_and_mouse_for_child_modes() {
@@ -1158,22 +1043,14 @@ process.stdin.resume();
     );
     const first = await this.new(shellJoin(["bun", fixture, capture]));
     await this.until(async () =>
-      (
-        await this.command("pane.read", { target: first, view: "screen" })
-      ).text.includes("READY"),
+      (await this.command("pane.read", { target: first, view: "screen" })).text.includes("READY"),
     );
     const a = await this.newViewer();
     await a.focus(first);
     await a.input("\x1b[97;5u");
-    await this.until(
-      () =>
-        existsSync(capture) &&
-        readFileSync(capture).includes(Buffer.from("\x1b[97;5u")),
-    );
+    await this.until(() => existsSync(capture) && readFileSync(capture).includes(Buffer.from("\x1b[97;5u")));
     await a.input("\x1b[<0;29;2M\x1b[<0;29;2m");
-    await this.until(() =>
-      readFileSync(capture).includes(Buffer.from("\x1b[<0;1;1M")),
-    );
+    await this.until(() => readFileSync(capture).includes(Buffer.from("\x1b[<0;1;1M")));
     const before = readFileSync(capture);
     await a.input("\x1b[98;5u");
     this.assertTrue(a.state.prefix);
@@ -1196,12 +1073,10 @@ process.stdin.on('data', data => { for (const byte of data) { if (byte === 110) 
 process.stdin.resume();
 `,
     );
-    const captures = [0, 1].map((i) => join(this.temp.name, `arrows-${i}.bin`));
+    const captures = [0, 1].map(i => join(this.temp.name, `arrows-${i}.bin`));
     const panes: number[] = [];
     for (const [i, mode] of ["application", "normal"].entries())
-      panes.push(
-        await this.new(shellJoin(["bun", fixture, captures[i], mode])),
-      );
+      panes.push(await this.new(shellJoin(["bun", fixture, captures[i], mode])));
     const viewer = await this.newViewer(),
       expected = [Buffer.alloc(0), Buffer.alloc(0)];
     const syncMode = async (index: number, label: string) => {
@@ -1213,7 +1088,7 @@ process.stdin.resume();
         await viewer.input(
           "ABCD"
             .split("")
-            .map((key) => `\x1b${incoming}${key}`)
+            .map(key => `\x1b${incoming}${key}`)
             .join(""),
         );
         expected[index] = Buffer.concat([
@@ -1221,14 +1096,12 @@ process.stdin.resume();
           Buffer.from(
             "ABCD"
               .split("")
-              .map((key) => `\x1b${prefix}${key}`)
+              .map(key => `\x1b${prefix}${key}`)
               .join(""),
           ),
         ]);
         await this.until(
-          () =>
-            existsSync(captures[index]) &&
-            readFileSync(captures[index]).length >= expected[index].length,
+          () => existsSync(captures[index]) && readFileSync(captures[index]).length >= expected[index].length,
         );
         this.assertEqual(readFileSync(captures[index]), expected[index]);
       }
@@ -1251,14 +1124,10 @@ process.stdin.resume();
     await this.new();
     const second = await this.new(),
       a = await this.newViewer();
-    const first = (await this.session()).panes.find(
-      (p: any) => p.id !== second,
-    ).id;
+    const first = (await this.session()).panes.find((p: any) => p.id !== second).id;
     await a.focus(first);
     const target = (await this.rpc({ op: "viewer.list" })).viewers[0].id;
-    const secondTab = (await this.session()).panes.find(
-      (p: any) => p.id === second,
-    ).tab;
+    const secondTab = (await this.session()).panes.find((p: any) => p.id === second).tab;
     await this.rpc({ op: "focus", pane: second, viewer: target });
     await this.rpc({
       op: "action",
@@ -1267,10 +1136,7 @@ process.stdin.resume();
       viewer: target,
     });
     const split = (await a.poll()).pane;
-    this.assertEqual(
-      (await this.session()).panes.find((p: any) => p.id === split).tab,
-      secondTab,
-    );
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === split).tab, secondTab);
     this.assertEqual((await a.poll()).pane, split);
     this.assertEqual((await this.session()).panes.length, 3);
   }
@@ -1280,8 +1146,7 @@ process.stdin.resume();
       second = await this.new();
     const client = await JsonSocket.connect(this.path);
     try {
-      const call = (request: any) =>
-        client.request({ protocol: 1, viewer_protocol: 3, ...request });
+      const call = (request: any) => client.request({ protocol: 1, viewer_protocol: 3, ...request });
       await call({ op: "viewer.open", cwd: this.temp.name });
       await call({
         op: "viewer.sync",
@@ -1290,15 +1155,9 @@ process.stdin.resume();
       });
       const target = (await this.rpc({ op: "viewer.list" })).viewers[0].id;
       await this.rpc({ op: "focus", pane: second, viewer: target });
-      const delivered = (
-        await call({ op: "viewer.sync", interests: [], focus: first })
-      ).controls;
+      const delivered = (await call({ op: "viewer.sync", interests: [], focus: first })).controls;
       this.assertEqual(delivered[0].id, second);
-      this.assertEqual(
-        (await call({ op: "viewer.sync", interests: [], focus: first }))
-          .controls,
-        delivered,
-      );
+      this.assertEqual((await call({ op: "viewer.sync", interests: [], focus: first })).controls, delivered);
       this.assertEqual(
         (
           await call({
@@ -1345,13 +1204,10 @@ process.stdin.resume();
       "Session ended",
       closing
         .slice(16, 28)
-        .map((row) => row.slice(0, 27))
+        .map(row => row.slice(0, 27))
         .join("\n"),
     );
-    this.assertEqual(
-      (await viewer.input("\x1b[<0;6;17M\x1b[<0;6;17m")).pane,
-      second,
-    );
+    this.assertEqual((await viewer.input("\x1b[<0;6;17M\x1b[<0;6;17m")).pane, second);
     await this.command("pane.close", { target: first });
     await sleep(0.3);
     const closed = screen_text((await viewer.poll()).data, 100, 30);
@@ -1360,7 +1216,7 @@ process.stdin.resume();
       "Departing-agent",
       closed
         .slice(16, 28)
-        .map((row) => row.slice(0, 27))
+        .map(row => row.slice(0, 27))
         .join("\n"),
     );
     await this.command("pane.close", { target: second });
@@ -1372,7 +1228,7 @@ process.stdin.resume();
       "Surviving-agent",
       completed
         .slice(16, 28)
-        .map((row) => row.slice(0, 27))
+        .map(row => row.slice(0, 27))
         .join("\n"),
     );
   }
@@ -1384,7 +1240,6 @@ registerCase("Viewers", ViewerScenarios, {
     process.platform === "darwin"
       ? {}
       : {
-          test_ghostty_setup_toggle_preserves_config_and_routes_tabs:
-            "Ghostty integration is macOS-only",
+          test_ghostty_setup_toggle_preserves_config_and_routes_tabs: "Ghostty integration is macOS-only",
         },
 });

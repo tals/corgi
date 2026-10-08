@@ -33,21 +33,14 @@ export class State {
     if (slot.closing_ms !== null)
       entry.exit = {
         frame_ms: slot.at_ms,
-        progress:
-          Math.min(State.duration_ms, Math.max(0, now - slot.closing_ms)) /
-          State.duration_ms,
+        progress: Math.min(State.duration_ms, Math.max(0, now - slot.closing_ms)) / State.duration_ms,
       };
     if (slot.opening_ms !== null && now - slot.opening_ms < State.duration_ms)
       entry.enter = Math.max(now - slot.opening_ms, 0) / State.duration_ms;
     else entry.enter = null;
     return entry;
   }
-  update(
-    workspace: number,
-    live: Entry[],
-    out: Entry[] = [],
-    now = 0,
-  ): Entry[] {
+  update(workspace: number, live: Entry[], out: Entry[] = [], now = 0): Entry[] {
     if (this.workspace !== workspace) {
       this.slots = [];
       this.order = [];
@@ -58,15 +51,12 @@ export class State {
       const slot = this.slots[i];
       slot.seen = false;
       if (!slot.occupied || this.order.includes(i)) continue;
-      if (!live.some((e) => sameTarget(e.target, slot.entry.target)))
-        slot.occupied = false;
+      if (!live.some(e => sameTarget(e.target, slot.entry.target))) slot.occupied = false;
     }
     const next: number[] = [];
     for (const entry of live) {
-      let index = this.slots.findIndex(
-        (s) => s.occupied && sameTarget(s.entry.target, entry.target),
-      );
-      if (index < 0) index = this.slots.findIndex((s) => !s.occupied);
+      let index = this.slots.findIndex(s => s.occupied && sameTarget(s.entry.target, entry.target));
+      if (index < 0) index = this.slots.findIndex(s => !s.occupied);
       if (index < 0) {
         index = this.slots.length;
         this.slots.push({
@@ -93,9 +83,7 @@ export class State {
       const hold = lost && now - slot.unbound_ms! < 650;
       if (!hold) {
         const same =
-          slot.occupied &&
-          slot.entry.conversation === entry.conversation &&
-          slot.entry.provider === entry.provider;
+          slot.occupied && slot.entry.conversation === entry.conversation && slot.entry.provider === entry.provider;
         if (
           same &&
           "pane" in entry.target &&
@@ -106,8 +94,7 @@ export class State {
           slot.closing_ms = now;
           slot.ended = true;
         }
-        if (!same || slot.closing_ms === null || !slot.ended)
-          this.capture(slot, entry, now);
+        if (!same || slot.closing_ms === null || !slot.ended) this.capture(slot, entry, now);
       }
       if (arrived) slot.opening_ms = entry.reopened ? now : null;
       slot.seen = true;
@@ -117,27 +104,15 @@ export class State {
       const index = this.order[position],
         slot = this.slots[index];
       if (!slot.seen && slot.closing_ms === null) slot.closing_ms = now;
-      if (
-        slot.closing_ms !== null &&
-        now - slot.closing_ms < State.duration_ms &&
-        next.length < capacity
-      )
+      if (slot.closing_ms !== null && now - slot.closing_ms < State.duration_ms && next.length < capacity)
         next.splice(Math.min(position, next.length), 0, index);
     }
     for (const slot of this.slots)
-      if (
-        slot.occupied &&
-        !slot.seen &&
-        (slot.closing_ms === null || now - slot.closing_ms >= State.duration_ms)
-      )
+      if (slot.occupied && !slot.seen && (slot.closing_ms === null || now - slot.closing_ms >= State.duration_ms))
         slot.occupied = false;
     this.order = next;
     this.count = next.length;
-    out.splice(
-      0,
-      out.length,
-      ...next.map((i) => this.view(this.slots[i], now)),
-    );
+    out.splice(0, out.length, ...next.map(i => this.view(this.slots[i], now)));
     return out;
   }
 }

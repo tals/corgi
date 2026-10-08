@@ -13,7 +13,7 @@ test("tmux groups sort by recent activity across sockets", () => {
       tabs: [],
     }),
   ].sort(recentFirst);
-  expect(groups.map((w) => w.name)).toEqual(["new", "middle", "old"]);
+  expect(groups.map(w => w.name)).toEqual(["new", "middle", "old"]);
 });
 test("copy text fits the RPC budget at full pane capacity without changing discovery", () => {
   const panes = Array.from({ length: max_panes }, () =>
@@ -42,7 +42,5 @@ test("copy text fits the RPC budget at full pane capacity without changing disco
     ),
   ).toBeLessThan(1024 * 1024);
   expect(panes[0].screen.length).toBe(65536);
-  expect(out[0].tabs[0].panes[0].screen.length).toBeLessThan(
-    panes[0].screen.length,
-  );
+  expect(out[0].tabs[0].panes[0].screen.length).toBeLessThan(panes[0].screen.length);
 });

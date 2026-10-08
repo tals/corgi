@@ -81,10 +81,7 @@ test("checkpoint 4 to 5 writes text alone and names providers", () => {
     ],
     closed: [{ label: { bytes: "gone\u0000", len: 4 }, workspace_id: 1 }],
     link_labels: {
-      entries: [
-        null,
-        { name: { bytes: "docs\u0000", len: 4 }, pending: false },
-      ],
+      entries: [null, { name: { bytes: "docs\u0000", len: 4 }, pending: false }],
       generation: 0,
     },
     agent_yolo: [true, false],
@@ -246,11 +243,7 @@ test("handoff 3 to 4 writes summary and launcher text alone and names providers"
           slot: { commentary: { bytes: "a", len: 1 }, result: null },
         },
       ],
-      link_results: [
-        null,
-        { slot: 0, name: { bytes: "docs\u0000", len: 4 } },
-        { slot: 1, name: null },
-      ],
+      link_results: [null, { slot: 0, name: { bytes: "docs\u0000", len: 4 } }, { slot: 1, name: null }],
     },
     clients: [
       {
@@ -388,9 +381,7 @@ test("fixed text is cut at its saved length, never at a NUL", () => {
   expect(fixedText("t1\0")).toBe("");
   expect(fixedText("a\0b\0", 3)).toBe("a\0b");
   expect(fixedText(undefined, 0)).toBe("");
-  expect((fixedText([104, 105, 255, 0], 3) as { bytes: Buffer }).bytes).toEqual(
-    Buffer.from([104, 105, 255]),
-  );
+  expect((fixedText([104, 105, 255, 0], 3) as { bytes: Buffer }).bytes).toEqual(Buffer.from([104, 105, 255]));
   for (const [bytes, len] of [
     ["ab", 3],
     [[97, 98], 3],
@@ -400,9 +391,7 @@ test("fixed text is cut at its saved length, never at a NUL", () => {
   ] as any[])
     expect(() => fixedText(bytes, len)).toThrow("InvalidCheckpoint");
   for (const label of [{ bytes: "ab", len: 3 }, { len: 1 }, "ab"])
-    expect(() => checkpoint[3]({ panes: [{ label }] })).toThrow(
-      "InvalidCheckpoint",
-    );
+    expect(() => checkpoint[3]({ panes: [{ label }] })).toThrow("InvalidCheckpoint");
 });
 test("provider arrays hold at most one bool per historical provider", () => {
   const value: any = { version: 4, agent_yolo: [true], agent_hidden: [] };
@@ -421,12 +410,7 @@ test("provider arrays hold at most one bool per historical provider", () => {
     expect(() => checkpoint[3](value)).toThrow("InvalidCheckpoint");
 });
 test("the V4 fixture migrates to text without padding", () => {
-  const value = JSON.parse(
-    readFileSync(
-      new URL("../fixtures/checkpoint-v4.json", import.meta.url),
-      "utf8",
-    ),
-  );
+  const value = JSON.parse(readFileSync(new URL("../fixtures/checkpoint-v4.json", import.meta.url), "utf8"));
   checkpoint[3](value);
   expect(JSON.stringify(value)).not.toContain("\\u0000");
   const check = (v: any) => {

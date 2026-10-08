@@ -46,7 +46,7 @@ test("old workspace state drops pins and preserves all existing names", async ()
     );
     const s = new Store();
     await s.load(file);
-    expect(s.items.map((w) => w.name())).toEqual(["Default", "Custom"]);
+    expect(s.items.map(w => w.name())).toEqual(["Default", "Custom"]);
     s.rename(1, "");
     s.items[0].follow("/tmp/moved");
     expect(s.items[0].name()).toBe("moved");

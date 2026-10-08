@@ -27,9 +27,7 @@ test("layout JSON validates identity, tree ownership, ratios and cycles", () => 
   ).toThrow("UnexpectedToken");
   expect(() =>
     Model.fromData({
-      nodes: [
-        { split: { axis: "horizontal", ratio: 500, first: 0, second: 0 } },
-      ],
+      nodes: [{ split: { axis: "horizontal", ratio: 500, first: 0, second: 0 } }],
       tabs: [{ id: 2, root: 0, title: "" }],
       revision: 0,
     } as any),
@@ -155,10 +153,7 @@ test("only split layouts reserve an outer frame and closing restores the area", 
 test("shared model decoder rejects cycles orphan nodes and duplicate panes", () => {
   for (const d of [
     {
-      nodes: [
-        { split: { axis: "horizontal", ratio: 500, first: 0, second: 1 } },
-        { pane: 1 },
-      ],
+      nodes: [{ split: { axis: "horizontal", ratio: 500, first: 0, second: 1 } }, { pane: 1 }],
       tabs: [{ id: 2, root: 0, title: "" }],
       revision: 1,
     },
@@ -219,7 +214,6 @@ test("directional focus, zoom and resize keep geometry inside bounds", () => {
   selection.tab().zoom = true;
   expect(view.placements(new Rect(0, 0, 81, 24))[0].id).toBe(b);
 });
-
 
 test("layout parser retains u64 revision and unnamed tab defaults", () => {
   const model = Model.jsonParse('{"nodes":[{"pane":1}],"tabs":[{"id":1,"root":0}],"revision":18446744073709551615}');

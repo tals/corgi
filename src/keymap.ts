@@ -1,9 +1,7 @@
 export type Preset = "corgi" | "tmux" | "herdr" | "cmux";
 export type Prefix = "ctrl_b" | "ctrl_a";
 export const available_presets: Preset[] =
-  process.platform === "darwin"
-    ? ["corgi", "tmux", "herdr", "cmux"]
-    : ["corgi", "tmux", "herdr"];
+  process.platform === "darwin" ? ["corgi", "tmux", "herdr", "cmux"] : ["corgi", "tmux", "herdr"];
 export function supportedPreset(preset: Preset): Preset {
   return preset === "cmux" && process.platform !== "darwin" ? "corgi" : preset;
 }

@@ -2,17 +2,7 @@
 import { colors } from "../src/palette";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  EXE,
-  ROOT,
-  TestCase,
-  JsonSocket,
-  run,
-  sleep,
-  tempDir,
-  quote,
-  writeExecutable,
-} from "./support";
+import { EXE, ROOT, TestCase, JsonSocket, run, sleep, tempDir, quote, writeExecutable } from "./support";
 import { Viewer, pump } from "./viewer_client";
 import { NATIVE_PROVIDER, write_ordinary_agent } from "./provider_sim";
 export { EXE, ROOT, Viewer };
@@ -31,7 +21,10 @@ const TOKENS = [
   "hot",
 ] as const;
 /** The palette's tokens as SGR "R;G;B" parameters. */
-export const PALETTE = Object.fromEntries(TOKENS.map((name) => [name, colors[name].join(";")])) as Record<(typeof TOKENS)[number], string>;
+export const PALETTE = Object.fromEntries(TOKENS.map(name => [name, colors[name].join(";")])) as Record<
+  (typeof TOKENS)[number],
+  string
+>;
 
 export function screen_text(data: string, cols = 80, rows = 24): string[] {
   let grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
@@ -58,17 +51,13 @@ export function screen_text(data: string, cols = 80, rows = 24): string[] {
     }
     if (data[i] === "\x1b") {
       const match = /^\x1b\[([0-9;:?]*)([@-~])/.exec(data.slice(i));
-      if (!match)
-        throw new Error(
-          `Unexpected frame escape ${JSON.stringify(data.slice(i, i + 50))}`,
-        );
+      if (!match) throw new Error(`Unexpected frame escape ${JSON.stringify(data.slice(i, i + 50))}`);
       const [, args, kind] = match;
       if (kind === "H" || kind === "f") {
-        const values = args.split(";").map((v) => Number(v || 1));
+        const values = args.split(";").map(v => Number(v || 1));
         y = values[0] - 1;
         x = (values[1] ?? 1) - 1;
-      } else if (kind === "J" && args === "2")
-        grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
+      } else if (kind === "J" && args === "2") grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
       i += match[0].length;
       continue;
     }
@@ -81,14 +70,14 @@ export function screen_text(data: string, cols = 80, rows = 24): string[] {
     }
     i += char.length;
   }
-  return grid.map((row) => row.join(""));
+  return grid.map(row => row.join(""));
 }
 /** The agent list's rows of the sidebar border, where its scrollbar thumb shows. */
 export function scrollbar(screen: string[]): string {
   const top = Math.floor((screen.length - 1) / 2) + 2;
   return screen
     .slice(top)
-    .map((row) => [...row][27])
+    .map(row => [...row][27])
     .join("");
 }
 export function layout_tree(workspace: any, tab = 0): any {
@@ -187,7 +176,7 @@ export class Runtime extends TestCase {
         // server.log is complete once the daemon has exited, which is after
         // shutdown returns. It may already be gone.
         const pid = await this.rpc({ op: "hello", protocol: 1 }).then(
-          (hello) => hello.server_pid as number,
+          hello => hello.server_pid as number,
           () => 0,
         );
         try {
@@ -209,8 +198,7 @@ export class Runtime extends TestCase {
         }
     }
     this.temp?.cleanup();
-    if (errors.length)
-      throw new AggregateError(errors, "Runtime cleanup failed");
+    if (errors.length) throw new AggregateError(errors, "Runtime cleanup failed");
   }
   async run_cli(...args: string[]) {
     // A daemon that stops takes the kept connections with it.
@@ -248,11 +236,7 @@ export class Runtime extends TestCase {
   async #connection() {
     // The daemon drops a connection 5 s after its last request; replace it
     // before then so a request never races the close.
-    if (
-      !this.#calls ||
-      this.#calls.closed ||
-      performance.now() - this.#callsSent > 4000
-    ) {
+    if (!this.#calls || this.#calls.closed || performance.now() - this.#callsSent > 4000) {
       this.#disconnect();
       this.#calls = await JsonSocket.connect(this.path);
     }
@@ -264,9 +248,7 @@ export class Runtime extends TestCase {
     const result = this.#callQueue.then(async () => {
       // The replacement daemon answers a reload, so it gets a connection of its own.
       const kept = value.op !== "server.reload";
-      const socket = kept
-        ? await this.#connection()
-        : await JsonSocket.connect(this.path);
+      const socket = kept ? await this.#connection() : await JsonSocket.connect(this.path);
       let reply: any;
       try {
         socket.send(value);
@@ -275,8 +257,7 @@ export class Runtime extends TestCase {
         // A late reply must not answer the next request.
         if (!kept || reply === undefined) socket.close();
       }
-      if (reply.err)
-        throw new Error(`rpc ${JSON.stringify(value)}: ${reply.err}`);
+      if (reply.err) throw new Error(`rpc ${JSON.stringify(value)}: ${reply.err}`);
       return reply;
     });
     this.#callQueue = result.catch(() => {});
@@ -326,9 +307,7 @@ export class Runtime extends TestCase {
   async open_pane(options: any = {}) {
     options = { ...options };
     const views = (await this.rpc({ op: "viewer.list" })).viewers;
-    const workspace = views.length
-      ? views[0].workspace
-      : (await this.session()).workspaces[0].id;
+    const workspace = views.length ? views[0].workspace : (await this.session()).workspaces[0].id;
     if (views.length && views[0].pane) options.from ??= views[0].pane;
     const result = await this.command("pane.create", { workspace, ...options });
     if (!views.length) this.client = await Viewer.create(this, 80, 24);
@@ -346,13 +325,8 @@ export class Runtime extends TestCase {
     await this.rpc({ op: "focus", pane: result.pane, viewer: view.id });
     return result;
   }
-  async until<T>(
-    predicate: () => T | Promise<T>,
-    timeout: number | { timeout: number } = 4,
-  ): Promise<T> {
-    const end =
-      performance.now() +
-      (typeof timeout === "number" ? timeout : timeout.timeout) * 1000;
+  async until<T>(predicate: () => T | Promise<T>, timeout: number | { timeout: number } = 4): Promise<T> {
+    const end = performance.now() + (typeof timeout === "number" ? timeout : timeout.timeout) * 1000;
     while (performance.now() < end) {
       await pump(this);
       const value = await predicate();
@@ -362,11 +336,7 @@ export class Runtime extends TestCase {
     this.fail("condition timed out");
   }
   /** Like `until`, letting `step` seconds of policy-clock time pass between checks. */
-  async untilAdvancing<T>(
-    step: number,
-    predicate: () => T | Promise<T>,
-    timeout = 10,
-  ): Promise<T> {
+  async untilAdvancing<T>(step: number, predicate: () => T | Promise<T>, timeout = 10): Promise<T> {
     return this.until(async () => {
       const value = await predicate();
       if (!value) await this.advance(step);
@@ -389,13 +359,8 @@ export class Runtime extends TestCase {
   async tab_count() {
     const snapshot = await this.session();
     return this.client
-      ? snapshot.workspaces.find(
-          (ws: any) => ws.id === this.client!.state.workspace,
-        ).model.tabs.length
-      : snapshot.workspaces.reduce(
-          (n: number, ws: any) => n + ws.model.tabs.length,
-          0,
-        );
+      ? snapshot.workspaces.find((ws: any) => ws.id === this.client!.state.workspace).model.tabs.length
+      : snapshot.workspaces.reduce((n: number, ws: any) => n + ws.model.tabs.length, 0);
   }
   async attach() {
     if (!this.client || this.client.closed || this.client.state.detached) {
@@ -450,35 +415,17 @@ export class Runtime extends TestCase {
   click(x: number, y: number) {
     return this.input(`\x1b[<0;${x};${y}M\x1b[<0;${x};${y}m`);
   }
-  async frame_with(
-    text: string,
-    cols = 80,
-    rows = 24,
-    row: number | null = null,
-  ) {
+  async frame_with(text: string, cols = 80, rows = 24, row: number | null = null) {
     for (let i = 0; i < 100; i++) {
-      const screen = screen_text(
-        (await this.get_type("frame")).data,
-        cols,
-        rows,
-      );
-      if (
-        (row === null ? screen : screen.slice(row, row + 1)).some((line) =>
-          line.includes(text),
-        )
-      )
-        return screen;
+      const screen = screen_text((await this.get_type("frame")).data, cols, rows);
+      if ((row === null ? screen : screen.slice(row, row + 1)).some(line => line.includes(text))) return screen;
     }
     this.fail(`missing visible text ${text}`);
   }
   /** Waits for the agent list's scrollbar, read down the sidebar border, to show `bar`. */
   async scrollbar_with(bar: string, cols = 80, rows = 24) {
     for (let i = 0; i < 100; i++) {
-      const screen = screen_text(
-        (await this.get_type("frame")).data,
-        cols,
-        rows,
-      );
+      const screen = screen_text((await this.get_type("frame")).data, cols, rows);
       if (scrollbar(screen) === bar) return screen;
     }
     this.fail(`missing scrollbar ${bar}`);
@@ -486,12 +433,7 @@ export class Runtime extends TestCase {
   tab_frame(text: string, cols = 80, rows = 24) {
     return this.frame_with(text, cols, rows, 0);
   }
-  async agent_frame(
-    provider: string,
-    icon: string,
-    activity = "",
-    color: string | null = null,
-  ) {
+  async agent_frame(provider: string, icon: string, activity = "", color: string | null = null) {
     for (let i = 0; i < 100; i++) {
       const data = (await this.get_type("frame")).data,
         screen = screen_text(data);
@@ -500,12 +442,7 @@ export class Runtime extends TestCase {
         // Column 0 holds the focused agent's bar.
         if (!screen[y].slice(1, 27).startsWith(`${icon} `)) continue;
         const actual = screen[y + 1].slice(1, 4).trim();
-        if (
-          activity === "thinking"
-            ? !"⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".includes(actual)
-            : actual !== activity
-        )
-          continue;
+        if (activity === "thinking" ? !"⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".includes(actual) : actual !== activity) continue;
         if (screen[y].slice(4, 27).trim() === provider) return screen;
       }
     }
@@ -514,18 +451,14 @@ export class Runtime extends TestCase {
   async tabs_are(labels: string) {
     for (let i = 0; i < 100; i++) {
       const screen = screen_text((await this.get_type("frame")).data);
-      if (screen[0].slice(28).trim().split(/\s+/).join(" ") === labels + " +")
-        return screen;
+      if (screen[0].slice(28).trim().split(/\s+/).join(" ") === labels + " +") return screen;
     }
     this.fail(`missing tab labels ${labels}`);
   }
   async click_text(screen: string[], text: string) {
     for (const [y, row] of screen.entries())
       if (row.includes(text)) {
-        await this.click(
-          (text === " + " ? row.lastIndexOf(text) : row.indexOf(text)) + 1,
-          y + 1,
-        );
+        await this.click((text === " + " ? row.lastIndexOf(text) : row.indexOf(text)) + 1, y + 1);
         return;
       }
     this.fail(`missing mouse target ${text}`);
@@ -541,7 +474,7 @@ export class Runtime extends TestCase {
   async viewer_frame(viewer: Viewer, text: string, cols = 80, rows = 24) {
     for (let i = 0; i < 100; i++) {
       const screen = screen_text((await viewer.poll()).data, cols, rows);
-      if (screen.some((row) => row.includes(text))) return screen;
+      if (screen.some(row => row.includes(text))) return screen;
       await sleep(0.03);
     }
     this.fail(`missing viewer frame ${text}`);
@@ -558,10 +491,7 @@ export class Runtime extends TestCase {
   async ordinary_agent(provider: string, hooks = false, initializing = false) {
     write_ordinary_agent(join(this.temp.name, provider));
     if (hooks) {
-      mkdirSync(
-        this.env[provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]!,
-        { recursive: true },
-      );
+      mkdirSync(this.env[provider === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]!, { recursive: true });
       await this.restart_runtime();
     }
     const pane = (await this.open_pane({ cwd: this.temp.name })).pane;
@@ -569,11 +499,7 @@ export class Runtime extends TestCase {
       target: pane,
       data: `PATH=${quote(this.temp.name)}:$PATH ${provider}${initializing ? " --loading" : ""}\r`,
     });
-    await this.until(async () =>
-      (await this.panes()).some(
-        (p: any) => p.id === pane && p.provider === provider,
-      ),
-    );
+    await this.until(async () => (await this.panes()).some((p: any) => p.id === pane && p.provider === provider));
     return pane;
   }
 }

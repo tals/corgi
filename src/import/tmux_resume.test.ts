@@ -4,12 +4,7 @@ test("restart suggestions preserve arguments and refuse shell input controls", (
   expect(quote(["tig", "a b", "a'b", "a\\b", "$(touch nope)", ""])).toBe(
     "tig a\\ b a\\'b a\\\\b \\$\\(touch\\ nope\\) ''",
   );
-  for (const args of [
-    ["fish"],
-    ["tig", "bad\rcommand"],
-    ["tig", "bad\x1bcommand"],
-  ])
-    expect(quote(args)).toBe("");
+  for (const args of [["fish"], ["tig", "bad\rcommand"], ["tig", "bad\x1bcommand"]]) expect(quote(args)).toBe("");
   expect(foregroundPid(" 12 77\n 77 77\n", 12)).toBe(77);
   expect(foregroundPid("12 -1\n", 12)).toBe(null);
 });

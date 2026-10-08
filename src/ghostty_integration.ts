@@ -21,22 +21,13 @@ export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix };
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n",
   end = "# END CORGI GHOSTTY INTEGRATION\n";
 export function available() {
-  return (
-    process.platform === "darwin" &&
-    !("SSH_CONNECTION" in process.env) &&
-    !("SSH_TTY" in process.env)
-  );
+  return process.platform === "darwin" && !("SSH_CONNECTION" in process.env) && !("SSH_TTY" in process.env);
 }
 function path() {
   const home = process.env.HOME;
   if (!home) throw Error("NoHomeDirectory");
-  const native = join(
-      home,
-      "Library/Application Support/com.mitchellh.ghostty",
-    ),
-    xdg = process.env.XDG_CONFIG_HOME
-      ? join(process.env.XDG_CONFIG_HOME, "ghostty")
-      : join(home, ".config/ghostty");
+  const native = join(home, "Library/Application Support/com.mitchellh.ghostty"),
+    xdg = process.env.XDG_CONFIG_HOME ? join(process.env.XDG_CONFIG_HOME, "ghostty") : join(home, ".config/ghostty");
   for (const dir of [native, xdg])
     for (const name of ["config.ghostty", "config"])
       try {
@@ -60,8 +51,7 @@ export function block(bytes: string): { start: number; stop: number } | null {
   const start = bytes.indexOf(begin),
     stop = bytes.indexOf(end);
   if (start < 0 && stop < 0) return null;
-  if (start < 0 || stop < 0 || stop < start)
-    throw Error("InvalidIntegrationBlock");
+  if (start < 0 || stop < 0 || stop < start) throw Error("InvalidIntegrationBlock");
   const after = stop + end.length;
   if (
     (start > 0 && bytes[start - 1] !== "\n") ||
@@ -86,7 +76,7 @@ const host_keys: { host: string; action: Action }[] = [
   { host: "cmd+shift+t", action: { name: "undo-close" } },
   { host: "ctrl+tab", action: { name: "next" } },
   { host: "ctrl+shift+tab", action: { name: "prev" } },
-  ...["cmd+", "cmd+digit_"].flatMap((mod) =>
+  ...["cmd+", "cmd+digit_"].flatMap(mod =>
     Array.from({ length: 9 }, (_, i) => ({
       host: mod + (i + 1),
       action: { name: "tab", value: i + 1 } as const,
@@ -115,23 +105,16 @@ function trigger(binding: bindings.Binding) {
 }
 export function transform(bytes: string, keys: Keys | null): string {
   const existing = block(bytes);
-  let out = existing
-    ? bytes.slice(0, existing.start) + bytes.slice(existing.stop)
-    : bytes;
+  let out = existing ? bytes.slice(0, existing.start) + bytes.slice(existing.stop) : bytes;
   if (!keys) return out;
   if (out && !out.endsWith("\n")) out += "\n";
   out += begin;
   if (keys.preset === "cmux") {
-    out +=
-      "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
+    out += "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
     for (const b of bindings.table("cmux"))
       if (!b.prefixed) {
         const m = b.mods,
-          mods =
-            Number(!!m.shift) +
-            2 * Number(!!m.alt) +
-            4 * Number(!!m.ctrl) +
-            8 * Number(!!m.super);
+          mods = Number(!!m.shift) + 2 * Number(!!m.alt) + 4 * Number(!!m.ctrl) + 8 * Number(!!m.super);
         out += `keybind = ${trigger(b)}=text:\\x1b[${b.key};${mods + 1}u\n`;
       }
   } else {

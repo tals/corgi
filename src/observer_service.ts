@@ -28,9 +28,7 @@ export function start(server: any) {
     transcripts: TranscriptWorker.start(),
     codex: CodexWorker.start(),
     usage: UsageWorker.start(),
-    summaries:
-      server.summaries ??
-      SummaryWorker.start(setup.initial(setup.load(setup.path(server.socket)))),
+    summaries: server.summaries ?? SummaryWorker.start(setup.initial(setup.load(setup.path(server.socket)))),
     detected: 0,
     settling: 0,
   };
@@ -59,10 +57,7 @@ function paneWatched(server: any, pane: number) {
 }
 function actorWatched(server: any, id: number) {
   return server.runtime.panes.some(
-    (pane: any) =>
-      !pane.terminal.exited &&
-      pane.attachment.actor?.id === id &&
-      paneWatched(server, pane.id),
+    (pane: any) => !pane.terminal.exited && pane.attachment.actor?.id === id && paneWatched(server, pane.id),
   );
 }
 function workspaceWatched(server: any, id: number) {
@@ -85,12 +80,9 @@ function attention(server: any, ding: boolean, state: string) {
 
 export function codexActor(server: any, snapshot: any) {
   const runtime = server.runtime;
-  if (snapshot.request.actor)
-    return runtime.conversations.byId(snapshot.request.actor);
+  if (snapshot.request.actor) return runtime.conversations.byId(snapshot.request.actor);
   const pane = runtime.pane(snapshot.request.pane);
-  const prefix = pane
-    ? Backend.init("codex").titleSession(pane.terminal.title)
-    : null;
+  const prefix = pane ? Backend.init("codex").titleSession(pane.terminal.title) : null;
   if (
     !pane ||
     !prefix ||
@@ -109,19 +101,8 @@ export function codexActor(server: any, snapshot: any) {
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
   return actor;
 }
-export function reattachFromTitle(
-  server: any,
-  pane: any,
-  provider: any,
-  pid: number,
-) {
-  if (
-    pane.attachment.actor ||
-    pane.terminal.exited ||
-    pid <= 0 ||
-    pane.terminal.title_pid !== pid
-  )
-    return;
+export function reattachFromTitle(server: any, pane: any, provider: any, pid: number) {
+  if (pane.attachment.actor || pane.terminal.exited || pid <= 0 || pane.terminal.title_pid !== pid) return;
   const prefix = Backend.init(provider).titleSession(pane.terminal.title);
   if (!prefix) return;
   const matches = server.runtime.conversations.items.filter(
@@ -134,40 +115,24 @@ export function reattachFromTitle(
   const actor = matches[0];
   pane.attachment.select(actor);
   if (!actor.workspace || !server.runtime.workspaces.get(actor.workspace))
-    actor.workspace =
-      server.runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
+    actor.workspace = server.runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
 }
-export function detectPane(
-  server: any,
-  pane: any,
-  observedJob?: detection.Job | null,
-) {
+export function detectPane(server: any, pane: any, observedJob?: detection.Job | null) {
   const runtime = server.runtime,
     worker = start(server).summaries;
   const before = stringify(pane.agent());
-  const job =
-    observedJob === undefined
-      ? detection.foreground(pane.terminal.fd)
-      : observedJob;
+  const job = observedJob === undefined ? detection.foreground(pane.terminal.fd) : observedJob;
   const previous = pane.detection.pid;
   const generation = pane.attachment.generation;
   pane.resume_hint.observe(pane.agent());
   if (job) {
-    if (
-      (previous && previous !== job.pid) ||
-      (pane.attachment.actor && pane.agent().provider !== job.provider)
-    )
+    if ((previous && previous !== job.pid) || (pane.attachment.actor && pane.agent().provider !== job.provider))
       pane.attachment.detach();
     if (job.provider === "codex") {
-      const prefix = Backend.init(job.provider).titleSession(
-        pane.terminal.title,
-      );
+      const prefix = Backend.init(job.provider).titleSession(pane.terminal.title);
       const hash = prefix ? Bun.hash.wyhash(prefix.text(), 0n) : 0n;
       if (hash !== pane.attachment.selection_hash) {
-        if (
-          pane.attachment.actor &&
-          (!prefix || !pane.agent().sessionId().startsWith(prefix.text()))
-        )
+        if (pane.attachment.actor && (!prefix || !pane.agent().sessionId().startsWith(prefix.text())))
           pane.attachment.deselect();
         pane.attachment.generation++;
         pane.attachment.selection_hash = hash;
@@ -182,8 +147,7 @@ export function detectPane(
   const needsScreen =
     !authoritative ||
     !!actor?.state.permission_review ||
-    (actor?.provider() === "claude" &&
-      ["working", "blocked"].includes(actor.state.state)) ||
+    (actor?.provider() === "claude" && ["working", "blocked"].includes(actor.state.state)) ||
     actor?.state.state === "working";
   const text = job && needsScreen ? pane.terminal.liveText() : "";
   let ding = pane.detection.update(
@@ -197,8 +161,7 @@ export function detectPane(
   if (previous && !pane.detection.pid) pane.attachment.detach();
   if (actor) {
     actor.screen(pane.attachment.provisional, ding, now);
-    if (actor.state.state === "working")
-      actor.observeCompactionScreen(detection.screenCompacting(text), now);
+    if (actor.state.state === "working") actor.observeCompactionScreen(detection.screenCompacting(text), now);
     const settling =
       authoritative &&
       actor.provider() === "claude" &&
@@ -211,27 +174,20 @@ export function detectPane(
       pane.detection.interrupt_key_at = 0;
     }
     const next = actor.prompt_watch.answered(
-      authoritative &&
-        actor.provider() === "claude" &&
-        actor.state.state === "blocked",
+      authoritative && actor.provider() === "claude" && actor.state.state === "blocked",
       text,
     );
     if (next) actor.state.observeAnswer(next, now);
     if (actor.state.permission_review)
       ding =
         actor.state.observePermissionPrompt(
-          detection.screenState("codex", pane.terminal.title, text) ===
-            "blocked",
+          detection.screenState("codex", pane.terminal.title, text) === "blocked",
           paneWatched(server, pane.id),
           now,
         ) || ding;
   }
   pane.resume_hint.observe(pane.agent());
-  if (
-    generation !== pane.attachment.generation ||
-    before !== stringify(pane.agent())
-  )
-    changed(server);
+  if (generation !== pane.attachment.generation || before !== stringify(pane.agent())) changed(server);
   attention(server, ding, pane.agent().state);
 }
 export function hook(server: any, query: any) {
@@ -242,22 +198,16 @@ export function hook(server: any, query: any) {
   const now = clock.microTimestamp(),
     seq = query.seq ?? now;
   let actor;
-  if (query.background)
-    actor = runtime.conversations.find(query.provider, event.session);
+  if (query.background) actor = runtime.conversations.find(query.provider, event.session);
   else {
     const pane = runtime.pane(query.pane);
     if (!pane) throw Error("NoPane");
     detectPane(server, pane);
     if (seq <= pane.attachment.hook_seq) return;
-    actor = runtime.conversations.routeHook(
-      pane.attachment,
-      query.provider,
-      event,
-    );
+    actor = runtime.conversations.routeHook(pane.attachment, query.provider, event);
     if (!actor) return;
     pane.attachment.hook_seq = seq;
-    if (event.kind === "session_start")
-      runtime.rememberAgent(pane.id, query.provider);
+    if (event.kind === "session_start") runtime.rememberAgent(pane.id, query.provider);
     if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
       actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? 0;
   }
@@ -265,13 +215,7 @@ export function hook(server: any, query: any) {
   if (query.pid > 0) actor.pid = query.pid;
   attention(
     server,
-    runtime.conversations.observeHook(
-      actor,
-      event,
-      seq,
-      actorWatched(server, actor.id),
-      now,
-    ),
+    runtime.conversations.observeHook(actor, event, seq, actorWatched(server, actor.id), now),
     actor.state.state,
   );
   workers.summaries.reconcile(runtime.conversations.items);
@@ -284,12 +228,9 @@ export async function tick(server: any) {
   if (workers.settling || now - workers.detected >= 250) {
     workers.detected = now;
     const panes = runtime.panes.filter(
-      (pane: any) =>
-        !pane.terminal.exited && (workers.settling || pane.detectionDue(now)),
+      (pane: any) => !pane.terminal.exited && (workers.settling || pane.detectionDue(now)),
     );
-    const jobs = detection.foregroundJobs(
-      panes.map((pane: any) => ({ fd: pane.terminal.fd, pid: pane.terminal.pid })),
-    );
+    const jobs = detection.foregroundJobs(panes.map((pane: any) => ({ fd: pane.terminal.fd, pid: pane.terminal.pid })));
     for (const pane of panes) {
       detectPane(server, pane, jobs.get(pane.terminal.fd) ?? null);
       pane.detected = { output: pane.terminal.surface_revision, at: now };
@@ -301,24 +242,15 @@ export async function tick(server: any) {
       if (!actor) continue;
       attention(
         server,
-        actor.observeSnapshot(
-          snapshot,
-          actorWatched(server, actor.id),
-          clock.microTimestamp(),
-        ),
+        actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp()),
         actor.state.state,
       );
-      runtime.conversations.observeChildren(
-        actor,
-        snapshot,
-        clock.microTimestamp(),
-      );
+      runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
       workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
       changed(server);
     }
     workers.summaries.reconcile(runtime.conversations.items);
-    if (server.clients.some((client: any) => client.viewer && !client.dead))
-      workers.summaries.observe(now);
+    if (server.clients.some((client: any) => client.viewer && !client.dead)) workers.summaries.observe(now);
     workers.summaries.remember(runtime.last_agent);
     publishInference(server, workers);
     for (const result of workers.summaries.take()) {
@@ -335,41 +267,29 @@ export async function tick(server: any) {
       runtime.system_usage = systemUsage;
       changed(server);
     }
-    if (runtime.link_labels.reconcile(runtime, workers.summaries, now))
-      changed(server);
+    if (runtime.link_labels.reconcile(runtime, workers.summaries, now)) changed(server);
     for (const result of workers.summaries.takeLinks())
       if (result && runtime.link_labels.apply(result, now)) changed(server);
     workers.usage.reconcile(runtime);
     for (const result of workers.usage.take()) {
       const actor = runtime.conversations.byId(result.actor);
       if (!actor) continue;
-      if (!actor.model_from_hook && result.model.id.len)
-        actor.model = result.model;
+      if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
       if (!actor.native_usage) actor.live_usage = result.live;
       actor.context = result.context;
-      runtime.conversations.compaction_points.learn(
-        result.context.model.id.text(),
-        result.context.auto_compaction,
-      );
+      runtime.conversations.compaction_points.learn(result.context.model.id.text(), result.context.auto_compaction);
       if (
         result.continued.len &&
         actor.provider() === "claude" &&
         result.continued.text() !== actor.state.sessionId()
       ) {
-        const next = runtime.conversations.get(
-          "claude",
-          result.continued.text(),
-        );
+        const next = runtime.conversations.get("claude", result.continued.text());
         next.workspace ||= actor.workspace;
         if (!next.state.last_seq) {
-          next.state.state =
-            actor.state.state === "done" ? "idle" : actor.state.state;
+          next.state.state = actor.state.state === "done" ? "idle" : actor.state.state;
           next.state.cwd = actor.state.cwd;
           next.state.transcript = Path.initTruncated(
-            path.join(
-              path.dirname(actor.state.transcriptPath()),
-              result.continued.text() + ".jsonl",
-            ),
+            path.join(path.dirname(actor.state.transcriptPath()), result.continued.text() + ".jsonl"),
           );
         }
         let followed = false;
@@ -388,18 +308,10 @@ export async function tick(server: any) {
       actor.observeTaskEnds(result.ended);
       if (result.progress) actor.observeTools(result.progress);
       if (result.fallback(actor.state, clock.microTimestamp()))
-        workers.summaries.submit(
-          actor,
-          result.progress!.commentary,
-          result.progress,
-          runtime.panes,
-        );
-      else if (result.progress)
-        workers.summaries.tools(actor.id, actor.state, result.progress);
+        workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
+      else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
       if (!actor.native_usage && !workspaceWatched(server, result.workspace))
-        runtime.workspaces
-          .get(result.workspace)
-          ?.away.record(result.since, result.delta);
+        runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);
       changed(server);
     }
     workers.transcripts.reconcile(runtime.conversations.items);
@@ -408,8 +320,7 @@ export async function tick(server: any) {
       if (!actor) continue;
       attention(
         server,
-        actor.confirmStop(result.seq, result.outcome, clock.microTimestamp()) &&
-          !actorWatched(server, actor.id),
+        actor.confirmStop(result.seq, result.outcome, clock.microTimestamp()) && !actorWatched(server, actor.id),
         actor.state.state,
       );
       changed(server);
@@ -421,10 +332,7 @@ export async function tick(server: any) {
     if (!workspaceWatched(server, session.workspace_id))
       runtime.workspaces
         .get(session.workspace_id)
-        ?.away.record(
-          runtime.workspaces.get(session.workspace_id).away.since,
-          session.usage_pending,
-        );
+        ?.away.record(runtime.workspaces.get(session.workspace_id).away.since, session.usage_pending);
     session.usage_pending = new Counts();
     if (session.next_seq !== seq || session.reap()) changed(server);
   }
@@ -435,12 +343,10 @@ export async function settle(server: any) {
   try {
     await tick(server);
     await Promise.all(
-      [workers.transcripts, workers.usage, workers.codex].map(
-        async (worker) => {
-          while (worker.running && !worker.stopping) await Bun.sleep(1);
-          await worker.run();
-        },
-      ),
+      [workers.transcripts, workers.usage, workers.codex].map(async worker => {
+        while (worker.running && !worker.stopping) await Bun.sleep(1);
+        await worker.run();
+      }),
     );
     await tick(server);
     void workers.summaries.run();

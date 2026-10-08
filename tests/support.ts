@@ -9,8 +9,7 @@ import { describe, test } from "bun:test";
 export const ROOT = resolve(import.meta.dir, "..");
 export const EXE = process.env.CORGI_TEST_BIN || `${ROOT}/dist/corgi-test`;
 export const sleep = (seconds: number) => Bun.sleep(seconds * 1000);
-export const quote = (value: string) =>
-  "'" + value.replaceAll("'", "'\\''") + "'";
+export const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 export const shellJoin = (argv: string[]) => argv.map(quote).join(" ");
 export function tempDir(prefix = "corgi-test-") {
   const name = mkdtempSync(`/tmp/${prefix}`);
@@ -22,19 +21,11 @@ export function tempDir(prefix = "corgi-test-") {
 export function writeExecutable(path: string, source: string) {
   mkdirSync(dirname(path), { recursive: true });
   if (!source.startsWith("#!")) source = `#!${process.execPath}\n${source}`;
-  else
-    source = source.replace(
-      /^#!\/usr\/bin\/env bun\b/,
-      `#!${process.execPath}`,
-    );
+  else source = source.replace(/^#!\/usr\/bin\/env bun\b/, `#!${process.execPath}`);
   writeFileSync(path, source, { mode: 0o700 });
   return path;
 }
-export async function deadline<T>(
-  promise: Promise<T>,
-  milliseconds: number,
-  message = "Timed out",
-): Promise<T> {
+export async function deadline<T>(promise: Promise<T>, milliseconds: number, message = "Timed out"): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([
@@ -63,11 +54,7 @@ export async function run(
     stdin:
       options.input === undefined
         ? "ignore"
-        : new Blob([
-            typeof options.input === "string"
-              ? options.input
-              : new Uint8Array(options.input),
-          ]),
+        : new Blob([typeof options.input === "string" ? options.input : new Uint8Array(options.input)]),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -79,8 +66,7 @@ export async function run(
       options.timeout ?? 8000,
       `Command timed out: ${argv[0]}`,
     );
-    if (options.check !== false)
-      assert.equal(code, 0, `${shellJoin(argv)}: ${code}\n${err}\n${out}`);
+    if (options.check !== false) assert.equal(code, 0, `${shellJoin(argv)}: ${code}\n${err}\n${out}`);
     return { stdout: out, stderr: err, code, returncode: code };
   } catch (error) {
     proc.kill("SIGKILL");
@@ -142,12 +128,12 @@ export class JsonSocket {
     const client = new JsonSocket();
     client.socket = createConnection(path);
     client.socket.setEncoding("utf8");
-    client.socket.on("data", (chunk) => client.lines.feed(String(chunk)));
+    client.socket.on("data", chunk => client.lines.feed(String(chunk)));
     client.socket.on("end", () => {
       client.closed = true;
       client.lines.end();
     });
-    client.socket.on("error", (error) => {
+    client.socket.on("error", error => {
       client.closed = true;
       client.lines.end(error);
     });
@@ -209,10 +195,7 @@ export class Pty {
     pty.start(argv, options);
     return pty;
   }
-  start(
-    argv: string[],
-    options: { env?: Record<string, string | undefined>; cwd?: string } = {},
-  ) {
+  start(argv: string[], options: { env?: Record<string, string | undefined>; cwd?: string } = {}) {
     this.proc = Bun.spawn(argv, { ...options, terminal: this.terminal });
     return this.proc;
   }
@@ -222,10 +205,7 @@ export class Pty {
   resize(cols: number, rows: number) {
     this.terminal.resize(cols, rows);
   }
-  async waitFor(
-    predicate: string | RegExp | ((output: string) => unknown),
-    timeout = 5000,
-  ) {
+  async waitFor(predicate: string | RegExp | ((output: string) => unknown), timeout = 5000) {
     const until = Date.now() + timeout;
     do {
       const result =
@@ -244,7 +224,7 @@ export class Pty {
     const offset = this.output.length;
     const proc = Bun.spawn(["/bin/stty", "-g"], { terminal: this.terminal });
     assert.equal(await deadline(proc.exited, 3000, "stty timed out"), 0);
-    await this.waitFor((output) => output.slice(offset).includes("\n"), 3000);
+    await this.waitFor(output => output.slice(offset).includes("\n"), 3000);
     return this.output.slice(offset).trim();
   }
   async close() {
@@ -293,15 +273,13 @@ export class TestCase {
   assertIn(item: any, collection: any, message?: unknown) {
     assert.ok(
       contains(collection, item),
-      (message as string) ??
-        `${JSON.stringify(item)} not in ${JSON.stringify(collection)}`,
+      (message as string) ?? `${JSON.stringify(item)} not in ${JSON.stringify(collection)}`,
     );
   }
   assertNotIn(item: any, collection: any, message?: unknown) {
     assert.ok(
       !contains(collection, item),
-      (message as string) ??
-        `${JSON.stringify(item)} unexpectedly in ${JSON.stringify(collection)}`,
+      (message as string) ?? `${JSON.stringify(item)} unexpectedly in ${JSON.stringify(collection)}`,
     );
   }
   assertIsNone(value: unknown, message?: unknown) {
@@ -326,29 +304,21 @@ export class TestCase {
     assert.ok(Math.abs(a - b) < 10 ** -places, message as string);
   }
   assertRegex(value: string, expression: string | RegExp, message?: unknown) {
-    assert.match(
-      value,
-      typeof expression === "string" ? new RegExp(expression) : expression,
-      message as string,
-    );
+    assert.match(value, typeof expression === "string" ? new RegExp(expression) : expression, message as string);
   }
 }
 function truthy(value: any): boolean {
   if (value && typeof value.then === "function")
     throw new Error("Assertion received a Promise; await the operation first");
-  if (Array.isArray(value) || ArrayBuffer.isView(value))
-    return (value as any).length !== 0;
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) return (value as any).length !== 0;
   if (value instanceof Map || value instanceof Set) return value.size !== 0;
-  if (value && Object.getPrototypeOf(value) === Object.prototype)
-    return Object.keys(value).length !== 0;
+  if (value && Object.getPrototypeOf(value) === Object.prototype) return Object.keys(value).length !== 0;
   return Boolean(value);
 }
 function contains(collection: any, item: any) {
   if (typeof collection === "string") return collection.includes(item);
-  if (Array.isArray(collection))
-    return collection.some((value) => isDeepStrictEqual(value, item));
-  if (collection instanceof Set || collection instanceof Map)
-    return collection.has(item);
+  if (Array.isArray(collection)) return collection.some(value => isDeepStrictEqual(value, item));
+  if (collection instanceof Set || collection instanceof Map) return collection.has(item);
   return Object.hasOwn(collection, item);
 }
 export function registerCase(
@@ -370,17 +340,12 @@ export function registerCase(
     proto = options.inherited === false ? null : Object.getPrototypeOf(proto)
   ) {
     for (const key of Object.getOwnPropertyNames(proto))
-      if (key.startsWith("test_") && typeof proto[key] === "function")
-        names.add(key);
+      if (key.startsWith("test_") && typeof proto[key] === "function") names.add(key);
   }
   describe(name, () => {
     for (const method of [...names].sort()) {
       const register =
-        options.skip || options.skipTests?.[method]
-          ? test.skip
-          : options.concurrent
-            ? test.concurrent
-            : test;
+        options.skip || options.skipTests?.[method] ? test.skip : options.concurrent ? test.concurrent : test;
       register(
         method,
         async () => {

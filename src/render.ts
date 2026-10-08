@@ -4,7 +4,16 @@ import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Rect, View as LayoutView, Model, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
-import { View as SidebarView, Preview, ScopeMenu, PortMenu, type Entry, type WorkspaceEntry, type Search, type Scope } from "./sidebar";
+import {
+  View as SidebarView,
+  Preview,
+  ScopeMenu,
+  PortMenu,
+  type Entry,
+  type WorkspaceEntry,
+  type Search,
+  type Scope,
+} from "./sidebar";
 import { ResizeView, TabMenu } from "./commands";
 import { Dialog, View as NameView } from "./name_dialog";
 import type { Menu as LauncherMenu } from "./agent_launcher";
@@ -96,7 +105,14 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     corgi_setup: null,
     paste_card: null,
     paste_copied: false,
-    inference: { choice: "auto", provider: null, model: "", locked: false, launches: { codex: 0, claude: 0 }, models: { codex: "", claude: "" } },
+    inference: {
+      choice: "auto",
+      provider: null,
+      model: "",
+      locked: false,
+      launches: { codex: 0, claude: 0 },
+      models: { codex: "", claude: "" },
+    },
     copy_feedback: false,
     prefix: false,
     menu: null,
@@ -182,7 +198,9 @@ export function tabThumb(view: LayoutView, width: number): TabThumb | null {
   const track = addTabX(view, width);
   if (last === 0 || track < 2) return null;
   const len = Math.min(6, track - 1);
-  const start = Math.floor(((track - len) * tabsBefore(view.model, tabStart(view, available)) + Math.floor(last / 2)) / last);
+  const start = Math.floor(
+    ((track - len) * tabsBefore(view.model, tabStart(view, available)) + Math.floor(last / 2)) / last,
+  );
   return { start: Math.min(start, track - len), len };
 }
 export const track_rule = "\x1b[4:4m" + palette.underline("line");
@@ -259,7 +277,16 @@ function placeCard(view: LayoutView, panes: Pane[], area: Rect, notice: Notice, 
 }
 /** No modal overlay, menu, or dialog is covering the panes. */
 function noOverlay(u: Ui): boolean {
-  return u.scope_menu === null && u.agent_launcher === null && u.corgi_setup === null && u.agent_search === null && u.menu === null && u.tab_menu === null && u.port_menu === null && u.dialog === null;
+  return (
+    u.scope_menu === null &&
+    u.agent_launcher === null &&
+    u.corgi_setup === null &&
+    u.agent_search === null &&
+    u.menu === null &&
+    u.tab_menu === null &&
+    u.port_menu === null &&
+    u.dialog === null
+  );
 }
 /** The host's name for the pointing hand. iTerm2 takes X11 cursor names. */
 export function handShape(iterm2: boolean): string {
@@ -302,7 +329,9 @@ export function drawPrefixBar(w: Writer, area: Rect, preset: keymap.Preset, pref
     shown = [false, false, false];
     used = label.length;
   }
-  w.write(`\x1b[${area.y + area.h};${area.x + 1}H\x1b]8;;\x1b\\${keycap}${label.slice(0, Math.min(label.length, area.w))}`);
+  w.write(
+    `\x1b[${area.y + area.h};${area.x + 1}H\x1b]8;;\x1b\\${keycap}${label.slice(0, Math.min(label.length, area.w))}`,
+  );
   hints.forEach((hint, i) => {
     if (shown[i]) w.write(`${hint_key} ${hint.key}${hint_label} ${hint.label} `);
   });
@@ -316,7 +345,9 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
   const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
   const dragging = u.dragged_agent !== null || u.dragged_workspace !== null;
-  let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length).withSearch(u.agent_search).withWidth(u.prefs.sidebar_width);
+  let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length)
+    .withSearch(u.agent_search)
+    .withWidth(u.prefs.sidebar_width);
   side.resources = u.prefs.resources;
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
@@ -355,7 +386,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   }
   w.write(button + " + ");
   w.write("\x1b[0m");
-  if (u.tab_drop_x !== null) w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
+  if (u.tab_drop_x !== null)
+    w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
   if (model.count === 0) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
     const empty = ` No panes. ${prefix_key} ${bindings.format(bindings.first(u.prefs.preset, { name: "new" }, true)!)}: agent picker | ${prefix_key} ${bindings.format(bindings.first(u.prefs.preset, { name: "help" }, true)!)}: shortcuts`;
@@ -366,17 +398,35 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   let hovered_uri: string | null = null;
   let link_pointer = false;
   let resize_hover: Axis | null = null;
-  const card_rect = !u.link_tooltip || u.agent_launcher !== null || u.corgi_setup !== null || u.pointer === null ? null : u.resource_card ? resourceTooltip.geometry(width, height, side.width, u.resource_card.anchor) : null;
+  const card_rect =
+    !u.link_tooltip || u.agent_launcher !== null || u.corgi_setup !== null || u.pointer === null
+      ? null
+      : u.resource_card
+        ? resourceTooltip.geometry(width, height, side.width, u.resource_card.anchor)
+        : null;
   // The card hides links beneath it. Workspace rows it covers still take
   // presses, so they keep their own pointer.
-  const on_card = u.pointer !== null && card_rect !== null && card_rect.contains(u.pointer.x, u.pointer.y) && side.hit(u.pointer.x, u.pointer.y).tag !== "workspace";
+  const on_card =
+    u.pointer !== null &&
+    card_rect !== null &&
+    card_rect.contains(u.pointer.x, u.pointer.y) &&
+    side.hit(u.pointer.x, u.pointer.y).tag !== "workspace";
   if (u.pointer) {
     const pointer = u.pointer;
     if (on_card) {
       link_pointer = resourceTooltip.sortAt(card_rect!, pointer.x, pointer.y) !== null;
     } else if (u.scope_menu !== null) {
-      link_pointer = side.hit(pointer.x, pointer.y).tag === "agent_scope" || ScopeMenu.hit(side, width, height, pointer.x, pointer.y) !== null;
-    } else if (u.agent_launcher === null && u.corgi_setup === null && u.agent_search === null && u.menu === null && u.tab_menu === null && u.dialog === null) {
+      link_pointer =
+        side.hit(pointer.x, pointer.y).tag === "agent_scope" ||
+        ScopeMenu.hit(side, width, height, pointer.x, pointer.y) !== null;
+    } else if (
+      u.agent_launcher === null &&
+      u.corgi_setup === null &&
+      u.agent_search === null &&
+      u.menu === null &&
+      u.tab_menu === null &&
+      u.dialog === null
+    ) {
       if (u.port_menu) {
         const menu = u.port_menu;
         for (const ws of u.workspaces) {
@@ -386,7 +436,9 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
           break;
         }
       } else {
-        link_pointer = sidebar.portWorkspace(side, u.workspaces, pointer.x, pointer.y) !== null || corgiBadge.hit(u.corgi_badge, side.width, pointer.x, pointer.y);
+        link_pointer =
+          sidebar.portWorkspace(side, u.workspaces, pointer.x, pointer.y) !== null ||
+          corgiBadge.hit(u.corgi_badge, side.width, pointer.x, pointer.y);
         const found = side.hit(pointer.x, pointer.y);
         switch (found.tag) {
           case "toggle":
@@ -421,30 +473,40 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
       }
     }
   }
-  if (u.corgi_setup !== null && u.pointer) link_pointer = SetupMenu.hit(width, height, u.pointer.x, u.pointer.y) !== null;
+  if (u.corgi_setup !== null && u.pointer)
+    link_pointer = SetupMenu.hit(width, height, u.pointer.x, u.pointer.y) !== null;
   if (u.pointer) {
     const pointer = u.pointer;
     if (u.menu) {
       const menu = u.menu;
       const found = menu.hit(pointer.x, pointer.y);
-      link_pointer = found.tag === "command" || found.tag === "previous" || found.tag === "next" ? true : found.tag === "close" ? pointer.y === menu.y && pointer.x >= menu.x && pointer.x < menu.x + menu.width : false;
+      link_pointer =
+        found.tag === "command" || found.tag === "previous" || found.tag === "next"
+          ? true
+          : found.tag === "close"
+            ? pointer.y === menu.y && pointer.x >= menu.x && pointer.x < menu.x + menu.width
+            : false;
     } else if (u.tab_menu) {
       link_pointer = u.tab_menu.hit(width, height, pointer.x, pointer.y) !== null;
     } else if (u.dialog) {
       const dialog_view = NameView.init(width, height, u.dialog);
       // Clicks outside the dialog also cancel; only the buttons point.
       const inside = pointer.x >= dialog_view.x && pointer.x < dialog_view.x + dialog_view.width;
-      link_pointer = inside && pointer.y === dialog_view.buttons_y && dialog_view.hit(pointer.x, pointer.y).tag !== "none";
+      link_pointer =
+        inside && pointer.y === dialog_view.buttons_y && dialog_view.hit(pointer.x, pointer.y).tag !== "none";
     }
   }
   if (u.agent_launcher !== null && u.pointer) {
     const pointer = u.pointer;
     const found = side.hit(pointer.x, pointer.y).tag;
-    link_pointer = u.agent_launcher.hit(width, height, side, pointer.x, pointer.y) !== null || found === "agent_new" || found === "agent_options";
+    link_pointer =
+      u.agent_launcher.hit(width, height, side, pointer.x, pointer.y) !== null ||
+      found === "agent_new" ||
+      found === "agent_options";
   }
   for (const place of view.placements(area)) {
     if (place.rect.w === 0 || place.rect.h === 0) continue;
-    const p = panes.find((pane) => pane.id === place.id);
+    const p = panes.find(pane => pane.id === place.id);
     if (!p) continue;
     const r = place.rect;
     p.terminal.updateRender();
@@ -476,12 +538,21 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   }
   drawDividers(w, view, area);
   // The host may leave its last mouse report at the window edge.
-  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u)) side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
+  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
+    side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.corgi_badge === "image") {
     w.write(corgiBadge.hide);
-    if (side.width > 0 && u.agent_search === null && u.menu === null && u.tab_menu === null && u.port_menu === null && u.dialog === null) w.write(corgiBadge.place());
+    if (
+      side.width > 0 &&
+      u.agent_search === null &&
+      u.menu === null &&
+      u.tab_menu === null &&
+      u.port_menu === null &&
+      u.dialog === null
+    )
+      w.write(corgiBadge.place());
   }
   const paste_at = u.paste_card ? placeCard(view, panes, area, u.paste_card, u) : null;
   if (paste_at && u.pointer && pasteCard.linkAt(u.paste_card!, paste_at, u.pointer.x, u.pointer.y)) link_pointer = true;
@@ -489,7 +560,10 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   else {
     // A card that doesn't fit its pane says why in the status line instead.
     const unplaced = u.paste_card !== null && paste_at === null ? u.paste_card.body.text() : null;
-    const text = hovered_uri ?? unplaced ?? (u.message.length > 0 ? u.message : u.copy_mode ? "SCROLL  j/k move  y copy viewport  q exit" : "");
+    const text =
+      hovered_uri ??
+      unplaced ??
+      (u.message.length > 0 ? u.message : u.copy_mode ? "SCROLL  j/k move  y copy viewport  q exit" : "");
     writeChip(w, text, width, height, u.pointer);
   }
   // The prefix bar covers the area's last row.
@@ -497,10 +571,11 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (model.count > 0 && !u.copy_mode && !u.link_tooltip && noOverlay(u)) {
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
-      const p = panes.find((pane) => pane.id === place.id && pane.restoring.length === 0);
+      const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);
       if (!p) continue;
       const cursor = p.terminal.cursor();
-      if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows) w.write(`\x1b[${place.rect.y + cursor.y + 1};${place.rect.x + cursor.x + 1}H\x1b[?25h`);
+      if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows)
+        w.write(`\x1b[${place.rect.y + cursor.y + 1};${place.rect.x + cursor.x + 1}H\x1b[?25h`);
     }
   }
   if (paste_at) w.write(pasteCard.draw(u.paste_card!, paste_at, u.paste_copied));
@@ -508,11 +583,22 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     const pointer = u.pointer;
     if (u.resource_card) {
       if (card_rect) {
-        const name = u.workspaces.find((ws) => ws.id === u.resource_card!.workspace)?.name ?? "workspace";
+        const name = u.workspaces.find(ws => ws.id === u.resource_card!.workspace)?.name ?? "workspace";
         resourceTooltip.draw(w, card_rect, name, u.resources, u.resource_card);
       }
     } else if (corgiBadge.hit(u.corgi_badge, side.width, pointer.x, pointer.y)) {
-      subagentTooltip.drawOverview(w, u.conversations, u.system_usage, u.system_working, u.system_model, u.system_model_name, u.release, u.accounts, width, height);
+      subagentTooltip.drawOverview(
+        w,
+        u.conversations,
+        u.system_usage,
+        u.system_working,
+        u.system_model,
+        u.system_model_name,
+        u.release,
+        u.accounts,
+        width,
+        height,
+      );
     } else {
       const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
       if (git) sidebar.drawGitTooltip(w, git, width, height, pointer.x, pointer.y);
@@ -526,7 +612,13 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     const toast_x = width - 26;
     w.write("\x1b7" + new Style({ fg: "line", bg: "bg" }).sgr());
     w.write(`\x1b[2;${toast_x}H╭─────────────────────────╮`);
-    w.write(`\x1b[3;${toast_x}H│ ` + palette.fg("strong") + "● \x1b[1mCopied to clipboard\x1b[22m" + palette.fg("line") + "   │");
+    w.write(
+      `\x1b[3;${toast_x}H│ ` +
+        palette.fg("strong") +
+        "● \x1b[1mCopied to clipboard\x1b[22m" +
+        palette.fg("line") +
+        "   │",
+    );
     w.write(`\x1b[4;${toast_x}H╰─────────────────────────╯`);
     w.write("\x1b[0m\x1b8");
   }
@@ -534,7 +626,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (u.tab_menu) u.tab_menu.draw(w, width, height);
   if (u.port_menu) {
     const menu = u.port_menu;
-    const ws = u.workspaces.find((item) => item.id === menu.workspace);
+    const ws = u.workspaces.find(item => item.id === menu.workspace);
     if (ws) menu.draw(w, ws, width, height);
   }
   if (u.dialog) {
@@ -542,7 +634,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     let number = model.count + 1;
     if ("rename" in dialog.target) {
       const target = dialog.target.rename;
-      const i = model.tabs.slice(0, model.count).findIndex((tab) => tab.id === target);
+      const i = model.tabs.slice(0, model.count).findIndex(tab => tab.id === target);
       if (i >= 0) number = i + 1;
     }
     NameView.init(width, height, dialog).draw(dialog, w, number);
@@ -588,7 +680,7 @@ export interface Restoring {
 /** "claude · Opus 4.7 · ~/dev/corgi", leaving out a model Corgi hasn't seen. */
 function restoringMeta(p: Pane, conversations: any[]): string {
   const folder = directoryLabel(p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd, process.env.HOME ?? null, 160);
-  const model = conversations.find((c) => c.id === p.agent.conversation)?.model_name ?? "";
+  const model = conversations.find(c => c.id === p.agent.conversation)?.model_name ?? "";
   return model.length > 0 ? `${providerName(p.agent)} · ${model} · ${folder}` : `${providerName(p.agent)} · ${folder}`;
 }
 /** A command's words as a shell reads them, each flag kept with its value. */
@@ -700,7 +792,11 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
       if (i + 1 < lines.length && byteLength(out) + 2 <= 512) out += " \\";
       w.write(`\x1b[${y + 3 + i};${x + 1}H`);
       if (i === 0) {
-        w.write(new Style({ fg: "muted", bg: "surface", bold: true }).sgr() + "$ " + new Style({ fg: "faint", bg: "surface" }).sgr());
+        w.write(
+          new Style({ fg: "muted", bg: "surface", bold: true }).sgr() +
+            "$ " +
+            new Style({ fg: "faint", bg: "surface" }).sgr(),
+        );
         writeEllipsis(w, out, sat(inner, 2));
       } else {
         w.write(new Style({ fg: "faint", bg: "surface" }).sgr() + "    ");
@@ -720,7 +816,8 @@ function dividerGlyph(up: boolean, down: boolean, left: boolean, right: boolean,
 export function drawDividers(w: Writer, view: LayoutView, area: Rect): void {
   const borders: Border[] = view.borders(area);
   let focused = new Rect();
-  for (const place of view.placements(area)) if (place.id === view.selection.tabs[view.selection.active].focus) focused = place.rect;
+  for (const place of view.placements(area))
+    if (place.id === view.selection.tabs[view.selection.active].focus) focused = place.rect;
   for (const border of borders) {
     const r = border.rect;
     for (let y = r.y; y < r.y + r.h; y++) {

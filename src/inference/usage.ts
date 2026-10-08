@@ -36,10 +36,8 @@ export class Tracker {
       const delta = new Tokens();
       for (const key of ["input", "cached_input", "output"] as const) {
         delta[key] = sub(current[key], previous[key]);
-        if (current[key] < previous[key])
-          system.markPartial("counter regression");
-        previous[key] =
-          current[key] > previous[key] ? current[key] : previous[key];
+        if (current[key] < previous[key]) system.markPartial("counter regression");
+        previous[key] = current[key] > previous[key] ? current[key] : previous[key];
       }
       system.meter.add(delta, now);
       system.reports = add(system.reports, 1n);

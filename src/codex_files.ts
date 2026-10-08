@@ -1,10 +1,4 @@
-import {
-  openSync,
-  closeSync,
-  fstatSync,
-  readFileSync,
-  constants,
-} from "node:fs";
+import { openSync, closeSync, fstatSync, readFileSync, constants } from "node:fs";
 import path from "node:path";
 import { BoundedText } from "./bounded_text";
 export class Name extends BoundedText(160) {}
@@ -34,10 +28,7 @@ export class Index {
     this.next_read = now + 1000;
     let fd: number | undefined;
     try {
-      fd = openSync(
-        file,
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
+      fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const stat = fstatSync(fd);
       if (!stat.isFile() || stat.size > 8 * 1024 * 1024) return;
       const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
@@ -54,24 +45,20 @@ export class Index {
     const now = Date.now();
     if (now < this.next_read) return;
     this.next_read = now + 1000;
-    const pending = new Promise<void>((resolve) => {
+    const pending = new Promise<void>(resolve => {
       this.complete = resolve;
     });
     this.pending = pending;
     try {
       if (!this.worker) {
-        this.worker = new Worker(
-          new URL("./codex_files_worker.ts", import.meta.url),
-        ) as IndexWorker;
-        this.worker.onmessage = async (event) => {
+        this.worker = new Worker(new URL("./codex_files_worker.ts", import.meta.url)) as IndexWorker;
+        this.worker.onmessage = async event => {
           if (event.data.changed) {
             const names = new Map<string, Name>();
             const entries: Array<[string, string]> = event.data.entries;
             for (let at = 0; at < entries.length; at += 512) {
-              for (const [id, name] of entries.slice(at, at + 512))
-                names.set(id, new Name(name));
-              if (at + 512 < entries.length)
-                await new Promise<void>((resolve) => setImmediate(resolve));
+              for (const [id, name] of entries.slice(at, at + 512)) names.set(id, new Name(name));
+              if (at + 512 < entries.length) await new Promise<void>(resolve => setImmediate(resolve));
             }
             if (this.worker) {
               this.names = names;
@@ -98,19 +85,14 @@ export class Index {
   }
   load(bytes: string | Uint8Array) {
     const names = new Map<string, Name>();
-    const input =
-      typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes);
+    const input = typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes);
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let start = 0;
     for (let at = 0; at < input.length; at++) {
       if (input[at] !== 10) continue;
       try {
         const record = JSON.parse(decoder.decode(input.subarray(start, at)));
-        if (
-          typeof record.id === "string" &&
-          typeof record.thread_name === "string" &&
-          record.thread_name
-        )
+        if (typeof record.id === "string" && typeof record.thread_name === "string" && record.thread_name)
           names.set(record.id, Name.ascii(record.thread_name));
       } catch {}
       start = at + 1;
@@ -122,8 +104,5 @@ export class Index {
   }
 }
 export function available(agent: Agent, now: number) {
-  return (
-    agent.provider === "codex" &&
-    (!agent.metadata_at || now - agent.metadata_at > 5000000)
-  );
+  return agent.provider === "codex" && (!agent.metadata_at || now - agent.metadata_at > 5000000);
 }

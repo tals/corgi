@@ -47,9 +47,7 @@ class CmuxImport extends TestCase {
     return screen_text((await viewer.poll()).data, cols, rows).join("\n");
   }
   shape(ws: any, tab: any, snapshot: any): any {
-    const names = Object.fromEntries(
-      snapshot.panes.map((p: any) => [p.id, p.name]),
-    );
+    const names = Object.fromEntries(snapshot.panes.map((p: any) => [p.id, p.name]));
     const visit = (index: number): any => {
       const node = ws.model.nodes[index];
       if ("pane" in node) return names[node.pane];
@@ -61,40 +59,25 @@ class CmuxImport extends TestCase {
 
   async test_layers_partial_recovery_and_real_shells() {
     const v = await this.wizard();
-    await this.fixture.until(async () =>
-      (await this.text(v)).includes("Workspace only"),
-    );
+    await this.fixture.until(async () => (await this.text(v)).includes("Workspace only"));
     const before = await this.text(v);
     this.assertIn("I'm confused by this cmux version.", before);
     this.assertIn("Split layout approximated", before);
     await v.input(" j j \r");
-    await this.fixture.until(async () =>
-      (await this.text(v)).includes("You're ready to go"),
-    );
+    await this.fixture.until(async () => (await this.text(v)).includes("You're ready to go"));
     const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
-    const byName = Object.fromEntries(
-      snapshot.workspaces.map((w: any) => [w.name, w]),
-    );
+    const byName = Object.fromEntries(snapshot.workspaces.map((w: any) => [w.name, w]));
     const project: any = byName["cmux project"];
     this.assertEqual(
       project.model.tabs.map((t: any) => this.shape(project, t, snapshot)),
-      [
-        ["horizontal", 600, "Editor", "Server"],
-        ["horizontal", 600, "Build", "Logs"],
-        "Docs",
-      ],
+      [["horizontal", 600, "Editor", "Server"], ["horizontal", 600, "Build", "Logs"], "Docs"],
     );
     const research: any = byName.research;
     this.assertEqual(research.model.tabs.length, 1);
-    this.assertEqual(
-      realpathSync(research.cwd),
-      realpathSync(join(this.fixture.root, "home")),
-    );
+    this.assertEqual(realpathSync(research.cwd), realpathSync(join(this.fixture.root, "home")));
     const imported = new Set(
       snapshot.workspaces
-        .filter((w: any) =>
-          ["cmux project", "layoutless", "research"].includes(w.name),
-        )
+        .filter((w: any) => ["cmux project", "layoutless", "research"].includes(w.name))
         .map((w: any) => w.id),
     );
     const panes = snapshot.panes.filter((p: any) => imported.has(p.workspace));
@@ -103,70 +86,45 @@ class CmuxImport extends TestCase {
     const commands = readFileSync(this.fixture.env.CMUX_TEST_LOG, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line)[0]);
-    this.assertTrue(
-      commands.every((command) => ["tree", "list-panes"].includes(command)),
-    );
+      .map(line => JSON.parse(line)[0]);
+    this.assertTrue(commands.every(command => ["tree", "list-panes"].includes(command)));
   }
   async test_old_cli_recovers_workspaces_across_windows() {
     const v = await this.wizard("old");
-    await this.fixture.until(async () =>
-      (await this.text(v)).includes("Old w2"),
-    );
+    await this.fixture.until(async () => (await this.text(v)).includes("Old w2"));
     this.assertIn("Workspace only", await this.text(v));
     await v.input(" j \r");
-    await this.fixture.until(async () =>
-      (await this.text(v)).includes("You're ready to go"),
-    );
+    await this.fixture.until(async () => (await this.text(v)).includes("You're ready to go"));
     const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
-    const ws = snapshot.workspaces.filter((w: any) =>
-      w.name.startsWith("Old "),
-    );
-    this.assertEqual(
-      new Set(ws.map((w: any) => w.name)),
-      new Set(["Old w1", "Old w2"]),
-    );
+    const ws = snapshot.workspaces.filter((w: any) => w.name.startsWith("Old "));
+    this.assertEqual(new Set(ws.map((w: any) => w.name)), new Set(["Old w1", "Old w2"]));
     this.assertTrue(ws.every((w: any) => w.model.tabs.length === 1));
   }
   async test_unreadable_source_is_not_reported_as_empty_and_blinks_without_input() {
     const v = await this.wizard("unreadable", 76, 26);
-    await this.fixture.until(async () =>
-      (await this.text(v, 76, 26)).includes("No workspaces could be recovered"),
-    );
+    await this.fixture.until(async () => (await this.text(v, 76, 26)).includes("No workspaces could be recovered"));
     const frames = new Set<string>();
     await this.fixture.until(async () => {
       const text = await this.text(v, 76, 26);
-      for (const frame of ["ᐱoᴥ°ᐱ", "ᐱ─ᴥ─ᐱ"])
-        if (text.includes(frame)) frames.add(frame);
+      for (const frame of ["ᐱoᴥ°ᐱ", "ᐱ─ᴥ─ᐱ"]) if (text.includes(frame)) frames.add(frame);
       this.assertIn("I'm confused by this cmux version.", text);
       this.assertNotIn("No available sessions found", text);
       return frames.size === 2;
     }, 6);
-    this.assertEqual(
-      (await this.fixture.rpc({ op: "session.snapshot" })).panes,
-      [],
-    );
+    this.assertEqual((await this.fixture.rpc({ op: "session.snapshot" })).panes, []);
   }
   async test_recovery_notes_keep_mouse_selection_aligned_at_minimum_size() {
     const v = await this.wizard("old", 76, 26);
-    await this.fixture.until(async () =>
-      (await this.text(v, 76, 26)).includes("Old w2"),
-    );
+    await this.fixture.until(async () => (await this.text(v, 76, 26)).includes("Old w2"));
     const rows = screen_text((await v.poll()).data, 76, 26);
-    const y = rows.findIndex((row) => row.includes("Old w2"));
+    const y = rows.findIndex(row => row.includes("Old w2"));
     const x = rows[y].indexOf("Old w2");
     await v.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
     this.assertIn("[x] Old w2", await this.text(v, 76, 26));
     this.assertIn("[ ] Old w1", await this.text(v, 76, 26));
     await v.input("\r");
-    await this.fixture.until(async () =>
-      (await this.text(v, 76, 26)).includes("You're ready to go"),
-    );
-    const names = new Set(
-      (await this.fixture.rpc({ op: "session.snapshot" })).workspaces.map(
-        (w: any) => w.name,
-      ),
-    );
+    await this.fixture.until(async () => (await this.text(v, 76, 26)).includes("You're ready to go"));
+    const names = new Set((await this.fixture.rpc({ op: "session.snapshot" })).workspaces.map((w: any) => w.name));
     this.assertIn("Old w2", names);
     this.assertNotIn("Old w1", names);
   }
@@ -210,6 +168,5 @@ class CmuxImport extends TestCase {
 }
 
 registerCase("cmux import", CmuxImport, {
-  skip:
-    process.platform !== "darwin" ? "cmux is offered only on macOS" : undefined,
+  skip: process.platform !== "darwin" ? "cmux is offered only on macOS" : undefined,
 });

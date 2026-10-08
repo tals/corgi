@@ -27,7 +27,7 @@ export function location(r: Runtime, pane: number): Result {
   };
 }
 function tabOwner(r: Runtime, id: number) {
-  const ws = r.workspaces.items.find((w) => w.model.tabIndex(id) !== null);
+  const ws = r.workspaces.items.find(w => w.model.tabIndex(id) !== null);
   if (!ws) throw Error("NoTab");
   return ws;
 }
@@ -36,30 +36,19 @@ function tabIndex(m: Model, id: number) {
   if (i === null) throw Error("NoTab");
   return i;
 }
-function spawnOptions(
-  r: Runtime,
-  ctx: Context,
-  workspace: number,
-  from: number | null,
-  cwd: string,
-): Create {
+function spawnOptions(r: Runtime, ctx: Context, workspace: number, from: number | null, cwd: string): Create {
   const ws = r.getWorkspace(workspace);
   let dir = cwd;
   if (!dir && from !== null) {
     const p = r.pane(from);
     if (!p) throw Error("NoPane");
-    if (r.workspaces.owner(from)?.id !== workspace)
-      throw Error("InvalidDestination");
+    if (r.workspaces.owner(from)?.id !== workspace) throw Error("InvalidDestination");
     p.refreshCwd();
     dir = p.cwd;
   }
   return { workspace, cwd: dir || ws.cwd, cols: 80, rows: 24, ...ctx };
 }
-async function executeInner(
-  r: Runtime,
-  ctx: Context,
-  cmd: any,
-): Promise<Result> {
+async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result> {
   const op = cmd.op ?? Object.keys(cmd)[0],
     q = cmd.op ? cmd : cmd[op];
   switch (op) {
@@ -69,16 +58,11 @@ async function executeInner(
       break;
     }
     case "agent.command": {
-      if (q.index < 0 || q.index >= r.agent_commands.length)
-        throw Error("InvalidCommand");
-      const source =
-          q.resolve && q.command
-            ? await resolve(q.command, q.cwd ?? null)
-            : q.command,
+      if (q.index < 0 || q.index >= r.agent_commands.length) throw Error("InvalidCommand");
+      const source = q.resolve && q.command ? await resolve(q.command, q.cwd ?? null) : q.command,
         e = r.agent_commands[q.index];
       e.set(source);
-      if (q.original !== null && q.original !== undefined)
-        e.setOriginal(q.original);
+      if (q.original !== null && q.original !== undefined) e.setOriginal(q.original);
       else if (q.resolve) e.setOriginal(q.command);
       if (q.name !== null && q.name !== undefined) e.name = q.name;
       if (!source) r.agent_commands[q.index] = new Entry();
@@ -99,8 +83,7 @@ async function executeInner(
       return location(r, pane);
     }
     case "agent.visibility":
-      r.agent_hidden =
-        q.hidden instanceof Each ? q.hidden : new Each(false, q.hidden);
+      r.agent_hidden = q.hidden instanceof Each ? q.hidden : new Each(false, q.hidden);
       r.changed();
       return {};
     case "agent.yolo":
@@ -121,8 +104,7 @@ async function executeInner(
     case "agent.resume": {
       const opts = spawnOptions(r, ctx, q.workspace, null, q.cwd ?? ""),
         closed = r.closedConversation(q.provider, q.session);
-      if (closed !== null)
-        return location(r, await r.reopenClosed(closed, opts));
+      if (closed !== null) return location(r, await r.reopenClosed(closed, opts));
       const h = new ResumeHint();
       h.provider = q.provider;
       h.session = new Text(q.session);
@@ -150,14 +132,7 @@ async function executeInner(
         return location(r, q.target);
       }
       const ws = r.workspaces.owner(q.target)!;
-      return location(
-        r,
-        await r.forkAgent(
-          spawnOptions(r, ctx, ws.id, q.target, ""),
-          q.target,
-          q.name ?? null,
-        ),
-      );
+      return location(r, await r.forkAgent(spawnOptions(r, ctx, ws.id, q.target, ""), q.target, q.name ?? null));
     }
     case "pane.create":
       return location(
@@ -179,10 +154,7 @@ async function executeInner(
           title: q.title,
           split: {
             pane: q.target,
-            axis:
-              q.direction === "left" || q.direction === "right"
-                ? "horizontal"
-                : "vertical",
+            axis: q.direction === "left" || q.direction === "right" ? "horizontal" : "vertical",
             before: q.direction === "left" || q.direction === "up",
           },
         }),
@@ -201,11 +173,7 @@ async function executeInner(
     }
     case "workspace.edit": {
       const ws = r.getWorkspace(q.target);
-      await r.workspaces.edit(
-        q.target,
-        q.name ?? ws.customName(),
-        q.cwd ?? ws.cwd,
-      );
+      await r.workspaces.edit(q.target, q.name ?? ws.customName(), q.cwd ?? ws.cwd);
       break;
     }
     case "workspace.close":
@@ -215,10 +183,7 @@ async function executeInner(
       r.workspaces.moveBefore(q.target, q.before);
       break;
     case "pane.restore":
-      return location(
-        r,
-        await r.reopen(spawnOptions(r, ctx, q.workspace, null, "")),
-      );
+      return location(r, await r.reopen(spawnOptions(r, ctx, q.workspace, null, "")));
     case "pane.close":
       location(r, q.target);
       r.close(q.target);
@@ -226,9 +191,7 @@ async function executeInner(
     case "tab.close": {
       const ws = tabOwner(r, q.target),
         root = ws.model.tabs[tabIndex(ws.model, q.target)].root,
-        ids = ws.model.nodes.flatMap((n) =>
-          n && "pane" in n && ws.model.contains(root, n.pane) ? [n.pane] : [],
-        );
+        ids = ws.model.nodes.flatMap(n => (n && "pane" in n && ws.model.contains(root, n.pane) ? [n.pane] : []));
       for (const id of ids) r.close(id);
       return { closed_panes: ids };
     }
@@ -313,15 +276,11 @@ export function arrange(r: Runtime, cmd: any): Result {
       src.setShare(q.target, q.axis, q.ratio);
       break;
     case "split.ratio": {
-      if (source.model.revision !== BigInt(q.expected))
-        throw Error("StaleLayout");
+      if (source.model.revision !== BigInt(q.expected)) throw Error("StaleLayout");
       if (q.ratio < 100 || q.ratio > 900) throw Error("InvalidRatio");
       const n = src.nodes.find(
-        (n) =>
-          n &&
-          "split" in n &&
-          src.firstPane(n.split.first) === q.target &&
-          src.firstPane(n.split.second) === q.other,
+        n =>
+          n && "split" in n && src.firstPane(n.split.first) === q.target && src.firstPane(n.split.second) === q.other,
       );
       if (!n || !("split" in n)) throw Error("NoSplit");
       n.split.ratio = q.ratio;
@@ -346,32 +305,18 @@ export function arrange(r: Runtime, cmd: any): Result {
         destination = r.workspaces.owner(kind === "swap" ? p : p.other)!;
         if (!destination) throw Error("NoPane");
       } else if (kind === "tab")
-        destination =
-          "workspace" in p
-            ? r.getWorkspace(p.workspace)
-            : tabOwner(r, p.before ?? p.after);
+        destination = "workspace" in p ? r.getWorkspace(p.workspace) : tabOwner(r, p.before ?? p.after);
       const dst = source === destination ? src : clone(destination.model);
       if (kind === "swap") {
         const a = src.findNode(q.target)!,
           b = dst.findNode(p)!;
         [src.nodes[a], dst.nodes[b]] = [dst.nodes[b], src.nodes[a]];
       } else if (kind === "tab" && source === destination) {
-        if (!("workspace" in p))
-          src.moveTab(
-            q.target,
-            tabIndex(src, p.before ?? p.after) + Number("after" in p),
-          );
+        if (!("workspace" in p)) src.moveTab(q.target, tabIndex(src, p.before ?? p.after) + Number("after" in p));
       } else {
-        if (
-          kind === "beside" &&
-          src.contains(src.tabs[index].root, p.other) &&
-          (tabOp || q.target === p.other)
-        )
+        if (kind === "beside" && src.contains(src.tabs[index].root, p.other) && (tabOp || q.target === p.other))
           throw Error("InvalidDestination");
-        const saved = Object.assign(
-            new Tab(src.tabs[index].id, src.tabs[index].root),
-            src.tabs[index],
-          ),
+        const saved = Object.assign(new Tab(src.tabs[index].id, src.tabs[index].root), src.tabs[index]),
           root = tabOp ? saved.root : src.findNode(q.target)!;
         if (tabOp) src.removeTab(index);
         else src.close(q.target);
@@ -386,10 +331,7 @@ export function arrange(r: Runtime, cmd: any): Result {
           }
           dst.tabs[dst.count++] = saved;
           if (kind === "tab" && !("workspace" in p))
-            dst.moveTab(
-              saved.id,
-              tabIndex(dst, p.before ?? p.after) + Number("after" in p),
-            );
+            dst.moveTab(saved.id, tabIndex(dst, p.before ?? p.after) + Number("after" in p));
         }
       }
       if (source !== destination) {
@@ -432,10 +374,9 @@ export function viewerSnapshot(r: Runtime) {
   return build(r, true);
 }
 function build(r: Runtime, viewer: boolean) {
-  const coarse = (s: number) =>
-    s <= 0 ? s : Math.floor(s / 5000000) * 5000000;
+  const coarse = (s: number) => (s <= 0 ? s : Math.floor(s / 5000000) * 5000000);
   const conversations = r.conversations.items
-    .filter((a) => !viewer || r.followed(a))
+    .filter(a => !viewer || r.followed(a))
     .map((a: any) => {
       const usage = a.usageView?.(Date.now()) ?? {},
         out: any = {
@@ -452,13 +393,11 @@ function build(r: Runtime, viewer: boolean) {
           context: a.context?.view?.(r.conversations.compaction_points) ?? {},
           timeline: {
             points:
-              a.activity_timeline?.points
-                ?.slice(0, a.activity_timeline.len)
-                .map((p: any) => ({
-                  at: p.at,
-                  activity: text(p.label),
-                  usage: p.usage,
-                })) ?? [],
+              a.activity_timeline?.points?.slice(0, a.activity_timeline.len).map((p: any) => ({
+                at: p.at,
+                activity: text(p.label),
+                usage: p.usage,
+              })) ?? [],
             pending: a.activity_timeline?.pending?.(usage) ?? null,
           },
           children_observed_at: a.children_observed_at,
@@ -467,9 +406,7 @@ function build(r: Runtime, viewer: boolean) {
       if (viewer) {
         out.observed_at = coarse(out.observed_at);
         out.children_observed_at = coarse(out.children_observed_at);
-        out.background_tasks.observed_at = coarse(
-          out.background_tasks.observed_at,
-        );
+        out.background_tasks.observed_at = coarse(out.background_tasks.observed_at);
       }
       return out;
     });
@@ -515,7 +452,7 @@ function build(r: Runtime, viewer: boolean) {
       stats: w.away.counts ?? {},
       model: w.model,
     })),
-    panes: r.panes.map((p) => ({
+    panes: r.panes.map(p => ({
       ...location(r, p.id),
       id: p.id,
       binding: p.attachment.generation,
@@ -529,7 +466,7 @@ function build(r: Runtime, viewer: boolean) {
       restoring: p.restoring(),
       forking: p.ghost?.fork !== null && p.ghost !== null,
     })),
-    native_sessions: r.sessions.map((s) => ({
+    native_sessions: r.sessions.map(s => ({
       agent: agentView(s.attachment.agent(), s.attachment.actor?.id ?? 0),
       id: s.id,
       workspace: s.workspace_id,
@@ -546,11 +483,7 @@ function build(r: Runtime, viewer: boolean) {
   };
 }
 
-export async function execute(
-  r: Runtime,
-  ctx: Context,
-  cmd: any,
-): Promise<Result> {
+export async function execute(r: Runtime, ctx: Context, cmd: any): Promise<Result> {
   return {
     pane: 0,
     tab: 0,

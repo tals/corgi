@@ -2,12 +2,7 @@ import { test, expect } from "bun:test";
 import { Tracker, Call } from "./tools";
 import { parseLabel } from "./summary";
 import * as prompt from "./prompt";
-import {
-  Children,
-  Inventory,
-  Ended,
-  classify,
-} from "./background_tasks";
+import { Children, Inventory, Ended, classify } from "./background_tasks";
 test("completed tools are deduplicated, historical calls do not advance waves, and turns reset", () => {
   const t = new Tracker(),
     call = {
@@ -48,8 +43,7 @@ test("code-mode evidence keeps commands and patch files while dropping wrapper",
         type: "custom_tool_call",
         call_id: "c1",
         name: "functions.exec",
-        input:
-          'text(await tools.exec_command({cmd:"rg focus src",max_output_tokens:4000}));',
+        input: 'text(await tools.exec_command({cmd:"rg focus src",max_output_tokens:4000}));',
       },
     },
     true,
@@ -92,15 +86,8 @@ test("Claude tool progress joins hook turn and text commentary", () => {
 test("abstention is valid and invalid labels fail separately", () => {
   expect(prompt.parse('{"label":null}').label).toBeNull();
   expect(prompt.parse('{"label":" Null "}').label).toBeNull();
-  expect(prompt.parse('{"label":"Running tests"}').label?.text()).toBe(
-    "Running tests",
-  );
-  for (const raw of [
-    "{}",
-    "null",
-    '{"label":false}',
-    '{"label":null,"reason":"unknown"}',
-  ])
+  expect(prompt.parse('{"label":"Running tests"}').label?.text()).toBe("Running tests");
+  for (const raw of ["{}", "null", '{"label":false}', '{"label":null,"reason":"unknown"}'])
     expect(() => prompt.parse(raw)).toThrow("InvalidDecision");
   expect(() => prompt.parse('{"label":""}')).toThrow("EmptyLabel");
   expect(parseLabel("Running\ncommands")).toBeNull();
@@ -158,9 +145,7 @@ test("tool lines keep the command and drop wrappers, scripts and patch bodies", 
     tools.write_stdin({session_id:17169,chars:""})
   ]);`),
   ).toBe(true);
-  expect(value.text()).toBe(
-    'exec: rg -n "focus|blur" src; apply_patch src/resources.zig; write_stdin',
-  );
+  expect(value.text()).toBe('exec: rg -n "focus|blur" src; apply_patch src/resources.zig; write_stdin');
   value = call("exec_command");
   value.detail("python3 - <<'EOF'\nprint('long script')\nEOF");
   expect(value.text()).toBe("exec_command: python3 - <<'EOF'…");
@@ -212,9 +197,7 @@ test("polling the same call leaves the evidence unchanged", () => {
     before = tracker.view().evidence.text();
   }
   expect(tracker.completed).toBe(3n);
-  expect(
-    tracker.view().evidence.text().split("lavish-axi poll").length - 1,
-  ).toBe(1);
+  expect(tracker.view().evidence.text().split("lavish-axi poll").length - 1).toBe(1);
 });
 
 test("Claude text and completed tools become evidence for the bound turn", () => {
@@ -258,9 +241,7 @@ test("Claude text and completed tools become evidence for the bound turn", () =>
     },
     true,
   );
-  expect(tracker.commentary.text()).toBe(
-    "Latest agent update: Tracing the hook router",
-  );
+  expect(tracker.commentary.text()).toBe("Latest agent update: Tracing the hook router");
   tracker.ingestClaude(result, true);
   tracker.ingestClaude(result, true);
   expect(tracker.completed).toBe(1n);
@@ -310,9 +291,7 @@ test("running tools publish stable evidence before completion for both providers
       {
         type: "user",
         message: {
-          content: [
-            { type: "tool_result", tool_use_id: "c1", content: "done" },
-          ],
+          content: [{ type: "tool_result", tool_use_id: "c1", content: "done" }],
         },
       },
     ],
@@ -320,9 +299,7 @@ test("running tools publish stable evidence before completion for both providers
   for (const [index, [start, done]] of cases.entries()) {
     const tracker = new Tracker();
     const ingest = (value: any, live: boolean) =>
-      index === 0
-        ? tracker.ingest(value, live)
-        : tracker.ingestClaude(value, live);
+      index === 0 ? tracker.ingest(value, live) : tracker.ingestClaude(value, live);
     tracker.bind("turn");
     tracker.dirty = false;
     ingest(start, false);
@@ -340,9 +317,7 @@ test("running tools publish stable evidence before completion for both providers
     expect(tracker.view().evidence.text()).toBe(running.evidence.text());
     ingest(done, true);
     expect(tracker.dirty).toBe(true);
-    expect(tracker.view().evidence.text()).not.toContain(
-      "Currently running tools",
-    );
+    expect(tracker.view().evidence.text()).not.toContain("Currently running tools");
     expect(tracker.view().evidence.text()).toContain("Recent completed tools");
   }
 });

@@ -51,15 +51,10 @@ export class Stream {
       const connection = createConnection(this.socket);
       this.fd = connection;
       connection.once("connect", () => {
-        connection.write(
-          stringify({ op: "agent.subscribe", protocol: 1, workspace, cwd }) +
-            "\n",
-        );
-        connection.write(
-          stringify({ op: "agent.history", protocol: 1, follow: true }) + "\n",
-        );
+        connection.write(stringify({ op: "agent.subscribe", protocol: 1, workspace, cwd }) + "\n");
+        connection.write(stringify({ op: "agent.history", protocol: 1, follow: true }) + "\n");
       });
-      connection.on("data", (chunk) => {
+      connection.on("data", chunk => {
         try {
           this.changed = this.feed(chunk.toString()) || this.changed;
         } catch {
@@ -79,8 +74,7 @@ export class Stream {
   }
   feed(bytes: string) {
     this.input += bytes;
-    if (Buffer.byteLength(this.input) > 16 * 1024 * 1024)
-      throw new Error("InputTooLarge");
+    if (Buffer.byteLength(this.input) > 16 * 1024 * 1024) throw new Error("InputTooLarge");
     let changed = false;
     while (true) {
       const i = this.input.indexOf("\n");
@@ -94,16 +88,12 @@ export class Stream {
   receive(message: any) {
     if (message.type === "agent.history") {
       const update =
-        message.update ??
-        (message.history
-          ? { full: true, entries: message.history.entries, removed: [] }
-          : null);
+        message.update ?? (message.history ? { full: true, entries: message.history.entries, removed: [] } : null);
       if (!update) return false;
       this.applyHistory(update);
       return true;
     }
-    if (message.type !== "agent.preview" || message.cwd !== this.cwd)
-      return false;
+    if (message.type !== "agent.preview" || message.cwd !== this.cwd) return false;
     const sent = previewValue(message.preview);
     let preview = sent;
     if (preview.pending) {
@@ -122,22 +112,13 @@ export class Stream {
     this.received = true;
     return changed;
   }
-  applyHistory(update: {
-    full: boolean;
-    entries: Entry[];
-    removed?: { provider: string; session: string }[];
-  }) {
-    const key = (e: { provider: string; session: string }) =>
-        e.provider + ":" + e.session,
-      replaced = new Set(
-        [...update.entries, ...(update.removed ?? [])].map(key),
-      );
+  applyHistory(update: { full: boolean; entries: Entry[]; removed?: { provider: string; session: string }[] }) {
+    const key = (e: { provider: string; session: string }) => e.provider + ":" + e.session,
+      replaced = new Set([...update.entries, ...(update.removed ?? [])].map(key));
     this.history = {
       pending: false,
       entries: [
-        ...(update.full
-          ? []
-          : this.history.entries.filter((e) => !replaced.has(key(e)))),
+        ...(update.full ? [] : this.history.entries.filter(e => !replaced.has(key(e)))),
         ...structuredClone(update.entries),
       ].sort((a, b) => b.updated_at - a.updated_at),
     };

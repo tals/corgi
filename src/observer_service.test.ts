@@ -37,9 +37,7 @@ test("Codex selection rejects delayed ABA observations while detached actors rem
   snapshot.request.generation = pane.attachment.generation;
   pane.terminal.title = `codex | ${id} | Working`;
   expect(codexActor(server, snapshot)).toBe(actor);
-  pane.attachment.select(
-    registry.get("codex", "22222222-2222-4222-8222-222222222222"),
-  );
+  pane.attachment.select(registry.get("codex", "22222222-2222-4222-8222-222222222222"));
   pane.attachment.select(actor);
   expect(codexActor(server, snapshot)).toBeNull();
   snapshot.request.generation = pane.attachment.generation;

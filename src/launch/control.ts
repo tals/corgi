@@ -67,12 +67,9 @@ export class Control {
       stdio: "pipe",
       detached: true,
     });
-    this.child.stdout.on("data", (b) => {
+    this.child.stdout.on("data", b => {
       this.buffer += b.toString();
-      if (
-        Buffer.byteLength(this.buffer) > message_limit &&
-        !this.buffer.includes("\n")
-      ) {
+      if (Buffer.byteLength(this.buffer) > message_limit && !this.buffer.includes("\n")) {
         this.close(Error("NativeMessageTooLarge"));
         return;
       }
@@ -86,33 +83,21 @@ export class Control {
         }
         try {
           const v = JSON.parse(line);
-          if (
-            this.provider === "claude" &&
-            v.type === "control_request" &&
-            v.request_id !== undefined
-          ) {
+          if (this.provider === "claude" && v.type === "control_request" && v.request_id !== undefined) {
             this.close(Error("UnexpectedRequest"));
             return;
           }
-          const id =
-              this.provider === "codex" ? String(v.id) : v.response?.request_id,
+          const id = this.provider === "codex" ? String(v.id) : v.response?.request_id,
             p = this.pending.get(id);
           if (!p) continue;
           p.cleanup();
           this.pending.delete(id);
-          if (
-            v.error ||
-            (this.provider === "claude" && v.response?.subtype !== "success")
-          )
+          if (v.error || (this.provider === "claude" && v.response?.subtype !== "success"))
             p.reject(Error("UnsupportedUsage"));
-          else
-            p.resolve(
-              this.provider === "codex" ? v.result : v.response?.response,
-            );
+          else p.resolve(this.provider === "codex" ? v.result : v.response?.response);
         } catch {}
       }
-      if (Buffer.byteLength(this.buffer) > message_limit)
-        this.close(Error("NativeMessageTooLarge"));
+      if (Buffer.byteLength(this.buffer) > message_limit) this.close(Error("NativeMessageTooLarge"));
     });
     this.child.stderr.resume();
     const child = this.child;
@@ -135,11 +120,8 @@ export class Control {
             }
           : { skip_behaviors: true },
         options,
-      ).then((v) => {
-        if (this.provider === "codex")
-          this.child?.stdin.write(
-            JSON.stringify({ method: "initialized" }) + "\n",
-          );
+      ).then(v => {
+        if (this.provider === "codex") this.child?.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
         return v;
       });
     return this.initialized;
@@ -149,14 +131,12 @@ export class Control {
       ...options,
       deadline: options.deadline ?? Date.now() + 5000,
     };
-    if (cancelled(timed.stopping) || timed.quit?.aborted)
-      throw Error("Cancelled");
+    if (cancelled(timed.stopping) || timed.quit?.aborted) throw Error("Cancelled");
     await this.ready(timed);
     return this.requestRaw(method, params, timed);
   }
   requestRaw(method: string, params: any, options: Options = {}) {
-    if (cancelled(options.stopping) || options.quit?.aborted)
-      return Promise.reject(Error("Cancelled"));
+    if (cancelled(options.stopping) || options.quit?.aborted) return Promise.reject(Error("Cancelled"));
     this.start();
     const id = String(++this.next);
     return new Promise<any>((resolve, reject) => {
@@ -174,9 +154,7 @@ export class Control {
       );
       const signal = options.quit?.abortSignal;
       const stoppingSignal =
-        options.stopping &&
-        typeof options.stopping === "object" &&
-        "addEventListener" in options.stopping
+        options.stopping && typeof options.stopping === "object" && "addEventListener" in options.stopping
           ? (options.stopping as AbortSignal)
           : null;
       const cleanup = () => {
@@ -200,7 +178,7 @@ export class Control {
               request_id: id,
               request: { subtype: method, skip_behaviors: true, ...params },
             };
-      this.child!.stdin.write(JSON.stringify(value) + "\n", (error) => {
+      this.child!.stdin.write(JSON.stringify(value) + "\n", error => {
         if (error) this.close(Error("HarnessExited"));
       });
     });

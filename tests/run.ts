@@ -32,37 +32,28 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--dev") dev = true;
   else if (arg === "--jobs" || arg === "-j") {
     jobs = Number(args[++i]);
-    if (!Number.isInteger(jobs) || jobs < 1)
-      throw new Error(`${arg} requires a positive integer`);
+    if (!Number.isInteger(jobs) || jobs < 1) throw new Error(`${arg} requires a positive integer`);
   } else if (arg === "--corgi" || arg === "--herdr") {
     const value = args[++i];
     if (!value) throw new Error(`${arg} requires a path`);
-    env[arg === "--corgi" ? "CORGI_TEST_BIN" : "HERDR_TEST_BIN"] =
-      resolve(value);
-  } else if (arg.startsWith("-"))
-    throw new Error(`Unknown option ${arg}; put bun test options after --`);
+    env[arg === "--corgi" ? "CORGI_TEST_BIN" : "HERDR_TEST_BIN"] = resolve(value);
+  } else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}; put bun test options after --`);
   else selected.push(arg.replace(/^.*\//, "").replace(/\.test\.ts$/, ""));
 }
 const available = readdirSync(import.meta.dir)
-  .filter((file) => file.endsWith(".test.ts"))
+  .filter(file => file.endsWith(".test.ts"))
   .sort();
 const suites = selected.length
-  ? available.filter((file) => selected.includes(file.slice(0, -8)))
-  : available.filter(
-      (file) =>
-        (external || file !== "herdr_handoff.test.ts") &&
-        (dev || file !== "dev.test.ts"),
-    );
-for (const name of selected)
-  if (!available.includes(name + ".test.ts"))
-    throw new Error(`Unknown suite: ${name}`);
+  ? available.filter(file => selected.includes(file.slice(0, -8)))
+  : available.filter(file => (external || file !== "herdr_handoff.test.ts") && (dev || file !== "dev.test.ts"));
+for (const name of selected) if (!available.includes(name + ".test.ts")) throw new Error(`Unknown suite: ${name}`);
 if (list) {
   console.log(suites.join("\n"));
   process.exit(0);
 }
 if (check) {
   const result = await Bun.build({
-    entrypoints: suites.map((file) => resolve(import.meta.dir, file)),
+    entrypoints: suites.map(file => resolve(import.meta.dir, file)),
     target: "bun",
   });
   for (const log of result.logs) console.error(log);
@@ -71,17 +62,14 @@ if (check) {
   );
   process.exit(result.success ? 0 : 1);
 }
-if (suites.includes("herdr_handoff.test.ts"))
-  env.HERDR_TEST_BIN ??= Bun.which("herdr") || "herdr";
+if (suites.includes("herdr_handoff.test.ts")) env.HERDR_TEST_BIN ??= Bun.which("herdr") || "herdr";
 // Previous durations let the slowest suites start first.
 const timingsPath = resolve(import.meta.dir, "../.zig-cache/test-timings.json");
 let timings: Record<string, number> = {};
 try {
   timings = JSON.parse(readFileSync(timingsPath, "utf8"));
 } catch {}
-const queue = [...suites].sort(
-  (a, b) => (timings[b] ?? Infinity) - (timings[a] ?? Infinity),
-);
+const queue = [...suites].sort((a, b) => (timings[b] ?? Infinity) - (timings[a] ?? Infinity));
 const results: { suite: string; code: number; seconds: number }[] = [];
 const children = new Set<ReturnType<typeof Bun.spawn>>();
 let interrupted = false;
@@ -97,13 +85,7 @@ async function runSuite(suite: string) {
   // Parallel suites buffer their output so each prints as one block.
   const child = Bun.spawn(
     // Bounds overlap within suites whose cases are marked concurrent.
-    [
-      process.execPath,
-      "test",
-      "--max-concurrency=4",
-      resolve(import.meta.dir, suite),
-      ...forwarded,
-    ],
+    [process.execPath, "test", "--max-concurrency=4", resolve(import.meta.dir, suite), ...forwarded],
     {
       cwd: resolve(import.meta.dir, ".."),
       env,
@@ -140,11 +122,6 @@ try {
 results.sort((a, b) => a.suite.localeCompare(b.suite));
 console.log("\nSuite results:");
 for (const result of results)
-  console.log(
-    `${result.code === 0 ? "PASS" : "FAIL"}  ${result.suite}  ${result.seconds.toFixed(1)}s`,
-  );
-if (interrupted)
-  console.error(`Interrupted after ${results.length}/${suites.length} suites.`);
-process.exit(
-  interrupted ? 130 : results.some((result) => result.code !== 0) ? 1 : 0,
-);
+  console.log(`${result.code === 0 ? "PASS" : "FAIL"}  ${result.suite}  ${result.seconds.toFixed(1)}s`);
+if (interrupted) console.error(`Interrupted after ${results.length}/${suites.length} suites.`);
+process.exit(interrupted ? 130 : results.some(result => result.code !== 0) ? 1 : 0);

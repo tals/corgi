@@ -1,12 +1,5 @@
 /** Smoke coverage for terminal input, sidebar targeting, and native tool activity. */
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, EXE, PALETTE, screen_text } from "./runtime";
 import { registerCase, run, quote, sleep, writeExecutable } from "./support";
@@ -29,12 +22,8 @@ class SmokeInput extends Runtime {
     this.assertTrue(screen[23].slice(28).startsWith("BOTTOM_23"));
     await this.click(31, 2);
     await this.click(31, 24);
-    let expected = Buffer.from(
-      "\x1b[<0;3;1M\x1b[<0;3;1m\x1b[<0;3;23M\x1b[<0;3;23m",
-    );
-    await this.until(
-      () => existsSync(log) && readFileSync(log).equals(expected),
-    );
+    let expected = Buffer.from("\x1b[<0;3;1M\x1b[<0;3;1m\x1b[<0;3;23M\x1b[<0;3;23m");
+    await this.until(() => existsSync(log) && readFileSync(log).equals(expected));
     for (const button of [64, 65, 66, 67, 72, 73, 74, 75]) {
       await this.input(`\x1b[<${button};31;2M`);
       expected = Buffer.concat([expected, Buffer.from(`\x1b[<${button};3;1M`)]);
@@ -48,18 +37,13 @@ class SmokeInput extends Runtime {
       event: { hook_event_name: "SessionStart", session_id: "geometry" },
     });
     let frame = (await this.get_type("frame")).data;
-    while (!frame.includes("claude"))
-      frame = (await this.get_type("frame")).data;
+    while (!frame.includes("claude")) frame = (await this.get_type("frame")).data;
     this.assertIn("\x1b[2;30H\x1b[?25h", frame);
-    this.assertTrue(screen_text(frame).some((row) => row.includes("claude")));
+    this.assertTrue(screen_text(frame).some(row => row.includes("claude")));
     await this.input("\x1b[<4;29;2M\x1b[<36;31;2M\x1b[<4;31;2m");
     frame = (await this.get_type("frame")).data;
-    while (!frame.startsWith("\x1b]52;c;"))
-      frame = (await this.get_type("frame")).data;
-    this.assertEqual(
-      Buffer.from(frame.slice(7, -1), "base64"),
-      Buffer.from("TOP"),
-    );
+    while (!frame.startsWith("\x1b]52;c;")) frame = (await this.get_type("frame")).data;
+    this.assertEqual(Buffer.from(frame.slice(7, -1), "base64"), Buffer.from("TOP"));
     await this.split_pane("down", { cwd: this.temp.name, command });
     screen = await this.frame_with("TOP_10x50", 80, 24, 13);
     this.assertTrue(screen[2].slice(29).startsWith("TOP_10x50"));
@@ -93,9 +77,7 @@ class SmokeInput extends Runtime {
     await this.input("0~printf PASTED > pasted");
     await this.input("\x1b[201~");
     await this.input("\r");
-    await this.until(
-      () => existsSync(pasted) && readFileSync(pasted, "utf8") === "PASTED",
-    );
+    await this.until(() => existsSync(pasted) && readFileSync(pasted, "utf8") === "PASTED");
     await this.input("\x1b[<0;54;10M\x1b[<32;60;10M\x1b[<0;60;10m");
     await this.input("\x02c");
     await this.frame_with("New terminal");
@@ -132,11 +114,7 @@ class SmokeInput extends Runtime {
     let screen = await this.frame_with("No agents yet");
     this.assertTrue(screen[0].startsWith(" workspaces"));
     const transcript = join(this.temp.name, "sidebar.jsonl");
-    writeFileSync(
-      transcript,
-      JSON.stringify({ type: "session_meta", payload: { id: session } }) +
-        "\n",
-    );
+    writeFileSync(transcript, JSON.stringify({ type: "session_meta", payload: { id: session } }) + "\n");
     const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
     observer.paths[session] = transcript;
     try {
@@ -161,10 +139,7 @@ class SmokeInput extends Runtime {
         timeout: 3000,
         check: false,
       });
-      this.assertEqual(
-        [result.code, result.stdout, result.stderr],
-        [0, "", ""],
-      );
+      this.assertEqual([result.code, result.stdout, result.stderr], [0, "", ""]);
       if (event === "Stop")
         appendFileSync(
           transcript,
@@ -178,18 +153,18 @@ class SmokeInput extends Runtime {
     await hook("SessionStart");
     screen = await this.agent_frame("codex", "○", "", PALETTE.muted);
     this.assertNotIn("SessionStart", screen.join("\n"));
-    this.assertNotIn("Alpha", screen.map((r) => r.slice(0, 27)).join("\n"));
+    this.assertNotIn("Alpha", screen.map(r => r.slice(0, 27)).join("\n"));
     await hook("UserPromptSubmit");
     await this.agent_frame("codex", "▶", "thinking", PALETTE.accent);
     await hook("PreToolUse", { tool_name: "Bash" });
     screen = await this.agent_frame("codex", "▶", "🔧");
     this.assertTrue((await this.panes())[0].tool_active);
-    this.assertNotIn("Bash", screen.map((r) => r.slice(0, 27)).join("\n"));
+    this.assertNotIn("Bash", screen.map(r => r.slice(0, 27)).join("\n"));
     await hook("PreToolUse", { tool_name: "request_user_input" });
     screen = await this.agent_frame("codex", "●", "🔧", PALETTE.warm);
     this.assertEqual((await this.panes())[0].attention, "needs_input");
     await this.click_text(
-      screen.map((r) => r.slice(0, 27)),
+      screen.map(r => r.slice(0, 27)),
       "codex",
     );
     await this.until(async () => {
@@ -199,7 +174,7 @@ class SmokeInput extends Runtime {
     this.assertEqual((await this.panes())[0].state, "blocked");
     await this.rpc({ op: "action", name: "rename", value: "Renamed" });
     screen = await this.tab_frame("Renamed");
-    this.assertNotIn("Renamed", screen.map((r) => r.slice(0, 27)).join("\n"));
+    this.assertNotIn("Renamed", screen.map(r => r.slice(0, 27)).join("\n"));
     await hook("PostToolUse", { tool_name: "request_user_input" });
     await hook("PostToolUse", { tool_name: "Bash" });
     await this.agent_frame("codex", "▶", "thinking");
@@ -210,14 +185,12 @@ class SmokeInput extends Runtime {
     await hook("SessionEnd");
     await this.agent_frame("codex", "○", "", PALETTE.muted);
     this.assertEqual(
-      (await this.session()).conversations.find(
-        (c: any) => c.agent.session === session,
-      ).agent.state,
+      (await this.session()).conversations.find((c: any) => c.agent.session === session).agent.state,
       "done",
     );
     await this.command("pane.close", { target: one });
     screen = await this.frame_with("No agents yet");
-    this.assertNotIn("Renamed", screen.map((r) => r.slice(0, 27)).join("\n"));
+    this.assertNotIn("Renamed", screen.map(r => r.slice(0, 27)).join("\n"));
     await this.click(25, 1);
     screen = await this.frame_with(" > ");
     this.assertTrue(screen[0].startsWith(" > "));
@@ -255,7 +228,7 @@ class SmokeInput extends Runtime {
       "Agent-11",
       screen
         .slice(12, 23)
-        .map((r) => r.slice(0, 27))
+        .map(r => r.slice(0, 27))
         .join("\n"),
     );
     await this.input("\x1b[<65;5;15M");
@@ -266,10 +239,7 @@ class SmokeInput extends Runtime {
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
       "Agent-8",
     );
-    await this.until(
-      async () =>
-        (await this.panes()).find((p: any) => p.focused).id === panes[8],
-    );
+    await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[8]);
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     await this.command("pane.close", { target: panes[11] });
     screen = await this.scrollbar_with("││││┃┃┃┃┃┃│");
@@ -277,10 +247,7 @@ class SmokeInput extends Runtime {
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
       "Agent-8",
     );
-    await this.until(
-      async () =>
-        (await this.panes()).find((p: any) => p.focused).id === panes[8],
-    );
+    await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[8]);
     await this.write({ op: "size", cols: 30, rows: 8 });
     screen = await this.frame_with(" + ", 30, 8);
     this.assertNotIn("agents", screen[0]);
@@ -331,9 +298,7 @@ class SmokeInput extends Runtime {
   }
   async test_launched_and_restored_agents_scroll_into_view() {
     for (let index = 0; index < 7; index++) {
-      const pane = (
-        await this.open_pane({ cwd: this.temp.name, command: "sleep 30" })
-      ).pane;
+      const pane = (await this.open_pane({ cwd: this.temp.name, command: "sleep 30" })).pane;
       await this.rpc({
         op: "hook",
         pane,
@@ -349,9 +314,7 @@ class SmokeInput extends Runtime {
     await this.click(20, 12);
     let pane = 0;
     await this.until(async () => {
-      pane = (await this.session()).panes.find(
-        (p: any) => !before.includes(p.id),
-      )?.id;
+      pane = (await this.session()).panes.find((p: any) => !before.includes(p.id))?.id;
       return pane !== undefined;
     });
     await this.command("pane.rename", { name: "Launched", target: pane });
@@ -367,7 +330,7 @@ class SmokeInput extends Runtime {
       "Launched",
       screen
         .slice(13)
-        .map((r) => r.slice(0, 27))
+        .map(r => r.slice(0, 27))
         .join("\n"),
     );
     await this.command("pane.close", { target: pane });
@@ -377,9 +340,7 @@ class SmokeInput extends Runtime {
     const open = (await this.session()).panes.map((p: any) => p.id);
     await this.rpc({ op: "action", name: "undo-close" });
     await this.until(async () => {
-      pane = (await this.session()).panes.find(
-        (p: any) => !open.includes(p.id),
-      )?.id;
+      pane = (await this.session()).panes.find((p: any) => !open.includes(p.id))?.id;
       return pane !== undefined;
     });
     await this.command("pane.rename", { name: "Reopened", target: pane });
@@ -394,15 +355,13 @@ class SmokeInput extends Runtime {
     await this.until(async () =>
       screen_text((await this.client!.poll()).data, 80, 24)
         .slice(13)
-        .some((row) => row.slice(0, 27).includes("Reopened")),
+        .some(row => row.slice(0, 27).includes("Reopened")),
     );
   }
   async test_sidebar_keeps_provider_and_activity_separate_from_directory_and_tab_title() {
     const project = join(this.temp.name, "frontend");
     mkdirSync(project);
-    const pane = (
-      await this.open_pane({ cwd: this.temp.name, title: "Unrelated tab name" })
-    ).pane;
+    const pane = (await this.open_pane({ cwd: this.temp.name, title: "Unrelated tab name" })).pane;
     await this.rpc({
       op: "hook",
       pane,
@@ -416,12 +375,9 @@ class SmokeInput extends Runtime {
       target: pane,
       data: "cd " + quote(project) + "\r",
     });
-    await this.until(
-      async () =>
-        realpathSync((await this.panes())[0].cwd) === realpathSync(project),
-    );
+    await this.until(async () => realpathSync((await this.panes())[0].cwd) === realpathSync(project));
     let screen = await this.agent_frame("claude", "○");
-    this.assertNotIn("Unrelated", screen.map((r) => r.slice(0, 27)).join("\n"));
+    this.assertNotIn("Unrelated", screen.map(r => r.slice(0, 27)).join("\n"));
     await this.rpc({
       op: "hook",
       pane,
@@ -435,10 +391,7 @@ class SmokeInput extends Runtime {
       },
     });
     screen = await this.agent_frame("claude", "▶", "🔧");
-    this.assertEqual(
-      (await this.session()).panes[0].agent.cwd,
-      "/a/very/long/working/directory/backend",
-    );
+    this.assertEqual((await this.session()).panes[0].agent.cwd, "/a/very/long/working/directory/backend");
     this.assertIn("Read", screen[14]);
     await this.rpc({
       op: "hook",
@@ -472,15 +425,12 @@ class SmokeInput extends Runtime {
     });
     const screen = await this.agent_frame("codex", "●", "🔧", PALETTE.warm);
     await this.click_text(
-      screen.map((r) => r.slice(0, 27)),
+      screen.map(r => r.slice(0, 27)),
       "codex",
     );
     await this.frame_with(`corgi native events ${ident}`);
     const session = (await this.rpc({ op: "native.list" })).sessions[0];
-    this.assertEqual(
-      [session.pending_requests, session.attention],
-      [1, "needs_input"],
-    );
+    this.assertEqual([session.pending_requests, session.attention], [1, "needs_input"]);
     await this.rpc({
       op: "native.send",
       session: ident,
@@ -494,9 +444,7 @@ class SmokeInput extends Runtime {
     });
     // Ended is faint, but the clicked row is selected, where faint becomes muted.
     await this.agent_frame("codex", "○", "", PALETTE.muted);
-    await this.until(
-      async () => (await this.rpc({ op: "native.list" })).sessions[0].exited,
-    );
+    await this.until(async () => (await this.rpc({ op: "native.list" })).sessions[0].exited);
     await this.rpc({ op: "native.stop", session: ident });
     await this.frame_with("No agents yet");
   }
@@ -504,9 +452,7 @@ class SmokeInput extends Runtime {
     await this.attach();
     await this.get_type("frame");
     for (const provider of ["codex", "claude"]) {
-      const ident = (
-        await this.rpc({ op: "native.start", provider, cwd: this.temp.name })
-      ).session;
+      const ident = (await this.rpc({ op: "native.start", provider, cwd: this.temp.name })).session;
       await this.agent_frame(provider, "○");
       const send = (method: string, tool = "a") =>
         this.rpc({
@@ -517,9 +463,7 @@ class SmokeInput extends Runtime {
       const count = (n: number) =>
         this.until(
           async () =>
-            (await this.rpc({ op: "native.list" })).sessions.find(
-              (s: any) => s.id === ident,
-            ).active_tools === n,
+            (await this.rpc({ op: "native.list" })).sessions.find((s: any) => s.id === ident).active_tools === n,
         );
       await send("tool-start");
       await count(1);

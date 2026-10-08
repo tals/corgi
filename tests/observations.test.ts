@@ -1,12 +1,4 @@
-import {
-  appendFileSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
@@ -23,15 +15,9 @@ class Observations extends Runtime {
   async setUp() {
     await super.setUp();
     const terminal = write_codex_terminal(join(this.temp.name, "codex"), SESSION);
-    this.pane = (
-      await this.command("pane.create", { workspace: 1, command: shellJoin([terminal]) })
-    ).pane;
+    this.pane = (await this.command("pane.create", { workspace: 1, command: shellJoin([terminal]) })).pane;
     this.log = join(this.temp.name, "transcript.jsonl");
-    writeFileSync(
-      this.log,
-      JSON.stringify({ type: "session_meta", payload: { id: SESSION } }) +
-        "\n",
-    );
+    writeFileSync(this.log, JSON.stringify({ type: "session_meta", payload: { id: SESSION } }) + "\n");
     this.seq = Math.floor(Date.now() * 1000);
     this.turn = 0;
     const observer = new CodexObserver(this.env.CODEX_HOME!, [SESSION]);
@@ -43,11 +29,7 @@ class Observations extends Runtime {
     await this.advance(5);
     await this.hook("SessionStart", "codex", { turn_id: "" });
   }
-  async hook(
-    event: string,
-    provider = "codex",
-    extra: Record<string, any> = {},
-  ) {
+  async hook(event: string, provider = "codex", extra: Record<string, any> = {}) {
     this.seq = Math.max(this.seq + 1, Math.floor(Date.now() * 1000));
     return this.rpc({
       op: "hook",
@@ -101,10 +83,7 @@ class Observations extends Runtime {
     await this.hook("UserPromptSubmit");
     await this.hook("Stop");
     await this.settle();
-    this.assertEqual(
-      [(await this.state()).state, (await this.state()).unread],
-      ["working", false],
-    );
+    this.assertEqual([(await this.state()).state, (await this.state()).unread], ["working", false]);
     this.append("task_complete", "old");
     await this.settleTranscript();
     this.assertFalse((await this.state()).unread);
@@ -126,10 +105,7 @@ class Observations extends Runtime {
     await this.finish();
     await this.hook("Stop");
     await this.settle();
-    this.assertEqual(
-      [(await this.state()).state, (await this.state()).completed],
-      ["idle", 1],
-    );
+    this.assertEqual([(await this.state()).state, (await this.state()).completed], ["idle", 1]);
     this.turn = 2;
     await this.hook("UserPromptSubmit");
     await this.hook("Stop", "codex", { turn_id: "1" });
@@ -143,9 +119,7 @@ class Observations extends Runtime {
     await this.hook("UserPromptSubmit");
     await this.hook("Interrupt");
     this.assertTrue((await this.state()).unread);
-    const agent = (await this.session()).panes.find(
-      (p: any) => p.id === this.pane,
-    ).agent;
+    const agent = (await this.session()).panes.find((p: any) => p.id === this.pane).agent;
     this.assertEqual(agent.observation.outcome, "interrupted");
     this.assertEqual(agent.state, "idle");
     await this.hook("Interrupt");
@@ -156,21 +130,13 @@ class Observations extends Runtime {
     await this.hook("PreToolUse", "codex", { tool_name: "Bash" });
     await this.hook("PermissionRequest", "codex", { tool_name: "Bash" });
     await this.settle();
-    this.assertEqual(
-      [(await this.state()).state, (await this.state()).attention],
-      ["working", "none"],
-    );
+    this.assertEqual([(await this.state()).state, (await this.state()).attention], ["working", "none"]);
     await this.hook("PostToolUse", "codex", { tool_name: "Bash" });
-    this.assertEqual(
-      [(await this.state()).state, (await this.state()).attention],
-      ["working", "none"],
-    );
+    this.assertEqual([(await this.state()).state, (await this.state()).attention], ["working", "none"]);
   }
   async test_read_receipt_does_not_clear_a_newer_permission_prompt() {
     await this.finish();
-    const stamp = (await this.session()).panes.find(
-      (p: any) => p.id === this.pane,
-    ).agent.changed_at;
+    const stamp = (await this.session()).panes.find((p: any) => p.id === this.pane).agent.changed_at;
     this.turn = 2;
     await this.hook("UserPromptSubmit");
     await this.hook("PreToolUse", "codex", { tool_name: "request_user_input" });
@@ -216,9 +182,7 @@ class Observations extends Runtime {
     this.assertFalse((await this.state()).unread);
   }
   async test_active_viewer_visits_read_background_viewer_does_not() {
-    const other = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
-    ).pane;
+    const other = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     const v = await Viewer.create(this);
     await v.focus(other);
     await this.finish();
@@ -249,10 +213,7 @@ class Observations extends Runtime {
   async test_bad_identity_symlink_and_oversized_record() {
     this.turn = 1;
     await this.hook("UserPromptSubmit");
-    writeFileSync(
-      this.log,
-      JSON.stringify({ type: "session_meta", payload: { id: "other" } }) + "\n",
-    );
+    writeFileSync(this.log, JSON.stringify({ type: "session_meta", payload: { id: "other" } }) + "\n");
     await this.hook("Stop");
     this.append();
     await this.settleTranscript();
@@ -269,10 +230,7 @@ class Observations extends Runtime {
     await this.hook("UserPromptSubmit");
     writeFileSync(
       this.log,
-      JSON.stringify({ type: "session_meta", payload: { id: SESSION } }) +
-        "\n" +
-        "x".repeat(300000) +
-        "\n",
+      JSON.stringify({ type: "session_meta", payload: { id: SESSION } }) + "\n" + "x".repeat(300000) + "\n",
     );
     await this.hook("Stop");
     this.append();
@@ -323,14 +281,11 @@ class Observations extends Runtime {
     await event("turn/started", "one");
     await this.until(async () => (await snapshot()).state === "working");
     await event("turn/completed", "one", "completed");
-    await this.until(
-      async () => (await snapshot()).observation.completed === 1,
-    );
+    await this.until(async () => (await snapshot()).observation.completed === 1);
     await event("turn/started", "two");
     await this.until(async () => (await snapshot()).state === "working");
     this.assertEqual((await snapshot()).observation.read, 0);
-    const seq = async () =>
-      (await this.rpc({ op: "native.events", session: ident })).next_seq;
+    const seq = async () => (await this.rpc({ op: "native.events", session: ident })).next_seq;
     const before = await seq();
     await event("turn/completed", "one", "completed");
     // The stale completion goes through the provider process, not a worker.
@@ -366,26 +321,18 @@ class Observations extends Runtime {
     await this.until(async () => (await this.state()).unread);
     await this.hook("Stop", "claude");
     await this.settle();
-    this.assertEqual(
-      [(await this.state()).state, (await this.state()).completed],
-      ["idle", 1],
-    );
+    this.assertEqual([(await this.state()).state, (await this.state()).completed], ["idle", 1]);
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     await this.hook("Stop", "claude");
     await this.settle();
-    this.assertEqual(
-      [(await this.state()).state, (await this.state()).completed],
-      ["idle", 1],
-    );
+    this.assertEqual([(await this.state()).state, (await this.state()).completed], ["idle", 1]);
     await this.hook("UserPromptSubmit", "claude");
     await this.hook("Stop", "claude");
     write("system", "turn_duration");
     await this.until(async () => (await this.state()).completed === 2);
   }
   async test_claude_works_on_while_its_stop_lists_running_subagents() {
-    this.pane = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
-    ).pane;
+    this.pane = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     const lane = (id: string, description: string) => ({
       id,
       type: "subagent",
@@ -393,19 +340,15 @@ class Observations extends Runtime {
       description,
       agent_type: "general-purpose",
     });
-    const stop = (...lanes: any[]) =>
-      this.hook("Stop", "claude", { background_tasks: lanes });
+    const stop = (...lanes: any[]) => this.hook("Stop", "claude", { background_tasks: lanes });
     const parent = async () => {
       const snapshot = await this.session();
-      const id = snapshot.panes.find((p: any) => p.id === this.pane).agent
-        .conversation;
+      const id = snapshot.panes.find((p: any) => p.id === this.pane).agent.conversation;
       const conversations = snapshot.conversations;
       return {
         ...conversations.find((c: any) => c.id === id),
         children: Object.fromEntries(
-          conversations
-            .filter((c: any) => c.parent === id)
-            .map((c: any) => [c.agent.activity, c.agent.state]),
+          conversations.filter((c: any) => c.parent === id).map((c: any) => [c.agent.activity, c.agent.state]),
         ),
       };
     };
@@ -448,9 +391,7 @@ class Observations extends Runtime {
     );
     await this.until(async () => {
       const snapshot = await this.session();
-      const lane = snapshot.conversations.find(
-        (c: any) => c.agent.activity === "Lane A",
-      );
+      const lane = snapshot.conversations.find((c: any) => c.agent.activity === "Lane A");
       return lane?.usage.tokens.input === 40;
     });
     // Each counts from its launch, while the turn that launched it runs.
@@ -506,9 +447,7 @@ class Observations extends Runtime {
     this.assertEqual(seen.children, { "Lane A": "idle", "Lane B": "idle" });
   }
   async test_claude_pauses_while_its_monitor_or_wakeup_can_wake_it() {
-    this.pane = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
-    ).pane;
+    this.pane = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     // A stand-in for the Claude process that sends the hooks.
     const script = join(this.temp.name, "claude");
     writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.2; done\n", {
@@ -552,9 +491,7 @@ class Observations extends Runtime {
       };
       const wakeup = {
         background_tasks: [],
-        session_crons: [
-          { id: "c1", schedule: "0 9 * * *", recurring: false, prompt: "go" },
-        ],
+        session_crons: [{ id: "c1", schedule: "0 9 * * *", recurring: false, prompt: "go" }],
       };
       const notice = (id: string, status: string) =>
         record("queue-operation", {
@@ -584,10 +521,7 @@ class Observations extends Runtime {
         session_crons: [],
       });
       const seen = await this.state();
-      this.assertEqual(
-        [seen.state, seen.unread, seen.paused],
-        ["idle", true, true],
-      );
+      this.assertEqual([seen.state, seen.unread, seen.paused], ["idle", true, true]);
       // A settle checks the pause: Claude still runs, so it holds.
       await this.settle();
       this.assertTrue((await this.state()).paused);

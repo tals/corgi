@@ -6,9 +6,7 @@ const hero = { motion: { start: 0, cell: { width: 18, height: 40 } } };
 test("the spring overshoots, then settles on its end", () => {
   expect(f.spring(0)).toBe(0);
   expect(f.spring(1)).toBe(1);
-  const peak = Math.max(
-    ...Array.from({ length: 100 }, (_, i) => f.spring(i / 100)),
-  );
+  const peak = Math.max(...Array.from({ length: 100 }, (_, i) => f.spring(i / 100)));
   expect(peak).toBeGreaterThan(1.05);
   expect(peak).toBeLessThan(1.25);
 });
@@ -34,13 +32,8 @@ test("the node leads the growing line, then the branches lift apart", () => {
     late = f.frameAt(hero, 467);
   expect(early.placed).toBe(4);
   expect(late.placements[0].y).toBeLessThan(early.placements[0].y);
-  expect(late.placements[1].crop!.h).toBeGreaterThan(
-    early.placements[1].crop!.h,
-  );
-  expect(
-    late.placements[0].image !== early.placements[0].image ||
-      late.placements[0].image === 730108,
-  ).toBe(true);
+  expect(late.placements[1].crop!.h).toBeGreaterThan(early.placements[1].crop!.h);
+  expect(late.placements[0].image !== early.placements[0].image || late.placements[0].image === 730108).toBe(true);
 });
 test("placements land inside their anchor cell, and only while moving", () => {
   for (let t = 0; t <= 640; t += 7) {
@@ -63,12 +56,7 @@ test("the hero at rest is text: node glyphs where the host draws them, dots else
 test("images go out compressed, once each, and unpack to their pixels", () => {
   const sent = f.upload({ width: 9, height: 20 });
   expect(sent.split("a=t,").length - 1).toBe(16);
-  const pixels = inflateSync(
-    Buffer.from(
-      sent.slice(sent.indexOf(";") + 1, sent.indexOf("\x1b\\")),
-      "base64",
-    ),
-  );
+  const pixels = inflateSync(Buffer.from(sent.slice(sent.indexOf(";") + 1, sent.indexOf("\x1b\\")), "base64"));
   expect(pixels.length).toBe(9 * 20 * 4);
   const center = (10 * 9 + 4) * 4;
   expect([...pixels.subarray(center, center + 3)]).toEqual(colors.muted);

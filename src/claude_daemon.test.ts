@@ -23,14 +23,7 @@ test("a session attaches only to the live background job that holds it", () => {
       writeFileSync(join(directory, `${i + 100}.json`), JSON.stringify(record));
     writeFileSync(join(directory, "7.json"), '{"pid":');
     expect(jobIn(directory, "BG")?.text()).toBe("19e909c5");
-    for (const session of [
-      "terminal",
-      "exited",
-      "no-job",
-      "unsafe",
-      "future",
-      "missing",
-    ])
+    for (const session of ["terminal", "exited", "no-job", "unsafe", "future", "missing"])
       expect(jobIn(directory, session)).toBeNull();
     expect(jobIn("/nonexistent/sessions", "bg")).toBeNull();
     expect(attachCommand(new Text("19e909c5"))).toBe("claude attach 19e909c5");

@@ -5,24 +5,20 @@ import { Codex } from "../providers/codex";
 import { field, str, timestampMs } from "../providers/common";
 export { Text };
 export const usage_max_age = 600;
-export type Limits =
-  | "none"
-  | "metered"
-  | "rate_limited"
-  | { windows: [Window | null, Window | null] };
+export type Limits = "none" | "metered" | "rate_limited" | { windows: [Window | null, Window | null] };
 export function serializeLimits(value: Limits) {
   return typeof value === "string" ? { [value]: {} } : value;
 }
 export function restoreLimits(value: any): Limits {
   if (["none", "metered", "rate_limited"].includes(value)) return value;
   if (value && typeof value === "object") {
-    for (const kind of ["none", "metered", "rate_limited"] as const)
-      if (Object.hasOwn(value, kind)) return kind;
+    for (const kind of ["none", "metered", "rate_limited"] as const) if (Object.hasOwn(value, kind)) return kind;
     if (Array.isArray(value.windows) && value.windows.length === 2)
       return {
-        windows: value.windows.map((window: any) =>
-          window === null ? null : new Window(window),
-        ) as [Window | null, Window | null],
+        windows: value.windows.map((window: any) => (window === null ? null : new Window(window))) as [
+          Window | null,
+          Window | null,
+        ],
       };
   }
   throw Error("InvalidLimits");
@@ -49,11 +45,7 @@ export class Window {
   label() {
     const n = this.minutes;
     if (n === null || n <= 0) return "Window";
-    return n % 1440 === 0
-      ? `${n / 1440}d`
-      : n % 60 === 0
-        ? `${n / 60}h`
-        : `${n}m`;
+    return n % 1440 === 0 ? `${n / 1440}d` : n % 60 === 0 ? `${n / 60}h` : `${n}m`;
   }
   countdown(now: number) {
     if (this.reset_at === null) return null;
@@ -63,8 +55,7 @@ export class Window {
       days = Math.floor(m / 1440),
       hours = Math.floor(m / 60) % 24,
       mins = m % 60;
-    if (days)
-      return `${days}d` + (hours ? ` ${hours}h` : mins ? ` ${mins}m` : "");
+    if (days) return `${days}d` + (hours ? ` ${hours}h` : mins ? ` ${mins}m` : "");
     if (hours) return `${hours}h` + (mins ? ` ${mins}m` : "");
     return `${mins}m`;
   }
@@ -77,17 +68,9 @@ export function limits(value: any, provider: Provider): Limits {
   const windows = f.windows.map((name: string, i: number) => {
     const v = field(value, name),
       used = field(v, f.used);
-    if (
-      typeof used !== "number" ||
-      !Number.isFinite(used) ||
-      used < 0 ||
-      used > 100
-    )
-      return null;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) return null;
     const reported = field(v, "windowDurationMins"),
-      minutes =
-        f.minutes?.[i] ??
-        (Number.isInteger(reported) && reported > 0 ? reported : null);
+      minutes = f.minutes?.[i] ?? (Number.isInteger(reported) && reported > 0 ? reported : null);
     let reset_at: number | null = null;
     if (f.reset === "unix_seconds") {
       const n = field(v, "resetsAt");
@@ -97,10 +80,8 @@ export function limits(value: any, provider: Provider): Limits {
         offset = 0;
       const m = raw.match(/([+-])(\d{2}):(\d{2})$/);
       if (m) {
-        if (Number(m[2]) > 23 || Number(m[3]) > 59)
-          return new Window({ minutes, used: Math.round(used) });
-        offset =
-          (Number(m[2]) * 60 + Number(m[3])) * 60 * (m[1] === "-" ? -1 : 1);
+        if (Number(m[2]) > 23 || Number(m[3]) > 59) return new Window({ minutes, used: Math.round(used) });
+        offset = (Number(m[2]) * 60 + Number(m[3])) * 60 * (m[1] === "-" ? -1 : 1);
         raw = raw.slice(0, -6) + "Z";
       }
       const stamp = timestampMs(raw);
@@ -108,16 +89,14 @@ export function limits(value: any, provider: Provider): Limits {
     }
     return new Window({ minutes, used: Math.round(used), reset_at });
   }) as [Window | null, Window | null];
-  return windows.every((v) => v === null) ? "none" : { windows };
+  return windows.every(v => v === null) ? "none" : { windows };
 }
 export function codexAccount(value: any) {
   const info = new Info(),
     email = str(value, "email"),
     api = str(value, "type") === "apiKey";
   info.signed_in = value !== null;
-  info.account = new Text(
-    api ? "API key" : email || (!value ? "Not signed in" : "Signed in"),
-  );
+  info.account = new Text(api ? "API key" : email || (!value ? "Not signed in" : "Signed in"));
   info.plan = api ? new Text("API") : Codex.plan(str(value, "planType"));
   if (api) info.limits = "metered";
   return info;
@@ -132,18 +111,10 @@ export function claudeAccount(value: any) {
     external = method === "third_party",
     email = str(value, "email");
   info.account = new Text(
-    !logged
-      ? "Not signed in"
-      : api
-        ? "API key"
-        : external
-          ? "External provider"
-          : email || "Signed in",
+    !logged ? "Not signed in" : api ? "API key" : external ? "External provider" : email || "Signed in",
   );
   if (logged) {
-    info.plan = api
-      ? new Text("API")
-      : Claude.plan(str(value, "subscriptionType"), "");
+    info.plan = api ? new Text("API") : Claude.plan(str(value, "subscriptionType"), "");
     if (api || external) info.limits = "metered";
   }
   return info;

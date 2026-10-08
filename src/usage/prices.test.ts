@@ -13,8 +13,7 @@ test("model ids match their base model and family aliases", () => {
     expect(lookup(model)?.input).toBe(cost);
   expect(lookup("gpt-6-luna")?.label).toBe("luna");
   expect(lookup("opus")?.label).toBe("opus");
-  for (const model of ["claude-opus-55", "codex-auto-review", ""])
-    expect(lookup(model)).toBeNull();
+  for (const model of ["claude-opus-55", "codex-auto-review", ""]) expect(lookup(model)).toBeNull();
 });
 test("equivalent tokens rescale input and output separately", () => {
   const opus = lookup("claude-opus-5")!,

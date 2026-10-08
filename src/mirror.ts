@@ -114,7 +114,13 @@ export class Terminal {
     this.offset = Number(response.offset);
     // A match on the current viewport still needs its selection applied.
     this.known = null;
-    if (response.match) this.selection = { x: response.match.x, y: response.match.y, end_x: response.match.end_x, end_y: response.match.end_y };
+    if (response.match)
+      this.selection = {
+        x: response.match.x,
+        y: response.match.y,
+        end_x: response.match.end_x,
+        end_y: response.match.end_y,
+      };
     return true;
   }
   send(bytes: string | Uint8Array | number[]): void {
@@ -169,7 +175,15 @@ export class Terminal {
   caret(): { x: number; y: number } | null {
     return viewerNative.cursor(this.handle, false);
   }
-  rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: number | bigint | null): string {
+  rows(
+    pane: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    dimmed: boolean,
+    hovered: number | bigint | null,
+  ): string {
     return viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered);
   }
 }
@@ -206,9 +220,17 @@ export interface Agent {
 export function agent(value: any = {}): Agent {
   return {
     conversation: Number(value.conversation ?? 0),
-    subagents: { running: Number(value.subagents?.running ?? 0), blocked: Number(value.subagents?.blocked ?? 0), waiting: value.subagents?.waiting === true },
+    subagents: {
+      running: Number(value.subagents?.running ?? 0),
+      blocked: Number(value.subagents?.blocked ?? 0),
+      waiting: value.subagents?.waiting === true,
+    },
     name: value.name ?? "",
-    observation: { ...(value.observation ?? {}), completed: Number(value.observation?.completed ?? 0), read: Number(value.observation?.read ?? 0) },
+    observation: {
+      ...(value.observation ?? {}),
+      completed: Number(value.observation?.completed ?? 0),
+      read: Number(value.observation?.read ?? 0),
+    },
     recent_activity: value.recent_activity ?? "",
     changed_at: Number(value.changed_at ?? 0),
     provider: value.provider ?? null,
@@ -273,7 +295,7 @@ function workspace(value: any): Workspace {
   };
 }
 export function statsAny(stats: any): boolean {
-  return Object.values(stats ?? {}).some((v) => v !== 0 && v !== false && v !== null && v !== undefined && v !== "0");
+  return Object.values(stats ?? {}).some(v => v !== 0 && v !== false && v !== null && v !== undefined && v !== "0");
 }
 export interface Native {
   agent: Agent | null;
@@ -292,7 +314,11 @@ export interface Native {
 function native(value: any): Native {
   return {
     agent: value.agent ? agent(value.agent) : null,
-    observation: { ...(value.observation ?? {}), completed: Number(value.observation?.completed ?? 0), read: Number(value.observation?.read ?? 0) },
+    observation: {
+      ...(value.observation ?? {}),
+      completed: Number(value.observation?.completed ?? 0),
+      read: Number(value.observation?.read ?? 0),
+    },
     id: value.id,
     workspace: value.workspace,
     provider: value.provider,
@@ -308,11 +334,11 @@ function native(value: any): Native {
 export class Workspaces {
   items: Workspace[] = [];
   index(id: number): number | null {
-    const i = this.items.findIndex((ws) => ws.id === id);
+    const i = this.items.findIndex(ws => ws.id === id);
     return i < 0 ? null : i;
   }
   owner(pane: number): Workspace | null {
-    return this.items.find((ws) => ws.model.tabForPane(pane) !== null) ?? null;
+    return this.items.find(ws => ws.model.tabForPane(pane) !== null) ?? null;
   }
 }
 const max_workspaces = 32;
@@ -341,7 +367,7 @@ export class Runtime {
   agent_hidden = { codex: false, claude: false };
   agent_commands: CommandEntry[] = Array.from({ length: 6 }, () => commandEntry());
   pane(id: number): Pane | null {
-    return this.panes.find((p) => p.id === id) ?? null;
+    return this.panes.find(p => p.id === id) ?? null;
   }
   deinit(): void {
     for (const p of this.panes) p.terminal.destroy();
@@ -357,7 +383,8 @@ export class Runtime {
     const snapshot = value;
     const workspaces = snapshot?.workspaces ?? [];
     const infos = snapshot?.panes ?? [];
-    if (workspaces.length === 0 || workspaces.length > max_workspaces || infos.length > max_panes) throw Error("InvalidSnapshot");
+    if (workspaces.length === 0 || workspaces.length > max_workspaces || infos.length > max_panes)
+      throw Error("InvalidSnapshot");
     const parsed = workspaces.map(workspace);
     const created: Terminal[] = [];
     const panes: Pane[] = [];
@@ -387,7 +414,7 @@ export class Runtime {
       for (const term of created) term.destroy();
       throw error;
     }
-    for (const old of this.panes) if (!panes.some((p) => p.id === old.id)) old.terminal.destroy();
+    for (const old of this.panes) if (!panes.some(p => p.id === old.id)) old.terminal.destroy();
     this.snapshot = snapshot;
     this.snapshot_hash = null;
     this.panes = panes;
@@ -405,7 +432,10 @@ export class Runtime {
     this.ports = snapshot.ports ?? { workspaces: [] };
     this.last_agent = snapshot.last_agent ?? "codex";
     this.agent_yolo = { codex: snapshot.agent_yolo?.codex === true, claude: snapshot.agent_yolo?.claude === true };
-    this.agent_hidden = { codex: snapshot.agent_hidden?.codex === true, claude: snapshot.agent_hidden?.claude === true };
+    this.agent_hidden = {
+      codex: snapshot.agent_hidden?.codex === true,
+      claude: snapshot.agent_hidden?.claude === true,
+    };
     this.agent_commands = Array.from({ length: 6 }, (_, i) => commandEntry(snapshot.agent_commands?.[i]));
   }
 }

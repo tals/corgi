@@ -31,12 +31,7 @@ export class State {
     this.shown = false;
   }
   due(now: number) {
-    return (
-      !this.suppressed &&
-      this.target !== null &&
-      !this.shown &&
-      now - this.since >= 500
-    );
+    return !this.suppressed && this.target !== null && !this.shown && now - this.since >= 500;
   }
   ready(target: Target | null, now: number) {
     if (this.suppressed || !target) {

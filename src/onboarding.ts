@@ -15,8 +15,7 @@ import { Rect } from "./layout";
 import type { Connection } from "./rpc";
 import * as shortcut_help from "./shortcut_help";
 import * as ghostty_integration from "./ghostty_integration";
-export type Step =
-  "presets" | "keymap" | "connect" | "import" | "progress" | "complete";
+export type Step = "presets" | "keymap" | "connect" | "import" | "progress" | "complete";
 export type Mode = "welcome" | "keyboard" | "import";
 const Message = BoundedText(256);
 export class WorkspacePreview {
@@ -36,8 +35,7 @@ export class WorkspacePreview {
       remaining -= visible;
       details += tab.panes.length === 1 ? 1 : 1 + visible;
     }
-    const header =
-      1 + (ws.recovery === "full" ? 0 : ws.recovery === "workspace" ? 2 : 1);
+    const header = 1 + (ws.recovery === "full" ? 0 : ws.recovery === "workspace" ? 2 : 1);
     this.pane_limit = limit;
     this.hidden = Math.max(0, total - limit);
     this.rows = header + details + Number(foldable) + 1;
@@ -148,38 +146,30 @@ export class State {
   activeHandoff() {
     const list = this.items();
     return (
-      this.source === "herdr" &&
-      this.handoff &&
-      list.length > 0 &&
-      list[Math.min(this.cursor, list.length - 1)].handoff
+      this.source === "herdr" && this.handoff && list.length > 0 && list[Math.min(this.cursor, list.length - 1)].handoff
     );
   }
   chosen(index: number) {
     const list = this.items();
     return this.activeHandoff()
-      ? list[index].session ===
-          list[Math.min(this.cursor, list.length - 1)].session
+      ? list[index].session === list[Math.min(this.cursor, list.length - 1)].session
       : this.selected[index];
   }
   selectionCount() {
     return this.items().filter((_, i) => this.chosen(i)).length;
   }
   async begin(conn: Connection): Promise<boolean> {
-    if (!this.selectionCount())
-      return this.mode === "import" ? this.cancel() : true;
-    if (!this.operation)
-      this.operation = (randomBytes(8).readBigUInt64LE() >> 1n) | 1n;
+    if (!this.selectionCount()) return this.mode === "import" ? this.cancel() : true;
+    if (!this.operation) this.operation = (randomBytes(8).readBigUInt64LE() >> 1n) | 1n;
     if (this.activeHandoff()) {
       const list = this.items(),
         current = process.env.HERDR_PANE_ID;
       if (
         current &&
         list.some(
-          (ws) =>
+          ws =>
             ws.session === list[this.cursor].session &&
-            ws.tabs.some((tab) =>
-              tab.panes.some((pane) => pane.id === current),
-            ),
+            ws.tabs.some(tab => tab.panes.some(pane => pane.id === current)),
         )
       )
         throw Error("OpenCorgiOutsideHerdrFirst");
@@ -192,14 +182,13 @@ export class State {
       const selected = this.items().filter((_, i) => this.chosen(i));
       if (this.source === "herdr") {
         const first = selected[0].session;
-        if (selected.some((ws) => ws.session !== first))
-          throw Error("ChooseOneHerdrSession");
+        if (selected.some(ws => ws.session !== first)) throw Error("ChooseOneHerdrSession");
         await conn.call("onboarding.copy", {
           operation: this.operation,
           source: this.source,
           workspaces: selected,
           herdr_session: this.worker()!.herdr_scan!.sessions[first],
-          selected: selected.map((ws) => ws.id),
+          selected: selected.map(ws => ws.id),
         });
       } else
         await conn.call("onboarding.copy", {
@@ -228,22 +217,16 @@ export class State {
     if (this.step === "import") {
       if (!this.scan_finished && this.worker()?.done) {
         this.scan_finished = true;
-        this.cursor = Math.min(
-          this.cursor,
-          Math.max(0, this.items().length - 1),
-        );
+        this.cursor = Math.min(this.cursor, Math.max(0, this.items().length - 1));
         this.selectDefaults();
         return true;
       }
       return animation;
     }
-    if (this.step !== "progress" || milliTimestamp() - this.last_poll < 100)
-      return animation;
+    if (this.step !== "progress" || milliTimestamp() - this.last_poll < 100) return animation;
     this.last_poll = milliTimestamp();
     try {
-      this.progress = (
-        await conn.call("onboarding.status", { operation: this.operation })
-      ).progress;
+      this.progress = (await conn.call("onboarding.status", { operation: this.operation })).progress;
       if (this.progress.phase === "complete") this.step = "complete";
     } catch (error) {
       this.fail(error as Error);
@@ -253,27 +236,15 @@ export class State {
   selectDefaults() {
     if (this.selection_initialized || !this.worker()?.done) return;
     this.selection_initialized = true;
-    if (this.source === "tmux")
-      for (let i = 0; i < Math.min(3, this.items().length); i++)
-        this.selected[i] = true;
+    if (this.source === "tmux") for (let i = 0; i < Math.min(3, this.items().length); i++) this.selected[i] = true;
   }
   preview(ws: catalog.Workspace, index: number) {
-    return new WorkspacePreview(
-      ws,
-      this.step === "import",
-      this.expanded[index],
-    );
+    return new WorkspacePreview(ws, this.step === "import", this.expanded[index]);
   }
   toggleExpanded(index: number) {
     const list = this.items();
-    if (
-      index >= list.length ||
-      this.preview(list[index], index).toggle_row === null
-    )
-      return;
-    const row = list
-      .slice(0, index)
-      .reduce((n, w, i) => n + this.preview(w, i).rows, 0);
+    if (index >= list.length || this.preview(list[index], index).toggle_row === null) return;
+    const row = list.slice(0, index).reduce((n, w, i) => n + this.preview(w, i).rows, 0);
     this.expanded[index] = !this.expanded[index];
     this.scroll = row;
     this.reveal_cursor = false;
@@ -286,20 +257,15 @@ export class State {
     if (this.step === "presets") {
       const presets = km.available_presets,
         index = presets.indexOf(this.preset);
-      if (b === 106 || b === 14)
-        this.preset = presets[(index + 1) % presets.length];
-      else if (b === 107 || b === 16)
-        this.preset = presets[(index + presets.length - 1) % presets.length];
-      else if (b >= 49 && b <= 52 && b - 49 < presets.length)
-        this.preset = presets[b - 49];
-      else if ([112, 80, 32].includes(b))
-        this.prefix = this.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
+      if (b === 106 || b === 14) this.preset = presets[(index + 1) % presets.length];
+      else if (b === 107 || b === 16) this.preset = presets[(index + presets.length - 1) % presets.length];
+      else if (b >= 49 && b <= 52 && b - 49 < presets.length) this.preset = presets[b - 49];
+      else if ([112, 80, 32].includes(b)) this.prefix = this.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
       else if (b === 63) this.enterKeymap();
       else if (b === 9) this.focus = (this.focus + 1) % 3;
       else if (b === 27 && this.dismissable) return this.cancel();
       else if (b === 13) {
-        if (this.focus === 1)
-          this.prefix = this.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
+        if (this.focus === 1) this.prefix = this.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
         else if (this.focus === 2) this.enterKeymap();
         else if (this.preset === "cmux") this.step = "connect";
         else if (this.mode === "keyboard") return true;
@@ -322,17 +288,12 @@ export class State {
         } else this.setMessage("Press P for portable Herdr prefix keys, or Esc to choose again.");
       }
     } else if (this.step === "import") {
-      if (b === 115 || b === 83)
-        return this.mode === "import" ? this.cancel() : true;
+      if (b === 115 || b === 83) return this.mode === "import" ? this.cancel() : true;
       if (b === 27) {
         if (this.mode === "import") return this.cancel();
         this.step = "presets";
-      } else if (b >= 49 && b <= 51)
-        this.changeSource(
-          (["tmux", "herdr", "cmux"] as catalog.Source[])[b - 49],
-        );
-      else if (b === 104 && this.source === "herdr")
-        this.handoff = !this.handoff;
+      } else if (b >= 49 && b <= 51) this.changeSource((["tmux", "herdr", "cmux"] as catalog.Source[])[b - 49]);
+      else if (b === 104 && this.source === "herdr") this.handoff = !this.handoff;
       else if (b === 114) {
         const worker = this.worker();
         if (worker && !worker.done) return false;
@@ -343,19 +304,12 @@ export class State {
         this.selection_initialized = false;
         this.scan();
       } else if (b === 106 || b === 14) {
-        this.cursor = Math.min(
-          this.cursor + 1,
-          Math.max(0, this.items().length - 1),
-        );
+        this.cursor = Math.min(this.cursor + 1, Math.max(0, this.items().length - 1));
         this.reveal_cursor = true;
       } else if (b === 107 || b === 16) {
         this.cursor = Math.max(0, this.cursor - 1);
         this.reveal_cursor = true;
-      } else if (
-        (b === 32 || b === 120) &&
-        this.items().length &&
-        !this.activeHandoff()
-      )
+      } else if ((b === 32 || b === 120) && this.items().length && !this.activeHandoff())
         this.selected[this.cursor] = !this.selected[this.cursor];
       else if (b === 101 || b === 69) this.toggleExpanded(this.cursor);
       else if (b === 9) this.focus = (this.focus + 1) % 2;
@@ -382,23 +336,14 @@ export class State {
     if (this.step === "import" && (seq === "\x1b[C" || seq === "\x1b[D")) {
       const sources = catalog.available_sources,
         delta = seq[2] === "C" ? 1 : sources.length - 1;
-      this.changeSource(
-        sources[(sources.indexOf(this.source) + delta) % sources.length],
-      );
+      this.changeSource(sources[(sources.indexOf(this.source) + delta) % sources.length]);
     }
     return false;
   }
-  async click(
-    cols: number,
-    rows: number,
-    x: number,
-    y: number,
-    conn: Connection,
-  ): Promise<boolean> {
+  async click(cols: number, rows: number, x: number, y: number, conn: Connection): Promise<boolean> {
     if (this.step === "keymap") {
       if (shortcut_help.State.closeAt(cols, rows, x, y)) this.step = "presets";
-      if (shortcut_help.State.corgiAt(cols, rows, x, y))
-        this.help.play(milliTimestamp());
+      if (shortcut_help.State.corgiAt(cols, rows, x, y)) this.help.play(milliTimestamp());
       return false;
     }
     const b = bounds(cols, rows);
@@ -407,8 +352,7 @@ export class State {
       ry = y - b.y;
     if (ry === b.h - 3) {
       if (this.step === "presets") this.focus = 0;
-      if (rx < 15 && (this.step !== "presets" || this.dismissable))
-        return this.key(27, conn);
+      if (rx < 15 && (this.step !== "presets" || this.dismissable)) return this.key(27, conn);
       return this.key(13, conn);
     }
     if (this.step === "presets") {
@@ -419,8 +363,7 @@ export class State {
           this.focus = 0;
           return false;
         }
-      if (this.preset !== "cmux" && layout.prefix.contains(x, y))
-        return this.key("p", conn);
+      if (this.preset !== "cmux" && layout.prefix.contains(x, y)) return this.key("p", conn);
       if (ry === layout.help_y && rx >= layout.detail_x) {
         if (rx < layout.detail_x + 20) return this.key("?", conn);
         if (this.preset === "cmux") return this.key("p", conn);
@@ -463,7 +406,8 @@ export class State {
   frame(cols: number, rows: number): string {
     if (this.step === "import") this.selectDefaults();
     this.preset = km.supportedPreset(this.preset);
-    if (this.step === "keymap") return this.help.frame(cols, rows, this.preset, this.prefix, milliTimestamp(), "default");
+    if (this.step === "keymap")
+      return this.help.frame(cols, rows, this.preset, this.prefix, milliTimestamp(), "default");
     const w = new Writer();
     w.write(new palette.Style({ bg: "bg" }).sgr() + "\x1b[2J\x1b[?25l");
     const b = bounds(cols, rows);
@@ -472,7 +416,14 @@ export class State {
       return w.buffered();
     }
     box(w, b, false);
-    put(w, b, 2, 0, { welcome: " Welcome to Corgi ", keyboard: " Keyboard shortcuts ", import: " Import sessions " }[this.mode], bright);
+    put(
+      w,
+      b,
+      2,
+      0,
+      { welcome: " Welcome to Corgi ", keyboard: " Keyboard shortcuts ", import: " Import sessions " }[this.mode],
+      bright,
+    );
     put(
       w,
       b,
@@ -524,7 +475,15 @@ export class State {
       default:
         this.drawImport(w, b);
     }
-    if (this.message.len > 0) put(w, b, 3, b.h - ((this.step as Step) === "presets" || (this.step as Step) === "keymap" ? 4 : 5), this.message.text(), warm);
+    if (this.message.len > 0)
+      put(
+        w,
+        b,
+        3,
+        b.h - ((this.step as Step) === "presets" || (this.step as Step) === "keymap" ? 4 : 5),
+        this.message.text(),
+        warm,
+      );
     put(w, b, 3, b.h - 3, footerHint(this), dim);
     let cta: string;
     switch (this.step as Step) {
@@ -555,7 +514,14 @@ export class State {
         break;
     }
     put(w, b, sat(b.w, 27), b.h - 3, cta, this.step === "presets" && this.focus === 0 ? palette.keycap : bright);
-    put(w, b, 3, b.h - 2, this.step === "import" ? "←→ sources · ↑↓ choose · PgUp/PgDn scroll · R refresh · S skip" : "", dim);
+    put(
+      w,
+      b,
+      3,
+      b.h - 2,
+      this.step === "import" ? "←→ sources · ↑↓ choose · PgUp/PgDn scroll · R refresh · S skip" : "",
+      dim,
+    );
     w.write("\x1b[0m");
     return w.buffered();
   }
@@ -568,7 +534,8 @@ export class State {
       if (this.source === "herdr") {
         if (this.handoff && this.items().length > 0 && !this.activeHandoff())
           put(w, b, 3, 9, "Live handoff unavailable for this Herdr session; H switches to copy.", warm);
-        if (this.activeHandoff()) put(w, b, 3, 9, `All ${this.selectionCount()} workspaces in this session move together.`, dim);
+        if (this.activeHandoff())
+          put(w, b, 3, 9, `All ${this.selectionCount()} workspaces in this session move together.`, dim);
         put(
           w,
           b,
@@ -604,7 +571,14 @@ export class State {
       const y = this.step === "import" ? 8 : 9;
       put(w, b, 3, y, this.blink_closed ? "ᐱ─ᴥ─ᐱ" : "ᐱoᴥ°ᐱ", text);
       put(w, b, 10, y, "I'm confused by this cmux version.", warm);
-      put(w, b, 10, y + 1, this.step === "complete" ? "Imported what I could. See details below." : "I'll bring over what I can.", dim);
+      put(
+        w,
+        b,
+        10,
+        y + 1,
+        this.step === "complete" ? "Imported what I could. See details below." : "I'll bring over what I can.",
+        dim,
+      );
     }
     const wk = this.worker();
     if (wk) {
@@ -865,7 +839,14 @@ function drawPresets(w: Writer, b: Rect, s: State) {
   box(w, focus, false);
   put(w, focus, 2, 0, " Focus pane ", bright);
   const nav_y = focus.h === 6 ? 1 : 2;
-  put(w, focus, 2, nav_y, direct ? "[ Cmd+Option ]" : s.preset === "tmux" ? "Arrow keys" : "Home row", direct ? palette.keycap : dim);
+  put(
+    w,
+    focus,
+    2,
+    nav_y,
+    direct ? "[ Cmd+Option ]" : s.preset === "tmux" ? "Arrow keys" : "Home row",
+    direct ? palette.keycap : dim,
+  );
   const nav_x = Math.floor((focus.w - 17) / 2);
   put(w, focus, nav_x + 6, nav_y + 1, `[ ${cardKey(s, action("focus", "up"))} ]`, bright);
   put(
@@ -900,7 +881,9 @@ function drawSplitDiagram(w: Writer, b: Rect, down: boolean) {
     w.write("┤");
   } else {
     for (let row = 0; row < 3; row++)
-      w.write(`\x1b[${b.y + row + 1};${b.x + Math.floor(b.w / 2) + 1}H${border}${row === 0 ? "┬" : row === 2 ? "┴" : "│"}`);
+      w.write(
+        `\x1b[${b.y + row + 1};${b.x + Math.floor(b.w / 2) + 1}H${border}${row === 0 ? "┬" : row === 2 ? "┴" : "│"}`,
+      );
   }
 }
 function ghosttyHost(): boolean {

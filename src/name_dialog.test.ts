@@ -58,5 +58,15 @@ test("the fork card is roomy where it fits and plain where it doesn't", () => {
   expect(View.init(120, 12, d).card).toBeNull();
   const w = new Writer();
   v.draw(d, w, 0);
-  for (const text of ["Fork this agent", "Create Fork", "^C", "Clear", "Cancel", "┤", "●", selection + "refactor (fork)"]) expect(w.s).toContain(text);
+  for (const text of [
+    "Fork this agent",
+    "Create Fork",
+    "^C",
+    "Clear",
+    "Cancel",
+    "┤",
+    "●",
+    selection + "refactor (fork)",
+  ])
+    expect(w.s).toContain(text);
 });

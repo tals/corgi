@@ -18,14 +18,14 @@ import {
 } from "./ports";
 test("socket inventory scopes descendants without widening network selection", () => {
   const list = processes("10 1 10 sh\n11 10 10 bun\n12 11 12 server\n20 1 20 other\n21 20 20 server");
-  const roots = [{pid:10,pane:1,workspace:1,agent_pid:0}];
+  const roots = [{ pid: 10, pane: 1, workspace: 1, agent_pid: 0 }];
   const command = socketCommand(list, roots);
   expect(command).toContain("-a");
-  expect(command[command.indexOf("-p")+1]).toBe("10,11,12");
+  expect(command[command.indexOf("-p") + 1]).toBe("10,11,12");
   expect(command).toContain("-iTCP");
   expect(command).toContain("-iUDP");
   const empty = socketCommand(list, []);
-  expect(empty[empty.indexOf("-p")+1]).toBe(String(process.pid));
+  expect(empty[empty.indexOf("-p") + 1]).toBe(String(process.pid));
 });
 const endpoint = (fields: Partial<Endpoint> = {}): Endpoint => ({
   label: "",
@@ -52,19 +52,12 @@ test("viewer chooses only bound addresses in tailscale VPN network order", () =>
   const e = endpoint({ interfaces: all });
   expect(host(e, true)).toBe("100.80.1.2");
   expect(host(e, false)).toBe("localhost");
-  expect(
-    host(
-      endpoint({ bind_address: "192.168.1.20", interfaces: [all[0]] }),
-      true,
-    ),
-  ).toBe("192.168.1.20");
+  expect(host(endpoint({ bind_address: "192.168.1.20", interfaces: [all[0]] }), true)).toBe("192.168.1.20");
   expect(kind("utun4", "100.80.1.2")).toBe("tailscale");
   expect(kind("tun0", "10.8.0.2")).toBe("vpn");
 });
 test("lsof inventory associates descendants, ignores TCP clients, keeps UDP and IPv6 binds", () => {
-  const list = processes(
-      "10 1 10 root\n20 10 20 child\n21 20 20 web\n30 1 30 other\n",
-    ),
+  const list = processes("10 1 10 root\n20 10 20 child\n21 20 20 web\n30 1 30 other\n"),
     roots = [{ pid: 10, pane: 1, workspace: 7, agent_pid: 0 }],
     text =
       "p21\ncweb\nf4\ntIPv4\nPTCP\nn*:3000\nTST=LISTEN\nf5\ntIPv4\nPTCP\nn127.0.0.1:51000->127.0.0.1:80\nTST=ESTABLISHED\nf6\ntIPv6\nPUDP\nn[::1]:9000\np30\ncother\nf4\ntIPv4\nPTCP\nn*:4000\nTST=LISTEN\n";
@@ -101,12 +94,7 @@ test("wildcard interface expansion respects family and explicit bind constraints
       true,
     ),
   ).toBe("https://[fd7a:115c:a1e0::1]:443");
-  expect(
-    url(
-      endpoint({ bind_address: "127.0.0.2", scheme: "https", port: 443 }),
-      false,
-    ),
-  ).toBe("https://127.0.0.2:443");
+  expect(url(endpoint({ bind_address: "127.0.0.2", scheme: "https", port: 443 }), false)).toBe("https://127.0.0.2:443");
   expect(url(endpoint({ bind_address: "127.0.0.2" }), true)).toBeNull();
 });
 test("workloads count foreground servers and agent children but not shells or controllers", () => {
@@ -114,33 +102,17 @@ test("workloads count foreground servers and agent children but not shells or co
       "10 1 10 /opt/homebrew/bin/fish\n20 10 20 bun\n21 20 20 bun\n30 10 30 codex\n31 30 30 /bin/sh\n32 31 30 python3\n33 30 33 /opt/node\n40 1 40 unrelated\n",
     ),
     root = { pid: 10, pane: 1, workspace: 1, agent_pid: 33 };
-  expect(
-    list
-      .filter((p) => owner(p.pid, list, [root]) && workload(p, root))
-      .map((p) => p.pid),
-  ).toEqual([20, 21, 32]);
-  const text = list
-    .map(
-      (p) =>
-        `p${p.pid}\ncserver\nf4\ntIPv4\nPTCP\nn127.0.0.1:${8000 + p.pid}\nTST=LISTEN\n`,
-    )
-    .join("");
-  expect(sockets(text, list, [root], []).map((e) => e.pid)).toEqual([
-    20, 21, 32,
-  ]);
-  expect(workload({ pid: 10, parent: 1, group: 10, name: "bun" }, root)).toBe(
-    true,
-  );
+  expect(list.filter(p => owner(p.pid, list, [root]) && workload(p, root)).map(p => p.pid)).toEqual([20, 21, 32]);
+  const text = list.map(p => `p${p.pid}\ncserver\nf4\ntIPv4\nPTCP\nn127.0.0.1:${8000 + p.pid}\nTST=LISTEN\n`).join("");
+  expect(sockets(text, list, [root], []).map(e => e.pid)).toEqual([20, 21, 32]);
+  expect(workload({ pid: 10, parent: 1, group: 10, name: "bun" }, root)).toBe(true);
 });
 test("HTTP errors and unprobed endpoints never become browser links", () => {
   const e = endpoint({ bind_address: "127.0.0.1", http_status: null });
   expect(url(e, false)).toBeNull();
-  for (const status of [101, 401, 403, 404, 500, 503])
-    expect(url({ ...e, http_status: status }, false)).toBeNull();
+  for (const status of [101, 401, 403, 404, 500, 503]) expect(url({ ...e, http_status: status }, false)).toBeNull();
   for (const status of [200, 206, 301, 302, 307])
-    expect(url({ ...e, http_status: status }, false)).toBe(
-      "http://localhost:3000",
-    );
+    expect(url({ ...e, http_status: status }, false)).toBe("http://localhost:3000");
 });
 test("a rescan that finds the same ports is not a change", () => {
   const e = endpoint({ probed_at: 1000 }),
@@ -152,9 +124,7 @@ test("a rescan that finds the same ports is not a change", () => {
     after = Object.assign(new Snapshot(), {
       processes_available: true,
       ports_available: true,
-      workspaces: [
-        { id: 1, background: 0, endpoints: [{ ...e, probed_at: 61000 }] },
-      ],
+      workspaces: [{ id: 1, background: 0, endpoints: [{ ...e, probed_at: 61000 }] }],
     });
   expect(before.same(after)).toBe(true);
   after.workspaces[0].endpoints[0].http_status = 404;

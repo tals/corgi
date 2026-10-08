@@ -6,11 +6,8 @@ import { Runtime, EXE } from "./runtime";
 import { Titles, A, B } from "./codex_titles";
 
 const actor = async (test: any, session: string, provider = "codex") =>
-  (await test.session()).conversations.find(
-    (a: any) => a.agent.provider === provider && a.agent.session === session,
-  );
-const paneSnapshot = async (test: any, pane: number) =>
-  (await test.session()).panes.find((p: any) => p.id === pane);
+  (await test.session()).conversations.find((a: any) => a.agent.provider === provider && a.agent.session === session);
+const paneSnapshot = async (test: any, pane: number) => (await test.session()).panes.find((p: any) => p.id === pane);
 class CodexConversations extends Titles {
   actor(session: string) {
     return actor(this, session);
@@ -35,9 +32,7 @@ class CodexConversations extends Titles {
         { processId: "task-2", command: "bun run dev" },
       ],
     };
-    await this.until(
-      async () => (await this.actor(A)).background_tasks.items.length === 2,
-    );
+    await this.until(async () => (await this.actor(A)).background_tasks.items.length === 2);
     let tasks = (await this.actor(A)).background_tasks;
     this.assertTrue(tasks.live);
     this.assertEqual(
@@ -48,9 +43,7 @@ class CodexConversations extends Titles {
     this.assertEqual((await this.actor(B)).background_tasks.items, []);
     this.sim.background_tasks[A] = [];
     await this.switch(A);
-    await this.until(
-      async () => (await this.actor(A)).background_tasks.items.length === 0,
-    );
+    await this.until(async () => (await this.actor(A)).background_tasks.items.length === 0);
   }
   async test_switch_preserves_each_conversations_receipts() {
     await this.finish_a();
@@ -67,10 +60,7 @@ class CodexConversations extends Titles {
     this.assertEqual(retained.agent.observation.read, 0);
     this.assertNotEqual((await this.actor(B)).id, first.id);
     await this.switch(A);
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.conversation,
-      first.id,
-    );
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.conversation, first.id);
     this.assertEqual((await this.state()).completed, 1);
     this.assertTrue((await this.state()).unread);
   }
@@ -93,10 +83,7 @@ class CodexConversations extends Titles {
       session: A,
       through: 1,
     });
-    await this.until(
-      async () =>
-        !(await this.state()).unread && !(await second.state()).unread,
-    );
+    await this.until(async () => !(await this.state()).unread && !(await second.state()).unread);
     this.assertEqual((await this.actor(A)).agent.observation.read, 1);
     await this.command("pane.close", { target: second.pane });
     this.assertEqual((await this.actor(A)).attachments, 1);
@@ -122,9 +109,7 @@ class CodexConversations extends Titles {
     await this.switch(B);
     this.assertEqual((await this.actor(A)).attachments, 0);
     this.sim.set_turn(A, "background", "completed");
-    await this.until(
-      async () => (await this.actor(A)).agent.observation.completed === 1,
-    );
+    await this.until(async () => (await this.actor(A)).agent.observation.completed === 1);
     this.assertEqual((await this.state()).session, B);
     this.assertEqual((await this.state()).completed, 0);
     this.assertEqual((await this.state()).state, "idle");
@@ -140,14 +125,10 @@ class CodexConversations extends Titles {
       this.assertEqual(old.response.result.data[0].status, "completed");
       const before = (await this.pane_snapshot(this.pane)).binding;
       await this.attachment.select(B);
-      await this.until(
-        async () => (await this.pane_snapshot(this.pane)).binding > before,
-      );
+      await this.until(async () => (await this.pane_snapshot(this.pane)).binding > before);
       const middle = (await this.pane_snapshot(this.pane)).binding;
       await this.attachment.select(A);
-      await this.until(
-        async () => (await this.pane_snapshot(this.pane)).binding > middle,
-      );
+      await this.until(async () => (await this.pane_snapshot(this.pane)).binding > middle);
       this.sim.set_turn(A, "after-switch", "inProgress");
       const fresh = this.sim.hold("thread/turns/list", A);
       try {
@@ -173,23 +154,11 @@ class CodexConversations extends Titles {
     await this.until(async () => (await second.state()).session === A);
     await this.switch(B);
     const original = Object.fromEntries(
-      await Promise.all(
-        [A, B].map(async (session) => [
-          session,
-          (await this.actor(session)).id,
-        ]),
-      ),
+      await Promise.all([A, B].map(async session => [session, (await this.actor(session)).id])),
     );
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
     this.assertEqual(
-      Object.fromEntries(
-        await Promise.all(
-          [A, B].map(async (session) => [
-            session,
-            (await this.actor(session)).id,
-          ]),
-        ),
-      ),
+      Object.fromEntries(await Promise.all([A, B].map(async session => [session, (await this.actor(session)).id]))),
       original,
     );
     this.assertEqual((await this.state()).session, B);
@@ -228,9 +197,7 @@ class ClaudeConversations extends Runtime {
   logs: Record<string, string> = {};
   async setUp() {
     await super.setUp();
-    this.pane = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
-    ).pane;
+    this.pane = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     this.seq = Date.now() * 1000;
     this.logs = {};
   }
@@ -247,11 +214,7 @@ class ClaudeConversations extends Runtime {
     }
     return this.logs[session];
   }
-  hook(
-    session: string,
-    event: string,
-    { pane = null, background = false, ...extra }: any = {},
-  ) {
+  hook(session: string, event: string, { pane = null, background = false, ...extra }: any = {}) {
     this.seq = Math.max(this.seq + 1, Date.now() * 1000);
     return this.rpc({
       op: "hook",
@@ -268,10 +231,7 @@ class ClaudeConversations extends Runtime {
     });
   }
   record(session: string, fields: any) {
-    appendFileSync(
-      this.log(session),
-      JSON.stringify({ sessionId: session, ...fields }) + "\n",
-    );
+    appendFileSync(this.log(session), JSON.stringify({ sessionId: session, ...fields }) + "\n");
   }
   async finish(session: string) {
     await this.hook(session, "Stop");
@@ -302,9 +262,7 @@ class ClaudeConversations extends Runtime {
     });
     const tasks = (await this.actor("tasks")).background_tasks;
     this.assertFalse(tasks.live);
-    this.assertEqual(tasks.items, [
-      { id: "shell-1", label: "Run parser tests", group: "tests" },
-    ]);
+    this.assertEqual(tasks.items, [{ id: "shell-1", label: "Run parser tests", group: "tests" }]);
     await this.hook("tasks", "UserPromptSubmit");
     await this.hook("tasks", "Stop", { background_tasks: [] });
     this.assertEqual((await this.actor("tasks")).background_tasks.items, []);
@@ -316,10 +274,7 @@ class ClaudeConversations extends Runtime {
     await this.hook("claude-b", "UserPromptSubmit");
     await this.hook("claude-b", "PermissionRequest");
     await this.finish("claude-a");
-    await this.until(
-      async () =>
-        (await this.actor("claude-a")).agent.observation.completed === 1,
-    );
+    await this.until(async () => (await this.actor("claude-a")).agent.observation.completed === 1);
     const selected = (await this.pane_snapshot(this.pane)).agent;
     this.assertEqual(selected.session, "claude-b");
     this.assertEqual(selected.state, "blocked");
@@ -330,19 +285,13 @@ class ClaudeConversations extends Runtime {
   async test_transcript_titles_name_claude_conversations() {
     await this.hook("titled", "SessionStart");
     this.record("titled", { type: "ai-title", aiTitle: "Generated title" });
-    await this.until(
-      async () =>
-        (await this.pane_snapshot(this.pane)).agent.name === "Generated title",
-    );
+    await this.until(async () => (await this.pane_snapshot(this.pane)).agent.name === "Generated title");
     this.record("titled", { type: "agent-name", agentName: "Chosen name" });
     this.record("titled", {
       type: "ai-title",
       aiTitle: "Later generated title",
     });
-    await this.until(
-      async () =>
-        (await this.pane_snapshot(this.pane)).agent.name === "Chosen name",
-    );
+    await this.until(async () => (await this.pane_snapshot(this.pane)).agent.name === "Chosen name");
   }
   async test_claude_activity_follows_tools_and_text_updates() {
     await this.hook("active", "SessionStart");
@@ -351,34 +300,21 @@ class ClaudeConversations extends Runtime {
       tool_name: "Read",
       tool_input: { file_path: "/repo/src/server.zig" },
     });
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.activity,
-      "Reading server.zig",
-    );
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.activity, "Reading server.zig");
     await sleep(0.01);
     this.record("active", {
       type: "assistant",
       timestamp: new Date().toISOString(),
       message: { content: [{ type: "text", text: "Tracing the hook router" }] },
     });
-    await this.until(
-      async () =>
-        (await this.pane_snapshot(this.pane)).agent.activity ===
-        "Tracing the hook router",
-    );
+    await this.until(async () => (await this.pane_snapshot(this.pane)).agent.activity === "Tracing the hook router");
     await this.hook("active", "PreToolUse", {
       tool_name: "Bash",
       tool_input: { command: "zig build test", description: "Run unit tests" },
     });
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.activity,
-      "Run unit tests",
-    );
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.activity, "Run unit tests");
     await sleep(0.6);
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.activity,
-      "Run unit tests",
-    );
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.activity, "Run unit tests");
   }
   async test_background_daemon_hooks_never_select_by_inherited_pane() {
     await this.hook("foreground", "SessionStart");
@@ -388,11 +324,7 @@ class ClaudeConversations extends Runtime {
     const selected = (await this.pane_snapshot(this.pane)).agent;
     this.assertEqual(selected.session, "foreground");
     this.assertEqual(selected.state, "working");
-    this.assertFalse(
-      (await this.session()).conversations.some(
-        (a: any) => a.agent.session === "unrelated",
-      ),
-    );
+    this.assertFalse((await this.session()).conversations.some((a: any) => a.agent.session === "unrelated"));
   }
   async test_known_conversation_reclaims_pane_after_its_selection_ended() {
     await this.hook("parent", "SessionStart");
@@ -422,28 +354,15 @@ class ClaudeConversations extends Runtime {
       type: "continued-in",
       continuedInSessionId: "continued",
     });
-    await this.until(
-      async () =>
-        (await this.pane_snapshot(this.pane)).agent.session === "continued",
-    );
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.state,
-      "working",
-    );
-    await this.until(
-      async () =>
-        (await this.pane_snapshot(this.pane)).agent.name ===
-        "Backgrounded work",
-    );
+    await this.until(async () => (await this.pane_snapshot(this.pane)).agent.session === "continued");
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.state, "working");
+    await this.until(async () => (await this.pane_snapshot(this.pane)).agent.name === "Backgrounded work");
     this.assertEqual((await this.actor("original")).agent.state, "done");
     await this.hook("continued", "Notification", {
       background: true,
       notification_type: "permission_prompt",
     });
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.state,
-      "blocked",
-    );
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.state, "blocked");
   }
   async test_context_follows_the_latest_call_and_shares_automatic_compaction() {
     const call = (session: string, id: string, cached: number) =>
@@ -464,9 +383,7 @@ class ClaudeConversations extends Runtime {
     await this.hook("context", "SessionStart");
     await this.hook("context", "UserPromptSubmit");
     call("context", "m1", 300000);
-    await this.until(
-      async () => (await this.actor("context"))?.context?.used === 301002,
-    );
+    await this.until(async () => (await this.actor("context"))?.context?.used === 301002);
     const first = (await this.actor("context")).context;
     this.assertEqual(first.window, 1000000);
     this.assertEqual((await this.actor("context")).model_name, "Opus 5.5");
@@ -477,29 +394,20 @@ class ClaudeConversations extends Runtime {
       timestamp: new Date().toISOString(),
       compactMetadata: { trigger: "auto", preTokens: 400000, postTokens: 9000 },
     });
-    await this.until(
-      async () => (await this.actor("context")).context.used === 9000,
-    );
+    await this.until(async () => (await this.actor("context")).context.used === 9000);
     this.assertEqual((await this.actor("context")).context.compacts_at, 400000);
     // Another conversation on the same model measures against that point.
     call("other", "m2", 100000);
     await this.hook("other", "SessionStart");
-    await this.until(
-      async () => (await this.actor("other"))?.context?.compacts_at === 400000,
-    );
+    await this.until(async () => (await this.actor("other"))?.context?.compacts_at === 400000);
     this.assertEqual((await this.actor("other")).context.used, 101002);
   }
   async test_second_attachment_does_not_reset_existing_conversation() {
     await this.hook("shared-claude", "SessionStart");
     await this.hook("shared-claude", "UserPromptSubmit");
     await this.finish("shared-claude");
-    await this.until(
-      async () =>
-        (await this.actor("shared-claude")).agent.observation.completed === 1,
-    );
-    const second = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
-    ).pane;
+    await this.until(async () => (await this.actor("shared-claude")).agent.observation.completed === 1);
+    const second = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     await this.hook("shared-claude", "SessionStart", { pane: second });
     const actor = await this.actor("shared-claude");
     this.assertEqual(actor.attachments, 2);
@@ -511,14 +419,8 @@ class ClaudeConversations extends Runtime {
       session: "shared-claude",
       through: 1,
     });
-    this.assertEqual(
-      (await this.pane_snapshot(this.pane)).agent.observation.read,
-      1,
-    );
-    this.assertEqual(
-      (await this.pane_snapshot(second)).agent.observation.read,
-      1,
-    );
+    this.assertEqual((await this.pane_snapshot(this.pane)).agent.observation.read, 1);
+    this.assertEqual((await this.pane_snapshot(second)).agent.observation.read, 1);
   }
 }
 registerCase("CodexConversations", CodexConversations, { inherited: false });

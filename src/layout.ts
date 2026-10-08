@@ -18,9 +18,7 @@ export class Rect {
     public h = 0,
   ) {}
   contains(x: number, y: number) {
-    return (
-      x >= this.x && y >= this.y && x < this.x + this.w && y < this.y + this.h
-    );
+    return x >= this.x && y >= this.y && x < this.x + this.w && y < this.y + this.h;
   }
 }
 export type Split = {
@@ -33,7 +31,7 @@ export type Node = { pane: PaneId } | { split: Split };
 export function cleanLabel(s: string) {
   return Array.from(Buffer.from(s.replace(/^ +| +$/g, "")))
     .slice(0, 80)
-    .map((c) => (c >= 32 && c < 127 ? String.fromCharCode(c) : "_"))
+    .map(c => (c >= 32 && c < 127 ? String.fromCharCode(c) : "_"))
     .join("");
 }
 export class Tab {
@@ -68,11 +66,7 @@ export class Model {
   static jsonParseFromValue(value: Parameters<typeof Model.fromData>[0]) {
     return Model.fromData(value);
   }
-  static fromData(d: {
-    nodes: (Node | null)[];
-    tabs: Tab[];
-    revision: number | bigint;
-  }) {
+  static fromData(d: { nodes: (Node | null)[]; tabs: Tab[]; revision: number | bigint }) {
     const bad = () => {
       throw Error("UnexpectedToken");
     };
@@ -84,8 +78,7 @@ export class Model {
       d.tabs.length > max_tabs
     )
       bad();
-    const integer = (value: number, max: number) =>
-      Number.isInteger(value) && value >= 0 && value <= max;
+    const integer = (value: number, max: number) => Number.isInteger(value) && value >= 0 && value <= max;
     for (const node of d.nodes) {
       if (node === null) continue;
       if (typeof node !== "object" || Object.keys(node).length !== 1) bad();
@@ -113,13 +106,10 @@ export class Model {
         bad();
     if (typeof d.revision !== "number" && typeof d.revision !== "bigint") bad();
     if (typeof d.revision === "number" && !Number.isInteger(d.revision)) bad();
-    if (BigInt(d.revision) < 0n || BigInt(d.revision) > 0xffffffffffffffffn)
-      bad();
+    if (BigInt(d.revision) < 0n || BigInt(d.revision) > 0xffffffffffffffffn) bad();
     const m = new Model();
     m.nodes.splice(0, d.nodes.length, ...structuredClone(d.nodes));
-    m.tabs = d.tabs.map((t) =>
-      Object.assign(new Tab(t.id, t.root), t, { title: t.title ?? "" }),
-    );
+    m.tabs = d.tabs.map(t => Object.assign(new Tab(t.id, t.root), t, { title: t.title ?? "" }));
     m.count = m.tabs.length;
     m.revision = BigInt(d.revision);
     const seen = new Set<number>(),
@@ -165,9 +155,7 @@ export class Model {
     return id;
   }
   findNode(id: PaneId) {
-    const i = this.nodes.findIndex(
-      (n) => n !== null && "pane" in n && n.pane === id,
-    );
+    const i = this.nodes.findIndex(n => n !== null && "pane" in n && n.pane === id);
     return i < 0 ? null : i;
   }
   split(target: PaneId, axis: Axis) {
@@ -191,24 +179,20 @@ export class Model {
   }
   contains(i: number, id: PaneId): boolean {
     const n = this.nodes[i]!;
-    return "pane" in n
-      ? n.pane === id
-      : this.contains(n.split.first, id) || this.contains(n.split.second, id);
+    return "pane" in n ? n.pane === id : this.contains(n.split.first, id) || this.contains(n.split.second, id);
   }
   tabForPane(id: PaneId) {
-    const i = this.tabs
-      .slice(0, this.count)
-      .findIndex((t) => this.contains(t.root, id));
+    const i = this.tabs.slice(0, this.count).findIndex(t => this.contains(t.root, id));
     return i < 0 ? null : i;
   }
   tabIndex(id: TabId) {
-    const i = this.tabs.slice(0, this.count).findIndex((t) => t.id === id);
+    const i = this.tabs.slice(0, this.count).findIndex(t => t.id === id);
     return i < 0 ? null : i;
   }
   close(id: PaneId) {
     const i = this.findNode(id);
     if (i === null) throw Error("NoPane");
-    const t = this.tabs.findIndex((t) => t.root === i);
+    const t = this.tabs.findIndex(t => t.root === i);
     if (t >= 0) {
       this.nodes[i] = null;
       this.tabs.splice(t, 1);
@@ -327,8 +311,7 @@ export class Selection {
     let selected = this.count ? old[active].id : 0;
     if (selected && m.tabIndex(selected) === null) {
       selected = 0;
-      for (let i = active - 1; i >= 0 && !selected; i--)
-        if (m.tabIndex(old[i].id) !== null) selected = old[i].id;
+      for (let i = active - 1; i >= 0 && !selected; i--) if (m.tabIndex(old[i].id) !== null) selected = old[i].id;
       for (let i = active + 1; i < this.count && !selected; i++)
         if (m.tabIndex(old[i].id) !== null) selected = old[i].id;
     }
@@ -336,10 +319,8 @@ export class Selection {
     this.active = 0;
     this.tabs = m.tabs.slice(0, m.count).map((t, i) => {
       if (t.id === selected) this.active = i;
-      const s = old.find((s) => s.id === t.id);
-      return s && m.contains(t.root, s.focus)
-        ? s
-        : { id: t.id, focus: m.firstPane(t.root), zoom: false };
+      const s = old.find(s => s.id === t.id);
+      return s && m.contains(t.root, s.focus) ? s : { id: t.id, focus: m.firstPane(t.root), zoom: false };
     });
   }
   focus(m: Model, id: PaneId) {
@@ -356,11 +337,11 @@ export function splitRects(s: Split, r: Rect): [Rect, Rect, Rect] {
   const total = s.axis === "horizontal" ? r.w : r.h,
     available = Math.max(0, total - 1),
     first = Math.floor((available * s.ratio) / 1000),
-    p = [
-      new Rect(r.x, r.y, r.w, r.h),
-      new Rect(r.x, r.y, r.w, r.h),
-      new Rect(r.x, r.y, r.w, r.h),
-    ] as [Rect, Rect, Rect];
+    p = [new Rect(r.x, r.y, r.w, r.h), new Rect(r.x, r.y, r.w, r.h), new Rect(r.x, r.y, r.w, r.h)] as [
+      Rect,
+      Rect,
+      Rect,
+    ];
   if (s.axis === "horizontal") {
     p[0].w = first;
     p[1].x += first;
@@ -417,28 +398,18 @@ export class View {
   }
   neighbor(d: Direction, a: Rect) {
     const s = new Selection();
-    s.tabs = this.selection.tabs.map((t) => ({ ...t, zoom: false }));
+    s.tabs = this.selection.tabs.map(t => ({ ...t, zoom: false }));
     s.count = this.selection.count;
     s.active = this.selection.active;
     const p = new View(this.model, s).placements(a),
-      cur =
-        p.find((p) => p.id === this.selection.tab().focus)?.rect ?? new Rect();
+      cur = p.find(p => p.id === this.selection.tab().focus)?.rect ?? new Rect();
     let best: number | null = null,
       score = Infinity;
     for (const q of p) {
       if (q.id === this.selection.tab().focus) continue;
       const dx = q.rect.x * 2 + q.rect.w - (cur.x * 2 + cur.w),
         dy = q.rect.y * 2 + q.rect.h - (cur.y * 2 + cur.h);
-      if (
-        !(d === "left"
-          ? dx < 0
-          : d === "right"
-            ? dx > 0
-            : d === "up"
-              ? dy < 0
-              : dy > 0)
-      )
-        continue;
+      if (!(d === "left" ? dx < 0 : d === "right" ? dx > 0 : d === "up" ? dy < 0 : dy > 0)) continue;
       const horizontal = d === "left" || d === "right",
         v = Math.abs(horizontal ? dx : dy) + Math.abs(horizontal ? dy : dx) * 4;
       if (v < score) {
@@ -463,10 +434,7 @@ export class View {
             ? walk(n.split.second, p[2])
             : null;
     };
-    return walk(
-      this.model.tabs[this.selection.active].root,
-      this.contentArea(a),
-    );
+    return walk(this.model.tabs[this.selection.active].root, this.contentArea(a));
   }
   borders(a: Rect, out: Border[] = []) {
     out.length = 0;
@@ -509,14 +477,6 @@ export class View {
   static dividerRatio(d: Divider, x: number, y: number) {
     const total = d.axis === "horizontal" ? d.rect.w : d.rect.h,
       pos = Math.max(0, d.axis === "horizontal" ? x - d.rect.x : y - d.rect.y);
-    return Math.max(
-      100,
-      Math.min(
-        900,
-        Math.floor(
-          (pos * 1000 + Math.max(0, total - 2)) / Math.max(1, total - 1),
-        ),
-      ),
-    );
+    return Math.max(100, Math.min(900, Math.floor((pos * 1000 + Math.max(0, total - 2)) / Math.max(1, total - 1))));
   }
 }

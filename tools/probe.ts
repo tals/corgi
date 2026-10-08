@@ -102,10 +102,10 @@ function words(line: string): string[] {
 export function parseScript(source: string): string[][] {
   return source
     .split("\n")
-    .filter((l) => !l.trim().startsWith("#"))
-    .flatMap((l) => l.split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/))
-    .map((l) => l.trim())
-    .filter((l) => l)
+    .filter(l => !l.trim().startsWith("#"))
+    .flatMap(l => l.split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/))
+    .map(l => l.trim())
+    .filter(l => l)
     .map(words);
 }
 
@@ -147,7 +147,8 @@ export class Session {
       // integration tests' hook-driven agents (type work, block, stop, exit).
       PATH: `${join(this.home, "bin")}:${process.env.PATH}`,
     };
-    for (const k of ["CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_KIND", "CORGI_PANE", "CORGI_APP_EXE", "TMUX"]) delete this.env[k];
+    for (const k of ["CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_KIND", "CORGI_PANE", "CORGI_APP_EXE", "TMUX"])
+      delete this.env[k];
     mkdirSync(join(this.home, ".local/state/corgi"), { recursive: true });
     mkdirSync(join(this.home, "env"), { recursive: true });
     for (const dir of [".codex", ".claude"]) mkdirSync(join(this.home, dir), { recursive: true });
@@ -171,12 +172,22 @@ export class Session {
     });
   }
   async seed(command: string) {
-    const p = Bun.spawn(["/bin/sh", "-c", command], { env: this.env, cwd: this.cwd, stdout: "inherit", stderr: "inherit" });
+    const p = Bun.spawn(["/bin/sh", "-c", command], {
+      env: this.env,
+      cwd: this.cwd,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
     await p.exited;
   }
   async start() {
     if (this.daemon !== this.exe) {
-      const p = Bun.spawn([this.daemon, "start"], { env: this.env, cwd: this.cwd, stdout: "ignore", stderr: "inherit" });
+      const p = Bun.spawn([this.daemon, "start"], {
+        env: this.env,
+        cwd: this.cwd,
+        stdout: "ignore",
+        stderr: "inherit",
+      });
       await p.exited;
     }
     this.proc = Bun.spawn([this.exe, "--no-update"], { env: this.env, cwd: this.cwd, terminal: this.terminal });
@@ -187,7 +198,11 @@ export class Session {
     this.terminal.write(data);
   }
   text(): string[] {
-    return this.screen.text().replace(/\n$/, "").split("\n").map((l) => l.replace(/\s+$/, ""));
+    return this.screen
+      .text()
+      .replace(/\n$/, "")
+      .split("\n")
+      .map(l => l.replace(/\s+$/, ""));
   }
   styled(): string[] {
     return this.screen.surface(0).surface.lines;
@@ -250,7 +265,8 @@ export class Session {
       case "drag":
       case "dragtext": {
         // Press at the start, move with the button held in steps, release.
-        const [x1, y1, x2, y2] = op === "dragtext" ? [...this.find(args[0], 1), ...this.find(args[1], 1)] : args.slice(0, 4).map(Number);
+        const [x1, y1, x2, y2] =
+          op === "dragtext" ? [...this.find(args[0], 1), ...this.find(args[1], 1)] : args.slice(0, 4).map(Number);
         this.write(`\x1b[<0;${x1};${y1}M`);
         await Bun.sleep(30);
         const steps = Math.max(1, Math.abs(x2 - x1), Math.abs(y2 - y1));
@@ -294,7 +310,7 @@ export class Session {
         break;
       case "waittext": {
         const until = Date.now() + (args[1] ? +args[1] : 5000);
-        while (!this.text().some((l) => l.includes(args[0]))) {
+        while (!this.text().some(l => l.includes(args[0]))) {
           if (Date.now() > until) throw new Error(`timed out waiting for ${args[0]}\n${this.text().join("\n")}`);
           await Bun.sleep(30);
         }
@@ -306,7 +322,11 @@ export class Session {
         break;
       case "style":
         await this.settle();
-        this.records.push({ kind: "style", name: args[0] ?? `#${this.records.length}`, text: this.styled().join("\n") });
+        this.records.push({
+          kind: "style",
+          name: args[0] ?? `#${this.records.length}`,
+          text: this.styled().join("\n"),
+        });
         break;
       case "bytes": {
         await this.settle();
@@ -314,7 +334,11 @@ export class Session {
         const ms = +args[0] || 3000;
         await Bun.sleep(ms);
         const n = this.bytes - start;
-        this.records.push({ kind: "bytes", name: `bytes/${ms}ms`, text: `${n} bytes (${Math.round((n * 1000) / ms)} B/s)` });
+        this.records.push({
+          kind: "bytes",
+          name: `bytes/${ms}ms`,
+          text: `${n} bytes (${Math.round((n * 1000) / ms)} B/s)`,
+        });
         break;
       }
       case "mark":
@@ -348,7 +372,11 @@ export class Session {
   }
 }
 
-export async function runScript(exe: string, source: string, daemon = exe): Promise<{ records: Record_[]; error?: string; log: string }> {
+export async function runScript(
+  exe: string,
+  source: string,
+  daemon = exe,
+): Promise<{ records: Record_[]; error?: string; log: string }> {
   const commands = parseScript(source);
   let cols = 100,
     rows = 30;
@@ -387,18 +415,23 @@ export async function runScript(exe: string, source: string, daemon = exe): Prom
  * reading between samples, a sleeping corgi's Z, spinners. */
 export function normalize(text: string): string {
   if (process.env.PROBE_EXACT) return text;
-  return text
-    // A workspace's resource row appears with the daemon's sampling ticks.
-    .replace(/^(.)([^│\n]*(?:CPU|C |Memory|M )[^│\n]*›\s*)│/gm, (_m, lead, row) => lead + " ".repeat(Bun.stringWidth(row)) + "│")
-    .replace(/[ᶻz](?= *[│ ])/g, " ")
-    .replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "⠿")
-    .replace(/corgi-probe-[A-Za-z0-9]{6}/g, "corgi-probe-XXXXXX")
-    // A working agent's corgi plays at random (wag, sniff, fetch).
-    .replace(/⠿  [^│]*│/g, "⠿  (corgi) │")
-    // Thinking dots advance with the clock.
-    .replace(/now  ●  \.{1,3} /g, "now  ●  ... ")
-    // The idle corgi's wag: tail and ears move with the clock.
-    .replace(/[~^-][ᐯᐱ]•.•[ᐯᐱ]/g, "~ᐯ•.•ᐯ");
+  return (
+    text
+      // A workspace's resource row appears with the daemon's sampling ticks.
+      .replace(
+        /^(.)([^│\n]*(?:CPU|C |Memory|M )[^│\n]*›\s*)│/gm,
+        (_m, lead, row) => lead + " ".repeat(Bun.stringWidth(row)) + "│",
+      )
+      .replace(/[ᶻz](?= *[│ ])/g, " ")
+      .replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "⠿")
+      .replace(/corgi-probe-[A-Za-z0-9]{6}/g, "corgi-probe-XXXXXX")
+      // A working agent's corgi plays at random (wag, sniff, fetch).
+      .replace(/⠿  [^│]*│/g, "⠿  (corgi) │")
+      // Thinking dots advance with the clock.
+      .replace(/now  ●  \.{1,3} /g, "now  ●  ... ")
+      // The idle corgi's wag: tail and ears move with the clock.
+      .replace(/[~^-][ᐯᐱ]•.•[ᐯᐱ]/g, "~ᐯ•.•ᐯ")
+  );
 }
 /** Snapshots match after normalizing; byte rates match within 25% (or
  * 200 B/s), since animations draw a little more or less at random. */
@@ -459,7 +492,10 @@ async function main() {
   }
   if (mode === "compare") {
     source = inline ?? readFileSync(argv[0], "utf8");
-    const [zig, bun] = await Promise.all([runScript(side(left)[0], source, side(left)[1]), runScript(side(right)[0], source, side(right)[1])]);
+    const [zig, bun] = await Promise.all([
+      runScript(side(left)[0], source, side(left)[1]),
+      runScript(side(right)[0], source, side(right)[1]),
+    ]);
     let differ = 0;
     const n = Math.max(zig.records.length, bun.records.length);
     for (let i = 0; i < n; i++) {
@@ -467,8 +503,10 @@ async function main() {
         b = bun.records[i];
       const same = z && b && matches(z, b);
       if (!same) differ++;
-      const width = Math.max(...(z?.text ?? "").split("\n").map((l) => Bun.stringWidth(l)), 10);
-      console.log(`── ${z?.kind ?? b?.kind} ${z?.name ?? b?.name}: ${same ? "SAME" : "DIFFERENT"}  (left ${left}, right ${right})`);
+      const width = Math.max(...(z?.text ?? "").split("\n").map(l => Bun.stringWidth(l)), 10);
+      console.log(
+        `── ${z?.kind ?? b?.kind} ${z?.name ?? b?.name}: ${same ? "SAME" : "DIFFERENT"}  (left ${left}, right ${right})`,
+      );
       if (!same || process.env.PROBE_ALL) console.log(sideBySide(z?.text ?? "(none)", b?.text ?? "(none)", width));
     }
     if (zig.error) console.log(`${left} ERROR: ${zig.error}`);
@@ -481,7 +519,10 @@ async function main() {
     // Every scenario under tools/scenarios, compared; names filter.
     const dir = join(import.meta.dir, "scenarios");
     const { readdirSync } = await import("node:fs");
-    const names = readdirSync(dir).filter((f) => f.endsWith(".probe")).map((f) => f.slice(0, -6)).filter((name) => argv.length === 0 || argv.includes(name));
+    const names = readdirSync(dir)
+      .filter(f => f.endsWith(".probe"))
+      .map(f => f.slice(0, -6))
+      .filter(name => argv.length === 0 || argv.includes(name));
     const compare = async (name: string) => {
       const source = readFileSync(join(dir, `${name}.probe`), "utf8");
       const failure = (e: unknown) => ({ records: [] as Record_[], error: String(e), log: "" });
@@ -491,9 +532,14 @@ async function main() {
       ]);
       const n = Math.max(zig.records.length, bun.records.length);
       const bad: string[] = [];
-      for (let i = 0; i < n; i++) if (!zig.records[i] || !bun.records[i] || !matches(zig.records[i], bun.records[i])) bad.push(zig.records[i]?.name ?? bun.records[i]?.name ?? `#${i}`);
+      for (let i = 0; i < n; i++)
+        if (!zig.records[i] || !bun.records[i] || !matches(zig.records[i], bun.records[i]))
+          bad.push(zig.records[i]?.name ?? bun.records[i]?.name ?? `#${i}`);
       const errors = `${zig.error ? `  ${left} error: ${zig.error.split("\n")[0]}` : ""}${bun.error ? `  ${right} error: ${bun.error.split("\n")[0]}` : ""}`;
-      return { ok: bad.length === 0 && !zig.error && !bun.error, detail: `${bad.length ? `  differs: ${bad.join(", ")}` : ""}${errors}` };
+      return {
+        ok: bad.length === 0 && !zig.error && !bun.error,
+        detail: `${bad.length ? `  differs: ${bad.join(", ")}` : ""}${errors}`,
+      };
     };
     // A few at a time: under heavy load the two viewers' timing drifts apart.
     const jobs = Number(process.env.PROBE_JOBS ?? 4);
@@ -525,7 +571,9 @@ async function main() {
     if (failed) process.exitCode = 1;
     return;
   }
-  console.error("usage: probe.ts run <zig|bun|path> <script>|-e '...'\n       probe.ts compare <script>|-e '...'\n       probe.ts suite [names...]");
+  console.error(
+    "usage: probe.ts run <zig|bun|path> <script>|-e '...'\n       probe.ts compare <script>|-e '...'\n       probe.ts suite [names...]",
+  );
   process.exit(2);
 }
 

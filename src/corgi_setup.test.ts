@@ -8,7 +8,8 @@ import { Writer, displayWidth } from "./text";
 
 function rowOf(cols: number, rows: number, choice: Choice): number | null {
   const b = Menu.bounds(cols, rows);
-  for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) if (Menu.hit(cols, rows, x, y) === choice) return y;
+  for (let y = b.y; y < b.y + b.h; y++)
+    for (let x = b.x; x < b.x + b.w; x++) if (Menu.hit(cols, rows, x, y) === choice) return y;
   return null;
 }
 
@@ -42,12 +43,35 @@ test("setup modal is centered and its rows are clickable inside the frame", () =
 test("setup modal explains the automatic choice", () => {
   const menu = Menu.open(status());
   let w = new Writer();
-  menu.draw(w, status({ choice: "auto", provider: "claude", launches: { claude: 3, codex: 1 }, models: { claude: "claude-haiku-5-5" } }), new Preferences(), 100, 30);
+  menu.draw(
+    w,
+    status({
+      choice: "auto",
+      provider: "claude",
+      launches: { claude: 3, codex: 1 },
+      models: { claude: "claude-haiku-5-5" },
+    }),
+    new Preferences(),
+    100,
+    30,
+  );
   expect(w.s).toContain("Following you → Claude · Haiku 5.5");
   expect(w.s).toContain("Since start: codex 1× · claude 3×");
   expect(w.s).toContain("[ Enter Keep ]");
   w = new Writer();
-  menu.draw(w, status({ choice: "auto", provider: "codex", locked: true, model: "gpt-6-luna", models: { codex: "gpt-6-luna", claude: "claude-haiku-5-5" } }), new Preferences(), 100, 30);
+  menu.draw(
+    w,
+    status({
+      choice: "auto",
+      provider: "codex",
+      locked: true,
+      model: "gpt-6-luna",
+      models: { codex: "gpt-6-luna", claude: "claude-haiku-5-5" },
+    }),
+    new Preferences(),
+    100,
+    30,
+  );
   expect(w.s).toContain("Settled on Codex · GPT-6 Luna");
   expect(w.s).toContain("GPT-6 Luna · your Codex login");
   expect(w.s).toContain("Haiku 5.5 · your Claude login");

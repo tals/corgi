@@ -3,13 +3,11 @@ import { transform } from "./ghostty_integration";
 import type { Keys } from "./ghostty_integration";
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
 test("integration preserves custom bindings, covers physical digits, and is reversible", () => {
-  const original =
-      "# My settings\nkeybind = cmd+1=goto_tab:1\nfont-size = 14\n",
+  const original = "# My settings\nkeybind = cmd+1=goto_tab:1\nfont-size = 14\n",
     keys: Keys = { preset: "corgi", prefix: "ctrl_b" },
     enabled = transform(original, keys);
   expect(enabled.startsWith(original)).toBe(true);
-  for (let i = 1; i < 10; i++)
-    expect(enabled).toContain(`keybind = cmd+digit_${i}=text:\\x02${i}\n`);
+  for (let i = 1; i < 10; i++) expect(enabled).toContain(`keybind = cmd+digit_${i}=text:\\x02${i}\n`);
   expect(transform(enabled, keys)).toBe(enabled);
   expect(transform(enabled, null)).toBe(original);
   expect(() => transform(begin, null)).toThrow("InvalidIntegrationBlock");
@@ -27,20 +25,12 @@ test("the block types the chosen prefix and each preset's keys", () => {
   const cases: { keys: Keys; lines: string[]; absent?: string[] }[] = [
     {
       keys: { preset: "corgi", prefix: "ctrl_a" },
-      lines: [
-        "cmd+t=text:\\x01c",
-        "cmd+3=text:\\x013",
-        "cmd+shift+t=text:\\x01u",
-      ],
+      lines: ["cmd+t=text:\\x01c", "cmd+3=text:\\x013", "cmd+shift+t=text:\\x01u"],
       absent: ["\\x02"],
     },
     {
       keys: { preset: "tmux", prefix: "ctrl_b" },
-      lines: [
-        "cmd+1=text:\\x020",
-        "cmd+w=text:\\x02&",
-        "cmd+digit_9=text:\\x028",
-      ],
+      lines: ["cmd+1=text:\\x020", "cmd+w=text:\\x02&", "cmd+digit_9=text:\\x028"],
     },
     {
       keys: { preset: "herdr", prefix: "ctrl_b" },
@@ -68,8 +58,7 @@ test("the block types the chosen prefix and each preset's keys", () => {
   ];
   for (const c of cases) {
     const block = transform("", c.keys);
-    for (const line of c.lines)
-      expect(block).toContain("keybind = " + line + "\n");
+    for (const line of c.lines) expect(block).toContain("keybind = " + line + "\n");
     for (const absent of c.absent ?? []) expect(block).not.toContain(absent);
   }
 });

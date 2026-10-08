@@ -11,8 +11,7 @@ export class Tokens {
   pos = 0;
   constructor(public source: string) {}
   next() {
-    while (this.pos < this.source.length && /\s/.test(this.source[this.pos]))
-      this.pos++;
+    while (this.pos < this.source.length && /\s/.test(this.source[this.pos])) this.pos++;
     if (this.pos === this.source.length) return null;
     let quote = "",
       out = "";
@@ -28,8 +27,7 @@ export class Tokens {
         quote = ch;
         continue;
       }
-      if (ch === "\\" && quote !== "'" && this.pos < this.source.length)
-        out += this.source[this.pos++];
+      if (ch === "\\" && quote !== "'" && this.pos < this.source.length) out += this.source[this.pos++];
       else {
         if (!quote && ";|&<>()$`".includes(ch)) return null;
         out += ch;
@@ -50,11 +48,7 @@ export function identify(source: string): Provider | null {
     while (w !== null) {
       if (w === "-u" || w === "--unset") {
         if (t.next() === null) return null;
-      } else if (
-        !assignment(w) &&
-        !["-i", "--ignore-environment", "--"].includes(w)
-      )
-        break;
+      } else if (!assignment(w) && !["-i", "--ignore-environment", "--"].includes(w)) break;
       w = t.next();
     }
   }
@@ -109,15 +103,12 @@ export class Entry {
   }
   set(s: string) {
     const v = s.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
-    if (v.includes("\0") || Buffer.byteLength(v) > max_length)
-      throw Error("InvalidCommand");
+    if (v.includes("\0") || Buffer.byteLength(v) > max_length) throw Error("InvalidCommand");
     this.command = v;
   }
   label() {
     const p = identify(this.command);
-    return (
-      this.name || (p ? `${Provider.info(p).name} command` : "Shell command")
-    );
+    return this.name || (p ? `${Provider.info(p).name} command` : "Shell command");
   }
 }
 export function shell() {
@@ -127,7 +118,7 @@ export function shell() {
     const u = process.getuid?.(),
       row = readFileSync("/etc/passwd", "utf8")
         .split("\n")
-        .find((r) => Number(r.split(":")[2]) === u);
+        .find(r => Number(r.split(":")[2]) === u);
     return row?.split(":")[6] || "/bin/sh";
   } catch {
     return "/bin/sh";
@@ -149,8 +140,7 @@ export function wrapperBody(d: string): string | null {
     const l = raw.trim();
     if (!l || l.startsWith("#")) continue;
     if (!header) {
-      if (!l.startsWith("function ") && !l.includes("()"))
-        throw Error("UnsupportedShorthand");
+      if (!l.startsWith("function ") && !l.includes("()")) throw Error("UnsupportedShorthand");
       header = true;
       continue;
     }
@@ -160,21 +150,13 @@ export function wrapperBody(d: string): string | null {
   }
   if (body === null) throw Error("ComplexShellFunction");
   let r = body.replace(/[ \t;]+$/, "");
-  const suffix = r.endsWith("$argv")
-    ? "$argv"
-    : r.endsWith('"$@"')
-      ? '"$@"'
-      : null;
+  const suffix = r.endsWith("$argv") ? "$argv" : r.endsWith('"$@"') ? '"$@"' : null;
   if (!suffix) throw Error("ComplexShellFunction");
   r = r.slice(0, -suffix.length).trimEnd();
   if (/[;\n|&<>()$`]/.test(r)) throw Error("ComplexShellFunction");
   return r;
 }
-async function definitionOf(
-  name: string,
-  cwd: string | null,
-  deadline: number,
-) {
+async function definitionOf(name: string, cwd: string | null, deadline: number) {
   const chosen = shell(),
     base = basename(chosen),
     query =
@@ -192,16 +174,12 @@ async function definitionOf(
   try {
     ({ stdout } = await promisify(execFile)(
       chosen,
-      [
-        flags(),
-        `printf '\\036CORGI_BEGIN\\n'; ${query} 2>/dev/null; printf '\\036CORGI_END\\n'`,
-      ],
+      [flags(), `printf '\\036CORGI_BEGIN\\n'; ${query} 2>/dev/null; printf '\\036CORGI_END\\n'`],
       { cwd: cwd ?? undefined, timeout: left, maxBuffer: 16384 },
     ));
   } catch (e) {
     if ((e as any).killed) throw Error("ShorthandLookupTimeout");
-    if ((e as any).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
-      throw Error("ShorthandOutputTooLarge");
+    if ((e as any).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw Error("ShorthandOutputTooLarge");
     throw e;
   }
   const begin = stdout.indexOf("\x1eCORGI_BEGIN\n"),
@@ -225,10 +203,8 @@ export async function resolve(source: string, cwd: string | null = null) {
       w = t.next();
       if (w === null) return current;
     }
-    const freeze = () =>
-      current.slice(0, start) + "command " + current.slice(start);
-    if (w === "command" || w.includes("/"))
-      return expanded && w !== "command" ? freeze() : current;
+    const freeze = () => current.slice(0, start) + "command " + current.slice(start);
+    if (w === "command" || w.includes("/")) return expanded && w !== "command" ? freeze() : current;
     if (!/^[A-Za-z0-9_-]+$/.test(w)) throw Error("UnsupportedShorthand");
     if (expanded && w === previous) return freeze();
     previous = w;
@@ -304,26 +280,17 @@ export function analyze(source: string, cwd: string) {
     if (w === "--model" || w === "-m") nextModel = true;
     if (w.startsWith("--model=")) s.model = w.slice(8);
     for (const p of Provider.all)
-      if (
-        (s.provider === null || s.provider === p) &&
-        w === Provider.info(p).yolo_flag
-      )
-        s.yolo = true;
+      if ((s.provider === null || s.provider === p) && w === Provider.info(p).yolo_flag) s.yolo = true;
     if (!facts) continue;
     const word = w;
-    const profile = facts.profile_flags.some(
-        (f: string) => word === f || word.startsWith(f + "="),
-      ),
-      setting = facts.settings_flags.some(
-        (f: string) => word === f || word.startsWith(f + "="),
-      );
+    const profile = facts.profile_flags.some((f: string) => word === f || word.startsWith(f + "=")),
+      setting = facts.settings_flags.some((f: string) => word === f || word.startsWith(f + "="));
     if (profile || setting) {
       settings = true;
       s.default_account = false;
     }
     if (facts.profile_flags.includes(w)) nextProfile = true;
-    if ((profile && w.includes("=")) || setting)
-      s.account = "Custom settings - identity unknown";
+    if ((profile && w.includes("=")) || setting) s.account = "Custom settings - identity unknown";
   }
   if (facts && !s.default_account && !credential && !settings) {
     s.account = "Custom profile - identity unknown";
@@ -339,28 +306,19 @@ export function analyze(source: string, cwd: string) {
         if (statSync(file).size <= 65536) {
           const d = JSON.parse(readFileSync(file, "utf8"));
           let email = "";
-          if (s.provider === "claude")
-            email = d.oauthAccount?.emailAddress ?? "";
-          else if (d.OPENAI_API_KEY)
-            s.account = "Profile API key - identity unavailable";
+          if (s.provider === "claude") email = d.oauthAccount?.emailAddress ?? "";
+          else if (d.OPENAI_API_KEY) s.account = "Profile API key - identity unavailable";
           else
             email =
-              JSON.parse(
-                Buffer.from(
-                  d.tokens?.id_token?.split(".")[1] ?? "",
-                  "base64url",
-                ).toString(),
-              ).email ?? "";
+              JSON.parse(Buffer.from(d.tokens?.id_token?.split(".")[1] ?? "", "base64url").toString()).email ?? "";
           if (email) s.account = `${email} (cached)`;
         }
       } catch {}
   }
-  if (!s.default_account && !s.account)
-    s.account = "Account cannot be determined";
+  if (!s.default_account && !s.account) s.account = "Account cannot be determined";
   s.mode = s.yolo ? "Skips permission checks" : "Provider permission settings";
   s.nameModel();
-  s.suggested_name =
-    (facts?.label ?? "Custom agent") + (s.model ? " - " + s.modelLabel() : "");
+  s.suggested_name = (facts?.label ?? "Custom agent") + (s.model ? " - " + s.modelLabel() : "");
   return s;
 }
 export class Resolution {
@@ -386,9 +344,7 @@ export class Worker {
   }
   request(id: bigint | number, source: string, cwd: string) {
     if (Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
-    const existing = this.jobs.find(
-      (j) => j.id === id && j.source === source && j.cwd === cwd,
-    );
+    const existing = this.jobs.find(j => j.id === id && j.source === source && j.cwd === cwd);
     if (existing) return existing.result;
     const entry = new Entry();
     entry.set(source);
@@ -396,13 +352,13 @@ export class Worker {
     this.jobs[this.next] = job;
     this.next = (this.next + 1) % 8;
     void resolve(entry.text(), cwd)
-      .then((s) => {
+      .then(s => {
         if (this.stopping) return;
         job.result.command.set(s);
         job.result.semantics = analyze(s, cwd);
         job.result.pending = false;
       })
-      .catch((e) => {
+      .catch(e => {
         job.result.pending = false;
         job.result.error_message = e.message;
       });

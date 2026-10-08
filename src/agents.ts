@@ -4,8 +4,7 @@ import * as observation from "./observation";
 import { Provider, str } from "./providers";
 export { observation, Provider, str, Path };
 export class Text extends BoundedText(160) {}
-export type State =
-  "unknown" | "initializing" | "idle" | "working" | "blocked" | "done";
+export type State = "unknown" | "initializing" | "idle" | "working" | "blocked" | "done";
 export type Attention = "none" | "finished" | "needs_input";
 export class Agent {
   subagents = { running: 0, blocked: 0, waiting: false };
@@ -42,15 +41,7 @@ export class Agent {
   }
   snapshot() {
     const out = new Agent({ ...this });
-    for (const key of [
-      "name",
-      "turn",
-      "last_finished_turn",
-      "recent",
-      "session",
-      "activity",
-      "tool",
-    ] as const)
+    for (const key of ["name", "turn", "last_finished_turn", "recent", "session", "activity", "tool"] as const)
       out[key] = new Text(this[key].text());
     out.transcript = new Path(this.transcript.text());
     out.cwd = new Path(this.cwd.text());
@@ -102,8 +93,7 @@ export class Agent {
   }
   readThrough(through: bigint | number) {
     this.observation.acknowledge(through);
-    if (this.attention !== "needs_input")
-      this.attention = this.observation.unread() ? "finished" : "none";
+    if (this.attention !== "needs_input") this.attention = this.observation.unread() ? "finished" : "none";
   }
   setTurn(turn: string) {
     const next = Text.ascii(turn);
@@ -112,9 +102,7 @@ export class Agent {
     this.turn_epoch = (this.turn_epoch + 1) >>> 0;
   }
   finishedTurn(turn: string) {
-    return turn
-      ? turn === this.last_finished_turn.text()
-      : this.finished_since_activity;
+    return turn ? turn === this.last_finished_turn.text() : this.finished_since_activity;
   }
   beginTurn(turn: string) {
     this.permission_review = null;
@@ -124,12 +112,7 @@ export class Agent {
     this.state = "working";
     this.attention = this.observation.unread() ? "finished" : "none";
   }
-  recordCompletion(
-    turn: string,
-    outcome: observation.Outcome,
-    source: observation.Source,
-    baseline: boolean,
-  ) {
+  recordCompletion(turn: string, outcome: observation.Outcome, source: observation.Source, baseline: boolean) {
     if (this.finishedTurn(turn)) return false;
     this.last_finished_turn = Text.ascii(turn);
     if (baseline) return false;
@@ -137,19 +120,9 @@ export class Agent {
     this.attention = "finished";
     return true;
   }
-  endTurn(
-    turn: string,
-    outcome: observation.Outcome,
-    source: observation.Source,
-    now: number,
-  ) {
+  endTurn(turn: string, outcome: observation.Outcome, source: observation.Source, now: number) {
     if (turn && this.turn.len && turn !== this.turnId()) return false;
-    const recorded = this.recordCompletion(
-      turn || this.turnId(),
-      outcome,
-      source,
-      false,
-    );
+    const recorded = this.recordCompletion(turn || this.turnId(), outcome, source, false);
     this.finished_since_activity = true;
     this.permission_review = null;
     this.observation.pending_stop = false;
@@ -198,34 +171,22 @@ export class Agent {
       ? this.endTurn(this.turnId(), outcome, "transcript", now)
       : false;
   }
-  observeHook(
-    provider: Provider,
-    hook: any,
-    seq: number,
-    watched: boolean,
-    now: number,
-  ): boolean | null {
+  observeHook(provider: Provider, hook: any, seq: number, watched: boolean, now: number): boolean | null {
     if (seq <= this.last_seq) return null;
     const event = hook.kind,
       session = hook.session,
       start = event === "session_start",
       reported = hook.turn;
-    if (
-      (this.session.len && session && session !== this.sessionId()) ||
-      (this.provider && this.provider !== provider)
-    )
+    if ((this.session.len && session && session !== this.sessionId()) || (this.provider && this.provider !== provider))
       return null;
     if (
       ["stop", "interrupt"].includes(event) &&
-      (this.finishedTurn(reported) ||
-        (reported && this.turn.len && reported !== this.turnId()))
+      (this.finishedTurn(reported) || (reported && this.turn.len && reported !== this.turnId()))
     )
       return null;
-    if (path.isAbsolute(hook.transcript))
-      this.transcript = new Path(hook.transcript);
+    if (path.isAbsolute(hook.transcript)) this.transcript = new Path(hook.transcript);
     this.paused = false;
-    if (start && this.state !== "unknown" && this.state !== "done")
-      return false;
+    if (start && this.state !== "unknown" && this.state !== "done") return false;
     const next: State = (
       {
         session_start: "idle",
@@ -242,16 +203,12 @@ export class Agent {
         session_end: "done",
       } as Record<string, State>
     )[event];
-    if (start || next === "working" || next === "blocked")
-      this.finished_since_activity = false;
-    if (hook.turn && Buffer.byteLength(hook.turn) <= 160)
-      this.setTurn(hook.turn);
+    if (start || next === "working" || next === "blocked") this.finished_since_activity = false;
+    if (hook.turn && Buffer.byteLength(hook.turn) <= 160) this.setTurn(hook.turn);
     this.last_seq = seq;
-    this.permission_review =
-      event === "permission" && provider === "codex" ? 0 : null;
+    this.permission_review = event === "permission" && provider === "codex" ? 0 : null;
     this.provider = provider;
-    if (session && Buffer.byteLength(session) <= 160)
-      this.session = new Text(session);
+    if (session && Buffer.byteLength(session) <= 160) this.session = new Text(session);
     const old = this.state;
     this.observation.source = "hook";
     this.observation.pending_stop = event === "stop";
@@ -274,32 +231,19 @@ export class Agent {
       this.tool_active = false;
     }
     if (event === "tool_finish" || event === "tool_failure")
-      this.recent = new Text(
-        `${event === "tool_failure" ? "failed" : "used"}: ${hook.tool}`.slice(
-          0,
-          160,
-        ),
-      );
-    if (start || ["prompt", "interrupt", "session_end"].includes(event))
-      this.activity = new Text();
+      this.recent = new Text(`${event === "tool_failure" ? "failed" : "used"}: ${hook.tool}`.slice(0, 160));
+    if (start || ["prompt", "interrupt", "session_end"].includes(event)) this.activity = new Text();
     if (Provider.info(provider).prompt_turns) {
-      if (
-        hook.prompt &&
-        Buffer.byteLength(hook.prompt) <= 160 &&
-        hook.prompt !== this.turnId()
-      ) {
+      if (hook.prompt && Buffer.byteLength(hook.prompt) <= 160 && hook.prompt !== this.turnId()) {
         this.setTurn(hook.prompt);
         this.activity_inferred = false;
       }
       if (start || event === "prompt") this.activity_inferred = false;
       this.activity_at = now;
       if (event === "tool_start" && !hook.asking && !this.activity_inferred)
-        this.setActivity(
-          toolActivity(hook.tool, hook.description, hook.target),
-        );
+        this.setActivity(toolActivity(hook.tool, hook.description, hook.target));
     }
-    if (start || next === "working")
-      this.attention = this.observation.unread() ? "finished" : "none";
+    if (start || next === "working") this.attention = this.observation.unread() ? "finished" : "none";
     if (this.observation.pending_stop) return false;
     if (event === "interrupt" && (old === "working" || old === "blocked"))
       return this.endTurn(this.turnId(), "interrupted", "hook", now);
@@ -341,11 +285,7 @@ export function firstLine(v: string) {
   const line = v.split("\n", 1)[0].replace(/^[ \t\r]+|[ \t\r]+$/g, "");
   return new Text(line.replace(/[\x00-\x1f\x7f]/g, " "));
 }
-export function toolActivity(
-  tool: string,
-  description: string,
-  target: string,
-) {
+export function toolActivity(tool: string, description: string, target: string) {
   if (description.trim()) return description;
   if (tool === "Bash") return "";
   const verbs: Record<string, string> = {
@@ -363,10 +303,8 @@ export function toolActivity(
   };
   const verb = verbs[tool] ?? tool.split("__").at(-1) ?? tool;
   let subject = target;
-  if (["Read", "Edit", "MultiEdit", "NotebookEdit", "Write"].includes(tool))
-    subject = path.basename(target);
-  if (tool === "WebFetch")
-    subject = target.replace(/^.*?:\/\//, "").split("/")[0];
+  if (["Read", "Edit", "MultiEdit", "NotebookEdit", "Write"].includes(tool)) subject = path.basename(target);
+  if (tool === "WebFetch") subject = target.replace(/^.*?:\/\//, "").split("/")[0];
   if (tool === "TodoWrite") subject = "";
   return (subject ? `${verb} ${subject}` : verb).slice(0, 160);
 }

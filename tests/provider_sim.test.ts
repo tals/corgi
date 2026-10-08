@@ -24,8 +24,7 @@ async function client(path: string) {
     "GET / HTTP/1.1\r\nHost: fixture\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
   );
   const deadline = Date.now() + 2000;
-  while (data.indexOf("\r\n\r\n") < 0 && Date.now() < deadline)
-    await Bun.sleep(2);
+  while (data.indexOf("\r\n\r\n") < 0 && Date.now() < deadline) await Bun.sleep(2);
   const end = data.indexOf("\r\n\r\n");
   if (end < 0) throw new Error("WebSocket handshake timed out");
   if (!data.subarray(0, end).toString().includes("101 Switching Protocols"))
@@ -46,9 +45,7 @@ async function client(path: string) {
           offset = 4;
         }
         if (data.length >= offset + size) {
-          const value = JSON.parse(
-            data.subarray(offset, offset + size).toString(),
-          );
+          const value = JSON.parse(data.subarray(offset, offset + size).toString());
           data = data.subarray(offset + size);
           return value;
         }
@@ -70,16 +67,12 @@ class Simulator extends TestCase {
       first = a.socket;
       second = b.socket;
       const held = sim.hold("thread/read", "A");
-      a.socket.write(
-        frame({ id: 1, method: "thread/read", params: { threadId: "A" } }),
-      );
+      a.socket.write(frame({ id: 1, method: "thread/read", params: { threadId: "A" } }));
       await held.wait();
       this.assertEqual(held.response.result.thread.status.type, "idle");
       const index = await sim.wait_for_request("thread/read", { session: "A" });
       sim.set_turn("A", "next", "inProgress", { waiting: true });
-      b.socket.write(
-        frame({ id: 2, method: "thread/read", params: { threadId: "A" } }),
-      );
+      b.socket.write(frame({ id: 2, method: "thread/read", params: { threadId: "A" } }));
       const index2 = await sim.wait_for_request("thread/read", {
         session: "A",
         after: index,
@@ -93,9 +86,7 @@ class Simulator extends TestCase {
       });
       held.release();
       this.assertEqual(await a.read(), held.response);
-      b.socket.write(
-        frame({ id: 3, method: "thread/read", params: { threadId: "B" } }),
-      );
+      b.socket.write(frame({ id: 3, method: "thread/read", params: { threadId: "B" } }));
       this.assertEqual((await b.read()).result.thread.status, {
         type: "idle",
         activeFlags: [],
@@ -111,10 +102,7 @@ class Simulator extends TestCase {
   async test_native_program_preserves_both_provider_protocols() {
     const temp = tempDir("corgi-sim-");
     try {
-      const program = write_executable(
-        join(temp.name, "provider"),
-        NATIVE_PROVIDER,
-      );
+      const program = write_executable(join(temp.name, "provider"), NATIVE_PROVIDER);
       for (const [provider, args] of [
         ["codex", []],
         ["claude", ["--print"]],
@@ -126,20 +114,17 @@ class Simulator extends TestCase {
           { method: "test/exit" },
         ];
         const result = await run([program, ...args], {
-          input: messages.map((v) => JSON.stringify(v) + "\n").join(""),
+          input: messages.map(v => JSON.stringify(v) + "\n").join(""),
           timeout: 3000,
         });
         const events = result.stdout
           .trim()
           .split("\n")
-          .map((v) => JSON.parse(v));
+          .map(v => JSON.parse(v));
         this.assertEqual(events[0], { id: 1, result: { version: "fixture" } });
         if (provider === "codex") {
           this.assertEqual(events[1].method, "turn/started");
-          this.assertEqual(
-            events[2].method,
-            "item/commandExecution/requestApproval",
-          );
+          this.assertEqual(events[2].method, "item/commandExecution/requestApproval");
           this.assertEqual(events[3].method, "turn/completed");
         } else {
           this.assertEqual(events[1].type, "control_request");
@@ -155,19 +140,13 @@ class Simulator extends TestCase {
     const temp = tempDir("corgi-sim-");
     try {
       const root = temp.name;
-      const terminal = write_codex_terminal(
-        join(root, "codex"),
-        "A".repeat(36),
-      );
+      const terminal = write_codex_terminal(join(root, "codex"), "A".repeat(36));
       const result = await run([terminal, "resume"], {
         input: "B\n",
         timeout: 3000,
       });
       this.assertIn('ARGS:["resume"]', result.stdout);
-      this.assertIn(
-        "\x1b]0;codex | " + "A".repeat(29) + "...\x07",
-        result.stdout,
-      );
+      this.assertIn("\x1b]0;codex | " + "A".repeat(29) + "...\x07", result.stdout);
       this.assertTrue(result.stdout.endsWith("\x1b]0;codex | B\x07"));
       const ordinary = write_ordinary_agent(join(root, "claude"));
       const env = {
@@ -193,10 +172,7 @@ class Simulator extends TestCase {
   async test_terminal_programs_exit_with_stdin_still_open() {
     const temp = tempDir("corgi-sim-");
     try {
-      const codex = write_codex_terminal(
-        join(temp.name, "codex"),
-        "A".repeat(36),
-      );
+      const codex = write_codex_terminal(join(temp.name, "codex"), "A".repeat(36));
       const claude = write_ordinary_agent(join(temp.name, "claude"));
       const env = {
         ...process.env,
@@ -215,14 +191,7 @@ class Simulator extends TestCase {
           const input = proc.stdin as Bun.FileSink;
           input.write("exit\n");
           await input.flush();
-          this.assertEqual(
-            await deadline(
-              proc.exited,
-              2000,
-              `${program} did not exit with stdin open`,
-            ),
-            0,
-          );
+          this.assertEqual(await deadline(proc.exited, 2000, `${program} did not exit with stdin open`), 0);
         } finally {
           if (proc.exitCode === null) {
             proc.kill("SIGKILL");

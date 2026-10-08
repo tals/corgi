@@ -16,12 +16,9 @@ import { checkpoint_version, handoff_version } from "./persist/migrations";
 import { validateCheckpoint } from "./persist/schema";
 
 const schemas = Object.fromEntries(
-  ["protocol", "viewer", "handoff"].map((name) => [
+  ["protocol", "viewer", "handoff"].map(name => [
     name,
-    readFileSync(
-      new URL(`./fixtures/${name}.schema`, import.meta.url),
-      "utf8",
-    ),
+    readFileSync(new URL(`./fixtures/${name}.schema`, import.meta.url), "utf8"),
   ]),
 );
 
@@ -31,66 +28,43 @@ function validate(schema: string, value: unknown): void {
   for (const line of schema.trim().split("\n")) {
     const [path, type] = line.split(": ");
     let values: any[] = [value];
-    for (const token of path
-      .slice(1)
-      .matchAll(/\.([^.[?|]+)|\[(\d*)\]|(\?)|\|([^.[?|]+)/g)) {
+    for (const token of path.slice(1).matchAll(/\.([^.[?|]+)|\[(\d*)\]|(\?)|\|([^.[?|]+)/g)) {
       if (token[1] || token[4]) {
         const name = token[1] ?? token[4];
-        values = values.flatMap((item) =>
-          item && Object.hasOwn(item, name) ? [item[name]] : [],
-        );
+        values = values.flatMap(item => (item && Object.hasOwn(item, name) ? [item[name]] : []));
       } else if (token[2] !== undefined) {
-        values = values.flatMap((item) => {
+        values = values.flatMap(item => {
           expect(Array.isArray(item), path).toBe(true);
           if (token[2]) expect(item.length, path).toBe(Number(token[2]));
           return item;
         });
-      } else values = values.filter((item) => item !== null);
+      } else values = values.filter(item => item !== null);
     }
     for (const item of values) {
-      if (
-        type === "any" ||
-        type === "optional" ||
-        type.startsWith("versioned ")
-      )
-        continue;
+      if (type === "any" || type === "optional" || type.startsWith("versioned ")) continue;
       if (type === "one of") {
         expect(typeof item, path).toBe("object");
         expect(Object.keys(item), path).toHaveLength(1);
         const tags = schema
           .split("\n")
-          .filter((line) => line.startsWith(path + "|"))
-          .map((line) => line.slice(path.length + 1).split(/[.:|?\[]/)[0]);
+          .filter(line => line.startsWith(path + "|"))
+          .map(line => line.slice(path.length + 1).split(/[.:|?\[]/)[0]);
         expect(tags, path).toContain(Object.keys(item)[0]);
-      } else if (type.startsWith("enum "))
-        expect(type.slice(5).split(" "), path).toContain(item);
+      } else if (type.startsWith("enum ")) expect(type.slice(5).split(" "), path).toContain(item);
       else if (type === "bool") expect(typeof item, path).toBe("boolean");
       else if (type === "{}") expect(item, path).toEqual({});
       else if (type === "string" || type.startsWith("custom bounded_text.")) {
-        expect(typeof item === "string" || Array.isArray(item), path).toBe(
-          true,
-        );
-        const length =
-          typeof item === "string" ? Buffer.byteLength(item) : item.length;
+        expect(typeof item === "string" || Array.isArray(item), path).toBe(true);
+        const length = typeof item === "string" ? Buffer.byteLength(item) : item.length;
         const capacity = type.match(/\((\d+)\)/);
-        if (capacity)
-          expect(length, path).toBeLessThanOrEqual(Number(capacity[1]));
+        if (capacity) expect(length, path).toBeLessThanOrEqual(Number(capacity[1]));
       } else if (/^(?:[ui]\d+|usize|c_int)$/.test(type)) {
-        expect(
-          typeof item === "bigint" ||
-            (typeof item === "number" && Number.isInteger(item)),
-          path,
-        ).toBe(true);
-        const bits =
-          type === "usize" ? 64 : type === "c_int" ? 32 : Number(type.slice(1));
+        expect(typeof item === "bigint" || (typeof item === "number" && Number.isInteger(item)), path).toBe(true);
+        const bits = type === "usize" ? 64 : type === "c_int" ? 32 : Number(type.slice(1));
         const signed = type.startsWith("i") || type === "c_int";
         const n = BigInt(item);
-        expect(n, path).toBeGreaterThanOrEqual(
-          signed ? -(1n << BigInt(bits - 1)) : 0n,
-        );
-        expect(n, path).toBeLessThanOrEqual(
-          (1n << BigInt(signed ? bits - 1 : bits)) - 1n,
-        );
+        expect(n, path).toBeGreaterThanOrEqual(signed ? -(1n << BigInt(bits - 1)) : 0n);
+        expect(n, path).toBeLessThanOrEqual((1n << BigInt(signed ? bits - 1 : bits)) - 1n);
       } else if (/^f\d+$/.test(type)) expect(typeof item, path).toBe("number");
     }
   }
@@ -135,9 +109,7 @@ test("the runtime wire matches protocol.version", () => {
   );
   const { server, dispose } = fixture();
   try {
-    const snapshot = json.parse(
-      json.stringify(session.snapshot(server.runtime)),
-    );
+    const snapshot = json.parse(json.stringify(session.snapshot(server.runtime)));
     validate(schemas.protocol, { snapshot });
     expect(snapshot.panes[0].agent.session).toBe("schema-session");
     const wrong = structuredClone(snapshot);
@@ -164,7 +136,7 @@ test("the viewer wire matches viewer_version.version", async () => {
   );
   const { server, client, dispose } = fixture();
   let view: any;
-  client.queue = (value) => {
+  client.queue = value => {
     view = json.parse(json.stringify(value));
   };
   client.viewer = true;
@@ -185,12 +157,8 @@ test("the viewer wire matches viewer_version.version", async () => {
     });
     validate(schemas.viewer, { view });
     expect(view.surfaces).toHaveLength(1);
-    expect(view.surfaces[0].surface.lines.join("\n")).toContain(
-      "schema boundary",
-    );
-    expect(() =>
-      validate(schemas.viewer, { view: { ...view, viewer_protocol: -1 } }),
-    ).toThrow();
+    expect(view.surfaces[0].surface.lines.join("\n")).toContain("schema boundary");
+    expect(() => validate(schemas.viewer, { view: { ...view, viewer_protocol: -1 } })).toThrow();
   } finally {
     dispose();
   }
@@ -207,17 +175,13 @@ test("saved handoff format matches its version", async () => {
   (server as any).summaries = summaries;
   await summaries.pause();
   try {
-    const captured = json.parse(
-      json.stringify(captureManifest(server, client)),
-    );
+    const captured = json.parse(json.stringify(captureManifest(server, client)));
     validate(schemas.handoff, captured);
     validateCheckpoint(captured.runtime);
     expect(captured.runtime.panes[0].binding.actor).toBe(1);
     expect(captured.clients).toHaveLength(1);
     expect(captured.summaries.pool.slots).toHaveLength(4);
-    expect(() =>
-      validate(schemas.handoff, { ...captured, listener: "bad" }),
-    ).toThrow();
+    expect(() => validate(schemas.handoff, { ...captured, listener: "bad" })).toThrow();
   } finally {
     await summaries.stop();
     dispose();
@@ -226,9 +190,6 @@ test("saved handoff format matches its version", async () => {
 
 test("a schema shows a JSON value a provider or command defines as any", () => {
   const schema = "$.event: any\n$.seq: optional\n$.seq?: i64\n";
-  for (const event of [null, false, 3, "event", [], { nested: [1] }])
-    validate(schema, { event, seq: null });
-  expect(() =>
-    validate(schema, { event: {}, seq: "not an integer" }),
-  ).toThrow();
+  for (const event of [null, false, 3, "event", [], { nested: [1] }]) validate(schema, { event, seq: null });
+  expect(() => validate(schema, { event: {}, seq: "not an integer" })).toThrow();
 });

@@ -10,18 +10,12 @@ export type Sort = "cpu" | "memory" | "io";
 const max64 = (1n << 64n) - 1n;
 const sat = (a: bigint, b: bigint) => (a + b > max64 ? max64 : a + b);
 export function cpuText(value: number | null) {
-  return value === null
-    ? ""
-    : value >= 10000
-      ? (value / 1000).toFixed(0) + "k%"
-      : value.toFixed(0) + "%";
+  return value === null ? "" : value >= 10000 ? (value / 1000).toFixed(0) + "k%" : value.toFixed(0) + "%";
 }
 export function memoryText(value: bigint | number | null) {
   if (value === null) return "";
   const n = BigInt(value);
-  return n >= 1073741824n
-    ? (Number(n) / 1073741824).toFixed(1) + "G"
-    : (n / 1048576n).toString() + "M";
+  return n >= 1073741824n ? (Number(n) / 1073741824).toFixed(1) + "G" : (n / 1048576n).toString() + "M";
 }
 export function ioText(value: bigint | number | null) {
   if (value === null) return "";
@@ -92,16 +86,12 @@ export class Snapshot {
   memory_kind = process.platform === "linux" ? "RSS" : "footprint";
   workspaces: Work[] = [];
   workspace(id: number) {
-    return this.workspaces.find((w) => w.id === id) ?? new Work(id);
+    return this.workspaces.find(w => w.id === id) ?? new Work(id);
   }
   forViewer(detail: number | null) {
     return Object.assign(new Snapshot(), this, {
-      workspaces: this.workspaces.map((w) =>
-        Object.assign(
-          new Work(w.id),
-          w,
-          detail === w.id ? {} : { processes: [], history: [] },
-        ),
+      workspaces: this.workspaces.map(w =>
+        Object.assign(new Work(w.id), w, detail === w.id ? {} : { processes: [], history: [] }),
       ),
     });
   }
@@ -156,12 +146,11 @@ export function owner(
 ): Root | null {
   let current = pid;
   for (let i = 0; i < 128; i++) {
-    const root = roots.find((r) => r.pid === current),
+    const root = roots.find(r => r.pid === current),
       position = index.get(current);
     if (position === undefined) return null;
     const identity = inventory[position];
-    if (root)
-      return root.start !== null && root.start === identity.start ? root : null;
+    if (root) return root.start !== null && root.start === identity.start ? root : null;
     if (identity.parent <= 1 || identity.parent === current) return null;
     current = identity.parent;
   }
@@ -189,10 +178,7 @@ export function delta(old: Reading | null | undefined, next: Reading) {
     return empty;
   const ms = next.at - old.at;
   return {
-    cpu:
-      next.value.cpu_ns >= old.value.cpu_ns
-        ? Number(next.value.cpu_ns - old.value.cpu_ns) / (ms * 10000)
-        : null,
+    cpu: next.value.cpu_ns >= old.value.cpu_ns ? Number(next.value.cpu_ns - old.value.cpu_ns) / (ms * 10000) : null,
     read: rate(old.value.read, next.value.read, ms),
     written: rate(old.value.written, next.value.written, ms),
   };
@@ -201,11 +187,8 @@ export function leaders(list: Process[]) {
   if (list.length <= process_capacity) return list;
   const out: Process[] = [];
   for (const sort of ["cpu", "memory", "io"] as const) {
-    list.sort((a, b) =>
-      Process.less(sort, a, b) ? -1 : Process.less(sort, b, a) ? 1 : 0,
-    );
-    for (const p of list.slice(0, Math.floor(process_capacity / 3)))
-      if (!out.some((x) => x.pid === p.pid)) out.push(p);
+    list.sort((a, b) => (Process.less(sort, a, b) ? -1 : Process.less(sort, b, a) ? 1 : 0));
+    for (const p of list.slice(0, Math.floor(process_capacity / 3))) if (!out.some(x => x.pid === p.pid)) out.push(p);
   }
   return out;
 }
@@ -234,13 +217,19 @@ export type SampleResult = { pending: Batch; origins: SampleRequest["origins"] }
 // Structured clone retains bigint and Maps, but strips class prototypes.
 export function restoreSnapshot(view: Snapshot): Snapshot {
   return Object.assign(new Snapshot(), view, {
-    workspaces: view.workspaces.map((work) => Object.assign(new Work(work.id), work, {
-      processes: work.processes.map((p) => Object.assign(new Process(p.pid, p.start, p.name), p)),
-    })),
+    workspaces: view.workspaces.map(work =>
+      Object.assign(new Work(work.id), work, {
+        processes: work.processes.map(p => Object.assign(new Process(p.pid, p.start, p.name), p)),
+      }),
+    ),
   });
 }
 export function restoreBatch(value: Batch): Batch {
-  return { ...value, view: restoreSnapshot(value.view), health: value.health.map((h) => ({id:h.id,cpu:Object.assign(new Alarm(),h.cpu)})) };
+  return {
+    ...value,
+    view: restoreSnapshot(value.view),
+    health: value.health.map(h => ({ id: h.id, cpu: Object.assign(new Alarm(), h.cpu) })),
+  };
 }
 export class Tracker {
   current = new Snapshot();
@@ -272,16 +261,16 @@ export class Tracker {
       if (!this.done) return false;
       this.thread = null;
       const valid = this.roots.every(
-        (root) =>
+        root =>
           runtime.panes.some(
-            (p) =>
+            p =>
               !p.terminal.exited &&
               p.terminal.pid === root.pid &&
               p.id * 2 === root.key &&
               runtime.workspaces.owner(p.id)?.id === root.workspace,
           ) ||
           runtime.sessions.some(
-            (s) =>
+            s =>
               !s.exited &&
               (s.child?.pid ?? s.child?.id) === root.pid &&
               s.workspace_id === root.workspace &&
@@ -296,15 +285,14 @@ export class Tracker {
     }
     const now = clock.milliTimestamp(),
       interval = detailed ? 1000 : 2000;
-    if (now < Math.min(this.next_refresh, this.last_started + interval))
-      return changed;
+    if (now < Math.min(this.next_refresh, this.last_started + interval)) return changed;
     this.interval_ms = interval;
     this.last_started = now;
     this.next_refresh = now + interval;
-    this.workspaces = runtime.workspaces.items.map((w) => w.id);
+    this.workspaces = runtime.workspaces.items.map(w => w.id);
     this.roots = runtime.panes
-      .filter((p) => !p.terminal.exited)
-      .flatMap((p) => {
+      .filter(p => !p.terminal.exited)
+      .flatMap(p => {
         const w = runtime.workspaces.owner(p.id);
         return w
           ? [
@@ -332,13 +320,15 @@ export class Tracker {
         });
     }
     this.done = false;
-    this.thread = new Promise<void>((resolve) => { this.complete = resolve; });
+    this.thread = new Promise<void>(resolve => {
+      this.complete = resolve;
+    });
     try {
       if (!this.worker) {
         // A compiled bundle's import.meta.url belongs to the main entrypoint.
         const entry = nativeFiles ? "./trackers/resources_worker.js" : "./resources_worker.ts";
         this.worker = new Worker(new URL(entry, import.meta.url)) as Worker & { unref(): void };
-        this.worker.onmessage = (event: MessageEvent<SampleResult | {error:string}>) => {
+        this.worker.onmessage = (event: MessageEvent<SampleResult | { error: string }>) => {
           if ("error" in event.data) this.sampleFailed(event.data.error);
           else {
             this.pending = restoreBatch(event.data.pending);
@@ -347,16 +337,25 @@ export class Tracker {
             this.sampleDone();
           }
         };
-        this.worker.onerror = (event) => {
+        this.worker.onerror = event => {
           this.worker?.terminate();
           this.worker = null;
           this.sampleFailed(event.message);
         };
         this.worker.unref();
       }
-      this.worker.postMessage({ roots:this.roots, workspaces:this.workspaces, origins:this.origins,
-        batch:this.batch, current:this.current, interval_ms:this.interval_ms, at:now } satisfies SampleRequest);
-    } catch (error) { this.sampleFailed(error); }
+      this.worker.postMessage({
+        roots: this.roots,
+        workspaces: this.workspaces,
+        origins: this.origins,
+        batch: this.batch,
+        current: this.current,
+        interval_ms: this.interval_ms,
+        at: now,
+      } satisfies SampleRequest);
+    } catch (error) {
+      this.sampleFailed(error);
+    }
     return changed;
   }
   private sampleDone() {
@@ -365,7 +364,7 @@ export class Tracker {
     this.complete = null;
   }
   private sampleFailed(error: unknown) {
-    if(this.failure.changed(error))console.warn("resource sample failed:", error);
+    if (this.failure.changed(error)) console.warn("resource sample failed:", error);
     this.pending = batch();
     this.pending.view.sampled_at = clock.milliTimestamp();
     this.pending.view.interval_ms = this.interval_ms;
@@ -375,8 +374,7 @@ export class Tracker {
     if (this.thread) {
       if (!this.done) return false;
       this.thread = null;
-    } else if (!this.current.sampled_at && !this.batch.readings.length)
-      return false;
+    } else if (!this.current.sampled_at && !this.batch.readings.length) return false;
     this.current = new Snapshot();
     this.batch = batch();
     this.pending = batch();
@@ -387,11 +385,10 @@ export class Tracker {
     return true;
   }
   sample(now = clock.milliTimestamp()) {
-    const inventory = native.inventory(this.roots.map((r) => r.pid)),
+    const inventory = native.inventory(this.roots.map(r => r.pid)),
       index = new Map(inventory.items.map((p, i) => [p.pid, i])),
-      roots = this.roots.map((r) => ({ ...r }));
-    for (const k of this.origins.keys())
-      if (!roots.some((r) => r.key === k)) this.origins.delete(k);
+      roots = this.roots.map(r => ({ ...r }));
+    for (const k of this.origins.keys()) if (!roots.some(r => r.key === k)) this.origins.delete(k);
     for (const root of roots) {
       const origin = this.origins.get(root.key);
       if (origin?.pid === root.pid) root.start = origin.start;
@@ -403,28 +400,22 @@ export class Tracker {
         }
       }
     }
-    const previous = new Map(this.batch.readings.map((r) => [r.pid, r])),
+    const previous = new Map(this.batch.readings.map(r => [r.pid, r])),
       host = native.host(),
       host_cpu =
-        this.batch.host.total > 0n &&
-        host.total > this.batch.host.total &&
-        host.busy >= this.batch.host.busy
-          ? Math.min(
-              100,
-              (100 * Number(host.busy - this.batch.host.busy)) /
-                Number(host.total - this.batch.host.total),
-            )
+        this.batch.host.total > 0n && host.total > this.batch.host.total && host.busy >= this.batch.host.busy
+          ? Math.min(100, (100 * Number(host.busy - this.batch.host.busy)) / Number(host.total - this.batch.host.total))
           : null,
       readings: Reading[] = [],
-      works = this.workspaces.map((id) =>
+      works = this.workspaces.map(id =>
         Object.assign(new Work(id), {
           known: true,
           partial: inventory.truncated,
         }),
       ),
       health = this.workspaces.map(
-        (id) =>
-          this.batch.health.find((h) => h.id === id) ?? {
+        id =>
+          this.batch.health.find(h => h.id === id) ?? {
             id,
             cpu: new Alarm(),
           },
@@ -433,7 +424,7 @@ export class Tracker {
       if (this.stopping) throw Error("Stopped");
       const root = owner(identity.pid, inventory.items, index, roots);
       if (!root) continue;
-      const work = works.find((w) => w.id === root.workspace);
+      const work = works.find(w => w.id === root.workspace);
       if (!work) continue;
       work.count++;
       const value = native.counters(identity.pid);
@@ -462,9 +453,7 @@ export class Tracker {
       for (const root of roots)
         if (
           root.workspace === work.id &&
-          (root.start === null ||
-            !index.has(root.pid) ||
-            inventory.items[index.get(root.pid)!].start !== root.start)
+          (root.start === null || !index.has(root.pid) || inventory.items[index.get(root.pid)!].start !== root.start)
         )
           work.partial = true;
       if (!work.count && !work.partial) {
@@ -472,25 +461,17 @@ export class Tracker {
         work.memory = work.read = work.written = 0n;
       }
       const share = (work.cpu ?? 0) / Math.max(1, host.cores),
-        high =
-          !work.partial && host_cpu !== null && host_cpu >= 90 && share >= 25,
-        low =
-          work.cpu === null || host_cpu === null || host_cpu < 75 || share < 15;
-      work.cpu_pressure =
-        health[i].cpu.update(high, low, now) && work.cpu !== null;
+        high = !work.partial && host_cpu !== null && host_cpu >= 90 && share >= 25,
+        low = work.cpu === null || host_cpu === null || host_cpu < 75 || share < 15;
+      work.cpu_pressure = health[i].cpu.update(high, low, now) && work.cpu !== null;
       work.processes = leaders(work.processes);
       work.history = [
-        ...this.current
-          .workspace(work.id)
-          .history.slice(-(history_capacity - 1)),
+        ...this.current.workspace(work.id).history.slice(-(history_capacity - 1)),
         {
           at: now,
           cpu: work.cpu,
           memory: work.memory,
-          io:
-            work.read !== null && work.written !== null
-              ? sat(work.read, work.written)
-              : null,
+          io: work.read !== null && work.written !== null ? sat(work.read, work.written) : null,
         },
       ];
     });

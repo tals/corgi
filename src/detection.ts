@@ -8,9 +8,7 @@ export const process_buffer = 1024 * 1024;
 function name(p: string): Provider | null {
   return (
     Provider.named(path.basename(p)) ??
-    Provider.all.find((k) =>
-      Provider.info(k).install_markers.some((m: string) => p.includes(m)),
-    ) ??
+    Provider.all.find(k => Provider.info(k).install_markers.some((m: string) => p.includes(m))) ??
     null
   );
 }
@@ -19,31 +17,18 @@ export function identify(argv: string[]): Provider | null {
   const direct = name(argv[0]);
   if (direct) return direct;
   const exe = path.basename(argv[0]);
-  if (
-    (!["node", "bun", "sh", "bash", "zsh"].includes(exe) &&
-      !/^python/i.test(exe)) ||
-    argv.length < 2
-  )
-    return null;
+  if ((!["node", "bun", "sh", "bash", "zsh"].includes(exe) && !/^python/i.test(exe)) || argv.length < 2) return null;
   let i = 1;
   if (exe === "bun" && argv[i] === "run") i++;
   while (i < argv.length && argv[i].startsWith("-")) {
     const flag = argv[i++];
     if (flag === "--") break;
-    if (
-      !(exe === "bun" && ["--bun", "-b"].includes(flag)) &&
-      !["-u", "--no-warnings"].includes(flag)
-    )
-      return null;
+    if (!(exe === "bun" && ["--bun", "-b"].includes(flag)) && !["-u", "--no-warnings"].includes(flag)) return null;
   }
   if (exe === "bun" && argv[i] === "run") i++;
   if (i >= argv.length) return null;
   return (
-    name(argv[i]) ??
-    Provider.all.find((k) =>
-      Provider.info(k).scripts.some((s: string) => argv[i].endsWith(s)),
-    ) ??
-    null
+    name(argv[i]) ?? Provider.all.find(k => Provider.info(k).scripts.some((s: string) => argv[i].endsWith(s))) ?? null
   );
 }
 export function claudeProcess(info: { exe: string; argv: string[] }) {
@@ -66,9 +51,7 @@ export function claudeRunning(pid: number, _buffer?: Uint8Array) {
 }
 function backgroundSession(pid: number) {
   return (
-    readProcessArgs(pid, process_buffer, { env: true })
-      ?.environ()
-      .includes("CLAUDE_CODE_SESSION_KIND=bg") ?? false
+    readProcessArgs(pid, process_buffer, { env: true })?.environ().includes("CLAUDE_CODE_SESSION_KIND=bg") ?? false
   );
 }
 export function hookOrigin() {
@@ -78,9 +61,7 @@ export function hookOrigin() {
     if (readClaudeProcess(pid)) {
       return {
         pid,
-        background:
-          backgroundSession(pid) ||
-          (!!job && (job.tpgid <= 0 || job.pgid !== job.tpgid)),
+        background: backgroundSession(pid) || (!!job && (job.tpgid <= 0 || job.pgid !== job.tpgid)),
       };
     }
     if (!job) break;
@@ -89,19 +70,9 @@ export function hookOrigin() {
   return { pid: 0, background: false };
 }
 function tail(screen: string) {
-  return screen
-    .trimEnd()
-    .split("\n")
-    .slice(-8)
-    .join("\n")
-    .slice(0, 8192)
-    .toLowerCase();
+  return screen.trimEnd().split("\n").slice(-8).join("\n").slice(0, 8192).toLowerCase();
 }
-export function screenState(
-  provider: Provider,
-  title: string,
-  screen: string,
-): State | null {
+export function screenState(provider: Provider, title: string, screen: string): State | null {
   const s = Provider.info(provider).screen,
     text = tail(screen);
   if (s.blocked_title && title.includes(s.blocked_title)) return "blocked";
@@ -113,20 +84,14 @@ export function screenState(
     return "blocked";
   if (text.includes("esc to interrupt")) return "working";
   if (s.idle_title && title.startsWith(s.idle_title)) return "idle";
-  if (
-    s.idle_prompt &&
-    text.split("\n").some((r) => r.trimStart().startsWith(s.idle_prompt))
-  )
-    return "idle";
+  if (s.idle_prompt && text.split("\n").some(r => r.trimStart().startsWith(s.idle_prompt))) return "idle";
   return null;
 }
 export function screenCompacting(screen: string): boolean | null {
   for (const row of screen.trimEnd().split("\n").slice(-8).reverse()) {
     const hint = row.indexOf("esc to interrupt");
     if (hint < 0) continue;
-    return /^(?:[•◦·] )?Compacting (?:context|conversation) /.test(
-      row.slice(0, hint).trimStart(),
-    );
+    return /^(?:[•◦·] )?Compacting (?:context|conversation) /.test(row.slice(0, hint).trimStart());
   }
   return null;
 }
@@ -135,8 +100,7 @@ export function screenToolActive(provider: Provider, screen: string) {
   for (const row of screen.trimEnd().split("\n").slice(-8).reverse()) {
     const hint = row.indexOf("esc to interrupt)");
     if (hint < 0) continue;
-    if (row.slice(0, hint).includes("Waiting for background terminal"))
-      return true;
+    if (row.slice(0, hint).includes("Waiting for background terminal")) return true;
     const m = row
       .slice(hint + 17)
       .trim()
@@ -144,9 +108,7 @@ export function screenToolActive(provider: Provider, screen: string) {
     if (!m || Number(m[1]) === 0) continue;
     if (
       m[2].startsWith("background terminal") ||
-      (m[2].endsWith("…") &&
-        m[2].length >= 13 &&
-        "background terminals running".startsWith(m[2].slice(0, -1)))
+      (m[2].endsWith("…") && m[2].length >= 13 && "background terminals running".startsWith(m[2].slice(0, -1)))
     )
       return true;
   }
@@ -167,12 +129,7 @@ export function claudeComposer(screen: string) {
     after = false;
   }
   if (!found) return "covered";
-  if (
-    /esc to cancel|enter to select|enter to confirm|enter to submit/.test(
-      tail(screen),
-    )
-  )
-    return "unknown";
+  if (/esc to cancel|enter to select|enter to confirm|enter to submit/.test(tail(screen))) return "unknown";
   return "open";
 }
 export const Composer = {
@@ -205,20 +162,14 @@ export class PromptWatch {
         this.open = Math.min(255, this.open + 1);
         if (this.open < 2) return null;
         Object.assign(this, new PromptWatch());
-        return screenState("claude", "", screen) === "working"
-          ? "working"
-          : "idle";
+        return screenState("claude", "", screen) === "working" ? "working" : "idle";
     }
     return null;
   }
 }
 export function interruptKey(bytes: string | Uint8Array) {
   const s = typeof bytes === "string" ? bytes : Buffer.from(bytes).toString();
-  return (
-    s === "\x1b" ||
-    s.includes("\x03") ||
-    /\x1b\[(?:27|99;5)(?:[;:][\d;:]*|)u/.test(s)
-  );
+  return s === "\x1b" || s.includes("\x03") || /\x1b\[(?:27|99;5)(?:[;:][\d;:]*|)u/.test(s);
 }
 export class Tracker {
   pid = 0;
@@ -245,13 +196,7 @@ export class Tracker {
       return true;
     return now - this.idle_since >= 1500000;
   }
-  update(
-    agent: Agent,
-    job: Job | null,
-    title: string,
-    screen: string,
-    watched: boolean,
-  ) {
+  update(agent: Agent, job: Job | null, title: string, screen: string, watched: boolean) {
     if (!job) {
       if (this.pid && ++this.missing >= 2) {
         agent.reset();
@@ -282,16 +227,14 @@ export class Tracker {
     }
     this.confirmations = Math.min(255, this.confirmations + 1);
     if (this.confirmations < (next === "idle" ? 3 : 2)) return false;
-    agent.tool_active =
-      next === "working" && screenToolActive(job.provider, screen);
+    agent.tool_active = next === "working" && screenToolActive(job.provider, screen);
     if (agent.state === next) return false;
     if (next === "idle") this.ready = true;
     agent.state = next;
     agent.changed_at = Date.now() * 1000;
     agent.activity = new Text();
     agent.observation.source = "screen";
-    if (next === "working")
-      agent.attention = agent.observation.unread() ? "finished" : "none";
+    if (next === "working") agent.attention = agent.observation.unread() ? "finished" : "none";
     if (next === "blocked") {
       if (!watched) agent.attention = "needs_input";
       return true;
@@ -326,7 +269,7 @@ export function foreground(fd: number): Job | null {
  * with getpgid across the host where the kernel can't list children. */
 function groupMembers(pgid: number, roots: number[]): number[] | null {
   const tree = processTree(roots);
-  if (tree) return tree.filter((pid) => processJob(pid)?.pgid === pgid).sort((a, b) => a - b);
+  if (tree) return tree.filter(pid => processJob(pid)?.pgid === pgid).sort((a, b) => a - b);
   const pids = new Int32Array(4096);
   const count = n.probe_group_pids(pgid, ptr(pids), pids.length);
   if (count < 0 || count === pids.length) return null;
@@ -356,7 +299,7 @@ export function foregroundJobs(terminals: { fd: number; pid: number }[]) {
   }
   if (!groups.size) return result;
   for (const [pgid, fds] of [...groups]) {
-    const roots = terminals.filter((t) => fds.includes(t.fd)).map((t) => t.pid);
+    const roots = terminals.filter(t => fds.includes(t.fd)).map(t => t.pid);
     const members = groupMembers(pgid, roots);
     if (!members) continue;
     for (const pid of members) {

@@ -7,8 +7,7 @@ import { registerCase } from "./support";
 
 class Onboarding extends Runtime {
   async configure() {
-    writeFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
-      JSON.stringify({ onboarding_complete: false }));
+    writeFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), JSON.stringify({ onboarding_complete: false }));
   }
   async clickText(view: Viewer, label: string) {
     const rows = screen_text(view.state.data, 100, 30);
@@ -28,14 +27,20 @@ class Onboarding extends Runtime {
     this.assertFalse(view.state.detached);
     this.assertIn("New terminal", view.state.data);
     this.assertEqual((await this.session()).panes.length, 0);
-    this.assertTrue(JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8")).onboarding_complete);
+    this.assertTrue(
+      JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8")).onboarding_complete,
+    );
     await this.clickText(view, "New terminal");
     this.assertFalse(view.state.detached);
     this.assertTrue(view.state.pane > 0);
     await view.input("printf 'CORGI_ONBOARD_%s\\n' READY\r");
     await this.until(async () => (await view.poll()).data.includes("CORGI_ONBOARD_READY"));
   }
-  async test_keyboard_completion_opens_launcher_and_runs_terminal() { await this.finish(false); }
-  async test_mouse_completion_opens_launcher_and_runs_terminal() { await this.finish(true); }
+  async test_keyboard_completion_opens_launcher_and_runs_terminal() {
+    await this.finish(false);
+  }
+  async test_mouse_completion_opens_launcher_and_runs_terminal() {
+    await this.finish(true);
+  }
 }
 registerCase("Fresh onboarding", Onboarding);

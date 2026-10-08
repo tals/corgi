@@ -1,8 +1,8 @@
-import {test,expect} from "bun:test";
-import {actionNames,providerAlias,paneId} from "./main";
-import {specs} from "./action";
-import {readFileSync,existsSync} from "node:fs";
-import {resolve,dirname,relative} from "node:path";
+import { test, expect } from "bun:test";
+import { actionNames, providerAlias, paneId } from "./main";
+import { specs } from "./action";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, dirname, relative } from "node:path";
 test("provider named launchers use their original argv0", () => {
   expect(providerAlias("/tmp/codex")).toBe("codex");
   expect(providerAlias("/tmp/claude")).toBe("claude");
@@ -12,41 +12,105 @@ test("provider named launchers use their original argv0", () => {
 test("pane environment IDs use the source unsigned integer boundary", () => {
   expect(paneId("7")).toBe(7);
   expect(paneId("0007")).toBe(7);
-  for (const value of ["", "1e2", "-1", " 7", "7.0"])
-    expect(() => paneId(value)).toThrow("InvalidCharacter");
+  for (const value of ["", "1e2", "-1", " 7", "7.0"]) expect(() => paneId(value)).toThrow("InvalidCharacter");
   expect(() => paneId("4294967296")).toThrow("Overflow");
 });
-test("help names every action on lines of at most 80 columns",()=>{
-  for(const line of actionNames.split("\n"))expect(Buffer.byteLength(line)).toBeLessThanOrEqual(80);
-  expect(actionNames.slice("Actions:".length).split(/[ ,.\n]+/).filter(Boolean)).toEqual(Object.keys(specs).filter(name=>name!=="relaunch"));
+test("help names every action on lines of at most 80 columns", () => {
+  for (const line of actionNames.split("\n")) expect(Buffer.byteLength(line)).toBeLessThanOrEqual(80);
+  expect(
+    actionNames
+      .slice("Actions:".length)
+      .split(/[ ,.\n]+/)
+      .filter(Boolean),
+  ).toEqual(Object.keys(specs).filter(name => name !== "relaunch"));
 });
-test("every source file is in the test root",()=>{
-  const config=JSON.parse(readFileSync(resolve(import.meta.dir,"../tsconfig.json"),"utf8"));
+test("every source file is in the test root", () => {
+  const config = JSON.parse(readFileSync(resolve(import.meta.dir, "../tsconfig.json"), "utf8"));
   expect(config.include).toContain("src/**/*.ts");
-  const parser=new Bun.Transpiler({loader:"ts"});
-  for(const file of new Bun.Glob("**/*.ts").scanSync(import.meta.dir)){
-    if(file.endsWith(".d.ts"))continue;
-    expect(()=>parser.transformSync(readFileSync(resolve(import.meta.dir,file),"utf8"))).not.toThrow();
+  const parser = new Bun.Transpiler({ loader: "ts" });
+  for (const file of new Bun.Glob("**/*.ts").scanSync(import.meta.dir)) {
+    if (file.endsWith(".d.ts")) continue;
+    expect(() => parser.transformSync(readFileSync(resolve(import.meta.dir, file), "utf8"))).not.toThrow();
   }
 });
-test("the daemon and the viewer never import each other",()=>{
+test("the daemon and the viewer never import each other", () => {
   // Files that run only in `corgi attach`.
-  const viewer=new Set(["agent_drag","agent_launcher","agent_navigation","bindings","client","commands","controller","corgi_animation",
-    "corgi_badge","corgi_frames","corgi_setup","fork_motion","frame_diff","ghostty_integration","host_clipboard","host_probe",
-    "keymap","launch_preview_stream","launcher_resume","launcher_usage","link_tooltip","mirror","name_dialog","navigation",
-    "onboarding","paste_card","preferences","render","resource_tooltip","shortcut_help","sidebar","sidebar_rows",
-    "sound","subagent_tooltip","url_opener","viewer","viewer_test","workspace_drag"].map(name=>name+".ts"));
+  const viewer = new Set(
+    [
+      "agent_drag",
+      "agent_launcher",
+      "agent_navigation",
+      "bindings",
+      "client",
+      "commands",
+      "controller",
+      "corgi_animation",
+      "corgi_badge",
+      "corgi_frames",
+      "corgi_setup",
+      "fork_motion",
+      "frame_diff",
+      "ghostty_integration",
+      "host_clipboard",
+      "host_probe",
+      "keymap",
+      "launch_preview_stream",
+      "launcher_resume",
+      "launcher_usage",
+      "link_tooltip",
+      "mirror",
+      "name_dialog",
+      "navigation",
+      "onboarding",
+      "paste_card",
+      "preferences",
+      "render",
+      "resource_tooltip",
+      "shortcut_help",
+      "sidebar",
+      "sidebar_rows",
+      "sound",
+      "subagent_tooltip",
+      "url_opener",
+      "viewer",
+      "viewer_test",
+      "workspace_drag",
+    ].map(name => name + ".ts"),
+  );
   // Files that own daemon state, the daemon's workers and updater.
-  const core=new Set(["activity/worker","import/onboarding","peer","persist/checkpoint","persist/handoff","persist/migrations",
-    "persist/recovery","runtime","server","session","updates","viewer_protocol",
-    "observer_service","launch_service","inference_service","import_service"].map(name=>name+".ts"));
-  const parser=new Bun.Transpiler({loader:"ts"}),crossed:string[]=[];
-  for(const file of new Bun.Glob("**/*.ts").scanSync(import.meta.dir)){
-    if(file==="main.ts"||file.endsWith(".test.ts")||file.endsWith(".d.ts"))continue;
-    for(const imported of parser.scanImports(readFileSync(resolve(import.meta.dir,file),"utf8"))){
-      if(!imported.path.startsWith("."))continue;
-      const target=relative(import.meta.dir,resolve(dirname(resolve(import.meta.dir,file)),imported.path)).replace(/\.ts$/,"")+".ts";
-      if((core.has(file)&&viewer.has(target))||(viewer.has(file)&&core.has(target))||target==="main.ts")crossed.push(`${file} -> ${target}`);
+  const core = new Set(
+    [
+      "activity/worker",
+      "import/onboarding",
+      "peer",
+      "persist/checkpoint",
+      "persist/handoff",
+      "persist/migrations",
+      "persist/recovery",
+      "runtime",
+      "server",
+      "session",
+      "updates",
+      "viewer_protocol",
+      "observer_service",
+      "launch_service",
+      "inference_service",
+      "import_service",
+    ].map(name => name + ".ts"),
+  );
+  const parser = new Bun.Transpiler({ loader: "ts" }),
+    crossed: string[] = [];
+  for (const file of new Bun.Glob("**/*.ts").scanSync(import.meta.dir)) {
+    if (file === "main.ts" || file.endsWith(".test.ts") || file.endsWith(".d.ts")) continue;
+    for (const imported of parser.scanImports(readFileSync(resolve(import.meta.dir, file), "utf8"))) {
+      if (!imported.path.startsWith(".")) continue;
+      const target =
+        relative(import.meta.dir, resolve(dirname(resolve(import.meta.dir, file)), imported.path)).replace(
+          /\.ts$/,
+          "",
+        ) + ".ts";
+      if ((core.has(file) && viewer.has(target)) || (viewer.has(file) && core.has(target)) || target === "main.ts")
+        crossed.push(`${file} -> ${target}`);
     }
   }
   expect(crossed).toEqual([]);

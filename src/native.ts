@@ -20,12 +20,8 @@ export type Tool = { id: string; thread: string; turn: string };
 export class RequestId {
   constructor(readonly value: bigint | string) {}
   static init(value: unknown): RequestId | null {
-    if (typeof value === "string")
-      return new RequestId(Buffer.from(value).subarray(0, 96).toString());
-    if (
-      typeof value === "bigint" ||
-      (typeof value === "number" && Number.isSafeInteger(value))
-    )
+    if (typeof value === "string") return new RequestId(Buffer.from(value).subarray(0, 96).toString());
+    if (typeof value === "bigint" || (typeof value === "number" && Number.isSafeInteger(value)))
       return new RequestId(BigInt(value));
     return null;
   }
@@ -42,12 +38,7 @@ export class PendingRequest {
   ) {}
   static init(provider: Provider, line: string, actor: Actor | null) {
     const event = Backend.init(provider).nativeEvent(json.parse(line));
-    return new PendingRequest(
-      line,
-      actor,
-      RequestId.init(event.request_id),
-      event.tool_request,
-    );
+    return new PendingRequest(line, actor, RequestId.init(event.request_id), event.tool_request);
   }
 }
 export type Options = {
@@ -110,9 +101,7 @@ export class Session {
       if (owner.state.state === "blocked") return "blocked";
       if (owner.state.state === "working") result = "working";
     }
-    return result === "working" || result === "blocked"
-      ? result
-      : (this.attachment.actor?.state.state ?? result);
+    return result === "working" || result === "blocked" ? result : (this.attachment.actor?.state.state ?? result);
   }
   attention() {
     let result = this.attachment.provisional.attention;
@@ -144,12 +133,10 @@ export class Session {
     this.members.push(owner);
   }
   approvalLines() {
-    return this.approvals.map((request) => request.line);
+    return this.approvals.map(request => request.line);
   }
   hasApproval(actor: Actor | null) {
-    return actor
-      ? actor.pending_native_requests > 0
-      : this.approvals.some((request) => request.actor === null);
+    return actor ? actor.pending_native_requests > 0 : this.approvals.some(request => request.actor === null);
   }
   releaseRequests() {
     if (this.requests_released) return;
@@ -157,38 +144,23 @@ export class Session {
     for (const request of this.approvals) {
       if (!request.actor) continue;
       const owner = request.actor;
-      owner.pending_native_requests = Math.max(
-        0,
-        owner.pending_native_requests - 1,
-      );
+      owner.pending_native_requests = Math.max(0, owner.pending_native_requests - 1);
       if (owner.pending_native_requests) continue;
       if (owner.state.attention === "needs_input")
-        owner.state.attention = owner.state.observation.unread()
-          ? "finished"
-          : "none";
+        owner.state.attention = owner.state.observation.unread() ? "finished" : "none";
     }
   }
   syncTools(target: Agent) {
     target.tool_active =
-      this.active_tools.some((tool) => tool.thread === target.sessionId()) ||
-      this.approvals.some(
-        (request) =>
-          request.tool &&
-          (request.actor?.state ?? this.attachment.provisional) === target,
-      );
+      this.active_tools.some(tool => tool.thread === target.sessionId()) ||
+      this.approvals.some(request => request.tool && (request.actor?.state ?? this.attachment.provisional) === target);
   }
   static start(id: number, provider: Provider, cwd: string) {
     return this.startWithOptions(id, provider, cwd, {});
   }
-  static async startWithOptions(
-    id: number,
-    provider: Provider,
-    cwd: string,
-    options: Options,
-  ) {
+  static async startWithOptions(id: number, provider: Provider, cwd: string, options: Options) {
     const directory = realpathSync(cwd);
-    const executable =
-      options.executable ?? (await discovery.resolve(provider, directory));
+    const executable = options.executable ?? (await discovery.resolve(provider, directory));
     const session = new Session(id, provider, directory);
     const [childInput, parentInput] = pipe();
     const [parentOutput, childOutput] = pipe();
@@ -207,17 +179,14 @@ export class Session {
       env.CMUX_CODEX_HOOKS_DISABLED = "1";
     }
     try {
-      const child = Bun.spawn(
-        [executable, ...(options.args ?? Providers.info(provider).native_args)],
-        {
-          cwd: directory,
-          env,
-          stdin: childInput,
-          stdout: childOutput,
-          stderr: options.inference ? "ignore" : "inherit",
-          detached: true,
-        },
-      );
+      const child = Bun.spawn([executable, ...(options.args ?? Providers.info(provider).native_args)], {
+        cwd: directory,
+        env,
+        stdin: childInput,
+        stdout: childOutput,
+        stderr: options.inference ? "ignore" : "inherit",
+        detached: true,
+      });
       session.child = {
         id: child.pid,
         stdin: { handle: parentInput },
@@ -259,8 +228,7 @@ export class Session {
         } catch {}
       }
     }
-    for (const fd of [this.child.stdin?.handle, this.child.stdout?.handle])
-      if (fd !== undefined) n.probe_close(fd);
+    for (const fd of [this.child.stdin?.handle, this.child.stdout?.handle]) if (fd !== undefined) n.probe_close(fd);
     this.child.stdin = this.child.stdout = null;
     this.active_tools = [];
     this.events = [];
@@ -288,22 +256,11 @@ export class Session {
     this.resume();
   }
   toolActive() {
-    return (
-      !this.exited &&
-      (this.active_tools.length > 0 ||
-        this.approvals.some((request) => request.tool))
-    );
+    return !this.exited && (this.active_tools.length > 0 || this.approvals.some(request => request.tool));
   }
   startTool(target: Agent, id: string, thread: string, turn: string) {
-    if (
-      !id ||
-      [id, thread, turn].some((value) => Buffer.byteLength(value) > 256)
-    )
-      return;
-    if (
-      this.active_tools.some((tool) => tool.id === id && tool.thread === thread)
-    )
-      return;
+    if (!id || [id, thread, turn].some(value => Buffer.byteLength(value) > 256)) return;
+    if (this.active_tools.some(tool => tool.id === id && tool.thread === thread)) return;
     if (this.active_tools.length >= 128) throw Error("TooManyNativeTools");
     this.active_tools.push({ id, thread, turn });
     this.usage_pending.tools = add(this.usage_pending.tools, 1n);
@@ -311,50 +268,24 @@ export class Session {
     target.attention = target.observation.unread() ? "finished" : "none";
   }
   finishTool(id: string, thread: string) {
-    this.active_tools = this.active_tools.filter(
-      (tool) => !(tool.id === id && tool.thread === thread),
-    );
+    this.active_tools = this.active_tools.filter(tool => !(tool.id === id && tool.thread === thread));
   }
   clearTools(thread: string | null, turn: string | null) {
     this.active_tools = this.active_tools.filter(
-      (tool) =>
-        !(
-          (thread === null || thread === tool.thread) &&
-          (turn === null || turn === tool.turn)
-        ),
+      tool => !((thread === null || thread === tool.thread) && (turn === null || turn === tool.turn)),
     );
   }
-  observeTools(
-    target: Agent,
-    value: any,
-    params: any,
-    method: string,
-    kind: string,
-  ) {
+  observeTools(target: Agent, value: any, params: any, method: string, kind: string) {
     if (this.provider === "codex") {
       const thread = str(params, "threadId");
       if (method === "thread/tokenUsage/updated")
         this.usage_pending.add(
-          this.usage_tracker.codexNotification(
-            thread,
-            field(params, "tokenUsage"),
-            this.active_threads.has(thread),
-          ),
+          this.usage_tracker.codexNotification(thread, field(params, "tokenUsage"), this.active_threads.has(thread)),
         );
-      if (method === "item/completed")
-        this.finishTool(str(field(params, "item"), "id"), thread);
-      else if (
-        method === "item/started" &&
-        ItemType.includes(str(field(params, "item"), "type") as any)
-      )
-        this.startTool(
-          target,
-          str(field(params, "item"), "id"),
-          thread,
-          str(params, "turnId"),
-        );
-      else if (method === "turn/completed")
-        this.clearTools(thread, str(field(params, "turn"), "id") || null);
+      if (method === "item/completed") this.finishTool(str(field(params, "item"), "id"), thread);
+      else if (method === "item/started" && ItemType.includes(str(field(params, "item"), "type") as any))
+        this.startTool(target, str(field(params, "item"), "id"), thread, str(params, "turnId"));
+      else if (method === "turn/completed") this.clearTools(thread, str(field(params, "turn"), "id") || null);
     } else {
       if (kind === "result") {
         this.clearTools(target.sessionId(), null);
@@ -367,13 +298,9 @@ export class Session {
         delta.tools = 0n;
         this.usage_pending.add(delta);
       }
-      for (const block of Array.isArray(message?.content)
-        ? message.content
-        : []) {
-        if (block.type === "tool_use")
-          this.startTool(target, str(block, "id"), target.sessionId(), "");
-        if (block.type === "tool_result")
-          this.finishTool(str(block, "tool_use_id"), target.sessionId());
+      for (const block of Array.isArray(message?.content) ? message.content : []) {
+        if (block.type === "tool_use") this.startTool(target, str(block, "id"), target.sessionId(), "");
+        if (block.type === "tool_result") this.finishTool(str(block, "tool_use_id"), target.sessionId());
       }
     }
   }
@@ -385,15 +312,10 @@ export class Session {
         tokens: new Tokens(owner.live_usage.tokens),
       });
       owner.native_meter.meter.value.recent_tokens = 0n;
-      owner.native_meter.baseline_next =
-        owner.live_usage.known ||
-        this.active_threads.has(owner.state.sessionId());
-      if (owner.native_meter.baseline_next)
-        owner.native_meter.meter.value.partial = true;
+      owner.native_meter.baseline_next = owner.live_usage.known || this.active_threads.has(owner.state.sessionId());
+      if (owner.native_meter.baseline_next) owner.native_meter.meter.value.partial = true;
     }
-    const thread =
-      field(field(value, "params"), "thread") ??
-      field(field(value, "result"), "thread");
+    const thread = field(field(value, "params"), "thread") ?? field(field(value, "result"), "thread");
     const parent = registry.find("codex", str(thread, "parentThreadId"));
     if (parent) registry.linkChild(parent, owner);
     const role = str(thread, "agentRole");
@@ -401,34 +323,27 @@ export class Session {
   }
   queue(value: any) {
     const line = Buffer.from(json.stringify(value) + "\n");
-    if (this.output.length + line.length - 1 > 1024 * 1024)
-      throw Error("NativeBackpressure");
+    if (this.output.length + line.length - 1 > 1024 * 1024) throw Error("NativeBackpressure");
     this.output = Buffer.concat([this.output, line]);
   }
   send(_registry: Registry, value: any) {
     if (this.exited) throw Error("NativeExited");
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw Error("InvalidMessage");
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("InvalidMessage");
     if (str(value, "id") === "__corgi_init") throw Error("ReservedRequestId");
     if (this.ready) this.queue(value);
     else {
       const line = Buffer.from(json.stringify(value) + "\n");
-      if (this.deferred.length + line.length - 1 > 1024 * 1024)
-        throw Error("NativeBackpressure");
+      if (this.deferred.length + line.length - 1 > 1024 * 1024) throw Error("NativeBackpressure");
       this.deferred = Buffer.concat([this.deferred, line]);
     }
     const id = RequestId.init(Backend.init(this.provider).responseId(value));
     if (!id) return;
-    const resolved = this.approvals.filter((request) => id.eql(request.id));
-    this.approvals = this.approvals.filter((request) => !id.eql(request.id));
+    const resolved = this.approvals.filter(request => id.eql(request.id));
+    this.approvals = this.approvals.filter(request => !id.eql(request.id));
     for (const request of resolved) {
       const owner = request.actor;
       const target = owner?.state ?? this.attachment.provisional;
-      if (owner)
-        owner.pending_native_requests = Math.max(
-          0,
-          owner.pending_native_requests - 1,
-        );
+      if (owner) owner.pending_native_requests = Math.max(0, owner.pending_native_requests - 1);
       if (this.hasApproval(owner)) {
         target.state = "blocked";
         target.attention = "needs_input";
@@ -443,11 +358,7 @@ export class Session {
   flush() {
     if (this.exited || this.paused || !this.child.stdin) return;
     while (this.output.length) {
-      const size = n.probe_write(
-        this.child.stdin.handle,
-        ptr(this.output),
-        this.output.length,
-      );
+      const size = n.probe_write(this.child.stdin.handle, ptr(this.output), this.output.length);
       if (size <= 0) break;
       this.output = Buffer.from(this.output.subarray(size));
     }
@@ -458,30 +369,23 @@ export class Session {
     let ding = false;
     const buffer = Buffer.alloc(16384);
     for (let i = 0; i < 8; i++) {
-      const size = n.probe_read(
-        this.child.stdout.handle,
-        ptr(buffer),
-        buffer.length,
-      );
+      const size = n.probe_read(this.child.stdout.handle, ptr(buffer), buffer.length);
       if (size <= 0) {
         if (size === 0 && this.imported) this.markExited();
         break;
       }
       this.input = Buffer.concat([this.input, buffer.subarray(0, size)]);
-      if (this.input.length > 4 * 1024 * 1024)
-        throw Error("NativeMessageTooLarge");
+      if (this.input.length > 4 * 1024 * 1024) throw Error("NativeMessageTooLarge");
       let end: number;
       while ((end = this.input.indexOf(10)) >= 0) {
-        ding =
-          this.ingest(registry, this.input.subarray(0, end).toString()) || ding;
+        ding = this.ingest(registry, this.input.subarray(0, end).toString()) || ding;
         this.input = Buffer.from(this.input.subarray(end + 1));
       }
     }
     return ding;
   }
   ingest(registry: Registry, line: string) {
-    if (Buffer.byteLength(line) > 4 * 1024 * 1024)
-      throw Error("NativeMessageTooLarge");
+    if (Buffer.byteLength(line) > 4 * 1024 * 1024) throw Error("NativeMessageTooLarge");
     let value: any;
     try {
       value = json.parse(line);
@@ -500,9 +404,7 @@ export class Session {
       this.ready = true;
       this.attachment.provisional.state = "idle";
     }
-    const actor = event.session
-      ? registry.get(this.provider, event.session)
-      : this.attachment.actor;
+    const actor = event.session ? registry.get(this.provider, event.session) : this.attachment.actor;
     if (actor) {
       if (this.provider === "codex") this.codexThread(registry, actor, value);
       this.remember(actor);
@@ -517,26 +419,19 @@ export class Session {
         }
         this.attachment.provisional = new Agent();
         this.attachment.provisional.provider = this.provider;
-        this.attachment.provisional.state = this.ready
-          ? "idle"
-          : "initializing";
+        this.attachment.provisional.state = this.ready ? "idle" : "initializing";
         for (const pending of this.approvals)
           if (!pending.actor) {
             pending.actor = actor;
             actor.pending_native_requests++;
           }
-        for (const tool of this.active_tools)
-          if (!tool.thread) tool.thread = actor.state.sessionId();
+        for (const tool of this.active_tools) if (!tool.thread) tool.thread = actor.state.sessionId();
       }
       const selects =
         method === "thread/started" ||
-        (this.provider === "codex" &&
-          field(value, "result") !== null &&
-          !!event.session);
-      if (!this.attachment.actor || (selects && actor.parent === null))
-        this.attachment.select(actor);
-      if (this.attachment.actor === actor)
-        this.resume_hint.observe(actor.state);
+        (this.provider === "codex" && field(value, "result") !== null && !!event.session);
+      if (!this.attachment.actor || (selects && actor.parent === null)) this.attachment.select(actor);
+      if (this.attachment.actor === actor) this.resume_hint.observe(actor.state);
     }
     const target = actor?.state ?? this.attachment.provisional;
     target.provider = this.provider;
@@ -547,31 +442,15 @@ export class Session {
     const reported = event.turn || str(params, "turnId");
     const completed = !!reported && target.finishedTurn(reported);
     const stale =
-      completed ||
-      (event.phase !== "working" &&
-        !!reported &&
-        !!target.turn.len &&
-        reported !== target.turnId());
-    if (!stale || event.phase === "completed")
-      this.observeTools(target, value, params, method, kind);
+      completed || (event.phase !== "working" && !!reported && !!target.turn.len && reported !== target.turnId());
+    if (!stale || event.phase === "completed") this.observeTools(target, value, params, method, kind);
     if (actor && method === "thread/tokenUsage/updated")
-      actor.native_meter.native(
-        field(params, "tokenUsage"),
-        this.active_threads.has(event.session),
-        Date.now(),
-      );
+      actor.native_meter.native(field(params, "tokenUsage"), this.active_threads.has(event.session), Date.now());
     if (event.request_id !== null) {
       const id = RequestId.init(event.request_id);
-      if (
-        !this.approvals.some(
-          (request) =>
-            request.actor === actor && id !== null && id.eql(request.id),
-        )
-      ) {
+      if (!this.approvals.some(request => request.actor === actor && id !== null && id.eql(request.id))) {
         if (this.approvals.length >= 64) throw Error("TooManyNativeRequests");
-        this.approvals.push(
-          new PendingRequest(line, actor, id, event.tool_request),
-        );
+        this.approvals.push(new PendingRequest(line, actor, id, event.tool_request));
         if (actor) actor.pending_native_requests++;
       }
       target.beginTurn("");
@@ -588,20 +467,10 @@ export class Session {
             ((active !== undefined && (!active || active === event.turn)) ||
               target.state === "working" ||
               target.state === "blocked")
-          : !target.finished_since_activity &&
-            (old === "working" || old === "blocked");
-      if (
-        active !== undefined &&
-        (!event.turn || !active || active === event.turn)
-      )
+          : !target.finished_since_activity && (old === "working" || old === "blocked");
+      if (active !== undefined && (!event.turn || !active || active === event.turn))
         this.active_threads.delete(event.thread);
-      if (matches)
-        ding = target.endTurn(
-          event.turn,
-          event.outcome,
-          "protocol",
-          Date.now() * 1000,
-        );
+      if (matches) ding = target.endTurn(event.turn, event.outcome, "protocol", Date.now() * 1000);
     }
     if (!stale && this.hasApproval(actor)) {
       target.state = "blocked";
@@ -616,12 +485,7 @@ export class Session {
         kind === "user")
     )
       this.syncTools(target);
-    if (
-      !stale &&
-      (target.state !== old ||
-        event.phase !== "none" ||
-        event.request_id !== null)
-    ) {
+    if (!stale && (target.state !== old || event.phase !== "none" || event.request_id !== null)) {
       target.last_seq = Date.now() * 1000;
       target.changed_at = target.last_seq;
       target.observation.source = "protocol";
@@ -629,8 +493,7 @@ export class Session {
     if (target.state !== old && target.attention === "needs_input") ding = true;
     while (
       this.events.length &&
-      (this.events.length >= 128 ||
-        this.journal_bytes + Buffer.byteLength(line) > 4 * 1024 * 1024)
+      (this.events.length >= 128 || this.journal_bytes + Buffer.byteLength(line) > 4 * 1024 * 1024)
     )
       this.journal_bytes -= Buffer.byteLength(this.events.shift()!.line);
     this.events.push({ seq: this.next_seq++, line });
@@ -640,8 +503,8 @@ export class Session {
   capture(live: boolean) {
     return {
       binding: captureBinding(this.attachment, live),
-      members: this.members.map((actor) => actor.id),
-      approval_actors: this.approvals.map((request) => request.actor?.id ?? 0),
+      members: this.members.map(actor => actor.id),
+      approval_actors: this.approvals.map(request => request.actor?.id ?? 0),
       usage_tracker: this.usage_tracker,
       observation: this.observation(),
       turns: [...this.active_threads].map(([thread, turn]) => ({
@@ -678,35 +541,25 @@ export class Session {
     session.imported = live;
     session.workspace_id = saved.workspace_id;
     session.resume_hint = hydrate(new ResumeHint(), saved.resume_hint);
-    session.usage_tracker = live
-      ? Tracker.restore(saved.usage_tracker)
-      : new Tracker();
+    session.usage_tracker = live ? Tracker.restore(saved.usage_tracker) : new Tracker();
     if (
       (saved.members?.length ?? 0) > 256 ||
-      ((saved.approval_actors?.length ?? 0) > 0 &&
-        saved.approval_actors.length !== saved.approvals.length)
+      ((saved.approval_actors?.length ?? 0) > 0 && saved.approval_actors.length !== saved.approvals.length)
     )
       throw Error("InvalidCheckpoint");
     for (const id of saved.members ?? []) {
       const actor = registry.byId(id);
-      if (
-        !actor ||
-        actor.state.provider !== saved.provider ||
-        session.members.includes(actor)
-      )
+      if (!actor || actor.state.provider !== saved.provider || session.members.includes(actor))
         throw Error("InvalidCheckpoint");
       session.members.push(actor);
     }
-    if (!session.members.length && session.attachment.actor)
-      session.members.push(session.attachment.actor);
+    if (!session.members.length && session.attachment.actor) session.members.push(session.attachment.actor);
     session.requests_released = session.exited;
     session.child.id = saved.pid;
     if (live) session.owner = "handoff";
     if (live && saved.stdin >= 0) session.child.stdin = { handle: saved.stdin };
-    if (live && saved.stdout >= 0)
-      session.child.stdout = { handle: saved.stdout };
-    for (const file of [session.child.stdin, session.child.stdout])
-      if (file) fdNative.fd_cloexec(file.handle);
+    if (live && saved.stdout >= 0) session.child.stdout = { handle: saved.stdout };
+    for (const file of [session.child.stdin, session.child.stdout]) if (file) fdNative.fd_cloexec(file.handle);
     session.input = binary.decode(saved.input);
     session.output = binary.decode(saved.output);
     session.deferred = binary.decode(saved.deferred);
@@ -718,19 +571,13 @@ export class Session {
     session.journal_bytes = saved.journal_bytes;
     if (live) {
       for (const [i, line] of (saved.approvals ?? []).entries()) {
-        const id = saved.approval_actors?.length
-          ? saved.approval_actors[i]
-          : (session.attachment.actor?.id ?? 0);
+        const id = saved.approval_actors?.length ? saved.approval_actors[i] : (session.attachment.actor?.id ?? 0);
         const actor = id ? registry.byId(id) : null;
         if (id && !actor) throw Error("InvalidCheckpoint");
-        session.approvals.push(
-          PendingRequest.init(saved.provider, line, actor),
-        );
+        session.approvals.push(PendingRequest.init(saved.provider, line, actor));
         if (!session.exited && actor) actor.pending_native_requests++;
       }
-      session.active_threads = new Map(
-        (saved.turns ?? []).map((turn: any) => [turn.thread, turn.turn]),
-      );
+      session.active_threads = new Map((saved.turns ?? []).map((turn: any) => [turn.thread, turn.turn]));
       session.active_tools = (saved.tools ?? []).map((tool: Tool) => ({
         ...tool,
       }));
@@ -739,23 +586,12 @@ export class Session {
   }
 }
 
-export async function request(
-  server: any,
-  client: any,
-  op: string,
-  query: any,
-) {
+export async function request(server: any, client: any, op: string, query: any) {
   const runtime = server.runtime;
   if (op === "native.start") {
     if (runtime.sessions.length >= 16) throw Error("TooManyNativeSessions");
-    const workspace = query.workspace
-      ? runtime.getWorkspace(query.workspace)
-      : server.onlyWorkspace();
-    const session = await Session.start(
-      runtime.next_session,
-      query.provider,
-      query.cwd || workspace.cwd,
-    );
+    const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace();
+    const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd);
     session.workspace_id = workspace.id;
     runtime.sessions.push(session);
     runtime.next_session = Session.Id.next(runtime.next_session);
@@ -784,9 +620,7 @@ export async function request(
     });
     return;
   }
-  const index = runtime.sessions.findIndex(
-    (session: Session) => session.id === query.session,
-  );
+  const index = runtime.sessions.findIndex((session: Session) => session.id === query.session);
   if (index < 0) throw Error("NoNativeSession");
   const session: Session = runtime.sessions[index];
   server.dirty = true;
@@ -800,9 +634,7 @@ export async function request(
   } else if (op === "native.events") {
     client.queue({
       ok: true,
-      events: session.events.filter(
-        (event) => event.seq > BigInt(query.after ?? 0),
-      ),
+      events: session.events.filter(event => event.seq > BigInt(query.after ?? 0)),
       pending_requests: session.approvalLines(),
       next_seq: session.next_seq,
       first_seq: session.events[0]?.seq ?? session.next_seq,

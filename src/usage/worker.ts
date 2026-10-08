@@ -65,8 +65,7 @@ export class Result {
     if (this.name.len) agent.setName(this.name.text());
     const p = this.progress;
     if (!p || agent.state !== "working" || p.ended || !p.turn.len) return false;
-    if (!agent.turn.len && agent.last_seq === this.seq)
-      agent.setTurn(p.turn.text());
+    if (!agent.turn.len && agent.last_seq === this.seq) agent.setTurn(p.turn.text());
     if (agent.turnId() !== p.turn.text()) return false;
     agent.activity_generation = Bun.hash.wyhash(p.commentary.text(), 0n);
     return true;
@@ -120,16 +119,12 @@ export class Tail {
     } else if (generated && !this.name_chosen && !generated.includes("\ufffd"))
       this.name = new Text(generated.slice(0, 160));
     if (line.type === "assistant") this.claudeText(line);
-    if (line.type === "continued-in")
-      this.continued = new Text(str(value, "continuedInSessionId"));
+    if (line.type === "continued-in") this.continued = new Text(str(value, "continuedInSessionId"));
     else if (line.type === "user" || line.type === "assistant") {
       this.continued = new Text();
       const stamp = timestampMs(line.timestamp);
       if (stamp !== null) this.spoke_at = Math.max(this.spoke_at, stamp);
-    } else if (
-      line.type === "queue-operation" &&
-      str(value, "operation") === "enqueue"
-    ) {
+    } else if (line.type === "queue-operation" && str(value, "operation") === "enqueue") {
       const notice = Claude.TaskNotice.decode(str(value, "content"));
       if (notice?.status) this.ended.add(notice.id);
     }
@@ -186,8 +181,7 @@ export class Tail {
     return delta;
   }
   ingest(req: Request, bytes: Buffer | string, start_offset: number) {
-    if (Provider.info(req.agent.provider!).prompt_turns)
-      this.progress.bind(req.agent.turnId());
+    if (Provider.info(req.agent.provider!).prompt_turns) this.progress.bind(req.agent.turnId());
     const input = typeof bytes === "string" ? Buffer.from(bytes) : bytes,
       found = new Counts();
     let start = 0;
@@ -229,16 +223,12 @@ export class Tail {
         named = await lstat(req.agent.transcriptPath());
       if (!stat.isFile()) throw Error("NotRegular");
       const resumed =
-        this.inode !== 0 &&
-        stat.ino === this.inode &&
-        stat.dev === this.device &&
-        stat.size >= this.offset;
+        this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
       if (!resumed) {
         await verifySession(file, req.agent.provider!, req.agent.sessionId());
         this.initial_until = stat.size;
         this.offset = Math.max(0, stat.size - 256 * 1024);
-        const catch_up =
-          req.child && !this.opened && stat.size <= 2 * 1024 * 1024;
+        const catch_up = req.child && !this.opened && stat.size <= 2 * 1024 * 1024;
         if (catch_up) this.offset = 0;
         const retained = this.live.meter;
         this.live = new Codex();
@@ -260,12 +250,7 @@ export class Tail {
             n = await file.read(header, 0, header.length, 0),
             end = header.subarray(0, n.bytesRead).indexOf(10);
           if (end >= 0)
-            this.live.header(
-              parse(header.subarray(0, end).toString()),
-              req.child,
-              req.tracked_since,
-              catch_up,
-            );
+            this.live.header(parse(header.subarray(0, end).toString()), req.child, req.tracked_since, catch_up);
           else if (req.child) this.live.meter.lose();
           this.progress.bind(req.agent.turnId());
           if (!this.offset) this.tracker.beginCodex("codex");
@@ -274,12 +259,7 @@ export class Tail {
       }
       this.inode = stat.ino;
       this.device = stat.dev;
-      if (
-        !named.isFile() ||
-        named.ino !== this.inode ||
-        named.dev !== this.device ||
-        stat.size < this.offset
-      )
+      if (!named.isFile() || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
         throw Error("Replaced");
       if (stat.size === this.offset) return new Counts();
       const bytes = Buffer.alloc(65536),
@@ -316,11 +296,7 @@ export class Worker {
     this.requests = [];
     for (const actor of runtime.conversations.items) {
       const agent = actor.state;
-      if (
-        !agent.session.len ||
-        (!agent.transcript.len && actor.provider() !== "codex") ||
-        !runtime.followed(actor)
-      )
+      if (!agent.session.len || (!agent.transcript.len && actor.provider() !== "codex") || !runtime.followed(actor))
         continue;
       const ws = runtime.workspaces.get(actor.workspace);
       if (!ws) continue;
@@ -345,14 +321,10 @@ export class Worker {
     try {
       await this.index.refreshAsync();
       const count = Math.min(64, this.requests.length);
-      const batch = Array.from(
-        { length: count },
-        (_, i) => this.requests[(this.cursor + i) % this.requests.length],
-      );
-      if (this.requests.length)
-        this.cursor = (this.cursor + count) % this.requests.length;
+      const batch = Array.from({ length: count }, (_, i) => this.requests[(this.cursor + i) % this.requests.length]);
+      if (this.requests.length) this.cursor = (this.cursor + count) % this.requests.length;
       for (const req of batch) {
-        const existing = this.results.find((r) => r.actor === req.actor);
+        const existing = this.results.find(r => r.actor === req.actor);
         if (!existing && this.results.length >= 64) continue;
         let t = this.watchers.get(req.actor);
         if (!t) {
@@ -396,8 +368,7 @@ export class Worker {
         r.live = t.live.meter.view(Date.now());
         r.context = Object.assign(new Reading(), t.context);
         r.progress = t.progress.view();
-        if (req.agent.provider === "codex")
-          r.name = this.index.name(req.agent.sessionId());
+        if (req.agent.provider === "codex") r.name = this.index.name(req.agent.sessionId());
         else {
           r.name = t.name;
           r.continued = t.continued;
@@ -408,8 +379,7 @@ export class Worker {
         }
         if (existing) this.results[this.results.indexOf(existing)] = r;
         else this.results.push(r);
-        if (t.progress.turn.text() === req.agent.turnId())
-          t.progress.dirty = false;
+        if (t.progress.turn.text() === req.agent.turnId()) t.progress.dirty = false;
       }
     } finally {
       this.running = false;

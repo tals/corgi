@@ -1,13 +1,39 @@
 // Mirrors the tests in launcher_resume.zig.
 import { expect, test } from "bun:test";
-import { Context, View, merge, startsRun, dayStart, dayLabel, ageLabel, collapsed_rows, type Entry } from "./launcher_resume";
+import {
+  Context,
+  View,
+  merge,
+  startsRun,
+  dayStart,
+  dayLabel,
+  ageLabel,
+  collapsed_rows,
+  type Entry,
+} from "./launcher_resume";
 
-const testEntry = (session: string, cwd: string, title: string, updated_at: number): Entry => ({ provider: "claude", session, title, first: title, last: "last", cwd, branch: "", updated_at, interrupted: false });
+const testEntry = (session: string, cwd: string, title: string, updated_at: number): Entry => ({
+  provider: "claude",
+  session,
+  title,
+  first: title,
+  last: "last",
+  cwd,
+  branch: "",
+  updated_at,
+  interrupted: false,
+});
 
 test("collapsed shows this folder's newest closed conversations, then more", () => {
   const entries = [..."abcdefghi"].map((name, i) => testEntry(name, "/w/corgi", "Work", 900 - i));
   entries[2].cwd = "/w/other";
-  const c = new Context({ pending: false, entries }, "/w/corgi", "/w", [{ provider: "claude", session: "d", pane: 4 }], 1000);
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w",
+    [{ provider: "claude", session: "d", pane: 4 }],
+    1000,
+  );
   const v = new View();
   const rows = v.lines(c);
   // a, b, e, f, g, h and i are listed; c is in another folder of the
@@ -31,8 +57,18 @@ test("collapsed shows this folder's newest closed conversations, then more", () 
 });
 
 test("expanded groups by day and widens; search finds open conversations and counts the rest", () => {
-  const entries = [testEntry("a", "/w/corgi", "Sidebar flicker fix", 900), testEntry("b", "/w/other", "Sidebar width", 800), testEntry("c", "/w/corgi", "Sidebar scroll", 700)];
-  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [{ provider: "claude", session: "c", pane: 4 }], 1000);
+  const entries = [
+    testEntry("a", "/w/corgi", "Sidebar flicker fix", 900),
+    testEntry("b", "/w/other", "Sidebar width", 800),
+    testEntry("c", "/w/corgi", "Sidebar scroll", 700),
+  ];
+  const c = new Context(
+    { pending: false, entries },
+    "/w/corgi",
+    "/w/corgi",
+    [{ provider: "claude", session: "c", pane: 4 }],
+    1000,
+  );
   const v = new View();
   v.expand();
   expect(v.scope).toBe("workspace");
@@ -64,12 +100,24 @@ test("expanded groups by day and widens; search finds open conversations and cou
 });
 
 test("a run of one agent names it once", () => {
-  const entries = [testEntry("a", "/w/corgi", "Sticky agent", 900), testEntry("b", "/w/corgi", "Unread hotkey", 800), testEntry("c", "/w/corgi", "CPU check", 700), testEntry("d", "/w/corgi", "Compacting", 600), testEntry("e", "/w/corgi", "Review", 500)];
+  const entries = [
+    testEntry("a", "/w/corgi", "Sticky agent", 900),
+    testEntry("b", "/w/corgi", "Unread hotkey", 800),
+    testEntry("c", "/w/corgi", "CPU check", 700),
+    testEntry("d", "/w/corgi", "Compacting", 600),
+    testEntry("e", "/w/corgi", "Review", 500),
+  ];
   entries[2].provider = "codex";
   entries[3].provider = "codex";
   const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
   const rows = new View().lines(c);
-  expect(Array.from({ length: collapsed_rows }, (_, i) => startsRun(c, rows, i, 0))).toEqual([true, false, true, false, true]);
+  expect(Array.from({ length: collapsed_rows }, (_, i) => startsRun(c, rows, i, 0))).toEqual([
+    true,
+    false,
+    true,
+    false,
+    true,
+  ]);
   // A list scrolled past a run's first row names it again.
   expect(startsRun(c, rows, 1, 1)).toBe(true);
   // Show more.

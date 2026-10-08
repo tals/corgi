@@ -14,15 +14,7 @@ export const total_ms = 640,
 export type Cell = { width: number; height: number };
 export type Motion = { start: number; cell: Cell };
 export type Hero = { glyphs?: boolean; motion?: Motion | null };
-type Glyph =
-  | "fade"
-  | "line"
-  | "half"
-  | "junction"
-  | "top_corner"
-  | "bottom_corner"
-  | "original"
-  | "copy";
+type Glyph = "fade" | "line" | "half" | "junction" | "top_corner" | "bottom_corner" | "original" | "copy";
 type Placement = {
   image: number;
   placement: number;
@@ -77,9 +69,7 @@ export function spring(x: number) {
     omega = 12,
     damped = omega * Math.sqrt(1 - zeta * zeta);
   const u = (v: number) =>
-    1 -
-    Math.exp(-zeta * omega * v) *
-      (Math.cos(damped * v) + ((zeta * omega) / damped) * Math.sin(damped * v));
+    1 - Math.exp(-zeta * omega * v) * (Math.cos(damped * v) + ((zeta * omega) / damped) * Math.sin(damped * v));
   return x >= 1 ? 1 : u(x) / u(1);
 }
 function ease(x: number) {
@@ -167,8 +157,7 @@ export function frameAt(hero: Hero, now: number) {
 }
 export function draw(x: number, y: number, hero: Hero, now: number) {
   const f = frameAt(hero, now),
-    style = (fg: palette.Token) =>
-      new palette.Style({ fg, bg: "surface" }).sgr();
+    style = (fg: palette.Token) => new palette.Style({ fg, bg: "surface" }).sgr();
   let out = "";
   const glyphs: Record<Glyph, string> = {
     fade: hero.glyphs ? "\uf5d3" : "─",
@@ -204,31 +193,15 @@ class Canvas {
   ) {
     this.pixels = Buffer.alloc(w * h * 4);
   }
-  fill(
-    x0: number,
-    y0: number,
-    x1: number,
-    y1: number,
-    color: palette.Rgb,
-    contains = (x: number, y: number) => true,
-  ) {
-    for (
-      let py = Math.max(0, Math.floor(y0));
-      py < Math.min(this.h, Math.ceil(y1));
-      py++
-    )
-      for (
-        let px = Math.max(0, Math.floor(x0));
-        px < Math.min(this.w, Math.ceil(x1));
-        px++
-      ) {
+  fill(x0: number, y0: number, x1: number, y1: number, color: palette.Rgb, contains = (x: number, y: number) => true) {
+    for (let py = Math.max(0, Math.floor(y0)); py < Math.min(this.h, Math.ceil(y1)); py++)
+      for (let px = Math.max(0, Math.floor(x0)); px < Math.min(this.w, Math.ceil(x1)); px++) {
         let hits = 0;
         for (let sy = 0; sy < 4; sy++)
           for (let sx = 0; sx < 4; sx++) {
             const x = px + (sx + 0.5) / 4,
               y = py + (sy + 0.5) / 4;
-            if (x >= x0 && x < x1 && y >= y0 && y < y1 && contains(x, y))
-              hits++;
+            if (x >= x0 && x < x1 && y >= y0 && y < y1 && contains(x, y)) hits++;
           }
         const a = Math.floor((hits * 255) / 16),
           i = (py * this.w + px) * 4;
@@ -248,10 +221,7 @@ function transmit(id: number, c: Canvas) {
   for (let off = 0; off < encoded.length; off += 4096) {
     const end = Math.min(off + 4096, encoded.length),
       more = Number(end < encoded.length);
-    out +=
-      off === 0
-        ? `\x1b_Ga=t,t=d,f=32,o=z,s=${c.w},v=${c.h},i=${id},q=2,m=${more};`
-        : `\x1b_Gm=${more};`;
+    out += off === 0 ? `\x1b_Ga=t,t=d,f=32,o=z,s=${c.w},v=${c.h},i=${id},q=2,m=${more};` : `\x1b_Gm=${more};`;
     out += encoded.slice(off, end) + "\x1b\\";
   }
   return out;
@@ -263,22 +233,12 @@ export function upload(cell: Cell) {
     const c = new Canvas(g.cw, g.ch),
       color = palette.colors[id === first_id ? "muted" : "accent"];
     c.rect(0, g.h_top, Math.ceil(g.cx - g.r + g.t / 2), g.h_top + g.t, color);
-    c.fill(
-      0,
-      0,
-      g.cw,
-      g.ch,
-      color,
-      (x, y) => (x - g.cx) ** 2 + (y - g.cy) ** 2 <= g.r * g.r,
-    );
+    c.fill(0, 0, g.cw, g.ch, color, (x, y) => (x - g.cx) ** 2 + (y - g.cy) ** 2 <= g.r * g.r);
     out += transmit(id, c);
   }
   for (const up of [true, false])
     for (let k = 0; k <= corners; k++) {
-      const c = new Canvas(
-          (node_col - junction) * g.cw,
-          (stem_rows + 1) * g.ch,
-        ),
+      const c = new Canvas((node_col - junction) * g.cw, (stem_rows + 1) * g.ch),
         row = up ? 0 : stem_rows * g.ch,
         node_x = (node_col - junction) * g.cw,
         color = palette.colors.faint;

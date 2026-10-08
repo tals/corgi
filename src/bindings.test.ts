@@ -15,9 +15,7 @@ test("presets preserve first shortcuts and held chords", () => {
   expect(find("corgi", { name: "new" })?.key).toBe(99);
   expect(lookup("corgi", true, 118)).toEqual({ name: "split", value: "right" });
   expect(lookup("tmux", true, 48)).toEqual({ name: "tab", value: 1 });
-  expect(
-    chord("cmux", false, { codepoint: 116, mods: { super: true } }),
-  ).toEqual({ name: "new" });
+  expect(chord("cmux", false, { codepoint: 116, mods: { super: true } })).toEqual({ name: "new" });
   expect(prefixedSequence("tmux", "\x1b[1;5D")).toEqual({
     name: "resize",
     value: "left",
@@ -25,13 +23,7 @@ test("presets preserve first shortcuts and held chords", () => {
 });
 
 test("each action shows its first binding", () => {
-  const cases: [
-    Preset,
-    import("./action").Action,
-    number,
-    import("./keyboard").Mods,
-    boolean,
-  ][] = [
+  const cases: [Preset, import("./action").Action, number, import("./keyboard").Mods, boolean][] = [
     ["corgi", { name: "new" }, 99, {}, true],
     ["corgi", { name: "split", value: "right" }, 118, {}, true],
     ["corgi", { name: "detach" }, 113, {}, true],
@@ -45,8 +37,7 @@ test("each action shows its first binding", () => {
   for (const [preset, action, key, mods, prefixed] of cases) {
     const binding = find(preset, action)!;
     expect(binding.key).toBe(key);
-    for (const name of ["ctrl", "alt", "shift", "super"] as const)
-      expect(!!binding.mods[name]).toBe(!!mods[name]);
+    for (const name of ["ctrl", "alt", "shift", "super"] as const) expect(!!binding.mods[name]).toBe(!!mods[name]);
     expect(binding.prefixed).toBe(prefixed);
   }
   expect(find("tmux", { name: "resize-mode" })).toBeNull();
@@ -67,16 +58,13 @@ test("keys are spelled the way the help screen shows them", async () => {
     [57364, {}, "F1"],
   ];
   for (const [key, mods, text] of cases)
-    expect(format({ key, mods, prefixed: true, action: { name: "new" } })).toBe(
-      text,
-    );
+    expect(format({ key, mods, prefixed: true, action: { name: "new" } })).toBe(text);
 });
 
 test("every preset has keys for a new tab, help and detach after the prefix", async () => {
   const { first } = await import("./bindings");
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[])
-    for (const name of ["new", "help", "detach"] as const)
-      expect(first(preset, { name }, true)).not.toBeNull();
+    for (const name of ["new", "help", "detach"] as const) expect(first(preset, { name }, true)).not.toBeNull();
 });
 
 test("compact spellings for the onboarding cards", async () => {
@@ -90,19 +78,13 @@ test("compact spellings for the onboarding cards", async () => {
     [57352, { super: true, alt: true }, "↑"],
   ];
   for (const [key, mods, text] of cases)
-    expect(
-      compact({ key, mods, prefixed: true, action: { name: "new" } }),
-    ).toBe(text);
+    expect(compact({ key, mods, prefixed: true, action: { name: "new" } })).toBe(text);
 });
 
 test("the shortcut table lists each preset's keys", async () => {
   const { writeTable } = await import("./bindings");
   const text = writeTable(["corgi", "tmux", "cmux"]);
-  expect(
-    text.startsWith(
-      "| Action | Corgi | tmux | cmux |\n| --- | --- | --- | --- |\n",
-    ),
-  ).toBe(true);
+  expect(text.startsWith("| Action | Corgi | tmux | cmux |\n| --- | --- | --- | --- |\n")).toBe(true);
   for (const row of [
     "| New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `Cmd+T`, `prefix c` |\n",
     "| Split right | `prefix v`, `prefix %` | `prefix %` | `Cmd+D`, `prefix v`, `prefix %` |\n",
@@ -126,13 +108,7 @@ test("keys that arrive as bytes", () => {
 });
 
 test("keys that arrive as sequences", () => {
-  const cases: [
-    Preset,
-    boolean,
-    number,
-    import("./keyboard").Mods,
-    import("./action").Action | null,
-  ][] = [
+  const cases: [Preset, boolean, number, import("./keyboard").Mods, import("./action").Action | null][] = [
     ["cmux", false, 116, { super: true }, { name: "new" }],
     ["cmux", true, 116, { super: true }, { name: "new" }],
     ["cmux", false, 84, { super: true }, { name: "new" }],

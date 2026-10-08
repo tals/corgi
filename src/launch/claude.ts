@@ -7,8 +7,7 @@ import { Info, claudeAccount, limits } from "../usage/account";
 import { Control, cancelled } from "./control";
 import { Cache, interval, cooldown } from "../usage/account_cache";
 export function applyUsage(info: Info, value: any) {
-  if (typeof value?.rate_limits_available !== "boolean")
-    throw Error("InvalidUsage");
+  if (typeof value?.rate_limits_available !== "boolean") throw Error("InvalidUsage");
   if (!value.rate_limits_available) throw Error("UsageUnavailable");
   const quota = limits(value.rate_limits, "claude");
   if (quota === "none") throw Error("InvalidUsage");
@@ -48,9 +47,7 @@ export class Client {
       return await this.read(stopping, quit);
     } catch (e) {
       this.account.usage_error = new Text(
-        ["TimedOut", "Timeout"].includes((e as Error).message)
-          ? "request timed out"
-          : "Claude account unavailable",
+        ["TimedOut", "Timeout"].includes((e as Error).message) ? "request timed out" : "Claude account unavailable",
       );
       return this.account;
     }
@@ -63,10 +60,12 @@ export class Client {
     if (now >= this.next_auth) {
       this.next_auth = now + 60;
       this.account = new Info();
-      const output = await subprocessRun(
-        [executable, "auth", "status", "--json"],
-        { cwd: "/tmp", timeout_ms: 5000, max_output: 16384, quit },
-      );
+      const output = await subprocessRun([executable, "auth", "status", "--json"], {
+        cwd: "/tmp",
+        timeout_ms: 5000,
+        max_output: 16384,
+        quit,
+      });
       const stdout = output.stdout.toString(),
         exit = "exited" in output.term ? output.term.exited : -1;
       let d: any;
@@ -77,18 +76,11 @@ export class Client {
         throw error;
       }
       const account = claudeAccount(d);
-      if (
-        account.signed_in === null ||
-        (exit !== 0 && !(exit === 1 && account.signed_in === false))
-      ) {
+      if (account.signed_in === null || (exit !== 0 && !(exit === 1 && account.signed_in === false))) {
         this.close();
         throw Error("InvalidAccount");
       }
-      if (
-        account.signed_in === true &&
-        account.limits !== "metered" &&
-        !d.email
-      )
+      if (account.signed_in === true && account.limits !== "metered" && !d.email)
         account.usage_error = new Text("usage account unavailable");
       const identity = JSON.stringify({
         executable,
@@ -115,11 +107,7 @@ export class Client {
         this.close();
       }
     }
-    if (
-      this.account.signed_in !== true ||
-      this.account.limits === "metered" ||
-      this.account.usage_error.len
-    ) {
+    if (this.account.signed_in !== true || this.account.limits === "metered" || this.account.usage_error.len) {
       this.close();
       return this.account;
     }
@@ -134,10 +122,7 @@ export class Client {
       const fresh = Object.assign(new Info(), this.account);
       try {
         if (this.session === null) await this.start(executable, stopping, quit, Date.now() + 5000);
-        applyUsage(
-          fresh,
-          await this.session!.request("get_usage", {}, { stopping, quit }),
-        );
+        applyUsage(fresh, await this.session!.request("get_usage", {}, { stopping, quit }));
       } catch (e) {
         this.close();
         fresh.usage_error = new Text(

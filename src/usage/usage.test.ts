@@ -18,15 +18,11 @@ test("usage windows discard work observed before a visit", () => {
 });
 test("cumulative usage establishes a baseline and duplicate samples add nothing", () => {
   const t = new Tracker();
-  expect(
-    t.codexTokens("a", { input_tokens: 100, output_tokens: 10 }, false).any(),
-  ).toBe(false);
+  expect(t.codexTokens("a", { input_tokens: 100, output_tokens: 10 }, false).any()).toBe(false);
   const d = t.codexTokens("a", { input_tokens: 150, output_tokens: 20 }, false);
   expect(d.input).toBe(50n);
   expect(d.output).toBe(10n);
-  expect(
-    t.codexTokens("a", { input_tokens: 150, output_tokens: 20 }, false).any(),
-  ).toBe(false);
+  expect(t.codexTokens("a", { input_tokens: 150, output_tokens: 20 }, false).any()).toBe(false);
 });
 test("Claude repeated message blocks count tools once and include cached input", () => {
   const t = new Tracker(),
@@ -63,12 +59,7 @@ test("counter regressions and inherited jumps cannot inflate live spend", () => 
   c.sample(new Tokens({ input: 10n, output: 1n }), null, true, 2);
   c.sample(new Tokens({ input: 1000n, output: 100n }), null, true, 3);
   expect(c.meter.value.tokens.total()).toBe(0n);
-  c.sample(
-    new Tokens({ input: 9000n, output: 900n }),
-    new Tokens({ input: 30n, output: 5n }),
-    true,
-    4,
-  );
+  c.sample(new Tokens({ input: 9000n, output: 900n }), new Tokens({ input: 30n, output: 5n }), true, 4);
   expect(c.meter.value.tokens.total()).toBe(35n);
   expect(c.meter.value.partial).toBe(true);
 });
@@ -99,25 +90,14 @@ test("context readings include input caches and provider windows", () => {
   const points = new Points();
   points.learn("claude-opus-4-5", 160000n);
   expect(r.view(points).compacts_at).toBe(160000n);
-  expect(new ContextView({ used: 70n, window: 100n, at: 1 }).band()).toBe(
-    "near",
-  );
-  expect(new ContextView({ used: 85n, window: 100n, at: 1 }).band()).toBe(
-    "high",
-  );
+  expect(new ContextView({ used: 70n, window: 100n, at: 1 }).band()).toBe("near");
+  expect(new ContextView({ used: 85n, window: 100n, at: 1 }).band()).toBe("high");
 });
 test("model prices use longest bounded prefix and rescale each token kind", () => {
   expect(lookup("claude-opus-5-5[1m]")?.input).toBe(4000n);
   expect(lookup("claude-opus-55")).toBeNull();
   expect(lookup("codex-auto-review")).toBeNull();
-  expect(
-    equivalent(
-      lookup("claude-haiku-4-5")!,
-      lookup("claude-opus-5")!,
-      5000n,
-      1000n,
-    ),
-  ).toBe(1200n);
+  expect(equivalent(lookup("claude-haiku-4-5")!, lookup("claude-opus-5")!, 5000n, 1000n)).toBe(1200n);
 });
 test("account usage distinguishes missing windows from zero and preserves durations", () => {
   const c = limits(
@@ -138,9 +118,7 @@ test("account usage distinguishes missing windows from zero and preserves durati
       subscriptionType: "max",
     }).account.text(),
   ).toBe("Not signed in");
-  expect(
-    codexAccount({ type: "apiKey", planType: "pro", email: "old" }).plan.text(),
-  ).toBe("API");
+  expect(codexAccount({ type: "apiKey", planType: "pro", email: "old" }).plan.text()).toBe("API");
 });
 test("readings fill their slot and leave unread slots as gaps", () => {
   const s = new History(),

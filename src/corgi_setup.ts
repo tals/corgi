@@ -14,8 +14,19 @@ import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
-export type Choice = "auto" | "codex" | "claude" | "off" | "ghostty" | "readings" | "sleeping_corgis" | "keyboard" | "import";
-export const choices: Choice[] = ["auto", "codex", "claude", "off", "ghostty", "readings", "sleeping_corgis", "keyboard", "import"];
+export type Choice =
+  "auto" | "codex" | "claude" | "off" | "ghostty" | "readings" | "sleeping_corgis" | "keyboard" | "import";
+export const choices: Choice[] = [
+  "auto",
+  "codex",
+  "claude",
+  "off",
+  "ghostty",
+  "readings",
+  "sleeping_corgis",
+  "keyboard",
+  "import",
+];
 export const Choice = {
   provider(choice: Choice): Provider | null {
     return choice === "codex" || choice === "claude" ? choice : null;
@@ -55,7 +66,16 @@ export function status(value: any = {}): Status {
 
 /** Rows inside the frame, top to bottom. Drawing and hit testing both walk
  * this table; short terminals drop the spacers, then the hints. */
-type Line = "spacer" | "image_paste" | "detail" | "divider" | "footer" | { heading: string } | { lead: string } | { hint: string } | { option: Choice };
+type Line =
+  | "spacer"
+  | "image_paste"
+  | "detail"
+  | "divider"
+  | "footer"
+  | { heading: string }
+  | { lead: string }
+  | { hint: string }
+  | { option: Choice };
 const lines: Line[] = [
   "spacer",
   { heading: "Activity summaries" },
@@ -93,7 +113,7 @@ function kept(line: Line, density: Density): boolean {
   return true;
 }
 function heightFor(density: Density): number {
-  return 2 + lines.filter((line) => kept(line, density)).length;
+  return 2 + lines.filter(line => kept(line, density)).length;
 }
 const max_width = 64;
 const min_width = 48;
@@ -102,7 +122,7 @@ function densityFor(rows: number): Density {
 }
 /** The line on `offset` rows below the top border. */
 function lineAt(rows: number, offset: number): Line | null {
-  return lines.filter((line) => kept(line, densityFor(rows)))[offset] ?? null;
+  return lines.filter(line => kept(line, densityFor(rows)))[offset] ?? null;
 }
 function usable(b: Rect): boolean {
   return b.w >= min_width && b.h >= heightFor("minimal");
@@ -236,7 +256,15 @@ export class Menu {
     }
     w.write("\x1b[0m\x1b[?25l");
   }
-  private drawOption(w: Writer, b: Rect, y: number, choice: Choice, s: Status, prefs: Preferences, now_ms: number): void {
+  private drawOption(
+    w: Writer,
+    b: Rect,
+    y: number,
+    choice: Choice,
+    s: Status,
+    prefs: Preferences,
+    now_ms: number,
+  ): void {
     const highlighted = choice === this.selected;
     const p = highlighted ? row_selected : row_normal;
     const base = p.text;
@@ -274,7 +302,9 @@ export class Menu {
     const right_x = b.w - 4 - right_width;
     if (summarizer(choice)) {
       const chosen = choice === s.choice;
-      w.write(`\x1b[${y + 1};${b.x + label_x + 1}H${chosen ? p.accent : p.quiet}${chosen ? "●" : "○"} ${p.label}${labels[choice]}`);
+      w.write(
+        `\x1b[${y + 1};${b.x + label_x + 1}H${chosen ? p.accent : p.quiet}${chosen ? "●" : "○"} ${p.label}${labels[choice]}`,
+      );
       w.write(`\x1b[${y + 1};${b.x + summary_x + 1}H${base}`);
       writeEllipsis(w, summary(choice, s), sat(right_x, summary_x + (right_width > 0 ? 1 : 0) + 1));
     } else {
@@ -352,7 +382,10 @@ function launchCounts(s: Status): string {
   const total = Provider.all.reduce((sum, provider) => sum + s.launches[provider], 0);
   if (total === 0) return "No agents yet this session; using your last one";
   let out = "Since start:";
-  Provider.all.forEach((provider, i) => (out += `${i === 0 ? "" : " ·"} ${Provider.info(provider).executables[0]} ${s.launches[provider]}×`));
+  Provider.all.forEach(
+    (provider, i) =>
+      (out += `${i === 0 ? "" : " ·"} ${Provider.info(provider).executables[0]} ${s.launches[provider]}×`),
+  );
   return out;
 }
 export const testing = { heightFor };

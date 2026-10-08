@@ -10,8 +10,6 @@ test("the suites sleep no more than the budget", () => {
   let count = 0;
   for (const file of readdirSync(import.meta.dir))
     if (file.endsWith(".ts"))
-      count +=
-        readFileSync(join(import.meta.dir, file), "utf8").match(/\bsleep\(/g)
-          ?.length ?? 0;
+      count += readFileSync(join(import.meta.dir, file), "utf8").match(/\bsleep\(/g)?.length ?? 0;
   expect(count).toBeLessThanOrEqual(budget);
 });

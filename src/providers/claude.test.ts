@@ -11,10 +11,7 @@ test("transcript lines decode their envelope and drop subagent lines", () => {
   expect(line.sessionId).toBe("s");
   expect(line.timestamp).toBe("t");
   expect(line.message.model).toBe("m");
-  expect(
-    Claude.Line.decode({ type: "file-history-snapshot", isSidechain: false })
-      ?.type,
-  ).toBeNull();
+  expect(Claude.Line.decode({ type: "file-history-snapshot", isSidechain: false })?.type).toBeNull();
   expect(
     Claude.Line.decode({
       type: "assistant",
@@ -35,9 +32,7 @@ test("a subagent's lines belong to the subagent, in the file beside its session'
   expect(Claude.Line.of(own, "a1")).toBeNull();
   expect(Claude.Line.of(child, "a1")).not.toBeNull();
   expect(Claude.Line.of(child, "s")).toBeNull();
-  expect(Claude.subagentTranscript("/p/s.jsonl", "s", "a1")).toBe(
-    "/p/s/subagents/agent-a1.jsonl",
-  );
+  expect(Claude.subagentTranscript("/p/s.jsonl", "s", "a1")).toBe("/p/s/subagents/agent-a1.jsonl");
 });
 test("task notices name their task, and how it ended once it has", () => {
   for (const [text, id, status] of [
@@ -62,11 +57,7 @@ test("task notices name their task, and how it ended once it has", () => {
     expect(notice.status).toBe(status);
   }
   expect(Claude.TaskNotice.decode("check CI again")).toBeNull();
-  expect(
-    Claude.TaskNotice.decode(
-      "<task-notification><summary>no id</summary></task-notification>",
-    ),
-  ).toBeNull();
+  expect(Claude.TaskNotice.decode("<task-notification><summary>no id</summary></task-notification>")).toBeNull();
 });
 test("plans read as Claude's tier refines its kind", () => {
   for (const [kind, tier, label] of [

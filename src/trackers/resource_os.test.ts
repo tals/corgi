@@ -19,6 +19,6 @@ test("native counters can sample this process", () => {
   const c = counters(process.pid);
   expect(c).not.toBeNull();
   expect(c!.memory).toBeGreaterThan(0n);
-  expect(inventory().items.some((p) => p.pid === process.pid)).toBe(true);
+  expect(inventory().items.some(p => p.pid === process.pid)).toBe(true);
   expect(host().cores).toBeGreaterThan(0);
 });

@@ -1,14 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-  Process,
-  Work,
-  Alarm,
-  delta,
-  owner,
-  leaders,
-  type Reading,
-  type Root,
-} from "./resources";
+import { Process, Work, Alarm, delta, owner, leaders, type Reading, type Root } from "./resources";
 test("new process baselines preserve established workspace rates", () => {
   const established = Object.assign(new Process(1, 1n, "worker"), {
       cpu: 45,
@@ -25,12 +16,7 @@ test("new process baselines preserve established workspace rates", () => {
   }
   const fresh = new Work(1);
   fresh.add(newcomer);
-  expect([fresh.cpu, fresh.read, fresh.written, fresh.memory]).toEqual([
-    null,
-    null,
-    null,
-    50n,
-  ]);
+  expect([fresh.cpu, fresh.read, fresh.written, fresh.memory]).toEqual([null, null, null, 50n]);
 });
 test("deltas ignore PID reuse, reassignment, first samples and counter resets", () => {
   const old: Reading = {
@@ -53,13 +39,9 @@ test("deltas ignore PID reuse, reassignment, first samples and counter resets", 
     };
   expect(delta(old, next)).toMatchObject({ cpu: 200, read: 1000n });
   expect(delta(null, next).cpu).toBeNull();
-  expect(
-    delta(old, { ...next, value: { ...next.value, start: 10n } }).cpu,
-  ).toBeNull();
+  expect(delta(old, { ...next, value: { ...next.value, start: 10n } }).cpu).toBeNull();
   expect(delta(old, { ...next, workspace: 2 }).cpu).toBeNull();
-  expect(
-    delta(old, { ...next, value: { ...next.value, read: 1n } }).read,
-  ).toBeNull();
+  expect(delta(old, { ...next, value: { ...next.value, read: 1n } }).read).toBeNull();
 });
 test("pressure requires sustained evidence and clears with hysteresis", () => {
   const a = new Alarm();
@@ -114,6 +96,5 @@ test("bounded process details retain leaders for every resource", () => {
     ),
     selected = leaders(list);
   expect(selected.length).toBeLessThanOrEqual(64);
-  for (const pid of [100, 1, 51])
-    expect(selected.some((p) => p.pid === pid)).toBe(true);
+  for (const pid of [100, 1, 51]) expect(selected.some(p => p.pid === pid)).toBe(true);
 });

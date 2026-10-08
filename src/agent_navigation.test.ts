@@ -18,9 +18,7 @@ test("agent navigation wraps, excludes shells, and validates history against the
       attention: "needs_input",
     }),
   ];
-  expect(relative(entries, entries[0].target, false)).toEqual(
-    entries[1].target,
-  );
+  expect(relative(entries, entries[0].target, false)).toEqual(entries[1].target);
   expect(relative(entries, entries[1].target, true)).toEqual(entries[0].target);
   expect(relative([], null, true)).toBeNull();
   const h = new History();

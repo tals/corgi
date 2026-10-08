@@ -18,7 +18,8 @@ const resize_entries: Entry[] = [
   { key: "k", label: "Resize up", direction: "up", needs_pane: true },
   { key: "l", label: "Resize right", direction: "right", needs_pane: true },
 ];
-export type Hit = { tag: "none" } | { tag: "close" } | { tag: "previous" } | { tag: "next" } | { tag: "command"; command: Entry };
+export type Hit =
+  { tag: "none" } | { tag: "close" } | { tag: "previous" } | { tag: "next" } | { tag: "command"; command: Entry };
 
 export type Item = "new" | "rename" | "clear-name" | "swap" | "split-right" | "split-down" | "zoom" | "fork" | "close";
 /** `icon` sits in a column before the labels. A `rule` sets the row apart
@@ -30,7 +31,14 @@ export interface Row {
   icon: string;
   rule: boolean;
 }
-const row = (item: Item, key: string, label: string, extra: Partial<Row> = {}): Row => ({ item, key, label, icon: "", rule: false, ...extra });
+const row = (item: Item, key: string, label: string, extra: Partial<Row> = {}): Row => ({
+  item,
+  key,
+  label,
+  icon: "",
+  rule: false,
+  ...extra,
+});
 const actions = [row("new", "n", "New tab"), row("rename", "r", "Rename"), row("close", "x", "Close")];
 const pane_actions = [
   row("swap", "s", "Swap with focused pane"),
@@ -41,7 +49,11 @@ const pane_actions = [
   row("zoom", "z", "Zoom / unzoom"),
   row("close", "x", "Close pane"),
 ];
-const agent_actions = [row("rename", "r", "Rename"), row("fork", "f", "Fork", { icon: "⑂" }), row("close", "x", "Close", { rule: true })];
+const agent_actions = [
+  row("rename", "r", "Rename"),
+  row("fork", "f", "Fork", { icon: "⑂" }),
+  row("close", "x", "Close", { rule: true }),
+];
 const border = new Style({ fg: "line", bg: "surface" }).sgr();
 
 // Herdr's tab context menu: these actions apply to the clicked tab, not the
@@ -91,10 +103,10 @@ export class TabMenu {
   }
   /** Screen lines the rows take: one each, and one per rule. */
   lines(): number {
-    return this.entries().length + this.entries().filter((entry) => entry.rule).length;
+    return this.entries().length + this.entries().filter(entry => entry.rule).length;
   }
   hasIcons(): boolean {
-    return this.entries().some((entry) => entry.icon.length > 0);
+    return this.entries().some(entry => entry.icon.length > 0);
   }
   /** The widest label, with the icon column when there is one. */
   labelWidth(): number {
@@ -162,7 +174,9 @@ export class TabMenu {
       }
       const off = this.off.has(entry.item);
       const highlighted = !off && index === this.highlighted;
-      const row_style = highlighted ? new Style({ fg: "strong", bg: "selected" }).sgr() : new Style({ fg: "text", bg: "surface" }).sgr();
+      const row_style = highlighted
+        ? new Style({ fg: "strong", bg: "selected" }).sgr()
+        : new Style({ fg: "text", bg: "surface" }).sgr();
       const dim = new Style({ fg: "faint", bg: "surface" }).sgr();
       w.write(`\x1b[${line};${b.x + 1}H${border}│${row_style}`);
       w.splat(" ", inner);
@@ -176,7 +190,11 @@ export class TabMenu {
         used += 4;
       }
       if (icons) {
-        const icon_style = off ? dim : highlighted ? new Style({ fg: "muted", bg: "selected" }).sgr() : new Style({ fg: "muted", bg: "surface" }).sgr();
+        const icon_style = off
+          ? dim
+          : highlighted
+            ? new Style({ fg: "muted", bg: "selected" }).sgr()
+            : new Style({ fg: "muted", bg: "surface" }).sgr();
         w.write(`${icon_style}${entry.icon.length > 0 ? entry.icon : " "}${row_style} `);
         used += 2;
       }
@@ -191,7 +209,12 @@ export class TabMenu {
  * and the label on the row's background. */
 function rowColors(enabled: boolean, selected: boolean): { key: string; label: string } {
   if (!enabled) return { key: palette.fg("faint"), label: palette.fg("faint") };
-  return { key: keycap, label: selected ? new Style({ fg: "strong", bg: "selected" }).sgr() : new Style({ fg: "strong", bg: "surface" }).sgr() };
+  return {
+    key: keycap,
+    label: selected
+      ? new Style({ fg: "strong", bg: "selected" }).sgr()
+      : new Style({ fg: "strong", bg: "surface" }).sgr(),
+  };
 }
 export class ResizeView {
   x = 0;
@@ -255,10 +278,14 @@ export class ResizeView {
       const col = Math.floor(index / v.rows);
       const enabled = !entry.needs_pane || v.has_pane;
       const selected = enabled && v.highlighted === entry.key;
-      w.write(`\x1b[${v.y + r + 3};${v.x + col * col_width + 1}H${selected ? palette.bg("selected") : palette.bg("surface")}`);
+      w.write(
+        `\x1b[${v.y + r + 3};${v.x + col * col_width + 1}H${selected ? palette.bg("selected") : palette.bg("surface")}`,
+      );
       w.splat(" ", col_width);
       const rc = rowColors(enabled, selected);
-      w.write(`\x1b[${v.y + r + 3};${v.x + col * col_width + 1}H${rc.key} ${entry.key === "\t" ? "⇥" : entry.key} ${rc.label} `);
+      w.write(
+        `\x1b[${v.y + r + 3};${v.x + col * col_width + 1}H${rc.key} ${entry.key === "\t" ? "⇥" : entry.key} ${rc.label} `,
+      );
       w.write(entry.label.slice(0, Math.min(entry.label.length, sat(col_width, 5))));
     });
     w.write(palette.bg("surface"));
@@ -272,7 +299,9 @@ export class ResizeView {
     w.write("\x1b[0m\x1b[?25l");
   }
   private line(w: Writer, r: number, text: string, bold: boolean): void {
-    w.write(`\x1b[${this.y + r + 1};${this.x + 1}H${bold ? "\x1b[1m" + palette.fg("strong") : "\x1b[22m" + palette.fg("muted")}`);
+    w.write(
+      `\x1b[${this.y + r + 1};${this.x + 1}H${bold ? "\x1b[1m" + palette.fg("strong") : "\x1b[22m" + palette.fg("muted")}`,
+    );
     w.write(text.slice(0, Math.min(text.length, this.width)));
   }
 }

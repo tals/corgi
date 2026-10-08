@@ -75,12 +75,11 @@ export async function gitStamp(root: string, cached: Cached): Promise<string | n
     return null;
   }
   const files = ["HEAD", "config", "packed-refs"];
-  for (const name of [cached.ref.branch, cached.tracking ?? ""])
-    if (name.startsWith("refs/")) files.push(name);
+  for (const name of [cached.ref.branch, cached.tracking ?? ""]) if (name.startsWith("refs/")) files.push(name);
   const stamps = await Promise.all(
-    files.map((file) =>
+    files.map(file =>
       stat(join(git, file), { bigint: true }).then(
-        (s) => `${s.ino}:${s.mtimeNs}:${s.size}`,
+        s => `${s.ino}:${s.mtimeNs}:${s.size}`,
         () => "-",
       ),
     ),
@@ -112,7 +111,7 @@ export class Tracker {
     const now = milliTimestamp();
     if (now < this.next_refresh) return changed;
     this.next_refresh = now + 3000;
-    this.jobs = store.items.map((w) => ({
+    this.jobs = store.items.map(w => ({
       id: w.id,
       cwd: w.cwd,
       ahead: null,
@@ -148,8 +147,7 @@ export class Tracker {
   }
   async run() {
     const now = milliTimestamp();
-    for (const [k, v] of this.cache)
-      if (now - v.seen > 60000) this.cache.delete(k);
+    for (const [k, v] of this.cache) if (now - v.seen > 60000) this.cache.delete(k);
     for (const job of this.jobs) {
       if (this.stopping) break;
       try {
@@ -174,8 +172,7 @@ export class Tracker {
   }
   async refreshInto(cwd: string, now: number): Promise<Cached> {
     const negative = this.cache.get(cwd);
-    if (negative && !negative.refs && now - negative.seen < 30000)
-      return negative;
+    if (negative && !negative.refs && now - negative.seen < 30000) return negative;
     let root = cwd;
     for (;;) {
       try {
@@ -188,11 +185,7 @@ export class Tracker {
     }
     const key = await realpath(root),
       cached = this.cache.get(key);
-    if (
-      cached &&
-      (cached.seen === now || (!cached.refs && now - cached.seen < 30000))
-    )
-      return cached;
+    if (cached && (cached.seen === now || (!cached.refs && now - cached.seen < 30000))) return cached;
     const before = cached ? await gitStamp(root, cached) : null;
     if (cached?.stamp !== undefined && before === cached.stamp && now - cached.checked! < recheck_ms) {
       cached.seen = now;
@@ -260,10 +253,10 @@ export class Tracker {
 }
 export async function command(cwd: string, args: string[]) {
   try {
-    const out = await subprocessRun(
-      ["git", "--no-optional-locks", "-C", cwd, ...args],
-      { timeout_ms: 2000, max_output: 65536 },
-    );
+    const out = await subprocessRun(["git", "--no-optional-locks", "-C", cwd, ...args], {
+      timeout_ms: 2000,
+      max_output: 65536,
+    });
     return out.ok() ? out.stdout.toString().trim() : null;
   } catch {
     return null;

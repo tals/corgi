@@ -52,11 +52,7 @@ test("Codex tools survive snapshots but never leak into another turn", () => {
       generation: 0n,
       title_revision: 0n,
     },
-    snap = new Snapshot(
-      request,
-      "01901234-1234-1234-1234-123456789abc",
-      "working",
-    );
+    snap = new Snapshot(request, "01901234-1234-1234-1234-123456789abc", "working");
   snap.turn = new Text("a");
   snap.observed_at = 1;
   actor.observeSnapshot(snap, true, 0);
@@ -269,9 +265,7 @@ test("a snapshot completion records history without overriding active or blocked
     expect(actor.observeSnapshot(observation, false, 0)).toBe(true);
     expect(actor.state.state).toBe(state);
     expect(actor.state.observation.completed).toBe(1n);
-    expect(actor.state.attention).toBe(
-      state === "blocked" ? "needs_input" : "finished",
-    );
+    expect(actor.state.attention).toBe(state === "blocked" ? "needs_input" : "finished");
     actor.acknowledge(1n, null);
     observation.observed_at = 3;
     expect(actor.observeSnapshot(observation, true, 0)).toBe(false);
@@ -287,9 +281,7 @@ test("delayed hook endings and transcript confirmations cannot stop resumed work
   actor.observeHook(hook("prompt", "a", { turn: "new" }), 3, false, 30);
   expect(actor.confirmStop(2, "completed", 40)).toBe(false);
   for (const kind of ["stop", "interrupt"]) {
-    expect(
-      actor.observeHook(hook(kind, "a", { turn: "old" }), 4, false, 50),
-    ).toBe(false);
+    expect(actor.observeHook(hook(kind, "a", { turn: "old" }), 4, false, 50)).toBe(false);
     expect(actor.state.state).toBe("working");
     expect(actor.state.turnId()).toBe("new");
     expect(actor.observed_at).toBe(30);
@@ -302,12 +294,7 @@ test("delayed hook endings and transcript confirmations cannot stop resumed work
 });
 test("hook models replace the transcript model and survive events without one", () => {
   const actor = new Registry().get("codex", "a");
-  actor.observeHook(
-    hook("prompt", "a", { model: "gpt-6-astra" }),
-    1,
-    false,
-    10,
-  );
+  actor.observeHook(hook("prompt", "a", { model: "gpt-6-astra" }), 1, false, 10);
   expect(actor.model.id.text()).toBe("gpt-6-astra");
   expect(actor.model_from_hook).toBe(true);
   actor.observeHook(hook("tool_start", "a", { tool: "Bash" }), 2, false, 20);
@@ -334,9 +321,7 @@ test("Codex hooks cannot establish or switch a pane identity", () => {
   expect(registry.routeHook(binding, "codex", event)).toBeNull();
 });
 
-function compactHook(
-  kind: "compact_start" | "compact_end" | "session_start" | "tool_start",
-) {
+function compactHook(kind: "compact_start" | "compact_end" | "session_start" | "tool_start") {
   return {
     kind,
     session: "",
@@ -357,21 +342,14 @@ test("compaction hooks partition usage and preserve the summary through repeated
     state: new Agent({ provider: "codex", state: "working" }),
   });
   actor.state.setActivity("Reading source");
-  actor.activity_timeline.checkpoint(
-    "",
-    parseLabel("Reading source")!,
-    new LiveView(),
-    1,
-  );
+  actor.activity_timeline.checkpoint("", parseLabel("Reading source")!, new LiveView(), 1);
   actor.live_usage = new LiveView({
     known: true,
     tokens: new Tokens({ input: 100n }),
   });
   actor.observeHook(compactHook("compact_start"), 1, true, 2000);
   expect(actor.state.activity.text()).toBe("Reading source");
-  expect(actor.activity_timeline.points[1].label.text()).toBe(
-    "Compacting context",
-  );
+  expect(actor.activity_timeline.points[1].label.text()).toBe("Compacting context");
   expect(actor.activity_timeline.points[0].usage.tokens.input).toBe(100n);
   actor.observeHook(compactHook("compact_start"), 2, true, 3000);
   actor.observeHook(compactHook("compact_end"), 1, true, 4000);
@@ -382,9 +360,7 @@ test("compaction hooks partition usage and preserve the summary through repeated
   actor.observeHook(compactHook("compact_end"), 3, true, 5000);
   expect(actor.activity_timeline.points[2].label.text()).toBe("Reading source");
   expect(actor.activity_timeline.points[1].usage.tokens.input).toBe(60n);
-  expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(
-    0n,
-  );
+  expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(0n);
 });
 
 test("terminal compaction supplements protocol state without clearing hook compaction", () => {
@@ -407,9 +383,7 @@ test("terminal compaction supplements protocol state without clearing hook compa
   actor.observeCompactionScreen(false, 3000);
   expect(actor.state.compacting).toBe(false);
   actor.live_usage.tokens.input = 100n;
-  expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(
-    60n,
-  );
+  expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(60n);
   actor.observeHook(compactHook("compact_start"), 101, true, 4000);
   actor.observeCompactionScreen(false, 5000);
   expect(actor.state.compacting).toBe(true);
@@ -513,11 +487,7 @@ test("child metadata is ordered by the observer's stamp and aged on the daemon c
   const registry = new Registry();
   const session = "01901234-1234-1234-1234-123456789abc";
   const parent = registry.get("codex", session);
-  const snapshot = new Snapshot(
-    { prefix: new Text() } as any,
-    session,
-    "working",
-  );
+  const snapshot = new Snapshot({ prefix: new Text() } as any, session, "working");
   snapshot.children = [
     Object.assign(new Child(), {
       session: "01901234-1234-1234-1234-123456789abd",
@@ -573,7 +543,7 @@ test("a Claude subagent counts from its launch until a Stop's list leaves it out
         },
       ],
     },
-  ].map((value) => hooks.decode(value)!);
+  ].map(value => hooks.decode(value)!);
   registry.observeHook(parent, lines[0], 1, false, 100);
   registry.observeHook(parent, lines[1], 2, false, 200);
   expect(parent.state.state).toBe("working");
@@ -608,9 +578,7 @@ test("a Claude session's end ends the subagents its last Stop listed", () => {
   const stop = hooks.decode({
     hook_event_name: "Stop",
     session_id: "parent",
-    background_tasks: [
-      { id: "a1", type: "subagent", status: "running", description: "Lane A" },
-    ],
+    background_tasks: [{ id: "a1", type: "subagent", status: "running", description: "Lane A" }],
   })!;
   const end = hooks.decode({
     hook_event_name: "SessionEnd",
@@ -673,8 +641,9 @@ const pauseHookRecords = [
 test("a Claude Stop pauses a conversation its shells or a wakeup can wake", () => {
   const registry = new Registry();
   const actor = registry.get("claude", "s");
-  const hooks = pauseHookRecords.map((value) => new Hooks().decode(value)!);
-  const observe = (index: number, seq: number, now: number) => registry.observeHook(actor, hooks[index], seq, false, now);
+  const hooks = pauseHookRecords.map(value => new Hooks().decode(value)!);
+  const observe = (index: number, seq: number, now: number) =>
+    registry.observeHook(actor, hooks[index], seq, false, now);
   // A process that can't be watched never pauses.
   observe(0, 1, 100);
   observe(1, 2, 200);
@@ -741,7 +710,7 @@ test("a pause ends when the transcript reports its last shell ended", () => {
   const registry = new Registry();
   const actor = registry.get("claude", "s");
   actor.pid = 4242;
-  const hooks = shellHookRecords.map((value) => new Hooks().decode(value)!);
+  const hooks = shellHookRecords.map(value => new Hooks().decode(value)!);
   registry.observeHook(actor, hooks[0], 1, false, 100);
   registry.observeHook(actor, hooks[1], 2, false, 200);
   expect(actor.state.paused).toBe(true);
@@ -825,7 +794,7 @@ test("a Claude parent works on while its Stop lists subagents, which become its 
   const registry = new Registry();
   const parent = registry.get("claude", "parent");
   parent.workspace = 3;
-  const hooks = parentHookRecords.map((value) => new Hooks().decode(value)!);
+  const hooks = parentHookRecords.map(value => new Hooks().decode(value)!);
   const observe = (index: number, seq: number, now: number) =>
     registry.observeHook(parent, hooks[index], seq, false, now);
   observe(0, 1, 100);

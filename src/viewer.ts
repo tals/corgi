@@ -28,7 +28,13 @@ const idle_after_ms = 1000;
 export async function open(view: Controller, cwd: string, theme: unknown, socket: string): Promise<number | bigint> {
   return openMode(view, cwd, theme, socket, false);
 }
-export async function openMode(view: Controller, cwd: string, theme: unknown, socket: string, start_onboarding: boolean): Promise<number | bigint> {
+export async function openMode(
+  view: Controller,
+  cwd: string,
+  theme: unknown,
+  socket: string,
+  start_onboarding: boolean,
+): Promise<number | bigint> {
   view.remote_links = sshViewer();
   // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
   // attaching viewer's environment: one daemon can serve both terminals.
@@ -51,7 +57,9 @@ export async function openMode(view: Controller, cwd: string, theme: unknown, so
 }
 /** A daemon on another protocol is one error, which `main` explains. */
 function incompatible(error: Error): Error {
-  return ["UnsupportedViewerProtocol", "UnsupportedProtocol", "ProtocolRequired"].includes(error.message) ? Error("IncompatibleViewerProtocol") : error;
+  return ["UnsupportedViewerProtocol", "UnsupportedProtocol", "ProtocolRequired"].includes(error.message)
+    ? Error("IncompatibleViewerProtocol")
+    : error;
 }
 export function deinit(view: Controller): void {
   view.launch_previews.deinit();
@@ -62,14 +70,21 @@ export function deinit(view: Controller): void {
 }
 export async function sync(view: Controller, bell: { seq: number | bigint }, play_sound: boolean): Promise<boolean> {
   for (const p of view.runtime.panes) {
-    if (p.terminal.holding_selection && (view.selection === null || view.selection.pane !== p.id)) p.terminal.clearSelection();
+    if (p.terminal.holding_selection && (view.selection === null || view.selection.pane !== p.id))
+      p.terminal.clearSelection();
     await p.terminal.flush();
   }
   const interests: any[] = [];
   for (const place of view.layoutView().placements(view.area())) {
     const p = view.runtime.pane(place.id);
     if (!p) continue;
-    interests.push({ pane: place.id, cols: Math.max(1, place.rect.w), rows: Math.max(1, place.rect.h), offset: p.terminal.offset, known: p.terminal.known });
+    interests.push({
+      pane: place.id,
+      cols: Math.max(1, place.rect.w),
+      rows: Math.max(1, place.rect.h),
+      offset: p.terminal.offset,
+      known: p.terminal.known,
+    });
   }
   let reply: any;
   try {
@@ -159,7 +174,7 @@ class Poll {
   }
   async wait(ms: number, held: boolean): Promise<void> {
     if (this.stdin || this.woken) return;
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       const timer = setTimeout(done, ms);
       const check = held ? setInterval(() => writable() && done(), 2) : null;
       this.wake = done;
@@ -173,7 +188,14 @@ class Poll {
   }
 }
 
-export async function run(connection: Transport, socket: string, probe: Probe, input: number[], start_onboarding: boolean, stdin: Stdin): Promise<string | null> {
+export async function run(
+  connection: Transport,
+  socket: string,
+  probe: Probe,
+  input: number[],
+  start_onboarding: boolean,
+  stdin: Stdin,
+): Promise<string | null> {
   const view = new Controller(connection);
   try {
     const bell = { seq: await openMode(view, process.cwd(), probe.theme, socket, start_onboarding) };
@@ -198,7 +220,7 @@ export async function run(connection: Transport, socket: string, probe: Probe, i
     let typed = false;
     let active_at = Date.now();
     const poll = new Poll();
-    stdin.listen((bytes) => {
+    stdin.listen(bytes => {
       for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
       poll.notify("stdin");
     });
@@ -251,17 +273,22 @@ export async function run(connection: Transport, socket: string, probe: Probe, i
             woken = false;
             synced = now;
             if (!watch_opened) {
-              waker = watch(socket, view.input_state.viewer_id, () => {
-                woken = true;
-                // An idle viewer draws the change now rather than at its next quiet frame.
-                if (typed || Date.now() - active_at >= idle_after_ms) next_sync = 0;
-                typed = false;
-                poll.notify("waker");
-              }, () => {
-                // A daemon gone or replaced by a reload stops waking; sync on
-                // every frame again until this viewer reconnects.
-                waker = null;
-              });
+              waker = watch(
+                socket,
+                view.input_state.viewer_id,
+                () => {
+                  woken = true;
+                  // An idle viewer draws the change now rather than at its next quiet frame.
+                  if (typed || Date.now() - active_at >= idle_after_ms) next_sync = 0;
+                  typed = false;
+                  poll.notify("waker");
+                },
+                () => {
+                  // A daemon gone or replaced by a reload stops waking; sync on
+                  // every frame again until this viewer reconnects.
+                  waker = null;
+                },
+              );
               watch_opened = true;
             }
           }
@@ -379,8 +406,15 @@ function dimensions(): { cols: number; rows: number; cell: forkMotion.Cell | nul
   if (n.probe_winsize_pixels(0, ptr(size)) !== 0) size.fill(0);
   const [ws_col, ws_row, ws_xpixel, ws_ypixel] = size;
   // Terminals that report pixels pad under a cell, so this is the cell.
-  const cell = ws_col === 0 || ws_row === 0 || ws_xpixel < ws_col || ws_ypixel < ws_row ? null : { width: Math.floor(ws_xpixel / ws_col), height: Math.floor(ws_ypixel / ws_row) };
-  return { cols: ws_col === 0 ? 100 : Math.min(Math.max(ws_col, 10), 500), rows: ws_row === 0 ? 30 : Math.min(Math.max(ws_row, 4), 200), cell };
+  const cell =
+    ws_col === 0 || ws_row === 0 || ws_xpixel < ws_col || ws_ypixel < ws_row
+      ? null
+      : { width: Math.floor(ws_xpixel / ws_col), height: Math.floor(ws_ypixel / ws_row) };
+  return {
+    cols: ws_col === 0 ? 100 : Math.min(Math.max(ws_col, 10), 500),
+    rows: ws_row === 0 ? 30 : Math.min(Math.max(ws_row, 4), 200),
+    cell,
+  };
 }
 /** Whether a terminal by this name draws Kitty's branch drawing characters:
  * Ghostty and Kitty do. */
@@ -425,9 +459,9 @@ export class Stdin {
     const deadline = Date.now() + ms;
     for (const chunk of this.queued.splice(0)) take(chunk);
     while (!done() && Date.now() < deadline && !this.ended) {
-      await new Promise<void>((resolve) => {
+      await new Promise<void>(resolve => {
         const timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
-        this.handler = (bytes) => {
+        this.handler = bytes => {
           take(bytes);
           clearTimeout(timer);
           resolve();

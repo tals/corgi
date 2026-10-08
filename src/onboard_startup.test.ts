@@ -4,8 +4,24 @@ import * as viewer from "./viewer";
 
 /** One workspace with one pane, as `session.snapshot` sends it. */
 const snapshot = () => ({
-  workspaces: [{ id: 1, name: "one", cwd: "/tmp", model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 } }],
-  panes: [{ id: 1, workspace: 1, tab: 1, cols: 80, rows: 24, agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } } }],
+  workspaces: [
+    {
+      id: 1,
+      name: "one",
+      cwd: "/tmp",
+      model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 0 },
+    },
+  ],
+  panes: [
+    {
+      id: 1,
+      workspace: 1,
+      tab: 1,
+      cols: 80,
+      rows: 24,
+      agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+    },
+  ],
   conversations: [],
   native_sessions: [],
 });

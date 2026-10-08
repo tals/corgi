@@ -47,18 +47,13 @@ export class Job {
   start(plan: Plan): void {
     if (this.busy()) throw Error("ImportInProgress");
     const p = structuredClone(plan);
-    if (
-      !p.workspaces.length ||
-      p.workspaces.length > max_workspaces ||
-      (p.source === "herdr" && !p.herdr_session)
-    )
+    if (!p.workspaces.length || p.workspaces.length > max_workspaces || (p.source === "herdr" && !p.herdr_session))
       throw Error("InvalidImport");
     let total = 0;
     for (const ws of p.workspaces) {
       if (ws.tabs.length > max_tabs) throw Error("TooManyTabs");
       for (const tab of ws.tabs) {
-        if (!tab.panes.length || tab.panes.length > max_panes)
-          throw Error("InvalidImport");
+        if (!tab.panes.length || tab.panes.length > max_panes) throw Error("InvalidImport");
         if (tab.nodes?.length) tree.validate(tab.nodes, tab.panes.length);
         total += tab.panes.length;
       }
@@ -87,15 +82,11 @@ export class Job {
           : await copy(r, source, plan.source, defaults);
       this.created.push(id);
       this.progress.workspace ??= id;
-      this.progress.completed += source.tabs.reduce(
-        (n, t) => n + t.panes.length,
-        0,
-      );
+      this.progress.completed += source.tabs.reduce((n, t) => n + t.panes.length, 0);
       this.index++;
       if (this.index === plan.workspaces.length) {
         this.progress.phase = "complete";
-        this.progress.message =
-          "Copied successfully. Source processes are unchanged.";
+        this.progress.message = "Copied successfully. Source processes are unchanged.";
         this.deinit();
       }
     } catch (error) {
@@ -126,18 +117,13 @@ function clear(model: Model, index: number) {
   }
   model.nodes[index] = null;
 }
-export function geometry(
-  model: Model,
-  panes: Pane[],
-  ids: number[],
-  indices: number[],
-): number {
+export function geometry(model: Model, panes: Pane[], ids: number[], indices: number[]): number {
   if (indices.length === 1) return model.alloc({ pane: ids[indices[0]] });
   for (const axis of ["horizontal", "vertical"] as Axis[]) {
     const origin = (p: Pane) => (axis === "horizontal" ? p.x : p.y),
       size = (p: Pane) => (axis === "horizontal" ? p.w : p.h),
-      min = Math.min(...indices.map((i) => origin(panes[i]))),
-      max = Math.max(...indices.map((i) => origin(panes[i]) + size(panes[i])));
+      min = Math.min(...indices.map(i => origin(panes[i]))),
+      max = Math.max(...indices.map(i => origin(panes[i]) + size(panes[i])));
     for (const candidate of indices) {
       const cut = origin(panes[candidate]);
       if (cut <= min || cut >= max) continue;
@@ -162,22 +148,14 @@ export function geometry(
           axis,
           first,
           second,
-          ratio: Math.max(
-            100,
-            Math.min(900, Math.floor(((cut - min) * 1000) / (max - min))),
-          ),
+          ratio: Math.max(100, Math.min(900, Math.floor(((cut - min) * 1000) / (max - min)))),
         },
       });
     }
   }
   throw Error("UnsupportedSourceLayout");
 }
-export async function copy(
-  r: Runtime,
-  source: Workspace,
-  kind: Source,
-  defaults: Create,
-): Promise<number> {
+export async function copy(r: Runtime, source: Workspace, kind: Source, defaults: Create): Promise<number> {
   const dir =
       kind === "cmux"
         ? cmuxDirectory(source.cwd, process.env.HOME ?? "/")
@@ -194,12 +172,7 @@ export async function copy(
         const id = await r.create({
             ...defaults,
             workspace: wid,
-            cwd:
-              kind === "cmux"
-                ? cmuxDirectory(p.cwd, dir)
-                : isAbsolute(p.cwd)
-                  ? p.cwd
-                  : dir,
+            cwd: kind === "cmux" ? cmuxDirectory(p.cwd, dir) : isAbsolute(p.cwd) ? p.cwd : dir,
             title: tab.name,
             command: null,
             interactive_command: false,
@@ -211,8 +184,7 @@ export async function copy(
           tmux_resume.feed(terminal, p.screen);
           terminal.feed("\x1b[0m\r\n# Imported tmux output; new shell.\r\n");
           if (p.restart_command) {
-            if (/[\x00-\x1f\x7f]/.test(p.restart_command))
-              throw Error("InvalidImport");
+            if (/[\x00-\x1f\x7f]/.test(p.restart_command)) throw Error("InvalidImport");
             terminal.feed("# Press Return to restart the command below.\r\n");
             terminal.prefill(p.restart_command);
           }
@@ -220,12 +192,7 @@ export async function copy(
         if (kind === "cmux") r.pane(id)!.label = label(p.name);
         ids.push(id);
         first ??= id;
-        if (p.url)
-          terminal.feed(
-            "\r\n# Imported browser link:\r\n# " +
-              p.url.replace(/[\x00-\x1f\x7f]/g, "") +
-              "\r\n",
-          );
+        if (p.url) terminal.feed("\r\n# Imported browser link:\r\n# " + p.url.replace(/[\x00-\x1f\x7f]/g, "") + "\r\n");
       }
       if (tab.nodes?.length || (kind === "tmux" && tab.panes.length > 1)) {
         const ws = r.getWorkspace(wid),

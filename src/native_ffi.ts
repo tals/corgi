@@ -19,15 +19,15 @@ export const lib = dlopen(`${nativeRoot}/lib/libcorgi_probe.${suffix}`, {
   probe_macos_process: { args: ["i32", "ptr", "ptr", "ptr", "ptr", "i32"], returns: "i32" },
   probe_rss_kib: { args: [], returns: FFIType.i64_fast },
   probe_connect: { args: ["cstring"], returns: "i32" },
-  probe_group_pids: {args:["i32","ptr","i32"],returns:"i32"},
-  probe_process_job: {args:["i32","ptr"],returns:"i32"},
-  probe_process_args: {args:["i32","ptr","usize"],returns:FFIType.i64_fast},
-  probe_getpgrp: {args:[],returns:"i32"},
-  probe_dup_above: {args:["i32","i32"],returns:"i32"},
-  probe_winsize: {args:["i32","ptr"],returns:"i32"},
-  probe_fixture_children: {args:["ptr"],returns:"i32"},
-  probe_fixture_exit: {args:["i32"],returns:"i32"},
-  probe_wait_child: {args:["i32"],returns:"i32"},
+  probe_group_pids: { args: ["i32", "ptr", "i32"], returns: "i32" },
+  probe_process_job: { args: ["i32", "ptr"], returns: "i32" },
+  probe_process_args: { args: ["i32", "ptr", "usize"], returns: FFIType.i64_fast },
+  probe_getpgrp: { args: [], returns: "i32" },
+  probe_dup_above: { args: ["i32", "i32"], returns: "i32" },
+  probe_winsize: { args: ["i32", "ptr"], returns: "i32" },
+  probe_fixture_children: { args: ["ptr"], returns: "i32" },
+  probe_fixture_exit: { args: ["i32"], returns: "i32" },
+  probe_wait_child: { args: ["i32"], returns: "i32" },
   probe_peek: { args: ["i32", "ptr", "i32"], returns: "i32" },
   probe_isatty: { args: ["i32"], returns: "i32" },
   probe_writable: { args: ["i32", "i32"], returns: "i32" },
@@ -70,22 +70,48 @@ export function terminal() {
   const buffer = Buffer.alloc(4 * 1024 * 1024);
   return {
     handle,
-    resize(cols: number, rows: number) { if (n.terminal_resize(handle, cols, rows) !== 0) throw Error("terminal resize"); },
-    feed(data: Uint8Array | string) { const b = typeof data === "string" ? Buffer.from(data) : data; if (b.length) n.terminal_feed(handle, ptr(b), b.length); },
-    text() { const size = Number(n.terminal_text(handle, ptr(buffer), buffer.length)); if (size < 0) throw Error(`text: ${size}`); return buffer.subarray(0, size).toString(); },
-    snapshot() { const size = Number(n.terminal_snapshot(handle, ptr(buffer), buffer.length)); if (size < 0) throw Error(`snapshot: ${size}`); return Buffer.from(buffer.subarray(0, size)); },
-    close() { n.terminal_free(handle); },
+    resize(cols: number, rows: number) {
+      if (n.terminal_resize(handle, cols, rows) !== 0) throw Error("terminal resize");
+    },
+    feed(data: Uint8Array | string) {
+      const b = typeof data === "string" ? Buffer.from(data) : data;
+      if (b.length) n.terminal_feed(handle, ptr(b), b.length);
+    },
+    text() {
+      const size = Number(n.terminal_text(handle, ptr(buffer), buffer.length));
+      if (size < 0) throw Error(`text: ${size}`);
+      return buffer.subarray(0, size).toString();
+    },
+    snapshot() {
+      const size = Number(n.terminal_snapshot(handle, ptr(buffer), buffer.length));
+      if (size < 0) throw Error(`snapshot: ${size}`);
+      return Buffer.from(buffer.subarray(0, size));
+    },
+    close() {
+      n.terminal_free(handle);
+    },
   };
 }
-export function pair(pty = false) { const fds = new Int32Array(2); if ((pty ? n.probe_pty : n.probe_pair)(ptr(fds)) !== 0) throw Error("pair"); return [...fds]; }
-export function write(fd: number, s: string) { const b = Buffer.from(s); if (n.probe_write(fd, ptr(b), b.length) !== b.length) throw Error("short write"); }
+export function pair(pty = false) {
+  const fds = new Int32Array(2);
+  if ((pty ? n.probe_pty : n.probe_pair)(ptr(fds)) !== 0) throw Error("pair");
+  return [...fds];
+}
+export function write(fd: number, s: string) {
+  const b = Buffer.from(s);
+  if (n.probe_write(fd, ptr(b), b.length) !== b.length) throw Error("short write");
+}
 export async function readUntil(fd: number, needle: string, timeout = 5000) {
-  const b = Buffer.alloc(65536); let text = ""; const end = performance.now() + timeout;
+  const b = Buffer.alloc(65536);
+  let text = "";
+  const end = performance.now() + timeout;
   n.probe_nonblock(fd);
   while (performance.now() < end) {
     const size = n.probe_read(fd, ptr(b), b.length);
-    if (size > 0) { text += b.subarray(0, size).toString(); if (text.includes(needle)) return text; }
-    else if (size === 0) throw Error("EOF before " + needle);
+    if (size > 0) {
+      text += b.subarray(0, size).toString();
+      if (text.includes(needle)) return text;
+    } else if (size === 0) throw Error("EOF before " + needle);
     else if (size !== -11 && size !== -35) throw Error(`read: ${size}`);
     await Bun.sleep(1);
   }

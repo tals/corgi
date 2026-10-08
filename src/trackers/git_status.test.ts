@@ -22,12 +22,7 @@ test("upstream counts follow commits and packed refs, deduplicate subdirectories
     await git(repo, "commit", "--allow-empty", "-m", "base");
     await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
     await git(repo, "config", "remote.origin.url", join(root, "remote"));
-    await git(
-      repo,
-      "config",
-      "remote.origin.fetch",
-      "+refs/heads/*:refs/remotes/origin/*",
-    );
+    await git(repo, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
     await git(repo, "branch", "--set-upstream-to=origin/main");
     await git(repo, "commit", "--allow-empty", "-m", "ahead");
     await mkdir(join(repo, "nested"));

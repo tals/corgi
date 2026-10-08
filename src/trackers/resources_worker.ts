@@ -7,11 +7,12 @@ self.onmessage = (event: MessageEvent<SampleRequest>) => {
     const request = event.data;
     const tracker = new Tracker();
     Object.assign(tracker, request, {
-      batch: restoreBatch(request.batch), current: restoreSnapshot(request.current),
+      batch: restoreBatch(request.batch),
+      current: restoreSnapshot(request.current),
     });
     tracker.sample(request.at);
-    self.postMessage({ pending:tracker.pending, origins:tracker.origins } satisfies SampleResult);
+    self.postMessage({ pending: tracker.pending, origins: tracker.origins } satisfies SampleResult);
   } catch (error) {
-    self.postMessage({ error:error instanceof Error ? error.message : String(error) });
+    self.postMessage({ error: error instanceof Error ? error.message : String(error) });
   }
 };

@@ -15,10 +15,11 @@ export const native = dlopen(`${nativeRoot}/lib/libcorgi_fd.${suffix}`, {
   fd_try_lock: { args: ["i32"], returns: "i32" },
 }).symbols;
 
-export const READ = 1, WRITE = 4;
+export const READ = 1,
+  WRITE = 4;
 export const wouldBlock = (result: number) => result === -11 || result === -35;
 export class ReadyLoop {
-  private handle: Pointer|bigint|null;
+  private handle: Pointer | bigint | null;
   private socket: Socket;
   private next = 1;
   private callbacks = new Map<number, (events: number) => void>();
@@ -30,20 +31,25 @@ export class ReadyLoop {
     assert(this.handle, "native readiness loop allocation");
     // Bun's imported-FD connect overload is absent from Node's declarations.
     this.socket = new Socket().connect({ fd: fd[0] } as unknown as SocketConnectOpts);
-    let pending:Buffer = Buffer.alloc(0);
+    let pending: Buffer = Buffer.alloc(0);
     this.socket.on("data", (chunk: Buffer) => {
       pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
       let offset = 0;
       while (offset + 8 <= pending.length) {
-        const token = pending.readUInt32LE(offset), events = pending.readUInt32LE(offset + 4);
+        const token = pending.readUInt32LE(offset),
+          events = pending.readUInt32LE(offset + 4);
         offset += 8;
         const callback = this.callbacks.get(token);
-        if (callback) { this.callbacksRun++; callback(events); }
-        else this.stale++;
+        if (callback) {
+          this.callbacksRun++;
+          callback(events);
+        } else this.stale++;
       }
       pending = pending.subarray(offset);
     });
-    this.socket.on("error", error => { throw error; });
+    this.socket.on("error", error => {
+      throw error;
+    });
   }
   watch(fd: number, callback: (events: number) => void) {
     assert.equal(n.probe_nonblock(fd), 0);
@@ -83,17 +89,27 @@ export class AsyncFD {
   private readWake?: () => void;
   private writeWake?: () => void;
   private watch;
-  constructor(private loop: ReadyLoop, readonly fd: number) {
+  constructor(
+    private loop: ReadyLoop,
+    readonly fd: number,
+  ) {
     this.watch = loop.watch(fd, () => {
-      const r = this.readWake, w = this.writeWake;
+      const r = this.readWake,
+        w = this.writeWake;
       this.readWake = this.writeWake = undefined;
-      r?.(); w?.();
+      r?.();
+      w?.();
     });
   }
   private wait(writing: boolean) {
     return new Promise<void>(resolve => {
-      if (writing) { assert(!this.writeWake); this.writeWake = resolve; }
-      else { assert(!this.readWake); this.readWake = resolve; }
+      if (writing) {
+        assert(!this.writeWake);
+        this.writeWake = resolve;
+      } else {
+        assert(!this.readWake);
+        this.readWake = resolve;
+      }
       this.watch.arm((this.readWake ? READ : 0) | (this.writeWake ? WRITE : 0));
     });
   }
@@ -114,7 +130,10 @@ export class AsyncFD {
       const count = n.probe_write(this.fd, ptr(slice), slice.length);
       if (count > 0) offset += count;
       else if (count === -4) continue;
-      else { assert(wouldBlock(count), `write fd ${this.fd}: ${count}`); await this.wait(true); }
+      else {
+        assert(wouldBlock(count), `write fd ${this.fd}: ${count}`);
+        await this.wait(true);
+      }
     }
   }
   close() {

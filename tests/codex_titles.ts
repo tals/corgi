@@ -3,11 +3,7 @@ import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { sleep, shellJoin } from "./support";
-import {
-  CodexObserver,
-  TerminalAttachment,
-  write_codex_terminal,
-} from "./provider_sim";
+import { CodexObserver, TerminalAttachment, write_codex_terminal } from "./provider_sim";
 
 export const A = "01901234-1234-1234-1234-123456789abc";
 export const B = "01911234-1234-1234-1234-123456789abc";
@@ -90,9 +86,7 @@ export class Titles extends Runtime {
     this.attachments = [];
     this.attachment = await this.create_attachment(A);
     this.pane = this.attachment.pane;
-    await this.until(
-      async () => (await this.state())?.session === A || this.errors.length,
-    );
+    await this.until(async () => (await this.state())?.session === A || this.errors.length);
     this.assertEqual(this.errors, []);
     await this.command("pane.create", { workspace: 1, command: "sleep 60" });
   }
@@ -104,14 +98,8 @@ export class Titles extends Runtime {
     }
   }
   async create_attachment(session: string, arguments_: string[] | null = null) {
-    const fake = write_codex_terminal(
-      join(this.temp.name, "attachment-" + this.attachments.length, "codex"),
-      session,
-    );
-    const args = arguments_ ?? [
-      "--dangerously-bypass-approvals-and-sandbox",
-      "resume",
-    ];
+    const fake = write_codex_terminal(join(this.temp.name, "attachment-" + this.attachments.length, "codex"), session);
+    const args = arguments_ ?? ["--dangerously-bypass-approvals-and-sandbox", "resume"];
     const pane = (
       await this.command("pane.create", {
         workspace: 1,
@@ -129,13 +117,8 @@ export class Titles extends Runtime {
     return this.attachment.send(value);
   }
   async test_resume_passthrough_and_focus_completion() {
-    const text = (
-      await this.command("pane.read", { target: this.pane, view: "screen" })
-    ).text;
-    this.assertIn(
-      'ARGS:["--dangerously-bypass-approvals-and-sandbox", "resume"]',
-      text,
-    );
+    const text = (await this.command("pane.read", { target: this.pane, view: "screen" })).text;
+    this.assertIn('ARGS:["--dangerously-bypass-approvals-and-sandbox", "resume"]', text);
     this.assertNotIn("--remote", text);
     this.assertEqual((await this.state()).completed, 0);
     this.states[A] = "active";
@@ -192,12 +175,7 @@ export class Titles extends Runtime {
     });
   }
   async test_subagent_counts_waits_and_viewer_layout() {
-    const child = (
-      id: string,
-      parent = A,
-      status = "active",
-      flags: string[] = [],
-    ) => ({
+    const child = (id: string, parent = A, status = "active", flags: string[] = []) => ({
       id,
       parentThreadId: parent,
       status: { type: status, activeFlags: flags },
@@ -222,47 +200,27 @@ export class Titles extends Runtime {
     this.turns[A] = ["new", "inProgress"];
     this.wait_items = [wait("old"), wait("new", "inProgress", B), wait()];
     const expected = { running: 2, blocked: 1, waiting: true };
-    await this.until(
-      async () =>
-        JSON.stringify((await this.state()).subagents) ===
-        JSON.stringify(expected),
-    );
+    await this.until(async () => JSON.stringify((await this.state()).subagents) === JSON.stringify(expected));
     this.assertEqual((await this.state()).activity, "");
     const session = await this.rpc({ op: "session.snapshot", protocol: 1 });
-    this.assertEqual(
-      session.panes.find((p: any) => p.id === this.pane).agent.subagents,
-      expected,
-    );
+    this.assertEqual(session.panes.find((p: any) => p.id === this.pane).agent.subagents, expected);
     const viewer = await Viewer.create(this);
     try {
-      await this.until(async () =>
-        (await viewer.poll()).data.includes("↳2 !1"),
-      );
+      await this.until(async () => (await viewer.poll()).data.includes("↳2 !1"));
       const rows = screen_text(viewer.state.data, 100, 30);
-      const line = rows.findIndex((r) => r.includes("↳2 !1"));
+      const line = rows.findIndex(r => r.includes("↳2 !1"));
       this.assertIn("Waiting on", rows[line]);
       this.assertEqual(rows[line].slice(21, 26), "↳2 !1");
       this.wait_items = [wait("new", "completed")];
       expected.waiting = false;
-      await this.until(
-        async () =>
-          JSON.stringify((await this.state()).subagents) ===
-          JSON.stringify(expected),
-      );
+      await this.until(async () => JSON.stringify((await this.state()).subagents) === JSON.stringify(expected));
       await this.until(async () => {
         const data = (await viewer.poll()).data;
-        return (
-          !data.includes("Waiting on agents") &&
-          !viewer.state.data.includes("◷")
-        );
+        return !data.includes("Waiting on agents") && !viewer.state.data.includes("◷");
       });
       this.children = [child("c1"), child("c2")];
       expected.blocked = 0;
-      await this.until(
-        async () =>
-          JSON.stringify((await this.state()).subagents) ===
-          JSON.stringify(expected),
-      );
+      await this.until(async () => JSON.stringify((await this.state()).subagents) === JSON.stringify(expected));
       this.children = [child("c1", A, "idle"), child("c2", A, "idle")];
       await this.until(async () => {
         const s = (await this.state()).subagents;
@@ -272,18 +230,11 @@ export class Titles extends Runtime {
       const plain = screen_text(viewer.state.data, 100, 30);
       this.assertEqual(rows[line - 1], plain[line - 1]);
       this.children = [];
-      await this.until(
-        async () => (await this.state()).subagents.running === 0,
-      );
+      await this.until(async () => (await this.state()).subagents.running === 0);
       await this.settle();
-      const before = this.methods.filter(
-        (m: string) => m === "thread/items/list",
-      ).length;
+      const before = this.methods.filter((m: string) => m === "thread/items/list").length;
       await this.settle();
-      this.assertEqual(
-        this.methods.filter((m: string) => m === "thread/items/list").length,
-        before,
-      );
+      this.assertEqual(this.methods.filter((m: string) => m === "thread/items/list").length, before);
     } finally {
       await viewer.close();
     }

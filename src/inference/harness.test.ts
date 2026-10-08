@@ -18,9 +18,7 @@ test("native inference reuses each harness conversation and keeps targets separa
       };
       const first = JSON.parse((await p.infer(r)).text()),
         second = JSON.parse((await p.infer(r)).text()),
-        other = JSON.parse(
-          (await p.infer({ ...r, conversation: "pane-b" })).text(),
-        );
+        other = JSON.parse((await p.infer({ ...r, conversation: "pane-b" })).text());
       expect(first.pid).toBe(second.pid);
       expect(first.turn).toBe(1);
       expect(second.turn).toBe(2);
@@ -59,13 +57,10 @@ test("native inference rejects oversize output and recovers after failure", asyn
   for (const provider of ["codex", "claude"] as const) {
     const p = pool(provider);
     try {
-      await expect(
-        p.infer({ instructions: "x", content: "oversize", conversation: "a" }),
-      ).rejects.toThrow("OutputTooLarge");
-      expect(
-        (await p.infer({ instructions: "x", content: "ok", conversation: "a" }))
-          .fresh,
-      ).toBe(true);
+      await expect(p.infer({ instructions: "x", content: "oversize", conversation: "a" })).rejects.toThrow(
+        "OutputTooLarge",
+      );
+      expect((await p.infer({ instructions: "x", content: "ok", conversation: "a" })).fresh).toBe(true);
     } finally {
       p.deinit();
     }
@@ -74,10 +69,8 @@ test("native inference rejects oversize output and recovers after failure", asyn
 test("native inference timeout destroys the failed conversation", async () => {
   const p = pool("codex", 150);
   try {
-    await expect(
-      p.infer({ instructions: "x", content: "hang" }),
-    ).rejects.toThrow("Timeout");
-    expect(p.slots.every((s) => !s)).toBe(true);
+    await expect(p.infer({ instructions: "x", content: "hang" })).rejects.toThrow("Timeout");
+    expect(p.slots.every(s => !s)).toBe(true);
   } finally {
     p.deinit();
   }
@@ -123,12 +116,8 @@ test("fresh Codex histories reuse the process and rotated histories are bounded"
     const second = JSON.parse((await p.infer(request)).text());
     expect(first.pid).toBe(second.pid);
     expect(second.turn).toBe(1);
-    for (let i = 0; i < 5; i++)
-      await p.infer({ ...request, conversation: `pane-${i}` });
-    expect(
-      JSON.parse((await p.infer({ ...request, conversation: "pane-0" })).text())
-        .turn,
-    ).toBe(1);
+    for (let i = 0; i < 5; i++) await p.infer({ ...request, conversation: `pane-${i}` });
+    expect(JSON.parse((await p.infer({ ...request, conversation: "pane-0" })).text()).turn).toBe(1);
     expect(p.system_usage.meter.value.tokens.total()).toBe(8080n);
   } finally {
     p.deinit();
@@ -256,9 +245,7 @@ test("harnesses from every pool share one cap", async () => {
         conversation: "second-2",
       }),
     ).rejects.toThrow("TooManyHarnesses");
-    expect(
-      first.slots.filter(Boolean).length + second.slots.filter(Boolean).length,
-    ).toBe(6);
+    expect(first.slots.filter(Boolean).length + second.slots.filter(Boolean).length).toBe(6);
   } finally {
     first.deinit();
     second.deinit();
@@ -269,8 +256,7 @@ test.skipIf(!process.env.CORGI_TEST_LIVE_INFERENCE)(
   "opt-in live native inference preserves a conversation",
   async () => {
     const provider = process.env.CORGI_TEST_LIVE_INFERENCE;
-    if (provider !== "codex" && provider !== "claude")
-      throw Error("InvalidProvider");
+    if (provider !== "codex" && provider !== "claude") throw Error("InvalidProvider");
     const p = new Pool({
       config: {
         provider,
@@ -279,8 +265,7 @@ test.skipIf(!process.env.CORGI_TEST_LIVE_INFERENCE)(
       },
     });
     try {
-      const instructions =
-        "Reply only with the requested single word. Do not use tools.";
+      const instructions = "Reply only with the requested single word. Do not use tools.";
       const first = await p.infer({
         instructions,
         content: "Remember the word Marigold. Reply with that word.",

@@ -37,9 +37,7 @@ test("process output drains both pipes while passing input and preserving exit c
 });
 test("process deadline terminates and reaps a hanging child", async () => {
   const start = performance.now();
-  await expect(
-    run([process.execPath, "-e", "await Bun.sleep(60000)"], { timeout: 50 }),
-  ).rejects.toThrow("timed out");
+  await expect(run([process.execPath, "-e", "await Bun.sleep(60000)"], { timeout: 50 })).rejects.toThrow("timed out");
   expect(performance.now() - start).toBeLessThan(3000);
 });
 test("assertion adapter catches empty collections and missing await", () => {
@@ -62,33 +60,21 @@ test("PTY settings capture control characters beyond Bun flag words", async () =
       pty.terminal.localFlags,
     ];
     const beforeFlags = flags();
-    expect(
-      await deadline(pty.start(["/bin/stty", "erase", "^A"]).exited, 3000),
-    ).toBe(0);
+    expect(await deadline(pty.start(["/bin/stty", "erase", "^A"]).exited, 3000)).toBe(0);
     expect(await pty.settings()).not.toBe(before);
     expect(flags()).toEqual(beforeFlags);
-    expect(await deadline(pty.start(["/bin/stty", before]).exited, 3000)).toBe(
-      0,
-    );
+    expect(await deadline(pty.start(["/bin/stty", before]).exited, 3000)).toBe(0);
     expect(await pty.settings()).toBe(before);
   } finally {
     await pty.close();
   }
 });
 
-for (const reply of [
-  "",
-  "\x1b]10;rgb:11/22/33\x1b\\",
-  "\x1b]10;a\x1b\\\x1b]11;b\x1b\\\x1b]4;2;c\x1b\\",
-]) {
+for (const reply of ["", "\x1b]10;rgb:11/22/33\x1b\\", "\x1b]10;a\x1b\\\x1b]11;b\x1b\\\x1b]4;2;c\x1b\\"]) {
   test(`color probe records ${reply ? (reply.includes("]4;") ? "complete" : "partial") : "missing"} replies within its deadline`, async () => {
     const temp = tempDir("corgi-color-probe-");
     const result = join(temp.name, "colors.json");
-    const pty = await Pty.spawn([
-      process.execPath,
-      join(import.meta.dir, "fixtures/color_probe.ts"),
-      result,
-    ]);
+    const pty = await Pty.spawn([process.execPath, join(import.meta.dir, "fixtures/color_probe.ts"), result]);
     try {
       await pty.waitFor("\x1b]4;2;?\x1b\\", 3000);
       if (reply) {

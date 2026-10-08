@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test";
-import { frame, ui, tabStart, maxTabStart, revealTab, tabThumb, track_rule, thumb_rule, tabDrop, drawDividers, divider_focused, drawRestoring, shellUnits, commandLines, drawPrefixBar, type Pointer, type Restoring } from "./render";
+import {
+  frame,
+  ui,
+  tabStart,
+  maxTabStart,
+  revealTab,
+  tabThumb,
+  track_rule,
+  thumb_rule,
+  tabDrop,
+  drawDividers,
+  divider_focused,
+  drawRestoring,
+  shellUnits,
+  commandLines,
+  drawPrefixBar,
+  type Pointer,
+  type Restoring,
+} from "./render";
 import { Model, Selection, View, Rect, type Axis } from "./layout";
 import * as palette from "./palette";
 import * as sidebar from "./sidebar";
@@ -30,7 +48,13 @@ test("unread pointer follows the clickable workspace and respects overlays", () 
     { x: range.start, y: 3, open: true, hand: false },
     { x: range.start, y: 6, open: false, hand: false },
   ]) {
-    const output = frame(view, [], 100, 30, ui({ pointer: { x: c.x, y: c.y }, message: "", copy_mode: false, workspaces, sidebar_open: c.open }));
+    const output = frame(
+      view,
+      [],
+      100,
+      30,
+      ui({ pointer: { x: c.x, y: c.y }, message: "", copy_mode: false, workspaces, sidebar_open: c.open }),
+    );
     expect(output).toContain(c.hand ? "\x1b]22;pointer\x1b\\" : "\x1b]22;default\x1b\\");
   }
 });
@@ -216,7 +240,13 @@ test("the tab bar underlines its scrollbar only while hovered and overflowing", 
   for (const c of [
     ui({ sidebar_open: false, pointer: { x: 5, y: 1 }, message: "", copy_mode: false }),
     ui({ sidebar_open: false, message: "", copy_mode: false }),
-    ui({ sidebar_open: false, pointer: { x: 5, y: 0 }, tab_menu: new TabMenu({ tab: m.tabs[0].id, anchor_x: 0 }), message: "", copy_mode: false }),
+    ui({
+      sidebar_open: false,
+      pointer: { x: 5, y: 0 },
+      tab_menu: new TabMenu({ tab: m.tabs[0].id, anchor_x: 0 }),
+      message: "",
+      copy_mode: false,
+    }),
   ]) {
     const plain = frame(view, [], 43, 10, c);
     expect(plain).not.toContain(track_rule);
@@ -232,7 +262,9 @@ interface TestCell {
 function testDividerCells(view: View, area: Rect): TestCell[][] {
   const out = new Writer();
   drawDividers(out, view, area);
-  const cells: TestCell[][] = Array.from({ length: 30 }, () => Array.from({ length: 100 }, () => ({ glyph: null, highlighted: false })));
+  const cells: TestCell[][] = Array.from({ length: 30 }, () =>
+    Array.from({ length: 100 }, () => ({ glyph: null, highlighted: false })),
+  );
   let x = 0;
   let y = 0;
   let highlighted = false;
@@ -435,10 +467,20 @@ test("a reopened agent's card sits mid-pane: title centered, details left, comma
   expect(drawn).toContain("\x1b[10;19H");
   expect(drawn).toContain(palette.fg("accent") + "Restoring…");
   // The details from the box's left padding.
-  expect(drawn).toContain("\x1b[12;12H" + new palette.Style({ fg: "strong", bg: "surface", bold: true }).sgr() + "corgi menu work");
-  expect(drawn).toContain("\x1b[13;12H" + new palette.Style({ fg: "muted", bg: "surface" }).sgr() + "claude · Opus 4.7 · ~/dev/corgi");
-  expect(drawn).toContain("$ " + new palette.Style({ fg: "faint", bg: "surface" }).sgr() + "claude --dangerously-skip-permissions \\");
-  expect(drawn).toContain("\x1b[15;12H" + new palette.Style({ fg: "faint", bg: "surface" }).sgr() + "    --resume '4ee5c02d-691c-4045-8744-930f330494fd'");
+  expect(drawn).toContain(
+    "\x1b[12;12H" + new palette.Style({ fg: "strong", bg: "surface", bold: true }).sgr() + "corgi menu work",
+  );
+  expect(drawn).toContain(
+    "\x1b[13;12H" + new palette.Style({ fg: "muted", bg: "surface" }).sgr() + "claude · Opus 4.7 · ~/dev/corgi",
+  );
+  expect(drawn).toContain(
+    "$ " + new palette.Style({ fg: "faint", bg: "surface" }).sgr() + "claude --dangerously-skip-permissions \\",
+  );
+  expect(drawn).toContain(
+    "\x1b[15;12H" +
+      new palette.Style({ fg: "faint", bg: "surface" }).sgr() +
+      "    --resume '4ee5c02d-691c-4045-8744-930f330494fd'",
+  );
 
   // A small pane keeps the title, alone, and drops the details.
   out = new Writer();

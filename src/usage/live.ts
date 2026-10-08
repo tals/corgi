@@ -45,8 +45,7 @@ export class Meter {
       index = ((minute % 5) + 5) % 5;
     let slot = this.buckets[index];
     if (slot.minute > minute) return;
-    if (slot.minute !== minute)
-      slot = this.buckets[index] = { minute, tokens: 0n };
+    if (slot.minute !== minute) slot = this.buckets[index] = { minute, tokens: 0n };
     slot.tokens = add(slot.tokens, tokens.total());
   }
   view(now: number) {
@@ -56,8 +55,7 @@ export class Meter {
       }),
       minute = Math.floor(now / 60000);
     for (const b of this.buckets)
-      if (b.minute >= minute - 4 && b.minute <= minute)
-        out.recent_tokens = add(out.recent_tokens, b.tokens);
+      if (b.minute >= minute - 4 && b.minute <= minute) out.recent_tokens = add(out.recent_tokens, b.tokens);
     return out;
   }
 }
@@ -68,10 +66,7 @@ export function parseTokens(v: any, camel: boolean) {
   if (input === null || output === null) return null;
   return new Tokens({
     input,
-    cached_input: min(
-      input,
-      number(v, camel ? "cachedInputTokens" : "cached_input_tokens") ?? 0n,
-    ),
+    cached_input: min(input, number(v, camel ? "cachedInputTokens" : "cached_input_tokens") ?? 0n),
     output,
   });
 }
@@ -83,17 +78,11 @@ export class Codex {
   catch_up = false;
   ordinal: bigint | null = null;
   baseline_next = false;
-  header(
-    value: any,
-    child: boolean,
-    tracked_since: number,
-    complete_prefix: boolean,
-  ) {
+  header(value: any, child: boolean, tracked_since: number, complete_prefix: boolean) {
     this.child = child;
     const r = ProviderCodex.Rollout.decode(value);
     this.owned_from = number(r.payload, "subagent_history_start_ordinal");
-    const created =
-      timestampMs(str(r.payload, "timestamp")) ?? timestampMs(r.timestamp);
+    const created = timestampMs(str(r.payload, "timestamp")) ?? timestampMs(r.timestamp);
     this.catch_up =
       child &&
       complete_prefix &&
@@ -101,8 +90,7 @@ export class Codex {
       created !== null &&
       tracked_since > 0 &&
       created >= tracked_since;
-    if (child && (!this.catch_up || this.owned_from === null))
-      this.meter.lose();
+    if (child && (!this.catch_up || this.owned_from === null)) this.meter.lose();
   }
   ingest(value: any, appended: boolean, now: number) {
     const r = ProviderCodex.Rollout.decode(value);
@@ -131,16 +119,11 @@ export class Codex {
   }
   native(value: any, active: boolean, now: number) {
     const total = parseTokens(field(value, "total"), true);
-    if (total)
-      this.sample(total, parseTokens(field(value, "last"), true), active, now);
+    if (total) this.sample(total, parseTokens(field(value, "last"), true), active, now);
   }
   sample(total: Tokens, last: Tokens | null, count: boolean, stamp: number) {
     const p = this.previous,
-      regressed =
-        p &&
-        (total.input < p.input ||
-          total.output < p.output ||
-          total.cached_input < p.cached_input);
+      regressed = p && (total.input < p.input || total.output < p.output || total.cached_input < p.cached_input);
     if (!count || this.baseline_next) {
       if (regressed) {
         this.meter.lose();
@@ -152,12 +135,7 @@ export class Codex {
     }
     let delta = new Tokens();
     if (p) {
-      if (
-        p.input === total.input &&
-        p.output === total.output &&
-        p.cached_input === total.cached_input
-      )
-        return;
+      if (p.input === total.input && p.output === total.output && p.cached_input === total.cached_input) return;
       if (regressed) {
         this.meter.lose();
         return;
@@ -168,8 +146,7 @@ export class Codex {
         output: total.output - p.output,
       });
       if (last) {
-        if (delta.input > last.input || delta.output > last.output)
-          this.meter.lose();
+        if (delta.input > last.input || delta.output > last.output) this.meter.lose();
         delta.input = min(delta.input, last.input);
         delta.cached_input = min(delta.cached_input, last.cached_input);
         delta.output = min(delta.output, last.output);

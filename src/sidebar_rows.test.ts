@@ -2,15 +2,13 @@ import { test, expect } from "bun:test";
 import { State } from "./sidebar_rows";
 import { entry as sidebarEntry, type Entry } from "./sidebar";
 import type { Provider } from "./providers";
-const entry = (pane: number, provider: Provider = "codex", state = "idle"): Entry => sidebarEntry({ name: "", target: { pane }, provider, state, attention: "none" });
+const entry = (pane: number, provider: Provider = "codex", state = "idle"): Entry =>
+  sidebarEntry({ name: "", target: { pane }, provider, state, attention: "none" });
 const paneOf = (e: Entry) => ("pane" in e.target ? e.target.pane : null);
 test("end hook and disappearance share one frozen exit without changing adjacent rows", () => {
   const rows = new State(),
     out: Entry[] = [],
-    live = [
-      { ...entry(1, "codex", "working"), name: "Dog" },
-      entry(2, "claude"),
-    ];
+    live = [{ ...entry(1, "codex", "working"), name: "Dog" }, entry(2, "claude")];
   rows.update(1, live, out, 0);
   live[0].name = "Xog";
   live[0].state = "done";

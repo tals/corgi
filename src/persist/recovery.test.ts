@@ -29,9 +29,7 @@ test("atomic writes avoid stale temp collisions and preserve private permissions
     expect(readFileSync(dest, "utf8")).toBe("new state");
     expect(readFileSync(other, "utf8")).toBe("untouched");
     expect(statSync(dest).mode & 0o777).toBe(0o600);
-    expect(readdirSync(root).sort()).toEqual(
-      ["saved.json", "saved.json.tmp-" + process.pid, "unrelated"].sort(),
-    );
+    expect(readdirSync(root).sort()).toEqual(["saved.json", "saved.json.tmp-" + process.pid, "unrelated"].sort());
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -52,9 +50,7 @@ test("atomic writes reject an unsafe parent directory", () => {
     parent = join(root, "public");
   try {
     mkdirSync(parent, { mode: 0o755 });
-    expect(() => atomicWrite(join(parent, "saved"), "state")).toThrow(
-      "UnsafeSocketDirectory",
-    );
+    expect(() => atomicWrite(join(parent, "saved"), "state")).toThrow("UnsafeSocketDirectory");
     expect(readdirSync(parent)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -66,26 +62,16 @@ test("successful migrated recovery keeps its backup when the final rewrite fails
     r = new Runtime();
   process.env.XDG_STATE_HOME = root;
   const source = recovery.path(join(root, "control.sock")),
-    bytes = readFileSync(
-      new URL(
-        "../fixtures/steps/checkpoint-4.in.json",
-        import.meta.url,
-      ),
-      "utf8",
-    );
+    bytes = readFileSync(new URL("../fixtures/steps/checkpoint-4.in.json", import.meta.url), "utf8");
   mkdirSync(dirname(source), { recursive: true, mode: 0o700 });
   writeFileSync(source, bytes, { mode: 0o600 });
-  const restore = spyOn(checkpoint, "restore").mockImplementationOnce(
-      async () => {
-        rmSync(source);
-        mkdirSync(source, { mode: 0o700 });
-      },
-    ),
+  const restore = spyOn(checkpoint, "restore").mockImplementationOnce(async () => {
+      rmSync(source);
+      mkdirSync(source, { mode: 0o700 });
+    }),
     error = spyOn(console, "error").mockImplementation(() => {});
   try {
-    expect(
-      await recovery.load(r, join(root, "control.sock"), process.execPath),
-    ).toBe(true);
+    expect(await recovery.load(r, join(root, "control.sock"), process.execPath)).toBe(true);
     expect(restore).toHaveBeenCalledTimes(1);
     expect(readFileSync(source + ".v4", "utf8")).toBe(bytes);
     expect(error).toHaveBeenCalledTimes(1);
@@ -105,9 +91,7 @@ test("inference settings preserve ordinary config directory permissions", () => 
   try {
     mkdirSync(parent, { mode: 0o755 });
     saveInference(join(parent, "choice.json"), "off");
-    expect(
-      JSON.parse(readFileSync(join(parent, "choice.json"), "utf8")).inference,
-    ).toBe("off");
+    expect(JSON.parse(readFileSync(join(parent, "choice.json"), "utf8")).inference).toBe("off");
     expect(statSync(parent).mode & 0o777).toBe(0o755);
   } finally {
     rmSync(root, { recursive: true, force: true });

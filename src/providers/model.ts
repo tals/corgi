@@ -1,5 +1,5 @@
 import { BoundedText } from "../bounded_text";
-const Text=BoundedText(160);
+const Text = BoundedText(160);
 export class Model {
   id = new Text();
   name = new Text();
@@ -31,9 +31,7 @@ export class Model {
     if (id.startsWith("claude-")) {
       const tokens = id
         .slice(7)
-        .match(
-          /^([a-z]+)-(\d{1,2})(?:-(\d{1,2})(?!\d))?|^(\d{1,2})(?:-(\d{1,2})(?!\d))?-([a-z]+)/,
-        );
+        .match(/^([a-z]+)-(\d{1,2})(?:-(\d{1,2})(?!\d))?|^(\d{1,2})(?:-(\d{1,2})(?!\d))?-([a-z]+)/);
       if (tokens) {
         const legacy = !!tokens[4],
           family = tokens[1] ?? tokens[6],
@@ -52,8 +50,7 @@ export class Model {
         rest = rest.replace(/^-v\d{1,3}(?::\d{1,3})?/, "");
         if (!rest) {
           const native =
-            (family === "opus" &&
-              (major > 4 || (major === 4 && Number(minor ?? 0) >= 7))) ||
+            (family === "opus" && (major > 4 || (major === 4 && Number(minor ?? 0) >= 7))) ||
             (family === "sonnet" && major >= 5) ||
             (family === "haiku" && major >= 5) ||
             ["fable", "mythos"].includes(family);
@@ -80,16 +77,12 @@ export class Model {
       const words = reported.split("-");
       const first = words.shift();
       let name = "";
-      if (first === "gpt" && words[0] && /^\d/.test(words[0]))
-        name = "GPT-" + words.shift();
+      if (first === "gpt" && words[0] && /^\d/.test(words[0])) name = "GPT-" + words.shift();
       else if (first === "codex") name = "Codex";
       if (name && words.every(Boolean))
         return new Model({
           id: Text.ascii(reported),
-          name: new Text(
-            name +
-              words.map((w) => " " + w[0].toUpperCase() + w.slice(1)).join(""),
-          ),
+          name: new Text(name + words.map(w => " " + w[0].toUpperCase() + w.slice(1)).join("")),
         });
     }
     return new Model({ id: Text.ascii(reported) });

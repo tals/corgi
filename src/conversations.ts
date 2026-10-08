@@ -45,30 +45,19 @@ export class Actor {
   context = new Reading();
   native_meter = new NativeMeter();
   usageView(now: number) {
-    return this.native_usage
-      ? this.native_meter.meter.view(now)
-      : this.live_usage;
+    return this.native_usage ? this.native_meter.meter.view(now) : this.live_usage;
   }
   compactionChanged(was: boolean, now: number) {
     if (this.state.compacting === was) return;
     const ms = Math.floor(now / 1000);
-    if (!this.state.compacting)
-      this.activity_timeline.finish(this.usageView(ms));
-    const text = this.state.compacting
-      ? "Compacting context"
-      : this.state.activity.text();
+    if (!this.state.compacting) this.activity_timeline.finish(this.usageView(ms));
+    const text = this.state.compacting ? "Compacting context" : this.state.activity.text();
     if (text)
-      this.activity_timeline.checkpoint(
-        this.state.turnId(),
-        new Text(text.slice(0, 80)),
-        this.usageView(ms),
-        ms,
-      );
+      this.activity_timeline.checkpoint(this.state.turnId(), new Text(text.slice(0, 80)), this.usageView(ms), ms);
   }
   observeTaskEnds(ended: background_tasks.Ended) {
     this.shells.drop(ended);
-    if (!this.state.paused || this.paused_for_wakeup || this.shells.len)
-      return false;
+    if (!this.state.paused || this.paused_for_wakeup || this.shells.len) return false;
     this.state.paused = false;
     return true;
   }
@@ -85,11 +74,7 @@ export class Actor {
       (this.transcript_tool_active || this.background_tasks.len > 0);
   }
   observeTools(progress: any) {
-    if (
-      this.provider() !== "codex" ||
-      this.state.turnId() !== progress.turn.text()
-    )
-      return;
+    if (this.provider() !== "codex" || this.state.turnId() !== progress.turn.text()) return;
     this.transcript_tool_active = !progress.ended && progress.running > 0;
     this.refreshTranscriptTool();
   }
@@ -121,8 +106,7 @@ export class Actor {
     a.protocol_at = now;
     a.observation.source = "protocol";
     a.observation.pending_stop = false;
-    if (!same || !["working", "blocked"].includes(snapshot.state))
-      this.transcript_tool_active = false;
+    if (!same || !["working", "blocked"].includes(snapshot.state)) this.transcript_tool_active = false;
     this.refreshTranscriptTool();
     a.tool = new Text();
     if (!same || old !== snapshot.state || snapshot.state !== "working") {
@@ -136,29 +120,14 @@ export class Actor {
       a.setTurn(snapshot.turn.text());
       if (snapshot.outcome)
         ding =
-          a.recordCompletion(
-            a.turnId(),
-            snapshot.outcome,
-            "protocol",
-            binding,
-          ) &&
+          a.recordCompletion(a.turnId(), snapshot.outcome, "protocol", binding) &&
           snapshot.outcome === "completed" &&
           !watched;
     }
     a.attention =
-      snapshot.state === "blocked" && !watched
-        ? "needs_input"
-        : a.observation.unread()
-          ? "finished"
-          : "none";
+      snapshot.state === "blocked" && !watched ? "needs_input" : a.observation.unread() ? "finished" : "none";
     this.compactionChanged(was, snapshot.observed_at);
-    return (
-      ding ||
-      (!binding &&
-        snapshot.state === "blocked" &&
-        old !== "blocked" &&
-        !watched)
-    );
+    return ding || (!binding && snapshot.state === "blocked" && old !== "blocked" && !watched);
   }
   constructor(fields: { id: number; state?: Agent }) {
     this.id = fields.id as ActorId;
@@ -169,13 +138,7 @@ export class Actor {
   }
   observeHook(event: any, seq: number, watched: boolean, now: number) {
     const was = this.state.compacting;
-    const ding = this.state.observeHook(
-      this.provider(),
-      event,
-      seq,
-      watched,
-      now,
-    );
+    const ding = this.state.observeHook(this.provider(), event, seq, watched, now);
     if (ding === null) return false;
     if (this.state.last_seq === seq) this.screen_compacting = false;
     if (event.model) {
@@ -185,13 +148,9 @@ export class Actor {
     this.compactionChanged(was, now);
     if (this.provider() === "claude") {
       this.state.subagents.waiting = false;
-      const tasks = background_tasks.Inventory.claude(
-        event.background_tasks,
-        now,
-      );
+      const tasks = background_tasks.Inventory.claude(event.background_tasks, now);
       if (tasks) this.background_tasks = tasks;
-      if (event.kind === "session_end")
-        this.background_tasks = new background_tasks.Inventory();
+      if (event.kind === "session_end") this.background_tasks = new background_tasks.Inventory();
       // A Stop lists only the tasks of the process that runs the session
       // now, so a shell of an earlier one drops out.
       if (event.kind === "stop") this.shells = background_tasks.Shells.claude(event.background_tasks);
@@ -212,9 +171,7 @@ export class Actor {
   }
   restoreCompaction(screen_owned: boolean | null, now: number) {
     if (!this.state.compacting) return;
-    this.screen_compacting =
-      screen_owned ??
-      (this.state.changed_at === 0 && this.state.observation.source !== "hook");
+    this.screen_compacting = screen_owned ?? (this.state.changed_at === 0 && this.state.observation.source !== "hook");
     this.compactionChanged(false, now);
   }
   observeCompactionScreen(compacting: boolean | null, now: number) {
@@ -239,13 +196,11 @@ export class Actor {
     return (
       this.state.observation.source === "hook" ||
       this.state.observation.source === "transcript" ||
-      (this.state.observation.source === "protocol" &&
-        now - this.state.protocol_at <= 5000000)
+      (this.state.observation.source === "protocol" && now - this.state.protocol_at <= 5000000)
     );
   }
   screen(status: Agent, needs_input: boolean, now: number) {
-    if (this.authoritative(now) || status.observation.source !== "screen")
-      return;
+    if (this.authoritative(now) || status.observation.source !== "screen") return;
     this.state.state = status.state;
     this.state.tool_active = status.tool_active;
     this.state.observation.source = "screen";
@@ -258,8 +213,7 @@ export class Actor {
     return this.state.confirmStop(seq, outcome, now);
   }
   acknowledge(through: bigint | number, attention_at: number | null) {
-    if (attention_at !== null && attention_at === this.state.changed_at)
-      this.state.attention = "none";
+    if (attention_at !== null && attention_at === this.state.changed_at) this.state.attention = "none";
     this.state.readThrough(through);
   }
 }
@@ -311,27 +265,17 @@ export class Registry {
     this.items = [];
   }
   find(provider: Provider, session: string) {
-    return (
-      this.items.find(
-        (a) => a.state.provider === provider && a.state.sessionId() === session,
-      ) ?? null
-    );
+    return this.items.find(a => a.state.provider === provider && a.state.sessionId() === session) ?? null;
   }
   byId(id: number) {
-    return this.items.find((a) => a.id === id) ?? null;
+    return this.items.find(a => a.id === id) ?? null;
   }
   get(provider: Provider, session: string) {
-    if (
-      !session ||
-      Buffer.byteLength(session) > 160 ||
-      /[\x00-\x1f\x7f]/.test(session) ||
-      session.includes("\ufffd")
-    )
+    if (!session || Buffer.byteLength(session) > 160 || /[\x00-\x1f\x7f]/.test(session) || session.includes("\ufffd"))
       throw Error("InvalidSession");
     const found = this.find(provider, session);
     if (found) return found;
-    if (this.items.length === max_actors || this.next_id === 0xffffffff)
-      throw Error("TooManyConversations");
+    if (this.items.length === max_actors || this.next_id === 0xffffffff) throw Error("TooManyConversations");
     const actor = new Actor({
       id: this.next_id,
       state: new Agent({ provider, session: new Text(session) }),
@@ -342,10 +286,7 @@ export class Registry {
     return actor;
   }
   linkChild(parent: Actor, child: Actor) {
-    if (
-      parent.state.provider !== child.state.provider ||
-      (child.parent !== null && child.parent !== parent.id)
-    )
+    if (parent.state.provider !== child.state.provider || (child.parent !== null && child.parent !== parent.id))
       return false;
     let ancestor: Actor | null = parent;
     for (let i = 0; i < max_actors; i++) {
@@ -360,17 +301,10 @@ export class Registry {
     }
     return false;
   }
-  observeHook(
-    actor: Actor,
-    event: any,
-    seq: number,
-    watched: boolean,
-    now: number,
-  ) {
+  observeHook(actor: Actor, event: any, seq: number, watched: boolean, now: number) {
     const accepted = actor.state.last_seq;
     const ding = actor.observeHook(event, seq, watched, now);
-    if (actor.state.last_seq === accepted || actor.provider() !== "claude")
-      return ding;
+    if (actor.state.last_seq === accepted || actor.provider() !== "claude") return ding;
     if (event.subagent) this.observeLaunch(actor, event, now);
     const listed = background_tasks.Children.claude(event.background_tasks);
     if (listed === null && event.kind !== "session_end") return ding;
@@ -390,16 +324,9 @@ export class Registry {
       return false;
     }
     if (!this.linkChild(parent, child)) return false;
-    if (
-      !child.state.transcript.len &&
-      path.isAbsolute(parent.state.transcriptPath())
-    )
+    if (!child.state.transcript.len && path.isAbsolute(parent.state.transcriptPath()))
       child.state.transcript = new Text(
-        Claude.subagentTranscript(
-          parent.state.transcriptPath(),
-          parent.state.sessionId(),
-          meta.id.text(),
-        ),
+        Claude.subagentTranscript(parent.state.transcriptPath(), parent.state.sessionId(), meta.id.text()),
       );
     child.role = meta.agent_type;
     child.state.setName(meta.agent_type.text());
@@ -409,10 +336,7 @@ export class Registry {
     return true;
   }
   observeLaunch(parent: Actor, event: any, now: number) {
-    if (
-      Buffer.byteLength(event.subagent) > 96 ||
-      this.find("claude", event.subagent)?.state.state === "working"
-    )
+    if (Buffer.byteLength(event.subagent) > 96 || this.find("claude", event.subagent)?.state.state === "working")
       return;
     if (
       !this.adoptSubagent(
@@ -426,27 +350,16 @@ export class Registry {
       )
     )
       return;
-    parent.state.subagents.running = Math.min(
-      0xffffffff,
-      parent.state.subagents.running + 1,
-    );
+    parent.state.subagents.running = Math.min(0xffffffff, parent.state.subagents.running + 1);
     parent.children_observed_at = now;
   }
-  observeSubagents(
-    parent: Actor,
-    children: background_tasks.Children,
-    now: number,
-  ) {
+  observeSubagents(parent: Actor, children: background_tasks.Children, now: number) {
     parent.state.subagents.running = children.running;
     parent.children_observed_at = now;
     for (const meta of children.slice()) this.adoptSubagent(parent, meta, now);
     if (!children.complete()) return;
     for (const child of this.items)
-      if (
-        child.parent === parent.id &&
-        child.state.state !== "idle" &&
-        !children.listed(child.state.sessionId())
-      ) {
+      if (child.parent === parent.id && child.state.state !== "idle" && !children.listed(child.state.sessionId())) {
         child.state.state = "idle";
         child.observed_at = now;
       }
@@ -469,11 +382,7 @@ export class Registry {
       if (meta.role.len) child.role = meta.role;
       const state = child.state;
       if (snapshot.observed_at <= state.metadata_protocol_at) continue;
-      if (
-        state.state !== meta.state ||
-        state.updated_at !== meta.updated_at ||
-        !state.last_seq
-      )
+      if (state.state !== meta.state || state.updated_at !== meta.updated_at || !state.last_seq)
         child.child_refresh = true;
       if (meta.name.len) state.setName(meta.name.text());
       if (meta.transcript.len) state.transcript = meta.transcript;
@@ -494,8 +403,7 @@ export class Registry {
       event.kind === "session_start" ||
       (binding.actor === null &&
         binding.known_len === 0 &&
-        (binding.provisional.provider === provider ||
-          binding.generation === 1n))
+        (binding.provisional.provider === provider || binding.generation === 1n))
     ) {
       const actor = this.get(provider, event.session);
       binding.select(actor);

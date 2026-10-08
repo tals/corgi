@@ -62,12 +62,7 @@ export class Ghost {
     public text: string | null,
   ) {}
   due() {
-    return this.drawn_at === null
-      ? null
-      : Math.min(
-          this.changed_at + Ghost.quiet_ms,
-          this.drawn_at + Ghost.longest_ms,
-        );
+    return this.drawn_at === null ? null : Math.min(this.changed_at + Ghost.quiet_ms, this.drawn_at + Ghost.longest_ms);
   }
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -77,34 +72,23 @@ export class Launch {
     public command?: string,
   ) {}
   static from(value: any) {
-    return value instanceof Launch
-      ? value
-      : new Launch(value.agent, value.command);
+    return value instanceof Launch ? value : new Launch(value.agent, value.command);
   }
   toJSON() {
     return this.agent ? { agent: this.agent } : { command: this.command };
   }
   typed(resuming: string[] | null = null) {
     let out = this.agent
-      ? this.agent.provider +
-        (this.agent.yolo
-          ? " " + Provider.info(this.agent.provider).yolo_flag
-          : "")
+      ? this.agent.provider + (this.agent.yolo ? " " + Provider.info(this.agent.provider).yolo_flag : "")
       : (this.command ?? "");
     if (resuming) out += " " + resuming[1] + " " + quote(resuming[2]);
     return out;
   }
-  forking(
-    provider: Provider,
-    session: string,
-    new_session: string | null = null,
-    name: string | null = null,
-  ) {
+  forking(provider: Provider, session: string, new_session: string | null = null, name: string | null = null) {
     const info = Provider.info(provider);
     let out = this.typed() + " " + info.fork_args[0] + " " + quote(session);
     if (info.fork_args[1]) out += " " + info.fork_args[1];
-    if (info.fork_session_flag && new_session)
-      out += " " + info.fork_session_flag + " " + quote(new_session);
+    if (info.fork_session_flag && new_session) out += " " + info.fork_session_flag + " " + quote(new_session);
     if (info.name_flag && name) out += " " + info.name_flag + " " + quote(name);
     return out;
   }
@@ -112,16 +96,12 @@ export class Launch {
     let yolo = false;
     if (pid > 0)
       try {
-        yolo = readFileSync(`/proc/${pid}/cmdline`, "utf8")
-          .split("\0")
-          .includes(Provider.info(provider).yolo_flag);
+        yolo = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").includes(Provider.info(provider).yolo_flag);
       } catch {}
     return new Launch({ provider, yolo });
   }
   paneCommand(executable: string, typed: string) {
-    return this.agent
-      ? `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT ${quote(executable)} agent ${typed}`
-      : typed;
+    return this.agent ? `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT ${quote(executable)} agent ${typed}` : typed;
   }
 }
 export class Pane {
@@ -143,23 +123,15 @@ export class Pane {
     return this.attachment.agent();
   }
   detectionDue(now: number) {
-    if (
-      this.terminal.surface_revision !== this.detected.output ||
-      now - this.detected.at >= Pane.quiet_detection_ms
-    )
+    if (this.terminal.surface_revision !== this.detected.output || now - this.detected.at >= Pane.quiet_detection_ms)
       return true;
     const a = this.agent();
     if (
       this.detection.missing > 0 ||
-      (a.last_seq === 0 &&
-        this.detection.candidate !== null &&
-        this.detection.candidate !== a.state)
+      (a.last_seq === 0 && this.detection.candidate !== null && this.detection.candidate !== a.state)
     )
       return true;
-    return (
-      ["working", "blocked", "initializing"].includes(a.state) ||
-      a.permission_review !== null
-    );
+    return ["working", "blocked", "initializing"].includes(a.state) || a.permission_review !== null;
   }
   displayed() {
     return this.ghost?.terminal ?? this.terminal;
@@ -209,10 +181,7 @@ export class Pane {
   }
   failed() {
     return (
-      this.terminal.exited &&
-      this.terminal.runs_command &&
-      this.launch !== null &&
-      this.terminal.exit_status !== 0
+      this.terminal.exited && this.terminal.runs_command && this.launch !== null && this.terminal.exit_status !== 0
     );
   }
   keepFailed() {
@@ -307,8 +276,7 @@ export class Runtime {
     this.durable = BigInt.asUintN(64, this.durable + 1n);
   }
   adopt() {
-    for (const p of [...this.panes, ...this.closed])
-      p.terminal.owner = "runtime";
+    for (const p of [...this.panes, ...this.closed]) p.terminal.owner = "runtime";
     for (const s of this.sessions) s.owner = "runtime";
   }
   deinit() {
@@ -329,14 +297,12 @@ export class Runtime {
     this.sessions = [];
   }
   pane(id: number) {
-    return this.panes.find((p) => p.id === id) ?? null;
+    return this.panes.find(p => p.id === id) ?? null;
   }
   attachments(actor: any) {
     return (
-      this.panes.filter(
-        (p) => !p.terminal.exited && p.attachment.actor === actor,
-      ).length +
-      this.sessions.filter((s) => !s.exited && s.members.includes(actor)).length
+      this.panes.filter(p => !p.terminal.exited && p.attachment.actor === actor).length +
+      this.sessions.filter(s => !s.exited && s.members.includes(actor)).length
     );
   }
   followed(actor: any) {
@@ -364,23 +330,14 @@ export class Runtime {
     const ws = this.getWorkspace(opts.workspace),
       next = clone(ws.model);
     next.next_id = this.workspaces.next_pane_id;
-    const id = opts.split
-      ? next.split(opts.split.pane, opts.split.axis)
-      : next.newTab(opts.title ?? "");
+    const id = opts.split ? next.split(opts.split.pane, opts.split.axis) : next.newTab(opts.title ?? "");
     if (opts.split?.before) next.swap(id, opts.split.pane);
     next.revision = BigInt.asUintN(64, next.revision + 1n);
     const dir = await Store.directory(opts.cwd),
       t = await Terminal.create(opts.cols, opts.rows);
     try {
       t.applyTheme(opts.theme);
-      await t.spawn(
-        dir,
-        opts.socket,
-        id,
-        opts.executable,
-        opts.command ?? null,
-        opts.interactive_command ?? false,
-      );
+      await t.spawn(dir, opts.socket, id, opts.executable, opts.command ?? null, opts.interactive_command ?? false);
     } catch (e) {
       t.destroy();
       throw e;
@@ -399,7 +356,7 @@ export class Runtime {
     owner.model.close(id);
     owner.model.revision = BigInt.asUintN(64, owner.model.revision + 1n);
     const tab_index = tab + Number(owner.model.tabIndex(previous.id) !== null),
-      i = this.panes.findIndex((p) => p.id === id);
+      i = this.panes.findIndex(p => p.id === id);
     if (i >= 0) {
       const p = this.panes[i];
       p.dropGhost();
@@ -414,13 +371,7 @@ export class Runtime {
           const n = this.closedIndex(owner.id, "oldest")!;
           this.closed.splice(n, 1)[0].deinit();
         }
-        const saved = new ClosedAgent(
-          p.terminal,
-          p.cwd,
-          previous,
-          owner.id,
-          p.resume_hint,
-        );
+        const saved = new ClosedAgent(p.terminal, p.cwd, previous, owner.id, p.resume_hint);
         saved.label = p.label;
         saved.launch = p.launch;
         saved.pane = id;
@@ -432,29 +383,20 @@ export class Runtime {
     this.changed();
   }
   closedCount(ws: number) {
-    return this.closed.filter((p) => p.workspace_id === ws).length;
+    return this.closed.filter(p => p.workspace_id === ws).length;
   }
   closedIndex(ws: number, which: "oldest" | "newest") {
-    const indexes = this.closed
-      .map((p, i) => (p.workspace_id === ws ? i : -1))
-      .filter((i) => i >= 0);
+    const indexes = this.closed.map((p, i) => (p.workspace_id === ws ? i : -1)).filter(i => i >= 0);
     return (which === "oldest" ? indexes[0] : indexes.at(-1)) ?? null;
   }
   stopShell(t: Terminal) {
     // Bun owns waitpid for Bun.spawn children. Only native children enter this
     // reaper; stealing a Bun child's status rejects its exited promise.
-    if (
-      t.owner === "runtime" &&
-      !t.child &&
-      !t.imported &&
-      !t.exited &&
-      t.pid > 0
-    )
-      this.stopped.push(t.pid);
+    if (t.owner === "runtime" && !t.child && !t.imported && !t.exited && t.pid > 0) this.stopped.push(t.pid);
     t.stop();
   }
   reapStopped() {
-    this.stopped = this.stopped.filter((pid) => waitpid(pid) === 0);
+    this.stopped = this.stopped.filter(pid => waitpid(pid) === 0);
   }
   reopen(opts: Create) {
     const i = this.closedIndex(opts.workspace, "newest");
@@ -471,8 +413,7 @@ export class Runtime {
   async reopenClosed(index: number, opts: Create) {
     const saved = this.closed[index],
       old = saved.terminal.fadedSnapshot(),
-      launch =
-        saved.launch ?? new Launch({ provider: saved.resume_hint.provider! });
+      launch = saved.launch ?? new Launch({ provider: saved.resume_hint.provider! });
     const id = await this.resumeAgent(
       {
         ...opts,
@@ -488,15 +429,10 @@ export class Runtime {
     const ws = this.getWorkspace(opts.workspace);
     if (saved.workspace_id === opts.workspace) {
       if (saved.tab_index !== null) {
-        ws.model.moveTab(
-          ws.model.tabs[ws.model.count - 1].id,
-          Math.min(saved.tab_index, ws.model.count - 1),
-        );
+        ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, Math.min(saved.tab_index, ws.model.count - 1));
         ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
       }
-      ws.agent_order.items = ws.agent_order.items.map((t) =>
-        "pane" in t && t.pane === saved.pane ? { pane: id } : t,
-      );
+      ws.agent_order.items = ws.agent_order.items.map(t => ("pane" in t && t.pane === saved.pane ? { pane: id } : t));
     }
     this.pane(id)!.label = saved.label;
     this.closed.splice(index, 1);
@@ -509,27 +445,13 @@ export class Runtime {
     if (old) t.feed(old);
     return t;
   }
-  haunt(
-    p: Pane,
-    frozen: Terminal,
-    old: string | Uint8Array | null,
-    fork: string | null,
-  ) {
+  haunt(p: Pane, frozen: Terminal, old: string | Uint8Array | null, fork: string | null) {
     if (old) p.terminal.feed(old);
-    p.ghost = new Ghost(
-      frozen,
-      p.terminal.surface_revision,
-      p.terminal.liveText(),
-    );
+    p.ghost = new Ghost(frozen, p.terminal.surface_revision, p.terminal.liveText());
     p.ghost.old_screen = old !== null;
     p.ghost.fork = fork;
   }
-  async resumeAgent(
-    opts: Create,
-    launch: Launch,
-    hint: ResumeHint,
-    old: string | Uint8Array | null,
-  ) {
+  async resumeAgent(opts: Create, launch: Launch, hint: ResumeHint, old: string | Uint8Array | null) {
     if (!hint.provider || !hint.args()) throw Error("InvalidSession");
     const job = launch.agent ? hint.backgroundJob() : null;
     const typed = job ? attachCommand(job) : launch.typed(hint.args()),
@@ -566,8 +488,7 @@ export class Runtime {
     const a = p.agent(),
       provider = a.provider,
       session = a.sessionId();
-    if (!provider || session.length !== 36 || !validRef({ id: session }))
-      throw Error("NoConversation");
+    if (!provider || session.length !== 36 || !validRef({ id: session })) throw Error("NoConversation");
     if (provider === "claude" && a.transcriptPath())
       try {
         lstatSync(a.transcriptPath());
@@ -583,9 +504,7 @@ export class Runtime {
     if (!p) throw Error("NoPane");
     const [provider, session] = Runtime.forkSource(p),
       launch = p.launch ?? Launch.observed(provider, p.detection.pid),
-      newSession = Provider.info(provider).fork_session_flag
-        ? randomUUID()
-        : null,
+      newSession = Provider.info(provider).fork_session_flag ? randomUUID() : null,
       typed = launch.forking(provider, session, newSession, name),
       old = p.terminal.fadedSnapshot(),
       forked = {
@@ -624,25 +543,12 @@ export class Runtime {
       fork.attachment.provisional.name = new Text(pickedName);
     }
     if (!Provider.info(provider).name_flag && name)
-      this.wanted_names.push(
-        new WantedName(
-          created,
-          name,
-          clock.milliTimestamp() + WantedName.wait_ms,
-        ),
-      );
-    ws.model.moveTab(
-      ws.model.tabs[ws.model.count - 1].id,
-      ws.model.tabIndex(sourceTab)! + 1,
-    );
+      this.wanted_names.push(new WantedName(created, name, clock.milliTimestamp() + WantedName.wait_ms));
+    ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, ws.model.tabIndex(sourceTab)! + 1);
     ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
     if (ws.agent_order.len) {
       try {
-        ws.agent_order.moveAfter(
-          this.agentTargets(ws),
-          { pane: created },
-          { pane: id },
-        );
+        ws.agent_order.moveAfter(this.agentTargets(ws), { pane: created }, { pane: id });
       } catch (error) {
         console.warn("placing a fork's row:", error);
       }
@@ -652,10 +558,8 @@ export class Runtime {
   agentTargets(ws: Workspace, out: Target[] = []) {
     out.length = 0;
     for (let i = 0; i < ws.model.count; i++)
-      for (const p of this.panes)
-        if (ws.model.tabForPane(p.id) === i) out.push({ pane: p.id });
-    for (const s of this.sessions)
-      if (s.workspace_id === ws.id) out.push({ native: s.id });
+      for (const p of this.panes) if (ws.model.tabForPane(p.id) === i) out.push({ pane: p.id });
+    for (const s of this.sessions) if (s.workspace_id === ws.id) out.push({ native: s.id });
     if (out.length > order_capacity) throw Error("TooManyAgents");
     return out;
   }
@@ -687,19 +591,13 @@ export class Runtime {
     if (index === null) throw Error("NoWorkspace");
     if (this.workspaces.items.length === 1) throw Error("LastWorkspace");
     const ws = this.workspaces.items[index];
-    if (
-      !close_contents &&
-      (ws.model.count > 0 || this.sessions.some((s) => s.workspace_id === id))
-    )
+    if (!close_contents && (ws.model.count > 0 || this.sessions.some(s => s.workspace_id === id)))
       throw Error("WorkspaceNotEmpty");
-    while (ws.model.count)
-      this.close(ws.model.firstPane(ws.model.tabs[0].root));
-    for (const c of this.closed.filter((c) => c.workspace_id === id))
-      c.deinit();
-    this.closed = this.closed.filter((c) => c.workspace_id !== id);
-    for (const s of this.sessions.filter((s) => s.workspace_id === id))
-      s.destroy();
-    this.sessions = this.sessions.filter((s) => s.workspace_id !== id);
+    while (ws.model.count) this.close(ws.model.firstPane(ws.model.tabs[0].root));
+    for (const c of this.closed.filter(c => c.workspace_id === id)) c.deinit();
+    this.closed = this.closed.filter(c => c.workspace_id !== id);
+    for (const s of this.sessions.filter(s => s.workspace_id === id)) s.destroy();
+    this.sessions = this.sessions.filter(s => s.workspace_id !== id);
     this.workspaces.items.splice(index, 1);
     this.changed();
   }

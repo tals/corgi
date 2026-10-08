@@ -3,8 +3,7 @@ import { Quit, run as subprocessRun } from "../subprocess";
 import { clean } from "./git_status";
 import type { Store } from "../workspace";
 import type { Tracker } from "./git_status";
-export const preview_changed =
-  "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
+export const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
 export type Phase = "idle" | "pushing" | "succeeded" | "failed";
 export type View = { phase: Phase; message: string };
 export class State {
@@ -26,9 +25,7 @@ export class RefView {
     Object.assign(this, fields);
   }
   sameBranch(other: RefView) {
-    return ["root", "branch", "remote", "destination"].every(
-      (k) => this[k] === other[k],
-    );
+    return ["root", "branch", "remote", "destination"].every(k => this[k] === other[k]);
   }
   eql(other: RefView) {
     return this.sameBranch(other) && this.head === other.head;
@@ -36,17 +33,9 @@ export class RefView {
   [key: string]: any;
 }
 export class Ref extends RefView {
-  static init(
-    root: string,
-    head: string,
-    branch: string,
-    remote: string,
-    destination: string,
-  ) {
+  static init(root: string, head: string, branch: string, remote: string, destination: string) {
     if (
-      [root, head, branch, remote, destination].some(
-        (s, i) => Buffer.byteLength(s) > [4096, 64, 1024, 1024, 1024][i],
-      )
+      [root, head, branch, remote, destination].some((s, i) => Buffer.byteLength(s) > [4096, 64, 1024, 1024, 1024][i])
     )
       return new Ref();
     return new Ref({ root, head, branch, remote, destination });
@@ -77,11 +66,7 @@ export class Manager {
     for (const job of this.jobs) job?.quit.signal();
     this.jobs.fill(null);
   }
-  async start(
-    store: Store | { workspaces: Store },
-    id: number,
-    expected: RefView,
-  ) {
+  async start(store: Store | { workspaces: Store }, id: number, expected: RefView) {
     const s = "workspaces" in store ? store.workspaces : store,
       ws = s.get(id);
     if (!ws) throw Error("NoWorkspace");
@@ -120,7 +105,7 @@ export class Manager {
       .then(() => {
         job.result.phase = "succeeded";
       })
-      .catch((e) => {
+      .catch(e => {
         job.result.phase = "failed";
         if (!job.result.message)
           job.result.message = clean(
@@ -164,28 +149,17 @@ export class Manager {
     const ref = job.ref.view(),
       head = await this.command(job, ["rev-parse", "--verify", "HEAD"]),
       branch = await this.command(job, ["symbolic-ref", "--quiet", "HEAD"]);
-    if (head !== ref.head || branch !== ref.branch)
-      throw Error("GitPreviewChanged");
+    if (head !== ref.head || branch !== ref.branch) throw Error("GitPreviewChanged");
     if (!branch.startsWith("refs/heads/")) throw Error("NoPushDestination");
     let remote: string, destination: string;
     try {
-      remote = await this.command(job, [
-        "config",
-        "--get",
-        `branch.${branch.slice(11)}.remote`,
-      ]);
-      destination = await this.command(job, [
-        "config",
-        "--get",
-        `branch.${branch.slice(11)}.merge`,
-      ]);
+      remote = await this.command(job, ["config", "--get", `branch.${branch.slice(11)}.remote`]);
+      destination = await this.command(job, ["config", "--get", `branch.${branch.slice(11)}.merge`]);
     } catch {
       throw Error("NoPushDestination");
     }
-    if (remote !== ref.remote || destination !== ref.destination)
-      throw Error("GitPreviewChanged");
-    if (!remote || !destination.startsWith("refs/heads/"))
-      throw Error("NoPushDestination");
+    if (remote !== ref.remote || destination !== ref.destination) throw Error("GitPreviewChanged");
+    if (!remote || !destination.startsWith("refs/heads/")) throw Error("NoPushDestination");
     await this.command(
       job,
       [
@@ -204,22 +178,9 @@ export class Manager {
       true,
     );
   }
-  async command(
-    job: NonNullable<Manager["jobs"][number]>,
-    args: string[],
-    pushing = false,
-  ) {
+  async command(job: NonNullable<Manager["jobs"][number]>, args: string[], pushing = false) {
     const out = await subprocessRun(
-      [
-        "git",
-        "-c",
-        "core.askPass=",
-        "-c",
-        "credential.interactive=false",
-        "-C",
-        job.ref.root,
-        ...args,
-      ],
+      ["git", "-c", "core.askPass=", "-c", "credential.interactive=false", "-C", job.ref.root, ...args],
       {
         env: {
           ...process.env,
@@ -233,21 +194,13 @@ export class Manager {
       },
     );
     if (!out.ok()) {
-      if (pushing)
-        job.result.message = clean(
-          (out.stderr.length ? out.stderr : out.stdout).toString().trim(),
-          2048,
-        );
+      if (pushing) job.result.message = clean((out.stderr.length ? out.stderr : out.stdout).toString().trim(), 2048);
       throw Error("GitPushFailed");
     }
     return out.stdout.toString().trim();
   }
 }
 
-export async function start(
-  runtime: { workspaces: Store; git_push: Manager },
-  workspace: number,
-  ref: RefView,
-) {
+export async function start(runtime: { workspaces: Store; git_push: Manager }, workspace: number, ref: RefView) {
   await runtime.git_push.start(runtime.workspaces, workspace, new RefView(ref));
 }

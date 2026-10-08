@@ -6,24 +6,19 @@ export class Geometry {
   }
   find(id: string): Rect | null {
     if (!/^%\d+$/.test(id) || Number(id.slice(1)) > 0xffffffff) return null;
-    return this.panes.find((p) => p.id === Number(id.slice(1)))?.rect ?? null;
+    return this.panes.find(p => p.id === Number(id.slice(1)))?.rect ?? null;
   }
 }
 export function checksum(text: string): number {
   let sum = 0;
-  for (const byte of Buffer.from(text))
-    sum = (((sum >>> 1) | (sum << 15)) + byte) & 0xffff;
+  for (const byte of Buffer.from(text)) sum = (((sum >>> 1) | (sum << 15)) + byte) & 0xffff;
   return sum;
 }
 export function parse(text: string): Geometry {
   const fail = () => {
     throw Error("InvalidTmuxLayout");
   };
-  if (
-    !/^[0-9a-fA-F]{4},/.test(text) ||
-    parseInt(text.slice(0, 4), 16) !== checksum(text.slice(5))
-  )
-    fail();
+  if (!/^[0-9a-fA-F]{4},/.test(text) || parseInt(text.slice(0, 4), 16) !== checksum(text.slice(5))) fail();
   const body = text.slice(5),
     geometry = new Geometry();
   let pos = 0;
@@ -62,7 +57,7 @@ export function parse(text: string): Geometry {
       expect(",");
       const id = number(0xffffffff);
       if (geometry.count === max_panes) throw Error("TooManyPanes");
-      if (geometry.panes.some((p) => p.id === id)) fail();
+      if (geometry.panes.some(p => p.id === id)) fail();
       geometry.panes.push({ id, rect: new Rect(x, y, w, h) });
     }
   }

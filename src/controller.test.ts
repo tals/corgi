@@ -101,7 +101,11 @@ test("escape in the launcher's search clears the query, then closes the launcher
   const s = controller();
   s.agent_launcher = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true });
   // Collapsed, so the test needs no sidebar to scroll the list.
-  Object.assign(s.agent_launcher.resume_view, { focused: true, searching: true, query: Dialog.init({ pane: 0 }, "ab") });
+  Object.assign(s.agent_launcher.resume_view, {
+    focused: true,
+    searching: true,
+    query: Dialog.init({ pane: 0 }, "ab"),
+  });
   await s.key(27);
   expect(s.agent_launcher).not.toBeNull();
   expect(s.agent_launcher.resume_view.searching).toBe(true);

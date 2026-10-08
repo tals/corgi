@@ -13,14 +13,9 @@ export type Source = {
   session: string;
   tools_since_last: bigint;
 };
-export type Discard =
-  | "not_working"
-  | "session_changed"
-  | "turn_changed"
-  | "evidence_changed"
-  | "superseded";
+export type Discard = "not_working" | "session_changed" | "turn_changed" | "evidence_changed" | "superseded";
 function log(value: any) {
-  if (process.argv.some((arg) => arg === "serve" || arg === "__handoff"))
+  if (process.argv.some(arg => arg === "serve" || arg === "__handoff"))
     process.stderr.write("info(activity_summary): " + stringify(value) + "\n");
 }
 export function outcome(request: bigint, discard: Discard | null) {
@@ -47,13 +42,7 @@ export class Backend {
   deinit() {
     this.pool.deinit();
   }
-  async infer(
-    input: Input,
-    turn: string,
-    conversation: string,
-    source: Source,
-    stopping: any = false,
-  ) {
+  async infer(input: Input, turn: string, conversation: string, source: Source, stopping: any = false) {
     const request = ++this.next_request,
       context = { pid: process.pid, request, source, turn, conversation };
     const content = contract.content({ ...input, history: null }),

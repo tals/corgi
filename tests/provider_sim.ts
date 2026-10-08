@@ -80,8 +80,7 @@ export function write_executable(path: string, source: string) {
   chmodSync(path, 0o700);
   return path;
 }
-export const write_ordinary_agent = (path: string) =>
-  write_executable(path, ORDINARY_PROVIDER);
+export const write_ordinary_agent = (path: string) => write_executable(path, ORDINARY_PROVIDER);
 export function write_codex_terminal(path: string, session: string) {
   return write_executable(
     path,
@@ -139,11 +138,11 @@ class FrameReader {
   failure: ((e: any) => void)[] = [];
   queue: any[] = [];
   constructor(public socket: Socket) {
-    socket.on("data", (chunk) => {
+    socket.on("data", chunk => {
       this.buffer = Buffer.concat([this.buffer, Buffer.from(chunk)]);
       this.parse();
     });
-    socket.on("error", (e) => this.reject(e));
+    socket.on("error", e => this.reject(e));
     socket.on("close", () => this.reject(new Error("socket closed")));
   }
   parse() {
@@ -197,37 +196,30 @@ export class HeldResponse {
     public session: string | null = null,
   ) {}
   matches(request: any) {
-    return (
-      request.method === this.method &&
-      (this.session === null || request.params?.threadId === this.session)
-    );
+    return request.method === this.method && (this.session === null || request.params?.threadId === this.session);
   }
   capture(request: any, response: any) {
     this.request = request;
     this.response = structuredClone(response);
     this.captured = true;
-    this.captureWaiters.splice(0).forEach((f) => f(this));
+    this.captureWaiters.splice(0).forEach(f => f(this));
   }
   async wait(timeout = 4): Promise<HeldResponse> {
     if (this.captured) return this;
     return Promise.race([
-      new Promise<HeldResponse>((resolve) => this.captureWaiters.push(resolve)),
+      new Promise<HeldResponse>(resolve => this.captureWaiters.push(resolve)),
       new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(new Error("provider did not request held " + this.method)),
-          timeout * 1000,
-        ),
+        setTimeout(() => reject(new Error("provider did not request held " + this.method)), timeout * 1000),
       ),
     ]);
   }
   async waitRelease() {
     if (this.released) return;
-    await new Promise<void>((resolve) => this.releaseWaiters.push(resolve));
+    await new Promise<void>(resolve => this.releaseWaiters.push(resolve));
   }
   release() {
     this.released = true;
-    this.releaseWaiters.splice(0).forEach((f) => f());
+    this.releaseWaiters.splice(0).forEach(f => f());
   }
 }
 export class CodexObserver {
@@ -257,28 +249,17 @@ export class CodexObserver {
       this.states[id] = "idle";
       this.turns[id] = ["old-" + i, "completed"];
     });
-    this.path = join(
-      codexHome,
-      "app-server-control",
-      "app-server-control.sock",
-    );
+    this.path = join(codexHome, "app-server-control", "app-server-control.sock");
     mkdirSync(dirname(this.path), { recursive: true });
-    this.server = createServer((peer) => this.servePeer(peer));
+    this.server = createServer(peer => this.servePeer(peer));
     this.server.listen(this.path);
   }
-  set_turn(
-    session: string,
-    turn: string,
-    status: string,
-    options: { waiting?: boolean; items?: any[] } = {},
-  ) {
+  set_turn(session: string, turn: string, status: string, options: { waiting?: boolean; items?: any[] } = {}) {
     if (!this.ids.includes(session)) this.ids.push(session);
     this.states[session] = status === "inProgress" ? "active" : "idle";
     this.turns[session] = [turn, status];
     if (typeof this.waiting === "boolean")
-      this.waiting = Object.fromEntries(
-        this.ids.map((id) => [id, this.waiting as boolean]),
-      );
+      this.waiting = Object.fromEntries(this.ids.map(id => [id, this.waiting as boolean]));
     this.waiting[session] = options.waiting ?? false;
     if (options.items !== undefined) this.items[session] = options.items;
   }
@@ -294,19 +275,12 @@ export class CodexObserver {
   }
   async wait_for_request(
     method: string,
-    {
-      session = null,
-      after = 0,
-      timeout = 4,
-    }: { session?: string | null; after?: number; timeout?: number } = {},
+    { session = null, after = 0, timeout = 4 }: { session?: string | null; after?: number; timeout?: number } = {},
   ) {
     const deadline = Date.now() + timeout * 1000;
     while (Date.now() < deadline) {
       for (let i = after; i < this.requests.length; i++)
-        if (
-          this.requests[i].method === method &&
-          (session === null || this.requests[i].params?.threadId === session)
-        )
+        if (this.requests[i].method === method && (session === null || this.requests[i].params?.threadId === session))
           return i + 1;
       await Bun.sleep(10);
     }
@@ -314,9 +288,9 @@ export class CodexObserver {
   }
   async close() {
     this.closed = true;
-    this.gates.forEach((g) => g.release());
-    this.peers.forEach((p) => p.destroy());
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
+    this.gates.forEach(g => g.release());
+    this.peers.forEach(p => p.destroy());
+    await new Promise<void>(resolve => this.server.close(() => resolve()));
     try {
       unlinkSync(this.path);
     } catch {}
@@ -330,9 +304,7 @@ export class CodexObserver {
       const end = handshake.indexOf("\r\n\r\n");
       if (end < 0) return;
       peer.off("data", onData);
-      const key = /sec-websocket-key:\s*([^\r\n]+)/i.exec(
-        handshake.toString(),
-      )?.[1];
+      const key = /sec-websocket-key:\s*([^\r\n]+)/i.exec(handshake.toString())?.[1];
       if (!key) {
         peer.destroy();
         return;
@@ -363,7 +335,7 @@ export class CodexObserver {
         if (request.method === "initialized") continue;
         const response = this.response(request);
         const data = frame(response);
-        const gate = this.holds.find((g) => g.matches(request));
+        const gate = this.holds.find(g => g.matches(request));
         if (gate) {
           this.holds.splice(this.holds.indexOf(gate), 1);
           gate.capture(request, response);
@@ -384,8 +356,7 @@ export class CodexObserver {
       p = request.params || {};
     let result: any;
     if (method === "initialize") result = {};
-    else if (method === "thread/loaded/list")
-      result = { data: this.ids, nextCursor: null };
+    else if (method === "thread/loaded/list") result = { data: this.ids, nextCursor: null };
     else if (method === "thread/read") {
       const s = p.threadId,
         w = typeof this.waiting === "boolean" ? this.waiting : this.waiting[s];
@@ -423,17 +394,14 @@ export class CodexObserver {
         };
       result = {
         data: this.children.slice(offset, offset + 2),
-        nextCursor:
-          offset + 2 < this.children.length ? String(offset + 2) : null,
+        nextCursor: offset + 2 < this.children.length ? String(offset + 2) : null,
       };
     } else if (method === "thread/items/list") {
-      if (p.sortDirection !== "desc")
-        throw new Error("observer must request items newest first");
+      if (p.sortDirection !== "desc") throw new Error("observer must request items newest first");
       const offset = Number(p.cursor || 0);
       result = {
         data: this.wait_items.slice(offset, offset + 2),
-        nextCursor:
-          offset + 2 < this.wait_items.length ? String(offset + 2) : null,
+        nextCursor: offset + 2 < this.wait_items.length ? String(offset + 2) : null,
       };
     } else throw new Error("mutating or unexpected RPC " + method);
     return { id: request.id, result };

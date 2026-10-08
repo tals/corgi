@@ -98,7 +98,7 @@ export function inventory(roots?: number[]): Inventory {
   return { items, truncated };
 }
 export function field(text: string, key: string): bigint | null {
-  const l = text.split("\n").find((l) => l.startsWith(key));
+  const l = text.split("\n").find(l => l.startsWith(key));
   if (!l) return null;
   try {
     return BigInt(l.slice(key.length).trim().split(/\s+/)[0]);
@@ -159,23 +159,15 @@ export function host(): Host {
   };
   if (process.platform === "linux") {
     try {
-      const values = readFileSync("/proc/stat", "utf8")
-        .split("\n")[0]
-        .trim()
-        .split(/\s+/)
-        .slice(1, 9)
-        .map(BigInt);
+      const values = readFileSync("/proc/stat", "utf8").split("\n")[0].trim().split(/\s+/).slice(1, 9).map(BigInt);
       out.total = values.reduce((a, b) => a + b, 0n);
       out.busy = out.total - values[3] - values[4];
     } catch {}
     try {
-      const p = readFileSync("/proc/pressure/memory", "utf8").match(
-        /some avg10=([\d.]+)/,
-      );
+      const p = readFileSync("/proc/pressure/memory", "utf8").match(/some avg10=([\d.]+)/);
       if (p) {
         const value = Number(p[1]);
-        out.pressure =
-          value >= 10 ? "critical" : value >= 1 ? "warning" : "normal";
+        out.pressure = value >= 10 ? "critical" : value >= 1 ? "warning" : "normal";
       }
     } catch {}
   }

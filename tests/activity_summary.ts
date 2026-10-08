@@ -1,10 +1,5 @@
 /** Read-only provider observation to replaceable inference and activity timeline. */
-import {
-  appendFileSync,
-  existsSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Titles, A } from "./codex_titles";
 import { Runtime } from "./runtime";
@@ -12,9 +7,7 @@ import { sleep, tempDir } from "./support";
 
 export const inferenceProgram = join(import.meta.dir, "inference_harness.ts");
 export const lines = (path: string) =>
-  existsSync(path)
-    ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean)
-    : [];
+  existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean) : [];
 export const now = () => new Date().toISOString();
 export class Summaries extends Titles {
   backend_dir!: ReturnType<typeof tempDir>;
@@ -32,15 +25,9 @@ export class Summaries extends Titles {
     this.backend_dir = tempDir("corgi-summary-");
     this.log = join(this.backend_dir.name, "calls.jsonl");
     this.control = join(this.backend_dir.name, "control.json");
-    writeFileSync(
-      this.control,
-      JSON.stringify({ delay: 0, label: "Tracing pane focus" }),
-    );
+    writeFileSync(this.control, JSON.stringify({ delay: 0, label: "Tracing pane focus" }));
     this.transcript = join(this.backend_dir.name, "activity.jsonl");
-    writeFileSync(
-      this.transcript,
-      JSON.stringify({ type: "session_meta", payload: { id: A } }) + "\n",
-    );
+    writeFileSync(this.transcript, JSON.stringify({ type: "session_meta", payload: { id: A } }) + "\n");
     this.tool_index = 0;
     await super.setUp();
     this.paths[A] = this.transcript;
@@ -68,10 +55,7 @@ export class Summaries extends Titles {
     if (wave) this.tools(3);
   }
   append_record(type: string, payload: any) {
-    appendFileSync(
-      this.transcript,
-      JSON.stringify({ type, timestamp: now(), payload }) + "\n",
-    );
+    appendFileSync(this.transcript, JSON.stringify({ type, timestamp: now(), payload }) + "\n");
   }
   tools(n: number, command = "rg focus src", complete = true) {
     const ids: string[] = [];
@@ -100,8 +84,8 @@ export class Summaries extends Titles {
   }
   summary_logs() {
     return lines(join(this.temp.name, "server.log"))
-      .filter((line) => line.startsWith("info(activity_summary): "))
-      .map((line) => JSON.parse(line.slice("info(activity_summary): ".length)));
+      .filter(line => line.startsWith("info(activity_summary): "))
+      .map(line => JSON.parse(line.slice("info(activity_summary): ".length)));
   }
 }
 export class ClaudeSummaries extends Runtime {
@@ -121,14 +105,9 @@ export class ClaudeSummaries extends Runtime {
     this.backend_dir = tempDir("corgi-summary-");
     this.log = join(this.backend_dir.name, "calls.jsonl");
     this.control = join(this.backend_dir.name, "control.json");
-    writeFileSync(
-      this.control,
-      JSON.stringify({ delay: 0, label: "Tracing hook routing" }),
-    );
+    writeFileSync(this.control, JSON.stringify({ delay: 0, label: "Tracing hook routing" }));
     await super.setUp();
-    this.pane = (
-      await this.command("pane.create", { workspace: 1, command: "sleep 60" })
-    ).pane;
+    this.pane = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     this.transcript = join(this.backend_dir.name, "claude.jsonl");
     writeFileSync(this.transcript, "");
     this.seq = Date.now() * 1000;
@@ -157,26 +136,16 @@ export class ClaudeSummaries extends Runtime {
     });
   }
   record(fields: any) {
-    appendFileSync(
-      this.transcript,
-      JSON.stringify({ sessionId: "claude-s", timestamp: now(), ...fields }) +
-        "\n",
-    );
+    appendFileSync(this.transcript, JSON.stringify({ sessionId: "claude-s", timestamp: now(), ...fields }) + "\n");
   }
   async agent() {
-    return (await this.session()).panes.find((p: any) => p.id === this.pane)
-      .agent;
+    return (await this.session()).panes.find((p: any) => p.id === this.pane).agent;
   }
   async conversation() {
-    return (await this.session()).conversations.find(
-      (c: any) => c.agent.session === "claude-s",
-    );
+    return (await this.session()).conversations.find((c: any) => c.agent.session === "claude-s");
   }
   async test_running_command_alone_gets_summary_without_completion_or_commentary() {
-    writeFileSync(
-      this.control,
-      JSON.stringify({ delay: 0, label: "Running smoke tests" }),
-    );
+    writeFileSync(this.control, JSON.stringify({ delay: 0, label: "Running smoke tests" }));
     await this.hook("SessionStart");
     await sleep(0.6);
     await this.hook("UserPromptSubmit");
@@ -198,14 +167,9 @@ export class ClaudeSummaries extends Runtime {
         ],
       },
     });
-    await this.until(
-      async () => (await this.agent()).activity === "Running smoke tests",
-    );
+    await this.until(async () => (await this.agent()).activity === "Running smoke tests");
     this.assertEqual(lines(this.log).length, 1);
-    this.assertIn(
-      "Currently running tools",
-      JSON.parse(lines(this.log)[0]).evidence,
-    );
+    this.assertIn("Currently running tools", JSON.parse(lines(this.log)[0]).evidence);
     await this.advance(8.5);
     this.assertEqual(lines(this.log).length, 1);
   }
@@ -242,9 +206,7 @@ export class ClaudeSummaries extends Runtime {
         ],
       },
     });
-    await this.until(
-      async () => (await this.agent()).activity === "Tracing hook routing",
-    );
+    await this.until(async () => (await this.agent()).activity === "Tracing hook routing");
     this.record({
       type: "user",
       message: {
@@ -252,11 +214,7 @@ export class ClaudeSummaries extends Runtime {
       },
     });
     await this.advance(8);
-    await this.until(() =>
-      JSON.parse(lines(this.log).at(-1)!).evidence.includes(
-        "Find hook routing",
-      ),
-    );
+    await this.until(() => JSON.parse(lines(this.log).at(-1)!).evidence.includes("Find hook routing"));
     const call = JSON.parse(lines(this.log).at(-1)!);
     this.assertIn("Tracing how hooks reach panes", JSON.stringify(call));
     this.assertIn("Find hook routing", JSON.stringify(call));
@@ -280,10 +238,7 @@ export class ClaudeSummaries extends Runtime {
     await this.until(async () => (await this.agent()).state === "idle");
   }
   async test_claude_label_survives_text_written_during_inference() {
-    writeFileSync(
-      this.control,
-      JSON.stringify({ delay: 1.5, label: "Tracing hook routing" }),
-    );
+    writeFileSync(this.control, JSON.stringify({ delay: 1.5, label: "Tracing hook routing" }));
     await this.hook("SessionStart");
     await sleep(0.6);
     await this.hook("UserPromptSubmit");
@@ -299,15 +254,10 @@ export class ClaudeSummaries extends Runtime {
       type: "assistant",
       message: {
         id: "m2",
-        content: [
-          { type: "text", text: "Checking the attachment router next" },
-        ],
+        content: [{ type: "text", text: "Checking the attachment router next" }],
       },
     });
-    await this.until(
-      async () => (await this.agent()).activity === "Tracing hook routing",
-      6,
-    );
+    await this.until(async () => (await this.agent()).activity === "Tracing hook routing", 6);
     this.assertEqual(
       (await this.conversation()).timeline.points.map((p: any) => p.activity),
       ["Tracing hook routing"],

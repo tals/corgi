@@ -1,14 +1,10 @@
 import { processArgs, shellEscape } from "../os";
 import { basename } from "node:path";
 import type { Terminal } from "../pane/terminal";
-export function foregroundPid(
-  processes: string,
-  pane_pid: number,
-): number | null {
+export function foregroundPid(processes: string, pane_pid: number): number | null {
   for (const line of processes.split("\n")) {
     const fields = line.trim().split(/[ \t]+/);
-    if (!/^-?\d+$/.test(fields[0] ?? "") || !/^-?\d+$/.test(fields[1] ?? ""))
-      continue;
+    if (!/^-?\d+$/.test(fields[0] ?? "") || !/^-?\d+$/.test(fields[1] ?? "")) continue;
     const pid = Number(fields[0]),
       pgid = Number(fields[1]);
     if (pid === pane_pid) return pgid > 0 ? pgid : null;
@@ -20,9 +16,7 @@ export function quote(args: string[]): string {
     !args.length ||
     !args[0] ||
     args[0][0] === "-" ||
-    ["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh"].includes(
-      basename(args[0]),
-    )
+    ["sh", "bash", "zsh", "fish", "dash", "ksh", "csh", "tcsh"].includes(basename(args[0]))
   )
     return "";
   const line = shellEscape(args);
@@ -51,8 +45,6 @@ export function tail(text: string, limit: number): string {
   return bytes.subarray(start).toString();
 }
 export function feed(terminal: Terminal, text: string): void {
-  terminal.feed(
-    text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").replace(/\n/g, "\r\n"),
-  );
+  terminal.feed(text.replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").replace(/\n/g, "\r\n"));
   if (text.length) terminal.feed("\r\n");
 }

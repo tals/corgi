@@ -12,7 +12,9 @@ class Resources extends Runtime {
     const workspace = (await this.session()).workspaces[0].id;
     const trigger = join(this.temp.name, "spawn-children");
     const script = join(this.temp.name, "churn.ts");
-    writeFileSync(script, `
+    writeFileSync(
+      script,
+      `
       import { existsSync } from "node:fs";
       setInterval(() => {
         if (existsSync(${JSON.stringify(trigger)})) {
@@ -22,16 +24,21 @@ class Resources extends Runtime {
           void child.exited;
         }
       }, 400);
-    `);
+    `,
+    );
     await this.command("pane.create", {
-      workspace, cwd: this.temp.name, command: shellJoin([process.execPath, script]),
+      workspace,
+      cwd: this.temp.name,
+      command: shellJoin([process.execPath, script]),
     });
     await this.until(async () => {
       const work = (await this.session()).resources.workspaces.find((w: any) => w.id === workspace);
       return work?.count > 0 && work.cpu != null;
     }, 8);
     writeFileSync(trigger, "go");
-    let lastSample = 0, samples = 0, sawNewProcess = false;
+    let lastSample = 0,
+      samples = 0,
+      sawNewProcess = false;
     await this.until(async () => {
       const snapshot = (await this.session()).resources;
       if (snapshot.sampled_at === lastSample) return false;
@@ -51,17 +58,30 @@ class Resources extends Runtime {
     // Some Linux kernels report zero RSS for a tiny sleeping process. Allocate
     // and touch memory so this fixture actually supplies the metric it asserts.
     await this.command("pane.create", {
-      workspace: first, cwd: this.temp.name,
-      command: shellJoin([process.execPath, "-e", "const memory=Buffer.alloc(4*1024*1024,1);setInterval(()=>{memory[0]++;},1000)"]),
+      workspace: first,
+      cwd: this.temp.name,
+      command: shellJoin([
+        process.execPath,
+        "-e",
+        "const memory=Buffer.alloc(4*1024*1024,1);setInterval(()=>{memory[0]++;},1000)",
+      ]),
     });
-    const second = (await this.command("workspace.create", {
-      name: "second", cwd: this.temp.name,
-    })).workspace;
+    const second = (
+      await this.command("workspace.create", {
+        name: "second",
+        cwd: this.temp.name,
+      })
+    ).workspace;
     await this.until(async () => {
       const workspaces = (await this.session()).resources.workspaces;
       const work = workspaces.find((w: any) => w.id === first);
-      return work?.memory > 0 && work.cpu != null && work.read != null &&
-        work.written != null && workspaces.some((w: any) => w.id === second && w.cpu != null);
+      return (
+        work?.memory > 0 &&
+        work.cpu != null &&
+        work.read != null &&
+        work.written != null &&
+        workspaces.some((w: any) => w.id === second && w.cpu != null)
+      );
     }, 8);
     const click = async (viewer: Viewer, column: number, row: number) => {
       await viewer.input(`\x1b[<0;${column};${row}M`);
@@ -144,16 +164,25 @@ class Resources extends Runtime {
   async test_readings_off_removes_the_row_and_stops_sampling() {
     const first = (await this.session()).workspaces[0].id;
     await this.command("pane.create", {
-      workspace: first, cwd: this.temp.name, command: "/bin/sleep 300",
+      workspace: first,
+      cwd: this.temp.name,
+      command: "/bin/sleep 300",
     });
-    const second = (await this.command("workspace.create", {
-      name: "second", cwd: this.temp.name,
-    })).workspace;
+    const second = (
+      await this.command("workspace.create", {
+        name: "second",
+        cwd: this.temp.name,
+      })
+    ).workspace;
     await this.until(async () => (await this.session()).resources.sampled_at > 0, 8);
     const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
-    writeFileSync(preferences, JSON.stringify({
-      onboarding_complete: true, resources: { enabled: false },
-    }));
+    writeFileSync(
+      preferences,
+      JSON.stringify({
+        onboarding_complete: true,
+        resources: { enabled: false },
+      }),
+    );
     const viewer = await Viewer.create(this, 120, 40);
     await viewer.request({ op: "workspace", workspace: first });
     // The daemon stops sampling and drops what it had.
@@ -201,7 +230,9 @@ class Resources extends Runtime {
     const workspace = (await this.session()).workspaces[0].id;
     const script = join(this.temp.name, "resource-fixture.ts");
     const pidFile = join(this.temp.name, "resource.pid");
-    writeFileSync(script, `
+    writeFileSync(
+      script,
+      `
       import { writeFileSync, appendFileSync } from "node:fs";
       const memory = new Uint8Array(32 * 1024 * 1024).fill(7);
       writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
@@ -210,14 +241,21 @@ class Resources extends Runtime {
         while (performance.now() < until) memory[0] = (memory[0] + 1) & 255;
         appendFileSync(${JSON.stringify(join(this.temp.name, "io.dat"))}, memory.subarray(0, 32768));
       }, 100);
-    `);
-    const pane = (await this.command("pane.create", {
-      workspace, cwd: this.temp.name,
-      command: shellJoin([process.execPath, script]),
-    })).pane;
-    const other = (await this.command("workspace.create", {
-      name: "quiet", cwd: this.temp.name,
-    })).workspace;
+    `,
+    );
+    const pane = (
+      await this.command("pane.create", {
+        workspace,
+        cwd: this.temp.name,
+        command: shellJoin([process.execPath, script]),
+      })
+    ).pane;
+    const other = (
+      await this.command("workspace.create", {
+        name: "quiet",
+        cwd: this.temp.name,
+      })
+    ).workspace;
     let sample: any;
     await this.until(async () => {
       const snapshot = await this.session();
@@ -250,8 +288,7 @@ class Resources extends Runtime {
       frame = (await viewer.poll()).data;
       return frame.includes("TOP PROCESSES") && frame.includes(String(pid));
     });
-    for (const label of ["PID", "PROCESS", "R MB/s", "W MB/s", "memory", "disk I/O"])
-      this.assertIn(label, frame);
+    for (const label of ["PID", "PROCESS", "R MB/s", "W MB/s", "memory", "disk I/O"]) this.assertIn(label, frame);
     this.assertNotIn("ACTIVITY", frame);
     this.assertNotIn("TOP PROCESSES", (await second.poll()).data);
     this.assertNotIn("--", frame);
@@ -262,7 +299,13 @@ class Resources extends Runtime {
     this.assertIn("* Claude Code   † Codex", frame);
     // Cross the padding and divider, including diagonal movement, instead of
     // teleporting from the trigger directly into the card.
-    for (const [column, row] of [[26, 5], [27, 6], [28, 7], [29, 8], [70, 12]]) {
+    for (const [column, row] of [
+      [26, 5],
+      [27, 6],
+      [28, 7],
+      [29, 8],
+      [70, 12],
+    ]) {
       await viewer.input(`\x1b[<35;${column};${row}M`);
       this.assertIn("TOP PROCESSES", viewer.state.data);
       this.assertIn(hover, viewer.state.data);
@@ -284,7 +327,12 @@ class Resources extends Runtime {
     await viewer.input("\x1b[<35;5;5M");
     await viewer.advance(0.6);
     await this.until(async () => (await viewer.poll()).data.includes("TOP PROCESSES"));
-    for (const [column, row] of [[9, 8], [15, 11], [21, 14], [41, 19]]) {
+    for (const [column, row] of [
+      [9, 8],
+      [15, 11],
+      [21, 14],
+      [41, 19],
+    ]) {
       await viewer.input(`\x1b[<35;${column};${row}M`);
       this.assertIn("TOP PROCESSES", viewer.state.data);
       this.assertNotIn("quiet / resources", viewer.state.data);
@@ -300,7 +348,11 @@ class Resources extends Runtime {
     await viewer.input("\x1b[<35;118;38M");
     this.assertNotIn("TOP PROCESSES", viewer.state.data);
     await this.command("pane.close", { target: pane });
-    await this.until(async () => !(await this.session()).resources.workspaces.some((w: any) => w.processes.some((p: any) => p.pid === pid)), 8);
+    await this.until(
+      async () =>
+        !(await this.session()).resources.workspaces.some((w: any) => w.processes.some((p: any) => p.pid === pid)),
+      8,
+    );
   }
 }
 registerCase("Resources", Resources);

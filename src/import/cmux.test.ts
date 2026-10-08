@@ -9,15 +9,11 @@ function shape(tab: Tab, index = tab.nodes.length - 1): string {
   return `${node.split.axis === "horizontal" ? "h" : "v"}${node.split.ratio}(${shape(tab, node.split.first)},${shape(tab, node.split.second)})`;
 }
 test("cmux selected surfaces first then stable layers, every surface exactly once", () => {
-  const source = JSON.parse(
-    readFileSync(
-      new URL("../testdata/cmux-tree.json", import.meta.url),
-      "utf8",
-    ),
-  ).windows[0].workspaces;
+  const source = JSON.parse(readFileSync(new URL("../testdata/cmux-tree.json", import.meta.url), "utf8")).windows[0]
+    .workspaces;
   const ws = convert(source[0])!;
   expect(ws.recovery).toBe("full");
-  expect(ws.tabs.map((t) => shape(t))).toEqual(["h600(A,Y)", "h600(B,X)", "C"]);
+  expect(ws.tabs.map(t => shape(t))).toEqual(["h600(A,Y)", "h600(B,X)", "C"]);
   expect(ws.tabs[0].panes[0].name).toBe("Editor");
   expect(ws.tabs[0].panes[0].cwd).toBe("/tmp");
   expect(ws.tabs[2].panes[0].url).toBe("https://example.test/docs");
@@ -48,10 +44,7 @@ test("cmux nested layouts collapse empty branches without losing split ratios", 
       ],
     },
   })!;
-  expect(ws.tabs.map((t) => shape(t))).toEqual([
-    "h700(A,v300(C,D))",
-    "h700(B,E)",
-  ]);
+  expect(ws.tabs.map(t => shape(t))).toEqual(["h700(A,v300(C,D))", "h700(B,E)"]);
 });
 test("cmux malformed tree falls back to pixel geometry joined by pane id", () => {
   const ws = convert(
@@ -110,7 +103,7 @@ test("cmux keeps readable surfaces despite malformed and duplicate entries", () 
     const unnamed = convert(input)!;
     expect(unnamed.name).toBe("Untitled");
     expect(unnamed.recovery).toBe("partial");
-    expect(unnamed.tabs.map((t) => shape(t))).toEqual(["A", "B"]);
+    expect(unnamed.tabs.map(t => shape(t))).toEqual(["A", "B"]);
   }
   expect(convert(null)).toBe(null);
 });
@@ -138,8 +131,6 @@ test("cmux projection retains each surface once across uneven stack sizes and se
         }
         expect(seen.size).toBe(left + middle + right);
         for (const [pi, p] of ws.tabs[0].panes.entries())
-          expect(p.id).toBe(
-            panes[pi].surfaces[(left + middle + right + pi) % counts[pi]].id,
-          );
+          expect(p.id).toBe(panes[pi].surfaces[(left + middle + right + pi) % counts[pi]].id);
       }
 });

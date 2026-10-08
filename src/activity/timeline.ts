@@ -42,21 +42,12 @@ export class Timeline {
       last = this.points.at(-1),
       at = last ? Math.max(now, last.at) : now;
     if (last) last.usage = interval;
-    if (!(
-      this.open &&
-      last &&
-      turn === this.turn.text() &&
-      label.text() === last.label.text()
-    )) {
+    if (!(this.open && last && turn === this.turn.text() && label.text() === last.label.text())) {
       if (this.len === 16) this.points.shift();
       this.points.push({
         at,
         label,
-        usage: !this.len
-          ? interval
-          : !this.open
-            ? this.observedDelta(current)
-            : new View({ known: current.known }),
+        usage: !this.len ? interval : !this.open ? this.observedDelta(current) : new View({ known: current.known }),
       });
     }
     this.turn = new Text(turn);
@@ -71,9 +62,7 @@ export class Timeline {
   advanceBaseline(current: View) {
     for (const k of ["input", "cached_input", "output"] as const)
       this.baseline.tokens[k] =
-        this.baseline.tokens[k] > current.tokens[k]
-          ? this.baseline.tokens[k]
-          : current.tokens[k];
+        this.baseline.tokens[k] > current.tokens[k] ? this.baseline.tokens[k] : current.tokens[k];
     this.baseline.known = current.known;
     this.baseline.losses = current.losses;
   }

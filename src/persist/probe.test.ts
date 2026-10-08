@@ -6,8 +6,7 @@ test("checkpoint probe restores retained primary history cursor and input modes"
     fresh = Terminal.create(40, 6);
   try {
     old.feed("FIRST_HISTORY_LINE\r\n");
-    for (let n = 0; n < 400; n++)
-      old.feed("a line of retained terminal history\r\n");
+    for (let n = 0; n < 400; n++) old.feed("a line of retained terminal history\r\n");
     old.feed("\x1b[3;5H\x1b[31mRED\x1b[?2004h\x1b[?1002h\x1b[?1006h\x1b[>1u");
     const saved = format(old);
     expect(saved.length).toBeGreaterThan(8192);
@@ -30,14 +29,10 @@ test("checkpoint probe only preserves current keyboard flags not their push stac
   try {
     old.feed("\x1b[>1u\x1b[>3u");
     fresh.feed(format(old));
-    expect(fresh.native({ op: "info" }).modes.kitty).toBe(
-      old.native({ op: "info" }).modes.kitty,
-    );
+    expect(fresh.native({ op: "info" }).modes.kitty).toBe(old.native({ op: "info" }).modes.kitty);
     old.feed("\x1b[<u");
     fresh.feed("\x1b[<u");
-    expect(fresh.native({ op: "info" }).modes.kitty).not.toBe(
-      old.native({ op: "info" }).modes.kitty,
-    );
+    expect(fresh.native({ op: "info" }).modes.kitty).not.toBe(old.native({ op: "info" }).modes.kitty);
   } finally {
     fresh.destroy();
     old.destroy();

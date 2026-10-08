@@ -1,11 +1,5 @@
 import { isAbsolute } from "node:path";
-import {
-  Runtime,
-  Pane,
-  ClosedAgent,
-  Launch,
-  closed_per_workspace,
-} from "../runtime";
+import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
 import { Workspace, Store, max_workspaces } from "../workspace";
 import { Model, Tab, max_panes, max_tabs } from "../layout";
 import { Order } from "../agent_order";
@@ -54,23 +48,14 @@ export function hydrate<T>(template: T, value: any): T {
       return (template as any).constructor.fromJSON(value);
     if (typeof value !== "string") throw Error("UnexpectedToken");
     const capacity = (template as any).constructor.capacity;
-    if (capacity !== undefined && Buffer.byteLength(value) > capacity)
-      throw Error("LengthMismatch");
+    if (capacity !== undefined && Buffer.byteLength(value) > capacity) throw Error("LengthMismatch");
     return new (template as any).constructor(value);
   }
   if (Array.isArray(template))
-    return value.map((v: any, i: number) =>
-      hydrate(template[i] ?? template[0] ?? null, v),
-    ) as T;
-  if (
-    template &&
-    typeof template === "object" &&
-    value &&
-    typeof value === "object"
-  ) {
+    return value.map((v: any, i: number) => hydrate(template[i] ?? template[0] ?? null, v)) as T;
+  if (template && typeof template === "object" && value && typeof value === "object") {
     for (const key of Object.keys(template))
-      if (Object.hasOwn(value, key))
-        (template as any)[key] = hydrate((template as any)[key], value[key]);
+      if (Object.hasOwn(value, key)) (template as any)[key] = hydrate((template as any)[key], value[key]);
     return template;
   }
   return value as T;
@@ -137,35 +122,19 @@ export function captureBinding(binding: Attachment, live: boolean) {
     selection_hash: live ? binding.selection_hash : 0,
     hook_seq: live ? binding.hook_seq : 0,
     known: live ? [...binding.known] : [],
-    provisional: live
-      ? binding.provisional
-      : historicalAgent(binding.provisional),
+    provisional: live ? binding.provisional : historicalAgent(binding.provisional),
   };
 }
-export function restoreBinding(
-  registry: Registry,
-  value: any,
-  live: boolean,
-): Attachment {
+export function restoreBinding(registry: Registry, value: any, live: boolean): Attachment {
   const binding = new Attachment(),
     agent = hydrate(new Agent(), value.provisional ?? {});
-  if (
-    agent.observation.read > agent.observation.completed ||
-    (value.known?.length ?? 0) > 256
-  )
-    invalid();
+  if (agent.observation.read > agent.observation.completed || (value.known?.length ?? 0) > 256) invalid();
   binding.provisional = agent;
-  binding.generation = BigInt.asUintN(
-    64,
-    BigInt(value.generation ?? 1) + BigInt(!live),
-  );
+  binding.generation = BigInt.asUintN(64, BigInt(value.generation ?? 1) + BigInt(!live));
   binding.selection_hash = live ? BigInt(value.selection_hash ?? 0) : 0n;
   binding.hook_seq = live ? (value.hook_seq ?? 0) : 0;
   if (value.actor) binding.actor = registry.byId(value.actor) ?? invalid();
-  if (live)
-    binding.known = (value.known ?? []).map(
-      (id: number) => (registry.byId(id) ?? invalid()).id,
-    );
+  if (live) binding.known = (value.known ?? []).map((id: number) => (registry.byId(id) ?? invalid()).id);
   return binding;
 }
 export function capture(r: Runtime, live: boolean) {
@@ -183,7 +152,7 @@ export function capture(r: Runtime, live: boolean) {
     agent_yolo: r.agent_yolo,
     agent_hidden: r.agent_hidden,
     agent_commands: r.agent_commands,
-    workspaces: r.workspaces.items.map((w) => ({
+    workspaces: r.workspaces.items.map(w => ({
       away: w.away,
       id: w.id,
       name: w.customName(),
@@ -192,7 +161,7 @@ export function capture(r: Runtime, live: boolean) {
       agent_order: w.agent_order.slice(),
       last_agent: w.last_agent,
     })),
-    panes: r.panes.map((p) => {
+    panes: r.panes.map(p => {
       p.refreshCwd();
       p.resume_hint.observe(p.agent());
       return {
@@ -206,7 +175,7 @@ export function capture(r: Runtime, live: boolean) {
         launch: p.launch,
       };
     }),
-    closed: r.closed.map((p) => ({
+    closed: r.closed.map(p => ({
       label: p.label,
       cwd: p.cwd,
       screen: Screen.capture(p.terminal, false),
@@ -217,7 +186,7 @@ export function capture(r: Runtime, live: boolean) {
       pane: p.pane,
       tab_index: p.tab_index,
     })),
-    conversations: r.conversations.items.map((actor) => ({
+    conversations: r.conversations.items.map(actor => ({
       id: actor.id,
       agent: live ? actor.state : historicalAgent(actor.state),
       status_inference: live ? actor.status_inference : new Conversation(),
@@ -227,7 +196,7 @@ export function capture(r: Runtime, live: boolean) {
       observed_at: live ? actor.observed_at : 0,
       children_observed_at: live ? actor.children_observed_at : 0,
     })),
-    sessions: r.sessions.map((s) => s.capture(live)),
+    sessions: r.sessions.map(s => s.capture(live)),
   };
   return copyValue(state);
 }
@@ -235,8 +204,7 @@ function copyValue<T>(value: T): T {
   if (Array.isArray(value)) return value.map(copyValue) as T;
   if (value && typeof value === "object") {
     const result = Object.create(Object.getPrototypeOf(value));
-    for (const key of Object.keys(value))
-      result[key] = copyValue((value as any)[key]);
+    for (const key of Object.keys(value)) result[key] = copyValue((value as any)[key]);
     return result;
   }
   return value;
@@ -282,13 +250,7 @@ export async function restore(
     r.link_labels = Cache.restore(r.link_labels);
   }
   for (const w of state.workspaces) {
-    if (
-      !w.id ||
-      w.id >= state.next_workspace ||
-      r.workspaces.get(w.id) ||
-      !isAbsolute(w.cwd)
-    )
-      invalid();
+    if (!w.id || w.id >= state.next_workspace || r.workspaces.get(w.id) || !isAbsolute(w.cwd)) invalid();
     const item = new Workspace(w.id, w.cwd);
     item.rename(w.name);
     item.model = Model.fromData(w.model);
@@ -306,9 +268,7 @@ export async function restore(
   r.last_agent = state.last_agent ?? "codex";
   r.agent_yolo = hydrate(r.agent_yolo, state.agent_yolo);
   r.agent_hidden = hydrate(r.agent_hidden, state.agent_hidden);
-  r.agent_commands = (state.agent_commands ?? r.agent_commands).map(
-    (entry: any) => hydrate(new Entry(), entry),
-  );
+  r.agent_commands = (state.agent_commands ?? r.agent_commands).map((entry: any) => hydrate(new Entry(), entry));
   for (const entry of r.agent_commands) entry.semantics.nameModel();
   for (const saved of state.conversations ?? []) {
     const agent = hydrate(new Agent(), saved.agent);
@@ -324,47 +284,24 @@ export async function restore(
       invalid();
     if (
       !Number.isInteger(saved.status_inference?.len ?? 0) ||
-      (saved.status_inference?.len ?? 0) >
-        (saved.status_inference?.recent?.length ?? 4)
+      (saved.status_inference?.len ?? 0) > (saved.status_inference?.recent?.length ?? 4)
     )
       invalid();
-    const actor = r.conversations.get(
-      agent.provider ?? invalid(),
-      agent.sessionId(),
-    );
+    const actor = r.conversations.get(agent.provider ?? invalid(), agent.sessionId());
     actor.id = saved.id;
     actor.state = live ? agent : historicalAgent(agent);
-    if (live)
-      actor.status_inference = hydrate(
-        new Conversation(),
-        saved.status_inference,
-      );
+    if (live) actor.status_inference = hydrate(new Conversation(), saved.status_inference);
     actor.parent = saved.parent ?? null;
     actor.workspace = r.workspaces.get(saved.workspace) ? saved.workspace : 0;
     actor.observed_at = live ? (saved.observed_at ?? 0) : 0;
     actor.children_observed_at = live ? (saved.children_observed_at ?? 0) : 0;
-    if (live)
-      actor.restoreCompaction(
-        saved.screen_compacting ?? null,
-        Date.now() * 1000,
-      );
+    if (live) actor.restoreCompaction(saved.screen_compacting ?? null, Date.now() * 1000);
   }
   r.conversations.next_id = state.next_conversation ?? 1;
   for (const actor of r.conversations.items)
-    if (
-      actor.parent &&
-      (actor.parent === actor.id || !r.conversations.byId(actor.parent))
-    )
-      invalid();
+    if (actor.parent && (actor.parent === actor.id || !r.conversations.byId(actor.parent))) invalid();
   for (const p of state.panes) {
-    if (
-      !p.id ||
-      p.id >= state.next_pane ||
-      r.pane(p.id) ||
-      !r.workspaces.owner(p.id) ||
-      !isAbsolute(p.cwd)
-    )
-      invalid();
+    if (!p.id || p.id >= state.next_pane || r.pane(p.id) || !r.workspaces.owner(p.id) || !isAbsolute(p.cwd)) invalid();
     const pane = new Pane(p.id, Screen.restore(p.screen, live), p.cwd);
     pane.label = p.label ?? "";
     pane.attachment = restoreBinding(r.conversations, p.binding, live);
@@ -374,8 +311,7 @@ export async function restore(
     r.panes.push(pane);
   }
   for (const w of r.workspaces.items)
-    for (const node of w.model.nodes)
-      if (node && "pane" in node && !r.pane(node.pane)) invalid();
+    for (const node of w.model.nodes) if (node && "pane" in node && !r.pane(node.pane)) invalid();
   for (const p of state.closed) {
     const hint = hydrate(new ResumeHint(), p.resume_hint);
     if (!hint.args() || !r.workspaces.get(p.workspace_id)) continue;
@@ -425,8 +361,7 @@ export async function restore(
       const p = r.pane(id)!;
       p.resume_hint = hydrate(new ResumeHint(), n.resume_hint);
       p.attachment = restoreBinding(r.conversations, n.binding, false);
-      for (const event of n.events)
-        p.terminal.feed(event.line.replace(/[\x00-\x1f\x7f]/g, " ") + "\r\n");
+      for (const event of n.events) p.terminal.feed(event.line.replace(/[\x00-\x1f\x7f]/g, " ") + "\r\n");
       p.terminal.feed(p.resume_hint.banner(Math.trunc(Date.now() / 1000)));
       p.terminal.prefill(p.resume_hint.command());
     }
@@ -439,11 +374,7 @@ async function safeDirectory(cwd: string): Promise<string> {
     return await Store.directory(process.env.HOME ?? "/");
   }
 }
-async function recoverPane(
-  p: Pane,
-  socket: string,
-  executable: string,
-): Promise<void> {
+async function recoverPane(p: Pane, socket: string, executable: string): Promise<void> {
   const command = p.resume_hint.command(),
     cwd = await safeDirectory(p.cwd);
   p.terminal.feed(

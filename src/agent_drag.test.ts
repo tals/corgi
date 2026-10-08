@@ -2,7 +2,13 @@ import { test, expect } from "bun:test";
 import { Drag } from "./agent_drag";
 import { View, entry as sidebarEntry, type Entry } from "./sidebar";
 test("agent drop respects grouped boundaries, scrolling, and stale rows", () => {
-  const entry: Entry = sidebarEntry({ name: "", target: { pane: 1 }, provider: "claude", state: "idle", attention: "none" }),
+  const entry: Entry = sidebarEntry({
+      name: "",
+      target: { pane: 1 },
+      provider: "claude",
+      state: "idle",
+      attention: "none",
+    }),
     entries = Array.from({ length: 6 }, () => ({ ...entry }));
   entries[0].target = { group: 1 };
   entries[2].target = { pane: 2 };
@@ -19,9 +25,7 @@ test("agent drop respects grouped boundaries, scrolling, and stale rows", () => 
   expect(drag.drop).toBeNull();
   drag.update(view, 1, 80, 20);
   expect(drag.drop).toBeNull();
-  const scrolled = View.init(100, 18, true, 2, entries.length).withEntries(
-    entries,
-  );
+  const scrolled = View.init(100, 18, true, 2, entries.length).withEntries(entries);
   expect(scrolled.agentDrop(5, scrolled.middle() + 2)?.index).toBe(2);
   entries[2].exit = { frame_ms: 0, progress: 0.5 };
   expect(drag.valid(view, 1)).toBe(false);

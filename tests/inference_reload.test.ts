@@ -7,7 +7,7 @@ import { Summaries, lines } from "./activity_summary";
 
 class InferenceReload extends Summaries {
   sessions() {
-    return lines(this.log + ".sessions").map((v) => JSON.parse(v));
+    return lines(this.log + ".sessions").map(v => JSON.parse(v));
   }
   async reload() {
     const result = await this.rpc({
@@ -25,35 +25,21 @@ class InferenceReload extends Summaries {
       choice: provider,
     });
     await this.start_turn("before-reload", false);
-    await this.until(
-      async () => (await this.state()).activity === "Tracing pane focus",
-    );
+    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
     const first = this.sessions()[0],
       before = await this.session();
     await this.reload();
     this.assertNotEqual((await this.session()).server_pid, before.server_pid);
     await sleep(1);
-    this.assertEqual(
-      this.sessions().length,
-      1,
-      "unchanged evidence was billed again",
-    );
+    this.assertEqual(this.sessions().length, 1, "unchanged evidence was billed again");
     this.assertEqual((await this.session()).inference.provider, provider);
     this.assertTrue((await this.session()).inference.locked);
-    this.assertEqual(
-      (await this.session()).system_usage.tokens,
-      before.system_usage.tokens,
-    );
+    this.assertEqual((await this.session()).system_usage.tokens, before.system_usage.tokens);
     await this.start_turn("after-reload", false);
     await this.until(() => this.sessions().length >= 2);
-    await this.until(
-      async () => (await this.state()).activity === "Tracing pane focus",
-    );
+    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
     const second = this.sessions()[1];
-    this.assertEqual(
-      [second.pid, second.thread, second.turn],
-      [first.pid, first.thread, 2],
-    );
+    this.assertEqual([second.pid, second.thread, second.turn], [first.pid, first.thread, 2]);
     // The same live conversation continues, so recovery history is not resent.
     this.assertEqual(JSON.parse(this.calls()[1]).history, undefined);
     const beforePid = (await this.session()).server_pid;
@@ -74,23 +60,13 @@ class InferenceReload extends Summaries {
     }
     await this.start_turn("after-failed-candidate", false);
     await this.until(() => this.sessions().length >= 3);
-    await this.until(
-      async () => (await this.state()).activity === "Tracing pane focus",
-    );
-    this.assertEqual(
-      [this.sessions()[2].pid, this.sessions()[2].turn],
-      [first.pid, 3],
-    );
+    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
+    this.assertEqual([this.sessions()[2].pid, this.sessions()[2].turn], [first.pid, 3]);
     await this.reload();
     await this.start_turn("after-second-reload", false);
     await this.until(() => this.sessions().length >= 4);
-    await this.until(
-      async () => (await this.state()).activity === "Tracing pane focus",
-    );
-    this.assertEqual(
-      [this.sessions()[3].pid, this.sessions()[3].turn],
-      [first.pid, 4],
-    );
+    await this.until(async () => (await this.state()).activity === "Tracing pane focus");
+    this.assertEqual([this.sessions()[3].pid, this.sessions()[3].turn], [first.pid, 4]);
   }
   async test_codex_conversation_survives_success_and_rollback() {
     await this.verify_continuity("codex");
@@ -99,35 +75,18 @@ class InferenceReload extends Summaries {
     await this.verify_continuity("claude");
   }
   async test_reload_finishes_inflight_request_and_transfers_pending_result() {
-    writeFileSync(
-      this.control,
-      JSON.stringify({ delay: 1.5, label: "Fixing cursor visibility" }),
-    );
+    writeFileSync(this.control, JSON.stringify({ delay: 1.5, label: "Fixing cursor visibility" }));
     await this.start_turn("inflight", false);
     await this.until(() => this.sessions().length === 1);
     const first = this.sessions()[0];
     this.assertEqual((await this.state()).activity, "");
     await this.reload();
-    await this.until(
-      async () => (await this.state()).activity === "Fixing cursor visibility",
-    );
-    this.assertEqual(
-      this.sessions().length,
-      1,
-      "in-flight request was replayed",
-    );
-    writeFileSync(
-      this.control,
-      JSON.stringify({ delay: 0, label: "Checking cursor behavior" }),
-    );
+    await this.until(async () => (await this.state()).activity === "Fixing cursor visibility");
+    this.assertEqual(this.sessions().length, 1, "in-flight request was replayed");
+    writeFileSync(this.control, JSON.stringify({ delay: 0, label: "Checking cursor behavior" }));
     await this.start_turn("follow-up", false);
-    await this.until(
-      async () => (await this.state()).activity === "Checking cursor behavior",
-    );
-    this.assertEqual(
-      [this.sessions()[1].pid, this.sessions()[1].turn],
-      [first.pid, 2],
-    );
+    await this.until(async () => (await this.state()).activity === "Checking cursor behavior");
+    this.assertEqual([this.sessions()[1].pid, this.sessions()[1].turn], [first.pid, 2]);
   }
 }
 registerCase("InferenceReload", InferenceReload, { inherited: false });

@@ -16,8 +16,7 @@ class Service {
     const r = server.runtime;
     if (r.workspaces.items.length !== 1 || r.sessions.length) return;
     const ws = r.workspaces.items[0];
-    if (!ws.model.count && !ws.name_len)
-      this.starter = { id: ws.id, revision: ws.model.revision };
+    if (!ws.model.count && !ws.name_len) this.starter = { id: ws.id, revision: ws.model.revision };
   }
   async finish(server: Server, destination: number | null) {
     const starter = this.starter;
@@ -30,13 +29,7 @@ class Service {
     )
       return;
     const ws = server.runtime.workspaces.get(starter.id);
-    if (
-      !ws ||
-      ws.model.count ||
-      ws.name_len ||
-      ws.model.revision !== starter.revision
-    )
-      return;
+    if (!ws || ws.model.count || ws.name_len || ws.model.revision !== starter.revision) return;
     try {
       await server.runtime.closeWorkspace(starter.id, false);
     } catch {
@@ -44,9 +37,7 @@ class Service {
     }
     server.default_folder_pending = false;
     server.preferred_workspace = destination;
-    for (const client of server.clients)
-      if (client.view_workspace === starter.id)
-        client.view_workspace = destination;
+    for (const client of server.clients) if (client.view_workspace === starter.id) client.view_workspace = destination;
   }
 }
 const services = new WeakMap<Server, Service>();
@@ -63,13 +54,8 @@ export function admit(server: Server, op: string): void {
     kind = exclusion(op),
     importing = !!s && (s.herdr_import.busy() || s.onboarding_copy.busy()),
     reloading = (server as any).reload_executable != null;
-  if (
-    kind === "layout" &&
-    (s?.herdr_import.locked() || s?.onboarding_copy.busy())
-  )
-    throw Error("ImportInProgress");
-  if (kind === "import" && (importing || reloading))
-    throw Error("ImportInProgress");
+  if (kind === "layout" && (s?.herdr_import.locked() || s?.onboarding_copy.busy())) throw Error("ImportInProgress");
+  if (kind === "import" && (importing || reloading)) throw Error("ImportInProgress");
   if (kind === "push" && reloading) throw Error("ReloadInProgress");
   if (kind === "reload") {
     if (importing) throw Error("ImportInProgress");
@@ -78,41 +64,26 @@ export function admit(server: Server, op: string): void {
   }
   if (kind === "shutdown" && importing) throw Error("ImportInProgress");
 }
-export async function request(
-  server: Server,
-  client: Client,
-  op: string,
-  q: any,
-): Promise<void> {
+export async function request(server: Server, client: Client, op: string, q: any): Promise<void> {
   const s = service(server),
     operation = BigInt(q.operation ?? 0);
   if (op === "onboarding.status") {
-    if (operation !== 0n && operation === s.handoff_operation)
-      client.reply(op, { progress: s.herdr_import.status() });
+    if (operation !== 0n && operation === s.handoff_operation) client.reply(op, { progress: s.herdr_import.status() });
     else if (operation !== 0n && operation === s.onboarding_copy.operation)
       client.reply(op, { progress: s.onboarding_copy.progress });
     else throw Error("NoImport");
     return;
   }
   if (operation === 0n) throw Error("InvalidImport");
-  const current =
-    op === "onboarding.handoff"
-      ? s.handoff_operation
-      : s.onboarding_copy.operation;
+  const current = op === "onboarding.handoff" ? s.handoff_operation : s.onboarding_copy.operation;
   if (operation === current) {
     client.queue({ ok: true });
     return;
   }
   admit(server, op);
   if (op === "onboarding.handoff") {
-    if (!Number.isInteger(q.viewer_pgid) || q.viewer_pgid <= 0)
-      throw Error("InvalidImport");
-    s.herdr_import.start(
-      q.socket ?? "",
-      server.executable,
-      server.theme,
-      q.viewer_pgid,
-    );
+    if (!Number.isInteger(q.viewer_pgid) || q.viewer_pgid <= 0) throw Error("InvalidImport");
+    s.herdr_import.start(q.socket ?? "", server.executable, server.theme, q.viewer_pgid);
     s.handoff_operation = operation;
   } else if (op === "onboarding.copy")
     s.onboarding_copy.start({

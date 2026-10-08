@@ -113,7 +113,12 @@ export function directoryLabel(cwd: string, home: string | null = null, cap = 40
   let source = cwd.length === 0 ? "?" : cwd;
   let out = "";
   let len = 0;
-  if (home !== null && home.length > 0 && source.startsWith(home) && (source.length === home.length || source[home.length] === "/")) {
+  if (
+    home !== null &&
+    home.length > 0 &&
+    source.startsWith(home) &&
+    (source.length === home.length || source[home.length] === "/")
+  ) {
     out = "~";
     len = 1;
     source = source.slice(home.length);
@@ -161,5 +166,5 @@ export function truncatedText(value: string, cap: number): string {
 /** BoundedText.ascii: printable ASCII, every other byte a space, cut to `cap` bytes. */
 export function asciiText(value: string, cap: number): string {
   const bytes = Buffer.from(value).subarray(0, cap);
-  return Array.from(bytes, (ch) => (ch >= 32 && ch < 127 ? String.fromCharCode(ch) : " ")).join("");
+  return Array.from(bytes, ch => (ch >= 32 && ch < 127 ? String.fromCharCode(ch) : " ")).join("");
 }

@@ -53,9 +53,7 @@ class AgentMenu extends Viewers {
     // Codex hooks refine known conversations; terminal/protocol observation
     // establishes identity, as it does for a shared app-server daemon.
     await this.until(
-      async () =>
-        (await this.session()).panes.find((p: any) => p.id === pane)?.agent
-          .session === session,
+      async () => (await this.session()).panes.find((p: any) => p.id === pane)?.agent.session === session,
     );
     await this.hook(pane, "codex", session);
   }
@@ -75,8 +73,7 @@ class AgentMenu extends Viewers {
     });
   }
   async screen(pane: number) {
-    return (await this.command("pane.read", { target: pane, view: "screen" }))
-      .text as string;
+    return (await this.command("pane.read", { target: pane, view: "screen" })).text as string;
   }
   /** A command whose refusal the test expects: the reply, `err` and all. */
   async attempt(operation: string, payload: any) {
@@ -94,10 +91,7 @@ class AgentMenu extends Viewers {
     );
     const source = await this.new(),
       after = await this.new();
-    this.assertEqual(
-      (await this.attempt("agent.fork", { target: source })).err,
-      "NoConversation",
-    );
+    this.assertEqual((await this.attempt("agent.fork", { target: source })).err, "NoConversation");
     // Claude writes the transcript with the first message; until then
     // there is nothing to copy.
     const transcript = join(this.temp.name, "transcript.jsonl");
@@ -108,20 +102,14 @@ class AgentMenu extends Viewers {
       seq: 1,
       event: { hook_event_name: "SessionStart", session_id: CLAUDE_ID, transcript_path: transcript },
     });
-    this.assertEqual(
-      (await this.attempt("agent.fork", { target: source, check: true })).err,
-      "NoConversation",
-    );
+    this.assertEqual((await this.attempt("agent.fork", { target: source, check: true })).err, "NoConversation");
     writeFileSync(transcript, "");
     this.assertTrue((await this.attempt("agent.fork", { target: source, check: true })).ok);
     const { pane } = await this.command("agent.fork", { target: source, name: "Source (fork)" });
     const snapshot = await this.session();
     const tab = (id: number) => snapshot.panes.find((p: any) => p.id === id).tab;
     const tabs = snapshot.workspaces[0].model.tabs.map((t: any) => t.id);
-    this.assertEqual(
-      [tabs.indexOf(tab(source)), tabs.indexOf(tab(pane)), tabs.indexOf(tab(after))],
-      [0, 1, 2],
-    );
+    this.assertEqual([tabs.indexOf(tab(source)), tabs.indexOf(tab(pane)), tabs.indexOf(tab(after))], [0, 1, 2]);
     // Until the fork draws, its source's screen shows under "Forking…" and
     // the command it runs.
     const forked = snapshot.panes.find((p: any) => p.id === pane);
@@ -130,16 +118,11 @@ class AgentMenu extends Viewers {
     const args = await this.until(async () => {
       const found = (await this.screen(pane))
         .split("\n")
-        .filter((line) => line.startsWith("ARG "))
-        .map((line) => line.slice(4).trim());
+        .filter(line => line.startsWith("ARG "))
+        .map(line => line.slice(4).trim());
       return found.length === 7 && found;
     });
-    this.assertEqual(args.slice(0, 4), [
-      "--resume",
-      CLAUDE_ID,
-      "--fork-session",
-      "--session-id",
-    ]);
+    this.assertEqual(args.slice(0, 4), ["--resume", CLAUDE_ID, "--fork-session", "--session-id"]);
     // Claude takes the name at launch.
     this.assertEqual(args.slice(5), ["--name", "Source (fork)"]);
     // The fork shows as its own conversation, by its new name, before the
@@ -173,18 +156,15 @@ class AgentMenu extends Viewers {
     await this.hook(pane, "claude", CLAUDE_ID);
     await this.command("pane.rename", { target: pane, name: "Pane name" });
     // Without a live session record, Claude offers no way in.
-    this.assertEqual(
-      (await this.attempt("agent.rename", { target: pane })).err,
-      "RenameUnavailable",
-    );
+    this.assertEqual((await this.attempt("agent.rename", { target: pane })).err, "RenameUnavailable");
     const socket = join(this.temp.name, "peer.sock");
     const received: string[] = [];
-    const server = createServer((connection) => {
+    const server = createServer(connection => {
       let lines = "";
-      connection.on("data", (data) => (lines += data));
+      connection.on("data", data => (lines += data));
       connection.on("end", () => received.push(lines));
     });
-    await new Promise<void>((resolve) => server.listen(socket, resolve));
+    await new Promise<void>(resolve => server.listen(socket, resolve));
     try {
       const sessions = join(this.temp.name, ".claude/sessions");
       mkdirSync(sessions, { recursive: true });
@@ -195,17 +175,12 @@ class AgentMenu extends Viewers {
       const hash = createHash("sha256").update(socket).digest("hex");
       writeFileSync(join(sessions, `${process.pid}.${hash}.key`), JSON.stringify({ peerToken: "secret" }));
       this.assertTrue((await this.attempt("agent.rename", { target: pane })).ok);
-      this.assertEqual(
-        (await this.attempt("agent.rename", { target: pane, name: "two\nlines" })).err,
-        "InvalidName",
-      );
-      this.assertTrue(
-        (await this.attempt("agent.rename", { target: pane, name: " Native name " })).ok,
-      );
+      this.assertEqual((await this.attempt("agent.rename", { target: pane, name: "two\nlines" })).err, "InvalidName");
+      this.assertTrue((await this.attempt("agent.rename", { target: pane, name: " Native name " })).ok);
       const lines = (await this.until(() => received[0]))
         .trim()
         .split("\n")
-        .map((line) => JSON.parse(line));
+        .map(line => JSON.parse(line));
       this.assertEqual(lines[0], { type: "auth", token: "secret" });
       this.assertEqual(
         [lines[1].type, lines[1].action, lines[1].name, lines[1].session_id],
@@ -230,18 +205,15 @@ class AgentMenu extends Viewers {
     // A draft blocks it, and stays as typed.
     await this.command("pane.input", { target: pane, data: "draft" });
     await this.until(async () => (await this.screen(pane)).includes("› draft"));
-    this.assertEqual(
-      (await this.attempt("agent.rename", { target: pane, name: "nope" })).err,
-      "AgentBusy",
-    );
+    this.assertEqual((await this.attempt("agent.rename", { target: pane, name: "nope" })).err, "AgentBusy");
     await this.command("pane.input", { target: pane, data: "\x7f".repeat(5) });
     await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
     this.assertFalse(existsSync(log));
     this.assertTrue((await this.attempt("agent.rename", { target: pane, name: "typed name" })).ok);
     const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
     this.assertEqual(submitted, "/rename typed name\n");
-    await this.until(async () =>
-      (await this.session()).panes.find((p: any) => p.id === pane).agent.name === "typed name",
+    await this.until(
+      async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.name === "typed name",
     );
   }
 
@@ -255,10 +227,10 @@ class AgentMenu extends Viewers {
     const struck = `\x1b[0;9;38;2;${PALETTE.faint};48;2;${PALETTE.surface}m`;
     this.assertIn(struck + "Rename", viewer.state.data);
     this.assertIn(struck + "Fork", viewer.state.data);
-    this.assertTrue(screen_text(viewer.state.data, 100, 30).some((row) => row.includes("Close")));
+    this.assertTrue(screen_text(viewer.state.data, 100, 30).some(row => row.includes("Close")));
     // Crossed-out rows take no key; Close closes the pane.
     await viewer.input("r");
-    this.assertFalse(screen_text(viewer.state.data, 100, 30).some((row) => row.includes("Rename agent")));
+    this.assertFalse(screen_text(viewer.state.data, 100, 30).some(row => row.includes("Rename agent")));
     await viewer.input("x");
     await this.until(async () => !(await this.panes()).some((p: any) => p.id === pane));
   }

@@ -13,10 +13,7 @@ export class View {
   }
   pressure() {
     if (!this.at || !this.window) return null;
-    const limit =
-      this.compacts_at > 0n && this.compacts_at < this.window
-        ? this.compacts_at
-        : this.window;
+    const limit = this.compacts_at > 0n && this.compacts_at < this.window ? this.compacts_at : this.window;
     return Number(this.used) / Number(limit);
   }
   band() {
@@ -34,7 +31,7 @@ export class Points {
   next = 0;
   learn(model: string, tokens: bigint) {
     if (!model || !tokens) return;
-    const old = this.entries.find((e) => e.model === model);
+    const old = this.entries.find(e => e.model === model);
     if (old) {
       old.tokens = tokens;
       return;
@@ -46,7 +43,7 @@ export class Points {
     }
   }
   get(model: string) {
-    return this.entries.find((e) => e.model === model)?.tokens ?? 0n;
+    return this.entries.find(e => e.model === model)?.tokens ?? 0n;
   }
 }
 export class Reading {
@@ -75,9 +72,7 @@ export class Reading {
       this.model = model;
     } else if (line.type === "system" && line.subtype === "compact_boundary") {
       const meta = field(value, "compactMetadata");
-      if (str(meta, "trigger") === "auto")
-        this.auto_compaction =
-          number(meta, "preTokens") ?? this.auto_compaction;
+      if (str(meta, "trigger") === "auto") this.auto_compaction = number(meta, "preTokens") ?? this.auto_compaction;
       this.used = number(meta, "postTokens") ?? 0n;
       this.at = stamp;
     }

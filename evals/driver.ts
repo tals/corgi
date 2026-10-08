@@ -18,7 +18,12 @@ async function main() {
   const [provider, model, planPath] = args;
   if (provider !== "codex" && provider !== "claude") throw Error("InvalidProvider");
   const pool = new Pool({
-    config: { provider: provider as Provider, model, timeout_ms: 60000, executable: process.env.CORGI_EVAL_HARNESS || null },
+    config: {
+      provider: provider as Provider,
+      model,
+      timeout_ms: 60000,
+      executable: process.env.CORGI_EVAL_HARNESS || null,
+    },
   });
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => (stopping.value = true));
   try {
@@ -30,7 +35,7 @@ async function main() {
         // Match the production evidence bound; never silently evaluate more context.
         if (Buffer.byteLength(step.evidence) > 2048) throw Error("EvidenceTooLong");
         // As in production, history accompanies only a newly created conversation.
-        const history = context.recent.slice(0, context.len).map((entry) => entry.text());
+        const history = context.recent.slice(0, context.len).map(entry => entry.text());
         const live: contract.Input = { provider, turn: contract.turnTag(step.turn), evidence: step.evidence };
         const fresh: contract.Input = { ...live, history };
         const json = contract.content(live);
@@ -49,7 +54,15 @@ async function main() {
             stopping,
           );
         } catch (error) {
-          emit({ id: step.id, status: "error", err: (error as Error).message, raw: null, label: null, elapsed_ms: Date.now() - started, input: live });
+          emit({
+            id: step.id,
+            status: "error",
+            err: (error as Error).message,
+            raw: null,
+            label: null,
+            elapsed_ms: Date.now() - started,
+            input: live,
+          });
           continue;
         }
         const input = response.fresh && fresh_json !== null ? fresh : live;
@@ -57,11 +70,27 @@ async function main() {
         try {
           decision = contract.parse(response.text());
         } catch (error) {
-          emit({ id: step.id, status: "invalid", err: (error as Error).message, raw: response.text(), label: null, elapsed_ms: Date.now() - started, input });
+          emit({
+            id: step.id,
+            status: "invalid",
+            err: (error as Error).message,
+            raw: response.text(),
+            label: null,
+            elapsed_ms: Date.now() - started,
+            input,
+          });
           continue;
         }
         const label = decision.label;
-        emit({ id: step.id, status: label === null ? "abstained" : "label", err: null, raw: response.text(), label: label?.text() ?? null, elapsed_ms: Date.now() - started, input });
+        emit({
+          id: step.id,
+          status: label === null ? "abstained" : "label",
+          err: null,
+          raw: response.text(),
+          label: label?.text() ?? null,
+          elapsed_ms: Date.now() - started,
+          input,
+        });
         if (label !== null) context.remember(step.turn, step.evidence, label);
       }
     }
@@ -72,7 +101,7 @@ async function main() {
 
 main().then(
   () => process.exit(0),
-  (error) => {
+  error => {
     console.error(`corgi-eval: ${(error as Error).message}`);
     process.exit(1);
   },

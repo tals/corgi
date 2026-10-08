@@ -1,22 +1,7 @@
 /** Opt-in live Herdr -> Corgi handoff. Uses only disposable runtime paths. */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  EXE,
-  JsonSocket,
-  registerCase,
-  run,
-  shellJoin,
-  sleep,
-  TestCase,
-  tempDir,
-} from "./support";
+import { EXE, JsonSocket, registerCase, run, shellJoin, sleep, TestCase, tempDir } from "./support";
 
 const cliValue = (flag: string) => {
   const index = process.argv.indexOf(flag);
@@ -46,29 +31,13 @@ class HerdrHandoff extends TestCase {
     for (const [key, value] of Object.entries(process.env)) {
       if (
         value !== undefined &&
-        ![
-          "CORGI_",
-          "HERDR_",
-          "XDG_",
-          "CODEX_",
-          "CLAUDE_",
-          "TMUX",
-          "ZDOTDIR",
-          "ENV",
-          "BASH_ENV",
-        ].some((prefix) => key.startsWith(prefix))
+        !["CORGI_", "HERDR_", "XDG_", "CODEX_", "CLAUDE_", "TMUX", "ZDOTDIR", "ENV", "BASH_ENV"].some(prefix =>
+          key.startsWith(prefix),
+        )
       )
         this.env[key] = value;
     }
-    for (const name of [
-      "home",
-      "config",
-      "state",
-      "cache",
-      "data",
-      "run",
-      "tmp",
-    ])
+    for (const name of ["home", "config", "state", "cache", "data", "run", "tmp"])
       mkdirSync(join(this.root, name), { mode: 0o700 });
     Object.assign(this.env, {
       HOME: join(this.root, "home"),
@@ -98,9 +67,7 @@ class HerdrHandoff extends TestCase {
     this.donor = this.launch([HERDR!, "server"], "herdr");
     const pong = await this.until(async () => {
       this.assertIsNone(this.donor.exitCode, "Herdr exited during startup");
-      const paths = ["herdr", "herdr-dev"].map((app) =>
-        join(this.root, "config", app, "herdr.sock"),
-      );
+      const paths = ["herdr", "herdr-dev"].map(app => join(this.root, "config", app, "herdr.sock"));
       const found = paths.filter(existsSync);
       if (found.length === 1) {
         this.herdrSocket = found[0];
@@ -108,10 +75,7 @@ class HerdrHandoff extends TestCase {
       }
       return null;
     }, "Herdr startup");
-    this.assertTrue(
-      pong.capabilities?.live_handoff,
-      "This Herdr build does not advertise live_handoff",
-    );
+    this.assertTrue(pong.capabilities?.live_handoff, "This Herdr build does not advertise live_handoff");
     this.receiver = this.launch([CORGI, "serve"], "corgi");
     await this.until(() => this.corgi({ op: "ping" }), "Corgi startup");
   }
@@ -130,8 +94,7 @@ class HerdrHandoff extends TestCase {
     return proc;
   }
   async exchange(path: string, message: any) {
-    if (!path.startsWith(this.root + "/"))
-      throw new Error("socket outside handoff fixture");
+    if (!path.startsWith(this.root + "/")) throw new Error("socket outside handoff fixture");
     const socket = await JsonSocket.connect(path);
     try {
       const response = await socket.request(message);
@@ -162,11 +125,7 @@ class HerdrHandoff extends TestCase {
       })
     ).result;
   }
-  async until<T>(
-    predicate: () => Promise<T> | T,
-    description: string,
-    seconds = 15,
-  ): Promise<T> {
+  async until<T>(predicate: () => Promise<T> | T, description: string, seconds = 15): Promise<T> {
     const deadline = Date.now() + seconds * 1000;
     let last: any;
     while (Date.now() < deadline) {
@@ -200,15 +159,10 @@ class HerdrHandoff extends TestCase {
     });
   }
   async sourcePid(pane: number) {
-    return (await this.herdr("pane.process_info", { pane_id: pane }))
-      .process_info.shell_pid;
+    return (await this.herdr("pane.process_info", { pane_id: pane })).process_info.shell_pid;
   }
   async viewerPgid() {
-    return Number(
-      (
-        await run(["ps", "-o", "pgid=", "-p", String(process.pid)])
-      ).stdout.trim(),
-    );
+    return Number((await run(["ps", "-o", "pgid=", "-p", String(process.pid)])).stdout.trim());
   }
   async handoff(operation: number, viewerPgid?: number) {
     await this.corgi({
@@ -219,36 +173,26 @@ class HerdrHandoff extends TestCase {
     });
     return this.until(
       async () => {
-        const progress = (
-          await this.corgi({ op: "onboarding.status", operation })
-        ).progress;
-        return ["complete", "failed"].includes(progress.phase)
-          ? progress
-          : null;
+        const progress = (await this.corgi({ op: "onboarding.status", operation })).progress;
+        return ["complete", "failed"].includes(progress.phase) ? progress : null;
       },
       "handoff completion",
       45,
     );
   }
   async importedPane(pid: number) {
-    return (await this.corgi({ op: "session.snapshot" })).panes.find(
-      (p: any) => p.pid === pid,
-    );
+    return (await this.corgi({ op: "session.snapshot" })).panes.find((p: any) => p.pid === pid);
   }
   async shellReceipt(pane: number, filename: string, source = false) {
     const path = join(this.root, filename);
     const text = `printf '%s %s\\n' "$$" "$handoff_token" > ${shellJoin([path])}`;
     if (source) await this.sourceInput(pane, text);
     else await this.command("pane.input", { target: pane, data: text + "\r" });
-    return this.until(
-      () => (existsSync(path) ? readFileSync(path, "utf8").trim() : null),
-      "shell receipt",
-    );
+    return this.until(() => (existsSync(path) ? readFileSync(path, "utf8").trim() : null), "shell receipt");
   }
 
   async test_process_state_layout_and_terminal_io_survive() {
-    const original = (await this.corgi({ op: "session.snapshot" }))
-      .workspaces[0].id;
+    const original = (await this.corgi({ op: "session.snapshot" })).workspaces[0].id;
     const existing = (
       await this.command("pane.create", {
         workspace: original,
@@ -256,15 +200,11 @@ class HerdrHandoff extends TestCase {
         command: "exec /bin/sh",
       })
     ).pane;
-    const existingPid = (await this.corgi({ op: "session.snapshot" })).panes[0]
-      .pid;
+    const existingPid = (await this.corgi({ op: "session.snapshot" })).panes[0].pid;
     const [first, folder] = await this.sourceShell();
     await this.sourceInput(first, "handoff_token=only-in-this-shell");
     const firstPid = await this.sourcePid(first);
-    this.assertEqual(
-      await this.shellReceipt(first, "before", true),
-      `${firstPid} only-in-this-shell`,
-    );
+    this.assertEqual(await this.shellReceipt(first, "before", true), `${firstPid} only-in-this-shell`);
     await this.herdr("pane.split", {
       target_pane_id: first,
       direction: "right",
@@ -273,14 +213,8 @@ class HerdrHandoff extends TestCase {
     });
     const [research] = await this.sourceShell("Migrated research", "Notes");
     const snapshot = (await this.herdr("session.snapshot")).snapshot;
-    const split = snapshot.panes.find(
-      (p: any) => ![first, research].includes(p.pane_id),
-    ).pane_id;
-    const pids = new Set(
-      await Promise.all(
-        snapshot.panes.map((p: any) => this.sourcePid(p.pane_id)),
-      ),
-    );
+    const split = snapshot.panes.find((p: any) => ![first, research].includes(p.pane_id)).pane_id;
+    const pids = new Set(await Promise.all(snapshot.panes.map((p: any) => this.sourcePid(p.pane_id))));
     const splitShellPid = await this.sourcePid(split);
     const heartbeat = join(this.root, "heartbeat");
     const worker = join(this.root, "worker.ts");
@@ -292,10 +226,7 @@ setInterval(() => { writeFileSync(path + '.tmp', process.pid + ' ' + (++count));
 for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecoder().decode(chunk).split('\\n')) if (line.trim()) console.log('WORKER_ACK:' + line.trim()); }
 `,
     );
-    await this.sourceInput(
-      split,
-      shellJoin([process.execPath, worker, heartbeat]),
-    );
+    await this.sourceInput(split, shellJoin([process.execPath, worker, heartbeat]));
     const [beforePid, beforeCount] = (await this.until(
       () => (existsSync(heartbeat) ? readFileSync(heartbeat, "utf8") : null),
       "foreground workload",
@@ -308,21 +239,11 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
     this.assertEqual(await this.donor.exited, 0);
     this.assertFalse(existsSync(this.herdrSocket));
     const after = await this.corgi({ op: "session.snapshot" });
-    this.assertEqual(
-      new Set(after.panes.map((p: any) => p.pid)),
-      new Set([...pids, existingPid]),
-    );
+    this.assertEqual(new Set(after.panes.map((p: any) => p.pid)), new Set([...pids, existingPid]));
     this.assertEqual(after.workspaces.length, 3);
-    this.assertEqual(
-      after.panes.find((p: any) => p.id === existing).pid,
-      existingPid,
-    );
-    const website = after.workspaces.find(
-      (w: any) => w.name === "Migrated website",
-    );
-    const researchWs = after.workspaces.find(
-      (w: any) => w.name === "Migrated research",
-    );
+    this.assertEqual(after.panes.find((p: any) => p.id === existing).pid, existingPid);
+    const website = after.workspaces.find((w: any) => w.name === "Migrated website");
+    const researchWs = after.workspaces.find((w: any) => w.name === "Migrated research");
     this.assertEqual(
       website.model.tabs.map((t: any) => t.title),
       ["Development"],
@@ -336,27 +257,17 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
     this.assertTrue(Math.abs(branch.ratio - 400) <= 1);
     const imported = await this.importedPane(firstPid);
     this.assertEqual(imported.cwd, folder);
-    this.assertEqual(
-      await this.shellReceipt(imported.id, "after"),
-      `${firstPid} only-in-this-shell`,
-    );
+    this.assertEqual(await this.shellReceipt(imported.id, "after"), `${firstPid} only-in-this-shell`);
     await this.until(
-      () =>
-        existsSync(heartbeat) &&
-        Number(readFileSync(heartbeat, "utf8").split(" ")[1]) > beforeCount + 3,
+      () => existsSync(heartbeat) && Number(readFileSync(heartbeat, "utf8").split(" ")[1]) > beforeCount + 3,
       "continued foreground work",
     );
-    this.assertEqual(
-      Number(readFileSync(heartbeat, "utf8").split(" ")[0]),
-      beforePid,
-    );
+    this.assertEqual(Number(readFileSync(heartbeat, "utf8").split(" ")[0]), beforePid);
     const target = (await this.importedPane(splitShellPid)).id;
     await this.command("pane.input", { target, data: "after-migration\r" });
     await this.until(
       async () =>
-        (
-          await this.command("pane.read", { target, view: "screen" })
-        ).text.includes("WORKER_ACK:after-migration"),
+        (await this.command("pane.read", { target, view: "screen" })).text.includes("WORKER_ACK:after-migration"),
       "transferred terminal output",
     );
     await this.corgi({
@@ -365,10 +276,7 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
       socket: this.herdrSocket,
       viewer_pgid: await this.viewerPgid(),
     });
-    this.assertEqual(
-      (await this.corgi({ op: "session.snapshot" })).panes.length,
-      4,
-    );
+    this.assertEqual((await this.corgi({ op: "session.snapshot" })).panes.length, 4);
   }
 
   async test_rejected_handoff_rolls_back_and_can_retry() {
@@ -382,27 +290,16 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
     const [pane] = await this.sourceShell();
     await this.sourceInput(pane, "handoff_token=rollback-survived");
     const pid = await this.sourcePid(pane);
-    this.assertEqual(
-      await this.shellReceipt(pane, "ready", true),
-      `${pid} rollback-survived`,
-    );
-    const processInfo = (
-      await this.herdr("pane.process_info", { pane_id: pane })
-    ).process_info;
+    this.assertEqual(await this.shellReceipt(pane, "ready", true), `${pid} rollback-survived`);
+    const processInfo = (await this.herdr("pane.process_info", { pane_id: pane })).process_info;
     const before = await this.corgi({ op: "session.snapshot" });
-    let progress = await this.handoff(
-      1,
-      processInfo.foreground_process_group_id,
-    );
+    let progress = await this.handoff(1, processInfo.foreground_process_group_id);
     this.assertEqual(progress.phase, "failed", progress);
     this.assertEqual(progress.message, "CannotHandoffCurrentConsole");
     await this.until(() => this.herdr("session.snapshot"), "Herdr rollback");
     this.assertIsNone(this.donor.exitCode);
     this.assertEqual(await this.sourcePid(pane), pid);
-    this.assertEqual(
-      await this.shellReceipt(pane, "rollback", true),
-      `${pid} rollback-survived`,
-    );
+    this.assertEqual(await this.shellReceipt(pane, "rollback", true), `${pid} rollback-survived`);
     const after = await this.corgi({ op: "session.snapshot" });
     this.assertEqual(after.workspaces, before.workspaces);
     this.assertEqual(after.panes, before.panes);
@@ -413,10 +310,7 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
       imported.workspaces.map((w: any) => w.name),
       ["Migrated website"],
     );
-    this.assertEqual(
-      await this.shellReceipt((await this.importedPane(pid)).id, "retry"),
-      `${pid} rollback-survived`,
-    );
+    this.assertEqual(await this.shellReceipt((await this.importedPane(pid)).id, "retry"), `${pid} rollback-survived`);
   }
 
   async tearDown() {
@@ -427,10 +321,7 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
           await this.corgi({ op: "shutdown" });
         } catch {}
       } else proc.kill();
-      const result = await Promise.race([
-        proc.exited,
-        sleep(5).then(() => null),
-      ]);
+      const result = await Promise.race([proc.exited, sleep(5).then(() => null)]);
       if (result === null) {
         proc.kill("SIGKILL");
         await proc.exited;
@@ -441,9 +332,6 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
 }
 
 registerCase("Herdr live handoff", HerdrHandoff, {
-  skip:
-    !HERDR || !Bun.file(CORGI).size
-      ? "Herdr and Corgi executables are required"
-      : undefined,
+  skip: !HERDR || !Bun.file(CORGI).size ? "Herdr and Corgi executables are required" : undefined,
   timeout: 120_000,
 });

@@ -1,12 +1,8 @@
 export type RGB = { r: number; g: number; b: number };
 function color(text: string): RGB | null {
-  const m = /^rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})$/i.exec(
-    text,
-  );
+  const m = /^rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})$/i.exec(text);
   if (m) {
-    const parts = m
-      .slice(1)
-      .map((s) => Math.floor((parseInt(s, 16) * 255) / (16 ** s.length - 1)));
+    const parts = m.slice(1).map(s => Math.floor((parseInt(s, 16) * 255) / (16 ** s.length - 1)));
     return { r: parts[0], g: parts[1], b: parts[2] };
   }
   const hex = /^#([0-9a-f]{6})$/i.exec(text);
@@ -28,9 +24,7 @@ export class Theme {
     });
   }
   complete() {
-    return (
-      !!this.foreground && !!this.background && this.palette.every(Boolean)
-    );
+    return !!this.foreground && !!this.background && this.palette.every(Boolean);
   }
   accept(body: string) {
     const fields = body.split(";");

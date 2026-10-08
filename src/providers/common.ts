@@ -8,10 +8,7 @@ export const refText = (r: SessionRef) => ("id" in r ? r.id : r.path);
 export function validRef(r: SessionRef) {
   const s = refText(r);
   return (
-    s.length > 0 &&
-    Buffer.byteLength(s) <= 4096 &&
-    !/[\x00-\x1f\x7f]/.test(s) &&
-    ("id" in r || path.isAbsolute(s))
+    s.length > 0 && Buffer.byteLength(s) <= 4096 && !/[\x00-\x1f\x7f]/.test(s) && ("id" in r || path.isAbsolute(s))
   );
 }
 export class Info {
@@ -45,19 +42,12 @@ export class Info {
     if (!("id" in ref) || !validRef(ref)) throw Error("InvalidSessionRef");
     return [...this.resume_args, ref.id];
   }
-  envOverride(
-    name: string,
-    value: string,
-  ): "credential" | "oauth" | "endpoint" | null {
+  envOverride(name: string, value: string): "credential" | "oauth" | "endpoint" | null {
     if (!value) return null;
     if (this.credential_env.includes(name)) return "credential";
     if (name === this.oauth_env) return "oauth";
     if (this.endpoint_env.includes(name)) return "endpoint";
-    if (
-      this.provider_env.includes(name) &&
-      /^(1|true|yes|on)$/i.test(value.trim())
-    )
-      return "endpoint";
+    if (this.provider_env.includes(name) && /^(1|true|yes|on)$/i.test(value.trim())) return "endpoint";
     return null;
   }
 }
@@ -68,42 +58,17 @@ export function planLabel(code: string) {
     code
       .split(/[_ ]+/)
       .filter(Boolean)
-      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .map(w => w[0].toUpperCase() + w.slice(1))
       .join(" ")
       .slice(0, 160),
   );
 }
 export function timestampMs(s: string): number | null {
-  if (
-    s.length < 20 ||
-    s[4] !== "-" ||
-    s[7] !== "-" ||
-    s[10] !== "T" ||
-    !s.endsWith("Z")
-  )
-    return null;
-  const n = [
-    s.slice(0, 4),
-    s.slice(5, 7),
-    s.slice(8, 10),
-    s.slice(11, 13),
-    s.slice(14, 16),
-    s.slice(17, 19),
-  ];
-  if (n.some((x) => !/^\d+$/.test(x))) return null;
+  if (s.length < 20 || s[4] !== "-" || s[7] !== "-" || s[10] !== "T" || !s.endsWith("Z")) return null;
+  const n = [s.slice(0, 4), s.slice(5, 7), s.slice(8, 10), s.slice(11, 13), s.slice(14, 16), s.slice(17, 19)];
+  if (n.some(x => !/^\d+$/.test(x))) return null;
   const [y, m, d, h, min, sec] = n.map(Number);
-  if (
-    y < 1970 ||
-    y > 2200 ||
-    m < 1 ||
-    m > 12 ||
-    d < 1 ||
-    d > 31 ||
-    h > 23 ||
-    min > 59 ||
-    sec > 59
-  )
-    return null;
+  if (y < 1970 || y > 2200 || m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || min > 59 || sec > 59) return null;
   let ms = 0;
   if (s.length >= 24 && s[19] === ".") {
     if (!/^\d{3}$/.test(s.slice(20, 23))) return null;
@@ -155,8 +120,7 @@ export const HookEvent = [
 export type Hook = ReturnType<Hooks["decode"]>;
 export class Hooks {
   decode(v: any) {
-    if (!v || typeof v !== "object" || Array.isArray(v) || str(v, "agent_id"))
-      return null;
+    if (!v || typeof v !== "object" || Array.isArray(v) || str(v, "agent_id")) return null;
     const kinds: Record<string, string> = {
       SessionStart: "session_start",
       UserPromptSubmit: "prompt",
@@ -173,17 +137,12 @@ export class Hooks {
     };
     const kind = kinds[str(v, "hook_event_name")];
     const notification = str(v, "notification_type");
-    if (
-      !kind ||
-      (kind === "notification" &&
-        !["permission_prompt", "elicitation_dialog"].includes(notification))
-    )
+    if (!kind || (kind === "notification" && !["permission_prompt", "elicitation_dialog"].includes(notification)))
       return null;
     const tool = str(v, "tool_name"),
       input = field(v, "tool_input"),
       response = field(v, "tool_response"),
-      launched =
-        kind === "tool_finish" && str(response, "status") === "async_launched";
+      launched = kind === "tool_finish" && str(response, "status") === "async_launched";
     return {
       kind,
       session: str(v, "session_id"),
@@ -199,22 +158,11 @@ export class Hooks {
       subagent: launched ? str(response, "agentId") : "",
       subagent_type: launched ? str(input, "subagent_type") : "",
       target:
-        [
-          "file_path",
-          "notebook_path",
-          "pattern",
-          "query",
-          "url",
-          "command",
-          "skill",
-        ]
-          .map((k) => str(input, k))
+        ["file_path", "notebook_path", "pattern", "query", "url", "command", "skill"]
+          .map(k => str(input, k))
           .find(Boolean) ?? "",
-      asking:
-        kind === "tool_start" &&
-        ["AskUserQuestion", "request_user_input"].includes(tool),
-      permission_notification:
-        kind === "notification" && notification === "permission_prompt",
+      asking: kind === "tool_start" && ["AskUserQuestion", "request_user_input"].includes(tool),
+      permission_notification: kind === "notification" && notification === "permission_prompt",
     };
   }
 }

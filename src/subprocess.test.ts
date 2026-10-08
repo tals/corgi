@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import { run, Quit } from "./subprocess";
-const sh = (script: string, extra: any = {}) =>
-  run(["/bin/sh", "-c", script], { timeout_ms: 5000, ...extra });
+const sh = (script: string, extra: any = {}) => run(["/bin/sh", "-c", script], { timeout_ms: 5000, ...extra });
 test("exit codes and signals come back as terms", async () => {
   const done = await sh("printf done");
   expect(done.ok()).toBe(true);
@@ -16,9 +15,7 @@ test("exit, not the end of the output, ends a run", async () => {
   expect(Date.now() - begin).toBeLessThan(1000);
 });
 test("the deadline kills the whole group", async () => {
-  await expect(sh("sleep 20 & wait", { timeout_ms: 30 })).rejects.toThrow(
-    "TimedOut",
-  );
+  await expect(sh("sleep 20 & wait", { timeout_ms: 30 })).rejects.toThrow("TimedOut");
 });
 test("a child that exits leaves what it started running", async () => {
   const out = await sh("sleep 20 & printf %s $!");
@@ -34,9 +31,7 @@ test("a quit ends the run in flight and every later run", async () => {
   await expect(sh("true", { quit })).rejects.toThrow("Cancelled");
 });
 test("stdout past the cap fails, stderr keeps its tail", async () => {
-  await expect(sh("printf 123456789", { max_output: 5 })).rejects.toThrow(
-    "OutputTooLarge",
-  );
+  await expect(sh("printf 123456789", { max_output: 5 })).rejects.toThrow("OutputTooLarge");
   const out = await sh("printf 123456789 >&2", { max_output: 5, stderr: true });
   expect(out.stderr.toString()).toBe("56789");
 });
@@ -72,7 +67,5 @@ test("cancellation during launch is observed before the child can run indefinite
       return process.env;
     },
   });
-  await expect(run(["/bin/sh", "-c", "sleep 20"], config)).rejects.toThrow(
-    "Cancelled",
-  );
+  await expect(run(["/bin/sh", "-c", "sleep 20"], config)).rejects.toThrow("Cancelled");
 });

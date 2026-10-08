@@ -59,7 +59,8 @@ function hostText(bytes: string, cols = 100, rows = 30): string {
   host.destroy();
   return text;
 }
-const H = (tag: string, value?: number): Hit => (value === undefined ? ({ tag } as Hit) : ({ tag, [tag]: value } as Hit));
+const H = (tag: string, value?: number): Hit =>
+  value === undefined ? ({ tag } as Hit) : ({ tag, [tag]: value } as Hit);
 const hot = work({ id: 1, known: true, cpu: 182, memory: 3 * 2 ** 30, read: 0, written: 0, cpu_pressure: true });
 
 test("resource row omits unavailable metrics and I/O, and preserves real zeros", () => {
@@ -77,7 +78,13 @@ test("resource row omits unavailable metrics and I/O, and preserves real zeros",
   expect(has(w.s, "Memory 0M")).toBe(true);
   expect(has(w.s, "›")).toBe(true);
   w = new Writer();
-  drawResources(w, work({ id: 1, known: true, cpu: 0, memory: 0, read: 3_000_000, written: 1_000_000 }), view, false, false);
+  drawResources(
+    w,
+    work({ id: 1, known: true, cpu: 0, memory: 0, read: 3_000_000, written: 1_000_000 }),
+    view,
+    false,
+    false,
+  );
   expect(has(w.s, "↕")).toBe(false);
   expect(has(w.s, "M/s")).toBe(false);
 });
@@ -128,7 +135,14 @@ test("readings off removes the resource row and moves the separator under the st
   expect(paged.hit(24, 12)).toEqual(H("workspace_next"));
   expect(paged.workspaceDrop(5, 4)!.index).toBe(4);
   const entries = [
-    workspaceEntry({ id: 1, name: "first", cwd: "", active: false, resources: hot, stats: { tools: 12, input: 0, output: 0, tokens_known: false } }),
+    workspaceEntry({
+      id: 1,
+      name: "first",
+      cwd: "",
+      active: false,
+      resources: hot,
+      stats: { tools: 12, input: 0, output: 0, tokens_known: false },
+    }),
     workspaceEntry({ id: 2, name: "second", cwd: "", active: true, resources: hot }),
   ];
   view = view.withWorkspaces(entries.length, 0);
@@ -195,14 +209,21 @@ test("all three workspace rows select while bottom controls remain distinct", ()
 
 test("unpushed badge retains its columns beside a long workspace name", () => {
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
-  const out = draw(view, [], [workspaceEntry({ id: 1, name: "abcdefghijklmnopqrstuvwxyz", cwd: "/tmp", active: true, git_ahead: 123 })]);
+  const out = draw(
+    view,
+    [],
+    [workspaceEntry({ id: 1, name: "abcdefghijklmnopqrstuvwxyz", cwd: "/tmp", active: true, git_ahead: 123 })],
+  );
   expect(has(out, "abcdefghijklmnopqrst")).toBe(true);
   expect(has(out, "abcdefghijklmnopqrstu")).toBe(false);
   expect(has(out, "\x1b[3;23H" + fg("warm") + "↑123")).toBe(true);
 });
 
 test("active workspace bar is a half block with or without Kitty graphics", () => {
-  const entries = [workspaceEntry({ id: 1, name: "Other", cwd: "/tmp", active: false }), workspaceEntry({ id: 2, name: "Project", cwd: "/tmp", active: true })];
+  const entries = [
+    workspaceEntry({ id: 1, name: "Other", cwd: "/tmp", active: false }),
+    workspaceEntry({ id: 2, name: "Project", cwd: "/tmp", active: true }),
+  ];
   for (const supported of [true, false]) {
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.length, 0);
     view.supports_kitty_graphics = supported;
@@ -214,7 +235,10 @@ test("active workspace bar is a half block with or without Kitty graphics", () =
 });
 
 test("a dragged workspace takes the selected tint and a strong bar", () => {
-  const entries = [workspaceEntry({ id: 1, name: "Other", cwd: "/tmp", active: false }), workspaceEntry({ id: 2, name: "Project", cwd: "/tmp", active: true })];
+  const entries = [
+    workspaceEntry({ id: 1, name: "Other", cwd: "/tmp", active: false }),
+    workspaceEntry({ id: 2, name: "Project", cwd: "/tmp", active: true }),
+  ];
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.length, 0);
   view.dragged_workspace = 0;
   const out = draw(view, [], entries);
@@ -224,7 +248,13 @@ test("a dragged workspace takes the selected tint and a strong bar", () => {
 });
 
 test("agent rows take the workspace bars: active when focused outside groups, strong when dragged", () => {
-  const group = entry({ target: { group: 1 }, name: "corgi", provider: "codex", state: "idle", group: { agents: 2, working: 0, attention: 0, folded: false, current: true } });
+  const group = entry({
+    target: { group: 1 },
+    name: "corgi",
+    provider: "codex",
+    state: "idle",
+    group: { agents: 2, working: 0, attention: 0, folded: false, current: true },
+  });
   const agents_only = [
     entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "idle", focused: true }),
     entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "idle" }),
@@ -245,11 +275,15 @@ test("agent rows take the workspace bars: active when focused outside groups, st
 });
 
 test("a hovered agent's rows tint halfway to selected, and a selected one keeps its tint", () => {
-  const entries = [entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "idle" }), entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "idle" })];
+  const entries = [
+    entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "idle" }),
+    entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "idle" }),
+  ];
   const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   view.hovered = 0;
   let out = draw(view, entries, []);
-  for (let row = 0; row < 4; row++) expect(has(out, `\x1b[${view.middle() + 3 + row};1H\x1b[0m` + hover_bg)).toBe(row < 2);
+  for (let row = 0; row < 4; row++)
+    expect(has(out, `\x1b[${view.middle() + 3 + row};1H\x1b[0m` + hover_bg)).toBe(row < 2);
   // The sleeper blends against the tint, not the panel.
   const sleeper = corgiAnimation.idle(6, { background: hover_rgb });
   expect(count(out, sleeper)).toBe(1);
@@ -260,7 +294,14 @@ test("a hovered agent's rows tint halfway to selected, and a selected one keeps 
 });
 
 test("subagent badge shares the second row without reserving empty space", () => {
-  const e = entry({ target: { pane: 1 }, name: "Long agent title", provider: "codex", state: "working", activity: "abcdefghijklmnopqrstuv", subagents: { running: 2, blocked: 0, waiting: true } });
+  const e = entry({
+    target: { pane: 1 },
+    name: "Long agent title",
+    provider: "codex",
+    state: "working",
+    activity: "abcdefghijklmnopqrstuv",
+    subagents: { running: 2, blocked: 0, waiting: true },
+  });
   for (const width of [20, 28, 40]) {
     const view = View.init(100, 30, true, 0, 1).withWidth(width);
     const out = draw(view, [e], []);
@@ -275,7 +316,13 @@ test("subagent badge shares the second row without reserving empty space", () =>
 });
 
 test("an unread agent takes the bold dot and a bold name, and working takes the arrow", () => {
-  const e = entry({ target: { pane: 1 }, name: "Release notes", provider: "codex", state: "idle", attention: "finished" });
+  const e = entry({
+    target: { pane: 1 },
+    name: "Release notes",
+    provider: "codex",
+    state: "idle",
+    attention: "finished",
+  });
   const view = View.init(100, 30, true, 0, 1);
   const lit = "\x1b[1m" + fg("accent");
   let out = draw(view, [e], []);
@@ -288,7 +335,14 @@ test("an unread agent takes the bold dot and a bold name, and working takes the 
 });
 
 test("a paused agent takes the pause glyph, green while unread and gray once read", () => {
-  const e = entry({ target: { pane: 1 }, name: "Squash history", provider: "claude", state: "idle", attention: "finished", paused: true });
+  const e = entry({
+    target: { pane: 1 },
+    name: "Squash history",
+    provider: "claude",
+    state: "idle",
+    attention: "finished",
+    paused: true,
+  });
   const view = View.init(100, 30, true, 0, 1);
   let out = draw(view, [e], []);
   expect(has(out, "\x1b[1m" + fg("accent") + "‖")).toBe(true);
@@ -308,7 +362,22 @@ test("a paused agent takes the pause glyph, green while unread and gray once rea
 test("workspace status uses agent colors and keeps usage on its second row", () => {
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
   const stats = (tools: number) => ({ tools, input: 0, output: 0, tokens_known: true });
-  let out = draw(view, [], [workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: false, working: 1, attention: 2, unread: 3, stats: stats(12) })]);
+  let out = draw(
+    view,
+    [],
+    [
+      workspaceEntry({
+        id: 1,
+        name: "Project",
+        cwd: "/tmp",
+        active: false,
+        working: 1,
+        attention: 2,
+        unread: 3,
+        stats: stats(12),
+      }),
+    ],
+  );
   expect(has(out, "\x1b[4;2H" + panel + "\x1b[22m\x1b[1m" + fg("accent") + "▶1")).toBe(true);
   expect(has(out, "\x1b[1m" + fg("warm") + " ●2")).toBe(true);
   expect(has(out, "\x1b[1m" + fg("accent") + "3 unread →")).toBe(true);
@@ -334,7 +403,15 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
 });
 
 test("unread label and arrow share their hit area across sidebar widths", () => {
-  const ws = workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: false, unread: 3, working: 1, attention: 2 });
+  const ws = workspaceEntry({
+    id: 1,
+    name: "Project",
+    cwd: "/tmp",
+    active: false,
+    unread: 3,
+    working: 1,
+    attention: 2,
+  });
   for (const width of [20, 28, 40]) {
     const view = View.init(100, 30, true, 0, 0).withWidth(width).withWorkspaces(1, 0);
     const out = draw(view, [], [ws]);
@@ -352,7 +429,15 @@ test("unread label and arrow share their hit area across sidebar widths", () => 
 });
 
 test("compaction herds on the second agent row ahead of waiting and summaries", () => {
-  const e = entry({ target: { pane: 1 }, name: "Agent title", provider: "codex", state: "working", compacting: true, activity: "Old summary", subagents: { running: 0, blocked: 0, waiting: true } });
+  const e = entry({
+    target: { pane: 1 },
+    name: "Agent title",
+    provider: "codex",
+    state: "working",
+    compacting: true,
+    activity: "Old summary",
+    subagents: { running: 0, blocked: 0, waiting: true },
+  });
   const view = View.init(100, 30, true, 0, 1);
   draw(view, [], [], 0); // Forget herds from earlier draws.
   // The herd starts scattered beside the pile; the corgi pushes it together
@@ -375,12 +460,33 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
   expect(has(out, "⣿")).toBe(true);
 });
 
-const endpoint = (fields: Record<string, unknown>) => ({ label: "", label_pending: false, pid: 12, pane: 1, name: "web", transport: "tcp", bind_address: "127.0.0.1", port: 3000, ipv6: false, interfaces: [], scheme: "unknown", http_status: null, probed_at: 0, ...fields });
+const endpoint = (fields: Record<string, unknown>) => ({
+  label: "",
+  label_pending: false,
+  pid: 12,
+  pane: 1,
+  name: "web",
+  transport: "tcp",
+  bind_address: "127.0.0.1",
+  port: 3000,
+  ipv6: false,
+  interfaces: [],
+  scheme: "unknown",
+  http_status: null,
+  probed_at: 0,
+  ...fields,
+});
 
 test("workspace port labels contain OSC8 URLs selected per viewer", () => {
   const ifaces = [{ name: "tailscale0", address: "100.80.1.2", kind: "tailscale", ipv6: false }];
   const endpoints = [endpoint({ bind_address: "*", scheme: "http", http_status: 200, interfaces: ifaces })];
-  const ws = workspaceEntry({ id: 1, name: "test", cwd: "/tmp", active: true, ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, background: 2, endpoints }] } });
+  const ws = workspaceEntry({
+    id: 1,
+    name: "test",
+    cwd: "/tmp",
+    active: true,
+    ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, background: 2, endpoints }] },
+  });
   let w = new Writer();
   drawPorts(w, ws, 25, false);
   expect(has(w.s, ";http://localhost:3000\x1b\\")).toBe(true);
@@ -391,16 +497,37 @@ test("workspace port labels contain OSC8 URLs selected per viewer", () => {
 });
 
 test("non-browser endpoints have no link-out control", () => {
-  const endpoints = [endpoint({ pid: 12, name: "dns", transport: "udp", port: 5353 }), endpoint({ pid: 13, name: "db", bind_address: "::1", port: 5432, ipv6: true })];
-  const ws = workspaceEntry({ id: 1, name: "test", cwd: "/tmp", active: true, remote_links: true, ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, endpoints }] } });
+  const endpoints = [
+    endpoint({ pid: 12, name: "dns", transport: "udp", port: 5353 }),
+    endpoint({ pid: 13, name: "db", bind_address: "::1", port: 5432, ipv6: true }),
+  ];
+  const ws = workspaceEntry({
+    id: 1,
+    name: "test",
+    cwd: "/tmp",
+    active: true,
+    remote_links: true,
+    ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, endpoints }] },
+  });
   const w = new Writer();
   drawPorts(w, ws, 60, false);
   expect(w.s).toBe("");
 });
 
 test("port hit testing matches clipped labels and outer terminal receives link metadata", () => {
-  const endpoints = [endpoint({ scheme: "http", http_status: 200 }), endpoint({ port: 3001, scheme: "http", http_status: 200 })];
-  const entries = [workspaceEntry({ id: 1, name: "test", cwd: "/tmp", active: true, ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, endpoints }] } })];
+  const endpoints = [
+    endpoint({ scheme: "http", http_status: 200 }),
+    endpoint({ port: 3001, scheme: "http", http_status: 200 }),
+  ];
+  const entries = [
+    workspaceEntry({
+      id: 1,
+      name: "test",
+      cwd: "/tmp",
+      active: true,
+      ports: { processes_available: true, ports_available: true, workspaces: [{ id: 1, endpoints }] },
+    }),
+  ];
   const view = View.init(80, 24, true, 0, 0).withWorkspaces(1, 0);
   expect(portLink(view, entries, 1, 4)).toBeNull();
   expect(portWorkspace(view, entries, 12, 2)!.id).toBe(1);
@@ -448,7 +575,13 @@ test("inferred link names share clipped hit geometry and name chooser destinatio
 
 test("only a link still being named animates its placeholder dots", () => {
   const endpoints = [endpoint({ label_pending: true, scheme: "http", http_status: 200 })];
-  const ws = workspaceEntry({ id: 1, name: "test", cwd: "/tmp", active: true, ports: { workspaces: [{ id: 1, endpoints }] } });
+  const ws = workspaceEntry({
+    id: 1,
+    name: "test",
+    cwd: "/tmp",
+    active: true,
+    ports: { workspaces: [{ id: 1, endpoints }] },
+  });
   expect(portName(ws)).toBeNull();
   let w = new Writer();
   writePortLabel(w, portLabel(ws), 40, portName(ws) === null, 0);
@@ -470,7 +603,13 @@ test("corgi frames occupy one column per glyph in the terminal", () => {
 });
 
 test("idle face replaces stale activity while working activity remains useful", () => {
-  const e = entry({ target: { pane: 1 }, name: "Agent", provider: "codex", state: "idle", activity: "Reading source files" });
+  const e = entry({
+    target: { pane: 1 },
+    name: "Agent",
+    provider: "codex",
+    state: "idle",
+    activity: "Reading source files",
+  });
   const view = View.init(100, 30, true, 0, 1);
   let out = draw(view, [e], []);
   expect(has(out, "ᐯ◡ᴥ◡ᐯ") || has(out, "ᐯ◡ω◡ᐯ") || has(out, "ᐯ◡ˑ◡ᐯ")).toBe(true);
@@ -493,7 +632,7 @@ test("idle face replaces stale activity while working activity remains useful", 
   e.activity = "";
   out = draw(view, [e], []);
   expect(has(out, "Working")).toBe(false);
-  expect(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].some((glyph) => has(out, glyph))).toBe(true);
+  expect(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"].some(glyph => has(out, glyph))).toBe(true);
   expect(has(out, "\x1b[1m" + fg("accent") + "▶")).toBe(true);
 });
 
@@ -543,10 +682,22 @@ test("scope menu offers only the current workspace and all agents", () => {
 
 test("grouped list draws one-row headers with a margin guide and measures rows per entry", () => {
   const entries = [
-    entry({ target: { group: 1 }, name: "corgi", provider: "codex", state: "idle", group: { agents: 2, working: 1, attention: 0, folded: false, current: true } }),
+    entry({
+      target: { group: 1 },
+      name: "corgi",
+      provider: "codex",
+      state: "idle",
+      group: { agents: 2, working: 1, attention: 0, folded: false, current: true },
+    }),
     entry({ target: { pane: 1 }, name: "api refactor", provider: "codex", state: "blocked", focused: true }),
     entry({ target: { pane: 2 }, name: "release notes", provider: "claude", state: "done" }),
-    entry({ target: { group: 2 }, name: "blog", provider: "codex", state: "idle", group: { agents: 1, working: 0, attention: 1, folded: true, current: false } }),
+    entry({
+      target: { group: 2 },
+      name: "blog",
+      provider: "codex",
+      state: "idle",
+      group: { agents: 1, working: 0, attention: 1, folded: true, current: false },
+    }),
   ];
   const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   const top = view.middle() + 2;
@@ -564,7 +715,7 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
   expect(agentAt(view, entries, 5, top)).toBeNull();
   const out = draw(view, entries, []);
   const lines = hostText(out).split("\n");
-  const rows = lines.slice(top, top + 6).map((line) => line.slice(0, 80).trimEnd());
+  const rows = lines.slice(top, top + 6).map(line => line.slice(0, 80).trimEnd());
   // The focused agent's rail turns heavy but stays continuous.
   expect(rows).toEqual([
     "▾ corgi ━━━━━━━━━━━━━ 1▶ 2 │",
@@ -586,7 +737,9 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
 });
 
 test("grouped scrolling fits more rows when headers are shorter", () => {
-  const entries = Array.from({ length: 7 }, (_, i) => entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }));
+  const entries = Array.from({ length: 7 }, (_, i) =>
+    entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }),
+  );
   // 13 rows leave five list rows: three entries where only two agents fit.
   const view = View.init(100, 13, true, 0, entries.length).withEntries(entries);
   expect(view.capacity).toBe(3);
@@ -673,7 +826,8 @@ test("reveal pads short text and never splits a wide glyph or moves the ellipsis
 });
 
 test("closing card keeps its glyphs and geometry while all colors fade into the panel", () => {
-  const frame = "\x1b[19;1H" + new Style({ bg: "surface" }).sgr() + " \x1b[1m" + fg("strong") + "Agent" + rule_underline + " corgi";
+  const frame =
+    "\x1b[19;1H" + new Style({ bg: "surface" }).sgr() + " \x1b[1m" + fg("strong") + "Agent" + rule_underline + " corgi";
   let w = new Writer();
   writeExit(w, frame, 0);
   expect(w.s).toBe(frame);
@@ -683,11 +837,15 @@ test("closing card keeps its glyphs and geometry while all colors fade into the 
   expect(has(w.s, "\x1b[19;1H")).toBe(true);
   w = new Writer();
   writeExit(w, frame, 1);
-  expect(w.s).toBe("\x1b[19;1H" + new Style({ bg: "bg" }).sgr() + " \x1b[1m" + fg("bg") + "Agent\x1b[4m" + underline("bg") + " corgi");
+  expect(w.s).toBe(
+    "\x1b[19;1H" + new Style({ bg: "bg" }).sgr() + " \x1b[1m" + fg("bg") + "Agent\x1b[4m" + underline("bg") + " corgi",
+  );
 });
 
 test("only one sleeping corgi puffs at a time, and turning them off leaves a faint Z", () => {
-  const entries = Array.from({ length: 4 }, (_, i) => entry({ target: { pane: i + 1 }, name: "Agent", provider: "claude", state: "idle" }));
+  const entries = Array.from({ length: 4 }, (_, i) =>
+    entry({ target: { pane: i + 1 }, name: "Agent", provider: "claude", state: "idle" }),
+  );
   const view = View.init(100, 30, true, 0, entries.length);
   view.scope_label = "Corgi";
   let puffed = false;
@@ -717,9 +875,28 @@ test("only one sleeping corgi puffs at a time, and turning them off leaves a fai
 
 test("context shows on the name line only near compaction and dims while compacting", () => {
   const entries = [
-    entry({ target: { pane: 1 }, name: "migrate checkpoints", provider: "codex", state: "working", context: new ContextView({ used: 190_000n, window: 258_400n, at: 1 }) }),
-    entry({ target: { pane: 2 }, name: "api refactor", provider: "codex", state: "working", context: new ContextView({ used: 120_000n, window: 258_400n, at: 1 }) }),
-    entry({ target: { pane: 3 }, name: "release notes", provider: "claude", state: "working", compacting: true, context: new ContextView({ used: 380_000n, window: 1_000_000n, compacts_at: 400_000n, at: 1 }) }),
+    entry({
+      target: { pane: 1 },
+      name: "migrate checkpoints",
+      provider: "codex",
+      state: "working",
+      context: new ContextView({ used: 190_000n, window: 258_400n, at: 1 }),
+    }),
+    entry({
+      target: { pane: 2 },
+      name: "api refactor",
+      provider: "codex",
+      state: "working",
+      context: new ContextView({ used: 120_000n, window: 258_400n, at: 1 }),
+    }),
+    entry({
+      target: { pane: 3 },
+      name: "release notes",
+      provider: "claude",
+      state: "working",
+      compacting: true,
+      context: new ContextView({ used: 380_000n, window: 1_000_000n, compacts_at: 400_000n, at: 1 }),
+    }),
   ];
   const out = draw(View.init(100, 30, true, 0, entries.length), entries, []);
   const text = hostText(out);

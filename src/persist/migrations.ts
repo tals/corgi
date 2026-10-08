@@ -25,21 +25,10 @@ function migrate(list: steps.Step[], value: any): boolean {
   }
   return before !== list.length + 1;
 }
-export function decode(
-  kind: Kind,
-  bytes: string | Uint8Array,
-): { value: any; from: number; migrated: boolean } {
-  const value = json.parse(
-    typeof bytes === "string" ? bytes : Buffer.from(bytes).toString(),
-  );
-  const from = version(
-    value,
-    kind === "checkpoint" ? checkpoint_version : handoff_version,
-  );
-  let migrated = migrate(
-    kind === "checkpoint" ? steps.checkpoint : steps.handoff,
-    value,
-  );
+export function decode(kind: Kind, bytes: string | Uint8Array): { value: any; from: number; migrated: boolean } {
+  const value = json.parse(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString());
+  const from = version(value, kind === "checkpoint" ? checkpoint_version : handoff_version);
+  let migrated = migrate(kind === "checkpoint" ? steps.checkpoint : steps.handoff, value);
   if (kind === "handoff") {
     if (!("runtime" in value)) throw Error("MissingField");
     migrated = migrate(steps.checkpoint, value.runtime) || migrated;

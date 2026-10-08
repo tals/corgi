@@ -20,19 +20,9 @@ export function jobIn(root: string, session: string): Text | null {
       const name = path.join(root, file.name);
       if (statSync(name).size > 65536) continue;
       const r = JSON.parse(readFileSync(name, "utf8"));
-      if (
-        r.kind !== "bg" ||
-        typeof r.sessionId !== "string" ||
-        r.sessionId.toLowerCase() !== session.toLowerCase()
-      )
+      if (r.kind !== "bg" || typeof r.sessionId !== "string" || r.sessionId.toLowerCase() !== session.toLowerCase())
         continue;
-      if (
-        !Number.isInteger(r.pid) ||
-        r.pid <= 1 ||
-        !running(r.pid) ||
-        typeof r.jobId !== "string" ||
-        !jobName(r.jobId)
-      )
+      if (!Number.isInteger(r.pid) || r.pid <= 1 || !running(r.pid) || typeof r.jobId !== "string" || !jobName(r.jobId))
         continue;
       return new Text(r.jobId);
     } catch {}

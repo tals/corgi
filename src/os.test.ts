@@ -1,13 +1,6 @@
 import { test, expect } from "bun:test";
 import { basename, join } from "node:path";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  renameSync,
-  existsSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import {
   processArgs,
@@ -33,9 +26,7 @@ test("a process's own arguments, executable and environment are readable", () =>
   expect(full.exe.length).toBeGreaterThan(0);
   expect(basename(full.exe)).toBe(basename(full.args()[0]));
   expect(full.environ()).toContain(`HOME=${env("HOME")}`);
-  const used = bare
-      .args()
-      .reduce((n, arg) => n + Buffer.byteLength(arg) + 1, 0),
+  const used = bare.args().reduce((n, arg) => n + Buffer.byteLength(arg) + 1, 0),
     cut = processArgs(process.pid, buf.subarray(0, used - 1));
   if (process.platform === "darwin") expect(cut).toBeNull();
   else expect(cut!.complete).toBe(false);
@@ -79,9 +70,7 @@ test("PATH search takes absolute entries only", () => {
   }
 });
 test("shell quoting protects arguments containing shell syntax", () => {
-  expect(shellQuote("/tmp/a'b$(echo bad)/corgi")).toBe(
-    "'/tmp/a'\\''b$(echo bad)/corgi'",
-  );
+  expect(shellQuote("/tmp/a'b$(echo bad)/corgi")).toBe("'/tmp/a'\\''b$(echo bad)/corgi'");
   expect(shellEscape(["tig", "a b", "a'b", "a\\b", "$(touch nope)", ""])).toBe(
     "tig a\\ b a\\'b a\\\\b \\$\\(touch\\ nope\\) ''",
   );

@@ -9,7 +9,7 @@ import { stringify } from "./json";
 import type { View as WireView, Control } from "./protocol";
 import type { Snapshot as Resources } from "./trackers/resources";
 export type { Control } from "./protocol";
-export type View = WireView<ReturnType<typeof session.viewerSnapshot>,Resources>;
+export type View = WireView<ReturnType<typeof session.viewerSnapshot>, Resources>;
 export interface Interest {
   pane: number;
   cols: number;
@@ -57,15 +57,10 @@ export function validateInterests(interests: Interest[]) {
   }
 }
 export async function open(s: any, cl: any, q: Open) {
-  if (cl.subscribed || cl.launch_preview != null || cl.viewer)
-    throw new Error("AlreadyAttached");
+  if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
   if (s.runtime.panes.length === 0 && s.initialWorkspace().model.count === 0) {
     if (s.default_folder_pending && q.cwd) {
-      await s.runtime.workspaces.edit(
-        s.initialWorkspace().id,
-        s.initialWorkspace().customName(),
-        q.cwd,
-      );
+      await s.runtime.workspaces.edit(s.initialWorkspace().id, s.initialWorkspace().customName(), q.cwd);
       s.default_folder_pending = false;
       await s.saveWorkspaces();
     }
@@ -96,23 +91,17 @@ function hash(bytes: string) {
 export async function sync(s: any, cl: any, q: Sync) {
   if (!cl.viewer) throw new Error("NotAttached");
   validateInterests(q.interests);
-  if (q.ack >= cl.next_control || q.ack < cl.last_control)
-    throw new Error("InvalidAcknowledgement");
+  if (q.ack >= cl.next_control || q.ack < cl.last_control) throw new Error("InvalidAcknowledgement");
   cl.controls = cl.controls.filter((c: Control) => c.seq > q.ack);
   cl.last_control = q.ack;
-  cl.interests = q.interests.filter((i) => s.runtime.pane(i.pane) !== null);
-  cl.view_focus = cl.interests.some((i: Interest) => i.pane === q.focus)
-    ? q.focus
-    : null;
+  cl.interests = q.interests.filter(i => s.runtime.pane(i.pane) !== null);
+  cl.view_focus = cl.interests.some((i: Interest) => i.pane === q.focus) ? q.focus : null;
   cl.watched = q.watched;
   cl.resources = q.resources;
   cl.resource_detail =
-    q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail)
-      ? q.resource_detail
-      : null;
+    q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
   if (q.active) cl.active_seq = ++s.next_active;
-  if (s.runtime.workspaces.index(q.workspace) !== null)
-    cl.view_workspace = q.workspace;
+  if (s.runtime.workspaces.index(q.workspace) !== null) cl.view_workspace = q.workspace;
   if (cl.watched) {
     s.visitWorkspace(cl.view_workspace);
     if (s.preferred_workspace !== cl.view_workspace) {
@@ -125,24 +114,14 @@ export async function sync(s: any, cl: any, q: Sync) {
   for (const interest of cl.interests as Interest[]) {
     const pane = s.runtime.pane(interest.pane),
       shown = pane.displayed();
-    if (
-      interest.known &&
-      equal(interest.known, surface.stamp(shown, interest.offset ?? null))
-    )
-      continue;
-    const view = surface.captureView(
-      interest.pane,
-      shown,
-      interest.offset ?? null,
-    );
+    if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
+    const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
     view.modes = surface.modes(pane.terminal);
     frames.push(view);
   }
   const bucket = Math.floor(microTimestamp() / 5e6),
     rebuild =
-      cl.session_shown !== s.runtime.shown ||
-      cl.session_bucket !== bucket ||
-      q.session_hash !== cl.session_hash;
+      cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || q.session_hash !== cl.session_hash;
   let snapshot: any = null;
   if (rebuild) {
     snapshot = session.viewerSnapshot(s.runtime);
@@ -157,10 +136,7 @@ export async function sync(s: any, cl: any, q: Sync) {
   const view: View = {
     type: "view",
     viewer_protocol: version,
-    session:
-      q.session_hash === cl.session_hash
-        ? null
-        : (snapshot ?? session.viewerSnapshot(s.runtime)),
+    session: q.session_hash === cl.session_hash ? null : (snapshot ?? session.viewerSnapshot(s.runtime)),
     session_hash: cl.session_hash,
     resources: q.resources_hash === resourcesHash ? null : readings,
     resources_hash: resourcesHash,
@@ -169,8 +145,7 @@ export async function sync(s: any, cl: any, q: Sync) {
     bell_kind: s.last_bell_kind,
     controls: cl.controls,
     viewer: cl.viewer_id,
-    detach:
-      s.runtime.panes.length === 0 && s.runtime.workspaces.items.length === 1,
+    detach: s.runtime.panes.length === 0 && s.runtime.workspaces.items.length === 1,
   };
   cl.queue(view);
 }
@@ -186,17 +161,12 @@ export function acknowledge(s: any, cl: any, q: any) {
     agent = p.agent();
   if (
     q.session !== agent.sessionId() ||
-    (q.binding !== null &&
-      q.binding !== undefined &&
-      BigInt(q.binding) !== BigInt(p.attachment.generation)) ||
-    (q.conversation !== null &&
-      q.conversation !== undefined &&
-      q.conversation !== bound)
+    (q.binding !== null && q.binding !== undefined && BigInt(q.binding) !== BigInt(p.attachment.generation)) ||
+    (q.conversation !== null && q.conversation !== undefined && q.conversation !== bound)
   )
     throw new Error("StaleAcknowledgement");
   if (agent.attention !== "none" || agent.observation.unread()) {
-    if (p.attachment.actor)
-      p.attachment.actor.acknowledge(q.through, q.attention_at);
+    if (p.attachment.actor) p.attachment.actor.acknowledge(q.through, q.attention_at);
     else {
       if (q.attention_at === agent.changed_at) agent.attention = "none";
       agent.readThrough(q.through);
@@ -211,18 +181,13 @@ export async function paste(s: any, cl: any, q: any) {
   if (!p) throw new Error("NoPane");
   const contents: { mime: string; data: Uint8Array }[] = [];
   if (q.text != null) {
-    if (
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-        q.text,
-      )
-    )
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(q.text))
       throw new Error("InvalidBase64");
     contents.push({ mime: "text/plain", data: Buffer.from(q.text, "base64") });
   }
   if (q.image) {
     const folder = join(dirname(s.socket), "paste");
-    if (!q.image.mime.startsWith("image/") || dirname(q.image.path) !== folder)
-      throw new Error("InvalidTarget");
+    if (!q.image.mime.startsWith("image/") || dirname(q.image.path) !== folder) throw new Error("InvalidTarget");
     const data = await readFile(q.image.path);
     if (data.length > 32 * 1024 * 1024) throw new Error("StreamTooLong");
     contents.push({ mime: q.image.mime, data });
@@ -234,18 +199,14 @@ export async function resize(s: any) {
     let chosen: Interest | null = null,
       latest = 0;
     for (const cl of s.clients) {
-      if (!cl.viewer || cl.dead || (chosen !== null && cl.active_seq <= latest))
-        continue;
+      if (!cl.viewer || cl.dead || (chosen !== null && cl.active_seq <= latest)) continue;
       const interest = cl.interests.find((i: Interest) => i.pane === p.id);
       if (interest) {
         chosen = interest;
         latest = cl.active_seq;
       }
     }
-    if (
-      chosen &&
-      (p.terminal.cols !== chosen.cols || p.terminal.rows !== chosen.rows)
-    ) {
+    if (chosen && (p.terminal.cols !== chosen.cols || p.terminal.rows !== chosen.rows)) {
       await p.resize(chosen.cols, chosen.rows);
       s.runtime.changed();
       s.dirty = true;
@@ -253,16 +214,12 @@ export async function resize(s: any) {
   }
 }
 export function targetViewer(s: any, id: number | null | undefined) {
-  const target = s.clients.find(
-    (cl: any) => cl.viewer && !cl.dead && (id == null || cl.viewer_id === id),
-  );
+  const target = s.clients.find((cl: any) => cl.viewer && !cl.dead && (id == null || cl.viewer_id === id));
   if (!target) throw new Error("NoViewer");
   return target;
 }
 export function viewerShowing(s: any, pane: number) {
-  const targets = s.clients.filter(
-    (cl: any) => cl.viewer && !cl.dead && cl.view_focus === pane,
-  );
+  const targets = s.clients.filter((cl: any) => cl.viewer && !cl.dead && cl.view_focus === pane);
   if (targets.length > 1) throw new Error("AmbiguousViewer");
   if (!targets.length) throw new Error("NoViewer");
   return targets[0];
@@ -282,8 +239,7 @@ export function action(s: any, cl: any, q: any) {
     if (q.pane == null) throw new Error("NoViewer");
     target = viewerShowing(s, q.pane);
     if (!isAbsolute(String(act.value))) throw new Error("InvalidExecutable");
-  } else if (act.name === "onboard" && q.pane != null)
-    target = viewerShowing(s, q.pane);
+  } else if (act.name === "onboard" && q.pane != null) target = viewerShowing(s, q.pane);
   else target = targetViewer(s, q.viewer);
   send(cl, target, { kind: "action", name: q.name, value: q.value ?? "" });
 }
@@ -308,9 +264,7 @@ export function copy(s: any, pane: number, text: string) {
     )
       target = view;
   if (!target) return;
-  target.controls = target.controls.filter(
-    (c: Control) => c.kind !== "action" || c.name !== "copy",
-  );
+  target.controls = target.controls.filter((c: Control) => c.kind !== "action" || c.name !== "copy");
   queue(target, { kind: "action", name: "copy", value: text });
 }
 export function viewers(s: any) {

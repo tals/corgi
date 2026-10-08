@@ -64,7 +64,11 @@ export function updateFile(file: string, changes: Partial<Preferences>): void {
 export function read(file: string): Preferences {
   return readExisting(file) ?? new Preferences();
 }
-const enums = { agents: ["workspace", "all"], preset: ["corgi", "tmux", "herdr", "cmux"], prefix: ["ctrl_b", "ctrl_a"] } as const;
+const enums = {
+  agents: ["workspace", "all"],
+  preset: ["corgi", "tmux", "herdr", "cmux"],
+  prefix: ["ctrl_b", "ctrl_a"],
+} as const;
 export function readExisting(file: string): Preferences | null {
   try {
     if (statSync(file).size > 64 * 1024) return null;

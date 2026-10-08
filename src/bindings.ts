@@ -737,27 +737,12 @@ export function table(preset: Preset): Binding[] {
   return tables[preset];
 }
 function sameMods(a: Mods, b: Mods): boolean {
-  return ["shift", "alt", "ctrl", "super"].every(
-    (k) => !!a[k as keyof Mods] === !!b[k as keyof Mods],
-  );
+  return ["shift", "alt", "ctrl", "super"].every(k => !!a[k as keyof Mods] === !!b[k as keyof Mods]);
 }
-export function lookup(
-  preset: Preset,
-  prefixed: boolean,
-  key: number,
-  mods: Mods = {},
-): Action | null {
-  return (
-    table(preset).find(
-      (b) => b.key === key && b.prefixed === prefixed && sameMods(b.mods, mods),
-    )?.action ?? null
-  );
+export function lookup(preset: Preset, prefixed: boolean, key: number, mods: Mods = {}): Action | null {
+  return table(preset).find(b => b.key === key && b.prefixed === prefixed && sameMods(b.mods, mods))?.action ?? null;
 }
-export function chord(
-  preset: Preset,
-  prefixed: boolean,
-  k: Key,
-): Action | null {
+export function chord(preset: Preset, prefixed: boolean, k: Key): Action | null {
   let cp = k.codepoint;
   if (cp >= 65 && cp <= 90) cp += 32;
   if (k.mods.shift && cp === 125) cp = 93;
@@ -772,36 +757,20 @@ export function prefixedSequence(preset: Preset, seq: string): Action | null {
   const m = /^\x1b\[1;([2-9])([ABCD])$/.exec(seq);
   if (!m) return null;
   const bits = Number(m[1]) - 1;
-  return lookup(
-    preset,
-    true,
-    { A: 57352, B: 57353, C: 57351, D: 57350 }[m[2]]!,
-    {
-      shift: !!(bits & 1),
-      alt: !!(bits & 2),
-      ctrl: !!(bits & 4),
-      super: !!(bits & 8),
-    },
-  );
+  return lookup(preset, true, { A: 57352, B: 57353, C: 57351, D: 57350 }[m[2]]!, {
+    shift: !!(bits & 1),
+    alt: !!(bits & 2),
+    ctrl: !!(bits & 4),
+    super: !!(bits & 8),
+  });
 }
 export function find(preset: Preset, action: Action): Binding | null {
-  return (
-    table(preset).find(
-      (b) => b.action.name === action.name && b.action.value === action.value,
-    ) ?? null
-  );
+  return table(preset).find(b => b.action.name === action.name && b.action.value === action.value) ?? null;
 }
-export function first(
-  preset: Preset,
-  action: Action,
-  prefixed: boolean,
-): Binding | null {
+export function first(preset: Preset, action: Action, prefixed: boolean): Binding | null {
   return (
     table(preset).find(
-      (b) =>
-        b.prefixed === prefixed &&
-        b.action.name === action.name &&
-        b.action.value === action.value,
+      b => b.prefixed === prefixed && b.action.name === action.name && b.action.value === action.value,
     ) ?? null
   );
 }
@@ -822,12 +791,7 @@ export function format(b: Binding): string {
   if (names[b.key]) return text + names[b.key];
   if (b.key < 27) return text + "Ctrl+" + String.fromCharCode(b.key + 64);
   if (b.key >= 57364 && b.key <= 57388) return text + "F" + (b.key - 57363);
-  return (
-    text +
-    String.fromCodePoint(
-      !sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key,
-    )
-  );
+  return text + String.fromCodePoint(!sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key);
 }
 export function compact(b: Binding): string {
   return (
@@ -835,10 +799,7 @@ export function compact(b: Binding): string {
     format({
       ...b,
       mods: {},
-      key:
-        !sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122
-          ? b.key - 32
-          : b.key,
+      key: !sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key,
     })
   );
 }
@@ -853,7 +814,7 @@ export function writeTable(presets?: Preset[]): string {
   };
   let out =
     "| Action |" +
-    selected.map((p) => " " + titleCase[p] + " |").join("") +
+    selected.map(p => " " + titleCase[p] + " |").join("") +
     "\n| --- |" +
     selected.map(() => " --- |").join("") +
     "\n";
@@ -873,8 +834,7 @@ export function writeTable(presets?: Preset[]): string {
                 : [];
     for (const value of values) {
       const a: Action = { name, ...(value === undefined ? {} : { value }) };
-      if (selected.some((p) => table(p).some((b) => sameRow(b, a))))
-        actions.push(a);
+      if (selected.some(p => table(p).some(b => sameRow(b, a)))) actions.push(a);
     }
   }
   for (const a of actions) {
@@ -912,7 +872,6 @@ export function writeTable(presets?: Preset[]): string {
 function sameRow(binding: Binding, action: Action) {
   return (
     binding.action.name === action.name &&
-    (["tab", "goto-workspace"].includes(action.name) ||
-      binding.action.value === action.value)
+    (["tab", "goto-workspace"].includes(action.name) || binding.action.value === action.value)
   );
 }

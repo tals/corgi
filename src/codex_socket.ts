@@ -12,12 +12,9 @@ export class Client {
     }
   >();
   constructor(public socket: UnixWebSocket) {
-    socket.onmessage = (event) => {
+    socket.onmessage = event => {
       try {
-        const text =
-          typeof event.data === "string"
-            ? event.data
-            : Buffer.from(event.data as ArrayBuffer).toString();
+        const text = typeof event.data === "string" ? event.data : Buffer.from(event.data as ArrayBuffer).toString();
         if (Buffer.byteLength(text) > 2 * 1024 * 1024) throw Error("TooLarge");
         const value = parse(text),
           waiting = this.pending.get(value.id);
@@ -76,10 +73,8 @@ export class Client {
   call(method: string, params: any) {
     const id = this.next_id++,
       bytes = stringify({ id, method, params });
-    if (Buffer.byteLength(bytes) > 2 * 1024 * 1024)
-      return Promise.reject(Error("TooLarge"));
-    if (this.socket.readyState !== WebSocket.OPEN)
-      return Promise.reject(Error("Disconnected"));
+    if (Buffer.byteLength(bytes) > 2 * 1024 * 1024) return Promise.reject(Error("TooLarge"));
+    if (this.socket.readyState !== WebSocket.OPEN) return Promise.reject(Error("Disconnected"));
     this.deadline = Date.now() + 1000;
     return new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {

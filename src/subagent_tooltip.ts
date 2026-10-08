@@ -150,7 +150,11 @@ export function modelLabel(c: Conversation): string {
 const big = (value: unknown): bigint => (typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value ?? 0))));
 export function usageView(value: any = {}): UsageView {
   return new UsageView({
-    tokens: new Tokens({ input: big(value?.tokens?.input), cached_input: big(value?.tokens?.cached_input), output: big(value?.tokens?.output) }),
+    tokens: new Tokens({
+      input: big(value?.tokens?.input),
+      cached_input: big(value?.tokens?.cached_input),
+      output: big(value?.tokens?.output),
+    }),
     known: value?.known === true,
     partial: value?.partial === true,
     losses: Number(value?.losses ?? 0),
@@ -164,14 +168,22 @@ export function conversation(value: any = {}): Conversation {
   const context = value.context ?? {};
   return {
     background_tasks: {
-      items: (tasks.items ?? []).map((item: any) => ({ id: item.id ?? "", label: item.label ?? "", group: item.group ?? "commands" })),
+      items: (tasks.items ?? []).map((item: any) => ({
+        id: item.id ?? "",
+        label: item.label ?? "",
+        group: item.group ?? "commands",
+      })),
       observed_at: Number(tasks.observed_at ?? 0),
       live: tasks.live === true,
       truncated: tasks.truncated === true,
     },
     id: Number(value.id ?? 0),
     timeline: {
-      points: (value.timeline?.points ?? []).map((point: any) => ({ at: Number(point.at ?? 0), activity: point.activity ?? "", usage: usageView(point.usage) })),
+      points: (value.timeline?.points ?? []).map((point: any) => ({
+        at: Number(point.at ?? 0),
+        activity: point.activity ?? "",
+        usage: usageView(point.usage),
+      })),
       pending: usageView(value.timeline?.pending),
     },
     model: value.model ?? "",
@@ -182,7 +194,12 @@ export function conversation(value: any = {}): Conversation {
     attachments: Number(value.attachments ?? 0),
     role: value.role ?? "",
     usage: usageView(value.usage),
-    context: new ContextView({ used: big(context.used), window: big(context.window), compacts_at: big(context.compacts_at), at: Number(context.at ?? 0) }),
+    context: new ContextView({
+      used: big(context.used),
+      window: big(context.window),
+      compacts_at: big(context.compacts_at),
+      at: Number(context.at ?? 0),
+    }),
     children_observed_at: Number(value.children_observed_at ?? 0),
     agent: agentValue(value.agent),
   };
@@ -223,7 +240,12 @@ export function childrenAvailable(all: readonly Conversation[], parent: number, 
   for (const child of all) {
     if (!descendant(all, child, parent)) continue;
     const child_age = now - child.observed_at;
-    if (child.agent.state === "unknown" || child.observed_at <= 0 || (!lasting && (child_age < 0 || child_age > fresh_window))) return false;
+    if (
+      child.agent.state === "unknown" ||
+      child.observed_at <= 0 ||
+      (!lasting && (child_age < 0 || child_age > fresh_window))
+    )
+      return false;
   }
   return true;
 }
@@ -245,7 +267,7 @@ function add(total: UsageView, next: UsageView) {
   total.known = total.known || next.known;
   total.partial = total.partial || next.partial || !next.known;
 }
-const asciiLower = (value: string) => value.replace(/[A-Z]/g, (c) => c.toLowerCase());
+const asciiLower = (value: string) => value.replace(/[A-Z]/g, c => c.toLowerCase());
 export class Model {
   groups: { name: string; count: number; usage: UsageView }[] = [];
   children = 0;
@@ -262,7 +284,7 @@ export class Model {
       add(m.total, child.usage);
       if (!visibleChild(all, child, parent)) continue;
       const name = groupName(child);
-      let index = m.groups.findIndex((group) => asciiLower(group.name) === asciiLower(name));
+      let index = m.groups.findIndex(group => asciiLower(group.name) === asciiLower(name));
       if (index < 0) {
         if (m.groups.length === max) break;
         index = m.groups.length;
@@ -289,7 +311,9 @@ export function compact(value: bigint | number): string {
       index += 1;
       continue;
     }
-    return tenths % 10n === 0n ? `${tenths / 10n}${suffixes[index]}` : `${tenths / 10n}.${tenths % 10n}${suffixes[index]}`;
+    return tenths % 10n === 0n
+      ? `${tenths / 10n}${suffixes[index]}`
+      : `${tenths / 10n}.${tenths % 10n}${suffixes[index]}`;
   }
 }
 export function tokenText(value: UsageView): string {
@@ -330,7 +354,8 @@ export interface Status {
 }
 export function status(agent: Agent, stale: boolean): Status {
   if (stale) return { icon: "?", label: "Last seen", tone: "muted" };
-  if (agent.state === "blocked" || agent.attention === "needs_input") return { icon: "●", label: "Needs input", tone: "warm" };
+  if (agent.state === "blocked" || agent.attention === "needs_input")
+    return { icon: "●", label: "Needs input", tone: "warm" };
   const unread = agent.attention === "finished" && agent.state !== "working" && agent.state !== "done";
   // Waiting on its background shells or a wakeup, as the sidebar shows it.
   if (agent.state === "idle" && agent.paused)
@@ -378,7 +403,13 @@ export class Card {
       }
     }
     if (shown < tasks.items.length || tasks.truncated) {
-      this.line(row + offset, `+${tasks.items.length - shown}${tasks.truncated ? "+" : ""} more commands`, "", "faint", "faint");
+      this.line(
+        row + offset,
+        `+${tasks.items.length - shown}${tasks.truncated ? "+" : ""} more commands`,
+        "",
+        "faint",
+        "faint",
+      );
       offset += 1;
     }
     return offset;
@@ -414,13 +445,18 @@ export class Card {
     const band = context.band();
     if (band === null) return;
     const color = contextColor(band, compacting, palette.colors.bg);
-    this.w.write(`\x1b[${row + 1};${this.x + this.width - 2 - this.meterWidth(context)}H${base}${Tone.ansi("faint")}context `);
+    this.w.write(
+      `\x1b[${row + 1};${this.x + this.width - 2 - this.meterWidth(context)}H${base}${Tone.ansi("faint")}context `,
+    );
     const bar = this.meterBar();
     if (bar > 0) {
       const wide = BigInt(bar);
       const fill = satAdd(satMul(context.used, wide), context.window / 2n) / context.window;
       const filled = Math.max(1, Math.min(bar, Number(fill > wide ? wide : fill)));
-      const tick = context.compacts_at > 0n && context.compacts_at < context.window ? Number((context.compacts_at * wide) / context.window) : null;
+      const tick =
+        context.compacts_at > 0n && context.compacts_at < context.window
+          ? Number((context.compacts_at * wide) / context.window)
+          : null;
       for (let i = 0; i < bar; i++) {
         if (i < filled) {
           palette.writeFg(this.w, color);
@@ -465,7 +501,8 @@ export class Card {
     const name_width = Math.min(18, sat(available, displayWidth(label) + 1));
     const label_width = sat(available, name_width > 0 ? name_width + 1 : 0);
     let marker: Status;
-    if (child.agent.attention === "needs_input" || child.agent.state === "blocked") marker = { icon: "●", label: "Needs input", tone: "warm" };
+    if (child.agent.attention === "needs_input" || child.agent.state === "blocked")
+      marker = { icon: "●", label: "Needs input", tone: "warm" };
     else
       switch (child.agent.state) {
         case "working":
@@ -498,7 +535,14 @@ export class Card {
     this.cell(row, 0, name_width, name, tone, false);
     this.cell(row, name_width + 1, model_width, model, heading ? "faint" : "muted", false);
     columns.tokenColumns(row, value, false, heading ? "faint" : "text");
-    this.cell(row, text_width + 2 * Card.number_width + 3, Card.number_width, equivalent, heading ? "faint" : "title", true);
+    this.cell(
+      row,
+      text_width + 2 * Card.number_width + 3,
+      Card.number_width,
+      equivalent,
+      heading ? "faint" : "title",
+      true,
+    );
   }
   /** One timeline step: the live one has a sage time and a bright label,
    * and past ones recede. */
@@ -507,7 +551,9 @@ export class Card {
     this.cell(row, 0, this.textWidth(), `${stamp}  ${icon}  ${label}`, live ? "strong" : "muted", false);
     this.tokenColumns(row, value, live, !value.known ? "muted" : live ? "title" : "strong");
     const time: Tone = live ? "live" : "faint";
-    this.w.write(`\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + 11}H${base}${this.ink(dot)}${icon}`);
+    this.w.write(
+      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + 11}H${base}${this.ink(dot)}${icon}`,
+    );
   }
   timeline(row: number, root: Conversation, agent: Agent, nodes: number, pending: boolean) {
     // A working agent without a summary has no current named phase. Keep
@@ -533,7 +579,14 @@ export class Card {
       const active = agent.state === "working" && !unreported;
       const blocked = agent.state === "blocked";
       const latest = root.timeline.points[root.timeline.points.length - 1];
-      this.drawPoint(row + 1 + completed, active || blocked ? "  now" : " last", latest.activity, root.timeline.pending, active, active ? "working" : blocked ? "warm" : "faint");
+      this.drawPoint(
+        row + 1 + completed,
+        active || blocked ? "  now" : " last",
+        latest.activity,
+        root.timeline.pending,
+        active,
+        active ? "working" : blocked ? "warm" : "faint",
+      );
     }
     if (unreported) {
       const current = agent.compacting ? "Compacting…" : agent.subagents.waiting ? "Waiting on subagents" : thinking();
@@ -551,12 +604,15 @@ function overviewTotal(card: Card, row: number, value: UsageView) {
   card.line(row, "Observed tokens", total, "title", "muted");
   const start = card.x + card.width - 2 - displayWidth(total);
   card.w.write(`\x1b[${row + 1};${start}H${base}${Tone.ansi("title")}${tokens}`);
-  card.w.write(`\x1b[${row + 1};${start + displayWidth(tokens) + " tokens (+".length}H${base}${Tone.ansi("text")}${cached}`);
+  card.w.write(
+    `\x1b[${row + 1};${start + displayWidth(tokens) + " tokens (+".length}H${base}${Tone.ansi("text")}${cached}`,
+  );
 }
 function runningSomewhere(all: readonly Conversation[], item: Conversation, now: number): boolean {
   if (item.agent.state === "done") return false;
   if (item.attachments > 0) return true;
-  if (item.agent.state !== "working" && item.agent.state !== "blocked" && item.agent.state !== "initializing") return false;
+  if (item.agent.state !== "working" && item.agent.state !== "blocked" && item.agent.state !== "initializing")
+    return false;
   const age = now - item.observed_at;
   if (item.observed_at <= 0 || age < 0 || age > fresh_window) return false;
   let parent = item.parent;
@@ -608,7 +664,7 @@ interface Ranked {
  * visible agent if needed. */
 function visible(ranked: readonly Ranked[], shown: number): Ranked[] {
   const out = ranked.slice(0, shown);
-  const system_index = ranked.findIndex((item) => item.conversation === null);
+  const system_index = ranked.findIndex(item => item.conversation === null);
   if (system_index >= shown) out[shown - 1] = ranked[system_index];
   return out;
 }
@@ -620,8 +676,15 @@ function overviewBox(w: Writer, x: number, y: number, width: number, height: num
     w.write(row === 0 ? "╮" : row === height - 1 ? "╯" : "│");
   }
 }
-function overviewAgent(card: Card, row: number, ranked_row: Ranked, reference: prices.Price | null, system_working: boolean) {
-  const model = ranked_row.model_name.length > 0 ? ranked_row.model_name : ranked_row.model.length === 0 ? "—" : ranked_row.model;
+function overviewAgent(
+  card: Card,
+  row: number,
+  ranked_row: Ranked,
+  reference: prices.Price | null,
+  system_working: boolean,
+) {
+  const model =
+    ranked_row.model_name.length > 0 ? ranked_row.model_name : ranked_row.model.length === 0 ? "—" : ranked_row.model;
   const equivalent =
     reference === null
       ? ""
@@ -633,12 +696,20 @@ function overviewAgent(card: Card, row: number, ranked_row: Ranked, reference: p
   // Corgi's own row keeps a muted name; only a working arrow is lit.
   const item = ranked_row.conversation;
   if (item === null) {
-    card.overviewRow(row, system_working ? "▶ Corgi (Activity summarizer)" : "○ Corgi (Activity summarizer)", model, ranked_row.value, equivalent, "muted");
+    card.overviewRow(
+      row,
+      system_working ? "▶ Corgi (Activity summarizer)" : "○ Corgi (Activity summarizer)",
+      model,
+      ranked_row.value,
+      equivalent,
+      "muted",
+    );
     if (system_working) card.w.write(`\x1b[${row + 1};${card.x + 4}H${base}${Tone.ansi("working")}▶`);
     return;
   }
   const agent_status = status(item.agent, false);
-  const name = item.agent.name.length > 0 ? item.agent.name : `${providerName(item.agent)} · ${byteSlice(item.agent.session, 8)}`;
+  const name =
+    item.agent.name.length > 0 ? item.agent.name : `${providerName(item.agent)} · ${byteSlice(item.agent.session, 8)}`;
   // Idle agents recede with their dot; finished ones wait to be seen.
   const idle = item.agent.state === "idle" && item.agent.attention === "none";
   card.overviewRow(row, `${agent_status.icon} ${name}`, model, item.usage, equivalent, idle ? "muted" : "text");
@@ -654,7 +725,7 @@ function overviewFooter(card: Card, row: number, hidden: number, release: Releas
     staged.length > 0
       ? [`↑ Update ${staged} ready · relaunch Corgi`, "↑ Update ready · relaunch Corgi", "↑ Update ready"]
       : [running.length > 0 ? `Corgi ${running}` : "", running, ""];
-  const version_line = candidates.find((candidate) => displayWidth(candidate) <= room) ?? "";
+  const version_line = candidates.find(candidate => displayWidth(candidate) <= room) ?? "";
   card.line(row, more, version_line, "faint", staged.length > 0 ? "title" : "faint");
 }
 /** "20260925T183012Z-be82c7b9090a" reads as "2026-09-25 · be82c7b". A known
@@ -683,28 +754,47 @@ export function drawOverview(
 ): void {
   if (cols < 40 || rows < 13) return;
   const total = cloneUsage(system_usage);
-  let ranked: Ranked[] = [{ conversation: null, value: system_usage, model: system_model, model_name: system_model_name, equivalent: 0n }];
+  let ranked: Ranked[] = [
+    { conversation: null, value: system_usage, model: system_model, model_name: system_model_name, equivalent: 0n },
+  ];
   const now = microTimestamp();
   // Rows use exclusive own usage. Parents never include their children here.
   for (const item of all) {
     add(total, item.usage);
     if (!runningSomewhere(all, item, now)) continue;
-    if (ranked.length < max + 1) ranked.push({ conversation: item, value: item.usage, model: item.model, model_name: item.model_name, equivalent: 0n });
+    if (ranked.length < max + 1)
+      ranked.push({
+        conversation: item,
+        value: item.usage,
+        model: item.model,
+        model_name: item.model_name,
+        equivalent: 0n,
+      });
   }
   // Rank by spend: express every row in tokens of the priciest listed model.
   let reference: prices.Price | null = null;
   for (const row of ranked) {
     const price = prices.lookup(row.model);
     if (price === null) continue;
-    if (reference === null || price.input > reference.input || (price.input === reference.input && price.output > reference.output)) reference = price;
+    if (
+      reference === null ||
+      price.input > reference.input ||
+      (price.input === reference.input && price.output > reference.output)
+    )
+      reference = price;
   }
   for (const row of ranked) {
     const uncached = satSub(row.value.tokens.input, row.value.tokens.cached_input);
     const price = prices.lookup(row.model);
-    row.equivalent = reference !== null && price !== null ? prices.equivalent(price, reference, uncached, row.value.tokens.output) : satAdd(uncached, row.value.tokens.output);
+    row.equivalent =
+      reference !== null && price !== null
+        ? prices.equivalent(price, reference, uncached, row.value.tokens.output)
+        : satAdd(uncached, row.value.tokens.output);
   }
   const id = (row: Ranked) => (row.conversation !== null ? row.conversation.id : 0);
-  ranked = ranked.sort((lhs, rhs) => (lhs.equivalent === rhs.equivalent ? id(lhs) - id(rhs) : lhs.equivalent > rhs.equivalent ? -1 : 1));
+  ranked = ranked.sort((lhs, rhs) =>
+    lhs.equivalent === rhs.equivalent ? id(lhs) - id(rhs) : lhs.equivalent > rhs.equivalent ? -1 : 1,
+  );
   // This total is observed runtime usage, rather than full session history.
   total.partial = false;
   const shown = Math.min(Math.min(10, ranked.length), rows - 9);
@@ -790,12 +880,12 @@ class Section {
 /** Groups the visible rows by account. Accounts with limits keep a section
  * even with no agents running, since other clients use them too. */
 function byAccount(rows_shown: readonly Ranked[], accounts: Accounts, now: number): Section[] {
-  const out = [...Provider.all.map((provider) => new Section(provider)), new Section(null)];
+  const out = [...Provider.all.map(provider => new Section(provider)), new Section(null)];
   rows_shown.forEach((row, i) => {
     const provider = row.conversation !== null ? row.conversation.agent.provider : accounts.system;
     out[provider !== null ? Provider.all.indexOf(provider) : Provider.all.length].rows.push(i);
   });
-  const kept = out.filter((section) => {
+  const kept = out.filter(section => {
     const value = section.option(accounts);
     const shows = value !== null ? value.limits === "metered" || typeof value.limits === "object" : false;
     return section.count > 0 || shows;
@@ -806,7 +896,15 @@ function byAccount(rows_shown: readonly Ranked[], accounts: Accounts, now: numbe
 /** The overview with a limits pane: the Top agents table is unchanged on the
  * left, and each account's rule crosses both panes so its limits sit level
  * with its agents. Returns false when the rows do not fit the terminal. */
-function drawAccounts(w: Writer, ranked: readonly Ranked[], most: number, overview: Overview, accounts: Accounts, cols: number, rows: number): boolean {
+function drawAccounts(
+  w: Writer,
+  ranked: readonly Ranked[],
+  most: number,
+  overview: Overview,
+  accounts: Accounts,
+  cols: number,
+  rows: number,
+): boolean {
   const now = accounts.now !== 0 ? accounts.now : Math.floor(Date.now() / 1000);
   let shown = most;
   let rows_shown: Ranked[];
@@ -845,13 +943,22 @@ function drawAccounts(w: Writer, ranked: readonly Ranked[], most: number, overvi
     for (let line = 0; line < body; line++) {
       const at = row + 1 + line;
       w.write(`\x1b[${at + 1};${divider + 1}H${base}${Tone.ansi("border")}│`);
-      if (line < section.count) overviewAgent(table, at, rows_shown[section.rows[line]], overview.reference, overview.system_working);
+      if (line < section.count)
+        overviewAgent(table, at, rows_shown[section.rows[line]], overview.reference, overview.system_working);
       const value = section.option(accounts);
       if (value === null) continue;
       if (line < 2) {
         const index = order[line];
         if (index !== null && typeof value.limits === "object") {
-          limitLine(full, at, pane, value.limits.windows[index]!, spark(value.history, index), !expired(value.usage_fetched_at, now), now);
+          limitLine(
+            full,
+            at,
+            pane,
+            value.limits.windows[index]!,
+            spark(value.history, index),
+            !expired(value.usage_fetched_at, now),
+            now,
+          );
           continue;
         }
       }
@@ -867,7 +974,9 @@ function drawAccounts(w: Writer, ranked: readonly Ranked[], most: number, overvi
 /** One window's readings from a preview's `history`. */
 function spark(history: unknown, index: number): limit_history.Spark {
   const cells = Array.isArray(history) && Array.isArray(history[index]) ? (history[index] as unknown[]) : [];
-  return Array.from({ length: limit_history.cells }, (_, i) => (typeof cells[i] === "number" ? (cells[i] as number) : null));
+  return Array.from({ length: limit_history.cells }, (_, i) =>
+    typeof cells[i] === "number" ? (cells[i] as number) : null,
+  );
 }
 /** A rule across the whole card naming the account, crossing the divider. */
 function accountRule(card: Card, row: number, section: Section, accounts: Accounts, divider: number, first: boolean) {
@@ -912,7 +1021,15 @@ function block(used: number): string {
  * progress bar. Time left is stippled, and a slot with no reading is a
  * gray bar at the last reading's level (usage only rises within a window), or
  * the floor before the first reading. */
-export function limitLine(card: Card, row: number, pane: number, window: Window, readings: limit_history.Spark, fresh: boolean, now: number) {
+export function limitLine(
+  card: Card,
+  row: number,
+  pane: number,
+  window: Window,
+  readings: limit_history.Spark,
+  fresh: boolean,
+  now: number,
+) {
   card.cell(row, pane, 2, window.label(), "muted", false);
   const elapsed = elapsedCells(window, now);
   let last: number | null = null;
@@ -946,7 +1063,9 @@ export function barInk(used: number): string {
   if (used >= 80) return Tone.ansi("warm_cell");
   return shallow_inks[eighths(used) - 1];
 }
-export const shallow_inks = [75, 45, 15, 0, 0, 0, 0, 0].map((percent) => palette.fgRgb(palette.mix(palette.colors.accent, palette.colors.faint, percent)));
+export const shallow_inks = [75, 45, 15, 0, 0, 0, 0, 0].map(percent =>
+  palette.fgRgb(palette.mix(palette.colors.accent, palette.colors.faint, percent)),
+);
 /** Spark cells that cover time already passed in the window. */
 export function elapsedCells(window: Window, now: number): number {
   const minutes = window.minutes;
@@ -957,7 +1076,15 @@ export function elapsedCells(window: Window, now: number): number {
   return Math.ceil((into * limit_history.cells) / span);
 }
 
-export function draw(w: Writer, all: readonly Conversation[], entry: Entry, cols: number, rows: number, px: number, py: number): void {
+export function draw(
+  w: Writer,
+  all: readonly Conversation[],
+  entry: Entry,
+  cols: number,
+  rows: number,
+  px: number,
+  py: number,
+): void {
   if (cols < 40 || rows < 13) return;
   const parent = entry.conversation;
   // A detected agent can have a visible row before it has a session binding.
@@ -980,18 +1107,28 @@ export function draw(w: Writer, all: readonly Conversation[], entry: Entry, cols
   root_agent.state = entry.state;
   const children_available = childrenAvailable(all, parent, microTimestamp());
   if (!children_available) root_agent.subagents = noSubagents();
-  const name = entry.name.length > 0 ? entry.name : root_agent.name.length > 0 ? root_agent.name : providerName(root_agent);
+  const name =
+    entry.name.length > 0 ? entry.name : root_agent.name.length > 0 ? root_agent.name : providerName(root_agent);
   const model = children_available ? Model.init(all, parent) : Object.assign(new Model(), { total: root.usage });
   const width = Math.min(88, cols);
   const pending = root.timeline.points.length > 0;
-  const timeline_nodes = Math.min(16, root.timeline.points.length + Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting));
+  const timeline_nodes = Math.min(
+    16,
+    root.timeline.points.length +
+      Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
+  );
   const timeline_height = timeline_nodes > 0 ? timeline_nodes + 1 : 0;
   const child_footer = children_available && model.children === 0;
   const tasks = root.background_tasks;
   const task_height = tasks.items.length > 0 ? Math.min(8, tasks.items.length + 1 + Number(tasks.truncated)) : 0;
   // Until there is a timeline, the activity takes its own line under the subtitle.
   const activity_row = timeline_nodes === 0;
-  const wanted = 7 + Number(activity_row) + timeline_height + task_height + (model.children > 0 ? model.children + 3 : Number(child_footer));
+  const wanted =
+    7 +
+    Number(activity_row) +
+    timeline_height +
+    task_height +
+    (model.children > 0 ? model.children + 3 : Number(child_footer));
   const height = Math.min(wanted, rows - 2);
   const x = Math.min(px + 2, cols - width);
   const y = Math.min(py + 1, rows - 1 - height);
@@ -1008,7 +1145,9 @@ export function draw(w: Writer, all: readonly Conversation[], entry: Entry, cols
   const status_text = `${root_status.icon} ${root_status.label}`;
   card.line(top, name, status_text, "title", "text");
   // Only the status dot takes the state's color.
-  w.write(`\x1b[${top + 1};${x + width - 2 - displayWidth(status_text)}H${base}${Tone.ansi(root_status.tone)}${root_status.icon}`);
+  w.write(
+    `\x1b[${top + 1};${x + width - 2 - displayWidth(status_text)}H${base}${Tone.ansi(root_status.tone)}${root_status.icon}`,
+  );
   const root_activity =
     root_agent.activity.length === 0 &&
     root_agent.recent_activity.length === 0 &&
@@ -1021,7 +1160,12 @@ export function draw(w: Writer, all: readonly Conversation[], entry: Entry, cols
   // The subtitle names the provider and model, with the context meter beside it.
   const provider = providerName(root_agent);
   const model_label = modelLabel(root);
-  const subtitle = asciiLower(name) === asciiLower(provider) ? model_label : model_label.length > 0 ? `${provider} · ${model_label}` : provider;
+  const subtitle =
+    asciiLower(name) === asciiLower(provider)
+      ? model_label
+      : model_label.length > 0
+        ? `${provider} · ${model_label}`
+        : provider;
   const metered = root_agent.state !== "done" && root.context.band() !== null;
   card.line(top + 1, subtitle, metered ? " ".repeat(card.meterWidth(root.context)) : "", "muted", "muted");
   if (metered) card.meter(top + 1, root.context, root_agent.state === "working" && root_agent.compacting);
@@ -1050,7 +1194,9 @@ export function draw(w: Writer, all: readonly Conversation[], entry: Entry, cols
     for (const child of all) {
       if (!visibleChild(all, child, parent)) continue;
       if (row + total_rows >= end) break;
-      const display_child = childrenAvailable(all, child.id, microTimestamp()) ? child : { ...child, agent: { ...child.agent, subagents: noSubagents() } };
+      const display_child = childrenAvailable(all, child.id, microTimestamp())
+        ? child
+        : { ...child, agent: { ...child.agent, subagents: noSubagents() } };
       card.childRow(row, display_child);
       row += 1;
       shown += 1;

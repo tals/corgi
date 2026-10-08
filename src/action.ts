@@ -56,10 +56,7 @@ export function parse(name: string, value = ""): Action {
     return { name, value: number };
   }
   if (type === "[]const u8") return { name, value };
-  const values =
-    type === "layout.Direction"
-      ? ["left", "down", "up", "right"]
-      : ["left", "right"];
+  const values = type === "layout.Direction" ? ["left", "down", "up", "right"] : ["left", "right"];
   if (type === "Split") values.splice(0, 2, "right", "down");
   if (!value && (type === "Side" || type === "Split")) value = "right";
   if (!values.includes(value)) throw new Error("BadValue");
@@ -132,9 +129,7 @@ export function title(action: Action): string {
   };
   if (["split", "resize", "focus", "swap", "move-tab"].includes(action.name))
     return (
-      (action.name === "move-tab"
-        ? "Move tab"
-        : action.name[0].toUpperCase() + action.name.slice(1)) +
+      (action.name === "move-tab" ? "Move tab" : action.name[0].toUpperCase() + action.name.slice(1)) +
       " " +
       action.value
     );

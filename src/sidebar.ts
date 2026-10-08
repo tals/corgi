@@ -9,7 +9,19 @@ import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
 import { rank, type Target as OrderTarget } from "./agent_order";
 import { Rect } from "./layout";
-import { Writer, displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, codepointWidth, sat, clamp, byteLength, zigRound } from "./text";
+import {
+  Writer,
+  displayWidth,
+  writeClipped,
+  writeEllipsis,
+  directoryLabel,
+  compactCount,
+  codepointWidth,
+  sat,
+  clamp,
+  byteLength,
+  zigRound,
+} from "./text";
 import { max_panes } from "./layout";
 export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, zigRound } from "./text";
 
@@ -131,7 +143,8 @@ export function lessThan(order: OrderTarget[], left: Entry, right: Entry): boole
 export function indicator(e: Entry, selected: boolean): { icon: string; color: string; unread: boolean } {
   const quiet = selected ? fg("muted") : fg("faint");
   if (e.state === "done") return { icon: "○", color: quiet, unread: false };
-  if (e.state === "blocked" || e.attention === "needs_input") return { icon: "●", color: "\x1b[1m" + fg("warm"), unread: false };
+  if (e.state === "blocked" || e.attention === "needs_input")
+    return { icon: "●", color: "\x1b[1m" + fg("warm"), unread: false };
   if (e.state === "working") return { icon: "▶", color: "\x1b[1m" + fg("accent"), unread: false };
   if (e.state === "idle" && e.paused) {
     if (e.attention === "finished") return { icon: "‖", color: "\x1b[1m" + fg("accent"), unread: true };
@@ -191,7 +204,7 @@ export interface PortsSnapshot {
   workspaces: { id: number; background?: number; endpoints: Endpoint[] }[];
 }
 function portEndpoints(ports: PortsSnapshot, id: number): Endpoint[] {
-  return (ports?.workspaces ?? []).find((w) => w.id === id)?.endpoints ?? [];
+  return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
 export interface WorkspaceEntry {
   resources: Work;
@@ -210,7 +223,9 @@ export interface WorkspaceEntry {
   attention: number;
   stats: Stats;
 }
-export function workspaceEntry(fields: Partial<WorkspaceEntry> & { id: number; name: string; cwd: string; active: boolean }): WorkspaceEntry {
+export function workspaceEntry(
+  fields: Partial<WorkspaceEntry> & { id: number; name: string; cwd: string; active: boolean },
+): WorkspaceEntry {
   return {
     resources: work({ id: 0 }),
     ports: { workspaces: [] },
@@ -384,7 +399,8 @@ export class View {
   reveal(index: number): number {
     if (index < this.offset) return index;
     let offset = this.offset;
-    while (offset < index && index >= offset + (this.entries.length > 0 ? this.fits(offset) : this.capacity)) offset += 1;
+    while (offset < index && index >= offset + (this.entries.length > 0 ? this.fits(offset) : this.capacity))
+      offset += 1;
     return offset;
   }
   withWidth(preferred: number): View {
@@ -423,7 +439,8 @@ export class View {
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
     if (y === 0 && x >= v.width - 5) return hit("toggle");
     if (y === 0 && x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
-    if (y === v.middle() && x >= v.width - 10 && x < v.width - 2) return x >= v.width - 4 ? hit("agent_options") : hit("agent_new");
+    if (y === v.middle() && x >= v.width - 10 && x < v.width - 2)
+      return x >= v.width - 4 ? hit("agent_options") : hit("agent_new");
     if (y === v.middle() && x >= v.scopeStart()) {
       const qualifier = v.scopeQualifier();
       if (x < v.scopeStart() + displayWidth(qualifier) + displayWidth(v.scopeArrow())) return hit("agent_scope");
@@ -439,7 +456,9 @@ export class View {
       if (y < 2 || y >= v.middle() - 2) return hit("none");
       const slot = Math.floor((y - 2) / v.workspaceRows());
       const index = slot + v.workspace_offset;
-      return index < v.workspace_count && slot < v.workspaceCapacity() ? { tag: "workspace", workspace: index } : hit("none");
+      return index < v.workspace_count && slot < v.workspaceCapacity()
+        ? { tag: "workspace", workspace: index }
+        : hit("none");
     }
     if (y < v.middle() + 2 || y >= v.listEnd()) return hit("none");
     let top = v.middle() + 2;
@@ -453,7 +472,8 @@ export class View {
    * just above the destination row, including the gap after the last row. */
   agentDrop(x: number, y: number): { index: number; y: number } | null {
     const v = this;
-    if (v.width === 0 || x >= v.width - 1 || y < v.middle() + 2 || y >= v.listEnd() || v.entries.length === 0) return null;
+    if (v.width === 0 || x >= v.width - 1 || y < v.middle() + 2 || y >= v.listEnd() || v.entries.length === 0)
+      return null;
     let top = v.middle() + 2;
     const end = Math.min(v.count, v.offset + v.capacity);
     for (let i = v.offset; i < end; i++) {
@@ -534,7 +554,10 @@ export class View {
       writeEllipsis(w, "workspaces", sat(v.width, 17));
     } else v.line(w, 0, "workspaces", "\x1b[1m" + fg("strong"));
     w.write(`\x1b[1;${v.width - 10}H` + button + `[ + ]${panel}`);
-    const shown = workspaces.slice(v.workspace_offset, Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()));
+    const shown = workspaces.slice(
+      v.workspace_offset,
+      Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
+    );
     shown.forEach((ws, index) => {
       const y = 2 + index * v.workspaceRows();
       const ghost = v.dragged_workspace === v.workspace_offset + index;
@@ -621,7 +644,7 @@ export class View {
         v.line(w, v.middle() + 5, "codex  or  claude", panel);
       }
     }
-    const grouped = entries.some((e) => isGroup(e.target));
+    const grouped = entries.some(e => isGroup(e.target));
     let next_y = v.middle() + 2;
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.capacity));
     const sleepers: bigint[] = [];
@@ -645,12 +668,26 @@ export class View {
       }
       const last_in_group = grouped && (absolute + 1 === entries.length || isGroup(entries[absolute + 1].target));
       const divider = !grouped && index + 1 < Math.min(entries.length - v.offset, v.capacity);
-      v.drawAgent(row_writer, e, 0, y, grouped, last_in_group, divider, v.dragged === absolute, v.hovered === absolute, frame_ms, dream);
+      v.drawAgent(
+        row_writer,
+        e,
+        0,
+        y,
+        grouped,
+        last_in_group,
+        divider,
+        v.dragged === absolute,
+        v.hovered === absolute,
+        frame_ms,
+        dream,
+      );
       if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
     });
     if (v.search !== null) v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
     const t = v.thumb();
-    if (t) for (let row = t.start; row < t.start + t.len; row++) w.write(`\x1b[${v.middle() + 3 + row};${v.width}H${panel}` + fg("faint") + "┃");
+    if (t)
+      for (let row = t.start; row < t.start + t.len; row++)
+        w.write(`\x1b[${v.middle() + 3 + row};${v.width}H${panel}` + fg("faint") + "┃");
     w.write("\x1b[0m");
   }
   /** The small glyph beside an agent's detail line: a wait clock, an active
@@ -669,7 +706,19 @@ export class View {
     if (compacting) return pile[mod(Math.floor(now_ms / 75), pile.length)];
     return thinking[mod(Math.floor(now_ms / 80), thinking.length)];
   }
-  drawAgent(w: Writer, e: Entry, x: number, y: number, grouped: boolean, last_in_group: boolean, divider: boolean, ghost: boolean, hovered: boolean, now_ms: number, dream: corgiAnimation.Dream | null): void {
+  drawAgent(
+    w: Writer,
+    e: Entry,
+    x: number,
+    y: number,
+    grouped: boolean,
+    last_in_group: boolean,
+    divider: boolean,
+    ghost: boolean,
+    hovered: boolean,
+    now_ms: number,
+    dream: corgiAnimation.Dream | null,
+  ): void {
     const v = this;
     // Focused and dragged rows take the selected tint, and a hovered one
     // goes halfway to it; in a group the rail stays unbroken.
@@ -706,11 +755,17 @@ export class View {
     // brighter. Selected rows take muted, as faint is too dim on them.
     const napping = e.state === "idle" && !v.sleeping_corgis;
     const activity = View.activityGlyph(e, waiting, napping, View.spinnerFrame(compacting, now_ms));
-    const activity_color = selected ? "\x1b[22m" + fg("muted") : napping && e.attention !== "finished" ? "\x1b[22m" + nap_fg : "\x1b[22m" + fg("faint");
-    const provider = e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ?? "";
+    const activity_color = selected
+      ? "\x1b[22m" + fg("muted")
+      : napping && e.attention !== "finished"
+        ? "\x1b[22m" + nap_fg
+        : "\x1b[22m" + fg("faint");
+    const provider = e.name.length > 0 ? directoryLabel(e.name, null, 160) : (e.provider ?? "");
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
-    w.write(`\x1b[${y + 1};${x + 5}H${dot.unread || (grouped && e.focused) ? "\x1b[1m" + fg("strong") : "\x1b[22m" + fg("text")}`);
+    w.write(
+      `\x1b[${y + 1};${x + 5}H${dot.unread || (grouped && e.focused) ? "\x1b[1m" + fg("strong") : "\x1b[22m" + fg("text")}`,
+    );
     writeEllipsis(w, provider, sat(room, figure_width + (figure_width > 0 ? 1 : 0)));
     w.write("\x1b[22m");
     if (figure) {
@@ -722,7 +777,10 @@ export class View {
     // consuming another terminal row or changing the entry hit area.
     w.write(`\x1b[${y + 2};${x + underline_x}H${line}`);
     w.splat(" ", v.width - 1 - underline_x);
-    w.write(`\x1b[${y + 2};${x + 2}H${dotted ? "\x1b[24m" : ""}${activity_color}${activity}\x1b[${y + 2};${x + 5}H${dotted ? line : ""}` + fg("text"));
+    w.write(
+      `\x1b[${y + 2};${x + 2}H${dotted ? "\x1b[24m" : ""}${activity_color}${activity}\x1b[${y + 2};${x + 5}H${dotted ? line : ""}` +
+        fg("text"),
+    );
     const detail = compacting
       ? "Compacting…"
       : waiting
@@ -743,7 +801,13 @@ export class View {
     const fallback = e.state === "working" && !compacting && !waiting && e.activity.length === 0;
     // Narrow rows keep the text; the pile beside it still moves.
     const herding = compacting && detail_room >= corgiAnimation.herd_width;
-    const mode: corgiAnimation.Mode = herding ? "herding" : fallback ? "awake" : e.state === "idle" && v.sleeping_corgis ? "asleep" : "content";
+    const mode: corgiAnimation.Mode = herding
+      ? "herding"
+      : fallback
+        ? "awake"
+        : e.state === "idle" && v.sleeping_corgis
+          ? "asleep"
+          : "content";
     const presentation = corgiAnimation.observe(animation_key, mode, now_ms);
     // Unseen and focused naps stay bright; only the list's dreamer puffs.
     const sleep = new corgiAnimation.Sleep({
@@ -765,7 +829,13 @@ export class View {
       if (presentation !== null && presentation.reveal_started_ms !== null) {
         w.write(presentation.writeCorgi(detail_room, e.state === "working", sleep));
         w.write(`\x1b[${y + 2};${x + 5}H` + fg("text"));
-        writeRevealedDetail(w, text, detail_room, presentation.revealedColumns(detail_room, now_ms), presentation.revealPosition(detail_room, now_ms));
+        writeRevealedDetail(
+          w,
+          text,
+          detail_room,
+          presentation.revealedColumns(detail_room, now_ms),
+          presentation.revealPosition(detail_room, now_ms),
+        );
       } else writeEllipsis(w, text, detail_room);
     }
     if (badge_width > 0) {
@@ -793,7 +863,14 @@ export class View {
     const status_width = displayWidth(working) + displayWidth(attention) + (both ? 1 : 0);
     const status_x = sat(count_x, status_width + (status_width > 0 ? 1 : 0));
     w.write(`\x1b[${y + 1};${count_x + 1}H${count}`);
-    if (status_width > 0) w.write(`\x1b[${y + 1};${status_x + 1}H\x1b[1m` + fg("accent") + `${working}${both ? " " : ""}` + fg("warm") + `${attention}\x1b[22m`);
+    if (status_width > 0)
+      w.write(
+        `\x1b[${y + 1};${status_x + 1}H\x1b[1m` +
+          fg("accent") +
+          `${working}${both ? " " : ""}` +
+          fg("warm") +
+          `${attention}\x1b[22m`,
+      );
     // Name, then a rule that leaves one space on each side.
     const text = directoryLabel(e.name, null, 160);
     const name_room = sat(status_x, 5);
@@ -845,12 +922,20 @@ const mod = (a: number, b: number) => ((a % b) + b) % b;
 /** Context colors for the row figure and the card's meter: muted, warm from
  * 70% of the way to compaction, hot from 85%, faded into the background while
  * the agent compacts. */
-export function contextColor(band: "calm" | "near" | "high", compacting: boolean, background: palette.Rgb): palette.Rgb {
+export function contextColor(
+  band: "calm" | "near" | "high",
+  compacting: boolean,
+  background: palette.Rgb,
+): palette.Rgb {
   const tone = band === "calm" ? colors.muted : band === "near" ? colors.warm : colors.hot;
   return compacting ? mix(tone, background, 60) : tone;
 }
 /** Context appears on the name line only near compaction. */
-function contextFigure(e: Entry, compacting: boolean, background: palette.Rgb): { text: string; color: palette.Rgb } | null {
+function contextFigure(
+  e: Entry,
+  compacting: boolean,
+  background: palette.Rgb,
+): { text: string; color: palette.Rgb } | null {
   if (e.state === "done") return null;
   const band = e.context.band();
   if (band === null || band === "calm") return null;
@@ -875,7 +960,16 @@ function subagentBadge(status: Subagents, children: number): string {
 /** Resource hover stays on the third workspace row. Clicks and drags on that
  * row select the workspace, just like its title and status rows. */
 export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
-  if (v.workspaceRows() < 3 || v.width === 0 || x < 1 || x >= v.width - 2 || y < 4 || y >= sat(v.middle(), 2) || (y - 2) % 3 !== 2) return null;
+  if (
+    v.workspaceRows() < 3 ||
+    v.width === 0 ||
+    x < 1 ||
+    x >= v.width - 2 ||
+    y < 4 ||
+    y >= sat(v.middle(), 2) ||
+    (y - 2) % 3 !== 2
+  )
+    return null;
   const i = Math.floor((y - 2) / 3);
   if (i >= v.workspaceCapacity() || i + v.workspace_offset >= workspaces.length) return null;
   const ws = workspaces[i + v.workspace_offset];
@@ -910,7 +1004,7 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
     const room = i === 1 ? readings_width - Math.floor(readings_width / 2) : Math.floor(readings_width / 2);
     // The longest label that leaves room for a five-character value
     // (1234%, 12.3G) and, after CPU, a one-column gap.
-    const label = choices.find((name) => room >= name.length + 1 + 5 + (i === 0 ? 1 : 0)) ?? choices[choices.length - 1];
+    const label = choices.find(name => room >= name.length + 1 + 5 + (i === 0 ? 1 : 0)) ?? choices[choices.length - 1];
     if (value.length === 0 || !shownReading(prefs, work, i)) {
       w.splat(" ", room);
       return;
@@ -959,7 +1053,7 @@ export function writeExit(w: Writer, frame: string, progress: number): void {
         let p = i + 2;
         while (p < end) {
           const params = frame.slice(p, end);
-          const prefix = ["38;2;", "48;2;", "58:2::"].find((candidate) => params.startsWith(candidate)) ?? null;
+          const prefix = ["38;2;", "48;2;", "58:2::"].find(candidate => params.startsWith(candidate)) ?? null;
           if (prefix !== null) {
             const separator = prefix[2] === ":" ? ":" : ";";
             let cursor = p + prefix.length;
@@ -1011,7 +1105,13 @@ function statusPart(w: Writer, text: string, style: string, room: { value: numbe
 }
 // Clip the final (already ellipsized) text, so the ellipsis does not move with
 // the wipe. Opaque padding covers the old dog even for a short/empty label.
-export function writeRevealedDetail(w: Writer, text: string, room: number, revealed: number, edge: number | null): void {
+export function writeRevealedDetail(
+  w: Writer,
+  text: string,
+  room: number,
+  revealed: number,
+  edge: number | null,
+): void {
   const final = new Writer();
   writeEllipsis(final, text, room);
   let used = 0;
@@ -1042,7 +1142,9 @@ export function drawPorts(w: Writer, ws: WorkspaceEntry, width: number, divider:
 }
 function gitColumn(workspaces: WorkspaceEntry[]): number {
   let width = 4;
-  for (const ws of workspaces) if (ws.git_ahead !== null && ws.git_ahead !== undefined) width = Math.max(width, 1 + displayWidth(compactCount(ws.git_ahead)));
+  for (const ws of workspaces)
+    if (ws.git_ahead !== null && ws.git_ahead !== undefined)
+      width = Math.max(width, 1 + displayWidth(compactCount(ws.git_ahead)));
   return width;
 }
 export function linkRange(v: View, ws: WorkspaceEntry, workspaces: WorkspaceEntry[]): { start: number; end: number } {
@@ -1158,7 +1260,13 @@ export function portWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, 
   if (x < link.start || x >= link.end) return null;
   return ws;
 }
-function portLine(w: Writer | null, ws: WorkspaceEntry, width: number, hitColumn: number | null, divider: boolean): string | null {
+function portLine(
+  w: Writer | null,
+  ws: WorkspaceEntry,
+  width: number,
+  hitColumn: number | null,
+  divider: boolean,
+): string | null {
   const count = urlCount(ws);
   if (count === 0) return null;
   const label = portLabel(ws);
@@ -1225,7 +1333,9 @@ export class ScopeMenu {
   }
   private row(w: Writer, b: Rect, y: number, option: Scope, scope: Scope, text: string, count: number): void {
     const hovered = this.hovered === option;
-    const style = hovered ? new Style({ fg: "strong", bg: "selected" }).sgr() : new Style({ fg: "text", bg: "surface" }).sgr();
+    const style = hovered
+      ? new Style({ fg: "strong", bg: "selected" }).sgr()
+      : new Style({ fg: "text", bg: "surface" }).sgr();
     const line = b.y + y + 1;
     w.write(`\x1b[${line};${b.x + 2}H${style}`);
     w.splat(" ", b.w - 2);
@@ -1324,7 +1434,13 @@ export function gitLabel(ws: WorkspaceEntry, expanded: boolean): string {
 export function gitWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   return gitActionWorkspace(v, workspaces, null, x, y);
 }
-export function gitActionWorkspace(v: View, workspaces: WorkspaceEntry[], expanded: number | null, x: number, y: number): WorkspaceEntry | null {
+export function gitActionWorkspace(
+  v: View,
+  workspaces: WorkspaceEntry[],
+  expanded: number | null,
+  x: number,
+  y: number,
+): WorkspaceEntry | null {
   if (v.width === 0 || y < 2 || (y - 2) % v.workspaceRows() !== 0) return null;
   const found = v.hit(x, y);
   if (found.tag !== "workspace" || found.workspace >= workspaces.length) return null;
@@ -1335,7 +1451,10 @@ export function gitActionWorkspace(v: View, workspaces: WorkspaceEntry[], expand
 }
 export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], id: number): void {
   if (v.width === 0) return;
-  const shown = workspaces.slice(v.workspace_offset, Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()));
+  const shown = workspaces.slice(
+    v.workspace_offset,
+    Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
+  );
   for (let i = 0; i < shown.length; i++) {
     const ws = shown[i];
     if (ws.id !== id) continue;
@@ -1347,7 +1466,9 @@ export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], 
         : ws.git_push.phase === "failed"
           ? new Style({ fg: "hot", bg: "selected", bold: true }).sgr()
           : new Style({ fg: "accent", bg: "selected", bold: true }).sgr();
-    w.write(`\x1b]8;;\x1b\\\x1b[${3 + i * v.workspaceRows()};${v.width - 1 - displayWidth(label)}H${style}${label}\x1b[0m`);
+    w.write(
+      `\x1b]8;;\x1b\\\x1b[${3 + i * v.workspaceRows()};${v.width - 1 - displayWidth(label)}H${style}${label}\x1b[0m`,
+    );
     return;
   }
 }
@@ -1389,7 +1510,14 @@ function drawGitError(w: Writer, message: string, cols: number, rows: number, px
   lines.forEach((line, i) => w.write(`\x1b[${y + 3 + i};${x + 3}H${line}`));
   w.write("\x1b[0m\x1b8");
 }
-export function drawGitTooltip(w: Writer, ws: WorkspaceEntry, cols: number, rows: number, px: number, py: number): void {
+export function drawGitTooltip(
+  w: Writer,
+  ws: WorkspaceEntry,
+  cols: number,
+  rows: number,
+  px: number,
+  py: number,
+): void {
   if (cols < 24 || rows < 8) return;
   if (ws.git_push.phase === "failed") return drawGitError(w, ws.git_push.message, cols, rows, px, py);
   const width = Math.min(76, cols);
@@ -1420,7 +1548,11 @@ export function drawGitTooltip(w: Writer, ws: WorkspaceEntry, cols: number, rows
       writeEllipsis(w, item.author, author_room);
       w.write(" · ");
     }
-    writeEllipsis(w, timing, sat(width - 6, author_room > 0 ? Math.min(displayWidth(item.author), author_room) + 3 : 0));
+    writeEllipsis(
+      w,
+      timing,
+      sat(width - 6, author_room > 0 ? Math.min(displayWidth(item.author), author_room) + 3 : 0),
+    );
   });
   if (has_footer) {
     w.write(`\x1b[${y + height - 1};${x + 3}H${base}` + fg("faint"));

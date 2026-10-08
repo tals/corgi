@@ -18,15 +18,12 @@ test("the corgi perks up as the ball lands, chases it while it moves, and pauses
   expect(a.chase(18, value, run.landed).ball.y).toBe(0);
   expect(a.fetchScene(18, value, windup + run.landed).dog).toBe("~ᐯ•ᴥ•ᐯ");
   expect(a.fetchScene(18, value, windup + run.landed + 1).dog).toBe("~ᐯ•ᴥ•ᐱ");
-  expect(a.fetchScene(18, value, windup + run.landed + react).dog).toBe(
-    "~[||]o>",
-  );
+  expect(a.fetchScene(18, value, windup + run.landed + react).dog).toBe("~[||]o>");
   expect(a.chase(18, value, run.caught - 1).ball.resting()).toBe(false);
   let tick = windup;
   while (a.fetchScene(18, value, tick).dog !== "~ᐯ•●•ᐯ") tick++;
   expect(a.fetchScene(18, value, tick - 1).dog).toBe("~[||]o●");
-  for (let i = tick; i < tick + 10; i++)
-    expect(a.fetchScene(18, value, i).dog).toBe("~ᐯ•●•ᐯ");
+  for (let i = tick; i < tick + 10; i++) expect(a.fetchScene(18, value, i).dog).toBe("~ᐯ•●•ᐯ");
   expect(a.fetchScene(18, value, tick + 10).dog).toBe("●‹o[||]~");
 });
 test("the corgi catches the ball low at its nose, and waits beside it while it is high", () => {
@@ -92,14 +89,9 @@ test("a roll skips before it rolls, the slant kicks it up, and lights while the 
       const out = a.writeFetch(26, value, tick);
       if (ball.cell === 25) {
         kicked ||= !!(ball.dots & 0x1b);
-        expect(
-          plain(out).endsWith(
-            String.fromCodePoint(0x2800 + (0x60 | ball.dots)),
-          ),
-        ).toBe(true);
+        expect(plain(out).endsWith(String.fromCodePoint(0x2800 + (0x60 | ball.dots)))).toBe(true);
         expect(out).not.toContain(p.fg("faint"));
-      } else
-        expect(out.endsWith(p.fg("faint") + "⡠" + p.fg("text"))).toBe(true);
+      } else expect(out.endsWith(p.fg("faint") + "⡠" + p.fg("text"))).toBe(true);
     }
   }
   expect(skipped && kicked).toBe(true);
@@ -109,7 +101,7 @@ test("sleeping corgi keeps a still face and fits its width while puffing", () =>
     let puffed = false;
     for (let elapsed = 0; elapsed <= a.puff_duration_ms; elapsed += 50) {
       const text = plain(a.idle(width, new a.Sleep({ puff_ms: elapsed }))),
-        letters = [...text].filter((x) => x === "z" || x === "ᶻ").length;
+        letters = [...text].filter(x => x === "z" || x === "ᶻ").length;
       expect(len(text)).toBe(width);
       expect(letters).toBeLessThanOrEqual(2);
       if (elapsed === a.puff_duration_ms) expect(letters).toBe(0);
@@ -127,11 +119,7 @@ test("activities finish whole loops within budget and rest for at least ten seco
       x.enter(routine, 100);
       const duration = x.deadline_ms - 100;
       expect(duration).toBeLessThanOrEqual(a.Playback.max_activity_ms);
-      if (routine === "sniff")
-        expect([
-          frames.sniff.length * 200,
-          frames.sniff.length * 400,
-        ]).toContain(duration);
+      if (routine === "sniff") expect([frames.sniff.length * 200, frames.sniff.length * 400]).toContain(duration);
       x.update(true, x.deadline_ms - 1);
       expect(x.routine).toBe(routine);
       const end = x.deadline_ms;
@@ -193,9 +181,7 @@ test("every throw fits the row, bounces off its walls, and keeps clear of the co
         expect(scene.x + dw).toBeLessThan(width);
         if (scene.ball) {
           expect(scene.ball.cell).toBeLessThan(width);
-          expect(
-            scene.ball.cell < scene.x || scene.ball.cell >= scene.x + dw,
-          ).toBe(true);
+          expect(scene.ball.cell < scene.x || scene.ball.cell >= scene.x + dw).toBe(true);
           far ||= scene.ball.cell === width - 1;
           ceiling ||= !!(scene.ball.dots & 9);
         }
@@ -238,23 +224,11 @@ test("the corgi herds the word together, sits, and curls into the ellipsis", () 
     [29, "Compacting…           "],
     [1000, "Compacting…           "],
   ];
-  for (const [tick, text] of cases)
-    expect(plain(a.writeHerd(22, tick))).toBe(text);
+  for (const [tick, text] of cases) expect(plain(a.writeHerd(22, tick))).toBe(text);
   expect(
-    a
-      .writeHerd(22, 7)
-      .startsWith(
-        p.fg("text") +
-          "C " +
-          p.fg("faint") +
-          "o  mp  a" +
-          p.fg("text") +
-          "cting‹o",
-      ),
+    a.writeHerd(22, 7).startsWith(p.fg("text") + "C " + p.fg("faint") + "o  mp  a" + p.fg("text") + "cting‹o"),
   ).toBe(true);
-  expect(a.writeHerd(22, 29)).toBe(
-    p.fg("text") + "Compacting…" + " ".repeat(11),
-  );
+  expect(a.writeHerd(22, 29)).toBe(p.fg("text") + "Compacting…" + " ".repeat(11));
 });
 test("herding fits every width with letters in order and clear of the corgi", () => {
   for (const width of [18, 19, 22, 40, 80, 294]) {
@@ -292,10 +266,7 @@ test("each compaction herds from the start and ends without a reveal", () => {
   x.update("herding", 700);
   expect(x.herd_started_ms).toBe(700);
 });
-const blend = (amount: number) =>
-  p.colors.bg.map((v, i) =>
-    Math.round(v + (p.colors.faint[i] - v) * amount),
-  ) as p.Rgb;
+const blend = (amount: number) => p.colors.bg.map((v, i) => Math.round(v + (p.colors.faint[i] - v) * amount)) as p.Rgb;
 test("a puff starts lit, fades as it rises, and seen sleepers are dim", () => {
   const lit = a.idle(22, new a.Sleep({ bright: true, puff_ms: 0 }));
   expect(lit.startsWith(p.fg("faint") + "~ᐯ◡ᴥ◡ᐯ")).toBe(true);
@@ -303,23 +274,15 @@ test("a puff starts lit, fades as it rises, and seen sleepers are dim", () => {
   const half = a.idle(22, new a.Sleep({ puff_ms: 450 }));
   expect(half).toContain(p.fgRgb(blend(0.5)) + "ᶻ");
   expect(half).toContain(p.fgRgb(blend(0.4)) + "z");
-  expect(a.idle(22, new a.Sleep({ puff_ms: 2700 }))).toContain(
-    p.fgRgb(blend(0.4)) + "z",
-  );
+  expect(a.idle(22, new a.Sleep({ puff_ms: 2700 }))).toContain(p.fgRgb(blend(0.4)) + "z");
   expect(a.idle(22)).toBe(p.fgRgb(blend(0.42)) + "~ᐯ◡ᴥ◡ᐯ" + " ".repeat(16));
 });
 test("the corgi is gray: text awake, faint asleep, muted asleep on a selected row", () => {
   const x = new a.Presentation();
   x.update("awake", 0);
-  expect(x.writeCorgi(20, true, new a.Sleep()).startsWith(p.fg("text"))).toBe(
-    true,
-  );
-  expect(a.idle(6, new a.Sleep({ bright: true }))).toBe(
-    p.fg("faint") + "~ᐯ◡ᴥ◡ᐯ",
-  );
-  expect(
-    a.idle(6, new a.Sleep({ background: p.colors.selected, selected: true })),
-  ).toBe(p.fg("muted") + "~ᐯ◡ᴥ◡ᐯ");
+  expect(x.writeCorgi(20, true, new a.Sleep()).startsWith(p.fg("text"))).toBe(true);
+  expect(a.idle(6, new a.Sleep({ bright: true }))).toBe(p.fg("faint") + "~ᐯ◡ᴥ◡ᐯ");
+  expect(a.idle(6, new a.Sleep({ background: p.colors.selected, selected: true }))).toBe(p.fg("muted") + "~ᐯ◡ᴥ◡ᐯ");
   const out = a.writeUnearth(a.Dig.width("restoring"), 3000, "restoring");
   expect(out).toContain(p.fg("accent") + "Restoring…");
   expect(out).toContain(p.fg("text") + "ᐯ•ᴥ•ᐯ~");
@@ -338,7 +301,7 @@ test("one sleeper dreams per period, holds through its puff, and rarely repeats"
     expect(a.dreamer(keys, start + 4500)).toBeNull();
     const top = a.pick(keys, BigInt(period - 1), null);
     let woke = false;
-    const awake = keys.filter((key) => {
+    const awake = keys.filter(key => {
       if (!woke && key !== dream.key && key !== top) {
         woke = true;
         return false;
@@ -352,8 +315,7 @@ test("one sleeper dreams per period, holds through its puff, and rarely repeats"
   }
   expect(seen.size).toBe(keys.length);
   expect(repeats).toBeLessThan(15);
-  for (let period = 0; period < 5; period++)
-    expect(a.dreamer([7], period * a.dream_period_ms)!.key).toBe(7n);
+  for (let period = 0; period < 5; period++) expect(a.dreamer([7], period * a.dream_period_ms)!.key).toBe(7n);
 });
 test("content reveal preserves the old pose and cancels when a corgi returns", () => {
   const x = new a.Presentation();
@@ -397,25 +359,15 @@ test("the corgi digs the word out from the left, then turns and wags", () => {
     [1700, "⣤⣶⣤⣤ ⠁   ~[/\\]o› Restoring…"],
     [3000, "⣶⣶⣤⣤      ᐯ•ᴥ•ᐯ~ Restoring…"],
   ] as [number, string][])
-    expect(
-      plain(a.writeUnearth(a.Dig.width("restoring"), ms, "restoring")),
-    ).toBe(text);
-  expect(a.writeUnearth(a.Dig.width("restoring"), 700, "restoring")).toContain(
-    p.fg("accent") + "Res",
-  );
-  expect(
-    plain(a.writeUnearth(a.Dig.width("restoring") - 1, 0, "restoring")),
-  ).toBe("Restoring…");
+    expect(plain(a.writeUnearth(a.Dig.width("restoring"), ms, "restoring"))).toBe(text);
+  expect(a.writeUnearth(a.Dig.width("restoring"), 700, "restoring")).toContain(p.fg("accent") + "Res");
+  expect(plain(a.writeUnearth(a.Dig.width("restoring") - 1, 0, "restoring"))).toBe("Restoring…");
 });
 test("a fork's corgi digs out its own, shorter word", () => {
   for (const [ms, text] of [
     [0, "        ⠄~[\\/]o› ⣤⣿⣷⣾⣿⣶⣷⣿"],
     [3000, "⣤⣤⣤⣤      ᐯ•ᴥ•ᐯ~ Forking…"],
   ] as [number, string][])
-    expect(plain(a.writeUnearth(a.Dig.width("forking"), ms, "forking"))).toBe(
-      text,
-    );
-  expect(plain(a.writeUnearth(a.Dig.width("forking") - 1, 0, "forking"))).toBe(
-    "Forking…",
-  );
+    expect(plain(a.writeUnearth(a.Dig.width("forking"), ms, "forking"))).toBe(text);
+  expect(plain(a.writeUnearth(a.Dig.width("forking") - 1, 0, "forking"))).toBe("Forking…");
 });

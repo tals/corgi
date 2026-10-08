@@ -19,13 +19,14 @@ const copied_label = " Copied to clipboard ";
 const open_hint = " ⇧⌘-click opens · click copies ";
 /** Columns between the border and the text. */
 const pad = 3;
-const partText = (part: { text: { text(): string } | string }) => (typeof part.text === "string" ? part.text : part.text.text());
+const partText = (part: { text: { text(): string } | string }) =>
+  typeof part.text === "string" ? part.text : part.text.text();
 /** Border, blank, reason, blank, fix, the download link when there is one, blank, border. */
 function height(notice: Notice): number {
   return hasLink(notice) ? 8 : 7;
 }
 function hasLink(notice: Notice): boolean {
-  return notice.fix().some((part) => part.kind === "link");
+  return notice.fix().some(part => part.kind === "link");
 }
 const text = new Style({ fg: "text", bg: "surface" }).sgr();
 const border = new Style({ fg: "line", bg: "surface" }).sgr();
@@ -65,8 +66,10 @@ export function place(notice: Notice, pane: Rect, caret: Caret | null): Placemen
   if (w < frameWidth(lines) || pane.h < h) return null;
   if (!caret) return { x: pane.x, y: pane.y + pane.h - h, w, h, arrow: null };
   const x = Math.min(Math.max(sat(caret.x, 2), pane.x), pane.x + pane.w - w);
-  if (caret.y >= pane.y + h + 1) return { x, y: caret.y - 1 - h, w, h, arrow: { x: caret.x, y: caret.y - 1, glyph: "▾" } };
-  if (caret.y + 2 + h <= pane.y + pane.h) return { x, y: caret.y + 2, w, h, arrow: { x: caret.x, y: caret.y + 1, glyph: "▴" } };
+  if (caret.y >= pane.y + h + 1)
+    return { x, y: caret.y - 1 - h, w, h, arrow: { x: caret.x, y: caret.y - 1, glyph: "▾" } };
+  if (caret.y + 2 + h <= pane.y + pane.h)
+    return { x, y: caret.y + 2, w, h, arrow: { x: caret.x, y: caret.y + 1, glyph: "▴" } };
   return null;
 }
 /** The card in the focused pane, at its caret. */
@@ -74,7 +77,7 @@ export function locate(view: LayoutView, panes: Pane[], area: Rect, notice: Noti
   if (view.model.count === 0) return null;
   for (const spot of view.placements(area)) {
     if (spot.id !== view.selection.tabs[view.selection.active].focus) continue;
-    const p = panes.find((pane) => pane.id === spot.id);
+    const p = panes.find(pane => pane.id === spot.id);
     if (!p) continue;
     const r = spot.rect;
     const c = p.terminal.caret();

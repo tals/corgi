@@ -45,10 +45,7 @@ export class Response {
     this.value = value;
   }
 }
-export type Stopping =
-  | { load?: (...args: any[]) => boolean; value?: boolean }
-  | AbortSignal
-  | boolean;
+export type Stopping = { load?: (...args: any[]) => boolean; value?: boolean } | AbortSignal | boolean;
 function cancelled(stopping?: Stopping) {
   if (typeof stopping === "boolean") return stopping;
   if (!stopping) return false;
@@ -96,12 +93,10 @@ export class Connection {
       if (config.model) args.push("--model", config.model);
       if (request.schema) args.push("--json-schema", request.schema);
     }
-    const executable =
-      config.executable ?? process.env[info.binary_env] ?? info.executables[0];
+    const executable = config.executable ?? process.env[info.binary_env] ?? info.executables[0];
     const input = new Int32Array(2),
       output = new Int32Array(2);
-    if (n.probe_pipe(ptr(input)) !== 0 || n.probe_pipe(ptr(output)) !== 0)
-      throw Error("PipeFailed");
+    if (n.probe_pipe(ptr(input)) !== 0 || n.probe_pipe(ptr(output)) !== 0) throw Error("PipeFailed");
     try {
       this.process = Bun.spawn([executable, ...args], {
         cwd: "/tmp",
@@ -132,11 +127,7 @@ export class Connection {
   }
   poll() {
     while (this.output.length) {
-      const size = n.probe_write(
-        this.stdin,
-        ptr(this.output),
-        this.output.length,
-      );
+      const size = n.probe_write(this.stdin, ptr(this.output), this.output.length);
       if (size <= 0) break;
       this.output = Buffer.from(this.output.subarray(size));
     }
@@ -157,9 +148,7 @@ export class Connection {
         const value = parse(line);
         this.tracker.ingest(value, this.system, Date.now());
         if (
-          (this.config.provider === "codex" &&
-            str(value, "method") &&
-            field(value, "id") !== null) ||
+          (this.config.provider === "codex" && str(value, "method") && field(value, "id") !== null) ||
           str(value, "type") === "control_request"
         )
           throw Error("UnexpectedToolRequest");
@@ -172,8 +161,7 @@ export class Connection {
   send(value: any) {
     if (this.closed || this.exited) throw Error("HarnessExited");
     const line = Buffer.from(stringify(value) + "\n");
-    if (this.output.length + line.length > 1024 * 1024)
-      throw Error("NativeBackpressure");
+    if (this.output.length + line.length > 1024 * 1024) throw Error("NativeBackpressure");
     this.output = Buffer.concat([this.output, line]);
     this.poll();
   }
@@ -182,33 +170,22 @@ export class Connection {
     if (cancelled(stopping)) throw Error("Cancelled");
     if (Date.now() >= deadline) throw Error("Timeout");
     if (this.failure) throw this.failure;
-    if (this.events.length && this.events[0].seq > this.cursor + 1n)
-      throw Error("EventOverflow");
+    if (this.events.length && this.events[0].seq > this.cursor + 1n) throw Error("EventOverflow");
   }
   async wait(stopping: Stopping | undefined, deadline: number) {
     this.check(stopping, deadline);
     if (this.exited) throw Error("HarnessExited");
     await Bun.sleep(10);
   }
-  async rpc(
-    method: string,
-    params: any,
-    stopping: Stopping | undefined,
-    deadline: number,
-  ) {
+  async rpc(method: string, params: any, stopping: Stopping | undefined, deadline: number) {
     const id = this.next_id++;
     this.send({ id, method, params });
     while (true) {
       this.check(stopping, deadline);
       for (const event of this.events) {
-        if (
-          event.seq <= this.cursor ||
-          String(field(event.value, "id")) !== String(id)
-        )
-          continue;
+        if (event.seq <= this.cursor || String(field(event.value, "id")) !== String(id)) continue;
         this.cursor = event.seq;
-        if (field(event.value, "error") !== null)
-          throw Error("HarnessRejected");
+        if (field(event.value, "error") !== null) throw Error("HarnessRejected");
         return event.value;
       }
       await this.wait(stopping, deadline);
@@ -265,7 +242,7 @@ export class Pool {
       clock: this.clock,
       started: this.started,
       system_usage: this.system_usage,
-      slots: this.slots.map((connection) =>
+      slots: this.slots.map(connection =>
         connection
           ? {
               pid: connection.pid,
@@ -276,7 +253,7 @@ export class Pool {
               input: binary.encode(connection.input),
               output: binary.encode(connection.output),
               deferred: "",
-              events: connection.events.map((event) => ({
+              events: connection.events.map(event => ({
                 seq: event.seq,
                 line: stringify(event.value),
               })),
@@ -291,9 +268,7 @@ export class Pool {
               conversations_created: connection.conversations_created,
               used: connection.used,
               usage_cursor: connection.cursor,
-              usage: [...connection.tracker.threads].map(
-                ([thread, tokens]) => ({ thread, tokens }),
-              ),
+              usage: [...connection.tracker.threads].map(([thread, tokens]) => ({ thread, tokens })),
             }
           : null,
       ),
@@ -351,10 +326,7 @@ export class Pool {
         closed: false,
       });
       for (const usage of entry.usage)
-        connection.tracker.threads.set(
-          usage.thread,
-          hydrate(new Tokens(), usage.tokens),
-        );
+        connection.tracker.threads.set(usage.thread, hydrate(new Tokens(), usage.tokens));
       fdNative.fd_cloexec(connection.stdin);
       fdNative.fd_cloexec(connection.stdout);
       harnesses++;
@@ -362,8 +334,7 @@ export class Pool {
     });
   }
   inherit() {
-    for (const connection of this.slots)
-      if (connection) connection.owner = "runtime";
+    for (const connection of this.slots) if (connection) connection.owner = "runtime";
   }
   deinit() {
     for (const connection of this.slots) connection?.close();
@@ -382,24 +353,19 @@ export class Pool {
     );
   }
   select(request: Request) {
-    const match = this.slots.findIndex((s) => s && this.matches(s, request));
+    const match = this.slots.findIndex(s => s && this.matches(s, request));
     if (match >= 0) return match;
     if (request.conversation == null && this.config.provider === "codex") {
-      const anonymous = this.slots.findIndex((s) => s && s.key === null);
+      const anonymous = this.slots.findIndex(s => s && s.key === null);
       if (anonymous >= 0) return anonymous;
     }
-    const vacant = this.slots.findIndex((s) => s === null);
+    const vacant = this.slots.findIndex(s => s === null);
     if (vacant >= 0) return vacant;
     let oldest = 0;
-    for (let i = 1; i < capacity; i++)
-      if (this.slots[i]!.used < this.slots[oldest]!.used) oldest = i;
+    for (let i = 1; i < capacity; i++) if (this.slots[i]!.used < this.slots[oldest]!.used) oldest = i;
     return oldest;
   }
-  async open(
-    request: Request,
-    stopping?: Stopping,
-    deadline = Date.now() + this.config.timeout_ms,
-  ) {
+  async open(request: Request, stopping?: Stopping, deadline = Date.now() + this.config.timeout_ms) {
     const connection = new Connection(this.config, request, this.system_usage);
     try {
       await connection.ready(stopping, deadline);
@@ -414,22 +380,16 @@ export class Pool {
     if (cancelled(stopping)) throw Error("Cancelled");
     const freshLength = Buffer.byteLength(request.fresh_content ?? "");
     if (
-      Buffer.byteLength(request.instructions) +
-        Math.max(Buffer.byteLength(request.content), freshLength) >
+      Buffer.byteLength(request.instructions) + Math.max(Buffer.byteLength(request.content), freshLength) >
       512 * 1024
     )
       throw Error("InputTooLarge");
     if (request.schema != null) {
-      if (Buffer.byteLength(request.schema) > 32768)
-        throw Error("InputTooLarge");
+      if (Buffer.byteLength(request.schema) > 32768) throw Error("InputTooLarge");
       const schema = parse(request.schema);
-      if (!schema || typeof schema !== "object" || Array.isArray(schema))
-        throw Error("InvalidSchema");
+      if (!schema || typeof schema !== "object" || Array.isArray(schema)) throw Error("InvalidSchema");
     }
-    if (
-      request.conversation != null &&
-      (!request.conversation || Buffer.byteLength(request.conversation) > 512)
-    )
+    if (request.conversation != null && (!request.conversation || Buffer.byteLength(request.conversation) > 512))
       throw Error("InvalidConversation");
     if (this.working) throw Error("InferenceBusy");
     this.working = true;
@@ -439,13 +399,7 @@ export class Pool {
       let s = this.slots[index];
       if (s && (!this.matches(s, request) || s.turns >= 32)) {
         if (this.config.provider === "codex" && s.conversations_created < 32) {
-          if (s.thread)
-            await s.rpc(
-              "thread/unsubscribe",
-              { threadId: s.thread },
-              stopping,
-              deadline,
-            );
+          if (s.thread) await s.rpc("thread/unsubscribe", { threadId: s.thread }, stopping, deadline);
           s.key = request.conversation ?? null;
           s.instructions = request.instructions;
           s.schema = request.schema ?? null;
@@ -456,16 +410,12 @@ export class Pool {
           s = this.slots[index] = null;
         }
       }
-      if (!s)
-        s = this.slots[index] = await this.open(request, stopping, deadline);
+      if (!s) s = this.slots[index] = await this.open(request, stopping, deadline);
       s.used = ++this.clock;
       const fresh = s.turns === 0;
       const sent = {
         ...request,
-        content:
-          fresh && request.fresh_content != null
-            ? request.fresh_content
-            : request.content,
+        content: fresh && request.fresh_content != null ? request.fresh_content : request.content,
       };
       const reports = this.system_usage.reports,
         before = new Tokens(this.system_usage.meter.value.tokens);
@@ -481,8 +431,7 @@ export class Pool {
           throw Error("InvalidOutput");
         }
       }
-      if (this.system_usage.reports === reports)
-        this.system_usage.markPartial("turn completed without a usage report");
+      if (this.system_usage.reports === reports) this.system_usage.markPartial("turn completed without a usage report");
       const after = this.system_usage.meter.value.tokens;
       for (const key of ["input", "cached_input", "output"] as const)
         response.usage[key] = sub(after[key], before[key]);
@@ -499,27 +448,13 @@ export class Pool {
       this.working = false;
     }
   }
-  async codex(
-    s: Connection,
-    request: Request,
-    stopping: Stopping | undefined,
-    deadline: number,
-  ) {
+  async codex(s: Connection, request: Request, stopping: Stopping | undefined, deadline: number) {
     if (!s.thread) {
-      const settings = await s.rpc(
-        "config/read",
-        { includeLayers: false },
-        stopping,
-        deadline,
-      );
-      const servers = field(
-        field(field(settings, "result"), "config"),
-        "mcp_servers",
-      );
+      const settings = await s.rpc("config/read", { includeLayers: false }, stopping, deadline);
+      const servers = field(field(field(settings, "result"), "config"), "mcp_servers");
       const overrides: Record<string, boolean> = {};
       if (servers && typeof servers === "object")
-        for (const name of Object.keys(servers))
-          overrides[`mcp_servers.${name}.enabled`] = false;
+        for (const name of Object.keys(servers)) overrides[`mcp_servers.${name}.enabled`] = false;
       const started = await s.rpc(
         "thread/start",
         {
@@ -537,8 +472,7 @@ export class Pool {
         deadline,
       );
       s.thread = str(field(field(started, "result"), "thread"), "id");
-      if (!s.thread || Buffer.byteLength(s.thread) > 160)
-        throw Error("InvalidSession");
+      if (!s.thread || Buffer.byteLength(s.thread) > 160) throw Error("InvalidSession");
       s.tracker.begin(s.thread);
       s.conversations_created++;
     }
@@ -569,30 +503,18 @@ export class Pool {
         if (method === "item/completed" && str(params, "turnId") === turn) {
           const item = field(params, "item"),
             phase = str(item, "phase");
-          if (
-            str(item, "type") === "agentMessage" &&
-            (!phase || phase === "final_answer")
-          )
+          if (str(item, "type") === "agentMessage" && (!phase || phase === "final_answer"))
             response.set(str(item, "text"));
         }
-        if (
-          method === "turn/completed" &&
-          str(field(params, "turn"), "id") === turn
-        ) {
-          if (str(field(params, "turn"), "status") !== "completed")
-            throw Error("InferenceFailed");
+        if (method === "turn/completed" && str(field(params, "turn"), "id") === turn) {
+          if (str(field(params, "turn"), "status") !== "completed") throw Error("InferenceFailed");
           return response;
         }
       }
       await s.wait(stopping, deadline);
     }
   }
-  async claude(
-    s: Connection,
-    request: Request,
-    stopping: Stopping | undefined,
-    deadline: number,
-  ) {
+  async claude(s: Connection, request: Request, stopping: Stopping | undefined, deadline: number) {
     if (!s.turns) {
       s.send({
         type: "control_request",
@@ -610,8 +532,7 @@ export class Pool {
             str(event.value, "type") === "control_response" &&
             str(response, "request_id") === "corgi-inference-init"
           ) {
-            if (str(response, "subtype") !== "success")
-              throw Error("HarnessRejected");
+            if (str(response, "subtype") !== "success") throw Error("HarnessRejected");
             ready = true;
           }
         }
@@ -629,11 +550,7 @@ export class Pool {
         s.cursor = event.seq;
         const value = event.value;
         if (str(value, "type") !== "result") continue;
-        if (
-          str(value, "subtype") !== "success" ||
-          field(value, "is_error") === true
-        )
-          throw Error("InferenceFailed");
+        if (str(value, "subtype") !== "success" || field(value, "is_error") === true) throw Error("InferenceFailed");
         const response = new Response();
         if (request.schema != null) {
           const structured = field(value, "structured_output");
@@ -646,22 +563,13 @@ export class Pool {
     }
   }
   async metadata(stopping?: Stopping) {
-    if (!this.slots[0])
-      this.slots[0] = await this.open(
-        { instructions: "", content: "" },
-        stopping,
-      );
+    if (!this.slots[0]) this.slots[0] = await this.open({ instructions: "", content: "" }, stopping);
     return this.slots[0]!;
   }
   async configuredModel(cwd: string, stopping?: Stopping) {
     const s = await this.metadata(stopping),
       deadline = Date.now() + this.config.timeout_ms;
-    const settings = await s.rpc(
-      "config/read",
-      { includeLayers: false, cwd },
-      stopping,
-      deadline,
-    );
+    const settings = await s.rpc("config/read", { includeLayers: false, cwd }, stopping, deadline);
     const model = str(field(field(settings, "result"), "config"), "model");
     const response = new Response();
     if (model) {
@@ -681,35 +589,21 @@ export class Pool {
   async configuredAccount(stopping?: Stopping) {
     const s = await this.metadata(stopping),
       deadline = Date.now() + this.config.timeout_ms;
-    const reply = await s.rpc(
-        "account/read",
-        { refreshToken: false },
-        stopping,
-        deadline,
-      ),
+    const reply = await s.rpc("account/read", { refreshToken: false }, stopping, deadline),
       account = field(field(reply, "result"), "account");
     const response = metadata.codexAccount(account);
     if (str(account, "type") !== "chatgpt") return response;
     try {
-      const reply = await s.rpc(
-          "account/rateLimits/read",
-          {},
-          stopping,
-          deadline,
-        ),
+      const reply = await s.rpc("account/rateLimits/read", {}, stopping, deadline),
         result = field(reply, "result");
       response.limits = metadata.limits(
-        field(field(result, "rateLimitsByLimitId"), "codex") ??
-          field(result, "rateLimits"),
+        field(field(result, "rateLimitsByLimitId"), "codex") ?? field(result, "rateLimits"),
         "codex",
       );
-      if (response.limits === "none")
-        response.usage_error = new Text("no usage returned");
+      if (response.limits === "none") response.usage_error = new Text("no usage returned");
     } catch (error) {
       response.usage_error = new Text(
-        (error as Error).message === "Timeout"
-          ? "request timed out"
-          : "usage request failed",
+        (error as Error).message === "Timeout" ? "request timed out" : "usage request failed",
       );
       s.close();
       this.slots[0] = null;

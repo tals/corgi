@@ -13,8 +13,7 @@ export const Group = {
 };
 export type Task = { id: Text; label: Text; group: Group };
 export function claudeTask(item: any) {
-  if (["completed", "failed", "killed"].includes(str(item, "status")))
-    return null;
+  if (["completed", "failed", "killed"].includes(str(item, "status"))) return null;
   const t = str(item, "type");
   return ["shell", "subagent"].includes(t) ? t : null;
 }
@@ -25,8 +24,7 @@ export function classify(command: string): Group {
   for (let i = 0; i < 2; i++) {
     const w = words.shift();
     if (!w) break;
-    if (w === "test" || (w === "pytest" && exe.startsWith("python")))
-      return "tests";
+    if (w === "test" || (w === "pytest" && exe.startsWith("python"))) return "tests";
     if (w === "build") return words.shift() === "test" ? "tests" : "builds";
     if (["dev", "serve", "http.server"].includes(w)) return "servers";
     if (!["run", "-m"].includes(w)) break;
@@ -40,11 +38,7 @@ export function summarize(description: string, command: string, group: Group) {
     const words = prose.split(/\s+/);
     for (let i = 0; i < words.length; i++) {
       const word = words[i].replace(/[\x00-\x1f\x7f-\x9f]/g, "");
-      if (
-        i === 6 ||
-        Buffer.byteLength(label) + Buffer.byteLength(word) + Number(!!label) >
-          45
-      ) {
+      if (i === 6 || Buffer.byteLength(label) + Buffer.byteLength(word) + Number(!!label) > 45) {
         if (label) return label + "…";
         break;
       }
@@ -71,8 +65,7 @@ export function summarize(description: string, command: string, group: Group) {
         bun: "Running Bun task",
         node: "Running JavaScript task",
       } as Record<string, string>
-    )[exe] ??
-    (exe.startsWith("python") ? "Running Python task" : "Running shell task")
+    )[exe] ?? (exe.startsWith("python") ? "Running Python task" : "Running shell task")
   );
 }
 export class Inventory {
@@ -84,12 +77,7 @@ export class Inventory {
     return this.items.length;
   }
   append(id: string, description: string, command: string) {
-    if (
-      !id ||
-      Buffer.byteLength(id) > 96 ||
-      (!description && !command) ||
-      this.items.some((t) => t.id.text() === id)
-    )
+    if (!id || Buffer.byteLength(id) > 96 || (!description && !command) || this.items.some(t => t.id.text() === id))
       return;
     if (this.len === capacity) {
       this.truncated = true;
@@ -107,17 +95,12 @@ export class Inventory {
     const t = new Inventory();
     t.observed_at = now;
     for (const item of value)
-      if (claudeTask(item) === "shell")
-        t.append(
-          str(item, "id"),
-          str(item, "description"),
-          str(item, "command"),
-        );
+      if (claudeTask(item) === "shell") t.append(str(item, "id"), str(item, "description"), str(item, "command"));
     return t;
   }
   view() {
     return {
-      items: this.items.map((t) => ({
+      items: this.items.map(t => ({
         id: t.id.text(),
         label: t.label.text(),
         group: t.group,
@@ -138,7 +121,7 @@ export class Children {
     return this.items;
   }
   listed(id: string) {
-    return this.items.some((c) => c.id.text() === id);
+    return this.items.some(c => c.id.text() === id);
   }
   complete() {
     return this.running === this.len;
@@ -173,7 +156,7 @@ export class Ended {
     this.items.push(new Text(id));
   }
   listed(id: string) {
-    return this.items.some((t) => t.text() === id);
+    return this.items.some(t => t.text() === id);
   }
 }
 /** The background shells a Claude Stop lists as running: commands and
@@ -198,17 +181,15 @@ export class Shells {
   }
   /** Drops the shells the transcript reports ended. */
   drop(ended: Ended) {
-    this.items = this.items.filter((t) => !ended.listed(t.text()));
+    this.items = this.items.filter(t => !ended.listed(t.text()));
   }
   slice() {
     return this.items;
   }
   listed(id: string) {
-    return this.items.some((t) => t.text() === id);
+    return this.items.some(t => t.text() === id);
   }
 }
 export function claudeWakeup(crons: any) {
-  return (
-    Array.isArray(crons) && crons.some((c) => field(c, "recurring") === false)
-  );
+  return Array.isArray(crons) && crons.some(c => field(c, "recurring") === false);
 }
