@@ -158,8 +158,11 @@ async function worker(exe:string,socket:string){const rel=release(exe),root=mana
 export const launcher=(root:string)=>`#!/bin/sh\nset -eu\nroot=${quote(root)}\nv=$(cat "$root/current")\ncase "$v" in ''|*[!0-9.a-fTZ-]*) echo 'Invalid Corgi version' >&2; exit 1;; esac\nexec "$root/releases/$v/corgi" "$@"\n`;
 async function install(rel:Release,exe:string,root:string,bin:string,manifest:string){
   if(!isAbsolute(root)||!isAbsolute(bin))throw Error("AbsoluteInstallPathRequired");privateDirectory(root);const unlock=await lock(root,"activation.lock",true);
-  try{if(existsSync(join(root,"current")))throw Error("AlreadyInstalled");const bytes=readFileSync(manifest,"utf8"),m=parse(rel,bytes);if(m.version!==rel.version||m.commit!==rel.commit)throw Error("WrongReleaseManifest");verifyFile(exe,m.targets[platform]);
-    const dest=executable(root,rel.version),dir=dirname(dest);privateDirectory(dir);copyFileSync(exe,dest);chmodSync(dest,0o700);write(dir,"manifest.json",bytes);
+  try{const current=read(root,"current");if(current!==null&&compare(rel.version,current)<=0)throw Error("AlreadyInstalled");
+    const bytes=readFileSync(manifest,"utf8"),m=parse(rel,bytes);if(m.version!==rel.version||m.commit!==rel.commit)throw Error("WrongReleaseManifest");verifyFile(exe,m.targets[platform]);
+    const dest=executable(root,rel.version),dir=dirname(dest);privateDirectory(dir);try{verifyFile(dest,m.targets[platform]);}catch{copyFileSync(exe,dest);chmodSync(dest,0o700);}write(dir,"manifest.json",bytes);
+    // Over an older installation it stages the release, as a background download would; the next launch activates it.
+    if(current!==null){const staged=read(root,"staged");if(staged===null||compare(staged,rel.version)<0)write(root,"staged",rel.version);return;}
     mkdirSync(dirname(bin),{recursive:true});writeFileSync(bin,launcher(root),{flag:"wx",mode:0o755});write(root,"current",rel.version);
   }finally{unlock?.();}
 }

@@ -111,6 +111,19 @@ test("background download stages without activating, next start works offline", 
   await cli(["start"]);
   expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.1");
 }, 30_000);
+test("installing over an older release stages it for the next start", async () => {
+  const manifest = join(home, "manifest.json");
+  await writeFile(manifest, manifests.get("1.0.1")!);
+  await exec([fixture("1.0.1"), "__install", root, bin, manifest]);
+  expect((await readFile(join(root, "staged"), "utf8"))).toBe("1.0.1");
+  expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.0");
+  await writeFile(manifest, manifests.get("1.0.0")!);
+  expect((await exec([fixture("1.0.0"), "__install", root, bin, manifest], env, false)).err).toContain("AlreadyInstalled");
+  await cli(["update", "auto", "on"]);
+  unavailable = true;
+  await cli(["start"]);
+  expect((await readFile(join(root, "current"), "utf8"))).toBe("1.0.1");
+}, 30_000);
 test("signature and checksum failures leave installation and runtime untouched", async () => {
   await cli(["start"]);
   const before = await rpc({ op: "hello", protocol: 1 });

@@ -80,14 +80,20 @@ progress() {
 }
 
 install_corgi() {
+  installed=
   if [ -f "$root/current" ]; then
-    already 'Downloaded corgi'
-    already "Installed corgi $(cat "$root/current") at $(home "$bin")"
+    installed=$(cat "$root/current")
     [ -x "$bin" ] || fail "Corgi is installed in $(home "$root"), but $(home "$bin") is missing.
     Uninstall with: curl -fsSL $base/install.sh | bash -s uninstall"
-    return
+    # Release versions are fixed-width UTC timestamps, so they order as text.
+    if ! LC_ALL=C expr "x$version" \> "x$installed" >/dev/null; then
+      already 'Downloaded corgi'
+      already "Installed corgi $installed at $(home "$bin")"
+      return
+    fi
+  else
+    [ ! -e "$bin" ] || fail "$(home "$bin") already exists. Set CORGI_INSTALL_BIN to install elsewhere."
   fi
-  [ ! -e "$bin" ] || fail "$(home "$bin") already exists. Set CORGI_INSTALL_BIN to install elsewhere."
   tmp=$(mktemp -d)
   ok "Staging in $(home "$tmp")"
 
@@ -111,12 +117,19 @@ install_corgi() {
   [ "$actual" = "$expected" ] || fail 'Corgi checksum mismatch'
   ok "Verified checksum  ${dim}sha256 $(printf '%.12s' "$expected")…$off"
 
-  # Corgi verifies the signed manifest and installs its auto-update launcher.
+  # Corgi verifies the signed manifest and installs its auto-update launcher, or
+  # stages itself over an older installation for the next launch to activate.
   fetch manifest.json manifest.json
   chmod 700 "$tmp/corgi"
   "$tmp/corgi" __install "$root" "$bin" "$tmp/manifest.json" </dev/null 2>"$tmp/error" ||
     fail "Couldn't install corgi: $(cat "$tmp/error")"
-  ok "Installed corgi at $(home "$bin")"
+  if [ -z "$installed" ]; then
+    ok "Installed corgi at $(home "$bin")"
+  elif [ -f "$root/auto-off" ]; then
+    ok "Staged the update from $installed  ${dim}automatic updates are off; corgi update switches to it$off"
+  else
+    ok "Updated corgi from $installed  ${dim}it takes over when corgi next starts$off"
+  fi
 }
 
 # Puts the default install directory on PATH for new shells.

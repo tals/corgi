@@ -353,6 +353,28 @@ test("rerunning the installer skips finished steps without downloading", async (
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 
+test("the installer updates an older installation and leaves a newer one", async () => {
+  const home = await mkdtemp(join(tmpdir(), "corgi update test "));
+  try {
+    const root = join(home, ".local/share/corgi"), bin = join(home, ".local/bin/corgi"), stub = join(home, "stub");
+    await mkdir(root, { recursive: true }); await mkdir(join(home, ".local/bin")); await mkdir(stub);
+    await writeFile(join(root, "current"), "1.2.4"); await writeFile(bin, "#!/bin/sh\n"); await chmod(bin, 0o755);
+    // A failing curl shows whether it downloads, without the network.
+    await writeFile(join(stub, "curl"), "#!/bin/sh\necho stubbed >&2\nexit 22\n"); await chmod(join(stub, "curl"), 0o755);
+    const env: Record<string, string | undefined> = {...process.env, HOME:home, SHELL:"/bin/bash", PATH:`${stub}:${join(home, ".local/bin")}:/usr/bin:/bin`};
+    delete env.CORGI_PANE;
+    const run = () => { const p = Bun.spawnSync(["/bin/sh", "-c", testInstaller()], {env}); return { code: p.exitCode, out: p.stdout.toString(), err: p.stderr.toString() }; };
+    const newer = run();
+    expect(newer.code).toBe(0);
+    expect(newer.out).toContain("✓ Installed corgi 1.2.4 at ~/.local/bin/corgi (already done)");
+    await writeFile(join(root, "current"), "1.2.2");
+    const older = run();
+    expect(older.code).toBe(1);
+    expect(older.out).not.toContain("already done");
+    expect(older.err).toMatch(/Couldn't download corgi-\S+: stubbed/);
+  } finally { await rm(home, { recursive: true, force: true }); }
+});
+
 test("the launch button gives corgi the terminal device, not /dev/tty", async () => {
   // Bun can't wait for input on /dev/tty on macOS, so a corgi reading it ignores every key.
   const home = await mkdtemp(join(tmpdir(), "corgi launch test "));
