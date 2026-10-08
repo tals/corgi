@@ -185,8 +185,8 @@ pub const Controller = struct {
     launched: layout.PaneId = .none,
     sidebar_rows: sidebar_rows.State = .{},
     remote_links: bool = false,
-    /// The host terminal's clipboard, read over SSH; the paste being read
-    /// goes to `paste_target`.
+    /// The host terminal's clipboard, read for its paste events; the paste
+    /// being read goes to `paste_target`.
     host_clipboard: ?*host_clipboard.State = null,
     paste_target: ?Paste = null,
     /// Why a paste brought no image, over the pane it was meant for.
@@ -2091,8 +2091,10 @@ pub const Controller = struct {
     }
     /// Explains, over SSH, why a key that usually pastes an image didn't.
     /// Opens the card over the focused pane when `pressed` was likely an
-    /// attempt to paste an image that can't work over SSH.
+    /// attempt to paste an image that can't work over SSH. A local agent
+    /// reads this machine's clipboard on its own Ctrl+V.
     fn imageHint(s: *Self, pressed: host_clipboard.Key) bool {
+        if (!s.remote_links) return false;
         const clipboard = s.host_clipboard orelse return false;
         const p = s.focused() orelse return false;
         const agent = if (p.agent.provider) |provider| provider.info().name else "The program";

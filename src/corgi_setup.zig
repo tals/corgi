@@ -58,7 +58,7 @@ const Line = union(enum) {
     /// Dim text aligned with row labels.
     hint: []const u8,
     option: Choice,
-    /// Whether a viewer over SSH can paste images; nothing to choose.
+    /// Whether Cmd+V can paste images; nothing to choose.
     image_paste,
     /// Requirements or status for the highlighted (or current) summarizer.
     detail,
@@ -232,7 +232,7 @@ pub const Menu = struct {
                     var buffer: [48]u8 = undefined;
                     const clipboard = m.image_paste orelse continue;
                     const state = clipboard.status(&buffer);
-                    try put(w, b, label_x, y, text, "Image paste over SSH");
+                    try put(w, b, label_x, y, text, "Image paste");
                     const on = clipboard.support == .on;
                     try w.print("\x1b[{d};{d}H{s}{s}", .{ y + 1, b.x + b.w - 3 - sidebar.displayWidth(state), if (on) row_normal.accent else panel, state });
                 },
@@ -478,16 +478,16 @@ test "sleeping corgis row shows its state, offers the opposite, and naps beside 
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "ᶻ") == null);
 }
 
-test "a viewer over SSH sees whether it can paste images" {
+test "a viewer sees whether it can paste images" {
     var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
     var menu = Menu.open(.{});
     try menu.drawAt(&output.writer, .{}, .{}, 100, 40, 0);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Image paste over SSH") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Image paste") == null);
     var clipboard: host_clipboard.State = .{ .support = .unsupported };
     menu.image_paste = &clipboard;
     output.clearRetainingCapacity();
     try menu.drawAt(&output.writer, .{}, .{}, 100, 40, 0);
-    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Image paste over SSH") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "Image paste") != null);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "○ no paste events") != null);
 }

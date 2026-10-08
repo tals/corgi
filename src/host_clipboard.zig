@@ -1,10 +1,11 @@
 //! The viewer's side of the host terminal's clipboard protocol (Kitty's
-//! OSC 5522). Over SSH the clipboard is on another machine, where a program
-//! in a pane can't read a copied image. With paste events (mode 5522) on, a
-//! paste arrives as the clipboard's types and a one-time password. The viewer
-//! reads text and pastes it as before, or reads an image, saves it beside the
-//! daemon's socket and pastes the copy's path, which Claude Code and Codex
-//! attach.
+//! OSC 5522). A terminal pastes only text: with an image copied, Ghostty
+//! passes Cmd+V on as a key that no program in a pane reads, and over SSH the
+//! clipboard is on another machine anyway. With paste events (mode 5522) on,
+//! a paste arrives as the clipboard's types and a one-time password. The
+//! viewer reads text and pastes it as before, or reads an image, saves it
+//! beside the daemon's socket and pastes the copy's path, which Claude Code
+//! and Codex attach.
 const std = @import("std");
 const os = @import("os.zig");
 const a = os.allocator;
@@ -14,8 +15,6 @@ const base64 = std.base64.standard;
 
 /// Whether a paste can bring an image from the host's clipboard.
 pub const Support = enum {
-    /// A local viewer: programs in panes read the clipboard themselves.
-    local,
     /// The host terminal hasn't answered yet.
     probing,
     on,
@@ -247,7 +246,7 @@ const Packet = struct {
 /// Asking the host about paste events, the paste in progress, and what it
 /// brought. `host_probe` feeds it the host's replies; the viewer writes `out`.
 pub const State = struct {
-    support: Support = .local,
+    support: Support = .probing,
     /// The host terminal as it names itself (XTVERSION), for messages.
     terminal: BoundedText(64) = .{},
     /// The terminal's OS, once a paste key that only one OS uses arrives.
@@ -381,7 +380,7 @@ pub const State = struct {
         const program_name = s.programName();
         const ghostty = std.mem.eql(u8, program_name, "ghostty");
         switch (s.support) {
-            .local, .probing => return null,
+            .probing => return null,
             .on => {
                 if (key != .ctrl) return null;
                 n.body = .initTruncated(std.fmt.bufPrint(&buf, "{s} reads the clipboard on {s}.", .{ agent, host }) catch "");
@@ -440,7 +439,6 @@ pub const State = struct {
     /// Image paste's state in a few words, for the setup menu.
     pub fn status(s: *const State, buf: []u8) []const u8 {
         return switch (s.support) {
-            .local => "only over SSH",
             .probing => "checking",
             .on => "● On",
             .denied => "○ clipboard-read = deny",
@@ -811,7 +809,7 @@ test "a program that takes paste events is offered the text and the image togeth
 test "image paste's state shows in a few words" {
     var buf: [48]u8 = undefined;
     var s: State = .{};
-    try std.testing.expectEqualStrings("only over SSH", s.status(&buf));
+    try std.testing.expectEqualStrings("checking", s.status(&buf));
     s.support = .on;
     try std.testing.expectEqualStrings("● On", s.status(&buf));
     s.support = .unsupported;

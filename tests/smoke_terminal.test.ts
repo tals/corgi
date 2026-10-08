@@ -78,7 +78,7 @@ class SmokeTerminal extends Runtime {
     this.assertEqual(file(received), "badge-input-ok");
   }
 
-  /** Plays Ghostty for a viewer over SSH: paste events and reads allowed. */
+  /** Plays Ghostty for a viewer: paste events and reads allowed. */
   async pasteEventsOn(pty: Pty) {
     await pty.waitFor("\x1b[?5522$p");
     pty.write("\x1b[?5522;2$y");
@@ -90,9 +90,9 @@ class SmokeTerminal extends Runtime {
     );
     await pty.waitFor("\x1b[?5522h");
   }
-  async sshViewer() {
+  async pastingViewer(env = this.env) {
     const pty = await Pty.spawn([EXE, "attach"], {
-      env: { ...this.env, SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" },
+      env,
       cwd: this.temp.name,
       cols: 100,
       rows: 30,
@@ -100,6 +100,9 @@ class SmokeTerminal extends Runtime {
     this.pty = pty;
     await this.pasteEventsOn(pty);
     return pty;
+  }
+  async sshViewer() {
+    return this.pastingViewer({ ...this.env, SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" });
   }
   async test_cmd_v_without_paste_events_opens_a_card_at_the_caret() {
     const received = join(this.temp.name, "card-input");
@@ -154,6 +157,30 @@ class SmokeTerminal extends Runtime {
     pty.write("x");
     await this.until(() => existsSync(received) && file(received) === "x");
   }
+  async test_cmd_v_without_paste_events_opens_no_card_locally() {
+    const received = join(this.temp.name, "local-card-input");
+    await this.open_pane({
+      command: `stty raw -echo; printf CARD_READY; exec cat > ${quote(received)}`,
+    });
+    const pty = await Pty.spawn([EXE, "attach"], {
+      env: this.env,
+      cwd: this.temp.name,
+      cols: 100,
+      rows: 30,
+    });
+    this.pty = pty;
+    await pty.waitFor("\x1b[>0q");
+    pty.write("\x1bP>|ghostty 1.3.1\x1b\\\x1b[?5522;0$y");
+    await pty.waitFor("CARD_READY");
+    // An agent here reads this machine's clipboard itself: nothing to explain.
+    pty.write("\x1b[118;9u");
+    const start = pty.output.length;
+    pty.resize(100, 31);
+    await pty.waitFor((output) => /\x1b\[H\x1b\[J[^]*\x1b\[\?2026l/.test(output.slice(start)));
+    this.assertNotIn("Image not pasted", pty.output);
+    pty.write("x");
+    await this.until(() => existsSync(received) && file(received) === "x");
+  }
   async test_relays_a_paste_to_a_program_that_takes_paste_events() {
     const received = join(this.temp.name, "relayed");
     const program = join(this.temp.name, "paste_events.ts");
@@ -198,12 +225,18 @@ process.stdin.on("data", (chunk) => {
     );
     await this.until(() => existsSync(received) && readFileSync(received).equals(png));
   }
+  async test_image_paste_locally_saves_the_image_and_pastes_its_path() {
+    await this.imagePaste(() => this.pastingViewer());
+  }
   async test_image_paste_over_ssh_saves_the_image_and_pastes_its_path() {
+    await this.imagePaste(() => this.sshViewer());
+  }
+  async imagePaste(viewer: () => Promise<Pty>) {
     const received = join(this.temp.name, "paste-input");
     await this.open_pane({
       command: `stty raw -echo; printf PASTE_READY; exec cat > ${quote(received)}`,
     });
-    const pty = await this.sshViewer();
+    const pty = await viewer();
     await pty.waitFor("PASTE_READY");
     pty.write(paste("first", "image/png\n"));
     await pty.waitFor(read("first", "image/png"));

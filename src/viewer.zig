@@ -156,7 +156,7 @@ pub fn run(fd: c_int, socket: []const u8, probe: *Probe, input: *std.ArrayList(u
     defer a.free(paste_folder);
     probe.clipboard.folder = paste_folder;
     view.host_clipboard = &probe.clipboard;
-    if (view.remote_links) try probe.clipboard.start(os.milliTimestamp());
+    try probe.clipboard.start(os.milliTimestamp());
     var openers: url_opener.Openers = .{};
     defer openers.reap();
     var previous: []const u8 = "";
