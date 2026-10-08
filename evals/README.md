@@ -37,3 +37,15 @@ Every assertion must pass. Errors, invalid responses, and missing results fail t
 Each run writes `evals/results/<timestamp>/report.json` and `scorecard.md`, plus `latest.json` and `latest.md`. Reports record requested model IDs, repeat count, selected cases, exact model input/output, source hashes, the driver hash, and errors. Latencies include harness setup where needed and are useful only for rough comparison. Generated runs are ignored by Git.
 
 To add a probe, append a scenario with `id`, `category`, and `steps`. Each step includes the production evidence text, `expect: "abstain" | "label"`, an optional turn ID, and—for labels—an `all` array of case-insensitive topic regexes. Evidence is limited to the production 2048-byte bound. Use synthetic evidence so scorecards are safe to share.
+
+## History
+
+The first candidate abstention prompt scored 57/60 on Haiku 4.5 and 54/60 on
+Luna. These assertions exposed generic tool-name labels and unnecessary
+abstention on concrete work; clarifying the prompt brought both to 60/60
+(2026-09-26). No expectations were relaxed. Haiku 5.5 at low effort later
+replaced Haiku 4.5 and also scored 60/60.
+
+On Bun (2026-10-08), Luna once abstained on `background-build` and then
+labeled it in 25 of 25 reruns: about one miss in 30, an occasional missing
+label rather than a pattern.
