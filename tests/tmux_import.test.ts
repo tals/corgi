@@ -4,6 +4,7 @@ import {
   readFileSync,
   symlinkSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
 import { registerCase, TestCase, run, quote, sleep } from "./support";
@@ -15,7 +16,8 @@ const TMUX = Bun.which("tmux");
 const TIG = Bun.which("tig");
 
 class TmuxImport extends TestCase {
-  shell = "/bin/sh";
+  // Suggested commands need an editable prompt before Return is pressed.
+  shell = "/bin/bash";
   fixture!: ImportFixture;
   tmuxBase!: string[];
   left!: string;
@@ -265,7 +267,13 @@ class TmuxImport extends TestCase {
   async test_scrollback_and_quoted_command_wait_for_return() {
     // tee opens this path only when it starts, making early execution observable.
     const file = join(this.fixture.root, "a b'c\\d$(not-a-command)");
-    await this.tmux("respawn-pane", "-k", "-t", this.left, "/bin/sh");
+    await this.tmux(
+      "respawn-pane",
+      "-k",
+      "-t",
+      this.left,
+      "/bin/bash --noprofile --norc",
+    );
     await this.tmux(
       "send-keys",
       "-t",
@@ -304,6 +312,11 @@ class TmuxImport extends TestCase {
 
   async test_two_tig_panes_restore_context_and_restart_independently() {
     const cwd = join(this.fixture.root, "left");
+    // Keep the commit title visible in both narrow source panes.
+    writeFileSync(
+      join(this.fixture.env.HOME, ".tigrc"),
+      "set main-view = line-number:no id:no date:no author:no commit-title:yes,graph,refs,overflow=no\n",
+    );
     await run(["git", "init", cwd], { env: this.fixture.env });
     await run(
       [
@@ -322,7 +335,15 @@ class TmuxImport extends TestCase {
       { env: this.fixture.env },
     );
     for (const pane of [this.left, this.bottom]) {
-      await this.tmux("respawn-pane", "-k", "-t", pane, "-c", cwd, "/bin/sh");
+      await this.tmux(
+        "respawn-pane",
+        "-k",
+        "-t",
+        pane,
+        "-c",
+        cwd,
+        "/bin/bash --noprofile --norc",
+      );
       await this.tmux(
         "send-keys",
         "-t",
@@ -331,11 +352,17 @@ class TmuxImport extends TestCase {
         "i=0; while [ $i -lt 160 ]; do printf 'TIG_SCROLLBACK_%s\\n' \"$i\"; i=$((i+1)); done; printf 'SHELL_CONTEXT_BEFORE_TIG\\n'; tig --all",
       );
       await this.tmux("send-keys", "-t", pane, "Enter");
-      await this.fixture.until(async () =>
-        (await this.tmux("capture-pane", "-p", "-t", pane)).includes(
-          "IMPORTED_TIG_COMMIT",
-        ),
-      );
+      await this.fixture
+        .until(async () =>
+          (await this.tmux("capture-pane", "-p", "-t", pane)).includes(
+            "IMPORTED_TIG_COMMIT",
+          ),
+        )
+        .catch(async (error) => {
+          throw new Error(
+            `${error}\n${await this.tmux("capture-pane", "-p", "-t", pane)}`,
+          );
+        });
     }
     const source = await this.tmux(
       "list-panes",

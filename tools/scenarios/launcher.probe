@@ -1,0 +1,20 @@
+# The new-tab launcher: open, move, manage, search, close.
+key ctrl+b c
+snap open
+key down
+snap down
+key down
+snap terminal-row
+key up up
+snap back-to-top
+key tab
+snap tab-wraps
+key m
+snap manage
+key esc
+snap manage-closed
+key esc
+snap closed
+key ctrl+b c
+key esc
+snap reopened-closed

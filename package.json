@@ -1,0 +1,13 @@
+{
+  "name": "corgi-bun",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts",
+    "build": "bun build.ts",
+    "test": "bun test src",
+    "typecheck": "bun typecheck.ts",
+    "integration": "bun integration.ts"
+  },
+  "dependencies": { "@earendil-works/pi-tui": "1.0.4" }
+}

@@ -1,0 +1,11 @@
+# The prefix bar and the full-screen help.
+key ctrl+b
+snap prefix
+key esc
+snap prefix-cancelled
+key ctrl+b ?
+snap help
+key down down
+snap help-scrolled
+key esc
+snap help-closed

@@ -1,0 +1,33 @@
+# Several workspaces: create, rename, switch, choose, close.
+key ctrl+b w
+type alpha
+key enter
+settle
+snap alpha
+key ctrl+b w
+type beta
+key enter
+settle
+snap beta
+key ctrl+b {
+settle
+snap prev-ws
+key ctrl+b }
+settle
+snap next-ws
+key ctrl+b 'W'
+settle
+snap edit-ws
+key esc
+key ctrl+b g
+settle
+snap choose
+key esc
+settle
+clicktext project
+settle
+snap clicked-ws
+hovertext alpha
+wait 300
+snap hover-ws
+move 60 25

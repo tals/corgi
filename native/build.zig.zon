@@ -1,0 +1,18 @@
+.{
+    .name = .corgi_native,
+    .version = "0.1.0",
+    .fingerprint = 0x46f83d7bc4dd69e6,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .ghostty = .{
+            .url = "https://github.com/ghostty-org/ghostty/archive/f523504ea5c9f41d150d1eb93cc7a748b90f9361.tar.gz",
+            .hash = "ghostty-1.3.2-dev-5UdBC38HeAVpINLn9qneWgPWYKcX8WZ_8w2DZosk5XcB",
+        },
+        // getsentry/sentry-native 0.7.8, from Ghostty's dependency mirror.
+        .sentry = .{
+            .url = "https://deps.files.ghostty.org/sentry-1220446be831adcca918167647c06c7b825849fa3fba5f22da394667974537a9c77e.tar.gz",
+            .hash = "N-V-__8AAPlZGwBEa-gxrcypGBZ2R8Bse4JYSfo_ul8i2jlG",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "zig", "bridge.zig", "app_bridge.zig", "app_system.zig", "frame_diff_bridge.zig", "viewer_bridge.zig", "hook.zig", "posix.c", "pty-exec.c", "readiness.c", "crash.c" },
+}

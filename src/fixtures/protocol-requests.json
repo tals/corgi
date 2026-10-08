@@ -1,0 +1,165 @@
+{
+  "hello": {},
+  "session.command": {
+    "command": {
+      "pane.close": {
+        "target": 1
+      }
+    }
+  },
+  "session.locate": {
+    "pane": 1
+  },
+  "session.list": {},
+  "session.snapshot": {},
+  "session.subscribe": {},
+  "viewer.watch": {
+    "viewer": 1
+  },
+  "agent.subscribe": {
+    "workspace": 1,
+    "cwd": "/tmp"
+  },
+  "viewer.open": {
+    "viewer_protocol": 3,
+    "cwd": "/tmp",
+    "onboarding": true,
+    "theme": {}
+  },
+  "viewer.sync": {
+    "viewer_protocol": 3,
+    "interests": [
+      {
+        "pane": 1,
+        "cols": 80,
+        "rows": 24
+      }
+    ],
+    "ack": 2
+  },
+  "viewer.search": {
+    "pane": 1,
+    "needle": "x",
+    "skip": 1
+  },
+  "pane.acknowledge": {
+    "pane": 1,
+    "session": "s",
+    "through": 2,
+    "binding": 1,
+    "conversation": 0,
+    "attention_at": -1
+  },
+  "pane.paste": {
+    "pane": 1,
+    "text": "aGk=",
+    "image": {
+      "mime": "image/png",
+      "path": "/tmp/corgi-1/paste/a.png"
+    }
+  },
+  "conversation.list": {},
+  "conversation.acknowledge": {
+    "conversation": 1,
+    "through": 2,
+    "attention_at": 3
+  },
+  "pane.surface": {
+    "pane": 1
+  },
+  "server.reload": {
+    "executable": "/usr/local/bin/corgi"
+  },
+  "recovery.save": {},
+  "inference.configure": {
+    "choice": "claude"
+  },
+  "git.push": {
+    "workspace": 1,
+    "ref": {
+      "branch": "main"
+    }
+  },
+  "onboarding.status": {
+    "operation": 1
+  },
+  "onboarding.handoff": {
+    "operation": 1,
+    "viewer_pgid": 2,
+    "socket": "/tmp/herdr.sock"
+  },
+  "onboarding.copy": {
+    "operation": 1,
+    "source": "tmux",
+    "workspaces": []
+  },
+  "agent.command.preview": {
+    "workspace": 1,
+    "request": 3,
+    "command": "claude"
+  },
+  "agent.preview": {
+    "workspace": 1
+  },
+  "agent.track_usage": {
+    "workspace": 1
+  },
+  "agent.history": {},
+  "viewer.list": {},
+  "action": {
+    "name": "relaunch",
+    "value": "/usr/local/bin/corgi",
+    "pane": 1
+  },
+  "focus": {
+    "pane": 1,
+    "viewer": 2
+  },
+  "workspace.switch": {
+    "workspace": 1,
+    "viewer": null
+  },
+  "native.start": {
+    "provider": "codex",
+    "cwd": "/tmp",
+    "workspace": 1
+  },
+  "native.list": {},
+  "native.stop": {
+    "session": 1
+  },
+  "native.send": {
+    "session": 1,
+    "message": {
+      "text": "hi"
+    }
+  },
+  "native.events": {
+    "session": 1,
+    "after": 4
+  },
+  "theme": {
+    "theme": {
+      "foreground": {
+        "r": 1,
+        "g": 2,
+        "b": 3
+      }
+    }
+  },
+  "hook": {
+    "provider": "claude",
+    "pane": 1,
+    "seq": 5,
+    "background": false,
+    "event": {
+      "hook_event_name": "Stop"
+    }
+  },
+  "ping": {},
+  "shutdown": {},
+  "test.settle": {},
+  "test.advance": {
+    "ms": 1000
+  }
+}

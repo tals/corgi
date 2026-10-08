@@ -1,0 +1,32 @@
+corgi — a small Ghostty-powered agent terminal
+
+  corgi                         start / attach
+  corgi onboard                 open onboarding, even after setup
+  corgi dev                     reload if changed; attach or relaunch viewer
+  corgi --no-update             attach without activating a staged update
+  corgi update                  download and safely apply an update
+  corgi update status|rollback|--check|--download-only
+  corgi update auto on|off      control automatic updates
+  corgi start                   start detached runtime
+  corgi action NAME [VALUE]     run a viewer action, named below
+  corgi agent claude|codex ...   optional discovered-binary launcher
+  corgi hooks claude|codex       print hook configuration
+  corgi which codex             show automatically selected executable
+  corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux
+  corgi native start PROVIDER [--workspace ID]
+  corgi native list              list native sessions
+  corgi native send ID JSON      provider request / approval response
+  corgi native events ID [SEQ]   bounded journal + pending requests
+  corgi native stop ID           stop native session
+  corgi rpc JSON                local JSON control protocol
+  corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes
+  corgi checkpoint               save recovery context now
+  corgi shutdown                terminate runtime and its panes
+
+Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.
+
+
+
+
+CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees.
+

@@ -1,0 +1,9 @@
+# Corgi setup.
+key ctrl+b i
+snap setup
+key down
+snap setup-down
+key down down down down
+snap setup-further
+key esc
+snap setup-closed

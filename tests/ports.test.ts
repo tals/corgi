@@ -225,7 +225,11 @@ class Ports extends Runtime {
     const viewer = await Viewer.create(this);
     await viewer.request({ op: "size", cols: 160, rows: 40 });
     await viewer.input("\x1b[<0;28;6M\x1b[<32;100;6M\x1b[<0;100;6m");
-    let data = (await viewer.poll()).data;
+    // Probe completion precedes asynchronous link naming.
+    let data = await this.until(async () => {
+      const frame = (await viewer.poll()).data;
+      return frame.includes("Open Link ↗ 2") ? frame : false;
+    }, 12);
     this.assertIn("Open Link ↗ 2", data);
     data = (await viewer.input("\x1b[<0;90;3M\x1b[<0;90;3m")).data;
     for (const status of [200, 302])

@@ -1,0 +1,63 @@
+# Agents in the sidebar: launch, working, blocked, done, hover, exit.
+type claude
+key enter
+waittext ›
+settle
+snap launched
+type work
+key enter
+settle
+snap working
+type block
+key enter
+settle
+snap blocked
+hovertext claude
+wait 300
+snap hover-row
+move 60 25
+type stop
+key enter
+settle
+snap stopped
+key ctrl+b c
+settle
+type t
+settle
+type codex
+key enter
+waittext ›
+wait 1500
+settle
+snap two-agents
+key ctrl+b f
+settle
+snap attention
+key ctrl+b ]
+settle
+snap next-agent
+key ctrl+b tab
+settle
+snap last-agent
+type exit
+key enter
+settle
+snap exited
+key ctrl+b c
+settle
+type t
+settle
+type claude
+key enter
+waittext ›
+settle
+type work
+key enter
+settle
+hovertext claude
+wait 400
+snap card-working
+hovertext 🐕
+wait 400
+snap overview
+move 60 25

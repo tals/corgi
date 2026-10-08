@@ -1,0 +1,19 @@
+# Tabs: several, switching, renaming, the tab menu.
+key ctrl+b c
+key t
+waittext $
+key ctrl+b c
+key t
+wait 300
+snap two-tabs
+key ctrl+b 1
+snap first
+key ctrl+b T
+snap rename-dialog
+type build
+key enter
+snap renamed
+rclicktext build
+snap tab-menu
+key esc
+snap tab-menu-closed

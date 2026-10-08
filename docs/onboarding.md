@@ -1,7 +1,7 @@
 # Onboarding and shortcut presets
 
 Run **`corgi onboard`** to open the wizard explicitly. From the repository, use
-`./go.sh onboard`. Inside a Corgi pane it opens in that pane's viewer; outside
+`./go.ts onboard`. Inside a Corgi pane it opens in that pane's viewer; outside
 Corgi it starts or attaches to the selected runtime and opens onboarding there.
 An already open wizard keeps its current state, including any active import.
 **Corgi setup → Keyboard shortcuts** and **Import sessions** open either step on its own.
@@ -17,10 +17,10 @@ The daemon does not read the viewer's shortcut preferences.
 `corgi onboard` is the real wizard: imports operate on real source sessions.
 Use **Skip import** to finish without importing.
 
-For an isolated walkthrough, run `./go.sh --temp` from a terminal outside Corgi.
-Every invocation starts with fresh Corgi state and onboarding. Use `./go.sh --env demo`
+For an isolated walkthrough, run `./go.ts --temp` from a terminal outside Corgi.
+Every invocation starts with fresh Corgi state and onboarding. Use `./go.ts --env demo`
 to keep a separate named environment: it shows onboarding until you finish setup,
-then remembers your choice. `./go.sh --env demo onboard` reopens it explicitly.
+then remembers your choice. `./go.ts --env demo onboard` reopens it explicitly.
 Detaching leaves the runtime running; temporary launches print a reconnect command.
 Imports still operate on real source sessions.
 

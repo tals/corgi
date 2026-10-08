@@ -1,15 +1,18 @@
 .tools/
 .zig-cache/
 zig-out/
+node_modules/
+dist/
 *.log
-__pycache__/
-*.pyc
 .DS_Store
+
+# Keep curated benchmark and test logs.
+!results/*.log
 
 # Local cmux session bookkeeping written beneath a literal tilde directory.
 /~/.cmuxterm/
 /deploy.sh
-/zig-pkg/
+zig-pkg/
 
 # Local Lavish review artifacts.
 /.lavish/
@@ -18,4 +21,4 @@ __pycache__/
 /junk/
 
 # Repeatable live-model eval outputs; curated scorecards can be checked in separately.
-/evals/results/
+/native/corgi/evals/results/

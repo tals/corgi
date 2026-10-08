@@ -1,0 +1,37 @@
+# First run: onboarding from a fresh state.
+seed rm -f "$XDG_STATE_HOME/corgi/viewer.json"
+snap start
+style start-style
+key down
+snap tmux
+key down
+snap herdr
+key 'p'
+snap prefix-a
+key tab
+style focus-prefix
+key tab
+style focus-keymap
+key enter
+snap keymap
+key esc
+snap back
+clicktext Corgi 2
+snap clicked-corgi
+key '?'
+key esc
+key enter
+snap import
+key right
+snap import-herdr
+key left
+key esc
+snap back-to-presets
+resize 80x26
+snap small
+resize 70x20
+snap tiny
+resize 100x30
+key enter
+settle
+snap done

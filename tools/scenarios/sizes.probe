@@ -1,0 +1,39 @@
+# Small and changing terminal sizes, with and without popups open.
+resize 60x20
+snap small
+key ctrl+b c
+settle
+snap small-launcher
+resize 40x12
+snap tiny-launcher
+key esc
+settle
+snap tiny
+key ctrl+b ?
+settle
+snap tiny-help
+key esc
+resize 30x8
+snap minuscule
+key ctrl+b b
+settle
+snap minuscule-nosidebar
+key ctrl+b b
+resize 140x45
+snap large
+key ctrl+b c
+key t
+settle
+key ctrl+b v
+settle
+key ctrl+b -
+settle
+snap large-splits
+resize 80x24
+snap shrunk-splits
+hovertext 🐕
+wait 300
+snap overview-80
+move 60 20
+resize 100x30
+snap restored

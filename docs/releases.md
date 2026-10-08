@@ -1,7 +1,7 @@
 # Releases and automatic updates
 
 Corgi release installations download signed updates in the background and activate
-them on the next `corgi` launch. Development builds (`./go.sh`) never auto-update.
+them on the next `corgi` launch. Development builds (`./go.ts`) never auto-update.
 Clients use HTTPS, curl, and an embedded Ed25519 public key; they know nothing about
 B2 or S3. The publisher uses Bun and an S3-compatible endpoint.
 

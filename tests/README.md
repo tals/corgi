@@ -1,17 +1,14 @@
 # Integration tests
 
-The test harness and provider fixtures run on Bun. Corgi itself remains Zig;
-the optional audio-authoring utilities in `docs/sound-audition/` remain Python.
+Corgi, the test harness and the provider fixtures all run on Bun. The
+optional audio-authoring utilities in `docs/sound-audition/` remain Python.
 No integration test or generated provider program requires Python.
 
 Build the test-enabled binary, then run the suites:
 
 ```sh
-./scripts/zig build test -Dcodesign=false
-test_prefix=$(mktemp -d /tmp/corgi-tests.XXXXXX)
-./scripts/zig build -Dcodesign=false -Doptimize=ReleaseSafe -Dviewer-test-driver=true --prefix "$test_prefix"
-export CORGI_TEST_BIN="$test_prefix/bin/corgi"
-bun run tests/run.ts
+bun build.ts --test       # dist/corgi-test, the default CORGI_TEST_BIN
+bun integration.ts        # or: bun run tests/run.ts
 ```
 
 The runner starts a separate Bun process for each suite and runs several at
@@ -46,7 +43,7 @@ replacement for running the tests. The former smoke suite is split into
 names where the behavior is unchanged; UI checks follow the current shortcut
 help and new-tab agent picker.
 
-Developer-launch tests invoke `go.sh` and are opt-in (`bun run tests/run.ts dev`).
+Developer-launch tests invoke `go.ts` and are opt-in (`bun run tests/run.ts dev`).
 They expect the fixture binary to match the developer build. The alternate-build
 reload case additionally needs `CORGI_OLD_EXE`. On macOS the fixture discovers
 the host signing identity before isolating `HOME`; the developer build must
@@ -54,9 +51,7 @@ already be available in the compiler cache.
 Live Herdr handoff is also opt-in:
 
 ```sh
-./scripts/zig build test-handoff -Dcodesign=false -Dherdr-bin=/path/to/herdr
-# Or, using binaries already built:
-bun run tests/run.ts herdr_handoff --corgi /path/to/corgi --herdr /path/to/herdr
+bun run tests/run.ts herdr_handoff --corgi dist/corgi-test --herdr /path/to/herdr
 ```
 
 `support.ts` owns process deadlines, buffered line readers, raw JSON sockets,
@@ -72,13 +67,13 @@ terminal before and after the client, including control characters and speeds.
 
 ## Which tier
 
-Write a Zig unit test when the behavior is a decision or a data transform:
-layout and session edits, argument parsing, protocol encoding, render output
-for a given view, provider event interpretation, state migrations, error and
-rollback paths. Build the state in the test, as `session.zig` builds
-workspace models without shells and `cli.zig` parses command lines without a
-daemon. Use `std.testing.allocator` and `std.testing.tmpDir`, and pass `now`
-in rather than sleeping or starting threads.
+Write a unit test beside the module (`src/foo.test.ts`) when the behavior is
+a decision or a data transform: layout and session edits, argument parsing,
+protocol encoding, render output for a given view, provider event
+interpretation, state migrations, error and rollback paths. Build the state
+in the test, as `session.test.ts` builds workspace models without shells and
+`cli.test.ts` parses command lines without a daemon. Pass `now` in rather than
+sleeping or starting timers.
 
 Write a Bun case when the behavior crosses a process, PTY or socket: the CLI
 reaching the daemon, a viewer attaching, a reload handing off live shells, a

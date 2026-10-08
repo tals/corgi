@@ -378,7 +378,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     await this.until(() => records().length === 1);
     this.assertEqual(
       records()[0].hash,
-      hash(join(ROOT, "src/sounds/request.mp3")),
+      hash(join(ROOT, "assets/sounds/request.mp3")),
     );
     await hook("PreToolUse", 5);
     await hook("UserPromptSubmit", 6);
@@ -396,7 +396,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     await this.until(() => records().length === 2);
     this.assertEqual(
       records()[1].hash,
-      hash(join(ROOT, "src/sounds/done.mp3")),
+      hash(join(ROOT, "assets/sounds/done.mp3")),
     );
     await this.until(() =>
       records().every((record: any) => !existsSync(record.path)),

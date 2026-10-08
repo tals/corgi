@@ -1,0 +1,38 @@
+# Closing and reopening panes, tabs and agents; break and swap.
+key ctrl+b c
+key t
+settle
+type echo first
+key enter
+key ctrl+b v
+settle
+type echo second
+key enter
+settle
+snap split
+key ctrl+b x
+settle
+snap closed-pane
+key ctrl+b u
+settle
+snap reopened
+key ctrl+b !
+settle
+snap broken-out
+key ctrl+b X
+settle
+snap tab-closed
+key ctrl+b c
+key t
+settle
+key ctrl+b -
+settle
+key ctrl+b 'K'
+settle
+snap swapped
+key ctrl+b r
+snap resize-mode
+key up up left
+snap resized
+key esc
+snap resize-done

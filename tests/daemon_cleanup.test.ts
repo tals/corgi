@@ -27,45 +27,65 @@ describe("development daemon cleanup", () => {
 `).map((d) => d.pid)).toEqual([10, 11]);
   });
 
-  test("preserves main, gracefully stops others, and kills an unresponsive daemon", async () => {
-    let running = [10, 11, 12];
-    const shut: number[] = [], signals: [number, string][] = [];
-    await stopOthers({
-      list: () => running.map((pid) => ({ pid, command: "/opt/corgi serve" })),
+  /** A fake world where each pause advances the clock by 100ms. */
+  function world(running: number[], overrides: Record<string, any> = {}) {
+    let clock = 0;
+    const shut: string[] = [], signals: [number, string, number][] = [];
+    const actions = {
+      list: async (pids?: number[]) => running.filter((pid) => !pids || pids.includes(pid)).map((pid) => ({ pid, command: "/opt/corgi serve" })),
       mainPid: async () => 10,
-      shutdown: async ({ pid }) => { shut.push(pid); if (pid === 11) running = running.filter((p) => p !== pid); },
-      signal: (pid, signal) => { signals.push([pid, signal]); if (signal === "SIGKILL") running = running.filter((p) => p !== pid); },
-      pause: async () => {}, log: () => {},
-    });
-    expect(shut).toEqual([11, 12]);
-    expect(signals).toEqual([[12, "SIGTERM"], [12, "SIGKILL"]]);
-    expect(running).toEqual([10]);
+      socket: async ({ pid }: { pid: number }) => pid === 13 ? undefined : `/tmp/corgi-${pid}/control.sock`,
+      shutdown: async (socket: string) => { shut.push(socket); if (socket.includes("11")) running = running.filter((p) => p !== 11); return true; },
+      signal: (pid: number, signal: string) => {
+        signals.push([pid, signal, clock]);
+        if (signal === "SIGKILL" || (pid === 13 && signal === "SIGTERM")) running = running.filter((p) => p !== pid);
+      },
+      pause: async () => { clock += 100; }, now: () => clock, show: () => {},
+      ...overrides,
+    };
+    return { actions, shut, signals, running: () => running };
+  }
+
+  test("preserves main, stops others at once, and escalates by time", async () => {
+    const { actions, shut, signals, running } = world([10, 11, 12, 13]);
+    const rows = await stopOthers(actions);
+    expect(shut).toEqual(["/tmp/corgi-11/control.sock", "/tmp/corgi-12/control.sock"]);
+    // 13 has no socket to ask, so it is terminated right away; 12 ignored its request.
+    expect(signals).toEqual([[13, "SIGTERM", 0], [12, "SIGTERM", 3000], [12, "SIGKILL", 5000]]);
+    expect(running()).toEqual([10]);
+    expect(rows.map((row) => [row.daemon.pid, row.state])).toEqual([[11, "stopped"], [12, "killed"], [13, "terminated"]]);
+  });
+
+  test("gives up on a daemon that survives SIGKILL", async () => {
+    const { actions } = world([12], { signal: () => {} });
+    const rows = await stopOthers(actions);
+    expect(rows.map((row) => [row.daemon.pid, row.state])).toEqual([[12, "stuck"]]);
   });
 
   test("does not signal a reused PID or kill when main cannot be identified", async () => {
     let command = "/opt/corgi serve";
     const actions = {
-      list: () => [{ pid: 11, command }], mainPid: async () => 10,
-      shutdown: async () => { command = "/some/other/process"; },
-      signal: () => { throw new Error("must not signal"); }, pause: async () => {}, log: () => {},
+      list: async () => [{ pid: 11, command }], mainPid: async () => 10,
+      socket: async () => "/tmp/corgi-11/control.sock",
+      shutdown: async () => { command = "/some/other/process"; return true; },
+      signal: () => { throw new Error("must not signal"); },
+      pause: async () => { await Promise.resolve(); }, now: () => 0, show: () => {},
     };
     await stopOthers(actions);
     await expect(stopOthers({ ...actions, mainPid: async () => { throw new Error("main unresponsive"); } })).rejects.toThrow("main unresponsive");
   });
 
-  test("go.sh invokes cleanup only for the main environment", async () => {
+  test("go.ts invokes cleanup only for the main environment", async () => {
     const root = mkdtempSync(join(tmpdir(), "corgi-launch-cleanup-"));
     const outside: string[] = [];
     try {
       mkdirSync(join(root, "scripts"));
-      mkdirSync(join(root, "zig-out/bin"), { recursive: true });
-      mkdirSync(join(root, "bin"));
-      copyFileSync(join(import.meta.dir, "../go.sh"), join(root, "go.sh"));
-      writeFileSync(join(root, "scripts/zig"), "#!/bin/sh\nexit 0\n");
-      writeFileSync(join(root, "bin/id"), "#!/bin/sh\necho 424242\n");
-      writeFileSync(join(root, "scripts/stop-other-daemons.ts"), 'await Bun.write(process.env.CLEANUP_MARKER!, "called");\n');
-      writeFileSync(join(root, "zig-out/bin/corgi"), '#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2),socket:process.env.CORGI_SOCKET,dir:process.env.CORGI_ENV_DIR}));\n');
-      for (const file of ["go.sh", "scripts/zig", "bin/id", "zig-out/bin/corgi"]) chmodSync(join(root, file), 0o755);
+      mkdirSync(join(root, "dist"), { recursive: true });
+      copyFileSync(join(import.meta.dir, "../go.ts"), join(root, "go.ts"));
+      writeFileSync(join(root, "build.ts"), "");
+      writeFileSync(join(root, "scripts/stop-other-daemons.ts"), 'export async function stopOtherDaemons() { await Bun.write(process.env.CLEANUP_MARKER!, "called"); }\n');
+      writeFileSync(join(root, "dist/corgi"), '#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2),socket:process.env.CORGI_SOCKET,dir:process.env.CORGI_ENV_DIR}));\n');
+      chmodSync(join(root, "dist/corgi"), 0o755);
       for (const [args, socket, cleanup] of [
         [[], undefined, true], [["--reload"], undefined, true],
         [["--temp", "ping"], undefined, false], [["--env", "test", "ping"], undefined, false],
@@ -73,10 +93,10 @@ describe("development daemon cleanup", () => {
       ] as const) {
         const marker = join(root, "cleanup");
         rmSync(marker, { force: true });
-        const env = { ...process.env, PATH: `${join(root, "bin")}:${process.env.PATH}`, HOME: root, XDG_STATE_HOME: join(root, "state"), CLEANUP_MARKER: marker };
+        const env = { ...process.env, HOME: root, XDG_STATE_HOME: join(root, "state"), CLEANUP_MARKER: marker };
         for (const key of ["CORGI_PANE", "CORGI_SOCKET", "CORGI_ENV_DIR", "CORGI_ENV_BASE"]) delete env[key];
         if (socket) env.CORGI_SOCKET = socket;
-        const child = Bun.spawn(["/bin/sh", join(root, "go.sh"), ...args], { env, stdout: "pipe", stderr: "pipe" });
+        const child = Bun.spawn([process.execPath, join(root, "go.ts"), ...args], { env, stdout: "pipe", stderr: "pipe" });
         const output = await new Response(child.stdout).text();
         const errors = await new Response(child.stderr).text();
         expect(await child.exited, errors).toBe(0);

@@ -7,7 +7,7 @@ import { createConnection, type Socket } from "node:net";
 import { describe, test } from "bun:test";
 
 export const ROOT = resolve(import.meta.dir, "..");
-export const EXE = process.env.CORGI_TEST_BIN || `${ROOT}/zig-out/bin/corgi`;
+export const EXE = process.env.CORGI_TEST_BIN || `${ROOT}/dist/corgi-test`;
 export const sleep = (seconds: number) => Bun.sleep(seconds * 1000);
 export const quote = (value: string) =>
   "'" + value.replaceAll("'", "'\\''") + "'";

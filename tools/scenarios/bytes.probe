@@ -1,0 +1,21 @@
+# Bytes written while idle in several states (SSH bandwidth).
+bytes 3000
+key ctrl+b c
+settle
+bytes 3000
+key esc
+type claude
+key enter
+waittext ›
+type work
+key enter
+settle
+bytes 3000
+key ctrl+b ?
+settle
+bytes 3000
+key esc
+settle
+hovertext 🐕
+wait 300
+bytes 3000

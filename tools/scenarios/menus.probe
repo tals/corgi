@@ -1,0 +1,17 @@
+# Context menus on panes and workspaces, and resize mode.
+key ctrl+b c
+key t
+waittext $
+click 60 15 right
+snap pane-menu
+key down
+snap pane-menu-down
+key esc
+snap pane-menu-closed
+rclicktext project
+snap workspace-menu
+key esc
+key ctrl+b r
+snap resize-mode
+key esc
+snap resize-closed

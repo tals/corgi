@@ -5,19 +5,23 @@ import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text } from "./runtime";
 import { registerCase, writeExecutable } from "./support";
+import { CodexObserver } from "./provider_sim";
 
 const mouse = (button: number, x: number, y: number, release = false) =>
   `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
 const CLAUDE_ID = "11111111-1111-4111-8111-111111111111";
 const CODEX_ID = "22222222-2222-4222-8222-222222222222";
+const CODEX_FORK_ID = "44444444-4444-4444-8444-444444444444";
 
 /** A Codex input box: a bold `›`, a dim placeholder while empty, and the
  * "? for shortcuts" footer. It takes pastes and typing, and logs what Enter
  * submits to `log`. */
 const codexScreen = (log: string) => `
+const session = process.argv.includes('fork') ? ${JSON.stringify(CODEX_FORK_ID)} : ${JSON.stringify(CODEX_ID)};
 const out = (s) => process.stdout.write(s);
 let text = '';
 const draw = () => {
+  out('\\x1b]2;codex | ' + session + '\\x07');
   out('\\x1b[2J\\x1b[H\\x1b[1;2m› \\x1b[0mearlier prompt\\r\\n\\r\\n');
   out(text ? '\\x1b[1m›\\x1b[0m ' + text : '\\x1b[1m›\\x1b[0m \\x1b[2mAsk Codex to do anything\\x1b[0m');
   out('\\r\\n  gpt · /tmp\\r\\n  ' + (text ? '' : '\\x1b[1m?\\x1b[0m for shortcuts'));
@@ -37,6 +41,30 @@ draw();
 `;
 
 class AgentMenu extends Viewers {
+  codexObserver: CodexObserver | null = null;
+  async tearDown() {
+    try {
+      await this.codexObserver?.close();
+    } finally {
+      await super.tearDown();
+    }
+  }
+  async codexConversation(pane: number, session: string) {
+    // Codex hooks refine known conversations; terminal/protocol observation
+    // establishes identity, as it does for a shared app-server daemon.
+    await this.until(
+      async () =>
+        (await this.session()).panes.find((p: any) => p.id === pane)?.agent
+          .session === session,
+    );
+    await this.hook(pane, "codex", session);
+  }
+  async stopCodexDaemon() {
+    await this.codexObserver!.close();
+    this.codexObserver = null;
+    await this.rpc({ op: "test.advance", ms: 6000 });
+    await this.settle();
+  }
   async hook(pane: number, provider: string, session: string) {
     await this.rpc({
       op: "hook",
@@ -122,17 +150,22 @@ class AgentMenu extends Viewers {
 
   async test_a_codex_fork_takes_its_name_once_its_input_box_is_empty() {
     const log = join(this.temp.name, "submitted.txt");
-    writeExecutable(join(this.temp.name, "provider"), codexScreen(log));
-    const source = await this.new();
-    await this.hook(source, "codex", CODEX_ID);
+    const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));
+    this.env.CORGI_CODEX_BIN = script;
+    await this.restart_runtime();
+    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID, CODEX_FORK_ID]);
+    const source = await this.new(script);
+    await this.codexConversation(source, CODEX_ID);
+    await this.stopCodexDaemon();
     const { pane } = await this.command("agent.fork", { target: source, name: "Copy" });
     // Before Codex reports the fork, its row already says what it is.
     const early = (await this.session()).panes.find((p: any) => p.id === pane).agent;
     this.assertEqual([early.provider, early.name], ["codex", "Copy"]);
     // Codex picks the fork's id itself and reports it once it runs.
-    await this.hook(pane, "codex", "44444444-4444-4444-8444-444444444444");
     const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
     this.assertEqual(submitted, "/rename Copy\n");
+    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID, CODEX_FORK_ID]);
+    await this.codexConversation(pane, CODEX_FORK_ID);
   }
 
   async test_claude_renames_itself_when_its_messaging_socket_asks() {
@@ -188,9 +221,11 @@ class AgentMenu extends Viewers {
 
   async test_codex_without_its_daemon_takes_rename_typed_into_an_empty_box() {
     const log = join(this.temp.name, "submitted.txt");
-    const script = writeExecutable(join(this.temp.name, "codex-screen"), codexScreen(log));
+    const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));
+    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID]);
     const pane = await this.new(script);
-    await this.hook(pane, "codex", CODEX_ID);
+    await this.codexConversation(pane, CODEX_ID);
+    await this.stopCodexDaemon();
     await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
     // A draft blocks it, and stays as typed.
     await this.command("pane.input", { target: pane, data: "draft" });

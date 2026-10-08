@@ -373,9 +373,11 @@ class Smoke extends Runtime {
     await this.attach();
     await this.command("workspace.edit", { name: "Renamed", target: ws });
     await this.rpc({ op: "workspace.switch", workspace: home });
+    await this.rpc({ op: "test.settle" });
     const before = await this.workspaces();
     await this.restart_runtime();
     await this.attach();
+    await this.rpc({ op: "test.settle" });
     this.assertEqual(await this.workspaces(), before);
     await this.rpc({ op: "workspace.switch", workspace: ws });
     await this.attach();

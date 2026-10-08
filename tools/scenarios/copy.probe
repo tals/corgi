@@ -1,0 +1,50 @@
+# Copy mode, scrollback, mouse selection and paste.
+key ctrl+b c
+key t
+settle
+type seq 1 120
+key enter
+settle
+snap output
+scroll 60 15 up
+scroll 60 15 up
+settle
+snap wheel-up
+scroll 60 15 down
+scroll 60 15 down
+settle
+key ctrl+b s
+snap copy-mode
+key k k k
+snap copy-up
+key pgup
+snap copy-pgup
+key v
+key k k
+snap copy-select
+key y
+settle
+snap copied
+key ctrl+b s
+key g
+snap copy-top
+key 'G'
+snap copy-bottom
+key esc
+snap copy-exit
+dragtext 110 115
+settle
+snap mouse-select
+# Let the "Copied" toast expire on both sides.
+wait 2500
+click 60 20
+settle
+type echo 
+paste one two three
+snap pasted
+paste line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12
+settle
+snap paste-multiline
+key esc
+settle
+snap paste-esc

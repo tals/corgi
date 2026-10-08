@@ -81,7 +81,15 @@ process.stdin.on('data', data => {
             .split("\n")
             .map((line) => JSON.parse(line))
         : [];
-    await this.until(() => events().length >= 2 * paneCount);
+    // A viewer may have resized the pane during startup. Wait for the handoff's
+    // complete redraw pair, rather than counting that earlier SIGWINCH.
+    await this.until(() => {
+      const received = events();
+      if (paneCount !== 1) return received.length >= 2 * paneCount;
+      const [smaller, restored] = received.slice(-2);
+      return smaller?.[0] === geometry.cols - 1 && smaller?.[1] === geometry.rows &&
+        restored?.[0] === geometry.cols && restored?.[1] === geometry.rows;
+    });
     if (paneCount === 1)
       this.assertEqual(events().slice(-2), [
         [geometry.cols - 1, geometry.rows],

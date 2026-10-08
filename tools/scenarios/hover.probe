@@ -1,0 +1,20 @@
+# Hover popovers: the agent scope menu and the New ▾ launcher, and leaving them.
+hovertext agents
+wait 100
+snap scope-hover
+move 60 20
+wait 100
+snap scope-left
+hovertext ▾ 2
+wait 100
+snap options-hover
+move 60 20
+wait 100
+snap options-left
+hovertext agents
+wait 100
+key space
+snap scope-then-space
+hovertext ▾ 2
+wait 100
+snap scope-then-options

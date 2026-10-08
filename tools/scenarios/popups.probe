@@ -1,0 +1,61 @@
+# Popups opened over each other must dismiss the previous one.
+hovertext agents
+wait 150
+key ctrl+b c
+settle
+snap scope-then-launcher
+key esc
+settle
+hovertext ▾ 2
+wait 150
+rclicktext project
+settle
+snap options-then-wsmenu
+key esc
+settle
+rclicktext project
+settle
+hovertext agents
+wait 150
+snap wsmenu-then-scope
+key esc
+move 60 25
+settle
+key ctrl+b c
+settle
+rclicktext 1 1
+settle
+snap launcher-then-tabmenu
+key esc
+key esc
+settle
+rclicktext project
+settle
+key ctrl+b ?
+settle
+snap wsmenu-then-help
+key esc
+settle
+snap help-closed
+hovertext 🐕
+wait 300
+key ctrl+b c
+settle
+snap overview-then-launcher
+key esc
+settle
+key ctrl+b w
+settle
+hovertext agents
+wait 150
+snap dialog-then-hover
+key esc
+settle
+key ctrl+b g
+settle
+hovertext ▾
+wait 150
+snap find-then-hover
+key esc
+settle
+snap end

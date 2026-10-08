@@ -13,7 +13,7 @@ Ordinary Codex and Claude sessions use incremental, session-validated transcript
 
 Counting begins when Corgi binds an observable session. Existing transcript history establishes a baseline and is not counted as new activity. Usage is attributed when the provider reports it, so streaming token totals may arrive in batches. Missing transcripts, records larger than 1 MiB, and provider formats that omit usage cannot supply complete totals. Known Codex children are followed recursively; their subsequently reported activity contributes to their workspace. Reloading preserves displayed away totals but seeds a new transcript baseline, so events written during the handoff may be omitted.
 
-No setup beyond `./go.sh` is required for an already observed session. To see away totals accumulate, select another workspace in every viewer watching it, then let its agent do new work. Returning clears those totals.
+No setup beyond `./go.ts` is required for an already observed session. To see away totals accumulate, select another workspace in every viewer watching it, then let its agent do new work. Returning clears those totals.
 
 Hover over an agent's name, activity, or subagent badge to inspect one combined
 card: its own activity and token spend, followed by children grouped by role or

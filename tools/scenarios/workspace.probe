@@ -1,0 +1,9 @@
+# A new workspace from the dialog, then switching back.
+key ctrl+b w
+snap dialog
+type second
+snap typed
+key enter
+snap created
+clicktext project
+snap switched-back

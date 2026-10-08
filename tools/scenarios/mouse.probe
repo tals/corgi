@@ -1,0 +1,44 @@
+# Mouse: tab clicks and drags, workspace drags, sidebar edge and pane dividers.
+key ctrl+b c
+key t
+settle
+key ctrl+b c
+key t
+settle
+snap three-tabs
+clicktext 1 1
+settle
+snap clicked-tab1
+dragtext 1 3
+settle
+snap dragged-tab
+key ctrl+b w
+type beta
+key enter
+settle
+dragtext beta project
+settle
+snap dragged-ws
+key ctrl+b v
+settle
+snap split
+drag 28 10 40 10
+settle
+snap sidebar-wider
+drag 40 10 20 10
+settle
+snap sidebar-narrower
+rclicktext beta
+settle
+snap ws-menu
+key esc
+settle
+scroll 10 20 down
+settle
+snap sidebar-scroll
+clicktext +
+settle
+snap plus-tab
+key esc
+settle
+snap plus-esc

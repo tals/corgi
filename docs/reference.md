@@ -7,19 +7,19 @@ A small terminal multiplexer for agents, written in Zig, using **Ghostty's nativ
 Requires **Zig 0.16.0**, pinned to the Ghostty revision in `build.zig.zon`. `scripts/zig` selects a matching compiler from `ZIG`, PATH, or the local `.tools/` download.
 
 ```sh
-./go.sh                        # ReleaseSafe build, then start or attach
-./go.sh --temp                 # fresh isolated runtime, setup and state
-./go.sh --env demo             # reuse an isolated named environment
-./go.sh --env demo onboard     # reopen its onboarding
-./go.sh --reload               # rebuild and replace daemon; panes/viewers stay alive
-./go.sh --restart              # stop processes, then recover in new shells
+./go.ts                        # build, then start or attach
+./go.ts --temp                 # fresh isolated runtime, setup and state
+./go.ts --env demo             # reuse an isolated named environment
+./go.ts --env demo onboard     # reopen its onboarding
+./go.ts --reload               # rebuild and replace daemon; panes/viewers stay alive
+./go.ts --restart              # stop processes, then recover in new shells
 ./scripts/zig build test
 bun run tests/run.ts smoke smoke_input smoke_terminal # real PTYs + socket tests; mock providers, no inference
 ```
 
-After building, the executable is `zig-out/bin/corgi`. Its directory is added to each pane's PATH. Ordinary `go.sh` preserves the running runtime; UI-only changes load in a newly opened viewer. `./go.sh --reload` builds, transfers the live runtime to that executable, and returns to the current terminal. It works inside a Corgi pane. `corgi reload [ABSOLUTE_EXE]` uses an already built executable. A failed build or handoff leaves the old runtime serving; there is no destructive fallback.
+After building, the executable is `dist/corgi`. Its directory is added to each pane's PATH. Ordinary `go.ts` preserves the running runtime; UI-only changes load in a newly opened viewer. `./go.ts --reload` builds, transfers the live runtime to that executable, and returns to the current terminal. It works inside a Corgi pane. `corgi reload [ABSOLUTE_EXE]` uses an already built executable. A failed build or handoff leaves the old runtime serving; there is no destructive fallback.
 
-`./go.sh --restart` remains an explicit process restart: it terminates existing processes and starts new shells from saved recovery context. Run it outside Corgi. Put flags first; further arguments are passed through, e.g. `./go.sh --restart start`. It cannot preserve process memory or unsaved application work.
+`./go.ts --restart` remains an explicit process restart: it terminates existing processes and starts new shells from saved recovery context. Run it outside Corgi. Put flags first; further arguments are passed through, e.g. `./go.ts --restart start`. It cannot preserve process memory or unsaved application work.
 
 `--temp` and `--env NAME` select isolated runtimes before any reload or restart.
 They also isolate preferences, onboarding completion, workspaces, inference settings
@@ -27,9 +27,9 @@ and recovery snapshots. Named data lives under
 `${XDG_STATE_HOME:-$HOME/.local/state}/corgi/environments/NAME`; sockets use a short,
 private directory under `/tmp`. Names contain up to 32 letters, digits, `_` or `-`
 and start with a letter or digit. Named setup survives reboot; processes do not.
-`./go.sh --env demo --reload` reloads only demo, and `./go.sh --env demo shutdown`
+`./go.ts --env demo --reload` reloads only demo, and `./go.ts --env demo shutdown`
 asks before stopping it. Switching environments requires a terminal outside Corgi;
-inside a named environment, ordinary `./go.sh` keeps using that environment.
+inside a named environment, ordinary `./go.ts` keeps using that environment.
 
 Temporary data lives in a fresh private `/tmp/corgi-temp-<uid>.*` directory.
 Detach leaves its runtime alive and retains the directory. Use the printed reconnect
@@ -208,7 +208,7 @@ Click tabs and panes to focus. Drag split dividers to resize. Drag terminal text
 
 `corgi action move-tab left|right` reorders tabs. `corgi action join N` moves the focused pane into tab N. New tabs and splits use the workspace default directory.
 
-Exiting a shell immediately removes its pane; an empty tab disappears too. Closing a pane while its agent is running keeps the agent to reopen: each workspace keeps its last **eight closed agents**, with their screen and scrollback, tab name, pane name and working directory. `Ctrl+Shift+T` or `Cmd+Shift+T` in the Corgi preset, `Cmd+Shift+T` in cmux or through the Ghostty integration, or `prefix u` in any preset (or `corgi action undo-close`) reopens the newest one in this workspace in a new tab. The old screen comes back faded under a **Restoring…** band naming the command, and the agent resumes its conversation right away (`claude --resume` or `codex resume`), with the yolo flag if Corgi started it in yolo mode. The band goes away when the agent first draws over the old screen. Resuming a closed agent's conversation from the new-agent launcher reopens it the same way. Closed shells, agents that quit on their own and agents whose session Corgi never learned are not kept, and closing a workspace drops its closed agents. With one workspace, closing the last tab automatically detaches and returns to the outer terminal. Run `./go.sh` to reattach with a new shell, then reopen the agent. Closed agents and native agent sessions remain in the background runtime until it shuts down.
+Exiting a shell immediately removes its pane; an empty tab disappears too. Closing a pane while its agent is running keeps the agent to reopen: each workspace keeps its last **eight closed agents**, with their screen and scrollback, tab name, pane name and working directory. `Ctrl+Shift+T` or `Cmd+Shift+T` in the Corgi preset, `Cmd+Shift+T` in cmux or through the Ghostty integration, or `prefix u` in any preset (or `corgi action undo-close`) reopens the newest one in this workspace in a new tab. The old screen comes back faded under a **Restoring…** band naming the command, and the agent resumes its conversation right away (`claude --resume` or `codex resume`), with the yolo flag if Corgi started it in yolo mode. The band goes away when the agent first draws over the old screen. Resuming a closed agent's conversation from the new-agent launcher reopens it the same way. Closed shells, agents that quit on their own and agents whose session Corgi never learned are not kept, and closing a workspace drops its closed agents. With one workspace, closing the last tab automatically detaches and returns to the outer terminal. Run `./go.ts` to reattach with a new shell, then reopen the agent. Closed agents and native agent sessions remain in the background runtime until it shuts down.
 
 This is an initial implementation of Herdr's core tab/pane operations. Copy mode is intentionally smaller: it does not yet reproduce all of Herdr's vi word motions, keyboard selection, smart-case search, or configurable bindings. Multiple viewers share arrangement and independently select what to view. Limits: 24 tabs per workspace, 64 panes, 16 native provider processes, 10,000 scrollback lines per terminal.
 

@@ -9,7 +9,7 @@ historical saved-state formats are normalized by ordered migrations before
 current runtime types are decoded. Wire protocols and terminal compatibility
 remain separate from saved-state schema versions.
 
-A main-environment `./go.sh` launch stops all other Corgi daemons owned by the
+A main-environment `./go.ts` launch stops all other Corgi daemons owned by the
 current user, including temporary and named environments, while preserving the
 main daemon and its viewer. Other environments lose their running panes. Shutdown
 is attempted first; unresponsive daemons are terminated. `--temp`, `--env`, and
@@ -126,7 +126,7 @@ and imported-child exit detection as part of that milestone.
 
 ## Milestone 1 manual check
 
-After saving work, run `./go.sh --restart` from outside Corgi. This is an ordinary
+After saving work, run `./go.ts --restart` from outside Corgi. This is an ordinary
 restart and ends the existing runtime's panes. Check tabs/splits, tab dragging
 and rename, workspace switching, enhanced keyboard input, paste, wheel scroll,
 mouse selection, agent indicators, and detach/reattach. Multiple viewers still
@@ -135,7 +135,7 @@ share selection in this milestone. The new independent selections arrive in 2.
 
 ## Milestone 2: local viewers
 
-After the one-time daemon upgrade, rebuild and open `./go.sh` to pick up UI changes.
+After the one-time daemon upgrade, rebuild and open `./go.ts` to pick up UI changes.
 The daemon PID and all existing pane processes stay the same. Viewer-only changes
 include menus, dialogs, key bindings, sidebar composition, and presentation. A
 feature needing a new runtime capability uses the live daemon handoff below.
@@ -194,8 +194,8 @@ The daemon no longer accepts the former `attach`, `input`, or `size` operations.
 
 ### Manual check
 
-Save work, then run `./go.sh --restart` from outside Corgi once to install this
-protocol. Open two outer terminals with `./go.sh`. Navigate different tabs and
+Save work, then run `./go.ts --restart` from outside Corgi once to install this
+protocol. Open two outer terminals with `./go.ts`. Navigate different tabs and
 workspaces; open a menu/dialog and scroll in one while using the other. Rename,
 reorder, split, and close panes and verify both see the same arrangement while
 keeping their own selections. Resize one viewer while viewing different panes,
@@ -210,7 +210,7 @@ only by `-Dviewer-test-driver=true`. Normal builds exclude the harness entry poi
 
 ## Milestone 3: live handoff and recovery
 
-`./go.sh --reload` builds and replaces the daemon, including when invoked inside
+`./go.ts --reload` builds and replaces the daemon, including when invoked inside
 one of its panes. It returns after the handoff; it does not open a nested viewer.
 `corgi reload [ABSOLUTE_EXE]` reloads an existing build. The daemon queues the
 request until the current input slice completes, drains accepted terminal/native
@@ -363,9 +363,9 @@ dropping state.
 ### Manual check
 
 The currently running milestone-2 daemon cannot export live state. Save work and
-perform one ordinary `./go.sh --restart` from outside Corgi to install export
+perform one ordinary `./go.ts --restart` from outside Corgi to install export
 support. Then open two viewers, put a long-running command or agent in a pane,
-and run `./go.sh --reload` from another pane. The daemon PID should change while
+and run `./go.ts --reload` from another pane. The daemon PID should change while
 pane PIDs, viewer selections, scrollback, input, menus, and agent sessions survive.
 Repeat with different panes visible and after resizing. Try a nonexistent binary
 with `corgi reload /does/not/exist`; the old runtime should remain usable.

@@ -1,0 +1,19 @@
+# Splits, focus, zoom and closing a pane.
+key ctrl+b c
+key t
+waittext $
+key ctrl+b v
+wait 300
+snap split-right
+key ctrl+b -
+wait 300
+snap split-down
+key ctrl+b h
+snap focus-left
+key ctrl+b z
+snap zoom
+key ctrl+b z
+snap unzoom
+key ctrl+b x
+wait 300
+snap closed-one

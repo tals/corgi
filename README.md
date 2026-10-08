@@ -23,12 +23,14 @@ Updates download in the background and apply on the next launch.
 
 ## Development
 
-Requires **Zig 0.16.0** on your PATH (or set `ZIG=/path/to/zig`). Tested on macOS Apple Silicon.
+Corgi runs on **Bun**. Its native layer (terminal emulation, PTYs, keyboard
+encoding, crash reports) is Zig and needs **Zig 0.16.0** on your PATH (or set
+`ZIG=/path/to/zig`). `bun build.ts` builds both into `dist/corgi`.
 
 From this directory:
 
 ```sh
-./go.sh
+./go.ts
 ```
 
 This builds Corgi and starts or attaches to its background runtime.
@@ -36,33 +38,18 @@ This builds Corgi and starts or attaches to its background runtime.
 To try onboarding in an isolated Corgi environment, run from a terminal outside Corgi:
 
 ```sh
-./go.sh --temp          # fresh setup every time
-./go.sh --env demo      # reusable environment; setup once
-./go.sh --env demo onboard  # reopen its onboarding
+./go.ts --temp          # fresh setup every time
+./go.ts --env demo      # reusable environment; setup once
+./go.ts --env demo onboard  # reopen its onboarding
 ```
 
 Each environment has its own runtime, preferences and saved state. Named environments
 survive restarts and reboots. Temporary environments print a reconnect command and
 keep running after detach; shutdown still requires confirmation.
 
-macOS builds sign the Corgi executable with a persistent certificate so Keychain
-“Always Allow” survives rebuilds. The build prefers a **Developer ID Application**
-identity, falling back to **Apple Development** for local use. The certificate and
-its private key must be in your Keychain. With multiple identities, select one
-using `CORGI_SIGN_IDENTITY` or `-Dsigning-identity=SHA1`. The signing identifier is
-`dev.corgi.cli`; keep it stable. Signing stays inside the normal build, including
-`zig build run`, and credential access stays inside Corgi.
-
-`go.sh` disables secure timestamps for local development so signing does not depend
-on Apple's online timestamp service. Direct builds keep timestamping enabled by
-default; use `-Dsigning-timestamp=false` for an offline local build.
-
-Approve access once after switching from an ad-hoc build. Each Mac needs its own
-approval. For distribution to other Macs, use Developer ID Application signing
-and notarize the release before sharing it. Apple Development is for local use;
-switching signing identities can require another approval. CI or cross builds
-without a certificate can use `./scripts/zig build -Dcodesign=false`, but ad-hoc
-builds do not preserve Keychain approval across code changes.
+The published installer and releases are still built by the Zig pipeline on
+the `archive/corgi_v0_zig` branch; the Bun build is not yet released or
+code-signed on macOS.
 
 Multiple terminals can attach to the same runtime. They share workspaces, tabs, and split arrangement. Each viewer has its own selected workspace, tab, pane, menus, zoom, and scroll position. A pane takes the size of the most recently used viewer displaying it (typing, clicking, or resizing counts as use); other viewers clip or pad it. Detaching one viewer leaves the others connected.
 
@@ -76,7 +63,7 @@ The caret is steady by default while attached, preserving the host terminal's cu
 - Drag the sidebar's right edge to resize it. Width belongs to each viewer and resets on reattach.
 - Drag a tab to reorder it; the vertical marker shows where it will land. Release outside the tab bar or press Escape to cancel.
 - **Ctrl-B**, then **v** or **-** splits right or down. Split layouts reserve a one-cell outer frame and highlight the focused pane’s whole outline, including outer edges. Single-pane and zoomed views use the full terminal area.
-- **Ctrl-B**, then **q** detaches while keeping your shells running. Run `./go.sh` to return.
+- **Ctrl-B**, then **q** detaches while keeping your shells running. Run `./go.ts` to return.
 - With one workspace, closing the last tab returns to your outer terminal. With multiple workspaces, an empty workspace stays open so you can switch or create a tab. Closing a running agent keeps it: **Ctrl-Shift-T** or **Cmd-Shift-T** (or **Ctrl-B**, then **u**) resumes it in a new tab over its faded old screen, even after reattaching.
 - The left sidebar is split equally: **workspaces** above, **agents in the selected workspace** below. Click the workspace header **+** to create one; leave its name empty for automatic naming, or enter a custom name. Click a workspace to switch, or right-click to rename it. **Ctrl-B w** creates a workspace with just a name, inheriting the current workspace’s folder; **Ctrl-B W** edits it; **Ctrl-B { / }** switches. The workspace name and folder follow the working directory of tab 1 (the first tab in the current order). A custom workspace name overrides the automatic folder name; clear it to restore automatic naming. New tabs and splits use that folder. Existing panes keep their working directories.
 - The **agent sidebar** shows a colored status circle and agent name, with activity underneath. For Codex panes, the activity line ends with `↳2` when two direct subagents are running; `!1` adds one child needing input. An explicit wait shows **Waiting on agents**. The badge disappears when no children are running or need input, keeping every entry two lines tall. Click an agent to jump to its pane; **Ctrl-B**, then **b** toggles the sidebar. Click the corgi badge (or **Ctrl-B i**) to choose which harness writes activity summaries and link names; **Auto** follows the agents you run. See [workspace activity](docs/workspace-activity.md#agent-activity-summaries).
@@ -126,11 +113,11 @@ claude
 
 Corgi detects agents automatically, including Bun and Node launches, and sets up hooks in existing Codex/Claude settings directories. Existing settings are preserved, with a backup before editing. Codex may ask you to trust the hooks in `/hooks`.
 
-Run `./go.sh` to build and launch: it starts the runtime if needed and live-reloads it only when the binary changed. From inside a Corgi pane, it asks the viewer focused on that pane to detach and re-exec the freshly built client. Running panes survive both operations. Existing viewers from before this feature need one manual **Ctrl-B q** and `./go.sh`; if multiple viewers focus the invoking pane, detach and reattach the intended viewer manually. `./go.sh --reload` forces a daemon-only live reload. Failed hot reloads leave the runtime and panes running; they never fall back to a destructive restart. `./go.sh --restart` is a destructive runtime restart; save work and run it from outside Corgi. It requires typing `yes` at an interactive confirmation before terminating an existing runtime, as does `./go.sh shutdown`. Empty input, any other answer, or noninteractive input cancels. Other arguments are passed through to the CLI.
+Run `./go.ts` to build and launch: it starts the runtime if needed and live-reloads it only when the binary changed. From inside a Corgi pane, it asks the viewer focused on that pane to detach and re-exec the freshly built client. Running panes survive both operations. Existing viewers from before this feature need one manual **Ctrl-B q** and `./go.ts`; if multiple viewers focus the invoking pane, detach and reattach the intended viewer manually. `./go.ts --reload` forces a daemon-only live reload. Failed hot reloads leave the runtime and panes running; they never fall back to a destructive restart. `./go.ts --restart` is a destructive runtime restart; save work and run it from outside Corgi. It requires typing `yes` at an interactive confirmation before terminating an existing runtime, as does `./go.ts shutdown`. Empty input, any other answer, or noninteractive input cancels. Other arguments are passed through to the CLI.
 
 Recovery snapshots are saved every two seconds when state changes, and on clean shutdown. `corgi checkpoint` saves immediately and prints the private file path. Restored agent commands are displayed for you to run; they are never executed automatically. Shell command history remains managed by the shell.
 
-Tests: `./scripts/zig build test`, then `./scripts/zig build -Doptimize=ReleaseSafe -Dviewer-test-driver=true`, `bun run tests/run.ts`. Suites run in separate Bun processes; see [tests/README.md](tests/README.md) for focused runs and optional external-runtime tests.
+Tests: `bun test src` and `bun typecheck.ts`, then `bun build.ts --test` and `bun integration.ts`. Suites run in separate Bun processes; see [tests/README.md](tests/README.md) for focused runs and optional external-runtime tests.
 
 The [development reload milestones](docs/development-reloads.md) describe the
 versioned runtime interface, viewer-owned UI, live handoff, and recovery after reboot.

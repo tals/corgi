@@ -1,0 +1,9 @@
+# A terminal from the launcher, then typing in it.
+key ctrl+b c
+key t
+waittext $
+snap terminal
+type echo hello
+key enter
+waittext hello
+snap echoed

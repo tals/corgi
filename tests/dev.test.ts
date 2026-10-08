@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Runtime, EXE, ROOT } from "./runtime";
 import { Pty, deadline, registerCase, run, sleep } from "./support";
+const developerScript = process.env.CORGI_DEV_SCRIPT || join(ROOT, "go.ts");
 
 class Dev extends Runtime {
   async configure() {
@@ -11,7 +12,7 @@ class Dev extends Runtime {
       process.env.XDG_CACHE_HOME || join(homedir(), ".cache"),
       "zig",
     );
-    // Discover the host signing identity before go.sh runs with the isolated HOME.
+    // Discover the host signing identity before go.ts runs with the isolated HOME.
     if (process.platform === "darwin" && !this.env.CORGI_SIGN_IDENTITY) {
       this.env.CORGI_SIGN_IDENTITY = (
         await run(["/bin/sh", join(ROOT, "scripts/sign-macos"), "--identity"], {
@@ -22,7 +23,7 @@ class Dev extends Runtime {
   }
   async launch() {
     delete this.env.CORGI_PANE;
-    this.pty = await Pty.spawn([join(ROOT, "go.sh")], {
+    this.pty = await Pty.spawn([developerScript], {
       env: this.env,
       cols: 80,
       rows: 24,
@@ -51,7 +52,7 @@ class Dev extends Runtime {
     const viewer = await this.launch(),
       panes = (await this.session()).panes.map((p: any) => [p.id, p.pid]);
     await this.command("pane.input", {
-      data: join(ROOT, "go.sh") + "\r",
+      data: developerScript + "\r",
       target: viewer.pane,
     });
     await this.wait_viewer(viewer.id);
@@ -81,6 +82,8 @@ class Dev extends Runtime {
     await this.launch();
     const current = await this.rpc({ op: "hello", protocol: 1 });
     this.assertNotEqual(old.build_id, current.build_id);
+    this.assertEqual(current.executable, realpathSync(EXE));
+    this.assertEqual(current.build_id, createHash("sha256").update(readFileSync(EXE)).digest("hex"));
     this.assertNotEqual(old.server_pid, current.server_pid);
     this.assertEqual(
       (await this.session()).panes.map((p: any) => [p.id, p.pid]),

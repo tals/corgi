@@ -48,8 +48,11 @@ class Resources extends Runtime {
 
   async test_workspace_clicks_and_separators_preserve_resource_hover() {
     const first = (await this.session()).workspaces[0].id;
+    // Some Linux kernels report zero RSS for a tiny sleeping process. Allocate
+    // and touch memory so this fixture actually supplies the metric it asserts.
     await this.command("pane.create", {
-      workspace: first, cwd: this.temp.name, command: "/bin/sleep 300",
+      workspace: first, cwd: this.temp.name,
+      command: shellJoin([process.execPath, "-e", "const memory=Buffer.alloc(4*1024*1024,1);setInterval(()=>{memory[0]++;},1000)"]),
     });
     const second = (await this.command("workspace.create", {
       name: "second", cwd: this.temp.name,
@@ -220,7 +223,10 @@ class Resources extends Runtime {
       const snapshot = await this.session();
       sample = snapshot.resources;
       const work = sample.workspaces.find((w: any) => w.id === workspace);
-      return work?.cpu > 3 && work?.memory > 16 * 1024 * 1024;
+      // Both rows below require rates. The later-created quiet workspace can
+      // still have only its first sample when the busy workspace has two.
+      const quiet = sample.workspaces.find((w: any) => w.id === other);
+      return work?.cpu > 3 && work?.memory > 16 * 1024 * 1024 && quiet?.cpu != null;
     }, 12);
     const pid = Number(readFileSync(pidFile, "utf8"));
     const work = sample.workspaces.find((w: any) => w.id === workspace);

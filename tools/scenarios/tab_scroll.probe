@@ -1,0 +1,39 @@
+# The tab bar scrolls with the wheel once tabs overflow, and shows a scrollbar while hovered.
+size 70x24
+key ctrl+b c
+key t
+settle
+key ctrl+b c
+key t
+settle
+key ctrl+b c
+key t
+settle
+key ctrl+b c
+key t
+settle
+key ctrl+b c
+key t
+settle
+snap overflow
+style overflow-style
+hovertext +
+move 35 1
+wait 100
+style hover-scrollbar
+scroll 35 1 up
+settle
+snap wheel-left
+scroll 35 1 up
+scroll 35 1 up
+settle
+snap wheel-start
+scroll 35 1 down
+settle
+snap wheel-right
+key ctrl+b n
+settle
+snap next-reveals
+move 35 10
+wait 100
+style unhovered

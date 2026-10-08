@@ -602,6 +602,8 @@ process.stdin.resume();
     );
   }
   async test_native_cold_recovery_displays_resume_without_starting_agent() {
+    this.env.SHELL = "/bin/bash";
+    await this.restart_runtime();
     const ident = (
       await this.rpc({
         op: "native.start",

@@ -1,0 +1,43 @@
+# Agent rows: right-click menu, rename, mute, drag to reorder, scope menu.
+type claude
+key enter
+waittext ›
+settle
+key ctrl+b c
+type t
+settle
+type codex
+key enter
+waittext ›
+settle
+snap two
+rclicktext claude
+settle
+snap menu
+key down
+snap menu-down
+key esc
+settle
+snap menu-closed
+rclicktext codex
+settle
+key r
+settle
+snap rename
+type -renamed
+key enter
+settle
+snap renamed
+key ctrl+b m
+settle
+snap muted
+dragtext codex claude
+settle
+snap reordered
+clicktext agents
+settle
+snap scope
+key down
+key enter
+settle
+snap scope-all

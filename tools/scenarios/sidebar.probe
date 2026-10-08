@@ -1,0 +1,13 @@
+# Sidebar toggle, find agent, copy mode, resize.
+key ctrl+b b
+snap hidden
+key ctrl+b b
+snap shown
+key ctrl+b g
+snap find
+key esc
+snap find-closed
+resize 70x20
+snap small
+resize 120x40
+snap large
