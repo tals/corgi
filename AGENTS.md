@@ -7,7 +7,9 @@
 - **Unit tests:** `bun test src`
   - While iterating, pass a file or `-t <name>`. Run the full suite before
     finishing.
-- **Typecheck:** `bun typecheck.ts`
+- **Typecheck:** `bun typecheck.ts`. It also fails on unformatted code.
+- **Format:** `bun format.ts` runs the pinned Prettier (Bun's own settings,
+  `.prettierrc`) over the TypeScript; `--check` only lists files.
 - **Integration tests:** `bun build.ts --test`, then
   `bun integration.ts --jobs 1` (or name suites). See `tests/README.md`.
   Parallel runs are flaky under load; rerun a failing suite with `--jobs 1`
@@ -76,9 +78,10 @@ Best-effort cleanup may swallow errors.
 **UI colors.** Take them from `palette.ts` tokens, never RGB literals.
 `docs/ui_styleguide.md` says which token means what.
 
-**Lines and comments.** Keep lines readable; long `if … else if …` chains
-become a `switch` or a small named helper. Keep comments terse, like the
-code around them, and don't narrate the refactor that produced the code.
+**Lines and comments.** Prettier sets the layout. Keep lines readable; long
+`if … else if …` chains become a `switch` or a small named helper. Keep
+comments terse, like the code around them, and don't narrate the refactor
+that produced the code.
 
 **Saved formats.** Anything serialized into a checkpoint or handoff is
 checked by the schema snapshots in `src/fixtures/`. A new field
