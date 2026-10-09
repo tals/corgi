@@ -34,11 +34,12 @@ use `muted` or brighter. Tests check this.
 
 ## Themes
 
-`palette.themes` holds Corgi's own colors and dark themes after Herdr's. Each
-theme gives every token the same meaning and passes the same contrast tests;
-its accent is the theme's own, not always green. `palette.use` repaints
-`colors` in place. A module that builds strings from tokens once builds them
-in `palette.derived(...)`, which runs again after every theme change.
+Animal Style is Corgi with `bg` left to the terminal: `palette.bg("bg")` and a
+`Style` with `bg: "bg"` send the default background (SGR 49), and `colors.bg`
+holds the terminal's reported background for mixes, or Corgi's own when it
+didn't answer. `palette.use` repaints it in place. A module that builds strings
+from tokens once builds them in `palette.derived(...)`, which runs again after
+every theme change.
 
 ## Status
 

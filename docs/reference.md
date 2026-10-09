@@ -237,10 +237,10 @@ after it. Clients can use
 `shell` clears it); the session snapshot's `shell` field reports the setting,
 the shell new panes run and where it came from.
 
-**Corgi setup › Theme** colors Corgi's sidebar, tabs and cards: Corgi's own
-colors, or Tokyo Night, Catppuccin, Rosé Pine, Kanagawa or Gruvbox, after
-Herdr's. The theme under the cursor previews across the screen; Enter keeps it
-in `viewer.json`. Panes keep your terminal's colors.
+**Corgi setup › Theme** picks what shows behind the sidebar and cards: Corgi's
+dark panels, or, in **Animal Style**, your terminal's own background, as in
+Herdr. The theme under the cursor previews across the screen; Enter keeps it in
+`viewer.json`.
 
 ## Agent integration
 

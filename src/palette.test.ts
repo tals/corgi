@@ -13,38 +13,40 @@ import {
   keycap,
   mix,
   termhtmlTheme,
-  available_themes,
   colors,
   derived,
-  themes,
   use,
   type Token,
 } from "./palette";
-test("text tokens stay readable on the backgrounds the guide allows, in every theme", () => {
-  for (const name of available_themes) {
-    for (const ink of ["faint", "muted", "text", "strong", "accent", "warm", "hot"] as Token[]) {
-      for (const ground of ["bg", "surface"] as Token[])
-        expect(contrast(ink, ground, name)).toBeGreaterThanOrEqual(4.5);
-      if (ink !== "faint") expect(contrast(ink, "selected", name)).toBeGreaterThanOrEqual(4.5);
-    }
-    expect(contrast("line", "bg", name)).toBeGreaterThanOrEqual(2.2);
-    expect(contrast("strong", "line", name)).toBeGreaterThanOrEqual(4.5);
+test("text tokens stay readable on the backgrounds the guide allows", () => {
+  for (const ink of ["faint", "muted", "text", "strong", "accent", "warm", "hot"] as Token[]) {
+    for (const ground of ["bg", "surface"] as Token[]) expect(contrast(ink, ground)).toBeGreaterThanOrEqual(4.5);
+    if (ink !== "faint") expect(contrast(ink, "selected")).toBeGreaterThanOrEqual(4.5);
   }
+  expect(contrast("line", "bg")).toBeGreaterThanOrEqual(2.2);
 });
-test("a theme repaints the tokens in place and what modules derived from them", () => {
-  const accent = colors.accent;
-  let derivedAccent = "";
-  derived(() => (derivedAccent = fg("accent")));
+test("Animal Style leaves bg to the terminal and mixes with the terminal's background", () => {
+  const held = colors.bg;
+  let hover = "";
+  derived(() => (hover = bgRgb(mix(colors.bg, colors.selected, 50))));
   try {
-    use("tokyo_night");
-    expect(accent).toEqual(themes.tokyo_night.colors.accent);
-    expect(derivedAccent).toBe("\x1b[38;2;122;162;247m");
-    expect(keycap).toBe("\x1b[0;1;38;2;224;229;250;48;2;74;81;114m");
+    use("animal_style", [0, 0, 0]);
+    expect(bg("bg")).toBe("\x1b[49m");
+    expect(new Style({ fg: "text", bg: "bg" }).sgr()).toBe("\x1b[0;38;2;209;214;219;49m");
+    expect(bg("bg", "corgi")).toBe("\x1b[48;2;24;27;32m");
+    expect(bg("surface")).toBe("\x1b[48;2;35;40;47m");
+    expect(held).toEqual([0, 0, 0]);
+    expect(hover).toBe("\x1b[48;2;26;29;33m");
+    // Without the terminal's answer, mixes use Corgi's own.
+    use("animal_style");
+    expect(held).toEqual([24, 27, 32]);
+    expect(bg("bg")).toBe("\x1b[49m");
   } finally {
     use("corgi");
   }
-  expect(colors.accent).toEqual([123, 241, 168]);
-  expect(derivedAccent).toBe("\x1b[38;2;123;241;168m");
+  expect(bg("bg")).toBe("\x1b[48;2;24;27;32m");
+  expect(bg("bg", "animal_style")).toBe("\x1b[49m");
+  expect(hover).toBe("\x1b[48;2;38;42;49m");
 });
 test("styles render to SGR, called at runtime", () => {
   expect(fg("accent")).toBe("\x1b[38;2;123;241;168m");

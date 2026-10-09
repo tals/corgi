@@ -210,6 +210,8 @@ export class Controller {
   cell_pixels: forkMotion.Cell | null = null;
   /** Whether the host draws Kitty's branch drawing characters. */
   branch_glyphs = false;
+  /** The host's background, when it reports it. Animal Style mixes with it. */
+  terminal_background: palette.Rgb | null = null;
   /** The "All" list's scroll; each workspace keeps its own list's. */
   all_offset = 0;
   /** A tab this viewer launched or restored; its agent scrolls into view once listed. */
@@ -3960,7 +3962,7 @@ export class Controller {
     return this.link_tooltip.ready(target, milliTimestamp());
   }
   frame(): string {
-    palette.use(this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme);
+    palette.use(this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme, this.terminal_background);
     if (this.onboarding) return this.onboarding.frame(this.width, this.height);
     if (this.prefix && this.help_visible) {
       const hand =

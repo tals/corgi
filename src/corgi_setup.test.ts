@@ -153,20 +153,20 @@ test("the theme under the cursor previews until Enter keeps it", () => {
   menu.item = "theme";
   let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
   expect(text).toMatch(/Theme\s+Corgi\s+│/);
-  expect(text).toMatch(/● Corgi\s+▶ ● ○/);
-  expect(text).toContain("○ Tokyo Night");
+  expect(text).toMatch(/● Corgi\s+▶ ● ○  Corgi's dark panels/);
+  expect(text).toMatch(/○ Animal Style\s+▶ ● ○  terminal background/);
   expect(menu.previewTheme(prefs)).toBe("corgi");
   expect(menu.enter(s, prefs)).toBeNull();
   expect(menu.cursor).toBe(0);
   menu.move(true, s, prefs);
-  expect(menu.previewTheme(prefs)).toBe("tokyo_night");
-  expect(menu.enter(s, prefs)).toEqual({ kind: "theme", theme: "tokyo_night" });
-  prefs.theme = "tokyo_night";
-  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Theme\s+Tokyo Night/);
-  menu.move(true, s, prefs);
-  expect(menu.previewTheme(prefs)).toBe("catppuccin");
+  expect(menu.previewTheme(prefs)).toBe("animal_style");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "theme", theme: "animal_style" });
+  prefs.theme = "animal_style";
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Theme\s+Animal Style/);
+  menu.move(false, s, prefs);
+  expect(menu.previewTheme(prefs)).toBe("corgi");
   menu.back();
-  expect(menu.previewTheme(prefs)).toBe("tokyo_night");
+  expect(menu.previewTheme(prefs)).toBe("animal_style");
 });
 
 test("image paste explains whether this viewer can paste images", () => {

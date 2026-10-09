@@ -24,8 +24,8 @@ test("preferences round trip and fall back to defaults", async () => {
     expect((await read(file)).resources).toEqual({ enabled: false });
     await writeFile(file, '{"preset":"cmux","onboarding_complete":true}');
     expect((await read(file)).preset).toBe(process.platform === "darwin" ? "cmux" : "corgi");
-    await writeFile(file, '{"theme":"tokyo_night","sleeping_corgis":false}');
-    expect(await read(file)).toMatchObject({ theme: "tokyo_night", sleeping_corgis: false });
+    await writeFile(file, '{"theme":"animal_style","sleeping_corgis":false}');
+    expect(await read(file)).toMatchObject({ theme: "animal_style", sleeping_corgis: false });
     // A theme this build doesn't know keeps the rest of the file.
     await writeFile(file, '{"theme":"solarized","sleeping_corgis":false}');
     expect(await read(file)).toMatchObject({ theme: "corgi", sleeping_corgis: false });

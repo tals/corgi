@@ -13,6 +13,7 @@ import { Openers } from "./url_opener";
 import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
 import type { Probe } from "./host_probe";
+import type { Rgb } from "./palette";
 import type { State as ClipboardState } from "./host_clipboard";
 import { n, ptr } from "./native_ffi";
 import { stringify } from "./json";
@@ -209,6 +210,7 @@ export async function run(
     // Pasted images are saved beside the socket, on the daemon's machine.
     probe.clipboard.folder = join(dirname(socket) || ".", "paste");
     view.host_clipboard = probe.clipboard;
+    view.terminal_background = background(probe);
     probe.clipboard.start(Date.now());
     const openers = new Openers();
     let previous = "";
@@ -247,6 +249,8 @@ export async function run(
         if (probe.changed) {
           await call(connection, "theme", { theme: probe.theme });
           probe.changed = false;
+          view.terminal_background = background(probe);
+          view.dirty = true;
         }
         const size = dimensions();
         view.cell_pixels = size.cell;
@@ -407,6 +411,11 @@ function watch(socket: string, viewer: number, woken: () => void, closed: () => 
   } catch {
     return null;
   }
+}
+/** The host's background, when it answered the probe. */
+function background(probe: Probe): Rgb | null {
+  const rgb = probe.theme.background;
+  return rgb ? [rgb.r, rgb.g, rgb.b] : null;
 }
 function dimensions(): { cols: number; rows: number; cell: forkMotion.Cell | null } {
   const size = new Uint16Array(4);

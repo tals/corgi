@@ -124,7 +124,7 @@ interface Option {
   arrow?: boolean;
   /** A sleeping corgi before the detail: puffing for On, still for Off. */
   sprite?: "puff" | "still";
-  /** The theme's status glyphs on its own background, before the detail. */
+  /** Status glyphs on the theme's background, before the detail. */
   swatch?: palette.Theme;
   /** A toggle in a group: On or Off at the right edge, as in the list. */
   toggle?: boolean;
@@ -550,12 +550,11 @@ export class Menu {
       dx += 13;
     }
     if (o.swatch && right - dx >= 7) {
-      const c = palette.themes[o.swatch].colors;
       w.write(
-        `${at(dx, y)}\x1b[0;1m${bgRgb(c.bg)}${palette.fgRgb(c.accent)} ▶ ${palette.fgRgb(c.warm)}● ` +
-          `\x1b[22m${palette.fgRgb(c.muted)}○ `,
+        `${at(dx, y)}\x1b[0;1m${palette.bg("bg", o.swatch)}${palette.fg("accent")} ▶ ${palette.fg("warm")}● ` +
+          `\x1b[22m${palette.fg("muted")}○ `,
       );
-      dx += 9;
+      dx += 8;
     }
     w.write(at(dx, y) + (o.disabled ? p.quiet : o.warn ? p.warn : p.muted));
     writeEllipsis(w, o.detail, sat(right - (o.arrow ? 3 : 0), dx));
@@ -656,20 +655,18 @@ export class Menu {
       case "theme":
         return [
           title("Theme"),
-          lead("Colors for the sidebar, tabs and cards."),
+          lead("What shows behind the sidebar and cards."),
           blank,
           ...palette.available_themes.map(theme =>
             option({
               label: palette.themes[theme].label,
-              detail: "",
+              detail: palette.themes[theme].clear ? "terminal background" : "Corgi's dark panels",
               mark: theme === prefs.theme ? "on" : "off",
               apply: theme === prefs.theme ? null : { kind: "theme", theme },
               action: "use",
               swatch: theme,
             }),
           ),
-          blank,
-          { tag: "note", text: "Panes keep your terminal's colors." },
         ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
