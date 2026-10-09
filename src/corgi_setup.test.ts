@@ -73,12 +73,23 @@ test("Enter opens a setting's options on the one in use, and Esc returns", () =>
   expect(menu.enter(s, prefs)).toBeNull();
   menu.move(true, s, prefs);
   expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "off" });
+  // Keys wrap past either end; the wheel stops there.
+  menu.move(true, s, prefs, false);
+  expect(menu.cursor).toBe(3);
+  menu.move(true, s, prefs);
+  expect(menu.cursor).toBeLessThan(2);
+  menu.move(false, s, prefs);
+  expect(menu.cursor).toBe(3);
   expect(draw(menu, 100, 30, 0, s).join("\n")).toContain("Activity text stays blank; links say Open Link");
   expect(menu.back()).toBe(true);
   expect(menu.back()).toBe(false);
   menu.move(true, s, prefs);
   expect(menu.item).toBe("sleeping_corgis");
-  for (let i = 0; i < 20; i++) menu.move(true, s, prefs);
+  for (let i = 0; i < 20; i++) menu.move(true, s, prefs, false);
+  expect(menu.item).toBe("import");
+  menu.move(true, s, prefs);
+  expect(menu.item).toBe("summaries");
+  menu.move(false, s, prefs);
   expect(menu.item).toBe("import");
 });
 

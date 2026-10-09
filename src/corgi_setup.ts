@@ -309,19 +309,25 @@ export class Menu {
       k = Math.max(0, (now_ms - g.at_ms) / span);
     return k >= 1 ? g.to : g.from + (g.to - g.from) * (1 - (1 - k) ** 3);
   }
-  /** Moves the cursor within the focused column. */
-  move(next: boolean, s: Status, prefs: Preferences): void {
+  /** Moves the cursor within the focused column, past either end to the
+   * other when `wrap`. */
+  move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
     if (this.focus === "list") {
-      const index = items.indexOf(this.item);
-      this.item = items[next ? Math.min(index + 1, items.length - 1) : sat(index, 1)];
+      const index = items.indexOf(this.item),
+        n = items.length;
+      this.item = items[wrap ? (index + (next ? 1 : n - 1)) % n : next ? Math.min(index + 1, n - 1) : sat(index, 1)];
       return;
     }
-    const options = this.options(s, prefs);
-    for (let i = this.cursor + (next ? 1 : -1); i >= 0 && i < options.length; i += next ? 1 : -1)
-      if (!options[i].disabled) {
-        this.cursor = i;
+    const options = this.options(s, prefs),
+      n = options.length;
+    for (let step = 1; step < n; step++) {
+      const i = this.cursor + (next ? step : -step);
+      if (!wrap && (i < 0 || i >= n)) return;
+      if (!options[(i + n) % n].disabled) {
+        this.cursor = (i + n) % n;
         return;
       }
+    }
   }
   /** Gives the options focus, on the one in use. False when none can be chosen. */
   openOptions(s: Status, prefs: Preferences): boolean {

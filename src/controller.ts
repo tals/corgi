@@ -3276,7 +3276,7 @@ export class Controller {
         else if (!setup.contains(this.width, this.height, x, y)) this.closeMenu();
       } else if (!release && (button === 35 || button === 32)) {
         if (hit !== null) setup.hover(hit, s, this.prefs);
-      } else if (!release && (button === 64 || button === 65)) setup.move(button === 65, s, this.prefs);
+      } else if (!release && (button === 64 || button === 65)) setup.move(button === 65, s, this.prefs, false);
       this.dirty = true;
       return;
     }
