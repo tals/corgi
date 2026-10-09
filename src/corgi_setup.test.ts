@@ -146,6 +146,29 @@ test("sleeping corgis preview both choices beside them", () => {
   expect(off).not.toContain("ᶻ");
 });
 
+test("the theme under the cursor previews until Enter keeps it", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "theme";
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/Theme\s+Corgi\s+│/);
+  expect(text).toMatch(/● Corgi\s+▶ ● ○/);
+  expect(text).toContain("○ Tokyo Night");
+  expect(menu.previewTheme(prefs)).toBe("corgi");
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.cursor).toBe(0);
+  menu.move(true, s, prefs);
+  expect(menu.previewTheme(prefs)).toBe("tokyo_night");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "theme", theme: "tokyo_night" });
+  prefs.theme = "tokyo_night";
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Theme\s+Tokyo Night/);
+  menu.move(true, s, prefs);
+  expect(menu.previewTheme(prefs)).toBe("catppuccin");
+  menu.back();
+  expect(menu.previewTheme(prefs)).toBe("tokyo_night");
+});
+
 test("image paste explains whether this viewer can paste images", () => {
   const menu = Menu.open();
   menu.item = "image_paste";

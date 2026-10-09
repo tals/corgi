@@ -28,24 +28,37 @@ export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount
 const max_workspaces = 32;
 /** Agents plus one header per workspace in the grouped "All" list. */
 export const max_entries = max_panes + 16 + max_workspaces;
-const selected_bg = bg("selected");
 // Styles that code or tests concatenate.
-export const panel = new Style({ fg: "muted", bg: "bg" }).sgr();
-const button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
-export const active_name = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
-export const active_meta = new Style({ fg: "muted", bg: "selected" }).sgr();
-// Stacked half blocks join into one bar on hosts that draw block elements
-// themselves; one that takes the glyph from the font may leave gaps between rows.
-export const active_bar = new Style({ fg: "accent", bg: "selected" }).sgr() + "▌";
-export const ghost_bar = new Style({ fg: "strong", bg: "selected" }).sgr() + "▌";
-export const rule_underline = "\x1b[4m" + underline("line");
-export const dotted_underline = "\x1b[4:4m" + underline("line");
-const ghost_underline = "\x1b[4m" + underline("strong");
-/** A seen agent's nap "z" on a plain row, dimmer than faint. */
-export const nap_fg = fgRgb(mix(colors.faint, colors.bg, 50));
-/** The agent row under the pointer, halfway from the panel to `selected`. */
-export const hover_rgb = mix(colors.bg, colors.selected, 50);
-export const hover_bg = bgRgb(hover_rgb);
+export let panel: string,
+  active_name: string,
+  active_meta: string,
+  active_bar: string,
+  ghost_bar: string,
+  rule_underline: string,
+  dotted_underline: string,
+  /** A seen agent's nap "z" on a plain row, dimmer than faint. */
+  nap_fg: string,
+  /** The agent row under the pointer, halfway from the panel to `selected`. */
+  hover_rgb: palette.Rgb,
+  hover_bg: string;
+let selected_bg: string, button: string, ghost_underline: string;
+palette.derived(() => {
+  selected_bg = bg("selected");
+  panel = new Style({ fg: "muted", bg: "bg" }).sgr();
+  button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  active_name = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
+  active_meta = new Style({ fg: "muted", bg: "selected" }).sgr();
+  // Stacked half blocks join into one bar on hosts that draw block elements
+  // themselves; one that takes the glyph from the font may leave gaps between rows.
+  active_bar = new Style({ fg: "accent", bg: "selected" }).sgr() + "▌";
+  ghost_bar = new Style({ fg: "strong", bg: "selected" }).sgr() + "▌";
+  rule_underline = "\x1b[4m" + underline("line");
+  dotted_underline = "\x1b[4:4m" + underline("line");
+  ghost_underline = "\x1b[4m" + underline("strong");
+  nap_fg = fgRgb(mix(colors.faint, colors.bg, 50));
+  hover_rgb = mix(colors.bg, colors.selected, 50);
+  hover_bg = bgRgb(hover_rgb);
+});
 
 export type Provider = "codex" | "claude";
 export type State = "initializing" | "idle" | "working" | "blocked" | "done" | string;

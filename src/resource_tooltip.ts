@@ -1,19 +1,22 @@
 //! Viewer-local resource card: three framed graphs and a stable mini top.
 //! Mirrors resource_tooltip.zig.
-import { Style } from "./palette";
+import { Style, derived } from "./palette";
 import { Rect } from "./layout";
 import { cpuText, ioText } from "./trackers/resources";
 import { Writer, displayWidth, writeClipped, directoryLabel, sat, zigRound } from "./text";
 
 // Each write sets a whole style, so bold never leaks into the next.
-const text = new Style({ fg: "text", bg: "bg" }).sgr();
-const faint = new Style({ fg: "faint", bg: "bg" }).sgr();
-const rule = new Style({ fg: "line", bg: "bg" }).sgr();
-/** Titles, headings, and the figures the table sorts by. */
-const strong = new Style({ fg: "strong", bg: "bg", bold: true }).sgr();
-const warm = new Style({ fg: "warm", bg: "bg" }).sgr();
-/** Graph cells: live data, like the limit sparks. */
-const live = new Style({ fg: "accent", bg: "bg" }).sgr();
+let text: string, faint: string, rule: string, strong: string, warm: string, live: string;
+derived(() => {
+  text = new Style({ fg: "text", bg: "bg" }).sgr();
+  faint = new Style({ fg: "faint", bg: "bg" }).sgr();
+  rule = new Style({ fg: "line", bg: "bg" }).sgr();
+  // Titles, headings, and the figures the table sorts by.
+  strong = new Style({ fg: "strong", bg: "bg", bold: true }).sgr();
+  warm = new Style({ fg: "warm", bg: "bg" }).sgr();
+  // Graph cells: live data, like the limit sparks.
+  live = new Style({ fg: "accent", bg: "bg" }).sgr();
+});
 
 export type Sort = "cpu" | "memory" | "io";
 

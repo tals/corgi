@@ -56,6 +56,7 @@ export type Item =
   | "sleeping_corgis"
   | "readings"
   | "clever_corgi"
+  | "theme"
   | "shell"
   | "keyboard"
   | "ghostty"
@@ -68,6 +69,7 @@ const list: (Item | null)[] = [
   "readings",
   "clever_corgi",
   null,
+  "theme",
   "shell",
   "keyboard",
   null,
@@ -82,6 +84,7 @@ const labels: Record<Item, string> = {
   sleeping_corgis: "Sleeping corgis",
   readings: "Resources",
   clever_corgi: "Clever Corgi",
+  theme: "Theme",
   shell: "Shell",
   keyboard: "Shortcuts",
   ghostty: "Command keys",
@@ -98,6 +101,7 @@ const sources: Record<catalog.Source, { label: string; detail: string }> = {
 export type Apply =
   | { kind: "summaries"; choice: Summarizer }
   | { kind: "readings" | "sleeping_corgis" | "smart_links" | "ghostty"; on: boolean }
+  | { kind: "theme"; theme: palette.Theme }
   | { kind: "shell"; entry: shellPicker.Entry }
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
@@ -120,6 +124,8 @@ interface Option {
   arrow?: boolean;
   /** A sleeping corgi before the detail: puffing for On, still for Off. */
   sprite?: "puff" | "still";
+  /** The theme's status glyphs on its own background, before the detail. */
+  swatch?: palette.Theme;
   /** A toggle in a group: On or Off at the right edge, as in the list. */
   toggle?: boolean;
 }
@@ -132,12 +138,6 @@ type Line =
   | { tag: "status"; text: string; tone: "accent" | "warm" | "faint" }
   | { tag: "option"; option: Option; index: number };
 
-const panel = new Style({ fg: "faint", bg: "surface" }).sgr();
-const border = new Style({ fg: "line", bg: "surface" }).sgr();
-const text = new Style({ fg: "text", bg: "surface" }).sgr();
-const bright = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
-const warm = new Style({ fg: "warm", bg: "surface" }).sgr();
-const hint_key = new Style({ fg: "muted", bg: "surface" }).sgr();
 interface Row {
   text: string;
   label: string;
@@ -147,37 +147,47 @@ interface Row {
   warn: string;
   background: Rgb;
 }
-const row_normal: Row = {
-  text,
-  label: text,
-  accent: new Style({ fg: "accent", bg: "surface" }).sgr(),
-  muted: new Style({ fg: "muted", bg: "surface" }).sgr(),
-  quiet: panel,
-  warn: warm,
-  background: colors.surface,
-};
-const row_selected: Row = {
-  text: new Style({ fg: "text", bg: "selected" }).sgr(),
-  label: new Style({ fg: "strong", bg: "selected", bold: true }).sgr(),
-  accent: new Style({ fg: "accent", bg: "selected" }).sgr(),
-  muted: new Style({ fg: "muted", bg: "selected" }).sgr(),
-  // Faint is too dim on a selected row.
-  quiet: new Style({ fg: "muted", bg: "selected" }).sgr(),
-  warn: new Style({ fg: "warm", bg: "selected" }).sgr(),
-  background: colors.selected,
-};
-/** The list's selected row while the options have focus. */
-const resting = mix(colors.surface, colors.selected, 45);
-const on = (fg: Token, bold = false) => `\x1b[0${bold ? ";1" : ""}m${bgRgb(resting)}${palette.fg(fg)}`;
-const row_resting: Row = {
-  text: on("text"),
-  label: on("strong", true),
-  accent: on("accent"),
-  muted: on("muted"),
-  quiet: on("muted"),
-  warn: on("warm"),
-  background: resting,
-};
+let panel: string, border: string, text: string, bright: string, warm: string, hint_key: string;
+let row_normal: Row, row_selected: Row, row_resting: Row;
+palette.derived(() => {
+  panel = new Style({ fg: "faint", bg: "surface" }).sgr();
+  border = new Style({ fg: "line", bg: "surface" }).sgr();
+  text = new Style({ fg: "text", bg: "surface" }).sgr();
+  bright = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  warm = new Style({ fg: "warm", bg: "surface" }).sgr();
+  hint_key = new Style({ fg: "muted", bg: "surface" }).sgr();
+  row_normal = {
+    text,
+    label: text,
+    accent: new Style({ fg: "accent", bg: "surface" }).sgr(),
+    muted: new Style({ fg: "muted", bg: "surface" }).sgr(),
+    quiet: panel,
+    warn: warm,
+    background: colors.surface,
+  };
+  row_selected = {
+    text: new Style({ fg: "text", bg: "selected" }).sgr(),
+    label: new Style({ fg: "strong", bg: "selected", bold: true }).sgr(),
+    accent: new Style({ fg: "accent", bg: "selected" }).sgr(),
+    muted: new Style({ fg: "muted", bg: "selected" }).sgr(),
+    // Faint is too dim on a selected row.
+    quiet: new Style({ fg: "muted", bg: "selected" }).sgr(),
+    warn: new Style({ fg: "warm", bg: "selected" }).sgr(),
+    background: colors.selected,
+  };
+  // The list's selected row while the options have focus.
+  const resting = mix(colors.surface, colors.selected, 45);
+  const on = (fg: Token, bold = false) => `\x1b[0${bold ? ";1" : ""}m${bgRgb(resting)}${palette.fg(fg)}`;
+  row_resting = {
+    text: on("text"),
+    label: on("strong", true),
+    accent: on("accent"),
+    muted: on("muted"),
+    quiet: on("muted"),
+    warn: on("warm"),
+    background: resting,
+  };
+});
 const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
 
 const list_w = 26;
@@ -539,6 +549,14 @@ export class Menu {
       );
       dx += 13;
     }
+    if (o.swatch && right - dx >= 7) {
+      const c = palette.themes[o.swatch].colors;
+      w.write(
+        `${at(dx, y)}\x1b[0;1m${bgRgb(c.bg)}${palette.fgRgb(c.accent)} ▶ ${palette.fgRgb(c.warm)}● ` +
+          `\x1b[22m${palette.fgRgb(c.muted)}○ `,
+      );
+      dx += 9;
+    }
     w.write(at(dx, y) + (o.disabled ? p.quiet : o.warn ? p.warn : p.muted));
     writeEllipsis(w, o.detail, sat(right - (o.arrow ? 3 : 0), dx));
     if (o.arrow) w.write(at(right - 2, y) + p.muted + "→");
@@ -634,6 +652,24 @@ export class Menu {
             { tag: "brief", text: c.brief },
             blank,
           ]),
+        ];
+      case "theme":
+        return [
+          title("Theme"),
+          lead("Colors for the sidebar, tabs and cards."),
+          blank,
+          ...palette.available_themes.map(theme =>
+            option({
+              label: palette.themes[theme].label,
+              detail: "",
+              mark: theme === prefs.theme ? "on" : "off",
+              apply: theme === prefs.theme ? null : { kind: "theme", theme },
+              action: "use",
+              swatch: theme,
+            }),
+          ),
+          blank,
+          { tag: "note", text: "Panes keep your terminal's colors." },
         ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
@@ -762,6 +798,11 @@ export class Menu {
       },
     ];
   }
+  /** The theme under the cursor, or the one in use. */
+  previewTheme(prefs: Preferences): palette.Theme {
+    if (this.item !== "theme" || this.focus !== "options") return prefs.theme;
+    return palette.available_themes[this.cursor] ?? prefs.theme;
+  }
   /** The preset under the cursor, or the one in use. */
   private previewPreset(prefs: Preferences): km.Preset {
     if (this.item !== "keyboard" || this.focus !== "options") return prefs.preset;
@@ -780,6 +821,8 @@ export class Menu {
         return flag(prefs.resources.enabled);
       case "clever_corgi":
         return { text: "", tone: "faint" };
+      case "theme":
+        return { text: palette.themes[prefs.theme].label, tone: "muted" };
       case "shell":
         if (shellPicker.missing(this.shell)) return { text: "not found", tone: "warm" };
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };

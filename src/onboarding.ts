@@ -670,13 +670,16 @@ export function bounds(cols: number, rows: number): Rect {
     h = Math.min(rows, 36);
   return new Rect(Math.floor((cols - w) / 2), Math.floor((rows - h) / 2), w, h);
 }
-const border = new palette.Style({ fg: "line", bg: "surface" }).sgr(),
-  text = new palette.Style({ fg: "text", bg: "surface" }).sgr(),
-  bright = new palette.Style({ fg: "strong", bg: "surface", bold: true }).sgr(),
-  muted = new palette.Style({ fg: "muted", bg: "surface" }).sgr(),
-  dim = new palette.Style({ fg: "faint", bg: "surface" }).sgr(),
-  warm = new palette.Style({ fg: "warm", bg: "surface" }).sgr(),
+let border: string, text: string, bright: string, muted: string, dim: string, warm: string, selected_style: string;
+palette.derived(() => {
+  border = new palette.Style({ fg: "line", bg: "surface" }).sgr();
+  text = new palette.Style({ fg: "text", bg: "surface" }).sgr();
+  bright = new palette.Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  muted = new palette.Style({ fg: "muted", bg: "surface" }).sgr();
+  dim = new palette.Style({ fg: "faint", bg: "surface" }).sgr();
+  warm = new palette.Style({ fg: "warm", bg: "surface" }).sgr();
   selected_style = new palette.Style({ fg: "text", bg: "selected" }).sgr();
+});
 const short = (value: string) => byteSlice(value, 300);
 function safeText(w: Writer, value: string, room: number) {
   let clean = "";

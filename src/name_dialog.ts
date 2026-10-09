@@ -244,9 +244,13 @@ interface Key {
 const card_label_widths = [13, 8, 10];
 /** The fork card's selected name and call to action: tints of the accent, not
  * its full strength, so neither glares on the panel. */
-export const selection = fgRgb(colors.strong) + bgRgb(mix(colors.selected, colors.accent, 30));
-const create_fill = "\x1b[0m" + bgRgb(mix(colors.surface, colors.accent, 22));
-const create_label = create_fill + "\x1b[1m" + fgRgb(colors.accent);
+export let selection: string;
+let create_fill: string, create_label: string;
+palette.derived(() => {
+  selection = fgRgb(colors.strong) + bgRgb(mix(colors.selected, colors.accent, 30));
+  create_fill = "\x1b[0m" + bgRgb(mix(colors.surface, colors.accent, 22));
+  create_label = create_fill + "\x1b[1m" + fgRgb(colors.accent);
+});
 
 export class View {
   x = 0;

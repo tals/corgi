@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import { readFileSync, mkdirSync, openSync, writeSync, fsyncSync, closeSync, renameSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { supportedPreset, type Preset, type Prefix } from "./keymap";
+import * as palette from "./palette";
 import type { Scope } from "./sidebar";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
@@ -22,6 +23,7 @@ export class Preferences {
   resources: Resources = { enabled: true };
   /** Idle agents nap as corgis in the sidebar; off marks them with a faint Z. */
   sleeping_corgis = true;
+  theme: palette.Theme = "corgi";
 }
 export function path(): string {
   if (process.env.XDG_STATE_HOME) return join(process.env.XDG_STATE_HOME, "corgi", "viewer.json");
@@ -85,6 +87,11 @@ export function readExisting(file: string): Preferences | null {
       if (!(key in d)) continue;
       if (typeof d[key] !== "boolean") return null;
       v[key] = d[key];
+    }
+    if ("theme" in d) {
+      if (typeof d.theme !== "string") return null;
+      // A theme from a newer build falls back rather than resetting the rest.
+      v.theme = palette.parseTheme(d.theme) ?? "corgi";
     }
     if ("sidebar_width" in d) {
       if (!Number.isInteger(d.sidebar_width) || d.sidebar_width < 0 || d.sidebar_width > 65535) return null;

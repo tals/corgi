@@ -28,12 +28,20 @@ function height(notice: Notice): number {
 function hasLink(notice: Notice): boolean {
   return notice.fix().some(part => part.kind === "link");
 }
-const text = new Style({ fg: "text", bg: "surface" }).sgr();
-const border = new Style({ fg: "line", bg: "surface" }).sgr();
-const heading = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
-const quiet = new Style({ fg: "faint", bg: "surface" }).sgr();
-const pointer = new Style({ fg: "line" }).sgr();
-const check = new Style({ fg: "accent", bg: "surface" }).sgr();
+let text: string, border: string, heading: string, quiet: string, pointer: string, check: string;
+export let styles: Record<
+  "text" | "border" | "heading" | "quiet" | "pointer" | "check" | "open_hint" | "title",
+  string
+>;
+palette.derived(() => {
+  text = new Style({ fg: "text", bg: "surface" }).sgr();
+  border = new Style({ fg: "line", bg: "surface" }).sgr();
+  heading = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  quiet = new Style({ fg: "faint", bg: "surface" }).sgr();
+  pointer = new Style({ fg: "line" }).sgr();
+  check = new Style({ fg: "accent", bg: "surface" }).sgr();
+  styles = { text, border, heading, quiet, pointer, check, open_hint, title };
+});
 
 export interface Caret {
   x: number;
@@ -157,4 +165,3 @@ function writeLink(w: Writer, label: string, room: number): void {
   writeEllipsis(w, label, room);
   w.write("\x1b[24m\x1b]8;;\x1b\\");
 }
-export const styles = { text, border, heading, quiet, pointer, check, open_hint, title };

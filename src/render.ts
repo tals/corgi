@@ -32,16 +32,27 @@ import type { Notice } from "./host_clipboard";
 import { Writer, displayWidth, writeEllipsis, directoryLabel, sat, byteLength, byteSlice } from "./text";
 
 export type Pointer = { x: number; y: number };
-const tab_active = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
-const tab_inactive = new Style({ fg: "faint", bg: "bg" }).sgr();
-const button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
-const chip = new Style({ fg: "text", bg: "selected" }).sgr();
-const hint_key = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
-const hint_label = new Style({ fg: "faint", bg: "surface" }).sgr();
-const bar = new Style({ bg: "surface" }).sgr();
 /** The focused pane's outline. The divider tests parse it back. */
-export const divider_focused = new Style({ fg: "accent", bold: true }).sgr();
-const divider_plain = new Style({ fg: "line" }).sgr();
+export let divider_focused: string;
+let tab_active: string,
+  tab_inactive: string,
+  button: string,
+  chip: string,
+  hint_key: string,
+  hint_label: string,
+  bar: string,
+  divider_plain: string;
+palette.derived(() => {
+  tab_active = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
+  tab_inactive = new Style({ fg: "faint", bg: "bg" }).sgr();
+  button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  chip = new Style({ fg: "text", bg: "selected" }).sgr();
+  hint_key = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  hint_label = new Style({ fg: "faint", bg: "surface" }).sgr();
+  bar = new Style({ bg: "surface" }).sgr();
+  divider_focused = new Style({ fg: "accent", bold: true }).sgr();
+  divider_plain = new Style({ fg: "line" }).sgr();
+});
 
 export interface Ui {
   prefs: Preferences;
@@ -203,8 +214,11 @@ export function tabThumb(view: LayoutView, width: number): TabThumb | null {
   );
   return { start: Math.min(start, track - len), len };
 }
-export const track_rule = "\x1b[4:4m" + palette.underline("line");
-export const thumb_rule = "\x1b[4m" + palette.underline("text");
+export let track_rule: string, thumb_rule: string;
+palette.derived(() => {
+  track_rule = "\x1b[4:4m" + palette.underline("line");
+  thumb_rule = "\x1b[4m" + palette.underline("text");
+});
 /** Writes a tab's cells from column `left`, underlined as the scrollbar's
  * track or thumb while the tabs overflow. */
 function writeTabCells(w: Writer, cells: Buffer, left: number, thumb: TabThumb | null): void {

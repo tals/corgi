@@ -16,7 +16,10 @@ import { type Agent, agent as agentValue, providerName } from "./mirror";
 import { type Entry, type Subagents, contextColor } from "./sidebar";
 import { Writer, byteSlice, directoryLabel, displayWidth, writeEllipsis, sat } from "./text";
 
-const base = new palette.Style({ fg: "text", bg: "bg" }).sgr();
+let base: string;
+palette.derived(() => {
+  base = new palette.Style({ fg: "text", bg: "bg" }).sgr();
+});
 /** How long an observation counts as current: 10 s, plus up to one bucket
  * by which the snapshot rounds its stamps down. */
 export const fresh_window = 10_000_000 + stamp_bucket;
@@ -1063,9 +1066,12 @@ export function barInk(used: number): string {
   if (used >= 80) return Tone.ansi("warm_cell");
   return shallow_inks[eighths(used) - 1];
 }
-export const shallow_inks = [75, 45, 15, 0, 0, 0, 0, 0].map(percent =>
-  palette.fgRgb(palette.mix(palette.colors.accent, palette.colors.faint, percent)),
-);
+export let shallow_inks: string[];
+palette.derived(() => {
+  shallow_inks = [75, 45, 15, 0, 0, 0, 0, 0].map(percent =>
+    palette.fgRgb(palette.mix(palette.colors.accent, palette.colors.faint, percent)),
+  );
+});
 /** Spark cells that cover time already passed in the window. */
 export function elapsedCells(window: Window, now: number): number {
   const minutes = window.minutes;

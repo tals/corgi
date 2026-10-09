@@ -32,6 +32,14 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 Contrast: text tokens on `bg` or `surface` are 4.5:1 or more. On `selected`,
 use `muted` or brighter. Tests check this.
 
+## Themes
+
+`palette.themes` holds Corgi's own colors and dark themes after Herdr's. Each
+theme gives every token the same meaning and passes the same contrast tests;
+its accent is the theme's own, not always green. `palette.use` repaints
+`colors` in place. A module that builds strings from tokens once builds them
+in `palette.derived(...)`, which runs again after every theme change.
+
 ## Status
 
 | State | Glyph | Token |

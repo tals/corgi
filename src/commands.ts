@@ -54,7 +54,10 @@ const agent_actions = [
   row("fork", "f", "Fork", { icon: "⑂" }),
   row("close", "x", "Close", { rule: true }),
 ];
-const border = new Style({ fg: "line", bg: "surface" }).sgr();
+let border: string;
+palette.derived(() => {
+  border = new Style({ fg: "line", bg: "surface" }).sgr();
+});
 
 // Herdr's tab context menu: these actions apply to the clicked tab, not the
 // currently focused tab. Keep its identity even while tabs move or disappear.

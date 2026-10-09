@@ -1937,6 +1937,14 @@ export class Controller {
           this.notice((error as Error).message);
         }
         return;
+      case "theme":
+        this.prefs.theme = apply.theme;
+        try {
+          preferences.update({ theme: this.prefs.theme });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
       case "ghostty":
         return this.toggleGhostty();
       case "smart_links":
@@ -3952,6 +3960,7 @@ export class Controller {
     return this.link_tooltip.ready(target, milliTimestamp());
   }
   frame(): string {
+    palette.use(this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme);
     if (this.onboarding) return this.onboarding.frame(this.width, this.height);
     if (this.prefix && this.help_visible) {
       const hand =

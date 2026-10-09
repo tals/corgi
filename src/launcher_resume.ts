@@ -181,11 +181,14 @@ interface Columns {
   folder: number;
   last: number;
 }
-const panel = new Style({ fg: "faint", bg: "surface" }).sgr();
-const rule = new Style({ fg: "line", bg: "surface" }).sgr();
-const row_style = new Style({ fg: "text", bg: "surface" }).sgr();
-const selected_style = new Style({ fg: "strong", bg: "selected" }).sgr();
-const dim = palette.fg("faint");
+let panel: string, rule: string, row_style: string, selected_style: string, dim: string;
+palette.derived(() => {
+  panel = new Style({ fg: "faint", bg: "surface" }).sgr();
+  rule = new Style({ fg: "line", bg: "surface" }).sgr();
+  row_style = new Style({ fg: "text", bg: "surface" }).sgr();
+  selected_style = new Style({ fg: "strong", bg: "selected" }).sgr();
+  dim = palette.fg("faint");
+});
 /** The run's rail; faint is too dim on a selected row. */
 function rail(selected: boolean): string {
   return selected ? palette.fg("muted") : dim;
