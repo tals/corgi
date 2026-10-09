@@ -494,15 +494,13 @@ test("a reopened agent's card sits mid-pane: title centered, details left, comma
   drawRestoring(out, new Rect(0, 0, 80, 24), { ...band, dig: "forking" }, 3000);
   expect(out.buffered()).toContain(palette.fg("accent") + "Forking…");
 
-  // A dormant agent's corgi sleeps until Enter, and the card says what Esc does.
+  // A dormant agent's corgi sleeps until its pane is clicked, in the same card.
   out = new Writer();
   drawRestoring(out, new Rect(0, 0, 80, 24), { ...band, dig: "asleep" }, 3000);
   const asleep = out.buffered();
-  expect(asleep).toContain("\x1b[18;9H" + border + "╰");
+  expect(asleep).toContain("\x1b[17;9H" + border + "╰");
   expect(asleep).toContain("~ᐯ◡ᴥ◡ᐯ");
-  expect(asleep).toContain(palette.fg("accent") + "Enter to resume");
-  expect(asleep).toContain("\x1b[16;12H" + new palette.Style({ fg: "muted", bg: "surface", bold: true }).sgr() + "Esc");
-  expect(asleep).toContain(" opens a shell instead");
+  expect(asleep).toContain(palette.fg("accent") + "Click to resume");
   expect(asleep).not.toContain("Restoring…");
 });
 

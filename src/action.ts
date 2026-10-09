@@ -45,7 +45,6 @@ export const specs: Record<string, string> = {
   help: "void",
   onboard: "void",
   relaunch: "[]const u8",
-  wake: "Wake",
 };
 export function parse(name: string, value = ""): Action {
   const type = specs[name];
@@ -60,9 +59,7 @@ export function parse(name: string, value = ""): Action {
   if (type === "[]const u8") return { name, value };
   const values = type === "layout.Direction" ? ["left", "down", "up", "right"] : ["left", "right"];
   if (type === "Split") values.splice(0, 2, "right", "down");
-  if (type === "Wake") values.splice(0, 2, "agent", "shell");
   if (!value && (type === "Side" || type === "Split")) value = "right";
-  if (!value && type === "Wake") value = "agent";
   if (!values.includes(value)) throw new Error("BadValue");
   return { name, value };
 }
@@ -88,7 +85,6 @@ export function needsPane(action: Action): boolean {
     "join",
     "copy-mode",
     "paste",
-    "wake",
   ].includes(action.name);
 }
 export function title(action: Action): string {
@@ -133,8 +129,6 @@ export function title(action: Action): string {
     detach: "Detach",
     relaunch: "Relaunch viewer",
   };
-  if (action.name === "wake")
-    return action.value === "shell" ? "Open a shell in a dormant pane" : "Resume a dormant agent";
   if (["split", "resize", "focus", "swap", "move-tab"].includes(action.name))
     return (
       (action.name === "move-tab" ? "Move tab" : action.name[0].toUpperCase() + action.name.slice(1)) +

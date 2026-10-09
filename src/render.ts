@@ -742,7 +742,6 @@ export function commandLines(units: string[], width: number, limit = 16): Comman
 export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: number): void {
   const panel = new Style({ fg: "text", bg: "surface" }).sgr();
   const border = new Style({ fg: "line", bg: "surface" }).sgr();
-  const asleep = band.dig === "asleep";
   const word = band.dig === "asleep" ? corgiAnimation.Asleep.wordWidth : corgiAnimation.Dig.wordWidth(band.dig);
   const lead = corgiAnimation.Dig.lead;
   if (r.w < word + 4 || r.h === 0) return;
@@ -751,9 +750,8 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
   const bw = Math.min(r.w, Math.max(text + 6, word + 2 * lead + 6));
   const inner = sat(bw, 6);
   const lines = commandLines(units, inner);
-  // Borders and padding, the title, then a gap and the details that fit:
-  // asleep, they end with a gap and what Esc does.
-  let details = 2 + lines.length + (asleep ? 2 : 0);
+  // Borders and padding, the title, then a gap and the details that fit.
+  let details = 2 + lines.length;
   while (details > 0 && 6 + details > r.h) details = details > 2 ? 2 : 0;
   const bh = details > 0 ? 6 + details : Math.min(r.h, 5);
   const bx = r.x + Math.floor((r.w - bw) / 2);
@@ -808,12 +806,6 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
         writeEllipsis(w, out, sat(inner, 4));
       }
     });
-  if (asleep && details > 2) {
-    w.write(`\x1b[${y + 4 + lines.length};${x + 1}H` + new Style({ fg: "muted", bg: "surface", bold: true }).sgr());
-    writeEllipsis(w, "Esc", inner);
-    w.write(new Style({ fg: "faint", bg: "surface" }).sgr());
-    writeEllipsis(w, " opens a shell instead", sat(inner, 3));
-  }
   w.write("\x1b[0m");
 }
 /** The box-drawing glyph joining a divider cell with its neighbors on each side. */

@@ -214,6 +214,8 @@ export class Controller {
   all_offset = 0;
   /** A tab this viewer launched or restored; its agent scrolls into view once listed. */
   launched = 0;
+  /** A dormant pane that failed to resume while focused; focusing it again retries. */
+  private wake_failed: number | null = null;
   sidebar_rows = new SidebarRows();
   remote_links = false;
   /** The host terminal's clipboard, read over SSH; the paste being read goes to `paste_target`. */
@@ -1082,13 +1084,16 @@ export class Controller {
     this.launched = id;
     this.copy_mode = false;
   }
-  private async wake(shell: boolean): Promise<void> {
+  /** A dormant agent resumes once its pane has focus. */
+  private async wakeFocused(): Promise<void> {
     const p = this.focused();
-    if (!p || !p.dormant) return;
+    if (p?.id !== this.wake_failed) this.wake_failed = null;
+    if (!p?.dormant || this.wake_failed !== null) return;
     try {
-      await this.edit({ "pane.wake": { target: p.id, shell } });
+      await this.edit({ "pane.wake": { target: p.id } });
     } catch {
-      this.notice(shell ? " Could not open a shell here" : " Could not resume this agent");
+      this.wake_failed = p.id;
+      this.notice(" Could not resume this agent");
     }
   }
   private attention(): void {
@@ -1141,8 +1146,6 @@ export class Controller {
         break;
       case "undo-close":
         return this.undoClose();
-      case "wake":
-        return this.wake(act.value === "shell");
       case "attention":
         return this.attention();
       case "rename-tab":
@@ -1265,7 +1268,7 @@ export class Controller {
     }
   }
   private sendInput(term: Terminal, bytes: string | Uint8Array | number[]): void {
-    // Nothing reads a dormant pane's input; `key` wakes it on Enter or Esc.
+    // Nothing reads a dormant pane's input.
     if (this.pane(term.id)?.dormant) return;
     if (!this.copy_mode && bytes.length > 0 && !term.atBottom()) {
       term.scrollViewport("bottom");
@@ -2518,10 +2521,6 @@ export class Controller {
       return;
     }
     const p = this.focused();
-    if (p?.dormant) {
-      if (byte === 13 || byte === 27) await this.perform({ name: "wake", value: byte === 13 ? "agent" : "shell" });
-      return;
-    }
     if (p) {
       this.sendInput(p.terminal, [byte]);
       acknowledge(p.agent.observation, p.agent.observation.completed);
@@ -3817,6 +3816,7 @@ export class Controller {
     this.dirty = true;
   }
   async expireInput(): Promise<void> {
+    await this.wakeFocused();
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
     await this.pollLauncher();
     this.pollScopeMenu();

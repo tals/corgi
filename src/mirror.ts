@@ -261,7 +261,7 @@ export interface Pane {
   restoring: string;
   /** Its command forks, so the band says "Forking…". */
   forking: boolean;
-  /** Nothing runs yet: Enter starts `restoring` here. */
+  /** Nothing runs yet: focusing it starts `restoring` here. */
   dormant: boolean;
   /** When this viewer first saw it restoring, which its animation starts from. */
   restoring_since: number;

@@ -405,13 +405,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertEqual([after.panes[0].dormant, after.panes[0].pid], [true, -1]);
     this.assertEqual(after.panes[0].restoring, "codex resume '01901234-1234-1234-1234-123456789abc'");
     this.assertIn("BEFORE_CRASH", await this.screen(first));
-    const viewer = await Viewer.create(this);
-    await viewer.focus(first);
-    await viewer.input("\x1b");
-    await this.until(async () => {
-      await viewer.poll();
-      return !(await this.session()).panes[0].dormant;
-    });
+    await this.command("pane.wake", { target: first, shell: true });
     await this.until(async () =>
       (await this.history(first)).includes("codex resume '01901234-1234-1234-1234-123456789abc'"),
     );
@@ -487,7 +481,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       await this.until(async () => !(await this.session()).panes.some((p: any) => p.id === first));
     }
   }
-  async test_cold_recovery_waits_for_enter_then_resumes_the_agent_in_its_pane() {
+  async test_cold_recovery_resumes_the_agent_in_its_pane_once_focused() {
     const resumes = join(this.temp.name, "resumes.jsonl"),
       session = "01901234-1234-1234-1234-123456789aaa";
     this.env.CORGI_CODEX_BIN = writeExecutable(
@@ -513,10 +507,6 @@ await Bun.sleep(120000);
     this.assertTrue((await pane()).dormant);
     const viewer = await Viewer.create(this);
     await viewer.focus(first);
-    this.assertIn("Enter to resume", (await viewer.poll()).data);
-    await viewer.input("ls");
-    this.assertTrue((await pane()).dormant);
-    await viewer.input("\r");
     await this.until(() => existsSync(resumes));
     this.assertEqual(JSON.parse(readFileSync(resumes, "utf8")).slice(-2), ["resume", session]);
     const woken = await pane();

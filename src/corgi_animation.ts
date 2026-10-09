@@ -409,9 +409,9 @@ export const Dig = {
   wordWidth: (dig: Dig) => (dig === "restoring" ? 10 : 8),
   width: (dig: Dig) => (dig === "restoring" ? 27 : 25),
 };
-/** A dormant pane's title: the corgi asleep where it will dig, then the key
- * that wakes it. */
-export const Asleep = { word: "Enter to resume", wordWidth: 15, width: 32 };
+/** An unfocused dormant pane's title: the corgi asleep where it will dig,
+ * then what wakes it. */
+export const Asleep = { word: "Click to resume", wordWidth: 15, width: 32 };
 export function writeAsleep(width: number): string {
   const word = "\x1b[1m" + palette.fg("accent") + Asleep.word;
   if (width < Asleep.width) return word;
