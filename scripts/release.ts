@@ -69,14 +69,16 @@ export function cleanCommit(cwd = repo) {
 }
 export function releaseOptions(argv: string[]) {
   let version: string | undefined,
-    mode = "";
+    mode = "",
+    skipTests = false;
   for (const arg of argv) {
     if (["--dry-run", "--build-only", "--publish-only"].includes(arg) && !mode) mode = arg;
+    else if (arg === "--skip-tests" && !skipTests) skipTests = true;
     else if (!arg.startsWith("--") && !version) version = releaseVersion(arg);
     else throw new Error("Unknown or conflicting option; run --help.");
   }
   if (mode === "--publish-only" && !version) throw new Error("Provide the prepared VERSION with --publish-only.");
-  return { version, mode };
+  return { version, mode, skipTests };
 }
 export function releasePaths(cwd: string) {
   const common = realpathSync(resolve(cwd, git(cwd, "rev-parse", "--git-common-dir")));
@@ -344,6 +346,84 @@ async function smokeTest(binary: string) {
     await rm(home, { recursive: true, force: true });
   }
 }
+const step = (message: string) => console.log(`==> ${message}`);
+const megabytes = (bytes: number) => `${(bytes / 1e6).toFixed(1)} MB`;
+// The bucket and CDN drop connections now and then; each transfer is retried whole.
+async function retrying<T>(what: string, attempt: () => Promise<T>) {
+  for (let i = 1; ; i++) {
+    step(what);
+    try {
+      return await attempt();
+    } catch (error) {
+      if (i === 6) throw error;
+      console.error(`${what} failed: ${(error as Error).message}. Retrying in ${i * 5}s (${i}/5).`);
+      await Bun.sleep(i * 5000);
+    }
+  }
+}
+type Progress = { total: number; moved(bytes: number): void; signal: AbortSignal };
+// Prints a transfer's progress every 2s, and aborts it after a minute without any.
+async function watched<T>(what: string, total: number, run: (progress: Progress) => Promise<T>) {
+  const controller = new AbortController(),
+    started = Date.now();
+  let done = 0,
+    last = started;
+  const progress: Progress = {
+    total,
+    moved(bytes) {
+      done += bytes;
+      last = Date.now();
+    },
+    signal: controller.signal,
+  };
+  const timer = setInterval(() => {
+    const of = progress.total ? `/${megabytes(progress.total)} (${Math.floor((done / progress.total) * 100)}%)` : "";
+    console.log(`    ${what}: ${megabytes(done)}${of}, ${megabytes(done / ((Date.now() - started) / 1000))}/s`);
+    if (Date.now() - last > 60_000) controller.abort(new Error("No progress for a minute"));
+  }, 2000);
+  try {
+    return await run(progress);
+  } finally {
+    clearInterval(timer);
+  }
+}
+// fetch has no upload progress, so the body is a stream that counts what the
+// connection takes. Bun keeps the Content-Length the bucket requires.
+function upload(url: string, what: string, bytes: Uint8Array, headers: Record<string, string>) {
+  return watched(what, bytes.length, async progress => {
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(stream) {
+        if (sent === bytes.length) return stream.close();
+        const chunk = bytes.slice(sent, sent + 256 * 1024);
+        sent += chunk.length;
+        progress.moved(chunk.length);
+        stream.enqueue(chunk);
+      },
+    });
+    const response = await fetch(url, {
+      method: "PUT",
+      body,
+      headers: { ...headers, "Content-Length": String(bytes.length) },
+      signal: progress.signal,
+    });
+    if (!response.ok)
+      throw new Error(`Upload failed for ${what}: HTTP ${response.status} ${(await response.text()).slice(0, 500)}`);
+  });
+}
+function download(url: string, what: string) {
+  return watched(what, 0, async progress => {
+    const response = await fetch(url, { cache: "no-store", signal: progress.signal });
+    if (!response.ok) throw new Error(`Download failed for ${what}: HTTP ${response.status}`);
+    progress.total = Number(response.headers.get("content-length")) || 0;
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.body!) {
+      chunks.push(chunk);
+      progress.moved(chunk.length);
+    }
+    return new Uint8Array(Buffer.concat(chunks));
+  });
+}
 async function command(cwd: string, env: typeof process.env, argv: string[], capture = false) {
   const child = Bun.spawn(argv, { cwd, env, stdout: capture ? "pipe" : "inherit", stderr: "inherit", stdin: "ignore" });
   const output = capture ? await new Response(child.stdout).text() : "";
@@ -354,7 +434,7 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "--help") {
     console.log(
-      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + Linux amd64, signs the macOS binary on a Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.",
+      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + Linux amd64, signs the macOS binary on a Mac, then publishes\nto an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.",
     );
     return;
   }
@@ -381,7 +461,7 @@ async function main() {
   const out = join(releases, version);
   if (mode === "--dry-run") {
     console.log(
-      `Release ${version}: test → build Linux amd64 and macOS arm64 → sign macOS → smoke-test → sign manifest → upload debug files to Sentry → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
+      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and macOS arm64 → sign macOS → smoke-test → sign manifest → upload debug files to Sentry → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
     );
     return;
   }
@@ -439,12 +519,18 @@ async function main() {
       // Rebuilding a prepared version could change timestamped macOS signatures.
       if (await Bun.file(join(out, "prepared.json")).exists())
         throw new Error("Release already prepared. Use --publish-only to resume, or choose another version.");
-      // build.ts installs the locked dependencies the checks below need.
-      await runCommand([process.execPath, "build.ts", "--test"]);
-      await runCommand([process.execPath, "typecheck.ts"]);
-      await runCommand([process.execPath, "test", "./src"]);
-      // The updater suite runs copies of the test build as two releases.
-      await runCommand([process.execPath, "test", "./tests/release.test.ts", "./tests/updates.test.ts"]);
+      if (!options.skipTests) {
+        // build.ts installs the locked dependencies the checks below need.
+        step("Building the test binary");
+        await runCommand([process.execPath, "build.ts", "--test"]);
+        step("Typechecking");
+        await runCommand([process.execPath, "typecheck.ts"]);
+        step("Running unit tests");
+        await runCommand([process.execPath, "test", "./src"]);
+        // The updater suite runs copies of the test build as two releases.
+        step("Running release and updater tests");
+        await runCommand([process.execPath, "test", "./tests/release.test.ts", "./tests/updates.test.ts"]);
+      }
       await mkdir(out, { recursive: true });
       const identity =
         config.codesignIdentity === "-" ? "-" : config.codesignIdentity || (await signingIdentity(runCommand));
@@ -464,10 +550,15 @@ async function main() {
           "--native-only",
         ];
         if (macos) nativeArgs.push("--sysroot", macosSdk(repo, config));
+        step(`Building the native layer for ${target.name}`);
         await runCommand(nativeArgs);
         if (macos && mac) {
+          step("Writing dSYMs");
           await writeDsyms(runCommand, native, files, join(out, "dsym"));
-          if (identity !== "-") for (const file of files) await codesign(runCommand, identity, join(native, file));
+          if (identity !== "-") {
+            step("Signing the native layer");
+            for (const file of files) await codesign(runCommand, identity, join(native, file));
+          }
         }
         const args = [
           process.execPath,
@@ -489,12 +580,15 @@ async function main() {
           publicKey,
         ];
         if (config.sentry) args.push("--sentry-dsn", config.sentry.dsn);
+        step(`Building corgi for ${target.name}`);
         await runCommand(args);
         if (macos && identity !== "-") {
+          step("Signing corgi");
           await codesign(runCommand, identity, build, { identifier: "dev.corgi.cli", entitlements: true });
           if (config.notaryProfile) {
             // Notarization doesn't change the binary; Gatekeeper looks the ticket up online.
             const zip = join(out, "build", target.name, "corgi.zip");
+            step("Notarizing (waits for Apple)");
             await runCommand(["/usr/bin/ditto", "-c", "-k", "--keepParent", build, zip]);
             await runCommand([
               "xcrun",
@@ -521,6 +615,7 @@ async function main() {
       const info = JSON.parse(await runCommand([local, "__update-info"], true));
       if (info.version !== version || info.commit !== commit || info.test_mode)
         throw new Error("Release metadata mismatch or unsafe test build.");
+      step(`Smoke-testing corgi-${host()}`);
       await smokeTest(local);
       const payload = JSON.stringify({
         schema_version: 1,
@@ -580,29 +675,19 @@ async function main() {
       ...credentials,
     });
     const store: Store = {
-      async get(path) {
-        const file = s3.file(path);
-        return (await file.exists()) ? new Uint8Array(await file.arrayBuffer()) : null;
-      },
-      async put(path, bytes, type, cache) {
-        checkSource();
-        const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
-        const response = await fetch(url, {
-          method: "PUT",
-          body: new Uint8Array(bytes),
-          headers: { "Content-Type": type, "Cache-Control": cache },
-          signal: AbortSignal.timeout(300_000),
-        });
-        if (!response.ok) throw new Error(`Upload failed for ${path}: HTTP ${response.status}`);
-      },
-      async publicGet(path) {
-        const response = await fetch(`${config.publicBaseUrl}/${path}`, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(300_000),
-        });
-        if (!response.ok) throw new Error(`Public download failed for ${path}: HTTP ${response.status}`);
-        return new Uint8Array(await response.arrayBuffer());
-      },
+      get: path =>
+        retrying(`Checking the bucket for ${path}`, async () => {
+          const file = s3.file(path);
+          return (await file.exists()) ? download(file.presign({ method: "GET", expiresIn: 3600 }), path) : null;
+        }),
+      put: (path, bytes, type, cache) =>
+        retrying(`Uploading ${path} (${megabytes(bytes.length)})`, () => {
+          checkSource();
+          const url = s3.file(path).presign({ method: "PUT", expiresIn: 3600 });
+          return upload(url, path, bytes, { "Content-Type": type, "Cache-Control": cache });
+        }),
+      publicGet: path =>
+        retrying(`Verifying ${config.publicBaseUrl}/${path}`, () => download(`${config.publicBaseUrl}/${path}`, path)),
     };
     const previousChannel = await store.get("channels/stable.json");
     if (previousChannel) {
@@ -616,6 +701,7 @@ async function main() {
     // Crashes can arrive as soon as the channel moves; Sentry symbolicates
     // them with these files.
     if (prepared.sentry) {
+      step("Uploading debug files to Sentry");
       await runCommand([
         "sentry-cli",
         "debug-files",

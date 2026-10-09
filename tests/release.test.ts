@@ -161,12 +161,14 @@ test("publishing only accepts valid timestamp IDs tied to HEAD", () => {
 test("release modes accept an explicit version and reject ambiguous arguments", () => {
   const version = timestampVersion("a".repeat(40));
   for (const mode of ["--dry-run", "--build-only", "--publish-only"]) {
-    expect(releaseOptions([mode, version])).toEqual({ mode, version });
-    expect(releaseOptions([version, mode])).toEqual({ mode, version });
+    expect(releaseOptions([mode, version])).toEqual({ mode, version, skipTests: false });
+    expect(releaseOptions([version, mode])).toEqual({ mode, version, skipTests: false });
   }
-  expect(releaseOptions([])).toEqual({ mode: "", version: undefined });
+  expect(releaseOptions([])).toEqual({ mode: "", version: undefined, skipTests: false });
+  expect(releaseOptions(["--skip-tests", version])).toEqual({ mode: "", version, skipTests: true });
   for (const args of [
     ["--dry-run", "--dry-run"],
+    ["--skip-tests", "--skip-tests"],
     ["--dry-run", "--build-only"],
     ["--unknown"],
     ["--publish-only"],
