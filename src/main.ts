@@ -156,7 +156,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       return;
     }
     case "start":
-      if (args[1] !== "--update-routed") await updates.startup(path, executable, "start");
+      if (args[1] !== "--update-routed") await updates.startup(path, executable, ["start"]);
       await ensureServer(path);
       updates.background(path, executable);
       return;
@@ -167,11 +167,33 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "--no-update": {
       if (process.env.CORGI_PANE) throw Error("NestedCorgi");
       if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");
-      if (args[1] !== "--update-routed") await updates.startup(path, executable, "attach", command === "--no-update");
+      if (args[1] !== "--update-routed") await updates.startup(path, executable, ["attach"], command === "--no-update");
       await ensureServer(path);
       updates.background(path, executable);
       const client = await import("./client");
       await client.attach(path);
+      return;
+    }
+    case "open": {
+      const routed = args[1] === "--update-routed",
+        rest = args.slice(routed ? 2 : 1);
+      if (rest.length !== 1) throw Error("Usage");
+      const folder = cli.directory(rest[0]);
+      if (process.env.CORGI_PANE !== undefined) {
+        await rpc.request(path, "action", { name: "open", value: folder, pane: paneId(process.env.CORGI_PANE) });
+        return;
+      }
+      if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");
+      if (!routed) await updates.startup(path, executable, ["open", folder]);
+      await ensureServer(path);
+      updates.background(path, executable);
+      try {
+        crash.init("viewer");
+      } catch (error) {
+        console.error("crash reports are off:", error);
+      }
+      const client = await import("./client");
+      await client.attach(path, folder);
       return;
     }
     case "onboard": {

@@ -6,6 +6,7 @@ import { Dialog } from "./name_dialog";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
+import * as viewer from "./viewer";
 
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
@@ -17,6 +18,27 @@ function controller(): any {
   });
 }
 const bytes = (text: string) => new TextEncoder().encode(text);
+/** One workspace per folder, each with one pane, as `session.snapshot` sends them. */
+function folders(...cwds: string[]) {
+  return {
+    workspaces: cwds.map((cwd, i) => ({
+      id: i + 1,
+      name: cwd,
+      cwd,
+      model: { nodes: [{ pane: i + 1 }], tabs: [{ id: i + 1, root: 0, title: "" }], revision: 0 },
+    })),
+    panes: cwds.map((_, i) => ({
+      id: i + 1,
+      workspace: i + 1,
+      tab: i + 1,
+      cols: 80,
+      rows: 24,
+      agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+    })),
+    conversations: [],
+    native_sessions: [],
+  };
+}
 
 test("the tab menu starts a prefix only with the configured prefix key", async () => {
   const s = controller();
@@ -119,4 +141,38 @@ test("a fork's name is its title marked as a fork, cut to fit", () => {
   const long = forkName("x".repeat(72) + "⑂⑂");
   expect(long).toBe("x".repeat(72) + " (fork)");
   expect(Buffer.from(long).toString()).toBe(long);
+});
+
+test("open shows the workspace already on that folder", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a", "/b"));
+  try {
+    await s.perform({ name: "open", value: "/b" });
+    expect(s.current().id).toBe(2);
+    await expect(s.perform({ name: "open", value: "b" })).rejects.toThrow("InvalidDirectory");
+  } finally {
+    viewer.deinit(s);
+  }
+});
+
+test("open adds a workspace for a folder no workspace is on", async () => {
+  const commands: any[] = [];
+  let snapshot = folders("/a");
+  const s = new Controller({
+    socket: "",
+    request: async (op, fields) => {
+      if (op !== "session.command") return snapshot;
+      commands.push(fields?.command);
+      snapshot = folders("/a", "/b");
+      return { result: { pane: 2, workspace: 2 } };
+    },
+  });
+  s.receiveSnapshot(snapshot);
+  try {
+    await s.perform({ name: "open", value: "/b" });
+    expect(commands).toEqual([{ "workspace.create": { name: "", cwd: "/b" } }]);
+    expect(s.current().id).toBe(2);
+  } finally {
+    viewer.deinit(s);
+  }
 });

@@ -195,10 +195,17 @@ export async function run(
   input: number[],
   start_onboarding: boolean,
   stdin: Stdin,
+  folder: string | null = null,
 ): Promise<string | null> {
   const view = new Controller(connection);
   try {
-    const bell = { seq: await openMode(view, process.cwd(), probe.theme, socket, start_onboarding) };
+    const bell = { seq: await openMode(view, folder ?? process.cwd(), probe.theme, socket, start_onboarding) };
+    if (folder !== null)
+      try {
+        await view.perform({ name: "open", value: folder });
+      } catch (error) {
+        view.notice((error as Error).message);
+      }
     // Pasted images are saved beside the socket, on the daemon's machine.
     probe.clipboard.folder = join(dirname(socket) || ".", "paste");
     view.host_clipboard = probe.clipboard;

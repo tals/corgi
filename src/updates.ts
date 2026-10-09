@@ -413,7 +413,8 @@ async function select(
     unlock?.();
   }
 }
-export async function startup(socket: string, exe: string, cmd: string, skip = false) {
+/** Reruns `args` with the selected release; its first word is the command. */
+export async function startup(socket: string, exe: string, args: string[], skip = false) {
   const rel = release(exe),
     root = managed(rel, exe);
   if (!root) return;
@@ -425,10 +426,10 @@ export async function startup(socket: string, exe: string, cmd: string, skip = f
     target = (await hello(socket))?.executable ?? exe;
   }
   if (target !== exe)
-    process.execve!(target, [target, cmd, "--update-routed"], { ...process.env, CORGI_APP_EXE: target } as Record<
-      string,
-      string
-    >);
+    process.execve!(target, [target, args[0], "--update-routed", ...args.slice(1)], {
+      ...process.env,
+      CORGI_APP_EXE: target,
+    } as Record<string, string>);
 }
 export async function command(args: string[], socket: string, exe: string) {
   const rel = release(exe),

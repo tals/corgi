@@ -1,7 +1,8 @@
-import { test, expect } from "bun:test";
-import { actionNames, providerAlias, paneId } from "./main";
+import { test, expect, spyOn } from "bun:test";
+import { actionNames, providerAlias, paneId, run } from "./main";
 import { specs } from "./action";
-import { readFileSync, existsSync } from "node:fs";
+import * as rpc from "./rpc";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 test("provider named launchers use their original argv0", () => {
   expect(providerAlias("/tmp/codex")).toBe("codex");
@@ -23,6 +24,27 @@ test("help names every action on lines of at most 80 columns", () => {
       .split(/[ ,.\n]+/)
       .filter(Boolean),
   ).toEqual(Object.keys(specs).filter(name => name !== "relaunch"));
+});
+test("open inside a pane quietly sends its viewer the folder's real path", async () => {
+  const previous = process.env.CORGI_PANE;
+  process.env.CORGI_PANE = "7";
+  const request = spyOn(rpc, "request").mockResolvedValue({ ok: true });
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    await run(["open", import.meta.dir + "/.."]);
+    expect(request.mock.calls[0]?.slice(1)).toEqual([
+      "action",
+      { name: "open", value: realpathSync(resolve(import.meta.dir, "..")), pane: 7 },
+    ]);
+    expect(output).not.toHaveBeenCalled();
+    await expect(run(["open", import.meta.filename])).rejects.toThrow("NotDir");
+    await expect(run(["open"])).rejects.toThrow("Usage");
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+    if (previous === undefined) delete process.env.CORGI_PANE;
+    else process.env.CORGI_PANE = previous;
+  }
 });
 test("every source file is in the test root", () => {
   const config = JSON.parse(readFileSync(resolve(import.meta.dir, "../tsconfig.json"), "utf8"));

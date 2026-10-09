@@ -239,7 +239,7 @@ export function action(s: any, cl: any, q: any) {
     if (q.pane == null) throw new Error("NoViewer");
     target = viewerShowing(s, q.pane);
     if (!isAbsolute(String(act.value))) throw new Error("InvalidExecutable");
-  } else if (act.name === "onboard" && q.pane != null) target = viewerShowing(s, q.pane);
+  } else if ((act.name === "onboard" || act.name === "open") && q.pane != null) target = viewerShowing(s, q.pane);
   else target = targetViewer(s, q.viewer);
   send(cl, target, { kind: "action", name: q.name, value: q.value ?? "" });
 }

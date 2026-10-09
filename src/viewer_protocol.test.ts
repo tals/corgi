@@ -111,3 +111,15 @@ test("relaunch validates absolute executable and goes to viewer showing pane", (
   expect(target.controls[0].name).toBe("relaunch");
   expect(viewers(s)).toEqual([{ id: 1, workspace: 1, pane: 1, watched: true }]);
 });
+test("open from a pane goes to the viewer showing it", () => {
+  const one = peer(),
+    two = peer(2),
+    source = peer(3);
+  source.viewer = false;
+  two.view_focus = 4;
+  const s = { clients: [one, two, source] };
+  action(s, source, { name: "open", value: "/tmp", pane: 4 });
+  expect(source.result).toEqual({ ok: true, viewer: 2, queued: true });
+  expect(two.controls[0]).toMatchObject({ kind: "action", name: "open", value: "/tmp" });
+  expect(one.controls).toHaveLength(0);
+});

@@ -33,14 +33,15 @@ function signalHandler(): void {
   cleanup();
   process.exit(0);
 }
-export async function attach(path: string): Promise<void> {
-  return attachMode(path, false);
+/** Opens on the workspace for `folder` when one is given. */
+export async function attach(path: string, folder: string | null = null): Promise<void> {
+  return attachMode(path, false, folder);
 }
 export async function onboard(path: string): Promise<void> {
   return attachMode(path, true);
 }
-async function attachMode(path: string, start_onboarding: boolean): Promise<void> {
-  const executable = await attachOnce(path, start_onboarding);
+async function attachMode(path: string, start_onboarding: boolean, folder: string | null = null): Promise<void> {
+  const executable = await attachOnce(path, start_onboarding, folder);
   if (executable) {
     process.execve!(executable, [executable, "attach"], process.env as Record<string, string>);
     throw Error("ExecFailed");
@@ -49,7 +50,7 @@ async function attachMode(path: string, start_onboarding: boolean): Promise<void
 function transport(conn: Connection, path: string): Transport {
   return { socket: path, request: (op, fields) => conn.request(op, fields) };
 }
-async function attachOnce(path: string, start_onboarding: boolean): Promise<string | null> {
+async function attachOnce(path: string, start_onboarding: boolean, folder: string | null): Promise<string | null> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");
   const conn = new Connection(path);
   restore = true;
@@ -79,7 +80,7 @@ async function attachOnce(path: string, start_onboarding: boolean): Promise<stri
       writeAll("\x1b[?12s\x1b[?12l");
       cursor_blink_saved = true;
     }
-    return await run(transport(conn, path), path, probe, input, start_onboarding, stdin);
+    return await run(transport(conn, path), path, probe, input, start_onboarding, stdin, folder);
   } finally {
     stdin.close();
     cleanup();

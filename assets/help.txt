@@ -1,6 +1,7 @@
 corgi — a small Ghostty-powered agent terminal
 
   corgi                         start / attach
+  corgi open DIR                show DIR's workspace; add one if none
   corgi onboard                 open onboarding, even after setup
   corgi dev                     reload if changed; attach or relaunch viewer
   corgi --no-update             attach without activating a staged update

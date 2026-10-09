@@ -57,6 +57,17 @@ export function id(value: string): number {
   if (!n) throw Error("Usage");
   return n;
 }
+/** The real path of a directory, relative to this process's cwd. */
+export function directory(value: string): string {
+  let path: string;
+  try {
+    path = realpathSync(value);
+  } catch {
+    throw Error("FileNotFound");
+  }
+  if (!statSync(path).isDirectory()) throw Error("NotDir");
+  return path;
+}
 class Args {
   options = new Map<string, string>();
   positional: string[] = [];
@@ -95,14 +106,7 @@ class Args {
     if (this.options.size || this.positional.length) throw Error("Usage");
   }
   directory(value: string): string {
-    let path: string;
-    try {
-      path = realpathSync(value);
-    } catch {
-      throw Error("FileNotFound");
-    }
-    if (!statSync(path).isDirectory()) throw Error("NotDir");
-    return path;
+    return directory(value);
   }
   cwd(): string {
     const path = this.option("cwd");

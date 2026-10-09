@@ -2,7 +2,7 @@
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { hostname } from "node:os";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as keymap from "./keymap";
@@ -929,6 +929,14 @@ export class Controller {
     this.switchWorkspace(id);
     return id;
   }
+  /** Shows the workspace for a folder, adding one when none has it. */
+  private async openFolder(cwd: string): Promise<void> {
+    if (!isAbsolute(cwd)) throw Error("InvalidDirectory");
+    const current = this.current(),
+      found = current.cwd === cwd ? current : this.runtime.workspaces.items.find(w => w.cwd === cwd);
+    if (found) this.switchWorkspace(found.id);
+    else await this.newWorkspace("", cwd);
+  }
   private beginRename(): void {
     if (this.model().count === 0) return;
     const tab = this.selectedTab();
@@ -1159,6 +1167,8 @@ export class Controller {
           this.switchWorkspace(this.runtime.workspaces.items[number - 1].id);
         break;
       }
+      case "open":
+        return this.openFolder(String(act.value ?? ""));
       case "new-agent":
         this.openLauncher(true);
         break;
