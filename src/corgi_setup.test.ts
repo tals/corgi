@@ -93,7 +93,7 @@ test("Summaries opens a dropdown on the choice in use, and Esc closes it", () =>
   // Clicks open it and choose.
   const row = hits(menu, 100, 30, s, prefs).find(hit => "option" in hit && hit.option === 0)!;
   expect(menu.click(row, s, prefs)).toBeNull();
-  const codex = hits(menu, 100, 30, s, prefs).find(hit => "choice" in hit && hit.choice === "codex")!;
+  const codex = hits(menu, 100, 30, s, prefs).find(hit => "choice" in hit && hit.choice === 1)!;
   expect(menu.click(codex, s, prefs)).toEqual({ kind: "summaries", choice: "codex" });
   // Esc closes the dropdown, then returns to the list.
   menu.enter(s, prefs);
@@ -110,7 +110,7 @@ test("Summaries opens a dropdown on the choice in use, and Esc closes it", () =>
   expect(menu.back()).toBe(true);
   expect(menu.back()).toBe(false);
   menu.move(true, s, prefs);
-  expect(menu.item).toBe("sleeping_corgis");
+  expect(menu.item).toBe("flourishes");
   for (let i = 0; i < 20; i++) menu.move(true, s, prefs, false);
   expect(menu.item).toBe(items.at(-1)!);
   menu.move(true, s, prefs);
@@ -193,17 +193,25 @@ test("Command keys turn on and off under the keymap", () => {
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Reload Ghostty with ⌘⇧, to apply.");
 });
 
-test("sleeping corgis preview both choices beside them", () => {
+test("visual flourishes choose what idle agents show", () => {
   const menu = Menu.open(),
-    prefs = new Preferences();
-  menu.item = "sleeping_corgis";
-  const on = (now: number) => draw(menu, 100, 30, now, status(), prefs).find(row => row.includes("● On"))!;
-  expect(on(0)).toContain("~ᐯ◡ᴥ◡ᐯ ᶻ");
-  // Between puffs the preview rests without a Z.
-  expect(on(corgiAnimation.puff_duration_ms)).not.toContain("ᶻ");
-  const off = draw(menu, 100, 30, 0, status(), prefs).find(row => row.includes("○ Off"))!;
-  expect(off).toContain("~ᐯ◡ᴥ◡ᐯ");
-  expect(off).not.toContain("ᶻ");
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "flourishes";
+  const text = (now = 0) => draw(menu, 100, 30, now, s, prefs).join("\n");
+  expect(text()).toMatch(/Idle +● Sleeping corgi ▾/);
+  // The preview puffs now and then; between puffs it rests without a Z.
+  expect(text(0)).toContain("~ᐯ◡ᴥ◡ᐯ ᶻ");
+  expect(text(corgiAnimation.puff_duration_ms)).not.toContain("ᶻ");
+  menu.openOptions(s, prefs);
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(text()).toMatch(/│ ✓ Sleeping corgi +naps, and snores now and then │/);
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "sleeping_corgis", on: false });
+  prefs.sleeping_corgis = false;
+  expect(text()).toMatch(/Idle +○ Blank ▾/);
+  expect(text()).not.toContain("ᐯ◡ᴥ◡ᐯ");
+  expect(text()).toContain("ᶻ");
 });
 
 test("the theme under the cursor previews until Enter keeps it", () => {
@@ -229,16 +237,29 @@ test("the theme under the cursor previews until Enter keeps it", () => {
   expect(menu.previewTheme(prefs)).toBe("animal_style");
 });
 
-test("image paste explains whether this viewer can paste images", () => {
-  const menu = Menu.open();
-  menu.item = "image_paste";
-  expect(draw(menu).join("\n")).toContain("This viewer has no terminal to paste from.");
+test("terminal capabilities report what the terminal can do, not settings", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "terminal";
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toContain("Detected, not settings: what this terminal can do.");
+  expect(text).toContain("Didn't say its name");
+  expect(text).toMatch(/– Kitty graphics/);
+  expect(text).toContain("This viewer has no terminal to paste from.");
+  // Nothing in it takes the cursor.
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.focus).toBe("list");
+  menu.terminal = { name: "ghostty 1.3.0", ssh: true, graphics: true, colors: true };
   const clipboard = new ClipboardState();
-  clipboard.support = "unsupported";
+  clipboard.support = "denied";
   menu.image_paste = clipboard;
-  const text = draw(menu).join("\n");
-  expect(text).toMatch(/Image paste\s+Off/);
-  expect(text).toContain("○ no paste events");
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toContain("ghostty 1.3.0 · over SSH");
+  expect(text).toMatch(/✓ Kitty graphics/);
+  expect(text).toMatch(/✓ Theme colors/);
+  expect(text).toMatch(/! Image paste/);
+  expect(text).toContain("Blocked by clipboard-read = deny.");
 });
 
 test("shell options are the shell picker's entries", () => {
@@ -277,10 +298,10 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   menu.openOptions(s, prefs);
   // The growth starts with the first frame after Enter.
   let text = draw(menu, 140, 36, 1000, s, prefs).join("\n");
-  expect(text).toContain("Sleeping corgis");
+  expect(text).toContain("Visual flourishes");
   expect(text).not.toContain("PREFIX");
   text = draw(menu, 140, 36, 1100, s, prefs).join("\n");
-  expect(text).not.toContain("Sleeping corgis");
+  expect(text).not.toContain("Visual flourishes");
   expect(text).not.toContain("PREFIX");
   text = draw(menu, 140, 36, 2000, s, prefs).join("\n");
   expect(text).toContain("Corgi setup › Keymap");
@@ -298,7 +319,7 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   expect(menu.back()).toBe(true);
   text = draw(menu, 140, 36, 2200, s, prefs).join("\n");
   text = draw(menu, 140, 36, 3000, s, prefs).join("\n");
-  expect(text).toContain("Sleeping corgis");
+  expect(text).toContain("Visual flourishes");
   expect(text).not.toContain("PREFIX");
 });
 

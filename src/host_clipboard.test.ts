@@ -168,15 +168,15 @@ test("a program that takes paste events is offered the text and the image togeth
     rmSync(folder, { recursive: true, force: true });
   }
 });
-test("image paste's state shows in a few words", () => {
+test("image paste's state comes down to a line", () => {
   const s = new State();
-  expect(s.status()).toBe("checking");
+  expect(s.diagnosis()).toBe("Checking…");
   s.support = "on";
-  expect(s.status()).toBe("● On");
+  expect(s.diagnosis()).toBe("Copy an image, then paste it to an agent.");
   s.support = "unsupported";
-  expect(s.status()).toBe("○ no paste events");
+  expect(s.diagnosis()).toBe("This terminal sends no paste events.");
   s.terminalName("tmux 3.4");
-  expect(s.status()).toBe("○ tmux in between");
+  expect(s.diagnosis()).toBe("tmux sits in between.");
   s.support = "denied";
-  expect(s.status()).toBe("○ clipboard-read = deny");
+  expect(s.diagnosis()).toBe("Blocked by clipboard-read = deny.");
 });

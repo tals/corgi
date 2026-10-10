@@ -59,7 +59,7 @@ export const Summarizer = {
 };
 
 export type Item =
-  "sleeping_corgis" | "readings" | "clever_corgi" | "theme" | "shell" | "keyboard" | "image_paste" | ImportItem;
+  "flourishes" | "readings" | "clever_corgi" | "theme" | "shell" | "keyboard" | "terminal" | ImportItem;
 type ImportItem = "import_tmux" | "import_herdr" | "import_cmux";
 const import_sources: Record<ImportItem, catalog.Source> = {
   import_tmux: "tmux",
@@ -71,14 +71,14 @@ type ListRow = Item | { heading: string } | null;
 /** The list, top to bottom. */
 const list: ListRow[] = [
   "clever_corgi",
-  "sleeping_corgis",
+  "flourishes",
   "readings",
   null,
   "theme",
   "shell",
   "keyboard",
   null,
-  "image_paste",
+  "terminal",
   null,
   { heading: "Import from" },
   ...(Object.keys(import_sources) as ImportItem[]).filter(item =>
@@ -87,13 +87,13 @@ const list: ListRow[] = [
 ];
 export const items = list.filter((row): row is Item => typeof row === "string");
 const labels: Record<Item, string> = {
-  sleeping_corgis: "Sleeping corgis",
+  flourishes: "Visual flourishes",
   readings: "Resources",
   clever_corgi: "Clever Corgi",
   theme: "Theme",
   shell: "Shell",
   keyboard: "Keymap",
-  image_paste: "Image paste",
+  terminal: "Terminal capabilities",
   import_tmux: "tmux",
   import_herdr: "Herdr",
   import_cmux: "cmux",
@@ -122,7 +122,7 @@ export type Apply =
   | { kind: "imported"; workspace: number | null };
 /** A list row, an option, a choice in the open dropdown, or the import
  * picker under the pointer. */
-export type Hit = { item: Item } | { option: number } | { choice: Summarizer } | { picker: importPicker.Hit };
+export type Hit = { item: Item } | { option: number } | { choice: number } | { picker: importPicker.Hit };
 
 interface Option {
   label: string;
@@ -136,8 +136,6 @@ interface Option {
   disabled?: boolean;
   warn?: boolean;
   arrow?: boolean;
-  /** A sleeping corgi before the detail: puffing for On, still for Off. */
-  sprite?: "puff" | "still";
   /** Status glyphs on the theme's background, before the detail. */
   swatch?: palette.Theme;
   /** A toggle in a group: On or Off at the right edge, as in the list. */
@@ -145,8 +143,34 @@ interface Option {
   /** An icon before a toggle's name, where other options keep their mark. */
   glyph?: string;
   /** A dropdown in a group: the choice in use at the right edge, green while
-   * `on`, and Enter opens the choices. */
-  choice?: { text: string; on: boolean };
+   * `on`, and Enter opens `choices`. */
+  choice?: { text: string; on: boolean; choices: Choice[] };
+}
+/** What the viewer found out about its terminal, for Terminal capabilities. */
+export interface Terminal {
+  /** As the terminal reports itself, or names itself in the environment. */
+  name: string;
+  ssh: boolean;
+  graphics: boolean;
+  /** Whether it reported its colors. */
+  colors: boolean;
+}
+/** Whether the terminal has a capability (✓), lacks it (–), needs fixing for
+ * it (!) or is still telling (…). */
+type Found = "yes" | "no" | "fix" | "checking";
+/** Image paste's support, as Terminal capabilities marks it. */
+const paste_found: Record<ClipboardState["support"], Found> = {
+  probing: "checking",
+  on: "yes",
+  denied: "fix",
+  unsupported: "no",
+};
+/** One of a dropdown's choices. */
+interface Choice {
+  text: string;
+  note: string;
+  current: boolean;
+  apply: Apply;
 }
 type Line =
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
@@ -155,10 +179,13 @@ type Line =
   | { tag: "blank" }
   /** A rule that sets a setting apart from the options above it. */
   | { tag: "rule" }
+  /** How an idle agent's row looks: the napping corgi, or a dim ᶻ. */
+  | { tag: "nap"; asleep: boolean }
   /** A row of a setting's mini keymap: what a key does, and the key. */
   | { tag: "binding"; job: string; key: string; dim: boolean }
   | { tag: "keys"; keys: [string, string][] }
-  | { tag: "status"; text: string; tone: "accent" | "warm" | "faint" }
+  /** A capability, marked by whether the terminal has it; none for a plain fact. */
+  | { tag: "capability"; name: string; mark: Found | null }
   | { tag: "option"; option: Option; index: number }
   /** The import picker, down to the bottom of the pane. */
   | { tag: "picker" };
@@ -287,6 +314,8 @@ export class Menu {
   reload_ghostty = false;
   /** The host terminal's clipboard; null when the viewer has no terminal. */
   image_paste: ClipboardState | null = null;
+  /** What the viewer found out about its terminal. */
+  terminal: Terminal = { name: "", ssh: false, graphics: false, colors: false };
   /** The shell new panes run, as the daemon last published it. */
   shell: ShellStatus = shellPicker.status();
   /** Shells /etc/shells lists, offered beside the default. */
@@ -299,8 +328,8 @@ export class Menu {
   private import_source: catalog.Source | null = null;
   /** The list's first row shown while it scrolls. */
   private list_first = 0;
-  /** The highlighted summarizer while the Summaries dropdown is open. */
-  private dropdown: number | null = null;
+  /** The open dropdown: its setting's option, and the highlighted choice. */
+  private dropdown: { option: number; at: number } | null = null;
   /** The frame's growth toward the preset detail, eased between draws. */
   private grow = { from: 0, to: 0, at_ms: 0 };
   static open(): Menu {
@@ -357,10 +386,9 @@ export class Menu {
    * other when `wrap`. */
   move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
     if (this.dropdown !== null) {
-      const n = summarizers.length;
-      this.dropdown = wrap
-        ? (this.dropdown + (next ? 1 : n - 1)) % n
-        : clamp(this.dropdown + (next ? 1 : -1), 0, n - 1);
+      const d = this.dropdown,
+        n = this.choices(s, prefs).length;
+      d.at = wrap ? (d.at + (next ? 1 : n - 1)) % n : clamp(d.at + (next ? 1 : -1), 0, n - 1);
       return;
     }
     const picker = this.focus === "options" ? this.importing() : null;
@@ -419,11 +447,17 @@ export class Menu {
   enter(s: Status, prefs: Preferences): Apply | null {
     const picker = this.importing();
     if (this.focus === "options" && picker) return enterImport(picker);
-    if (this.dropdown !== null) return this.choose(summarizers[this.dropdown], s);
+    if (this.dropdown !== null) return this.choose(this.dropdown.at, s, prefs);
     if (this.focus === "options") {
       const option = this.options(s, prefs)[this.cursor];
       if (option?.choice !== undefined) {
-        this.dropdown = summarizers.indexOf(s.choice);
+        this.dropdown = {
+          option: this.cursor,
+          at: Math.max(
+            0,
+            option.choice.choices.findIndex(c => c.current),
+          ),
+        };
         return null;
       }
       return option && !option.disabled ? option.apply : null;
@@ -438,8 +472,6 @@ export class Menu {
     switch (this.item) {
       case "readings":
         return { kind: "readings", on: !prefs.resources.enabled };
-      case "sleeping_corgis":
-        return { kind: "sleeping_corgis", on: !prefs.sleeping_corgis };
       default:
         return null;
     }
@@ -448,8 +480,9 @@ export class Menu {
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
     // The open dropdown takes the click, or closes.
     if (this.dropdown !== null) {
+      const choice = "choice" in hit ? this.choose(hit.choice, s, prefs) : null;
       this.dropdown = null;
-      return "choice" in hit ? this.choose(hit.choice, s) : null;
+      return choice;
     }
     if ("choice" in hit) return null;
     if ("picker" in hit) {
@@ -476,15 +509,21 @@ export class Menu {
     if (option.choice !== undefined) return this.enter(s, prefs);
     return option.apply;
   }
-  /** Closes the dropdown on `choice`; Apply when it isn't the one in use. */
-  private choose(choice: Summarizer, s: Status): Apply | null {
+  /** The open dropdown's choices. */
+  private choices(s: Status, prefs: Preferences): Choice[] {
+    return this.dropdown === null ? [] : (this.options(s, prefs)[this.dropdown.option]?.choice?.choices ?? []);
+  }
+  /** Closes the dropdown on choice `index`; Apply when it isn't the one in use. */
+  private choose(index: number, s: Status, prefs: Preferences): Apply | null {
+    const choice = this.choices(s, prefs)[index];
     this.dropdown = null;
-    return choice === s.choice ? null : { kind: "summaries", choice };
+    return choice && !choice.current ? choice.apply : null;
   }
   /** Pointer motion highlights rows in the focused column. */
   hover(hit: Hit, s: Status, prefs: Preferences): void {
-    if ("choice" in hit) this.dropdown = summarizers.indexOf(hit.choice);
-    else if (this.dropdown !== null) return;
+    if ("choice" in hit) {
+      if (this.dropdown !== null) this.dropdown.at = hit.choice;
+    } else if (this.dropdown !== null) return;
     else if ("item" in hit) {
       if (this.focus === "list") this.item = hit.item;
     } else if ("option" in hit && this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled)
@@ -514,8 +553,8 @@ export class Menu {
     if (l.single && this.focus === "list") return null;
     const open = this.dropdownBox(l, s, prefs);
     if (open?.contains(x, y)) {
-      const index = dropdown.hit(open, summarizers.length, x, y);
-      return index === null ? null : { choice: summarizers[index] };
+      const index = dropdown.hit(open, this.choices(s, prefs).length, x, y);
+      return index === null ? null : { choice: index };
     }
     if (x < l.options.x || x >= l.options.x + l.options.w) return null;
     const lines = this.lines(s, prefs, l),
@@ -553,11 +592,11 @@ export class Menu {
       dropdown.draw(
         w,
         open,
-        summarizers.map((choice, i) => ({
-          text: Summarizer.label(choice),
-          note: summary(choice, s),
-          current: choice === s.choice,
-          hovered: i === this.dropdown,
+        this.choices(s, prefs).map((choice, i) => ({
+          text: choice.text,
+          note: choice.note,
+          current: choice.current,
+          hovered: i === this.dropdown?.at,
         })),
       );
     if (l.detail) {
@@ -642,6 +681,21 @@ export class Menu {
         case "rule":
           w.write(at(x0, y) + border + "─".repeat(sat(right, x0)));
           return;
+        case "nap": {
+          // The sidebar's sleeper, puffing every few seconds; without it, its ᶻ.
+          if (!line.asleep) return w.write(at(x0 + 4, y) + panel + "ᶻ");
+          const elapsed = ((now_ms % preview_period_ms) + preview_period_ms) % preview_period_ms;
+          w.write(at(x0 + 4, y) + text);
+          w.write(
+            corgiAnimation.idle(Math.min(12, sat(right, x0 + 4)), {
+              background: settingRow.normal.background,
+              bright: true,
+              selected: false,
+              puff_ms: elapsed,
+            }),
+          );
+          return;
+        }
         case "binding": {
           // The full keymap's rows: the job, and its key at the column's end.
           const end = Math.min(x0 + 4 + binding_w, right),
@@ -664,11 +718,16 @@ export class Menu {
             at(x0 + 4, y) + (line.tone === "muted" ? settingRow.normal.muted : line.tone === "warm" ? warm : panel),
           );
           return writeEllipsis(w, line.text, right - x0 - 4);
-        case "status":
-          w.write(
-            at(x0 + 2, y) + (line.tone === "accent" ? settingRow.normal.accent : line.tone === "warm" ? warm : panel),
-          );
-          return writeEllipsis(w, line.text, right - x0 - 2);
+        case "capability":
+          if (line.mark !== null)
+            w.write(
+              at(x0 + 2, y) +
+                { yes: `${settingRow.normal.accent}✓`, no: `${panel}–`, fix: `${warm}!`, checking: `${panel}…` }[
+                  line.mark
+                ],
+            );
+          w.write(at(x0 + 4, y) + text);
+          return writeEllipsis(w, line.name, right - x0 - 4);
         case "keys": {
           let cx = x0;
           line.keys.forEach(([key, label], k) => {
@@ -718,20 +777,6 @@ export class Menu {
     w.write(at(x0 + 4, y) + (o.disabled ? p.quiet : p.label));
     writeEllipsis(w, o.label, Math.min(label_w, sat(right, x0 + 4)));
     let dx = x0 + 4 + label_w + 3;
-    if (o.sprite) {
-      // On puffs every few seconds; Off naps dim and still.
-      const elapsed = ((now_ms % preview_period_ms) + preview_period_ms) % preview_period_ms;
-      w.write(at(dx, y) + p.text);
-      w.write(
-        corgiAnimation.idle(Math.min(12, sat(right, dx)), {
-          background: p.background,
-          bright: o.sprite === "puff",
-          selected: here,
-          puff_ms: o.sprite === "puff" ? elapsed : null,
-        }),
-      );
-      dx += 13;
-    }
     if (o.swatch && right - dx >= 7) {
       w.write(
         `${at(dx, y)}\x1b[0;1m${palette.bg("bg", o.swatch)}${palette.fg("accent", o.swatch)} ▶ ` +
@@ -746,10 +791,11 @@ export class Menu {
   /** The open dropdown's box, under its setting's row with ✓ under the ›;
    * null while it is closed. */
   private dropdownBox(l: Layout, s: Status, prefs: Preferences): Rect | null {
-    if (this.dropdown === null) return null;
-    const row = this.lines(s, prefs, l).findIndex(line => line.tag === "option" && line.option.choice !== undefined);
+    const d = this.dropdown;
+    if (d === null) return null;
+    const row = this.lines(s, prefs, l).findIndex(line => line.tag === "option" && line.index === d.option);
     if (row < 0) return null;
-    const h = summarizers.length + 2,
+    const h = this.choices(s, prefs).length + 2,
       bottom = l.b.y + 2 + l.body;
     return new Rect(l.options.x + 2, Math.min(l.b.y + 3 + row, bottom - h), l.options.w - 3, h);
   }
@@ -788,17 +834,38 @@ export class Menu {
     const lead = (text: string): Line => ({ tag: "lead", text }),
       option = (o: Option): Line => ({ tag: "option", option: o, index: 0 }),
       title = (text: string): Line => ({ tag: "title", text }),
-      blank: Line = { tag: "blank" },
-      focused = this.focus === "options";
+      blank: Line = { tag: "blank" };
     switch (this.item) {
-      case "sleeping_corgis":
+      case "flourishes":
         return [
-          title("Sleeping corgis"),
-          lead("Idle agents doze off in the sidebar."),
+          title("Visual flourishes"),
           blank,
-          ...onOff(prefs.sleeping_corgis, "sleeping_corgis", ["snores now and then", "dim and still"]).map(o =>
-            option({ ...o, sprite: o.label === "On" ? "puff" : "still" }),
-          ),
+          option({
+            label: "Idle",
+            detail: "",
+            mark: "none",
+            apply: null,
+            action: "change",
+            choice: {
+              text: prefs.sleeping_corgis ? "Sleeping corgi" : "Blank",
+              on: prefs.sleeping_corgis,
+              choices: [
+                {
+                  text: "Sleeping corgi",
+                  note: "naps, and snores now and then",
+                  current: prefs.sleeping_corgis,
+                  apply: { kind: "sleeping_corgis", on: true },
+                },
+                {
+                  text: "Blank",
+                  note: "only a dim ᶻ",
+                  current: !prefs.sleeping_corgis,
+                  apply: { kind: "sleeping_corgis", on: false },
+                },
+              ],
+            },
+          }),
+          { tag: "nap", asleep: prefs.sleeping_corgis },
         ];
       case "readings":
         return [
@@ -820,7 +887,16 @@ export class Menu {
             mark: "none",
             apply: null,
             action: "change",
-            choice: { text: inUse(s), on: s.choice !== "off" },
+            choice: {
+              text: inUse(s),
+              on: s.choice !== "off",
+              choices: summarizers.map(choice => ({
+                text: Summarizer.label(choice),
+                note: summary(choice, s),
+                current: choice === s.choice,
+                apply: { kind: "summaries", choice },
+              })),
+            },
           }),
           { tag: "brief", text: summary(s.choice, s), tone: "muted" },
           ...(second === null ? [] : [{ tag: "brief", text: second } as Line]),
@@ -913,27 +989,37 @@ export class Menu {
           ...this.commandKeys(prefs),
         ];
       }
-      case "image_paste": {
-        const clipboard = this.image_paste,
-          head = [title("Image paste"), lead("Paste screenshots and other images into an agent."), blank];
-        if (!clipboard) return [...head, { tag: "note", text: "This viewer has no terminal to paste from." }];
+      case "terminal": {
+        const term = this.terminal,
+          clipboard = this.image_paste,
+          found = (name: string, mark: Found | null, detail: string, tone?: "muted" | "warm"): Line[] => [
+            { tag: "capability", name, mark },
+            { tag: "brief", text: detail, tone },
+            blank,
+          ];
         return [
-          ...head,
-          {
-            tag: "status",
-            text: clipboard.status(),
-            tone: clipboard.support === "on" ? "accent" : clipboard.support === "denied" ? "warm" : "faint",
-          },
+          title("Terminal capabilities"),
+          lead("Detected, not settings: what this terminal can do."),
           blank,
-          {
-            tag: "note",
-            text: {
-              probing: "Checking what your terminal supports.",
-              on: "Copy an image, then paste it where an agent is waiting.",
-              denied: "Your terminal refuses clipboard reads. Allow them to paste images.",
-              unsupported: "Your terminal doesn't send image pastes to Corgi.",
-            }[clipboard.support],
-          },
+          ...found("Terminal", null, (term.name || "Didn't say its name") + (term.ssh ? " · over SSH" : ""), "muted"),
+          ...found(
+            "Kitty graphics",
+            term.graphics ? "yes" : "no",
+            term.graphics ? "Pixel corgi badge and animations." : "🐕 badge; animations stay still.",
+          ),
+          ...found(
+            "Theme colors",
+            term.colors ? "yes" : "no",
+            term.colors ? "Animal Style takes its colors from them." : "Animal Style keeps Corgi's colors.",
+          ),
+          ...(clipboard
+            ? found(
+                "Image paste",
+                paste_found[clipboard.support],
+                clipboard.diagnosis(),
+                clipboard.support === "denied" ? "warm" : undefined,
+              )
+            : found("Image paste", "no", "This viewer has no terminal to paste from.")),
         ];
       }
       case "import_tmux":
@@ -1005,8 +1091,8 @@ export class Menu {
     const flag = (enabled: boolean) =>
       enabled ? { text: "On", tone: "muted" as const } : { text: "Off", tone: "faint" as const };
     switch (item) {
-      case "sleeping_corgis":
-        return flag(prefs.sleeping_corgis);
+      case "flourishes":
+        return { text: "", tone: "faint" };
       case "readings":
         return flag(prefs.resources.enabled);
       case "clever_corgi":
@@ -1018,12 +1104,8 @@ export class Menu {
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };
       case "keyboard":
         return { text: km.name(prefs.preset), tone: "muted" };
-      case "image_paste": {
-        const support = this.image_paste?.support;
-        if (support === "on") return { text: "On", tone: "muted" };
-        if (support === "denied") return { text: "Blocked", tone: "warm" };
-        return { text: support === "probing" ? "…" : support ? "Off" : "", tone: "faint" };
-      }
+      case "terminal":
+        return { text: "", tone: "faint" };
       case "import_tmux":
       case "import_herdr":
       case "import_cmux":
@@ -1102,7 +1184,7 @@ function pickerArea(l: Layout, line: number): Rect {
     right = l.options.x + l.options.w - 1;
   return new Rect(x0, l.b.y + 2 + line, right - x0, l.body - line);
 }
-function onOff(enabled: boolean, kind: "readings" | "sleeping_corgis", details: [string, string]): Option[] {
+function onOff(enabled: boolean, kind: "readings", details: [string, string]): Option[] {
   return [true, false].map((value, i) => ({
     label: value ? "On" : "Off",
     detail: details[i],

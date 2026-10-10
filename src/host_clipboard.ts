@@ -233,16 +233,17 @@ export class State {
   private displayName() {
     return capitalized(this.terminal.text()) || "This terminal";
   }
-  status(): string {
+  /** What image paste comes to here, in a line for Corgi setup. */
+  diagnosis(): string {
     switch (this.support) {
       case "probing":
-        return "checking";
+        return "Checking…";
       case "on":
-        return "● On";
+        return "Copy an image, then paste it to an agent.";
       case "denied":
-        return "○ clipboard-read = deny";
+        return "Blocked by clipboard-read = deny.";
       case "unsupported":
-        return this.multiplexer() ? `○ ${this.programName()} in between` : "○ no paste events";
+        return this.multiplexer() ? `${this.programName()} sits in between.` : "This terminal sends no paste events.";
     }
   }
   private multiplexer() {

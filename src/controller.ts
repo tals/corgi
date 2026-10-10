@@ -1902,6 +1902,12 @@ export class Controller {
     const setup = SetupMenu.open();
     setup.integration = this.remote_links ? "unavailable" : ghosttyIntegration.state();
     setup.image_paste = this.host_clipboard;
+    setup.terminal = {
+      name: this.host_clipboard?.terminal.text() || (process.env.TERM_PROGRAM ?? ""),
+      ssh: this.remote_links,
+      graphics: this.supports_kitty_graphics,
+      colors: this.terminal_colors !== null,
+    };
     setup.shell = this.runtime.shell;
     setup.shells = installedShells();
     setup.smart_links = this.runtime.smart_links;
