@@ -79,6 +79,26 @@ export function ellipsis(text: string, room: number): string {
   if (room <= 0) return "";
   return clipped(text, room - 1) + "…";
 }
+/** `writeEllipsis` for text from outside: control characters and invalid
+ * UTF-8 show as spaces, and only the first 2 KiB is kept. */
+export function writeSanitized(w: Writer, value: string, room: number): void {
+  let clean = "";
+  let n = 0;
+  for (const ch of value) {
+    if (n >= 2048 - 4) break;
+    const cp = ch.codePointAt(0)!;
+    // Lone surrogates stand in for invalid UTF-8.
+    const invalid = cp >= 0xd800 && cp <= 0xdfff;
+    if (invalid || cp < 32 || cp === 127) {
+      clean += " ";
+      n += 1;
+      continue;
+    }
+    clean += ch;
+    n += utf8Size(cp);
+  }
+  writeEllipsis(w, clean, room);
+}
 /** Keep the root and the longest whole-component suffix that fits. */
 export function writeDirectory(w: Writer, path: string, room: number): void {
   if (displayWidth(path) <= room) return w.write(path);

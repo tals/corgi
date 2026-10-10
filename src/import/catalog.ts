@@ -369,7 +369,7 @@ export class Worker {
     this.catalog.workspaces = out;
     this.catalog.message =
       this.catalog.confused && !out.length
-        ? "Couldn't read the workspace list. R refreshes; S skips import."
+        ? "Couldn't read the workspace list. R refreshes."
         : "Visible splits first; remaining surfaces become additional tabs.";
   }
 }

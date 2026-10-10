@@ -902,6 +902,7 @@ export class Controller {
     this.agent_picker = null;
     this.closeLauncher();
     this.scope_menu = null;
+    this.corgi_setup?.deinit();
     this.corgi_setup = null;
     this.launcher_hover_blocked = true;
     this.port_menu = null;
@@ -1905,9 +1906,22 @@ export class Controller {
     switch (apply.kind) {
       case "shell":
         return this.chooseShell(apply.entry);
-      case "import":
-        this.openOnboarding("import");
-        this.onboarding?.changeSource(apply.source);
+      case "import": {
+        const picker = this.corgi_setup?.import_picker;
+        if (!picker) return;
+        try {
+          await picker.begin(this.rpc());
+        } catch (error) {
+          picker.message = (error as Error).message;
+        }
+        return;
+      }
+      case "imported":
+        this.closeMenu();
+        if (apply.workspace === null) return;
+        await this.refresh();
+        this.switchWorkspace(apply.workspace);
+        if (this.model().count === 0) this.openLauncher(true);
         return;
       case "keymap":
         return this.openHelp();
@@ -2062,7 +2076,7 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    const target = wizard.progress?.workspace ?? null;
+    const target = wizard.picker.progress?.workspace ?? null;
     const mode = wizard.mode;
     wizard.deinit();
     this.onboarding = null;
@@ -2171,6 +2185,10 @@ export class Controller {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
         shortcuts = setup.item === "keyboard" && setup.focus === "options";
+      if (setup.key(byte)) {
+        this.dirty = true;
+        return;
+      }
       switch (byte) {
         case 27:
         case 113:
@@ -3000,8 +3018,8 @@ export class Controller {
         if (done) await this.finishOnboarding();
       } else if (!release && (button & 64) !== 0) {
         if (wizard.step === "keymap") wizard.help.move((button & 1) !== 0, 3);
-        else if ((button & 1) !== 0) wizard.scroll += 3;
-        else wizard.scroll = sat(wizard.scroll, 3);
+        else if ((button & 1) !== 0) wizard.picker.scroll += 3;
+        else wizard.picker.scroll = sat(wizard.picker.scroll, 3);
       }
       this.dirty = true;
       return;
@@ -3829,6 +3847,7 @@ export class Controller {
   async expireInput(): Promise<void> {
     await this.wakeFocused();
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
+    if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc()))) this.dirty = true;
     await this.pollLauncher();
     this.pollScopeMenu();
     if (this.link_tooltip.due(milliTimestamp())) this.dirty = true;

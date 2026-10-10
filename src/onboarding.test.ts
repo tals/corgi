@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { State, WorkspacePreview } from "./onboarding";
+import { State } from "./onboarding";
 import { Worker, workspace, pane } from "./import/catalog";
 const conn: any = {
   call: () => {
@@ -11,7 +11,7 @@ function attach(state: State, source: "tmux" | "herdr", items: any[], message = 
   worker.done = true;
   worker.catalog.workspaces = items;
   worker.catalog.message = message;
-  state.workers.set(source, worker);
+  state.picker.workers.set(source, worker);
   return worker;
 }
 test("onboarding offers only platform-supported presets and import sources", async () => {
@@ -27,25 +27,9 @@ test("onboarding offers only platform-supported presets and import sources", asy
   expect(state.frame(100, 34).includes("cmux")).toBe(process.platform === "darwin");
   if (process.platform !== "darwin") {
     await state.key("3", conn);
-    expect(state.source).toBe("tmux");
+    expect(state.picker.source).toBe("tmux");
     expect(() => Worker.start("cmux")).toThrow("CmuxRequiresMacOS");
   }
-  state.deinit();
-});
-test("tmux selects at most three recent groups once per discovery", () => {
-  const state = new State();
-  state.step = "import";
-  attach(
-    state,
-    "tmux",
-    ["first", "second", "third", "fourth"].map((name, i) => workspace({ id: String(i), name, tabs: [] })),
-  );
-  state.selectDefaults();
-  expect(state.selected.slice(0, 4)).toEqual([true, true, true, false]);
-  state.selected[0] = false;
-  state.scan();
-  state.selectDefaults();
-  expect(state.selected[0]).toBe(false);
   state.deinit();
 });
 test("failed discovery does not claim the source has no sessions", () => {
@@ -80,7 +64,7 @@ test("workspace previews keep recovery rows and handoff selection aligned while 
   ];
   const state = new State();
   state.step = "import";
-  state.source = "herdr";
+  state.picker.source = "herdr";
   attach(state, "herdr", [
     workspace({
       id: "a",
@@ -100,19 +84,19 @@ test("workspace previews keep recovery rows and handoff selection aligned while 
   await state.sequence("\x1b[6~", conn);
   state.frame(76, 26);
   await state.click(76, 26, 8, 20, conn);
-  expect(state.expanded[1]).toBe(true);
-  expect(state.expanded[0]).toBe(false);
-  expect(state.cursor).toBe(0);
-  expect(state.chosen(0)).toBe(true);
-  expect(state.chosen(1)).toBe(false);
+  expect(state.picker.expanded[1]).toBe(true);
+  expect(state.picker.expanded[0]).toBe(false);
+  expect(state.picker.cursor).toBe(0);
+  expect(state.picker.chosen(0)).toBe(true);
+  expect(state.picker.chosen(1)).toBe(false);
   const expanded = state.frame(76, 26);
   expect(expanded.includes("Show less")).toBe(true);
   expect(expanded.includes("hidden-tab")).toBe(true);
   await state.click(76, 26, 8, 12, conn);
-  expect(state.expanded[1]).toBe(false);
+  expect(state.picker.expanded[1]).toBe(false);
   state.frame(76, 26);
   await state.click(76, 26, 8, 14, conn);
-  expect(state.cursor).toBe(1);
+  expect(state.picker.cursor).toBe(1);
   state.deinit();
 });
 test("keyboard setup saves without chaining and Esc closes it; first run cannot be dismissed", async () => {

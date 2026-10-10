@@ -6,6 +6,7 @@ import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Dialog } from "./name_dialog";
 import { Writer, writeEllipsis, truncatedText, sat } from "./text";
+import * as scrollThumb from "./scroll_thumb";
 
 export type Provider = "codex" | "claude";
 export type Scope = "folder" | "workspace" | "everywhere";
@@ -473,12 +474,12 @@ export class View {
         cols,
       );
     });
-    if (rows.length > list_height) {
-      const thumb = Math.max(1, Math.floor((list_height * list_height) / rows.length));
-      const top = Math.floor(((list_height - thumb) * first) / (rows.length - list_height));
+    const bar = scrollThumb.thumb(list_height, rows.length, first);
+    if (bar)
       for (let k = 0; k < list_height; k++)
-        w.write(`\x1b[${list_top + k};${x + width - 2}H${k >= top && k < top + thumb ? panel + "┃" : rule + "│"}`);
-    }
+        w.write(
+          `\x1b[${list_top + k};${x + width - 2}H${k >= bar.start && k < bar.start + bar.len ? panel + "┃" : rule + "│"}`,
+        );
   }
   /** `named` rows show their agent's name; the rows below continue its run as a rail. */
   private drawLine(

@@ -2,7 +2,8 @@
 //! The settings list sits on the left with each current value, and the
 //! selected setting's options on the right. Viewer-owned: Enter and clicks
 //! return an `Apply` that the controller carries out. Opening Shortcuts grows
-//! the frame to fit onboarding's preset detail beside the presets.
+//! the frame to fit onboarding's preset detail beside the presets; an import
+//! source shows onboarding's import picker in place of options.
 import * as palette from "./palette";
 import { Style, colors, bgRgb, mix, type Rgb, type Token } from "./palette";
 import { Rect } from "./layout";
@@ -12,13 +13,16 @@ import * as corgiAnimation from "./corgi_animation";
 import * as km from "./keymap";
 import * as onboarding from "./onboarding";
 import * as catalog from "./import/catalog";
+import * as importPicker from "./import/picker";
 import type { Action } from "./action";
 import type { Preferences } from "./preferences";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
-import { Writer, displayWidth, writeEllipsis, sat } from "./text";
+import { Writer, clamp, displayWidth, writeEllipsis, sat } from "./text";
 import * as shellPicker from "./shell_picker";
+import * as scrollThumb from "./scroll_thumb";
 import type { ShellStatus } from "./launch/command";
+import type { Connection } from "./rpc";
 
 /** The inference setup status the daemon publishes, as inference.zig's `Status`. */
 export interface Status {
@@ -61,9 +65,17 @@ export type Item =
   | "keyboard"
   | "ghostty"
   | "image_paste"
-  | "import";
-/** The list, top to bottom; null leaves a gap between groups. */
-const list: (Item | null)[] = [
+  | ImportItem;
+type ImportItem = "import_tmux" | "import_herdr" | "import_cmux";
+const import_sources: Record<ImportItem, catalog.Source> = {
+  import_tmux: "tmux",
+  import_herdr: "herdr",
+  import_cmux: "cmux",
+};
+/** A list row: a setting, a group's heading, or a gap between groups. */
+type ListRow = Item | { heading: string } | null;
+/** The list, top to bottom. */
+const list: ListRow[] = [
   "summaries",
   "sleeping_corgis",
   "readings",
@@ -76,9 +88,12 @@ const list: (Item | null)[] = [
   "ghostty",
   "image_paste",
   null,
-  "import",
+  { heading: "Import from" },
+  ...(Object.keys(import_sources) as ImportItem[]).filter(item =>
+    catalog.available_sources.includes(import_sources[item]),
+  ),
 ];
-export const items = list.filter((item): item is Item => item !== null);
+export const items = list.filter((row): row is Item => typeof row === "string");
 const labels: Record<Item, string> = {
   summaries: "Summaries",
   sleeping_corgis: "Sleeping corgis",
@@ -89,13 +104,18 @@ const labels: Record<Item, string> = {
   keyboard: "Shortcuts",
   ghostty: "Command keys",
   image_paste: "Image paste",
-  import: "Import",
+  import_tmux: "tmux",
+  import_herdr: "Herdr",
+  import_cmux: "cmux",
 };
-const sources: Record<catalog.Source, { label: string; detail: string }> = {
-  tmux: { label: "tmux", detail: "sessions, scrollback and commands" },
-  herdr: { label: "Herdr", detail: "one session, live or copied" },
-  cmux: { label: "cmux", detail: "workspaces and surfaces" },
-};
+/** An item's name on its own, as the crumb and the pane's title give it. */
+function fullLabel(item: Item): string {
+  return importSource(item) === null ? labels[item] : `Import from ${labels[item]}`;
+}
+/** The import source an item offers, or null for settings. */
+function importSource(item: Item): catalog.Source | null {
+  return item in import_sources ? import_sources[item as ImportItem] : null;
+}
 
 /** What Enter or a click asks the controller to do. */
 export type Apply =
@@ -106,9 +126,12 @@ export type Apply =
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
   | { kind: "keymap" }
-  | { kind: "import"; source: catalog.Source };
-/** A list row or an option under the pointer. */
-export type Hit = { item: Item } | { option: number };
+  /** Copy the import picker's choice into Corgi. */
+  | { kind: "import" }
+  /** Close setup on the workspace an import made. */
+  | { kind: "imported"; workspace: number | null };
+/** A list row, an option, or the import picker under the pointer. */
+export type Hit = { item: Item } | { option: number } | { picker: importPicker.Hit };
 
 interface Option {
   label: string;
@@ -136,7 +159,9 @@ type Line =
   | { tag: "blank" }
   | { tag: "keys"; keys: [string, string][] }
   | { tag: "status"; text: string; tone: "accent" | "warm" | "faint" }
-  | { tag: "option"; option: Option; index: number };
+  | { tag: "option"; option: Option; index: number }
+  /** The import picker, down to the bottom of the pane. */
+  | { tag: "picker" };
 
 interface Row {
   text: string;
@@ -191,7 +216,8 @@ palette.derived(() => {
 const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
 
 const list_w = 26;
-const body_max = list.length;
+/** The frame's height on a tall terminal. */
+const height_max = 40;
 /** The options column beside onboarding's preset detail. */
 const options_w = 34;
 const two_pane_cols = 80;
@@ -234,7 +260,8 @@ interface Layout {
 }
 /** `grown` runs from 0 (list and options) to 1 (options and preset detail). */
 function layout(cols: number, rows: number, grown: number): Layout | null {
-  const h0 = Math.min(rows, body_max + 4);
+  // As tall as the terminal allows, a row short of each edge where it can.
+  const h0 = Math.min(height_max, Math.max(Math.min(rows, 12), rows - 2));
   if (h0 - 4 < 8) return null;
   if (cols < two_pane_cols) {
     const w = Math.min(cols, single_max);
@@ -255,7 +282,7 @@ function layout(cols: number, rows: number, grown: number): Layout | null {
     size = detailSize(cols, rows),
     t = size ? grown : 0,
     w = Math.round(base + ((size?.w ?? base) - base) * t),
-    h = Math.round(h0 + ((size?.h ?? h0) - h0) * t),
+    h = Math.round(h0 + Math.max(0, (size?.h ?? h0) - h0) * t),
     b = new Rect(Math.floor((cols - w) / 2), Math.floor((rows - h) / 2), w, h),
     shown = Math.round(list_w * (1 - t)),
     detail_w = size ? Math.round((size.width + 5) * t) : 0,
@@ -292,10 +319,51 @@ export class Menu {
   shells: string[] = [];
   /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
   smart_links = true;
+  /** Sessions from the import source under the list's cursor. */
+  readonly import_picker = new importPicker.Picker();
+  /** The source the picker last switched to. */
+  private import_source: catalog.Source | null = null;
+  /** The list's first row shown while it scrolls. */
+  private list_first = 0;
   /** The frame's growth toward the preset detail, eased between draws. */
   private grow = { from: 0, to: 0, at_ms: 0 };
   static open(): Menu {
     return new Menu();
+  }
+  deinit(): void {
+    this.import_picker.deinit();
+  }
+  /** The import picker while the list's cursor is on an import source,
+   * switched to that source. A copy keeps the source it started from. */
+  private importing(): importPicker.Picker | null {
+    const source = importSource(this.item),
+      picker = this.import_picker;
+    if (source === null) return null;
+    if (source !== this.import_source && picker.stage === "choose") {
+      picker.changeSource(source);
+      this.import_source = source;
+    }
+    return picker;
+  }
+  /** Whether a copy is under way; setup stays on it until it ends. */
+  private copying(): boolean {
+    return this.import_picker.stage === "copying" && !this.import_picker.failed();
+  }
+  /** Leaving a finished import offers the source's sessions afresh. */
+  private leaveImport(): void {
+    if (this.import_picker.stage === "complete") this.import_picker.restart();
+  }
+  /** True when the import picker changed and needs drawing. */
+  async poll(conn: Connection): Promise<boolean> {
+    const picker = this.importing();
+    return picker !== null && (await picker.poll(conn));
+  }
+  /** The import picker's own keys while it has focus; false for the rest. */
+  key(byte: number): boolean {
+    const picker = this.focus === "options" ? this.importing() : null;
+    if (picker?.stage !== "choose") return false;
+    picker.message = "";
+    return picker.key(byte);
   }
   /** Whether the frame grows to show the preset detail. */
   private growing(cols: number, rows: number): boolean {
@@ -312,6 +380,12 @@ export class Menu {
   /** Moves the cursor within the focused column, past either end to the
    * other when `wrap`. */
   move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
+    const picker = this.focus === "options" ? this.importing() : null;
+    if (picker) {
+      picker.message = "";
+      if (picker.stage === "choose") picker.move(next, wrap);
+      return;
+    }
     if (this.focus === "list") {
       const index = items.indexOf(this.item),
         n = items.length;
@@ -331,6 +405,10 @@ export class Menu {
   }
   /** Gives the options focus, on the one in use. False when none can be chosen. */
   openOptions(s: Status, prefs: Preferences): boolean {
+    if (this.importing()) {
+      this.focus = "options";
+      return true;
+    }
     const options = this.options(s, prefs);
     if (options.every(o => o.disabled)) return false;
     const used = options.findIndex(o => o.mark === "on" && !o.disabled);
@@ -341,11 +419,19 @@ export class Menu {
   /** Returns focus to the list. False when it already has it. */
   back(): boolean {
     if (this.focus === "list") return false;
+    const picker = this.importing();
+    if (picker?.stage === "copying") {
+      if (picker.failed()) picker.retry();
+      return true;
+    }
+    this.leaveImport();
     this.focus = "list";
     return true;
   }
   /** Enter: an on/off setting flips from the list; the rest open their options. */
   enter(s: Status, prefs: Preferences): Apply | null {
+    const picker = this.importing();
+    if (this.focus === "options" && picker) return enterImport(picker);
     if (this.focus === "options") {
       const option = this.options(s, prefs)[this.cursor];
       return option && !option.disabled ? option.apply : null;
@@ -372,8 +458,19 @@ export class Menu {
   }
   /** A click: the list selects, then opens; an option applies. */
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
+    if ("picker" in hit) {
+      const picker = this.importing();
+      if (picker) {
+        this.focus = "options";
+        picker.message = "";
+        picker.click(hit.picker);
+      }
+      return null;
+    }
     if ("item" in hit) {
+      if (this.copying()) return null;
       if (hit.item === this.item && this.focus === "list") return this.enter(s, prefs);
+      this.leaveImport();
       this.item = hit.item;
       this.focus = "list";
       return null;
@@ -388,7 +485,8 @@ export class Menu {
   hover(hit: Hit, s: Status, prefs: Preferences): void {
     if ("item" in hit) {
       if (this.focus === "list") this.item = hit.item;
-    } else if (this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled) this.cursor = hit.option;
+    } else if ("option" in hit && this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled)
+      this.cursor = hit.option;
   }
   /** The frame as it rests after the current change. */
   private rest(cols: number, rows: number): Layout | null {
@@ -407,13 +505,19 @@ export class Menu {
       const left = l.b.x + 1,
         width = l.single ? l.b.w - 2 : l.list;
       if (x >= left && x < left + width) {
-        const item = listRows(l.body)[row];
-        return item ? { item } : null;
+        const item = this.listRows(l.body)[row];
+        return typeof item === "string" ? { item } : null;
       }
     }
     if (l.single && this.focus === "list") return null;
     if (x < l.options.x || x >= l.options.x + l.options.w) return null;
-    const line = this.lines(s, prefs, l)[row];
+    const lines = this.lines(s, prefs, l),
+      at_picker = lines.findIndex(line => line.tag === "picker");
+    if (at_picker >= 0 && row >= at_picker) {
+      const hit = this.import_picker.hit(pickerArea(l, at_picker), x, y);
+      return hit && { picker: hit };
+    }
+    const line = lines[row];
     return line && line.tag === "option" ? { option: line.index } : null;
   }
   draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): void {
@@ -433,7 +537,7 @@ export class Menu {
       // The crumb stops short of a divider's corner.
       const room = Math.min(b.w - 23, ...l.dividers.filter(x => x > b.x + 21).map(x => x - b.x - 22));
       w.write(at(b.x + 21, b.y) + hint_key);
-      writeEllipsis(w, `› ${labels[this.item]} `, room);
+      writeEllipsis(w, `› ${fullLabel(this.item)} `, room);
     }
     if (list_shown) this.drawList(w, b.x + 1, top, l.single ? b.w - 2 : list_w, l.body, s, prefs);
     if (!(l.single && this.focus === "list")) this.drawOptions(w, l, s, prefs, now_ms);
@@ -450,16 +554,23 @@ export class Menu {
     w.write("\x1b[0m\x1b[?25l");
   }
   private drawList(w: Writer, x: number, y: number, width: number, body: number, s: Status, prefs: Preferences) {
-    listRows(body).forEach((item, i) => {
-      if (item === null) return;
-      const chosen = item === this.item,
-        p = !chosen ? row_normal : this.focus === "list" ? row_selected : row_resting;
+    this.listRows(body).forEach((row, i) => {
+      if (row === null) return;
+      if (typeof row !== "string") {
+        w.write(at(x + 2, y + i) + panel);
+        return writeEllipsis(w, row.heading, width - 4);
+      }
+      const item = row,
+        chosen = item === this.item,
+        p = !chosen ? row_normal : this.focus === "list" ? row_selected : row_resting,
+        // A group's items sit under its heading.
+        indent = importSource(item) === null ? 2 : 4;
       if (chosen) {
         w.write(at(x, y + i) + p.text);
         w.splat(" ", width);
       }
-      w.write(at(x + 2, y + i) + (chosen ? p.label : p.text));
-      writeEllipsis(w, labels[item], width - 4);
+      w.write(at(x + indent, y + i) + (chosen ? p.label : p.text));
+      writeEllipsis(w, labels[item], width - indent - 2);
       const v = this.value(item, s, prefs);
       if (v.text.length > 0)
         w.write(
@@ -468,6 +579,26 @@ export class Menu {
             v.text,
         );
     });
+    const bar = scrollThumb.thumb(body, this.listLength(body), this.list_first);
+    if (bar) for (let k = bar.start; k < bar.start + bar.len; k++) w.write(at(x + width, y + k) + panel + "┃");
+  }
+  /** The rows `body` rows show: short frames drop the gaps between groups,
+   * then scroll to keep the selected item, and its heading, in view. */
+  private listRows(body: number): ListRow[] {
+    const rows = body >= list.length ? list : list.filter(row => row !== null);
+    if (rows.length <= body) {
+      this.list_first = 0;
+      return rows;
+    }
+    const at = rows.indexOf(this.item),
+      above = rows[at - 1],
+      top = above && typeof above === "object" ? at - 1 : at;
+    this.list_first = clamp(clamp(this.list_first, at - body + 1, top), 0, rows.length - body);
+    return rows.slice(this.list_first, this.list_first + body);
+  }
+  /** Rows the list has to show in `body` rows, before scrolling. */
+  private listLength(body: number): number {
+    return body >= list.length ? list.length : list.filter(row => row !== null).length;
   }
   private drawOptions(w: Writer, l: Layout, s: Status, prefs: Preferences, now_ms: number) {
     const x = l.options.x,
@@ -510,6 +641,8 @@ export class Menu {
         }
         case "option":
           return this.drawOption(w, line, x, width, y, label_w, prefs, now_ms);
+        case "picker":
+          return this.import_picker.draw(w, pickerArea(l, i), this.focus === "options");
       }
     });
   }
@@ -774,22 +907,17 @@ export class Menu {
           },
         ];
       }
-      case "import":
+      case "import_tmux":
+      case "import_herdr":
+      case "import_cmux": {
+        const picker = this.importing()!;
         return [
-          title("Import sessions"),
-          lead("Bring your work along from another multiplexer."),
+          title({ choose: fullLabel(this.item), copying: picker.heading(), complete: "Import complete" }[picker.stage]),
+          picker.message.length > 0 ? { tag: "warn", text: picker.message } : lead(picker.summary()),
           blank,
-          ...catalog.available_sources.map(source =>
-            option({
-              label: sources[source].label,
-              detail: sources[source].detail,
-              mark: "none",
-              apply: { kind: "import", source },
-              action: "open",
-              arrow: true,
-            }),
-          ),
+          { tag: "picker" },
         ];
+      }
     }
   }
   /** Clever Corgi's settings, each turned on or off in the group's pane. */
@@ -846,27 +974,73 @@ export class Menu {
         if (support === "denied") return { text: "Blocked", tone: "warm" };
         return { text: support === "probing" ? "…" : support ? "Off" : "", tone: "faint" };
       }
-      case "import":
+      case "import_tmux":
+      case "import_herdr":
+      case "import_cmux":
         return { text: "", tone: "faint" };
     }
   }
   /** Key hints for the bottom border, most important last. */
   private hints(s: Status, prefs: Preferences): [string, string][] {
+    const picker = this.importing();
     if (this.focus === "list") {
       const flip = this.flip(prefs),
-        open = this.options(s, prefs).some(o => !o.disabled);
+        open = picker !== null || this.options(s, prefs).some(o => !o.disabled);
       const enter: [string, string][] =
         flip && "on" in flip ? [["enter", flip.on ? "turn on" : "turn off"]] : open ? [["enter", "choose"]] : [];
       return [["↑↓", "move"], ...enter, ["esc", "close"]];
     }
+    if (picker) return importHints(picker);
     const option = this.options(s, prefs)[this.cursor];
     const enter: [string, string][] = option && !option.disabled && option.apply ? [["enter", option.action]] : [];
     return [["↑↓", "move"], ...enter, ["esc", "back"]];
   }
 }
-/** The list's rows for `body` rows: short frames drop the gaps between groups. */
-function listRows(body: number): (Item | null)[] {
-  return body >= list.length ? list : items;
+/** Enter in the import picker: copy the chosen sessions, go back after a
+ * failed copy, or open what a finished one made. */
+function enterImport(picker: importPicker.Picker): Apply | null {
+  picker.message = "";
+  switch (picker.stage) {
+    case "choose":
+      return picker.selectionCount() > 0 ? { kind: "import" } : null;
+    case "copying":
+      if (picker.failed()) picker.retry();
+      return null;
+    case "complete": {
+      const workspace = picker.progress.workspace;
+      return { kind: "imported", workspace: typeof workspace === "number" ? workspace : null };
+    }
+  }
+}
+/** Key hints while the import picker has focus, most important last. */
+function importHints(picker: importPicker.Picker): [string, string][] {
+  switch (picker.stage) {
+    case "choose": {
+      const count = picker.selectionCount(),
+        hints: [string, string][] = [
+          ["r", "refresh"],
+          ["e", "expand"],
+        ];
+      if (picker.source === "herdr") hints.push(["h", "handoff"]);
+      hints.push(["↑↓", "move"], ["space", "select"]);
+      if (count > 0) hints.push(["enter", picker.activeHandoff() ? "hand off" : `import ${count}`]);
+      hints.push(["esc", "back"]);
+      return hints;
+    }
+    case "copying":
+      return picker.failed() ? [["enter", "back"]] : [];
+    case "complete":
+      return [
+        ["enter", "open"],
+        ["esc", "back"],
+      ];
+  }
+}
+/** Where the import picker draws: from its line to the bottom of the pane. */
+function pickerArea(l: Layout, line: number): Rect {
+  const x0 = l.options.x + 2,
+    right = l.options.x + l.options.w - 1;
+  return new Rect(x0, l.b.y + 2 + line, right - x0, l.body - line);
 }
 function onOff(
   enabled: boolean,
@@ -909,7 +1083,7 @@ function drawHints(w: Writer, x: number, y: number, room: number, hints: [string
   const width = (list: [string, string][]) =>
     list.reduce((n, [key, label]) => n + displayWidth(key) + 1 + displayWidth(label), 0) + 3 * (list.length - 1) + 2;
   while (hints.length > 1 && width(hints) > room) hints = hints.slice(1);
-  if (width(hints) > room) return;
+  if (hints.length === 0 || width(hints) > room) return;
   w.write(at(x, y) + border + " ");
   hints.forEach(([key, label], i) => {
     w.write(hint_key + key + panel + " " + label + border + (i < hints.length - 1 ? "   " : " "));

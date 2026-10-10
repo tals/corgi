@@ -4,6 +4,7 @@ import * as shellPicker from "./shell_picker";
 import { Preferences } from "./preferences";
 import { State as ClipboardState } from "./host_clipboard";
 import * as corgiAnimation from "./corgi_animation";
+import { Worker, pane, workspace } from "./import/catalog";
 import { Writer } from "./text";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
@@ -86,11 +87,11 @@ test("Enter opens a setting's options on the one in use, and Esc returns", () =>
   menu.move(true, s, prefs);
   expect(menu.item).toBe("sleeping_corgis");
   for (let i = 0; i < 20; i++) menu.move(true, s, prefs, false);
-  expect(menu.item).toBe("import");
+  expect(menu.item).toBe(items.at(-1)!);
   menu.move(true, s, prefs);
   expect(menu.item).toBe("summaries");
   menu.move(false, s, prefs);
-  expect(menu.item).toBe("import");
+  expect(menu.item).toBe(items.at(-1)!);
 });
 
 test("the automatic choice says whom it follows", () => {
@@ -268,4 +269,88 @@ test("without room for the preset detail, a line of keys stands in", () => {
     expect(text).toContain("Ctrl+B then   c tab   v - split   h j k l focus");
     expect(text).not.toContain("PREFIX");
   }
+});
+
+test("each import source opens its sessions beside the list", async () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status(),
+    worker = new Worker("tmux"),
+    tab = (id: string, name: string) => ({ id, name, nodes: [], panes: [pane({ id, name })] });
+  worker.done = true;
+  worker.catalog.workspaces = [
+    workspace({ id: "0", name: "corgi", tabs: [tab("1", "editor")] }),
+    workspace({ id: "1", name: "notes", tabs: [tab("2", "shell")] }),
+  ];
+  menu.import_picker.workers.set("tmux", worker);
+  menu.item = "import_tmux";
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  // The sources sit under one heading.
+  expect(text).toMatch(/│ {2}Import from +│/);
+  expect(text).toMatch(/│ {4}Herdr +│/);
+  // The pane's title row ends at the frame.
+  expect(text).toMatch(/│ {2}Import from tmux +│ *$/m);
+  expect(text).toContain("Copy sessions, scrollback and commands.");
+  // The list keeps the cursor; the sessions show without one.
+  expect(text).toContain(" [x] corgi");
+  expect(text).not.toContain("›[x]");
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.focus).toBe("options");
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toContain("›[x] corgi");
+  expect(text).toContain("enter import 2");
+  // Space and clicks select; Enter asks the controller to copy.
+  expect(menu.key(32)).toBe(true);
+  expect(menu.import_picker.selectionCount()).toBe(1);
+  const notes = hits(menu, 100, 30, s, prefs).find(
+    hit => "picker" in hit && "select" in hit.picker && hit.picker.select === 1,
+  );
+  expect(notes).toBeDefined();
+  expect(menu.click(notes!, s, prefs)).toBeNull();
+  expect(menu.import_picker.cursor).toBe(1);
+  expect(menu.import_picker.selectionCount()).toBe(0);
+  expect(menu.enter(s, prefs)).toBeNull();
+  menu.key(32);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "import" });
+  // Setup stays on a copy until it ends, then opens what it made.
+  const progress = {
+    phase: "copying",
+    completed: 0,
+    total: 1,
+    workspace: 7,
+    message: "Creating workspaces and shells",
+  };
+  const conn: any = { call: async (op: string) => (op === "onboarding.status" ? { progress } : { ok: true }) };
+  await menu.import_picker.begin(conn);
+  expect(await menu.poll(conn)).toBe(true);
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Copying into Corgi");
+  expect(menu.back()).toBe(true);
+  expect(menu.focus).toBe("options");
+  progress.phase = "complete";
+  menu.import_picker.last_poll = 0;
+  await menu.poll(conn);
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Import complete");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "imported", workspace: 7 });
+  menu.deinit();
+});
+
+test("the frame takes the terminal's height, and a short list scrolls", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  let rows = draw(menu, 100, 40, 0, s, prefs);
+  expect(rows.findIndex(row => row.includes("╭"))).toBe(1);
+  expect(rows.findIndex(row => row.includes("╰"))).toBe(38);
+  // Too short for every row: the selected item and its heading stay in view.
+  menu.item = items.at(-1)!;
+  rows = draw(menu, 100, 14, 0, s, prefs);
+  let text = rows.join("\n");
+  expect(text).toContain("Import from");
+  expect(text).not.toContain("Summaries");
+  expect(text).toContain("┃");
+  expect(hits(menu, 100, 14, s, prefs).filter(hit => "item" in hit)).toContainEqual({ item: items.at(-1)! });
+  menu.move(true, s, prefs);
+  text = draw(menu, 100, 14, 0, s, prefs).join("\n");
+  expect(text).toContain("Summaries");
+  expect(text).not.toContain("Import from");
 });
