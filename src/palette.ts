@@ -1,3 +1,5 @@
+import * as terminalPalette from "./terminal_palette";
+
 export type Rgb = [number, number, number];
 const corgi = {
   bg: [24, 27, 32],
@@ -13,22 +15,35 @@ const corgi = {
   hot: [237, 163, 152],
 } satisfies Record<string, Rgb>;
 export type Token = keyof typeof corgi;
-/** Corgi fills its panels with `bg`; Animal Style leaves them to the
- * terminal's own background. */
+/** Corgi keeps its own colors, on the terminal's background when that is
+ * dark enough and on its own otherwise; Animal Style takes all its colors
+ * from the terminal's. */
 export type Theme = "corgi" | "animal_style";
-export const themes: Record<Theme, { label: string; clear: boolean }> = {
-  corgi: { label: "Corgi", clear: false },
-  animal_style: { label: "Animal Style", clear: true },
+export const themes: Record<Theme, { label: string }> = {
+  corgi: { label: "Corgi" },
+  animal_style: { label: "Animal Style" },
 };
 export const available_themes = Object.keys(themes) as Theme[];
 export function parseTheme(name: string): Theme | null {
   return Object.hasOwn(themes, name) ? (name as Theme) : null;
 }
-/** The colors in use. Under Animal Style, `bg` is the terminal's background
- * as it reported it, for colors mixed from it. `use` repaints it in place, so
- * a held token stays current. */
-export const colors: Record<Token, Rgb> = { ...corgi, bg: [...corgi.bg] };
+/** The colors in use. `use` repaints them in place, so a held token stays current. */
+export const colors = Object.fromEntries(
+  Object.entries(corgi).map(([token, rgb]) => [token, [...rgb] as Rgb]),
+) as Record<Token, Rgb>;
 let current: Theme = "corgi";
+/** Each theme's tokens on the terminal's colors, and whether its `bg` is left to the terminal. */
+type Look = { colors: Record<Token, Rgb>; clear: boolean };
+function looks(host: terminalPalette.Colors | null): Record<Theme, Look> {
+  const kept = host && terminalPalette.onBackground(corgi, host.background);
+  return {
+    corgi: kept ? { colors: kept, clear: true } : { colors: corgi, clear: false },
+    animal_style: host ? terminalPalette.tokens(host) : { colors: corgi, clear: true },
+  };
+}
+/** The terminal's colors as `use` last had them, and each theme's look on them. */
+let terminal: terminalPalette.Colors | null = null,
+  look = looks(null);
 const refreshers: (() => void)[] = [];
 /** Runs `refresh` now and after every theme change, for strings and colors
  * a module computes from tokens once. */
@@ -36,24 +51,38 @@ export function derived(refresh: () => void) {
   refresh();
   refreshers.push(refresh);
 }
-/** `terminal` is the host's background, when it answered. */
-export function use(name: Theme, terminal: Rgb | null = null) {
-  const background = themes[name].clear && terminal ? terminal : corgi.bg;
-  if (name === current && background.every((v, i) => v === colors.bg[i])) return;
+/** `host` holds the terminal's colors, when it answered. Without them,
+ * Corgi paints its own background and Animal Style keeps Corgi's colors on
+ * the terminal's. */
+export function use(name: Theme, host: terminalPalette.Colors | null = null) {
+  const recolored = host !== terminal;
+  if (recolored) {
+    terminal = host;
+    look = looks(host);
+  }
+  if (name === current && !recolored) return;
   current = name;
-  colors.bg.splice(0, 3, ...background);
+  const next = tokensOf(name);
+  for (const token of Object.keys(colors) as Token[]) colors[token].splice(0, 3, ...next[token]);
   for (const refresh of refreshers) refresh();
 }
-function bgFields(t: Token, theme: Theme): string[] {
-  if (t === "bg" && themes[theme].clear) return ["49"];
-  return ["48", "2", ...(t === "bg" ? corgi.bg : colors[t]).map(String)];
+function tokensOf(theme: Theme): Record<Token, Rgb> {
+  return look[theme].colors;
 }
-export function fg(t: Token) {
-  return fgRgb(colors[t]);
+/** Whether `theme` paints `bg` rather than leave it to the terminal. */
+function paints(theme: Theme): boolean {
+  return !look[theme].clear;
 }
-/** `theme` lets a preview paint another theme's `bg`. */
+/** `theme` lets a preview show another theme's colors. */
+export function fg(t: Token, theme: Theme = current) {
+  return fgRgb(tokensOf(theme)[t]);
+}
 export function bg(t: Token, theme: Theme = current) {
   return `\x1b[${bgFields(t, theme).join(";")}m`;
+}
+function bgFields(t: Token, theme: Theme): string[] {
+  if (t === "bg" && !paints(theme)) return ["49"];
+  return ["48", "2", ...tokensOf(theme)[t].map(String)];
 }
 export function fgRgb(c: Rgb) {
   return `\x1b[38;2;${c.join(";")}m`;

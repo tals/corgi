@@ -14,6 +14,8 @@ import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
 import type { Probe } from "./host_probe";
 import type { Rgb } from "./palette";
+import type { Colors as TerminalColors } from "./terminal_palette";
+import type { RGB } from "./theme";
 import type { State as ClipboardState } from "./host_clipboard";
 import { n, ptr } from "./native_ffi";
 import { stringify } from "./json";
@@ -210,7 +212,7 @@ export async function run(
     // Pasted images are saved beside the socket, on the daemon's machine.
     probe.clipboard.folder = join(dirname(socket) || ".", "paste");
     view.host_clipboard = probe.clipboard;
-    view.terminal_background = background(probe);
+    view.terminal_colors = hostColors(probe);
     probe.clipboard.start(Date.now());
     const openers = new Openers();
     let previous = "";
@@ -246,10 +248,14 @@ export async function run(
           view.supports_kitty_graphics = probe.badge.supports_kitty_graphics;
           view.dirty = true;
         }
+        if (probe.scheme_changed) {
+          probe.scheme_changed = false;
+          writeAll(probe.query());
+        }
         if (probe.changed) {
           await call(connection, "theme", { theme: probe.theme });
           probe.changed = false;
-          view.terminal_background = background(probe);
+          view.terminal_colors = hostColors(probe);
           view.dirty = true;
         }
         const size = dimensions();
@@ -412,10 +418,12 @@ function watch(socket: string, viewer: number, woken: () => void, closed: () => 
     return null;
   }
 }
-/** The host's background, when it answered the probe. */
-function background(probe: Probe): Rgb | null {
-  const rgb = probe.theme.background;
-  return rgb ? [rgb.r, rgb.g, rgb.b] : null;
+/** The host's colors, when it answered the probe with its foreground and background. */
+function hostColors(probe: Probe): TerminalColors | null {
+  const { foreground, background, palette } = probe.theme,
+    rgb = (c: RGB | null): Rgb | null => (c ? [c.r, c.g, c.b] : null);
+  if (!foreground || !background) return null;
+  return { foreground: rgb(foreground)!, background: rgb(background)!, ansi: palette.map(rgb) };
 }
 function dimensions(): { cols: number; rows: number; cell: forkMotion.Cell | null } {
   const size = new Uint16Array(4);

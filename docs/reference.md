@@ -237,10 +237,18 @@ after it. Clients can use
 `shell` clears it); the session snapshot's `shell` field reports the setting,
 the shell new panes run and where it came from.
 
-**Corgi setup › Theme** picks what shows behind the sidebar and cards: Corgi's
-dark panels, or, in **Animal Style**, your terminal's own background, as in
-Herdr. The theme under the cursor previews across the screen; Enter keeps it in
-`viewer.json`.
+**Corgi setup › Theme** picks **Corgi** or **Animal Style**. Corgi keeps its
+own colors. When your terminal's background is dark enough (Corgi's text
+reads at 8:1 or more on it), the background shows behind the sidebar and
+cards and Corgi's panels step up from it. Otherwise Corgi paints its own dark
+panels. Animal Style takes every color from your terminal's theme: its
+background shows behind the sidebar and cards, as in Herdr, the grays step
+from it toward the foreground, and working, needs input and failed take the
+theme's green, yellow and red. Each color is adjusted until it reads at 4.5:1,
+and a background too mid-toned for that gets a deeper panel of its own hue.
+When the terminal reports a theme change (mode 2031, as Ghostty does on a
+config reload), Corgi asks for its colors again and repaints. The theme under
+the cursor previews across the screen; Enter keeps it in `viewer.json`.
 
 ## Agent integration
 

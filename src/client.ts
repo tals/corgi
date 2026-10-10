@@ -20,7 +20,7 @@ export function cleanup(): void {
       keyboard_enabled = false;
     }
     writeAll(
-      "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?5522l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\",
+      "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1004l\x1b[?2031l\x1b[?5522l\x1b[?2004l\x1b[?1049l\x1b]22;default\x1b\\",
     );
     if (cursor_blink_saved) {
       writeAll("\x1b[?12r");
@@ -72,7 +72,8 @@ async function attachOnce(path: string, start_onboarding: boolean, folder: strin
     );
     // Keep parsing late replies in the normal client loop.
     probe.changed = false;
-    writeAll("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?2004h" + keyboard.enable);
+    // Mode 2031: the terminal says when it switches themes, and the viewer asks for its colors again.
+    writeAll("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?2004h\x1b[?2031h" + keyboard.enable);
     keyboard_enabled = true;
     if (process.env.CORGI_CURSOR_BLINK !== "1") {
       // Save and disable only blinking: retain the host's cursor shape and

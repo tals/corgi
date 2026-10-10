@@ -19,6 +19,11 @@ test("host color probe separates fragmented replies from keys and paste", () => 
   expect(p.feed("\x1b").length).toBe(0);
   expect(p.expire(p.touched + 101).toString()).toBe("\x1b");
 });
+test("a color scheme report is consumed and asks for the colors again", () => {
+  const p = new Probe();
+  expect(fragmented(p, "a\x1b[?997;1nb")).toBe("ab");
+  expect(p.scheme_changed).toBe(true);
+});
 test("badge replies are consumed across fragments but not inside pasted text", () => {
   const p = new Probe(),
     reply = "\x1b_Gi=730031;OK\x1b\\";

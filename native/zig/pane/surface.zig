@@ -71,8 +71,10 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
         var fg = style.fg(.{ .default = state.colors.foreground, .palette = &state.colors.palette });
         var bg = style.bg(&cell, &state.colors.palette) orelse state.colors.background;
         if (dimmed) {
-            fg = dim(fg);
-            bg = dim(bg);
+            // A cell on a light background fades toward white, so light themes recede too.
+            const light = isLight(bg);
+            fg = dim(fg, light);
+            bg = dim(bg, light);
         }
         const selected = if (state.row_data.items(.selection)[row]) |range| col >= range[0] and col <= range[1] else false;
         if (style.flags.inverse != selected) std.mem.swap(terminal.vt.color.RGB, &fg, &bg);
@@ -100,8 +102,19 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
     try w.writeAll("\x1b[0m");
 }
 
-fn dim(color: vt.color.RGB) vt.color.RGB {
-    return .{ .r = color.r / 2, .g = color.g / 2, .b = color.b / 2 };
+/// Fades a color halfway toward black, or toward white for a cell on a
+/// light background.
+fn dim(color: vt.color.RGB, light: bool) vt.color.RGB {
+    const toward: u16 = if (light) 255 else 0;
+    return .{
+        .r = @intCast((@as(u16, color.r) + toward) / 2),
+        .g = @intCast((@as(u16, color.g) + toward) / 2),
+        .b = @intCast((@as(u16, color.b) + toward) / 2),
+    };
+}
+
+fn isLight(color: vt.color.RGB) bool {
+    return @as(u32, color.r) * 299 + @as(u32, color.g) * 587 + @as(u32, color.b) * 114 > 127_500;
 }
 
 pub const Modes = struct {

@@ -4,6 +4,8 @@ import * as host_clipboard from "./host_clipboard";
 const clipboard_prefix = "\x1b]5522;",
   mode_prefix = "\x1b[?5522;",
   version_prefix = "\x1bP>|",
+  /** Mode 2031's report that the terminal switched between light and dark. */
+  scheme_prefix = "\x1b[?997;",
   max_packet = 16 * 1024;
 const paste_start = "\x1b[200~",
   paste_end = "\x1b[201~";
@@ -13,6 +15,8 @@ export class Probe {
   badge = new corgi_badge.State();
   clipboard = new host_clipboard.State();
   changed = false;
+  /** The terminal reported a new color scheme; its colors need asking again. */
+  scheme_changed = false;
   paste = false;
   pending = "";
   touched = 0;
@@ -87,6 +91,14 @@ export class Probe {
         }
         if (sequence.length < 16) return;
       }
+      if (sequence.startsWith(scheme_prefix)) {
+        if (byte === 110) {
+          this.scheme_changed = true;
+          this.pending = "";
+          return;
+        }
+        if (sequence.length < 16) return;
+      }
       if (sequence.startsWith(version_prefix)) {
         if (sequence.endsWith("\x1b\\")) {
           this.clipboard.terminalName(sequence.slice(version_prefix.length, -2));
@@ -95,7 +107,15 @@ export class Probe {
         }
         if (sequence.length < 128) return;
       }
-      const prefixes = ["\x1b]10;", "\x1b]11;", "\x1b]4;", clipboard_prefix, mode_prefix, version_prefix];
+      const prefixes = [
+        "\x1b]10;",
+        "\x1b]11;",
+        "\x1b]4;",
+        clipboard_prefix,
+        mode_prefix,
+        version_prefix,
+        scheme_prefix,
+      ];
       if (prefixes.some(prefix => prefix.startsWith(sequence))) return;
       if (prefixes.slice(0, 3).some(prefix => sequence.startsWith(prefix))) {
         const terminator = byte === 7 ? 1 : sequence.endsWith("\x1b\\") ? 2 : 0;

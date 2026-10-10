@@ -10,6 +10,7 @@ import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
 import * as shortcutHelp from "./shortcut_help";
 import * as palette from "./palette";
+import type { Colors as TerminalColors } from "./terminal_palette";
 import { Style } from "./palette";
 import { Rect, View as LayoutView, Model, Selection, type Axis, type Direction, type Divider } from "./layout";
 import * as render from "./render";
@@ -210,8 +211,8 @@ export class Controller {
   cell_pixels: forkMotion.Cell | null = null;
   /** Whether the host draws Kitty's branch drawing characters. */
   branch_glyphs = false;
-  /** The host's background, when it reports it. Animal Style mixes with it. */
-  terminal_background: palette.Rgb | null = null;
+  /** The host's colors, when it reports them; both themes follow them. */
+  terminal_colors: TerminalColors | null = null;
   /** The "All" list's scroll; each workspace keeps its own list's. */
   all_offset = 0;
   /** A tab this viewer launched or restored; its agent scrolls into view once listed. */
@@ -3962,7 +3963,7 @@ export class Controller {
     return this.link_tooltip.ready(target, milliTimestamp());
   }
   frame(): string {
-    palette.use(this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme, this.terminal_background);
+    palette.use(this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme, this.terminal_colors);
     if (this.onboarding) return this.onboarding.frame(this.width, this.height);
     if (this.prefix && this.help_visible) {
       const hand =

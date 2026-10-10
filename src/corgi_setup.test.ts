@@ -164,8 +164,8 @@ test("the theme under the cursor previews until Enter keeps it", () => {
   menu.item = "theme";
   let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
   expect(text).toMatch(/Theme\s+Corgi\s+│/);
-  expect(text).toMatch(/● Corgi\s+▶ ● ○  Corgi's dark panels/);
-  expect(text).toMatch(/○ Animal Style\s+▶ ● ○  terminal background/);
+  expect(text).toMatch(/● Corgi\s+▶ ● ○  Corgi's own/);
+  expect(text).toMatch(/○ Animal Style\s+▶ ● ○  your terminal's/);
   expect(menu.previewTheme(prefs)).toBe("corgi");
   expect(menu.enter(s, prefs)).toBeNull();
   expect(menu.cursor).toBe(0);

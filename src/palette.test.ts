@@ -16,6 +16,7 @@ import {
   colors,
   derived,
   use,
+  type Rgb,
   type Token,
 } from "./palette";
 test("text tokens stay readable on the backgrounds the guide allows", () => {
@@ -25,28 +26,49 @@ test("text tokens stay readable on the backgrounds the guide allows", () => {
   }
   expect(contrast("line", "bg")).toBeGreaterThanOrEqual(2.2);
 });
-test("Animal Style leaves bg to the terminal and mixes with the terminal's background", () => {
-  const held = colors.bg;
-  let hover = "";
-  derived(() => (hover = bgRgb(mix(colors.bg, colors.selected, 50))));
+test("Animal Style takes its colors from the terminal and leaves bg to it", () => {
+  const text = colors.text,
+    tokyo_night = {
+      foreground: [192, 202, 245] as Rgb,
+      background: [26, 27, 38] as Rgb,
+      ansi: [null, [247, 118, 142], [158, 206, 106], [224, 175, 104], ...Array(12).fill(null)] as (Rgb | null)[],
+    };
+  let derivedText = "";
+  derived(() => (derivedText = fg("text")));
   try {
-    use("animal_style", [0, 0, 0]);
+    use("animal_style", tokyo_night);
     expect(bg("bg")).toBe("\x1b[49m");
-    expect(new Style({ fg: "text", bg: "bg" }).sgr()).toBe("\x1b[0;38;2;209;214;219;49m");
-    expect(bg("bg", "corgi")).toBe("\x1b[48;2;24;27;32m");
-    expect(bg("surface")).toBe("\x1b[48;2;35;40;47m");
-    expect(held).toEqual([0, 0, 0]);
-    expect(hover).toBe("\x1b[48;2;26;29;33m");
-    // Without the terminal's answer, mixes use Corgi's own.
+    expect(new Style({ fg: "text", bg: "bg" }).sgr()).toBe("\x1b[0;38;2;192;202;245;49m");
+    // Tokyo Night's background is dark enough for Corgi to keep too.
+    expect(bg("bg", "corgi")).toBe("\x1b[49m");
+    expect(colors.bg).toEqual([26, 27, 38]);
+    expect(text).toEqual([192, 202, 245]);
+    expect(derivedText).toBe("\x1b[38;2;192;202;245m");
+    // Setup's swatches show each theme in its own colors.
+    expect(fg("text", "corgi")).toBe("\x1b[38;2;209;214;219m");
+    // A background too mid-toned for readable text is deepened and painted.
+    use("animal_style", { foreground: [255, 255, 255], background: [234, 51, 35], ansi: Array(16).fill(null) });
+    expect(bg("bg")).toBe(`\x1b[48;2;${colors.bg.join(";")}m`);
+    expect(colors.bg[0]).toBeLessThan(234);
+    // Without the terminal's colors, Corgi's own on the terminal's background.
     use("animal_style");
-    expect(held).toEqual([24, 27, 32]);
+    expect(text).toEqual([209, 214, 219]);
     expect(bg("bg")).toBe("\x1b[49m");
   } finally {
     use("corgi");
   }
   expect(bg("bg")).toBe("\x1b[48;2;24;27;32m");
   expect(bg("bg", "animal_style")).toBe("\x1b[49m");
-  expect(hover).toBe("\x1b[48;2;38;42;49m");
+  expect(derivedText).toBe("\x1b[38;2;209;214;219m");
+  use("corgi", tokyo_night);
+  expect(fg("text", "animal_style")).toBe("\x1b[38;2;192;202;245m");
+  expect(fg("text")).toBe("\x1b[38;2;209;214;219m");
+  expect(bg("bg")).toBe("\x1b[49m");
+  expect(colors.bg).toEqual([26, 27, 38]);
+  // A light background is Corgi's to paint over with its own.
+  use("corgi", { foreground: [0, 0, 0], background: [250, 250, 250], ansi: Array(16).fill(null) });
+  expect(bg("bg")).toBe("\x1b[48;2;24;27;32m");
+  use("corgi");
 });
 test("styles render to SGR, called at runtime", () => {
   expect(fg("accent")).toBe("\x1b[38;2;123;241;168m");

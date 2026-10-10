@@ -34,11 +34,23 @@ use `muted` or brighter. Tests check this.
 
 ## Themes
 
-Animal Style is Corgi with `bg` left to the terminal: `palette.bg("bg")` and a
-`Style` with `bg: "bg"` send the default background (SGR 49), and `colors.bg`
-holds the terminal's reported background for mixes, or Corgi's own when it
-didn't answer. `palette.use` repaints it in place. A module that builds strings
-from tokens once builds them in `palette.derived(...)`, which runs again after
+The Corgi theme keeps these tokens. On a terminal background where `text`
+reads at 8:1 or more, `bg` is left to the terminal, `surface`, `selected` and
+`line` step up from it, and the other tokens lift only where the rules ask;
+on any other background Corgi paints its own `bg`.
+
+Animal Style derives every token from the terminal's reported colors
+(`src/terminal_palette.ts`): grays are contrast steps from its background
+toward its foreground, and `accent`, `warm` and `hot` come from its ANSI green,
+yellow and red. They keep each token's meaning and pass the same contrast
+tests for any theme. `warm` stays amber to yellow and `hot` stays red, so a
+theme without such colors gets Corgi's sand or coral. `palette.bg("bg")` and a
+`Style` with `bg: "bg"` send the default background (SGR 49), unless the
+background was too mid-toned and had to be deepened. Without the terminal's
+colors, Animal Style is Corgi's colors on the default background.
+
+`palette.use` repaints `colors` in place. A module that builds strings from
+tokens once builds them in `palette.derived(...)`, which runs again after
 every theme change.
 
 ## Status

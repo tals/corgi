@@ -557,8 +557,8 @@ export class Menu {
     }
     if (o.swatch && right - dx >= 7) {
       w.write(
-        `${at(dx, y)}\x1b[0;1m${palette.bg("bg", o.swatch)}${palette.fg("accent")} ▶ ${palette.fg("warm")}● ` +
-          `\x1b[22m${palette.fg("muted")}○ `,
+        `${at(dx, y)}\x1b[0;1m${palette.bg("bg", o.swatch)}${palette.fg("accent", o.swatch)} ▶ ` +
+          `${palette.fg("warm", o.swatch)}● \x1b[22m${palette.fg("muted", o.swatch)}○ `,
       );
       dx += 8;
     }
@@ -661,18 +661,20 @@ export class Menu {
       case "theme":
         return [
           title("Theme"),
-          lead("What shows behind the sidebar and cards."),
+          lead("Corgi's colors, or your terminal theme's."),
           blank,
           ...palette.available_themes.map(theme =>
             option({
               label: palette.themes[theme].label,
-              detail: palette.themes[theme].clear ? "terminal background" : "Corgi's dark panels",
+              detail: theme === "corgi" ? "Corgi's own" : "your terminal's",
               mark: theme === prefs.theme ? "on" : "off",
               apply: theme === prefs.theme ? null : { kind: "theme", theme },
               action: "use",
               swatch: theme,
             }),
           ),
+          blank,
+          { tag: "note", text: "Corgi keeps your background when it's dark and paints its own otherwise." },
         ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
