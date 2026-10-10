@@ -1,6 +1,7 @@
 import { parse } from "./json";
 /** Flat shared layout; mirrors src/layout.zig. */
-export const max_panes = 64,
+export const max_workspaces = 32,
+  max_panes = 64,
   max_borders = 67,
   max_nodes = 128;
 export type PaneId = number;

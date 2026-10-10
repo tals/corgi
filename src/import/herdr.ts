@@ -3,7 +3,7 @@ import { createConnection } from "node:net";
 import { readdirSync, statSync, mkdirSync, writeFileSync, rmSync, readlinkSync } from "node:fs";
 import { join, isAbsolute, basename } from "node:path";
 import { Runtime, Pane, Create } from "../runtime";
-import { Model, Tab, max_panes } from "../layout";
+import { Model, Tab, max_panes, max_workspaces } from "../layout";
 import { ResumeHint } from "../resume_hint";
 import { Text } from "../providers";
 import { label } from "../pane/label";
@@ -357,7 +357,7 @@ export function seedTerminal(terminal: import("../pane/terminal").Terminal, stat
 }
 
 import { randomBytes } from "node:crypto";
-import { Workspace, max_workspaces } from "../workspace";
+import { Workspace } from "../workspace";
 import { Terminal } from "../pane/terminal";
 import { n, ptr } from "../native_ffi";
 import { ReadyLoop, READ, WRITE, wouldBlock } from "../fd_loop";

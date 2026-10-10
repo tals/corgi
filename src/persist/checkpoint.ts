@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
-import { Workspace, Store, max_workspaces } from "../workspace";
-import { Model, Tab, max_panes } from "../layout";
+import { Workspace, Store } from "../workspace";
+import { Model, Tab, max_panes, max_workspaces } from "../layout";
 import { Order } from "../agent_order";
 import { Agent, Text } from "../agents";
 import { Attachment, Registry, max_actors } from "../conversations";

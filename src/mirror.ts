@@ -3,7 +3,7 @@
 //! created here. Mirrors mirror.zig.
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import * as viewerNative from "./viewer_native";
-import { Model } from "./layout";
+import { Model, max_panes, max_workspaces } from "./layout";
 import { stringify } from "./json";
 import * as protocol from "./protocol";
 import * as viewerVersion from "./viewer_version";
@@ -346,8 +346,6 @@ export class Workspaces {
     return this.items.find(ws => ws.model.tabForPane(pane) !== null) ?? null;
   }
 }
-const max_workspaces = 32;
-const max_panes = 64;
 
 export class Runtime {
   snapshot: any = null;

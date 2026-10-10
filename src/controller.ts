@@ -12,7 +12,16 @@ import * as shortcutHelp from "./shortcut_help";
 import * as palette from "./palette";
 import type { Colors as TerminalColors } from "./terminal_palette";
 import { Style } from "./palette";
-import { Rect, View as LayoutView, Model, Selection, type Axis, type Direction, type Divider } from "./layout";
+import {
+  Rect,
+  View as LayoutView,
+  Model,
+  Selection,
+  max_workspaces,
+  type Axis,
+  type Direction,
+  type Divider,
+} from "./layout";
 import * as render from "./render";
 import { ResizeView, TabMenu, type Item as TabMenuItem } from "./commands";
 import { Dialog, View as NameView, name_limit } from "./name_dialog";
@@ -62,8 +71,6 @@ import { Provider } from "./providers";
 import { rank } from "./agent_order";
 import { Writer, writeEllipsis, sat, byteLength } from "./text";
 
-const max_workspaces = 32;
-const max_panes = 64;
 /** A conversation a pane stopped running, and when, in seconds. */
 interface Stopped {
   provider: Provider;

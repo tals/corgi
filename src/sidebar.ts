@@ -23,10 +23,9 @@ import {
   byteLength,
   zigRound,
 } from "./text";
-import { max_panes } from "./layout";
+import { max_panes, max_workspaces } from "./layout";
 export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, zigRound } from "./text";
 
-const max_workspaces = 32;
 /** Agents plus one header per workspace in the grouped "All" list. */
 export const max_entries = max_panes + 16 + max_workspaces;
 // Styles that code or tests concatenate.

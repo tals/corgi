@@ -2,8 +2,7 @@
 import { isAbsolute } from "node:path";
 import { statSync } from "node:fs";
 import { Runtime, Create } from "../runtime";
-import { Model, max_panes, Axis } from "../layout";
-import { max_workspaces } from "../workspace";
+import { Model, max_panes, max_workspaces, Axis } from "../layout";
 import { label } from "../pane/label";
 import type { Source, Workspace, Pane } from "./catalog";
 import * as tree from "./layout";

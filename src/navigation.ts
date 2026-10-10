@@ -6,7 +6,6 @@ import type { Row as LauncherRow } from "./agent_launcher";
 import type { Workspaces, Workspace } from "./mirror";
 import type { Action } from "./action";
 
-const max_workspaces = 32;
 interface Entry {
   id: number;
   value: Selection;
@@ -16,7 +15,7 @@ interface Entry {
   /** How far this workspace's own agent list is scrolled. */
   agent_offset: number;
 }
-const emptyEntry = (id = 0): Entry => ({
+const emptyEntry = (id: number): Entry => ({
   id,
   value: new Selection(),
   agents: new AgentHistory(),
@@ -30,7 +29,7 @@ export interface Intent {
 
 export class State {
   workspace_id = 0;
-  entries: Entry[] = Array.from({ length: max_workspaces }, () => emptyEntry());
+  entries: Entry[] = [];
 
   index(store: Workspaces): number {
     const i = store.index(this.workspace_id) ?? 0;
@@ -50,15 +49,12 @@ export class State {
         e.value.reconcile(ws.model);
         return e;
       }
-    for (let i = 0; i < this.entries.length; i++) {
-      const e = this.entries[i];
-      if (e.id === 0 || store.index(e.id) === null) {
-        this.entries[i] = emptyEntry(ws.id);
-        this.entries[i].value.reconcile(ws.model);
-        return this.entries[i];
-      }
-    }
-    throw Error("unreachable");
+    const e = emptyEntry(ws.id);
+    e.value.reconcile(ws.model);
+    const free = this.entries.findIndex(old => store.index(old.id) === null);
+    if (free === -1) this.entries.push(e);
+    else this.entries[free] = e;
+    return e;
   }
   agentHistory(store: Workspaces): AgentHistory {
     return this.entry(store, this.current(store)).agents;

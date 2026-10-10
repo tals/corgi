@@ -1,11 +1,10 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
-import { Model, cleanLabel } from "./layout";
+import { Model, cleanLabel, max_workspaces } from "./layout";
 import { Order } from "./agent_order";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
-export const max_workspaces = 32;
 export class Workspace {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   name_buf = "";
