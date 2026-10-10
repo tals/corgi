@@ -27,6 +27,8 @@ const quiet_sync_ms = 500;
 /** How long after input or a change on screen frames keep their full rate.
  * After that a still screen is drawn only as often as the viewer syncs. */
 const idle_after_ms = 1000;
+/** How often a viewer saves its agent list's scroll for the next viewer to start from. */
+const scroll_save_ms = 1000;
 
 export async function open(view: Controller, cwd: string, theme: unknown, socket: string): Promise<number | bigint> {
   return openMode(view, cwd, theme, socket, false);
@@ -54,6 +56,7 @@ export async function openMode(
   view.navigation.workspace_id = opened.workspace;
   view.input_state.attached = true;
   await view.refresh();
+  view.restoreAgentScroll();
   view.launch_previews.socket = socket;
   view.updateLaunchPreview();
   return opened.bell_seq ?? 0;
@@ -230,6 +233,7 @@ export async function run(
     let next_sync = 0;
     let typed = false;
     let active_at = Date.now();
+    let scroll_saved = 0;
     const poll = new Poll();
     stdin.listen(bytes => {
       for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
@@ -281,6 +285,10 @@ export async function run(
         if (input.length > 4) input.length = 0;
         await view.expireInput();
         const now = Date.now();
+        if (now - scroll_saved >= scroll_save_ms) {
+          view.saveAgentScroll();
+          scroll_saved = now;
+        }
         if (view.dirty || now >= next_sync || (held && writable())) {
           // Frames keep their clock for animations; the daemon is asked
           // only when it said something changed, or often enough that it
@@ -345,6 +353,7 @@ export async function run(
       }
       return null;
     } finally {
+      view.saveAgentScroll();
       stdin.close();
       waker?.destroy();
       host?.destroy();

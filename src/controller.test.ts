@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Controller, cardEffect, pasteKey, forkName } from "./controller";
-import { Preferences } from "./preferences";
+import * as preferences from "./preferences";
 import { TabMenu } from "./commands";
 import { Dialog } from "./name_dialog";
 import { Menu as LauncherMenu } from "./agent_launcher";
@@ -42,7 +42,7 @@ function folders(...cwds: string[]) {
 
 test("the tab menu starts a prefix only with the configured prefix key", async () => {
   const s = controller();
-  s.prefs = Object.assign(new Preferences(), { prefix: "ctrl_a" });
+  s.prefs = Object.assign(new preferences.Preferences(), { prefix: "ctrl_a" });
   s.tab_menu = new TabMenu({ tab: 1, anchor_x: 0 });
   await s.key(2);
   expect(s.prefix).toBe(false);
@@ -151,6 +151,35 @@ test("open shows the workspace already on that folder", async () => {
     expect(s.current().id).toBe(2);
     await expect(s.perform({ name: "open", value: "b" })).rejects.toThrow("InvalidDirectory");
   } finally {
+    viewer.deinit(s);
+  }
+});
+
+test("a new viewer scrolls the agent list where the last one left the same list", () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  s.receiveSnapshot(folders("/a", "/b"));
+  try {
+    s.navigation.workspace_id = 2;
+    s.prefs.agent_scroll = { workspace: 1, offset: 3 };
+    s.restoreAgentScroll();
+    expect(s.agentOffset().get()).toBe(0);
+    s.prefs.agent_scroll = { workspace: 2, offset: 3 };
+    s.restoreAgentScroll();
+    expect(s.agentOffset().get()).toBe(3);
+    s.saveAgentScroll();
+    expect(update).not.toHaveBeenCalled();
+    s.agentOffset().set(5);
+    s.saveAgentScroll();
+    expect(update).toHaveBeenLastCalledWith({ agent_scroll: { workspace: 2, offset: 5 } });
+    // The "All" list keeps its own scroll.
+    s.prefs.agents = "all";
+    s.restoreAgentScroll();
+    expect(s.agentOffset().get()).toBe(0);
+    s.saveAgentScroll();
+    expect(update).toHaveBeenLastCalledWith({ agent_scroll: { workspace: null, offset: 0 } });
+  } finally {
+    update.mockRestore();
     viewer.deinit(s);
   }
 });

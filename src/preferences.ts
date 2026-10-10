@@ -12,11 +12,15 @@ import type { Scope } from "./sidebar";
  * once every attached viewer is off, stops the daemon's sampling. Settings
  * older builds kept beside `enabled` are ignored. */
 export type Resources = { enabled: boolean };
+/** Where an agent list was scrolled: workspace `workspace`'s own list, or the "All" list when null. */
+export type AgentScroll = { workspace: number | null; offset: number };
 export class Preferences {
   /** The agent scope persists across viewer restarts. */
   agents: Scope = "workspace";
   /** The last dragged sidebar width seeds new viewers; open ones keep their own. */
   sidebar_width = 28;
+  /** The last viewer's agent list scroll seeds new viewers that show the same list. */
+  agent_scroll: AgentScroll | null = null;
   preset: Preset = "corgi";
   prefix: Prefix = "ctrl_b";
   onboarding_complete = false;
@@ -102,6 +106,13 @@ export function readExisting(file: string): Preferences | null {
       if (!resources || typeof resources !== "object" || Array.isArray(resources)) return null;
       if ("enabled" in resources && typeof resources.enabled !== "boolean") return null;
       v.resources = { enabled: resources.enabled ?? true };
+    }
+    if ("agent_scroll" in d && d.agent_scroll !== null) {
+      const scroll = d.agent_scroll;
+      if (!scroll || typeof scroll !== "object" || Array.isArray(scroll)) return null;
+      if (scroll.workspace !== null && !(Number.isInteger(scroll.workspace) && scroll.workspace > 0)) return null;
+      if (!Number.isInteger(scroll.offset) || scroll.offset < 0) return null;
+      v.agent_scroll = { workspace: scroll.workspace, offset: scroll.offset };
     }
     v.sidebar_width = Math.max(v.sidebar_width, 20);
     v.preset = supportedPreset(v.preset);

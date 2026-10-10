@@ -363,6 +363,27 @@ export class Controller {
       },
     };
   }
+  /** The list the agent scroll belongs to: the current workspace's, or the "All" list (null). */
+  private agentList(): number | null {
+    return this.prefs.agents === "workspace" ? this.current().id : null;
+  }
+  /** Scrolls the agent list where the last viewer left it, when this one shows the same list. */
+  restoreAgentScroll(): void {
+    const saved = this.prefs.agent_scroll;
+    if (saved && saved.workspace === this.agentList()) this.agentOffset().set(saved.offset);
+  }
+  /** Saves the agent list's scroll for the next viewer, when it moved. */
+  saveAgentScroll(): void {
+    if (this.runtime.workspaces.items.length === 0) return;
+    const scroll = { workspace: this.agentList(), offset: this.agentOffset().get() };
+    const saved = this.prefs.agent_scroll;
+    if (saved && saved.workspace === scroll.workspace && saved.offset === scroll.offset) return;
+    this.prefs.agent_scroll = scroll;
+    // Best effort: without it the next viewer starts at the top.
+    try {
+      preferences.update({ agent_scroll: scroll });
+    } catch {}
+  }
   private scopeLabel(): string {
     return this.prefs.agents === "workspace" ? this.current().name : "all";
   }
