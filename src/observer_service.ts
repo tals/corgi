@@ -190,6 +190,16 @@ export function detectPane(server: any, pane: any, observedJob?: detection.Job |
   if (generation !== pane.attachment.generation || before !== stringify(pane.agent())) changed(server);
   attention(server, ding, pane.agent().state);
 }
+// Codex runs every thread in one app-server daemon, so its hooks carry the
+// CORGI_PANE of whichever pane started that daemon. The pane showing the
+// session wins; the sender's pane may be switching to it.
+function hookPane(runtime: any, query: any, session: string) {
+  const actor = query.provider === "codex" ? runtime.conversations.find("codex", session) : null;
+  return (
+    (actor && runtime.panes.find((pane: any) => !pane.terminal.exited && pane.attachment.actor === actor)) ||
+    runtime.pane(query.pane)
+  );
+}
 export function hook(server: any, query: any) {
   const workers = start(server),
     runtime = server.runtime;
@@ -200,7 +210,7 @@ export function hook(server: any, query: any) {
   let actor;
   if (query.background) actor = runtime.conversations.find(query.provider, event.session);
   else {
-    const pane = runtime.pane(query.pane);
+    const pane = hookPane(runtime, query, event.session);
     if (!pane) throw Error("NoPane");
     detectPane(server, pane);
     if (seq <= pane.attachment.hook_seq) return;

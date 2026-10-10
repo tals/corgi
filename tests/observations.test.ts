@@ -29,11 +29,11 @@ class Observations extends Runtime {
     await this.advance(5);
     await this.hook("SessionStart", "codex", { turn_id: "" });
   }
-  async hook(event: string, provider = "codex", extra: Record<string, any> = {}) {
+  async hook(event: string, provider = "codex", extra: Record<string, any> = {}, pane = this.pane) {
     this.seq = Math.max(this.seq + 1, Math.floor(Date.now() * 1000));
     return this.rpc({
       op: "hook",
-      pane: this.pane,
+      pane,
       provider,
       seq: this.seq,
       event: {
@@ -133,6 +133,14 @@ class Observations extends Runtime {
     this.assertEqual([(await this.state()).state, (await this.state()).attention], ["working", "none"]);
     await this.hook("PostToolUse", "codex", { tool_name: "Bash" });
     this.assertEqual([(await this.state()).state, (await this.state()).attention], ["working", "none"]);
+  }
+  async test_codex_hooks_follow_their_session_not_the_sending_pane() {
+    // Codex's shared app-server daemon sends every thread's hooks with the
+    // pane of whichever Codex started it.
+    const other = (await this.command("pane.create", { workspace: 1, command: "/bin/sh" })).pane;
+    await this.hook("UserPromptSubmit", "codex", {}, other);
+    await this.hook("PreCompact", "codex", {}, other);
+    this.assertEqual([(await this.state()).state, (await this.state()).compacting], ["working", true]);
   }
   async test_read_receipt_does_not_clear_a_newer_permission_prompt() {
     await this.finish();
