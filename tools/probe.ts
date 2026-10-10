@@ -26,6 +26,8 @@
  *   wait <ms>                real time
  *   settle                   until output is quiet for 200 ms (max 3 s)
  *   waittext <text>          until the screen shows text (max 5 s)
+ *   theme <name|path>        play Ghostty with that theme: answer the viewer's
+ *                            color queries and report a color scheme change
  *   snap [name]              record the screen
  *   style [name]             record the screen with colors (SGR per line)
  *   bytes <ms>               record bytes the viewer wrote during <ms> idle
@@ -40,6 +42,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Terminal } from "../src/pane/terminal";
 import { write_ordinary_agent } from "../tests/provider_sim";
+import * as ghostty from "./ghostty_themes";
 
 const ROOT = resolve(import.meta.dir, "..");
 export const BINARIES: Record<string, string> = {
@@ -121,6 +124,12 @@ export class Session {
   cwd: string;
   env: Record<string, string | undefined>;
   records: Record_[] = [];
+  /** The Ghostty theme this terminal plays, once `theme` sets one. */
+  theme: ghostty.GhosttyTheme | null = null;
+  /** Where the next scan for color queries starts in `output`. */
+  private queried = 0;
+  /** How many times the viewer asked for colors and got the theme's. */
+  answered = 0;
   private decoder = new TextDecoder();
   constructor(
     readonly exe: string,
@@ -168,8 +177,36 @@ export class Session {
         this.lastData = Date.now();
         this.output += this.decoder.decode(data, { stream: true });
         this.screen.feed(data);
+        this.answerColors();
       },
     });
+  }
+  /** Answers OSC 10, 11 and 4 queries the viewer wrote, as Ghostty would. */
+  private answerColors() {
+    if (!this.theme) {
+      this.queried = this.output.length;
+      return;
+    }
+    const pattern = /\x1b\](10|11|4;\d+);\?(?:\x07|\x1b\\)/g;
+    pattern.lastIndex = Math.max(0, this.queried - 16);
+    let replies = "",
+      m: RegExpExecArray | null;
+    while ((m = pattern.exec(this.output))) {
+      if (m.index + m[0].length <= this.queried) continue;
+      replies += ghostty.reply(this.theme, m[1]) ?? "";
+    }
+    this.queried = this.output.length;
+    if (replies) {
+      this.terminal.write(replies);
+      this.answered++;
+    }
+  }
+  /** Switches to a Ghostty theme and tells the viewer, as mode 2031 does. */
+  useTheme(name: string) {
+    this.theme = ghostty.load(name);
+    this.screen.applyTheme(ghostty.asTerminalTheme(this.theme));
+    const [fg, bg] = [this.theme.foreground, this.theme.background].map(c => c[0] * 299 + c[1] * 587 + c[2] * 114);
+    if (this.proc) this.write(`\x1b[?997;${fg > bg ? 1 : 2}n`);
   }
   async seed(command: string) {
     const p = Bun.spawn(["/bin/sh", "-c", command], {
@@ -246,6 +283,9 @@ export class Session {
         break;
       case "seed":
         await this.seed(args.join(" "));
+        break;
+      case "theme":
+        this.useTheme(args.join(" "));
         break;
       case "key":
         for (const k of args) {
@@ -372,6 +412,21 @@ export class Session {
   }
 }
 
+/** Commands that prepare the session before the viewer starts. */
+export const before_start = new Set(["size", "seed", "theme"]);
+/** Starts the viewer and waits until its screen stops changing with time. */
+export async function begin(s: Session) {
+  await s.start();
+  const until = Date.now() + 8000;
+  while (s.bytes === 0 && Date.now() < until) await Bun.sleep(20);
+  // Let the timing-driven parts settle the same way on both sides: the
+  // badge falls back to the emoji once the graphics probe times out,
+  // and CPU readings appear after the daemon's second sample.
+  const ready = Date.now() + 5000;
+  const screen = () => s.text().join("\n");
+  while (Date.now() < ready && !(screen().includes("🐕") && screen().includes("CPU "))) await Bun.sleep(30);
+  await s.settle(400, 5000);
+}
 export async function runScript(
   exe: string,
   source: string,
@@ -386,18 +441,9 @@ export async function runScript(
   let started = false;
   try {
     for (const c of commands) {
-      if (!started && c[0] !== "size" && c[0] !== "seed") {
-        await s.start();
+      if (!started && !before_start.has(c[0])) {
+        await begin(s);
         started = true;
-        const until = Date.now() + 8000;
-        while (s.bytes === 0 && Date.now() < until) await Bun.sleep(20);
-        // Let the timing-driven parts settle the same way on both sides: the
-        // badge falls back to the emoji once the graphics probe times out,
-        // and CPU readings appear after the daemon's second sample.
-        const ready = Date.now() + 5000;
-        const screen = () => s.text().join("\n");
-        while (Date.now() < ready && !(screen().includes("🐕") && screen().includes("CPU "))) await Bun.sleep(30);
-        await s.settle(400, 5000);
       }
       await s.exec(c);
     }

@@ -1,0 +1,469 @@
+<title>Animal Style Browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a theme list on the left, the chosen theme's palettes and Corgi's real screens on the right; a grid mode tiles one screen across many themes. */
+:root {
+  --ground: #f3f2ef;
+  --panel: #ffffff;
+  --ink: #1d1f24;
+  --ink-soft: #5b606b;
+  --rule: #dcdad4;
+  --focus: #2f6f5e;
+  --chip: #e8e6e0;
+  --font-ui: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #15171b; --panel: #1c1f24; --ink: #e6e7ea; --ink-soft: #9aa0ab; --rule: #2c3038; --focus: #7bd3b4; --chip: #262a31;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #15171b; --panel: #1c1f24; --ink: #e6e7ea; --ink-soft: #9aa0ab; --rule: #2c3038; --focus: #7bd3b4; --chip: #262a31;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--ink); font: 14px/1.45 var(--font-ui); }
+.app { display: grid; grid-template-columns: 17rem minmax(0, 1fr); height: 100%; }
+aside { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--rule); background: var(--panel); }
+.brand { padding: 1rem 1rem 0.5rem; }
+.brand h1 { font-size: 1.05rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.brand p { margin: 0.15rem 0 0; color: var(--ink-soft); font-size: 0.8rem; }
+.looks { margin-top: 0.7rem; }
+.search { padding: 0.5rem 1rem; display: grid; gap: 0.5rem; }
+.search input { width: 100%; box-sizing: border-box; font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--ground); color: var(--ink); }
+.filters { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.filters button, .tabs button, .mode button { font: 500 0.75rem var(--font-ui); border: 1px solid var(--rule); background: var(--ground); color: var(--ink-soft); border-radius: 999px; padding: 0.2rem 0.6rem; cursor: pointer; }
+.filters button[aria-pressed="true"], .tabs button[aria-pressed="true"], .mode button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+button:focus-visible, input:focus-visible, .row:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.list { overflow-y: auto; min-height: 0; flex: 1; padding: 0.25rem 0.5rem 1rem; }
+.row { display: flex; align-items: center; gap: 0.6rem; padding: 0.3rem 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+.row:hover { background: var(--chip); }
+.row[aria-selected="true"] { background: var(--ink); color: var(--panel); }
+.row .chip { flex: none; width: 2.6rem; height: 1rem; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 3px; box-shadow: inset 0 0 0 1px rgba(127,127,127,0.35); }
+.row .chip i { width: 5px; height: 5px; border-radius: 50%; }
+.row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.count { color: var(--ink-soft); font: 0.75rem var(--font-mono); padding: 0 1rem 0.4rem; }
+main { overflow-y: auto; min-height: 0; padding-block: 1rem 2rem; padding-inline: 1.25rem; }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1rem; }
+.head h2 { margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.015em; text-wrap: balance; }
+.tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.tag { font: 500 0.7rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; background: var(--chip); color: var(--ink-soft); padding: 0.15rem 0.45rem; border-radius: 4px; }
+.tag.warn { color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink-soft); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 0.9rem 0; }
+.tabs, .mode { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.hint { color: var(--ink-soft); font-size: 0.75rem; }
+.hint kbd { font: 0.7rem var(--font-mono); background: var(--chip); border-radius: 3px; padding: 0 0.3rem; }
+.palettes { display: grid; gap: 0.6rem; margin: 0.75rem 0 1rem; }
+.strip { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+.strip > b { font: 600 0.7rem var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); padding-top: 0.35rem; }
+.swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.sw { display: grid; gap: 2px; justify-items: start; font: 0.65rem/1.2 var(--font-mono); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.sw span { width: 2.6rem; height: 1.5rem; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(127,127,127,0.35); }
+.sw.ansi span { width: 1.5rem; }
+.screens { display: grid; gap: 1rem; }
+.screens.two { grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); }
+figure { margin: 0; display: grid; gap: 0.35rem; min-width: 0; }
+figcaption { font: 0.75rem var(--font-mono); color: var(--ink-soft); display: flex; justify-content: space-between; gap: 0.5rem; }
+figcaption a { color: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+canvas { width: 100%; height: auto; display: block; border-radius: 6px; box-shadow: 0 0 0 1px var(--rule); }
+.empty { color: var(--ink-soft); padding: 2rem 0; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  aside { max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--rule); }
+  main { padding-inline: 1rem; }
+}
+</style>
+
+<div class="app">
+  <aside>
+    <div class="brand">
+      <h1>Animal Style Browser</h1>
+      <p>Corgi's real screens under Ghostty's bundled themes</p>
+      <div class="mode looks" id="looks" role="group" aria-label="Corgi theme">
+        <button type="button" data-look="corgi" aria-pressed="false">Corgi</button>
+        <button type="button" data-look="animal_style" aria-pressed="true">Animal Style</button>
+      </div>
+    </div>
+    <div class="search">
+      <input id="search" type="search" placeholder="Find a theme" autocomplete="off" aria-label="Find a theme">
+      <div class="filters" id="filters" role="group" aria-label="Filter themes"></div>
+    </div>
+    <div class="count" id="count"></div>
+    <div class="list" id="list" role="listbox" aria-label="Themes" tabindex="0"></div>
+  </aside>
+  <main id="main">
+    <div class="head">
+      <h2 id="title">Loading themes…</h2>
+      <div class="tags" id="tags"></div>
+    </div>
+    <div class="toolbar">
+      <div class="mode" id="mode" role="group" aria-label="View">
+        <button type="button" data-mode="theme" aria-pressed="true">One theme</button>
+        <button type="button" data-mode="grid" aria-pressed="false">Grid</button>
+      </div>
+      <div class="tabs" id="tabs" role="group" aria-label="Screen"></div>
+      <span class="hint"><kbd>↑</kbd> <kbd>↓</kbd> themes · <kbd>←</kbd> <kbd>→</kbd> screens · <kbd>t</kbd> Corgi or Animal Style · <kbd>g</kbd> grid</span>
+    </div>
+    <section class="palettes" id="palettes"></section>
+    <section class="screens" id="screens"></section>
+  </main>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const data = JSON.parse(document.getElementById("data").textContent);
+const scene_labels = { main: "Workspace", setup: "Corgi setup", menu: "Agent menu", launcher: "New agent" };
+const token_names = ["bg", "surface", "selected", "line", "faint", "muted", "text", "strong", "accent", "warm", "hot"];
+const look_labels = { corgi: "Corgi", animal_style: "Animal Style" };
+const filters = [
+  ["all", "All", () => true],
+  ["dark", "Dark", t => t.dark],
+  ["light", "Light", t => !t.dark],
+  ["painted", "Painted", t => !t.looks[state.look].clear],
+  ["fallback", "Fallback hues", t => t.fallback.length > 0],
+];
+const state = { filter: "all", query: "", index: 0, scene: "all", mode: "theme", look: "animal_style" };
+try {
+  const saved = JSON.parse(localStorage.getItem("animal-style-browser") || "{}");
+  Object.assign(state, saved);
+} catch {}
+const save = () => {
+  try {
+    localStorage.setItem("animal-style-browser", JSON.stringify({ filter: state.filter, scene: state.scene, mode: state.mode, look: state.look, name: data.themes[state.index]?.name }));
+  } catch {}
+};
+const hex = rgb => "#" + rgb.map(v => v.toString(16).padStart(2, "0")).join("");
+const luminance = rgb => rgb.reduce((s, c, i) => { const v = c / 255; return s + [0.2126, 0.7152, 0.0722][i] * (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); }, 0);
+const contrast = (a, b) => { const x = luminance(a), y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+
+// Frames: per theme, gzipped JSON of { colors, scenes: { name: lines } }, each line runs of [col, text, fg, bg, attrs].
+const decoded = new Map();
+async function frames(theme) {
+  if (decoded.has(theme.name)) return decoded.get(theme.name);
+  const bytes = Uint8Array.from(atob(theme.frames), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const value = JSON.parse(await new Response(stream).text());
+  decoded.set(theme.name, value);
+  return value;
+}
+const cell = { w: 0, h: 0, font: 13 };
+function measure() {
+  const ctx = document.createElement("canvas").getContext("2d");
+  ctx.font = `${cell.font}px ${getComputedStyle(document.body).getPropertyValue("--font-mono")}`;
+  cell.w = Math.ceil(ctx.measureText("M").width * 10) / 10;
+  cell.h = Math.round(cell.font * 1.25);
+}
+// Box drawing and block elements fill their cell, as a terminal draws them.
+// Arms are up, right, down, left; 1 light, 2 heavy.
+const arms = {};
+const box = (chars, weight, sets) => [...chars].forEach((c, i) => (arms[c] = sets[i].map(a => a * weight)));
+box("─│┌┐└┘├┤┬┴┼╭╮╰╯╴╵╶╷", 1, [
+  [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1], [1, 1, 0, 0], [1, 0, 0, 1], [1, 1, 1, 0], [1, 0, 1, 1],
+  [0, 1, 1, 1], [1, 1, 0, 1], [1, 1, 1, 1], [0, 1, 1, 0], [0, 0, 1, 1], [1, 1, 0, 0], [1, 0, 0, 1], [0, 0, 0, 1],
+  [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0],
+]);
+box("━┃┏┓┗┛┣┫┳┻╋", 2, [
+  [0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 1, 0], [0, 0, 1, 1], [1, 1, 0, 0], [1, 0, 0, 1], [1, 1, 1, 0], [1, 0, 1, 1],
+  [0, 1, 1, 1], [1, 1, 0, 1], [1, 1, 1, 1],
+]);
+const dashed = { "┄": 1, "╌": 1, "┈": 1, "┅": 2, "╍": 2, "┆": 1, "╎": 1, "┊": 1 };
+/** Draws `ch` into the cell at x, y when it is a line or block glyph; false otherwise. */
+function drawGlyph(ctx, ch, x, y, w, h) {
+  const code = ch.codePointAt(0),
+    light = Math.max(1, Math.round(w / 7));
+  const a = arms[ch];
+  if (a) {
+    const cx = x + w / 2,
+      cy = y + h / 2;
+    const [up, right, down, left] = a;
+    const t = weight => (weight === 2 ? light * 2 : light);
+    if (up) ctx.fillRect(cx - t(up) / 2, y, t(up), h / 2 + t(up) / 2);
+    if (down) ctx.fillRect(cx - t(down) / 2, cy - t(down) / 2, t(down), h / 2 + t(down) / 2);
+    if (left) ctx.fillRect(x, cy - t(left) / 2, w / 2 + t(left) / 2, t(left));
+    if (right) ctx.fillRect(cx - t(right) / 2, cy - t(right) / 2, w / 2 + t(right) / 2, t(right));
+    return true;
+  }
+  if (dashed[ch]) {
+    const t = light * dashed[ch];
+    if ("┆╎┊".includes(ch)) for (let i = 0; i < 3; i++) ctx.fillRect(x + w / 2 - t / 2, y + (i * h) / 3, t, h / 5);
+    else for (let i = 0; i < 3; i++) ctx.fillRect(x + (i * w) / 3, y + h / 2 - t / 2, w / 5, t);
+    return true;
+  }
+  if (code === 0x2588) return ctx.fillRect(x, y, w, h), true;
+  if (code === 0x2580) return ctx.fillRect(x, y, w, h / 2), true;
+  if (code === 0x2590) return ctx.fillRect(x + w / 2, y, w / 2, h), true;
+  if (code >= 0x2581 && code <= 0x2587) {
+    const part = (code - 0x2580) / 8;
+    return ctx.fillRect(x, y + h * (1 - part), w, h * part), true;
+  }
+  if (code >= 0x2589 && code <= 0x258f) {
+    const part = (0x2590 - code) / 8;
+    return ctx.fillRect(x, y, w * part, h), true;
+  }
+  if (code === 0x2594) return ctx.fillRect(x, y, w, h / 8), true;
+  if (code === 0x2595) return ctx.fillRect(x + (w * 7) / 8, y, w / 8, h), true;
+  return false;
+}
+function draw(canvas, frame, lines) {
+  const ratio = window.devicePixelRatio || 1,
+    width = data.cols * cell.w,
+    height = data.rows * cell.h;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(ratio, ratio);
+  const mono = getComputedStyle(document.body).getPropertyValue("--font-mono");
+  ctx.textBaseline = "middle";
+  const colors = frame.colors;
+  ctx.fillStyle = colors[0] || "#000";
+  ctx.fillRect(0, 0, width, height);
+  lines.forEach((runs, row) => {
+    const y = row * cell.h;
+    for (const [col, text, fg, bg, attrs] of runs) {
+      const wide = text.length > 0 && attrs & 64,
+        span = wide ? 2 : [...text].length;
+      const inverse = attrs & 32;
+      ctx.fillStyle = colors[inverse ? fg : bg];
+      ctx.fillRect(col * cell.w, y, span * cell.w + 0.5, cell.h + 0.5);
+      ctx.fillStyle = colors[inverse ? bg : fg];
+      ctx.globalAlpha = attrs & 2 ? 0.6 : 1;
+      ctx.font = `${attrs & 4 ? "italic " : ""}${attrs & 1 ? "700" : "400"} ${cell.font}px ${mono}`;
+      let x = col * cell.w;
+      for (const ch of text) {
+        if (ch !== " " && !drawGlyph(ctx, ch, x, y, cell.w, cell.h))
+          ctx.fillText(ch, x, y + cell.h / 2 + 1, wide ? cell.w * 2 : cell.w * 1.15);
+        x += cell.w;
+      }
+      if (attrs & 8) ctx.fillRect(col * cell.w, y + cell.h - 2, span * cell.w, 1);
+      if (attrs & 16) ctx.fillRect(col * cell.w, y + cell.h / 2, span * cell.w, 1);
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+const els = Object.fromEntries(["list", "filters", "search", "count", "title", "tags", "tabs", "mode", "looks", "palettes", "screens"].map(id => [id, document.getElementById(id)]));
+const tokensOf = t => t.looks[state.look].tokens;
+function setLook(look) {
+  state.look = look;
+  save();
+  for (const b of els.looks.children) b.setAttribute("aria-pressed", String(b.dataset.look === look));
+  renderFilters();
+  renderList();
+  renderMain();
+}
+const visible = () => {
+  const test = filters.find(f => f[0] === state.filter)[2],
+    q = state.query.toLowerCase();
+  return data.themes.map((t, i) => [t, i]).filter(([t]) => test(t) && t.name.toLowerCase().includes(q));
+};
+function renderFilters() {
+  els.filters.innerHTML = "";
+  for (const [key, label, test] of filters) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = `${label} ${data.themes.filter(test).length}`;
+    b.setAttribute("aria-pressed", String(state.filter === key));
+    b.onclick = () => { state.filter = key; save(); renderFilters(); renderList(); if (state.mode === "grid") renderMain(); };
+    els.filters.append(b);
+  }
+}
+function chip(t) {
+  const c = document.createElement("span");
+  c.className = "chip";
+  c.style.background = hex(tokensOf(t).bg);
+  for (const k of ["accent", "warm", "hot"]) {
+    const i = document.createElement("i");
+    i.style.background = hex(tokensOf(t)[k]);
+    c.append(i);
+  }
+  return c;
+}
+function renderList() {
+  const shown = visible();
+  els.count.textContent = `${shown.length} of ${data.themes.length} themes`;
+  els.list.innerHTML = "";
+  for (const [t, i] of shown) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(i === state.index));
+    row.dataset.index = i;
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = t.name;
+    row.append(chip(t), name);
+    row.onclick = () => select(i);
+    els.list.append(row);
+  }
+  els.list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+}
+function select(i) {
+  state.index = i;
+  state.mode = "theme";
+  save();
+  for (const row of els.list.children) row.setAttribute("aria-selected", String(+row.dataset.index === i));
+  els.list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  renderMain();
+}
+function renderTabs() {
+  els.tabs.innerHTML = "";
+  const options = state.mode === "grid" ? data.scenes : ["all", ...data.scenes];
+  if (state.mode === "grid" && state.scene === "all") state.scene = "main";
+  for (const key of options) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = key === "all" ? "All screens" : scene_labels[key] || key;
+    b.setAttribute("aria-pressed", String(state.scene === key));
+    b.onclick = () => { state.scene = key; save(); renderMain(); };
+    els.tabs.append(b);
+  }
+  for (const b of els.mode.children) b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode));
+}
+function swatch(rgb, label, ansi) {
+  const s = document.createElement("div");
+  s.className = "sw" + (ansi ? " ansi" : "");
+  const box = document.createElement("span");
+  box.style.background = rgb ? hex(rgb) : "transparent";
+  s.append(box, label);
+  s.title = rgb ? hex(rgb) : "not set";
+  return s;
+}
+function renderPalettes(t) {
+  els.palettes.innerHTML = "";
+  const ghostty = document.createElement("div");
+  ghostty.className = "strip";
+  ghostty.innerHTML = "<b>Ghostty</b>";
+  const g = document.createElement("div");
+  g.className = "swatches";
+  g.append(swatch(t.background, "bg"), swatch(t.foreground, "fg"));
+  t.palette.forEach((c, i) => g.append(swatch(c, String(i), true)));
+  ghostty.append(g);
+  const corgi = document.createElement("div");
+  corgi.className = "strip";
+  corgi.innerHTML = `<b>${look_labels[state.look]}</b>`;
+  const c = document.createElement("div");
+  c.className = "swatches";
+  const tokens = tokensOf(t);
+  for (const k of token_names) {
+    const ratio = k === "bg" ? "" : ` ${contrast(tokens[k], tokens.bg).toFixed(1)}`;
+    c.append(swatch(tokens[k], `${k}${ratio}`));
+  }
+  corgi.append(c);
+  els.palettes.append(ghostty, corgi);
+}
+let grid_observer = null,
+  render_ticket = 0;
+async function renderMain() {
+  const ticket = ++render_ticket;
+  renderTabs();
+  els.screens.innerHTML = "";
+  grid_observer?.disconnect();
+  if (state.mode === "grid") {
+    const shown = visible();
+    els.title.textContent = `${look_labels[state.look]}: ${scene_labels[state.scene]} in ${shown.length} themes`;
+    els.tags.innerHTML = "";
+    els.palettes.innerHTML = "";
+    els.screens.className = "screens two";
+    grid_observer = new IntersectionObserver(entries => {
+      for (const e of entries) {
+        if (!e.isIntersecting || e.target.dataset.drawn) continue;
+        e.target.dataset.drawn = "1";
+        const t = data.themes[+e.target.dataset.index];
+        frames(t).then(f => draw(e.target.querySelector("canvas"), f, f.scenes[`${state.look}/${state.scene}`]));
+      }
+    }, { rootMargin: "400px" });
+    for (const [t, i] of shown) {
+      const fig = document.createElement("figure");
+      fig.dataset.index = i;
+      const canvas = document.createElement("canvas");
+      canvas.width = data.cols * cell.w;
+      canvas.height = data.rows * cell.h;
+      canvas.style.background = hex(t.background);
+      canvas.setAttribute("aria-label", `${scene_labels[state.scene]} under ${t.name}`);
+      const cap = document.createElement("figcaption");
+      const a = document.createElement("a");
+      a.textContent = t.name;
+      a.onclick = () => select(i);
+      cap.append(a, document.createTextNode(t.looks[state.look].clear ? "" : "painted"));
+      fig.append(canvas, cap);
+      els.screens.append(fig);
+      grid_observer.observe(fig);
+    }
+    return;
+  }
+  const t = data.themes[state.index];
+  els.title.textContent = t.name;
+  els.tags.innerHTML = "";
+  const tag = (text, warn) => {
+    const s = document.createElement("span");
+    s.className = "tag" + (warn ? " warn" : "");
+    s.textContent = text;
+    els.tags.append(s);
+  };
+  const clear = t.looks[state.look].clear;
+  tag(t.dark ? "dark" : "light");
+  tag(clear ? "terminal background" : "painted background", !clear);
+  if (state.look === "animal_style") for (const f of t.fallback) tag(`${f} falls back`, true);
+  renderPalettes(t);
+  const f = await frames(t);
+  if (ticket !== render_ticket) return;
+  const scenes = state.scene === "all" ? data.scenes : [state.scene];
+  els.screens.className = "screens" + (scenes.length > 1 ? " two" : "");
+  for (const scene of scenes) {
+    const fig = document.createElement("figure");
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("aria-label", `${scene_labels[scene]} under ${t.name}`);
+    const cap = document.createElement("figcaption");
+    cap.textContent = scene_labels[scene];
+    fig.append(canvas, cap);
+    els.screens.append(fig);
+    draw(canvas, f, f.scenes[`${state.look}/${scene}`]);
+  }
+}
+function step(delta) {
+  const shown = visible();
+  if (shown.length === 0) return;
+  const at = shown.findIndex(([, i]) => i === state.index);
+  const next = shown[Math.max(0, Math.min(shown.length - 1, (at < 0 ? 0 : at + delta)))][1];
+  select(next);
+}
+document.addEventListener("keydown", e => {
+  if (e.target === els.search) return;
+  if (e.key === "ArrowDown" || e.key === "j") { e.preventDefault(); step(1); }
+  else if (e.key === "ArrowUp" || e.key === "k") { e.preventDefault(); step(-1); }
+  else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    const options = state.mode === "grid" ? data.scenes : ["all", ...data.scenes];
+    const at = options.indexOf(state.scene);
+    state.scene = options[(at + (e.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
+    save();
+    renderMain();
+  } else if (e.key === "g") { state.mode = state.mode === "grid" ? "theme" : "grid"; save(); renderMain(); }
+  else if (e.key === "t") setLook(state.look === "corgi" ? "animal_style" : "corgi");
+});
+els.search.addEventListener("input", () => { state.query = els.search.value; renderList(); if (state.mode === "grid") renderMain(); });
+for (const b of els.mode.children) b.onclick = () => { state.mode = b.dataset.mode; save(); renderMain(); };
+for (const b of els.looks.children) b.onclick = () => setLook(b.dataset.look);
+
+(async () => {
+  try { await document.fonts.load(`13px "JetBrains Mono"`); } catch {}
+  measure();
+  try {
+    const saved = JSON.parse(localStorage.getItem("animal-style-browser") || "{}");
+    const at = data.themes.findIndex(t => t.name === saved.name);
+    if (at >= 0) state.index = at;
+  } catch {}
+  if (!saved_ok()) state.index = 0;
+  for (const b of els.looks.children) b.setAttribute("aria-pressed", String(b.dataset.look === state.look));
+  renderFilters();
+  renderList();
+  renderMain();
+})();
+function saved_ok() {
+  try { return !!JSON.parse(localStorage.getItem("animal-style-browser") || "{}").name; } catch { return false; }
+}
+</script>

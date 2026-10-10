@@ -51,7 +51,8 @@ colors, Animal Style is Corgi's colors on the default background.
 
 `palette.use` repaints `colors` in place. A module that builds strings from
 tokens once builds them in `palette.derived(...)`, which runs again after
-every theme change.
+every theme change. `tools/theme_browser.ts` records Corgi's screens under
+each of Ghostty's bundled themes for review.
 
 ## Status
 
