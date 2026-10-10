@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { transform } from "./ghostty_integration";
+import { commandKeys, macLabel, transform } from "./ghostty_integration";
 import type { Keys } from "./ghostty_integration";
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
 test("integration preserves custom bindings, covers physical digits, and is reversible", () => {
@@ -61,4 +61,11 @@ test("the block types the chosen prefix and each preset's keys", () => {
     for (const line of c.lines) expect(block).toContain("keybind = " + line + "\n");
     for (const absent of c.absent ?? []) expect(block).not.toContain(absent);
   }
+});
+
+test("Command keys list what they bind, as a Mac menu writes them", () => {
+  const corgi = commandKeys("corgi").map(key => macLabel(key.host));
+  expect(corgi.slice(0, 5)).toEqual(["⌘T", "⌘W", "⌘⇧T", "⌃Tab", "⌃⇧Tab"]);
+  expect(macLabel("cmd+digit_1")).toBe("⌘1");
+  expect(macLabel("cmd+shift+left_bracket")).toBe("⌘⇧[");
 });

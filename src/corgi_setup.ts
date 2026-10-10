@@ -1,11 +1,11 @@
 //! Setup modal opened from the corgi badge (or `prefix i`), centered on screen.
 //! The settings list sits on the left with each current value, and the
 //! selected setting's options on the right. Viewer-owned: Enter and clicks
-//! return an `Apply` that the controller carries out. Opening Shortcuts grows
+//! return an `Apply` that the controller carries out. Opening Keymap grows
 //! the frame to fit onboarding's preset detail beside the presets; an import
 //! source shows onboarding's import picker in place of options.
 import * as palette from "./palette";
-import { Style, colors, bgRgb, mix, type Rgb, type Token } from "./palette";
+import { Style, colors, bgRgb, mix, type Token } from "./palette";
 import { Rect } from "./layout";
 import { Provider } from "./providers";
 import { Model } from "./providers/model";
@@ -16,11 +16,14 @@ import * as catalog from "./import/catalog";
 import * as importPicker from "./import/picker";
 import type { Action } from "./action";
 import type { Preferences } from "./preferences";
+import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
 import { Writer, clamp, displayWidth, writeEllipsis, sat } from "./text";
 import * as shellPicker from "./shell_picker";
 import * as scrollThumb from "./scroll_thumb";
+import * as settingRow from "./setting_row";
+import * as dropdown from "./dropdown";
 import type { ShellStatus } from "./launch/command";
 import type { Connection } from "./rpc";
 
@@ -56,16 +59,7 @@ export const Summarizer = {
 };
 
 export type Item =
-  | "summaries"
-  | "sleeping_corgis"
-  | "readings"
-  | "clever_corgi"
-  | "theme"
-  | "shell"
-  | "keyboard"
-  | "ghostty"
-  | "image_paste"
-  | ImportItem;
+  "sleeping_corgis" | "readings" | "clever_corgi" | "theme" | "shell" | "keyboard" | "image_paste" | ImportItem;
 type ImportItem = "import_tmux" | "import_herdr" | "import_cmux";
 const import_sources: Record<ImportItem, catalog.Source> = {
   import_tmux: "tmux",
@@ -76,16 +70,14 @@ const import_sources: Record<ImportItem, catalog.Source> = {
 type ListRow = Item | { heading: string } | null;
 /** The list, top to bottom. */
 const list: ListRow[] = [
-  "summaries",
+  "clever_corgi",
   "sleeping_corgis",
   "readings",
-  "clever_corgi",
   null,
   "theme",
   "shell",
   "keyboard",
   null,
-  "ghostty",
   "image_paste",
   null,
   { heading: "Import from" },
@@ -95,14 +87,12 @@ const list: ListRow[] = [
 ];
 export const items = list.filter((row): row is Item => typeof row === "string");
 const labels: Record<Item, string> = {
-  summaries: "Summaries",
   sleeping_corgis: "Sleeping corgis",
   readings: "Resources",
   clever_corgi: "Clever Corgi",
   theme: "Theme",
   shell: "Shell",
-  keyboard: "Shortcuts",
-  ghostty: "Command keys",
+  keyboard: "Keymap",
   image_paste: "Image paste",
   import_tmux: "tmux",
   import_herdr: "Herdr",
@@ -130,8 +120,9 @@ export type Apply =
   | { kind: "import" }
   /** Close setup on the workspace an import made. */
   | { kind: "imported"; workspace: number | null };
-/** A list row, an option, or the import picker under the pointer. */
-export type Hit = { item: Item } | { option: number } | { picker: importPicker.Hit };
+/** A list row, an option, a choice in the open dropdown, or the import
+ * picker under the pointer. */
+export type Hit = { item: Item } | { option: number } | { choice: Summarizer } | { picker: importPicker.Hit };
 
 interface Option {
   label: string;
@@ -151,29 +142,29 @@ interface Option {
   swatch?: palette.Theme;
   /** A toggle in a group: On or Off at the right edge, as in the list. */
   toggle?: boolean;
+  /** An icon before a toggle's name, where other options keep their mark. */
+  glyph?: string;
+  /** A dropdown in a group: the choice in use at the right edge, green while
+   * `on`, and Enter opens the choices. */
+  choice?: { text: string; on: boolean };
 }
 type Line =
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
   /** One line under a setting in a group, aligned with its name. */
-  | { tag: "brief"; text: string }
+  | { tag: "brief"; text: string; tone?: "muted" | "warm" }
   | { tag: "blank" }
+  /** A rule that sets a setting apart from the options above it. */
+  | { tag: "rule" }
+  /** A row of a setting's mini keymap: what a key does, and the key. */
+  | { tag: "binding"; job: string; key: string; dim: boolean }
   | { tag: "keys"; keys: [string, string][] }
   | { tag: "status"; text: string; tone: "accent" | "warm" | "faint" }
   | { tag: "option"; option: Option; index: number }
   /** The import picker, down to the bottom of the pane. */
   | { tag: "picker" };
 
-interface Row {
-  text: string;
-  label: string;
-  accent: string;
-  muted: string;
-  quiet: string;
-  warn: string;
-  background: Rgb;
-}
 let panel: string, border: string, text: string, bright: string, warm: string, hint_key: string;
-let row_normal: Row, row_selected: Row, row_resting: Row;
+let row_resting: settingRow.Row;
 palette.derived(() => {
   panel = new Style({ fg: "faint", bg: "surface" }).sgr();
   border = new Style({ fg: "line", bg: "surface" }).sgr();
@@ -181,25 +172,6 @@ palette.derived(() => {
   bright = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   warm = new Style({ fg: "warm", bg: "surface" }).sgr();
   hint_key = new Style({ fg: "muted", bg: "surface" }).sgr();
-  row_normal = {
-    text,
-    label: text,
-    accent: new Style({ fg: "accent", bg: "surface" }).sgr(),
-    muted: new Style({ fg: "muted", bg: "surface" }).sgr(),
-    quiet: panel,
-    warn: warm,
-    background: colors.surface,
-  };
-  row_selected = {
-    text: new Style({ fg: "text", bg: "selected" }).sgr(),
-    label: new Style({ fg: "strong", bg: "selected", bold: true }).sgr(),
-    accent: new Style({ fg: "accent", bg: "selected" }).sgr(),
-    muted: new Style({ fg: "muted", bg: "selected" }).sgr(),
-    // Faint is too dim on a selected row.
-    quiet: new Style({ fg: "muted", bg: "selected" }).sgr(),
-    warn: new Style({ fg: "warm", bg: "selected" }).sgr(),
-    background: colors.selected,
-  };
   // The list's selected row while the options have focus.
   const resting = mix(colors.surface, colors.selected, 45);
   const on = (fg: Token, bold = false) => `\x1b[0${bold ? ";1" : ""}m${bgRgb(resting)}${palette.fg(fg)}`;
@@ -306,11 +278,13 @@ function layout(cols: number, rows: number, grown: number): Layout | null {
 }
 
 export class Menu {
-  item: Item = "summaries";
+  item: Item = "clever_corgi";
   focus: "list" | "options" = "list";
   /** The highlighted option while the options have focus. */
   cursor = 0;
   integration: IntegrationState = "unavailable";
+  /** Whether Command keys changed while setup was open, so Ghostty needs a reload. */
+  reload_ghostty = false;
   /** The host terminal's clipboard; null when the viewer has no terminal. */
   image_paste: ClipboardState | null = null;
   /** The shell new panes run, as the daemon last published it. */
@@ -325,6 +299,8 @@ export class Menu {
   private import_source: catalog.Source | null = null;
   /** The list's first row shown while it scrolls. */
   private list_first = 0;
+  /** The highlighted summarizer while the Summaries dropdown is open. */
+  private dropdown: number | null = null;
   /** The frame's growth toward the preset detail, eased between draws. */
   private grow = { from: 0, to: 0, at_ms: 0 };
   static open(): Menu {
@@ -380,6 +356,13 @@ export class Menu {
   /** Moves the cursor within the focused column, past either end to the
    * other when `wrap`. */
   move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
+    if (this.dropdown !== null) {
+      const n = summarizers.length;
+      this.dropdown = wrap
+        ? (this.dropdown + (next ? 1 : n - 1)) % n
+        : clamp(this.dropdown + (next ? 1 : -1), 0, n - 1);
+      return;
+    }
     const picker = this.focus === "options" ? this.importing() : null;
     if (picker) {
       picker.message = "";
@@ -419,6 +402,10 @@ export class Menu {
   /** Returns focus to the list. False when it already has it. */
   back(): boolean {
     if (this.focus === "list") return false;
+    if (this.dropdown !== null) {
+      this.dropdown = null;
+      return true;
+    }
     const picker = this.importing();
     if (picker?.stage === "copying") {
       if (picker.failed()) picker.retry();
@@ -432,8 +419,13 @@ export class Menu {
   enter(s: Status, prefs: Preferences): Apply | null {
     const picker = this.importing();
     if (this.focus === "options" && picker) return enterImport(picker);
+    if (this.dropdown !== null) return this.choose(summarizers[this.dropdown], s);
     if (this.focus === "options") {
       const option = this.options(s, prefs)[this.cursor];
+      if (option?.choice !== undefined) {
+        this.dropdown = summarizers.indexOf(s.choice);
+        return null;
+      }
       return option && !option.disabled ? option.apply : null;
     }
     const flip = this.flip(prefs);
@@ -448,16 +440,18 @@ export class Menu {
         return { kind: "readings", on: !prefs.resources.enabled };
       case "sleeping_corgis":
         return { kind: "sleeping_corgis", on: !prefs.sleeping_corgis };
-      case "ghostty":
-        return this.integration === "enabled" || this.integration === "disabled"
-          ? { kind: "ghostty", on: this.integration === "disabled" }
-          : null;
       default:
         return null;
     }
   }
   /** A click: the list selects, then opens; an option applies. */
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
+    // The open dropdown takes the click, or closes.
+    if (this.dropdown !== null) {
+      this.dropdown = null;
+      return "choice" in hit ? this.choose(hit.choice, s) : null;
+    }
+    if ("choice" in hit) return null;
     if ("picker" in hit) {
       const picker = this.importing();
       if (picker) {
@@ -479,11 +473,19 @@ export class Menu {
     if (!option || option.disabled) return null;
     this.focus = "options";
     this.cursor = hit.option;
+    if (option.choice !== undefined) return this.enter(s, prefs);
     return option.apply;
+  }
+  /** Closes the dropdown on `choice`; Apply when it isn't the one in use. */
+  private choose(choice: Summarizer, s: Status): Apply | null {
+    this.dropdown = null;
+    return choice === s.choice ? null : { kind: "summaries", choice };
   }
   /** Pointer motion highlights rows in the focused column. */
   hover(hit: Hit, s: Status, prefs: Preferences): void {
-    if ("item" in hit) {
+    if ("choice" in hit) this.dropdown = summarizers.indexOf(hit.choice);
+    else if (this.dropdown !== null) return;
+    else if ("item" in hit) {
       if (this.focus === "list") this.item = hit.item;
     } else if ("option" in hit && this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled)
       this.cursor = hit.option;
@@ -510,6 +512,11 @@ export class Menu {
       }
     }
     if (l.single && this.focus === "list") return null;
+    const open = this.dropdownBox(l, s, prefs);
+    if (open?.contains(x, y)) {
+      const index = dropdown.hit(open, summarizers.length, x, y);
+      return index === null ? null : { choice: summarizers[index] };
+    }
     if (x < l.options.x || x >= l.options.x + l.options.w) return null;
     const lines = this.lines(s, prefs, l),
       at_picker = lines.findIndex(line => line.tag === "picker");
@@ -541,6 +548,18 @@ export class Menu {
     }
     if (list_shown) this.drawList(w, b.x + 1, top, l.single ? b.w - 2 : list_w, l.body, s, prefs);
     if (!(l.single && this.focus === "list")) this.drawOptions(w, l, s, prefs, now_ms);
+    const open = this.dropdownBox(l, s, prefs);
+    if (open)
+      dropdown.draw(
+        w,
+        open,
+        summarizers.map((choice, i) => ({
+          text: Summarizer.label(choice),
+          note: summary(choice, s),
+          current: choice === s.choice,
+          hovered: i === this.dropdown,
+        })),
+      );
     if (l.detail) {
       const d = l.detail;
       onboarding.drawPresetDetail(w, d.x, d.y, d.width, d.compact, {
@@ -562,7 +581,7 @@ export class Menu {
       }
       const item = row,
         chosen = item === this.item,
-        p = !chosen ? row_normal : this.focus === "list" ? row_selected : row_resting,
+        p = !chosen ? settingRow.normal : this.focus === "list" ? settingRow.selected : row_resting,
         // A group's items sit under its heading.
         indent = importSource(item) === null ? 2 : 4;
       if (chosen) {
@@ -606,12 +625,32 @@ export class Menu {
       x0 = x + 2,
       right = x + width - 1,
       lines = this.lines(s, prefs, l),
-      label_w = Math.max(0, ...lines.map(line => (line.tag === "option" ? displayWidth(line.option.label) : 0)));
+      // Rows with their value at the right edge keep out of the label column.
+      label_w = Math.max(
+        0,
+        ...lines.map(line =>
+          line.tag === "option" && line.option.toggle === undefined && line.option.choice === undefined
+            ? displayWidth(line.option.label)
+            : 0,
+        ),
+      );
     lines.forEach((line, i) => {
       const y = l.b.y + 2 + i;
       switch (line.tag) {
         case "blank":
           return;
+        case "rule":
+          w.write(at(x0, y) + border + "─".repeat(sat(right, x0)));
+          return;
+        case "binding": {
+          // The full keymap's rows: the job, and its key at the column's end.
+          const end = Math.min(x0 + 4 + binding_w, right),
+            key_x = sat(end, displayWidth(line.key));
+          w.write(at(x0 + 4, y) + (line.dim ? panel : text));
+          writeEllipsis(w, line.job, sat(key_x - 1, x0 + 4));
+          w.write(at(key_x, y) + (line.dim ? panel : bright) + line.key);
+          return;
+        }
         case "title":
           w.write(at(x0, y) + bright);
           return writeEllipsis(w, line.text, right - x0);
@@ -621,10 +660,14 @@ export class Menu {
           w.write(at(x0, y) + (line.tag === "warn" ? warm : panel));
           return writeEllipsis(w, line.text, right - x0);
         case "brief":
-          w.write(at(x0 + 4, y) + panel);
+          w.write(
+            at(x0 + 4, y) + (line.tone === "muted" ? settingRow.normal.muted : line.tone === "warm" ? warm : panel),
+          );
           return writeEllipsis(w, line.text, right - x0 - 4);
         case "status":
-          w.write(at(x0 + 2, y) + (line.tone === "accent" ? row_normal.accent : line.tone === "warm" ? warm : panel));
+          w.write(
+            at(x0 + 2, y) + (line.tone === "accent" ? settingRow.normal.accent : line.tone === "warm" ? warm : panel),
+          );
           return writeEllipsis(w, line.text, right - x0 - 2);
         case "keys": {
           let cx = x0;
@@ -658,21 +701,22 @@ export class Menu {
   ) {
     const o = line.option,
       here = this.focus === "options" && line.index === this.cursor,
-      p = here ? row_selected : row_normal,
       x0 = x + 2,
       right = x + width - 1;
-    w.write(at(x, y) + p.text);
-    w.splat(" ", width);
-    if (here) w.write(at(x0, y) + p.accent + "›");
+    if (o.toggle !== undefined)
+      return settingRow.drawToggle(w, x, y, width, {
+        label: o.label,
+        on: o.toggle,
+        here,
+        disabled: o.disabled,
+        glyph: o.glyph,
+      });
+    if (o.choice !== undefined) return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here);
+    const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
       w.write(at(x0 + 2, y) + (o.mark === "on" && !o.disabled ? p.accent : p.quiet) + (o.mark === "on" ? "●" : "○"));
     w.write(at(x0 + 4, y) + (o.disabled ? p.quiet : p.label));
     writeEllipsis(w, o.label, Math.min(label_w, sat(right, x0 + 4)));
-    if (o.toggle !== undefined) {
-      const value = o.toggle ? "● On" : "○ Off";
-      w.write(at(x + width - 2 - displayWidth(value), y) + (o.toggle ? p.accent : p.quiet) + value);
-      return;
-    }
     let dx = x0 + 4 + label_w + 3;
     if (o.sprite) {
       // On puffs every few seconds; Off naps dim and still.
@@ -698,6 +742,16 @@ export class Menu {
     w.write(at(dx, y) + (o.disabled ? p.quiet : o.warn ? p.warn : p.muted));
     writeEllipsis(w, o.detail, sat(right - (o.arrow ? 3 : 0), dx));
     if (o.arrow) w.write(at(right - 2, y) + p.muted + "→");
+  }
+  /** The open dropdown's box, under its setting's row with ✓ under the ›;
+   * null while it is closed. */
+  private dropdownBox(l: Layout, s: Status, prefs: Preferences): Rect | null {
+    if (this.dropdown === null) return null;
+    const row = this.lines(s, prefs, l).findIndex(line => line.tag === "option" && line.option.choice !== undefined);
+    if (row < 0) return null;
+    const h = summarizers.length + 2,
+      bottom = l.b.y + 2 + l.body;
+    return new Rect(l.options.x + 2, Math.min(l.b.y + 3 + row, bottom - h), l.options.w - 3, h);
   }
   /** The options pane's rows as they fit `l`: leads and notes wrap, notes
    * give way first, then the options scroll to keep the cursor in view. */
@@ -737,25 +791,6 @@ export class Menu {
       blank: Line = { tag: "blank" },
       focused = this.focus === "options";
     switch (this.item) {
-      case "summaries": {
-        const shown = focused ? (summarizers[this.cursor] ?? s.choice) : s.choice;
-        return [
-          title("Activity summaries"),
-          lead("Who writes activity summaries and link names?"),
-          blank,
-          ...summarizers.map(choice =>
-            option({
-              label: Summarizer.label(choice),
-              detail: summary(choice, s),
-              mark: choice === s.choice ? "on" : "off",
-              apply: choice === s.choice ? null : { kind: "summaries", choice },
-              action: "use",
-            }),
-          ),
-          blank,
-          { tag: "note", text: detail(shown, s) },
-        ];
-      }
       case "sleeping_corgis":
         return [
           title("Sleeping corgis"),
@@ -774,9 +809,21 @@ export class Menu {
           blank,
           { tag: "note", text: "Sampling stops once every viewer turns it off." },
         ];
-      case "clever_corgi":
+      case "clever_corgi": {
+        const second = note(s.choice, s);
         return [
           title("Clever Corgi"),
+          blank,
+          option({
+            label: "Summaries",
+            detail: "",
+            mark: "none",
+            apply: null,
+            action: "change",
+            choice: { text: inUse(s), on: s.choice !== "off" },
+          }),
+          { tag: "brief", text: summary(s.choice, s), tone: "muted" },
+          ...(second === null ? [] : [{ tag: "brief", text: second } as Line]),
           blank,
           ...this.clever().flatMap((c): Line[] => [
             option({
@@ -791,6 +838,7 @@ export class Menu {
             blank,
           ]),
         ];
+      }
       case "theme":
         return [
           title("Theme"),
@@ -831,7 +879,7 @@ export class Menu {
       case "keyboard": {
         const other = prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
         return [
-          title("Keyboard shortcuts"),
+          title("Keymap"),
           fit.keys
             ? { tag: "keys", keys: keyLine(this.previewPreset(prefs), prefs.prefix) }
             : lead("Which shortcuts feel like home?"),
@@ -861,27 +909,8 @@ export class Menu {
             action: "open",
             arrow: true,
           }),
-        ];
-      }
-      case "ghostty": {
-        const works = this.integration === "enabled" || this.integration === "disabled";
-        return [
-          title("Ghostty command keys"),
-          lead("Cmd+1-9, Cmd+T/W and Ctrl+Tab drive Corgi's tabs in every Ghostty window."),
           blank,
-          ...onOff(this.integration === "enabled", "ghostty", [
-            "Corgi's keys in your config",
-            "Ghostty keeps its own keys",
-          ]).map(o => option({ ...o, disabled: !works, mark: works ? o.mark : "off" })),
-          blank,
-          this.integration === "failed"
-            ? { tag: "warn", text: "Corgi can't read your Ghostty config." }
-            : {
-                tag: "note",
-                text: works
-                  ? "Reload Ghostty with Cmd+Shift+, after a change."
-                  : "Only for Ghostty on this Mac, not over SSH.",
-              },
+          ...this.commandKeys(prefs),
         ];
       }
       case "image_paste": {
@@ -920,6 +949,36 @@ export class Menu {
       }
     }
   }
+  /** Ghostty's Command keys, turned on or off under the keymap. */
+  private commandKeys(prefs: Preferences): Line[] {
+    const works = this.integration === "enabled" || this.integration === "disabled",
+      on = this.integration === "enabled",
+      brief = (text: string, tone?: "warm"): Line => ({ tag: "brief", text, tone });
+    return [
+      { tag: "rule" },
+      { tag: "blank" },
+      {
+        tag: "option",
+        index: 0,
+        option: {
+          label: "Command keys",
+          glyph: "⌘",
+          detail: "",
+          mark: "none",
+          apply: works ? { kind: "ghostty", on: !on } : null,
+          action: on ? "turn off" : "turn on",
+          toggle: on,
+          disabled: !works,
+        },
+      },
+      ...(this.reload_ghostty ? [brief("Reload Ghostty with ⌘⇧, to apply.", "warm")] : []),
+      this.integration === "failed"
+        ? brief("Corgi can't read your Ghostty config.", "warm")
+        : brief(works ? "In Ghostty only, these keys drive Corgi:" : "Ghostty only, on this Mac; not over SSH."),
+      { tag: "blank" },
+      ...commandRows(prefs.preset).map(([job, key]): Line => ({ tag: "binding", job, key, dim: !on })),
+    ];
+  }
   /** Clever Corgi's settings, each turned on or off in the group's pane. */
   private clever(): { kind: "smart_links"; label: string; brief: string; on: boolean }[] {
     return [
@@ -946,8 +1005,6 @@ export class Menu {
     const flag = (enabled: boolean) =>
       enabled ? { text: "On", tone: "muted" as const } : { text: "Off", tone: "faint" as const };
     switch (item) {
-      case "summaries":
-        return { text: Summarizer.label(s.choice), tone: s.choice === "off" ? "faint" : "muted" };
       case "sleeping_corgis":
         return flag(prefs.sleeping_corgis);
       case "readings":
@@ -961,13 +1018,6 @@ export class Menu {
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };
       case "keyboard":
         return { text: km.name(prefs.preset), tone: "muted" };
-      case "ghostty":
-        return {
-          enabled: { text: "On", tone: "muted" as const },
-          disabled: { text: "Off", tone: "faint" as const },
-          unavailable: { text: "Mac only", tone: "faint" as const },
-          failed: { text: "Error", tone: "warm" as const },
-        }[this.integration];
       case "image_paste": {
         const support = this.image_paste?.support;
         if (support === "on") return { text: "On", tone: "muted" };
@@ -991,8 +1041,15 @@ export class Menu {
       return [["↑↓", "move"], ...enter, ["esc", "close"]];
     }
     if (picker) return importHints(picker);
+    if (this.dropdown !== null)
+      return [
+        ["↑↓", "move"],
+        ["enter", "use"],
+        ["esc", "close"],
+      ];
     const option = this.options(s, prefs)[this.cursor];
-    const enter: [string, string][] = option && !option.disabled && option.apply ? [["enter", option.action]] : [];
+    const enter: [string, string][] =
+      option && !option.disabled && (option.apply || option.choice !== undefined) ? [["enter", option.action]] : [];
     return [["↑↓", "move"], ...enter, ["esc", "back"]];
   }
 }
@@ -1022,7 +1079,10 @@ function importHints(picker: importPicker.Picker): [string, string][] {
           ["e", "expand"],
         ];
       if (picker.source === "herdr") hints.push(["h", "handoff"]);
-      hints.push(["↑↓", "move"], ["space", "select"]);
+      hints.push(
+        ["↑↓", "move"],
+        ["space", picker.switch_focused ? (picker.handoff ? "turn off" : "turn on") : "select"],
+      );
       if (count > 0) hints.push(["enter", picker.activeHandoff() ? "hand off" : `import ${count}`]);
       hints.push(["esc", "back"]);
       return hints;
@@ -1042,11 +1102,7 @@ function pickerArea(l: Layout, line: number): Rect {
     right = l.options.x + l.options.w - 1;
   return new Rect(x0, l.b.y + 2 + line, right - x0, l.body - line);
 }
-function onOff(
-  enabled: boolean,
-  kind: "readings" | "sleeping_corgis" | "ghostty",
-  details: [string, string],
-): Option[] {
+function onOff(enabled: boolean, kind: "readings" | "sleeping_corgis", details: [string, string]): Option[] {
   return [true, false].map((value, i) => ({
     label: value ? "On" : "Off",
     detail: details[i],
@@ -1056,11 +1112,36 @@ function onOff(
   }));
 }
 const action = (name: string, value?: string) => (value === undefined ? { name } : { name, value }) as Action;
+/** The mini keymap's width, as wide as its longest row needs. */
+const binding_w = 30;
+/** The jobs Command keys' mini keymap shows, where the preset binds them. */
+const command_jobs: { job: string; actions: string[] }[] = [
+  { job: "New tab", actions: ["new"] },
+  { job: "Close tab", actions: ["close-tab"] },
+  { job: "Reopen tab", actions: ["undo-close"] },
+  { job: "Next / previous", actions: ["next", "prev"] },
+  { job: "Select tab", actions: ["tab"] },
+  { job: "Select workspace", actions: ["goto-workspace"] },
+];
+/** Command keys' jobs and keys under `preset`; numbered keys show as ⌘1–9. */
+function commandRows(preset: km.Preset): [string, string][] {
+  const bound = ghosttyIntegration.commandKeys(preset),
+    key = (name: string) => {
+      const found = bound.find(b => b.action.name === name && (b.action.value ?? 1) === 1);
+      if (!found) return null;
+      const label = ghosttyIntegration.macLabel(found.host);
+      return found.action.value === 1 ? `${label}–9` : label;
+    };
+  return command_jobs.flatMap(({ job, actions }) => {
+    const keys = actions.map(key);
+    return keys.every(k => k !== null) ? [[job, keys.join(" / ")] as [string, string]] : [];
+  });
+}
 /** The keys a preset teaches, on one line, where its detail has no room. */
 function keyLine(preset: km.Preset, prefix: km.Prefix): [string, string][] {
   const key = (name: string, value?: string) => onboarding.cardKey({ preset, prefix }, action(name, value));
   return [
-    preset === "cmux" ? ["Cmd", "+"] : [km.prefixName(prefix), "then"],
+    preset === "cmux" ? ["⌘", "+"] : [km.prefixName(prefix), "then"],
     [key("new"), "tab"],
     [`${key("split", "right")} ${key("split", "down")}`, "split"],
     [["left", "down", "up", "right"].map(side => key("focus", side)).join(" "), "focus"],
@@ -1114,15 +1195,21 @@ function summary(choice: Summarizer, s: Status): string {
     }
   }
 }
-function detail(choice: Summarizer, s: Status): string {
+/** The second line under Summaries, where the choice needs one. */
+function note(choice: Summarizer, s: Status): string | null {
   switch (choice) {
     case "auto":
       return launchCounts(s);
     case "off":
       return "Activity text stays blank; links say Open Link";
     default:
-      return `Needs ${Provider.info(Summarizer.provider(choice)!).executables[0]} installed and signed in`;
+      return null;
   }
+}
+/** Summaries' value: the choice, and whom Auto follows once it knows. */
+function inUse(s: Status): string {
+  const label = Summarizer.label(s.choice);
+  return s.choice === "auto" && s.provider !== null ? `${label} · ${Provider.info(s.provider).name}` : label;
 }
 /** Launches per provider since the daemon started, in launcher order. */
 function launchCounts(s: Status): string {

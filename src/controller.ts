@@ -2009,7 +2009,10 @@ export class Controller {
       this.notice(` Ghostty integration: ${(error as Error).message}`);
       return;
     }
-    if (this.corgi_setup) this.corgi_setup.integration = ghosttyIntegration.state();
+    if (this.corgi_setup) {
+      this.corgi_setup.integration = ghosttyIntegration.state();
+      this.corgi_setup.reload_ghostty = true;
+    }
     this.notice(
       integration_state === "enabled"
         ? " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"

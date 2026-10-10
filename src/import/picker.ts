@@ -8,9 +8,10 @@ import { milliTimestamp } from "../clock";
 import * as palette from "../palette";
 import { Rect } from "../layout";
 import type { Connection } from "../rpc";
-import { Writer, byteSlice, displayWidth, sat, writeSanitized } from "../text";
+import { Writer, byteSlice, clamp, displayWidth, sat, writeSanitized } from "../text";
 import * as catalog from "./catalog";
 import * as scrollThumb from "../scroll_thumb";
+import * as settingRow from "../setting_row";
 
 export class WorkspacePreview {
   pane_limit: number;
@@ -52,6 +53,8 @@ export class Picker {
   scroll = 0;
   reveal_cursor = false;
   handoff = true;
+  /** Whether the cursor is on Herdr's handoff switch, above the workspaces. */
+  switch_focused = false;
   stage: Stage = "choose";
   progress: any = {
     phase: "idle",
@@ -93,6 +96,7 @@ export class Picker {
     this.stage = "choose";
     this.source = source;
     this.cursor = 0;
+    this.switch_focused = false;
     this.scroll = 0;
     this.selected.fill(false);
     this.expanded.fill(false);
@@ -233,18 +237,25 @@ export class Picker {
     this.scroll = row;
     this.reveal_cursor = false;
   }
-  /** Moves the cursor a workspace, past either end to the other when `wrap`. */
+  /** Moves the cursor a row, past either end to the other when `wrap`. Herdr's
+   * handoff switch is the first row; the workspaces follow. */
   move(next: boolean, wrap: boolean) {
-    const count = this.items().length;
+    const above = this.source === "herdr" ? 1 : 0,
+      rows = above + this.items().length;
     this.reveal_cursor = true;
-    if (count === 0) return;
-    if (wrap) this.cursor = (this.cursor + (next ? 1 : count - 1)) % count;
-    else this.cursor = next ? Math.min(this.cursor + 1, count - 1) : Math.max(0, this.cursor - 1);
+    if (rows === 0) return;
+    const at = this.switch_focused ? 0 : this.cursor + above,
+      to = wrap ? (at + (next ? 1 : rows - 1)) % rows : clamp(at + (next ? 1 : -1), 0, rows - 1);
+    // The workspace cursor stays put on the switch: it names the session to hand off.
+    this.switch_focused = above === 1 && to === 0;
+    if (!this.switch_focused) this.cursor = to - above;
   }
-  /** The keys both hosts share: Space or X selects, E expands, H switches
-   * Herdr's handoff and R scans again. False for any other key. */
+  /** The keys both hosts share: Space or X selects the row under the cursor,
+   * E expands, H switches Herdr's handoff and R scans again. False for any
+   * other key. */
   key(b: number): boolean {
-    if (b === 32 || b === 120) {
+    if ((b === 32 || b === 120) && this.switch_focused) this.handoff = !this.handoff;
+    else if (b === 32 || b === 120) {
       if (this.items().length && !this.activeHandoff()) this.selected[this.cursor] = !this.selected[this.cursor];
     } else if (b === 101 || b === 69) this.toggleExpanded(this.cursor);
     else if (b === 104 && this.source === "herdr") this.handoff = !this.handoff;
@@ -273,6 +284,7 @@ export class Picker {
     return null;
   }
   click(hit: Hit) {
+    this.switch_focused = "handoff" in hit;
     if ("handoff" in hit) this.handoff = !this.handoff;
     else if ("expand" in hit) this.toggleExpanded(hit.expand);
     else {
@@ -298,6 +310,13 @@ export class Picker {
         return this.activeHandoff() ? "Your processes are running in Corgi." : "Your workspaces are ready.";
     }
   }
+  /** The line under Herdr's handoff switch. */
+  private handoffNote(): string {
+    if (!this.handoff) return "Copies the workspaces; their processes stay in Herdr.";
+    if (this.items().length === 0) return "Keeps your processes running.";
+    if (!this.activeHandoff()) return "Live handoff unavailable for this session; turn it off to copy.";
+    return `All ${this.selectionCount()} workspaces in this session move together.`;
+  }
   /** The heading while copying. */
   heading(): string {
     return this.activeHandoff() ? "Handing off to Corgi" : "Copying into Corgi";
@@ -305,19 +324,20 @@ export class Picker {
   /** The notes and the tree; the cursor shows only when `focused`. */
   draw(w: Writer, area: Rect, focused: boolean) {
     if (this.stage === "choose") this.selectDefaults();
-    this.drawNotes(w, area);
+    this.drawNotes(w, area, focused);
     this.drawTree(w, area, focused);
   }
-  private drawNotes(w: Writer, area: Rect) {
+  private drawNotes(w: Writer, area: Rect, focused: boolean) {
     if (this.stage === "choose") {
       if (this.source === "herdr") {
-        if (this.handoff && this.items().length > 0 && !this.activeHandoff())
-          put(w, area, 0, 1, "Live handoff unavailable for this Herdr session; H switches to copy.", warm);
-        if (this.activeHandoff())
-          put(w, area, 0, 1, `All ${this.selectionCount()} workspaces in this session move together.`, dim);
-        const toggle = this.handoff ? "[● ON ] Handoff processes" : "[  OFF] Handoff processes",
-          why = `${toggle}  Keep your processes running`;
-        put(w, area, 0, 0, displayWidth(why) <= area.w ? why : toggle, bright);
+        // Setup's on/off row, across the whole width, with a line under its name.
+        settingRow.drawToggle(w, area.x - 2, area.y, area.w + 3, {
+          label: "Handoff processes",
+          on: this.handoff,
+          here: focused && this.switch_focused,
+        });
+        const unavailable = this.handoff && this.items().length > 0 && !this.activeHandoff();
+        put(w, area, 4, 1, this.handoffNote(), unavailable ? warm : dim);
       } else if (!this.cmuxConfused()) {
         // One line where it fits, else a row for each part.
         const tip =
@@ -400,7 +420,7 @@ export class Picker {
     this.items().forEach((ws, i) => {
       if (!choosing && !this.chosen(i)) return;
       const preview_layout = this.preview(ws, i);
-      const cursor_mark = i === this.cursor && choosing && focused ? "›" : " ";
+      const cursor_mark = i === this.cursor && choosing && focused && !this.switch_focused ? "›" : " ";
       const check_mark = this.chosen(i) ? "[x]" : "[ ]";
       line(`${cursor_mark}${check_mark} ${short(ws.name)}`, bright, "");
       if (ws.recovery !== "full") {

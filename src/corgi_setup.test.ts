@@ -49,39 +49,64 @@ test("setup lists every setting beside the selected one's options", () => {
   const rows = draw(menu, 100, 30, 0, status({ choice: "claude" }));
   const top = rows.findIndex(row => row.includes("Corgi setup"));
   expect(rows[top].indexOf("╭")).toBe(8);
-  expect(rows[top + 2]).toMatch(/Summaries\s+Claude\s+│\s+Activity summaries/);
-  expect(rows.join("\n")).toContain("● Claude");
+  expect(rows[top + 2]).toMatch(/Clever Corgi\s+│\s+Clever Corgi/);
+  expect(rows.join("\n")).toMatch(/Summaries +● Claude ▾/);
   expect(rows.join("\n")).toContain("↑↓ move   enter choose   esc close");
   // List rows and options are clickable, in order.
   const s = status({ choice: "claude" });
   const found = hits(menu, 100, 30, s);
   expect(found.filter(hit => "item" in hit)).toEqual(items.map(item => ({ item })));
-  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2, 3].map(option => ({ option })));
+  expect(found.filter(hit => "option" in hit)).toEqual([0, 1].map(option => ({ option })));
   expect(menu.hit(100, 30, 0, 0, s, new Preferences())).toBeNull();
   expect(menu.contains(100, 30, 50, top + 1)).toBe(true);
   // Too small for the frame: nothing draws.
   expect(draw(menu, 20, 8).join("").trim()).toBe("");
 });
 
-test("Enter opens a setting's options on the one in use, and Esc returns", () => {
+test("Summaries opens a dropdown on the choice in use, and Esc closes it", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),
     s = status({ choice: "claude" });
   expect(menu.enter(s, prefs)).toBeNull();
   expect(menu.focus).toBe("options");
-  expect(menu.cursor).toBe(2);
-  // The option in use has nothing to apply.
+  expect(menu.cursor).toBe(0);
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("enter change");
   expect(menu.enter(s, prefs)).toBeNull();
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/│ ✓ Claude /);
+  expect(text).toContain("No summaries, plain links");
+  expect(text).toContain("enter use");
+  // The choice in use has nothing to apply.
+  expect(menu.enter(s, prefs)).toBeNull();
+  menu.enter(s, prefs);
   menu.move(true, s, prefs);
   expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "off" });
   // Keys wrap past either end; the wheel stops there.
-  menu.move(true, s, prefs, false);
-  expect(menu.cursor).toBe(3);
+  menu.enter(s, prefs);
   menu.move(true, s, prefs);
-  expect(menu.cursor).toBeLessThan(2);
-  menu.move(false, s, prefs);
-  expect(menu.cursor).toBe(3);
-  expect(draw(menu, 100, 30, 0, s).join("\n")).toContain("Activity text stays blank; links say Open Link");
+  menu.move(true, s, prefs, false);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "off" });
+  menu.enter(s, prefs);
+  menu.move(true, s, prefs);
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "auto" });
+  // Clicks open it and choose.
+  const row = hits(menu, 100, 30, s, prefs).find(hit => "option" in hit && hit.option === 0)!;
+  expect(menu.click(row, s, prefs)).toBeNull();
+  const codex = hits(menu, 100, 30, s, prefs).find(hit => "choice" in hit && hit.choice === "codex")!;
+  expect(menu.click(codex, s, prefs)).toEqual({ kind: "summaries", choice: "codex" });
+  // Esc closes the dropdown, then returns to the list.
+  menu.enter(s, prefs);
+  expect(menu.back()).toBe(true);
+  expect(menu.focus).toBe("options");
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).not.toContain("✓");
+  // The options wrap too.
+  menu.move(true, s, prefs);
+  expect(menu.cursor).toBe(1);
+  menu.move(true, s, prefs, false);
+  expect(menu.cursor).toBe(1);
+  menu.move(true, s, prefs);
+  expect(menu.cursor).toBe(0);
   expect(menu.back()).toBe(true);
   expect(menu.back()).toBe(false);
   menu.move(true, s, prefs);
@@ -89,13 +114,14 @@ test("Enter opens a setting's options on the one in use, and Esc returns", () =>
   for (let i = 0; i < 20; i++) menu.move(true, s, prefs, false);
   expect(menu.item).toBe(items.at(-1)!);
   menu.move(true, s, prefs);
-  expect(menu.item).toBe("summaries");
+  expect(menu.item).toBe("clever_corgi");
   menu.move(false, s, prefs);
   expect(menu.item).toBe(items.at(-1)!);
 });
 
 test("the automatic choice says whom it follows", () => {
-  const menu = Menu.open();
+  const menu = Menu.open(),
+    prefs = new Preferences();
   let text = draw(
     menu,
     100,
@@ -110,18 +136,15 @@ test("the automatic choice says whom it follows", () => {
   ).join("\n");
   expect(text).toContain("Following you → Claude · Haiku 5.5");
   expect(text).toContain("Since start: codex 1× · claude 3×");
-  text = draw(
-    menu,
-    100,
-    30,
-    0,
-    status({
-      choice: "auto",
-      provider: "codex",
-      locked: true,
-      models: { codex: "gpt-6-luna", claude: "claude-haiku-5-5" },
-    }),
-  ).join("\n");
+  const locked = status({
+    choice: "auto",
+    provider: "codex",
+    locked: true,
+    models: { codex: "gpt-6-luna", claude: "claude-haiku-5-5" },
+  });
+  menu.openOptions(locked, prefs);
+  menu.enter(locked, prefs);
+  text = draw(menu, 100, 30, 0, locked, prefs).join("\n");
   expect(text).toContain("Settled on Codex · GPT-6 Luna");
   expect(text).toContain("Haiku 5.5 · your Claude login");
 });
@@ -136,13 +159,38 @@ test("on/off settings flip from the list and offer the opposite", () => {
   expect(menu.focus).toBe("list");
   prefs.resources.enabled = false;
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Resources\s+Off/);
-  // Command keys can't change where Ghostty isn't local.
-  menu.item = "ghostty";
-  expect(menu.enter(s, prefs)).toBeNull();
-  expect(menu.focus).toBe("list");
-  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Mac only");
+});
+
+test("Command keys turn on and off under the keymap", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "keyboard";
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/│ {2}Keymap +Corgi {2}│/);
+  expect(text).toMatch(/│ {2}Keymap +│ *$/m);
+  expect(text).toMatch(/⌘ Command keys +○ Off/);
+  expect(text).toContain("Ghostty only, on this Mac; not over SSH.");
+  // A mini keymap shows what the keys do.
+  expect(text).toMatch(/New tab +⌘T/);
+  expect(text).toMatch(/Select tab +⌘1–9/);
+  // Where Ghostty isn't local, the cursor passes the switch by.
+  menu.openOptions(s, prefs);
+  for (let i = 0; i < 10; i++) menu.move(true, s, prefs, false);
+  expect(menu.cursor).toBe(5);
   menu.integration = "disabled";
+  menu.move(true, s, prefs, false);
+  expect(menu.cursor).toBe(6);
   expect(menu.enter(s, prefs)).toEqual({ kind: "ghostty", on: true });
+  menu.back();
+  menu.integration = "enabled";
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/⌘ Command keys +● On/);
+  expect(text).toContain("In Ghostty only, these keys drive Corgi:");
+  // Ghostty asks for a reload only after a change.
+  expect(text).not.toContain("Reload Ghostty");
+  menu.reload_ghostty = true;
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Reload Ghostty with ⌘⇧, to apply.");
 });
 
 test("sleeping corgis preview both choices beside them", () => {
@@ -229,13 +277,13 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   menu.openOptions(s, prefs);
   // The growth starts with the first frame after Enter.
   let text = draw(menu, 140, 36, 1000, s, prefs).join("\n");
-  expect(text).toContain("Summaries");
+  expect(text).toContain("Sleeping corgis");
   expect(text).not.toContain("PREFIX");
   text = draw(menu, 140, 36, 1100, s, prefs).join("\n");
-  expect(text).not.toContain("Summaries");
+  expect(text).not.toContain("Sleeping corgis");
   expect(text).not.toContain("PREFIX");
   text = draw(menu, 140, 36, 2000, s, prefs).join("\n");
-  expect(text).toContain("Corgi setup › Shortcuts");
+  expect(text).toContain("Corgi setup › Keymap");
   expect(text).toContain("PREFIX    [ Ctrl+B ]  Release, then press a key.");
   expect(text).toContain("[ ? Full keymap ]");
   expect(text).toContain("v Right");
@@ -250,7 +298,7 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   expect(menu.back()).toBe(true);
   text = draw(menu, 140, 36, 2200, s, prefs).join("\n");
   text = draw(menu, 140, 36, 3000, s, prefs).join("\n");
-  expect(text).toContain("Summaries");
+  expect(text).toContain("Sleeping corgis");
   expect(text).not.toContain("PREFIX");
 });
 
@@ -346,11 +394,11 @@ test("the frame takes the terminal's height, and a short list scrolls", () => {
   rows = draw(menu, 100, 14, 0, s, prefs);
   let text = rows.join("\n");
   expect(text).toContain("Import from");
-  expect(text).not.toContain("Summaries");
+  expect(text).not.toContain("Clever Corgi");
   expect(text).toContain("┃");
   expect(hits(menu, 100, 14, s, prefs).filter(hit => "item" in hit)).toContainEqual({ item: items.at(-1)! });
   menu.move(true, s, prefs);
   text = draw(menu, 100, 14, 0, s, prefs).join("\n");
-  expect(text).toContain("Summaries");
-  expect(text).not.toContain("Import from");
+  expect(text).toContain("Clever Corgi");
+  expect(text).not.toMatch(/│ {4}cmux|│ {4}Herdr/);
 });

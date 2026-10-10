@@ -4,7 +4,7 @@ Run **`corgi onboard`** to open the wizard explicitly. From the repository, use
 `./go.ts onboard`. Inside a Corgi pane it opens in that pane's viewer; outside
 Corgi it starts or attaches to the selected runtime and opens onboarding there.
 An already open wizard keeps its current state, including any active import.
-**Corgi setup → Keyboard shortcuts** opens the shortcut step on its own.
+**Corgi setup → Keymap** opens the shortcut step on its own.
 In **Corgi setup**, the sources under **Import from** (tmux, Herdr, cmux) show
 the import step's sessions beside the list: Enter or → moves into them, and
 Enter after a copy opens the new workspace.

@@ -83,6 +83,40 @@ const host_keys: { host: string; action: Action }[] = [
     })),
   ),
 ];
+/** The Ghostty keys Corgi binds under `preset`, as triggers ("cmd+t") with
+ * the action each sends. */
+export function commandKeys(preset: keymap.Preset): { host: string; action: Action }[] {
+  if (preset === "cmux")
+    return bindings
+      .table("cmux")
+      .filter(b => !b.prefixed)
+      .map(b => ({ host: trigger(b), action: b.action }));
+  return host_keys.filter(host => {
+    const b = bindings.first(preset, host.action, true);
+    return b && !Object.values(b.mods).some(Boolean) && b.key < 128;
+  });
+}
+/** A trigger as a Mac menu writes it: "cmd+shift+t" is ⌘⇧T. */
+export function macLabel(host: string): string {
+  const symbols: Record<string, string> = { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" },
+    named: Record<string, string> = {
+      tab: "Tab",
+      enter: "↩",
+      comma: ",",
+      left_bracket: "[",
+      right_bracket: "]",
+      left: "←",
+      right: "→",
+      up: "↑",
+      down: "↓",
+    },
+    parts = host.split("+"),
+    key = parts.pop()!;
+  return (
+    parts.map(mod => symbols[mod] ?? mod).join("") +
+    (named[key] ?? (key.startsWith("digit_") ? key.slice(6) : key.toUpperCase()))
+  );
+}
 function trigger(binding: bindings.Binding) {
   const m = binding.mods;
   const special: Record<number, string> = {
@@ -119,9 +153,8 @@ export function transform(bytes: string, keys: Keys | null): string {
       }
   } else {
     out += "# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
-    for (const host of host_keys) {
-      const b = bindings.first(keys.preset, host.action, true);
-      if (!b || Object.values(b.mods).some(Boolean) || b.key >= 128) continue;
+    for (const host of commandKeys(keys.preset)) {
+      const b = bindings.first(keys.preset, host.action, true)!;
       out +=
         `keybind = ${host.host}=text:\\x${keymap.prefixByte(keys.prefix).toString(16).padStart(2, "0")}` +
         (b.key > 32 && b.key < 127 && b.key !== 92

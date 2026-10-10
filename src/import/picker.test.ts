@@ -54,3 +54,26 @@ test("clicks land on the rows the tree draws", () => {
   expect(p.selected[1]).toBe(false);
   p.deinit();
 });
+
+test("Herdr's handoff switch is the first row the cursor stops on", () => {
+  const p = picker(["first", "second"]);
+  p.source = "herdr";
+  p.workers.set("herdr", p.workers.get("tmux")!);
+  p.move(false, false);
+  expect(p.switch_focused).toBe(true);
+  // Space flips the switch there, and the workspace cursor stays put.
+  p.key(32);
+  expect(p.handoff).toBe(false);
+  expect(p.cursor).toBe(0);
+  p.move(false, true);
+  expect(p.switch_focused).toBe(false);
+  expect(p.cursor).toBe(1);
+  p.move(true, true);
+  expect(p.switch_focused).toBe(true);
+  p.move(true, false);
+  expect(p.cursor).toBe(0);
+  p.click({ handoff: true });
+  expect(p.switch_focused).toBe(true);
+  expect(p.handoff).toBe(true);
+  p.deinit();
+});

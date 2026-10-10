@@ -120,9 +120,10 @@ so a Claude Code user gets Claude-backed summaries and link names without
 installing or signing in to Codex.
 
 Click the corgi badge at the top of the sidebar, or press **Ctrl-B i**, to open
-**Corgi setup** and choose Auto, Codex, Claude, or Off (arrow keys and Enter, or
-click a row; Escape closes). The popover shows what Auto picked and the launch
-counts behind it. Changes apply immediately, stop the previous harness, and are
+**Corgi setup → Clever Corgi**. **Summaries** opens a dropdown of Auto, Codex,
+Claude, and Off (arrow keys and Enter, or click a row; Escape closes it). Under
+the setting, setup shows what Auto picked and the launch counts behind it.
+Changes apply immediately, stop the previous harness, and are
 saved in `settings.json` beside `workspaces.json`. A saved choice wins over the
 environment. Clients can do the same with
 `corgi rpc '{"op":"inference.configure","protocol":1,"choice":"claude"}'`; the
@@ -133,7 +134,7 @@ Without a saved choice, `CORGI_INFERENCE_PROVIDER` (`auto`, `codex`, `claude`,
 or `off`) sets the starting choice. Unknown values disable inference rather than
 silently sending data to a different provider. GPT-6 Luna (`gpt-6-luna`) is the
 Codex default and Claude Haiku 5.5 (`claude-haiku-5-5`) the Claude default, both
-at low reasoning effort. The setup screen shows the
+at low reasoning effort. The dropdown shows the
 model beside each provider. `CORGI_INFERENCE_MODEL` overrides the model for either provider;
 `CORGI_SUMMARY_MODEL` remains a legacy fallback. `CORGI_INFERENCE_BIN`
 optionally selects the native harness executable; otherwise the normal

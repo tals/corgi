@@ -4,6 +4,7 @@ import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
 import * as corgiAnimation from "./corgi_animation";
 import * as corgiBadge from "./corgi_badge";
 import * as resourceTooltip from "./resource_tooltip";
+import * as dropdown from "./dropdown";
 import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
@@ -1313,55 +1314,33 @@ export class ScopeMenu {
   }
   static hit(side: View, cols: number, rows: number, x: number, y: number): Scope | null {
     const b = ScopeMenu.bounds(side, cols, rows);
-    if (b.h < 4 || x <= b.x || x + 1 >= b.x + b.w || y <= b.y || y + 1 >= b.y + b.h) return null;
-    switch (y - b.y) {
-      case 1:
-        return "workspace";
-      case 2:
-        return "all";
-      default:
-        return null;
-    }
+    if (b.h < 4) return null;
+    const index = dropdown.hit(b, scopes.length, x, y);
+    return index === null ? null : scopes[index];
   }
   draw(w: Writer, side: View, cols: number, rows: number, workspaces: WorkspaceEntry[], scope: Scope): void {
     const b = ScopeMenu.bounds(side, cols, rows);
     if (b.h < 4 || b.w < 16) return;
-    const border = new Style({ fg: "line", bg: "surface" }).sgr();
-    for (let y = 0; y < b.h; y++) {
-      w.write(`\x1b[${b.y + y + 1};${b.x + 1}H${border}`);
-      w.write(y === 0 ? "╭" : y === b.h - 1 ? "╰" : "│");
-      if (y === 0 || y === b.h - 1) w.write("─".repeat(b.w - 2));
-      else w.splat(" ", b.w - 2);
-      w.write(y === 0 ? "╮" : y === b.h - 1 ? "╯" : "│");
-    }
     let total = 0;
     let current = 0;
     for (const ws of workspaces) {
       total += ws.agents;
       if (ws.active) current = ws.agents;
     }
-    this.row(w, b, 1, "workspace", scope, "This workspace", current);
-    this.row(w, b, 2, "all", scope, "All", total);
-    w.write("\x1b[0m");
-  }
-  private row(w: Writer, b: Rect, y: number, option: Scope, scope: Scope, text: string, count: number): void {
-    const hovered = this.hovered === option;
-    const style = hovered
-      ? new Style({ fg: "strong", bg: "selected" }).sgr()
-      : new Style({ fg: "text", bg: "surface" }).sgr();
-    const line = b.y + y + 1;
-    w.write(`\x1b[${line};${b.x + 2}H${style}`);
-    w.splat(" ", b.w - 2);
-    if (option === scope) w.write(`\x1b[${line};${b.x + 3}H` + fg("strong") + `✓${style}`);
-    const number = compactCount(count);
-    const count_width = displayWidth(number);
-    const right = b.x + b.w - 2 - count_width;
-    // Faint is too dim on the hovered row's selected background.
-    w.write(`\x1b[${line};${right + 1}H${hovered ? fg("muted") : fg("faint")}${number}${style}`);
-    w.write(`\x1b[${line};${b.x + 5}H`);
-    writeEllipsis(w, text, sat(sat(right, b.x + 4), 2));
+    dropdown.draw(
+      w,
+      b,
+      scopes.map(option => ({
+        text: option === "workspace" ? "This workspace" : "All",
+        note: compactCount(option === "workspace" ? current : total),
+        current: option === scope,
+        hovered: this.hovered === option,
+      })),
+    );
   }
 }
+/** The scope menu's rows, top to bottom. */
+const scopes: Scope[] = ["workspace", "all"];
 
 export class PortMenu {
   selected = 0;
