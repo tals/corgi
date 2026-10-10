@@ -9,6 +9,7 @@ import { Pool } from "../inference";
 import { Client } from "./claude";
 import { Cache, interval } from "../usage/account_cache";
 import * as discovery from "../discovery";
+import * as errors from "../errors";
 export { Text };
 export class Option {
   signed_in: boolean | null = null;
@@ -214,7 +215,7 @@ export class Worker {
       try {
         cache.state.update(await this.pool.configuredAccount(), Math.floor(Date.now() / 1000));
       } catch (e) {
-        cache.state.failed((e as Error).message === "Timeout" ? "request timed out" : "account read failed");
+        cache.state.failed(errors.is(e, "Timeout") ? "request timed out" : "account read failed");
       }
       cache.save();
       return cache.state.display(Math.floor(Date.now() / 1000));

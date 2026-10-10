@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, chmodSync, readdirSync, lstatSync, unlinkSync, writeFileSync, renameSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { BoundedText } from "./bounded_text";
+import * as errors from "./errors";
 
 export type Support = "probing" | "on" | "unsupported" | "denied";
 export type Failure =
@@ -343,7 +344,7 @@ export class State {
     try {
       this.result = { path: saveImage(this.folder, reading.mimes[0], data[0], now) };
     } catch (error) {
-      this.result = { failed: error instanceof Error && error.message === "NotImage" ? "not_image" : "save_failed" };
+      this.result = { failed: errors.is(error, "NotImage") ? "not_image" : "save_failed" };
     }
   }
   private fail(failed: Failure) {

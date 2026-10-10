@@ -6,6 +6,7 @@ import { str } from "../providers/common";
 import { Info, claudeAccount, limits } from "../usage/account";
 import { Control, cancelled } from "./control";
 import { Cache, interval, cooldown } from "../usage/account_cache";
+import * as errors from "../errors";
 export function applyUsage(info: Info, value: any) {
   if (typeof value?.rate_limits_available !== "boolean") throw Error("InvalidUsage");
   if (!value.rate_limits_available) throw Error("UsageUnavailable");
@@ -122,15 +123,7 @@ export class Client {
         applyUsage(fresh, await this.session!.request("get_usage", {}, { stopping, quit }));
       } catch (e) {
         this.close();
-        fresh.usage_error = new Text(
-          (e as Error).message === "Timeout"
-            ? "request timed out"
-            : (e as Error).message === "UnsupportedUsage"
-              ? "Claude usage request unsupported"
-              : (e as Error).message === "UsageUnavailable"
-                ? "usage unavailable for this login"
-                : "Claude usage unavailable",
-        );
+        fresh.usage_error = new Text(usageFailure(e));
         cache.state.next_usage = now + cooldown;
       }
       cache.state.update(fresh, now);
@@ -146,5 +139,17 @@ export class Client {
     const initialized = await this.session.ready({ stopping, quit, deadline });
     const model = defaultModel(initialized);
     if (model) this.default_model = new Text(model);
+  }
+}
+function usageFailure(error: unknown): string {
+  switch (errors.name(error)) {
+    case "Timeout":
+      return "request timed out";
+    case "UnsupportedUsage":
+      return "Claude usage request unsupported";
+    case "UsageUnavailable":
+      return "usage unavailable for this login";
+    default:
+      return "Claude usage unavailable";
   }
 }

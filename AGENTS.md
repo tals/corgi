@@ -60,8 +60,9 @@ the types you use. Use `import type` for types only.
   these rather than redefining a local copy.
 
 **Never read display text back as state.** Keep a union or boolean and
-derive the label from it. Compare errors by name (`error.message ===
-"Timeout"`), not by display text.
+derive the label from it. Compare errors by name with `errors.ts`
+(`errors.is(error, "Timeout")`, or `switch (errors.name(error))`), not by
+display text.
 
 **Wire values are normalized once.** JSON from the daemon or a provider goes
 through one function that fills defaults and types (`mirror.agent()`,

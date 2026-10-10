@@ -7,6 +7,7 @@ import * as tmux_layout from "./tmux_layout";
 import * as tmux_resume from "./tmux_resume";
 import * as cmux_import from "./cmux";
 import * as herdr from "./herdr";
+import * as errors from "../errors";
 export type Source = "tmux" | "herdr" | "cmux";
 export const available_sources: Source[] =
   process.platform === "darwin" ? ["tmux", "herdr", "cmux"] : ["tmux", "herdr"];
@@ -296,7 +297,7 @@ export class Worker {
           value = JSON.parse(bytes);
         if (value && typeof value === "object" && !Array.isArray(value)) return value.result ?? value;
       } catch (error) {
-        if ((error as Error).message === "SourceCancelled") throw error;
+        if (errors.is(error, "SourceCancelled")) throw error;
       }
     }
     return null;

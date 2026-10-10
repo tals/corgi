@@ -15,6 +15,7 @@ import type { ShellStatus } from "./launch/command";
 import type { Provider } from "./providers";
 import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
+import * as errors from "./errors";
 
 export interface Transport {
   socket?: string;
@@ -136,7 +137,7 @@ export class Terminal {
     try {
       await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
     } catch (error) {
-      if ((error as Error).message !== "NoPane") throw error;
+      if (!errors.is(error, "NoPane")) throw error;
     }
     this.pending = [];
   }

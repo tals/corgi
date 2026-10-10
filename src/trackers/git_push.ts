@@ -3,6 +3,7 @@ import { Quit, run as subprocessRun } from "../subprocess";
 import { clean } from "./git_status";
 import type { Store } from "../workspace";
 import type { Tracker } from "./git_status";
+import * as errors from "../errors";
 export const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
 export type Phase = "idle" | "pushing" | "succeeded" | "failed";
 export type View = { phase: Phase; message: string };
@@ -107,17 +108,7 @@ export class Manager {
       })
       .catch(e => {
         job.result.phase = "failed";
-        if (!job.result.message)
-          job.result.message = clean(
-            (e as Error).message === "GitPreviewChanged"
-              ? preview_changed
-              : (e as Error).message === "NoPushDestination"
-                ? "No remote tracking branch. Configure an upstream in your terminal, then retry."
-                : (e as Error).message === "TimedOut"
-                  ? "Push timed out. Check authentication and the remote in your terminal, then retry."
-                  : (e as Error).message,
-            2048,
-          );
+        if (!job.result.message) job.result.message = clean(failureMessage(e), 2048);
       })
       .finally(() => {
         job.done = true;
@@ -203,4 +194,17 @@ export class Manager {
 
 export async function start(runtime: { workspaces: Store; git_push: Manager }, workspace: number, ref: RefView) {
   await runtime.git_push.start(runtime.workspaces, workspace, new RefView(ref));
+}
+function failureMessage(error: unknown): string {
+  const name = errors.name(error);
+  switch (name) {
+    case "GitPreviewChanged":
+      return preview_changed;
+    case "NoPushDestination":
+      return "No remote tracking branch. Configure an upstream in your terminal, then retry.";
+    case "TimedOut":
+      return "Push timed out. Check authentication and the remote in your terminal, then retry.";
+    default:
+      return name ?? String(error);
+  }
 }

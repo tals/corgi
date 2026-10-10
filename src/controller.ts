@@ -70,6 +70,7 @@ import * as viewerNative from "./viewer_native";
 import { Provider } from "./providers";
 import { rank } from "./agent_order";
 import { Writer, writeEllipsis, sat, byteLength } from "./text";
+import * as errors from "./errors";
 
 /** A conversation a pane stopped running, and when, in seconds. */
 interface Stopped {
@@ -871,9 +872,7 @@ export class Controller {
             await this.closeWorkspace(context.tab, true);
           } catch (error) {
             this.notice(
-              (error as Error).message === "LastWorkspace"
-                ? " Cannot close the last workspace"
-                : " Could not close workspace",
+              errors.is(error, "LastWorkspace") ? " Cannot close the last workspace" : " Could not close workspace",
             );
           }
           break;
@@ -2081,7 +2080,7 @@ export class Controller {
     try {
       response = await call(this.connection, "shell.configure", { shell });
     } catch (error) {
-      if ((error as Error).message === "ShellNotFound") return false;
+      if (errors.is(error, "ShellNotFound")) return false;
       this.notice(" Corgi setup: the runtime did not accept the change");
       return true;
     }

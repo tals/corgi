@@ -7,6 +7,7 @@ import { Model, Tab, max_panes, max_workspaces } from "../layout";
 import { ResumeHint } from "../resume_hint";
 import { Text } from "../providers";
 import { label } from "../pane/label";
+import * as errors from "../errors";
 export type SourcePane = {
   id: string;
   name: string;
@@ -771,7 +772,7 @@ export class Job {
           const path = readlinkSync(`/proc/${foreground}/exe`);
           if (path === this.executable || basename(path) === "corgi") throw Error("CannotHandoffCurrentConsole");
         } catch (error) {
-          if ((error as Error).message === "CannotHandoffCurrentConsole") throw error;
+          if (errors.is(error, "CannotHandoffCurrentConsole")) throw error;
         }
         if (foreground > 0) {
           this.staged.panes[i].detection.pid = foreground;
@@ -879,7 +880,7 @@ export class Job {
         await rpc(this.source, "session.snapshot", {});
         throw Error("HerdrHandoffRolledBack");
       } catch (error) {
-        if ((error as Error).message === "HerdrHandoffRolledBack") throw error;
+        if (errors.is(error, "HerdrHandoffRolledBack")) throw error;
       }
       await Bun.sleep(1000);
     }

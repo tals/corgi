@@ -9,6 +9,7 @@ import { Tokens } from "../usage/live";
 import { sub } from "../usage/tokens";
 import * as metadata from "../usage/account";
 import { System, Tracker } from "./usage";
+import * as errors from "../errors";
 export { Provider };
 export type Choice = "auto" | Provider | "off";
 export const Choice = {
@@ -605,9 +606,7 @@ export class Pool {
       );
       if (response.limits === "none") response.usage_error = new Text("no usage returned");
     } catch (error) {
-      response.usage_error = new Text(
-        (error as Error).message === "Timeout" ? "request timed out" : "usage request failed",
-      );
+      response.usage_error = new Text(errors.is(error, "Timeout") ? "request timed out" : "usage request failed");
       s.close();
       this.slots[0] = null;
     }
