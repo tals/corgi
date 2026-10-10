@@ -256,7 +256,7 @@ export class Controller {
   resource_card = new resourceTooltip.State();
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
-  sidebar_drag = false;
+  sidebar_drag: "width" | "split" | null = null;
   agent_drag: AgentDrag | null = null;
   workspace_drag: WorkspaceDrag | null = null;
   resize_mode = false;
@@ -353,7 +353,14 @@ export class Controller {
   }
   sidebarView(entries: Entry[]): sidebar.View {
     const offset = this.agent_picker ? this.agent_picker.offset : this.agentOffset().get();
-    let view = sidebar.View.init(this.width, this.height, this.sidebar_open, offset, entries.length)
+    let view = sidebar.View.init(
+      this.width,
+      this.height,
+      this.sidebar_open,
+      offset,
+      entries.length,
+      this.prefs.sidebar_split,
+    )
       .withSearch(this.agentSearch())
       .withWidth(this.prefs.sidebar_width);
     // Workspace rows, and so paging, depend on whether readings are shown.
@@ -2419,7 +2426,7 @@ export class Controller {
       }
       return;
     }
-    this.sidebar_drag = false;
+    this.sidebar_drag = null;
     if (this.workspace_drag) {
       this.workspace_drag.cancelled = true;
       this.workspace_drag.drop = null;
@@ -3196,15 +3203,19 @@ export class Controller {
       return;
     }
     if (this.sidebar_drag) {
+      const drag = this.sidebar_drag;
       if (release) {
-        this.sidebar_drag = false;
+        this.sidebar_drag = null;
         try {
-          preferences.update({ sidebar_width: this.prefs.sidebar_width });
+          if (drag === "width") preferences.update({ sidebar_width: this.prefs.sidebar_width });
+          else preferences.update({ sidebar_split: this.prefs.sidebar_split });
         } catch (error) {
           this.notice((error as Error).message);
         }
       } else if (button === 32) {
-        this.prefs.sidebar_width = Math.min(Math.max(x + 1, 20), Math.max(20, sat(this.width, 20)));
+        if (drag === "width")
+          this.prefs.sidebar_width = Math.min(Math.max(x + 1, 20), Math.max(20, sat(this.width, 20)));
+        else this.prefs.sidebar_split = sidebar.View.splitFor(this.height, y + 1);
         this.dirty = true;
       }
       this.dirty = true;
@@ -3536,7 +3547,11 @@ export class Controller {
     let entries = this.sidebarEntries();
     const side = this.sidebarView(entries);
     if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
-      this.sidebar_drag = true;
+      this.sidebar_drag = "width";
+      return;
+    }
+    if (!release && button === 0 && side.splitHandle(x, y)) {
+      this.sidebar_drag = "split";
       return;
     }
     // Do not activate Git or URL controls hidden behind the resource card.
@@ -4129,7 +4144,9 @@ export class Controller {
             ? new sidebar.Preview(this.agent_drag.source, this.agent_drag.preview)
             : null,
         resizing: this.sidebar_drag
-          ? "horizontal"
+          ? this.sidebar_drag === "width"
+            ? "horizontal"
+            : "vertical"
           : this.input_state.divider && !this.input_state.divider.cancelled
             ? this.input_state.divider.hit.axis
             : null,

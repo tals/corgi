@@ -375,7 +375,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
   const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
   const dragging = u.dragged_agent !== null || u.dragged_workspace !== null;
-  let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length)
+  let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length, u.prefs.sidebar_split)
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width);
   side.resources = u.prefs.resources;
@@ -496,6 +496,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         hovered_uri = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
         // The sidebar's last column drags its width, ahead of any control there.
         if (side.width > 0 && pointer.x === side.width - 1) resize_hover = "horizontal";
+        else if (side.splitHandle(pointer.x, pointer.y)) resize_hover = "vertical";
         else {
           const hit = view.dividerAt(area, pointer.x, pointer.y);
           if (hit) resize_hover = hit.axis;

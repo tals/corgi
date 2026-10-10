@@ -74,7 +74,7 @@ export function sameTarget(a: Target | null | undefined, b: Target | null | unde
 export const isGroup = (t: Target): t is { group: number } => "group" in t;
 export interface Search {
   text: string;
-  /** In bytes, as the Zig dialog keeps it. */
+  /** An index into `text`, which is ASCII, so also a column. */
   cursor: number;
 }
 /** Viewer-local agent list filter. `workspace` follows the selected workspace. */
@@ -314,12 +314,22 @@ export class View {
   resource_hover: number | null = null;
   /** Corgi setup: idle agents nap as corgis; off marks them with a faint Z. */
   sleeping_corgis = true;
+  /** The agents header row as last dragged; null splits the sidebar in half. */
+  split: number | null = null;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
   }
   middle(): number {
-    return Math.floor(sat(this.rows, 1) / 2);
+    return this.split === null ? Math.floor(sat(this.rows, 1) / 2) : View.splitFor(this.rows, this.split);
+  }
+  /** Keeps one workspace above the divider and an agent below it. */
+  static splitFor(rows: number, preferred: number): number {
+    return clamp(preferred, 6, Math.max(6, sat(rows, 5)));
+  }
+  /** The rule between workspaces and agents drags the split. */
+  splitHandle(x: number, y: number): boolean {
+    return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
   }
   /** Name and status rows, plus the resource row unless readings are off. */
   workspaceRows(): number {
@@ -339,10 +349,18 @@ export class View {
   static widthFor(cols: number, open: boolean): number {
     return open && cols >= 64 ? 28 : 0;
   }
-  static init(cols: number, rows: number, open: boolean, offset: number, count: number): View {
+  static init(
+    cols: number,
+    rows: number,
+    open: boolean,
+    offset: number,
+    count: number,
+    split: number | null = null,
+  ): View {
     const v = new View();
     v.cols = cols;
     v.rows = rows;
+    v.split = split;
     v.width = rows >= 13 ? View.widthFor(cols, open) : 0;
     v.count = count;
     v.capacity = 1;

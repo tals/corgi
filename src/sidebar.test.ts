@@ -909,3 +909,13 @@ test("context shows on the name line only near compaction and dims while compact
   // 38% of a 1M window is 95% of the way to a learned 400k: hot, faded toward the row.
   expect(has(out, fgRgb(mix(colors.hot, colors.bg, 60)) + "38%")).toBe(true);
 });
+test("a dragged split moves the agents header within bounds", () => {
+  const half = View.init(100, 30, true, 0, 0);
+  expect(half.middle()).toBe(14);
+  expect(half.splitHandle(5, 13)).toBe(true);
+  expect(half.splitHandle(27, 13)).toBe(false);
+  expect(View.init(100, 30, true, 0, 0, 10).middle()).toBe(10);
+  expect(View.init(100, 30, true, 0, 0, 2).middle()).toBe(6);
+  expect(View.init(100, 30, true, 0, 0, 40).middle()).toBe(25);
+  expect(View.init(100, 30, true, 0, 0, 10).listRows()).toBe(18);
+});

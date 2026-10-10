@@ -19,6 +19,9 @@ export class Preferences {
   agents: Scope = "workspace";
   /** The last dragged sidebar width seeds new viewers; open ones keep their own. */
   sidebar_width = 28;
+  /** The last dragged agents header row, seeding new viewers like the width;
+   * null splits the sidebar in half. */
+  sidebar_split: number | null = null;
   /** The last viewer's agent list scroll seeds new viewers that show the same list. */
   agent_scroll: AgentScroll | null = null;
   preset: Preset = "corgi";
@@ -100,6 +103,10 @@ export function readExisting(file: string): Preferences | null {
     if ("sidebar_width" in d) {
       if (!Number.isInteger(d.sidebar_width) || d.sidebar_width < 0 || d.sidebar_width > 65535) return null;
       v.sidebar_width = d.sidebar_width;
+    }
+    if ("sidebar_split" in d && d.sidebar_split !== null) {
+      if (!Number.isInteger(d.sidebar_split) || d.sidebar_split < 0 || d.sidebar_split > 65535) return null;
+      v.sidebar_split = d.sidebar_split;
     }
     if ("resources" in d) {
       const resources = d.resources;
