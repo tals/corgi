@@ -3,7 +3,7 @@ import { createConnection } from "node:net";
 import { readdirSync, statSync, mkdirSync, writeFileSync, rmSync, readlinkSync } from "node:fs";
 import { join, isAbsolute, basename } from "node:path";
 import { Runtime, Pane, Create } from "../runtime";
-import { Model, Tab, max_panes, max_tabs } from "../layout";
+import { Model, Tab, max_panes } from "../layout";
 import { ResumeHint } from "../resume_hint";
 import { Text } from "../providers";
 import { label } from "../pane/label";
@@ -691,7 +691,7 @@ export class Job {
       const ws = new Workspace(this.staged.workspaces.next_id++, cwd);
       ws.rename(text(snapshot, "custom_name"));
       const tabs = list(snapshot.tabs);
-      if (!tabs.length || tabs.length > max_tabs) throw Error("TooManyTabs");
+      if (!tabs.length) throw Error("InvalidHerdrLayout");
       for (const tab of tabs) {
         const root = restoreTree(ws.model, tab.layout, states, seen),
           out = new Tab(this.staged.workspaces.next_pane_id++, root);

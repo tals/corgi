@@ -1,5 +1,5 @@
 //! Deterministic cmux snapshots become ordinary Corgi tabs.
-import { max_panes, max_tabs, Axis } from "../layout";
+import { max_panes, Axis } from "../layout";
 import { Node, validate } from "./layout";
 import type { Workspace } from "./catalog";
 const text = (v: any, k: string): string => (typeof v?.[k] === "string" ? v[k] : "");
@@ -192,7 +192,6 @@ export function convert(ws: any, details: any = {}): Workspace | null {
     total += surfaces.length;
     if (total > max_panes) return workspaceOnly(ws, "Too many surfaces for one import");
     layers = Math.max(layers, surfaces.length);
-    if (layers > max_tabs) return workspaceOnly(ws, "Too many tabs for one import");
     let rectangle = rect(p);
     if (!rectangle) {
       const detail = list(details, "panes").find(d => matches(p, id(d)));

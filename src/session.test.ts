@@ -20,37 +20,24 @@ function pane(r: Runtime, w: Workspace, split: number | null = null) {
   return id;
 }
 const topology = (r: Runtime) => stringify(r.workspaces.items.map(w => w.model));
-test("moving a pane or tab into a full workspace fails and changes nothing", async () => {
+test("a workspace takes tabs past 24, from new tabs and moves alike", async () => {
   const { r, home, away } = setup();
   try {
     const one = pane(r, home),
       split = pane(r, home, one);
-    let lone = one;
-    for (let i = 1; i < 24; i++) lone = pane(r, home);
-    const outside = location(r, pane(r, away)).tab,
-      before = topology(r),
-      next = r.workspaces.next_pane_id,
-      revision = r.revision;
+    for (let i = 1; i < 24; i++) pane(r, home);
+    pane(r, away);
+    const outside = location(r, pane(r, away)).tab;
     for (const cmd of [
       { "pane.move": { target: split, destination: { new_tab: "" } } },
       { "tab.move": { target: outside, destination: { workspace: home.id } } },
-      {
-        "tab.move": {
-          target: outside,
-          destination: { after: location(r, one).tab },
-        },
-      },
+      { "tab.move": { target: outside, destination: { after: location(r, one).tab } } },
     ])
-      await expect(execute(r, ctx, cmd)).rejects.toThrow("TooManyTabs");
-    expect(topology(r)).toBe(before);
-    expect(r.workspaces.next_pane_id).toBe(next);
-    expect(r.revision).toBe(revision);
-    const moved = await execute(r, ctx, {
-      "pane.move": { target: lone, destination: { new_tab: "Logs" } },
-    });
-    expect(moved.tab).toBe(next);
-    expect(r.workspaces.next_pane_id).toBe(next + 1);
-    expect(home.model.count).toBe(24);
+      await execute(r, ctx, cmd);
+    expect(home.model.count).toBe(26);
+    expect(home.model.tabs.findIndex(t => t.id === outside)).toBe(1);
+    pane(r, home);
+    expect(home.model.count).toBe(27);
   } finally {
     r.deinit();
   }

@@ -2,7 +2,6 @@ import { parse } from "./json";
 /** Flat shared layout; mirrors src/layout.zig. */
 export const max_panes = 64,
   max_borders = 67,
-  max_tabs = 24,
   max_nodes = 128;
 export type PaneId = number;
 export const PaneId = { none: 0, first: 1, next: (id: number) => id + 1 };
@@ -70,14 +69,7 @@ export class Model {
     const bad = () => {
       throw Error("UnexpectedToken");
     };
-    if (
-      !d ||
-      !Array.isArray(d.nodes) ||
-      !Array.isArray(d.tabs) ||
-      d.nodes.length > max_nodes ||
-      d.tabs.length > max_tabs
-    )
-      bad();
+    if (!d || !Array.isArray(d.nodes) || !Array.isArray(d.tabs) || d.nodes.length > max_nodes) bad();
     const integer = (value: number, max: number) => Number.isInteger(value) && value >= 0 && value <= max;
     for (const node of d.nodes) {
       if (node === null) continue;
@@ -145,7 +137,6 @@ export class Model {
     return i;
   }
   newTab(name: string) {
-    if (this.count === max_tabs) throw Error("TooManyTabs");
     const id = this.next_id,
       root = this.alloc({ pane: id });
     this.next_id = id + 2;

@@ -1,6 +1,6 @@
 import { Runtime, Launch } from "./runtime";
 import type { Create } from "./runtime";
-import { Model, Tab, max_tabs } from "./layout";
+import { Model, Tab } from "./layout";
 import { label } from "./pane/label";
 import { Entry, resolve, analyze, shellStatus } from "./launch/command";
 import { ResumeHint } from "./resume_hint";
@@ -326,7 +326,6 @@ export function arrange(r: Runtime, cmd: any): Result {
         const copied = dst.copyTree(original, root);
         if (kind === "beside") dst.insertTree(copied, p.other, p.direction);
         else {
-          if (dst.count === max_tabs) throw Error("TooManyTabs");
           saved.root = copied;
           if (!tabOp) {
             saved.id = r.workspaces.next_pane_id;

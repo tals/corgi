@@ -2,7 +2,7 @@
 import { isAbsolute } from "node:path";
 import { statSync } from "node:fs";
 import { Runtime, Create } from "../runtime";
-import { Model, max_panes, max_tabs, Axis } from "../layout";
+import { Model, max_panes, Axis } from "../layout";
 import { max_workspaces } from "../workspace";
 import { label } from "../pane/label";
 import type { Source, Workspace, Pane } from "./catalog";
@@ -51,7 +51,6 @@ export class Job {
       throw Error("InvalidImport");
     let total = 0;
     for (const ws of p.workspaces) {
-      if (ws.tabs.length > max_tabs) throw Error("TooManyTabs");
       for (const tab of ws.tabs) {
         if (!tab.panes.length || tab.panes.length > max_panes) throw Error("InvalidImport");
         if (tab.nodes?.length) tree.validate(tab.nodes, tab.panes.length);
