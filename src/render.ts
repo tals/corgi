@@ -302,6 +302,22 @@ function noOverlay(u: Ui): boolean {
     u.dialog === null
   );
 }
+/** An open overlay reaches the badge. The launcher and scope menu open clear of it. */
+function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): boolean {
+  const boxes: Rect[] = [];
+  if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
+  if (u.menu) boxes.push(new Rect(u.menu.x, u.menu.y, u.menu.width, u.menu.rows + 3));
+  if (u.tab_menu) {
+    const b = u.tab_menu.bounds(width, height);
+    boxes.push(new Rect(b.x, b.y, b.width, u.tab_menu.lines() + 2 * b.padding));
+  }
+  if (u.port_menu) boxes.push(sidebar.PortMenu.bounds(width, height));
+  if (u.dialog) {
+    const d = NameView.init(width, height, u.dialog);
+    boxes.push(new Rect(d.x, d.y, d.width, d.height));
+  }
+  return boxes.some(corgiBadge.overlaps);
+}
 /** The host's name for the pointing hand. iTerm2 takes X11 cursor names. */
 export function handShape(iterm2: boolean): string {
   return iterm2 ? "hand2" : "pointer";
@@ -559,15 +575,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.corgi_badge === "image") {
     w.write(corgiBadge.hide);
-    if (
-      side.width > 0 &&
-      u.agent_search === null &&
-      u.menu === null &&
-      u.tab_menu === null &&
-      u.port_menu === null &&
-      u.dialog === null
-    )
-      w.write(corgiBadge.place());
+    if (side.width > 0 && !badgeCovered(u, side, width, height)) w.write(corgiBadge.place());
   }
   const paste_at = u.paste_card ? placeCard(view, panes, area, u.paste_card, u) : null;
   if (paste_at && u.pointer && pasteCard.linkAt(u.paste_card!, paste_at, u.pointer.x, u.pointer.y)) link_pointer = true;

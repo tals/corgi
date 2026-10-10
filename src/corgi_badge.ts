@@ -1,5 +1,6 @@
 //! Viewer-owned Kitty badge; unsupported hosts fall back to emoji.
 import { png_base64 } from "./assets/corgi_badge";
+import { Rect } from "./layout";
 const png = Buffer.from(png_base64, "base64");
 const pixel_width = png.readUInt32BE(16),
   pixel_height = png.readUInt32BE(20);
@@ -9,9 +10,16 @@ export const remove = "\x1b_Ga=d,d=I,i=730031,q=2\x1b\\";
 export const hide = "\x1b_Ga=d,d=i,i=730031,p=1,q=2\x1b\\";
 export const emoji = "🐕";
 export type Mode = "none" | "emoji" | "image";
+/** The image's cells. */
+const cells = new Rect(1, 0, 3, 2);
 export function hit(mode: Mode, sidebar_width: number, x: number, y: number): boolean {
   if (!sidebar_width) return false;
-  return mode === "emoji" ? x >= 1 && x < 3 && y === 0 : mode === "image" ? x >= 1 && x < 4 && y < 2 : false;
+  return mode === "emoji" ? x >= 1 && x < 3 && y === 0 : mode === "image" ? cells.contains(x, y) : false;
+}
+/** Whether `box` reaches the image's cells. The image draws over text, so it
+ * hides beneath an overlay there. */
+export function overlaps(box: Rect): boolean {
+  return box.x < cells.x + cells.w && box.x + box.w > cells.x && box.y < cells.y + cells.h && box.y + box.h > cells.y;
 }
 export class State {
   status: "probing" | "supported" | "uploading" | "confirming" | "ready" | "unavailable" = "probing";

@@ -437,6 +437,14 @@ test("badge redraw preserves cached pixels and shifts only the workspace heading
   expect(scope).toContain("This workspace");
   expect(scope).toContain("a=p,i=730031");
   u.scope_menu = null;
+  // A context menu leaves the badge up unless it opens over it.
+  u.tab_menu = new TabMenu({ pane: true, tab: 1, anchor_x: 50, anchor_y: 10 });
+  expect(frame(view, [], 100, 30, u)).toContain("a=p,i=730031");
+  u.tab_menu = new TabMenu({ workspace: true, tab: 1, anchor_x: 2, anchor_y: 1 });
+  const covered = frame(view, [], 100, 30, u);
+  expect(covered).toContain(corgiBadge.hide);
+  expect(covered).not.toContain("a=p,i=730031");
+  u.tab_menu = null;
   u.sidebar_open = false;
   const hidden = frame(view, [], 100, 30, u);
   expect(hidden).toContain(corgiBadge.hide);
