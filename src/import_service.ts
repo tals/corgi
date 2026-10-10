@@ -123,7 +123,7 @@ export async function tick(server: Server): Promise<void> {
 }
 export function stop(server: Server): void {
   const s = services.get(server);
-  s?.herdr_import.deinit();
-  s?.onboarding_copy.deinit();
+  s?.herdr_import.cancel();
+  s?.onboarding_copy.stop();
   services.delete(server);
 }

@@ -137,6 +137,6 @@ export async function installCodexTitle(): Promise<void> {
     codexConfig.backup(path);
     await connection.rpc("config/value/write", edit, undefined, deadline);
   } finally {
-    pool.deinit();
+    pool.close();
   }
 }

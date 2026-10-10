@@ -74,7 +74,7 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
       if (!active) return;
     }
   } finally {
-    viewer.deinit(view);
+    viewer.close(view);
     lines.close();
   }
 }

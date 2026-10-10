@@ -18,7 +18,7 @@ test("a file written under a watched folder is reported in its root's spelling",
     for (let i = 0; i < 50 && !done(); i++) await w.wait(100, changes);
     expect(done()).toBe(true);
   } finally {
-    w.deinit();
+    w.close();
     rmSync(base, { recursive: true, force: true });
   }
 });

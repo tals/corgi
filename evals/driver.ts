@@ -95,7 +95,7 @@ async function main() {
       }
     }
   } finally {
-    pool.deinit();
+    pool.close();
   }
 }
 

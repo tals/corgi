@@ -51,7 +51,7 @@ test("all wrapping runtime revisions retain u64 bounds", () => {
     r.changed();
     expect([r.revision, r.durable, r.shown]).toEqual([0n, 0n, 0n]);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a resumed pane survives conversation capacity errors", async () => {
@@ -71,7 +71,7 @@ test("a resumed pane survives conversation capacity errors", async () => {
   } finally {
     get.mockRestore();
     warn.mockRestore();
-    r.deinit();
+    r.destroy();
   }
 });
 test("a fork survives conversation capacity and sidebar placement errors", async () => {
@@ -98,7 +98,7 @@ test("a fork survives conversation capacity and sidebar placement errors", async
     get.mockRestore();
     move.mockRestore();
     warn.mockRestore();
-    r.deinit();
+    r.destroy();
   }
 });
 test("fork names trim ASCII spaces while tabs remain invalid", async () => {
@@ -106,6 +106,6 @@ test("fork names trim ASCII spaces while tabs remain invalid", async () => {
   try {
     await expect(r.forkAgent(opts, 99, " \tname ")).rejects.toThrow("InvalidName");
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });

@@ -374,7 +374,7 @@ export class Runtime {
   pane(id: number): Pane | null {
     return this.panes.find(p => p.id === id) ?? null;
   }
-  deinit(): void {
+  destroy(): void {
     for (const p of this.panes) p.terminal.destroy();
     this.panes = [];
     this.snapshot = null;

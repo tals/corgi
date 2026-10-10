@@ -343,8 +343,8 @@ export class Menu {
   static open(): Menu {
     return new Menu();
   }
-  deinit(): void {
-    this.import_picker.deinit();
+  close(): void {
+    this.import_picker.close();
   }
   /** The import picker while the list's cursor is on an import source,
    * switched to that source. A copy keeps the source it started from. */

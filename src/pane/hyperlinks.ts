@@ -7,7 +7,4 @@ export class Snapshot {
   capture(terminal: Terminal): void {
     this.links = terminal.native({ op: "links" });
   }
-  deinit(): void {
-    this.links = [];
-  }
 }

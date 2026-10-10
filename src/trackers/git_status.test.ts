@@ -40,7 +40,7 @@ test("upstream counts follow commits and packed refs, deduplicate subdirectories
     await git(worktree, "commit", "--allow-empty", "-m", "topic");
     expect(await t.refresh(worktree, 10000)).toBe(3n);
     expect(await t.refresh(repo, 10000)).toBe(2n);
-    t.deinit();
+    t.close();
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -85,7 +85,7 @@ test("test clock advance makes a tracker refresh deadline due", async () => {
     expect(tracker.next_refresh).toBeGreaterThan(deadline);
     await tracker.thread;
   } finally {
-    tracker.deinit();
+    tracker.close();
     clock.reset();
   }
 });

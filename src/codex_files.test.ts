@@ -45,11 +45,11 @@ test("index worker reads complete records and releases an interrupted refresh", 
     expect(index.name("missing").len).toBe(0);
     index.next_read = 0;
     const pending = index.refreshAsync();
-    index.deinit();
+    index.close();
     await pending;
     expect(index.names.size).toBe(0);
   } finally {
-    index.deinit();
+    index.close();
     if (previous === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = previous;
     rmSync(directory, { recursive: true, force: true });

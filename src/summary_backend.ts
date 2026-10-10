@@ -32,15 +32,15 @@ export class Backend {
   pool = new Pool();
   next_request = 0n;
   use(provider: Provider | null) {
-    this.pool.deinit();
+    this.pool.close();
     this.pool.started = false;
     this.pool.config.disabled = provider === null;
     if (provider) this.pool.config.provider = provider;
     this.pool.config.model = model(provider) || null;
     this.pool.config.executable = process.env.CORGI_INFERENCE_BIN ?? null;
   }
-  deinit() {
-    this.pool.deinit();
+  close() {
+    this.pool.close();
   }
   async infer(input: Input, turn: string, conversation: string, source: Source, stopping: any = false) {
     const request = ++this.next_request,

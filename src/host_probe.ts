@@ -23,10 +23,6 @@ export class Probe {
   packet = "";
   in_packet = false;
   packet_escape = false;
-  deinit() {
-    this.clipboard.deinit();
-    this.pending = this.packet = "";
-  }
   feed(bytes: Uint8Array | string, now = Date.now()): Buffer {
     const input = typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes),
       out: number[] = [];

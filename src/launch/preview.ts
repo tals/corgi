@@ -92,8 +92,8 @@ export class Worker {
   stop() {
     this.stopping = true;
     this.quit.signal();
-    this.pool.deinit();
-    this.claude_client.deinit();
+    this.pool.close();
+    this.claude_client.close();
   }
   preview(cwd: string) {
     return this.request(cwd, false);

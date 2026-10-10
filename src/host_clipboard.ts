@@ -115,11 +115,6 @@ export class State {
   reading: Reading | null = null;
   stall_by = 0;
   result: Result | null = null;
-  deinit() {
-    this.out = "";
-    this.reading = null;
-    this.result = null;
-  }
   takeOutput() {
     const output = this.out;
     this.out = "";

@@ -123,9 +123,6 @@ export class Store {
     this.next_id = d.next_id;
     return d.active as number;
   }
-  deinit() {
-    this.items = [];
-  }
   index(id: number) {
     const i = this.items.findIndex(w => w.id === id);
     return i < 0 ? null : i;

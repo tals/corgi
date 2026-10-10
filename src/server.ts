@@ -233,7 +233,7 @@ export class Server {
       for (const c of [...this.clients]) c.close();
       if (this.listener >= 0) n.probe_close(this.listener);
       this.listener = -1;
-      this.runtime.deinit();
+      this.runtime.destroy();
       this.loop.close();
       closeReadiness();
       this.socketPath?.release();
@@ -620,7 +620,7 @@ export class Server {
     for (const cl of [...this.clients]) cl.close();
     if (this.listener >= 0) n.probe_close(this.listener);
     this.listener = -1;
-    this.runtime.deinit();
+    this.runtime.destroy();
     this.loop.close();
     closeReadiness();
     this.socketPath?.release();

@@ -70,8 +70,8 @@ export class Picker {
   blink_closed = false;
   scan_finished = false;
   selection_initialized = false;
-  deinit() {
-    for (const worker of this.workers.values()) worker.deinit();
+  close() {
+    for (const worker of this.workers.values()) worker.close();
     this.workers.clear();
   }
   worker() {
@@ -108,7 +108,7 @@ export class Picker {
   refresh() {
     const worker = this.worker();
     if (worker && !worker.done) return;
-    worker?.deinit();
+    worker?.close();
     this.workers.delete(this.source);
     this.selected.fill(false);
     this.expanded.fill(false);

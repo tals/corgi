@@ -78,7 +78,7 @@ test("successful migrated recovery keeps its backup when the final rewrite fails
   } finally {
     restore.mockRestore();
     error.mockRestore();
-    r.deinit();
+    r.destroy();
     if (prior === undefined) delete process.env.XDG_STATE_HOME;
     else process.env.XDG_STATE_HOME = prior;
     rmSync(root, { recursive: true, force: true });

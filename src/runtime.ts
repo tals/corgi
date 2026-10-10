@@ -245,7 +245,7 @@ export class ClosedAgent {
     public workspace_id: number,
     public resume_hint: ResumeHint,
   ) {}
-  deinit() {
+  destroy() {
     this.terminal.destroy();
   }
 }
@@ -298,19 +298,20 @@ export class Runtime {
     for (const p of [...this.panes, ...this.closed]) p.terminal.owner = "runtime";
     for (const s of this.sessions) s.owner = "runtime";
   }
-  deinit() {
-    this.resources.deinit();
-    this.ports.deinit();
-    this.git_push.deinit();
-    this.git_status.deinit();
+  [Symbol.dispose]() {
+    this.destroy();
+  }
+  destroy() {
+    this.resources.close();
+    this.ports.close();
+    this.git_push.close();
+    this.git_status.close();
     for (const p of this.panes) {
       p.dropGhost();
       p.terminal.destroy();
     }
-    for (const p of this.closed) p.deinit();
+    for (const p of this.closed) p.destroy();
     for (const s of this.sessions) s.destroy();
-    this.workspaces.deinit();
-    this.conversations.deinit();
     this.panes = [];
     this.closed = [];
     this.sessions = [];
@@ -388,7 +389,7 @@ export class Runtime {
       if (running && p.resume_hint.args() !== null) {
         if (this.closedCount(owner.id) === closed_per_workspace) {
           const n = this.closedIndex(owner.id, "oldest")!;
-          this.closed.splice(n, 1)[0].deinit();
+          this.closed.splice(n, 1)[0].destroy();
         }
         const saved = new ClosedAgent(p.terminal, p.cwd, previous, owner.id, p.resume_hint);
         saved.label = p.label;
@@ -455,7 +456,7 @@ export class Runtime {
     }
     this.pane(id)!.label = saved.label;
     this.closed.splice(index, 1);
-    saved.deinit();
+    saved.destroy();
     return id;
   }
   async frozenScreen(opts: Pick<Create, "cols" | "rows" | "theme">, old: string | Uint8Array | null) {
@@ -654,7 +655,7 @@ export class Runtime {
     if (!close_contents && (ws.model.count > 0 || this.sessions.some(s => s.workspace_id === id)))
       throw Error("WorkspaceNotEmpty");
     while (ws.model.count) this.close(ws.model.firstPane(ws.model.tabs[0].root));
-    for (const c of this.closed.filter(c => c.workspace_id === id)) c.deinit();
+    for (const c of this.closed.filter(c => c.workspace_id === id)) c.destroy();
     this.closed = this.closed.filter(c => c.workspace_id !== id);
     for (const s of this.sessions.filter(s => s.workspace_id === id)) s.destroy();
     this.sessions = this.sessions.filter(s => s.workspace_id !== id);

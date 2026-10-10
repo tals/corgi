@@ -5,7 +5,7 @@ function fixture() {
   return {
     server,
     dispose: () => {
-      server.runtime.deinit();
+      server.runtime.destroy();
       (server as any).loop.close();
     },
   };

@@ -34,9 +34,6 @@ export type SourceSession = {
 };
 export class Scan {
   constructor(public sessions: SourceSession[]) {}
-  deinit() {
-    this.sessions = [];
-  }
 }
 const text = (v: any, k: string): string => (typeof v?.[k] === "string" ? v[k] : "");
 const list = (v: any): any[] => (Array.isArray(v) ? v : []);
@@ -495,7 +492,7 @@ export class Manager {
     if (this.job) {
       if (!["complete", "failed"].includes(this.job.phase) || (this.job.phase === "complete" && !this.job.adopted))
         throw Error("HandoffInProgress");
-      this.deinit();
+      this.cancel();
     }
     this.job = new Job(source, executable, theme, viewer_pgid);
     void this.job.run();
@@ -567,7 +564,8 @@ export class Manager {
     if (job.phase === "failed") job.reserved = false;
     return false;
   }
-  deinit() {
+  /** Cancels the current handoff and drops it. */
+  cancel() {
     const job = this.job;
     if (!job) return;
     job.cancel = true;
@@ -622,7 +620,7 @@ export class Job {
   }
   cleanup() {
     if (this.phase === "complete" && !this.adopted) return;
-    this.staged.deinit();
+    this.staged.destroy();
     for (const fd of this.fds) if (fd >= 0) n.probe_close(fd);
     this.fds = [];
   }

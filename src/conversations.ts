@@ -261,9 +261,6 @@ export class Registry {
   items: Actor[] = [];
   compaction_points = new Points();
   next_id: ActorId = Actor.Id.first;
-  deinit() {
-    this.items = [];
-  }
   find(provider: Provider, session: string) {
     return this.items.find(a => a.state.provider === provider && a.state.sessionId() === session) ?? null;
   }

@@ -403,7 +403,7 @@ test("each import source opens its sessions beside the list", async () => {
   await menu.poll(conn);
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Import complete");
   expect(menu.enter(s, prefs)).toEqual({ kind: "imported", workspace: 7 });
-  menu.deinit();
+  menu.close();
 });
 
 test("the frame takes the terminal's height, and a short list scrolls", () => {

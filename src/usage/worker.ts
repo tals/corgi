@@ -290,7 +290,7 @@ export class Worker {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
     this.watchers.clear();
-    this.index.deinit();
+    this.index.close();
   }
   reconcile(runtime: any) {
     this.requests = [];

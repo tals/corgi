@@ -24,9 +24,6 @@ export class Quit {
   get abortSignal() {
     return this.controller.signal;
   }
-  deinit() {
-    this.signal();
-  }
 }
 export class Output {
   constructor(
@@ -37,7 +34,6 @@ export class Output {
   ok() {
     return "exited" in this.term && this.term.exited === 0;
   }
-  deinit() {}
 }
 function spawnError(error: any): Error {
   const name = (

@@ -33,5 +33,5 @@ test("a copy's plan outlives the request that brought it", () => {
   job.start(plan);
   plan.herdr_session.workspaces[0].tabs[0].root.type = "destroyed";
   expect(job.plan!.herdr_session!.workspaces[0].tabs[0].root.type).toBe("pane");
-  job.deinit();
+  job.stop();
 });

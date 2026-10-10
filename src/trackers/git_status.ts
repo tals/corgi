@@ -93,7 +93,7 @@ export class Tracker {
   next_refresh = 0;
   jobs: Job[] = [];
   cache = new Map<string, Cached>();
-  deinit() {
+  close() {
     this.stopping = true;
     this.cache.clear();
     this.jobs = [];

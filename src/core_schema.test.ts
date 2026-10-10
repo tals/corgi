@@ -96,7 +96,7 @@ function fixture() {
     server,
     client,
     dispose() {
-      server.runtime.deinit();
+      server.runtime.destroy();
       loop.close();
     },
   };

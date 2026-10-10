@@ -30,7 +30,7 @@ test("onboarding offers only platform-supported presets and import sources", asy
     expect(state.picker.source).toBe("tmux");
     expect(() => Worker.start("cmux")).toThrow("CmuxRequiresMacOS");
   }
-  state.deinit();
+  state.close();
 });
 test("failed discovery does not claim the source has no sessions", () => {
   const state = new State();
@@ -39,7 +39,7 @@ test("failed discovery does not claim the source has no sessions", () => {
   const output = state.frame(76, 26);
   expect(output.includes("Couldn't read this source.")).toBe(true);
   expect(output.includes("No available sessions found")).toBe(false);
-  state.deinit();
+  state.close();
 });
 test("workspace previews keep recovery rows and handoff selection aligned while expanding", async () => {
   const tabs = [
@@ -97,7 +97,7 @@ test("workspace previews keep recovery rows and handoff selection aligned while 
   state.frame(76, 26);
   await state.click(76, 26, 8, 14, conn);
   expect(state.picker.cursor).toBe(1);
-  state.deinit();
+  state.close();
 });
 test("keyboard setup saves without chaining and Esc closes it; first run cannot be dismissed", async () => {
   const keyboard = State.start("keyboard", "tmux", "ctrl_b");
@@ -109,7 +109,7 @@ test("keyboard setup saves without chaining and Esc closes it; first run cannot 
   const welcome = new State();
   expect(await welcome.key(27, conn)).toBe(false);
   expect(welcome.cancelled).toBe(false);
-  keyboard.deinit();
-  escape.deinit();
-  welcome.deinit();
+  keyboard.close();
+  escape.close();
+  welcome.close();
 });

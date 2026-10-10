@@ -12,7 +12,7 @@ export class Index {
   private worker: IndexWorker | null = null;
   private pending: Promise<void> | null = null;
   private complete: (() => void) | null = null;
-  deinit() {
+  close() {
     this.worker?.terminate();
     this.worker = null;
     this.complete?.();

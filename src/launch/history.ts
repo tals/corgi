@@ -181,9 +181,6 @@ export function codexTail(tail: string, mid = false) {
 }
 export class Cache {
   files = new Map<string, { stamp: string; entry: Entry | null; seen: boolean }>();
-  deinit() {
-    this.files.clear();
-  }
   lookup(path: string, s: any) {
     const c = this.files.get(path);
     if (c) c.seen = true;
@@ -305,7 +302,7 @@ export class Worker {
     this.stopping = true;
     if (this.timer) clearTimeout(this.timer);
     for (const watcher of this.watchers) watcher.close();
-    this.pool.deinit();
+    this.pool.close();
   }
   snapshot(): History {
     return {

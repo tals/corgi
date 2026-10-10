@@ -559,7 +559,7 @@ export class Tracker {
     this.enabled = enabled;
     this.next_refresh = 0;
   }
-  deinit() {
+  close() {
     this.stopping = true;
     this.abort.abort();
   }

@@ -40,7 +40,7 @@ export class Job {
   busy() {
     return this.plan !== null;
   }
-  deinit() {
+  stop() {
     this.plan = null;
   }
   start(plan: Plan): void {
@@ -85,14 +85,14 @@ export class Job {
       if (this.index === plan.workspaces.length) {
         this.progress.phase = "complete";
         this.progress.message = "Copied successfully. Source processes are unchanged.";
-        this.deinit();
+        this.stop();
       }
     } catch (error) {
       for (const id of this.created) discard(r, id);
       this.progress.phase = "failed";
       this.progress.message = (error as Error).message;
       this.progress.completed = 0;
-      this.deinit();
+      this.stop();
     }
     return true;
   }

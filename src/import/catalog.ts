@@ -103,10 +103,9 @@ export class Worker {
     void worker.run();
     return worker;
   }
-  deinit() {
+  close() {
     this.stop = true;
     this.quit.signal();
-    this.herdr_scan?.deinit();
   }
   private async run() {
     try {

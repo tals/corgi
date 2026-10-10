@@ -39,7 +39,7 @@ test("a workspace takes tabs past 24, from new tabs and moves alike", async () =
     pane(r, home);
     expect(home.model.count).toBe(27);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a tab cannot merge into itself, and missing destinations change nothing", async () => {
@@ -80,7 +80,7 @@ test("a tab cannot merge into itself, and missing destinations change nothing", 
       await expect(execute(r, ctx, cmd)).rejects.toThrow(error);
     expect(topology(r)).toBe(before);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("merging a tab moves its whole tree beside a pane in any workspace", async () => {
@@ -117,7 +117,7 @@ test("merging a tab moves its whole tree beside a pane in any workspace", async 
     expect(home.model.revision).toBe(rev + 1n);
     expect(away.model.revision).toBe(otherRev + 1n);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("swapping panes exchanges their places, across workspaces too", async () => {
@@ -144,7 +144,7 @@ test("swapping panes exchanges their places, across workspaces too", async () =>
     expect(home.model.revision).toBe(rev + 1n);
     expect(away.model.revision).toBe(otherRev + 1n);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a viewer's snapshot stays byte-stable while only output and stamps move", () => {
@@ -165,7 +165,7 @@ test("a viewer's snapshot stays byte-stable while only output and stamps move", 
     actor.observed_at += 5000000;
     expect(stringify(viewerSnapshot(r))).not.toBe(before);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a viewer's snapshot leaves out conversations nothing is attached to", () => {
@@ -181,6 +181,6 @@ test("a viewer's snapshot leaves out conversations nothing is attached to", () =
     expect(shown[0].attachments).toBe(1);
     expect(snapshot(r).conversations.length).toBe(3);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });

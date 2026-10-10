@@ -214,7 +214,4 @@ export class Client {
     n.probe_close(this.fd);
     this.disconnected();
   }
-  deinit(): void {
-    this.close();
-  }
 }

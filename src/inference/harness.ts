@@ -215,7 +215,7 @@ export class Connection {
     n.probe_close(this.stdin);
     n.probe_close(this.stdout);
     harnesses--;
-    this.tracker.deinit();
+    this.tracker.clear();
   }
 }
 export class Pool {
@@ -336,7 +336,10 @@ export class Pool {
   inherit() {
     for (const connection of this.slots) if (connection) connection.owner = "runtime";
   }
-  deinit() {
+  [Symbol.dispose]() {
+    this.close();
+  }
+  close() {
     for (const connection of this.slots) connection?.close();
     this.slots.fill(null);
   }

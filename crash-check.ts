@@ -32,14 +32,14 @@ try {
     readdirSync(join(root, "outbox")).some(name => name.endsWith(".envelope")),
     js.stderr,
   );
-  await child("await Bun.sleep(100);await crash.uploadPending();crash.deinit();");
+  await child("await Bun.sleep(100);await crash.uploadPending();crash.close();");
   assert(reports.some(report => report.includes("synthetic JavaScript failure")));
   const before = reports.length;
   const native = await child(
     "import {dlopen} from 'bun:ffi';const lib=dlopen(process.platform==='darwin'?'/usr/lib/libSystem.B.dylib':'libc.so.6',{abort:{args:[],returns:'void'}});lib.symbols.abort();",
   );
   assert.notEqual(native.status, 0);
-  await child("await Bun.sleep(100);await crash.uploadPending();crash.deinit();");
+  await child("await Bun.sleep(100);await crash.uploadPending();crash.close();");
   assert(reports.length > before, JSON.stringify({ native, files: readdirSync(root, { recursive: true }) }));
   console.log(
     JSON.stringify(

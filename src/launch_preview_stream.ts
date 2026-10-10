@@ -15,9 +15,6 @@ export class Stream {
   retry_at = 0;
   history: History = { pending: true, entries: [] };
   changed = false;
-  deinit() {
-    this.disconnect();
-  }
   disconnect() {
     this.fd?.destroy();
     this.fd = null;

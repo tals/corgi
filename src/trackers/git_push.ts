@@ -62,7 +62,7 @@ export class Manager {
   busy() {
     return this.jobs.some(Boolean);
   }
-  deinit() {
+  close() {
     for (const job of this.jobs) job?.quit.signal();
     this.jobs.fill(null);
   }

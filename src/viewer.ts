@@ -67,12 +67,12 @@ function incompatible(error: Error): Error {
     ? Error("IncompatibleViewerProtocol")
     : error;
 }
-export function deinit(view: Controller): void {
-  view.launch_previews.deinit();
-  if (view.onboarding) view.onboarding.deinit();
+export function close(view: Controller): void {
+  view.launch_previews.disconnect();
+  if (view.onboarding) view.onboarding.close();
   view.dismissName();
   view.clearEffects();
-  view.runtime.deinit();
+  view.runtime.destroy();
 }
 export async function sync(view: Controller, bell: { seq: number | bigint }, play_sound: boolean): Promise<boolean> {
   for (const p of view.runtime.panes) {
@@ -361,7 +361,7 @@ export async function run(
       if (view.name_dialog?.hero.motion) writeAll(forkMotion.remove);
     }
   } finally {
-    deinit(view);
+    close(view);
   }
 }
 /** Writes what the host needs to show `frame`, diffed against what it shows. */

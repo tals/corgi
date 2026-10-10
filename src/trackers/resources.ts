@@ -247,7 +247,7 @@ export class Tracker {
   private worker: (Worker & { unref(): void }) | null = null;
   private complete: (() => void) | null = null;
   private failure = new Failure();
-  deinit() {
+  close() {
     this.stopping = true;
     this.worker?.terminate();
     this.worker = null;

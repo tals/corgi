@@ -33,7 +33,7 @@ test("stopping a Bun-owned shell leaves child collection to Bun", async () => {
     if (child.exitCode === null) child.kill();
     await child.exited;
     terminal.destroy();
-    r.deinit();
+    r.destroy();
   }
 });
 test("only attached conversations and their subagents are followed", () => {
@@ -51,7 +51,7 @@ test("only attached conversations and their subagents are followed", () => {
     p.terminal.exited = true;
     expect(r.followed(child)).toBe(false);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("output and readings bump only the revisions that hold them", () => {
@@ -62,7 +62,7 @@ test("output and readings bump only the revisions that hold them", () => {
   expect([r.revision, r.durable, r.shown]).toEqual([3n, 2n, 2n]);
   r.changed();
   expect([r.revision, r.durable, r.shown]).toEqual([4n, 3n, 3n]);
-  r.deinit();
+  r.destroy();
 });
 test("detection reads a quiet pane only every few seconds", () => {
   const { r, w } = setup();
@@ -77,7 +77,7 @@ test("detection reads a quiet pane only every few seconds", () => {
     p.detection.missing = 1;
     expect(p.detectionDue(10250)).toBe(true);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("closing a running agent keeps it for its own workspace; shells and agents that quit are not kept", () => {
@@ -97,7 +97,7 @@ test("closing a running agent keeps it for its own workspace; shells and agents 
     r.close(exited.id);
     expect(r.closedCount(w.id)).toBe(1);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("an agent that failed stays with how it ended; one that quit, a shell and a script do not", () => {
@@ -117,7 +117,7 @@ test("an agent that failed stays with how it ended; one that quit, a shell and a
     expect(ending(2 << 8)).toContain("Exited with code 2");
     expect(ending(15)).toContain("Ended by signal 15");
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a fork's ghost shows the command it runs, not a resume", () => {
@@ -129,7 +129,7 @@ test("a fork's ghost shows the command it runs, not a resume", () => {
     p.ghost.fork = "codex fork source";
     expect(p.restoring()).toBe("codex fork source");
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a reopened agent that Claude's daemon runs shows the attach it runs", () => {
@@ -140,7 +140,7 @@ test("a reopened agent that Claude's daemon runs shows the attach it runs", () =
     p.background_job = "job";
     expect(p.restoring()).toBe("claude attach job");
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("each workspace keeps its newest closed agents, and closing it drops them", () => {
@@ -157,7 +157,7 @@ test("each workspace keeps its newest closed agents, and closing it drops them",
     r.closeWorkspace(1, true);
     expect(r.closed.length).toBe(0);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("resuming a conversation finds the newest agent closed with it, in any workspace", () => {
@@ -171,7 +171,7 @@ test("resuming a conversation finds the newest agent closed with it, in any work
     expect(r.closedConversation("codex", "same")).toBe(1);
     expect(r.closedConversation("claude", "same")).toBeNull();
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a fork starts the way its source did, copying the conversation", () => {
@@ -210,7 +210,7 @@ test("a dormant agent keeps its old screen with nothing running, and closing it 
     r.close(p.id);
     expect(r.closedCount(w.id)).toBe(1);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("waking a dormant agent starts it in its own pane behind its old screen", async () => {
@@ -231,7 +231,7 @@ test("waking a dormant agent starts it in its own pane behind its old screen", a
     expect(actor.state.state).toBe("idle");
     await expect(r.wake(p.id, wakeOptions, false)).rejects.toThrow("NotDormant");
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("waking a dormant agent into a shell types its command without running it", async () => {
@@ -246,7 +246,7 @@ test("waking a dormant agent into a shell types its command without running it",
     expect(p.terminal.text()).toContain("OLD SCREEN");
     expect(p.terminal.initial_input).toBe(`codex ${Provider.info("codex").yolo_flag} resume 'agent-session'`);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 function ghost(p: Pane, old: string | null) {
@@ -266,7 +266,7 @@ test("a reopened agent's ghost shows until the agent draws and holds still", () 
     expect(p.watchGhost(399)).toBe(false);
     expect(p.watchGhost(400)).toBe(true);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a ghost goes as soon as the agent's screen reads as the old one, or after the longest wait", () => {
@@ -285,7 +285,7 @@ test("a ghost goes as soon as the agent's screen reads as the old one, or after 
     busy.terminal.feed("x");
     expect(busy.watchGhost(2100)).toBe(true);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a blank ghost waits for the agent to hold still, even on a cleared screen", () => {
@@ -299,7 +299,7 @@ test("a blank ghost waits for the agent to hold still, even on a cleared screen"
     expect(p.watchGhost(200)).toBe(false);
     expect(p.watchGhost(500)).toBe(true);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("a closed split's tab goes back after the tab it shared", () => {
@@ -312,7 +312,7 @@ test("a closed split's tab goes back after the tab it shared", () => {
     r.close(right.id);
     expect(r.closed[0].tab_index).toBe(2);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("reapStopped collects exited shells and forgets processes that are not ours", () => {
@@ -329,6 +329,6 @@ test("reapStopped collects exited shells and forgets processes that are not ours
     process.kill(running, "SIGKILL");
     n.probe_wait_child(running);
     r.stopped = [];
-    r.deinit();
+    r.destroy();
   }
 });

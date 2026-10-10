@@ -66,7 +66,7 @@ test("explicit onboarding opens again after preferences say it was completed", a
   } finally {
     refresh.mockRestore();
     load.mockRestore();
-    viewer.deinit(view);
+    viewer.close(view);
   }
 });
 
@@ -94,6 +94,6 @@ test("a relaunch control exits sync with its executable before acknowledgement",
     expect(view.input_state.last_control).toBe(0);
     expect(view.message).not.toBe("UnknownAction");
   } finally {
-    viewer.deinit(view);
+    viewer.close(view);
   }
 });

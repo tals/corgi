@@ -41,7 +41,7 @@ test("resource Worker preserves counters and rejects samples after ownership cha
     expect(tracker.tick(runtime, false)).toBe(false);
     expect(tracker.current).toBe(previous);
   } finally {
-    tracker.deinit();
+    tracker.close();
     clock.reset();
   }
 }, 10000);

@@ -328,7 +328,7 @@ export class Worker {
   stop() {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
-    this.implementation.deinit();
+    this.implementation.close();
     this.slots.fill(null);
   }
   submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[]) {

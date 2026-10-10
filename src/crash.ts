@@ -135,7 +135,7 @@ export async function uploadPending(): Promise<void> {
     uploading = false;
   }
 }
-export function deinit() {
+export function close() {
   if (!initialized) return;
   process.off("uncaughtExceptionMonitor", notePanic);
   native?.symbols.app_crash_close();

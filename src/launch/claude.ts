@@ -34,9 +34,6 @@ export class Client {
    * resolves "default"; empty until read. */
   default_model = new Text();
   default_checked = false;
-  deinit() {
-    this.close();
-  }
   close() {
     this.session?.close();
     this.session = null;

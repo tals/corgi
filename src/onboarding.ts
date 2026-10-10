@@ -41,8 +41,8 @@ export class State {
     this.cancelled = true;
     return true;
   }
-  deinit() {
-    this.picker.deinit();
+  close() {
+    this.picker.close();
   }
   fail(error: Error | string) {
     this.setMessage(typeof error === "string" ? error : error.message);

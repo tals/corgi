@@ -13,9 +13,6 @@ export class Changes {
     this.paths.clear();
     this.overflow = false;
   }
-  deinit() {
-    this.clear();
-  }
   take(other: Changes) {
     for (const path of other.paths) this.add(path);
     this.overflow ||= other.overflow;
@@ -73,7 +70,7 @@ export class Watcher {
   interrupt() {
     this.wake.broadcast();
   }
-  deinit() {
+  close() {
     this.stopped = true;
     for (const w of this.watches.values()) w.close();
     this.watches.clear();

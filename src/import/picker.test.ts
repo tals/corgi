@@ -23,7 +23,7 @@ test("tmux selects at most three recent groups once per discovery", () => {
   p.scan();
   p.selectDefaults();
   expect(p.selected[0]).toBe(false);
-  p.deinit();
+  p.close();
 });
 
 test("the cursor stops at either end unless it wraps", () => {
@@ -36,7 +36,7 @@ test("the cursor stops at either end unless it wraps", () => {
   expect(p.cursor).toBe(1);
   p.move(true, true);
   expect(p.cursor).toBe(0);
-  p.deinit();
+  p.close();
 });
 
 test("clicks land on the rows the tree draws", () => {
@@ -52,7 +52,7 @@ test("clicks land on the rows the tree draws", () => {
   p.click({ select: 1 });
   expect(p.cursor).toBe(1);
   expect(p.selected[1]).toBe(false);
-  p.deinit();
+  p.close();
 });
 
 test("Herdr's handoff switch is the first row the cursor stops on", () => {
@@ -75,5 +75,5 @@ test("Herdr's handoff switch is the first row the cursor stops on", () => {
   p.click({ handoff: true });
   expect(p.switch_focused).toBe(true);
   expect(p.handoff).toBe(true);
-  p.deinit();
+  p.close();
 });

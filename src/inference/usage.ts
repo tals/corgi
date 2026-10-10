@@ -13,7 +13,7 @@ export class System {
 }
 export class Tracker {
   threads = new Map<string, Tokens>();
-  deinit() {
+  clear() {
     this.threads.clear();
   }
   begin(id: string) {

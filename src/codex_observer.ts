@@ -52,7 +52,6 @@ export class Snapshot {
     this.session = session;
     this.state = state;
   }
-  deinit() {}
 }
 export function unique(ids: any[], prefix: Text) {
   const matching = ids.filter(id => typeof id === "string" && id.length === 36 && id.startsWith(prefix.text()));

@@ -56,22 +56,18 @@ for (const version of [2, 3, 4, 5])
           if (version === 5) expect(bytes).not.toContain("\\u0000");
         }
       } finally {
-        r.deinit();
+        r.destroy();
       }
     },
   );
 test.skip("generate the V5 fixture from the migrated V4 fixture (CORGI_UPDATE_FIXTURE=1 only)", () => {});
 test("saved checkpoint format matches its version", () => {
   expect(schema).toBe(readFileSync(resolve(fixtures, "checkpoint.schema"), "utf8"));
-  const r = fresh();
-  try {
-    validateCheckpoint(roundtrip(cp.capture(r, true)));
-    const value = roundtrip(cp.capture(r, false));
-    expect(value.version).toBe(migrations.checkpoint_version);
-    validateCheckpoint(value);
-  } finally {
-    r.deinit();
-  }
+  using r = fresh();
+  validateCheckpoint(roundtrip(cp.capture(r, true)));
+  const value = roundtrip(cp.capture(r, false));
+  expect(value.version).toBe(migrations.checkpoint_version);
+  validateCheckpoint(value);
 });
 test("sidebar order survives live and recovery checkpoints and defaults for old state", async () => {
   const r = fresh(),
@@ -80,25 +76,17 @@ test("sidebar order survives live and recovery checkpoints and defaults for old 
   r.workspaces.items[0].agent_order = Order.restore(order);
   try {
     for (const live of [true, false]) {
-      const next = new Runtime();
-      try {
-        await restore(next, cp.capture(r, live), live);
-        expect(next.workspaces.get(id)!.agent_order.slice()).toEqual(order);
-      } finally {
-        next.deinit();
-      }
+      using next = new Runtime();
+      await restore(next, cp.capture(r, live), live);
+      expect(next.workspaces.get(id)!.agent_order.slice()).toEqual(order);
     }
     const state = cp.capture(r, true);
     Reflect.deleteProperty(state.workspaces[0], "agent_order");
-    const next = new Runtime();
-    try {
-      await restore(next, state, true);
-      expect(next.workspaces.get(id)!.agent_order.len).toBe(0);
-    } finally {
-      next.deinit();
-    }
+    using next = new Runtime();
+    await restore(next, state, true);
+    expect(next.workspaces.get(id)!.agent_order.len).toBe(0);
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("each workspace keeps its last agent, and one that has none follows the latest", async () => {
@@ -108,19 +96,15 @@ test("each workspace keeps its last agent, and one that has none follows the lat
   r.workspaces.get(used)!.last_agent = "claude";
   try {
     for (const live of [true, false]) {
-      const next = new Runtime();
-      try {
-        await restore(next, cp.capture(r, live), live);
-        expect(next.lastAgent(next.workspaces.get(used)!)).toBe("claude");
-        expect(next.lastAgent(next.workspaces.get(unused)!)).toBe("codex");
-        next.last_agent = "claude";
-        expect(next.lastAgent(next.workspaces.get(unused)!)).toBe("claude");
-      } finally {
-        next.deinit();
-      }
+      using next = new Runtime();
+      await restore(next, cp.capture(r, live), live);
+      expect(next.lastAgent(next.workspaces.get(used)!)).toBe("claude");
+      expect(next.lastAgent(next.workspaces.get(unused)!)).toBe("codex");
+      next.last_agent = "claude";
+      expect(next.lastAgent(next.workspaces.get(unused)!)).toBe("claude");
     }
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("conversation checkpoint restores shared bindings and detached unread state", async () => {
@@ -172,9 +156,9 @@ test("conversation checkpoint restores shared bindings and detached unread state
     expect(historical.observed_at).toBe(0);
     expect(historical.state.observation.unread()).toBe(true);
   } finally {
-    next.deinit();
-    cold.deinit();
-    r.deinit();
+    next.destroy();
+    cold.destroy();
+    r.destroy();
   }
 });
 test("cold recovery leaves an agent's pane dormant over its old screen, and a live reload keeps it so", async () => {
@@ -201,9 +185,9 @@ test("cold recovery leaves an agent's pane dormant over its old screen, and a li
     expect(live.panes.map(p => p.dormant)).toEqual([false, true]);
     expect(live.panes[1].terminal.exited).toBe(true);
   } finally {
-    live.deinit();
-    cold.deinit();
-    r.deinit();
+    live.destroy();
+    cold.destroy();
+    r.destroy();
   }
 });
 test("legacy pane checkpoint migrates identity into an actor", async () => {
@@ -221,7 +205,7 @@ test("legacy pane checkpoint migrates identity into an actor", async () => {
     expect(r.panes[0].agent().observation.unread()).toBe(true);
     expect(r.panes[1].attachment.actor).toBeNull();
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("live compaction restores its clearing source including older checkpoints", async () => {
@@ -254,8 +238,8 @@ test("live compaction restores its clearing source including older checkpoints",
       expect(restored.state.compacting).toBe(!item.owned);
       expect(cp.capture(r, false).conversations[0].agent.compacting).toBe(false);
     } finally {
-      next.deinit();
-      r.deinit();
+      next.destroy();
+      r.destroy();
     }
   }
 });
@@ -318,20 +302,16 @@ test("link cache and spent inference attempts survive live checkpoints only", as
     };
   try {
     for (const live of [true, false]) {
-      const next = new Runtime();
-      try {
-        await restore(next, cp.capture(r, live), live);
-        if (live) {
-          expect(next.link_labels.entries[0]!.name.text()).toBe("Finance");
-          expect(next.link_labels.entries[1]!.pending).toBe(true);
-          expect(next.link_labels.entries[2]!.attempted).toBe(true);
-          expect(next.link_labels.generation).toBe(3n);
-        } else {
-          expect(next.link_labels.entries[0]).toBeNull();
-          expect(next.link_labels.generation).toBe(0n);
-        }
-      } finally {
-        next.deinit();
+      using next = new Runtime();
+      await restore(next, cp.capture(r, live), live);
+      if (live) {
+        expect(next.link_labels.entries[0]!.name.text()).toBe("Finance");
+        expect(next.link_labels.entries[1]!.pending).toBe(true);
+        expect(next.link_labels.entries[2]!.attempted).toBe(true);
+        expect(next.link_labels.generation).toBe(3n);
+      } else {
+        expect(next.link_labels.entries[0]).toBeNull();
+        expect(next.link_labels.generation).toBe(0n);
       }
     }
     const invalid = new links.Cache();
@@ -343,26 +323,22 @@ test("link cache and spent inference attempts survive live checkpoints only", as
     invalid.entries[0]!.generation = 4n;
     expect(() => links.Cache.restore(invalid)).toThrow("InvalidCheckpoint");
   } finally {
-    r.deinit();
+    r.destroy();
   }
 });
 test("checkpoint capture copies durable values and rejects invalid saved primitive types", async () => {
-  const r = fresh();
-  try {
-    const state = cp.capture(r, true);
-    r.last_agent = "claude";
-    r.workspaces.items[0].rename("changed");
-    expect(state.last_agent).toBe("codex");
-    expect(state.workspaces[0].name).toBe("test");
-    const invalid = roundtrip(state);
-    invalid.revision = -1;
-    await expect(restore(new Runtime(), invalid, true)).rejects.toThrow("Overflow");
-    invalid.revision = 0;
-    invalid.agent_commands[0].command = "x".repeat(2049);
-    await expect(restore(new Runtime(), invalid, true)).rejects.toThrow("LengthMismatch");
-  } finally {
-    r.deinit();
-  }
+  using r = fresh();
+  const state = cp.capture(r, true);
+  r.last_agent = "claude";
+  r.workspaces.items[0].rename("changed");
+  expect(state.last_agent).toBe("codex");
+  expect(state.workspaces[0].name).toBe("test");
+  const invalid = roundtrip(state);
+  invalid.revision = -1;
+  await expect(restore(new Runtime(), invalid, true)).rejects.toThrow("Overflow");
+  invalid.revision = 0;
+  invalid.agent_commands[0].command = "x".repeat(2049);
+  await expect(restore(new Runtime(), invalid, true)).rejects.toThrow("LengthMismatch");
 });
 
 test("redraw cycle changes PTY dimensions only after activation and restores them", () => {

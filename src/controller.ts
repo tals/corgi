@@ -930,7 +930,7 @@ export class Controller {
     this.agent_picker = null;
     this.closeLauncher();
     this.scope_menu = null;
-    this.corgi_setup?.deinit();
+    this.corgi_setup?.close();
     this.corgi_setup = null;
     this.launcher_hover_blocked = true;
     this.port_menu = null;
@@ -2103,7 +2103,7 @@ export class Controller {
     const wizard = this.onboarding;
     if (!wizard) return;
     if (wizard.cancelled) {
-      wizard.deinit();
+      wizard.close();
       this.onboarding = null;
       this.dirty = true;
       return;
@@ -2118,7 +2118,7 @@ export class Controller {
     }
     const target = wizard.picker.progress?.workspace ?? null;
     const mode = wizard.mode;
-    wizard.deinit();
+    wizard.close();
     this.onboarding = null;
     if (mode === "keyboard") this.keysNotice(reload);
     else if (target !== null && target !== undefined) {

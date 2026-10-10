@@ -151,7 +151,7 @@ test("open shows the workspace already on that folder", async () => {
     expect(s.current().id).toBe(2);
     await expect(s.perform({ name: "open", value: "b" })).rejects.toThrow("InvalidDirectory");
   } finally {
-    viewer.deinit(s);
+    viewer.close(s);
   }
 });
 
@@ -180,7 +180,7 @@ test("a new viewer scrolls the agent list where the last one left the same list"
     expect(update).toHaveBeenLastCalledWith({ agent_scroll: { workspace: null, offset: 0 } });
   } finally {
     update.mockRestore();
-    viewer.deinit(s);
+    viewer.close(s);
   }
 });
 
@@ -202,6 +202,6 @@ test("open adds a workspace for a folder no workspace is on", async () => {
     expect(commands).toEqual([{ "workspace.create": { name: "", cwd: "/b" } }]);
     expect(s.current().id).toBe(2);
   } finally {
-    viewer.deinit(s);
+    viewer.close(s);
   }
 });
