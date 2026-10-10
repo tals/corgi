@@ -4,6 +4,7 @@ import * as shellPicker from "./shell_picker";
 import { Preferences } from "./preferences";
 import { State as ClipboardState } from "./host_clipboard";
 import * as corgiAnimation from "./corgi_animation";
+import * as km from "./keymap";
 import { Worker, pane, workspace } from "./import/catalog";
 import { Writer } from "./text";
 
@@ -175,12 +176,14 @@ test("Command keys turn on and off under the keymap", () => {
   expect(text).toMatch(/New tab +⌘T/);
   expect(text).toMatch(/Select tab +⌘1–9/);
   // Where Ghostty isn't local, the cursor passes the switch by.
+  // The presets, Prefix, then All keys; cmux is a preset only on macOS.
+  const all_keys = km.available_presets.length + 1;
   menu.openOptions(s, prefs);
   for (let i = 0; i < 10; i++) menu.move(true, s, prefs, false);
-  expect(menu.cursor).toBe(5);
+  expect(menu.cursor).toBe(all_keys);
   menu.integration = "disabled";
   menu.move(true, s, prefs, false);
-  expect(menu.cursor).toBe(6);
+  expect(menu.cursor).toBe(all_keys + 1);
   expect(menu.enter(s, prefs)).toEqual({ kind: "ghostty", on: true });
   menu.back();
   menu.integration = "enabled";

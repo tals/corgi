@@ -196,6 +196,8 @@ test("cold recovery leaves an agent's pane dormant over its old screen, and a li
     expect(sleeping.terminal.text()).toContain("OLD OUTPUT");
     expect(sleeping.restoring()).toBe("codex resume 'dormant-session'");
     await restore(live, cp.capture(cold, true), true);
+    // The handoff gave `live` the panes' fds; the old daemon no longer owns them.
+    for (const p of cold.panes) p.terminal.releaseFD();
     expect(live.panes.map(p => p.dormant)).toEqual([false, true]);
     expect(live.panes[1].terminal.exited).toBe(true);
   } finally {
