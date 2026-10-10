@@ -11,6 +11,7 @@ import { Provider } from "./providers";
 import { Model } from "./providers/model";
 import * as corgiAnimation from "./corgi_animation";
 import * as km from "./keymap";
+import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
 import * as catalog from "./import/catalog";
 import * as importPicker from "./import/picker";
@@ -59,7 +60,7 @@ export const Summarizer = {
 };
 
 export type Item =
-  "flourishes" | "readings" | "clever_corgi" | "theme" | "shell" | "keyboard" | "terminal" | ImportItem;
+  "flourishes" | "readings" | "clever_corgi" | "theme" | "shell" | "keyboard" | "terminal" | ImportItem | "detach";
 type ImportItem = "import_tmux" | "import_herdr" | "import_cmux";
 const import_sources: Record<ImportItem, catalog.Source> = {
   import_tmux: "tmux",
@@ -84,6 +85,8 @@ const list: ListRow[] = [
   ...(Object.keys(import_sources) as ImportItem[]).filter(item =>
     catalog.available_sources.includes(import_sources[item]),
   ),
+  null,
+  "detach",
 ];
 export const items = list.filter((row): row is Item => typeof row === "string");
 const labels: Record<Item, string> = {
@@ -97,6 +100,7 @@ const labels: Record<Item, string> = {
   import_tmux: "tmux",
   import_herdr: "Herdr",
   import_cmux: "cmux",
+  detach: "Detach",
 };
 /** An item's name on its own, as the crumb and the pane's title give it. */
 function fullLabel(item: Item): string {
@@ -119,7 +123,9 @@ export type Apply =
   /** Copy the import picker's choice into Corgi. */
   | { kind: "import" }
   /** Close setup on the workspace an import made. */
-  | { kind: "imported"; workspace: number | null };
+  | { kind: "imported"; workspace: number | null }
+  /** Leave Corgi running and close this viewer. */
+  | { kind: "detach" };
 /** A list row, an option, a choice in the open dropdown, or the import
  * picker under the pointer. */
 export type Hit = { item: Item } | { option: number } | { choice: number } | { picker: importPicker.Hit };
@@ -328,6 +334,8 @@ export class Menu {
   private import_source: catalog.Source | null = null;
   /** The list's first row shown while it scrolls. */
   private list_first = 0;
+  /** Whether the prefix key came last; setup runs only detach after it. */
+  private after_prefix = false;
   /** The open dropdown: its setting's option, and the highlighted choice. */
   private dropdown: { option: number; at: number } | null = null;
   /** The frame's growth toward the preset detail, eased between draws. */
@@ -362,6 +370,19 @@ export class Menu {
   async poll(conn: Connection): Promise<boolean> {
     const picker = this.importing();
     return picker !== null && (await picker.poll(conn));
+  }
+  /** Prefix shortcuts in setup: the prefix waits for the next key, which
+   * detaches when it is the preset's detach key; setup drops the other
+   * shortcuts. Null for keys setup handles itself. */
+  prefixKey(byte: number, prefs: Preferences): "detach" | "taken" | null {
+    if (this.after_prefix) {
+      this.after_prefix = false;
+      const b = bindings.find(prefs.preset, action("detach"));
+      return b && b.prefixed && b.key === byte && !Object.values(b.mods).some(Boolean) ? "detach" : "taken";
+    }
+    if (byte !== km.prefixByte(prefs.prefix)) return null;
+    this.after_prefix = true;
+    return "taken";
   }
   /** The import picker's own keys while it has focus; false for the rest. */
   key(byte: number): boolean {
@@ -467,11 +488,13 @@ export class Menu {
     this.openOptions(s, prefs);
     return null;
   }
-  /** What Enter on the list does for an on/off setting. */
+  /** What Enter on the list does for an on/off setting or an action. */
   private flip(prefs: Preferences): Apply | null {
     switch (this.item) {
       case "readings":
         return { kind: "readings", on: !prefs.resources.enabled };
+      case "detach":
+        return { kind: "detach" };
       default:
         return null;
     }
@@ -1022,6 +1045,14 @@ export class Menu {
             : found("Image paste", "no", "This viewer has no terminal to paste from.")),
         ];
       }
+      case "detach":
+        return [
+          title("Detach"),
+          lead("Corgi and your agents keep running."),
+          blank,
+          { tag: "binding", job: "Detach", key: detachKey(prefs), dim: false },
+          { tag: "binding", job: "Come back", key: "corgi", dim: false },
+        ];
       case "import_tmux":
       case "import_herdr":
       case "import_cmux": {
@@ -1106,6 +1137,8 @@ export class Menu {
         return { text: km.name(prefs.preset), tone: "muted" };
       case "terminal":
         return { text: "", tone: "faint" };
+      case "detach":
+        return { text: detachKey(prefs), tone: "faint" };
       case "import_tmux":
       case "import_herdr":
       case "import_cmux":
@@ -1119,7 +1152,13 @@ export class Menu {
       const flip = this.flip(prefs),
         open = picker !== null || this.options(s, prefs).some(o => !o.disabled);
       const enter: [string, string][] =
-        flip && "on" in flip ? [["enter", flip.on ? "turn on" : "turn off"]] : open ? [["enter", "choose"]] : [];
+        flip?.kind === "detach"
+          ? [["enter", "detach"]]
+          : flip && "on" in flip
+            ? [["enter", flip.on ? "turn on" : "turn off"]]
+            : open
+              ? [["enter", "choose"]]
+              : [];
       return [["↑↓", "move"], ...enter, ["esc", "close"]];
     }
     if (picker) return importHints(picker);
@@ -1194,6 +1233,12 @@ function onOff(enabled: boolean, kind: "readings", details: [string, string]): O
   }));
 }
 const action = (name: string, value?: string) => (value === undefined ? { name } : { name, value }) as Action;
+/** The key that detaches under the saved preset, with its prefix. */
+function detachKey(prefs: Preferences): string {
+  const b = bindings.find(prefs.preset, action("detach"));
+  if (!b) return "";
+  return b.prefixed ? `${km.prefixName(prefs.prefix)} ${bindings.compact(b)}` : bindings.compact(b);
+}
 /** The mini keymap's width, as wide as its longest row needs. */
 const binding_w = 30;
 /** The jobs Command keys' mini keymap shows, where the preset binds them. */

@@ -1943,6 +1943,9 @@ export class Controller {
         }
         return;
       }
+      case "detach":
+        this.closeMenu();
+        return this.perform({ name: "detach" });
       case "imported":
         this.closeMenu();
         if (apply.workspace === null) return;
@@ -2214,7 +2217,13 @@ export class Controller {
     if (this.corgi_setup) {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
-        shortcuts = setup.item === "keyboard" && setup.focus === "options";
+        shortcuts = setup.item === "keyboard" && setup.focus === "options",
+        chord = setup.prefixKey(byte, this.prefs);
+      if (chord !== null) {
+        if (chord === "detach") await this.applySetup({ kind: "detach" });
+        this.dirty = true;
+        return;
+      }
       if (setup.key(byte)) {
         this.dirty = true;
         return;

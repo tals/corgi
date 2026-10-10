@@ -423,3 +423,27 @@ test("the frame takes the terminal's height, and a short list scrolls", () => {
   expect(text).toContain("Clever Corgi");
   expect(text).not.toMatch(/│ {4}cmux|│ {4}Herdr/);
 });
+
+test("Detach sits at the bottom and leaves from the list", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  expect(items.at(-1)).toBe("detach");
+  menu.item = "detach";
+  const text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/│ {2}Detach +Ctrl\+B q {2}│/);
+  expect(text).toMatch(/Come back +corgi/);
+  expect(text).toContain("enter detach");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "detach" });
+  expect(menu.focus).toBe("list");
+  // The preset's detach shortcut works in setup; other prefix keys don't.
+  expect(menu.prefixKey(2, prefs)).toBe("taken");
+  expect(menu.prefixKey(113, prefs)).toBe("detach");
+  expect(menu.prefixKey(113, prefs)).toBeNull();
+  prefs.preset = "tmux";
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/│ {2}Detach +Ctrl\+B d {2}│/);
+  menu.prefixKey(2, prefs);
+  expect(menu.prefixKey(113, prefs)).toBe("taken");
+  menu.prefixKey(2, prefs);
+  expect(menu.prefixKey(100, prefs)).toBe("detach");
+});
