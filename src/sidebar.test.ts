@@ -132,7 +132,7 @@ test("readings off removes the resource row and moves the separator under the st
   expect(paged.hit(24, 3)).toEqual(H("workspace", 3));
   expect(paged.hit(24, 4)).toEqual(H("workspace", 4));
   expect(paged.hit(24, 11)).toEqual(H("workspace", 7));
-  expect(paged.hit(24, 12)).toEqual(H("workspace_next"));
+  expect(paged.hit(24, 12)).toEqual(H("none"));
   expect(paged.workspaceDrop(5, 4)!.index).toBe(4);
   const entries = [
     workspaceEntry({
@@ -196,15 +196,17 @@ test("all three workspace rows select while bottom controls remain distinct", ()
   expect(View.init(100, 12, true, 0, 0).width).toBe(0);
   const compact = View.init(100, 13, true, 0, 0).withWorkspaces(2, 0);
   expect(compact.hit(24, 3)).toEqual(H("workspace", 0));
-  expect(compact.hit(2, 4)).toEqual(H("none"));
-  expect(compact.hit(21, 4)).toEqual(H("workspace_previous"));
-  expect(compact.hit(24, 4)).toEqual(H("workspace_next"));
+  expect(compact.hit(24, 4)).toEqual(H("workspace", 0));
   expect(compact.hit(24, 5)).toEqual(H("none"));
   const paged = view.withWorkspaces(8, 99);
-  expect(paged.workspaceCapacity()).toBe(3);
-  expect(paged.workspace_offset).toBe(5);
-  expect(paged.hit(24, 9)).toEqual(H("workspace", 7));
-  expect(paged.hit(24, 12)).toEqual(H("workspace_next"));
+  expect(paged.workspaceCapacity()).toBe(4);
+  expect(paged.workspace_offset).toBe(4);
+  expect(paged.hit(24, 9)).toEqual(H("workspace", 6));
+  expect(paged.hit(24, 12)).toEqual(H("workspace", 7));
+  expect(paged.workspaceThumb()).toEqual({ start: 6, len: 5 });
+  expect(paged.withWorkspaces(8, 0).workspaceThumb()).toEqual({ start: 0, len: 5 });
+  expect(view.withWorkspaces(4, 0).workspaceThumb()).toBeNull();
+  expect(draw(paged, [], [], 0)).not.toContain(" <  > ");
 });
 
 test("unpushed badge retains its columns beside a long workspace name", () => {

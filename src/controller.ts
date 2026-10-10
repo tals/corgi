@@ -3646,15 +3646,6 @@ export class Controller {
           case "agent_scope":
             this.openScopeMenu(true);
             break;
-          case "workspace_previous":
-            this.workspace_offset = sat(side.workspace_offset, side.workspaceCapacity());
-            break;
-          case "workspace_next":
-            this.workspace_offset = Math.min(
-              side.workspace_offset + side.workspaceCapacity(),
-              sat(this.runtime.workspaces.items.length, side.workspaceCapacity()),
-            );
-            break;
           case "workspace": {
             const index = found.workspace;
             if (button === 2) {

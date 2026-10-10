@@ -473,8 +473,6 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         switch (found.tag) {
           case "toggle":
           case "workspace_new":
-          case "workspace_previous":
-          case "workspace_next":
           case "agent_scope":
           case "agent_new":
           case "agent_options":

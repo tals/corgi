@@ -3,7 +3,7 @@ import { Drag } from "./workspace_drag";
 import { View } from "./sidebar";
 test("workspace drop follows row midpoints, scrolling, and stale lists", () => {
   const ids = [1, 2, 3, 4],
-    view = View.init(100, 30, true, 0, 0).withWorkspaces(ids.length, 0),
+    view = View.init(100, 30, true, 0, 0, 12).withWorkspaces(ids.length, 0),
     drag = Drag.init(view, ids, 0, 5, 2);
   drag.update(view, ids, 5, 9);
   expect(drag.drop).toBeNull();

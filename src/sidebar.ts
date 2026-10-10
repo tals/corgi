@@ -262,8 +262,6 @@ export type Hit =
   | { tag: "agent_options" }
   | { tag: "entry"; entry: number }
   | { tag: "workspace_new" }
-  | { tag: "workspace_previous" }
-  | { tag: "workspace_next" }
   | { tag: "workspace"; workspace: number };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
 
@@ -335,10 +333,22 @@ export class View {
   workspaceRows(): number {
     return this.resources.enabled ? 3 : 2;
   }
-  /** Name and status rows end above the pager row; only a trailing
-   * resource row may give way to it. */
+  /** The rule row below the workspace list. */
+  workspaceEnd(): number {
+    return sat(this.middle(), 1);
+  }
+  /** Name and status rows end above the rule; only a trailing resource row
+   * may give way to it. */
   workspaceCapacity(): number {
-    return Math.max(1, Math.floor((sat(this.middle(), 4) + (this.workspaceRows() - 2)) / this.workspaceRows()));
+    return Math.max(1, Math.floor((sat(this.workspaceEnd(), 2) + (this.workspaceRows() - 2)) / this.workspaceRows()));
+  }
+  /** The workspace list's scrollbar thumb, like the agent list's. */
+  workspaceThumb(): { start: number; len: number } | null {
+    const track = sat(this.workspaceEnd(), 2);
+    const last = sat(this.workspace_count, this.workspaceCapacity());
+    if (last === 0 || track < 2) return null;
+    const len = clamp(Math.floor((track * this.workspaceCapacity()) / this.workspace_count), 1, track - 1);
+    return { start: Math.round(((track - len) * this.workspace_offset) / last), len };
   }
   withWorkspaces(count: number, offset: number): View {
     const result = this.clone();
@@ -477,14 +487,7 @@ export class View {
       if (x < v.scopeStart() + displayWidth(qualifier) + displayWidth(v.scopeArrow())) return hit("agent_scope");
     }
     if (y < v.middle()) {
-      if (y === v.middle() - 2) {
-        if (v.workspace_count > v.workspaceCapacity()) {
-          if (x >= v.width - 8 && x < v.width - 5) return hit("workspace_previous");
-          if (x >= v.width - 5 && x < v.width - 2) return hit("workspace_next");
-        }
-        return hit("none");
-      }
-      if (y < 2 || y >= v.middle() - 2) return hit("none");
+      if (y < 2 || y >= v.workspaceEnd()) return hit("none");
       const slot = Math.floor((y - 2) / v.workspaceRows());
       const index = slot + v.workspace_offset;
       return index < v.workspace_count && slot < v.workspaceCapacity()
@@ -517,7 +520,7 @@ export class View {
   /** `agentDrop` over the workspace slots in the upper list. */
   workspaceDrop(x: number, y: number): { index: number; y: number } | null {
     const v = this;
-    if (v.width === 0 || x >= v.width - 1 || y < 2 || y >= sat(v.middle(), 2) || v.workspace_count === 0) return null;
+    if (v.width === 0 || x >= v.width - 1 || y < 2 || y >= v.workspaceEnd() || v.workspace_count === 0) return null;
     let top = 2;
     const end = Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
     for (let i = v.workspace_offset; i < end; i++) {
@@ -652,7 +655,7 @@ export class View {
       if (ws.stats.tools > 0) w.write(`\x1b[${y + 2};${v.width - 1 - metadata_width}H${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`\x1b[${row};1H${bar}`);
       w.write(panel);
-      if (v.workspaceRows() === 3 && y + 2 < v.middle() - 2) {
+      if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
         if (tinted) {
           w.write(`\x1b[${y + 3};1H${meta}`);
           w.splat(" ", v.width - 1);
@@ -665,7 +668,10 @@ export class View {
         if (tinted) w.write(`\x1b[${y + 3};1H${bar}${panel}`);
       }
     });
-    if (v.workspace_count > v.workspaceCapacity()) w.write(`\x1b[${v.middle() - 1};${v.width - 7}H${panel} <  > `);
+    const ws_thumb = v.workspaceThumb();
+    if (ws_thumb)
+      for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
+        w.write(`\x1b[${3 + row};${v.width}H${panel}` + fg("faint") + "┃");
     w.write(`\x1b[${v.middle()};2H${panel}` + fg("line"));
     w.write("─".repeat(Math.max(0, v.width - 3)));
     if (entries.length === 0) {
@@ -997,7 +1003,7 @@ export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
     x < 1 ||
     x >= v.width - 2 ||
     y < 4 ||
-    y >= sat(v.middle(), 2) ||
+    y >= v.workspaceEnd() ||
     (y - 2) % 3 !== 2
   )
     return null;
@@ -1282,7 +1288,7 @@ export function urlCount(ws: WorkspaceEntry): number {
   return count;
 }
 export function portWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
-  if (v.width === 0 || x < 1 || y < 2 || y >= v.middle() - 2 || (y - 2) % v.workspaceRows() !== 0) return null;
+  if (v.width === 0 || x < 1 || y < 2 || y >= v.workspaceEnd() || (y - 2) % v.workspaceRows() !== 0) return null;
   const offset = Math.floor((y - 2) / v.workspaceRows());
   const index = v.workspace_offset + offset;
   if (offset >= v.workspaceCapacity() || index >= workspaces.length) return null;
