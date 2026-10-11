@@ -215,6 +215,7 @@ export interface Agent {
   state: string;
   attention: "none" | "finished" | "needs_input";
   session: string;
+  transcript: string;
   activity: string;
   cwd: string;
   tool_active: boolean;
@@ -241,6 +242,7 @@ export function agent(value: any = {}): Agent {
     state: value.state ?? "unknown",
     attention: value.attention ?? "none",
     session: value.session ?? "",
+    transcript: value.transcript ?? "",
     activity: value.activity ?? "",
     cwd: value.cwd ?? "",
     tool_active: value.tool_active === true,

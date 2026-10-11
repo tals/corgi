@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { Controller, cardEffect, pasteKey, forkName } from "./controller";
+import { Controller, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
 import * as preferences from "./preferences";
 import { TabMenu } from "./commands";
 import { Dialog } from "./name_dialog";
@@ -7,6 +7,7 @@ import { Menu as LauncherMenu } from "./agent_launcher";
 import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
 import * as viewer from "./viewer";
+import { agent, type Pane } from "./mirror";
 
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
@@ -141,6 +142,30 @@ test("a fork's name is its title marked as a fork, cut to fit", () => {
   const long = forkName("x".repeat(72) + "⑂⑂");
   expect(long).toBe("x".repeat(72) + " (fork)");
   expect(Buffer.from(long).toString()).toBe(long);
+});
+
+test("Copy ID names the harness, session, id and paths, leaving out what isn't known", () => {
+  const pane = (label: string, fields: object) => ({ label, cwd: "/repo/sub", agent: agent(fields) }) as Pane;
+  const claude = pane("", {
+    provider: "claude",
+    name: "fix sidebar hover",
+    session: "0b8e1c2a",
+    cwd: "/repo",
+    transcript: "/home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
+  });
+  expect(breadcrumbs(claude)).toBe(
+    [
+      "harness: Claude Code",
+      "session: fix sidebar hover",
+      "id: 0b8e1c2a",
+      "cwd: /repo",
+      "transcript: /home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
+    ].join("\n"),
+  );
+  // A pane's own name wins; the pane's folder stands in for the agent's.
+  expect(breadcrumbs(pane("review", { provider: "codex", name: "thread", session: "019a" }))).toBe(
+    ["harness: Codex", "session: review", "id: 019a", "cwd: /repo/sub"].join("\n"),
+  );
 });
 
 test("open shows the workspace already on that folder", async () => {

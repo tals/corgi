@@ -394,6 +394,7 @@ $.snapshot.conversations[].agent.provider?: enum codex claude
 $.snapshot.conversations[].agent.state: enum unknown initializing idle working blocked done
 $.snapshot.conversations[].agent.attention: enum none finished needs_input
 $.snapshot.conversations[].agent.session: string
+$.snapshot.conversations[].agent.transcript: string
 $.snapshot.conversations[].agent.activity: string
 $.snapshot.conversations[].agent.cwd: string
 $.snapshot.conversations[].agent.tool_active: bool
@@ -556,6 +557,7 @@ $.snapshot.panes[].agent.provider?: enum codex claude
 $.snapshot.panes[].agent.state: enum unknown initializing idle working blocked done
 $.snapshot.panes[].agent.attention: enum none finished needs_input
 $.snapshot.panes[].agent.session: string
+$.snapshot.panes[].agent.transcript: string
 $.snapshot.panes[].agent.activity: string
 $.snapshot.panes[].agent.cwd: string
 $.snapshot.panes[].agent.tool_active: bool
@@ -582,6 +584,7 @@ $.snapshot.native_sessions[].agent?.provider?: enum codex claude
 $.snapshot.native_sessions[].agent?.state: enum unknown initializing idle working blocked done
 $.snapshot.native_sessions[].agent?.attention: enum none finished needs_input
 $.snapshot.native_sessions[].agent?.session: string
+$.snapshot.native_sessions[].agent?.transcript: string
 $.snapshot.native_sessions[].agent?.activity: string
 $.snapshot.native_sessions[].agent?.cwd: string
 $.snapshot.native_sessions[].agent?.tool_active: bool

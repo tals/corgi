@@ -363,6 +363,7 @@ function agentView(a: any, conversation: number) {
     recent_activity: a.recentLabel(),
     name: a.displayName(),
     session: a.sessionId(),
+    transcript: a.transcriptPath(),
     activity: a.activity.text(),
     cwd: a.directory(),
     tool_active: a.tool_active,

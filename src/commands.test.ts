@@ -27,6 +27,7 @@ test("menu keys pick the rows each menu shows", () => {
   const agent = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
   expect(agent.itemFor(c("r"))).toBe("rename");
   expect(agent.itemFor(c("f"))).toBe("fork");
+  expect(agent.itemFor(c("c"))).toBe("copy-id");
   expect(agent.itemFor(c("x"))).toBe("close");
   expect(agent.itemFor(c("n"))).toBeNull();
 });
@@ -45,20 +46,21 @@ test("a worktree group's menu folds first and keeps Close all below a rule", () 
 });
 
 test("crossed-out rows take no key, click or highlight", () => {
-  const menu = new TabMenu({ tab: 1, anchor_x: 0, agent: true, off: new Set(["rename", "fork"]) });
+  const menu = new TabMenu({ tab: 1, anchor_x: 0, agent: true, off: new Set(["rename", "fork", "copy-id"]) });
   expect(menu.itemFor(c("r"))).toBeNull();
   expect(menu.itemFor(c("f"))).toBeNull();
+  expect(menu.itemFor(c("c"))).toBeNull();
   expect(menu.highlightedItem()).toBeNull();
   // Close sits apart below a rule; the menu never opens on it.
   menu.highlightFirst();
   expect(menu.highlightedItem()).toBeNull();
-  expect(menu.hit(80, 24, 5, 3)).toBeNull();
-  expect(menu.hit(80, 24, 5, 4)).toBe(2);
+  expect(menu.hit(80, 24, 5, 4)).toBeNull();
+  expect(menu.hit(80, 24, 5, 5)).toBe(3);
   menu.move(true);
   expect(menu.highlightedItem()).toBe("close");
   menu.move(true);
   expect(menu.highlightedItem()).toBe("close");
-  menu.off = new Set(["fork"]);
+  menu.off = new Set(["fork", "copy-id"]);
   menu.move(false);
   expect(menu.highlightedItem()).toBe("rename");
   menu.move(false);

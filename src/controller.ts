@@ -1001,8 +1001,10 @@ export class Controller {
     this.search_mode = false;
     this.cancelDividers();
     this.selection = null;
-    if (!this.pane(id)) return;
+    const p = this.pane(id);
+    if (!p) return;
     const opened = new TabMenu({ tab: id, agent: true, anchor_x: x, anchor_y: y });
+    if (p.agent.session.length === 0) opened.off.add("copy-id");
     try {
       await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
     } catch {
@@ -1102,6 +1104,9 @@ export class Controller {
           this.prepareName();
           break;
         }
+        case "copy-id":
+          this.copyText(breadcrumbs(p));
+          break;
         case "close":
           await this.close(pane_id);
           break;
@@ -4797,6 +4802,21 @@ export function forkName(title: string): string {
   let end = Math.min(bytes.length, name_limit - suffix.length);
   while (end > 0 && end < bytes.length && (bytes[end] & 0xc0) === 0x80) end -= 1;
   return bytes.subarray(0, end).toString() + suffix;
+}
+/** What Copy ID puts on the clipboard: enough for another agent to find
+ * this conversation. Unknown fields are left out. */
+export function breadcrumbs(p: Pane): string {
+  const name = p.label.length > 0 ? p.label : p.agent.name;
+  return [
+    ["harness", p.agent.provider ? Provider.info(p.agent.provider).label : ""],
+    ["session", name],
+    ["id", p.agent.session],
+    ["cwd", p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd],
+    ["transcript", p.agent.transcript],
+  ]
+    .filter(([, value]) => value.length > 0)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
 }
 /** What a viewer says when an agent rename or fork fails with `err`. */
 function agentMessage(err: string, fallback: string): string {

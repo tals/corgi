@@ -30,6 +30,7 @@ export type Item =
   | "split-down"
   | "zoom"
   | "fork"
+  | "copy-id"
   | "close"
   | "fold"
   | "close-all";
@@ -63,6 +64,7 @@ const pane_actions = [
 const agent_actions = [
   row("rename", "r", "Rename"),
   row("fork", "f", "Fork", { icon: "⑂" }),
+  row("copy-id", "c", "Copy ID"),
   row("close", "x", "Close", { rule: true }),
 ];
 let border: string;
