@@ -29,3 +29,12 @@ test("plans read as Codex's /status names them", () => {
   ])
     expect(Codex.plan(code).text()).toBe(label);
 });
+test("file-change evidence uses only completed edits and the latest edit location", () => {
+  const change = { type: "fileChange", status: "completed", changes: [{ path: ".worktrees/search/file" }] };
+  expect(Codex.writes([change], "/repo")).toEqual(["/repo/.worktrees/search/file"]);
+  expect(Codex.writes([{ ...change, status: "failed" }], "/repo")).toEqual([]);
+  expect(Codex.writes([change], "")).toEqual([]);
+  expect(Codex.writes([change, { ...change, changes: [{ path: "/repo/main-file" }] }], "/repo")).toEqual([
+    "/repo/main-file",
+  ]);
+});

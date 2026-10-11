@@ -17,8 +17,9 @@ test("settle applies in-flight port and git scans without awaiting pushes", asyn
         return this.thread !== null;
       },
     },
+    worktree_tracker = { thread: null, busy: () => false },
     git_push = { thread: new Promise(() => {}) };
-  const completed = settle({ ports, git_status, git_push } as any, async () => {
+  const completed = settle({ ports, git_status, git_push, worktree_tracker } as any, async () => {
     collectCount++;
     if (collectCount === 1) {
       resolvePort();

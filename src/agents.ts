@@ -2,6 +2,7 @@ import { BoundedText, Path, truncateUtf8, ascii } from "./bounded_text";
 import path from "node:path";
 import * as observation from "./observation";
 import { Provider, str } from "./providers";
+import * as worktrees from "./worktrees";
 export { observation, Provider, str, Path };
 export class Text extends BoundedText(160) {}
 export type State = "unknown" | "initializing" | "idle" | "working" | "blocked" | "done";
@@ -77,6 +78,7 @@ export class Agent {
     return this.recent.text();
   }
   reset() {
+    worktrees.clearWrites(this);
     const receipts = this.observation,
       recent = this.recent,
       epoch = this.turn_epoch;
@@ -215,8 +217,12 @@ export class Agent {
     this.state = this.observation.pending_stop ? "working" : next;
     this.changed_at = now;
     this.compacting = event === "compact_start";
-    if (start) this.cwd = new Path();
+    if (start) {
+      this.cwd = new Path();
+      worktrees.clearWrites(this);
+    }
     if (path.isAbsolute(hook.cwd)) this.cwd = new Path(hook.cwd);
+    if (event === "tool_finish" && hook.writes) worktrees.recordWrites(this, hook.writes);
     if (event === "tool_start" || event === "permission") {
       this.tool_active = true;
       if (hook.tool) this.tool = Text.ascii(hook.tool);

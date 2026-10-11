@@ -5,6 +5,7 @@ import { Order } from "./agent_order";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
+import type { Snapshot as Worktrees } from "./worktrees";
 export class Workspace {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   name_buf = "";
@@ -16,6 +17,8 @@ export class Workspace {
   git_ref = new Ref();
   git_push = new State();
   git_commits = new Commits();
+  worktrees: Worktrees | null = null;
+  git_epoch = 0;
   away = new Window();
   constructor(
     public id: number,
@@ -34,6 +37,8 @@ export class Workspace {
     return true;
   }
   resetGit() {
+    this.git_epoch++;
+    this.worktrees = null;
     this.git_ahead = null;
     this.git_ref = new Ref();
     this.git_push = new State();

@@ -37,6 +37,7 @@ export interface Sync {
   resources_hash: number;
   resources: boolean;
   resource_detail: number | null;
+  worktree_detail: number | null;
 }
 export const viewer_protocol = version;
 export function validateInterests(interests: Interest[]) {
@@ -100,6 +101,8 @@ export async function sync(s: any, cl: any, q: Sync) {
   cl.resources = q.resources;
   cl.resource_detail =
     q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
+  cl.worktree_detail =
+    q.worktree_detail !== null && s.runtime.workspaces.get(q.worktree_detail) ? q.worktree_detail : null;
   if (q.active) cl.active_seq = ++s.next_active;
   if (s.runtime.workspaces.index(q.workspace) !== null) cl.view_workspace = q.workspace;
   if (cl.watched) {

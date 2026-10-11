@@ -1,5 +1,6 @@
 import { field, str, Hooks, nativeEvent, Text, planLabel } from "./common";
 import { info } from "./codex_info";
+import path from "node:path";
 export const Method = [
   "turn/started",
   "turn/completed",
@@ -54,6 +55,21 @@ export class Rollout {
   }
 }
 export class Codex {
+  static writes(items: unknown, cwd: string): string[] {
+    if (!Array.isArray(items)) return [];
+    let paths: string[] = [];
+    for (const item of items) {
+      if (str(item, "type") !== "fileChange" || str(item, "status") !== "completed") continue;
+      const changes = field(item, "changes");
+      if (!Array.isArray(changes)) continue;
+      const written = changes
+        .map(change => str(change, "path"))
+        .filter(p => p.length > 0 && (path.isAbsolute(p) || path.isAbsolute(cwd)))
+        .map(p => path.resolve(cwd, p));
+      if (written.length) paths = written.slice(0, 32);
+    }
+    return paths;
+  }
   static info = info;
   static Method = Method;
   static ItemType = ItemType;

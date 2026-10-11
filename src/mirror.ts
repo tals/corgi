@@ -16,6 +16,7 @@ import type { Provider } from "./providers";
 import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
 import * as errors from "./errors";
+import type { Snapshot as Worktrees } from "./worktrees";
 
 export interface Transport {
   socket?: string;
@@ -279,6 +280,7 @@ export interface Workspace {
   closed_agents: number;
   git_commits: any[];
   git_ahead: number | null;
+  worktrees: Worktrees | null;
   git_ref: any;
   git_push: { phase: "idle" | "pushing" | "succeeded" | "failed"; message: string };
   stats: any;
@@ -295,9 +297,64 @@ function workspace(value: any): Workspace {
     closed_agents: Number(value.closed_agents ?? 0),
     git_commits: value.git_commits ?? [],
     git_ahead: value.git_ahead === null || value.git_ahead === undefined ? null : Number(value.git_ahead),
+    worktrees: worktreeSnapshot(value.worktrees),
     git_ref: value.git_ref ?? {},
     git_push: { phase: value.git_push?.phase ?? "idle", message: value.git_push?.message ?? "" },
     stats: { tools: 0, input: 0, output: 0, tokens_known: false, ...(value.stats ?? {}) },
+  };
+}
+export function worktreeSnapshot(value: any): Worktrees | null {
+  if (!value || !Array.isArray(value.entries)) return null;
+  const count = (v: unknown): bigint | null => {
+    if (typeof v !== "bigint" && typeof v !== "number" && typeof v !== "string") return null;
+    try {
+      const n = BigInt(v);
+      return n >= 0n ? n : null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    common_dir: value.common_dir ?? "",
+    base: value.base ? { ref: value.base.ref ?? "", name: value.base.name ?? "", head: value.base.head ?? "" } : null,
+    stale: value.stale === true,
+    entries: value.entries.map((e: any) => {
+      const ahead = count(e.comparison?.ahead),
+        behind = count(e.comparison?.behind);
+      return {
+        path: e.path ?? "",
+        head: e.head ?? "",
+        branch: e.branch ?? null,
+        primary: e.primary === true,
+        bare: e.bare === true,
+        detached: e.detached === true,
+        locked: e.locked ?? null,
+        prunable: e.prunable ?? null,
+        available: e.available === true,
+        comparison: ahead === null || behind === null ? null : { ahead, behind },
+        changes: e.changes
+          ? {
+              total: Number(e.changes.total ?? 0),
+              staged: Number(e.changes.staged ?? 0),
+              modified: Number(e.changes.modified ?? 0),
+              untracked: Number(e.changes.untracked ?? 0),
+              conflicted: Number(e.changes.conflicted ?? 0),
+            }
+          : null,
+        stale: e.stale === true,
+      };
+    }),
+    agents: (value.agents ?? []).flatMap((a: any) => {
+      const target =
+        a.target?.pane !== undefined
+          ? { pane: Number(a.target.pane) }
+          : a.target?.native !== undefined
+            ? { native: Number(a.target.native) }
+            : null;
+      return target
+        ? [{ target, path: a.path ?? "", source: a.source === "write" ? "write" : "cwd", stale: a.stale === true }]
+        : [];
+    }),
   };
 }
 export function statsAny(stats: any): boolean {

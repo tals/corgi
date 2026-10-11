@@ -5,6 +5,7 @@ import * as corgiAnimation from "./corgi_animation";
 import * as corgiBadge from "./corgi_badge";
 import * as resourceTooltip from "./resource_tooltip";
 import * as dropdown from "./dropdown";
+import * as worktrees from "./worktrees";
 import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
@@ -24,6 +25,7 @@ import {
   zigRound,
 } from "./text";
 import { max_panes, max_workspaces } from "./layout";
+import type { Entry as Recent } from "./launcher_resume";
 export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, zigRound } from "./text";
 
 /** Agents plus one header per workspace in the grouped "All" list. */
@@ -64,12 +66,23 @@ export type Provider = "codex" | "claude";
 export type State = "initializing" | "idle" | "working" | "blocked" | "done" | string;
 export type Attention = "none" | "finished" | "needs_input";
 /** `group` is a workspace header row in the grouped "All" list, not an agent. */
-export type Target = { pane: number } | { native: number } | { group: number };
+export type Target =
+  | OrderTarget
+  | { group: number }
+  | { worktree: string; workspace: number }
+  | { recent: string; provider: Provider; workspace: number; path: string }
+  | { more: string; workspace: number }
+  | { empty: string; workspace: number };
+export const isAgent = (t: Target): t is OrderTarget => "pane" in t || "native" in t;
+export const isHeading = (t: Target): boolean => "group" in t || "worktree" in t;
 export function sameTarget(a: Target | null | undefined, b: Target | null | undefined): boolean {
   if (!a || !b) return !a && !b;
   if ("pane" in a) return "pane" in b && a.pane === b.pane;
   if ("native" in a) return "native" in b && a.native === b.native;
-  return "group" in b && a.group === b.group;
+  return (
+    Object.keys(a).length === Object.keys(b).length &&
+    Object.entries(a).every(([key, value]) => value === (b as Record<string, unknown>)[key])
+  );
 }
 export const isGroup = (t: Target): t is { group: number } => "group" in t;
 export interface Search {
@@ -93,6 +106,8 @@ export interface Subagents {
   waiting: boolean;
 }
 export interface Entry {
+  worktree: { workspace: number; path: string; ghost: boolean; end?: boolean } | null;
+  recent: Recent | null;
   conversation: number;
   children: number;
   exit: { frame_ms: number; progress: number } | null;
@@ -120,6 +135,8 @@ export interface Entry {
 }
 export function entry(fields: Partial<Entry> & { target: Target }): Entry {
   return {
+    worktree: null,
+    recent: null,
     conversation: 0,
     children: 0,
     exit: null,
@@ -226,6 +243,7 @@ export interface WorkspaceEntry {
   git_push: GitPush;
   git_ahead: number | null;
   git_commits: GitCommit[];
+  worktrees: worktrees.Snapshot | null;
   id: number;
   name: string;
   cwd: string;
@@ -246,6 +264,7 @@ export function workspaceEntry(
     git_push: { phase: "idle", message: "" },
     git_ahead: null,
     git_commits: [],
+    worktrees: null,
     agents: 0,
     working: 0,
     unread: 0,
@@ -387,7 +406,8 @@ export class View {
     return sat(this.listEnd(), this.middle() + 2);
   }
   static height(e: Entry): number {
-    return isGroup(e.target) ? 1 : 2;
+    const content = isHeading(e.target) || "more" in e.target || "empty" in e.target ? 1 : 2;
+    return content + (e.worktree?.ghost ? Number("worktree" in e.target) + Number(e.worktree.end === true) : 0);
   }
   /** Entries that fit in the list starting at `from`. */
   fits(from: number): number {
@@ -652,7 +672,10 @@ export class View {
         const unread_room = { value: unread_width };
         statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
       }
-      if (ws.stats.tools > 0) w.write(`\x1b[${y + 2};${v.width - 1 - metadata_width}H${meta}${rule}${metadata}`);
+      const worktree_label = worktreeLabel(ws);
+      if (worktree_label)
+        w.write(`\x1b[${y + 2};${v.width - 1 - displayWidth(worktree_label)}H${meta}${rule}${worktree_label}`);
+      else if (ws.stats.tools > 0) w.write(`\x1b[${y + 2};${v.width - 1 - metadata_width}H${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`\x1b[${row};1H${bar}`);
       w.write(panel);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
@@ -686,7 +709,7 @@ export class View {
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.capacity));
     const sleepers: bigint[] = [];
     for (const e of visible) {
-      if (isGroup(e.target) || e.state !== "idle" || e.exit !== null) continue;
+      if (!isAgent(e.target) || e.state !== "idle" || e.exit !== null) continue;
       sleepers.push(animationKey(e));
     }
     const dream = v.sleeping_corgis ? corgiAnimation.dreamer(sleepers, now_ms) : null;
@@ -696,21 +719,33 @@ export class View {
       const fade = e.exit ? e.exit.progress : e.enter !== null ? 1 - e.enter : null;
       const row_writer = fade !== null ? exit_writer : w;
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
-      const y = next_y;
+      const top = next_y;
+      const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target);
       next_y += View.height(e);
       if (isGroup(e.target)) {
         v.drawGroup(row_writer, e, y);
         if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
         return;
       }
-      const last_in_group = grouped && (absolute + 1 === entries.length || isGroup(entries[absolute + 1].target));
-      const divider = !grouped && index + 1 < Math.min(entries.length - v.offset, v.capacity);
+      if ("worktree" in e.target || "more" in e.target || "empty" in e.target || e.recent) {
+        v.drawWorktree(row_writer, e, y);
+        v.drawGhost(row_writer, e, top);
+        if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
+        return;
+      }
+      const in_group = grouped || e.worktree !== null;
+      const last_in_group =
+        in_group &&
+        (absolute + 1 === entries.length ||
+          isHeading(entries[absolute + 1].target) ||
+          e.worktree?.path !== entries[absolute + 1].worktree?.path);
+      const divider = !in_group && index + 1 < Math.min(entries.length - v.offset, v.capacity);
       v.drawAgent(
         row_writer,
         e,
         0,
         y,
-        grouped,
+        in_group,
         last_in_group,
         divider,
         v.dragged === absolute,
@@ -718,6 +753,7 @@ export class View {
         frame_ms,
         dream,
       );
+      v.drawGhost(row_writer, e, top);
       if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
     });
     if (v.search !== null) v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
@@ -920,6 +956,32 @@ export class View {
       w.write("━".repeat(Math.max(0, status_x - 1 - (name_end + 1))));
     }
   }
+  drawWorktree(w: Writer, e: Entry, y: number): void {
+    const style = new Style({ fg: "text", bg: e.focused ? "selected" : "bg" }).sgr();
+    w.write(`\x1b[${y + 1};1H${style}`);
+    w.splat(" ", this.width - 1);
+    const heading = "worktree" in e.target;
+    w.write(`\x1b[${y + 1};2H${style}${heading ? "⌥ " : "  "}`);
+    writeEllipsis(w, e.name, this.width - 5);
+    if (e.recent) {
+      w.write(`\x1b[${y + 2};1H${style}`);
+      w.splat(" ", this.width - 1);
+      w.write(`\x1b[${y + 2};4H${fg("faint")}`);
+      writeEllipsis(w, `${e.recent.provider} · ${e.activity}`, this.width - 5);
+    }
+  }
+  drawGhost(w: Writer, e: Entry, y: number): void {
+    if (!e.worktree?.ghost) return;
+    const style = new Style({ fg: "faint", bg: "bg" }).sgr(),
+      height = View.height(e),
+      right = this.width - 2;
+    for (let row = y; row < Math.min(y + height, this.listEnd()); row++) {
+      w.write(`\x1b[${row + 1};1H${style}┊\x1b[${row + 1};${right + 1}H┊`);
+    }
+    if ("worktree" in e.target) w.write(`\x1b[${y + 1};1H${style}╭${"┄".repeat(right - 1)}╮`);
+    if (e.worktree.end && y + height <= this.listEnd())
+      w.write(`\x1b[${y + height};1H${style}╰${"┄".repeat(right - 1)}╯`);
+  }
   scopeStart(): number {
     // Compact headers keep one cell for the name and one for the arrow.
     return this.width >= 22 ? 9 : 8;
@@ -1071,7 +1133,7 @@ export function agentIndexAt(v: View, entries: Entry[], x: number, y: number): n
   const found = v.hit(x, y);
   if (found.tag !== "entry" || found.entry >= entries.length) return null;
   const e = entries[found.entry];
-  return e.exit === null && !isGroup(e.target) ? found.entry : null;
+  return e.exit === null && isAgent(e.target) ? found.entry : null;
 }
 
 // Fade both the card background and its foreground/underline colors into the
@@ -1254,7 +1316,26 @@ export function writePortLabel(w: Writer, label: string, width: number, naming: 
   if (width > 8) writeClipped(w, Buffer.from(label).subarray(8).toString(), width - 8);
 }
 function statusMetadataWidth(ws: WorkspaceEntry): number {
-  return displayWidth(compactCount(ws.stats.tools)) + 1;
+  return displayWidth(worktreeLabel(ws)) || displayWidth(compactCount(ws.stats.tools)) + 1;
+}
+export function worktreeLabel(ws: WorkspaceEntry): string {
+  const count = worktrees.linked(ws.worktrees).length;
+  return count ? `${count} worktree${count === 1 ? "" : "s"}` : "";
+}
+export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: number): Rect | null {
+  const index = workspaces.findIndex(ws => ws.id === id),
+    slot = index - v.workspace_offset;
+  if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity()) return null;
+  const width = displayWidth(worktreeLabel(workspaces[index]));
+  return width ? new Rect(v.width - 2 - width, 3 + slot * v.workspaceRows(), width, 1) : null;
+}
+export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
+  if (v.width === 0 || y < 3 || (y - 3) % v.workspaceRows() !== 0) return null;
+  const hit = v.hit(x, y);
+  if (hit.tag !== "workspace") return null;
+  const ws = workspaces[hit.workspace];
+  const width = ws ? displayWidth(worktreeLabel(ws)) : 0;
+  return width && x >= v.width - 2 - width && x < v.width - 2 ? ws : null;
 }
 export function portLink(v: View, workspaces: WorkspaceEntry[], x: number, y: number): string | null {
   const ws = portWorkspace(v, workspaces, x, y);

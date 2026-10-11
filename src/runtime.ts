@@ -278,6 +278,7 @@ export class Runtime {
   shown = 1n;
   git_push = new trackers.git_push.Manager();
   git_status = new trackers.git_status.Tracker();
+  worktree_tracker = new trackers.worktrees.Tracker();
   ports = new trackers.ports.Tracker();
   resources = new trackers.resources.Tracker();
   link_labels = new trackers.link_labels.Cache();
@@ -306,6 +307,7 @@ export class Runtime {
     this.ports.close();
     this.git_push.close();
     this.git_status.close();
+    this.worktree_tracker.close();
     for (const p of this.panes) {
       p.dropGhost();
       p.terminal.destroy();

@@ -14,6 +14,14 @@ export const specs: Record<string, string> = {
   "workspace-next": "void",
   "workspace-prev": "void",
   "choose-workspace": "void",
+  worktrees: "usize",
+  "worktree-next": "void",
+  "worktree-prev": "void",
+  "worktree-close": "void",
+  "worktree-select": "[]const u8",
+  "worktree-agent": "usize",
+  "worktree-more": "usize",
+  "worktree-enter": "void",
   "goto-workspace": "usize",
   "close-workspace": "void",
   open: "[]const u8",
@@ -51,6 +59,7 @@ export function parse(name: string, value = ""): Action {
   if (!type) throw new Error("UnknownAction");
   if (type === "void") return { name };
   if (type === "usize") {
+    if (name === "worktrees" && !value) return { name, value: 0 };
     if (!/^\+?\d+$/.test(value)) throw new Error("BadValue");
     const number = Number(value);
     if (!Number.isSafeInteger(number)) throw new Error("BadValue");
@@ -105,6 +114,7 @@ export function title(action: Action): string {
     "edit-workspace": "Edit workspace",
     "close-workspace": "Close workspace",
     "choose-workspace": "Choose workspace",
+    worktrees: "Show worktrees",
     "goto-workspace": "Select workspace",
     open: "Open folder as workspace",
     "new-agent": "New agent",

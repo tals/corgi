@@ -23,6 +23,7 @@ export class Client {
   session_shown: number | bigint = 0;
   session_bucket = 0;
   resource_detail: number | null = null;
+  worktree_detail: number | null = null;
   resources = true;
   dead = false;
   touched = Date.now();

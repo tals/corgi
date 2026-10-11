@@ -1,4 +1,4 @@
-import type { View, Target } from "./sidebar";
+import { isHeading, type View, type Target } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
 export class Drag {
   dragging = false;
@@ -28,9 +28,9 @@ export class Drag {
     this.ids = view.entries.map(e => ({ ...e.target }));
     this.target = this.ids[source];
     this.first = source;
-    while (this.first > 0 && !("group" in view.entries[this.first - 1].target)) this.first--;
+    while (this.first > 0 && !isHeading(view.entries[this.first - 1].target)) this.first--;
     this.end = source + 1;
-    while (this.end < view.entries.length && !("group" in view.entries[this.end].target)) this.end++;
+    while (this.end < view.entries.length && !isHeading(view.entries[this.end].target)) this.end++;
   }
   static init(view: View, source: number, x: number, y: number, workspace: number, current: number) {
     return new Drag(view, source, x, y, workspace, current);

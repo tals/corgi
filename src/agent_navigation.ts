@@ -1,4 +1,4 @@
-import type { Entry, Target } from "./sidebar";
+import { isAgent, type Entry, type Target } from "./sidebar";
 import { Dialog } from "./name_dialog";
 export function sameTarget(a: Target | null, b: Target | null) {
   if (a === null || b === null) return a === b;
@@ -14,7 +14,7 @@ export function relative(entries: Entry[], current: Target | null, next: boolean
   const found = indexOf(entries, current);
   let i = found !== null ? (found + (next ? 1 : entries.length - 1)) % entries.length : next ? 0 : entries.length - 1;
   for (let step = 0; step < entries.length; step++) {
-    if (!("group" in entries[i].target)) return entries[i].target;
+    if (isAgent(entries[i].target)) return entries[i].target;
     i = (i + (next ? 1 : entries.length - 1)) % entries.length;
   }
   return null;
@@ -45,7 +45,7 @@ export class Picker {
     );
   }
   list(entries: Entry[]) {
-    return entries.filter(e => !("group" in e.target) && this.matches(e));
+    return entries.filter(e => isAgent(e.target) && this.matches(e));
   }
   reconcile(entries: Entry[], capacity: number) {
     const i = indexOf(entries, this.selected) ?? 0;

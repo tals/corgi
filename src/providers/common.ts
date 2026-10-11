@@ -152,6 +152,14 @@ export class Hooks {
       cwd: str(v, "cwd"),
       model: str(v, "model"),
       tool,
+      writes:
+        kind === "tool_finish" &&
+        !field(response, "is_error") &&
+        ["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(tool)
+          ? [str(input, "file_path") || str(input, "notebook_path")]
+              .filter(p => p.length > 0 && (path.isAbsolute(p) || path.isAbsolute(str(v, "cwd"))))
+              .map(p => path.resolve(str(v, "cwd"), p))
+          : [],
       description: str(input, "description"),
       background_tasks: field(v, "background_tasks"),
       session_crons: field(v, "session_crons"),

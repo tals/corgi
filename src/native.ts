@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { Agent, Text, type Provider } from "./agents";
 import { Actor, Attachment, Registry } from "./conversations";
 import { Backend, Provider as Providers } from "./providers";
-import { ItemType } from "./providers/codex";
+import { Codex, ItemType } from "./providers/codex";
 import { field, str } from "./providers/common";
 import { State as Observation } from "./observation";
 import { ResumeHint } from "./resume_hint";
@@ -13,6 +13,7 @@ import { native as fdNative } from "./fd_loop";
 import * as discovery from "./discovery";
 import * as json from "./json";
 import * as binary from "./base64";
+import * as worktrees from "./worktrees";
 import { captureBinding, restoreBinding, hydrate } from "./persist/checkpoint";
 
 export type Event = { seq: bigint; line: string };
@@ -432,6 +433,8 @@ export class Session {
         (this.provider === "codex" && field(value, "result") !== null && !!event.session);
       if (!this.attachment.actor || (selects && actor.parent === null)) this.attachment.select(actor);
       if (this.attachment.actor === actor) this.resume_hint.observe(actor.state);
+      if (method === "item/completed")
+        worktrees.recordWrites(actor.state, Codex.writes([field(field(value, "params"), "item")], this.cwd));
     }
     const target = actor?.state ?? this.attachment.provisional;
     target.provider = this.provider;

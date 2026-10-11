@@ -44,6 +44,8 @@ export class Snapshot {
   state: State;
   transcript = new Path();
   turn = new Turn();
+  cwd = new Path();
+  writes: string[] = [];
   outcome: "completed" | "interrupted" | "failed" | null = null;
   observed_at = Date.now() * 1000;
   updated_at = 0;
@@ -116,6 +118,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
   let state = threadState(field(thread, "status"));
   if (state === "unknown") state = "initializing";
   const out = new Snapshot(req, session, state);
+  if (path.isAbsolute(str(thread, "cwd"))) out.cwd = transcriptPath(str(thread, "cwd"));
   if (Number.isInteger(field(thread, "updatedAt")) && field(thread, "updatedAt") > 0)
     out.updated_at = field(thread, "updatedAt");
   out.name = new Name(str(thread, "name"));
@@ -128,6 +131,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
     }),
     data = field(field(turns, "result"), "data");
   if (Array.isArray(data) && data.length) {
+    out.writes = Codex.writes(field(data[0], "items"), out.cwd.text());
     out.evidence = codex(data[0]);
     const id = str(data[0], "id");
     if (id && Buffer.byteLength(id) <= 128) {

@@ -36,6 +36,8 @@ $.sync.ack: u64
 $.sync.active: bool
 $.sync.resource_detail: optional
 $.sync.resource_detail?: u32
+$.sync.worktree_detail: optional
+$.sync.worktree_detail?: u32
 $.sync.resources: bool
 $.sync.resources_hash: optional
 $.sync.resources_hash?: u64

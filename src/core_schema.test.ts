@@ -105,7 +105,7 @@ function fixture() {
 test("the runtime wire matches protocol.version", () => {
   expect(protocol.version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "cb6d946a6d74cc7d93e8f306820d737de148df0fbaac7f45ed071dd3adad8073",
+    "d6b13ed68f2afdfe261c61b34e345edb80ae14aa27578d9be0aacaad19675d1b",
   );
   const { server, dispose } = fixture();
   try {
@@ -132,7 +132,7 @@ test("the runtime wire matches protocol.version", () => {
 test("the viewer wire matches viewer_version.version", async () => {
   expect(protocol.viewer_version).toBe(3);
   expect(createHash("sha256").update(schemas.viewer).digest("hex")).toBe(
-    "b4aaace5dc7c96ccfa927e8d33bae3aa81765c6329fdc3bbfa93dd2a71661c65",
+    "26de6495b69997a9821764a11c34c1515919fa87f248c8a45ac7555c71e98814",
   );
   const { server, client, dispose } = fixture();
   let view: any;
@@ -154,6 +154,7 @@ test("the viewer wire matches viewer_version.version", async () => {
       resources_hash: 0,
       resources: false,
       resource_detail: null,
+      worktree_detail: null,
     });
     validate(schemas.viewer, { view });
     expect(view.surfaces).toHaveLength(1);

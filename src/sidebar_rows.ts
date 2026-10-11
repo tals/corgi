@@ -1,6 +1,7 @@
 import type { Entry } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
-const capacity = 112;
+const capacity = 2048;
+const sameEntry = (a: Entry, b: Entry) => sameTarget(a.target, b.target) && a.worktree?.path === b.worktree?.path;
 interface Stored {
   entry: Entry;
   at_ms: number;
@@ -51,11 +52,11 @@ export class State {
       const slot = this.slots[i];
       slot.seen = false;
       if (!slot.occupied || this.order.includes(i)) continue;
-      if (!live.some(e => sameTarget(e.target, slot.entry.target))) slot.occupied = false;
+      if (!live.some(e => sameEntry(e, slot.entry))) slot.occupied = false;
     }
     const next: number[] = [];
     for (const entry of live) {
-      let index = this.slots.findIndex(s => s.occupied && sameTarget(s.entry.target, entry.target));
+      let index = this.slots.findIndex(s => s.occupied && sameEntry(s.entry, entry));
       if (index < 0) index = this.slots.findIndex(s => !s.occupied);
       if (index < 0) {
         index = this.slots.length;

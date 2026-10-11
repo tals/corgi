@@ -2,6 +2,7 @@ import type { Target as AgentTarget } from "./sidebar";
 export interface Target {
   resource?: number | null;
   git?: number | null;
+  worktree?: number | null;
   usage?: boolean;
   conversation?: number;
   agent?: AgentTarget | null;
@@ -10,6 +11,7 @@ function same(a: Target, b: Target) {
   return (
     (a.resource ?? null) === (b.resource ?? null) &&
     (a.git ?? null) === (b.git ?? null) &&
+    (a.worktree ?? null) === (b.worktree ?? null) &&
     (a.usage ?? false) === (b.usage ?? false) &&
     (a.conversation ?? 0) === (b.conversation ?? 0) &&
     JSON.stringify(a.agent ?? null) === JSON.stringify(b.agent ?? null)

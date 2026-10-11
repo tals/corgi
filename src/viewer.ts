@@ -103,6 +103,7 @@ export async function sync(view: Controller, bell: { seq: number | bigint }, pla
       ack: view.input_state.last_control,
       active: view.input_state.active,
       resource_detail: view.resourceDetail(),
+      worktree_detail: view.worktreeDetail(),
       resources: view.prefs.resources.enabled,
       resources_hash: view.runtime.resources_hash,
     });

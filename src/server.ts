@@ -353,6 +353,11 @@ export class Server {
     const portsChanged = this.runtime.ports.tick(this.runtime);
     let tracked = gitStatusChanged || gitPushChanged || portsChanged;
     const viewers = this.clients.filter(c => c.viewer && !c.dead);
+    tracked =
+      this.runtime.worktree_tracker.tick(
+        this.runtime,
+        new Set(viewers.filter(c => c.watched && c.worktree_detail !== null).map(c => c.worktree_detail!)),
+      ) || tracked;
     if (viewers.length) this.resource_readings = viewers.some(c => c.resources);
     if (this.resource_readings)
       tracked =
@@ -437,6 +442,7 @@ export class Server {
           ack: 0,
           active: false,
           resource_detail: null,
+          worktree_detail: null,
           resources: true,
           resources_hash: null,
           ...q,

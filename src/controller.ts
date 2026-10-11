@@ -57,6 +57,9 @@ import * as shellPicker from "./shell_picker";
 import { installedShells } from "./launch/command";
 import { State as LinkTooltip, type Target as TooltipTarget } from "./link_tooltip";
 import * as resourceTooltip from "./resource_tooltip";
+import * as worktreeTooltip from "./worktree_tooltip";
+import * as worktreeAgents from "./worktree_agents";
+import * as worktrees from "./worktrees";
 import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
 import { Drag as AgentDrag } from "./agent_drag";
@@ -253,6 +256,8 @@ export class Controller {
   iterm2_pointer = false;
   link_tooltip = new LinkTooltip();
   git_hover: number | null = null;
+  worktree_card = new worktreeTooltip.State();
+  worktree_agents = new worktreeAgents.State();
   resource_card = new resourceTooltip.State();
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
@@ -488,6 +493,7 @@ export class Controller {
         git_ahead: ws.git_ahead,
         git_push: ws.git_push,
         git_commits: ws.git_commits,
+        worktrees: ws.worktrees,
         stats: ws.stats,
       });
       entry.ports = this.runtime.ports;
@@ -510,17 +516,23 @@ export class Controller {
       return entry;
     });
   }
-  agentEntries(): Entry[] {
+  agentEntries(workspace?: number): Entry[] {
     const entries: Entry[] = [];
+    const history = this.worktree_agents.introduced.size ? this.mergedHistory() : [],
+      open = history.length ? this.openSessions() : new Set<string>();
     const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
     // "All" groups agents under a header per workspace that has any.
-    const grouped = this.prefs.agents === "all";
+    const grouped = workspace === undefined && this.prefs.agents === "all";
     const totals = grouped ? this.workspaceEntries() : [];
     this.runtime.workspaces.items.forEach((ws, ws_index) => {
-      if (!this.inScope(ws.id)) return;
+      if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
       if (grouped) {
         const total = totals[ws_index];
-        if (total.agents === 0 || entries.length === sidebar.max_entries) return;
+        if (
+          (total.agents === 0 && ![...this.worktree_agents.introduced.values()].some(s => s.workspace === ws.id)) ||
+          entries.length === sidebar.max_entries
+        )
+          return;
         const folded = this.groupFolded(ws.id);
         const here = ws.id === this.current().id;
         // A folded header stands in for the focused agent it hides.
@@ -591,11 +603,15 @@ export class Controller {
       const sorted = entries
         .slice(first_agent)
         .sort((l, r) => (sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0));
-      entries.splice(first_agent, sorted.length, ...sorted);
+      const decorated =
+        workspace === undefined
+          ? worktreeAgents.grouped(ws.worktrees, ws.id, sorted, history, open, this.worktree_agents)
+          : sorted;
+      entries.splice(first_agent, sorted.length, ...decorated);
     });
     const now = microTimestamp();
     for (const entry of entries) {
-      if ("group" in entry.target) continue;
+      if (!sidebar.isAgent(entry.target)) continue;
       subagentTooltip.presentChildren(entry, this.runtime.conversations, now);
       const conversation = this.runtime.conversations.find(c => c.id === entry.conversation);
       if (conversation) entry.context = contextView(conversation.context);
@@ -604,7 +620,37 @@ export class Controller {
   }
   private sidebarEntries(): Entry[] {
     const list = this.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
-    return this.sidebar_rows.update(list, this.agentEntries(), [], milliTimestamp());
+    let entries = this.sidebar_rows.update(list, this.agentEntries(), [], milliTimestamp());
+    const selected = this.browsingWorktree();
+    if (!selected) {
+      this.worktree_agents.previewed = null;
+      this.worktree_agents.appearing = null;
+      return entries;
+    }
+    let index = worktreeAgents.index(entries, selected);
+    if (index < 0) {
+      const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selected.workspace)?.worktrees;
+      if (snapshot) {
+        const ghost = worktreeAgents.group(
+          snapshot,
+          selected,
+          this.agentEntries(selected.workspace),
+          this.mergedHistory(),
+          this.openSessions(),
+          this.worktree_agents,
+          true,
+          this.launch_previews.history.pending,
+        );
+        entries = [...this.worktree_agents.animate(ghost, selected, milliTimestamp()), ...entries];
+      }
+      index = worktreeAgents.index(entries, selected);
+    } else this.worktree_agents.appearing = null;
+    const key = worktreeAgents.key(selected);
+    if (index >= 0 && this.worktree_agents.previewed !== key) {
+      this.agentOffset().set(this.sidebarView(entries).reveal(index));
+      this.worktree_agents.previewed = key;
+    }
+    return entries;
   }
   private firstUnreadAgent(workspace_index: number): Target | null {
     const ws = this.runtime.workspaces.items[workspace_index];
@@ -617,6 +663,8 @@ export class Controller {
     return null;
   }
   private selectAgent(target: Target): void {
+    if ("worktree" in target) return this.enterWorktree({ workspace: target.workspace, path: target.worktree });
+    if (!sidebar.isAgent(target) && !("group" in target)) return;
     this.rememberAgent();
     this.copy_mode = false;
     this.search_mode = false;
@@ -632,7 +680,7 @@ export class Controller {
         if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
         this.noticeNativeSession(session);
       }
-    } else this.toggleGroup(target.group);
+    } else if ("group" in target) this.toggleGroup(target.group);
     this.rememberAgent();
     const entries = this.sidebarEntries();
     const index = agentNavigation.indexOf(entries, target);
@@ -740,6 +788,7 @@ export class Controller {
   }
   private hasMenu(): boolean {
     return (
+      this.worktree_card.pinned ||
       this.onboarding !== null ||
       this.workspace_chooser !== null ||
       this.prefix ||
@@ -930,6 +979,7 @@ export class Controller {
     this.help_visible = true;
   }
   closeMenu(): void {
+    this.worktree_card.clear();
     this.help_visible = false;
     this.workspace_chooser = null;
     this.link_tooltip.cancel();
@@ -1157,6 +1207,66 @@ export class Controller {
   async perform(act: Action): Promise<void> {
     this.message = "";
     switch (act.name) {
+      case "worktrees": {
+        const id = Number(act.value) || this.current().id;
+        if (this.runtime.workspaces.index(id) === null) break;
+        this.closeMenu();
+        this.sidebar_open = true;
+        this.worktree_card.workspace = id;
+        this.worktree_card.pinned = true;
+        this.worktree_card.anchor = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), id)?.y ?? 3;
+        this.dirty = true;
+        break;
+      }
+      case "worktree-close":
+        this.worktree_card.clear();
+        this.worktree_agents.previewed = null;
+        this.link_tooltip.cancel();
+        this.dirty = true;
+        break;
+      case "worktree-next":
+      case "worktree-prev": {
+        if (this.worktreeDetail() === null) break;
+        this.worktree_card.pinned = true;
+        const ws = this.runtime.workspaces.items.find(w => w.id === this.worktree_card.workspace);
+        this.worktree_card.move(ws?.worktrees ?? null, act.name === "worktree-next" ? 1 : -1);
+        this.dirty = true;
+        break;
+      }
+      case "worktree-select": {
+        const ws = this.runtime.workspaces.items.find(w => w.id === this.worktree_card.workspace);
+        if (worktrees.linked(ws?.worktrees ?? null).some(entry => entry.path === act.value))
+          this.worktree_card.select(String(act.value));
+        this.dirty = true;
+        break;
+      }
+      case "worktree-enter": {
+        const selection = this.browsingWorktree();
+        if (selection) this.enterWorktree(selection);
+        break;
+      }
+      case "worktree-more": {
+        const entry = this.sidebarEntries()[Number(act.value)];
+        if (!entry?.worktree) break;
+        const key = worktreeAgents.key(entry.worktree);
+        if (this.worktree_agents.expanded.has(key)) this.worktree_agents.expanded.delete(key);
+        else this.worktree_agents.expanded.add(key);
+        this.pinWorktreeInput("\t");
+        this.dirty = true;
+        break;
+      }
+      case "worktree-agent": {
+        const row = this.sidebarEntries()[Number(act.value)];
+        if (!row) break;
+        if (row.recent && "recent" in row.target) await this.resumeEntry(row.recent, row.target.workspace);
+        else if ("worktree" in row.target)
+          this.enterWorktree({ workspace: row.target.workspace, path: row.target.worktree });
+        else if (sidebar.isAgent(row.target)) {
+          this.closeMenu();
+          this.selectAgent(row.target);
+        }
+        break;
+      }
       case "onboard":
         return this.openOnboarding("welcome");
       case "workspace-next":
@@ -1879,14 +1989,17 @@ export class Controller {
     // The row past the newest few shows them all.
     const e = launch.resume_view.entry(c, launch.resume_view.lines(c));
     if (!e) return this.expandResume(false);
-    for (const open of c.open)
+    return this.resumeEntry(e, this.current().id);
+  }
+  private async resumeEntry(e: launcherResume.Entry, workspace: number): Promise<void> {
+    for (const open of this.running)
       if (open.provider === e.provider && open.session === e.session) {
         this.closeMenu();
         return this.selectAgent({ pane: open.pane });
       }
     if (byteLength(e.cwd) > 4096 || byteLength(e.session) > 256) throw Error("NameTooLong");
     const command = {
-      "agent.resume": { workspace: this.current().id, cwd: e.cwd, provider: e.provider, session: e.session },
+      "agent.resume": { workspace, cwd: e.cwd, provider: e.provider, session: e.session },
     };
     this.closeMenu();
     let created: { pane: number };
@@ -2180,6 +2293,15 @@ export class Controller {
   }
   private async key(byte: number): Promise<void> {
     const cl = this.input_state;
+    if (this.worktreeDetail() !== null) {
+      if (byte === 27) return this.perform({ name: "worktree-close" });
+      if (this.worktree_card.pinned) {
+        if (byte === 13) await this.perform({ name: "worktree-enter" });
+        else if (byte === 106 || byte === 14 || byte === 9) await this.perform({ name: "worktree-next" });
+        else if (byte === 107 || byte === 16) await this.perform({ name: "worktree-prev" });
+        return;
+      }
+    }
     if (byte === 27 && this.paste_card !== null) return this.closePasteCard();
     if (this.onboarding) {
       const wizard = this.onboarding;
@@ -2612,6 +2734,7 @@ export class Controller {
   }
   /** The keyboard's owner when a paste begins, in `key`'s order. */
   private pasteTarget(): Paste {
+    if (this.worktreeDetail() !== null) return "discard";
     if (this.agent_launcher)
       return this.agent_launcher.managing && this.agent_launcher.selected === "add" ? "launcher" : "discard";
     if (this.agent_picker) return "picker";
@@ -2799,6 +2922,7 @@ export class Controller {
       const rest = cl.keybuf.slice(used);
       if (rest[0] !== 27) {
         this.closePasteCard();
+        this.pinWorktreeInput(String.fromCharCode(rest[0]));
         this.link_tooltip.cancel();
         this.dirty = true;
         if (cl.paste !== null) await this.pasteByte(cl.paste, rest[0]);
@@ -2807,6 +2931,7 @@ export class Controller {
         continue;
       }
       if (rest.length < 2) {
+        this.pinWorktreeInput("\x1b");
         this.link_tooltip.cancel();
         this.dirty = true;
         break;
@@ -2836,6 +2961,7 @@ export class Controller {
         }
       }
       if (!latin1(seq).startsWith("\x1b[<")) {
+        this.pinWorktreeInput(latin1(seq));
         this.link_tooltip.cancel();
         this.dirty = true;
       }
@@ -2910,7 +3036,10 @@ export class Controller {
         this.pointer = null;
         this.dirty = true;
       } else if (text.startsWith("\x1b[<")) await this.mouse(text);
-      else if (this.onboarding) {
+      else if (this.worktree_card.pinned) {
+        if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
+        else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
+      } else if (this.onboarding) {
         const wizard = this.onboarding;
         let done = false;
         try {
@@ -3099,6 +3228,51 @@ export class Controller {
     if (this.prefix && !release && (button & 0xe0) === 0) this.closeMenu();
     if (this.workspace_chooser !== null) return;
     const moved = this.pointer === null || this.pointer.x !== x || this.pointer.y !== y;
+    const worktree_rect = this.worktreeRect();
+    if (worktree_rect?.contains(x, y)) {
+      this.pointer = { x, y };
+      const ws = this.runtime.workspaces.items.find(w => w.id === this.worktree_card.workspace);
+      const path = this.worktree_card.hit(ws?.worktrees ?? null, worktree_rect, x, y);
+      if (path && (button === 35 || button === 0)) await this.perform({ name: "worktree-select", value: path });
+      if (!release && button === 0) {
+        if (path) await this.perform({ name: "worktree-enter" });
+        else this.worktree_card.pinned = true;
+        this.ui_mouse_down = true;
+      }
+      if (!release && (button === 64 || button === 65))
+        await this.perform({ name: button === 65 ? "worktree-next" : "worktree-prev" });
+      if (release) this.ui_mouse_down = false;
+      this.dirty = true;
+      return;
+    }
+    const agent_entries = this.sidebarEntries(),
+      agent_side = this.sidebarView(agent_entries);
+    if (this.worktreeDetail() !== null && this.worktreeAgentContains(x, y)) {
+      this.pointer = { x, y };
+      if (!release && button === 0) {
+        this.worktree_card.pinned = true;
+        const hit = agent_side.hit(x, y);
+        if (hit.tag === "entry")
+          await this.perform({
+            name: "more" in agent_entries[hit.entry].target ? "worktree-more" : "worktree-agent",
+            value: hit.entry,
+          });
+        this.ui_mouse_down = true;
+      } else if (!release && (button === 64 || button === 65)) {
+        this.worktree_card.pinned = true;
+        this.agentOffset().set(
+          button === 64 ? sat(agent_side.offset, 1) : Math.min(agent_side.offset + 1, agent_side.maxOffset()),
+        );
+      }
+      if (release) this.ui_mouse_down = false;
+      this.dirty = true;
+      return;
+    }
+    if (this.worktree_card.pinned && !release && (button === 0 || button === 2)) {
+      await this.perform({ name: "worktree-close" });
+      this.ui_mouse_down = true;
+      return;
+    }
     if (moved) this.aimResource(x, y);
     let resource_workspace_press = false;
     const resource_rect = this.resourceRect();
@@ -3117,7 +3291,7 @@ export class Controller {
       }
     }
     if (!release && (button & 32) !== 0 && (button & 3) === 3 && (button & 64) === 0) {
-      if (moved && !this.resourceHoverContains(x, y)) {
+      if (moved && !this.resourceHoverContains(x, y) && !this.worktreeHoverContains(x, y)) {
         const resource_hit = sidebar.resourceAt(this.sidebarView([]), this.workspaceEntries(), x, y);
         if (resource_hit === null || this.resourceDetail() !== resource_hit.id) this.link_tooltip.move();
         this.launcher_hover_blocked = false;
@@ -3546,6 +3720,12 @@ export class Controller {
     }
     let entries = this.sidebarEntries();
     const side = this.sidebarView(entries);
+    const worktree_hit = sidebar.worktreeAt(side, this.workspaceEntries(), x, y);
+    if (!release && button === 0 && worktree_hit && !resource_workspace_press && !this.copy_mode) {
+      this.ui_mouse_down = true;
+      await this.perform({ name: "worktrees", value: worktree_hit.id });
+      return;
+    }
     if (!release && button === 0 && side.width > 0 && x === side.width - 1) {
       this.sidebar_drag = "width";
       return;
@@ -3615,9 +3795,13 @@ export class Controller {
             const index = found.entry;
             if (entries[index].exit !== null) break;
             const target = entries[index].target;
+            if (!sidebar.isAgent(target) && !("group" in target)) {
+              await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
+              break;
+            }
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
-            if (button === 0 && !("group" in target)) {
+            if (button === 0 && sidebar.isAgent(target) && !entries[index].worktree) {
               // Selecting another workspace can scroll the list.
               // Capture the post-selection viewport and identity.
               const updated = this.sidebarEntries();
@@ -3929,6 +4113,101 @@ export class Controller {
       cl.keybuf = [];
     }
   }
+  worktreeDetail(): number | null {
+    const id = this.worktree_card.workspace;
+    if (id === null || (!this.worktree_card.pinned && !this.hoverIdle()) || this.runtime.workspaces.index(id) === null)
+      return null;
+    return this.worktree_card.pinned || (this.link_tooltip.shown && this.link_tooltip.target?.worktree === id)
+      ? id
+      : null;
+  }
+  private pinWorktreeInput(input: string): void {
+    if (this.worktreeDetail() === null) return;
+    const key = keys.parse(input),
+      event = keyboard.decode(input);
+    if (
+      ["j", "k", "\r", "\t", "\x0e", "\x10", "\x1b"].includes(input) ||
+      key === "up" ||
+      key === "down" ||
+      key === "paste_start" ||
+      (event && [9, 13, 14, 16, 27, 106, 107, keyboard.arrow_up, keyboard.arrow_down].includes(event.codepoint))
+    )
+      this.worktree_card.pinned = true;
+  }
+  private openSessions(): Set<string> {
+    const open = new Set<string>();
+    for (const pane of this.runtime.panes)
+      if (pane.agent.provider && pane.agent.state !== "done" && pane.agent.session)
+        open.add(`${pane.agent.provider}:${pane.agent.session}`);
+    for (const session of this.runtime.sessions)
+      if (!session.exited && session.state !== "done" && session.agent?.session)
+        open.add(`${session.provider}:${session.agent.session}`);
+    return open;
+  }
+  private browsingWorktree(): worktreeAgents.Selection | null {
+    const id = this.worktreeDetail();
+    if (id === null || !this.worktreeRect()) return null;
+    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === id)?.worktrees,
+      entries = worktrees.linked(snapshot ?? null),
+      checkout = entries[this.worktree_card.index(entries)];
+    if (!checkout) return null;
+    this.worktree_card.select(checkout.path);
+    return { workspace: id, path: checkout.path };
+  }
+  private worktreeAgentContains(x: number, y: number): boolean {
+    const side = this.sidebarView([]);
+    return side.width > 0 && x >= 0 && x < side.width - 1 && y >= side.middle() + 2 && y < side.rows;
+  }
+  private enterWorktree(selection: worktreeAgents.Selection): void {
+    const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
+    if (!ws || !worktrees.linked(ws.worktrees).some(e => e.path === selection.path)) return;
+    this.worktree_agents.introduced.set(worktreeAgents.key(selection), selection);
+    this.worktree_agents.focused = selection;
+    this.folded_groups = this.folded_groups.filter(id => id !== selection.workspace);
+    if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
+    this.closeMenu();
+    this.sidebar_rows.discard();
+    const entries = this.sidebarEntries(),
+      index = worktreeAgents.index(entries, selection);
+    const first = entries.find(
+      e =>
+        sidebar.isAgent(e.target) &&
+        e.worktree?.workspace === selection.workspace &&
+        e.worktree.path === selection.path,
+    );
+    if (first) this.selectAgent(first.target);
+    if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
+    this.dirty = true;
+  }
+  private worktreeRect(): Rect | null {
+    const id = this.worktreeDetail();
+    if (id === null) return null;
+    const ws = this.runtime.workspaces.items.find(w => w.id === id);
+    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), id);
+    return worktreeTooltip.geometry(
+      this.width,
+      this.height,
+      this.sidebarView([]).width,
+      badge?.y ?? this.worktree_card.anchor,
+      worktrees.linked(ws?.worktrees ?? null).length,
+    );
+  }
+  private worktreeHoverContains(x: number, y: number): boolean {
+    const rect = this.worktreeRect();
+    if (!rect) return false;
+    if (rect.contains(x, y)) return true;
+    if (this.worktreeAgentContains(x, y)) return true;
+    const ws = this.workspaceEntries().find(w => w.id === this.worktree_card.workspace);
+    if (!ws) return false;
+    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), ws.id);
+    return (
+      badge !== null &&
+      x >= badge.x &&
+      x < rect.x &&
+      y >= Math.min(badge.y, rect.y + 1) &&
+      y <= Math.max(badge.y, rect.y + rect.h - 2)
+    );
+  }
   resourceDetail(): number | null {
     if (!this.prefs.resources.enabled || !this.link_tooltip.shown || this.link_tooltip.target === null) return null;
     const id = this.link_tooltip.target.resource ?? null;
@@ -4005,6 +4284,7 @@ export class Controller {
       this.selection === null &&
       !this.ui_mouse_down
     ) {
+      if (this.worktreeHoverContains(pointer.x, pointer.y)) return true;
       if (this.resourceHoverContains(pointer.x, pointer.y)) return true;
       const ws = sidebar.resourceAt(this.sidebarView([]), this.workspaceEntries(), pointer.x, pointer.y);
       if (ws && resourceTooltip.geometry(this.width, this.height, this.sidebarView([]).width, pointer.y) !== null) {
@@ -4022,6 +4302,21 @@ export class Controller {
       if (git) {
         target = { git: git.id };
         if (git.git_push.phase === "failed") return true;
+      }
+      const worktree = sidebar.worktreeAt(this.sidebarView([]), this.workspaceEntries(), pointer.x, pointer.y);
+      if (
+        worktree &&
+        worktreeTooltip.geometry(
+          this.width,
+          this.height,
+          this.sidebarView([]).width,
+          pointer.y,
+          worktrees.linked(worktree.worktrees).length,
+        )
+      ) {
+        target = { worktree: worktree.id };
+        this.worktree_card.workspace = worktree.id;
+        this.worktree_card.anchor = pointer.y;
       }
       const entries = this.sidebarEntries();
       // The host may leave its last mouse report at the window edge.
@@ -4103,6 +4398,7 @@ export class Controller {
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: tooltip_ready && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
+        worktree_card: this.worktreeDetail() !== null ? this.worktree_card : null,
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)
             ? " Agent search: enlarge terminal or Esc"

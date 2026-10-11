@@ -21,6 +21,8 @@ import { Menu as SetupMenu, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
 import * as pasteCard from "./paste_card";
 import * as resourceTooltip from "./resource_tooltip";
+import * as worktreeTooltip from "./worktree_tooltip";
+import * as worktrees from "./worktrees";
 import * as subagentTooltip from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
 import * as corgiAnimation from "./corgi_animation";
@@ -63,6 +65,7 @@ export interface Ui {
   resource_hover: number | null;
   resource_card: resourceTooltip.State | null;
   git_hover: number | null;
+  worktree_card: worktreeTooltip.State | null;
   agent_launcher: LauncherMenu | null;
   corgi_setup: SetupMenu | null;
   /** Why a paste brought no image, for the focused pane, and whether a
@@ -112,6 +115,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     resource_hover: null,
     resource_card: null,
     git_hover: null,
+    worktree_card: null,
     agent_launcher: null,
     corgi_setup: null,
     paste_card: null,
@@ -299,6 +303,7 @@ function noOverlay(u: Ui): boolean {
     u.menu === null &&
     u.tab_menu === null &&
     u.port_menu === null &&
+    u.worktree_card === null &&
     u.dialog === null
   );
 }
@@ -467,6 +472,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         }
       } else {
         link_pointer =
+          sidebar.worktreeAt(side, u.workspaces, pointer.x, pointer.y) !== null ||
           sidebar.portWorkspace(side, u.workspaces, pointer.x, pointer.y) !== null ||
           corgiBadge.hit(u.corgi_badge, side.width, pointer.x, pointer.y);
         const found = side.hit(pointer.x, pointer.y);
@@ -601,7 +607,21 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     }
   }
   if (paste_at) w.write(pasteCard.draw(u.paste_card!, paste_at, u.paste_copied));
-  if (u.link_tooltip && u.agent_launcher === null && u.corgi_setup === null && u.pointer) {
+  if (u.worktree_card) {
+    const ws = u.workspaces.find(ws => ws.id === u.worktree_card!.workspace);
+    if (ws) {
+      const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id);
+      const rect = worktreeTooltip.geometry(
+        width,
+        height,
+        side.width,
+        badge?.y ?? u.worktree_card.anchor,
+        worktrees.linked(ws.worktrees).length,
+      );
+      if (rect) worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge);
+      else writeChip(w, "Worktrees: enlarge terminal · Esc to close", width, height, u.pointer);
+    }
+  } else if (u.link_tooltip && u.agent_launcher === null && u.corgi_setup === null && u.pointer) {
     const pointer = u.pointer;
     if (u.resource_card) {
       if (card_rect) {

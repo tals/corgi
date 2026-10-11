@@ -401,6 +401,7 @@ const requests: Partial<Record<Op, Fields>> = {
     ack: ["u64", 0],
     active: ["bool", false],
     resource_detail: ["?u32", null],
+    worktree_detail: ["?u32", null],
     resources: ["bool", true],
     resources_hash: ["?u64", null],
   },

@@ -40,3 +40,21 @@ test("hooks carry the session's current model", () => {
     })?.model,
   ).toBe("gpt-6-astra");
 });
+test("only completed structured edits carry file-write evidence", () => {
+  const hooks = new Hooks(),
+    event = {
+      hook_event_name: "PostToolUse",
+      tool_name: "Edit",
+      cwd: "/repo",
+      tool_input: { file_path: ".worktrees/search/file" },
+    };
+  expect(hooks.decode(event)?.writes).toEqual(["/repo/.worktrees/search/file"]);
+  for (const changed of [
+    { hook_event_name: "PreToolUse" },
+    { hook_event_name: "PostToolUseFailure" },
+    { tool_name: "Read" },
+    { tool_response: { is_error: true } },
+    { cwd: "" },
+  ])
+    expect(hooks.decode({ ...event, ...changed })?.writes).toEqual([]);
+});

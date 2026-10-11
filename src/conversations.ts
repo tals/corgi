@@ -9,6 +9,7 @@ import { Agent, Provider, Text, type State } from "./agents";
 import type { Outcome } from "./observation";
 import { Model } from "./providers/model";
 import { PromptWatch, claudeRunning } from "./detection";
+import * as worktrees from "./worktrees";
 export const max_actors = 1024;
 export type ActorId = number & { readonly __actorId: unique symbol };
 export class Actor {
@@ -90,6 +91,8 @@ export class Actor {
       a.session = new Text(snapshot.session);
     }
     if (snapshot.transcript.len) a.transcript = snapshot.transcript;
+    if (snapshot.cwd?.len) a.cwd = snapshot.cwd;
+    if (snapshot.writes) worktrees.recordWrites(a, snapshot.writes);
     this.observed_at = Math.max(this.observed_at, snapshot.observed_at);
     this.background_tasks = snapshot.background_tasks;
     a.updated_at = snapshot.updated_at;
