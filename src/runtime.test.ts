@@ -249,17 +249,16 @@ test("waking a dormant agent into a shell types its command without running it",
     r.destroy();
   }
 });
-function ghost(p: Pane, old: string | null) {
+function ghost(r: Runtime, p: Pane, old: string | null) {
   const frozen = Terminal.create(20, 4);
   if (old) frozen.feed(old);
-  p.ghost = new Ghost(frozen, p.terminal.surface_revision, p.terminal.liveText());
-  p.ghost.old_screen = old !== null;
+  r.haunt(p, frozen, old, null);
 }
 test("a reopened agent's ghost shows until the agent draws and holds still", () => {
   const { r, w } = setup();
   try {
     const p = add(r, w);
-    ghost(p, "OLD");
+    ghost(r, p, "OLD");
     expect(p.watchGhost(10000)).toBe(false);
     p.terminal.feed("NEW");
     expect(p.watchGhost(100)).toBe(false);
@@ -269,15 +268,18 @@ test("a reopened agent's ghost shows until the agent draws and holds still", () 
     r.destroy();
   }
 });
-test("a ghost goes as soon as the agent's screen reads as the old one, or after the longest wait", () => {
+test("a ghost goes as soon as the agent repaints the old screen, or after the longest wait", () => {
   const { r, w } = setup();
   try {
     const p = add(r, w);
-    ghost(p, "OLD");
-    p.terminal.feed("OLD");
+    ghost(r, p, "SCROLLED\r\n\r\n\r\n\r\nOLD");
+    expect(p.terminal.liveText().trim()).toBe("");
+    expect(p.terminal.history()).toContain("SCROLLED");
+    expect(p.terminal.history()).not.toContain("OLD");
+    p.terminal.feed("\x1b[4;1HOLD");
     expect(p.watchGhost(100)).toBe(true);
     const busy = add(r, w);
-    ghost(busy, "OLD");
+    ghost(r, busy, "OLD");
     for (let now = 100; now < 2100; now += 100) {
       busy.terminal.feed("x");
       expect(busy.watchGhost(now)).toBe(false);
@@ -288,11 +290,62 @@ test("a ghost goes as soon as the agent's screen reads as the old one, or after 
     r.destroy();
   }
 });
+test("a restored agent shows once it has drawn about as much as its old screen", () => {
+  const { r, w } = setup();
+  try {
+    const p = add(r, w);
+    ghost(r, p, "header\r\none\r\ntwo\r\n> ");
+    // A startup screen holds still, but it isn't the conversation.
+    p.terminal.feed("header\r\n> ");
+    expect(p.watchGhost(100)).toBe(false);
+    expect(p.watchGhost(5000)).toBe(false);
+    p.terminal.feed("\x1b[Hheader\r\nuno\r\ndos\r\n> ");
+    expect(p.watchGhost(5100)).toBe(false);
+    expect(p.watchGhost(5400)).toBe(true);
+    const stuck = add(r, w);
+    ghost(r, stuck, "header\r\none\r\ntwo\r\n> ");
+    stuck.terminal.feed("header");
+    expect(stuck.watchGhost(100)).toBe(false);
+    expect(stuck.watchGhost(99 + Ghost.give_up_ms)).toBe(false);
+    expect(stuck.watchGhost(100 + Ghost.give_up_ms)).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
+test("a Codex agent shows only once it has titled its terminal", () => {
+  const { r, w } = setup();
+  try {
+    const p = add(r, w);
+    p.launch = new Launch({ provider: "codex" });
+    ghost(r, p, "OLD");
+    p.terminal.feed("NEW");
+    expect(p.watchGhost(100)).toBe(false);
+    expect(p.watchGhost(1000)).toBe(false);
+    p.terminal.feed("\x1b]0;codex\x07");
+    expect(p.watchGhost(1100)).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
+test("typing into a restored agent shows it, and the mouse doesn't", () => {
+  const { r, w } = setup();
+  try {
+    const p = add(r, w);
+    ghost(r, p, "OLD");
+    expect(p.typed("\x1b[<35;5;2M")).toBe(false);
+    expect(p.ghost).not.toBeNull();
+    expect(p.typed("a")).toBe(true);
+    expect(p.ghost).toBeNull();
+    expect(p.typed("b")).toBe(false);
+  } finally {
+    r.destroy();
+  }
+});
 test("a blank ghost waits for the agent to hold still, even on a cleared screen", () => {
   const { r, w } = setup();
   try {
     const p = add(r, w);
-    ghost(p, null);
+    ghost(r, p, null);
     p.terminal.feed("x");
     expect(p.watchGhost(100)).toBe(false);
     p.terminal.feed("\x1b[2J\x1b[H");

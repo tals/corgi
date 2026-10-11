@@ -56,6 +56,8 @@ export const info = new Info({
     idle_prompt: "›",
     background_status: true,
     compaction_status: true,
+    // Its chat view titles the terminal; the screen it shows while a thread loads doesn't.
+    titled_once_loaded: true,
   },
   limits: {
     windows: ["primary", "secondary"],

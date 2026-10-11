@@ -237,6 +237,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       const p = r.pane(q.target);
       if (!p) throw Error("NoPane");
       p.detection.observeInput(q.data, Date.now() * 1000);
+      if (p.typed(q.data)) r.changed();
       await p.terminal.send(q.data);
       return location(r, q.target);
     }

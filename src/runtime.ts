@@ -13,6 +13,7 @@ import { Tracker } from "./detection";
 import { ResumeHint } from "./resume_hint";
 import { waitpid, tcgetpgrp, systemCall } from "./native_bridge";
 import { attachCommand } from "./claude_daemon";
+import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
@@ -49,12 +50,40 @@ export class TypedRename {
     public deadline: number,
   ) {}
 }
+/** A screen's non-blank rows: how many, and the last one. */
+function rowsFilled(text: string) {
+  let count = 0,
+    last = -1;
+  text.split("\n").forEach((row, i) => {
+    if (!row.trim()) return;
+    count++;
+    last = i;
+  });
+  return { count, last };
+}
+/** Whether an agent has drawn about as much as its old screen held: most of
+ * its rows, reaching about as far down. A resumed agent redraws its
+ * conversation, not the same screen, and its startup screen is far emptier. */
+export function filledLike(screen: string, old: string) {
+  const now = rowsFilled(screen),
+    before = rowsFilled(old);
+  return now.count >= before.count * 0.75 && now.last >= before.last - 3;
+}
 export class Ghost {
   static quiet_ms = 300;
   static longest_ms = 2000;
+  /** How long an agent may draw without looking loaded before it shows anyway. */
+  static give_up_ms = 10000;
   old_screen = true;
   drawn_at: number | null = null;
   changed_at = 0;
+  /** Whether the agent's screen holds about what the old screen did. */
+  filled = false;
+  /** The pane's title before its agent ran, for a provider that titles its
+   * terminal only once its conversation has loaded. */
+  untitled: string | null = null;
+  /** Since when the agent has looked loaded. */
+  loaded_at: number | null = null;
   fork: string | null = null;
   constructor(
     public terminal: Terminal,
@@ -62,7 +91,9 @@ export class Ghost {
     public text: string | null,
   ) {}
   due() {
-    return this.drawn_at === null ? null : Math.min(this.changed_at + Ghost.quiet_ms, this.drawn_at + Ghost.longest_ms);
+    if (this.drawn_at === null) return null;
+    if (this.loaded_at === null) return this.drawn_at + Ghost.give_up_ms;
+    return Math.min(this.changed_at + Ghost.quiet_ms, this.loaded_at + Ghost.longest_ms);
   }
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -148,12 +179,16 @@ export class Pane {
         g.text = text;
         g.changed_at = now;
         g.drawn_at ??= now;
-        if (g.old_screen && text !== null && text === g.terminal.liveText()) {
+        const old = g.old_screen ? g.terminal.liveText() : null;
+        if (text === old) {
           this.dropGhost();
           return true;
         }
+        g.filled = old === null || filledLike(text, old);
       }
     }
+    if (g.filled && (g.untitled === null || this.terminal.title !== g.untitled)) g.loaded_at ??= now;
+    else g.loaded_at = null;
     const due = g.due();
     if (due === null || now < due) return false;
     this.dropGhost();
@@ -162,6 +197,12 @@ export class Pane {
   dropGhost() {
     this.ghost?.terminal.destroy();
     this.ghost = null;
+  }
+  /** Typing into a restored agent shows it at once, so what's typed shows. */
+  typed(data: string) {
+    if (!this.ghost || keys.mouseReport(data)) return false;
+    this.dropGhost();
+    return true;
   }
   async resize(cols: number, rows: number) {
     await this.terminal.resize(cols, rows);
@@ -467,11 +508,19 @@ export class Runtime {
     if (old) t.feed(old);
     return t;
   }
+  /** Shows `frozen` over `p` until its agent looks loaded. `p` keeps the old
+   * scrollback but starts with a blank screen, so any draw shows, even one
+   * that repaints the old screen. */
   haunt(p: Pane, frozen: Terminal, old: string | Uint8Array | null, fork: string | null) {
-    if (old) p.terminal.feed(old);
+    if (old) {
+      p.terminal.feed(old);
+      p.terminal.feed("\x1b[H\x1b[J");
+    }
     p.ghost = new Ghost(frozen, p.terminal.surface_revision, p.terminal.liveText());
     p.ghost.old_screen = old !== null;
     p.ghost.fork = fork;
+    const provider = p.resumeLaunch()?.agent?.provider;
+    if (provider && Provider.info(provider).screen.titled_once_loaded) p.ghost.untitled = p.terminal.title;
   }
   async resumeAgent(opts: Create, launch: Launch, hint: ResumeHint, old: string | Uint8Array | null) {
     if (!hint.provider || !hint.args()) throw Error("InvalidSession");

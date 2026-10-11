@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { parse, logicalKey, paste_start, paste_end } from "./keys";
+import { parse, logicalKey, mouseReport, paste_start, paste_end } from "./keys";
 import { decode } from "./keyboard";
 test("parse recognizes CSI and SS3 forms, and rejects the unmapped", () => {
   for (const [seq, key] of [
@@ -20,6 +20,10 @@ test("parse recognizes CSI and SS3 forms, and rejects the unmapped", () => {
     expect(parse(seq)).toBe(key);
   expect(parse("\x1b[9~")).toBeNull();
   expect(parse("")).toBeNull();
+});
+test("mouse reports are told from keys in every encoding", () => {
+  for (const seq of ["\x1b[<0;5;2M", "\x1b[<35;5;2m", "\x1b[M #!", "\x1b[32;5;2M"]) expect(mouseReport(seq)).toBe(true);
+  for (const seq of ["a", "\r", "\x1b[A", "\x1b[1;5A", "\x1b[27u", paste_start]) expect(mouseReport(seq)).toBe(false);
 });
 test("logical CLI modifiers parse once", () => {
   expect(logicalKey("ctrl+alt+c")).toEqual({

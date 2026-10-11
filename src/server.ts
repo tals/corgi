@@ -332,7 +332,7 @@ export class Server {
       const copied = p.terminal.takeCopied();
       if (copied !== null) viewer.copy(this, p.id, copied);
       p.terminal.refreshRedraw(now);
-      p.watchGhost(now);
+      if (p.watchGhost(now)) this.runtime.changed();
       const cwd = p.cwd;
       p.refreshCwd();
       // Viewers inherit a pane's folder for new tabs, so a `cd` wakes them.

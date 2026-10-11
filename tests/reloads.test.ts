@@ -513,7 +513,7 @@ await Bun.sleep(120000);
     this.assertEqual([woken.dormant, woken.pid > 0], [false, true]);
     this.assertEqual((await this.session()).panes.length, 1);
     await this.until(async () => (await this.screen(first)).includes("RESUMED_FIXTURE"));
-    this.assertIn("BEFORE_CRASH", await this.history(first));
+    this.assertNotIn("BEFORE_CRASH", await this.history(first));
   }
   async test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes() {
     const first = await this.new();

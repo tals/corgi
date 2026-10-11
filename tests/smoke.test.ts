@@ -39,6 +39,14 @@ class Smoke extends Runtime {
     mkdirSync(path);
     return path;
   }
+  /** Whether the viewer draws `text` faded under the "Restoring…" band. */
+  async restoring_over_faded(text: string) {
+    for (let i = 0; i < 100; i++) {
+      const data = (await this.get_type("frame")).data;
+      if (screen_text(data).some(line => line.includes("Restoring…")) && data.includes(`\x1b[2m${text}`)) return true;
+    }
+    return false;
+  }
   async choose_terminal(cols = 80, rows = 24) {
     await this.frame_with("New terminal", cols, rows);
     await this.input("t");
@@ -1242,12 +1250,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     // Its conversation, idle, and its old tab place come back before it draws.
     this.assertEqual([pane.provider, pane.state], ["claude", "idle"]);
     this.assertEqual(layout_tree((await this.session()).workspaces[0], 0).pane, pane.id);
-    await this.frame_with("Restoring…");
-    const lines = (await this.rpc({ op: "pane.surface", protocol: 1, pane: pane.id })).surface.lines;
-    this.assertTrue(
-      lines.some((line: string) => line.includes("\x1b[2mOLD_SCREEN")),
-      "the old screen is not faded",
-    );
+    this.assertTrue(await this.restoring_over_faded("OLD_SCREEN"), "the old screen is not faded");
     await this.command("pane.input", { target: pane.id, data: "go\r" });
     await this.until(async () =>
       (await this.command("pane.read", { target: pane.id, view: "screen" })).text.includes(
@@ -1301,11 +1304,8 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     this.assertEqual(reopened.name, "Stored name");
     this.assertEqual(reopened.restoring, "claude --resume 'closed'");
     this.assertEqual((await this.session()).workspaces[0].closed_agents, 0);
-    const lines = (await this.rpc({ op: "pane.surface", protocol: 1, pane: reopened.id })).surface.lines;
-    this.assertTrue(
-      lines.some((line: string) => line.includes("\x1b[2mOLD_SCREEN")),
-      "the old screen is not faded",
-    );
+    await this.rpc({ op: "focus", pane: reopened.id });
+    this.assertTrue(await this.restoring_over_faded("OLD_SCREEN"), "the old screen is not faded");
     // Any other comes back under the same band, over a blank screen.
     const fresh = await resume("elsewhere");
     this.assertEqual(fresh.restoring, "claude --resume 'elsewhere'");

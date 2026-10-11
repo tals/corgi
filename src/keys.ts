@@ -43,6 +43,10 @@ export type Key =
 export function parse(seq: string): Key | null {
   return (map[seq] as Key) ?? null;
 }
+/** Whether input for a pane is a mouse report, in any encoding a pane can ask for. */
+export function mouseReport(seq: string) {
+  return /^\x1b\[(?:<|M|\d+;\d+;\d+M)/.test(seq);
+}
 const named: Record<string, number> = {
   esc: 27,
   enter: 13,
