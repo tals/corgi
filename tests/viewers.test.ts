@@ -258,6 +258,11 @@ class ViewerScenarios extends Viewers {
     const rest: number[] = [];
     for (let i = 0; i < 5; i++) rest.push(await this.new());
     for (const [i, pane] of rest.entries()) await this.mark_agent(pane, `Agent-${i}`);
+    // A resource sample between the two screens would change the sidebar.
+    writeFileSync(
+      join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
+      JSON.stringify({ onboarding_complete: true, resources: { enabled: false } }),
+    );
     const a = await this.newViewer(100, 24);
     await a.focus(first);
     await this.until(async () => (await a.poll()).data.includes("PANE_CONTENT_VISIBLE"));
