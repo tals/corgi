@@ -402,7 +402,8 @@ export class View {
     let total = 0;
     for (const e of c.history.entries) total += c.listed(e, "folder") ? 1 : 0;
     w.write(`\x1b[${y};${x + 3}H${panel}\x1b[1m` + palette.fg("strong") + `Resume${panel}`);
-    writeEllipsis(w, ` · ${total} in ${basename(c.folder)}`, cols.title + 3);
+    // The launcher's title names the folder.
+    writeEllipsis(w, total > 0 ? ` · ${total} here` : " · none here", cols.title + 3);
     if (cols.last > 12) {
       w.write(`\x1b[${y};${x + 3 + 9 + cols.title + 2}H`);
       writeEllipsis(w, "You last said", cols.last);

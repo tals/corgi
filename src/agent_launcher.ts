@@ -1,9 +1,8 @@
 //! The agent launcher popover: rows, keys, hit areas and drawing. The daemon
 //! fills the preview; this file only shows it, and the shared runtime
 //! remembers the choice. Mirrors agent_launcher.zig.
-import { basename } from "node:path";
 import * as palette from "./palette";
-import { Style } from "./palette";
+import { Style, keycap } from "./palette";
 import { Provider } from "./providers";
 import { Rect } from "./layout";
 import { Dialog } from "./name_dialog";
@@ -12,6 +11,10 @@ import { restoreLimits, type Limits } from "./usage/account";
 import { Cell, Grid, expired } from "./launcher_usage";
 import * as launcherResume from "./launcher_resume";
 import { writeKey } from "./launcher_resume";
+import * as launcherWorktree from "./launcher_worktree";
+import * as worktreeFolder from "./worktree_folder";
+import * as dropdown from "./dropdown";
+import type * as worktrees from "./worktrees";
 import type { View as SidebarView } from "./sidebar";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
@@ -160,6 +163,11 @@ export class Menu {
    * repeat is ignored instead of read as a launcher key. */
   prefix = false;
   preview: Preview = preview();
+  /** The workspace's checkouts, for the title's button and its list. */
+  worktrees: worktrees.Snapshot | null = null;
+  worktree = new launcherWorktree.Chooser();
+  /** Where a new worktree goes, as the viewer's preferences say. */
+  worktree_folder = worktreeFolder.default_template;
 
   constructor(fields: Partial<Menu> = {}) {
     Object.assign(this, fields);
@@ -275,7 +283,17 @@ export class Menu {
       : this.resume_view.expanded
         ? 8
         : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
-    return 5 + this.count() + conversations;
+    // The worktree box hangs from the title above the footer.
+    const c = this.worktree;
+    const hanging =
+      c.mode !== "open"
+        ? 0
+        : launcherWorktree.boxHeight(
+            Math.min(launcherWorktree.checkouts(this.worktrees).length, launcherWorktree.list_rows),
+            c.error.length > 0,
+            c.focus === "from" ? launcherWorktree.pickChoices(c, now()).length : null,
+          );
+    return Math.max(5 + this.count() + conversations, hanging);
   }
   bounds(cols: number, rowsCount: number, side: SidebarView): Rect {
     let content = 4;
@@ -397,7 +415,55 @@ export class Menu {
     return x >= start && x < start + sat(widths[5], 1) ? provider : null;
   }
   resumeContext(): launcherResume.Context {
-    return new launcherResume.Context(this.history, this.cwd, this.workspace_cwd, this.open, now());
+    return new launcherResume.Context(this.history, this.destination(), this.workspace_cwd, this.open, now());
+  }
+  /** Where agents start: the new worktree named for them, else `cwd`. */
+  destination(): string {
+    return this.worktree.planned?.path ?? this.cwd;
+  }
+  place() {
+    return launcherWorktree.place(this.worktrees, this.cwd, this.worktree.planned);
+  }
+  /** The title's worktree button, in 0-based cells; null when it has none. */
+  worktreeButton(cols: number, rowsCount: number, side: SidebarView): Rect | null {
+    if (this.managing) return null;
+    const b = this.bounds(cols, rowsCount, side);
+    const p = this.place();
+    const span = p.worktree ? launcherWorktree.button(b, p, Menu.titleRight(b)) : null;
+    return span ? new Rect(span.x, b.y, span.w, 1) : null;
+  }
+  worktreeChoices(): dropdown.Choice[] {
+    return launcherWorktree.choices(this.worktrees, this.cwd, this.worktree);
+  }
+  /** The open box's parts, in 0-based cells. */
+  worktreeBox(cols: number, rowsCount: number, side: SidebarView): launcherWorktree.Box | null {
+    const button = this.worktreeButton(cols, rowsCount, side);
+    if (!button || this.worktree.mode === "closed") return null;
+    const b = this.bounds(cols, rowsCount, side);
+    const count = launcherWorktree.checkouts(this.worktrees).length;
+    return launcherWorktree.box(b, button.x, count, this.worktree.error.length > 0);
+  }
+  /** From's branch list under its field, while From has the caret. */
+  worktreePickRect(cols: number, rowsCount: number, side: SidebarView): Rect | null {
+    const bx = this.worktreeBox(cols, rowsCount, side);
+    if (!bx || this.worktree.focus !== "from") return null;
+    return launcherWorktree.pickRect(bx, launcherWorktree.pickChoices(this.worktree, now()).length);
+  }
+  /** What a pointer is on in the open box: a checkout, a field, or a branch in From's list. */
+  worktreeHit(cols: number, rowsCount: number, side: SidebarView, x: number, y: number): launcherWorktree.Spot | null {
+    const pick = this.worktreePickRect(cols, rowsCount, side);
+    if (pick?.contains(x, y))
+      return this.worktree.branches === null || this.worktree.matches().length === 0
+        ? null
+        : { pick: this.worktree.pick_scroll + y - pick.y };
+    const bx = this.worktreeBox(cols, rowsCount, side);
+    if (!bx || x <= bx.rect.x || x >= bx.rect.x + bx.rect.w - 1) return null;
+    if (y >= bx.list && y < bx.list + bx.shown) {
+      launcherWorktree.visible(this.worktree, this.worktreeChoices(), bx.shown);
+      const index = this.worktree.scroll + y - bx.list;
+      return index < launcherWorktree.checkouts(this.worktrees).length ? { checkout: index } : null;
+    }
+    return y === bx.branch ? "branch" : y === bx.from ? "from" : null;
   }
   /** Whether conversations show: once the daemon has sent some. A first
    * read takes seconds; the menu does not wait on it or show a placeholder. */
@@ -440,8 +506,14 @@ export class Menu {
     if (!span) return false;
     return y === b.y && x >= span.x && x < span.x + span.w;
   }
-  private static drawTitle(w: Writer, b: Rect, panel: string): void {
-    w.write(`\x1b[${b.y + 1};${b.x + 3}H\x1b[1m` + palette.fg("strong") + ` New agent ${panel}`);
+  /** The column the title's own text stops before: Manage, or the corner. */
+  private static titleRight(b: Rect): number {
+    const span = Menu.manageSpan(b);
+    return span ? span.x - 1 : b.x + b.w - 2;
+  }
+  private drawTitle(w: Writer, b: Rect, panel: string): void {
+    const p = this.place();
+    launcherWorktree.drawTitle(w, b, p, Menu.titleRight(b), this.worktree.mode !== "closed", panel);
     const span = Menu.manageSpan(b);
     if (!span) return;
     // Like a footer hint: a keycap, then a faint label.
@@ -449,12 +521,12 @@ export class Menu {
     writeKey(w, "m", panel);
     w.write(manage_label);
   }
-  private static drawFooter(w: Writer, b: Rect, panel: string, cwd: string, what: string, hints: Hint[]): void {
+  private static drawFooter(w: Writer, b: Rect, panel: string, what: string, hints: Hint[]): void {
     let hint_width = 0;
     hints.forEach((hint, i) => (hint_width += displayWidth(hint.key) + 2 + 1 + hint.label.length + (i > 0 ? 2 : 0)));
     const footer_row = b.y + b.h - 1;
     w.write(`\x1b[${footer_row};${b.x + 3}H${panel}`);
-    writeEllipsis(w, `${basename(cwd)} · ${what}`, sat(b.w, hint_width + 6));
+    writeEllipsis(w, what, sat(b.w, hint_width + 6));
     w.write(`\x1b[${footer_row};${b.x + b.w - 1 - hint_width}H`);
     hints.forEach((hint, i) => {
       if (i > 0) w.write("  ");
@@ -497,6 +569,7 @@ export class Menu {
     this.pinned = true;
   }
   input(): Dialog {
+    if (this.worktree.mode === "open" && this.worktree.focus !== "list") return this.worktree.input();
     return this.name_focused ? this.name_editor : this.editor;
   }
   account(info: Semantics): string {
@@ -661,7 +734,7 @@ export class Menu {
       else w.splat(" ", b.w - 2);
       w.write(row === 0 ? "╮" : row === b.h - 1 ? "╯" : "│");
     }
-    Menu.drawTitle(w, b, panel);
+    m.drawTitle(w, b, panel);
     const widths = m.columns(b.w);
     let heading_x = b.x + 4;
     headings.forEach((heading, column) => {
@@ -766,7 +839,25 @@ export class Menu {
     const c = m.resumeContext();
     const on_more = view.focused && view.entry(c, view.lines(c)) === null;
     let hints: Hint[];
-    if (view.searching && view.query.len > 0)
+    if (m.worktree.mode === "open" && m.worktree.focus === "list")
+      hints = [
+        { key: "↵", label: "choose" },
+        { key: "n", label: "new" },
+        { key: "esc", label: "close" },
+      ];
+    else if (m.worktree.mode === "open" && m.worktree.focus === "from")
+      hints = [
+        { key: "↑↓", label: "pick" },
+        { key: "↵", label: "use" },
+        { key: "esc", label: "back" },
+      ];
+    else if (m.worktree.mode === "open")
+      hints = [
+        { key: "↵", label: "done" },
+        { key: "tab", label: "from" },
+        { key: "esc", label: "close" },
+      ];
+    else if (view.searching && view.query.len > 0)
       hints = [
         { key: "↵", label: "resume" },
         { key: "tab", label: "scope" },
@@ -820,8 +911,81 @@ export class Menu {
         { key: "a", label: "launch" },
         { key: "y", label: "YOLO" },
       ];
-    Menu.drawFooter(w, b, panel, m.cwd, "new tab", hints);
+    const planned = m.worktree.planned;
+    const what = !planned
+      ? "new tab"
+      : m.worktree.adding
+        ? `adding ${launcherWorktree.folderLabel(planned.path, launcherWorktree.projectRoot(m.worktrees, m.cwd))}…`
+        : `new worktree from ${planned.base_name} · new tab`;
+    Menu.drawFooter(w, b, panel, what, hints);
     w.write("\x1b[0m\x1b[?25l");
+    const bx = m.worktreeBox(cols, rowsCount, side);
+    if (bx) m.drawWorktreeBox(w, bx, cols, rowsCount, side);
+  }
+  /** The checkouts, then the New worktree rule and its form, in one box.
+   * From's branches open right under its field while it has the caret. */
+  private drawWorktreeBox(
+    w: Writer,
+    bx: launcherWorktree.Box,
+    cols: number,
+    rowsCount: number,
+    side: SidebarView,
+  ): void {
+    const c = this.worktree,
+      r = bx.rect;
+    const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
+    const text = new Style({ fg: "text", bg: "surface" }).sgr(),
+      panel = new Style({ fg: "faint", bg: "surface" }).sgr(),
+      rule = new Style({ fg: "line", bg: "surface" }).sgr();
+    dropdown.draw(w, r, launcherWorktree.visible(c, this.worktreeChoices(), bx.shown));
+    // The New worktree rule joins the frame, with n's keycap on it; it lights
+    // up while the form has the keyboard.
+    w.write(at(r.x, bx.rule) + rule + "├─ " + keycap + " n " + text + " ");
+    w.write((c.focus === "list" ? palette.fg("muted") : "\x1b[1m" + palette.fg("strong")) + "New worktree\x1b[22m ");
+    w.write(rule + "─".repeat(sat(r.w, 21)) + "┤");
+    const label = (y: number, name: string) => w.write(at(bx.label_x, y) + panel + name);
+    const input = (d: Dialog, placeholder: string, y: number, focused: boolean) => {
+      // drawInput sets only the background: the text is strong, a placeholder faint.
+      w.write(palette.fg(d.len === 0 ? "faint" : "strong"));
+      Menu.drawInput(w, d, placeholder, bx.field_x + 1, y + 1, bx.field_w, focused);
+    };
+    label(bx.branch, "Branch");
+    input(c.field, "branch name", bx.branch, c.focus === "branch");
+    label(bx.from, "From");
+    const from = c.focus === "from" ? c.from : Dialog.init({ rename: 0 }, c.base?.name ?? "");
+    input(from, "", bx.from, c.focus === "from");
+    label(bx.folder, "Folder");
+    w.write(at(bx.field_x, bx.folder) + text);
+    const root = launcherWorktree.projectRoot(this.worktrees, this.cwd),
+      planned = launcherWorktree.plannedPath(this.worktrees, this.cwd, c.field.name() || "…", this.worktree_folder);
+    writeEllipsis(w, launcherWorktree.folderLabel(planned, root), bx.field_w);
+    if (bx.error !== null) {
+      w.write(at(bx.label_x, bx.error) + palette.fg("hot"));
+      writeEllipsis(w, c.error, sat(r.x + r.w - 2, bx.label_x));
+    }
+    // From's branches on the field's own background, its width, so the field
+    // opens downward; the highlighted one a step lighter.
+    const pick = this.worktreePickRect(cols, rowsCount, side);
+    if (pick) {
+      const message = c.branches === null || c.matches().length === 0;
+      launcherWorktree.pickChoices(c, now()).forEach((choice, i) => {
+        const style = new Style(choice.hovered ? { fg: "strong", bg: "line" } : { fg: "text", bg: "selected" }).sgr();
+        const note_x = pick.x + pick.w - displayWidth(choice.note);
+        w.write(at(pick.x, pick.y + i) + style);
+        w.splat(" ", pick.w);
+        w.write(at(note_x, pick.y + i) + palette.fg(choice.hovered ? "muted" : "faint") + choice.note);
+        w.write(at(pick.x, pick.y + i) + (message ? palette.fg("faint") : style));
+        writeEllipsis(w, choice.text, sat(note_x - 1, pick.x));
+      });
+    }
+    if (c.focus === "list") return;
+    // The caret, where the focused field's text ends or the cursor stands.
+    const field = c.input();
+    let offset = sat(field.cursor, sat(bx.field_w, 1));
+    while (offset < field.cursor && (field.text[offset] & 0xc0) === 0x80) offset += 1;
+    const caret = Math.min(sat(bx.field_w, 1), displayWidth(field.bytes(offset, field.cursor)));
+    const y = c.focus === "from" ? bx.from : bx.branch;
+    w.write(`\x1b[0m${at(bx.field_x + caret, y)}\x1b[?25h`);
   }
 }
 function unavailableCell(o: Option): Cell {

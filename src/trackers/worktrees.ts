@@ -154,6 +154,11 @@ export class Tracker {
   busy() {
     return this.thread !== null;
   }
+  /** Lists the repository's worktrees again on the next tick, after one was added. */
+  forget(common: string) {
+    this.cache.delete(common);
+    this.next_refresh = 0;
+  }
   /** Removes a linked worktree, uncommitted changes and all; its branch
    * stays. A locked one, or one a workspace lives in, is refused. */
   async remove(runtime: Runtime, workspace: number, path: string): Promise<void> {

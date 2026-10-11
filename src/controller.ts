@@ -62,6 +62,7 @@ import * as worktreeAgents from "./worktree_agents";
 import * as worktreeRemoval from "./worktree_removal";
 import * as rpc from "./rpc";
 import * as worktrees from "./worktrees";
+import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
 import { Drag as AgentDrag } from "./agent_drag";
@@ -100,7 +101,7 @@ interface TabDrag {
 }
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
-type Paste = { pane: number } | "launcher" | "picker" | "name" | "discard";
+type Paste = { pane: number } | "launcher" | "setup" | "picker" | "name" | "discard";
 interface PasteCard {
   pane: number;
   notice: hostClipboard.Notice;
@@ -1721,7 +1722,8 @@ export class Controller {
     return this.current().last_agent ?? this.runtime.last_agent;
   }
   private async launchAgent(provider: Provider | null): Promise<void> {
-    const dir = this.agent_launcher ? this.agent_launcher.cwd : this.currentCwd();
+    const dir = await this.launcherDir();
+    if (dir === null) return;
     if (byteLength(dir) > 4096) throw Error("NameTooLong");
     this.closeMenu();
     this.rememberLauncherRow(this.current().id, Row.of(provider ?? this.lastAgent()));
@@ -1749,8 +1751,10 @@ export class Controller {
       if (!launch.managing) {
         const index = Row.custom(row);
         if (index !== null) {
+          const dir = await this.launcherDir();
+          if (dir === null) return;
           const created = await this.execute({
-            "agent.command.create": { workspace: launch.workspace, cwd: launch.cwd, index },
+            "agent.command.create": { workspace: launch.workspace, cwd: dir, index },
           });
           this.closeMenu();
           this.focusPane(created.pane);
@@ -1785,11 +1789,157 @@ export class Controller {
     }
     const provider = Row.agent(row);
     if (provider) return this.launchAgent(provider);
-    const dir = this.agent_launcher ? this.agent_launcher.cwd : this.currentCwd();
+    const dir = await this.launcherDir();
+    if (dir === null) return;
     if (byteLength(dir) > 4096) throw Error("NameTooLong");
     this.closeMenu();
     await this.create(null, dir, null, "");
     this.copy_mode = false;
+  }
+  /** Where the launcher starts what it launches. A new worktree named there
+   * is added first, over a connection of its own since a big checkout takes
+   * seconds; null when Git refused it, with the reason in its form. */
+  private async launcherDir(): Promise<string | null> {
+    const launch = this.agent_launcher;
+    if (!launch) return this.currentCwd();
+    const c = launch.worktree,
+      planned = c.planned;
+    if (!planned) return launch.cwd;
+    if (c.adding) return null;
+    const fields = { workspace: launch.workspace, path: planned.path, branch: planned.branch, base: planned.base },
+      socket = this.connection.socket;
+    c.adding = true;
+    this.dirty = true;
+    try {
+      if (socket) await rpc.request(socket, "worktree.add", fields);
+      else await call(this.connection, "worktree.add", fields);
+    } catch (error) {
+      const reason = launcherWorktree.reason(errors.name(error), planned);
+      c.adding = false;
+      if (this.agent_launcher === launch) {
+        // The box opens in the form, on the name Git refused.
+        this.openWorktrees();
+        c.error = reason;
+      } else this.notice(` Couldn't add ${planned.branch}: ${reason}`);
+      this.dirty = true;
+      return null;
+    }
+    c.adding = false;
+    c.planned = null;
+    launch.cwd = planned.path;
+    return planned.path;
+  }
+  /** Opens the box of checkouts and the new-worktree form from the title's
+   * button, and has the daemon list the branches From offers the first time. */
+  private openWorktrees(): void {
+    const launch = this.agent_launcher;
+    if (!launch || launch.managing || !launch.place().worktree) return;
+    launch.pinned = true;
+    launch.resume_view.focused = false;
+    launch.worktree.open(launch.worktrees, launch.cwd);
+    if (launch.worktree.branches === null) void this.listBranches(launch);
+    this.dirty = true;
+  }
+  /** The repository's branches for From, over a connection of its own like
+   * `worktree.add`. A daemon that can't list them leaves From the default bases. */
+  private async listBranches(launch: LauncherMenu): Promise<void> {
+    const fields = { workspace: launch.workspace },
+      socket = this.connection.socket;
+    let branches: launcherWorktree.Branch[];
+    try {
+      const reply = socket
+        ? await rpc.request(socket, "git.branches", fields)
+        : await call(this.connection, "git.branches", fields);
+      branches = launcherWorktree.branchList(reply.branches);
+    } catch {
+      branches = launcherWorktree.bases(launch.worktrees, launch.cwd).map(b => ({ ...b, at: 0 }));
+    }
+    launch.worktree.branches = branches;
+    this.dirty = true;
+  }
+  /** Moves the launcher to a checkout. */
+  private chooseWorktree(index: number): void {
+    const launch = this.agent_launcher;
+    if (!launch) return;
+    const c = launch.worktree,
+      all = launcherWorktree.checkouts(launch.worktrees);
+    this.dirty = true;
+    if (index >= all.length) return;
+    c.mode = "closed";
+    c.planned = null;
+    if (launcherWorktree.containing(launch.worktrees, launch.cwd) === all[index]) return;
+    launch.cwd = all[index].path;
+    launch.preview = this.launch_previews.current(launch.cwd);
+    launch.resume_view.focused = false;
+  }
+  /** Keys while the launcher's box of checkouts and new-worktree form is
+   * open. Escape closes the box from anywhere in it but From's branch list,
+   * which it only dismisses. */
+  private worktreeKey(byte: number): void {
+    const launch = this.agent_launcher!;
+    const c = launch.worktree;
+    this.dirty = true;
+    if (c.focus === "from") {
+      switch (byte) {
+        case 27:
+          c.focus = "branch";
+          return;
+        case 13:
+        case 9:
+          c.takeFrom();
+          return;
+        case 14:
+          c.movePick(1);
+          return;
+        case 16:
+          c.movePick(-1);
+          return;
+        default:
+          c.search(from => from.key(byte));
+          return;
+      }
+    }
+    if (c.focus === "branch") {
+      switch (byte) {
+        case 27:
+          c.mode = "closed";
+          return;
+        case 13:
+          c.accept(launch.worktrees, launch.cwd, launch.worktree_folder);
+          return;
+        case 9:
+          c.focusFrom();
+          return;
+        default:
+          c.error = "";
+          // Branch names have no spaces; a typed one joins the words.
+          c.field.key(byte === 32 ? 45 : byte);
+          return;
+      }
+    }
+    switch (byte) {
+      case 27:
+      case 119:
+        c.mode = "closed";
+        break;
+      case 13:
+        this.chooseWorktree(c.hovered);
+        break;
+      case 110:
+        c.focus = "branch";
+        break;
+      case 9:
+      case 14:
+      case 106:
+        c.move(launch.worktrees, 1);
+        break;
+      case 16:
+      case 107:
+        c.move(launch.worktrees, -1);
+        break;
+      default:
+        break;
+    }
   }
   private async previewInlineCommand(immediate: boolean): Promise<void> {
     const launch = this.agent_launcher;
@@ -1956,6 +2106,8 @@ export class Controller {
     });
     launch.preview = this.launch_previews.current(cwd);
     launch.workspace_cwd = byteLength(this.current().cwd) <= 10 * 1024 ? this.current().cwd : "";
+    launch.worktrees = this.current().worktrees ?? null;
+    launch.worktree_folder = this.prefs.worktree_folder;
     this.showHistory(launch);
     launch.normalize();
     this.agent_launcher = launch;
@@ -2306,6 +2458,13 @@ export class Controller {
     };
     setup.shell = this.runtime.shell;
     setup.shells = installedShells();
+    // Source control previews the worktree folder in a real project, this workspace's first.
+    for (const ws of [this.current(), ...this.runtime.workspaces.items]) {
+      const root = ws.worktrees?.entries.find(e => e.primary)?.path;
+      if (!root) continue;
+      setup.project = { name: basename(root), root };
+      break;
+    }
     setup.smart_links = this.runtime.smart_links;
     this.corgi_setup = setup;
     this.dirty = true;
@@ -2384,6 +2543,14 @@ export class Controller {
         this.prefs.theme = apply.theme;
         try {
           preferences.update({ theme: this.prefs.theme });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
+      case "worktree_folder":
+        this.prefs.worktree_folder = apply.template;
+        try {
+          preferences.update({ worktree_folder: apply.template });
         } catch (error) {
           this.notice((error as Error).message);
         }
@@ -2683,12 +2850,16 @@ export class Controller {
       launch.prefix = false;
       if (after_prefix && (byte === 99 || byte === 97 || byte === 65)) return;
       if (launch.pinned && byte === 20 && this.prefs.preset === "corgi") return;
+      if (launch.worktree.mode !== "closed" && !launch.managing) {
+        launch.pinned = true;
+        return this.worktreeKey(byte);
+      }
       if (launch.resume_view.focused && !launch.managing) {
         launch.pinned = true;
         return this.resumeKey(byte);
       }
       const recognized =
-        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47].includes(byte) ||
+        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47, 119].includes(byte) ||
         (byte === 117
           ? launch.trackable(launch.selected) || launch.shortcutRow(byte) !== null
           : launch.shortcutRow(byte) !== null);
@@ -2722,6 +2893,9 @@ export class Controller {
             break;
           case 109:
             if (!launch.managing) await this.openManager();
+            break;
+          case 119:
+            this.openWorktrees();
             break;
           case 47:
             this.expandResume(true);
@@ -3000,7 +3174,11 @@ export class Controller {
   private pasteTarget(): Paste {
     if (this.worktreeDetail() !== null) return "discard";
     if (this.agent_launcher)
-      return this.agent_launcher.managing && this.agent_launcher.selected === "add" ? "launcher" : "discard";
+      return (this.agent_launcher.managing && this.agent_launcher.selected === "add") ||
+        (this.agent_launcher.worktree.mode === "open" && this.agent_launcher.worktree.focus !== "list")
+        ? "launcher"
+        : "discard";
+    if (this.corgi_setup?.editing) return "setup";
     if (this.agent_picker) return "picker";
     if (this.name_dialog) return "name";
     if (this.hasMenu()) return "discard";
@@ -3155,9 +3333,14 @@ export class Controller {
       // Its owner can close mid-paste, when a snapshot removes the target.
       case "launcher":
         if (this.agent_launcher) {
+          const c = this.agent_launcher.worktree;
           if (this.agent_launcher.name_focused) this.agent_launcher.name_customized = true;
-          this.agent_launcher.input().pasteByte(byte);
+          if (c.mode === "open" && c.focus === "from") c.search(from => from.pasteByte(byte));
+          else this.agent_launcher.input().pasteByte(byte);
         }
+        break;
+      case "setup":
+        this.corgi_setup?.paste(byte);
         break;
       case "picker":
         if (this.agent_picker && byte >= 32 && byte < 127) await this.key(byte);
@@ -3333,7 +3516,9 @@ export class Controller {
       } else if (this.corgi_setup) {
         const setup = this.corgi_setup,
           s = this.runtime.inference;
-        if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
+        if (setup.sequence(text)) {
+          // The worktree folder field took it.
+        } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
         else if (parsed_key === "down") setup.move(true, s, this.prefs);
         else if (parsed_key === "right") setup.openOptions(s, this.prefs);
         else if (parsed_key === "left") setup.back();
@@ -3341,7 +3526,22 @@ export class Controller {
       } else if (this.agent_launcher) {
         const launch = this.agent_launcher;
         // CSI-only on purpose: SS3 arrows reach the name field as input.
-        if (launch.resume_view.focused && !launch.managing) {
+        if (launch.worktree.mode === "open" && launch.worktree.focus !== "list" && !launch.managing) {
+          const c = launch.worktree;
+          // ↑ from Branch walks back to the checkouts; ↓ goes on to From.
+          if (c.focus === "from" && parsed_key === "shift_tab") c.focus = "branch";
+          else if (c.focus === "from" && (parsed_key === "up" || parsed_key === "down"))
+            c.movePick(parsed_key === "up" ? -1 : 1);
+          else if (c.focus === "from") c.search(from => from.sequence(text));
+          else if (parsed_key === "up" || parsed_key === "shift_tab") c.focus = "list";
+          else if (parsed_key === "down") c.focusFrom();
+          else c.field.sequence(text);
+          this.dirty = true;
+        } else if (launch.worktree.mode === "open" && !launch.managing) {
+          if (parsed_key === "up" || parsed_key === "down")
+            launch.worktree.move(launch.worktrees, parsed_key === "up" ? -1 : 1);
+          this.dirty = true;
+        } else if (launch.resume_view.focused && !launch.managing) {
           launch.pinned = true;
           this.resumeSequence(text, parsed_key);
         } else if (
@@ -3872,6 +4072,28 @@ export class Controller {
           this.dirty = true;
           return;
         }
+        {
+          const launch = this.agent_launcher,
+            button = launch.worktreeButton(this.width, this.height, side);
+          if (launch.worktree.mode !== "closed") {
+            // In the box a click takes a checkout, a field or a branch; elsewhere it closes the box first.
+            const c = launch.worktree,
+              spot = launch.worktreeHit(this.width, this.height, side, x, y);
+            this.dirty = true;
+            if (spot === "branch") c.focus = "branch";
+            else if (spot === "from") {
+              if (c.focus !== "from") c.focusFrom();
+            } else if (spot !== null && "pick" in spot) {
+              c.picked = spot.pick;
+              c.takeFrom();
+            } else if (spot !== null) return this.chooseWorktree(spot.checkout);
+            const bx = launch.worktreeBox(this.width, this.height, side);
+            if (spot !== null || bx?.rect.contains(x, y)) return;
+            // Elsewhere, the button included, closes the box.
+            c.mode = "closed";
+            if (launch.bounds(this.width, this.height, side).contains(x, y)) return;
+          } else if (button?.contains(x, y)) return this.openWorktrees();
+        }
         if (this.agent_launcher.manageHit(this.width, this.height, side, x, y)) return this.openManager();
         const resume = this.agent_launcher.resumeHit(this.width, this.height, side, x, y);
         if (resume !== null) {
@@ -3897,7 +4119,12 @@ export class Controller {
         }
       } else if (!release && (button === 35 || button === 32)) {
         const launch = this.agent_launcher;
-        if (!launch.managing) {
+        const spot = launch.worktree.mode === "open" ? launch.worktreeHit(this.width, this.height, side, x, y) : null;
+        if (spot !== null && typeof spot === "object" && "checkout" in spot) launch.worktree.hovered = spot.checkout;
+        else if (spot !== null && typeof spot === "object") launch.worktree.picked = spot.pick;
+        else if (launch.worktree.mode !== "closed") {
+          // The list or form covers the rows under it.
+        } else if (!launch.managing) {
           const row = launch.hit(this.width, this.height, side, x, y);
           if (row !== null) {
             launch.selected = row;
@@ -4344,6 +4571,7 @@ export class Controller {
   }
   reconcile(): void {
     if (this.agent_picker && this.agent_picker.workspace !== this.current().id) this.agent_picker = null;
+    if (this.agent_launcher) this.agent_launcher.worktrees = this.current().worktrees ?? null;
     if (this.sidebar_focus && this.sidebarView([]).width === 0) this.leaveSidebar();
     if (this.port_menu) {
       const links = this.port_menu;
@@ -4408,6 +4636,11 @@ export class Controller {
       }
       cl.keybuf = [];
     }
+  }
+  /** The workspace whose worktrees' uncommitted files to scan: the overview's, or
+   * the current one while the launcher lists its checkouts. */
+  worktreeDetailWanted(): number | null {
+    return this.worktreeDetail() ?? (this.agent_launcher?.worktree.mode === "open" ? this.current().id : null);
   }
   worktreeDetail(): number | null {
     const id = this.worktree_card.workspace;

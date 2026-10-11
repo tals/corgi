@@ -490,3 +490,48 @@ test("Detach sits at the bottom and leaves from the list", () => {
   menu.prefixKey(2, prefs);
   expect(menu.prefixKey(100, prefs)).toBe("detach");
 });
+
+test("Source control's box takes the worktree folder, shows where it leads, and refuses what can't work", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.project = { name: "corgi", root: "/src/corgi" };
+  menu.item = "source_control";
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toContain("│ $PROJECT_ROOT/.worktrees/$NAME");
+  expect(text).toContain("→ /src/corgi/.worktrees/fix-login");
+  expect(text).toMatch(/\$PROJECT_ROOT +\/src\/corgi/);
+  expect(text).toMatch(/\$NAME +fix-login/);
+  // Opening the pane puts the caret in the box; q and space are typing.
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.editing).not.toBeNull();
+  for (const _ of ".worktrees/$NAME") menu.key(127);
+  for (const byte of Buffer.from("wt q/$BRANCH")) expect(menu.key(byte)).toBe(true);
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toContain("$BRANCH isn't a variable; did you mean $NAME?");
+  expect(text).not.toContain("→");
+  expect(menu.enter(s, prefs)).toBeNull();
+  expect(menu.editing).not.toBeNull();
+  for (const _ of "$BRANCH") menu.key(127);
+  for (const byte of Buffer.from("$NAME")) menu.key(byte);
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("→ /src/corgi/wt q/fix-login");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "worktree_folder", template: "$PROJECT_ROOT/wt q/$NAME" });
+  expect([menu.editing, menu.focus]).toEqual([null, "list"]);
+  // Esc drops an edit; an emptied box saves the default it shows.
+  prefs.worktree_folder = "$PROJECT_ROOT/wt/$NAME";
+  menu.enter(s, prefs);
+  menu.key(127);
+  expect(menu.back()).toBe(true);
+  expect([menu.editing, menu.focus]).toEqual([null, "list"]);
+  // Typing ./ spells out the project root.
+  menu.enter(s, prefs);
+  menu.key(21);
+  for (const byte of Buffer.from("./wt/$NAME")) menu.key(byte);
+  expect(menu.editing!.name()).toBe("$PROJECT_ROOT/wt/$NAME");
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("→ /src/corgi/wt/fix-login");
+  menu.back();
+  menu.enter(s, prefs);
+  menu.key(21);
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("│ $PROJECT_ROOT/.worktrees/$NAME");
+  expect(menu.enter(s, prefs)).toEqual({ kind: "worktree_folder", template: "$PROJECT_ROOT/.worktrees/$NAME" });
+});

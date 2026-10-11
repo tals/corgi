@@ -11,7 +11,8 @@ table; an optional workspace ID selects another workspace.
 Paths inside the workspace use `./`; other paths inside the home directory use `~/`.
 
 The primary checkout is the reference context and is excluded from the count.
-No worktree is required, created, moved or merged by this feature.
+No worktree is required, moved or merged by this feature; the new-agent
+launcher can create one (see [Worktrees](agent-launcher.md#worktrees)).
 The existing unpushed-commit badge still compares with the branch's upstream.
 
 ## Removing a worktree
@@ -78,7 +79,7 @@ an empty or clean checkout.
 
 Snapshots expose optional `workspaces[].worktrees`; viewers request details
 through optional `viewer.sync.worktree_detail`. These additive, defaulted fields
-keep protocol 1 and viewer protocol 3, as does the `worktree.remove` request. Checkpoints and handoffs are unchanged:
+keep protocol 1 and viewer protocol 3, as do the `worktree.remove`, `worktree.add` and `git.branches` requests. Checkpoints and handoffs are unchanged:
 Git data and current edit evidence are disposable and rediscovered after restart.
 
 The agent sidebar keeps its regular list. Live agents in linked worktrees appear

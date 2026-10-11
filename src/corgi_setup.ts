@@ -3,7 +3,10 @@
 //! selected setting's options on the right. Viewer-owned: Enter and clicks
 //! return an `Apply` that the controller carries out. Opening Keymap grows
 //! the frame to fit onboarding's preset detail beside the presets; an import
-//! source shows onboarding's import picker in place of options.
+//! source shows onboarding's import picker in place of options. Source
+//! control edits the worktree folder template in place, with a preview.
+import { homedir } from "node:os";
+import { join } from "node:path";
 import * as palette from "./palette";
 import { Style, colors, bgRgb, mix, type Token } from "./palette";
 import { Rect } from "./layout";
@@ -21,7 +24,10 @@ import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
-import { Writer, clamp, displayWidth, writeEllipsis, sat } from "./text";
+import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat } from "./text";
+import { Dialog } from "./name_dialog";
+import * as keys from "./keys";
+import * as worktreeFolder from "./worktree_folder";
 import * as shellPicker from "./shell_picker";
 import * as scrollThumb from "./scroll_thumb";
 import * as settingRow from "./setting_row";
@@ -61,7 +67,16 @@ export const Summarizer = {
 };
 
 export type Item =
-  "flourishes" | "readings" | "clever_corgi" | "theme" | "shell" | "keyboard" | "terminal" | ImportItem | "detach";
+  | "flourishes"
+  | "readings"
+  | "clever_corgi"
+  | "theme"
+  | "shell"
+  | "keyboard"
+  | "source_control"
+  | "terminal"
+  | ImportItem
+  | "detach";
 type ImportItem = "import_tmux" | "import_herdr" | "import_cmux";
 const import_sources: Record<ImportItem, catalog.Source> = {
   import_tmux: "tmux",
@@ -79,6 +94,7 @@ const list: ListRow[] = [
   "theme",
   "shell",
   "keyboard",
+  "source_control",
   null,
   "terminal",
   null,
@@ -97,6 +113,7 @@ const labels: Record<Item, string> = {
   theme: "Theme",
   shell: "Shell",
   keyboard: "Keymap",
+  source_control: "Source control",
   terminal: "Terminal capabilities",
   import_tmux: "tmux",
   import_herdr: "Herdr",
@@ -121,6 +138,8 @@ export type Apply =
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
   | { kind: "keymap" }
+  /** Where the launcher puts new worktrees. */
+  | { kind: "worktree_folder"; template: string }
   /** Copy the import picker's choice into Corgi. */
   | { kind: "import" }
   /** Close setup on the workspace an import made. */
@@ -152,6 +171,8 @@ interface Option {
   /** A dropdown in a group: the choice in use at the right edge, green while
    * `on`, and Enter opens `choices`. */
   choice?: { text: string; on: boolean; choices: Choice[] };
+  /** A text field, in a box, that takes typing while it has the cursor. */
+  edit?: boolean;
 }
 /** What the viewer found out about its terminal, for Terminal capabilities. */
 export interface Terminal {
@@ -183,6 +204,14 @@ type Line =
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
   /** One line under a setting in a group, aligned with its name. */
   | { tag: "brief"; text: string; tone?: "muted" | "warm" }
+  /** The top or bottom of the box around an `edit` option. */
+  | { tag: "box"; edge: "top" | "bottom" }
+  /** What a field makes, after an arrow; a long one keeps its end. */
+  | { tag: "result"; text: string }
+  /** What's wrong with a field, under it, wrapped. */
+  | { tag: "problem"; text: string }
+  /** A variable a field takes, and what it stands for here. */
+  | { tag: "variable"; name: string; value: string }
   | { tag: "blank" }
   /** A rule that sets a setting apart from the options above it. */
   | { tag: "rule" }
@@ -359,6 +388,12 @@ export class Menu {
   shells: string[] = [];
   /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
   smart_links = true;
+  /** The worktree folder template being typed, while Source control edits it. */
+  editing: Dialog | null = null;
+  /** A project the worktree folder's preview places a branch in; an example when null. */
+  project: { name: string; root: string } | null = null;
+  /** Where the field's caret was drawn, for the terminal's cursor. */
+  private caret: { x: number; y: number } | null = null;
   /** Sessions from the import source under the list's cursor. */
   readonly import_picker = new importPicker.Picker();
   /** The source the picker last switched to. */
@@ -415,8 +450,15 @@ export class Menu {
     this.after_prefix = true;
     return "taken";
   }
-  /** The import picker's own keys while it has focus; false for the rest. */
+  /** The field's or the import picker's own keys while they have focus;
+   * false for the rest. Enter and Esc go on to save or cancel the field. */
   key(byte: number): boolean {
+    if (this.editing) {
+      if (byte === 13 || byte === 27) return false;
+      if (byte !== 9) this.editing.key(byte);
+      this.completeRoot();
+      return true;
+    }
     const picker = this.focus === "options" ? this.importing() : null;
     if (picker?.stage !== "choose") return false;
     picker.message = "";
@@ -434,9 +476,30 @@ export class Menu {
       k = Math.max(0, (now_ms - g.at_ms) / span);
     return k >= 1 ? g.to : g.from + (g.to - g.from) * (1 - (1 - k) ** 3);
   }
+  /** Escape sequences the field takes while it has focus: caret movement
+   * and Delete. Arrows up and down stay with it rather than move. */
+  sequence(text: string): boolean {
+    if (!this.editing) return false;
+    const k = keys.parse(text);
+    if (k !== "up" && k !== "down" && k !== "shift_tab") this.editing.sequence(text);
+    return true;
+  }
+  paste(byte: number): void {
+    this.editing?.pasteByte(byte);
+    this.completeRoot();
+  }
+  /** A leading `./` becomes the `$PROJECT_ROOT/` it means, as it's typed. */
+  private completeRoot(): void {
+    const e = this.editing;
+    const done = e && worktreeFolder.completeRoot(e.bytes(0, e.len), e.cursor);
+    if (!done) return;
+    this.editing = Object.assign(Dialog.init({ agent_command: 0 }, done.template), { selected: false });
+    this.editing.position(done.cursor);
+  }
   /** Moves the cursor within the focused column, past either end to the
    * other when `wrap`. */
   move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
+    if (this.editing) return;
     if (this.dropdown !== null) {
       const d = this.dropdown,
         n = this.choices(s, prefs).length;
@@ -477,10 +540,17 @@ export class Menu {
     const used = options.findIndex(o => o.mark === "on" && !o.disabled);
     this.focus = "options";
     this.cursor = used >= 0 ? used : options.findIndex(o => !o.disabled);
+    // A field takes typing as soon as it has the cursor.
+    if (options[this.cursor]?.edit) this.edit(prefs);
     return true;
   }
   /** Returns focus to the list. False when it already has it. */
   back(): boolean {
+    if (this.editing) {
+      this.editing = null;
+      this.focus = "list";
+      return true;
+    }
     if (this.focus === "list") return false;
     if (this.dropdown !== null) {
       this.dropdown = null;
@@ -497,6 +567,15 @@ export class Menu {
   }
   /** Enter: an on/off setting flips from the list; the rest open their options. */
   enter(s: Status, prefs: Preferences): Apply | null {
+    if (this.editing) {
+      // A template with a problem stays open; the line under it says why.
+      // Saving an empty field saves the default it shows.
+      const template = this.editing.name() || worktreeFolder.default_template;
+      if (worktreeFolder.problem(template) !== null) return null;
+      this.editing = null;
+      this.focus = "list";
+      return template === prefs.worktree_folder ? null : { kind: "worktree_folder", template };
+    }
     const picker = this.importing();
     if (this.focus === "options" && picker) return enterImport(picker);
     if (this.dropdown !== null) return this.choose(this.dropdown.at, s, prefs);
@@ -530,8 +609,15 @@ export class Menu {
         return null;
     }
   }
+  /** Starts editing the worktree folder, the caret after what's saved. */
+  private edit(prefs: Preferences): void {
+    this.editing = Object.assign(Dialog.init({ agent_command: 0 }, prefs.worktree_folder), { selected: false });
+  }
   /** A click: the list selects, then opens; an option applies. */
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
+    // A click away from the field drops what it typed.
+    const on_field = "option" in hit && this.options(s, prefs)[hit.option]?.edit === true;
+    if (this.editing && !on_field) this.editing = null;
     // The open dropdown takes the click, or closes.
     if (this.dropdown !== null) {
       const choice = "choice" in hit ? this.choose(hit.choice, s, prefs) : null;
@@ -561,6 +647,10 @@ export class Menu {
     this.focus = "options";
     this.cursor = hit.option;
     if (option.choice !== undefined) return this.enter(s, prefs);
+    if (option.edit) {
+      if (!this.editing) this.edit(prefs);
+      return null;
+    }
     return option.apply;
   }
   /** The open dropdown's choices. */
@@ -617,7 +707,9 @@ export class Menu {
       const hit = this.import_picker.hit(pickerArea(l, at_picker), x, y);
       return hit && { picker: hit };
     }
-    const line = lines[row];
+    // A click on the field's box is a click on the field.
+    const box = lines[row]?.tag === "box" ? (lines[row] as { edge: string }).edge : null,
+      line = box === "top" ? lines[row + 1] : box === "bottom" ? lines[row - 1] : lines[row];
     return line && line.tag === "option" ? { option: line.index } : null;
   }
   draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): void {
@@ -630,6 +722,7 @@ export class Menu {
     if (!l) return;
     const b = l.b,
       top = b.y + 2;
+    this.caret = null;
     frame(w, b, l.dividers);
     w.write(`${at(b.x + 2, b.y)}${text} ᐯ•ᴥ•ᐯ ${bright}Corgi setup `);
     const list_shown = l.single ? this.focus === "list" : l.list === list_w;
@@ -664,6 +757,9 @@ export class Menu {
     const hint_x = (l.list > 0 && !l.single ? b.x + 1 + l.list : b.x) + 2;
     drawHints(w, hint_x, b.y + b.h - 1, l.options.x + l.options.w - 1 - hint_x, this.hints(s, prefs));
     w.write("\x1b[0m\x1b[?25l");
+    // drawField sets it, after the reset above.
+    const caret = this.caret as { x: number; y: number } | null;
+    if (caret) w.write(at(caret.x, caret.y) + "\x1b[?25h");
   }
   private drawList(w: Writer, x: number, y: number, width: number, body: number, s: Status, prefs: Preferences) {
     this.listRows(body).forEach((row, i) => {
@@ -772,6 +868,27 @@ export class Menu {
             at(x0 + 4, y) + (line.tone === "muted" ? settingRow.normal.muted : line.tone === "warm" ? warm : panel),
           );
           return writeEllipsis(w, line.text, right - x0 - 4);
+        case "box": {
+          const edge = line.edge === "top" ? ["╭", "╮"] : ["╰", "╯"];
+          w.write(at(x0, y) + (this.editing ? graph : border) + edge[0] + "─".repeat(sat(right, x0 + 2)) + edge[1]);
+          return;
+        }
+        case "result": {
+          w.write(at(x0 + 2, y) + panel + "→ " + text);
+          // The end of a path says the most; its start gives way.
+          const room = sat(right, x0 + 4),
+            chars = Array.from(line.text);
+          if (displayWidth(line.text) <= room) return w.write(line.text);
+          let tail = "";
+          while (chars.length > 0 && displayWidth(chars[chars.length - 1] + tail) < room) tail = chars.pop()! + tail;
+          return w.write("…" + tail);
+        }
+        case "problem":
+          w.write(at(x0 + 2, y) + warm);
+          return writeEllipsis(w, line.text, sat(right, x0 + 2));
+        case "variable":
+          w.write(at(x0 + 2, y) + graph + line.name.padEnd(15) + panel);
+          return writeEllipsis(w, line.value, sat(right, x0 + 17));
         case "capability":
           if (line.mark !== null)
             w.write(
@@ -820,6 +937,50 @@ export class Menu {
           return this.import_picker.draw(w, pickerArea(l, i), this.focus === "options");
       }
     });
+  }
+  /** The worktree folder's row of its box, from `x` to `right`: the template,
+   * as saved or as typed, its variables green and bad `$`s amber, scrolled to
+   * keep the caret in view. Empty, it shows the default it would save. */
+  private drawField(w: Writer, x: number, y: number, right: number, prefs: Preferences) {
+    const editor = this.editing,
+      room = sat(right, x + 4),
+      typed = editor ? editor.bytes(0, editor.len) : prefs.worktree_folder,
+      line = this.editing ? graph : border;
+    w.write(at(x, y) + line + "│" + at(sat(right, 1), y) + line + "│");
+    w.write(at(x + 2, y));
+    if (typed.length === 0) {
+      w.write(panel);
+      writeEllipsis(w, worktreeFolder.default_template, room);
+      this.caret = { x: x + 2, y };
+      return;
+    }
+    const cells: [string, string][] = [];
+    for (const token of worktreeFolder.tokens(typed))
+      for (const ch of token.text)
+        cells.push([ch, token.kind === "variable" ? graph : token.kind === "bad" ? warm : editor ? bright : text]);
+    const at_caret = editor ? Array.from(editor.bytes(0, editor.cursor)).length : 0,
+      first = Math.max(0, at_caret - room + 1);
+    let shown = "",
+      used = 0;
+    for (const [ch, style] of cells.slice(first)) {
+      if (used + displayWidth(ch) > room) break;
+      if (style !== shown) w.write((shown = style));
+      w.write(ch);
+      used += displayWidth(ch);
+    }
+    if (editor)
+      this.caret = {
+        x:
+          x +
+          2 +
+          displayWidth(
+            cells
+              .slice(first, at_caret)
+              .map(c => c[0])
+              .join(""),
+          ),
+        y,
+      };
   }
   /** One row of the answer-time chart from `x`: the running mean (█) and a
    * deviation either side (░) at each column's last answer, on a log scale,
@@ -881,6 +1042,7 @@ export class Menu {
         glyph: o.glyph,
       });
     if (o.choice !== undefined) return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here);
+    if (o.edit) return this.drawField(w, x0, y, right, prefs);
     const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
       w.write(at(x0 + 2, y) + (o.mark === "on" && !o.disabled ? p.accent : p.quiet) + (o.mark === "on" ? "●" : "○"));
@@ -970,6 +1132,8 @@ export class Menu {
     for (const line of this.content(s, prefs, fit))
       if (line.tag === "lead" || line.tag === "note" || line.tag === "warn")
         for (const part of wrap(line.text, room)) out.push({ tag: line.tag, text: part });
+      else if (line.tag === "problem")
+        for (const part of wrap(line.text, sat(room, 2))) out.push({ tag: "problem", text: part });
       else if (line.tag === "option") out.push({ ...line, index: index++ });
       else out.push(line);
     return out;
@@ -1103,6 +1267,28 @@ export class Menu {
               warn: used && entry !== "default" && shellPicker.missing(this.shell),
             });
           }),
+        ];
+      }
+      case "source_control": {
+        const home = homedir(),
+          project = this.project ?? { name: "app", root: join(home, "code", "app") },
+          template = this.editing ? this.editing.name() || worktreeFolder.default_template : prefs.worktree_folder,
+          trouble = worktreeFolder.problem(template),
+          values = worktreeFolder.values(project.root, "fix-login", home);
+        return [
+          title("Worktree folder"),
+          { tag: "box", edge: "top" },
+          option({ label: "", detail: "", mark: "none", apply: null, action: "save", edit: true }),
+          { tag: "box", edge: "bottom" },
+          trouble !== null
+            ? { tag: "problem", text: trouble }
+            : { tag: "result", text: directoryLabel(worktreeFolder.expand(template, project.root, "fix-login"), home) },
+          blank,
+          ...worktreeFolder.variables.map((name): Line => ({
+            tag: "variable",
+            name: `$${name}`,
+            value: directoryLabel(values[name], home),
+          })),
         ];
       }
       case "keyboard": {
@@ -1266,6 +1452,10 @@ export class Menu {
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };
       case "keyboard":
         return { text: km.name(prefs.preset), tone: "muted" };
+      case "source_control":
+        return prefs.worktree_folder === worktreeFolder.default_template
+          ? { text: "", tone: "faint" }
+          : { text: "custom", tone: "muted" };
       case "terminal":
         return { text: "", tone: "faint" };
       case "detach":
@@ -1278,6 +1468,11 @@ export class Menu {
   }
   /** Key hints for the bottom border, most important last. */
   private hints(s: Status, prefs: Preferences): [string, string][] {
+    if (this.editing)
+      return [
+        ["enter", "save"],
+        ["esc", "back"],
+      ];
     const picker = this.importing();
     if (this.focus === "list") {
       const flip = this.flip(prefs),

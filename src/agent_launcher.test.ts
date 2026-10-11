@@ -245,3 +245,74 @@ test("custom picker cells preserve account scope and permission state", () => {
   m.commands[1].semantics = analyze(m.commands[1].text(), "/tmp");
   expect(m.customCells(1)[2]).toBe("Sonnet (1M context)");
 });
+
+test("the title names the worktree once, on a button that drops the checkouts and the new-worktree form", () => {
+  const checkout = (path: string, branch: string, primary: boolean) => ({
+    path,
+    head: "4f1c2a9e0b",
+    branch: `refs/heads/${branch}`,
+    primary,
+    bare: false,
+    detached: false,
+    locked: null,
+    prunable: null,
+    available: true,
+    comparison: null,
+    changes: null,
+    stale: false,
+  });
+  const m = menu({ cwd: "/src/app-topic" });
+  m.worktrees = {
+    common_dir: "/src/app/.git",
+    base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+    entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+    agents: [],
+    stale: false,
+  };
+  const side = SidebarView.init(100, 30, true, 0, 0);
+  const render = () => {
+    const w = new Writer();
+    m.draw(w, 100, 30, side);
+    const host = new Terminal(100, 30);
+    host.feed(w.s);
+    const text = host.text();
+    host.destroy();
+    return text;
+  };
+  let text = render();
+  expect(text).toContain("New agent  in    w  ⌥ topic ▾");
+  expect(text).not.toContain("app-topic");
+  const b = m.bounds(100, 30, side);
+  const button = m.worktreeButton(100, 30, side)!;
+  expect(button.y).toBe(b.y);
+  m.worktree.open(m.worktrees, m.cwd);
+  text = render();
+  expect(text).toContain("⌥ topic ▴");
+  expect(text).toContain("✓ topic");
+  // A blank row, then the form under a rule carrying n.
+  const rows = text.split("\n"),
+    rule = rows.findIndex(row => row.includes("├─  n  New worktree ─"));
+  expect(rows[rule - 1]).toMatch(/│ +│/);
+  expect(rows[rule + 1]).toContain("Branch  branch name");
+  expect(rows[rule + 3]).toContain("From    main");
+  expect(rows[rule + 4]).toContain("Folder  ./.worktrees/…");
+  const bx = m.worktreeBox(100, 30, side)!;
+  expect(m.worktreeHit(100, 30, side, bx.label_x, bx.list)).toEqual({ checkout: 0 });
+  expect(m.worktreeHit(100, 30, side, bx.label_x, bx.list + 1)).toEqual({ checkout: 1 });
+  expect(m.worktreeHit(100, 30, side, bx.field_x, bx.branch)).toBe("branch");
+  expect(m.worktreeHit(100, 30, side, bx.field_x, bx.from)).toBe("from");
+  // From's branches open right under its field, as wide as it.
+  m.worktree.branches = [
+    { ref: "refs/heads/main", name: "main", at: 0 },
+    { ref: "refs/heads/topic", name: "topic", at: 0 },
+  ];
+  m.worktree.focusFrom();
+  const pick = m.worktreePickRect(100, 30, side)!;
+  expect([pick.x, pick.y, pick.w]).toEqual([bx.field_x, bx.from + 1, bx.field_w]);
+  expect(
+    render()
+      .split("\n")
+      [bx.from + 1].slice(bx.field_x, bx.field_x + 4),
+  ).toBe("main");
+  expect(m.worktreeHit(100, 30, side, pick.x, pick.y + 1)).toEqual({ pick: 1 });
+});

@@ -466,3 +466,100 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     viewer.close(s);
   }
 });
+
+test("the launcher names a new worktree, then adds it before starting the agent there", async () => {
+  const checkout = (path: string, branch: string, primary: boolean) => ({
+    path,
+    head: "4f1c2a9e0b",
+    branch: `refs/heads/${branch}`,
+    primary,
+    bare: false,
+    detached: false,
+    locked: null,
+    prunable: null,
+    available: true,
+    comparison: null,
+    changes: null,
+    stale: false,
+  });
+  const snapshot = folders("/src/app");
+  Object.assign(snapshot.workspaces[0], {
+    worktrees: {
+      common_dir: "/src/app/.git",
+      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+      agents: [],
+      stale: false,
+    },
+  });
+  const sent: [string, any][] = [];
+  let refuse: string | null = "BranchExists";
+  const s: any = new Controller({
+    socket: "",
+    request: async (op, fields) => {
+      sent.push([op, fields]);
+      if (op === "worktree.add" && refuse) return { err: refuse };
+      if (op === "session.command") return { result: { pane: 1 } };
+      if (op === "git.branches")
+        return {
+          branches: [
+            { ref: "refs/heads/main", name: "main", at: 2 },
+            { ref: "refs/heads/topic", name: "topic", at: 1 },
+          ],
+        };
+      return snapshot;
+    },
+  });
+  s.receiveSnapshot(snapshot);
+  s.openLauncher(true, "/src/app-topic");
+  s.agent_launcher.selected = "claude";
+  await s.key("w".charCodeAt(0));
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "list"]);
+  await s.key("n".charCodeAt(0));
+  expect(s.agent_launcher.worktree.focus).toBe("branch");
+  // Escape closes the box from the form in one press.
+  await s.key(27);
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher === null]).toEqual(["closed", false]);
+  await s.key("w".charCodeAt(0));
+  await s.key("n".charCodeAt(0));
+  for (const byte of bytes("log in")) await s.key(byte);
+  // Tab moves to From, which searches the branches the daemon listed.
+  await s.key(9);
+  expect(s.agent_launcher.worktree.focus).toBe("from");
+  // There Escape only dismisses From's list.
+  await s.key(27);
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
+  await s.key(9);
+  for (const byte of bytes("top")) await s.key(byte);
+  await s.key(13);
+  expect(s.agent_launcher.worktree.focus).toBe("branch");
+  await s.key(13);
+  expect(s.agent_launcher.worktree.planned).toEqual({
+    branch: "log-in",
+    base: "refs/heads/topic",
+    base_name: "topic",
+    path: "/src/app/.worktrees/log-in",
+  });
+  expect(s.agent_launcher.place().label).toBe("log-in");
+  // Git refuses: the form comes back with why, and nothing launches.
+  await s.key("a".charCodeAt(0));
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
+  expect(s.agent_launcher.worktree.error).toBe("A branch named log-in exists already");
+  expect(sent.some(([op]) => op === "session.command")).toBe(false);
+  refuse = null;
+  await s.key(13);
+  await s.key("a".charCodeAt(0));
+  const add = sent.findLast(([op]) => op === "worktree.add")!;
+  expect(add[1]).toEqual({
+    workspace: 1,
+    path: "/src/app/.worktrees/log-in",
+    branch: "log-in",
+    base: "refs/heads/topic",
+  });
+  const create = sent.find(([op]) => op === "session.command")!;
+  expect(create[1].command["agent.create"]).toEqual({
+    workspace: 1,
+    cwd: "/src/app/.worktrees/log-in",
+    provider: "claude",
+  });
+});

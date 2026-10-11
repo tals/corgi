@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { supportedPreset, type Preset, type Prefix } from "./keymap";
 import * as palette from "./palette";
 import type { Scope } from "./sidebar";
+import * as worktreeFolder from "./worktree_folder";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
  * once every attached viewer is off, stops the daemon's sampling. Settings
@@ -31,6 +32,8 @@ export class Preferences {
   /** Idle agents nap as corgis in the sidebar; off marks them with a faint Z. */
   sleeping_corgis = true;
   theme: palette.Theme = "corgi";
+  /** Where the launcher puts a new worktree, as `worktree_folder.ts` reads it. */
+  worktree_folder = worktreeFolder.default_template;
 }
 export function path(): string {
   if (process.env.XDG_STATE_HOME) return join(process.env.XDG_STATE_HOME, "corgi", "viewer.json");
@@ -99,6 +102,11 @@ export function readExisting(file: string): Preferences | null {
       if (typeof d.theme !== "string") return null;
       // A theme from a newer build falls back rather than resetting the rest.
       v.theme = palette.parseTheme(d.theme) ?? "corgi";
+    }
+    if ("worktree_folder" in d) {
+      if (typeof d.worktree_folder !== "string") return null;
+      // A hand-edited template that can't place worktrees falls back alone.
+      if (worktreeFolder.problem(d.worktree_folder) === null) v.worktree_folder = d.worktree_folder;
     }
     if ("sidebar_width" in d) {
       if (!Number.isInteger(d.sidebar_width) || d.sidebar_width < 0 || d.sidebar_width > 65535) return null;

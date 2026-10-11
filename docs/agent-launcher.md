@@ -28,7 +28,8 @@ starts on the row this viewer last left selected in the workspace, else the
 workspace's provider; a new workspace starts on the last row used anywhere. The next-tab binding is unchanged. Jump to attention is now Ctrl+B, f.
 
 The compact popover shows one row per provider with aligned agent and model
-and account columns, a full-row selection highlight, and the destination folder in its footer. Codex
+and account columns, a full-row selection highlight, and the destination named in its title
+(see [Worktrees](#worktrees)). Codex
 uses `config/read` with that directory and `model/list` for the provider default.
 These calls use a separate, lazily started App Server on a background worker;
 no thread or inference turn is created. Claude previews `ANTHROPIC_MODEL`, user,
@@ -84,6 +85,65 @@ with five-minute backoff after failures. Unsupported or malformed usage replies
 preserve the detected account and the last reading's original age. The experimental
 control protocol may be unavailable on older Claude versions; that does not hide
 the agent. Reads are bounded and run on the preview worker.
+
+## Worktrees
+
+The title says where agents start: “New agent in ⌥ topic”, naming the Git
+checkout by its branch (without a leading `worktree-` or `worktree/`), or
+“New agent in finance” for a folder outside a repository. Nothing else in the
+launcher repeats it; the conversations' heading says “3 here”.
+
+In a checkout the name sits on a button with a `w` keycap. Press w, or click
+it, for one box: the workspace's checkouts, the primary one first, with ✓ on
+the current one and its agents and uncommitted files at the right (“2 agents ·
+3 changed”, “clean”); then, a blank row down, a **New worktree** rule carrying
+an `n` keycap and the form under it. Up/Down move along the checkouts, Enter
+or a click chooses one, w or Escape closes the box. Choosing a checkout moves
+the launcher there: the model preview, the conversations and `t` follow it.
+
+The form has Branch, the new branch's name (a typed space becomes `-`); From,
+what it starts from, the comparison branch (usually `main`) to begin with; and
+Folder, `./.worktrees/login` under the project's main checkout unless Corgi
+setup says otherwise (see below). n, Down past the last checkout, or a click
+puts the caret in Branch, and the rule lights up; Up goes back to the
+checkouts. Escape closes the box from the checkouts or the form alike. Tab or
+Down moves to From, whose list opens right under the field, as wide as it and
+on its background: the repository's local and remote branches, newest commit
+first, with each one's age. Typing filters them, names starting with the text
+first; Up/Down pick, Enter or Tab takes one and goes back to Branch, and
+Escape only dismisses the list, keeping the old one. The daemon lists them
+(`git.branches`) when the box opens; one that can't offers `main` and the
+current branch. Enter on Branch takes the form. Names Git won't take, and
+branches checked out already, are refused there. The title then names the new
+branch, and the footer says “new worktree from main · new tab”.
+
+Nothing is created until something launches. An agent, a saved command or a
+terminal has the daemon run `git worktree add -b <branch> <folder> <base>` on
+its own connection first, then starts in the new folder; the footer says
+“adding ./.worktrees/login…” meanwhile. A branch or folder that exists
+already opens the box back on the form with the reason, and nothing launches. Escaping
+the launcher leaves no worktree behind. A worktree inside the main checkout
+would show there as untracked, so its top folder (`/.worktrees/`) goes in the
+repository's `.git/info/exclude`, which isn't committed, unless Git already
+ignores it.
+
+**Corgi setup › Source control** sets where new worktrees go, as a template
+the viewers share in their preferences (`worktree_folder` in `viewer.json`):
+`$PROJECT_ROOT/.worktrees/$NAME` by default. `$PROJECT_ROOT` is the project's
+main checkout, `$PROJECT_NAME` its folder's name, `$NAME` the new branch with
+`/` as `-`, and `$HOME` or a leading `~` the home folder; `${NAME}` works too.
+A relative folder is relative to `$PROJECT_ROOT`, and a `./` typed at the
+start becomes `$PROJECT_ROOT/`. `../$PROJECT_NAME-$NAME` puts them beside the
+project.
+
+The pane is a box that takes typing once it has focus, with the folder it
+makes for a branch `fix-login` of one of your projects under it, and each
+variable's value there below. Variables show green, mistakes amber. A template
+Corgi can't use says why in place of the folder, and Enter doesn't save it: an
+unknown variable (“$BRANCH isn't a variable; did you mean $NAME?”), lowercase
+(“Variables are uppercase”), a `$` or `${` left open, or no `$NAME`. Enter
+saves, Esc drops the edit, and an emptied box saves the default it shows. A
+hand-edited template that doesn't parse falls back to the default.
 
 ## Resume a closed conversation
 

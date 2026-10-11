@@ -566,6 +566,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     const found = side.hit(pointer.x, pointer.y).tag;
     link_pointer =
       u.agent_launcher.hit(width, height, side, pointer.x, pointer.y) !== null ||
+      u.agent_launcher.worktreeHit(width, height, side, pointer.x, pointer.y) !== null ||
+      (u.agent_launcher.worktreeButton(width, height, side)?.contains(pointer.x, pointer.y) ?? false) ||
       found === "agent_new" ||
       found === "agent_options";
   }

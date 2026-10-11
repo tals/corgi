@@ -22,6 +22,7 @@ import * as observers from "./observer_service";
 import * as trackers from "./trackers";
 import * as updates from "./updates";
 import * as importer from "./import_service";
+import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
 export class Server {
   runtime = new Runtime();
@@ -591,6 +592,25 @@ export class Server {
         this.runtime.changed();
         this.dirty = true;
         cl.queue({ ok: true });
+        return;
+      case "git.branches":
+        // Outside the queue too: a repository with many refs takes a while.
+        void worktreeAdd.branches(this.runtime, q.workspace).then(
+          branches => cl.queue({ ok: true, branches }),
+          error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
+        );
+        return;
+      case "worktree.add":
+        // Outside the queue: checking out a big tree takes seconds, and
+        // every request waits on the one before.
+        void worktreeAdd.add(this.runtime, q.workspace, q.path, q.branch, q.base).then(
+          () => {
+            this.runtime.changed();
+            this.dirty = true;
+            cl.queue({ ok: true });
+          },
+          error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
+        );
         return;
       case "onboarding.status":
       case "onboarding.handoff":

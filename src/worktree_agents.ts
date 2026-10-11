@@ -30,7 +30,7 @@ export class State {
 }
 /** The branch, without the `worktree-` or `worktree/` prefix tools give
  * worktree branches; the header's ⌥ already says it. */
-function label(checkout: worktrees.Checkout): string {
+export function label(checkout: worktrees.Checkout): string {
   return worktrees.label(checkout).replace(/^worktree[-/](?=.)/, "");
 }
 function checkoutAt(snapshot: worktrees.Snapshot, path: string): string | null {

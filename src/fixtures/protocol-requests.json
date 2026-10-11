@@ -90,6 +90,15 @@
     "workspace": 1,
     "path": "/repo/.worktrees/topic"
   },
+  "worktree.add": {
+    "workspace": 1,
+    "path": "/repo-topic",
+    "branch": "topic",
+    "base": "refs/heads/main"
+  },
+  "git.branches": {
+    "workspace": 1
+  },
   "onboarding.status": {
     "operation": 1
   },
