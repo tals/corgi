@@ -114,8 +114,12 @@ export class Style {
   }
 }
 export let keycap: string;
+/** The focused pane's or sidebar list's outline: `accent` halfway into
+ * `line`, so a long edge doesn't shout. */
+export let outline: Rgb;
 derived(() => {
   keycap = new Style({ fg: "strong", bg: "line", bold: true }).sgr();
+  outline = mix(colors.accent, colors.line, 50);
 });
 
 export function underline(token: Token) {

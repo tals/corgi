@@ -146,13 +146,14 @@ class AgentReorder extends Viewers {
 
   async test_scroll_while_dragging_reaches_offscreen_agents() {
     const ids = await this.agents(7);
-    const viewer = await this.newViewer(100, 18);
+    // At 20 rows four agents fit, above the bottom row.
+    const viewer = await this.newViewer(100, 20);
     await viewer.focus(ids[0]);
-    await viewer.input(mouse(0, 6, 10) + mouse(32, 6, 17));
-    for (let i = 0; i < 5; i++) await viewer.input(mouse(65, 6, 17));
-    this.assertIn("Agent-0", screen_text(viewer.state.data, 100, 18)[16].slice(0, 27));
-    this.assertEqual(this.labels(viewer, 18), ["Agent-4", "Agent-5", "Agent-6", "Agent-0"]);
-    await viewer.input(mouse(0, 6, 17, true));
+    await viewer.input(mouse(0, 6, 11) + mouse(32, 6, 18));
+    for (let i = 0; i < 5; i++) await viewer.input(mouse(65, 6, 18));
+    this.assertIn("Agent-0", screen_text(viewer.state.data, 100, 20)[17].slice(0, 27));
+    this.assertEqual(this.labels(viewer, 20), ["Agent-4", "Agent-5", "Agent-6", "Agent-0"]);
+    await viewer.input(mouse(0, 6, 18, true));
     this.assertEqual(
       await this.order(),
       [...ids.slice(1), ids[0]].map(pane => ({ pane })),

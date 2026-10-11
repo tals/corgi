@@ -31,6 +31,12 @@ export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount
 export const max_entries = max_panes + 16 + max_workspaces;
 /** How far rows outside a lit worktree fade, as `writeExit` progress. */
 export const spotlight_dim = 0.55;
+/** The lists draw one column in: column 0 stays free for the focused list's box. */
+export const lists_x = 1;
+/** `bytes` drawn `dx` columns further right: every cursor position moves. */
+function shiftColumns(bytes: string, dx: number): string {
+  return bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, col) => `\x1b[${row};${Number(col) + dx}H`);
+}
 // Styles that code or tests concatenate.
 export let panel: string,
   active_name: string,
@@ -44,10 +50,11 @@ export let panel: string,
   /** The agent row under the pointer, halfway from the panel to `selected`. */
   hover_rgb: palette.Rgb,
   hover_bg: string;
-let selected_bg: string, button: string, ghost_underline: string;
+let selected_bg: string, button: string, ghost_underline: string, outline: string;
 palette.derived(() => {
   selected_bg = bg("selected");
   panel = new Style({ fg: "muted", bg: "bg" }).sgr();
+  outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
   button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   active_name = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
   active_meta = new Style({ fg: "muted", bg: "selected" }).sgr();
@@ -109,8 +116,8 @@ export interface Search {
 }
 /** Viewer-local agent list filter. `workspace` follows the selected workspace. */
 export type Scope = "workspace" | "all";
-/** The list a folded sidebar draws over the panes while it has focus. */
-export type Drawer = "workspaces" | "agents";
+/** One of the sidebar's two lists. */
+export type Section = "workspaces" | "agents";
 /** Header totals for a group entry; `current` marks the selected workspace. */
 export interface Group {
   agents: number;
@@ -354,14 +361,36 @@ export class View {
   spotlight: { workspace: number; path: string } | null = null;
   /** A folded sidebar's one list, drawn over the panes from top to bottom.
    * Panes and tabs keep their folded places. */
-  drawer: Drawer | null = null;
+  drawer: Section | null = null;
+  /** The list with the keyboard, boxed as the focused pane is. */
+  focus: Section | null = null;
+  /** The lists' own view, from `lists()`. */
+  inner = false;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
   }
+  /** Whether this is the whole sidebar's view, whose lists sit `lists_x` in. */
+  framed(): boolean {
+    return !this.inner && this.width > 0;
+  }
+  /** The lists' view: `lists_x` columns in and as many narrower, in the
+   * lists' own columns. Its border is still the sidebar's. */
+  lists(): View {
+    if (!this.framed()) return this;
+    const v = this.clone();
+    v.width -= lists_x;
+    v.inner = true;
+    return v;
+  }
+  /** The whole sidebar's width, from the lists' view too. */
+  sidebarWidth(): number {
+    return this.inner ? this.width + lists_x : this.width;
+  }
   middle(): number {
-    if (this.drawer === "workspaces") return this.rows + 1;
-    if (this.drawer === "agents") return 0;
+    // A drawer's list runs from its box's top edge to the bottom one.
+    if (this.drawer === "workspaces") return this.rows;
+    if (this.drawer === "agents") return 1;
     return this.split === null ? Math.floor(sat(this.rows, 1) / 2) : View.splitFor(this.rows, this.split);
   }
   /** Keeps one workspace above the divider and an agent below it. */
@@ -370,11 +399,25 @@ export class View {
   }
   /** The rule between workspaces and agents drags the split. */
   splitHandle(x: number, y: number): boolean {
+    if (this.framed()) return this.lists().splitHandle(x - lists_x, y);
     return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
   }
   /** Name and status rows, plus the resource row unless readings are off. */
   workspaceRows(): number {
     return this.resources.enabled ? 3 : 2;
+  }
+  /** Whether row `y` of the right border edges the focused list's box. The
+   * rule between the lists edges both, as a divider does two panes. */
+  outlines(y: number): boolean {
+    if (this.focus === null) return false;
+    return this.focus === "workspaces" ? y >= 1 && y < this.middle() : y >= this.middle() - 1;
+  }
+  /** The focused list's box: its top and bottom rows. */
+  box(): { top: number; bottom: number } | null {
+    if (this.focus === null || this.width === 0) return null;
+    return this.focus === "workspaces"
+      ? { top: 1, bottom: this.middle() - 1 }
+      : { top: this.middle() - 1, bottom: this.rows - 1 };
   }
   /** The rule row below the workspace list. */
   workspaceEnd(): number {
@@ -423,8 +466,9 @@ export class View {
     return v;
   }
   /** The list runs to the bottom, above the search hint while searching. */
+  /** The bottom row stays free for a box's edge, or the search hint. */
   listEnd(): number {
-    return this.search !== null ? sat(this.rows, 1) : this.rows;
+    return sat(this.rows, 1);
   }
   listRows(): number {
     return sat(this.listEnd(), this.middle() + 2);
@@ -538,7 +582,8 @@ export class View {
     const search = this.search;
     if (!search) return;
     if (this.width === 0) return;
-    w.write(`\x1b[0m\x1b[${this.middle() + 2};${4 + search.cursor - this.searchOffset()}H\x1b[?25h`);
+    const x = lists_x + 4 + search.cursor - this.lists().searchOffset();
+    w.write(`\x1b[0m\x1b[${this.middle() + 2};${x}H\x1b[?25h`);
   }
   area(): Rect {
     const x = this.drawer !== null ? 0 : this.width;
@@ -548,6 +593,7 @@ export class View {
     return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
   }
   hit(x: number, y: number): Hit {
+    if (this.framed()) return this.lists().hit(x - lists_x, y);
     const v = this;
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
@@ -584,6 +630,7 @@ export class View {
   /** Use the same row heights and viewport as hit testing. The marker sits
    * just above the destination row, including the gap after the last row. */
   agentDrop(x: number, y: number): { index: number; y: number } | null {
+    if (this.framed()) return this.lists().agentDrop(x - lists_x, y);
     const v = this;
     if (v.width === 0 || x >= v.width - 1 || y < v.middle() + 2 || y >= v.listEnd() || v.entries.length === 0)
       return null;
@@ -598,6 +645,7 @@ export class View {
   }
   /** `agentDrop` over the workspace slots in the upper list. */
   workspaceDrop(x: number, y: number): { index: number; y: number } | null {
+    if (this.framed()) return this.lists().workspaceDrop(x - lists_x, y);
     const v = this;
     if (v.width === 0 || x >= v.width - 1 || y < 2 || y >= v.workspaceEnd() || v.workspace_count === 0) return null;
     let top = 2;
@@ -609,6 +657,10 @@ export class View {
     return { index: end, y: top - 1 };
   }
   unreadRange(ws: WorkspaceEntry): { start: number; end: number } {
+    if (this.framed()) {
+      const range = this.lists().unreadRange(ws);
+      return { start: range.start + lists_x, end: range.end + lists_x };
+    }
     const unread_width = View.unreadWidth(ws);
     const metadata_width = statusMetadataWidth(ws);
     const attention_width = ws.attention > 0 ? displayWidth(compactCount(ws.attention)) + 2 : 0;
@@ -625,6 +677,7 @@ export class View {
     return Math.max(10, displayWidth(compactCount(ws.unread)) + 9);
   }
   unreadHit(ws: WorkspaceEntry, x: number, y: number): boolean {
+    if (this.framed()) return this.lists().unreadHit(ws, x - lists_x, y);
     if (ws.unread === 0 || y < 3 || (y - 2) % this.workspaceRows() !== 1) return false;
     const range = this.unreadRange(ws);
     return x >= range.start && x < range.end;
@@ -646,10 +699,18 @@ export class View {
       if (v.cols >= 64) w.write("\x1b[1;1H\x1b[1m" + fg("strong") + " > \x1b[0m");
       return;
     }
+    if (v.framed()) {
+      for (let row = 0; row < v.rows; row++) w.write(`\x1b[${row + 1};1H${panel}` + " ".repeat(lists_x));
+      const lists = new Writer();
+      v.lists().drawFrame(lists, entries, workspaces, now_ms);
+      w.write(shiftColumns(lists.buffered(), lists_x));
+      v.drawBox(w);
+      return;
+    }
     for (let row = 0; row < v.rows; row++) {
       w.write(`\x1b[${row + 1};1H${panel}`);
       w.splat(" ", v.width - 1);
-      w.write(fg("line") + "│");
+      w.write((v.outlines(row) ? outline : fg("line")) + "│");
     }
     v.drawScope(w);
     if (v.search) {
@@ -666,10 +727,34 @@ export class View {
       return;
     }
     if (v.drawer === null) {
-      w.write(`\x1b[${v.middle()};2H${panel}` + fg("line"));
-      w.write("─".repeat(Math.max(0, v.width - 3)));
+      // The rule meets the border, so an outline turns the corner.
+      w.write(`\x1b[${v.middle()};2H` + (v.focus !== null ? outline : panel + fg("line")));
+      w.write("─".repeat(Math.max(0, v.width - 2)) + "┤");
     }
     v.drawAgents(w, entries, now_ms);
+  }
+  /** The focused list's box: the lists' view draws its right edge and the
+   * rule; this closes it on the left and, off the rule, on top and bottom. */
+  private drawBox(w: Writer): void {
+    const box = this.box();
+    if (box === null) return;
+    const v = this,
+      rule = v.drawer === null ? v.middle() - 1 : -1;
+    w.write(outline);
+    for (let y = box.top; y <= box.bottom; y++)
+      w.write(`\x1b[${y + 1};1H` + (y === box.top ? "┌" : y === box.bottom ? "└" : "│"));
+    for (const y of [box.top, box.bottom]) {
+      // The rule already runs to the border from the lists' first column.
+      const end = y === rule ? 1 + lists_x : v.width - 1;
+      w.write(`\x1b[${y + 1};2H` + "─".repeat(sat(end, 1)));
+      if (y !== rule) w.write(y === v.rows - 1 ? "┘" : y > 0 ? "┤" : "┐");
+    }
+    w.write("\x1b[0m");
+  }
+  /** A list's scrollbar thumb, heavier on its stretch of the border: the
+   * outline's color while the list has focus. */
+  private thumbStyle(section: Section): string {
+    return this.focus === section ? outline : panel + fg("faint");
   }
   /** The title row and the workspace list above the agents. */
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
@@ -767,7 +852,7 @@ export class View {
     const ws_thumb = v.workspaceThumb();
     if (ws_thumb)
       for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
-        w.write(`\x1b[${3 + row};${v.width}H${panel}` + fg("faint") + "┃");
+        w.write(`\x1b[${3 + row};${v.width}H` + v.thumbStyle("workspaces") + "┃");
   }
   /** The agent list below its header. */
   private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {
@@ -853,7 +938,7 @@ export class View {
     const t = v.thumb();
     if (t)
       for (let row = t.start; row < t.start + t.len; row++)
-        w.write(`\x1b[${v.middle() + 3 + row};${v.width}H${panel}` + fg("faint") + "┃");
+        w.write(`\x1b[${v.middle() + 3 + row};${v.width}H` + v.thumbStyle("agents") + "┃");
     w.write("\x1b[0m");
   }
   /** The small glyph beside an agent's detail line: a wait clock, an active
@@ -1075,13 +1160,16 @@ export class View {
       w.write(`\x1b[${y + height};1H${style}╰${"┄".repeat(right - 1)}╯`);
   }
   scopeStart(): number {
+    if (this.framed()) return this.lists().scopeStart() + lists_x;
     // Compact headers keep one cell for the name and one for the arrow.
     return this.width >= 22 ? 9 : 8;
   }
   scopeArrow(): string {
+    if (this.framed()) return this.lists().scopeArrow();
     return this.width >= 22 ? " ▾" : "▾";
   }
   scopeQualifier(): string {
+    if (this.framed()) return this.lists().scopeQualifier();
     const room = sat(sat(this.width, 11), this.scopeStart() - 1 + displayWidth(this.scopeArrow()));
     const out = new Writer();
     writeEllipsis(out, directoryLabel(this.scope_label, null, 160), room);
@@ -1152,6 +1240,7 @@ function subagentBadge(status: Subagents, children: number): string {
 /** Resource hover stays on the third workspace row. Clicks and drags on that
  * row select the workspace, just like its title and status rows. */
 export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
+  if (v.framed()) return resourceAt(v.lists(), workspaces, x - lists_x, y);
   if (
     v.workspaceRows() < 3 ||
     v.width === 0 ||
@@ -1170,7 +1259,7 @@ export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   return null;
 }
 function resourceCardFits(v: View): boolean {
-  return resourceTooltip.geometry(v.cols, v.rows, v.width, 0) !== null;
+  return resourceTooltip.geometry(v.cols, v.rows, v.sidebarWidth(), 0) !== null;
 }
 /** Whether the row shows CPU (0) or memory (1). Disk I/O is only in the hover card. */
 function shownReading(prefs: { enabled: boolean }, work: Work, reading: number): boolean {
@@ -1340,6 +1429,10 @@ function gitColumn(workspaces: WorkspaceEntry[]): number {
   return width;
 }
 export function linkRange(v: View, ws: WorkspaceEntry, workspaces: WorkspaceEntry[]): { start: number; end: number } {
+  if (v.framed()) {
+    const range = linkRange(v.lists(), ws, workspaces);
+    return { start: range.start + lists_x, end: range.end + lists_x };
+  }
   const count = urlCount(ws);
   const label = portLabel(ws);
   const end = sat(sat(v.width, 2), gitColumn(workspaces));
@@ -1423,6 +1516,7 @@ export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: number)
   return width ? new Rect(v.width - 2 - width, 3 + slot * v.workspaceRows(), width, 1) : null;
 }
 export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
+  if (v.framed()) return worktreeAt(v.lists(), workspaces, x - lists_x, y);
   if (v.width === 0 || y < 3 || (y - 3) % v.workspaceRows() !== 0) return null;
   const hit = v.hit(x, y);
   if (hit.tag !== "workspace") return null;
@@ -1462,6 +1556,7 @@ export function urlCount(ws: WorkspaceEntry): number {
   return count;
 }
 export function portWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
+  if (v.framed()) return portWorkspace(v.lists(), workspaces, x - lists_x, y);
   if (v.width === 0 || x < 1 || y < 2 || y >= v.workspaceEnd() || (y - 2) % v.workspaceRows() !== 0) return null;
   const offset = Math.floor((y - 2) / v.workspaceRows());
   const index = v.workspace_offset + offset;
@@ -1505,9 +1600,9 @@ export class ScopeMenu {
   }
   static bounds(side: View, cols: number, rows: number): Rect {
     const y = side.middle() + 1;
-    const width = Math.min(sat(cols, 1), Math.max(sat(side.width, 2), 26));
+    const width = Math.min(sat(cols, 1 + lists_x), Math.max(sat(side.width, 2 + lists_x), 26));
     const height = Math.min(4, sat(sat(rows, 1), y));
-    return new Rect(1, y, width, height);
+    return new Rect(1 + lists_x, y, width, height);
   }
   static hit(side: View, cols: number, rows: number, x: number, y: number): Scope | null {
     const b = ScopeMenu.bounds(side, cols, rows);
@@ -1630,6 +1725,7 @@ export function gitActionWorkspace(
   x: number,
   y: number,
 ): WorkspaceEntry | null {
+  if (v.framed()) return gitActionWorkspace(v.lists(), workspaces, expanded, x - lists_x, y);
   if (v.width === 0 || y < 2 || (y - 2) % v.workspaceRows() !== 0) return null;
   const found = v.hit(x, y);
   if (found.tag !== "workspace" || found.workspace >= workspaces.length) return null;

@@ -2,7 +2,7 @@
 //! list. Plain arrows move it within its list, wrapping; prefixed ones move it
 //! between the lists, as they move focus between panes. Opening a row is the
 //! controller's.
-import { sameTarget, type Drawer, type Entry, type Target } from "./sidebar";
+import { sameTarget, type Entry, type Section, type Target } from "./sidebar";
 
 /** A workspace row by id, or an agent list row by target. */
 export type Cursor = { workspace: number } | { entry: Target };
@@ -33,11 +33,14 @@ export class State {
   constructor(
     public cursor: Cursor,
     /** The sidebar is folded and shows only this list, over the panes; the cursor stays in it. */
-    public drawer: Drawer | null = null,
+    public drawer: Section | null = null,
   ) {}
+  /** The list the cursor moves in. */
+  section(): Section {
+    return this.drawer ?? ("workspace" in this.cursor ? "workspaces" : "agents");
+  }
   private list(workspaces: number[], entries: Entry[]): Cursor[] {
-    const drawer = this.drawer ?? ("workspace" in this.cursor ? "workspaces" : "agents");
-    if (drawer === "workspaces") return workspaces.map(id => ({ workspace: id }));
+    if (this.section() === "workspaces") return workspaces.map(id => ({ workspace: id }));
     return entries.filter(stops).map(e => ({ entry: e.target }));
   }
   /** Keeps the cursor on its row, or the row now in its place when it closed. */

@@ -451,11 +451,11 @@ export class Runtime extends TestCase {
         screen = screen_text(data);
       if (color && !data.includes(`\x1b[38;2;${color}m${icon}`)) continue;
       for (let y = 13; y < 21; y += 2) {
-        // Column 0 holds the focused agent's bar.
-        if (!screen[y].slice(1, 27).startsWith(`${icon} `)) continue;
-        const actual = screen[y + 1].slice(1, 4).trim();
+        // Column 0 is kept for the focused list's box; column 1 holds the focused agent's bar.
+        if (!screen[y].slice(2, 27).startsWith(`${icon} `)) continue;
+        const actual = screen[y + 1].slice(2, 5).trim();
         if (activity === "thinking" ? !"⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".includes(actual) : actual !== activity) continue;
-        if (screen[y].slice(4, 27).trim() === provider) return screen;
+        if (screen[y].slice(5, 27).trim() === provider) return screen;
       }
     }
     this.fail(`missing two-line agent entry ${provider}`);

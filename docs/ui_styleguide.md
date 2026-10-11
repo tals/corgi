@@ -25,7 +25,7 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 | `muted` | Secondary text: model, subtitle |
 | `text` | Body text |
 | `strong` | Titles, buttons, key names. The number a table ranks by. Use with bold |
-| `accent` | Live: working, current step, graphs, usage below 80% (short limit-spark bars fade toward `faint`). Current focus: outline, bar, input border |
+| `accent` | Live: working, current step, graphs, usage below 80% (short limit-spark bars fade toward `faint`). Current focus: bar, input border; the focus outline, and a focused list's scroll thumb, take `mix(accent, line, 50)` |
 | `warm` | Needs the user: input wait, unpushed commits, limit at 80% or more, context near full |
 | `hot` | Limit at 100%. Failure |
 

@@ -363,7 +363,7 @@ export class Controller {
   }
   /** Gives the sidebar focus, its cursor in `list`, else on the agent list or the
    * current workspace. A folded sidebar opens only for a list, as its drawer. */
-  private enterSidebar(list: sidebar.Drawer | null = null): void {
+  private enterSidebar(list: sidebar.Section | null = null): void {
     this.closeMenu();
     const folded = !this.sidebar_open;
     if (folded && list === null) return;
@@ -392,7 +392,7 @@ export class Controller {
     this.dirty = true;
   }
   /** Focuses `list` in the sidebar; its key again puts its drawer away. */
-  private chooseIn(list: sidebar.Drawer): void {
+  private chooseIn(list: sidebar.Section): void {
     if (this.sidebar_focus?.drawer === list) this.leaveSidebar();
     else this.enterSidebar(list);
   }
@@ -4638,7 +4638,7 @@ export class Controller {
         copy_feedback: this.copy_feedback_until > milliTimestamp(),
         copy_mode: this.copy_mode,
         prefix: this.prefix,
-        sidebar_focus: this.sidebar_focus !== null,
+        sidebar_focus: this.sidebar_focus?.section() ?? null,
         ghost: this.sidebarGhost(),
         menu: this.menu(),
         tab_menu: this.tab_menu,

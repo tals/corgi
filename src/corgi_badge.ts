@@ -10,11 +10,11 @@ export const remove = "\x1b_Ga=d,d=I,i=730031,q=2\x1b\\";
 export const hide = "\x1b_Ga=d,d=i,i=730031,p=1,q=2\x1b\\";
 export const emoji = "🐕";
 export type Mode = "none" | "emoji" | "image";
-/** The image's cells. */
-const cells = new Rect(1, 0, 3, 2);
+/** The image's cells, past the sidebar's box column and the lists' margin. */
+const cells = new Rect(2, 0, 3, 2);
 export function hit(mode: Mode, sidebar_width: number, x: number, y: number): boolean {
   if (!sidebar_width) return false;
-  return mode === "emoji" ? x >= 1 && x < 3 && y === 0 : mode === "image" ? cells.contains(x, y) : false;
+  return mode === "emoji" ? x >= 2 && x < 4 && y === 0 : mode === "image" ? cells.contains(x, y) : false;
 }
 /** Whether `box` reaches the image's cells. The image draws over text, so it
  * hides beneath an overlay there. */
@@ -103,7 +103,7 @@ export class State {
   }
 }
 function placementCommand(quiet: number): string {
-  return `\x1b7\x1b[1;2H\x1b_Ga=p,i=730031,p=1,c=3,z=1,C=1,q=${quiet}\x1b\\\x1b8`;
+  return `\x1b7\x1b[1;3H\x1b_Ga=p,i=730031,p=1,c=3,z=1,C=1,q=${quiet}\x1b\\\x1b8`;
 }
 export function place(): string {
   return placementCommand(1);

@@ -146,12 +146,12 @@ class ViewerScenarios extends Viewers {
     const sidebar = () =>
       screen_text(a.state.data, 100, 30)
         .slice(0, -1)
-        .map(row => row.slice(0, 27));
+        .map(row => row.slice(1, 27));
     this.assertFalse(sidebar().some(row => row.includes("Outside-agent")));
-    this.assertIn("agents: " + homeWs.name.slice(0, 6), sidebar()[14]);
+    this.assertIn("agents: " + homeWs.name.slice(0, 5), sidebar()[14]);
     await a.input("\x1b[<35;5;15M");
     this.assertNotIn("This workspace", a.state.data);
-    await a.input("\x1b[<35;10;15M");
+    await a.input("\x1b[<35;11;15M");
     let rows = sidebar();
     this.assertIn("This workspace", rows[16]);
     this.assertIn("✓", rows[16]);
@@ -161,7 +161,7 @@ class ViewerScenarios extends Viewers {
     this.assertFalse(rows.slice(15).some(row => row.includes("Other")));
     await a.input("\x1b[<35;60;5M");
     await this.until(async () => !(await a.poll()).data.includes("This workspace"));
-    await a.input("\x1b[<35;10;15M");
+    await a.input("\x1b[<35;11;15M");
     await a.input("\x1b[<0;8;18M\x1b[<0;8;18m");
     rows = sidebar();
     this.assertIn("agents: all", rows[14]);
@@ -186,7 +186,7 @@ class ViewerScenarios extends Viewers {
     await a.focus(first);
     this.assertIn("agents: all", sidebar()[14]);
     await a.focus(outsider);
-    await a.input("\x1b[<35;10;15M");
+    await a.input("\x1b[<35;11;15M");
     await a.input("\x1b[<0;8;17M\x1b[<0;8;17m");
     rows = sidebar();
     this.assertIn("agents: Other", rows[14]);
@@ -196,7 +196,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual(JSON.parse(readFileSync(preferences, "utf8")).agents, "workspace");
     await a.focus(first);
     rows = sidebar();
-    this.assertIn("agents: " + homeWs.name.slice(0, 6), rows[14]);
+    this.assertIn("agents: " + homeWs.name.slice(0, 5), rows[14]);
     this.assertTrue(rows.some(line => line.includes("Alpha")));
     this.assertFalse(rows.some(line => line.includes("Outside-agent")));
     await a.close();
@@ -463,9 +463,9 @@ class ViewerScenarios extends Viewers {
     const preview = screen_text(a.state.data, 100, 30);
     this.assertIn("Second", preview[2]);
     this.assertIn("Third", preview[5]);
-    this.assertIn(`\x1b[6;1H${activeBar}`, a.state.data);
-    this.assertIn(`\x1b[9;1H${tinted}`, a.state.data);
-    for (const row of [9, 10, 11]) this.assertIn(`\x1b[${row};1H${ghostBar}`, a.state.data);
+    this.assertIn(`\x1b[6;2H${activeBar}`, a.state.data);
+    this.assertIn(`\x1b[9;2H${tinted}`, a.state.data);
+    for (const row of [9, 10, 11]) this.assertIn(`\x1b[${row};2H${ghostBar}`, a.state.data);
     this.assertIn("\x1b]22;grabbing\x1b\\", a.state.data);
     await a.input("\x1b[<0;5;11m");
     this.assertEqual(
@@ -504,8 +504,8 @@ class ViewerScenarios extends Viewers {
     const a = await this.newViewer(100, 16);
     await a.input("\x1b[<0;5;3M\x1b[<32;5;6M");
     for (let i = 0; i < 2; i++) await a.input("\x1b[<65;5;6M");
-    this.assertIn(`\x1b[3;1H${tinted}`, a.state.data);
-    this.assertIn(`\x1b[3;1H${ghostBar}`, a.state.data);
+    this.assertIn(`\x1b[3;2H${tinted}`, a.state.data);
+    this.assertIn(`\x1b[3;2H${ghostBar}`, a.state.data);
     await a.input("\x1b[<0;5;6m");
     this.assertEqual(
       (await this.session()).workspaces.map((w: any) => w.id),
@@ -724,13 +724,13 @@ class ViewerScenarios extends Viewers {
     await b.focus(second);
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
-        .slice(1, 27)
+        .slice(2, 27)
         .trim(),
       "one",
     );
     this.assertEqual(
       screen_text((await b.poll()).data, 100, 30)[2]
-        .slice(1, 27)
+        .slice(2, 27)
         .trim(),
       "one",
     );
@@ -738,13 +738,13 @@ class ViewerScenarios extends Viewers {
     await b.action("move-tab", "left");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
-        .slice(1, 27)
+        .slice(2, 27)
         .trim(),
       "two",
     );
     this.assertEqual(
       screen_text((await b.poll()).data, 100, 30)[2]
-        .slice(1, 27)
+        .slice(2, 27)
         .trim(),
       "two",
     );
@@ -757,7 +757,7 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await this.session()).workspaces[0].custom_name, "");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
-        .slice(1, 27)
+        .slice(2, 27)
         .trim(),
       "two",
     );

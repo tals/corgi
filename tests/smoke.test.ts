@@ -360,8 +360,8 @@ class Smoke extends Runtime {
     });
     await this.attach();
     let screen = await this.agent_frame("claude", "○");
-    this.assertTrue(screen[0].startsWith(" workspaces"));
-    this.assertTrue(screen[11].startsWith(" agents"));
+    this.assertTrue(screen[0].startsWith("  workspaces"));
+    this.assertTrue(screen[11].startsWith("  agents"));
     await this.click(21, 1);
     await this.frame_with("New workspace");
     await this.input("Project\r");
@@ -408,9 +408,9 @@ class Smoke extends Runtime {
     this.assertIn("Group-3", screen[2]);
     this.assertIn("Group-5", screen[8]);
     this.assertEqual(thumb(screen), "│││││┃┃┃");
-    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃┃│");
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃│││");
     await this.input("\x1b[<65;5;15M");
-    screen = await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃┃");
+    screen = await this.scrollbar_with("││┃┃┃┃┃┃┃┃│");
     this.assertIn("Group-3", screen[2]);
     this.assertIn("Group-5", screen[8]);
     this.assertEqual(thumb(screen), "│││││┃┃┃");
@@ -420,7 +420,7 @@ class Smoke extends Runtime {
     await this.input("\x1b[<64;5;5M".repeat(2));
     screen = await this.frame_with("Group-0");
     this.assertEqual(thumb(screen), "│┃┃┃││││");
-    this.assertEqual(scrollbar(screen), "│┃┃┃┃┃┃┃┃┃┃");
+    this.assertEqual(scrollbar(screen), "││┃┃┃┃┃┃┃┃│");
     await this.click_text(
       screen.map(r => r.slice(0, 27)),
       "Group-1",

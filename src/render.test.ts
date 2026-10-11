@@ -94,7 +94,7 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
     );
     if (c.tinted !== undefined) {
       expect(count(output, tint)).toBe(2);
-      for (const row of [0, 1]) expect(output).toContain(`\x1b[${c.tinted + row + 1};1H\x1b[0m${tint}`);
+      for (const row of [0, 1]) expect(output).toContain(`\x1b[${c.tinted + row + 1};2H\x1b[0m${tint}`);
     } else expect(output).not.toContain(tint);
   }
 });
@@ -418,7 +418,7 @@ test("badge redraw preserves cached pixels and shifts only the workspace heading
   expect(shown).toContain("\x1b[H\x1b[J");
   expect(shown).toContain("a=p,i=730031");
   expect(shown).not.toContain("a=t,");
-  expect(testDrawsAt(shown, "\x1b[1;6H", "workspaces")).toBe(true);
+  expect(testDrawsAt(shown, "\x1b[1;7H", "workspaces")).toBe(true);
   u.pointer = { x: 2, y: 0 };
   u.link_tooltip = true;
   const usage_popup = frame(view, [], 100, 30, u);
@@ -455,7 +455,7 @@ test("badge redraw preserves cached pixels and shifts only the workspace heading
   const emoji = frame(view, [], 100, 30, u);
   expect(emoji).toContain(corgiBadge.emoji);
   expect(emoji).not.toContain("\x1b_G");
-  expect(testDrawsAt(emoji, "\x1b[1;6H", "workspaces")).toBe(true);
+  expect(testDrawsAt(emoji, "\x1b[1;7H", "workspaces")).toBe(true);
 });
 
 test("a reopened agent's card sits mid-pane: title centered, details left, command wrapped", () => {

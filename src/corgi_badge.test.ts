@@ -27,13 +27,14 @@ test("unanswered probe falls back to the emoji and upgrades on a late reply", ()
   expect(s.mode()).toBe("image");
 });
 test("emoji hit area covers only its two cells", () => {
-  expect(hit("emoji", 30, 1, 0)).toBe(true);
+  expect(hit("emoji", 30, 1, 0)).toBe(false);
   expect(hit("emoji", 30, 2, 0)).toBe(true);
-  expect(hit("emoji", 30, 3, 0)).toBe(false);
-  expect(hit("emoji", 30, 1, 1)).toBe(false);
-  expect(hit("image", 30, 3, 1)).toBe(true);
-  expect(hit("none", 30, 1, 0)).toBe(false);
-  expect(hit("emoji", 0, 1, 0)).toBe(false);
+  expect(hit("emoji", 30, 3, 0)).toBe(true);
+  expect(hit("emoji", 30, 4, 0)).toBe(false);
+  expect(hit("emoji", 30, 2, 1)).toBe(false);
+  expect(hit("image", 30, 4, 1)).toBe(true);
+  expect(hit("none", 30, 2, 0)).toBe(false);
+  expect(hit("emoji", 0, 2, 0)).toBe(false);
 });
 test("chunked upload with a wrong acknowledgement ID is confirmed by placement", () => {
   const s = new State();

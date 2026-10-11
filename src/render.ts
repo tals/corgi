@@ -13,7 +13,7 @@ import {
   type WorkspaceEntry,
   type Search,
   type Scope,
-  type Drawer,
+  type Section,
 } from "./sidebar";
 import { ResizeView, TabMenu } from "./commands";
 import { Dialog, View as NameView } from "./name_dialog";
@@ -55,7 +55,7 @@ palette.derived(() => {
   hint_key = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   hint_label = new Style({ fg: "faint", bg: "surface" }).sgr();
   bar = new Style({ bg: "surface" }).sgr();
-  divider_focused = new Style({ fg: "accent", bold: true }).sgr();
+  divider_focused = `\x1b[0;38;2;${palette.outline.join(";")}m`;
   divider_plain = new Style({ fg: "line" }).sgr();
   ghost_band = new Style({ bg: "bg" }).sgr();
   ghost_edge = new Style({ fg: "faint", bg: "bg" }).sgr();
@@ -94,8 +94,8 @@ export interface Ui {
   copy_feedback: boolean;
   /** The prefix key was pressed and waits for the next one. */
   prefix: boolean;
-  /** The sidebar has the keyboard instead of the focused pane. */
-  sidebar_focus: boolean;
+  /** The sidebar list with the keyboard instead of the focused pane. */
+  sidebar_focus: Section | null;
   ghost: Ghost | null;
   menu: ResizeView | null;
   tab_menu: TabMenu | null;
@@ -107,7 +107,7 @@ export interface Ui {
   dialog: Dialog | null;
   sidebar_open: boolean;
   /** The folded sidebar's list that shows as a drawer over the panes. */
-  sidebar_drawer: Drawer | null;
+  sidebar_drawer: Section | null;
   corgi_badge: corgiBadge.Mode;
   supports_kitty_graphics: boolean;
   dragged_workspace: Preview | null;
@@ -152,7 +152,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     },
     copy_feedback: false,
     prefix: false,
-    sidebar_focus: false,
+    sidebar_focus: null,
     ghost: null,
     menu: null,
     tab_menu: null,
@@ -355,18 +355,18 @@ function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): 
 export function handShape(iterm2: boolean): string {
   return iterm2 ? "hand2" : "pointer";
 }
-/** Draw one row of text over the window's bottom-left corner, like a browser's
- * link preview. Panes keep the row otherwise. It moves to the bottom-right
- * corner when the pointer is where it would go. */
-function writeChip(w: Writer, raw: string, width: number, height: number, pointer: Pointer | null): void {
+/** Draw one row of text over the window's bottom-left corner, from column
+ * `left`, like a browser's link preview. Panes keep the row otherwise. It
+ * moves to the bottom-right corner when the pointer is where it would go. */
+function writeChip(w: Writer, raw: string, width: number, height: number, pointer: Pointer | null, left = 0): void {
   const text = raw.replace(/^ +/, "");
-  if (width < 4 || height === 0 || text.length === 0) return;
+  if (width - left < 4 || height === 0 || text.length === 0) return;
   const clipped = new Writer();
-  writeEllipsis(clipped, text, width - 2);
+  writeEllipsis(clipped, text, width - left - 2);
   const body = clipped.buffered();
   const chip_width = displayWidth(body) + 2;
-  const covered = pointer !== null && pointer.y === height - 1 && pointer.x < chip_width;
-  const x = covered ? width - chip_width : 0;
+  const covered = pointer !== null && pointer.y === height - 1 && pointer.x >= left && pointer.x < left + chip_width;
+  const x = covered ? width - chip_width : left;
   w.write(`\x1b[${height};${x + 1}H\x1b]8;;\x1b\\${chip} ${body} \x1b[0m`);
 }
 /** A bar over the pane area's bottom row while the prefix waits for its key.
@@ -413,6 +413,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     .withWidth(u.prefs.sidebar_width);
   side.resources = u.prefs.resources;
   side.drawer = u.sidebar_drawer;
+  side.focus = u.sidebar_focus;
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
@@ -631,7 +632,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
           : u.sidebar_focus
             ? "SIDEBAR  ↑↓ move  ↵ open  Esc back"
             : "");
-    writeChip(w, text, width, height, u.pointer);
+    // Beside the sidebar while it has focus, clear of its box's bottom edge.
+    writeChip(w, text, width, height, u.pointer, u.sidebar_focus ? side.width : 0);
   }
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);

@@ -112,7 +112,7 @@ class SmokeInput extends Runtime {
     });
     await this.attach();
     let screen = await this.frame_with("No agents yet");
-    this.assertTrue(screen[0].startsWith(" workspaces"));
+    this.assertTrue(screen[0].startsWith("  workspaces"));
     const transcript = join(this.temp.name, "sidebar.jsonl");
     writeFileSync(transcript, JSON.stringify({ type: "session_meta", payload: { id: session } }) + "\n");
     const observer = new CodexObserver(this.env.CODEX_HOME!, [session]);
@@ -223,7 +223,7 @@ class SmokeInput extends Runtime {
       });
     }
     await this.attach();
-    let screen = await this.scrollbar_with("┃┃┃┃┃││││││");
+    let screen = await this.scrollbar_with("┃┃┃┃│││││││");
     this.assertNotIn(
       "Agent-11",
       screen
@@ -232,9 +232,9 @@ class SmokeInput extends Runtime {
         .join("\n"),
     );
     await this.input("\x1b[<65;5;15M");
-    await this.scrollbar_with("│┃┃┃┃┃│││││");
+    await this.scrollbar_with("│┃┃┃┃││││││");
     await this.input("\x1b[<65;5;15M".repeat(4));
-    screen = await this.scrollbar_with("││││┃┃┃┃┃││");
+    screen = await this.scrollbar_with("││││┃┃┃┃│││");
     await this.click_text(
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
       "Agent-8",
@@ -242,7 +242,7 @@ class SmokeInput extends Runtime {
     await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[8]);
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     await this.command("pane.close", { target: panes[11] });
-    screen = await this.scrollbar_with("││││┃┃┃┃┃┃│");
+    screen = await this.scrollbar_with("││││┃┃┃┃┃││");
     await this.click_text(
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
       "Agent-8",
@@ -252,7 +252,7 @@ class SmokeInput extends Runtime {
     screen = await this.frame_with(" + ", 30, 8);
     this.assertNotIn("agents", screen[0]);
     await this.write({ op: "size", cols: 80, rows: 24 });
-    await this.scrollbar_with("││││┃┃┃┃┃┃│");
+    await this.scrollbar_with("││││┃┃┃┃┃││");
   }
   async test_each_workspace_keeps_its_agent_list_scroll() {
     const home = (await this.session()).workspaces[0].id;
@@ -284,17 +284,17 @@ class SmokeInput extends Runtime {
       }
     await this.attach();
     await this.write({ op: "workspace", workspace: home });
-    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.scrollbar_with("┃┃┃┃┃┃┃││││");
     await this.input("\x1b[<65;5;15M".repeat(2));
-    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
+    await this.scrollbar_with("│││┃┃┃┃┃┃┃│");
     await this.write({ op: "workspace", workspace: other });
-    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.scrollbar_with("┃┃┃┃┃┃┃││││");
     await this.input("\x1b[<65;5;15M");
-    await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃│");
+    await this.scrollbar_with("││┃┃┃┃┃┃┃││");
     await this.write({ op: "workspace", workspace: home });
-    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
+    await this.scrollbar_with("│││┃┃┃┃┃┃┃│");
     await this.write({ op: "workspace", workspace: other });
-    await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃│");
+    await this.scrollbar_with("││┃┃┃┃┃┃┃││");
   }
   async test_launched_and_restored_agents_scroll_into_view() {
     for (let index = 0; index < 7; index++) {
@@ -308,7 +308,7 @@ class SmokeInput extends Runtime {
       });
     }
     await this.attach();
-    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.scrollbar_with("┃┃┃┃┃┃┃││││");
     const before = (await this.session()).panes.map((p: any) => p.id);
     // The sidebar's "New" launches the last agent.
     await this.click(20, 12);
@@ -325,7 +325,7 @@ class SmokeInput extends Runtime {
       seq: 1,
       event: { hook_event_name: "SessionStart", session_id: "launched" },
     });
-    const screen = await this.scrollbar_with("│││┃┃┃┃┃┃┃┃");
+    const screen = await this.scrollbar_with("││││┃┃┃┃┃┃│");
     this.assertIn(
       "Launched",
       screen
@@ -334,9 +334,9 @@ class SmokeInput extends Runtime {
         .join("\n"),
     );
     await this.command("pane.close", { target: pane });
-    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
+    await this.scrollbar_with("│││┃┃┃┃┃┃┃│");
     await this.input("\x1b[<64;5;15M".repeat(3));
-    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.scrollbar_with("┃┃┃┃┃┃┃││││");
     const open = (await this.session()).panes.map((p: any) => p.id);
     await this.rpc({ op: "action", name: "undo-close" });
     await this.until(async () => {

@@ -143,6 +143,9 @@ and goes to the pane. Corgi's `h/j/k/l` also move focus, once per prefix.
 `prefix ←` from the leftmost pane moves focus into the agent list while the
 sidebar is open. Up and Down move through the list and wrap at its ends;
 `prefix ↑` moves to the workspace list and `prefix ↓` back, as between panes.
+The focused list sits in a box in the focused pane's outline color; the
+sidebar keeps its first column and bottom row free for it, so nothing moves
+when it appears.
 Choose agent (`prefix a`) and Choose workspace (`prefix w`) focus a list
 directly, on the focused agent or the current workspace. While the sidebar is
 folded, they open that list alone as a drawer over the dimmed panes, from the

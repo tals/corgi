@@ -36,6 +36,7 @@ import {
   ghost_bar,
   rule_underline,
   dotted_underline,
+  lists_x,
   spotlight_dim,
   nap_fg,
   hover_rgb,
@@ -150,11 +151,11 @@ test("readings off removes the resource row and moves the separator under the st
   view = view.withWorkspaces(entries.length, 0);
   const frame = draw(view, [], entries);
   expect(has(frame, "182%")).toBe(false);
-  expect(has(frame, "\x1b[4;2H" + panel + rule_underline)).toBe(true);
+  expect(has(frame, "\x1b[4;3H" + panel + rule_underline)).toBe(true);
   expect(has(frame, rule_underline + "⚒12")).toBe(true);
-  expect(has(frame, "\x1b[5;2H" + active_name + "second")).toBe(true);
+  expect(has(frame, "\x1b[5;3H" + active_name + "second")).toBe(true);
   // The last workspace has no separator.
-  expect(has(frame, "\x1b[6;2H" + active_meta + "\x1b[4;")).toBe(false);
+  expect(has(frame, "\x1b[6;3H" + active_meta + "\x1b[4;")).toBe(false);
   expect(resourceAt(view, entries, 3, 4)).toBeNull();
 });
 
@@ -218,8 +219,8 @@ test("unpushed badge retains its columns beside a long workspace name", () => {
     [],
     [workspaceEntry({ id: 1, name: "abcdefghijklmnopqrstuvwxyz", cwd: "/tmp", active: true, git_ahead: 123 })],
   );
-  expect(has(out, "abcdefghijklmnopqrst")).toBe(true);
-  expect(has(out, "abcdefghijklmnopqrstu")).toBe(false);
+  expect(has(out, "abcdefghijklmnopqrs")).toBe(true);
+  expect(has(out, "abcdefghijklmnopqrst")).toBe(false);
   expect(has(out, "\x1b[3;23H" + fg("warm") + "↑123")).toBe(true);
 });
 
@@ -232,8 +233,8 @@ test("active workspace bar is a half block with or without Kitty graphics", () =
     const view = View.init(100, 30, true, 0, 0).withWorkspaces(entries.length, 0);
     view.supports_kitty_graphics = supported;
     const out = draw(view, [], entries);
-    for (const row of ["\x1b[6;1H", "\x1b[7;1H", "\x1b[8;1H"]) expect(has(out, row + active_bar)).toBe(true);
-    expect(has(out, "\x1b[3;1H" + active_bar)).toBe(false);
+    for (const row of ["\x1b[6;2H", "\x1b[7;2H", "\x1b[8;2H"]) expect(has(out, row + active_bar)).toBe(true);
+    expect(has(out, "\x1b[3;2H" + active_bar)).toBe(false);
     expect(has(out, active_name + "Project")).toBe(true);
   }
 });
@@ -247,8 +248,8 @@ test("a dragged workspace takes the selected tint and a strong bar", () => {
   view.dragged_workspace = 0;
   const out = draw(view, [], entries);
   expect(has(out, active_name + "Other")).toBe(true);
-  for (const row of ["\x1b[3;1H", "\x1b[4;1H", "\x1b[5;1H"]) expect(has(out, row + ghost_bar)).toBe(true);
-  expect(has(out, "\x1b[6;1H" + active_bar)).toBe(true);
+  for (const row of ["\x1b[3;2H", "\x1b[4;2H", "\x1b[5;2H"]) expect(has(out, row + ghost_bar)).toBe(true);
+  expect(has(out, "\x1b[6;2H" + active_bar)).toBe(true);
 });
 
 test("agent rows take the workspace bars: active when focused outside groups, strong when dragged", () => {
@@ -269,8 +270,8 @@ test("agent rows take the workspace bars: active when focused outside groups, st
     view.dragged = dragged;
     const out = draw(view, agents_only, []);
     for (let row = 0; row < 4; row++) {
-      expect(has(out, `\x1b[${view.middle() + 3 + row};1H${active_bar}`)).toBe(row < 2);
-      expect(has(out, `\x1b[${view.middle() + 3 + row};1H${ghost_bar}`)).toBe(dragged !== null && row >= 2);
+      expect(has(out, `\x1b[${view.middle() + 3 + row};2H${active_bar}`)).toBe(row < 2);
+      expect(has(out, `\x1b[${view.middle() + 3 + row};2H${ghost_bar}`)).toBe(dragged !== null && row >= 2);
     }
   }
   view.dragged = null;
@@ -287,7 +288,7 @@ test("a hovered agent's rows tint halfway to selected, and a selected one keeps 
   view.hovered = 0;
   let out = draw(view, entries, []);
   for (let row = 0; row < 4; row++)
-    expect(has(out, `\x1b[${view.middle() + 3 + row};1H\x1b[0m` + hover_bg)).toBe(row < 2);
+    expect(has(out, `\x1b[${view.middle() + 3 + row};2H\x1b[0m` + hover_bg)).toBe(row < 2);
   // The sleeper blends against the tint, not the panel.
   const sleeper = corgiAnimation.idle(6, { background: hover_rgb });
   expect(count(out, sleeper)).toBe(1);
@@ -303,14 +304,14 @@ test("subagent badge shares the second row without reserving empty space", () =>
     name: "Long agent title",
     provider: "codex",
     state: "working",
-    activity: "abcdefghijklmnopqrstuv",
+    activity: "abcdefghijklmnopqrstu",
     subagents: { running: 2, blocked: 0, waiting: true },
   });
   for (const width of [20, 28, 40]) {
     const view = View.init(100, 30, true, 0, 1).withWidth(width);
     const out = draw(view, [e], []);
     expect(has(out, `\x1b[18;${width - 3}H` + fg("accent") + "↳2")).toBe(true);
-    expect(has(out, "Waiting on")).toBe(true);
+    expect(has(out, "Waiting")).toBe(true);
     expect(view.hit(width - 3, 17)).toEqual(H("entry", 0));
   }
   e.subagents = { running: 0, blocked: 0, waiting: false };
@@ -382,7 +383,7 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
       }),
     ],
   );
-  expect(has(out, "\x1b[4;2H" + panel + "\x1b[22m\x1b[1m" + fg("accent") + "▶1")).toBe(true);
+  expect(has(out, "\x1b[4;3H" + panel + "\x1b[22m\x1b[1m" + fg("accent") + "▶1")).toBe(true);
   expect(has(out, "\x1b[1m" + fg("warm") + " ●2")).toBe(true);
   expect(has(out, "\x1b[1m" + fg("accent") + "3 unread →")).toBe(true);
   expect(has(out, "⚒12")).toBe(true);
@@ -392,7 +393,7 @@ test("workspace status uses agent colors and keeps usage on its second row", () 
   expect(has(out, "unread")).toBe(false);
   expect(has(out, "▶0")).toBe(false);
   expect(has(out, "⚒0")).toBe(false);
-  expect(has(out, "\x1b[4;2H" + active_meta + "\x1b[22m" + fg("muted") + "○")).toBe(true);
+  expect(has(out, "\x1b[4;3H" + active_meta + "\x1b[22m" + fg("muted") + "○")).toBe(true);
   expect(has(out, "—")).toBe(false);
   expect(has(out, "\x1b[4;25H" + panel + "⚒0")).toBe(false);
   const away = { ...empty, active: false, stats: stats(1) };
@@ -442,7 +443,8 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
     activity: "Old summary",
     subagents: { running: 0, blocked: 0, waiting: true },
   });
-  const view = View.init(100, 30, true, 0, 1);
+  // Lists 28 columns wide, past the box column.
+  const view = View.init(100, 30, true, 0, 1).withWidth(28 + lists_x);
   draw(view, [], [], 0); // Forget herds from earlier draws.
   // The herd starts scattered beside the pile; the corgi pushes it together
   // and curls into the ellipsis, which stays.
@@ -460,7 +462,7 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
   }
   // Too narrow to herd: the text stays, and the pile still moves.
   const out = draw(view.withWidth(23), [e], [], 1000);
-  expect(has(out, "\x1b[18;5H" + fg("text") + "Compacting…")).toBe(true);
+  expect(has(out, "\x1b[18;6H" + fg("text") + "Compacting…")).toBe(true);
   expect(has(out, "⣿")).toBe(true);
 });
 
@@ -647,16 +649,16 @@ test("agents header names its scope and opens the scope menu left of New", () =>
     expect(view.hit(1, view.middle())).toEqual(H("none"));
     expect(view.hit(view.scopeStart() - 1, view.middle())).toEqual(H("none"));
     expect(view.hit(view.scopeStart(), view.middle())).toEqual(H("agent_scope"));
-    const end = width === 20 ? 10 : 14;
+    const end = width === 20 ? 10 : 15;
     expect(view.hit(end - 1, view.middle())).toEqual(H("agent_scope"));
     if (width > 20) expect(view.hit(end, view.middle())).toEqual(H("none"));
     expect(view.hit(width - 10, view.middle())).toEqual(H("agent_new"));
     view.scope_label = "a workspace with a long name";
     const header = hostText(draw(view, [], [])).split("\n")[view.middle()];
-    // The label never runs into the New button.
+    // The label never runs into the New button; at the narrowest only the arrow is left.
     expect(header).toContain("agents");
     expect(header).toContain("New");
-    expect(header).toContain("…");
+    if (width > 20) expect(header).toContain("…");
   }
 });
 
@@ -678,9 +680,9 @@ test("scope menu offers only the current workspace and all agents", () => {
   new ScopeMenu().draw(w, view, 100, 30, workspaces, "all");
   const text = hostText(w.s);
   const lines = text.split("\n");
-  expect(lines[b.y + 1].trimEnd()).toBe(" │   This workspace     3 │");
-  expect(lines[b.y + 2].trimEnd()).toBe(" │ ✓ All                4 │");
-  expect(lines[b.y + 3].trimEnd()).toBe(" ╰────────────────────────╯");
+  expect(lines[b.y + 1].trimEnd()).toBe("  │   This workspace     3 │");
+  expect(lines[b.y + 2].trimEnd()).toBe("  │ ✓ All                4 │");
+  expect(lines[b.y + 3].trimEnd()).toBe("  ╰────────────────────────╯");
   for (const ws of workspaces) expect(text).not.toContain(ws.name);
 });
 
@@ -722,12 +724,12 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
   const rows = lines.slice(top, top + 6).map(line => line.slice(0, 80).trimEnd());
   // The focused agent's rail turns heavy but stays continuous.
   expect(rows).toEqual([
-    "▾ corgi ━━━━━━━━━━━━━ 1▶ 2 │",
-    "┣●  api refactor           │",
-    "┃   Needs input            │",
-    "╰○  release notes          │",
-    "    Session ended          │",
-    "▸ blog ━━━━━━━━━━━━━━ 1● 1 │",
+    " ▾ corgi ━━━━━━━━━━━━ 1▶ 2 │",
+    " ┣●  api refactor          │",
+    " ┃   Needs input           │",
+    " ╰○  release notes         │",
+    "     Session ended         │",
+    " ▸ blog ━━━━━━━━━━━━━ 1● 1 │",
   ]);
   expect(has(out, new Style({ fg: "accent" }).sgr() + selected_bg + "┣")).toBe(true);
   // Without Kitty graphics there is no separator; with it, a dotted one under the text.
@@ -736,7 +738,7 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
   rich.corgi_badge = "emoji";
   rich.supports_kitty_graphics = true;
   const richOut = draw(rich, entries, []);
-  expect(has(richOut, `\x1b[${top + 3};5H\x1b[4:4m`)).toBe(true);
+  expect(has(richOut, `\x1b[${top + 3};6H\x1b[4:4m`)).toBe(true);
   expect(Math.floor(count(richOut, dotted_underline) / 2)).toBe(1);
 });
 
@@ -744,13 +746,13 @@ test("grouped scrolling fits more rows when headers are shorter", () => {
   const entries = Array.from({ length: 7 }, (_, i) =>
     entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }),
   );
-  // 13 rows leave five list rows: three entries where only two agents fit.
-  // Scrolled into a group, its pinned header takes one of them.
-  const view = View.init(100, 13, true, 0, entries.length).withEntries(entries);
+  // 14 rows leave five list rows above the bottom one: three entries where
+  // only two agents fit. Scrolled into a group, its pinned header takes one.
+  const view = View.init(100, 14, true, 0, entries.length).withEntries(entries);
   expect(view.capacity).toBe(3);
   expect(view.maxOffset()).toBe(5);
   expect(view.reveal(3)).toBe(2);
-  expect(View.init(100, 13, true, 99, entries.length).withEntries(entries).offset).toBe(5);
+  expect(View.init(100, 14, true, 99, entries.length).withEntries(entries).offset).toBe(5);
 });
 
 test("worktree groups branch off the workspace rail and pin their headers above scrolled rows", () => {
@@ -788,28 +790,28 @@ test("worktree groups branch off the workspace rail and pin their headers above 
   const whole = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   expect(whole.pinned(0)).toEqual([]);
   expect(rows(whole, 9)).toEqual([
-    "▾ corgi ━━━━━━━━━━━━━━━━ 3 │",
-    "├○  direct                 │",
-    "│   Session ended          │",
-    "├▾ ⌥ one ─────────────── 2 │",
-    "├○  first                  │",
-    "│   Session ended          │",
-    "╰○  second                 │",
-    "    Session ended          │",
-    "▸ blog ━━━━━━━━━━━━━━━━━ 1 │",
+    " ▾ corgi ━━━━━━━━━━━━━━━ 3 │",
+    " ├○  direct                │",
+    " │   Session ended         │",
+    " ├▾ ⌥ one ────────────── 2 │",
+    " ├○  first                 │",
+    " │   Session ended         │",
+    " ╰○  second                │",
+    "     Session ended         │",
+    " ▸ blog ━━━━━━━━━━━━━━━━ 1 │",
   ]);
   // Scrolled to "second", corgi's and the worktree's headers stay on top;
   // the lower one underlines its row, and both hit as themselves.
-  const scrolled = View.init(100, 13, true, 99, entries.length).withEntries(entries);
+  const scrolled = View.init(100, 14, true, 99, entries.length).withEntries(entries);
   expect(scrolled.offset).toBe(4);
   expect(scrolled.pinned(4)).toEqual([0, 2]);
   expect(scrolled.pinned(2)).toEqual([0]);
   expect(rows(scrolled, 5)).toEqual([
-    "▾ corgi ━━━━━━━━━━━━━━━━ 3 │",
-    "├▾ ⌥ one ─────────────── 2 │",
-    "╰○  second                 ┃",
-    "    Session ended          ┃",
-    "▸ blog ━━━━━━━━━━━━━━━━━ 1 ┃",
+    " ▾ corgi ━━━━━━━━━━━━━━━ 3 │",
+    " ├▾ ⌥ one ────────────── 2 │",
+    " ╰○  second                ┃",
+    "     Session ended         ┃",
+    " ▸ blog ━━━━━━━━━━━━━━━━ 1 ┃",
   ]);
   const top = scrolled.middle() + 2;
   expect([0, 1, 2, 4].map(row => scrolled.hit(5, top + row))).toEqual([
@@ -819,7 +821,7 @@ test("worktree groups branch off the workspace rail and pin their headers above 
     H("entry", 5),
   ]);
   const out = draw(scrolled, entries, []);
-  expect(has(out, `\x1b[${top + 2};1H\x1b[0m${palette.bg("bg")}${rule_underline}`)).toBe(true);
+  expect(has(out, `\x1b[${top + 2};2H\x1b[0m${palette.bg("bg")}${rule_underline}`)).toBe(true);
   expect(count(out, rule_underline)).toBe(1);
 });
 
@@ -853,16 +855,16 @@ test("a lit worktree keeps its colors while the rest of the agent list fades", (
 
 test("agent list shows a scrollbar on the border only when it overflows", () => {
   const entries = Array.from({ length: 6 }, (_, i) => entry({ target: { pane: i }, provider: "codex", state: "idle" }));
-  // 24 rows leave eleven list rows, down to the bottom: five agents.
+  // 24 rows leave ten list rows above the bottom one: five agents.
   const fits = View.init(80, 24, true, 0, 5).withEntries(entries.slice(0, 5));
   expect(fits.thumb()).toBeNull();
   expect(has(draw(fits, entries.slice(0, 5), [], 0), "┃")).toBe(false);
   const top = View.init(80, 24, true, 0, entries.length).withEntries(entries);
   expect(top.thumb()!.start).toBe(0);
-  expect(top.thumb()!.len).toBe(10);
-  expect(View.init(80, 24, true, 99, entries.length).withEntries(entries).thumb()!.start).toBe(1);
+  expect(top.thumb()!.len).toBe(8);
+  expect(View.init(80, 24, true, 99, entries.length).withEntries(entries).thumb()!.start).toBe(2);
   const out = draw(top, entries, [], 0);
-  expect(count(out, "┃")).toBe(10);
+  expect(count(out, "┃")).toBe(8);
   expect(has(out, "\x1b[14;28H")).toBe(true);
   expect(has(out, "/6")).toBe(false);
   expect(top.hit(5, top.rows - 2)).toEqual(H("entry", 4));
@@ -1004,7 +1006,7 @@ test("context shows on the name line only near compaction and dims while compact
   const out = draw(View.init(100, 30, true, 0, entries.length), entries, []);
   const text = hostText(out);
   // 74% of the window is 74% of the way: warm, and the name gives way.
-  expect(text).toContain("migrate checkpoin… 74%");
+  expect(text).toContain("migrate checkpoi… 74%");
   expect(has(out, fg("warm") + "74%")).toBe(true);
   // 46% of the way shows nothing.
   expect(text).toContain("api refactor");
@@ -1038,14 +1040,58 @@ test("the agents drawer runs the agent list from the top, under its header alone
   );
   const view = open.withEntries(entries);
   expect(view.area()).toEqual(View.init(100, 30, false, 0, 0).area());
-  expect(view.listRows()).toBe(28);
-  expect(view.hit(10, 2)).toEqual(H("entry", 0));
+  // Its box's top edge, the header, a gap, then the list down to the bottom edge.
+  expect(view.listRows()).toBe(26);
+  expect(view.hit(10, 3)).toEqual(H("entry", 0));
+  expect(view.hit(10, 2)).toEqual(H("none"));
   expect(view.hit(24, 0)).toEqual(H("none"));
-  const text = hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: true })]));
-  expect(text.split("\n")[0]).toContain("agents");
-  expect(text).toContain("agent14");
-  expect(text).not.toContain("workspaces");
-  expect(text).not.toContain("Project");
+  view.focus = "agents";
+  const lines = hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: true })]))
+    .split("\n")
+    .map(line => line.slice(0, 28));
+  expect(lines[0]).toBe("┌" + "─".repeat(26) + "┐");
+  expect(lines[1]).toContain("agents");
+  expect(lines[29]).toBe("└" + "─".repeat(26) + "┘");
+  expect(lines.join("\n")).toContain("agent13");
+  expect(lines.join("\n")).not.toContain("workspaces");
+  expect(lines.join("\n")).not.toContain("Project");
+});
+
+test("the focused list sits in a box in the focused pane's outline, sharing the rule", () => {
+  const outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
+  const view = View.init(100, 30, true, 0, 0);
+  expect(has(draw(view, [], []), outline)).toBe(false);
+  const box = (v: View) =>
+    hostText(draw(v, [], []))
+      .split("\n")
+      .map(line => line.slice(0, 28));
+  const edge = (left: string, right: string) => left + "─".repeat(26) + right;
+  view.focus = "agents";
+  let lines = box(view);
+  expect(lines[12]).toBe(" ".repeat(27) + "│");
+  expect(lines[13]).toBe(edge("┌", "┤"));
+  expect(lines[20]).toBe("│" + " ".repeat(26) + "│");
+  expect(lines[29]).toBe(edge("└", "┘"));
+  expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, false, true, true]);
+  view.focus = "workspaces";
+  lines = box(view);
+  expect(lines[1]).toBe(edge("┌", "┤"));
+  expect(lines[13]).toBe(edge("└", "┤"));
+  expect(lines[29]).toBe(" ".repeat(27) + "│");
+  expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, true, true, false]);
+  view.drawer = "workspaces";
+  lines = box(view);
+  expect(lines[1]).toBe(edge("┌", "┤"));
+  expect(lines[29]).toBe(edge("└", "┘"));
+  // A focused list's thumb takes its outline's color; the other keeps the plain one.
+  const many = Array.from({ length: 20 }, (_, i) =>
+    entry({ target: { pane: i + 1 }, name: `agent${i + 1}`, provider: "claude", state: "idle" }),
+  );
+  const listed = View.init(100, 30, true, 0, 0).withEntries(many);
+  const thumb = outline + "┃";
+  expect(has(draw(listed, many, []), thumb)).toBe(false);
+  listed.focus = "agents";
+  expect(has(draw(listed, many, []), thumb)).toBe(true);
 });
 
 test("a dragged split moves the agents header within bounds", () => {
@@ -1056,7 +1102,7 @@ test("a dragged split moves the agents header within bounds", () => {
   expect(View.init(100, 30, true, 0, 0, 10).middle()).toBe(10);
   expect(View.init(100, 30, true, 0, 0, 2).middle()).toBe(6);
   expect(View.init(100, 30, true, 0, 0, 40).middle()).toBe(25);
-  expect(View.init(100, 30, true, 0, 0, 10).listRows()).toBe(18);
+  expect(View.init(100, 30, true, 0, 0, 10).listRows()).toBe(17);
 });
 
 test("an unfolded group scrolls into view as far as it fits, its header at most on top", () => {
