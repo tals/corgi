@@ -798,7 +798,9 @@ export class Controller {
           this.worktree_agents,
           true,
         );
-        const shown = this.worktree_agents.animate(ghost, selected, milliTimestamp());
+        // A worktree with nothing to list has no ghost; one fades in once it has.
+        if (!ghost.length) this.worktree_agents.appearing = null;
+        const shown = ghost.length ? this.worktree_agents.animate(ghost, selected, milliTimestamp()) : [];
         entries = folded ? [...entries.slice(0, index), ...shown, ...entries.slice(index + 1)] : [...shown, ...entries];
       }
       index = worktreeAgents.index(entries, selected);

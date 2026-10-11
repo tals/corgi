@@ -66,7 +66,7 @@ export function name(e: launcherResume.Entry): string {
   return e.title || e.first;
 }
 /** A worktree's header and agents; with none, the `asleep` agents entering
- * it would bring back. */
+ * it would bring back; with neither, nothing. */
 export function group(
   snapshot: worktrees.Snapshot,
   selection: Selection,
@@ -77,8 +77,9 @@ export function group(
 ): sidebar.Entry[] {
   const checkout = worktrees.linked(snapshot).find(e => e.path === selection.path);
   if (!checkout) return [];
-  const live = agents.filter(e => belongs(snapshot, selection.path, e)),
-    info = { ...selection, ghost },
+  const live = agents.filter(e => belongs(snapshot, selection.path, e));
+  if (!live.length && !asleep.length) return [];
+  const info = { ...selection, ghost },
     folded = !ghost && state.folded.has(key(selection));
   const header = sidebar.entry({
     target: { worktree: selection.path, workspace: selection.workspace },

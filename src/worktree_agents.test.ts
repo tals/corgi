@@ -55,6 +55,8 @@ test("a ghost with no agents shows the newest conversations no pane has open, as
   ]);
   // In the list, a group lasts only while it has agents.
   expect(agents.grouped(data, 1, [], state)).toHaveLength(0);
+  // With no conversations either, there is no group to show, not even a header.
+  expect(agents.group(data, selection, [], [], state, true)).toEqual([]);
 });
 test("an agent associated with two checkouts keeps distinct rows during sidebar reconciliation", () => {
   const data = snapshot(),

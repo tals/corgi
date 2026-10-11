@@ -67,8 +67,9 @@ conversations from the launcher's history as agent rows. Enter or clicking the
 worktree keeps the group in the sidebar and focuses its first agent; for one
 with no agents, it brings those conversations back as hibernated agents, each
 in its own tab, asleep until its pane is focused. Clicking one of the previewed
-agents does the same and wakes that one. A group lasts only while it lists an
-agent; closing its last one removes it.
+agents does the same and wakes that one. A worktree with no conversations
+either previews nothing. A group lasts only while it lists an agent; closing
+its last one removes it.
 
 Which conversations belong to a worktree follows their recorded working
 directories, not a reconstructed edit history. Groups and folding are
