@@ -34,20 +34,22 @@ class ViewerScenarios extends Viewers {
     const panes: number[] = [];
     for (let i = 0; i < 9; i++) panes.push(await this.new());
     const viewer = await this.newViewer();
-    // The toggle is Command keys in Corgi setup, which stays open after
-    // Enter; its row shows the current state.
+    // The toggle is Command keys under Keymap in Corgi setup, which stays
+    // open after Enter; its row shows the current state.
     const ghosttyRow = (data: string) => {
       const screen = screen_text(data, 100, 30);
       const y = screen.findIndex(row => row.includes("Command keys"));
       this.assertTrue(y >= 0, screen);
       return { y, row: screen[y] };
     };
-    const off = ghosttyRow((await viewer.input("\x02i")).data).row;
-    this.assertTrue(/Command keys\s+Off/.test(off), off);
-    await viewer.input("jjjjj");
+    await viewer.input("\x02i");
+    const off = ghosttyRow((await viewer.input("jjjjj")).data).row;
+    this.assertTrue(/Command keys\s+○ Off/.test(off), off);
+    // Enter opens Keymap on the preset in use; up wraps to Command keys.
+    await viewer.input("\rk");
     this.assertIn("enter turn on", screen_text(viewer.state.data, 100, 30).join("\n"));
     await viewer.input("\r");
-    await viewer.input("q");
+    await viewer.input("qq");
     const enabled = readFileSync(config, "utf8");
     this.assertEqual(statSync(config).mode & 0o777, 0o640);
     this.assertTrue(enabled.startsWith(original));
@@ -57,14 +59,13 @@ class ViewerScenarios extends Viewers {
     }
     this.assertEqual((await viewer.input("\x02n")).pane, panes[0]);
     this.assertEqual((await viewer.input("\x02p")).pane, panes.at(-1));
-    const { y, row } = ghosttyRow((await viewer.input("\x02i")).data);
-    this.assertTrue(/Command keys\s+On/.test(row), row);
-    // The first click selects the setting; the second turns it off.
+    await viewer.input("\x02i");
+    const { y, row } = ghosttyRow((await viewer.input("jjjjj")).data);
+    this.assertTrue(/Command keys\s+● On/.test(row), row);
+    // A click on the option turns it off.
     const x = row.indexOf("Command keys") + 1;
-    for (let i = 0; i < 2; i++) {
-      await viewer.input(`\x1b[<0;${x};${y + 1}M`);
-      await viewer.input(`\x1b[<0;${x};${y + 1}m`);
-    }
+    await viewer.input(`\x1b[<0;${x};${y + 1}M`);
+    await viewer.input(`\x1b[<0;${x};${y + 1}m`);
     this.assertEqual(readFileSync(config, "utf8"), original);
     this.assertEqual(statSync(config).mode & 0o777, 0o640);
   }
@@ -499,8 +500,8 @@ class ViewerScenarios extends Viewers {
     const first = (await this.session()).workspaces[0].id;
     const second = (await this.command("workspace.create", { name: "Second", cwd: this.temp.name })).workspace;
     const third = (await this.command("workspace.create", { name: "Third", cwd: this.temp.name })).workspace;
-    // At 18 rows only one workspace fits, so the end slot needs scrolling.
-    const a = await this.newViewer(100, 18);
+    // At 16 rows only one workspace fits, so the end slot needs scrolling.
+    const a = await this.newViewer(100, 16);
     await a.input("\x1b[<0;5;3M\x1b[<32;5;6M");
     for (let i = 0; i < 2; i++) await a.input("\x1b[<65;5;6M");
     this.assertIn(`\x1b[3;1H${tinted}`, a.state.data);

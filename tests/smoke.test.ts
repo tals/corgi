@@ -389,20 +389,29 @@ class Smoke extends Runtime {
         event: { hook_event_name: "SessionStart", session_id: String(i) },
       });
     }
+    // The workspace list's thumb, on the border beside it.
+    const thumb = (screen: string[]) =>
+      screen
+        .slice(2, 10)
+        .map(row => [...row][27])
+        .join("");
     await this.attach();
-    let screen = await this.frame_with("Group-4");
-    this.assertIn("Group-5", screen[5]);
-    this.assertIn("<  >", screen[9]);
+    let screen = await this.frame_with("Group-5");
+    this.assertIn("Group-3", screen[2]);
+    this.assertIn("Group-5", screen[8]);
+    this.assertEqual(thumb(screen), "│││││┃┃┃");
     await this.scrollbar_with("┃┃┃┃┃┃┃┃┃┃│");
     await this.input("\x1b[<65;5;15M");
     screen = await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃┃");
-    this.assertIn("Group-4", screen[2]);
-    this.assertIn("Group-5", screen[5]);
+    this.assertIn("Group-3", screen[2]);
+    this.assertIn("Group-5", screen[8]);
+    this.assertEqual(thumb(screen), "│││││┃┃┃");
     await this.input("\x1b[<64;5;5M");
-    screen = await this.frame_with("Group-3");
-    this.assertIn("Group-4", screen[5]);
+    screen = await this.frame_with("Group-2");
+    this.assertIn("Group-3", screen[5]);
     await this.input("\x1b[<64;5;5M".repeat(2));
-    screen = await this.frame_with("Group-1");
+    screen = await this.frame_with("Group-0");
+    this.assertEqual(thumb(screen), "│┃┃┃││││");
     this.assertEqual(scrollbar(screen), "│┃┃┃┃┃┃┃┃┃┃");
     await this.click_text(
       screen.map(r => r.slice(0, 27)),
