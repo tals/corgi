@@ -97,6 +97,14 @@ export class Agent {
     this.observation.acknowledge(through);
     if (this.attention !== "needs_input") this.attention = this.observation.unread() ? "finished" : "none";
   }
+  /** Shows the last finished turn as unseen again. */
+  markUnread() {
+    const o = this.observation;
+    if (o.completed === 0n || o.unread()) return false;
+    o.read = o.completed - 1n;
+    if (this.attention === "none") this.attention = "finished";
+    return true;
+  }
   setTurn(turn: string) {
     const next = Text.ascii(turn);
     if (next.text() === this.turnId()) return;

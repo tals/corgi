@@ -50,6 +50,12 @@
     "conversation": 0,
     "attention_at": -1
   },
+  "pane.mark_unread": {
+    "pane": 1,
+    "session": "s",
+    "binding": 1,
+    "conversation": 0
+  },
   "pane.paste": {
     "pane": 1,
     "text": "aGk=",

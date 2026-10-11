@@ -78,7 +78,9 @@ and `binding` identify its selected actor and selection generation.
 
 `conversation.list` returns the conversation views. `conversation.acknowledge`
 accepts `conversation`, `through`, and optional `attention_at`. Pane acknowledgements
-also accept `conversation` and `binding` so viewers can reject stale selections.
+also accept `conversation` and `binding` so viewers can reject stale selections;
+`pane.mark_unread` takes the same identity and moves the read receipt back one
+completion.
 Existing native transport controls and raw terminal input retain their interfaces.
 
 Checkpoint version 2 stores actors once and attachments as ID references. Version 1

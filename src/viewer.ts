@@ -161,10 +161,20 @@ export async function sync(view: Controller, bell: { seq: number | bigint }, pla
 // snapshot displayed, never whatever completion happens to be latest remotely.
 export async function presented(view: Controller): Promise<void> {
   if (!view.input_state.watched || view.coversPanes()) return;
+  const shown = new Set<number>();
   for (const place of view.layoutView().placements(view.area())) {
     const p = view.runtime.pane(place.id);
     if (!p) continue;
+    shown.add(p.id);
     const focused = view.focused()?.id === p.id;
+    const had_focus = view.marked_unread.get(p.id);
+    if (had_focus !== undefined) {
+      if (had_focus || !focused) {
+        view.marked_unread.set(p.id, focused);
+        continue;
+      }
+      view.marked_unread.delete(p.id);
+    }
     if (!unread(p.agent.observation) && (p.agent.attention === "none" || !focused)) continue;
     await call(view.connection, "pane.acknowledge", {
       pane: p.id,
@@ -177,6 +187,7 @@ export async function presented(view: Controller): Promise<void> {
     acknowledge(p.agent.observation, p.agent.observation.completed);
     if (focused || p.agent.attention !== "needs_input") p.agent.attention = "none";
   }
+  for (const id of view.marked_unread.keys()) if (!shown.has(id)) view.marked_unread.delete(id);
 }
 
 /** Waits for the first of stdin, the daemon's wake connection, the host

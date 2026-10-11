@@ -13,6 +13,19 @@ test("late receipts cannot read newer completions", () => {
   s.acknowledge(s.completed);
   expect(s.unread()).toBe(false);
 });
+test("marking unread moves the receipt back one completion, and only once", () => {
+  const a = new Agent();
+  expect(a.markUnread()).toBe(false);
+  a.beginTurn("a");
+  a.endTurn("a", "completed", "protocol", 1);
+  a.beginTurn("b");
+  a.endTurn("b", "completed", "protocol", 2);
+  a.acknowledge();
+  expect(a.markUnread()).toBe(true);
+  expect([a.observation.read, a.attention]).toEqual([1n, "finished"]);
+  expect(a.markUnread()).toBe(false);
+  expect(a.observation.read).toBe(1n);
+});
 test("starting work preserves unread receipt and stale stop cannot finish newer turn", () => {
   const a = new Agent();
   a.beginTurn("a");

@@ -189,6 +189,19 @@ class Observations extends Runtime {
     });
     this.assertFalse((await this.state()).unread);
   }
+  async test_mark_unread_brings_back_the_last_completion() {
+    const mark = (session: string) => this.raw_rpc({ op: "pane.mark_unread", protocol: 1, pane: this.pane, session });
+    await mark(SESSION);
+    this.assertFalse((await this.state()).unread);
+    await this.finish();
+    await this.rpc({ op: "pane.acknowledge", protocol: 1, pane: this.pane, session: SESSION, through: 1 });
+    this.assertEqual((await mark("wrong")).err, "StaleAcknowledgement");
+    this.assertFalse((await this.state()).unread);
+    await mark(SESSION);
+    this.assertEqual([(await this.state()).unread, (await this.state()).attention], [true, "finished"]);
+    await this.rpc({ op: "pane.acknowledge", protocol: 1, pane: this.pane, session: SESSION, through: 1 });
+    this.assertFalse((await this.state()).unread);
+  }
   async test_active_viewer_visits_read_background_viewer_does_not() {
     const other = (await this.command("pane.create", { workspace: 1, command: "sleep 60" })).pane;
     const v = await Viewer.create(this);

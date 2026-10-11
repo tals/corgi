@@ -31,23 +31,21 @@ export type Item =
   | "zoom"
   | "fork"
   | "copy-id"
+  | "mark-unread"
   | "close"
   | "fold"
   | "close-all";
-/** `icon` sits in a column before the labels. A `rule` sets the row apart
- * below a line, and the highlight never starts on it. */
+/** A `rule` sets the row apart below a line, and the highlight never starts on it. */
 export interface Row {
   item: Item;
   key: string;
   label: string;
-  icon: string;
   rule: boolean;
 }
 const row = (item: Item, key: string, label: string, extra: Partial<Row> = {}): Row => ({
   item,
   key,
   label,
-  icon: "",
   rule: false,
   ...extra,
 });
@@ -63,8 +61,9 @@ const pane_actions = [
 ];
 const agent_actions = [
   row("rename", "r", "Rename"),
-  row("fork", "f", "Fork", { icon: "⑂" }),
+  row("fork", "f", "Fork"),
   row("copy-id", "c", "Copy ID"),
+  row("mark-unread", "u", "Mark as unread"),
   row("close", "x", "Close", { rule: true }),
 ];
 let border: string;
@@ -131,14 +130,10 @@ export class TabMenu {
   lines(): number {
     return this.entries().length + this.entries().filter(entry => entry.rule).length;
   }
-  hasIcons(): boolean {
-    return this.entries().some(entry => entry.icon.length > 0);
-  }
-  /** The widest label, with the icon column when there is one. */
   labelWidth(): number {
     let widest = 0;
     for (const entry of this.entries()) widest = Math.max(widest, Buffer.byteLength(entry.label));
-    return widest + (this.hasIcons() ? 2 : 0);
+    return widest;
   }
   bounds(width: number, height: number): { x: number; y: number; width: number; padding: number } {
     // Borders, a gutter each side, and a keycap with its space.
@@ -184,9 +179,8 @@ export class TabMenu {
         w.write(r === 0 ? "╮" : "╯");
       }
     }
-    // A narrow menu gives up its keycaps, then its icons, before labels.
+    // A narrow menu gives up its keycaps before labels.
     const keys = b.width >= 16;
-    const icons = this.hasIcons() && b.width >= 18;
     const gutter = keys ? 2 : 1;
     let line = b.y + b.padding + 1;
     this.entries().forEach((entry, index) => {
@@ -214,15 +208,6 @@ export class TabMenu {
         // A row that cannot run shows its key flat, like its label.
         w.write(`${off ? dim : keycap} ${entry.key} ${row_style} `);
         used += 4;
-      }
-      if (icons) {
-        const icon_style = off
-          ? dim
-          : highlighted
-            ? new Style({ fg: "muted", bg: "selected" }).sgr()
-            : new Style({ fg: "muted", bg: "surface" }).sgr();
-        w.write(`${icon_style}${entry.icon.length > 0 ? entry.icon : " "}${row_style} `);
-        used += 2;
       }
       const len = Math.min(entry.label.length, sat(inner, used));
       if (off) w.write(new Style({ fg: "faint", bg: "surface", strike: true }).sgr());

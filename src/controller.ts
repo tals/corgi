@@ -283,6 +283,10 @@ export class Controller {
   copy_feedback_until = 0;
   muted = false;
   selection: { pane: number; x: number; y: number; moved: boolean } | null = null;
+  /** Panes marked unread from the agent menu, each with whether it had
+   * focus when last shown. Showing one doesn't read it until focus moves
+   * onto it, it takes input, or it leaves view. */
+  marked_unread = new Map<number, boolean>();
   search_mode = false;
   search_text: number[] = [];
   search_skip = 0;
@@ -1008,6 +1012,7 @@ export class Controller {
     if (!p) return;
     const opened = new TabMenu({ tab: id, agent: true, anchor_x: x, anchor_y: y });
     if (p.agent.session.length === 0) opened.off.add("copy-id");
+    if (p.agent.observation.completed === 0 || unread(p.agent.observation)) opened.off.add("mark-unread");
     try {
       await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
     } catch {
@@ -1118,6 +1123,19 @@ export class Controller {
         }
         case "copy-id":
           this.copyText(breadcrumbs(p));
+          break;
+        case "mark-unread":
+          try {
+            await call(this.connection, "pane.mark_unread", {
+              pane: p.id,
+              binding: p.binding,
+              conversation: p.agent.conversation,
+              session: p.agent.session,
+            });
+            this.marked_unread.set(p.id, this.focused()?.id === p.id);
+          } catch {
+            this.notice(" Couldn't mark as unread");
+          }
           break;
         case "close":
           await this.close(pane_id);
@@ -1721,6 +1739,7 @@ export class Controller {
   private sendInput(term: Terminal, bytes: string | Uint8Array | number[]): void {
     // Nothing reads a dormant pane's input.
     if (this.pane(term.id)?.dormant) return;
+    this.marked_unread.delete(term.id);
     if (!this.copy_mode && bytes.length > 0 && !term.atBottom()) {
       term.scrollViewport("bottom");
       term.clearSelection();

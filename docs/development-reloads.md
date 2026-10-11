@@ -166,6 +166,7 @@ Viewer operations are:
   and local UI state.
 - `pane.acknowledge`: acknowledge only the output actually shown by a viewer.
   Creation, restore, and workspace edits use `session.command`.
+- `pane.mark_unread`: show a pane's last finished turn as unseen again.
 - `viewer.search`: locate text in retained terminal history without changing a
   shared viewport. Selection and clipboard formatting remain local.
 - `viewer.list`: inspect IDs and last reported selections for targeting CLI actions.

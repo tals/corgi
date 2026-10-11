@@ -157,23 +157,35 @@ export async function search(s: any, cl: any, q: any) {
   if (!p) throw new Error("NoPane");
   cl.reply("viewer.search", await p.displayed().search(q.needle, q.skip));
 }
-export function acknowledge(s: any, cl: any, q: any) {
+/** The pane `q` names, if it still runs the agent the viewer showed. */
+function shownPane(s: any, q: any) {
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
-  const bound = p.attachment.actor?.id ?? 0,
-    agent = p.agent();
+  const bound = p.attachment.actor?.id ?? 0;
   if (
-    q.session !== agent.sessionId() ||
+    q.session !== p.agent().sessionId() ||
     (q.binding !== null && q.binding !== undefined && BigInt(q.binding) !== BigInt(p.attachment.generation)) ||
     (q.conversation !== null && q.conversation !== undefined && q.conversation !== bound)
   )
     throw new Error("StaleAcknowledgement");
+  return p;
+}
+export function acknowledge(s: any, cl: any, q: any) {
+  const p = shownPane(s, q),
+    agent = p.agent();
   if (agent.attention !== "none" || agent.observation.unread()) {
     if (p.attachment.actor) p.attachment.actor.acknowledge(q.through, q.attention_at);
     else {
       if (q.attention_at === agent.changed_at) agent.attention = "none";
       agent.readThrough(q.through);
     }
+    s.runtime.changed();
+    s.dirty = true;
+  }
+  cl.queue({ ok: true });
+}
+export function markUnread(s: any, cl: any, q: any) {
+  if (shownPane(s, q).agent().markUnread()) {
     s.runtime.changed();
     s.dirty = true;
   }

@@ -472,6 +472,9 @@ export class Server {
           ...q,
         });
         return;
+      case "pane.mark_unread":
+        viewer.markUnread(this, cl, { session: "", binding: null, conversation: null, ...q });
+        return;
       case "pane.paste":
         await viewer.paste(this, cl, q);
         return;

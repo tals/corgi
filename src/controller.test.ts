@@ -168,6 +168,62 @@ test("Copy ID names the harness, session, id and paths, leaving out what isn't k
   );
 });
 
+test("an agent marked unread stays unread in view until focus moves onto it", async () => {
+  const sent: [string, any][] = [];
+  const s: any = new Controller({
+    socket: "",
+    request: async (op, fields) => {
+      sent.push([op, fields]);
+      return { ok: true };
+    },
+  });
+  const seen = () => {
+    const snapshot = pair();
+    for (const p of snapshot.panes) p.agent.observation = { completed: 1, read: 1 };
+    return snapshot;
+  };
+  /** The daemon's snapshot once pane `id` is marked unread. */
+  const marked = (id: number) => {
+    const snapshot = seen();
+    Object.assign(snapshot.panes[id - 1].agent, { attention: "finished", observation: { completed: 1, read: 0 } });
+    return snapshot;
+  };
+  const acknowledged = async () => {
+    sent.length = 0;
+    await viewer.presented(s);
+    return sent.filter(([op]) => op === "pane.acknowledge").map(([, fields]) => fields.pane);
+  };
+  s.receiveSnapshot(seen());
+  try {
+    s.focusPane(1);
+    s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
+    await s.tabMenuAction("mark-unread");
+    expect(sent.at(-1)).toEqual(["pane.mark_unread", { pane: 2, binding: 0, conversation: 0, session: "" }]);
+    s.receiveSnapshot(marked(2));
+    expect(await acknowledged()).toEqual([]);
+    s.focusPane(2);
+    expect(await acknowledged()).toEqual([2]);
+    // Marked while focused, it waits for focus to leave and come back.
+    s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
+    await s.tabMenuAction("mark-unread");
+    s.receiveSnapshot(marked(2));
+    expect(await acknowledged()).toEqual([]);
+    s.focusPane(1);
+    expect(await acknowledged()).toEqual([]);
+    s.focusPane(2);
+    expect(await acknowledged()).toEqual([2]);
+    // Out of view, the mark is let go; showing the pane again reads it.
+    s.tab_menu = new TabMenu({ tab: 1, agent: true, anchor_x: 0 });
+    await s.tabMenuAction("mark-unread");
+    s.receiveSnapshot(marked(1));
+    s.switchWorkspace(2);
+    await acknowledged();
+    expect(s.marked_unread.size).toBe(0);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("open shows the workspace already on that folder", async () => {
   const s = controller();
   s.receiveSnapshot(folders("/a", "/b"));

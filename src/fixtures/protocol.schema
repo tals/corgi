@@ -141,6 +141,12 @@ $.requests|pane.acknowledge.conversation: optional
 $.requests|pane.acknowledge.conversation?: u32
 $.requests|pane.acknowledge.attention_at: optional
 $.requests|pane.acknowledge.attention_at?: i64
+$.requests|pane.mark_unread.pane: u32
+$.requests|pane.mark_unread.session: string
+$.requests|pane.mark_unread.binding: optional
+$.requests|pane.mark_unread.binding?: u64
+$.requests|pane.mark_unread.conversation: optional
+$.requests|pane.mark_unread.conversation?: u32
 $.requests|pane.paste.pane: u32
 $.requests|pane.paste.text: optional
 $.requests|pane.paste.text?: string

@@ -28,6 +28,7 @@ test("menu keys pick the rows each menu shows", () => {
   expect(agent.itemFor(c("r"))).toBe("rename");
   expect(agent.itemFor(c("f"))).toBe("fork");
   expect(agent.itemFor(c("c"))).toBe("copy-id");
+  expect(agent.itemFor(c("u"))).toBe("mark-unread");
   expect(agent.itemFor(c("x"))).toBe("close");
   expect(agent.itemFor(c("n"))).toBeNull();
 });
@@ -46,21 +47,27 @@ test("a worktree group's menu folds first and keeps Close all below a rule", () 
 });
 
 test("crossed-out rows take no key, click or highlight", () => {
-  const menu = new TabMenu({ tab: 1, anchor_x: 0, agent: true, off: new Set(["rename", "fork", "copy-id"]) });
+  const menu = new TabMenu({
+    tab: 1,
+    anchor_x: 0,
+    agent: true,
+    off: new Set(["rename", "fork", "copy-id", "mark-unread"]),
+  });
   expect(menu.itemFor(c("r"))).toBeNull();
   expect(menu.itemFor(c("f"))).toBeNull();
   expect(menu.itemFor(c("c"))).toBeNull();
+  expect(menu.itemFor(c("u"))).toBeNull();
   expect(menu.highlightedItem()).toBeNull();
   // Close sits apart below a rule; the menu never opens on it.
   menu.highlightFirst();
   expect(menu.highlightedItem()).toBeNull();
-  expect(menu.hit(80, 24, 5, 4)).toBeNull();
-  expect(menu.hit(80, 24, 5, 5)).toBe(3);
+  expect(menu.hit(80, 24, 5, 5)).toBeNull();
+  expect(menu.hit(80, 24, 5, 6)).toBe(4);
   menu.move(true);
   expect(menu.highlightedItem()).toBe("close");
   menu.move(true);
   expect(menu.highlightedItem()).toBe("close");
-  menu.off = new Set(["fork", "copy-id"]);
+  menu.off = new Set(["fork", "copy-id", "mark-unread"]);
   menu.move(false);
   expect(menu.highlightedItem()).toBe("rename");
   menu.move(false);
@@ -70,10 +77,10 @@ test("crossed-out rows take no key, click or highlight", () => {
   const struck = new Style({ fg: "faint", bg: "surface", strike: true }).sgr();
   expect(w.s).toContain(struck + "Fork");
   expect(w.s).not.toContain(struck + "Rename");
-  expect(w.s).toContain("⑂");
-  expect(w.s).toContain("│  " + "─".repeat(14) + "  │");
+  expect(w.s).toContain(struck + "Mark as unread");
+  expect(w.s).toContain("│  " + "─".repeat(18) + "  │");
   // Rows that run show their key as a cap; crossed-out ones show it flat.
   expect(w.s).toContain(keycap + " r ");
   expect(w.s).toContain(new Style({ fg: "faint", bg: "surface" }).sgr() + " f ");
-  expect(w.s).toContain("╭" + "─".repeat(18) + "╮");
+  expect(w.s).toContain("╭" + "─".repeat(22) + "╮");
 });
