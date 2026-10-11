@@ -20,6 +20,7 @@ import type { Preferences } from "./preferences";
 import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
+import * as framePacing from "./frame_pacing";
 import { Writer, clamp, displayWidth, writeEllipsis, sat } from "./text";
 import * as shellPicker from "./shell_picker";
 import * as scrollThumb from "./scroll_thumb";
@@ -192,11 +193,15 @@ type Line =
   | { tag: "keys"; keys: [string, string][] }
   /** A capability, marked by whether the terminal has it; none for a plain fact. */
   | { tag: "capability"; name: string; mark: Found | null }
+  /** A row of the chart of the host's answer times; the last is its time axis. */
+  | { tag: "chart"; row: number }
+  /** The answer times in one row, on a short frame, and `text` at its end. */
+  | { tag: "spark"; text: string }
   | { tag: "option"; option: Option; index: number }
   /** The import picker, down to the bottom of the pane. */
   | { tag: "picker" };
 
-let panel: string, border: string, text: string, bright: string, warm: string, hint_key: string;
+let panel: string, border: string, text: string, bright: string, warm: string, graph: string, hint_key: string;
 let row_resting: settingRow.Row;
 palette.derived(() => {
   panel = new Style({ fg: "faint", bg: "surface" }).sgr();
@@ -204,6 +209,7 @@ palette.derived(() => {
   text = new Style({ fg: "text", bg: "surface" }).sgr();
   bright = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   warm = new Style({ fg: "warm", bg: "surface" }).sgr();
+  graph = new Style({ fg: "accent", bg: "surface" }).sgr();
   hint_key = new Style({ fg: "muted", bg: "surface" }).sgr();
   // The list's selected row while the options have focus.
   const resting = mix(colors.surface, colors.selected, 45);
@@ -219,6 +225,17 @@ palette.derived(() => {
   };
 });
 const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
+/** The chart row for `ms`; time at or below zero falls to the bottom. */
+function chartRow(ms: number): number {
+  return clamp(Math.round((3 - Math.log10(Math.max(ms, 1e-3))) * 2), 0, chart_rows - 1);
+}
+/** `ms` as "24 ms" or "1.4 s", and with `sd` to the same digit, "24 ms ± 6". */
+function duration(ms: number, sd?: number): string {
+  const [scale, unit] = ms >= 1000 ? [1000, "s"] : [1, "ms"],
+    digits = ms / scale < 9.95 ? 1 : 0,
+    figure = (v: number) => (v / scale).toFixed(digits);
+  return `${figure(ms)} ${unit}` + (sd === undefined ? "" : ` ± ${figure(sd)}`);
+}
 
 const list_w = 26;
 /** The frame's height on a tall terminal. */
@@ -228,6 +245,12 @@ const options_w = 34;
 const two_pane_cols = 80;
 const single_max = 56;
 const single_min = 44;
+/** The answer-time chart's rows, half a decade apart from 1 s down to 1 ms. */
+const chart_rows = 7;
+/** Labels and the axis take this many columns before the chart's plot. */
+const chart_inset = 8;
+const hold_row = chartRow(framePacing.hold_after_ms);
+const spark = "▁▂▃▄▅▆▇█";
 /** The puffing preview dreams more often than a sidebar list. */
 const preview_period_ms = 6_000;
 const grow_ms = 280;
@@ -248,6 +271,12 @@ function detailSize(cols: number, rows: number) {
   const compact = rows < 32,
     h = 4 + onboarding.detailHeight(width, compact);
   return h > rows ? null : { width, compact, w: 2 + opts + width + 5, h };
+}
+/** How the selected setting's rows fit the frame; see `Menu.content`. */
+interface Fit {
+  keys: boolean;
+  brief: boolean;
+  chart: boolean;
 }
 interface Layout {
   b: Rect;
@@ -322,6 +351,8 @@ export class Menu {
   image_paste: ClipboardState | null = null;
   /** What the viewer found out about its terminal. */
   terminal: Terminal = { name: "", ssh: false, graphics: false, colors: false };
+  /** The viewer's frame pacing, which times the host's answers; null when the viewer has no terminal. */
+  pacing: framePacing.Pacer | null = null;
   /** The shell new panes run, as the daemon last published it. */
   shell: ShellStatus = shellPicker.status();
   /** Shells /etc/shells lists, offered beside the default. */
@@ -751,6 +782,25 @@ export class Menu {
             );
           w.write(at(x0 + 4, y) + text);
           return writeEllipsis(w, line.name, right - x0 - 4);
+        case "chart":
+          return this.drawChart(w, line.row, x0 + 4, right, y, now_ms);
+        case "spark": {
+          const end = sat(right, displayWidth(line.text) + 2);
+          let shown = "";
+          w.write(at(x0 + 4, y));
+          for (const column of this.chartColumns(sat(end, x0 + 4), now_ms)) {
+            const t = column?.timing,
+              [style, cell] = column?.lost
+                ? [warm, "✕"]
+                : t
+                  ? [graph, spark[clamp(Math.round((Math.log10(Math.max(t.mean, 1)) / 3) * 7), 0, 7)]]
+                  : [graph, " "];
+            if (style !== shown) w.write((shown = style));
+            w.write(cell);
+          }
+          w.write(at(end + 2, y) + panel + line.text);
+          return;
+        }
         case "keys": {
           let cx = x0;
           line.keys.forEach(([key, label], k) => {
@@ -770,6 +820,43 @@ export class Menu {
           return this.import_picker.draw(w, pickerArea(l, i), this.focus === "options");
       }
     });
+  }
+  /** One row of the answer-time chart from `x`: the running mean (█) and a
+   * deviation either side (░) at each column's last answer, on a log scale,
+   * with ✕ where a request was lost. The last row is the time axis. */
+  private drawChart(w: Writer, row: number, x: number, right: number, y: number, now_ms: number) {
+    const axis = x + chart_inset - 1,
+      n = sat(right, axis + 1);
+    if (row === chart_rows) {
+      const since = ` −${(n * framePacing.column_ms) / 1000} s `;
+      w.write(at(axis, y) + border + "└─" + panel + since + border + "─".repeat(sat(n, since.length + 5)));
+      w.write(panel + " now");
+      return;
+    }
+    const label = row === hold_row ? "hold" : row % 2 === 0 ? ["1 s", "100 ms", "10 ms", "1 ms"][row / 2] : "";
+    w.write(at(axis - 1 - label.length, y) + panel + label + " " + border + "┤");
+    let shown = border;
+    for (const column of this.chartColumns(n, now_ms)) {
+      const t = column?.timing,
+        [style, cell] =
+          column?.lost && row === 0
+            ? [warm, "✕"]
+            : t && row === chartRow(t.mean)
+              ? [graph, "█"]
+              : t && row >= chartRow(t.mean + t.sd) && row <= chartRow(t.mean - t.sd)
+                ? [graph, "░"]
+                : row === hold_row
+                  ? [border, "┈"]
+                  : [border, " "];
+      if (style !== shown) w.write((shown = style));
+      w.write(cell);
+    }
+  }
+  /** The pacer's columns ending now, `n` of them; null where nothing was answered or lost. */
+  private chartColumns(n: number, now_ms: number): (framePacing.Column | null)[] {
+    const columns = new Map((this.pacing?.columns ?? []).map(c => [c.at, c])),
+      last = Math.floor(now_ms / framePacing.column_ms);
+    return Array.from({ length: n }, (_, k) => columns.get(last - n + 1 + k) ?? null);
   }
   private drawOption(
     w: Writer,
@@ -825,18 +912,15 @@ export class Menu {
   /** The options pane's rows as they fit `l`: leads and notes wrap, notes
    * give way first, then the options scroll to keep the cursor in view. */
   private lines(s: Status, prefs: Preferences, l: Layout): Line[] {
-    const room = l.options.w - 3,
-      out: Line[] = [];
-    let index = 0;
-    for (const line of this.content(s, prefs, { keys: !l.room, brief: l.options.w < 42 }))
-      if (line.tag === "lead" || line.tag === "note" || line.tag === "warn")
-        for (const part of wrap(line.text, room)) out.push({ tag: line.tag, text: part });
-      else if (line.tag === "option") out.push({ ...line, index: index++ });
-      else out.push(line);
+    const fit = { keys: !l.room, brief: l.options.w < 42, chart: true };
+    let out = this.wrapped(s, prefs, l, fit);
+    // A short frame draws the answer-time chart as one row.
+    if (out.length > l.body && out.some(line => line.tag === "chart"))
+      out = this.wrapped(s, prefs, l, { ...fit, chart: false });
     if (out.length <= l.body) return out;
     const first = out.findIndex(line => line.tag === "option"),
       last = out.findLastIndex(line => line.tag === "option"),
-      kept = out.slice(0, last + 1);
+      kept = first < 0 ? out : out.slice(0, last + 1);
     if (kept.length <= l.body || first < 0) return kept.slice(0, l.body);
     const head = kept.slice(0, Math.min(first, l.body - 1)),
       options = kept.slice(first),
@@ -845,15 +929,61 @@ export class Menu {
       start = Math.min(Math.max(0, cursor - span + 1), options.length - span);
     return head.concat(options.slice(start, start + span));
   }
+  /** Frame pacing under Terminal capabilities: how fast the host answers, charted when `chart`. */
+  private pacingLines(chart: boolean): Line[] {
+    const p = this.pacing,
+      name = "Frame pacing";
+    if (p === null)
+      return [
+        { tag: "capability", name, mark: "no" },
+        { tag: "brief", text: "This viewer has no terminal." },
+      ];
+    if (p.timing === null)
+      return [
+        { tag: "capability", name, mark: "no" },
+        { tag: "brief", text: "Never answered, so frames never wait." },
+      ];
+    const held = p.late + p.lost,
+      answers = duration(p.timing.mean, p.timing.sd),
+      late: Line = {
+        tag: "brief",
+        text:
+          held === 0
+            ? "None late enough to hold frames."
+            : `${held} late enough to hold frames; ` +
+              (p.lost > 0 ? `${p.lost === 1 ? "one" : p.lost} never came.` : `slowest ${duration(p.slowest)}.`),
+      };
+    if (!chart) return [{ tag: "capability", name, mark: "yes" }, { tag: "spark", text: answers }, late];
+    return [
+      { tag: "capability", name, mark: "yes" },
+      { tag: "brief", text: `Answers in ${answers}.` },
+      late,
+      { tag: "blank" },
+      ...Array.from({ length: chart_rows + 1 }, (_, row): Line => ({ tag: "chart", row })),
+    ];
+  }
+  /** The selected setting's rows, with leads and notes wrapped to `l`. */
+  private wrapped(s: Status, prefs: Preferences, l: Layout, fit: Fit): Line[] {
+    const room = l.options.w - 3,
+      out: Line[] = [];
+    let index = 0;
+    for (const line of this.content(s, prefs, fit))
+      if (line.tag === "lead" || line.tag === "note" || line.tag === "warn")
+        for (const part of wrap(line.text, room)) out.push({ tag: line.tag, text: part });
+      else if (line.tag === "option") out.push({ ...line, index: index++ });
+      else out.push(line);
+    return out;
+  }
   private options(s: Status, prefs: Preferences): Option[] {
-    return this.content(s, prefs, { keys: false, brief: false }).flatMap(line =>
+    return this.content(s, prefs, { keys: false, brief: false, chart: false }).flatMap(line =>
       line.tag === "option" ? [line.option] : [],
     );
   }
   /** The selected setting's rows. `keys` swaps the lead for a line of keys
    * where onboarding's preset detail has no room; `brief` takes the short
-   * preset descriptions for a narrow column. */
-  private content(s: Status, prefs: Preferences, fit: { keys: boolean; brief: boolean }): Line[] {
+   * preset descriptions for a narrow column; `chart` draws the answer times
+   * as a chart rather than one row. */
+  private content(s: Status, prefs: Preferences, fit: Fit): Line[] {
     const lead = (text: string): Line => ({ tag: "lead", text }),
       option = (o: Option): Line => ({ tag: "option", option: o, index: 0 }),
       title = (text: string): Line => ({ tag: "title", text }),
@@ -1043,6 +1173,7 @@ export class Menu {
                 clipboard.support === "denied" ? "warm" : undefined,
               )
             : found("Image paste", "no", "This viewer has no terminal to paste from.")),
+          ...this.pacingLines(fit.chart),
         ];
       }
       case "detach":

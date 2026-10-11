@@ -3,6 +3,7 @@ import { Menu, items, status, type Hit } from "./corgi_setup";
 import * as shellPicker from "./shell_picker";
 import { Preferences } from "./preferences";
 import { State as ClipboardState } from "./host_clipboard";
+import { Pacer } from "./frame_pacing";
 import * as corgiAnimation from "./corgi_animation";
 import * as km from "./keymap";
 import { Worker, pane, workspace } from "./import/catalog";
@@ -263,6 +264,45 @@ test("terminal capabilities report what the terminal can do, not settings", () =
   expect(text).toMatch(/✓ Theme colors/);
   expect(text).toMatch(/! Image paste/);
   expect(text).toContain("Blocked by clipboard-read = deny.");
+});
+
+test("frame pacing charts how fast the host answers, in one row on a short frame", () => {
+  const menu = Menu.open(),
+    pacing = new Pacer();
+  menu.item = "terminal";
+  menu.pacing = pacing;
+  expect(draw(menu, 100, 40).join("\n")).toContain("Never answered, so frames never wait.");
+  // Two minutes of answers in 24 ms, but one in 1.2 s and one lost.
+  let now = 1_000_000;
+  for (let i = 0; i < 600; i++) {
+    pacing.stamp(now);
+    if (i === 400) pacing.waiting((now += 5000));
+    else pacing.answered((now += i === 300 ? 1200 : 24));
+    now += 200;
+  }
+  let text = draw(menu, 100, 40, now).join("\n");
+  expect(text).toMatch(/✓ Frame pacing/);
+  expect(text).toContain("Answers in 24 ms ± 0.");
+  expect(text).toContain("2 late enough to hold frames; one never came.");
+  // The mean sits on the 30 ms row, and the slow answer lifts it to 100 ms.
+  const rows = text.split("\n").filter(row => row.includes("┤"));
+  expect(rows.map(row => row.split("┤")[0].split("│").at(-1)!.trim())).toEqual([
+    "1 s",
+    "hold",
+    "100 ms",
+    "",
+    "10 ms",
+    "",
+    "1 ms",
+  ]);
+  expect(rows[0]).toContain("✕");
+  expect(rows[2]).toContain("█");
+  expect(rows[3]).toMatch(/█{20}/);
+  expect(text).toMatch(/└─ −\d+ s ─+ now/);
+  text = draw(menu, 100, 24, now).join("\n");
+  expect(text).not.toContain("┤");
+  expect(text).toMatch(/▄{10}.*✕.*24 ms ± 0/);
+  expect(text).toContain("2 late enough to hold frames; one never came.");
 });
 
 test("shell options are the shell picker's entries", () => {

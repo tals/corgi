@@ -227,6 +227,7 @@ export async function run(
     // Pasted images are saved beside the socket, on the daemon's machine.
     probe.clipboard.folder = join(dirname(socket) || ".", "paste");
     view.host_clipboard = probe.clipboard;
+    view.host_pacer = probe.pacer;
     view.terminal_colors = hostColors(probe);
     probe.clipboard.start(Date.now());
     const openers = new Openers();

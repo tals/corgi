@@ -68,6 +68,7 @@ import { Drag as WorkspaceDrag } from "./workspace_drag";
 import { milliTimestamp, microTimestamp } from "./clock";
 import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
+import type { Pacer } from "./frame_pacing";
 import * as pasteCard from "./paste_card";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as viewerNative from "./viewer_native";
@@ -239,6 +240,8 @@ export class Controller {
   remote_links = false;
   /** The host terminal's clipboard, read over SSH; the paste being read goes to `paste_target`. */
   host_clipboard: hostClipboard.State | null = null;
+  /** The host terminal's frame pacing, for Terminal capabilities. */
+  host_pacer: Pacer | null = null;
   paste_target: Paste | null = null;
   /** Why a paste brought no image, over the pane it was meant for. */
   paste_card: PasteCard | null = null;
@@ -2244,6 +2247,7 @@ export class Controller {
     const setup = SetupMenu.open();
     setup.integration = this.remote_links ? "unavailable" : ghosttyIntegration.state();
     setup.image_paste = this.host_clipboard;
+    setup.pacing = this.host_pacer;
     setup.terminal = {
       name: this.host_clipboard?.terminal.text() || (process.env.TERM_PROGRAM ?? ""),
       ssh: this.remote_links,

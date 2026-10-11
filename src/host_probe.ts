@@ -106,7 +106,7 @@ export class Probe {
         if (sequence.length < 128) return;
       }
       if (sequence === frame_pacing.answer) {
-        this.pacer.answered();
+        this.pacer.answered(now);
         this.pending = "";
         return;
       }
