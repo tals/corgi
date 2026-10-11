@@ -344,3 +344,36 @@ test("a hidden sidebar shows while it has focus, and a prefixed command hands th
     viewer.close(s);
   }
 });
+
+test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts it", async () => {
+  const { s } = steering();
+  try {
+    s.prefs.agents = "all";
+    s.focusPane(1);
+    await s.input(bytes("\x02\x1b[D\x1b[B"));
+    // Pane 2 is on screen, so nothing is ghosted.
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
+    expect(s.sidebarGhost()).toBeNull();
+    await s.input(bytes("\x1b[B\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
+    const ghost = s.sidebarGhost();
+    expect(ghost.pane.id).toBe(3);
+    expect(ghost.area).toEqual(s.area());
+    await s.key(13);
+    expect(s.focused().id).toBe(3);
+    expect(s.layoutView().placements(s.area())).toEqual([{ id: 3, rect: ghost.rect }]);
+    // Ghosting a hibernated agent doesn't wake it, and a peeking sidebar's
+    // ghost is laid out without it.
+    s.focusPane(1);
+    s.pane(3).dormant = true;
+    s.sidebar_open = false;
+    // Up passes workspace 1's header, then wraps.
+    await s.input(bytes("\x02\x1b[D\x1b[A\x1b[A"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
+    expect(s.sidebarGhost().area.x).toBe(0);
+    await s.expireInput();
+    expect(s.pane(3).dormant).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});

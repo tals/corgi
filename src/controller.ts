@@ -421,6 +421,29 @@ export class Controller {
     if ("group" in target) return this.selectAgent(target);
     await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
   }
+  /** The agent under the sidebar's cursor, where entering it would put it,
+   * while no pane shows it. */
+  sidebarGhost(): render.Ghost | null {
+    const focus = this.sidebar_focus;
+    const cursor = focus?.cursor;
+    if (!focus || !cursor || !("entry" in cursor) || !("pane" in cursor.entry)) return null;
+    const id = cursor.entry.pane;
+    const p = this.pane(id),
+      owner = this.runtime.workspaces.owner(id);
+    if (!p || !owner) return null;
+    if (
+      owner.id === this.current().id &&
+      this.layoutView()
+        .placements(this.area())
+        .some(place => place.id === id)
+    )
+      return null;
+    // A sidebar that only peeks leaves with focus, and the panes widen.
+    const area = focus.peek ? sidebar.View.init(this.width, this.height, false, 0, 0).area() : this.area();
+    const selection = this.navigation.entering(this.runtime.workspaces, owner, id);
+    const place = new LayoutView(owner.model, selection).placements(area).find(place => place.id === id);
+    return place ? { pane: p, rect: place.rect, area } : null;
+  }
   /** Typing in the focused sidebar searches its agents. */
   private searchSidebar(byte: number): void {
     this.openAgentPicker();
@@ -4639,6 +4662,7 @@ export class Controller {
         copy_mode: this.copy_mode,
         prefix: this.prefix,
         sidebar_focus: this.sidebar_focus !== null,
+        ghost: this.sidebarGhost(),
         menu: this.menu(),
         tab_menu: this.tab_menu,
         port_menu: this.port_menu,

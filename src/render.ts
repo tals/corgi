@@ -43,7 +43,9 @@ let tab_active: string,
   hint_key: string,
   hint_label: string,
   bar: string,
-  divider_plain: string;
+  divider_plain: string,
+  ghost_band: string,
+  ghost_edge: string;
 palette.derived(() => {
   tab_active = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
   tab_inactive = new Style({ fg: "faint", bg: "bg" }).sgr();
@@ -54,7 +56,17 @@ palette.derived(() => {
   bar = new Style({ bg: "surface" }).sgr();
   divider_focused = new Style({ fg: "accent", bold: true }).sgr();
   divider_plain = new Style({ fg: "line" }).sgr();
+  ghost_band = new Style({ bg: "bg" }).sgr();
+  ghost_edge = new Style({ fg: "faint", bg: "bg" }).sgr();
 });
+/** The agent under the sidebar's cursor, as entering it would show it. */
+export interface Ghost {
+  pane: Pane;
+  /** Its pane's place once entered. */
+  rect: Rect;
+  /** The pane area once entered: a sidebar that only peeks is gone. */
+  area: Rect;
+}
 
 export interface Ui {
   prefs: Preferences;
@@ -83,6 +95,7 @@ export interface Ui {
   prefix: boolean;
   /** The sidebar has the keyboard instead of the focused pane. */
   sidebar_focus: boolean;
+  ghost: Ghost | null;
   menu: ResizeView | null;
   tab_menu: TabMenu | null;
   port_menu: PortMenu | null;
@@ -137,6 +150,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     copy_feedback: false,
     prefix: false,
     sidebar_focus: false,
+    ghost: null,
     menu: null,
     tab_menu: null,
     port_menu: null,
@@ -581,6 +595,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     }
   }
   drawDividers(w, view, area, !u.sidebar_focus);
+  // Under the sidebar, which covers what a peeking one hides.
+  if (u.ghost) drawGhost(w, u.ghost);
   // The host may leave its last mouse report at the window edge.
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
@@ -871,6 +887,35 @@ function dividerGlyph(up: boolean, down: boolean, left: boolean, right: boolean,
   if (up) return left ? "┘" : right ? "└" : "│";
   if (down) return left ? "┐" : right ? "┌" : "│";
   return horizontal ? "│" : "─";
+}
+/** The bottom half of the pane area as entering `g`'s agent would show it,
+ * dimmed under a dashed edge naming it. Every cell sits where entering
+ * leaves it, so entering only reveals the rest. */
+export function drawGhost(w: Writer, g: Ghost): void {
+  const { pane, rect, area } = g;
+  const cut = area.y + Math.floor(area.h / 2);
+  if (cut === area.y || area.w === 0) return;
+  w.write("\x1b[0m" + ghost_band);
+  for (let y = cut; y < area.y + area.h; y++) {
+    w.write(`\x1b[${y + 1};${area.x + 1}H`);
+    w.splat(" ", area.w);
+  }
+  const from = Math.max(0, cut - rect.y);
+  if (from < rect.h) {
+    pane.terminal.updateRender();
+    w.write(rowsFrom(pane.terminal.rows(pane.id, rect.x, rect.y, rect.w, rect.h, true, null), rect, from));
+  }
+  const label = new Writer();
+  writeEllipsis(label, pane.label || pane.agent.name || providerName(pane.agent), sat(area.w, 8));
+  const name = label.buffered();
+  w.write(`\x1b[0m\x1b[${cut};${area.x + 1}H${ghost_edge}┄┄ ${name} `);
+  w.write("┄".repeat(sat(area.w, 4 + displayWidth(name))) + "\x1b[0m");
+}
+/** `rows` from viewport row `from` on: each row opens with its own cursor move and style. */
+function rowsFrom(rows: string, rect: Rect, from: number): string {
+  if (from === 0) return rows;
+  const at = rows.indexOf(`\x1b[${rect.y + from + 1};${rect.x + 1}H`);
+  return at < 0 ? "" : rows.slice(at);
 }
 /** Without `outline`, as while the sidebar has focus, no pane's border stands out. */
 export function drawDividers(w: Writer, view: LayoutView, area: Rect, outline = true): void {

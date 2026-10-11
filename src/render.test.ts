@@ -10,6 +10,7 @@ import {
   thumb_rule,
   tabDrop,
   drawDividers,
+  drawGhost,
   divider_focused,
   drawRestoring,
   shellUnits,
@@ -544,4 +545,28 @@ test("the prefix bar spans the pane area's bottom row and drops hints that do no
     expect(out.buffered().startsWith("\x1b[21;31H")).toBe(true);
     expect(testVisible(out.buffered())).toBe(c.text);
   }
+});
+
+test("a ghost dims the bottom half of the pane area, each row where entering leaves it", () => {
+  const area = new Rect(28, 1, 72, 20),
+    rect = new Rect(29, 2, 70, 18);
+  const pane: any = {
+    id: 3,
+    label: "",
+    agent: { name: "release notes", provider: "claude" },
+    terminal: {
+      updateRender() {},
+      rows: (_id: number, x: number, y: number, _w: number, h: number, dimmed: boolean) =>
+        Array.from({ length: h }, (_, row) => `\x1b[${y + row + 1};${x + 1}H${dimmed ? "dim" : ""}row${row}`).join(""),
+    },
+  };
+  const out = new Writer();
+  drawGhost(out, { pane, rect, area });
+  const text = out.buffered();
+  // The cut is row 11: rows above it stay as they were.
+  expect(text).not.toContain("row8");
+  expect(text).toContain("\x1b[12;30Hdimrow9");
+  expect(text).toContain("\x1b[20;30Hdimrow17");
+  expect(text).toContain("\x1b[11;29H");
+  expect(text).toContain("┄┄ release notes ┄");
 });

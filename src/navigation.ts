@@ -56,6 +56,16 @@ export class State {
     else this.entries[free] = e;
     return e;
   }
+  /** Workspace `ws`'s tabs as focusing pane `id` would leave them. */
+  entering(store: Workspaces, ws: Workspace, id: number): Selection {
+    const from = this.entry(store, ws).value;
+    const s = new Selection();
+    s.tabs = from.tabs.map(t => ({ ...t }));
+    s.count = from.count;
+    s.active = from.active;
+    s.focus(ws.model, id);
+    return s;
+  }
   agentHistory(store: Workspaces): AgentHistory {
     return this.entry(store, this.current(store)).agents;
   }

@@ -143,8 +143,11 @@ and goes to the pane. Corgi's `h/j/k/l` also move focus, once per prefix.
 `prefix ←` from the leftmost pane moves focus into the agent list, which shows
 while it has focus even when hidden. Up and Down move through the list and wrap
 at its ends; `prefix ↑` moves to the workspace list and `prefix ↓` back, as
-between panes. Enter opens the row as a click would; Right opens an agent, a
-recent session or a workspace, and otherwise returns to the pane. Esc returns without changing anything, and typing starts an agent search
+between panes. An agent no pane shows appears as a dimmed ghost across the
+bottom half of the screen, each line where entering it will put it; a
+hibernated agent stays asleep. Enter opens the row as a click would; Right
+opens an agent, a recent session or a workspace, and otherwise returns to the
+pane. Esc returns without changing anything, and typing starts an agent search
 as `prefix g` does. Any other prefixed command, or a click, gives the keyboard
 back to the pane.
 

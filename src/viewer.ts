@@ -93,6 +93,16 @@ export async function sync(view: Controller, bell: { seq: number | bigint }, pla
       known: p.terminal.known,
     });
   }
+  // The sidebar's ghost needs its agent's screen, sized as entering will size it.
+  const ghost = view.sidebarGhost();
+  if (ghost)
+    interests.push({
+      pane: ghost.pane.id,
+      cols: Math.max(1, ghost.rect.w),
+      rows: Math.max(1, ghost.rect.h),
+      offset: ghost.pane.terminal.offset,
+      known: ghost.pane.terminal.known,
+    });
   let reply: any;
   try {
     reply = await call(view.connection, "viewer.sync", {
