@@ -125,7 +125,8 @@ export class Actor {
         ding =
           a.recordCompletion(a.turnId(), snapshot.outcome, "protocol", binding) &&
           snapshot.outcome === "completed" &&
-          !watched;
+          !watched &&
+          this.parent === null;
     }
     a.attention =
       snapshot.state === "blocked" && !watched ? "needs_input" : a.observation.unread() ? "finished" : "none";

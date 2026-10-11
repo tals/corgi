@@ -253,6 +253,21 @@ test("snapshot baseline and completion receipts are idempotent", () => {
   expect(actor.observeSnapshot(observation, false, 0)).toBe(false);
   expect(actor.state.observation.completed).toBe(1n);
 });
+test("a subagent's snapshot completion records without ringing", () => {
+  const actor = new Actor({ id: 2 }),
+    observation = snapshot("working");
+  actor.parent = 1 as Actor["parent"];
+  observation.turn = new Text("a");
+  expect(actor.observeSnapshot(observation, false, 0)).toBe(false);
+  observation.state = "idle";
+  observation.outcome = "completed";
+  observation.observed_at = 2;
+  expect(actor.observeSnapshot(observation, false, 0)).toBe(false);
+  expect(actor.state.observation.completed).toBe(1n);
+  observation.state = "blocked";
+  observation.observed_at = 3;
+  expect(actor.observeSnapshot(observation, false, 0)).toBe(true);
+});
 test("a snapshot completion records history without overriding active or blocked state", () => {
   for (const state of ["working", "blocked"] as const) {
     const actor = new Actor({ id: 1 }),

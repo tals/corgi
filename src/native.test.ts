@@ -160,6 +160,8 @@ test("native children retain parent selection and own usage across duplicate sou
   expect(child.native_meter.meter.value.tokens.total()).toBe(120n);
   expect(child.native_meter.meter.value.tokens.cached_input).toBe(50n);
   expect(parent.native_meter.meter.value.tokens.total()).toBe(0n);
+  expect(finish(transport, registry, "child", "work")).toBe(false);
+  expect(child.state.observation.completed).toBe(1n);
 });
 test("native raw pipe transport initializes and retains bounded journal", async () => {
   const registry = new Registry();

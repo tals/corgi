@@ -473,7 +473,9 @@ export class Session {
           : !target.finished_since_activity && (old === "working" || old === "blocked");
       if (active !== undefined && (!event.turn || !active || active === event.turn))
         this.active_threads.delete(event.thread);
-      if (matches) ding = target.endTurn(event.turn, event.outcome, "protocol", Date.now() * 1000);
+      if (matches)
+        ding =
+          target.endTurn(event.turn, event.outcome, "protocol", Date.now() * 1000) && (actor?.parent ?? null) === null;
     }
     if (!stale && this.hasApproval(actor)) {
       target.state = "blocked";
