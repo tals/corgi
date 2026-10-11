@@ -140,16 +140,20 @@ Arrows after the prefix move focus and repeat as tmux's do: within half a
 second of one, the next arrow needs no prefix. Any other key ends the repeat
 and goes to the pane. Corgi's `h/j/k/l` also move focus, once per prefix.
 
-`prefix ←` from the leftmost pane moves focus into the agent list, which shows
-while it has focus even when hidden. Up and Down move through the list and wrap
-at its ends; `prefix ↑` moves to the workspace list and `prefix ↓` back, as
-between panes. An agent no pane shows appears as a dimmed ghost across the
-bottom half of the screen, each line where entering it will put it; a
-hibernated agent stays asleep. Enter opens the row as a click would; Right
-opens an agent, a recent session or a workspace, and otherwise returns to the
-pane. Esc returns without changing anything, and typing starts an agent search
-as `prefix g` does. Any other prefixed command, or a click, gives the keyboard
-back to the pane.
+`prefix ←` from the leftmost pane moves focus into the agent list while the
+sidebar is open. Up and Down move through the list and wrap at its ends;
+`prefix ↑` moves to the workspace list and `prefix ↓` back, as between panes.
+Choose agent (`prefix a`) and Choose workspace (`prefix w`) focus a list
+directly, on the focused agent or the current workspace. While the sidebar is
+folded, they open that list alone as a drawer over the dimmed panes, from the
+top of the screen to the bottom, and the panes stay where they are; the same
+key again, Esc, or a click outside it puts the drawer away. An agent no pane
+shows appears as a dimmed ghost across the bottom half of the screen, each line
+where entering it will put it; a hibernated agent stays asleep. Enter opens the
+row as a click would; Right opens an agent, a recent session or a workspace,
+and otherwise returns to the pane. Esc returns without changing anything, and
+typing in the open sidebar starts an agent search as `prefix g` does. Any other
+prefixed command, or a click, gives the keyboard back to the pane.
 
 Click **+** after the visible tabs, choose **New tab** from a menu, or press `prefix c` to open the agent picker, which starts an agent or a terminal in a new tab. Unnamed tabs store no name: their displayed numbers are recomputed as tabs move or close. The + button remains visible when tabs overflow. The CLI/control API creates tabs immediately, unnamed unless an explicit title is supplied.
 
@@ -173,19 +177,20 @@ prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
 | Select tab | `prefix 1–9` | `prefix 0–9` | `prefix 1–9` | `Ctrl+1–9`, `prefix 1–9` |
 | Rename tab | `prefix T`, `prefix ,` | `prefix ,` | `prefix T` | `Cmd+R`, `prefix T`, `prefix ,` |
 | Close tab | `prefix X` | `prefix &` | `prefix X` | `prefix X` |
-| New workspace | `prefix w` | `prefix N` | `prefix N` | `Cmd+N`, `prefix w` |
+| New workspace | `prefix N` | `prefix N` | `prefix N` | `Cmd+N`, `prefix N` |
 | Edit workspace | `prefix W` | `prefix $` | `prefix W` | `Cmd+Shift+R`, `prefix W` |
 | Next workspace | `prefix }` | `prefix }` | `prefix }` | `prefix }` |
 | Previous workspace | `prefix {` | `prefix {` | `prefix {` | `prefix {` |
-| Choose workspace |  | `prefix s` | `prefix w`, `prefix g` | `Cmd+P` |
+| Choose workspace | `prefix w` | `prefix s` | `prefix w`, `prefix g` | `Cmd+P`, `prefix w` |
 | Select workspace |  |  |  | `Cmd+1–9` |
 | Close workspace |  |  | `prefix D` | `Cmd+Shift+W` |
 | Find agent | `prefix g` | `prefix G` | `prefix f` | `Cmd+Shift+P`, `prefix g` |
+| Choose agent | `prefix a` |  |  | `prefix a` |
 | Next agent | `prefix ]` |  |  | `prefix ]` |
 | Previous agent | `prefix [` |  |  | `prefix [` |
 | Last visited agent | `prefix Tab` |  |  | `prefix Tab` |
 | Jump to attention | `prefix f`, `F1` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
-| New agent | `prefix a`, `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix a`, `prefix A`, `prefix Ctrl+A` |
+| New agent | `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix A`, `prefix Ctrl+A` |
 | Mute / unmute sounds | `prefix m` | `prefix m` | `prefix m` | `prefix m` |
 | Focus left | `prefix ←`, `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix ←`, `prefix h` |
 | Focus down | `prefix ↓`, `prefix j` | `prefix ↓` | `prefix j` | `Cmd+Opt+↓`, `prefix ↓`, `prefix j` |
@@ -267,7 +272,7 @@ the cursor previews across the screen; Enter keeps it in `viewer.json`.
 
 ## Agent integration
 
-The left sidebar is split 50/50: workspaces above, agents from the selected workspace below, in tab order until manually reordered. Click + beside workspaces to enter just a name (the focused pane’s current directory is inherited), click a workspace to switch, and right-click for **Rename** and **Close**. Menu actions target the clicked workspace. Close ends its panes and native sessions and removes the workspace; the last workspace cannot be closed. `prefix w` creates, `prefix W` edits, and `prefix {` / `prefix }` switch workspaces. Each workspace retains its tabs; each viewer remembers its focused pane within them. Processes keep running while hidden. New tabs and splits inherit the focused pane’s current directory (a targeted split inherits its target pane’s directory), falling back to the workspace’s default folder when empty; explicit RPC `cwd` overrides it. Changing a default folder does not change existing shells. Workspace names, IDs, and default folders are saved automatically across restarts. Each viewer owns its selection; tabs and processes are not restored after a daemon restart. State lives at `$XDG_STATE_HOME/corgi/workspaces.json` (default `~/.local/state/corgi/workspaces.json`), or beside an explicit `CORGI_SOCKET` as `<socket>.workspaces.json`. `corgi workspace list`, `new NAME [--cwd DIR]`, `switch ID [--viewer ID]`, `edit ID [--name NAME|--clear] [--cwd DIR]`, and `close ID` provide CLI access; close requires an empty workspace with no native sessions. Each entry has two rows: a colored status circle followed by the working directory, then an activity icon beneath the circle and the agent name. The activity icon is blank when idle, 🧠 while thinking, and 🔧 during a known tool call or its approval prompt. Paths under your home use `~`; long paths are shortened from the left so the current directory remains visible. Hook-reported directories take precedence over the foreground process directory; native sessions show their launch directory. Tab names, tool names, and routine lifecycle messages are omitted. An agent nearing compaction ends its first row with how full its context window is; see [Context](agents.md#context).
+The left sidebar is split 50/50: workspaces above, agents from the selected workspace below, in tab order until manually reordered. Click + beside workspaces to enter just a name (the focused pane’s current directory is inherited), click a workspace to switch, and right-click for **Rename** and **Close**. Menu actions target the clicked workspace. Close ends its panes and native sessions and removes the workspace; the last workspace cannot be closed. `prefix N` creates, `prefix W` edits, `prefix w` focuses the workspace list, and `prefix {` / `prefix }` switch workspaces. Each workspace retains its tabs; each viewer remembers its focused pane within them. Processes keep running while hidden. New tabs and splits inherit the focused pane’s current directory (a targeted split inherits its target pane’s directory), falling back to the workspace’s default folder when empty; explicit RPC `cwd` overrides it. Changing a default folder does not change existing shells. Workspace names, IDs, and default folders are saved automatically across restarts. Each viewer owns its selection; tabs and processes are not restored after a daemon restart. State lives at `$XDG_STATE_HOME/corgi/workspaces.json` (default `~/.local/state/corgi/workspaces.json`), or beside an explicit `CORGI_SOCKET` as `<socket>.workspaces.json`. `corgi workspace list`, `new NAME [--cwd DIR]`, `switch ID [--viewer ID]`, `edit ID [--name NAME|--clear] [--cwd DIR]`, and `close ID` provide CLI access; close requires an empty workspace with no native sessions. Each entry has two rows: a colored status circle followed by the working directory, then an activity icon beneath the circle and the agent name. The activity icon is blank when idle, 🧠 while thinking, and 🔧 during a known tool call or its approval prompt. Paths under your home use `~`; long paths are shortened from the left so the current directory remains visible. Hook-reported directories take precedence over the foreground process directory; native sessions show their launch directory. Tab names, tool names, and routine lifecycle messages are omitted. An agent nearing compaction ends its first row with how full its context window is; see [Context](agents.md#context).
 
 Right-click an agent in the sidebar for **Rename**, **Fork** and **Close**. Close sits apart below a rule, and the menu never opens with it highlighted. Rename names the conversation in the agent's own records, so Claude Code's and Codex's titles and resume lists show the same name, and it clears the pane's name. Claude renames itself when its messaging socket asks, as Claude's agent view does. Codex renames a session its shared background server runs through that server's socket, mid-turn or with a draft typed. A Codex started without the server (`-c`, `--profile`, `--no-daemon` and similar flags) only hears `/rename`, so Corgi types it, and only into an input box it can see is empty with nothing over it; it never presses Ctrl+C or touches a draft. Otherwise Rename is crossed out. Fork asks for the copy's name, prefilled as "‹name› (fork)", on a card whose picture of a branch splits in two as it opens; the split plays only where the terminal shows Kitty graphics and reports its cell size in pixels (Ghostty and Kitty do), and elsewhere the branch shows at rest. **Create Fork** starts it the way the original was started (`claude --resume … --fork-session` or `codex fork …`), in a new tab with its row right under the original's, and focuses it. Claude takes the name at launch; Codex takes it as soon as its server or its empty input box can. It works mid-turn: the copy ends where the original is, with any running tool call marked interrupted. Fork is crossed out until there is a conversation to copy: Claude's starts with its first message, and Codex's once Corgi knows its id. Close closes the agent's pane.
 

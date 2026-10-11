@@ -1,5 +1,5 @@
 # A new workspace from the dialog, then switching back.
-key ctrl+b w
+key ctrl+b 'N'
 snap dialog
 type second
 snap typed

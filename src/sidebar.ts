@@ -110,6 +110,8 @@ export interface Search {
 }
 /** Viewer-local agent list filter. `workspace` follows the selected workspace. */
 export type Scope = "workspace" | "all";
+/** The list a folded sidebar draws over the panes while it has focus. */
+export type Drawer = "workspaces" | "agents";
 /** Header totals for a group entry; `current` marks the selected workspace. */
 export interface Group {
   agents: number;
@@ -353,11 +355,16 @@ export class View {
   split: number | null = null;
   /** A lit worktree: its group keeps its colors while the rest of the list dims. */
   spotlight: { workspace: number; path: string } | null = null;
+  /** A folded sidebar's one list, drawn over the panes from top to bottom.
+   * Panes and tabs keep their folded places. */
+  drawer: Drawer | null = null;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
   }
   middle(): number {
+    if (this.drawer === "workspaces") return this.rows + 1;
+    if (this.drawer === "agents") return 0;
     return this.split === null ? Math.floor(sat(this.rows, 1) / 2) : View.splitFor(this.rows, this.split);
   }
   /** Keeps one workspace above the divider and an agent below it. */
@@ -537,18 +544,21 @@ export class View {
     w.write(`\x1b[0m\x1b[${this.middle() + 2};${4 + search.cursor - this.searchOffset()}H\x1b[?25h`);
   }
   area(): Rect {
-    return new Rect(this.width, 1, this.cols - this.width, sat(this.rows, 1));
+    const x = this.drawer !== null ? 0 : this.width;
+    return new Rect(x, 1, this.cols - x, sat(this.rows, 1));
   }
   tabX(): number {
-    return this.width > 0 ? this.width : this.cols >= 64 ? 3 : 0;
+    return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
   }
   hit(x: number, y: number): Hit {
     const v = this;
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
-    if (y === 0 && x >= v.width - 5) return hit("toggle");
-    if (y === 0 && x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
-    if (y === v.middle() && x >= v.width - 10 && x < v.width - 2)
+    if (y === 0 && v.drawer !== "agents") {
+      if (x >= v.width - 5) return hit("toggle");
+      if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
+    }
+    if (y === v.middle() && v.drawer === null && x >= v.width - 10 && x < v.width - 2)
       return x >= v.width - 4 ? hit("agent_options") : hit("agent_new");
     if (y === v.middle() && x >= v.scopeStart()) {
       const qualifier = v.scopeQualifier();
@@ -652,7 +662,21 @@ export class View {
       w.write(`\x1b[${v.middle() + 2};4H` + fg("text"));
       if (search.text.length === 0) writeClipped(w, "type to search", v.width - 5);
       else writeClipped(w, fromByte(search.text, v.searchOffset()), v.width - 5);
-    } else w.write(`\x1b[${v.middle() + 1};${v.width - 9}H` + button + ` New  ▾ ${panel}`);
+    } else if (v.drawer === null) w.write(`\x1b[${v.middle() + 1};${v.width - 9}H` + button + ` New  ▾ ${panel}`);
+    if (v.drawer !== "agents") v.drawWorkspaces(w, workspaces);
+    if (v.drawer === "workspaces") {
+      w.write("\x1b[0m");
+      return;
+    }
+    if (v.drawer === null) {
+      w.write(`\x1b[${v.middle()};2H${panel}` + fg("line"));
+      w.write("─".repeat(Math.max(0, v.width - 3)));
+    }
+    v.drawAgents(w, entries, now_ms);
+  }
+  /** The title row and the workspace list above the agents. */
+  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
+    const v = this;
     w.write(`\x1b[1;${v.width - 4}H${panel} < `);
     if (v.corgi_badge !== "none") {
       if (v.corgi_badge === "emoji") w.write(`\x1b[1;2H${panel}${corgiBadge.emoji}`);
@@ -747,8 +771,10 @@ export class View {
     if (ws_thumb)
       for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
         w.write(`\x1b[${3 + row};${v.width}H${panel}` + fg("faint") + "┃");
-    w.write(`\x1b[${v.middle()};2H${panel}` + fg("line"));
-    w.write("─".repeat(Math.max(0, v.width - 3)));
+  }
+  /** The agent list below its header. */
+  private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {
+    const v = this;
     if (entries.length === 0) {
       v.line(w, v.middle() + 2, v.search !== null ? "No matching agents" : "No agents yet", panel);
       if (v.search === null) {

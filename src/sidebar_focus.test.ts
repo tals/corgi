@@ -17,7 +17,7 @@ test("focus enters on the focused agent, else the first, else the current worksp
 
 test("plain arrows wrap within the cursor's list", () => {
   const list = agents();
-  const s = new State({ entry: { pane: 1 } }, false);
+  const s = new State({ entry: { pane: 1 } });
   s.move([4, 5], list, false);
   expect(s.cursor).toEqual({ entry: { pane: 3 } });
   s.move([4, 5], list, true);
@@ -33,7 +33,7 @@ test("plain arrows wrap within the cursor's list", () => {
 
 test("prefixed arrows cross to the current workspace and back to the agent left", () => {
   const list = agents();
-  const s = new State({ entry: { pane: 3 } }, false);
+  const s = new State({ entry: { pane: 3 } });
   s.cross(5, list, false);
   expect(s.cursor).toEqual({ entry: { pane: 3 } });
   s.cross(5, list, true);
@@ -52,7 +52,7 @@ test("prefixed arrows cross to the current workspace and back to the agent left"
 test("a closing row is skipped, and when the cursor's row goes the one in its place takes it", () => {
   const list = agents();
   list[1].exit = { frame_ms: 0, progress: 0.5 };
-  const s = new State({ entry: { pane: 1 } }, false);
+  const s = new State({ entry: { pane: 1 } });
   s.move([4], list, true);
   expect(s.cursor).toEqual({ entry: { pane: 3 } });
   s.reconcile([4], [entry({ target: { pane: 1 } })]);
@@ -60,7 +60,7 @@ test("a closing row is skipped, and when the cursor's row goes the one in its pl
 });
 
 test("the cursor's row is the one drawn focused", () => {
-  const s = new State({ entry: { pane: 3 } }, false);
+  const s = new State({ entry: { pane: 3 } });
   expect(s.mark(agents()).map(e => e.focused)).toEqual([false, false, false, true]);
   const workspaces = [
     { id: 4, active: true },
@@ -70,4 +70,16 @@ test("the cursor's row is the one drawn focused", () => {
   s.cursor = { workspace: 5 };
   expect(s.mark(agents()).some(e => e.focused)).toBe(false);
   expect(s.markWorkspaces(workspaces).map(ws => ws.active)).toEqual([false, true]);
+});
+
+test("a drawer keeps the cursor in its own list", () => {
+  const list = agents();
+  const s = new State({ workspace: 5 }, "agents");
+  s.move([4, 5], list, true);
+  expect(s.cursor).toEqual({ entry: { pane: 2 } });
+  s.cross(5, list, true);
+  expect(s.cursor).toEqual({ entry: { pane: 2 } });
+  const workspaces = new State({ workspace: 5 }, "workspaces");
+  workspaces.cross(5, list, false);
+  expect(workspaces.cursor).toEqual({ workspace: 5 });
 });

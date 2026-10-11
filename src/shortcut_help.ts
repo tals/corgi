@@ -158,6 +158,7 @@ export function navigation(c: Column) {
   c.alsoHeld("Also works directly", act("attention"), 4);
   c.group("Navigate");
   c.action("Find", act("find-agent"), 4);
+  c.action("Choose", act("choose-agent"), 4);
   c.pair("Next / previous", act("next-agent"), act("prev-agent"), 4);
   c.action("Last visited", act("last-agent"), 4);
   c.group("Manage");

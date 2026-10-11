@@ -11,7 +11,6 @@ import * as onboarding from "./onboarding";
 import * as shortcutHelp from "./shortcut_help";
 import * as palette from "./palette";
 import type { Colors as TerminalColors } from "./terminal_palette";
-import { Style } from "./palette";
 import {
   Rect,
   View as LayoutView,
@@ -74,7 +73,7 @@ import * as subagentTooltip from "./subagent_tooltip";
 import * as viewerNative from "./viewer_native";
 import { Provider } from "./providers";
 import { rank } from "./agent_order";
-import { Writer, writeEllipsis, sat, byteLength } from "./text";
+import { sat, byteLength } from "./text";
 import * as errors from "./errors";
 
 /** A conversation a pane stopped running, and when, in seconds. */
@@ -217,7 +216,6 @@ export class Controller {
   onboarding: onboarding.State | null = null;
   help = Object.assign(new shortcutHelp.State(), { command_mode: true });
   help_visible = false;
-  workspace_chooser: number | null = null;
   clipboard: string | null = null;
   menu_page = 0;
   menu_highlight: string | null = null;
@@ -363,30 +361,40 @@ export class Controller {
       this.copy_mode = false;
     } else if (to === "left") this.enterSidebar();
   }
-  private enterSidebar(): void {
-    const peek = !this.sidebar_open;
+  /** Gives the sidebar focus, its cursor in `list`, else on the agent list or the
+   * current workspace. A folded sidebar opens only for a list, as its drawer. */
+  private enterSidebar(list: sidebar.Drawer | null = null): void {
     this.closeMenu();
+    const folded = !this.sidebar_open;
+    if (folded && list === null) return;
     this.sidebar_open = true;
     if (this.sidebarView([]).width === 0) {
-      this.sidebar_open = !peek;
+      this.sidebar_open = !folded;
       return;
     }
     this.copy_mode = false;
     this.search_mode = false;
     this.selection = null;
     this.cancelDividers();
-    const entries = this.sidebarEntries();
-    this.sidebar_focus = new sidebarFocus.State(sidebarFocus.initial(this.current().id, entries), peek);
+    const entries = this.sidebarEntries(),
+      current = this.current().id;
+    const cursor = list === "workspaces" ? { workspace: current } : sidebarFocus.initial(current, entries);
+    this.sidebar_focus = new sidebarFocus.State(cursor, folded ? list : null);
     this.revealCursor(entries);
     this.dirty = true;
   }
-  /** Gives the keyboard back to the focused pane, hiding a sidebar that only peeked. */
+  /** Gives the keyboard back to the focused pane, putting a drawer away. */
   private leaveSidebar(): void {
     const focus = this.sidebar_focus;
     if (!focus) return;
     this.sidebar_focus = null;
-    if (focus.peek) this.sidebar_open = false;
+    if (focus.drawer) this.sidebar_open = false;
     this.dirty = true;
+  }
+  /** Focuses `list` in the sidebar; its key again puts its drawer away. */
+  private chooseIn(list: sidebar.Drawer): void {
+    if (this.sidebar_focus?.drawer === list) this.leaveSidebar();
+    else this.enterSidebar(list);
   }
   /** A plain arrow moves within the focused list; a prefixed one, `across`, between the lists. */
   private async steerSidebar(to: Direction, across: boolean): Promise<void> {
@@ -441,8 +449,7 @@ export class Controller {
         .some(place => place.id === id)
     )
       return null;
-    // A sidebar that only peeks leaves with focus, and the panes widen.
-    const area = focus.peek ? sidebar.View.init(this.width, this.height, false, 0, 0).area() : this.area();
+    const area = this.area();
     const selection = this.navigation.entering(this.runtime.workspaces, owner, id);
     const place = new LayoutView(owner.model, selection).placements(area).find(place => place.id === id);
     return place ? { pane: p, rect: place.rect, area } : null;
@@ -460,12 +467,13 @@ export class Controller {
     this.sidebar_focus!.reconcile(this.workspaceIds(), entries);
     return this.sidebar_focus!.mark(entries);
   }
-  /** Runs a prefixed binding. Any but a focus move takes the keyboard back
-   * from the sidebar; a repeatable one opens its repeat window. */
+  /** Runs a prefixed binding. Any but a focus move or a drawer's own key
+   * takes the keyboard back from the sidebar; a repeatable one opens its
+   * repeat window. */
   private async runPrefixed(act: Action, repeats: boolean): Promise<void> {
     this.prefix = false;
     this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
-    if (act.name !== "focus") this.leaveSidebar();
+    if (act.name !== "focus" && act.name !== "choose-workspace" && act.name !== "choose-agent") this.leaveSidebar();
     await this.perform(act);
   }
   /** Whether a repeatable key came again inside its window, which it extends.
@@ -501,6 +509,7 @@ export class Controller {
       .withWidth(this.prefs.sidebar_width);
     // Workspace rows, and so paging, depend on whether readings are shown.
     view.resources = this.prefs.resources;
+    view.drawer = this.sidebar_focus?.drawer ?? null;
     view = view.withWorkspaces(this.runtime.workspaces.items.length, this.workspace_offset).withEntries(entries);
     view.scope_label = this.scopeLabel();
     return view;
@@ -947,7 +956,6 @@ export class Controller {
     return (
       this.worktree_card.pinned ||
       this.onboarding !== null ||
-      this.workspace_chooser !== null ||
       this.prefix ||
       this.resize_mode ||
       this.tab_menu !== null ||
@@ -1182,7 +1190,7 @@ export class Controller {
   }
   /** Whether a full-screen view hides every pane, so nothing on them was seen. */
   coversPanes(): boolean {
-    return this.onboarding !== null || (this.prefix && this.help_visible) || this.workspace_chooser !== null;
+    return this.onboarding !== null || (this.prefix && this.help_visible);
   }
   private openHelp(): void {
     this.beginPrefix();
@@ -1192,7 +1200,6 @@ export class Controller {
     this.leaveSidebar();
     this.worktree_card.clear();
     this.help_visible = false;
-    this.workspace_chooser = null;
     this.link_tooltip.cancel();
     this.agent_picker = null;
     this.closeLauncher();
@@ -1526,8 +1533,7 @@ export class Controller {
         await this.closeWorkspace(this.current().id, true);
         break;
       case "choose-workspace":
-        this.closeMenu();
-        this.workspace_chooser = this.workspaceIndex();
+        this.chooseIn("workspaces");
         break;
       case "goto-workspace": {
         const number = Number(act.value);
@@ -1542,6 +1548,9 @@ export class Controller {
         break;
       case "find-agent":
         this.openAgentPicker();
+        break;
+      case "choose-agent":
+        this.chooseIn("agents");
         break;
       case "next-agent":
         this.navigateAgent(true);
@@ -2542,30 +2551,6 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    if (this.workspace_chooser !== null) {
-      const index = this.workspace_chooser;
-      switch (byte) {
-        case 27:
-          this.closeMenu();
-          break;
-        case 106:
-        case 14:
-        case 9:
-          this.workspace_chooser = Math.min(index + 1, sat(this.runtime.workspaces.items.length, 1));
-          break;
-        case 107:
-        case 16:
-          this.workspace_chooser = sat(index, 1);
-          break;
-        case 13:
-          this.switchWorkspace(this.runtime.workspaces.items[index].id);
-          break;
-        default:
-          break;
-      }
-      this.dirty = true;
-      return;
-    }
     if (this.scope_menu !== null) {
       this.closeMenu();
       if (byte === 27) return;
@@ -2752,7 +2737,8 @@ export class Controller {
           break;
         default:
           if (byte === keymap.prefixByte(this.prefs.prefix)) this.beginPrefix();
-          else if (byte > 32 && byte < 127) this.searchSidebar(byte);
+          // A drawer stays one list; searching would open the whole sidebar.
+          else if (byte > 32 && byte < 127 && !this.sidebar_focus.drawer) this.searchSidebar(byte);
       }
       this.dirty = true;
       return;
@@ -3218,12 +3204,7 @@ export class Controller {
             continue;
           }
           this.repeat_until = 0;
-          if (
-            this.onboarding === null &&
-            this.name_dialog === null &&
-            this.workspace_chooser === null &&
-            (this.prefix || !this.hasMenu())
-          ) {
+          if (this.onboarding === null && this.name_dialog === null && (this.prefix || !this.hasMenu())) {
             const act = bindings.chord(this.prefs.preset, this.prefix, key_event);
             if (act) {
               if (this.prefix) await this.runPrefixed(act, repeated !== null);
@@ -3299,9 +3280,6 @@ export class Controller {
         if (act) await this.runPrefixed(act, again !== null);
         else if (this.help_visible) this.help.sequence(text);
         this.dirty = true;
-      } else if (this.workspace_chooser !== null) {
-        if (parsed_key === "up") await this.key(16);
-        else if (parsed_key === "down") await this.key(14);
       } else if (this.sidebar_focus) {
         if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
           await this.steerSidebar(parsed_key, false);
@@ -3470,14 +3448,27 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    // A click gives the keyboard back; one in a peeking sidebar keeps it shown.
-    if (this.sidebar_focus && !release && (button & 0xe0) === 0) {
-      if (x < this.sidebarView([]).width) this.sidebar_focus.peek = false;
-      this.leaveSidebar();
+    // A drawer covers the panes: a press opens its row as Enter would, or puts the drawer away.
+    if (this.sidebar_focus?.drawer && !release && (button & 0xe0) === 0) {
+      this.ui_mouse_down = true;
+      const focus = this.sidebar_focus,
+        entries = this.sidebarEntries(),
+        found = this.sidebarView(entries).hit(x, y);
+      this.dirty = true;
+      if (found.tag === "workspace") focus.cursor = { workspace: this.runtime.workspaces.items[found.workspace].id };
+      else if (found.tag === "entry" && sidebarFocus.stops(entries[found.entry]))
+        focus.cursor = { entry: entries[found.entry].target };
+      else {
+        this.leaveSidebar();
+        if (found.tag === "workspace_new") this.beginWorkspace(null);
+        return;
+      }
+      return this.openSidebarRow(false);
     }
+    // A click gives the keyboard back.
+    if (this.sidebar_focus && !release && (button & 0xe0) === 0) this.leaveSidebar();
     // The prefix bar has no mouse targets. A click resumes normal UI input.
     if (this.prefix && !release && (button & 0xe0) === 0) this.closeMenu();
-    if (this.workspace_chooser !== null) return;
     const moved = this.pointer === null || this.pointer.x !== x || this.pointer.y !== y;
     const worktree_rect = this.worktreeRect();
     if (worktree_rect?.contains(x, y)) {
@@ -4591,22 +4582,6 @@ export class Controller {
         hand ? render.handShape(this.iterm2_pointer) : "default",
       );
     }
-    if (this.workspace_chooser !== null) {
-      const index = this.workspace_chooser;
-      const output = new Writer();
-      output.write(new Style({ fg: "text", bg: "surface" }).sgr() + "\x1b[2J\x1b[H Workspaces\r\n\r\n");
-      const capacity = sat(this.height, 5);
-      const start = sat(index, sat(capacity, 1));
-      this.runtime.workspaces.items
-        .slice(start, Math.min(this.runtime.workspaces.items.length, start + capacity))
-        .forEach((ws, k) => {
-          output.write(start + k === index ? " › " : "   ");
-          writeEllipsis(output, ws.name, sat(this.width, 5));
-          output.write("\r\n");
-        });
-      output.write("\r\n ↑↓ choose · Enter switch · Esc close\x1b[0m\x1b[?25l");
-      return output.buffered();
-    }
     this.rememberAgent();
     const entries = this.agent_picker
       ? this.pickerEntries()
@@ -4675,6 +4650,7 @@ export class Controller {
         tab_drop_x: this.tabDropX(),
         dialog: this.name_dialog,
         sidebar_open: this.sidebar_open,
+        sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
         supports_kitty_graphics: this.supports_kitty_graphics,
         dragged_workspace:

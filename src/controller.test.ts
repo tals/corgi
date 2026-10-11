@@ -302,6 +302,40 @@ test("a workspace row opens that workspace; Esc leaves the sidebar as it was", a
   }
 });
 
+test("prefix w opens a folded sidebar's workspaces as a drawer over the panes, or focuses an open one", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const { s, sent } = steering();
+  try {
+    s.sidebar_open = false;
+    s.focusPane(1);
+    const area = s.area();
+    await s.input(bytes("\x02w"));
+    expect(s.sidebar_focus.drawer).toBe("workspaces");
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
+    expect(s.area()).toEqual(area);
+    expect(s.frame()).not.toContain("agents");
+    // Its own key puts it away; a prefixed arrow keeps to the workspaces.
+    await s.input(bytes("\x02w"));
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.sidebar_open).toBe(false);
+    await s.input(bytes("\x02w\x02\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
+    await s.input(bytes("\x1b[B"));
+    await s.key(13);
+    expect(s.current().id).toBe(2);
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.sidebar_open).toBe(false);
+    s.sidebar_open = true;
+    await s.input(bytes("\x02w"));
+    expect(s.sidebar_focus.drawer).toBeNull();
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 2 });
+    expect(sent).toEqual([]);
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test("the repeat window closes with time or another key, and the arrow goes to the pane", async () => {
   const { s, sent } = steering();
   try {
@@ -320,21 +354,28 @@ test("the repeat window closes with time or another key, and the arrow goes to t
   }
 });
 
-test("a hidden sidebar shows while it has focus, and a prefixed command hands the keyboard back", async () => {
+test("a folded sidebar takes focus only as a drawer, which a prefixed command puts away", async () => {
   const update = spyOn(preferences, "update").mockImplementation(() => {});
   const { s } = steering();
   try {
     s.sidebar_open = false;
     s.focusPane(1);
+    const area = s.area();
     await s.input(bytes("\x02\x1b[D"));
-    expect(s.sidebar_open).toBe(true);
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.sidebar_open).toBe(false);
+    await s.input(bytes("\x02a"));
+    expect(s.sidebar_focus.drawer).toBe("agents");
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+    expect(s.area()).toEqual(area);
+    expect(s.frame()).not.toContain("workspaces");
     await s.key(27);
     expect(s.sidebar_open).toBe(false);
-    await s.input(bytes("\x02\x1b[D"));
-    // The prefix keeps the sidebar's focus for an arrow ...
+    await s.input(bytes("\x02a"));
+    // The prefix keeps the drawer for an arrow, which stays in its list ...
     await s.input(bytes("\x02\x1b[A"));
-    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
-    // ... and gives it back for anything else.
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+    // ... and gives the keyboard back for anything else.
     await s.input(bytes("\x02m"));
     expect(s.sidebar_focus).toBeNull();
     expect(s.sidebar_open).toBe(false);
@@ -362,13 +403,13 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     await s.key(13);
     expect(s.focused().id).toBe(3);
     expect(s.layoutView().placements(s.area())).toEqual([{ id: 3, rect: ghost.rect }]);
-    // Ghosting a hibernated agent doesn't wake it, and a peeking sidebar's
-    // ghost is laid out without it.
+    // Ghosting a hibernated agent doesn't wake it, and a drawer's ghost
+    // is laid out in the folded sidebar's area.
     s.focusPane(1);
     s.pane(3).dormant = true;
     s.sidebar_open = false;
     // Up passes workspace 1's header, then wraps.
-    await s.input(bytes("\x02\x1b[D\x1b[A\x1b[A"));
+    await s.input(bytes("\x02a\x1b[A\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
     expect(s.sidebarGhost().area.x).toBe(0);
     await s.expireInput();

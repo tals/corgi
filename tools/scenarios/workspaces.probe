@@ -1,10 +1,10 @@
 # Several workspaces: create, rename, switch, choose, close.
-key ctrl+b w
+key ctrl+b 'N'
 type alpha
 key enter
 settle
 snap alpha
-key ctrl+b w
+key ctrl+b 'N'
 type beta
 key enter
 settle
@@ -19,7 +19,7 @@ key ctrl+b 'W'
 settle
 snap edit-ws
 key esc
-key ctrl+b g
+key ctrl+b w
 settle
 snap choose
 key esc

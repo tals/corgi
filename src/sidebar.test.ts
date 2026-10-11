@@ -1012,6 +1012,42 @@ test("context shows on the name line only near compaction and dims while compact
   // 38% of a 1M window is 95% of the way to a learned 400k: hot, faded toward the row.
   expect(has(out, fgRgb(mix(colors.hot, colors.bg, 60)) + "38%")).toBe(true);
 });
+test("the drawer runs the workspace list to the bottom and leaves panes and tabs where folded", () => {
+  const folded = View.init(100, 30, false, 0, 0);
+  const open = View.init(100, 30, true, 0, 0);
+  open.drawer = "workspaces";
+  const view = open.withWorkspaces(12, 0);
+  expect(view.area()).toEqual(folded.area());
+  expect(view.tabX()).toBe(folded.tabX());
+  expect(view.workspaceCapacity()).toBe(9);
+  expect(view.hit(24, 28)).toEqual(H("workspace", 8));
+  expect(view.hit(24, 29)).toEqual(H("none"));
+  const entries = Array.from({ length: 12 }, (_, i) =>
+    workspaceEntry({ id: i + 1, name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+  );
+  const text = hostText(draw(view, [], entries));
+  expect(text).toContain("ws9");
+  expect(text).not.toContain("agents");
+});
+
+test("the agents drawer runs the agent list from the top, under its header alone", () => {
+  const open = View.init(100, 30, true, 0, 0);
+  open.drawer = "agents";
+  const entries = Array.from({ length: 20 }, (_, i) =>
+    entry({ target: { pane: i + 1 }, name: `agent${i + 1}`, provider: "claude", state: "idle" }),
+  );
+  const view = open.withEntries(entries);
+  expect(view.area()).toEqual(View.init(100, 30, false, 0, 0).area());
+  expect(view.listRows()).toBe(28);
+  expect(view.hit(10, 2)).toEqual(H("entry", 0));
+  expect(view.hit(24, 0)).toEqual(H("none"));
+  const text = hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "Project", cwd: "/tmp", active: true })]));
+  expect(text.split("\n")[0]).toContain("agents");
+  expect(text).toContain("agent14");
+  expect(text).not.toContain("workspaces");
+  expect(text).not.toContain("Project");
+});
+
 test("a dragged split moves the agents header within bounds", () => {
   const half = View.init(100, 30, true, 0, 0);
   expect(half.middle()).toBe(14);

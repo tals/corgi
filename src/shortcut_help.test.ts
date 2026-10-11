@@ -15,11 +15,13 @@ test("the help screen spells each preset's keys from its bindings", () => {
     ["corgi", act("last-agent"), "Tab"],
     ["corgi", act("paste"), null],
     ["tmux", act("paste"), "]"],
+    ["corgi", act("choose-workspace"), "w"],
+    ["corgi", act("choose-agent"), "a"],
     ["herdr", act("choose-workspace"), "w"],
     ["herdr", act("prev-pane"), "Shift+Tab"],
     ["cmux", act("new"), "Cmd+T · P c"],
     ["cmux", act("close-workspace"), "Cmd+Shift+W"],
-    ["cmux", act("new-agent"), "P a"],
+    ["cmux", act("new-agent"), "P A"],
   ] as [Preset, Action, string | null][])
     expect(spelling(preset, action)).toBe(text);
 });

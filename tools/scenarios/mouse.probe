@@ -12,7 +12,7 @@ snap clicked-tab1
 dragtext 1 3
 settle
 snap dragged-tab
-key ctrl+b w
+key ctrl+b 'N'
 type beta
 key enter
 settle

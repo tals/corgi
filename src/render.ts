@@ -13,6 +13,7 @@ import {
   type WorkspaceEntry,
   type Search,
   type Scope,
+  type Drawer,
 } from "./sidebar";
 import { ResizeView, TabMenu } from "./commands";
 import { Dialog, View as NameView } from "./name_dialog";
@@ -64,7 +65,7 @@ export interface Ghost {
   pane: Pane;
   /** Its pane's place once entered. */
   rect: Rect;
-  /** The pane area once entered: a sidebar that only peeks is gone. */
+  /** The pane area once entered. */
   area: Rect;
 }
 
@@ -105,6 +106,8 @@ export interface Ui {
   tab_drop_x: number | null;
   dialog: Dialog | null;
   sidebar_open: boolean;
+  /** The folded sidebar's list that shows as a drawer over the panes. */
+  sidebar_drawer: Drawer | null;
   corgi_badge: corgiBadge.Mode;
   supports_kitty_graphics: boolean;
   dragged_workspace: Preview | null;
@@ -160,6 +163,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     tab_drop_x: null,
     dialog: null,
     sidebar_open: true,
+    sidebar_drawer: null,
     corgi_badge: "none",
     supports_kitty_graphics: false,
     dragged_workspace: null,
@@ -331,6 +335,8 @@ function noOverlay(u: Ui): boolean {
 }
 /** An open overlay reaches the badge. The launcher and scope menu open clear of it. */
 function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): boolean {
+  // The agents drawer has no title row for the badge.
+  if (u.sidebar_drawer === "agents") return true;
   const boxes: Rect[] = [];
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
   if (u.menu) boxes.push(new Rect(u.menu.x, u.menu.y, u.menu.width, u.menu.rows + 3));
@@ -406,6 +412,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width);
   side.resources = u.prefs.resources;
+  side.drawer = u.sidebar_drawer;
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
@@ -448,7 +455,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (model.count === 0) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
     const empty = ` No panes. ${prefix_key} ${bindings.format(bindings.first(u.prefs.preset, { name: "new" }, true)!)}: agent picker | ${prefix_key} ${bindings.format(bindings.first(u.prefs.preset, { name: "help" }, true)!)}: shortcuts`;
-    w.write(`\x1b[2;${side.width + 1}H`);
+    w.write(`\x1b[2;${side.area().x + 1}H`);
     w.write(byteSlice(empty, side.area().w));
   }
   const area = side.area();
@@ -577,8 +584,9 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         }
       }
     }
-    // Dialogs and Corgi setup dim the panes behind them.
-    w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, u.dialog !== null || u.corgi_setup !== null, hovered));
+    // Dialogs, Corgi setup and the workspace drawer dim the panes behind them.
+    const dim = u.dialog !== null || u.corgi_setup !== null || u.sidebar_drawer !== null;
+    w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
     w.write("\x1b[0m");
     if (p.restoring.length > 0) {
       drawRestoring(
@@ -595,8 +603,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     }
   }
   drawDividers(w, view, area, !u.sidebar_focus);
-  // Under the sidebar, which covers what a peeking one hides.
-  if (u.ghost) drawGhost(w, u.ghost);
+  // Under the sidebar, which covers what a drawer hides.
+  if (u.ghost) drawGhost(w, u.ghost, side.drawer !== null ? side.width : u.ghost.area.x);
   // The host may leave its last mouse report at the window edge.
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
@@ -889,9 +897,9 @@ function dividerGlyph(up: boolean, down: boolean, left: boolean, right: boolean,
   return horizontal ? "│" : "─";
 }
 /** The bottom half of the pane area as entering `g`'s agent would show it,
- * dimmed under a dashed edge naming it. Every cell sits where entering
- * leaves it, so entering only reveals the rest. */
-export function drawGhost(w: Writer, g: Ghost): void {
+ * dimmed under a dashed edge naming it from column `left`, past a drawer.
+ * Every cell sits where entering leaves it, so entering only reveals the rest. */
+export function drawGhost(w: Writer, g: Ghost, left = g.area.x): void {
   const { pane, rect, area } = g;
   const cut = area.y + Math.floor(area.h / 2);
   if (cut === area.y || area.w === 0) return;
@@ -905,11 +913,12 @@ export function drawGhost(w: Writer, g: Ghost): void {
     pane.terminal.updateRender();
     w.write(rowsFrom(pane.terminal.rows(pane.id, rect.x, rect.y, rect.w, rect.h, true, null), rect, from));
   }
-  const label = new Writer();
-  writeEllipsis(label, pane.label || pane.agent.name || providerName(pane.agent), sat(area.w, 8));
+  const label = new Writer(),
+    room = area.x + area.w - left;
+  writeEllipsis(label, pane.label || pane.agent.name || providerName(pane.agent), sat(room, 8));
   const name = label.buffered();
-  w.write(`\x1b[0m\x1b[${cut};${area.x + 1}H${ghost_edge}┄┄ ${name} `);
-  w.write("┄".repeat(sat(area.w, 4 + displayWidth(name))) + "\x1b[0m");
+  w.write(`\x1b[0m\x1b[${cut};${left + 1}H${ghost_edge}┄┄ ${name} `);
+  w.write("┄".repeat(sat(room, 4 + displayWidth(name))) + "\x1b[0m");
 }
 /** `rows` from viewport row `from` on: each row opens with its own cursor move and style. */
 function rowsFrom(rows: string, rect: Rect, from: number): string {

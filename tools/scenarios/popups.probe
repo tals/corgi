@@ -44,7 +44,7 @@ settle
 snap overview-then-launcher
 key esc
 settle
-key ctrl+b w
+key ctrl+b 'N'
 settle
 hovertext agents
 wait 150
