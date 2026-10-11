@@ -476,12 +476,14 @@ export class Controller {
     if (act.name !== "focus" && act.name !== "choose-workspace" && act.name !== "choose-agent") this.leaveSidebar();
     await this.perform(act);
   }
-  /** Whether a repeatable key came again inside its window, which it extends.
-   * The focused sidebar takes plain arrows itself. */
+  /** Whether a repeatable key came again inside its window, which it
+   * extends, or else closes. The focused sidebar takes plain arrows itself,
+   * but they keep the window open, so focus can leave it the same way. */
   private repeats(act: Action | null): act is Action {
-    if (act === null || this.prefix || this.sidebar_focus || Date.now() >= this.repeat_until) return false;
-    this.repeat_until = Date.now() + bindings.repeat_ms;
-    return true;
+    if (act === null) return false;
+    const again = !this.prefix && Date.now() < this.repeat_until;
+    this.repeat_until = again ? Date.now() + bindings.repeat_ms : 0;
+    return again && !this.sidebar_focus;
   }
   focusPane(id: number): void {
     const owner = this.runtime.workspaces.owner(id);
@@ -3187,7 +3189,7 @@ export class Controller {
             used += len;
             continue;
           }
-          this.repeat_until = 0;
+          if (repeated === null) this.repeat_until = 0;
           if (this.onboarding === null && this.name_dialog === null && (this.prefix || !this.hasMenu())) {
             const act = bindings.chord(this.prefs.preset, this.prefix, key_event);
             if (act) {

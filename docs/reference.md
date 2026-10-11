@@ -136,9 +136,10 @@ scroll in Herdr, and focus panes in the other presets. Below 60 columns the colu
 stack. Action keys retain their usual meaning: for example, Corgi j/k focus panes
 and q detaches. The prefix and Back control stay visible.
 
-Arrows after the prefix move focus and repeat as tmux's do: within half a
-second of one, the next arrow needs no prefix. Any other key ends the repeat
-and goes to the pane. Corgi's `h/j/k/l` also move focus, once per prefix.
+Arrows after the prefix move focus and repeat as tmux's do: within a second
+of one, the next arrow needs no prefix, and arrows that move within the
+sidebar keep the repeat going. Any other key ends the repeat and goes to the
+pane. Corgi's `h/j/k/l` also move focus, once per prefix.
 
 `prefix ←` from the leftmost pane moves focus into the agent list while the
 sidebar is open. Up and Down move through the list and wrap at its ends;

@@ -11,8 +11,9 @@ export interface Binding {
   /** Pressed again soon after, it runs without the prefix, like tmux's `bind -r`. */
   repeat?: boolean;
 }
-/** How long a repeatable binding waits for its next press: tmux's `repeat-time`. */
-export const repeat_ms = 500;
+/** How long a repeatable binding waits for its next press, like tmux's
+ * `repeat-time` but twice its default. */
+export const repeat_ms = 1000;
 const tables: Record<Preset, Binding[]> = {
   corgi: [
     { key: 99, mods: {}, prefixed: true, action: { name: "new" } },

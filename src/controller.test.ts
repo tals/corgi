@@ -336,6 +336,29 @@ test("prefix w opens a folded sidebar's workspaces as a drawer over the panes, o
   }
 });
 
+test("arrows the sidebar takes keep the repeat window open, so focus goes in and out without the prefix", async () => {
+  const { s, sent } = steering();
+  try {
+    s.focusPane(1);
+    await s.input(bytes("\x02\x1b[D"));
+    for (let i = 0; i < 3; i++) {
+      expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+      await s.input(bytes("\x1b[C"));
+      expect(s.sidebar_focus).toBeNull();
+      expect(s.focused().id).toBe(1);
+      await s.input(bytes("\x1b[D"));
+    }
+    expect(s.sidebar_focus).not.toBeNull();
+    // Once the window lapses, the sidebar still takes its arrows, but the next one leaves for the pane.
+    s.repeat_until = Date.now() - 1;
+    await s.input(bytes("\x1b[C\x1b[D"));
+    expect(s.sidebar_focus).toBeNull();
+    expect(sent.map(([, text]) => text).join("")).toContain("\x1b[D");
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("the repeat window closes with time or another key, and the arrow goes to the pane", async () => {
   const { s, sent } = steering();
   try {
