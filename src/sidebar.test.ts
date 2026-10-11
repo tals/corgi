@@ -740,6 +740,18 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
   const richOut = draw(rich, entries, []);
   expect(has(richOut, `\x1b[${top + 3};6H\x1b[4:4m`)).toBe(true);
   expect(Math.floor(count(richOut, dotted_underline) / 2)).toBe(1);
+  // Selected at the end of its group, the rail still spans both rows.
+  const last = entries.map((e, i) => ({ ...e, focused: i === 2 }));
+  const lastRows = hostText(draw(view.withEntries(last), last, []))
+    .split("\n")
+    .slice(top + 1, top + 5)
+    .map(line => line.slice(0, 80).trimEnd());
+  expect(lastRows).toEqual([
+    " ├●  api refactor          │",
+    " │   Needs input           │",
+    " ┣○  release notes         │",
+    " ┃   Session ended         │",
+  ]);
 });
 
 test("grouped scrolling fits more rows when headers are shorter", () => {

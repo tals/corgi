@@ -983,11 +983,13 @@ export class View {
     }
     if (grouped) {
       // The guide sits in the margin column, so agent text keeps its columns.
-      // Beside the selected agent it turns heavy and accented, without a gap.
+      // Beside the selected agent it turns heavy and accented, without a gap,
+      // and spans both rows even at the end of a group.
       const rail = e.focused ? new Style({ fg: "accent" }).sgr() : new Style({ fg: "line" }).sgr();
-      const branch = e.focused ? (last_in_group ? "┗" : "┣") : last_in_group ? "╰" : "├";
+      const branch = e.focused ? "┣" : last_in_group ? "╰" : "├";
+      const through = e.focused || !last_in_group;
       w.write(`\x1b[${y + 1};${x + 1}H${rail}${row_bg}${branch}`);
-      if (!last_in_group && y + 1 < v.listEnd()) w.write(`\x1b[${y + 2};${x + 1}H${e.focused ? "┃" : "│"}`);
+      if (through && y + 1 < v.listEnd()) w.write(`\x1b[${y + 2};${x + 1}H${e.focused ? "┃" : "│"}`);
       w.write(`\x1b[0m${row_bg}`);
     }
     const dot = indicator(e, selected);
