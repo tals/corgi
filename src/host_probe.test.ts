@@ -24,6 +24,16 @@ test("a color scheme report is consumed and asks for the colors again", () => {
   expect(fragmented(p, "a\x1b[?997;1nb")).toBe("ab");
   expect(p.scheme_changed).toBe(true);
 });
+test("frame status answers are consumed across fragments but not inside pasted text", () => {
+  const p = new Probe();
+  p.pacer.stamp(0);
+  expect(fragmented(p, "a\x1b[0nb")).toBe("ab");
+  expect(p.pacer.stamp(10)).not.toBe("");
+  expect(fragmented(p, "\x1b[3~")).toBe("\x1b[3~");
+  const pasted = "\x1b[200~\x1b[0n\x1b[201~";
+  expect(p.feed(pasted).toString()).toBe(pasted);
+  expect(p.pacer.unanswered()).toBe(true);
+});
 test("badge replies are consumed across fragments but not inside pasted text", () => {
   const p = new Probe(),
     reply = "\x1b_Gi=730031;OK\x1b\\";

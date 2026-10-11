@@ -714,6 +714,25 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.assertTrue(frames.length > 0);
     this.assertTrue(frames.every(frame => !frame.includes("\x1b[?25h")));
   }
+  async test_real_client_holds_frames_while_the_host_is_behind() {
+    const pane = (await this.open_pane({ command: "i=0; while :; do i=$((i+1)); echo TICK$i; sleep 0.02; done" })).pane;
+    const pty = await Pty.spawn([EXE], { env: this.env, cols: 80, rows: 24 });
+    this.pty = pty;
+    const request = "\x1b[5n";
+    await pty.waitFor(request, 4000);
+    pty.write("\x1b[0n");
+    // The next request goes unanswered, as over a stalled link.
+    await pty.waitFor(output => output.split(request).length > 2, 4000);
+    await sleep(0.8);
+    const held = pty.output.length;
+    await sleep(1);
+    this.assertEqual(pty.output.length, held);
+    pty.write("\x1b[0n");
+    await pty.waitFor(output => output.length > held, 2000);
+    this.assertNotIn("[0n", (await this.command("pane.read", { target: pane, view: "screen" })).text);
+    pty.write("\x02q");
+    this.assertEqual(await deadline(pty.proc.exited, 4000, "Corgi did not detach"), 0);
+  }
   async test_real_client_inherits_host_theme_and_answers_child_color_queries() {
     const pty = await Pty.spawn([EXE], { env: this.env, cols: 80, rows: 24 });
     this.pty = pty;

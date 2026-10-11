@@ -9,6 +9,7 @@ import { parse as parseAction } from "./action";
 import * as corgiBadge from "./corgi_badge";
 import * as forkMotion from "./fork_motion";
 import { Differ } from "./frame_diff";
+import * as framePacing from "./frame_pacing";
 import { Openers } from "./url_opener";
 import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
@@ -169,12 +170,12 @@ export async function presented(view: Controller): Promise<void> {
 }
 
 /** Waits for the first of stdin, the daemon's wake connection, the host
- * taking output, or a timeout, as viewer.zig polls them. */
+ * taking output or answering a frame, or a timeout, as viewer.zig polls them. */
 class Poll {
   private wake: (() => void) | null = null;
   stdin = false;
   woken = false;
-  notify(kind: "stdin" | "waker"): void {
+  notify(kind: "stdin" | "waker" | "host"): void {
     if (kind === "stdin") this.stdin = true;
     else this.woken = true;
     this.wake?.();
@@ -238,7 +239,7 @@ export async function run(
     const poll = new Poll();
     stdin.listen(bytes => {
       for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
-      poll.notify("stdin");
+      poll.notify(framePacing.onlyAnswers(bytes) ? "host" : "stdin");
     });
     try {
       while (view.input_state.attached) {
@@ -290,7 +291,7 @@ export async function run(
           view.saveAgentScroll();
           scroll_saved = now;
         }
-        if (view.dirty || now >= next_sync || (held && writable())) {
+        if (view.dirty || now >= next_sync || (held && ready(probe))) {
           // Frames keep their clock for animations; the daemon is asked
           // only when it said something changed, or often enough that it
           // still counts this viewer as watching.
@@ -322,9 +323,9 @@ export async function run(
           if (view.dirty || previous !== frame || view.overlayOpen()) active_at = now;
           next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
           view.dirty = false;
-          held = previous !== frame && !writable();
+          held = previous !== frame && !ready(probe);
           if (!held) {
-            if (previous !== frame) host = present(host, frame, view.width, view.height);
+            if (previous !== frame) host = present(host, frame, view.width, view.height, probe.pacer);
             previous = frame;
             await presented(view);
           }
@@ -340,7 +341,11 @@ export async function run(
           } else writeAll(effect.write_terminal);
         }
         view.clearEffects();
-        await poll.wait(Date.now() - active_at < idle_after_ms ? 16 : Math.max(1, next_sync - Date.now()), held);
+        // The host's answer wakes a viewer waiting on it; only a full terminal is polled.
+        await poll.wait(
+          Date.now() - active_at < idle_after_ms ? 16 : Math.max(1, next_sync - Date.now()),
+          held && !probe.pacer.waiting(Date.now()),
+        );
         // Input reaches the daemon with a frame's sync, so send it now, and
         // show the first change after it (its echo) without waiting a frame.
         if (poll.stdin) {
@@ -355,6 +360,12 @@ export async function run(
       return null;
     } finally {
       view.saveAgentScroll();
+      // The last frame's answer would otherwise reach the shell as typing.
+      const until = Date.now() + framePacing.settle_ms;
+      while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) {
+        poll.stdin = poll.woken = false;
+        await poll.wait(until - Date.now(), false);
+      }
       stdin.close();
       waker?.destroy();
       host?.destroy();
@@ -365,16 +376,22 @@ export async function run(
     close(view);
   }
 }
-/** Writes what the host needs to show `frame`, diffed against what it shows. */
-function present(host: Differ | null, frame: string, cols: number, rows: number): Differ {
+/** Writes what the host needs to show `frame`, diffed against what it shows,
+ * and asks the host to answer once it has drawn it. */
+function present(host: Differ | null, frame: string, cols: number, rows: number, pacer: framePacing.Pacer): Differ {
   if (host && (host.cols !== cols || host.rows !== rows)) {
     host.destroy();
     host = null;
   }
   const differ = host ?? Differ.create(cols, rows);
   const out = differ.diff(frame);
-  if (out.length > 0) writeAll(out);
+  if (out.length > 0) writeAll(Buffer.concat([out, Buffer.from(pacer.stamp(Date.now()))]));
   return differ;
+}
+/** Whether the host takes a frame now: its terminal has room, and over a
+ * slow link it has drawn the frames before. */
+function ready(probe: Probe): boolean {
+  return !probe.pacer.waiting(Date.now()) && writable();
 }
 /** Whether the terminal takes output now. Linux reports no output queue for
  * a pty, so a host falling behind shows only as stdout filling up. */

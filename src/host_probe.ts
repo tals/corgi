@@ -1,6 +1,7 @@
 import { Theme } from "./theme";
 import * as corgi_badge from "./corgi_badge";
 import * as host_clipboard from "./host_clipboard";
+import * as frame_pacing from "./frame_pacing";
 const clipboard_prefix = "\x1b]5522;",
   mode_prefix = "\x1b[?5522;",
   version_prefix = "\x1bP>|",
@@ -14,6 +15,7 @@ export class Probe {
   theme = new Theme();
   badge = new corgi_badge.State();
   clipboard = new host_clipboard.State();
+  pacer = new frame_pacing.Pacer();
   changed = false;
   /** The terminal reported a new color scheme; its colors need asking again. */
   scheme_changed = false;
@@ -103,6 +105,11 @@ export class Probe {
         }
         if (sequence.length < 128) return;
       }
+      if (sequence === frame_pacing.answer) {
+        this.pacer.answered();
+        this.pending = "";
+        return;
+      }
       const prefixes = [
         "\x1b]10;",
         "\x1b]11;",
@@ -111,6 +118,7 @@ export class Probe {
         mode_prefix,
         version_prefix,
         scheme_prefix,
+        frame_pacing.answer,
       ];
       if (prefixes.some(prefix => prefix.startsWith(sequence))) return;
       if (prefixes.slice(0, 3).some(prefix => sequence.startsWith(prefix))) {
