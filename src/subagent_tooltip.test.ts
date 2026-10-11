@@ -197,6 +197,39 @@ test("total shares one set of timeline columns with compact child rows", () => {
     expect(output).toContain(text);
 });
 
+test("cards narrower than 70 columns pack their columns", () => {
+  const child = convo({
+    id: 2,
+    parent: 1,
+    agent: agent({ provider: "codex", name: "Verifier", activity: "Fetching SHA256SUMS" }),
+    usage: usage({ input: 7900, cached_input: 5100, output: 400 }),
+  });
+  const point = usage({ input: 21000, cached_input: 12000, output: 900 });
+  const wide = render(w => {
+    const card = new Card(w, 0, 88);
+    card.tokenColumns(0, null, false, "faint");
+    card.childRow(1, child);
+    card.drawPoint(2, "13:59", "Reading install.sh", point, false, "faint");
+  });
+  const narrow = render(w => {
+    const card = new Card(w, 0, 54);
+    card.tokenColumns(0, null, false, "faint");
+    card.childRow(1, child);
+    card.drawPoint(2, "13:59", "Reading install.sh", point, false, "faint");
+  });
+  expect(new Card(new Writer(), 0, 69).textWidth()).toBe(69 - 6 - 14);
+  expect(new Card(new Writer(), 0, 70).textWidth()).toBe(70 - 6 - 18);
+  expect(wide).toContain("13:59  ○  Reading install.sh");
+  expect(narrow).toContain("13:59 ○ Reading install.sh");
+  expect(wide).toContain("       ↳");
+  expect(narrow).toContain("     ↳");
+  expect(narrow).not.toContain("      ↳");
+  // A name the row has no room for is dropped rather than cut.
+  expect(wide).toContain("Verifier");
+  expect(narrow).toContain("Fetching SHA256SUMS");
+  expect(narrow).not.toContain("Verif");
+});
+
 test("timeline renders each phase once with its own interval including idle and clipped views", () => {
   const points = [
     { at: 1000, activity: "Reviewing pending changes", usage: usage({ input: 21500, cached_input: 12800 }) },
@@ -256,7 +289,7 @@ test("compaction is the current timeline phase even before the first summary", (
     const e = entry({ conversation: 1, provider: "codex", state: "working", attention: "none" });
     const output = render(w => draw(w, [root], e, 64, 13, 5, 8));
     expect(count(output, "Compacting context")).toBe(1);
-    expect(output).toContain("now  ●  Compacting context");
+    expect(output).toContain("now ● Compacting context");
     expect(output).toContain("345+");
     expect(output).not.toContain("Old inferred activity");
   }

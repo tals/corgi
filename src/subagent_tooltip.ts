@@ -475,8 +475,15 @@ export class Card {
     this.w.write(`${context.percent() < 999n ? context.percent() : 999n}%`);
   }
   static number_width = 8;
+  /** Phone-narrow cards pack their columns. */
+  tight(): boolean {
+    return this.width < 70;
+  }
+  numbers(): number {
+    return this.tight() ? 6 : Card.number_width;
+  }
   textWidth(): number {
-    return this.width - 6 - 2 * (Card.number_width + 1);
+    return this.width - 6 - 2 * (this.numbers() + 1);
   }
   /** Tokens are uncached input plus output; cached input is its own column.
    * Null draws the column headings. Overview rows and the timeline share it. */
@@ -490,18 +497,20 @@ export class Card {
           : "—"
         : "Tokens";
     const cached = value !== null ? (value.known ? `${compact(value.tokens.cached_input)}${suffix}` : "—") : "Cached";
-    this.cell(row, text_width + 1, Card.number_width, tokens, tone, true);
-    this.cell(row, text_width + Card.number_width + 2, Card.number_width, cached, "faint", true);
+    this.cell(row, text_width + 1, this.numbers(), tokens, tone, true);
+    this.cell(row, text_width + this.numbers() + 2, this.numbers(), cached, "faint", true);
   }
   childRow(row: number, child: Conversation) {
     const text_width = this.textWidth();
-    const prefix_width = 11;
+    const prefix_width = this.tight() ? 9 : 11;
     const available = sat(text_width, prefix_width);
     const label = activity(child.agent);
     const name = child.agent.name.length > 0 ? child.agent.name : byteSlice(child.agent.session, 8);
     // Activity gets the space first; names use only the remainder, capped
     // so a long identity never displaces the description of the work.
-    const name_width = Math.min(18, sat(available, displayWidth(label) + 1));
+    const fitted = Math.min(18, sat(available, displayWidth(label) + 1));
+    // A narrow card drops a name it would have to cut.
+    const name_width = this.tight() && fitted < displayWidth(name) ? 0 : fitted;
     const label_width = sat(available, name_width > 0 ? name_width + 1 : 0);
     let marker: Status;
     if (child.agent.attention === "needs_input" || child.agent.state === "blocked")
@@ -520,8 +529,8 @@ export class Card {
         default:
           marker = status(child.agent, false);
       }
-    this.cell(row, 0, 9, "       ↳", "faint", false);
-    this.cell(row, 9, 1, marker.icon, marker.tone, false);
+    this.cell(row, 0, prefix_width - 2, `${" ".repeat(prefix_width - 4)}↳`, "faint", false);
+    this.cell(row, prefix_width - 2, 1, marker.icon, marker.tone, false);
     this.cell(row, prefix_width, label_width, label, "text", false);
     if (name_width > 0) this.cell(row, text_width - name_width, name_width, name, "faint", true);
     this.tokenColumns(row, child.usage, child.agent.state === "working", child.usage.known ? "strong" : "muted");
@@ -529,7 +538,8 @@ export class Card {
   /** Token columns plus a trailing column in reference-model tokens, which
    * the table ranks by. Null draws the column headings. */
   overviewRow(row: number, name: string, model: string, value: UsageView | null, equivalent: string, tone: Tone) {
-    const columns = new Card(this.w, this.x, this.width - (Card.number_width + 1));
+    const nw = this.numbers();
+    const columns = new Card(this.w, this.x, this.width - (nw + 1));
     const text_width = columns.textWidth();
     // Model ids are short; the extra column comes out of their share.
     const model_width = Math.min(Math.floor(text_width / 2), 22);
@@ -538,24 +548,18 @@ export class Card {
     this.cell(row, 0, name_width, name, tone, false);
     this.cell(row, name_width + 1, model_width, model, heading ? "faint" : "muted", false);
     columns.tokenColumns(row, value, false, heading ? "faint" : "text");
-    this.cell(
-      row,
-      text_width + 2 * Card.number_width + 3,
-      Card.number_width,
-      equivalent,
-      heading ? "faint" : "title",
-      true,
-    );
+    this.cell(row, text_width + 2 * nw + 3, nw, equivalent, heading ? "faint" : "title", true);
   }
   /** One timeline step: the live one has a sage time and a bright label,
    * and past ones recede. */
   drawPoint(row: number, stamp: string, label: string, value: UsageView, live: boolean, dot: Tone) {
     const icon = live ? "●" : "○";
-    this.cell(row, 0, this.textWidth(), `${stamp}  ${icon}  ${label}`, live ? "strong" : "muted", false);
+    const gap = this.tight() ? " " : "  ";
+    this.cell(row, 0, this.textWidth(), `${stamp}${gap}${icon}${gap}${label}`, live ? "strong" : "muted", false);
     this.tokenColumns(row, value, live, !value.known ? "muted" : live ? "title" : "strong");
     const time: Tone = live ? "live" : "faint";
     this.w.write(
-      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + 11}H${base}${this.ink(dot)}${icon}`,
+      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + (this.tight() ? 10 : 11)}H${base}${this.ink(dot)}${icon}`,
     );
   }
   timeline(row: number, root: Conversation, agent: Agent, nodes: number, pending: boolean) {
