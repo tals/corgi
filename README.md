@@ -60,3 +60,20 @@ set `ZIG`).
 When the build changed, it live-reloads the runtime; running panes survive. Run
 from inside a Corgi pane, it reattaches that viewer to the new build.
 `./go.ts --help` lists the options.
+
+## Acknowledgements
+
+- [Ghostty](https://ghostty.org) and [Kitty](https://sw.kovidgoyal.net/kitty/):
+  for their pioneering work on computer terminals, and for providing such a
+  strong foundation.
+- [herdr](https://github.com/herdrdev/herdr): Corgi's main inspiration. We
+  borrows many of their ideas.
+- [Pi](https://github.com/earendil-works/pi): we uses its 
+  [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) library.
+- [Bun](https://bun.sh): enabled Corgi to be written in TypeScript.
+
+Special thanks to our early testers for their wonderful suggestions and
+feedback: [Max Bittker](https://x.com/MaxBittker),
+[Aaron Blakeman](https://github.com/ablakeman),
+[Kai Johnson](https://github.com/sirkaiserkai) and
+[Luke Alonso](https://github.com/lukealonso).
