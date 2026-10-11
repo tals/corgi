@@ -1,5 +1,6 @@
 import { field, str } from "../providers/common";
 import { BoundedText } from "../bounded_text";
+import type { Action } from "./prompt";
 export class Text extends BoundedText(2048) {}
 export class Label extends BoundedText(80) {}
 export const hash = (text: Text) => Bun.hash.wyhash(text.text(), 0n);
@@ -28,10 +29,22 @@ export class Conversation {
   recent: Text[] = Array.from({ length: 4 }, () => new Text());
   len = 0;
   previous = new Text();
+  /** The phases of the turn tagged `phase_turn`, oldest first; the last is the current one. */
+  phases: Label[] = Array.from({ length: 4 }, () => new Label());
+  phases_len = 0;
+  phase_turn = new Label();
   key(actor: number) {
     return `activity:${actor}`;
   }
-  remember(turn: string, evidence: string, label: Text) {
+  phase(turn: string) {
+    if (this.phase_turn.text() !== turnTag(turn) || !this.phases_len) return null;
+    return this.phases[this.phases_len - 1].text();
+  }
+  earlier(turn: string) {
+    if (this.phase_turn.text() !== turnTag(turn)) return [];
+    return this.phases.slice(0, Math.max(0, this.phases_len - 1)).map(phase => phase.text());
+  }
+  remember(turn: string, evidence: string, label: Text, action: Action = "new") {
     if (this.len === 4) {
       this.recent.shift();
       this.recent.push(new Text());
@@ -41,6 +54,20 @@ export class Conversation {
       `Turn: ${turnTag(turn)}\nActivity: ${label.text()}\nEvidence: ${evidence.slice(0, 512)}`.slice(0, 2048),
     );
     this.previous = label;
+    if (this.phase_turn.text() !== turnTag(turn)) {
+      this.phase_turn = new Label(turnTag(turn));
+      this.phases_len = 0;
+    }
+    const phase = new Label(label.text());
+    if (action === "amend" && this.phases_len) this.phases[this.phases_len - 1] = phase;
+    else if (this.phase(turn) !== phase.text()) {
+      if (this.phases_len === 4) {
+        this.phases.shift();
+        this.phases.push(new Label());
+        this.phases_len--;
+      }
+      this.phases[this.phases_len++] = phase;
+    }
   }
 }
 export function codex(turn: any) {

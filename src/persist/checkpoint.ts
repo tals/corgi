@@ -285,7 +285,9 @@ export async function restore(
       invalid();
     if (
       !Number.isInteger(saved.status_inference?.len ?? 0) ||
-      (saved.status_inference?.len ?? 0) > (saved.status_inference?.recent?.length ?? 4)
+      (saved.status_inference?.len ?? 0) > (saved.status_inference?.recent?.length ?? 4) ||
+      !Number.isInteger(saved.status_inference?.phases_len ?? 0) ||
+      (saved.status_inference?.phases_len ?? 0) > (saved.status_inference?.phases?.length ?? 4)
     )
       invalid();
     const actor = r.conversations.get(agent.provider ?? invalid(), agent.sessionId());

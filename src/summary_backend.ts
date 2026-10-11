@@ -82,13 +82,14 @@ export class Backend {
       return { request, decision: null };
     }
     try {
-      const decision = contract.parse(response.text());
+      const decision = contract.parse(response.text(), input.phase);
       log({
         event: "result",
         at: clock.milliTimestamp(),
         context,
         status: decision.label === null ? "abstained" : "validated",
         output: response.text(),
+        action: decision.action,
         label: decision.label?.text() ?? null,
         fresh_conversation: response.fresh,
         usage: response.usage,

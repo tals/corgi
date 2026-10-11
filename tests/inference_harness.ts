@@ -6,6 +6,9 @@ import { createInterface } from "node:readline";
 const emit = (value: any) => console.log(JSON.stringify(value));
 const codex = process.argv.includes("app-server");
 const log = process.env.CORGI_INFERENCE_TEST_LOG;
+const claudeSchema = process.argv.includes("--json-schema")
+  ? JSON.parse(process.argv[process.argv.indexOf("--json-schema") + 1])
+  : null;
 if (log) appendFileSync(log + ".processes", process.pid + "\n");
 let counter = 0,
   thread = "",
@@ -80,9 +83,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     await Bun.sleep((control.delay || 0) * 1000);
     let result = "label" in control ? control.label : JSON.stringify({ pid: process.pid, thread, turn: turns });
     if (codex) schema = value.params.outputSchema;
-    const structured = {
-      label: "label" in control ? control.label : "Tracing pane focus",
-    };
+    const label = "label" in control ? control.label : "Tracing pane focus";
+    const structured =
+      "action" in ((codex ? schema : claudeSchema)?.properties ?? {})
+        ? { action: control.action ?? (label === null ? "none" : "new"), label }
+        : { label };
     if (schema && "label" in control) result = JSON.stringify(structured);
     if ("raw" in control) result = control.raw;
     if (content === "oversize") result = "x".repeat(9000);

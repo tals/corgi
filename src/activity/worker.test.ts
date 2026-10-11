@@ -10,8 +10,9 @@ test("worker live checkpoint preserves queued link evidence and unconsumed resul
   const request = new Request();
   request.actor = 6;
   request.evidence = new Text("Tracing focus");
+  request.conversation.remember("turn", "Tracing focus", parseLabel("Tracing focus")!);
   const slot = new Slot(request);
-  slot.result = new Result(request, parseLabel("Tracing pane focus"));
+  slot.result = new Result(request, parseLabel("Tracing pane focus"), "amend");
   worker.slots[2] = slot;
   const key = {
     workspace: 1,
@@ -42,7 +43,10 @@ test("worker live checkpoint preserves queued link evidence and unconsumed resul
     expect(typeof link.key.address).toBe("bigint");
     expect(restored.takeLinks()[5]).toBeNull();
     expect(restored.link_requests[4]).not.toBeNull();
-    expect(restored.take()[0].label?.text()).toBe("Tracing pane focus");
+    expect(restored.slots[2]?.request.conversation.phase("turn")).toBe("Tracing focus");
+    const result = restored.take()[0];
+    expect(result.label?.text()).toBe("Tracing pane focus");
+    expect(result.action).toBe("amend");
     expect(restored.take().length).toBe(0);
     expect(restored.slots[2]?.request.evidence.text()).toBe("Tracing focus");
   } finally {
@@ -287,4 +291,39 @@ test("inference completing during compaction waits to resume its timeline phase"
     2000,
   );
   expect(actor.activity_timeline.points[1].label.text()).toBe("Running tests");
+});
+
+test("results keep, amend or start the turn's phase", () => {
+  const actor = new Registry().get("codex", "s");
+  const agent = actor.state;
+  agent.state = "working";
+  agent.setTurn("t");
+  const evidence = new Text("Running tests");
+  agent.activity_generation = hash(evidence);
+  const request = Object.assign(new Request(), {
+    actor: actor.id,
+    provider: "codex",
+    session: agent.session,
+    turn: agent.turn,
+    turn_epoch: agent.turn_epoch,
+    evidence,
+    generation: hash(evidence),
+  });
+  const apply = (label: string | null, action: "new" | "keep" | "amend" | "none") =>
+    expect(new Result(request, label === null ? null : parseLabel(label), action).apply(actor)).toBe(true);
+  const rows = () => actor.activity_timeline.points.map(p => p.label.text());
+  apply("Running tests", "new");
+  apply("Running tests", "keep");
+  expect(rows()).toEqual(["Running tests"]);
+  apply("Running unit tests", "amend");
+  expect(rows()).toEqual(["Running unit tests"]);
+  expect(actor.status_inference.phase("t")).toBe("Running unit tests");
+  apply(null, "none");
+  expect(agent.activity.text()).toBe("");
+  expect(rows()).toEqual(["Running unit tests"]);
+  apply("Running unit tests", "keep");
+  expect(agent.activity.text()).toBe("Running unit tests");
+  apply("Fixing failures", "new");
+  expect(rows()).toEqual(["Running unit tests", "Fixing failures"]);
+  expect(actor.status_inference.earlier("t")).toEqual(["Running unit tests"]);
 });

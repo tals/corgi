@@ -52,13 +52,13 @@ class SummaryCases extends Summaries {
       request = records.find((r: any) => r.event === "request"),
       result = records.find((r: any) => r.event === "result");
     this.assertEqual(request.input, this.calls()[0]);
-    this.assertIn("2 or 3 words", request.instructions);
+    this.assertIn("2 to 4 words", request.instructions);
     this.assertEqual(request.context, result.context);
     this.assertEqual(request.context.source.panes, [this.pane]);
     this.assertEqual(request.context.source.session, A);
     this.assertEqual(request.context.turn, "active");
     this.assertIsNone(request.fresh_input);
-    this.assertEqual(JSON.parse(result.output), { label: raw });
+    this.assertEqual(JSON.parse(result.output), { action: "new", label: raw });
     this.assertEqual(result.status, "validated");
     this.assertTrue(result.fresh_conversation);
     this.assertEqual(result.usage, {
@@ -226,7 +226,9 @@ class SummaryCases extends Summaries {
     // Turns are short tags; the live conversation already holds the first label.
     this.assertEqual(second.turn.length, 8);
     this.assertNotEqual(second.turn, first.turn);
-    this.assertEqual(Object.keys(second), ["provider", "turn", "evidence"]);
+    this.assertEqual(Object.keys(second), ["provider", "turn", "phase", "earlier", "evidence"]);
+    // The first turn's phase stays with it.
+    this.assertEqual([first.phase, second.phase, second.earlier], [null, null, []]);
     const sessions = lines(this.log + ".sessions").map(v => JSON.parse(v));
     this.assertEqual(sessions[0].pid, sessions[1].pid);
     this.assertEqual(sessions[0].thread, sessions[1].thread);
@@ -348,6 +350,35 @@ class SummaryCases extends Summaries {
     this.items[A].at(-1).text = "I am fixing cursor visibility.";
     await this.until(async () => (await this.state()).activity === "Fixing cursor visibility", 12);
     this.assertEqual(this.calls().length, 2);
+  }
+  async test_summaries_keep_amend_and_start_the_turn_phase() {
+    const rows = async () =>
+      (await this.session()).conversations
+        .find((c: any) => c.agent.session === A)
+        .timeline.points.map((p: any) => p.activity);
+    const step = async (control: object, text: string, calls: number) => {
+      await this.advance(9);
+      writeFileSync(this.control, JSON.stringify(control));
+      this.items[A].at(-1).text = text;
+      await this.until(() => this.summary_logs().filter((r: any) => r.event === "outcome").length === calls, 12);
+      return JSON.parse(this.calls()[calls - 1]);
+    };
+    writeFileSync(this.control, JSON.stringify({ label: "Running tests" }));
+    await this.start_turn("active", false);
+    await this.until(async () => (await this.state()).activity === "Running tests");
+    let input = await step({ action: "amend", label: "Running unit tests" }, "Running the unit tests too.", 2);
+    this.assertEqual([input.phase, input.earlier], ["Running tests", []]);
+    this.assertEqual((await this.state()).activity, "Running unit tests");
+    this.assertEqual(await rows(), ["Running unit tests"]);
+    input = await step({ action: "keep", label: null }, "Still running the unit tests.", 3);
+    this.assertEqual(input.phase, "Running unit tests");
+    this.assertEqual((await this.state()).activity, "Running unit tests");
+    this.assertEqual(await rows(), ["Running unit tests"]);
+    await step({ action: "new", label: "Fixing failing tests" }, "Now fixing the failures.", 4);
+    this.assertEqual((await this.state()).activity, "Fixing failing tests");
+    this.assertEqual(await rows(), ["Running unit tests", "Fixing failing tests"]);
+    input = await step({ action: "keep", label: null }, "Still fixing the failures.", 5);
+    this.assertEqual([input.phase, input.earlier], ["Fixing failing tests", ["Running unit tests"]]);
   }
   async test_abstention_clears_stale_activity_without_changing_lifecycle() {
     await this.start_turn("active", false);

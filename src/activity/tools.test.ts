@@ -84,12 +84,17 @@ test("Claude tool progress joins hook turn and text commentary", () => {
   expect(t.view().commentary.text()).toContain("Inspecting parser");
 });
 test("abstention is valid and invalid labels fail separately", () => {
-  expect(prompt.parse('{"label":null}').label).toBeNull();
-  expect(prompt.parse('{"label":" Null "}').label).toBeNull();
-  expect(prompt.parse('{"label":"Running tests"}').label?.text()).toBe("Running tests");
-  for (const raw of ["{}", "null", '{"label":false}', '{"label":null,"reason":"unknown"}'])
-    expect(() => prompt.parse(raw)).toThrow("InvalidDecision");
-  expect(() => prompt.parse('{"label":""}')).toThrow("EmptyLabel");
+  expect(prompt.parse('{"action":"none","label":null}', null).label).toBeNull();
+  expect(prompt.parse('{"action":"new","label":" Null "}', null).label).toBeNull();
+  expect(prompt.parse('{"action":"new","label":"Running tests"}', null).label?.text()).toBe("Running tests");
+  for (const raw of [
+    "{}",
+    "null",
+    '{"action":"new","label":false}',
+    '{"action":"none","label":null,"reason":"unknown"}',
+  ])
+    expect(() => prompt.parse(raw, null)).toThrow("InvalidDecision");
+  expect(() => prompt.parse('{"action":"new","label":""}', null)).toThrow("EmptyLabel");
   expect(parseLabel("Running\ncommands")).toBeNull();
   expect(parseLabel("This label has far too many words")).toBeNull();
 });

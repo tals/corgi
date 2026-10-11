@@ -54,6 +54,12 @@ export class Timeline {
     this.open = true;
     this.advanceBaseline(current);
   }
+  /** Renames the turn's open phase, or starts one when the turn has none. */
+  amend(turn: string, label: Text, current: View, now: number) {
+    const last = this.points.at(-1);
+    if (this.open && last && turn === this.turn.text()) last.label = label;
+    this.checkpoint(turn, label, current, now);
+  }
   finish(current: View) {
     if (this.len) this.points.at(-1)!.usage = this.pending(current);
     this.open = false;

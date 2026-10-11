@@ -1,10 +1,20 @@
-export type CaseStep = { evidence: string; turn?: string; expect: "abstain" | "label"; all?: string[] };
+import { actions, type Action } from "../src/activity/prompt";
+
+/** `action` lists the decisions a step accepts, when it matters which one. */
+export type CaseStep = {
+  evidence: string;
+  turn?: string;
+  expect: "abstain" | "label";
+  all?: string[];
+  action?: Action[];
+};
 export type Scenario = { id: string; category: string; steps: CaseStep[] };
 export type Observation = {
   id: string;
   status: string;
   err?: string | null;
   raw: string | null;
+  action?: string | null;
   label: string | null;
   elapsed_ms: number;
   input?: unknown;
@@ -36,16 +46,18 @@ export function grade(step: CaseStep, output: Observation | null): string[] {
   } catch {
     return ["invalid JSON response"];
   }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).join() !== "label")
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).sort().join() !== "action,label")
     return ["invalid response schema"];
-  const value = (raw as { label: unknown }).label;
+  const { action, label: value } = raw as { action: unknown; label: unknown };
+  if (!actions.includes(action as Action)) return ["invalid action"];
   if (value !== null && typeof value !== "string") return ["invalid label type"];
-  if (output.status === "abstained" && (value !== null || output.label !== null)) return ["inconsistent abstention"];
-  if (output.status === "label" && (typeof value !== "string" || typeof output.label !== "string"))
-    return ["inconsistent label"];
+  if (output.status === "abstained" && output.label !== null) return ["inconsistent abstention"];
+  if (output.status === "label" && typeof output.label !== "string") return ["inconsistent label"];
   const failures: string[] = [];
   if (step.expect === "abstain" && output.status !== "abstained") failures.push("expected abstention");
   if (step.expect === "label" && output.status !== "label") failures.push("unnecessary abstention");
+  if (step.action && !step.action.includes(output.action as Action))
+    failures.push(`expected ${step.action.join(" or ")}, got ${output.action}`);
   if (output.label !== null) {
     const label = output.label;
     const words = label.split(" ").filter(Boolean).length;
@@ -99,7 +111,9 @@ export function validateCases(value: unknown): Scenario[] {
         !step.evidence.length ||
         Buffer.byteLength(step.evidence) > 2048 ||
         !["abstain", "label"].includes(step.expect) ||
-        (step.turn !== undefined && typeof step.turn !== "string")
+        (step.turn !== undefined && typeof step.turn !== "string") ||
+        (step.action !== undefined &&
+          (!Array.isArray(step.action) || !step.action.length || !step.action.every((a: any) => actions.includes(a))))
       )
         throw new Error(`invalid step in ${scenario.id}`);
       if (step.expect === "label" && (!Array.isArray(step.all) || !step.all.length))

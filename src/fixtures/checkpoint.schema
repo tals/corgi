@@ -32,6 +32,9 @@ $.version: u32
 $.conversations[].status_inference.recent[4]: custom bounded_text.BoundedText(2048)
 $.conversations[].status_inference.len: usize
 $.conversations[].status_inference.previous: custom bounded_text.BoundedText(80)
+$.conversations[].status_inference.phases[4]: custom bounded_text.BoundedText(80)
+$.conversations[].status_inference.phases_len: usize
+$.conversations[].status_inference.phase_turn: custom bounded_text.BoundedText(80)
 $.conversations[].id: u32
 $.conversations[].agent.subagents.running: u32
 $.conversations[].agent.subagents.blocked: u32

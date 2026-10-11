@@ -19,6 +19,9 @@ $.summaries?.slots[].slot.request.name: custom bounded_text.BoundedText(160)
 $.summaries?.slots[].slot.request.conversation.recent[4]: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.request.conversation.len: usize
 $.summaries?.slots[].slot.request.conversation.previous: custom bounded_text.BoundedText(80)
+$.summaries?.slots[].slot.request.conversation.phases[4]: custom bounded_text.BoundedText(80)
+$.summaries?.slots[].slot.request.conversation.phases_len: usize
+$.summaries?.slots[].slot.request.conversation.phase_turn: custom bounded_text.BoundedText(80)
 $.summaries?.slots[].slot.request.generation: u64
 $.summaries?.slots[].slot.request.completed_tools: u64
 $.summaries?.slots[].slot.request.turn_epoch: u32
@@ -47,11 +50,15 @@ $.summaries?.slots[].slot.result?.request.name: custom bounded_text.BoundedText(
 $.summaries?.slots[].slot.result?.request.conversation.recent[4]: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.result?.request.conversation.len: usize
 $.summaries?.slots[].slot.result?.request.conversation.previous: custom bounded_text.BoundedText(80)
+$.summaries?.slots[].slot.result?.request.conversation.phases[4]: custom bounded_text.BoundedText(80)
+$.summaries?.slots[].slot.result?.request.conversation.phases_len: usize
+$.summaries?.slots[].slot.result?.request.conversation.phase_turn: custom bounded_text.BoundedText(80)
 $.summaries?.slots[].slot.result?.request.generation: u64
 $.summaries?.slots[].slot.result?.request.completed_tools: u64
 $.summaries?.slots[].slot.result?.request.turn_epoch: u32
 $.summaries?.slots[].slot.result?.label: optional
 $.summaries?.slots[].slot.result?.label?: custom bounded_text.BoundedText(80)
+$.summaries?.slots[].slot.result?.action: enum new keep amend none
 $.summaries?.slots[].slot.result?.number: u64
 $.summaries?.link_requests[].slot: usize
 $.summaries?.link_requests[].generation: u64

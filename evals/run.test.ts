@@ -13,7 +13,7 @@ test("runner exits nonzero for failures/missing results and saves a reproducible
 const plan = await Bun.file(process.argv.at(-1)).json();
 for (const scenario of plan) for (const step of scenario.steps) {
   if (process.env.EVAL_TEST_MISSING) continue;
-  console.log(JSON.stringify({id:step.id,status:"abstained",label:null,raw:'{"label":null}',elapsed_ms:1}));
+  console.log(JSON.stringify({id:step.id,status:"abstained",label:null,action:"none",raw:'{"action":"none","label":null}',elapsed_ms:1}));
 }
 `,
     );

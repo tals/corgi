@@ -3,6 +3,7 @@ import * as links from "../trackers/link_labels";
 import { Actor, max_actors } from "../conversations";
 import { Agent, Provider, Text } from "../agents";
 import * as summary from "./summary";
+import * as prompt from "./prompt";
 import type { View as ToolView } from "./tools";
 import { Backend, outcome } from "../summary_backend";
 import * as setup from "../inference/setup";
@@ -42,6 +43,7 @@ export class Result {
   constructor(
     public request: Request,
     public label: Text | null,
+    public action: prompt.Action = label === null ? "none" : "new",
   ) {}
   stale(agent: Agent) {
     if (agent.state !== "working") return "not_working";
@@ -65,9 +67,12 @@ export class Result {
     }
     agent.activity = new Text(this.label.text());
     agent.activity_inferred = true;
-    actor.status_inference.remember(agent.turnId(), this.request.evidence.text(), this.label);
-    const now = clock.milliTimestamp();
-    if (!agent.compacting) actor.activity_timeline.checkpoint(agent.turnId(), this.label, actor.usageView(now), now);
+    actor.status_inference.remember(agent.turnId(), this.request.evidence.text(), this.label, this.action);
+    const now = clock.milliTimestamp(),
+      timeline = actor.activity_timeline;
+    if (agent.compacting) return true;
+    if (this.action === "amend") timeline.amend(agent.turnId(), this.label, actor.usageView(now), now);
+    else timeline.checkpoint(agent.turnId(), this.label, actor.usageView(now), now);
     return true;
   }
 }
@@ -284,7 +289,13 @@ export class Worker {
       request.panes = request.panes.slice(0, entry.slot.request.panes_len ?? request.panes.length);
       const slot = hydrate(new Slot(request), entry.slot);
       slot.request = request;
-      if (request.panes.length > 64 || request.conversation.recent.length > 4) throw Error("InvalidCheckpoint");
+      if (
+        request.panes.length > 64 ||
+        request.conversation.recent.length > 4 ||
+        request.conversation.phases.length > 4 ||
+        request.conversation.phases_len > request.conversation.phases.length
+      )
+        throw Error("InvalidCheckpoint");
       for (const key of ["attempted_evidence", "attempted_commentary"] as const)
         if (entry.slot[key] !== null) slot[key] = BigInt(entry.slot[key]);
       if (entry.slot.result) {
@@ -292,6 +303,7 @@ export class Worker {
           new Result(hydrate(new Request(), entry.slot.result.request), entry.slot.result.label ? new Text() : null),
           entry.slot.result,
         );
+        if (!prompt.actions.includes(slot.result.action)) throw Error("InvalidCheckpoint");
       }
       if (slot.result)
         slot.result.request.panes = slot.result.request.panes.slice(
@@ -463,6 +475,8 @@ export class Worker {
           {
             provider: request.provider,
             turn: summary.turnTag(turn),
+            phase: request.conversation.phase(turn),
+            earlier: request.conversation.earlier(turn),
             evidence: request.evidence.text(),
             history: request.conversation.recent.slice(0, request.conversation.len).map(e => e.text()),
           },
@@ -486,7 +500,7 @@ export class Worker {
           if (current.request.generation !== request.generation) discard = "evidence_changed";
           else {
             if (current.result) outcome(current.result.number, "superseded");
-            current.result = new Result(request, attempt.decision.label);
+            current.result = new Result(request, attempt.decision.label, attempt.decision.action);
             current.result.number = attempt.request;
             discard = null;
           }

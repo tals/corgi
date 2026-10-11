@@ -96,3 +96,24 @@ test("usage after a finished compaction belongs to the next named phase", () => 
   current.tokens.input = 30n;
   expect(timeline.pending(current).tokens.input).toBe(20n);
 });
+
+test("amend renames the turn's open phase and keeps its interval", () => {
+  const timeline = new Timeline();
+  const unit = parseLabel("Running unit tests")!;
+  timeline.checkpoint("a", reading, view(100n), 1000);
+  timeline.checkpoint("a", testing, view(150n), 2000);
+  timeline.amend("a", unit, view(170n), 3000);
+  expect(timeline.points.map(p => p.label.text())).toEqual(["Reading source", "Running unit tests"]);
+  expect(timeline.points[1].at).toBe(2000);
+  expect(timeline.points[1].usage.tokens.total()).toBe(20n);
+  timeline.amend("b", reading, view(170n), 4000);
+  expect(timeline.len).toBe(3);
+  timeline.finish(view(180n));
+  timeline.amend("b", testing, view(180n), 5000);
+  expect(timeline.points.map(p => p.label.text())).toEqual([
+    "Reading source",
+    "Running unit tests",
+    "Reading source",
+    "Running tests",
+  ]);
+});

@@ -2,16 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { grade, scorecard, validateCases, type Observation, type Result } from "./score";
 import cases from "./cases.json";
 
-const output = (label: string | null): Observation => ({
+const output = (label: string | null, action = label === null ? "none" : "new"): Observation => ({
   id: "case",
   status: label === null ? "abstained" : "label",
+  action,
   label,
-  raw: JSON.stringify({ label }),
+  raw: JSON.stringify({ action, label: action === "keep" ? null : label }),
   elapsed_ms: 1000,
 });
 describe("activity eval assertions", () => {
   test("fixtures have meaningful, bounded assertions", () => {
-    expect(validateCases(cases)).toHaveLength(17);
+    expect(validateCases(cases)).toHaveLength(19);
   });
   test("the original failure fails even though it has three words", () => {
     expect(grade({ evidence: "make", expect: "abstain" }, output("Awaiting task details"))).toContain(
@@ -23,6 +24,8 @@ describe("activity eval assertions", () => {
       null,
       { ...output(null), status: "error", err: "Timeout" },
       { ...output(null), raw: "{}" },
+      { ...output(null), raw: '{"label":null}' },
+      { ...output(null), raw: '{"action":"skip","label":null}' },
       { ...output(null), raw: '{"label":null,"reason":"?"}' },
     ]) {
       expect(grade({ evidence: "make", expect: "abstain" }, observation).length).toBeGreaterThan(0);
@@ -39,6 +42,11 @@ describe("activity eval assertions", () => {
     expect(grade({ evidence: "tests", expect: "label", all: ["test"] }, output("Waiting for user input"))).toContain(
       "generic or unsupported input-status label",
     );
+  });
+  test("phase steps can require the decision, and keep is scored as the phase it kept", () => {
+    const step = { evidence: "more tests", expect: "label" as const, all: ["test"], action: ["keep" as const] };
+    expect(grade(step, output("Running tests", "keep"))).toEqual([]);
+    expect(grade(step, output("Running sidebar tests", "new"))).toEqual(["expected keep, got new"]);
   });
   test("scorecard includes failures in denominators", () => {
     const base = {

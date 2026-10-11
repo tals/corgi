@@ -26,15 +26,25 @@ for discovery, ownership, and catch-up semantics.
 
 Agent entries reserve their first line for the name and their second line for
 current activity. Long names clip with an ellipsis instead of occupying the
-activity line. Codex and Claude summaries are 2–3 words prioritizing currently
+activity line. Codex and Claude summaries are 2–4 words prioritizing currently
 running tools, then recent completed calls, with the latest assistant update
 and original request as context. The
 existing transcript reader supplies turn-scoped tool progress independently of
 workspace away counters. Claude can show provider descriptions before its first
 summary; native sessions are not summarized.
-The prompt targets 2–3 words; short labels of up to six words are also accepted
+The prompt targets 2–4 words; short labels of up to six words are also accepted
 instead of leaving the activity blank. Longer labels and control characters are rejected.
-The summarizer can explicitly abstain with a null label when current evidence is
+
+A summary names the turn's current phase rather than the latest call, so the
+hover card's timeline gains a row only when the kind of work changes, such as
+from reading to editing or from testing to fixing. Each request carries the
+current phase and up to three earlier ones from the same turn, and the
+summarizer answers with an action: `new` starts a phase, `keep` leaves it,
+`amend` renames the current row to cover more of the same work (such as
+"Running worktree tests" becoming "Running worktree and unit tests"), and `none`
+abstains. A new turn starts with no phase.
+
+The summarizer abstains with `none` when current evidence is
 insufficient; a quoted `"null"` label also counts as abstention. A bare user
 request or stale history does not establish current work. Abstention clears activity text and shows the working animation; it never
 changes the agent's lifecycle or implies that the user must provide input.
@@ -91,7 +101,8 @@ agent has remembered context, `fresh_input` is the variant with history that is
 sent instead if the native conversation has to be created. Its
 `context.source.tools_since_last` counts tool calls completed since the agent's
 previous attempt. The result contains the exact returned text and validation
-result or error reason, `fresh_conversation` (which input was sent), and `usage`:
+result or error reason, the `action` and resolved `label` (`keep` reports the phase it
+kept), `fresh_conversation` (which input was sent), and `usage`:
 the input, cached input and output tokens reported for that request alone. An
 inference failure records a null output and its error. For each decision, a later
 `outcome` record with the same PID and request number says whether it was

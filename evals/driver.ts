@@ -36,7 +36,14 @@ async function main() {
         if (Buffer.byteLength(step.evidence) > 2048) throw Error("EvidenceTooLong");
         // As in production, history accompanies only a newly created conversation.
         const history = context.recent.slice(0, context.len).map(entry => entry.text());
-        const live: contract.Input = { provider, turn: contract.turnTag(step.turn), evidence: step.evidence };
+        const phase = context.phase(step.turn);
+        const live: contract.Input = {
+          provider,
+          turn: contract.turnTag(step.turn),
+          phase,
+          earlier: context.earlier(step.turn),
+          evidence: step.evidence,
+        };
         const fresh: contract.Input = { ...live, history };
         const json = contract.content(live);
         const fresh_json = context.len > 0 ? contract.content(fresh) : null;
@@ -68,7 +75,7 @@ async function main() {
         const input = response.fresh && fresh_json !== null ? fresh : live;
         let decision;
         try {
-          decision = contract.parse(response.text());
+          decision = contract.parse(response.text(), phase);
         } catch (error) {
           emit({
             id: step.id,
@@ -87,11 +94,12 @@ async function main() {
           status: label === null ? "abstained" : "label",
           err: null,
           raw: response.text(),
+          action: decision.action,
           label: label?.text() ?? null,
           elapsed_ms: Date.now() - started,
           input,
         });
-        if (label !== null) context.remember(step.turn, step.evidence, label);
+        if (label !== null) context.remember(step.turn, step.evidence, label, decision.action);
       }
     }
   } finally {

@@ -10,7 +10,8 @@ import { Client } from "./peer";
 import { Pane } from "./runtime";
 import { Workspace } from "./workspace";
 import { Terminal } from "./pane/terminal";
-import { Worker } from "./activity/worker";
+import { Worker, Request, Result, Slot } from "./activity/worker";
+import { parseLabel } from "./activity/summary";
 import { captureManifest } from "./persist/handoff";
 import { checkpoint_version, handoff_version } from "./persist/migrations";
 import { validateCheckpoint } from "./persist/schema";
@@ -169,10 +170,14 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(4);
   expect(checkpoint_version).toBe(5);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "8dca48f45c9c9afd979d99d52eaba92adc374d65c73b45afb67150efc025cb58",
+    "31dff96b92b603147f91cc98cb0fb6e0e429a5095135458bf7b7ea20af1be2fe",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
+  const request = new Request();
+  request.conversation.remember("turn", "Running tests", parseLabel("Running tests")!);
+  summaries.slots[0] = new Slot(request);
+  summaries.slots[0].result = new Result(request, parseLabel("Running unit tests"), "amend");
   (server as any).summaries = summaries;
   await summaries.pause();
   try {
