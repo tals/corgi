@@ -754,7 +754,11 @@ export class Controller {
       return entries;
     }
     let index = worktreeAgents.index(entries, selected);
-    if (index < 0) {
+    // A browsed worktree missing from the list, or folded, shows as a ghost:
+    // at the top, or in its folded header's place.
+    const folded = index >= 0 && entries[index].group.folded;
+    if (index >= 0 && !folded) this.worktree_agents.appearing = null;
+    else {
       const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selected.workspace)?.worktrees;
       if (snapshot) {
         const ghost = worktreeAgents.group(
@@ -767,10 +771,11 @@ export class Controller {
           true,
           this.launch_previews.history.pending,
         );
-        entries = [...this.worktree_agents.animate(ghost, selected, milliTimestamp()), ...entries];
+        const shown = this.worktree_agents.animate(ghost, selected, milliTimestamp());
+        entries = folded ? [...entries.slice(0, index), ...shown, ...entries.slice(index + 1)] : [...shown, ...entries];
       }
       index = worktreeAgents.index(entries, selected);
-    } else this.worktree_agents.appearing = null;
+    }
     const key = worktreeAgents.key(selected);
     if (index >= 0 && this.worktree_agents.previewed !== key) {
       this.agentOffset().set(this.sidebarView(entries).reveal(index));
@@ -4625,6 +4630,7 @@ export class Controller {
         resource_card: tooltip_ready && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         worktree_card: this.worktreeDetail() !== null ? this.worktree_card : null,
+        worktree_spotlight: this.browsingWorktree(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)
             ? " Agent search: enlarge terminal or Esc"

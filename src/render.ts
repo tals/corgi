@@ -66,6 +66,9 @@ export interface Ui {
   resource_card: resourceTooltip.State | null;
   git_hover: number | null;
   worktree_card: worktreeTooltip.State | null;
+  /** The worktree browsed in the overview, whose group stays lit while the
+   * rest of the agent list dims. */
+  worktree_spotlight: { workspace: number; path: string } | null;
   agent_launcher: LauncherMenu | null;
   corgi_setup: SetupMenu | null;
   /** Why a paste brought no image, for the focused pane, and whether a
@@ -118,6 +121,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     resource_card: null,
     git_hover: null,
     worktree_card: null,
+    worktree_spotlight: null,
     agent_launcher: null,
     corgi_setup: null,
     paste_card: null,
@@ -580,6 +584,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   // The host may leave its last mouse report at the window edge.
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
+  side.spotlight = u.worktree_spotlight;
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.corgi_badge === "image") {

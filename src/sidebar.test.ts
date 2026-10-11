@@ -36,6 +36,7 @@ import {
   ghost_bar,
   rule_underline,
   dotted_underline,
+  spotlight_dim,
   nap_fg,
   hover_rgb,
   hover_bg,
@@ -820,6 +821,34 @@ test("worktree groups branch off the workspace rail and pin their headers above 
   const out = draw(scrolled, entries, []);
   expect(has(out, `\x1b[${top + 2};1H\x1b[0m${palette.bg("bg")}${rule_underline}`)).toBe(true);
   expect(count(out, rule_underline)).toBe(1);
+});
+
+test("a lit worktree keeps its colors while the rest of the agent list fades", () => {
+  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const entries = [
+    entry({ target: { pane: 1 }, name: "direct", provider: "codex", state: "done" }),
+    entry({
+      target: { worktree: worktree.path, workspace: 1 },
+      name: "one",
+      worktree,
+      group: { agents: 1, working: 0, attention: 0, folded: false, current: false },
+    }),
+    entry({ target: { pane: 2 }, name: "inside", provider: "codex", state: "done", worktree }),
+  ];
+  const faded = (sgr: string) => {
+    const w = new Writer();
+    writeExit(w, sgr, spotlight_dim);
+    return w.buffered();
+  };
+  const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+  const plain = draw(view, entries, []);
+  expect(has(plain, "\x1b[22m" + fg("text") + "direct")).toBe(true);
+  view.spotlight = { workspace: 1, path: worktree.path };
+  const lit = draw(view, entries, []);
+  expect(has(lit, "\x1b[22m" + faded(fg("text")) + "direct")).toBe(true);
+  expect(has(lit, "\x1b[22m" + fg("text") + "inside")).toBe(true);
+  expect(has(lit, faded(fg("text")) + "one")).toBe(false);
+  expect(hostText(lit)).toBe(hostText(plain));
 });
 
 test("agent list shows a scrollbar on the border only when it overflows", () => {

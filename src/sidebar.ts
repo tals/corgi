@@ -30,6 +30,8 @@ export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount
 
 /** Agents plus one header per workspace in the grouped "All" list. */
 export const max_entries = max_panes + 16 + max_workspaces;
+/** How far rows outside a lit worktree fade, as `writeExit` progress. */
+export const spotlight_dim = 0.55;
 // Styles that code or tests concatenate.
 export let panel: string,
   active_name: string,
@@ -349,6 +351,8 @@ export class View {
   sleeping_corgis = true;
   /** The agents header row as last dragged; null splits the sidebar in half. */
   split: number | null = null;
+  /** A lit worktree: its group keeps its colors while the rest of the list dims. */
+  spotlight: { workspace: number; path: string } | null = null;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
@@ -769,9 +773,15 @@ export class View {
       v.drawHeader(out, e, y, lead, stuck);
     };
     let next_y = v.middle() + 2;
+    // Outside a lit worktree, rows fade most of the way into the panel.
+    const spot = v.spotlight;
+    const dimmed = (e: Entry) =>
+      spot !== null && !(e.worktree?.workspace === spot.workspace && e.worktree.path === spot.path);
     const pinned = v.pinned(v.offset);
     pinned.forEach((i, n) => {
-      heading(w, i, next_y, n === pinned.length - 1);
+      const out = dimmed(entries[i]) ? new Writer() : w;
+      heading(out, i, next_y, n === pinned.length - 1);
+      if (out !== w) writeExit(w, out.buffered(), spotlight_dim);
       next_y += 1;
     });
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.capacity));
@@ -784,7 +794,8 @@ export class View {
     visible.forEach((e, index) => {
       const absolute = v.offset + index;
       const exit_writer = new Writer();
-      const fade = e.exit ? e.exit.progress : e.enter !== null ? 1 - e.enter : null;
+      const fading = e.exit ? e.exit.progress : e.enter !== null ? 1 - e.enter : null;
+      const fade = dimmed(e) ? Math.max(fading ?? 0, spotlight_dim) : fading;
       const row_writer = fade !== null ? exit_writer : w;
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
       const top = next_y;

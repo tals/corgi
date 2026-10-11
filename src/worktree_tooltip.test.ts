@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { Controller } from "./controller";
 import { worktreeSnapshot } from "./mirror";
 import { State, draw, geometry } from "./worktree_tooltip";
-import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge } from "./sidebar";
+import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
+import { fg } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
@@ -360,6 +361,28 @@ test("a worktree heading's right-click menu closes only the agents listed under 
   await view.input(Buffer.from("x"));
   expect(view.tab_menu).toBeNull();
   expect(closed).toEqual([1, 2]);
+});
+test("browsing a folded worktree in the overview dims the rest and peeks it open in place", async () => {
+  const { view, data, rows, row, heading } = paneWorktrees(),
+    path = data.entries[1].path,
+    dim = new Writer();
+  writeExit(dim, fg("text"), spotlight_dim);
+  const faded = "\x1b[22m" + dim.buffered() + "main";
+  // Hovering the heading in the sidebar lights nothing.
+  await view.input(Buffer.from(`\x1b[<35;6;${row(heading)}M`));
+  expect(view.frame()).not.toContain(faded);
+  (view as any).toggleWorktree({ workspace: 1, path });
+  const header = rows().findIndex(heading);
+  await view.perform({ name: "worktrees", value: 1 });
+  await view.perform({ name: "worktree-select", value: path });
+  const peek = rows();
+  expect(peek.findIndex(heading)).toBe(header);
+  expect(peek[header].worktree.ghost).toBe(true);
+  expect(peek.filter(e => e.worktree?.ghost && "pane" in e.target).map(e => e.name)).toEqual(["one", "two"]);
+  expect(view.frame()).toContain(faded);
+  await view.input(Buffer.from("\x1b[27u"));
+  expect(rows()[header]).toMatchObject({ worktree: { ghost: false }, group: { folded: true } });
+  expect(view.frame()).not.toContain(faded);
 });
 test("callout geometry keeps the agent pane and source badge uncovered", () => {
   const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: snapshot(2) });
