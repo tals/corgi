@@ -69,13 +69,13 @@ export class Chooser {
   /** Git is adding the planned worktree. */
   adding = false;
 
-  /** Opens the box on the current checkout, or, with a new worktree named,
-   * in its form on that name and base. */
+  /** Opens the box with the caret in Branch, on the new worktree's name and
+   * base when one is named, the current checkout in view above. */
   open(snapshot: worktrees.Snapshot | null, cwd: string): void {
     const planned = this.planned;
     const at = containing(snapshot, cwd);
     this.mode = "open";
-    this.focus = planned ? "branch" : "list";
+    this.focus = "branch";
     this.hovered = Math.max(0, at && !planned ? checkouts(snapshot).indexOf(at) : 0);
     this.scroll = 0;
     this.field = Dialog.init({ rename: 0 }, planned?.branch ?? "");
@@ -87,6 +87,11 @@ export class Chooser {
     const next = this.hovered + delta;
     if (next >= checkouts(snapshot).length) this.focus = "branch";
     else this.hovered = Math.max(0, next);
+  }
+  /** From Branch back up to the checkouts, onto the last, just above it. */
+  toList(snapshot: worktrees.Snapshot | null): void {
+    this.focus = "list";
+    this.hovered = sat(checkouts(snapshot).length, 1);
   }
   /** The field with the caret. */
   input(): Dialog {

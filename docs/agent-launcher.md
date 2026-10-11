@@ -97,25 +97,27 @@ In a checkout the name sits on a button with a `w` keycap. Press w, or click
 it, for one box: the workspace's checkouts, the primary one first, with ✓ on
 the current one and its agents and uncommitted files at the right (“2 agents ·
 3 changed”, “clean”); then, a blank row down, a **New worktree** rule carrying
-an `n` keycap and the form under it. Up/Down move along the checkouts, Enter
-or a click chooses one, w or Escape closes the box. Choosing a checkout moves
-the launcher there: the model preview, the conversations and `t` follow it.
+an `n` keycap and the form under it. The box opens with the caret in the
+form's Branch; Up from there goes to the last checkout, just above the form.
+Up/Down move along the checkouts, Enter or a click chooses one, w or Escape
+closes the box. Choosing a checkout moves the launcher there: the model
+preview, the conversations and `t` follow it.
 
 The form has Branch, the new branch's name (a typed space becomes `-`); From,
 what it starts from, the comparison branch (usually `main`) to begin with; and
 Folder, `./.worktrees/login` under the project's main checkout unless Corgi
 setup says otherwise (see below). n, Down past the last checkout, or a click
-puts the caret in Branch, and the rule lights up; Up goes back to the
-checkouts. Escape closes the box from the checkouts or the form alike. Tab or
-Down moves to From, whose list opens right under the field, as wide as it and
-on its background: the repository's local and remote branches, newest commit
-first, with each one's age. Typing filters them, names starting with the text
-first; Up/Down pick, Enter or Tab takes one and goes back to Branch, and
-Escape only dismisses the list, keeping the old one. The daemon lists them
-(`git.branches`) when the box opens; one that can't offers `main` and the
-current branch. Enter on Branch takes the form. Names Git won't take, and
-branches checked out already, are refused there. The title then names the new
-branch, and the footer says “new worktree from main · new tab”.
+puts the caret back in Branch, and the rule lights up. Escape closes the box
+from the checkouts or the form alike. Tab or Down moves to From, whose list
+opens right under the field, as wide as it and on its background: the
+repository's local and remote branches, newest commit first, with each one's
+age. Typing filters them, names starting with the text first; Up/Down pick,
+Enter or Tab takes one and goes back to Branch, and Escape only dismisses the
+list, keeping the old one. The daemon lists them (`git.branches`) when the box
+opens; one that can't offers `main` and the current branch. Enter on Branch
+takes the form. Names Git won't take, and branches checked out already, are
+refused there. The title then names the new branch, and the footer says “new
+worktree from main · new tab”.
 
 Nothing is created until something launches. An agent, a saved command or a
 terminal has the daemon run `git worktree add -b <branch> <folder> <base>` on

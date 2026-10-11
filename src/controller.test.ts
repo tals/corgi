@@ -567,17 +567,20 @@ test("the launcher names a new worktree, then adds it before starting the agent 
     },
   });
   s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
   s.openLauncher(true, "/src/app-topic");
   s.agent_launcher.selected = "claude";
   await s.key("w".charCodeAt(0));
-  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "list"]);
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
+  // Up goes to the last checkout, just above the form; n comes back.
+  await s.input(bytes("\x1b[A"));
+  expect([s.agent_launcher.worktree.focus, s.agent_launcher.worktree.hovered]).toEqual(["list", 1]);
   await s.key("n".charCodeAt(0));
   expect(s.agent_launcher.worktree.focus).toBe("branch");
   // Escape closes the box from the form in one press.
   await s.key(27);
   expect([s.agent_launcher.worktree.mode, s.agent_launcher === null]).toEqual(["closed", false]);
   await s.key("w".charCodeAt(0));
-  await s.key("n".charCodeAt(0));
   for (const byte of bytes("log in")) await s.key(byte);
   // Tab moves to From, which searches the branches the daemon listed.
   await s.key(9);

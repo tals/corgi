@@ -3588,7 +3588,7 @@ export class Controller {
           else if (c.focus === "from" && (parsed_key === "up" || parsed_key === "down"))
             c.movePick(parsed_key === "up" ? -1 : 1);
           else if (c.focus === "from") c.search(from => from.sequence(text));
-          else if (parsed_key === "up" || parsed_key === "shift_tab") c.focus = "list";
+          else if (parsed_key === "up" || parsed_key === "shift_tab") c.toList(launch.worktrees);
           else if (parsed_key === "down") c.focusFrom();
           else c.field.sequence(text);
           this.dirty = true;

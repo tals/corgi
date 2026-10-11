@@ -46,25 +46,31 @@ test("the title names the innermost checkout by branch, or the folder outside a 
   expect(launcherWorktree.place(snapshot, "/src/app", planned)).toEqual({ label: "next", worktree: true });
 });
 
-test("the box lists the checkouts, the primary first, the current one ticked; past the last is Branch", () => {
+test("the box opens in Branch over the checkouts, the primary first, the current one ticked", () => {
   const c = new launcherWorktree.Chooser();
-  c.open(snapshot, "/src/app-topic");
-  expect([c.mode, c.focus, c.hovered]).toEqual(["open", "list", 2]);
-  const choices = launcherWorktree.choices(snapshot, "/src/app-topic", c);
+  c.open(snapshot, "/src/app");
+  expect([c.mode, c.focus]).toEqual(["open", "branch"]);
+  // With the form's caret, the checkouts step back.
+  expect(launcherWorktree.choices(snapshot, "/src/app", c).map(x => [x.hovered, x.dim])).toEqual([
+    [false, true],
+    [false, true],
+    [false, true],
+  ]);
+  // Up lands on the last checkout, just above the form.
+  c.toList(snapshot);
+  expect([c.focus, c.hovered]).toEqual(["list", 2]);
+  const choices = launcherWorktree.choices(snapshot, "/src/app", c);
   expect(choices.map(x => [x.text, x.note, x.current, x.hovered])).toEqual([
-    ["main", "2 changed", false, false],
+    ["main", "2 changed", true, false],
     ["fix", "1 changed", false, false],
-    ["topic", "2 agents · clean", true, true],
+    ["topic", "2 agents · clean", false, true],
   ]);
   expect(choices.some(x => x.dim)).toBe(false);
-  c.move(snapshot, 1);
-  expect([c.focus, c.hovered]).toEqual(["branch", 2]);
-  // With the form's caret, the checkouts step back.
-  expect(launcherWorktree.choices(snapshot, "/src/app-topic", c).map(x => [x.hovered, x.dim])).toEqual([
-    [false, true],
-    [false, true],
-    [false, true],
-  ]);
+  c.move(snapshot, -1);
+  expect([c.focus, c.hovered]).toEqual(["list", 1]);
+  // Past the last is Branch again.
+  c.move(snapshot, 2);
+  expect(c.focus).toBe("branch");
   // A named worktree reopens in the form, on its name and base.
   c.planned = { branch: "x", base: "refs/heads/topic", base_name: "topic", path: "/src/app/.worktrees/x" };
   c.open(snapshot, "/src/app-topic");
