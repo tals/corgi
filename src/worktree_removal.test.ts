@@ -19,6 +19,7 @@ const [, topic, next] = parseInventory(
     "worktree /repo/.worktrees/next\0branch refs/heads/next\0\0",
 );
 const target = (fields: Partial<Target> = {}): Target => ({
+  workspace: 1,
   path: "/repo/.worktrees/topic",
   name: "topic",
   branch: true,

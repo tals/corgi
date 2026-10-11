@@ -587,10 +587,15 @@ export class Server {
         cl.queue({ ok: true });
         return;
       }
-      case "worktree.remove":
-        await this.runtime.worktree_tracker.remove(this.runtime, q.workspace, q.path);
+      case "worktree.remove": {
+        const removal = await this.runtime.worktree_tracker.remove(this.runtime, q.workspace, q.path);
         this.runtime.changed();
         this.dirty = true;
+        cl.queue({ ok: true, removal });
+        return;
+      }
+      case "worktree.stop":
+        this.runtime.worktree_tracker.stopRemoval(q.workspace);
         cl.queue({ ok: true });
         return;
       case "git.branches":

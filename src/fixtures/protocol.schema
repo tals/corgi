@@ -166,6 +166,7 @@ $.requests|git.push.ref.remote: string
 $.requests|git.push.ref.destination: string
 $.requests|worktree.remove.workspace: u32
 $.requests|worktree.remove.path: string
+$.requests|worktree.stop.workspace: u32
 $.requests|worktree.add.workspace: u32
 $.requests|worktree.add.path: string
 $.requests|worktree.add.branch: string
@@ -530,6 +531,11 @@ $.snapshot.workspaces[].git_ref.remote: string
 $.snapshot.workspaces[].git_ref.destination: string
 $.snapshot.workspaces[].git_push.phase: enum idle pushing succeeded failed
 $.snapshot.workspaces[].git_push.message: string
+$.snapshot.workspaces[].worktree_removal: optional
+$.snapshot.workspaces[].worktree_removal?.id: u32
+$.snapshot.workspaces[].worktree_removal?.path: string
+$.snapshot.workspaces[].worktree_removal?.phase: enum deleting done stopped failed
+$.snapshot.workspaces[].worktree_removal?.error: string
 $.snapshot.workspaces[].stats.tools: u64
 $.snapshot.workspaces[].stats.input: u64
 $.snapshot.workspaces[].stats.cached_input: u64

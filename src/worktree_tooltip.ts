@@ -213,15 +213,14 @@ export function draw(
       "faint",
     );
   }
-  if (removing !== null)
-    worktreeRemoval.paint(
-      grid,
-      { y: removing, left: 1, right: rect.w - 2, top: 1, bottom: rect.h - 3 },
-      hold.effect,
-      hold.progress,
-      hold.finale(now),
-      now,
-    );
+  if (removing !== null) {
+    const area = { y: removing, left: 1, right: rect.w - 2, top: 1, bottom: rect.h - 3 },
+      report = hold.report;
+    worktreeRemoval.paint(grid, area, hold.effect, hold.progress, hold.finale(now), now);
+    // A big worktree is still being deleted once the ending has played.
+    if (hold.phase === "removing" && hold.finale(now) >= 1 && report?.phase === "deleting")
+      worktreeRemoval.progress(grid, area, now);
+  }
   if (cursor !== null) grid.put(1, cursor, "›", c.strong, true);
   line(rect.h - 1, 0, "╰" + "─".repeat(rect.w - 2) + "╯", rect.w, "line");
   const port = badge ? Math.max(rect.y + 1, Math.min(badge.y, rect.y + rect.h - 2)) : 0;

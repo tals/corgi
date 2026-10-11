@@ -207,6 +207,15 @@ test("a scan cannot follow a workspace through a directory edit, even when it re
   expect(workspace.worktrees).toBeNull();
   tracker.close();
 });
+/** The workspace's removal once it has ended. */
+async function finished(tracker: Tracker, workspace: number) {
+  for (let i = 0; i < 2000; i++) {
+    const report = tracker.removal(workspace);
+    if (report && report.phase !== "deleting") return report;
+    await Bun.sleep(5);
+  }
+  throw Error("Timeout");
+}
 test("removal deletes a worktree and its uncommitted work but keeps the branch; locked and lived-in ones are refused", async () => {
   const f = await fixture();
   try {
@@ -229,7 +238,9 @@ test("removal deletes a worktree and its uncommitted work but keeps the branch; 
     await expect(tracker.remove(runtime, 1, locked)).rejects.toThrow("WorktreeLocked");
     await expect(tracker.remove(runtime, 1, lived)).rejects.toThrow("WorktreeInUse");
     await expect(tracker.remove(runtime, 3, topic)).rejects.toThrow("NoWorkspace");
-    await tracker.remove(runtime, 1, topic);
+    const id = await tracker.remove(runtime, 1, topic);
+    await expect(tracker.remove(runtime, 1, topic)).rejects.toThrow("WorktreeRemoving");
+    expect(await finished(tracker, 1)).toMatchObject({ id, path: topic, phase: "done" });
     expect(await Bun.file(join(topic, "draft")).exists()).toBe(false);
     expect((await git(f.repo, "branch", "--list", "topic")).trim()).toBe("topic");
     const after = await tracker.refresh(f.repo, false);
@@ -244,3 +255,32 @@ test("removal deletes a worktree and its uncommitted work but keeps the branch; 
     await f.close();
   }
 }, 20000);
+test("a removal runs in the background, and stopping it kills Git and keeps the worktree", async () => {
+  const f = await fixture();
+  try {
+    const big = join(f.root, "big");
+    await git(f.repo, "worktree", "add", "-b", "big", big);
+    for (let d = 0; d < 40; d++) {
+      await mkdir(join(big, "node_modules", `p${d}`), { recursive: true });
+      for (let i = 0; i < 50; i++) await writeFile(join(big, "node_modules", `p${d}`, `f${i}`), "");
+    }
+    const workspace = new Workspace(1, f.repo),
+      store = new Store();
+    store.items = [workspace];
+    const runtime = { workspaces: store, panes: [], sessions: [] } as unknown as Runtime,
+      tracker = new Tracker();
+    workspace.worktrees = await tracker.refresh(f.repo, true);
+    await tracker.remove(runtime, 1, big);
+    expect(tracker.removal(1)?.phase).toBe("deleting");
+    // How it goes reaches viewers through the tracker's tick.
+    expect(tracker.tick(runtime)).toBe(true);
+    tracker.stopRemoval(1);
+    expect((await finished(tracker, 1)).phase).toBe("stopped");
+    // Git's record of it stays, short of the files already deleted.
+    const after = await tracker.refresh(f.repo, false);
+    expect(worktrees.linked(after).map(e => e.path)).toEqual([big]);
+    tracker.close();
+  } finally {
+    await f.close();
+  }
+}, 30000);

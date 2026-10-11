@@ -18,6 +18,11 @@ type Cached = {
   seen: number;
   comparisons: Map<string, worktrees.Comparison>;
 };
+/** How long Git gets to delete a worktree; a big one takes seconds. */
+const removal_timeout_ms = 600000;
+/** How long a finished removal stays reported, for viewers to see how it ended. */
+const removal_kept_ms = 30000;
+type Removing = worktrees.Removal & { quit: subprocess.Quit; at: number };
 type Job = {
   workspace: Workspace;
   cwd: string;
@@ -128,6 +133,11 @@ export class Tracker {
   private pending = new Map<string, Promise<worktrees.Snapshot>>();
   private locations = new Map<string, { root: string | null; at: number }>();
   private repositories = new Map<string, { common: string | null; at: number }>();
+  /** Each workspace's removal under way, or its last, by workspace id. */
+  private removals = new Map<number, Removing>();
+  private next_removal = 1;
+  /** The removals as viewers last heard of them. */
+  private reported = "";
   private quit = new subprocess.Quit();
   constructor(
     private query: Query = async (cwd, args) => {
@@ -146,6 +156,7 @@ export class Tracker {
   close() {
     this.stopping = true;
     this.quit.signal();
+    for (const job of this.removals.values()) job.quit.signal();
     this.cache.clear();
     this.locations.clear();
     this.repositories.clear();
@@ -159,32 +170,81 @@ export class Tracker {
     this.cache.delete(common);
     this.next_refresh = 0;
   }
-  /** Removes a linked worktree, uncommitted changes and all; its branch
-   * stays. A locked one, or one a workspace lives in, is refused. */
-  async remove(runtime: Runtime, workspace: number, path: string): Promise<void> {
+  /** Starts removing a linked worktree, uncommitted changes and all; its
+   * branch stays. A locked one, or one a workspace lives in, is refused.
+   * Git deletes it in the background, where `removal` reports on it: a big
+   * checkout takes seconds, and requests wait on each other. */
+  async remove(runtime: Runtime, workspace: number, path: string): Promise<number> {
     const ws = runtime.workspaces.get(workspace);
     if (!ws) throw Error("NoWorkspace");
     const checkout = worktrees.linked(ws.worktrees).find(e => e.path === path);
     if (!checkout) throw Error("NoWorktree");
     if (checkout.locked !== null) throw Error("WorktreeLocked");
+    if (this.removing(workspace)) throw Error("WorktreeRemoving");
     for (const other of runtime.workspaces.items) {
       const cwd = await realpath(other.cwd).catch(() => other.cwd);
       if (cwd === path || cwd.startsWith(path + "/")) throw Error("WorktreeInUse");
     }
-    const out = await subprocess
-      .run(["git", "-C", ws.cwd, "worktree", "remove", "--force", path], { timeout_ms: 60000 })
-      .catch(() => null);
-    if (!out?.ok()) throw Error("WorktreeRemoveFailed");
+    const job: Removing = {
+      id: this.next_removal++,
+      path,
+      phase: "deleting",
+      error: "",
+      quit: new subprocess.Quit(),
+      at: 0,
+    };
+    this.removals.set(workspace, job);
+    void this.erase(job, ws.cwd, ws.worktrees!.common_dir);
+    return job.id;
+  }
+  /** Stops a removal under way; the files already deleted stay deleted. */
+  stopRemoval(workspace: number): void {
+    const job = this.removals.get(workspace);
+    if (job?.phase === "deleting") job.quit.signal();
+  }
+  /** The workspace's removal under way, or the last one, for a while after it ended. */
+  removal(workspace: number): worktrees.Removal | null {
+    const job = this.removals.get(workspace);
+    if (!job) return null;
+    if (job.at && clock.milliTimestamp() - job.at > removal_kept_ms) {
+      this.removals.delete(workspace);
+      return null;
+    }
+    return { id: job.id, path: job.path, phase: job.phase, error: job.error };
+  }
+  private removing(workspace: number): boolean {
+    return this.removals.get(workspace)?.phase === "deleting";
+  }
+  /** Has Git delete the worktree and drop it, for as long as that takes;
+   * stopping kills Git, leaving what it had not deleted yet. */
+  private async erase(job: Removing, cwd: string, common: string) {
+    let phase: Removing["phase"] = "done",
+      error = "";
+    try {
+      const out = await subprocess.run(["git", "-C", cwd, "worktree", "remove", "--force", job.path], {
+        timeout_ms: removal_timeout_ms,
+        quit: job.quit,
+      });
+      if (!out.ok()) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+    } catch {
+      [phase, error] = job.quit.aborted ? ["stopped", ""] : ["failed", "WorktreeRemoveFailed"];
+    }
     // The next tick lists the worktrees again instead of waiting out the cache.
-    this.cache.delete(ws.worktrees!.common_dir);
+    this.cache.delete(common);
     this.next_refresh = 0;
+    job.phase = phase;
+    job.error = error;
+    job.at = clock.milliTimestamp();
   }
   tick(runtime: Runtime, details: ReadonlySet<number> = new Set()) {
-    let changed = false;
+    // A removal's progress reaches viewers with the next snapshot.
+    const removals = JSON.stringify([...this.removals.keys()].map(id => this.removal(id)));
+    let changed = removals !== this.reported;
+    this.reported = removals;
     if (this.thread) {
-      if (!this.done) return false;
+      if (!this.done) return changed;
       this.thread = null;
-      changed = this.apply(runtime);
+      changed = this.apply(runtime) || changed;
     }
     const now = clock.milliTimestamp();
     const key = [...details].sort().join(",");

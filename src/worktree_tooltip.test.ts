@@ -126,39 +126,62 @@ test("pinned worktrees own keys and paste; Escape closes the table without reach
   expect(view.worktreeDetail()).toBeNull();
 });
 
-test("holding ⌫ removes the selected worktree; the footer says what goes", async () => {
+/** A viewer with the overview open on two worktrees, and the daemon's requests. */
+async function removing() {
   const requests: any[] = [];
   const view = new Controller({
     request: async (op, fields) => {
       requests.push({ op, ...fields });
-      return { ok: true };
+      return op === "worktree.remove" ? { ok: true, removal: 7 } : { ok: true };
     },
   });
-  view.receiveSnapshot({
-    workspaces: [
-      { id: 1, name: "repo", cwd: "/repo", worktrees: snapshot(2), model: { nodes: [], tabs: [], revision: 0 } },
-    ],
-    panes: [],
-  });
+  const report = (worktrees: Snapshot, worktree_removal: unknown) =>
+    view.receiveSnapshot({
+      workspaces: [
+        { id: 1, name: "repo", cwd: "/repo", worktrees, worktree_removal, model: { nodes: [], tabs: [], revision: 0 } },
+      ],
+      panes: [],
+    });
+  report(snapshot(2), null);
   await view.perform({ name: "worktrees", value: 1 });
-  const terminal = new Terminal(100, 30),
-    removes = () => requests.filter(r => r.op === "worktree.remove");
-  try {
-    terminal.feed(view.frame());
-    expect(terminal.text()).toContain("hold ⌫ remove");
-    // One press, then key repeat after the host's delay.
+  const screen = () => {
+    const terminal = new Terminal(100, 30);
+    try {
+      terminal.feed(view.frame());
+      return terminal.text();
+    } finally {
+      terminal.destroy();
+    }
+  };
+  /** Holds ⌫ until the hold completes, as key repeat would. */
+  const hold = async () => {
     await (view as any).key(127);
     clock.advance(300);
-    for (let i = 0; i < 60 && removes().length === 0; i++) {
+    for (let i = 0; i < 60 && view.worktree_card.removal.phase === "held"; i++) {
       await (view as any).key(127);
-      if (i === 10) {
-        terminal.feed(view.frame());
-        expect(terminal.text()).toContain("Removing topic-0 · branch kept");
-      }
+      if (i === 10) expect(screen()).toContain("Removing topic-0 · branch kept");
       clock.advance(50);
     }
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(removes()).toEqual([{ op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0" }]);
+  };
+  return { view, requests, report, screen, hold };
+}
+test("holding ⌫ removes the selected worktree; the footer says what goes", async () => {
+  const { view, requests, report, screen, hold } = await removing();
+  try {
+    expect(screen()).toContain("hold ⌫ remove");
+    await hold();
+    expect(requests.filter(r => r.op === "worktree.remove")).toEqual([
+      { op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0" },
+    ]);
+    expect(view.worktree_card.removal.phase).toBe("removing");
+    // A report from an earlier removal is not this one's.
+    report(snapshot(2), { id: 6, path: "/repo/.worktrees/0", phase: "stopped", error: "" });
+    await view.expireInput();
+    expect(view.worktree_card.removal.phase).toBe("removing");
+    const gone = snapshot(2);
+    gone.entries.splice(1, 1);
+    report(gone, { id: 7, path: "/repo/.worktrees/0", phase: "done", error: "" });
+    await view.expireInput();
     expect(view.worktree_card.removal.phase).toBe("removed");
     expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
     // The key still down doesn't start on the next worktree.
@@ -169,17 +192,44 @@ test("holding ⌫ removes the selected worktree; the footer says what goes", asy
     expect(view.worktree_card.removal.target?.path).toBe("/repo/.worktrees/0");
   } finally {
     clock.reset();
-    terminal.destroy();
   }
 });
-
+test("a big worktree shows Git still deleting it once the ending has played, and Esc stops it", async () => {
+  const { view, requests, report, screen, hold } = await removing();
+  try {
+    await hold();
+    report(snapshot(2), { id: 7, path: "/repo/.worktrees/0", phase: "deleting", error: "" });
+    // During the ending, the row comes apart; after it, Git is still at work.
+    expect(screen()).not.toContain("Deleting...");
+    clock.advance(3000);
+    await view.expireInput();
+    const text = screen();
+    expect(text).toContain("Deleting...");
+    expect(text).toContain("━━━━━━━━");
+    expect(text).toContain("Removing topic-0 · Esc stop");
+    // Esc stops the deletion rather than closing the overview.
+    await (view as any).key(27);
+    expect(requests.at(-1)).toEqual({ op: "worktree.stop", workspace: 1 });
+    expect(view.worktreeDetail()).toBe(1);
+    report(snapshot(2), { id: 7, path: "/repo/.worktrees/0", phase: "stopped", error: "" });
+    await view.expireInput();
+    expect(view.worktree_card.removal.phase).toBe("stopped");
+    expect(screen()).toContain("Stopped removing topic-0 · some of its files may be gone");
+    expect(screen()).toContain("topic-0");
+    // Esc again closes it.
+    await (view as any).key(27);
+    expect(view.worktreeDetail()).toBeNull();
+  } finally {
+    clock.reset();
+  }
+});
 test("after a removal the cursor stays on its line while the rows below move up to it", () => {
   const before = snapshot(3),
     after = { ...before, entries: before.entries.filter(e => e.path !== "/repo/.worktrees/1") },
     state = new State(),
     hold = state.removal,
     linked = before.entries.slice(1),
-    t = worktreeRemoval.target(linked[1], 1, 0);
+    t = worktreeRemoval.target(1, linked[1], 1, 0);
   state.selected = linked[1].path;
   let now = 0;
   hold.press(now, t, "dust");

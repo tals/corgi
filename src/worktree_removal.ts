@@ -3,6 +3,7 @@
 import * as palette from "./palette";
 import * as corgiAnimation from "./corgi_animation";
 import * as worktrees from "./worktrees";
+import * as sidebar from "./sidebar";
 import type { Grid } from "./cell_grid";
 
 export type Effect = "dust" | "burn" | "bury";
@@ -27,6 +28,7 @@ export const finale_ms: Record<Effect, number> = { dust: 600, burn: 500, bury: 1
 
 /** The worktree being removed, and what the footer says about it. */
 export interface Target {
+  workspace: number;
   path: string;
   name: string;
   branch: boolean;
@@ -40,8 +42,9 @@ export interface Target {
   checkout: worktrees.Checkout;
   index: number;
 }
-export function target(checkout: worktrees.Checkout, index: number, agents: number): Target {
+export function target(workspace: number, checkout: worktrees.Checkout, index: number, agents: number): Target {
   return {
+    workspace,
     path: checkout.path,
     name: worktrees.label(checkout),
     branch: checkout.branch !== null,
@@ -54,7 +57,7 @@ export function target(checkout: worktrees.Checkout, index: number, agents: numb
   };
 }
 
-export type Phase = "idle" | "held" | "removing" | "removed" | "failed" | "locked";
+export type Phase = "idle" | "held" | "removing" | "removed" | "stopped" | "failed" | "locked";
 export class Hold {
   phase: Phase = "idle";
   target: Target | null = null;
@@ -63,6 +66,9 @@ export class Hold {
   committed_at = 0;
   settled_at = 0;
   reason = "";
+  /** The daemon's removal, and what it last said about deleting the files. */
+  job = 0;
+  report: worktrees.Removal | null = null;
   private repeating = false;
   /** When the hold was last moved on, when it started, and when the key last arrived. */
   private at = 0;
@@ -101,6 +107,7 @@ export class Hold {
     if (same && (now < this.until || first)) {
       if (this.progress >= 1) {
         this.phase = "removing";
+        this.job = 0;
         this.committed_at = now;
         this.gone_at = null;
         this.quiet_until = now + repeat_gap_ms;
@@ -116,6 +123,7 @@ export class Hold {
     if (!same) {
       this.progress = 0;
       this.effect = effect;
+      this.report = null;
     }
     this.phase = "held";
     this.target = target;
@@ -149,9 +157,16 @@ export class Hold {
     this.settled_at = now;
     if (reason !== null) this.progress = 0;
   }
+  /** Esc stopped Git deleting it; the worktree stays, short of what was already gone. */
+  stopped(now: number): void {
+    this.phase = "stopped";
+    this.settled_at = now;
+    this.progress = 0;
+  }
   reset(): void {
     this.phase = "idle";
     this.target = null;
+    this.report = null;
     this.progress = 0;
     this.repeating = false;
   }
@@ -211,6 +226,14 @@ export function footer(hold: Hold): Segment[] | null {
       ];
     case "failed":
       return [{ text: `Couldn't remove ${t.name}`, color: "hot" }, dot, { text: hold.reason, color: "muted" }];
+    case "stopped":
+      return [
+        { text: `Stopped removing ${t.name}`, color: "warm" },
+        dot,
+        { text: "some of its files may be gone", color: "muted" },
+      ];
+    case "removing":
+      return [{ text: `Removing ${t.name}`, color: "strong", bold: true }, dot, { text: "Esc stop", color: "faint" }];
     default: {
       const out: Segment[] = [{ text: `Removing ${t.name}`, color: "strong", bold: true }];
       const add = (text: string, color: palette.Token) => out.push(dot, { text, color });
@@ -397,4 +420,26 @@ function bury(grid: Grid, area: Area, progress: number, finale: number, tick: nu
   [...dog].forEach((ch, i) => {
     if (x0 + i >= left && x0 + i <= right) grid.put(x0 + i, area.y, ch, c.text);
   });
+}
+
+/** A removed worktree's row while Git is still deleting it, once its
+ * ending has played: "Deleting..." with its dots pulsing, and a short
+ * stretch of a bar sweeping back and forth, since Git says nothing of how
+ * far it got. */
+export function progress(grid: Grid, area: Area, now: number): void {
+  const c = palette.colors,
+    { y } = area,
+    left = area.left + 2,
+    width = area.right - 1 - left + 1;
+  for (const row of [y, y + 1]) for (let x = left; x <= area.right; x++) grid.put(x, row, " ", c.text);
+  grid.text(left, y, "Deleting", c.text);
+  for (let i = 0; i < 3; i++) grid.put(left + 8 + i, y, ".", sidebar.pulse(i, now));
+  const span = Math.min(8, width),
+    travel = Math.max(1, width - span),
+    step = Math.floor(now / tick_ms) % (2 * travel),
+    from = step < travel ? step : 2 * travel - step;
+  for (let i = 0; i < width; i++) {
+    const lit = i >= from && i < from + span;
+    grid.put(left + i, y + 1, lit ? "━" : "─", lit ? c.accent : c.line);
+  }
 }

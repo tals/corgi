@@ -1487,17 +1487,20 @@ export function portLabel(ws: WorkspaceEntry): string {
   const text = name.length > 0 ? name : "Open Link";
   return count === 1 ? `${text} ↗` : `${text} ↗ ${count}`;
 }
-/** A label still `naming` its link starts "Open ...". Keep all three dots in
- * place; only their brightness travels gently. Quantized to 80ms so idle
- * viewers do not emit a different frame every poll. */
+/** The color of the `i`th of three dots that say work is under way: they
+ * stay in place, and only their brightness travels gently. Quantized to
+ * 80ms so idle viewers do not emit a different frame every poll. */
+export function pulse(i: number, now_ms: number): palette.Rgb {
+  const phase = mod(Math.floor(now_ms / 80) * 80 - i * 160, 1800);
+  const glow = phase < 640 ? 320 - Math.abs(phase - 320) : 0;
+  return mix(colors.muted, colors.strong, Math.floor((glow * 100) / 320));
+}
+/** A label still `naming` its link starts "Open ...", its dots pulsing. */
 export function writePortLabel(w: Writer, label: string, width: number, naming: boolean, now_ms: number): void {
   if (!naming) return writeClipped(w, label, width);
   writeClipped(w, "Open ", width);
   for (let i = 0; i < Math.min(3, sat(width, 5)); i++) {
-    const phase = mod(Math.floor(now_ms / 80) * 80 - i * 160, 1800);
-    const glow = phase < 640 ? 320 - Math.abs(phase - 320) : 0;
-    const color = mix(colors.muted, colors.strong, Math.floor((glow * 100) / 320));
-    w.write(fgRgb(color));
+    w.write(fgRgb(pulse(i, now_ms)));
     w.write(".");
   }
   w.write(fg("text"));

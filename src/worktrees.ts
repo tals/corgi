@@ -67,3 +67,22 @@ export function writtenPaths(agent: object): string[] {
 export function clearWrites(agent: object): void {
   writes.delete(agent);
 }
+/** A worktree being removed, as the daemon reports it: Git deleting it,
+ * then done, stopped by the user, or failed with an error name. */
+export interface Removal {
+  /** Which removal: each one the daemon starts gets the next. */
+  id: number;
+  path: string;
+  phase: "deleting" | "done" | "stopped" | "failed";
+  error: string;
+}
+export function removal(value: any): Removal | null {
+  const phases: Removal["phase"][] = ["deleting", "done", "stopped", "failed"];
+  if (!value || typeof value.path !== "string" || !phases.includes(value.phase)) return null;
+  return {
+    id: Number(value.id) || 0,
+    path: value.path,
+    phase: value.phase,
+    error: typeof value.error === "string" ? value.error : "",
+  };
+}

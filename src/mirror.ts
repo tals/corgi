@@ -16,7 +16,7 @@ import type { Provider } from "./providers";
 import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
 import * as errors from "./errors";
-import type { Snapshot as Worktrees } from "./worktrees";
+import { removal as worktreeRemoval, type Removal, type Snapshot as Worktrees } from "./worktrees";
 
 export interface Transport {
   socket?: string;
@@ -285,6 +285,8 @@ export interface Workspace {
   worktrees: Worktrees | null;
   git_ref: any;
   git_push: { phase: "idle" | "pushing" | "succeeded" | "failed"; message: string };
+  /** A worktree being removed, or the last one removed, while the daemon reports it. */
+  worktree_removal: Removal | null;
   stats: any;
 }
 function workspace(value: any): Workspace {
@@ -302,6 +304,7 @@ function workspace(value: any): Workspace {
     worktrees: worktreeSnapshot(value.worktrees),
     git_ref: value.git_ref ?? {},
     git_push: { phase: value.git_push?.phase ?? "idle", message: value.git_push?.message ?? "" },
+    worktree_removal: worktreeRemoval(value.worktree_removal),
     stats: { tools: 0, input: 0, output: 0, tokens_known: false, ...(value.stats ?? {}) },
   };
 }

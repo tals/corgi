@@ -266,6 +266,8 @@ export class Controller {
   link_tooltip = new LinkTooltip();
   git_hover: number | null = null;
   worktree_card = new worktreeTooltip.State();
+  /** The worktree the overview selects once the removed one is gone. */
+  private removal_next: string | null = null;
   worktree_agents = new worktreeAgents.State();
   resource_card = new resourceTooltip.State();
   resource_aim: resourceTooltip.Aim | null = null;
@@ -1042,25 +1044,34 @@ export class Controller {
     this.tab_menu = opened;
     this.dirty = true;
   }
-  /** Has the daemon remove a worktree whose hold completed, over a
-   * connection of its own: removing a big checkout takes seconds, and the
-   * viewer keeps drawing the row coming apart meanwhile. */
-  private async removeWorktree(selection: worktreeAgents.Selection, next: string | null): Promise<void> {
-    const fields = { workspace: selection.workspace, path: selection.path },
-      socket = this.connection.socket;
-    let reason: string | null = null;
-    try {
-      if (socket) await rpc.request(socket, "worktree.remove", fields);
-      else await call(this.connection, "worktree.remove", fields);
-    } catch (error) {
-      reason = removalReason(errors.name(error));
+  /** Follows the daemon's report on a removal under way: its progress, then
+   * how it ended. Reports of an earlier removal are not this one's. */
+  private followRemoval(): void {
+    const card = this.worktree_card,
+      hold = card.removal,
+      t = hold.target;
+    if (hold.phase !== "removing" || !t || !hold.job) return;
+    const report = this.runtime.workspaces.items.find(w => w.id === t.workspace)?.worktree_removal ?? null;
+    if (report?.id !== hold.job) return;
+    hold.report = report;
+    const now = milliTimestamp();
+    switch (report.phase) {
+      case "done":
+        hold.settle(now, null);
+        if (card.selected === t.path) card.select(this.removal_next);
+        break;
+      case "stopped":
+        hold.stopped(now);
+        break;
+      case "failed": {
+        const reason = removalReason(report.error);
+        hold.settle(now, reason);
+        if (card.workspace !== t.workspace) this.notice(` Couldn't remove ${t.name}: ${reason}`);
+        break;
+      }
+      default:
+        break;
     }
-    const card = this.worktree_card;
-    card.removal.settle(milliTimestamp(), reason);
-    if (reason === null && card.selected === selection.path) card.select(next);
-    if (reason !== null && card.workspace !== selection.workspace)
-      this.notice(` Couldn't remove ${card.removal.target?.name ?? "the worktree"}: ${reason}`);
-    this.dirty = true;
   }
   /** The panes of the agents listed under a worktree, folded or not. */
   private worktreePanes(selection: worktreeAgents.Selection): number[] {
@@ -1501,7 +1512,7 @@ export class Controller {
           panes = this.worktreePanes(selection);
         card.select(checkout.path);
         this.dirty = true;
-        const target = worktreeRemoval.target(checkout, index, panes.length);
+        const target = worktreeRemoval.target(ws.id, checkout, index, panes.length);
         if (!card.removal.press(milliTimestamp(), target, card.removalEffect())) break;
         try {
           for (const id of panes) await this.close(id);
@@ -1509,7 +1520,28 @@ export class Controller {
           card.removal.settle(milliTimestamp(), "its agents didn't close");
           break;
         }
-        void this.removeWorktree(selection, (entries[index + 1] ?? entries[index - 1])?.path ?? null);
+        // The daemon deletes the files in the background and reports on them.
+        try {
+          const reply = await call(this.connection, "worktree.remove", selection);
+          card.removal.job = Number(reply.removal) || 0;
+          this.removal_next = (entries[index + 1] ?? entries[index - 1])?.path ?? null;
+          // A daemon that removes before it answers sends no removal to follow.
+          if (!card.removal.job) {
+            card.removal.settle(milliTimestamp(), null);
+            if (card.selected === selection.path) card.select(this.removal_next);
+          }
+        } catch (error) {
+          card.removal.settle(milliTimestamp(), removalReason(errors.name(error)));
+        }
+        break;
+      }
+      case "worktree-stop": {
+        const t = this.worktree_card.removal.target;
+        if (this.worktree_card.removal.phase !== "removing" || !t) break;
+        try {
+          await call(this.connection, "worktree.stop", { workspace: t.workspace });
+        } catch {}
+        this.dirty = true;
         break;
       }
       case "worktree-agent": {
@@ -2732,7 +2764,11 @@ export class Controller {
     const cl = this.input_state;
     this.repeat_until = 0;
     if (this.worktreeDetail() !== null) {
-      if (byte === 27) return this.perform({ name: "worktree-close" });
+      // Esc stops a removal under way; otherwise it closes the overview.
+      if (byte === 27)
+        return this.perform({
+          name: this.worktree_card.removal.phase === "removing" ? "worktree-stop" : "worktree-close",
+        });
       if (this.worktree_card.pinned) {
         if (byte === 13) await this.perform({ name: "worktree-enter" });
         else if (byte === 106 || byte === 14 || byte === 9) await this.perform({ name: "worktree-next" });
@@ -4617,6 +4653,7 @@ export class Controller {
     }
     const removal = this.worktree_card.removal;
     if (removal.phase !== "idle") {
+      this.followRemoval();
       removal.advance(milliTimestamp());
       this.dirty = true;
     }
@@ -5076,6 +5113,8 @@ function removalReason(err: string | null): string {
       return "a workspace is open in it";
     case "WorktreeRemoveFailed":
       return "git couldn't remove it";
+    case "WorktreeRemoving":
+      return "another one is being removed";
     case "UnknownOperation":
       return "reload Corgi's daemon first";
     default:

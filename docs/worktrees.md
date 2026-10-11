@@ -38,10 +38,19 @@ after a removal are ignored until the key is released, so the next worktree is
 safe.
 
 The viewer closes the agents listed under the worktree, then asks the daemon
-(`worktree.remove`, on a connection of its own, since a large checkout takes
-seconds to delete) to run `git worktree remove --force`. The branch and its
-commits stay. A locked worktree, or one a workspace is open in, is refused and
-the footer says why.
+to remove it (`worktree.remove`). A locked worktree, or one a workspace is
+open in, is refused and the footer says why. Otherwise the daemon runs
+`git worktree remove --force` in the background, since a checkout with
+`node_modules` takes seconds and requests wait on each other. The branch and
+its commits stay. Snapshots say whether Git is still at it in
+`workspaces[].worktree_removal`.
+
+When Git is still deleting once the ending has played, the row shows
+“Deleting...” with its dots pulsing, and a short stretch of a bar sweeping
+back and forth, since Git says nothing of how far it got. Esc stops it
+(`worktree.stop`) by killing Git: the worktree stays, short of whatever was
+already deleted, and the footer says “Stopped removing topic · some of its
+files may be gone”.
 
 ## Local data
 
