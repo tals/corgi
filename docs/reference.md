@@ -150,9 +150,9 @@ top of the screen to the bottom, and the panes stay where they are; the same
 key again, Esc, or a click outside it puts the drawer away. An agent no pane
 shows appears as a dimmed ghost across the bottom half of the screen, each line
 where entering it will put it; a hibernated agent stays asleep. Enter opens the
-row as a click would; Right opens an agent, a recent session or a workspace,
-and otherwise returns to the pane. Esc returns without changing anything, and
-typing in the open sidebar starts an agent search as `prefix g` does. Any other
+row as a click would; Right opens an agent or a workspace, and otherwise
+returns to the pane. Esc returns without changing anything, and typing in the
+open sidebar starts an agent search as `prefix g` does. Any other
 prefixed command, or a click, gives the keyboard back to the pane.
 
 Click **+** after the visible tabs, choose **New tab** from a menu, or press `prefix c` to open the agent picker, which starts an agent or a terminal in a new tab. Unnamed tabs store no name: their displayed numbers are recomputed as tabs move or close. The + button remains visible when tabs overflow. The CLI/control API creates tabs immediately, unnamed unless an explicit title is supplied.

@@ -140,7 +140,7 @@ const commands: Record<string, string> = {
   "agent.visibility": "hidden!",
   "agent.yolo": "provider! enabled!",
   "agent.create": "workspace! cwd provider",
-  "agent.resume": "workspace! cwd! provider! session!",
+  "agent.resume": "workspace! cwd! provider! session! asleep name",
   "agent.rename": "target! name",
   "agent.fork": "target! name check",
   "pane.create": "workspace! from cwd command title",
@@ -171,6 +171,7 @@ const defaults: Record<string, Record<string, unknown>> = {
   "agent.command": { hidden: false, name: null, original: null, semantics: null, resolve: true, cwd: null },
   "agent.command.create": { cwd: "" },
   "agent.create": { cwd: "", provider: null },
+  "agent.resume": { asleep: false, name: "" },
   "agent.rename": { name: null },
   "agent.fork": { name: null, check: false },
   "pane.create": { from: null, cwd: "", command: null, title: "" },
@@ -208,7 +209,7 @@ export function decodeCommand(value: unknown): Command {
     if (["name", "cwd", "command", "original", "text", "data", "title", "session"].includes(field))
       validate(item, defaults[name]?.[field] === null ? "?string" : "string");
     if (
-      ["check", "resolve", "close_contents", "enter", "enabled", "shell"].includes(field) ||
+      ["check", "resolve", "close_contents", "enter", "enabled", "shell", "asleep"].includes(field) ||
       (field === "hidden" && name !== "agent.visibility")
     )
       validate(item, "bool");

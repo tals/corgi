@@ -102,12 +102,13 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       return location(r, pane);
     }
     case "agent.resume": {
-      const opts = spawnOptions(r, ctx, q.workspace, null, q.cwd ?? ""),
+      const opts = { ...spawnOptions(r, ctx, q.workspace, null, q.cwd ?? ""), asleep: q.asleep === true },
         closed = r.closedConversation(q.provider, q.session);
       if (closed !== null) return location(r, await r.reopenClosed(closed, opts));
       const h = new ResumeHint();
       h.provider = q.provider;
       h.session = new Text(q.session);
+      h.name = new Text(q.name ?? "");
       return location(
         r,
         await r.resumeAgent(

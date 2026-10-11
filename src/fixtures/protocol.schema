@@ -44,6 +44,8 @@ $.requests|session.command.command|agent.resume.workspace: u32
 $.requests|session.command.command|agent.resume.cwd: string
 $.requests|session.command.command|agent.resume.provider: enum codex claude
 $.requests|session.command.command|agent.resume.session: string
+$.requests|session.command.command|agent.resume.asleep: bool
+$.requests|session.command.command|agent.resume.name: string
 $.requests|session.command.command|agent.rename.target: u32
 $.requests|session.command.command|agent.rename.name: optional
 $.requests|session.command.command|agent.rename.name?: string

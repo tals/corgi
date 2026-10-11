@@ -11,9 +11,9 @@ export function same(a: Cursor, b: Cursor): boolean {
   if ("workspace" in a) return "workspace" in b && a.workspace === b.workspace;
   return "entry" in b && sameTarget(a.entry, b.entry);
 }
-/** List rows the cursor stops on: not a closing row or a worktree's empty note. */
+/** List rows the cursor stops on: not a closing row. */
 export function stops(e: Entry): boolean {
-  return e.exit === null && !("empty" in e.target);
+  return e.exit === null;
 }
 /** The focused agent's row, or the folded header standing in for it, else the list's first. */
 function agentRow(entries: Entry[]): Cursor | null {

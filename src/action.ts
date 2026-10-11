@@ -20,7 +20,6 @@ export const specs: Record<string, string> = {
   "worktree-close": "void",
   "worktree-select": "[]const u8",
   "worktree-agent": "usize",
-  "worktree-more": "usize",
   "worktree-enter": "void",
   "goto-workspace": "usize",
   "close-workspace": "void",

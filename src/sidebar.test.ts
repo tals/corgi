@@ -1085,7 +1085,7 @@ test("a worktree's group runs while rows are its checkout's", () => {
   const entries = [
     entry({ target: { worktree: "/w", workspace: 1 }, worktree: info }),
     entry({ target: { pane: 1 }, worktree: info }),
-    entry({ target: { more: "/w", workspace: 1 }, worktree: info }),
+    entry({ target: { asleep: "s", provider: "claude" }, worktree: info }),
     entry({ target: { worktree: "/v", workspace: 1 }, worktree: { ...info, path: "/v" } }),
     entry({ target: { pane: 2 } }),
   ];

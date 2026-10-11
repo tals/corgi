@@ -7,9 +7,9 @@ export interface Selection {
   path: string;
 }
 export const key = (selection: Selection) => `${selection.workspace}:${selection.path}`;
+/** How many conversations entering a worktree with no agents brings back. */
+export const hibernated = 3;
 export class State {
-  introduced = new Map<string, Selection>();
-  expanded = new Set<string>();
   folded = new Set<string>();
   previewed: string | null = null;
   appearing: string | null = null;
@@ -48,15 +48,32 @@ export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sideb
   const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, entry.target));
   return associations.length ? associations.some(a => a.path === path) : checkoutAt(snapshot, entry.cwd) === path;
 }
+/** The conversations entering the checkout at `path` brings back asleep:
+ * its newest that no pane has open. */
+export function conversations(
+  snapshot: worktrees.Snapshot,
+  path: string,
+  history: launcherResume.Entry[],
+  open: ReadonlySet<string>,
+): launcherResume.Entry[] {
+  return history
+    .filter(e => !open.has(`${e.provider}:${e.session}`) && checkoutAt(snapshot, e.cwd) === path)
+    .sort((a, b) => b.updated_at - a.updated_at)
+    .slice(0, hibernated);
+}
+/** A hibernated agent's name, as the launcher titles its conversation. */
+export function name(e: launcherResume.Entry): string {
+  return e.title || e.first;
+}
+/** A worktree's header and agents; with none, the `asleep` agents entering
+ * it would bring back. */
 export function group(
   snapshot: worktrees.Snapshot,
   selection: Selection,
   agents: sidebar.Entry[],
-  history: launcherResume.Entry[],
-  open: ReadonlySet<string>,
+  asleep: launcherResume.Entry[],
   state: State,
   ghost = false,
-  pending = false,
 ): sidebar.Entry[] {
   const checkout = worktrees.linked(snapshot).find(e => e.path === selection.path);
   if (!checkout) return [];
@@ -70,7 +87,7 @@ export function group(
     // A folded header stands in for the focused agent it hides.
     focused: folded && live.some(e => e.focused),
     group: {
-      agents: live.length,
+      agents: live.length || asleep.length,
       working: live.filter(e => e.state === "working").length,
       attention: live.filter(e => e.attention === "needs_input").length,
       folded,
@@ -79,57 +96,34 @@ export function group(
   });
   if (folded) return [header];
   if (live.length) return [header, ...live.map(e => ({ ...e, worktree: info }))];
-  const recent = history
-    .filter(e => !open.has(`${e.provider}:${e.session}`) && checkoutAt(snapshot, e.cwd) === selection.path)
-    .sort((a, b) => b.updated_at - a.updated_at);
-  const expanded = state.expanded.has(key(selection));
-  const rows = recent.slice(0, expanded ? recent.length : 3).map(e =>
-    sidebar.entry({
-      target: { recent: e.session, provider: e.provider, workspace: selection.workspace, path: selection.path },
-      recent: e,
-      worktree: info,
-      provider: e.provider,
-      name: e.title || e.last || e.first || e.provider,
-      cwd: e.cwd,
-      state: "done",
-      activity: `Recent · ${launcherResume.ageLabel(Math.max(0, Date.now() / 1000 - e.updated_at))} ago`,
-    }),
-  );
-  if (recent.length > 3)
-    rows.push(
+  return [
+    header,
+    ...asleep.map(e =>
       sidebar.entry({
-        target: { more: selection.path, workspace: selection.workspace },
+        target: { asleep: e.session, provider: e.provider },
         worktree: info,
-        name: expanded ? "… less" : `… more (${recent.length - 3})`,
+        provider: e.provider,
+        name: name(e),
+        cwd: e.cwd,
       }),
-    );
-  if (!recent.length)
-    rows.push(
-      sidebar.entry({
-        target: { empty: selection.path, workspace: selection.workspace },
-        worktree: info,
-        name: pending ? "Loading recent agents…" : "No recent agents",
-      }),
-    );
-  return [header, ...rows];
+    ),
+  ];
 }
+/** Agents with each worktree that has any under its header, after the rest. */
 export function grouped(
   snapshot: worktrees.Snapshot | null,
   workspace: number,
   agents: sidebar.Entry[],
-  history: launcherResume.Entry[],
-  open: ReadonlySet<string>,
   state: State,
 ): sidebar.Entry[] {
   if (!snapshot) return agents;
   const groups: sidebar.Entry[] = [],
     assigned = new Set<sidebar.Entry>();
   for (const checkout of worktrees.linked(snapshot)) {
-    const selection = { workspace, path: checkout.path },
-      live = agents.filter(e => belongs(snapshot, checkout.path, e));
-    if (!live.length && !state.introduced.has(key(selection))) continue;
+    const live = agents.filter(e => belongs(snapshot, checkout.path, e));
+    if (!live.length) continue;
     for (const entry of live) assigned.add(entry);
-    groups.push(...group(snapshot, selection, agents, history, open, state));
+    groups.push(...group(snapshot, { workspace, path: checkout.path }, agents, [], state));
   }
   return [...agents.filter(e => !assigned.has(e)), ...groups];
 }

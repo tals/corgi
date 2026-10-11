@@ -25,7 +25,6 @@ import {
   zigRound,
 } from "./text";
 import { max_panes, max_workspaces } from "./layout";
-import type { Entry as Recent } from "./launcher_resume";
 export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, zigRound } from "./text";
 
 /** Agents plus one header per workspace in the grouped "All" list. */
@@ -72,9 +71,9 @@ export type Target =
   | OrderTarget
   | { group: number }
   | { worktree: string; workspace: number }
-  | { recent: string; provider: Provider; workspace: number; path: string }
-  | { more: string; workspace: number }
-  | { empty: string; workspace: number };
+  /** A conversation a browsed worktree's ghost shows, which entering it
+   * brings back as a hibernated agent. */
+  | { asleep: string; provider: Provider };
 export const isAgent = (t: Target): t is OrderTarget => "pane" in t || "native" in t;
 export const isHeading = (t: Target): boolean => "group" in t || "worktree" in t;
 export function sameTarget(a: Target | null | undefined, b: Target | null | undefined): boolean {
@@ -127,7 +126,6 @@ export interface Subagents {
 }
 export interface Entry {
   worktree: { workspace: number; path: string; ghost: boolean; end?: boolean } | null;
-  recent: Recent | null;
   conversation: number;
   children: number;
   exit: { frame_ms: number; progress: number } | null;
@@ -156,7 +154,6 @@ export interface Entry {
 export function entry(fields: Partial<Entry> & { target: Target }): Entry {
   return {
     worktree: null,
-    recent: null,
     conversation: 0,
     children: 0,
     exit: null,
@@ -433,7 +430,7 @@ export class View {
     return sat(this.listEnd(), this.middle() + 2);
   }
   static height(e: Entry): number {
-    const content = isHeading(e.target) || "more" in e.target || "empty" in e.target ? 1 : 2;
+    const content = isHeading(e.target) ? 1 : 2;
     return content + (e.worktree?.ghost ? Number("worktree" in e.target) + Number(e.worktree.end === true) : 0);
   }
   /** The headers of the groups the entry at `from` belongs to, which stay
@@ -833,12 +830,6 @@ export class View {
         if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
         return;
       }
-      if ("more" in e.target || "empty" in e.target || e.recent) {
-        v.drawWorktree(row_writer, e, y, lastInGroup(absolute));
-        v.drawGhost(row_writer, e, top);
-        if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
-        return;
-      }
       const in_group = grouped || e.worktree !== null;
       const last_in_group = in_group && lastInGroup(absolute);
       const divider = !in_group && index + 1 < Math.min(entries.length - v.offset, v.capacity);
@@ -1071,24 +1062,6 @@ export class View {
     }
     w.write("\x1b[22;24;59m");
   }
-  /** A worktree group's recent session, its "… more" row or its empty note,
-   * on the group's rail and aligned with agent names. */
-  drawWorktree(w: Writer, e: Entry, y: number, last: boolean): void {
-    const style = new Style({ fg: "text", bg: e.focused ? "selected" : "bg" }).sgr();
-    const height = e.recent ? 2 : 1;
-    for (let row = 0; row < height; row++) {
-      w.write(`\x1b[${y + row + 1};1H${style}`);
-      w.splat(" ", this.width - 1);
-    }
-    w.write(`\x1b[${y + 1};1H` + fg("line") + (last ? "╰" : "├"));
-    if (height === 2 && !last) w.write(`\x1b[${y + 2};1H│`);
-    w.write(`\x1b[${y + 1};5H` + fg("text"));
-    writeEllipsis(w, e.name, this.width - 6);
-    if (e.recent) {
-      w.write(`\x1b[${y + 2};5H` + fg("faint"));
-      writeEllipsis(w, `${e.recent.provider} · ${e.activity}`, this.width - 6);
-    }
-  }
   drawGhost(w: Writer, e: Entry, y: number): void {
     if (!e.worktree?.ghost) return;
     const style = new Style({ fg: "faint", bg: "bg" }).sgr(),
@@ -1164,6 +1137,7 @@ function contextFigure(
 export function animationKey(e: Entry): bigint {
   if ("pane" in e.target) return BigInt(e.target.pane) * 17n;
   if ("native" in e.target) return (BigInt(e.target.native) + 0x100000000n) * 17n;
+  if ("asleep" in e.target) return BigInt(Bun.hash.wyhash(e.target.asleep, 0n)) + (1n << 64n);
   throw Error("unreachable");
 }
 function subagentBadge(status: Subagents, children: number): string {

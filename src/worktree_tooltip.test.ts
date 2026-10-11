@@ -125,29 +125,41 @@ test("pinned worktrees own keys and paste; Escape closes the table without reach
 });
 
 function browsing() {
-  const requests: unknown[] = [];
-  const view = new Controller({
-    request: async (op, fields) => {
-      requests.push({ op, ...fields });
-      throw Error("TestResume");
-    },
-  });
+  const requests: any[] = [];
   const data = snapshot(2);
   data.agents = [{ target: { native: 7 }, path: data.entries[2].path, source: "write", stale: false }];
-  view.receiveSnapshot({
-    workspaces: [{ id: 1, name: "repo", cwd: "/repo", worktrees: data, model: { nodes: [], tabs: [], revision: 0 } }],
-    panes: [],
-    native_sessions: [
-      {
-        id: 7,
-        workspace: 1,
-        provider: "codex",
-        cwd: "/repo",
-        state: "idle",
-        agent: { provider: "codex", name: "Search agent", session: "running", cwd: "/repo" },
-      },
-    ],
+  // A shell in the only tab, and a daemon that opens resumed agents asleep in new tabs.
+  const model = { nodes: [{ pane: 1 }] as any[], tabs: [{ id: 1, root: 0 }], revision: 0 },
+    state = {
+      workspaces: [{ id: 1, name: "repo", cwd: "/repo", worktrees: data, model }],
+      panes: [{ id: 1, workspace: 1, tab: 1, cols: 80, rows: 24, cwd: "/repo" }] as any[],
+      native_sessions: [
+        {
+          id: 7,
+          workspace: 1,
+          provider: "codex",
+          cwd: "/repo",
+          state: "idle",
+          agent: { provider: "codex", name: "Search agent", session: "running", cwd: "/repo" },
+        },
+      ],
+    };
+  const view = new Controller({
+    request: async (op, fields: any) => {
+      requests.push({ op, ...fields });
+      if (op === "session.snapshot") return state;
+      const resume = fields?.command?.["agent.resume"];
+      if (!resume?.asleep) throw Error("TestResume");
+      const id = state.panes.length + 1,
+        agent = { provider: resume.provider, session: resume.session, name: resume.name, cwd: resume.cwd };
+      model.nodes.push({ pane: id });
+      model.tabs.push({ id, root: model.nodes.length - 1 });
+      model.revision += 1;
+      state.panes.push({ id, workspace: 1, tab: id, cols: 80, rows: 24, cwd: resume.cwd, dormant: true, agent });
+      return { result: { pane: id, workspace: 1 } };
+    },
   });
+  view.receiveSnapshot(state);
   view.launch_previews.history = {
     pending: false,
     entries: Array.from({ length: 5 }, (_, i) =>
@@ -180,7 +192,7 @@ test("hovered worktrees own legacy, application and Kitty arrows before hover ca
     expect(requests).toHaveLength(0);
     await view.input(Buffer.from("\x1b[A"));
     const entries = (view as any).sidebarEntries();
-    expect(entries.filter((e: any) => e.recent)).toHaveLength(3);
+    expect(entries.filter((e: any) => "asleep" in e.target)).toHaveLength(3);
     expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
     await view.input(Buffer.from("\x1b[27u"));
     expect(view.worktreeDetail()).toBeNull();
@@ -190,57 +202,64 @@ test("hovered worktrees own legacy, application and Kitty arrows before hover ca
   await view.input(Buffer.from("[B"));
   expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
 });
-test("a ghost augments the sidebar, expands recent agents and Enter keeps it in place", async () => {
-  const { view } = browsing(),
-    terminal = new Terminal(100, 30);
+test("a ghost previews a worktree's newest conversations as agents; Enter brings them back asleep", async () => {
+  const { view, requests } = browsing(),
+    terminal = new Terminal(100, 30),
+    path = "/repo/.worktrees/0";
   try {
     let entries = (view as any).sidebarEntries();
     expect(entries[0].worktree.ghost).toBe(true);
     expect(entries[0].enter).toBe(0);
     view.worktree_agents.appeared_at -= 300;
     expect((view as any).sidebarEntries()[0].enter).toBeNull();
-    expect(entries.filter((e: any) => e.recent)).toHaveLength(3);
+    expect(entries.filter((e: any) => "asleep" in e.target).map((e: any) => e.name)).toEqual([
+      "Recent 0",
+      "Recent 1",
+      "Recent 2",
+    ]);
     expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
     terminal.feed(view.frame());
-    let text = terminal.text();
+    const text = terminal.text();
     expect(text).toContain("Recent 0");
     expect(text).not.toContain("Recent 3");
-    expect(text).toContain("… more (2)");
+    expect(text).not.toContain("more");
     expect(text).toContain("Search agent");
-    expect(text).toContain("╶───├");
     expect(text).toContain("╭┄┄┄");
     expect(text).toContain("⌥ topic-0");
-    expect(text).not.toContain("Summary");
-    await view.perform({ name: "worktree-more", value: entries.findIndex((e: any) => "more" in e.target) });
-    entries = (view as any).sidebarEntries();
-    expect(entries.filter((e: any) => e.recent)).toHaveLength(5);
     await view.input(Buffer.from("\r"));
     expect(view.worktreeDetail()).toBeNull();
+    expect(requests.filter(r => r.op === "session.command").map(r => r.command)).toEqual(
+      [0, 1, 2].map(i => ({
+        "agent.resume": {
+          workspace: 1,
+          cwd: path,
+          provider: "claude",
+          session: `session-${i}`,
+          asleep: true,
+          name: `Recent ${i}`,
+        },
+      })),
+    );
     entries = (view as any).sidebarEntries();
-    expect(entries.some((e: any) => e.worktree?.ghost)).toBe(false);
-    expect(entries.filter((e: any) => e.recent)).toHaveLength(5);
-    expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
+    expect(entries.some((e: any) => e.worktree?.ghost || "asleep" in e.target)).toBe(false);
+    const group = entries.findIndex((e: any) => e.target.worktree === path);
+    expect(entries.slice(group + 1, group + 4).map((e: any) => [e.target, e.name])).toEqual([
+      [{ pane: 2 }, "Recent 0"],
+      [{ pane: 3 }, "Recent 1"],
+      [{ pane: 4 }, "Recent 2"],
+    ]);
+    // They stay asleep: focus stays on the shell.
+    expect(view.focused()?.id).toBe(1);
   } finally {
     terminal.destroy();
   }
 });
-test("recent rows resume their session; entering a live group focuses its agent", async () => {
+test("clicking a ghost's agent brings its group back and wakes it; entering a live group focuses its agent", async () => {
   const { view, requests } = browsing();
   const entries = (view as any).sidebarEntries();
-  await view.perform({ name: "worktree-agent", value: entries.findIndex((e: any) => e.recent) });
-  expect(requests).toMatchObject([
-    {
-      op: "session.command",
-      command: {
-        "agent.resume": {
-          workspace: 1,
-          provider: "claude",
-          session: "session-0",
-          cwd: "/repo/.worktrees/0",
-        },
-      },
-    },
-  ]);
+  await view.perform({ name: "worktree-agent", value: entries.findIndex((e: any) => e.target.asleep === "session-1") });
+  expect(requests.filter(r => r.command?.["agent.resume"]?.asleep)).toHaveLength(3);
+  expect(view.focused()?.id).toBe(3);
   const { view: live } = browsing();
   await live.input(Buffer.from("\x1b[B\r"));
   expect(live.native_notice).toBe(7);
@@ -253,7 +272,7 @@ test("Escape removes an uncommitted ghost without changing normal agents", async
   await view.input(Buffer.from("\x1b[27u"));
   const entries = (view as any).sidebarEntries();
   expect(entries.some((e: any) => e.worktree?.ghost)).toBe(false);
-  expect(entries.some((e: any) => e.recent)).toBe(false);
+  expect(entries.some((e: any) => "asleep" in e.target)).toBe(false);
   expect(entries.some((e: any) => e.name === "Search agent")).toBe(true);
 });
 test("browsing an offscreen group scrolls the existing sidebar without a duplicate", async () => {
@@ -294,7 +313,7 @@ test("a worktree header folds its group on click and entering the worktree unfol
   await view.perform({ name: "worktree-agent", value: header });
   expect(rows()[header].group.folded).toBe(true);
   expect(rows().some((e: any) => e.name === "Search agent")).toBe(false);
-  (view as any).enterWorktree({ workspace: 1, path });
+  await (view as any).enterWorktree({ workspace: 1, path });
   expect(rows()[header].group.folded).toBe(false);
   expect(rows()[header].focused).toBe(false);
   expect(rows().some((e: any) => e.name === "Search agent")).toBe(true);

@@ -45,7 +45,7 @@ class Worktrees extends Runtime {
     this.assertIn("Compared with local main", (await a.poll()).data);
     this.assertNotIn("Compared with local main", (await b.poll()).data);
     await this.until(async () => (await a.poll()).data.includes("Checkout history"), 15);
-    this.assertIn("… more (2)", (await a.poll()).data);
+    this.assertNotIn("… more", (await a.poll()).data);
     this.assertIn("╭┄┄┄", (await a.poll()).data);
     await this.until(
       async () =>
@@ -53,7 +53,6 @@ class Worktrees extends Runtime {
           ?.comparison?.ahead === 1,
     );
     await a.input("\x1b[B");
-    this.assertIn("Pinned", (await a.poll()).data);
     this.assertIn("Compared with local main", (await a.poll()).data);
     writeFileSync(join(this.temp.name, ".worktrees/search/new-file"), "work\n");
     await this.advance(4);
@@ -74,7 +73,18 @@ class Worktrees extends Runtime {
     await a.input("\x1b[<0;20;4M\x1b[<0;20;4m");
     await a.input("\r");
     this.assertNotIn("Compared with local main", (await a.poll()).data);
-    this.assertIn("Checkout history", a.state.data);
+    // Entering the checkout brings its three newest conversations back asleep.
+    await this.until(async () => (await this.panes()).filter((p: any) => p.dormant).length === 3);
+    for (const p of (await this.panes()).filter((p: any) => p.dormant)) {
+      this.assertTrue(p.agent.name.startsWith("Checkout history"), p.agent.name);
+      this.assertEqual([p.provider, p.state, p.pid > 0], ["claude", "idle", false]);
+      this.assertIn("--resume", p.restoring);
+    }
+    const [first] = (await this.panes()).filter((p: any) => p.dormant);
+    await this.command("pane.wake", { target: first.id });
+    await this.until(async () => (await this.panes()).find((p: any) => p.id === first.id)?.pid > 0);
+    await a.advance(0.5);
+    this.assertIn("Checkout history", (await a.poll()).data);
     this.assertNotIn("╭┄┄┄", a.state.data);
   }
 }

@@ -144,7 +144,8 @@ connection, the daemon pushes `{type: "agent.history", update}` messages
 instead: `update.full` replaces the list, otherwise `entries` replace those
 with the same provider and session and `removed` drops some. The session
 command `agent.resume` (workspace, cwd, provider, session) starts the resumed
-agent.
+agent. With `asleep`, its tab opens hibernated, named `name`, and the agent
+starts once its pane is focused.
 
 ## Manage agents and saved commands
 

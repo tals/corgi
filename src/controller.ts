@@ -428,9 +428,9 @@ export class Controller {
       this.leaveSidebar();
       return this.selectAgent(target);
     }
-    if (arrow && !("recent" in target)) return this.leaveSidebar();
+    if (arrow) return this.leaveSidebar();
     if ("group" in target) return this.selectAgent(target);
-    await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
+    await this.perform({ name: "worktree-agent", value: index });
   }
   /** The agent under the sidebar's cursor, where entering it would put it,
    * while no pane shows it. */
@@ -679,8 +679,6 @@ export class Controller {
   }
   agentEntries(workspace?: number): Entry[] {
     const entries: Entry[] = [];
-    const history = this.worktree_agents.introduced.size ? this.mergedHistory() : [],
-      open = history.length ? this.openSessions() : new Set<string>();
     const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
     // "All" groups agents under a header per workspace that has any.
     const grouped = workspace === undefined && this.prefs.agents === "all";
@@ -689,11 +687,7 @@ export class Controller {
       if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
       if (grouped) {
         const total = totals[ws_index];
-        if (
-          (total.agents === 0 && ![...this.worktree_agents.introduced.values()].some(s => s.workspace === ws.id)) ||
-          entries.length === sidebar.max_entries
-        )
-          return;
+        if (total.agents === 0 || entries.length === sidebar.max_entries) return;
         const folded = this.groupFolded(ws.id);
         const here = ws.id === this.current().id;
         // A folded header stands in for the focused agent it hides.
@@ -765,9 +759,7 @@ export class Controller {
         .slice(first_agent)
         .sort((l, r) => (sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0));
       const decorated =
-        workspace === undefined
-          ? worktreeAgents.grouped(ws.worktrees, ws.id, sorted, history, open, this.worktree_agents)
-          : sorted;
+        workspace === undefined ? worktreeAgents.grouped(ws.worktrees, ws.id, sorted, this.worktree_agents) : sorted;
       entries.splice(first_agent, sorted.length, ...decorated);
     });
     const now = microTimestamp();
@@ -800,11 +792,9 @@ export class Controller {
           snapshot,
           selected,
           this.agentEntries(selected.workspace),
-          this.mergedHistory(),
-          this.openSessions(),
+          worktreeAgents.conversations(snapshot, selected.path, this.mergedHistory(), this.openSessions()),
           this.worktree_agents,
           true,
-          this.launch_previews.history.pending,
         );
         const shown = this.worktree_agents.animate(ghost, selected, milliTimestamp());
         entries = folded ? [...entries.slice(0, index), ...shown, ...entries.slice(index + 1)] : [...shown, ...entries];
@@ -829,7 +819,7 @@ export class Controller {
     return null;
   }
   private selectAgent(target: Target): void {
-    if ("worktree" in target) return this.enterWorktree({ workspace: target.workspace, path: target.worktree });
+    if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
     if (!sidebar.isAgent(target) && !("group" in target)) return;
     this.rememberAgent();
     this.copy_mode = false;
@@ -1460,34 +1450,28 @@ export class Controller {
       }
       case "worktree-enter": {
         const selection = this.browsingWorktree();
-        if (selection) this.enterWorktree(selection);
-        break;
-      }
-      case "worktree-more": {
-        const entry = this.sidebarEntries()[Number(act.value)];
-        if (!entry?.worktree) break;
-        const key = worktreeAgents.key(entry.worktree);
-        if (this.worktree_agents.expanded.has(key)) this.worktree_agents.expanded.delete(key);
-        else {
-          this.worktree_agents.expanded.add(key);
-          this.revealGroup({ worktree: entry.worktree.path, workspace: entry.worktree.workspace });
-        }
-        this.pinWorktreeInput("\t");
-        this.dirty = true;
+        if (selection) await this.enterWorktree(selection);
         break;
       }
       case "worktree-agent": {
         const row = this.sidebarEntries()[Number(act.value)];
         if (!row) break;
-        if (row.recent && "recent" in row.target) await this.resumeEntry(row.recent, row.target.workspace);
-        else if ("worktree" in row.target) {
+        const target = row.target;
+        if ("asleep" in target && row.worktree) {
+          // Entering brings the ghost's agents back asleep; the clicked one wakes.
+          await this.enterWorktree({ workspace: row.worktree.workspace, path: row.worktree.path });
+          const p = this.runtime.panes.find(
+            p => p.agent.provider === target.provider && p.agent.session === target.asleep,
+          );
+          if (p) this.selectAgent({ pane: p.id });
+        } else if ("worktree" in target) {
           // A ghost's header keeps its group; one in the list folds it.
-          const selection = { workspace: row.target.workspace, path: row.target.worktree };
-          if (row.worktree?.ghost) this.enterWorktree(selection);
+          const selection = { workspace: target.workspace, path: target.worktree };
+          if (row.worktree?.ghost) await this.enterWorktree(selection);
           else this.toggleWorktree(selection);
-        } else if (sidebar.isAgent(row.target)) {
+        } else if (sidebar.isAgent(target)) {
           this.closeMenu();
-          this.selectAgent(row.target);
+          this.selectAgent(target);
         }
         break;
       }
@@ -3499,7 +3483,7 @@ export class Controller {
         const hit = agent_side.hit(x, y);
         if (hit.tag === "entry")
           await this.perform({
-            name: "more" in agent_entries[hit.entry].target ? "worktree-more" : "worktree-agent",
+            name: "worktree-agent",
             value: hit.entry,
           });
         this.ui_mouse_down = true;
@@ -4043,7 +4027,7 @@ export class Controller {
             if (!sidebar.isAgent(target) && !("group" in target)) {
               if (button === 2 && "worktree" in target && !entries[index].worktree?.ghost)
                 this.openWorktreeMenu(entries[index], x, y);
-              else await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
+              else await this.perform({ name: "worktree-agent", value: index });
               break;
             }
             this.selectAgent(target);
@@ -4406,10 +4390,30 @@ export class Controller {
     const side = this.sidebarView([]);
     return side.width > 0 && x >= 0 && x < side.width - 1 && y >= side.middle() + 2 && y < side.rows;
   }
-  private enterWorktree(selection: worktreeAgents.Selection): void {
-    const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
-    if (!ws || !worktrees.linked(ws.worktrees).some(e => e.path === selection.path)) return;
-    this.worktree_agents.introduced.set(worktreeAgents.key(selection), selection);
+  /** Keeps a browsed worktree in the agent list. One with no agents gets its
+   * newest conversations back as hibernated agents; otherwise its first
+   * agent takes focus. */
+  private async enterWorktree(selection: worktreeAgents.Selection): Promise<void> {
+    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
+    if (!snapshot || !worktrees.linked(snapshot).some(e => e.path === selection.path)) return;
+    const live = this.agentEntries(selection.workspace).some(e => worktreeAgents.belongs(snapshot, selection.path, e)),
+      asleep = live
+        ? []
+        : worktreeAgents.conversations(snapshot, selection.path, this.mergedHistory(), this.openSessions());
+    if (!live && asleep.length === 0) this.notice(" No agents or conversations in this worktree");
+    for (const e of asleep) {
+      const resume = { workspace: selection.workspace, cwd: e.cwd, provider: e.provider, session: e.session };
+      try {
+        await this.execute({ "agent.resume": { ...resume, asleep: true, name: worktreeAgents.name(e) } });
+      } catch (error) {
+        this.notice((error as Error).message);
+        break;
+      }
+    }
+    this.revealWorktree(selection, live);
+  }
+  /** Unfolds a worktree's group and scrolls to it, focusing its first agent if `focus`. */
+  private revealWorktree(selection: worktreeAgents.Selection, focus: boolean): void {
     this.worktree_agents.folded.delete(worktreeAgents.key(selection));
     this.folded_groups = this.folded_groups.filter(id => id !== selection.workspace);
     if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
@@ -4423,7 +4427,7 @@ export class Controller {
         e.worktree?.workspace === selection.workspace &&
         e.worktree.path === selection.path,
     );
-    if (first) this.selectAgent(first.target);
+    if (focus && first) this.selectAgent(first.target);
     if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.dirty = true;
   }

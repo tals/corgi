@@ -27,6 +27,8 @@ export type Create = {
   command?: string | null;
   interactive_command?: boolean;
   title?: string;
+  /** Dormant from the start: nothing runs until `Runtime.wake`. */
+  asleep?: boolean;
   cols: number;
   rows: number;
   theme: any;
@@ -400,12 +402,16 @@ export class Runtime {
       t = await Terminal.create(opts.cols, opts.rows);
     try {
       t.applyTheme(opts.theme);
-      await t.spawn(dir, opts.socket, id, opts.executable, opts.command ?? null, opts.interactive_command ?? false);
+      if (opts.asleep) t.exited = true;
+      else
+        await t.spawn(dir, opts.socket, id, opts.executable, opts.command ?? null, opts.interactive_command ?? false);
     } catch (e) {
       t.destroy();
       throw e;
     }
-    this.panes.push(new Pane(id, t, dir));
+    const p = new Pane(id, t, dir);
+    p.dormant = opts.asleep === true;
+    this.panes.push(p);
     ws.model = next;
     this.workspaces.next_pane_id = next.next_id;
     this.changed();
@@ -525,6 +531,13 @@ export class Runtime {
   async resumeAgent(opts: Create, launch: Launch, hint: ResumeHint, old: string | Uint8Array | null) {
     if (!hint.provider || !hint.args()) throw Error("InvalidSession");
     const job = launch.agent ? hint.backgroundJob() : null;
+    if (opts.asleep) {
+      const id = await this.create(opts),
+        p = this.pane(id)!;
+      if (old) p.terminal.feed(old);
+      this.resumed(p, opts.workspace, launch, hint, job);
+      return id;
+    }
     const typed = job ? attachCommand(job) : launch.typed(hint.args()),
       command = launch.paneCommand(opts.executable, typed),
       frozen = await this.frozenScreen(opts, old);

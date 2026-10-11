@@ -5,7 +5,7 @@ import { entry } from "./sidebar";
 const agents = () => [
   entry({ target: { pane: 1 } }),
   entry({ target: { pane: 2 }, focused: true }),
-  entry({ target: { empty: "/w", workspace: 1 } }),
+  entry({ target: { pane: 9 }, exit: { frame_ms: 0, progress: 0.5 } }),
   entry({ target: { pane: 3 } }),
 ];
 
@@ -24,7 +24,7 @@ test("plain arrows wrap within the cursor's list", () => {
   expect(s.cursor).toEqual({ entry: { pane: 1 } });
   s.move([4, 5], list, true);
   s.move([4, 5], list, true);
-  // An empty worktree's note is not a stop.
+  // A closing row is not a stop.
   expect(s.cursor).toEqual({ entry: { pane: 3 } });
   s.cursor = { workspace: 5 };
   s.move([4, 5], list, true);

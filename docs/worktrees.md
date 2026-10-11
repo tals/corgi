@@ -62,13 +62,16 @@ dashed outline, until browsing moves on. While the list is scrolled into a
 group, its workspace and checkout headings stay pinned above it. Browsing an
 existing group scrolls it into view. A worktree absent from the list appears as
 a temporary group at the top, fading in inside a dashed outline with normal
-branch and agent text, showing three recent sessions from the existing launcher
-history when no agents are active, plus an expandable `… more` row. Enter or
-clicking the worktree keeps the group in the sidebar and focuses its first live
-agent, or its heading when only recent sessions remain. Clicking a recent
-session resumes it through the existing launcher path.
+branch and agent text. A worktree with no agents previews its three newest
+conversations from the launcher's history as agent rows. Enter or clicking the
+worktree keeps the group in the sidebar and focuses its first agent; for one
+with no agents, it brings those conversations back as hibernated agents, each
+in its own tab, asleep until its pane is focused. Clicking one of the previewed
+agents does the same and wakes that one. A group lasts only while it lists an
+agent; closing its last one removes it.
 
-Recent-session membership uses recorded working directories, not a reconstructed
-edit history. These sidebar additions are viewer-local. Summary generation,
+Which conversations belong to a worktree follows their recorded working
+directories, not a reconstructed edit history. Groups and folding are
+viewer-local. Summary generation,
 stored summaries and work history remain deferred; the table has no detail or
 summary section.

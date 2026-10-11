@@ -74,6 +74,26 @@ test("a resumed pane survives conversation capacity errors", async () => {
     r.destroy();
   }
 });
+test("an agent resumed asleep waits in its own tab, named and idle, with nothing running", async () => {
+  const { opts } = fixture(),
+    r = new Runtime(),
+    ws = new Workspace(1, "/tmp"),
+    hint = new ResumeHint();
+  r.workspaces.items = [ws];
+  hint.provider = "claude";
+  hint.session = new Text("12345678-1234-1234-1234-123456789abc");
+  hint.name = new Text("Stored name");
+  try {
+    const id = await r.resumeAgent({ ...opts, asleep: true }, new Launch({ provider: "claude" }), hint, null),
+      p = r.pane(id)!;
+    expect([p.dormant, p.terminal.exited, p.terminal.pid <= 0, p.ghost]).toEqual([true, true, true, null]);
+    expect(ws.model.tabForPane(id)).toBe(0);
+    expect([p.agent().name.text(), p.agent().state]).toEqual(["Stored name", "idle"]);
+    expect(p.restoring()).toContain("--resume");
+  } finally {
+    r.destroy();
+  }
+});
 test("a fork survives conversation capacity and sidebar placement errors", async () => {
   const { r, ws, opts } = fixture(),
     source = await r.create(opts),
