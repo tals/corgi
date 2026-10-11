@@ -356,6 +356,7 @@ function agentView(a: any, conversation: number) {
     conversation,
     subagents: a.subagents,
     changed_at: a.changed_at,
+    working_since: a.working_since,
     provider: a.provider,
     state: a.state,
     attention: a.attention,

@@ -11,6 +11,7 @@ import {
   fresh_window,
   limitLine,
   presentChildren,
+  runningFor,
   shallow_inks,
   status,
   type Conversation,
@@ -78,6 +79,43 @@ test("compact child rows prioritize activity and color only the status and secon
   const narrow = render(w => new Card(w, 0, 64).childRow(0, child));
   expect(narrow).toContain("Tracing activity integration");
   expect(narrow).not.toContain("Maxwell");
+});
+
+test("child rows read how long each has worked in the time column", () => {
+  const minute = 60_000_000;
+  const now = 10_000 * minute;
+  const at = (since: number) => runningFor(agent({ working_since: since }), now);
+  expect(at(0)).toBe("");
+  expect(at(now - 59_000_000)).toBe("<1m");
+  expect(at(now - 4 * minute)).toBe("4m");
+  expect(at(now - 125 * minute)).toBe("2h");
+  expect(at(now - 3 * 1440 * minute)).toBe("3d");
+  expect(at(now + minute)).toBe("<1m");
+  const child = convo({
+    id: 2,
+    agent: agent({ name: "typed_rpc", activity: "Reading", working_since: now - 4 * minute }),
+  });
+  const plain = (cols: number) =>
+    render(w => new Card(w, 0, cols).childRow(0, child, now)).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+  expect(plain(88)).toContain("4m");
+  expect(plain(64)).not.toContain("4m");
+});
+
+test("child rows sort by name", () => {
+  const now = microTimestamp();
+  const named = (id: number, name: string) =>
+    convo({ id, parent: 1, agent: agent({ provider: "codex", name, activity: `Task ${id}` }), observed_at: now });
+  const all = [
+    convo({ id: 1, agent: agent({ provider: "codex" }), children_observed_at: now }),
+    named(2, "typed_rpc"),
+    named(3, "Socrates"),
+    named(4, "typed_observers"),
+  ];
+  const e = entry({ conversation: 1, provider: "codex", state: "working", attention: "none" });
+  const output = render(w => draw(w, all, e, 100, 45, 5, 14));
+  const rows = ["Socrates", "typed_observers", "typed_rpc"].map(name => output.indexOf(name));
+  expect(rows.every(at => at >= 0)).toBe(true);
+  expect(rows).toEqual([...rows].sort((a, b) => a - b));
 });
 
 test("idle children stay hidden while active descendants and usage remain", () => {

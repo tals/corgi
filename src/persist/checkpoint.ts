@@ -107,7 +107,7 @@ export function historicalAgent(value: Agent): Agent {
   const result = value.snapshot();
   result.state = result.state === "done" ? "done" : "unknown";
   result.attention = result.observation.unread() ? "finished" : "none";
-  result.last_seq = result.metadata_protocol_at = result.metadata_at = 0;
+  result.last_seq = result.metadata_protocol_at = result.metadata_at = result.working_since = 0;
   result.tool_active = result.compacting = false;
   result.permission_review = null;
   result.subagents = { running: 0, blocked: 0, waiting: false };

@@ -259,6 +259,8 @@ export async function tick(server: any) {
       workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
       changed(server);
     }
+    const at = clock.microTimestamp();
+    for (const actor of runtime.conversations.items) if (actor.state.trackWorking(at)) changed(server);
     workers.summaries.reconcile(runtime.conversations.items);
     if (server.clients.some((client: any) => client.viewer && !client.dead)) workers.summaries.observe(now);
     workers.summaries.remember(runtime.last_agent);

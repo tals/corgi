@@ -75,6 +75,13 @@ export function threadState(status: any): State {
       return "unknown";
   }
 }
+/** A spawned child's task name, from its agent path without "/root/",
+ * ahead of the random nickname Codex also gives it. */
+export function childName(thread: any) {
+  const spawn = field(field(field(thread, "source"), "subAgent"), "thread_spawn");
+  const task = str(spawn, "agent_path").replace(/^\/root\//, "");
+  return str(thread, "name") || task || str(thread, "agentNickname");
+}
 async function pages(
   client: Client,
   method: string,
@@ -192,7 +199,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
         const child = new Child();
         child.session = id;
         child.state = threadState(field(thread, "status"));
-        child.name = Name.ascii(str(thread, "name") || str(thread, "agentNickname"));
+        child.name = Name.ascii(childName(thread));
         child.role = Role.ascii(str(thread, "agentRole"));
         if (path.isAbsolute(str(thread, "path"))) child.transcript = transcriptPath(str(thread, "path"));
         if (Number.isInteger(field(thread, "updatedAt"))) child.updated_at = field(thread, "updatedAt");

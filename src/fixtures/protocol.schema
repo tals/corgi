@@ -401,6 +401,7 @@ $.snapshot.conversations[].agent.observation.read: u64
 $.snapshot.conversations[].agent.observation.outcome: enum completed interrupted failed
 $.snapshot.conversations[].agent.recent_activity: string
 $.snapshot.conversations[].agent.changed_at: i64
+$.snapshot.conversations[].agent.working_since: i64
 $.snapshot.conversations[].agent.provider: optional
 $.snapshot.conversations[].agent.provider?: enum codex claude
 $.snapshot.conversations[].agent.state: enum unknown initializing idle working blocked done
@@ -569,6 +570,7 @@ $.snapshot.panes[].agent.observation.read: u64
 $.snapshot.panes[].agent.observation.outcome: enum completed interrupted failed
 $.snapshot.panes[].agent.recent_activity: string
 $.snapshot.panes[].agent.changed_at: i64
+$.snapshot.panes[].agent.working_since: i64
 $.snapshot.panes[].agent.provider: optional
 $.snapshot.panes[].agent.provider?: enum codex claude
 $.snapshot.panes[].agent.state: enum unknown initializing idle working blocked done
@@ -596,6 +598,7 @@ $.snapshot.native_sessions[].agent?.observation.read: u64
 $.snapshot.native_sessions[].agent?.observation.outcome: enum completed interrupted failed
 $.snapshot.native_sessions[].agent?.recent_activity: string
 $.snapshot.native_sessions[].agent?.changed_at: i64
+$.snapshot.native_sessions[].agent?.working_since: i64
 $.snapshot.native_sessions[].agent?.provider: optional
 $.snapshot.native_sessions[].agent?.provider?: enum codex claude
 $.snapshot.native_sessions[].agent?.state: enum unknown initializing idle working blocked done

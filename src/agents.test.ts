@@ -369,3 +369,18 @@ test("Claude tool hooks label activity from descriptions or main arguments", () 
   agent.setActivity("First line\x1b[2J\nsecond");
   expect(agent.activity.text()).toBe("First line [2J");
 });
+
+test("the work clock starts on working, holds while blocked and clears at rest", () => {
+  const a = new Agent({ state: "working" });
+  expect(a.trackWorking(100)).toBe(true);
+  expect(a.working_since).toBe(100);
+  a.state = "blocked";
+  expect(a.trackWorking(200)).toBe(false);
+  expect(a.working_since).toBe(100);
+  a.state = "idle";
+  expect(a.trackWorking(300)).toBe(true);
+  expect(a.working_since).toBe(0);
+  a.state = "working";
+  a.trackWorking(400);
+  expect(a.working_since).toBe(400);
+});

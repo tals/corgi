@@ -36,6 +36,8 @@ export class Agent {
   cwd = new Path();
   last_seq = 0;
   changed_at = 0;
+  /** When its current stretch of work began, in µs; 0 at rest. */
+  working_since = 0;
   updated_at = 0;
   constructor(fields: Partial<Agent> = {}) {
     Object.assign(this, fields);
@@ -49,6 +51,13 @@ export class Agent {
     out.subagents = { ...this.subagents };
     out.observation = new observation.State({ ...this.observation });
     return out;
+  }
+  /** Starts or clears the work clock; blocked keeps it running. */
+  trackWorking(now: number) {
+    const since = this.state === "working" || this.state === "blocked" ? this.working_since || now : 0;
+    if (since === this.working_since) return false;
+    this.working_since = since;
+    return true;
   }
   setName(v: string) {
     this.name = new Text(v);

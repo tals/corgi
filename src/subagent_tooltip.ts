@@ -271,6 +271,22 @@ function add(total: UsageView, next: UsageView) {
   total.partial = total.partial || next.partial || !next.known;
 }
 const asciiLower = (value: string) => value.replace(/[A-Z]/g, c => c.toLowerCase());
+const childName = (child: Conversation) =>
+  child.agent.name.length > 0 ? child.agent.name : byteSlice(child.agent.session, 8);
+function byName(lhs: Conversation, rhs: Conversation) {
+  const a = asciiLower(childName(lhs)),
+    b = asciiLower(childName(rhs));
+  return a < b ? -1 : a > b ? 1 : lhs.id - rhs.id;
+}
+/** How long an agent has been working, to the minute. */
+export function runningFor(agent: Agent, now: number): string {
+  if (agent.working_since <= 0) return "";
+  const minutes = Math.floor(Math.max(0, now - agent.working_since) / 60_000_000);
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / 1440)}d`;
+}
 export class Model {
   groups: { name: string; count: number; usage: UsageView }[] = [];
   children = 0;
@@ -500,12 +516,12 @@ export class Card {
     this.cell(row, text_width + 1, this.numbers(), tokens, tone, true);
     this.cell(row, text_width + this.numbers() + 2, this.numbers(), cached, "faint", true);
   }
-  childRow(row: number, child: Conversation) {
+  childRow(row: number, child: Conversation, now = microTimestamp()) {
     const text_width = this.textWidth();
     const prefix_width = this.tight() ? 9 : 11;
     const available = sat(text_width, prefix_width);
     const label = activity(child.agent);
-    const name = child.agent.name.length > 0 ? child.agent.name : byteSlice(child.agent.session, 8);
+    const name = childName(child);
     // Activity gets the space first; names use only the remainder, capped
     // so a long identity never displaces the description of the work.
     const fitted = Math.min(18, sat(available, displayWidth(label) + 1));
@@ -530,6 +546,9 @@ export class Card {
           marker = status(child.agent, false);
       }
     this.cell(row, 0, prefix_width - 2, `${" ".repeat(prefix_width - 4)}↳`, "faint", false);
+    // How long it has worked sits in the timeline's time column.
+    const running = this.tight() ? "" : runningFor(child.agent, now);
+    if (running) this.cell(row, 0, 5, running, "faint", true);
     this.cell(row, prefix_width - 2, 1, marker.icon, marker.tone, false);
     this.cell(row, prefix_width, label_width, label, "text", false);
     if (name_width > 0) this.cell(row, text_width - name_width, name_width, name, "faint", true);
@@ -1201,8 +1220,7 @@ export function draw(
   }
   let shown = 0;
   if (children_available)
-    for (const child of all) {
-      if (!visibleChild(all, child, parent)) continue;
+    for (const child of all.filter(item => visibleChild(all, item, parent)).sort(byName)) {
       if (row + total_rows >= end) break;
       const display_child = childrenAvailable(all, child.id, microTimestamp())
         ? child

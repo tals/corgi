@@ -211,6 +211,7 @@ export interface Agent {
   observation: Observation;
   recent_activity: string;
   changed_at: number;
+  working_since: number;
   provider: Provider | null;
   state: string;
   attention: "none" | "finished" | "needs_input";
@@ -238,6 +239,7 @@ export function agent(value: any = {}): Agent {
     },
     recent_activity: value.recent_activity ?? "",
     changed_at: Number(value.changed_at ?? 0),
+    working_since: Number(value.working_since ?? 0),
     provider: value.provider ?? null,
     state: value.state ?? "unknown",
     attention: value.attention ?? "none",

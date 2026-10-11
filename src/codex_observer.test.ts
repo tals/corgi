@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { Codex } from "./providers/codex";
-import { unique, threadState } from "./codex_observer";
+import { childName, unique, threadState } from "./codex_observer";
 
 test("title UUID parsing handles truncation and refuses ambiguity", () => {
   const id = "01901234-1234-1234-1234-123456789abc";
@@ -22,4 +22,16 @@ test("unloaded child threads read as idle", () => {
     [{ type: "future" }, "unknown"],
   ] as const)
     expect(threadState(value)).toBe(state);
+});
+
+test("child threads are named by their task, then nickname", () => {
+  const spawned = (agent_path: string | null) => ({
+    name: null,
+    agentNickname: "Boole",
+    source: { subAgent: { thread_spawn: { depth: 1, agent_path, agent_nickname: "Boole", agent_role: null } } },
+  });
+  expect(childName(spawned("/root/typed_rpc"))).toBe("typed_rpc");
+  expect(childName(spawned("/root/typed_rpc/tests"))).toBe("typed_rpc/tests");
+  expect(childName(spawned(null))).toBe("Boole");
+  expect(childName({ ...spawned("/root/typed_rpc"), name: "Renamed" })).toBe("Renamed");
 });
