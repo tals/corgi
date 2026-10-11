@@ -61,3 +61,20 @@ test("an agent associated with two checkouts keeps distinct rows during sidebar 
     .map(e => e.worktree!.path);
   expect(paths).toEqual(data.entries.slice(1).map(e => e.path));
 });
+test("a folded group keeps only its header, which stands in for a focused agent; a ghost never folds", () => {
+  const data = snapshot(),
+    state = new agents.State(),
+    selection = { workspace: 1, path: data.entries[1].path },
+    live = sidebar.entry({ target: { pane: 1 }, cwd: selection.path, provider: "codex", focused: true });
+  data.entries[1].branch = "refs/heads/worktree-one";
+  let rows = agents.grouped(data, 1, [live], [], new Set(), state);
+  expect(rows.map(e => e.target)).toEqual([{ workspace: 1, worktree: selection.path }, { pane: 1 }]);
+  expect(rows[0].name).toBe("one");
+  expect(rows[0].focused).toBe(false);
+  state.folded.add(agents.key(selection));
+  rows = agents.grouped(data, 1, [live], [], new Set(), state);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].group).toMatchObject({ agents: 1, folded: true });
+  expect(rows[0].focused).toBe(true);
+  expect(agents.group(data, selection, [live], [], new Set(), state, true)).toHaveLength(2);
+});

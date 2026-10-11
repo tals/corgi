@@ -437,6 +437,16 @@ export class Controller {
     this.sidebar_rows.discard();
     this.dirty = true;
   }
+  private toggleWorktree(selection: worktreeAgents.Selection): void {
+    const key = worktreeAgents.key(selection);
+    if (!this.worktree_agents.folded.delete(key)) this.worktree_agents.folded.add(key);
+    this.sidebar_rows.discard();
+    // Folding from a pinned header leaves the header in its own row.
+    const entries = this.sidebarEntries();
+    const index = worktreeAgents.index(entries, selection);
+    if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
+    this.dirty = true;
+  }
   private openScopeMenu(pinned: boolean): void {
     this.closeMenu();
     this.scope_menu = new sidebar.ScopeMenu({ pinned });
@@ -1259,9 +1269,12 @@ export class Controller {
         const row = this.sidebarEntries()[Number(act.value)];
         if (!row) break;
         if (row.recent && "recent" in row.target) await this.resumeEntry(row.recent, row.target.workspace);
-        else if ("worktree" in row.target)
-          this.enterWorktree({ workspace: row.target.workspace, path: row.target.worktree });
-        else if (sidebar.isAgent(row.target)) {
+        else if ("worktree" in row.target) {
+          // A ghost's header keeps its group; one in the list folds it.
+          const selection = { workspace: row.target.workspace, path: row.target.worktree };
+          if (row.worktree?.ghost) this.enterWorktree(selection);
+          else this.toggleWorktree(selection);
+        } else if (sidebar.isAgent(row.target)) {
           this.closeMenu();
           this.selectAgent(row.target);
         }
@@ -4162,7 +4175,7 @@ export class Controller {
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
     if (!ws || !worktrees.linked(ws.worktrees).some(e => e.path === selection.path)) return;
     this.worktree_agents.introduced.set(worktreeAgents.key(selection), selection);
-    this.worktree_agents.focused = selection;
+    this.worktree_agents.folded.delete(worktreeAgents.key(selection));
     this.folded_groups = this.folded_groups.filter(id => id !== selection.workspace);
     if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
     this.closeMenu();

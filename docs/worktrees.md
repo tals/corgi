@@ -52,8 +52,10 @@ keep protocol 1 and viewer protocol 3. Checkpoints and handoffs are unchanged:
 Git data and current edit evidence are disposable and rediscovered after restart.
 
 The agent sidebar keeps its regular list. Live agents in linked worktrees appear
-under checkout headings; primary-checkout agents stay direct rows. Browsing an
-existing group scrolls it into view. A worktree absent from the list appears as
+under checkout headings; primary-checkout agents stay direct rows. In "All",
+checkout headings branch off their workspace's rail. Clicking a heading folds
+its group. While the list is scrolled into a group, its workspace and checkout
+headings stay pinned above it. Browsing an existing group scrolls it into view. A worktree absent from the list appears as
 a temporary group at the top, fading in inside a dashed outline with normal
 branch and agent text, showing three recent sessions from the
 existing launcher history when no agents are active, plus an expandable `… more`

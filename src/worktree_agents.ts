@@ -10,7 +10,7 @@ export const key = (selection: Selection) => `${selection.workspace}:${selection
 export class State {
   introduced = new Map<string, Selection>();
   expanded = new Set<string>();
-  focused: Selection | null = null;
+  folded = new Set<string>();
   previewed: string | null = null;
   appearing: string | null = null;
   appeared_at = 0;
@@ -27,6 +27,11 @@ export class State {
       enter: progress < 1 ? 1 - (1 - progress) ** 3 : null,
     }));
   }
+}
+/** The branch, without the `worktree-` or `worktree/` prefix tools give
+ * worktree branches; the header's ⌥ already says it. */
+function label(checkout: worktrees.Checkout): string {
+  return worktrees.label(checkout).replace(/^worktree[-/](?=.)/, "");
 }
 function checkoutAt(snapshot: worktrees.Snapshot, path: string): string | null {
   let found: string | null = null;
@@ -56,20 +61,22 @@ export function group(
   if (!checkout) return [];
   const live = agents.filter(e => belongs(snapshot, selection.path, e)),
     info = { ...selection, ghost },
-    focused = state.focused !== null && key(state.focused) === key(selection);
+    folded = !ghost && state.folded.has(key(selection));
   const header = sidebar.entry({
     target: { worktree: selection.path, workspace: selection.workspace },
-    name: worktrees.label(checkout),
+    name: label(checkout),
     worktree: info,
-    focused,
+    // A folded header stands in for the focused agent it hides.
+    focused: folded && live.some(e => e.focused),
     group: {
       agents: live.length,
       working: live.filter(e => e.state === "working").length,
       attention: live.filter(e => e.attention === "needs_input").length,
-      folded: false,
-      current: focused,
+      folded,
+      current: false,
     },
   });
+  if (folded) return [header];
   if (live.length) return [header, ...live.map(e => ({ ...e, worktree: info }))];
   const recent = history
     .filter(e => !open.has(`${e.provider}:${e.session}`) && checkoutAt(snapshot, e.cwd) === selection.path)

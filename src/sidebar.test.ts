@@ -743,11 +743,82 @@ test("grouped scrolling fits more rows when headers are shorter", () => {
     entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }),
   );
   // 13 rows leave five list rows: three entries where only two agents fit.
+  // Scrolled into a group, its pinned header takes one of them.
   const view = View.init(100, 13, true, 0, entries.length).withEntries(entries);
   expect(view.capacity).toBe(3);
-  expect(view.maxOffset()).toBe(4);
-  expect(view.reveal(3)).toBe(1);
-  expect(View.init(100, 13, true, 99, entries.length).withEntries(entries).offset).toBe(4);
+  expect(view.maxOffset()).toBe(5);
+  expect(view.reveal(3)).toBe(2);
+  expect(View.init(100, 13, true, 99, entries.length).withEntries(entries).offset).toBe(5);
+});
+
+test("worktree groups branch off the workspace rail and pin their headers above scrolled rows", () => {
+  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const agent = (pane: number, name: string, inside: boolean) =>
+    entry({ target: { pane }, name, provider: "codex", state: "done", worktree: inside ? worktree : null });
+  const entries = [
+    entry({
+      target: { group: 1 },
+      name: "corgi",
+      group: { agents: 3, working: 0, attention: 0, folded: false, current: true },
+    }),
+    agent(1, "direct", false),
+    entry({
+      target: { worktree: worktree.path, workspace: 1 },
+      name: "one",
+      worktree,
+      group: { agents: 2, working: 0, attention: 0, folded: false, current: false },
+    }),
+    agent(2, "first", true),
+    agent(3, "second", true),
+    entry({
+      target: { group: 2 },
+      name: "blog",
+      group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
+    }),
+  ];
+  const rows = (view: View, n: number) => {
+    const top = view.middle() + 2;
+    return hostText(draw(view, entries, []))
+      .split("\n")
+      .slice(top, top + n)
+      .map(line => line.slice(0, 80).trimEnd());
+  };
+  const whole = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+  expect(whole.pinned(0)).toEqual([]);
+  expect(rows(whole, 9)).toEqual([
+    "▾ corgi ━━━━━━━━━━━━━━━━ 3 │",
+    "├○  direct                 │",
+    "│   Session ended          │",
+    "├▾ ⌥ one ─────────────── 2 │",
+    "├○  first                  │",
+    "│   Session ended          │",
+    "╰○  second                 │",
+    "    Session ended          │",
+    "▸ blog ━━━━━━━━━━━━━━━━━ 1 │",
+  ]);
+  // Scrolled to "second", corgi's and the worktree's headers stay on top;
+  // the lower one underlines its row, and both hit as themselves.
+  const scrolled = View.init(100, 13, true, 99, entries.length).withEntries(entries);
+  expect(scrolled.offset).toBe(4);
+  expect(scrolled.pinned(4)).toEqual([0, 2]);
+  expect(scrolled.pinned(2)).toEqual([0]);
+  expect(rows(scrolled, 5)).toEqual([
+    "▾ corgi ━━━━━━━━━━━━━━━━ 3 │",
+    "├▾ ⌥ one ─────────────── 2 │",
+    "╰○  second                 ┃",
+    "    Session ended          ┃",
+    "▸ blog ━━━━━━━━━━━━━━━━━ 1 ┃",
+  ]);
+  const top = scrolled.middle() + 2;
+  expect([0, 1, 2, 4].map(row => scrolled.hit(5, top + row))).toEqual([
+    H("entry", 0),
+    H("entry", 2),
+    H("entry", 4),
+    H("entry", 5),
+  ]);
+  const out = draw(scrolled, entries, []);
+  expect(has(out, `\x1b[${top + 2};1H\x1b[0m${palette.bg("bg")}${rule_underline}`)).toBe(true);
+  expect(count(out, rule_underline)).toBe(1);
 });
 
 test("agent list shows a scrollbar on the border only when it overflows", () => {

@@ -409,9 +409,32 @@ export class View {
     const content = isHeading(e.target) || "more" in e.target || "empty" in e.target ? 1 : 2;
     return content + (e.worktree?.ghost ? Number("worktree" in e.target) + Number(e.worktree.end === true) : 0);
   }
-  /** Entries that fit in the list starting at `from`. */
+  /** The headers of the groups the entry at `from` belongs to, which stay
+   * pinned above it: its workspace's in the grouped list, then its
+   * worktree's. Ghost groups scroll with the list. */
+  pinned(from: number): number[] {
+    const first = this.entries[from];
+    if (!first || isGroup(first.target)) return [];
+    const out: number[] = [];
+    for (let i = from - 1; i >= 0; i--)
+      if (isGroup(this.entries[i].target)) {
+        out.push(i);
+        break;
+      }
+    const checkout = first.worktree;
+    if (checkout && !checkout.ghost && !("worktree" in first.target))
+      for (let i = from - 1; i >= 0 && !isGroup(this.entries[i].target); i--) {
+        const target = this.entries[i].target;
+        if ("worktree" in target && target.worktree === checkout.path) {
+          out.push(i);
+          break;
+        }
+      }
+    return out;
+  }
+  /** Entries that fit in the list starting at `from`, below its pinned headers. */
   fits(from: number): number {
-    let used = 0;
+    let used = this.pinned(from).length;
     let n = 0;
     for (const e of this.entries.slice(Math.min(from, this.entries.length))) {
       used += View.height(e);
@@ -426,7 +449,7 @@ export class View {
     let start = this.entries.length;
     while (start > 0) {
       used += View.height(this.entries[start - 1]);
-      if (used > this.listRows()) break;
+      if (used + this.pinned(start - 1).length > this.listRows()) break;
       start -= 1;
     }
     return start;
@@ -516,6 +539,10 @@ export class View {
     }
     if (y < v.middle() + 2 || y >= v.listEnd()) return hit("none");
     let top = v.middle() + 2;
+    for (const index of v.pinned(v.offset)) {
+      top += 1;
+      if (y < top) return { tag: "entry", entry: index };
+    }
     for (let index = v.offset; index < Math.min(v.count, v.offset + v.capacity); index++) {
       top += v.entries.length > 0 ? View.height(v.entries[index]) : 2;
       if (y < top) return { tag: "entry", entry: index };
@@ -528,7 +555,7 @@ export class View {
     const v = this;
     if (v.width === 0 || x >= v.width - 1 || y < v.middle() + 2 || y >= v.listEnd() || v.entries.length === 0)
       return null;
-    let top = v.middle() + 2;
+    let top = v.middle() + 2 + v.pinned(v.offset).length;
     const end = Math.min(v.count, v.offset + v.capacity);
     for (let i = v.offset; i < end; i++) {
       const h = View.height(v.entries[i]);
@@ -705,7 +732,27 @@ export class View {
       }
     }
     const grouped = entries.some(e => isGroup(e.target));
+    // In the grouped list a workspace's rail runs past its worktree headers
+    // to the next workspace. Ghost groups sit above the first workspace.
+    const first_group = entries.findIndex(e => isGroup(e.target));
+    const nested = (i: number) => first_group >= 0 && i > first_group;
+    const lastInGroup = (i: number) => {
+      const next = entries[i + 1];
+      if (!next) return true;
+      if (nested(i)) return isGroup(next.target);
+      return isHeading(next.target) || entries[i].worktree?.path !== next.worktree?.path;
+    };
+    const heading = (out: Writer, i: number, y: number, stuck: boolean) => {
+      const e = entries[i];
+      const lead = isGroup(e.target) ? "" : e.worktree?.ghost ? " " : !nested(i) ? "" : lastInGroup(i) ? "╰" : "├";
+      v.drawHeader(out, e, y, lead, stuck);
+    };
     let next_y = v.middle() + 2;
+    const pinned = v.pinned(v.offset);
+    pinned.forEach((i, n) => {
+      heading(w, i, next_y, n === pinned.length - 1);
+      next_y += 1;
+    });
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.capacity));
     const sleepers: bigint[] = [];
     for (const e of visible) {
@@ -722,23 +769,20 @@ export class View {
       const top = next_y;
       const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target);
       next_y += View.height(e);
-      if (isGroup(e.target)) {
-        v.drawGroup(row_writer, e, y);
+      if (isHeading(e.target)) {
+        heading(row_writer, absolute, y, false);
+        v.drawGhost(row_writer, e, top);
         if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
         return;
       }
-      if ("worktree" in e.target || "more" in e.target || "empty" in e.target || e.recent) {
-        v.drawWorktree(row_writer, e, y);
+      if ("more" in e.target || "empty" in e.target || e.recent) {
+        v.drawWorktree(row_writer, e, y, lastInGroup(absolute));
         v.drawGhost(row_writer, e, top);
         if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
         return;
       }
       const in_group = grouped || e.worktree !== null;
-      const last_in_group =
-        in_group &&
-        (absolute + 1 === entries.length ||
-          isHeading(entries[absolute + 1].target) ||
-          e.worktree?.path !== entries[absolute + 1].worktree?.path);
+      const last_in_group = in_group && lastInGroup(absolute);
       const divider = !in_group && index + 1 < Math.min(entries.length - v.offset, v.capacity);
       v.drawAgent(
         row_writer,
@@ -920,13 +964,19 @@ export class View {
     const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : "";
     if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`\x1b[${y + row + 1};${x + 1}H${bar}\x1b[0m`);
   }
-  drawGroup(w: Writer, e: Entry, y: number): void {
+  /** A workspace or worktree group's header. A worktree's under a workspace
+   * branches off the workspace's rail with `lead`; a ghost's leaves that
+   * column to the outline. `stuck` marks the lowest pinned header. */
+  drawHeader(w: Writer, e: Entry, y: number, lead: string, stuck: boolean): void {
     const v = this;
     const g = e.group;
     const row_bg = e.focused ? selected_bg : bg("bg");
-    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}`);
+    // Pinned, it underlines its row where the list scrolls beneath.
+    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
-    w.write(`\x1b[${y + 1};1H` + fg("muted") + (g.folded ? "▸" : "▾"));
+    if (lead.length > 0) w.write(`\x1b[${y + 1};1H` + fg("line") + lead);
+    const arrow_x = lead.length;
+    w.write(`\x1b[${y + 1};${arrow_x + 1}H` + fg("muted") + (g.folded ? "▸" : "▾"));
     // Right side: working and attention counts, then the agent count.
     const count = compactCount(g.agents);
     const count_x = sat(sat(v.width, 2), displayWidth(count));
@@ -944,30 +994,41 @@ export class View {
           fg("warm") +
           `${attention}\x1b[22m`,
       );
+    let name_x = arrow_x + 2;
+    if ("worktree" in e.target) {
+      w.write(`\x1b[${y + 1};${name_x + 1}H` + fg("faint") + "⌥");
+      name_x += 2;
+    }
     // Name, then a rule that leaves one space on each side.
     const text = directoryLabel(e.name, null, 160);
-    const name_room = sat(status_x, 5);
-    w.write(`\x1b[${y + 1};3H${g.current ? "\x1b[1m" + fg("strong") : "\x1b[1m" + fg("text")}`);
+    const name_room = sat(status_x, name_x + 3);
+    w.write(`\x1b[${y + 1};${name_x + 1}H${g.current ? "\x1b[1m" + fg("strong") : "\x1b[1m" + fg("text")}`);
     writeEllipsis(w, text, name_room);
-    const name_end = 2 + Math.min(displayWidth(text), name_room);
+    const name_end = name_x + Math.min(displayWidth(text), name_room);
     if (status_x > name_end + 2) {
-      // A heavy, bright rule so each header stands out from its agents.
-      w.write(`\x1b[${y + 1};${name_end + 2}H\x1b[22m` + fg("muted"));
-      w.write("━".repeat(Math.max(0, status_x - 1 - (name_end + 1))));
+      // A heavy, bright rule so each header stands out from its agents; a
+      // worktree inside a workspace takes a thin one.
+      w.write(`\x1b[${y + 1};${name_end + 2}H\x1b[22m` + (lead.length > 0 ? fg("line") : fg("muted")));
+      w.write((lead.length > 0 ? "─" : "━").repeat(Math.max(0, status_x - 1 - (name_end + 1))));
     }
+    w.write("\x1b[22;24;59m");
   }
-  drawWorktree(w: Writer, e: Entry, y: number): void {
-    const style = new Style({ fg: "text", bg: e.focused ? "selected" : "bg" }).sgr();
-    w.write(`\x1b[${y + 1};1H${style}`);
-    w.splat(" ", this.width - 1);
-    const heading = "worktree" in e.target;
-    w.write(`\x1b[${y + 1};2H${style}${heading ? "⌥ " : "  "}`);
-    writeEllipsis(w, e.name, this.width - 5);
-    if (e.recent) {
-      w.write(`\x1b[${y + 2};1H${style}`);
+  /** A worktree group's recent session, its "… more" row or its empty note,
+   * on the group's rail and aligned with agent names. */
+  drawWorktree(w: Writer, e: Entry, y: number, last: boolean): void {
+    const style = new Style({ fg: "text", bg: "bg" }).sgr();
+    const height = e.recent ? 2 : 1;
+    for (let row = 0; row < height; row++) {
+      w.write(`\x1b[${y + row + 1};1H${style}`);
       w.splat(" ", this.width - 1);
-      w.write(`\x1b[${y + 2};4H${fg("faint")}`);
-      writeEllipsis(w, `${e.recent.provider} · ${e.activity}`, this.width - 5);
+    }
+    w.write(`\x1b[${y + 1};1H` + fg("line") + (last ? "╰" : "├"));
+    if (height === 2 && !last) w.write(`\x1b[${y + 2};1H│`);
+    w.write(`\x1b[${y + 1};5H` + fg("text"));
+    writeEllipsis(w, e.name, this.width - 6);
+    if (e.recent) {
+      w.write(`\x1b[${y + 2};5H` + fg("faint"));
+      writeEllipsis(w, `${e.recent.provider} · ${e.activity}`, this.width - 6);
     }
   }
   drawGhost(w: Writer, e: Entry, y: number): void {

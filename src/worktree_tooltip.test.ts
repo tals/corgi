@@ -283,6 +283,21 @@ test("browsing an offscreen group scrolls the existing sidebar without a duplica
   expect(entries.filter((e: any) => e.name.startsWith("Root "))).toHaveLength(15);
   expect(entries.some((e: any) => e.worktree?.ghost)).toBe(false);
 });
+test("a worktree header folds its group on click and entering the worktree unfolds it", async () => {
+  const { view } = browsing(),
+    path = "/repo/.worktrees/1";
+  await view.input(Buffer.from("\x1b[27u"));
+  const rows = () => (view as any).sidebarEntries();
+  const header = rows().findIndex((e: any) => e.target.worktree === path);
+  expect(rows()[header]).toMatchObject({ name: "topic-1", focused: false });
+  await view.perform({ name: "worktree-agent", value: header });
+  expect(rows()[header].group.folded).toBe(true);
+  expect(rows().some((e: any) => e.name === "Search agent")).toBe(false);
+  (view as any).enterWorktree({ workspace: 1, path });
+  expect(rows()[header].group.folded).toBe(false);
+  expect(rows()[header].focused).toBe(false);
+  expect(rows().some((e: any) => e.name === "Search agent")).toBe(true);
+});
 test("callout geometry keeps the agent pane and source badge uncovered", () => {
   const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: snapshot(2) });
   const side = View.init(120, 38, true, 0, 0).withWorkspaces(1, 0),
