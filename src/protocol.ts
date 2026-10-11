@@ -1,8 +1,10 @@
-import { object } from "./json";
+import * as json from "./json";
 import { Theme } from "./theme";
 import type { View as SurfaceView } from "./pane/surface";
+import type { Provider } from "./providers";
+import type { Target } from "./agent_order";
 export interface Control {
-  seq: number;
+  seq: bigint;
   kind: "focus" | "workspace" | "action";
   id?: number;
   name?: string;
@@ -10,18 +12,18 @@ export interface Control {
 }
 export interface Opened {
   viewer_protocol: number;
-  bell_seq: number | bigint;
+  bell_seq: bigint;
   workspace: number;
 }
 export interface View<Session = unknown, Resources = unknown> {
   type: "view";
   viewer_protocol: number;
   session: Session | null;
-  session_hash: number | bigint;
+  session_hash: bigint;
   resources: Resources | null;
-  resources_hash: number | bigint;
+  resources_hash: bigint;
   surfaces: SurfaceView[];
-  bell_seq: number | bigint;
+  bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
   viewer: number;
@@ -30,7 +32,18 @@ export interface View<Session = unknown, Resources = unknown> {
 export const version = 1;
 export const viewer_version = 3;
 export type Op = (typeof operations)[number];
-export type Command = Record<string, Record<string, any>>;
+type PaneDestination = { new_tab: string } | { beside: Normalized<typeof structures.beside> };
+type TabDestination = { workspace: number } | { before: number } | { after: number };
+export type CommandName = keyof typeof commands;
+export type CommandPayloads = { [K in CommandName]: Normalized<(typeof commands)[K]> };
+export type Command = { [K in CommandName]: { [P in K]: CommandPayloads[K] } }[CommandName];
+export type CommandInputs = { [K in CommandName]: Input<(typeof commands)[K]> };
+export type CommandInput = { [K in CommandName]: { [P in K]: CommandInputs[K] } }[CommandName];
+export type DecodedCommand = { [K in CommandName]: { op: K; payload: CommandPayloads[K] } }[CommandName];
+export function command(value: Command): DecodedCommand {
+  const op = Object.keys(value)[0] as CommandName;
+  return { op, payload: (value as Record<string, unknown>)[op] } as DecodedCommand;
+}
 export type Result = { pane: number; tab: number; workspace: number; text: string | null; closed_panes: number[] };
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [
@@ -116,8 +129,10 @@ export function envelope(op: string, payload: Record<string, unknown> = {}): obj
     ...Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== null || key === "theme")),
   };
 }
-export function parse(value: any): Op | null {
-  return operations.includes(value?.op) ? value.op : null;
+export function parse(value: unknown): Op | null {
+  if (value === null || typeof value !== "object") return null;
+  const op = (value as Record<string, unknown>).op;
+  return typeof op === "string" && (operations as readonly string[]).includes(op) ? (op as Op) : null;
 }
 export function require(value: any, negotiated: number | null): void {
   if (!Object.hasOwn(value, "protocol") && negotiated === null) throw Error("ProtocolRequired");
@@ -137,164 +152,191 @@ export function exclusion(op: string): "none" | "layout" | "import" | "push" | "
   if (op === "shutdown") return "shutdown";
   return "none";
 }
-// Required fields are suffixed with !; closed command payloads reject unknown fields.
-const commands: Record<string, string> = {
-  "agent.move": "workspace! target! before",
-  "agent.command": "index! command! hidden name original semantics resolve cwd",
-  "agent.command.create": "workspace! cwd index!",
-  "agent.visibility": "hidden!",
-  "agent.yolo": "provider! enabled!",
-  "agent.create": "workspace! cwd provider",
-  "agent.resume": "workspace! cwd! provider! session! asleep name",
-  "agent.rename": "target! name",
-  "agent.fork": "target! name check",
-  "pane.create": "workspace! from cwd command title",
-  "pane.split": "target! direction cwd command title",
-  "pane.close": "target!",
-  "tab.close": "target!",
-  "pane.restore": "workspace!",
-  "pane.wake": "target! shell",
-  "workspace.create": "name cwd!",
-  "workspace.edit": "target! name cwd",
-  "workspace.close": "target! close_contents",
-  "workspace.move": "target! before!",
-  "pane.rename": "target! name!",
-  "tab.rename": "target! name!",
-  "pane.swap": "target! other!",
-  "pane.resize": "target! axis! ratio!",
-  "split.resize": "target! direction!",
-  "split.ratio": "target! other! ratio! expected!",
-  "pane.move": "target! destination!",
-  "tab.move": "target! destination!",
-  "tab.merge": "target! other! direction",
-  "pane.read": "target! lines view",
-  "pane.send": "target! text! enter",
-  "pane.keys": "target! text!",
-  "pane.input": "target! data!",
-};
-const defaults: Record<string, Record<string, unknown>> = {
-  "agent.command": { hidden: false, name: null, original: null, semantics: null, resolve: true, cwd: null },
-  "agent.command.create": { cwd: "" },
-  "agent.create": { cwd: "", provider: null },
-  "agent.resume": { asleep: false, name: "" },
-  "agent.rename": { name: null },
-  "agent.fork": { name: null, check: false },
-  "pane.create": { from: null, cwd: "", command: null, title: "" },
-  "pane.split": { direction: "right", cwd: "", command: null, title: "" },
-  "workspace.create": { name: "" },
-  "workspace.edit": { name: null, cwd: null },
-  "workspace.close": { close_contents: false },
-  "tab.merge": { direction: "right" },
-  "pane.read": { lines: 100, view: "history" },
-  "pane.send": { enter: false },
-  "pane.wake": { shell: false },
-  "agent.move": { before: null },
-};
+const commands = {
+  "agent.move": { workspace: "u32", target: "target", before: ["?target", null] },
+  "agent.command": {
+    index: "u64",
+    command: "string",
+    hidden: ["bool", false],
+    name: ["?string", null],
+    original: ["?string", null],
+    semantics: ["?semantics", null],
+    resolve: ["bool", true],
+    cwd: ["?string", null],
+  },
+  "agent.command.create": { workspace: "u32", cwd: ["string", ""], index: "u64" },
+  "agent.visibility": { hidden: "visibility" },
+  "agent.yolo": { provider: "codex|claude", enabled: "bool" },
+  "agent.create": { workspace: "u32", cwd: ["string", ""], provider: ["?codex|claude", null] },
+  "agent.resume": {
+    workspace: "u32",
+    cwd: "string",
+    provider: "codex|claude",
+    session: "string",
+    asleep: ["bool", false],
+    name: ["string", ""],
+  },
+  "agent.rename": { target: "u32", name: ["?string", null] },
+  "agent.fork": { target: "u32", name: ["?string", null], check: ["bool", false] },
+  "pane.create": {
+    workspace: "u32",
+    from: ["?u32", null],
+    cwd: ["string", ""],
+    command: ["?string", null],
+    title: ["string", ""],
+  },
+  "pane.split": {
+    target: "u32",
+    direction: ["left|right|up|down", "right"],
+    cwd: ["string", ""],
+    command: ["?string", null],
+    title: ["string", ""],
+  },
+  "pane.close": { target: "u32" },
+  "tab.close": { target: "u32" },
+  "pane.restore": { workspace: "u32" },
+  "pane.wake": { target: "u32", shell: ["bool", false] },
+  "workspace.create": { name: ["string", ""], cwd: "string" },
+  "workspace.edit": { target: "u32", name: ["?string", null], cwd: ["?string", null] },
+  "workspace.close": { target: "u32", close_contents: ["bool", false] },
+  "workspace.move": { target: "u32", before: "u32" },
+  "pane.rename": { target: "u32", name: "string" },
+  "tab.rename": { target: "u32", name: "string" },
+  "pane.swap": { target: "u32", other: "u32" },
+  "pane.resize": { target: "u32", axis: "horizontal|vertical", ratio: "u16" },
+  "split.resize": { target: "u32", direction: "left|right|up|down" },
+  "split.ratio": { target: "u32", other: "u32", ratio: "u16", expected: "u64" },
+  "pane.move": { target: "u32", destination: "paneDestination" },
+  "tab.move": { target: "u32", destination: "tabDestination" },
+  "tab.merge": { target: "u32", other: "u32", direction: ["left|right|up|down", "right"] },
+  "pane.read": { lines: ["u64", 100n], view: ["history|screen", "history"], target: "u32" },
+  "pane.send": { target: "u32", text: "string", enter: ["bool", false] },
+  "pane.keys": { target: "u32", text: "string" },
+  "pane.input": { target: "u32", data: "string" },
+} as const satisfies Record<string, Fields>;
 export function decodeCommand(value: unknown): Command {
-  const v = object(value),
-    names = Object.keys(v);
+  const source = json.object(value),
+    names = Object.keys(source);
   if (names.length !== 1) throw Error("UnexpectedToken");
-  const name = names[0],
-    spec = commands[name];
-  if (!spec) throw Error("UnknownField");
-  const payload = object(v[name]),
-    fields = spec.split(" ");
-  for (const field of fields)
-    if (field.endsWith("!") && !Object.hasOwn(payload, field.slice(0, -1))) throw Error("MissingField");
-  const known = fields.map(f => f.replace(/!$/, ""));
-  for (const field of Object.keys(payload)) if (!known.includes(field)) throw Error("UnknownField");
-  for (const [field, item] of Object.entries(payload)) {
-    if (name === "agent.move" && (field === "target" || field === "before")) {
-      if (item === null && field === "before") continue;
-      target(item);
-      continue;
-    }
-    if (["target", "other", "workspace", "from", "before"].includes(field))
-      validate(item, field === "from" ? "?u32" : "u32");
-    if (["name", "cwd", "command", "original", "text", "data", "title", "session"].includes(field))
-      validate(item, defaults[name]?.[field] === null ? "?string" : "string");
-    if (
-      ["check", "resolve", "close_contents", "enter", "enabled", "shell", "asleep"].includes(field) ||
-      (field === "hidden" && name !== "agent.visibility")
-    )
-      validate(item, "bool");
-    if (["index", "lines", "expected"].includes(field)) validate(item, "u64");
-    if (field === "ratio") validate(item, "u16");
-    if (field === "view") validate(item, "history|screen");
-  }
-  if (name === "agent.visibility")
-    payload.hidden = struct(payload.hidden, { codex: ["bool", false], claude: ["bool", false] }, true);
-  if (name === "agent.command" && payload.semantics !== undefined && payload.semantics !== null)
-    payload.semantics = struct(
-      payload.semantics,
-      {
-        provider: ["?codex|claude", null],
-        suggested_name: ["string", ""],
-        model: ["string", ""],
-        model_name: ["string", ""],
-        account: ["string", ""],
-        mode: ["string", ""],
-        yolo: ["bool", false],
-        default_account: ["bool", false],
-      },
-      true,
-    );
-  if (payload.direction !== undefined && !["left", "right", "up", "down"].includes(payload.direction))
-    throw Error("InvalidEnumTag");
-  if (payload.axis !== undefined && !["horizontal", "vertical"].includes(payload.axis)) throw Error("InvalidEnumTag");
-  if (payload.provider !== undefined && payload.provider !== null && !["codex", "claude"].includes(payload.provider))
-    throw Error("InvalidEnumTag");
-  if (name === "pane.move" || name === "tab.move") {
-    const destination = object(payload.destination),
-      tags = Object.keys(destination);
-    if (tags.length !== 1) throw Error("UnexpectedToken");
-    const allowed = name === "pane.move" ? ["new_tab", "beside"] : ["workspace", "before", "after"];
-    if (!allowed.includes(tags[0])) throw Error("UnknownField");
-    const value = destination[tags[0]];
-    if (tags[0] === "new_tab") {
-      if (typeof value !== "string") throw Error("UnexpectedToken");
-    } else if (tags[0] === "beside") {
-      object(value);
-      if (!Object.hasOwn(value, "other")) throw Error("MissingField");
-      validate(value.other, "u32");
-      if (Object.keys(value).some(k => !["other", "direction"].includes(k))) throw Error("UnknownField");
-      if (value.direction !== undefined && !["left", "right", "up", "down"].includes(value.direction))
-        throw Error("InvalidEnumTag");
-      value.direction ??= "right";
-    } else if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) throw Error("UnexpectedToken");
-  }
-  return { [name]: { ...defaults[name], ...payload } };
+  const name = names[0];
+  if (!Object.hasOwn(commands, name)) throw Error("UnknownField");
+  return { [name]: struct(source[name], commands[name as CommandName], true) } as Command;
 }
-export function decode(op: Op, value: any): any {
-  object(value);
+export function decode<K extends Op>(op: K, input: unknown): Requests[K] {
+  const value = json.object(input);
   if (op === "session.command") {
     if (!Object.hasOwn(value, "command")) throw Error("MissingField");
-    return { command: decodeCommand(value.command) };
+    return { command: decodeCommand(value.command) } as Requests[K];
   }
-  const spec = requests[op];
-  return spec ? struct(value, spec, false) : {};
+  const spec = (requests as Partial<Record<Op, Fields>>)[op];
+  return (spec ? struct(value, spec, false) : {}) as Requests[K];
+}
+type Alternatives<T extends string> = T extends `${infer Head}|${infer Tail}` ? Head | Alternatives<Tail> : T;
+type TaggedValues = { target: Target; paneDestination: PaneDestination; tabDestination: TabDestination };
+type Value<T extends string> = T extends `?${infer Inner}`
+  ? Value<Inner> | null
+  : T extends `[]${infer Inner}`
+    ? Value<Inner>[]
+    : T extends "string"
+      ? string
+      : T extends "bool"
+        ? boolean
+        : T extends "u64" | "i64"
+          ? bigint
+          : T extends `u${number}` | `i${number}`
+            ? number
+            : T extends "json"
+              ? unknown
+              : T extends "theme"
+                ? Theme | null
+                : T extends keyof TaggedValues
+                  ? TaggedValues[T]
+                  : T extends keyof typeof structures
+                    ? Normalized<(typeof structures)[T]>
+                    : Alternatives<T>;
+type FieldValue<F extends Field> = Value<F extends string ? F : F[0]>;
+type Normalized<S extends Fields> = { -readonly [K in keyof S]: FieldValue<S[K]> };
+type InputValue<T extends string> = T extends `?${infer Inner}`
+  ? InputValue<Inner> | null
+  : T extends `[]${infer Inner}`
+    ? InputValue<Inner>[]
+    : T extends "u64" | "i64"
+      ? number | bigint
+      : T extends "theme"
+        ? Partial<Pick<Theme, "foreground" | "background" | "palette">> | null
+        : T extends "paneDestination"
+          ? { new_tab: string } | { beside: Input<typeof structures.beside> }
+          : T extends keyof typeof structures
+            ? Input<(typeof structures)[T]>
+            : Value<T>;
+type InputField<F extends Field> = InputValue<F extends string ? F : F[0]>;
+type Input<S extends Fields> = {
+  -readonly [K in keyof S as S[K] extends string ? K : never]: InputField<S[K]>;
+} & {
+  -readonly [K in keyof S as S[K] extends string ? never : K]?: InputField<S[K]>;
+};
+export type Requests = {
+  [K in Op]: K extends "session.command"
+    ? { command: Command }
+    : K extends keyof typeof requests
+      ? Normalized<(typeof requests)[K]>
+      : Record<string, never>;
+};
+export type RequestInputs = {
+  [K in Op]: K extends "session.command"
+    ? { command: CommandInput }
+    : K extends keyof typeof requests
+      ? Input<(typeof requests)[K]>
+      : Record<string, never>;
+};
+export type Request<K extends Op> = Requests[K];
+export type RequestInput<K extends Op> = RequestInputs[K];
+export type DecodedRequest = { [K in Op]: { op: K; payload: Requests[K] } }[Op];
+export function decoded(op: Op, value: unknown): DecodedRequest {
+  return { op, payload: decode(op, value) } as DecodedRequest;
 }
 export const stamp_bucket = 5_000_000;
 type Field = string | readonly [string, unknown];
 type Fields = Record<string, Field>;
 function target(value: unknown) {
-  const t = object(value),
+  const t = json.object(value),
     keys = Object.keys(t);
   if (keys.length !== 1) throw Error("UnexpectedToken");
   if (!["pane", "native"].includes(keys[0])) throw Error("UnknownField");
-  validate(t[keys[0]], "u32");
-  return t;
+  return { [keys[0]]: validate(t[keys[0]], "u32") };
 }
-function validate(value: any, type: string): any {
+function destination(value: unknown, pane: boolean) {
+  const source = json.object(value),
+    tags = Object.keys(source);
+  if (tags.length !== 1) throw Error("UnexpectedToken");
+  const tag = tags[0];
+  switch (tag) {
+    case "new_tab":
+      if (pane) return { new_tab: validate(source[tag], "string") };
+      break;
+    case "beside":
+      if (pane) return { beside: struct(source[tag], structures.beside, true) };
+      break;
+    case "workspace":
+    case "before":
+    case "after":
+      if (!pane) return { [tag]: validate(source[tag], "u32") };
+      break;
+  }
+  throw Error("UnknownField");
+}
+function validate(value: any, type: string, strict = false): any {
   if (type[0] === "?") {
     if (value === null) return null;
-    return validate(value, type.slice(1));
+    return validate(value, type.slice(1), strict);
   }
   if (type.startsWith("[]")) {
     if (!Array.isArray(value)) throw Error("UnexpectedToken");
-    return value.map(v => validate(v, type.slice(2)));
+    return value.map(v => validate(v, type.slice(2), strict));
   }
   if (type === "json") return value;
+  if (type === "target") return target(value);
+  if (type === "paneDestination" || type === "tabDestination") return destination(value, type === "paneDestination");
   if (type === "theme") {
     try {
       return Object.assign(
@@ -314,42 +356,57 @@ function validate(value: any, type: string): any {
     return value;
   }
   if (/^[ui](8|16|32|64)$/.test(type)) {
-    if (typeof value !== "bigint" && !Number.isInteger(value)) throw Error("UnexpectedToken");
+    if (typeof value !== "bigint") {
+      if (typeof value !== "number" || !Number.isInteger(value)) throw Error("UnexpectedToken");
+      if (!Number.isSafeInteger(value)) throw Error("Overflow");
+    }
     const n = BigInt(value),
       bits = BigInt(type.slice(1)),
       signed = type[0] === "i",
       min = signed ? -(1n << (bits - 1n)) : 0n,
       max = signed ? (1n << (bits - 1n)) - 1n : (1n << bits) - 1n;
     if (n < min || n > max) throw Error("Overflow");
-    return bits < 64n ? Number(n) : value;
+    return bits < 64n ? Number(n) : n;
   }
   if (type.includes("|")) {
     if (typeof value !== "string") throw Error("UnexpectedToken");
     if (!type.split("|").includes(value)) throw Error("InvalidEnumTag");
     return value;
   }
-  const nested = structures[type];
-  if (nested) return struct(value, nested, false);
+  const nested = (structures as Record<string, Fields>)[type];
+  if (nested) return struct(value, nested, strict);
   throw Error("InvalidProtocolSchema");
 }
 function struct(value: any, fields: Fields, strict: boolean) {
-  const source = object(value),
+  const source = json.object(value),
     out: Record<string, any> = {};
   if (strict) for (const key of Object.keys(source)) if (!Object.hasOwn(fields, key)) throw Error("UnknownField");
   for (const [key, field] of Object.entries(fields)) {
     const [type, defaultValue] = typeof field === "string" ? [field, undefined] : field;
     if (!Object.hasOwn(source, key)) {
       if (typeof field === "string") throw Error("MissingField");
-      out[key] = structuredClone(defaultValue);
+      out[key] = validate(structuredClone(defaultValue), type, strict);
       continue;
     }
-    out[key] = validate(source[key], type);
+    out[key] = validate(source[key], type, strict);
   }
   if (fields === structures.rgb) return out;
   if (Object.hasOwn(out, "palette") && out.palette.length !== 16) throw Error("UnexpectedToken");
   return out;
 }
-const structures: Record<string, Fields> = {
+const structures = {
+  visibility: { codex: ["bool", false], claude: ["bool", false] },
+  semantics: {
+    provider: ["?codex|claude", null],
+    suggested_name: ["string", ""],
+    model: ["string", ""],
+    model_name: ["string", ""],
+    account: ["string", ""],
+    mode: ["string", ""],
+    yolo: ["bool", false],
+    default_account: ["bool", false],
+  },
+  beside: { other: "u32", direction: ["left|right|up|down", "right"] },
   rgb: { r: "u8", g: "u8", b: "u8" },
   stamp: { identity: "u64", revision: "u64", offset: "?u64" },
   interest: { pane: "u32", cols: "u16", rows: "u16", offset: ["?u64", null], known: ["?stamp", null] },
@@ -389,9 +446,9 @@ const structures: Record<string, Fields> = {
     recovery_note: ["string", ""],
     tabs: "[]importTab",
   },
-};
-const launch: Fields = { workspace: "u32", cwd: ["string", ""] };
-const requests: Partial<Record<Op, Fields>> = {
+} as const satisfies Record<string, Fields>;
+const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
+const requests = {
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
   "agent.subscribe": launch,
@@ -466,7 +523,7 @@ const requests: Partial<Record<Op, Fields>> = {
     pid: ["i32", 0],
   },
   "test.advance": { ms: "i64" },
-};
+} as const satisfies Partial<Record<Op, Fields>>;
 const rejections = new Set([
   "StaleLayout",
   "NoPane",
@@ -500,3 +557,87 @@ const rejections = new Set([
 export function rejection(name: string): string {
   return rejections.has(name) ? name : "ServerRejected";
 }
+/** JSON replies contain values and serialized fields, never class methods. */
+export type Wire<T> = unknown extends T ? T : T extends { toJSON(): infer Value } ? WireFields<Value> : WireFields<T>;
+type WireFields<T> = unknown extends T
+  ? T
+  : T extends bigint
+    ? number | bigint
+    : T extends readonly unknown[]
+      ? { [K in keyof T]: Wire<T[K]> }
+      : T extends object
+        ? { [K in keyof T as T[K] extends (...args: never[]) => unknown ? never : K]: Wire<T[K]> }
+        : T;
+
+// RPC success payloads; opaque provider messages remain unknown.
+type SessionSnapshot = ReturnType<typeof import("./session").snapshot>;
+type ViewerSnapshot = ReturnType<typeof import("./session").viewerSnapshot>;
+type Ok = { ok: true };
+type ViewerInfo = { id: number; workspace: number; pane: number | null; watched: boolean };
+export interface ReplyPayloads {
+  hello: {
+    type: "hello";
+    protocol: number;
+    capabilities: Op[];
+    server_pid: number;
+    build_id: string;
+    executable: string;
+    release_version: string;
+    update_abi: string;
+  };
+  ping: Ok & { pid: number };
+  "session.command": Ok & { result: Result };
+  "session.locate": Ok & { result: Result };
+  "session.list": Ok & { result: SessionSnapshot; viewers: ViewerInfo[] };
+  "session.snapshot": SessionSnapshot;
+  "session.subscribe": SessionSnapshot;
+  "viewer.open": Ok & Opened;
+  "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
+  "viewer.search": Ok & {
+    offset: bigint | null;
+    match?: { x: number; y: number; end_x: number; end_y: number } | null;
+  };
+  "viewer.list": Ok & { viewers: ViewerInfo[] };
+  "pane.paste": Ok & { pasted: boolean };
+  "pane.surface": {
+    type: "surface";
+    protocol: number;
+    server_pid: number;
+    revision: bigint;
+    surface: SurfaceView["surface"];
+  };
+  "conversation.list": Ok & { conversations: SessionSnapshot["conversations"] };
+  "recovery.save": Ok & { path: string };
+  "inference.configure": Ok & { saved: boolean; inference: import("./corgi_setup").Status };
+  "shell.configure": Ok & { shell: import("./launch/command").ShellStatus };
+  "smart_links.configure": Ok & { smart_links: boolean };
+  "worktree.remove": Ok & { removal: number };
+  "git.branches": Ok & { branches: Awaited<ReturnType<typeof import("./worktree_add").branches>> };
+  "onboarding.status": Ok & {
+    progress: import("./import/onboarding").Progress | ReturnType<import("./import/herdr").Manager["status"]>;
+  };
+  "agent.command.preview": Ok & { resolution: import("./launch/command").Resolution };
+  "agent.preview": Ok & { preview: import("./launch/preview").Preview };
+  "agent.track_usage": Ok & { preview: import("./launch/preview").Preview };
+  "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
+  "agent.history": Ok & { history: import("./launch/history").History };
+  action: Ok & { viewer: number; queued: true };
+  focus: Ok & { viewer: number; queued: true };
+  "workspace.switch": Ok & { viewer: number; queued: true };
+  "native.start": Ok & { session: number; provider: Provider };
+  "native.list": Ok & { sessions: unknown[] };
+  "native.events": Ok & {
+    events: unknown[];
+    pending_requests: unknown;
+    next_seq: bigint;
+    first_seq: bigint;
+  };
+}
+// RPC returns raw JSON: small integer tokens are numbers until a consumer
+// normalizes its model. WireReply never claims to contain bigint-only fields.
+export type WireReply<K extends Op> = K extends keyof ReplyPayloads ? Wire<ReplyPayloads[K]> : Ok;
+export type Reply<K extends Op> = WireReply<K>;
+export type ErrorReply = { err: string; viewer_protocol?: number };
+export type Response<K extends Op> = Reply<K> | ErrorReply;
+export type Arguments<K extends Op> =
+  {} extends RequestInput<K> ? [fields?: RequestInput<K>] : [fields: RequestInput<K>];

@@ -1,8 +1,9 @@
+import * as protocol from "./protocol";
 import { Runtime, Launch } from "./runtime";
 import type { Create } from "./runtime";
 import { Model, Tab } from "./layout";
 import { label } from "./pane/label";
-import { Entry, resolve, analyze, shellStatus } from "./launch/command";
+import { Entry, Semantics, resolve, analyze, shellStatus } from "./launch/command";
 import { ResumeHint } from "./resume_hint";
 import { Text, Each } from "./providers";
 import { logicalKey } from "./keys";
@@ -15,7 +16,7 @@ export type Result = {
   closed_panes?: number[];
   text?: string | null;
 };
-export function location(r: Runtime, pane: number): Result {
+export function location(r: Runtime, pane: number): protocol.Result {
   const ws = r.workspaces.owner(pane);
   if (!ws) throw Error("NoPane");
   return {
@@ -48,34 +49,40 @@ function spawnOptions(r: Runtime, ctx: Context, workspace: number, from: number 
   }
   return { workspace, cwd: dir || ws.cwd, cols: 80, rows: 24, ...ctx };
 }
-async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result> {
-  const op = cmd.op ?? Object.keys(cmd)[0],
-    q = cmd.op ? cmd : cmd[op];
-  switch (op) {
+async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Promise<Result> {
+  const request = protocol.command(cmd);
+  switch (request.op) {
     case "agent.move": {
-      const ws = r.getWorkspace(q.workspace);
-      ws.agent_order.move(r.agentTargets(ws), q.target, q.before ?? null);
+      const ws = r.getWorkspace(request.payload.workspace);
+      ws.agent_order.move(r.agentTargets(ws), request.payload.target, request.payload.before ?? null);
       break;
     }
     case "agent.command": {
-      if (q.index < 0 || q.index >= r.agent_commands.length) throw Error("InvalidCommand");
-      const source = q.resolve && q.command ? await resolve(q.command, q.cwd ?? null) : q.command,
-        e = r.agent_commands[q.index];
+      if (request.payload.index < 0 || request.payload.index >= r.agent_commands.length) throw Error("InvalidCommand");
+      const source =
+          request.payload.resolve && request.payload.command
+            ? await resolve(request.payload.command, request.payload.cwd ?? null)
+            : request.payload.command,
+        e = r.agent_commands[Number(request.payload.index)];
       e.set(source);
-      if (q.original !== null && q.original !== undefined) e.setOriginal(q.original);
-      else if (q.resolve) e.setOriginal(q.command);
-      if (q.name !== null && q.name !== undefined) e.name = q.name;
-      if (!source) r.agent_commands[q.index] = new Entry();
-      else e.semantics = q.semantics ?? analyze(source, q.cwd ?? ".");
-      r.agent_commands[q.index].hidden = !!source && q.hidden;
+      if (request.payload.original !== null && request.payload.original !== undefined)
+        e.setOriginal(request.payload.original);
+      else if (request.payload.resolve) e.setOriginal(request.payload.command);
+      if (request.payload.name !== null && request.payload.name !== undefined) e.name = request.payload.name;
+      if (!source) r.agent_commands[Number(request.payload.index)] = new Entry();
+      else
+        e.semantics = request.payload.semantics
+          ? Object.assign(new Semantics(), request.payload.semantics)
+          : analyze(source, request.payload.cwd ?? ".");
+      r.agent_commands[Number(request.payload.index)].hidden = !!source && request.payload.hidden;
       r.changed();
       return {};
     }
     case "agent.command.create": {
-      const e = r.agent_commands[q.index];
+      const e = r.agent_commands[Number(request.payload.index)];
       if (!e?.command) throw Error("InvalidCommand");
       const pane = await r.create({
-        ...spawnOptions(r, ctx, q.workspace, null, q.cwd ?? ""),
+        ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd ?? ""),
         command: e.text(),
         interactive_command: true,
       });
@@ -83,18 +90,19 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       return location(r, pane);
     }
     case "agent.visibility":
-      r.agent_hidden = q.hidden instanceof Each ? q.hidden : new Each(false, q.hidden);
+      r.agent_hidden =
+        request.payload.hidden instanceof Each ? request.payload.hidden : new Each(false, request.payload.hidden);
       r.changed();
       return {};
     case "agent.yolo":
-      r.agent_yolo.set(q.provider, q.enabled);
+      r.agent_yolo.set(request.payload.provider, request.payload.enabled);
       r.changed();
       return {};
     case "agent.create": {
-      const provider = q.provider ?? r.lastAgent(r.getWorkspace(q.workspace)),
+      const provider = request.payload.provider ?? r.lastAgent(r.getWorkspace(request.payload.workspace)),
         launch = new Launch({ provider, yolo: r.agent_yolo.get(provider) }),
         pane = await r.create({
-          ...spawnOptions(r, ctx, q.workspace, null, q.cwd ?? ""),
+          ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd ?? ""),
           command: launch.paneCommand(ctx.executable, launch.typed()),
         });
       r.pane(pane)!.launch = launch;
@@ -102,20 +110,23 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       return location(r, pane);
     }
     case "agent.resume": {
-      const opts = { ...spawnOptions(r, ctx, q.workspace, null, q.cwd ?? ""), asleep: q.asleep === true },
-        closed = r.closedConversation(q.provider, q.session);
+      const opts = {
+          ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd ?? ""),
+          asleep: request.payload.asleep === true,
+        },
+        closed = r.closedConversation(request.payload.provider, request.payload.session);
       if (closed !== null) return location(r, await r.reopenClosed(closed, opts));
       const h = new ResumeHint();
-      h.provider = q.provider;
-      h.session = new Text(q.session);
-      h.name = new Text(q.name ?? "");
+      h.provider = request.payload.provider;
+      h.session = new Text(request.payload.session);
+      h.name = new Text(request.payload.name ?? "");
       return location(
         r,
         await r.resumeAgent(
           opts,
           new Launch({
-            provider: q.provider,
-            yolo: r.agent_yolo.get(q.provider),
+            provider: request.payload.provider,
+            yolo: r.agent_yolo.get(request.payload.provider),
           }),
           h,
           null,
@@ -123,48 +134,56 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       );
     }
     case "agent.rename":
-      await r.renameAgent(q.target, q.name ?? null);
-      return location(r, q.target);
+      await r.renameAgent(request.payload.target, request.payload.name ?? null);
+      return location(r, request.payload.target);
     case "agent.fork": {
-      const p = r.pane(q.target);
+      const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      if (q.check) {
+      if (request.payload.check) {
         Runtime.forkSource(p);
-        return location(r, q.target);
+        return location(r, request.payload.target);
       }
-      const ws = r.workspaces.owner(q.target)!;
-      return location(r, await r.forkAgent(spawnOptions(r, ctx, ws.id, q.target, ""), q.target, q.name ?? null));
+      const ws = r.workspaces.owner(request.payload.target)!;
+      return location(
+        r,
+        await r.forkAgent(
+          spawnOptions(r, ctx, ws.id, request.payload.target, ""),
+          request.payload.target,
+          request.payload.name ?? null,
+        ),
+      );
     }
     case "pane.create":
       return location(
         r,
         await r.create({
-          ...spawnOptions(r, ctx, q.workspace, q.from ?? null, q.cwd ?? ""),
-          command: q.command,
-          title: q.title,
+          ...spawnOptions(r, ctx, request.payload.workspace, request.payload.from ?? null, request.payload.cwd ?? ""),
+          command: request.payload.command,
+          title: request.payload.title,
         }),
       );
     case "pane.split": {
-      const ws = r.workspaces.owner(q.target);
+      const ws = r.workspaces.owner(request.payload.target);
       if (!ws) throw Error("NoPane");
       return location(
         r,
         await r.create({
-          ...spawnOptions(r, ctx, ws.id, q.target, q.cwd ?? ""),
-          command: q.command,
-          title: q.title,
+          ...spawnOptions(r, ctx, ws.id, request.payload.target, request.payload.cwd ?? ""),
+          command: request.payload.command,
+          title: request.payload.title,
           split: {
-            pane: q.target,
-            axis: q.direction === "left" || q.direction === "right" ? "horizontal" : "vertical",
-            before: q.direction === "left" || q.direction === "up",
+            pane: request.payload.target,
+            axis:
+              request.payload.direction === "left" || request.payload.direction === "right" ? "horizontal" : "vertical",
+            before: request.payload.direction === "left" || request.payload.direction === "up",
           },
         }),
       );
     }
     case "workspace.create": {
-      const id = await r.createWorkspace(q.name, {
+      const id = await r.createWorkspace(request.payload.name, {
           workspace: 0,
-          cwd: q.cwd,
+          cwd: request.payload.cwd,
           cols: 80,
           rows: 24,
           ...ctx,
@@ -173,77 +192,81 @@ async function executeInner(r: Runtime, ctx: Context, cmd: any): Promise<Result>
       return location(r, ws.model.firstPane(ws.model.tabs[0].root));
     }
     case "workspace.edit": {
-      const ws = r.getWorkspace(q.target);
-      await r.workspaces.edit(q.target, q.name ?? ws.customName(), q.cwd ?? ws.cwd);
+      const ws = r.getWorkspace(request.payload.target);
+      await r.workspaces.edit(
+        request.payload.target,
+        request.payload.name ?? ws.customName(),
+        request.payload.cwd ?? ws.cwd,
+      );
       break;
     }
     case "workspace.close":
-      r.closeWorkspace(q.target, q.close_contents);
+      r.closeWorkspace(request.payload.target, request.payload.close_contents);
       break;
     case "workspace.move":
-      r.workspaces.moveBefore(q.target, q.before);
+      r.workspaces.moveBefore(request.payload.target, request.payload.before);
       break;
     case "pane.restore":
-      return location(r, await r.reopen(spawnOptions(r, ctx, q.workspace, null, "")));
+      return location(r, await r.reopen(spawnOptions(r, ctx, request.payload.workspace, null, "")));
     case "pane.wake":
-      await r.wake(q.target, ctx, q.shell);
-      return location(r, q.target);
+      await r.wake(request.payload.target, ctx, request.payload.shell);
+      return location(r, request.payload.target);
     case "pane.close":
-      location(r, q.target);
-      r.close(q.target);
-      return { closed_panes: [q.target] };
+      location(r, request.payload.target);
+      r.close(request.payload.target);
+      return { closed_panes: [request.payload.target] };
     case "tab.close": {
-      const ws = tabOwner(r, q.target),
-        root = ws.model.tabs[tabIndex(ws.model, q.target)].root,
+      const ws = tabOwner(r, request.payload.target),
+        root = ws.model.tabs[tabIndex(ws.model, request.payload.target)].root,
         ids = ws.model.nodes.flatMap(n => (n && "pane" in n && ws.model.contains(root, n.pane) ? [n.pane] : []));
       for (const id of ids) r.close(id);
       return { closed_panes: ids };
     }
     case "pane.read": {
-      const p = r.pane(q.target);
+      const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      let text = q.view === "screen" ? p.terminal.text() : p.terminal.history();
-      if (q.view !== "screen") {
-        if (!q.lines || q.lines > 10000) throw Error("InvalidLines");
-        text = text.trimEnd().split("\n").slice(-q.lines).join("\n");
+      let text = request.payload.view === "screen" ? p.terminal.text() : p.terminal.history();
+      if (request.payload.view !== "screen") {
+        if (!request.payload.lines || request.payload.lines > 10000) throw Error("InvalidLines");
+        text = text.trimEnd().split("\n").slice(-Number(request.payload.lines)).join("\n");
         if (Buffer.byteLength(text) > 512 * 1024) throw Error("OutputTooLarge");
       }
-      return { ...location(r, q.target), text };
+      return { ...location(r, request.payload.target), text };
     }
     case "pane.send": {
-      const p = r.pane(q.target);
+      const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      const bracketed = (p.terminal as any).bracketed_paste ?? false;
+      const bracketed = p.terminal.bracketed_paste ?? false;
       await p.terminal.send(
         (bracketed ? "\x1b[200~" : "") +
-          q.text +
+          request.payload.text +
           (bracketed ? "\x1b[201~" : "") +
-          (q.enter ? encode(logicalKey("enter")) : ""),
+          (request.payload.enter ? encode(logicalKey("enter")) : ""),
       );
-      return location(r, q.target);
+      return location(r, request.payload.target);
     }
     case "pane.keys": {
-      const p = r.pane(q.target);
+      const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      const output = q.text
+      const output = request.payload.text
         .split(" ")
         .filter(Boolean)
         .map((k: string) => encode(logicalKey(k)))
         .join("");
       p.detection.observeInput(output, Date.now() * 1000);
       await p.terminal.send(output);
-      return location(r, q.target);
+      return location(r, request.payload.target);
     }
     case "pane.input": {
-      const p = r.pane(q.target);
+      const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      p.detection.observeInput(q.data, Date.now() * 1000);
-      if (p.typed(q.data)) r.changed();
-      await p.terminal.send(q.data);
-      return location(r, q.target);
+      p.detection.observeInput(request.payload.data, Date.now() * 1000);
+      if (p.typed(request.payload.data)) r.changed();
+      await p.terminal.send(request.payload.data);
+      return location(r, request.payload.target);
     }
     default:
-      return arrange(r, { [op]: q });
+      return arrangeInner(r, request);
   }
   r.changed();
   return {};
@@ -253,9 +276,37 @@ const clone = (m: Model) => {
   n.next_id = m.next_id;
   return n;
 };
-export function arrange(r: Runtime, cmd: any): Result {
-  const op = Object.keys(cmd)[0],
-    q = cmd[op],
+type ArrangementName =
+  | "tab.rename"
+  | "pane.rename"
+  | "split.resize"
+  | "pane.resize"
+  | "split.ratio"
+  | "pane.swap"
+  | "pane.move"
+  | "tab.merge"
+  | "tab.move";
+type Arrangement = Extract<protocol.DecodedCommand, { op: ArrangementName }>;
+export function arrange(r: Runtime, cmd: protocol.Command): Result {
+  const request = protocol.command(cmd);
+  switch (request.op) {
+    case "tab.rename":
+    case "pane.rename":
+    case "split.resize":
+    case "pane.resize":
+    case "split.ratio":
+    case "pane.swap":
+    case "pane.move":
+    case "tab.merge":
+    case "tab.move":
+      return arrangeInner(r, request);
+    default:
+      throw Error("InvalidCommand");
+  }
+}
+function arrangeInner(r: Runtime, request: Arrangement): Result {
+  const op = request.op,
+    q = request.payload,
     tabOp = ["tab.rename", "tab.move", "tab.merge"].includes(op),
     source = tabOp ? tabOwner(r, q.target) : r.workspaces.owner(q.target);
   if (!source) throw Error("NoPane");
@@ -263,86 +314,116 @@ export function arrange(r: Runtime, cmd: any): Result {
     original = clone(src);
   const index = tabOp ? tabIndex(src, q.target) : src.tabForPane(q.target)!,
     representative = tabOp ? src.firstPane(src.tabs[index].root) : q.target;
-  switch (op) {
+  switch (request.op) {
     case "tab.rename":
-      src.tabs[index].rename(q.name);
+      src.tabs[index].rename(request.payload.name);
       break;
     case "pane.rename": {
-      const p = r.pane(q.target);
+      const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      p.label = label(q.name);
+      p.label = label(request.payload.name);
       break;
     }
     case "split.resize":
-      src.resize(q.target, q.direction);
+      src.resize(request.payload.target, request.payload.direction);
       break;
     case "pane.resize":
-      if (q.ratio < 100 || q.ratio > 900) throw Error("InvalidRatio");
-      src.setShare(q.target, q.axis, q.ratio);
+      if (request.payload.ratio < 100 || request.payload.ratio > 900) throw Error("InvalidRatio");
+      src.setShare(request.payload.target, request.payload.axis, request.payload.ratio);
       break;
     case "split.ratio": {
-      if (source.model.revision !== BigInt(q.expected)) throw Error("StaleLayout");
-      if (q.ratio < 100 || q.ratio > 900) throw Error("InvalidRatio");
+      if (source.model.revision !== request.payload.expected) throw Error("StaleLayout");
+      if (request.payload.ratio < 100 || request.payload.ratio > 900) throw Error("InvalidRatio");
       const n = src.nodes.find(
         n =>
-          n && "split" in n && src.firstPane(n.split.first) === q.target && src.firstPane(n.split.second) === q.other,
+          n &&
+          "split" in n &&
+          src.firstPane(n.split.first) === request.payload.target &&
+          src.firstPane(n.split.second) === request.payload.other,
       );
       if (!n || !("split" in n)) throw Error("NoSplit");
-      n.split.ratio = q.ratio;
+      n.split.ratio = request.payload.ratio;
       break;
     }
     default: {
-      const place: any =
-        op === "pane.swap"
-          ? { swap: q.other }
-          : op === "pane.move"
-            ? q.destination
-            : op === "tab.merge"
-              ? { beside: { other: q.other, direction: q.direction } }
-              : op === "tab.move"
-                ? { tab: q.destination }
+      const place:
+        | { swap: number }
+        | { beside: { other: number; direction: "left" | "right" | "up" | "down" } }
+        | { tab: protocol.CommandPayloads["tab.move"]["destination"] }
+        | { new_tab: string }
+        | null =
+        request.op === "pane.swap"
+          ? { swap: request.payload.other }
+          : request.op === "pane.move"
+            ? request.payload.destination
+            : request.op === "tab.merge"
+              ? { beside: { other: request.payload.other, direction: request.payload.direction } }
+              : request.op === "tab.move"
+                ? { tab: request.payload.destination }
                 : null;
       if (!place) throw Error("InvalidCommand");
-      const kind = Object.keys(place)[0],
-        p = place[kind];
+      const placement =
+        "swap" in place
+          ? { kind: "swap" as const, value: place.swap }
+          : "beside" in place
+            ? { kind: "beside" as const, value: place.beside }
+            : "tab" in place
+              ? { kind: "tab" as const, value: place.tab }
+              : { kind: "new_tab" as const, value: place.new_tab };
       let destination = source;
-      if (kind === "swap" || kind === "beside") {
-        destination = r.workspaces.owner(kind === "swap" ? p : p.other)!;
+      if (placement.kind === "swap" || placement.kind === "beside") {
+        destination = r.workspaces.owner(placement.kind === "swap" ? placement.value : placement.value.other)!;
         if (!destination) throw Error("NoPane");
-      } else if (kind === "tab")
-        destination = "workspace" in p ? r.getWorkspace(p.workspace) : tabOwner(r, p.before ?? p.after);
+      } else if (placement.kind === "tab")
+        destination =
+          "workspace" in placement.value
+            ? r.getWorkspace(placement.value.workspace)
+            : tabOwner(r, "before" in placement.value ? placement.value.before : placement.value.after);
       const dst = source === destination ? src : clone(destination.model);
-      if (kind === "swap") {
-        const a = src.findNode(q.target)!,
-          b = dst.findNode(p)!;
+      if (placement.kind === "swap") {
+        const a = src.findNode(request.payload.target)!,
+          b = dst.findNode(placement.value)!;
         [src.nodes[a], dst.nodes[b]] = [dst.nodes[b], src.nodes[a]];
-      } else if (kind === "tab" && source === destination) {
-        if (!("workspace" in p)) src.moveTab(q.target, tabIndex(src, p.before ?? p.after) + Number("after" in p));
+      } else if (placement.kind === "tab" && source === destination) {
+        if (!("workspace" in placement.value))
+          src.moveTab(
+            request.payload.target,
+            tabIndex(src, "before" in placement.value ? placement.value.before : placement.value.after) +
+              Number("after" in placement.value),
+          );
       } else {
-        if (kind === "beside" && src.contains(src.tabs[index].root, p.other) && (tabOp || q.target === p.other))
+        if (
+          placement.kind === "beside" &&
+          src.contains(src.tabs[index].root, placement.value.other) &&
+          (tabOp || request.payload.target === placement.value.other)
+        )
           throw Error("InvalidDestination");
         const saved = Object.assign(new Tab(src.tabs[index].id, src.tabs[index].root), src.tabs[index]),
-          root = tabOp ? saved.root : src.findNode(q.target)!;
+          root = tabOp ? saved.root : src.findNode(request.payload.target)!;
         if (tabOp) src.removeTab(index);
-        else src.close(q.target);
+        else src.close(request.payload.target);
         const copied = dst.copyTree(original, root);
-        if (kind === "beside") dst.insertTree(copied, p.other, p.direction);
+        if (placement.kind === "beside") dst.insertTree(copied, placement.value.other, placement.value.direction);
         else {
           saved.root = copied;
           if (!tabOp) {
             saved.id = r.workspaces.next_pane_id;
-            saved.rename(p);
+            saved.rename(placement.kind === "new_tab" ? placement.value : "");
           }
           dst.tabs[dst.count++] = saved;
-          if (kind === "tab" && !("workspace" in p))
-            dst.moveTab(saved.id, tabIndex(dst, p.before ?? p.after) + Number("after" in p));
+          if (placement.kind === "tab" && !("workspace" in placement.value))
+            dst.moveTab(
+              saved.id,
+              tabIndex(dst, "before" in placement.value ? placement.value.before : placement.value.after) +
+                Number("after" in placement.value),
+            );
         }
       }
       if (source !== destination) {
         dst.revision = BigInt.asUintN(64, dst.revision + 1n);
         destination.model = dst;
       }
-      if (kind === "new_tab") r.workspaces.next_pane_id++;
+      if (placement.kind === "new_tab") r.workspaces.next_pane_id++;
       break;
     }
   }
@@ -433,7 +514,7 @@ function build(r: Runtime, viewer: boolean) {
     server_pid: process.pid,
     ports: r.link_labels.snapshot?.(r.ports.current) ?? [],
     resources: viewer ? {} : (r.resources.current ?? {}),
-    revision: viewer ? 0 : r.revision,
+    revision: viewer ? 0n : r.revision,
     last_agent: r.last_agent,
     agent_yolo: r.agent_yolo,
     agent_hidden: r.agent_hidden,
@@ -494,7 +575,7 @@ function build(r: Runtime, viewer: boolean) {
   };
 }
 
-export async function execute(r: Runtime, ctx: Context, cmd: any): Promise<Result> {
+export async function execute(r: Runtime, ctx: Context, cmd: protocol.Command): Promise<protocol.Result> {
   return {
     pane: 0,
     tab: 0,

@@ -315,7 +315,7 @@ test("one sleeper dreams per period, holds through its puff, and rarely repeats"
   }
   expect(seen.size).toBe(keys.length);
   expect(repeats).toBeLessThan(15);
-  for (let period = 0; period < 5; period++) expect(a.dreamer([7], period * a.dream_period_ms)!.key).toBe(7n);
+  for (let period = 0; period < 5; period++) expect(a.dreamer([7n], period * a.dream_period_ms)!.key).toBe(7n);
 });
 test("content reveal preserves the old pose and cancels when a corgi returns", () => {
   const x = new a.Presentation();

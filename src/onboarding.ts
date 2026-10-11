@@ -69,16 +69,16 @@ export class State {
     }
     this.picker.scan();
   }
-  async begin(conn: Connection): Promise<boolean> {
+  async begin(conn: Pick<Connection, "call">): Promise<boolean> {
     if (!this.picker.selectionCount()) return true;
     await this.picker.begin(conn);
     this.message = new Message();
     return false;
   }
-  async poll(conn: Connection): Promise<boolean> {
+  async poll(conn: Pick<Connection, "call">): Promise<boolean> {
     return this.step === "import" && (await this.picker.poll(conn));
   }
-  async key(byte: number | string, conn: Connection): Promise<boolean> {
+  async key(byte: number | string, conn: Pick<Connection, "call">): Promise<boolean> {
     const b = typeof byte === "string" ? byte.charCodeAt(0) : byte;
     const picker = this.picker;
     if (this.step === "import") picker.selectDefaults();
@@ -133,7 +133,7 @@ export class State {
     }
     return false;
   }
-  async sequence(seq: string, conn: Connection): Promise<boolean> {
+  async sequence(seq: string, conn: Pick<Connection, "call">): Promise<boolean> {
     if (this.step === "keymap") {
       this.help.sequence(seq);
       return false;
@@ -151,7 +151,7 @@ export class State {
     }
     return false;
   }
-  async click(cols: number, rows: number, x: number, y: number, conn: Connection): Promise<boolean> {
+  async click(cols: number, rows: number, x: number, y: number, conn: Pick<Connection, "call">): Promise<boolean> {
     if (this.step === "keymap") {
       if (shortcut_help.State.closeAt(cols, rows, x, y)) this.step = "presets";
       if (shortcut_help.State.corgiAt(cols, rows, x, y)) this.help.play(milliTimestamp());

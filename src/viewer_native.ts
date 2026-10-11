@@ -31,21 +31,9 @@ export function rows(
   w: number,
   h: number,
   dimmed: boolean,
-  hovered: number | bigint | null,
+  hovered: bigint | null,
 ): string {
-  const size = Number(
-    n.viewer_rows(
-      handle as Pointer,
-      pane,
-      x,
-      y,
-      w,
-      h,
-      dimmed,
-      hovered !== null,
-      hovered === null ? 0n : BigInt(hovered),
-    ),
-  );
+  const size = Number(n.viewer_rows(handle as Pointer, pane, x, y, w, h, dimmed, hovered !== null, hovered ?? 0n));
   return take(size).toString();
 }
 /** The render state's cursor in the viewport; only a visible one when `visible`. */

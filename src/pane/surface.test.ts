@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { Terminal } from "./terminal";
-import { capture } from "./surface";
+import { capture, view } from "./surface";
 const links = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number }[];
 test("named hyperlinks survive capture and a second terminal render without leaking", () => {
   const ts = Array.from({ length: 3 }, () => Terminal.create(32, 3)),
@@ -65,6 +65,26 @@ test("plain links span soft wraps but not hard newlines and remain snapshot owne
     t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
     capture(9, t);
     expect(links(t)).toHaveLength(0);
+  } finally {
+    t.destroy();
+  }
+});
+test("native surfaces and links expose exact bigint identities and numeric viewports", () => {
+  const t = Terminal.create(32, 3);
+  try {
+    t.feed("\x1b]8;;https://example.com/\x1b\\Docs\x1b]8;;\x1b\\");
+    const native = t.surface(1);
+    expect(typeof t.surface_identity).toBe("bigint");
+    expect(typeof t.surface_revision).toBe("bigint");
+    expect(typeof t.title_revision).toBe("bigint");
+    expect(typeof t.hyperlinks()[0].id).toBe("bigint");
+    for (const identity of [1, 0xffffffffffffffffn]) {
+      const normalized = view({ ...native, stamp: { identity, revision: 1, offset: 0 } });
+      expect(normalized.stamp.identity).toBe(BigInt(identity));
+      expect(normalized.stamp.revision).toBe(1n);
+      expect(normalized.stamp.offset).toBe(0);
+      expect(typeof normalized.bottom).toBe("number");
+    }
   } finally {
     t.destroy();
   }

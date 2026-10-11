@@ -1,9 +1,13 @@
 //! Daemon adapter for onboarding ownership and copy transactions.
 import { Manager, importBridge } from "./import/herdr";
 import { Job } from "./import/onboarding";
+import type { SourceSession } from "./import/herdr";
+import type { Node } from "./import/layout";
+import type { DecodedRequest } from "./protocol";
 import { exclusion } from "./protocol";
 import type { Server } from "./server";
 import type { Client } from "./peer";
+type Request = Extract<DecodedRequest, { op: "onboarding.status" | "onboarding.handoff" | "onboarding.copy" }>;
 export { importBridge };
 class Service {
   herdr_import = new Manager();
@@ -52,44 +56,49 @@ export function service(server: Server): Service {
 export function admit(server: Server, op: string): void {
   const s = services.get(server),
     kind = exclusion(op),
-    importing = !!s && (s.herdr_import.busy() || s.onboarding_copy.busy()),
-    reloading = (server as any).reload_executable != null;
+    importing = !!s && (s.herdr_import.busy() || s.onboarding_copy.busy());
   if (kind === "layout" && (s?.herdr_import.locked() || s?.onboarding_copy.busy())) throw Error("ImportInProgress");
-  if (kind === "import" && (importing || reloading)) throw Error("ImportInProgress");
-  if (kind === "push" && reloading) throw Error("ReloadInProgress");
+  if (kind === "import" && importing) throw Error("ImportInProgress");
   if (kind === "reload") {
     if (importing) throw Error("ImportInProgress");
-    if (reloading) throw Error("ReloadInProgress");
     if (server.runtime.git_push.busy()) throw Error("GitPushInProgress");
   }
   if (kind === "shutdown" && importing) throw Error("ImportInProgress");
 }
-export async function request(server: Server, client: Client, op: string, q: any): Promise<void> {
+export async function request(server: Server, client: Client, request: Request): Promise<void> {
   const s = service(server),
-    operation = BigInt(q.operation ?? 0);
-  if (op === "onboarding.status") {
-    if (operation !== 0n && operation === s.handoff_operation) client.reply(op, { progress: s.herdr_import.status() });
+    operation = request.payload.operation;
+  if (request.op === "onboarding.status") {
+    if (operation !== 0n && operation === s.handoff_operation)
+      client.reply(request.op, { progress: s.herdr_import.status() });
     else if (operation !== 0n && operation === s.onboarding_copy.operation)
-      client.reply(op, { progress: s.onboarding_copy.progress });
+      client.reply(request.op, { progress: s.onboarding_copy.progress });
     else throw Error("NoImport");
     return;
   }
   if (operation === 0n) throw Error("InvalidImport");
-  const current = op === "onboarding.handoff" ? s.handoff_operation : s.onboarding_copy.operation;
+  const current = request.op === "onboarding.handoff" ? s.handoff_operation : s.onboarding_copy.operation;
   if (operation === current) {
     client.queue({ ok: true });
     return;
   }
-  admit(server, op);
-  if (op === "onboarding.handoff") {
+  admit(server, request.op);
+  if (request.op === "onboarding.handoff") {
+    const q = request.payload;
     if (!Number.isInteger(q.viewer_pgid) || q.viewer_pgid <= 0) throw Error("InvalidImport");
     s.herdr_import.start(q.socket ?? "", server.executable, server.theme, q.viewer_pgid);
     s.handoff_operation = operation;
-  } else if (op === "onboarding.copy")
+  } else if (request.op === "onboarding.copy")
     s.onboarding_copy.start({
-      ...q,
+      ...request.payload,
       operation,
-      herdr_session: q.herdr_session ?? null,
+      workspaces: request.payload.workspaces.map(ws => {
+        const session = Number(ws.session),
+          activity = Number(ws.activity);
+        if (!Number.isSafeInteger(session) || !Number.isSafeInteger(activity)) throw Error("Overflow");
+        return { ...ws, session, activity, tabs: ws.tabs.map(tab => ({ ...tab, nodes: tab.nodes as Node[] })) };
+      }),
+      herdr_session: request.payload.herdr_session as SourceSession | null,
     });
   else throw Error("UnknownOp");
   s.remember(server);

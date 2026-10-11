@@ -5,6 +5,8 @@ import { Terminal as NativeTerminal } from "./pane/terminal";
 import * as viewerNative from "./viewer_native";
 import { Model, max_panes, max_workspaces } from "./layout";
 import { stringify } from "./json";
+import * as surface from "./pane/surface";
+import * as resources from "./trackers/resources";
 import * as protocol from "./protocol";
 import * as viewerVersion from "./viewer_version";
 import { commandEntry } from "./agent_launcher";
@@ -20,19 +22,23 @@ import { removal as worktreeRemoval, type Removal, type Snapshot as Worktrees } 
 
 export interface Transport {
   socket?: string;
-  request(op: string, fields?: Record<string, unknown>): Promise<any>;
+  request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */
-export async function call(conn: Transport, op: string, fields: Record<string, unknown> = {}): Promise<any> {
-  const reply = await conn.request(op, fields);
-  if (reply && typeof reply === "object" && "err" in reply && reply.err) throw Error(reply.err);
+export async function call<K extends protocol.Op>(
+  conn: Transport,
+  op: K,
+  ...args: protocol.Arguments<K>
+): Promise<protocol.Reply<K>> {
+  const reply = await conn.request(op, ...args);
+  if ("err" in reply) throw Error(reply.err);
   // Before the payload, whose shape may differ between viewer protocols.
   if (protocol.check(op) === "viewer") viewerVersion.require(reply);
   return reply;
 }
 export interface Stamp {
-  identity: number | bigint;
-  revision: number | bigint;
+  identity: bigint;
+  revision: bigint;
   offset: number | null;
 }
 export interface Link {
@@ -40,7 +46,7 @@ export interface Link {
   start: number;
   end: number;
   uri: string;
-  id: number | bigint;
+  id: bigint;
 }
 interface Selection {
   x: number;
@@ -78,7 +84,7 @@ export class Terminal {
   updateRender(): void {
     if (!this.render_dirty) return;
     viewerNative.updateRender(this.handle);
-    this.links = this.inner.hyperlinks() as Link[];
+    this.links = this.inner.hyperlinks();
     this.render_dirty = false;
   }
   destroy(): void {
@@ -115,7 +121,9 @@ export class Terminal {
   async search(needle: string, skip: number): Promise<boolean> {
     const response = await call(this.conn, "viewer.search", { pane: this.id, needle, skip });
     if (response.offset === null || response.offset === undefined) return false;
-    this.offset = Number(response.offset);
+    const offset = Number(response.offset);
+    if (!Number.isSafeInteger(offset)) throw Error("Overflow");
+    this.offset = offset;
     // A match on the current viewport still needs its selection applied.
     this.known = null;
     if (response.match)
@@ -142,18 +150,19 @@ export class Terminal {
     }
     this.pending = [];
   }
-  receive(view: any): void {
+  receive(value: protocol.Reply<"viewer.sync">["surfaces"][number]): void {
     // Keep the displayed text stable for the entire mouse gesture. The
     // runtime continues collecting output; release resumes the live surface.
     if (this.holding_selection) return;
+    const view = surface.view(value);
     const frame = view.surface;
     if (!frame || frame.cols === 0 || frame.rows === 0) return;
     this.render_dirty = true;
     viewerNative.receive(this.handle, stringify(view));
     this.inner.cols = frame.cols;
     this.inner.rows = frame.rows;
-    this.bottom = Number(view.bottom ?? 0);
-    if (this.offset !== null) this.offset = Number(view.offset ?? 0);
+    this.bottom = view.bottom;
+    if (this.offset !== null) this.offset = view.offset;
     const sel = this.selection;
     if (sel) this.inner.select(sel.x, sel.y, sel.end_x, sel.end_y);
     this.updateRender();
@@ -179,29 +188,25 @@ export class Terminal {
   caret(): { x: number; y: number } | null {
     return viewerNative.cursor(this.handle, false);
   }
-  rows(
-    pane: number,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    dimmed: boolean,
-    hovered: number | bigint | null,
-  ): string {
+  rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
     return viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered);
   }
 }
 
 export interface Observation {
-  completed: number;
-  read: number;
+  completed: bigint;
+  read: bigint;
   [key: string]: unknown;
 }
-export function unread(o: Observation | undefined): boolean {
-  return !!o && Number(o.completed ?? 0) > Number(o.read ?? 0);
+function observation(value: any = {}): Observation {
+  return { ...value, completed: BigInt(value.completed ?? 0n), read: BigInt(value.read ?? 0n) };
 }
-export function acknowledge(o: Observation, through: number): void {
-  o.read = Math.max(Number(o.read ?? 0), Math.min(through, Number(o.completed ?? 0)));
+export function unread(o: Observation | undefined): boolean {
+  return !!o && o.completed > o.read;
+}
+export function acknowledge(o: Observation, through: bigint): void {
+  const read = through < o.completed ? through : o.completed;
+  if (read > o.read) o.read = read;
 }
 /** protocol.zig's `Agent`, as the snapshot sends it. */
 export interface Agent {
@@ -232,11 +237,7 @@ export function agent(value: any = {}): Agent {
       waiting: value.subagents?.waiting === true,
     },
     name: value.name ?? "",
-    observation: {
-      ...(value.observation ?? {}),
-      completed: Number(value.observation?.completed ?? 0),
-      read: Number(value.observation?.read ?? 0),
-    },
+    observation: observation(value.observation ?? {}),
     recent_activity: value.recent_activity ?? "",
     changed_at: Number(value.changed_at ?? 0),
     working_since: Number(value.working_since ?? 0),
@@ -256,7 +257,7 @@ export function providerName(a: Agent): string {
   return a.provider ?? "agent";
 }
 export interface Pane {
-  binding: number | bigint;
+  binding: bigint;
   id: number;
   label: string;
   cwd: string;
@@ -384,11 +385,7 @@ export interface Native {
 function native(value: any): Native {
   return {
     agent: value.agent ? agent(value.agent) : null,
-    observation: {
-      ...(value.observation ?? {}),
-      completed: Number(value.observation?.completed ?? 0),
-      read: Number(value.observation?.read ?? 0),
-    },
+    observation: observation(value.observation ?? {}),
     id: value.id,
     workspace: value.workspace,
     provider: value.provider,
@@ -414,7 +411,7 @@ export class Workspaces {
 
 export class Runtime {
   snapshot: any = null;
-  snapshot_hash: number | bigint | null = null;
+  snapshot_hash: bigint | null = null;
   workspaces = new Workspaces();
   panes: Pane[] = [];
   sessions: Native[] = [];
@@ -430,8 +427,8 @@ export class Runtime {
   smart_links = true;
   system_usage = new UsageView();
   ports: any = { workspaces: [] };
-  resources: any = { workspaces: [] };
-  resources_hash: number | bigint | null = null;
+  resources = new resources.Snapshot();
+  resources_hash: bigint | null = null;
   last_agent: Provider = "codex";
   agent_yolo = { codex: false, claude: false };
   agent_hidden = { codex: false, claude: false };
@@ -444,8 +441,8 @@ export class Runtime {
     this.panes = [];
     this.snapshot = null;
   }
-  receiveResources(value: any): void {
-    this.resources = value ?? { workspaces: [] };
+  receiveResources(value: protocol.Wire<resources.Snapshot> | null): void {
+    this.resources = resources.fromJSON(value);
   }
   receive(conn: Transport, value: any): void {
     // Own the decoded snapshot. Metadata is used directly; only terminal
@@ -470,7 +467,7 @@ export class Runtime {
         const was_restoring = previous ? previous.restoring.length > 0 && !previous.dormant : false;
         panes.push({
           id: info.id,
-          binding: info.binding ?? 0,
+          binding: BigInt(info.binding ?? 0n),
           label: info.name ?? "",
           cwd: info.cwd ?? "",
           agent: agent(info.agent),

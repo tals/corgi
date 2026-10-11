@@ -61,6 +61,7 @@ import * as worktreeTooltip from "./worktree_tooltip";
 import * as worktreeAgents from "./worktree_agents";
 import * as worktreeRemoval from "./worktree_removal";
 import * as rpc from "./rpc";
+import type { CommandInput } from "./protocol";
 import * as worktrees from "./worktrees";
 import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
@@ -177,7 +178,7 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
 });
 class InputState {
   viewer_id = 0;
-  last_control: number | bigint = 0;
+  last_control = 0n;
   attached = false;
   watched = true;
   /** User input or a window resize since the last sync; the daemon sizes
@@ -313,7 +314,7 @@ export class Controller {
   layoutView(): LayoutView {
     return new LayoutView(this.model(), this.nav());
   }
-  private async execute(command: Record<string, unknown>): Promise<{ pane: number; workspace: number }> {
+  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number }> {
     const response = await call(this.connection, "session.command", { command });
     const result = { pane: Number(response.result?.pane ?? 0), workspace: Number(response.result?.workspace ?? 0) };
     await this.refresh();
@@ -322,7 +323,7 @@ export class Controller {
     this.dirty = true;
     return result;
   }
-  private async edit(command: Record<string, unknown>): Promise<void> {
+  private async edit(command: CommandInput): Promise<void> {
     await this.execute(command);
   }
   private async moveTab(id: number, gap: number): Promise<void> {
@@ -1012,7 +1013,7 @@ export class Controller {
     if (!p) return;
     const opened = new TabMenu({ tab: id, agent: true, anchor_x: x, anchor_y: y });
     if (p.agent.session.length === 0) opened.off.add("copy-id");
-    if (p.agent.observation.completed === 0 || unread(p.agent.observation)) opened.off.add("mark-unread");
+    if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     try {
       await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
     } catch {
@@ -1413,7 +1414,7 @@ export class Controller {
     this.message = "";
   }
   private async create(split: Axis | null, cwd: string, command: string | null, title: string): Promise<number> {
-    const operation = split
+    const operation: CommandInput = split
       ? {
           "pane.split": {
             target: this.model().count > 0 ? this.nav().tab().focus : 0,
@@ -3651,8 +3652,8 @@ export class Controller {
     }
   }
   /** The daemon connection as onboarding calls it. */
-  private rpc() {
-    return { call: (op: string, fields: Record<string, unknown> = {}) => call(this.connection, op, fields) } as any;
+  private rpc(): Pick<rpc.Connection, "call"> {
+    return { call: (op, ...args) => call(this.connection, op, ...args) };
   }
   /** Columns the tab bar's tabs may take, left of its "+" button. */
   private tabSpace(): number {
@@ -3955,7 +3956,7 @@ export class Controller {
       if (release && (button & 3) === 0) {
         this.agent_drag = null;
         this.ui_mouse_down = false;
-        if (drag.drop) {
+        if (drag.drop && sidebar.isAgent(drag.target)) {
           const before = drag.drop.index === drag.end ? null : sidebar.orderTarget(live[drag.drop.index]);
           try {
             await this.edit({ "agent.move": { workspace: drag.workspace, target: drag.target, before } });

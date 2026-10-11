@@ -9,6 +9,7 @@ import { Client } from "./codex_socket";
 import { Inventory, capacity } from "./activity/background_tasks";
 import { codex, Text as SummaryText } from "./activity/summary";
 import type { State } from "./agents";
+import type { Runtime } from "./runtime";
 function transcriptPath(value: string) {
   try {
     return Path.init(value);
@@ -55,7 +56,7 @@ export class Snapshot {
     this.state = state;
   }
 }
-export function unique(ids: any[], prefix: Text) {
+export function unique(ids: string[], prefix: Text) {
   const matching = ids.filter(id => typeof id === "string" && id.length === 36 && id.startsWith(prefix.text()));
   return matching.length === 1 ? matching[0] : null;
 }
@@ -144,7 +145,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
     if (id && Buffer.byteLength(id) <= 128) {
       out.turn = new Turn(id);
       const status = str(data[0], "status");
-      if (["completed", "interrupted", "failed"].includes(status)) out.outcome = status as any;
+      if (status === "completed" || status === "interrupted" || status === "failed") out.outcome = status;
     }
   }
   try {
@@ -256,9 +257,9 @@ export class Worker {
     this.results = [];
     return results;
   }
-  reconcile(runtime: any) {
+  reconcile(runtime: Runtime) {
     this.requests = [];
-    const panes = runtime.panes.items ?? runtime.panes;
+    const panes = runtime.panes;
     for (const p of panes) {
       if (
         p.terminal.exited ||
@@ -268,7 +269,7 @@ export class Worker {
         p.terminal.title_pid !== p.detection.pid
       )
         continue;
-      const prefix = Codex.titleSession(p.terminal.vt?.getTitle?.() ?? p.terminal.title ?? "");
+      const prefix = Codex.titleSession(p.terminal.title);
       if (!prefix) continue;
       this.requests.push({
         pane: p.id,
@@ -289,7 +290,7 @@ export class Worker {
         (!["working", "blocked"].includes(actor.state.state) && !actor.child_refresh)
       )
         continue;
-      if (panes.some((p: any) => !p.terminal.exited && p.attachment.actor === actor)) continue;
+      if (panes.some(p => !p.terminal.exited && p.attachment.actor === actor)) continue;
       this.requests.push({
         pane: 0,
         pid: 0,

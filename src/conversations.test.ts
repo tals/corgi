@@ -97,7 +97,7 @@ test("Claude background Agent launch owns a live child until complete stop censu
       tool_input: { description: "Lane A", subagent_type: "Explore" },
       tool_response: { status: "async_launched", agentId: "a1" },
     }),
-    1,
+    1n,
     false,
     1000,
   );
@@ -111,7 +111,7 @@ test("Claude background Agent launch owns a live child until complete stop censu
       session_id: "s",
       background_tasks: [{ id: "a1", type: "subagent", status: "running" }],
     }),
-    2,
+    2n,
     false,
     2000,
   );
@@ -124,7 +124,7 @@ test("Claude background Agent launch owns a live child until complete stop censu
       session_id: "s",
       background_tasks: [],
     }),
-    3,
+    3n,
     false,
     3000,
   );
@@ -173,7 +173,7 @@ test("first hook establishes identity without process detection but cannot reviv
     binding = new Attachment(),
     event = hook("prompt", "hook-only");
   const actor = registry.routeHook(binding, "claude", event)!;
-  actor.observeHook(event, 1, false, 100);
+  actor.observeHook(event, 1n, false, 100);
   expect(binding.agent().state).toBe("working");
   binding.detach();
   expect(registry.routeHook(binding, "claude", event)).toBeNull();
@@ -182,7 +182,7 @@ test("first hook establishes identity without process detection but cannot reviv
 test("screen fallback keeps following work after a structured observation expires", () => {
   const actor = new Registry().get("codex", "resumed");
   Object.assign(actor.state, {
-    last_seq: 100,
+    last_seq: 100n,
     protocol_at: 100,
     state: "idle",
   });
@@ -209,7 +209,7 @@ test("ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
   const actor = new Registry().get("codex", "resumed");
   Object.assign(actor.state, {
     state: "idle",
-    last_seq: 100,
+    last_seq: 100n,
     protocol_at: 100,
   });
   actor.observed_at = 100;
@@ -217,14 +217,14 @@ test("ignored hooks and attachment metadata cannot refresh protocol lifecycle ev
   const event = hook("session_start", "resumed", {
     transcript: "/tmp/new-path",
   });
-  actor.observeHook(event, 99, false, 4000000);
+  actor.observeHook(event, 99n, false, 4000000);
   expect(actor.observed_at).toBe(100);
   expect(actor.state.transcript.len).toBe(0);
   event.session = "wrong-session";
-  actor.observeHook(event, 101, false, 4000000);
+  actor.observeHook(event, 101n, false, 4000000);
   expect(actor.observed_at).toBe(100);
   event.session = "resumed";
-  actor.observeHook(event, 101, false, 4000000);
+  actor.observeHook(event, 101n, false, 4000000);
   expect(actor.state.transcript.text()).toBe("/tmp/new-path");
   expect(actor.observed_at).toBe(4000000);
   expect(actor.authoritative(6000000)).toBe(false);
@@ -290,33 +290,33 @@ test("a snapshot completion records history without overriding active or blocked
 });
 test("delayed hook endings and transcript confirmations cannot stop resumed work", () => {
   const actor = new Registry().get("claude", "a");
-  actor.observeHook(hook("prompt", "a", { turn: "old" }), 1, false, 10);
-  actor.observeHook(hook("stop", "a", { turn: "old" }), 2, false, 20);
+  actor.observeHook(hook("prompt", "a", { turn: "old" }), 1n, false, 10);
+  actor.observeHook(hook("stop", "a", { turn: "old" }), 2n, false, 20);
   expect(actor.state.observation.pending_stop).toBe(true);
-  actor.observeHook(hook("prompt", "a", { turn: "new" }), 3, false, 30);
-  expect(actor.confirmStop(2, "completed", 40)).toBe(false);
+  actor.observeHook(hook("prompt", "a", { turn: "new" }), 3n, false, 30);
+  expect(actor.confirmStop(2n, "completed", 40)).toBe(false);
   for (const kind of ["stop", "interrupt"]) {
-    expect(actor.observeHook(hook(kind, "a", { turn: "old" }), 4, false, 50)).toBe(false);
+    expect(actor.observeHook(hook(kind, "a", { turn: "old" }), 4n, false, 50)).toBe(false);
     expect(actor.state.state).toBe("working");
     expect(actor.state.turnId()).toBe("new");
     expect(actor.observed_at).toBe(30);
     expect(actor.state.observation.pending_stop).toBe(false);
     expect(actor.state.observation.completed).toBe(0n);
   }
-  actor.observeHook(hook("stop", "a", { turn: "new" }), 5, false, 60);
-  expect(actor.confirmStop(5, "completed", 70)).toBe(true);
+  actor.observeHook(hook("stop", "a", { turn: "new" }), 5n, false, 60);
+  expect(actor.confirmStop(5n, "completed", 70)).toBe(true);
   expect(actor.state.observation.completed).toBe(1n);
 });
 test("hook models replace the transcript model and survive events without one", () => {
   const actor = new Registry().get("codex", "a");
-  actor.observeHook(hook("prompt", "a", { model: "gpt-6-astra" }), 1, false, 10);
+  actor.observeHook(hook("prompt", "a", { model: "gpt-6-astra" }), 1n, false, 10);
   expect(actor.model.id.text()).toBe("gpt-6-astra");
   expect(actor.model_from_hook).toBe(true);
-  actor.observeHook(hook("tool_start", "a", { tool: "Bash" }), 2, false, 20);
+  actor.observeHook(hook("tool_start", "a", { tool: "Bash" }), 2n, false, 20);
   expect(actor.model.id.text()).toBe("gpt-6-astra");
-  actor.observeHook(hook("prompt", "a", { model: "gpt-6-luna" }), 3, false, 30);
+  actor.observeHook(hook("prompt", "a", { model: "gpt-6-luna" }), 3n, false, 30);
   expect(actor.model.id.text()).toBe("gpt-6-luna");
-  actor.observeHook(hook("prompt", "b", { model: "gpt-6-sol" }), 4, false, 40);
+  actor.observeHook(hook("prompt", "b", { model: "gpt-6-sol" }), 4n, false, 40);
   expect(actor.model.id.text()).toBe("gpt-6-luna");
 });
 test("Codex hooks cannot establish or switch a pane identity", () => {
@@ -362,17 +362,17 @@ test("compaction hooks partition usage and preserve the summary through repeated
     known: true,
     tokens: new Tokens({ input: 100n }),
   });
-  actor.observeHook(compactHook("compact_start"), 1, true, 2000);
+  actor.observeHook(compactHook("compact_start"), 1n, true, 2000);
   expect(actor.state.activity.text()).toBe("Reading source");
   expect(actor.activity_timeline.points[1].label.text()).toBe("Compacting context");
   expect(actor.activity_timeline.points[0].usage.tokens.input).toBe(100n);
-  actor.observeHook(compactHook("compact_start"), 2, true, 3000);
-  actor.observeHook(compactHook("compact_end"), 1, true, 4000);
+  actor.observeHook(compactHook("compact_start"), 2n, true, 3000);
+  actor.observeHook(compactHook("compact_end"), 1n, true, 4000);
   expect(actor.state.compacting).toBe(true);
   expect(actor.activity_timeline.len).toBe(2);
   expect(actor.activity_timeline.points[1].at).toBe(2);
   actor.live_usage.tokens.input = 160n;
-  actor.observeHook(compactHook("compact_end"), 3, true, 5000);
+  actor.observeHook(compactHook("compact_end"), 3n, true, 5000);
   expect(actor.activity_timeline.points[2].label.text()).toBe("Reading source");
   expect(actor.activity_timeline.points[1].usage.tokens.input).toBe(60n);
   expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(0n);
@@ -381,7 +381,7 @@ test("compaction hooks partition usage and preserve the summary through repeated
 test("terminal compaction supplements protocol state without clearing hook compaction", () => {
   const actor = new Actor({
     id: 1,
-    state: new Agent({ provider: "codex", state: "working", last_seq: 100 }),
+    state: new Agent({ provider: "codex", state: "working", last_seq: 100n }),
   });
   actor.state.observation.source = "protocol";
   actor.observeCompactionScreen(true, 1000);
@@ -390,7 +390,7 @@ test("terminal compaction supplements protocol state without clearing hook compa
   expect(actor.activity_timeline.len).toBe(1);
   actor.observeCompactionScreen(null, 2000);
   expect(actor.state.compacting).toBe(true);
-  actor.observeHook(compactHook("session_start"), 101, true, 2100);
+  actor.observeHook(compactHook("session_start"), 101n, true, 2100);
   actor.live_usage = new LiveView({
     known: true,
     tokens: new Tokens({ input: 60n }),
@@ -399,10 +399,10 @@ test("terminal compaction supplements protocol state without clearing hook compa
   expect(actor.state.compacting).toBe(false);
   actor.live_usage.tokens.input = 100n;
   expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(60n);
-  actor.observeHook(compactHook("compact_start"), 101, true, 4000);
+  actor.observeHook(compactHook("compact_start"), 101n, true, 4000);
   actor.observeCompactionScreen(false, 5000);
   expect(actor.state.compacting).toBe(true);
-  actor.observeHook(compactHook("tool_start"), 102, true, 6000);
+  actor.observeHook(compactHook("tool_start"), 102n, true, 6000);
   expect(actor.state.compacting).toBe(false);
 });
 
@@ -438,7 +438,7 @@ test("known background hooks route to their actor and process replacement revoke
     session_id: "a",
   })!;
   expect(registry.routeHook(binding, "claude", hook)).toBe(actor);
-  actor.observeHook(hook, 1, false, 100);
+  actor.observeHook(hook, 1n, false, 100);
   expect(actor.state.state).toBe("working");
   expect(binding.agent().sessionId()).toBe("b");
   binding.detach();
@@ -468,7 +468,7 @@ test("a known conversation's live hook replaces an ended selection", () => {
   const parent = registry.get("claude", "parent");
   binding.select(parent);
   const child = registry.routeHook(binding, "claude", start)!;
-  child.observeHook(end, 1, false, 100);
+  child.observeHook(end, 1n, false, 100);
   expect(child.state.state).toBe("done");
   registry.routeHook(binding, "claude", end);
   expect(binding.actor).toBe(child);
@@ -484,18 +484,18 @@ test("a second attachment does not erase a stop awaiting transcript confirmation
   const actor = registry.get("claude", "shared");
   const hooks = new Hooks();
   const stop = hooks.decode({ hook_event_name: "Stop", session_id: "shared" })!;
-  actor.observeHook(stop, 10, false, 100);
+  actor.observeHook(stop, 10n, false, 100);
   const start = hooks.decode({
     hook_event_name: "SessionStart",
     session_id: "shared",
   })!;
   const binding = new Attachment();
   expect(registry.routeHook(binding, "claude", start)).toBe(actor);
-  actor.observeHook(start, 11, false, 101);
+  actor.observeHook(start, 11n, false, 101);
   expect(actor.state.observation.pending_stop).toBe(true);
-  expect(actor.confirmStop(10, "completed", 102)).toBe(true);
+  expect(actor.confirmStop(10n, "completed", 102)).toBe(true);
   expect(actor.state.observation.completed).toBe(1n);
-  expect(actor.confirmStop(10, "completed", 103)).toBe(false);
+  expect(actor.confirmStop(10n, "completed", 103)).toBe(false);
 });
 
 test("child metadata is ordered by the observer's stamp and aged on the daemon clock", () => {
@@ -559,8 +559,8 @@ test("a Claude subagent counts from its launch until a Stop's list leaves it out
       ],
     },
   ].map(value => hooks.decode(value)!);
-  registry.observeHook(parent, lines[0], 1, false, 100);
-  registry.observeHook(parent, lines[1], 2, false, 200);
+  registry.observeHook(parent, lines[0], 1n, false, 100);
+  registry.observeHook(parent, lines[1], 2n, false, 200);
   expect(parent.state.state).toBe("working");
   expect(parent.state.subagents).toEqual({
     running: 1,
@@ -573,11 +573,11 @@ test("a Claude subagent counts from its launch until a Stop's list leaves it out
   expect(a1.state.state).toBe("working");
   expect(a1.state.activity.text()).toBe("Lane A");
   expect(a1.state.transcriptPath()).toBe("/p/parent/subagents/agent-a1.jsonl");
-  registry.observeHook(parent, lines[1], 3, false, 300);
+  registry.observeHook(parent, lines[1], 3n, false, 300);
   expect(parent.state.subagents.running).toBe(1);
-  registry.observeHook(parent, lines[2], 4, false, 400);
+  registry.observeHook(parent, lines[2], 4n, false, 400);
   expect(parent.state.subagents.running).toBe(2);
-  registry.observeHook(parent, lines[3], 5, false, 500);
+  registry.observeHook(parent, lines[3], 5n, false, 500);
   expect(parent.state.subagents).toEqual({
     running: 1,
     blocked: 0,
@@ -599,9 +599,9 @@ test("a Claude session's end ends the subagents its last Stop listed", () => {
     hook_event_name: "SessionEnd",
     session_id: "parent",
   })!;
-  registry.observeHook(parent, stop, 1, false, 100);
+  registry.observeHook(parent, stop, 1n, false, 100);
   expect(registry.find("claude", "a1")!.state.state).toBe("working");
-  registry.observeHook(parent, end, 2, false, 200);
+  registry.observeHook(parent, end, 2n, false, 200);
   expect(parent.state.state).toBe("done");
   expect(parent.state.subagents).toEqual({
     running: 0,
@@ -657,19 +657,19 @@ test("a Claude Stop pauses a conversation its shells or a wakeup can wake", () =
   const registry = new Registry();
   const actor = registry.get("claude", "s");
   const hooks = pauseHookRecords.map(value => new Hooks().decode(value)!);
-  const observe = (index: number, seq: number, now: number) =>
+  const observe = (index: number, seq: bigint, now: number) =>
     registry.observeHook(actor, hooks[index], seq, false, now);
   // A process that can't be watched never pauses.
-  observe(0, 1, 100);
-  observe(1, 2, 200);
+  observe(0, 1n, 100);
+  observe(1, 2n, 200);
   expect(actor.state.paused).toBe(false);
   actor.pid = 4242;
-  observe(0, 3, 300);
+  observe(0, 3n, 300);
   // Its turn ends while a background command runs: finished, and paused.
-  observe(1, 4, 400);
+  observe(1, 4n, 400);
   expect(actor.state.paused).toBe(true);
   expect(actor.paused_for_wakeup).toBe(false);
-  expect(actor.confirmStop(4, "completed", 410)).toBe(true);
+  expect(actor.confirmStop(4n, "completed", 410)).toBe(true);
   expect(actor.state.state).toBe("idle");
   expect(actor.state.attention).toBe("finished");
   expect(actor.state.paused).toBe(true);
@@ -678,27 +678,27 @@ test("a Claude Stop pauses a conversation its shells or a wakeup can wake", () =
   expect(actor.observeTranscriptTurn(1)).toBe(true);
   expect(actor.state.paused).toBe(false);
   // A shell wakes it and the turn pauses again; any hook ends a pause.
-  observe(0, 5, 500);
-  observe(1, 6, 600);
+  observe(0, 5n, 500);
+  observe(1, 6n, 600);
   expect(actor.state.paused).toBe(true);
-  observe(0, 7, 700);
+  observe(0, 7n, 700);
   expect(actor.state.paused).toBe(false);
   expect(actor.state.state).toBe("working");
   // A recurring cron is not waited on.
-  observe(2, 8, 800);
+  observe(2, 8n, 800);
   expect(actor.state.paused).toBe(false);
   expect(actor.shells.len).toBe(0);
   // A one-shot wakeup is.
-  observe(0, 9, 900);
-  observe(3, 10, 1000);
+  observe(0, 9n, 900);
+  observe(3, 10n, 1000);
   expect(actor.state.paused).toBe(true);
   expect(actor.paused_for_wakeup).toBe(true);
   // A resumed session runs none of the old process's tasks.
-  observe(5, 11, 1100);
+  observe(5, 11n, 1100);
   expect(actor.state.paused).toBe(false);
   // Running subagents keep it working instead.
-  observe(0, 12, 1200);
-  observe(4, 13, 1300);
+  observe(0, 12n, 1200);
+  observe(4, 13n, 1300);
   expect(actor.state.paused).toBe(false);
   expect(actor.state.subagents.waiting).toBe(true);
 });
@@ -726,8 +726,8 @@ test("a pause ends when the transcript reports its last shell ended", () => {
   const actor = registry.get("claude", "s");
   actor.pid = 4242;
   const hooks = shellHookRecords.map(value => new Hooks().decode(value)!);
-  registry.observeHook(actor, hooks[0], 1, false, 100);
-  registry.observeHook(actor, hooks[1], 2, false, 200);
+  registry.observeHook(actor, hooks[0], 1n, false, 100);
+  registry.observeHook(actor, hooks[1], 2n, false, 200);
   expect(actor.state.paused).toBe(true);
   // Its command ended: the Monitor can still wake it.
   const ended = new Ended();
@@ -739,8 +739,8 @@ test("a pause ends when the transcript reports its last shell ended", () => {
   expect(actor.observeTaskEnds(ended)).toBe(true);
   expect(actor.state.paused).toBe(false);
   // A scheduled wakeup holds the pause whatever its shells do.
-  registry.observeHook(actor, hooks[0], 3, false, 300);
-  registry.observeHook(actor, hooks[2], 4, false, 400);
+  registry.observeHook(actor, hooks[0], 3n, false, 300);
+  registry.observeHook(actor, hooks[2], 4n, false, 400);
   expect(actor.state.paused).toBe(true);
   ended.add("m2");
   expect(actor.observeTaskEnds(ended)).toBe(false);
@@ -810,17 +810,17 @@ test("a Claude parent works on while its Stop lists subagents, which become its 
   const parent = registry.get("claude", "parent");
   parent.workspace = 3;
   const hooks = parentHookRecords.map(value => new Hooks().decode(value)!);
-  const observe = (index: number, seq: number, now: number) =>
+  const observe = (index: number, seq: bigint, now: number) =>
     registry.observeHook(parent, hooks[index], seq, false, now);
-  observe(0, 1, 100);
-  expect(observe(1, 2, 200)).toBe(false);
+  observe(0, 1n, 100);
+  expect(observe(1, 2n, 200)).toBe(false);
   expect(parent.state.state).toBe("working");
   expect(parent.state.subagents).toEqual({
     running: 2,
     blocked: 0,
     waiting: true,
   });
-  expect(parent.confirmStop(2, "completed", 210)).toBe(false);
+  expect(parent.confirmStop(2n, "completed", 210)).toBe(false);
   expect(parent.state.observation.completed).toBe(0n);
   expect(parent.children_observed_at).toBe(200);
   expect(parent.background_tasks.len).toBe(1);
@@ -832,13 +832,13 @@ test("a Claude parent works on while its Stop lists subagents, which become its 
   expect(a1.state.activity.text()).toBe("Lane A: sidebar");
   expect(a2.role.text()).toBe("Explore");
   expect(a2.observed_at).toBe(200);
-  observe(2, 3, 300);
+  observe(2, 3n, 300);
   expect(parent.state.subagents).toEqual({
     running: 2,
     blocked: 0,
     waiting: false,
   });
-  expect(observe(3, 4, 400)).toBe(false);
+  expect(observe(3, 4n, 400)).toBe(false);
   expect(parent.state.subagents).toEqual({
     running: 1,
     blocked: 0,
@@ -846,9 +846,9 @@ test("a Claude parent works on while its Stop lists subagents, which become its 
   });
   expect(a1.state.state).toBe("idle");
   expect(a2.state.state).toBe("working");
-  observe(1, 4, 450);
+  observe(1, 4n, 450);
   expect(a1.state.state).toBe("idle");
-  observe(4, 5, 500);
+  observe(4, 5n, 500);
   expect(parent.state.subagents).toEqual({
     running: 0,
     blocked: 0,
@@ -856,7 +856,17 @@ test("a Claude parent works on while its Stop lists subagents, which become its 
   });
   expect(a2.state.state).toBe("idle");
   expect(parent.state.observation.pending_stop).toBe(true);
-  expect(parent.confirmStop(5, "completed", 510)).toBe(true);
+  expect(parent.confirmStop(5n, "completed", 510)).toBe(true);
   expect(parent.state.state).toBe("idle");
   expect(parent.state.observation.completed).toBe(1n);
+});
+
+test("attention receipts compare normalized timestamps and leave newer input unread", () => {
+  const actor = new Registry().get("codex", "s");
+  actor.state.attention = "needs_input";
+  actor.state.changed_at = 100;
+  actor.acknowledge(0n, 99n);
+  expect(actor.state.attention).toBe("needs_input");
+  actor.acknowledge(0n, 100n);
+  expect(actor.state.snapshot().attention).toBe("none");
 });

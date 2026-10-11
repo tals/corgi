@@ -83,7 +83,7 @@ test("fallback debounces attention, yields to hooks, and clears exited agents", 
   expect(agent.state).toBe("working");
   for (let i = 0; i < 3; i++) expect(tracker.update(agent, job, "✳ Task", "", false)).toBe(false);
   expect(agent.attention).toBe("none");
-  agent.last_seq = 1;
+  agent.last_seq = 1n;
   agent.state = "blocked";
   for (let i = 0; i < 4; i++) tracker.update(agent, job, "⠋ Task", "", false);
   expect(agent.state).toBe("blocked");
@@ -91,7 +91,7 @@ test("fallback debounces attention, yields to hooks, and clears exited agents", 
   expect(agent.provider).toBe("claude");
   tracker.update(agent, null, "", "", false);
   expect(agent.provider).toBeNull();
-  expect(agent.last_seq).toBe(0);
+  expect(agent.last_seq).toBe(0n);
 });
 test("Codex fallback tracks tools without a lifecycle state transition", () => {
   const tracker = new Tracker(),
@@ -118,7 +118,7 @@ test("Codex fallback tracks tools without a lifecycle state transition", () => {
   tracker.update(agent, job, "", tool, true);
   for (let i = 0; i < 3; i++) tracker.update(agent, job, "", "› ", true);
   expect(agent.tool_active).toBe(false);
-  agent.last_seq = 1;
+  agent.last_seq = 1n;
   agent.state = "working";
   for (let i = 0; i < 3; i++) tracker.update(agent, job, "", tool, true);
   expect(agent.tool_active).toBe(false);

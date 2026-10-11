@@ -233,9 +233,9 @@ export interface Work {
   id: number;
   known: boolean;
   cpu: number | null;
-  memory: number | bigint | null;
-  read: number | bigint | null;
-  written: number | bigint | null;
+  memory: bigint | null;
+  read: bigint | null;
+  written: bigint | null;
   cpu_pressure: boolean;
   [key: string]: unknown;
 }
@@ -1277,7 +1277,7 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
   const normal = hover ? "\x1b[22m" + fg("text") : tinted ? "\x1b[22m" + fg("muted") : "\x1b[22m" + fg("faint");
   if (hover) w.write(selected_bg);
   const readings_width = width - (details ? 2 : 0);
-  const values = [cpuText(work.cpu), memoryText(work.memory as any)];
+  const values = [cpuText(work.cpu), memoryText(work.memory)];
   const names = [
     ["CPU", "C"],
     ["Memory", "Mem", "M"],

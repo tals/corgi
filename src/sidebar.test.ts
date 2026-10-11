@@ -64,7 +64,7 @@ function hostText(bytes: string, cols = 100, rows = 30): string {
 }
 const H = (tag: string, value?: number): Hit =>
   value === undefined ? ({ tag } as Hit) : ({ tag, [tag]: value } as Hit);
-const hot = work({ id: 1, known: true, cpu: 182, memory: 3 * 2 ** 30, read: 0, written: 0, cpu_pressure: true });
+const hot = work({ id: 1, known: true, cpu: 182, memory: 3n * 2n ** 30n, read: 0n, written: 0n, cpu_pressure: true });
 
 test("resource row omits unavailable metrics and I/O, and preserves real zeros", () => {
   const view = View.init(100, 30, true, 0, 0);
@@ -76,14 +76,14 @@ test("resource row omits unavailable metrics and I/O, and preserves real zeros",
   expect(has(w.s, "↕")).toBe(false);
   expect(has(w.s, "›")).toBe(false);
   w = new Writer();
-  drawResources(w, work({ id: 1, known: true, cpu: 0, memory: 0, read: 0, written: 0 }), view, false, false);
+  drawResources(w, work({ id: 1, known: true, cpu: 0, memory: 0n, read: 0n, written: 0n }), view, false, false);
   expect(has(w.s, "CPU 0%")).toBe(true);
   expect(has(w.s, "Memory 0M")).toBe(true);
   expect(has(w.s, "›")).toBe(true);
   w = new Writer();
   drawResources(
     w,
-    work({ id: 1, known: true, cpu: 0, memory: 0, read: 3_000_000, written: 1_000_000 }),
+    work({ id: 1, known: true, cpu: 0, memory: 0n, read: 3_000_000n, written: 1_000_000n }),
     view,
     false,
     false,

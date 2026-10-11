@@ -98,7 +98,7 @@ export class Model {
       )
         bad();
     if (typeof d.revision !== "number" && typeof d.revision !== "bigint") bad();
-    if (typeof d.revision === "number" && !Number.isInteger(d.revision)) bad();
+    if (typeof d.revision === "number" && !Number.isSafeInteger(d.revision)) bad();
     if (BigInt(d.revision) < 0n || BigInt(d.revision) > 0xffffffffffffffffn) bad();
     const m = new Model();
     m.nodes.splice(0, d.nodes.length, ...structuredClone(d.nodes));

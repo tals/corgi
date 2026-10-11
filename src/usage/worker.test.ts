@@ -384,7 +384,7 @@ test("file metadata prefers fresh protocol and rejects other turns", () => {
   const agent = new Agent({
     provider: "codex",
     state: "working",
-    last_seq: 10,
+    last_seq: 10n,
   });
   agent.session = new Text("session");
   agent.turn = new Text("current");
@@ -393,13 +393,13 @@ test("file metadata prefers fresh protocol and rejects other turns", () => {
   progress.commentary = new Text("Tracing pane focus");
   const result = new UsageResult();
   result.progress = progress;
-  result.seq = 10;
+  result.seq = 10n;
   result.name = new Text("File title");
   agent.setName("Protocol title");
   agent.metadata_at = 100;
   expect(result.fallback(agent, 101)).toBe(false);
   expect(agent.displayName()).toBe("Protocol title");
-  agent.last_seq = 6000000;
+  agent.last_seq = 6000000n;
   expect(result.fallback(agent, 6000000)).toBe(true);
   expect(agent.displayName()).toBe("File title");
   expect(agent.state).toBe("working");

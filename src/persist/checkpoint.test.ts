@@ -11,6 +11,7 @@ import { n, ptr, symbols, waitpid } from "../native_bridge";
 import { Order } from "../agent_order";
 import { Workspace } from "../workspace";
 import { Text } from "../agents";
+import { Attachment } from "../conversations";
 import { parseLabel } from "../activity/summary";
 import * as links from "../trackers/link_labels";
 const fixtures = resolve(import.meta.dir, "../fixtures");
@@ -25,6 +26,28 @@ const fresh = () => {
 const roundtrip = (state: any) => json.parse(json.stringify(state));
 const restore = (r: Runtime, state: any, live: boolean) =>
   cp.restore(r, roundtrip(state), live, "/tmp/unused-checkpoint.sock", "/tmp/corgi");
+test("checkpoint integer fields restore as bigint for small and wide values", async () => {
+  for (const sequence of [0n, 7n, 9007199254740993n]) {
+    using original = fresh();
+    using restored = new Runtime();
+    const actor = original.conversations.get("codex", "integer-types"),
+      binding = new Attachment();
+    actor.state.last_seq = sequence;
+    actor.state.observation.completed = sequence;
+    binding.hook_seq = sequence;
+    binding.provisional.last_seq = sequence;
+    await restore(restored, cp.capture(original, true), true);
+    const next = restored.conversations.byId(actor.id)!;
+    expect(next.state.last_seq).toBe(sequence);
+    expect(next.state.observation.completed).toBe(sequence);
+    expect(next.state.observation.read).toBe(0n);
+    const bytes = json.stringify(cp.captureBinding(binding, true)),
+      nextBinding = cp.restoreBinding(restored.conversations, json.parse(bytes), true);
+    expect(nextBinding.hook_seq).toBe(sequence);
+    expect(nextBinding.provisional.last_seq).toBe(sequence);
+    expect(json.stringify(cp.captureBinding(nextBinding, true))).toBe(bytes);
+  }
+});
 for (const version of [2, 3, 4, 5])
   test(
     version === 5
@@ -129,7 +152,7 @@ test("conversation checkpoint restores shared bindings and detached unread state
     t.exited = true;
     pane.attachment.select(detached);
     pane.attachment.select(shared);
-    pane.attachment.hook_seq = 50;
+    pane.attachment.hook_seq = 50n;
     r.panes.push(pane);
   }
   r.workspaces.next_pane_id = ws.model.next_id;
@@ -144,8 +167,8 @@ test("conversation checkpoint restores shared bindings and detached unread state
     expect(next.panes[0].attachment.actor).toBe(actor);
     expect(next.panes[1].attachment.actor).toBe(actor);
     expect(next.panes[0].attachment.knows(detached.id)).toBe(true);
-    expect(next.panes[0].attachment.hook_seq).toBe(50);
-    actor.acknowledge(1, null);
+    expect(next.panes[0].attachment.hook_seq).toBe(50n);
+    actor.acknowledge(1n, null);
     expect(next.panes[1].agent().observation.unread()).toBe(false);
     expect(next.conversations.byId(detached.id)!.state.observation.unread()).toBe(true);
     expect(next.conversations.byId(detached.id)!.parent).toBe(shared.id);

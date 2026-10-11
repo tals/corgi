@@ -109,6 +109,7 @@ export function validateCheckpoint(value: any): void {
         const bits = type === "usize" ? 64 : type === "c_int" ? 32 : Number(type.slice(1)),
           signed = type[0] === "i" || type === "c_int";
         if (typeof item !== "bigint" && (typeof item !== "number" || !Number.isInteger(item))) fail();
+        if (typeof item === "number" && !Number.isSafeInteger(item)) fail("Overflow");
         const n = BigInt(item),
           min = signed ? -(1n << BigInt(bits - 1)) : 0n,
           max = signed ? (1n << BigInt(bits - 1)) - 1n : (1n << BigInt(bits)) - 1n;

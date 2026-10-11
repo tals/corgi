@@ -1,3 +1,4 @@
+import * as protocol from "./protocol";
 import { test, expect } from "bun:test";
 import { Runtime, Pane } from "./runtime";
 import { Workspace } from "./workspace";
@@ -77,7 +78,7 @@ test("a tab cannot merge into itself, and missing destinations change nothing", 
       [{ "pane.resize": { target: two, axis: "horizontal", ratio: 600 } }, "NoSplit"],
       [{ "pane.resize": { target: one, axis: "horizontal", ratio: 50 } }, "InvalidRatio"],
     ] as const)
-      await expect(execute(r, ctx, cmd)).rejects.toThrow(error);
+      await expect(execute(r, ctx, protocol.decodeCommand(cmd))).rejects.toThrow(error);
     expect(topology(r)).toBe(before);
   } finally {
     r.destroy();

@@ -1,3 +1,4 @@
+import * as protocol from "./protocol";
 import { basename, dirname, resolve } from "node:path";
 import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -113,8 +114,8 @@ function quietExecveWarning(): void {
     for (const listener of listeners) listener.call(process, warning);
   });
 }
-async function print(path: string, op: string, fields: Record<string, unknown> = {}): Promise<void> {
-  process.stdout.write(json.stringify(await rpc.request(path, op, fields)) + "\n");
+async function print<K extends protocol.Op>(path: string, op: K, ...args: protocol.Arguments<K>): Promise<void> {
+  process.stdout.write(json.stringify(await rpc.request(path, op, ...args)) + "\n");
 }
 export async function run(args = process.argv.slice(2)): Promise<void> {
   const command = args[0] ?? "attach",
@@ -251,7 +252,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (args.length !== 2) throw Error("Usage");
       const connection = new rpc.Connection(path);
       try {
-        process.stdout.write(json.stringify(await connection.request(json.parse(args[1]))) + "\n");
+        process.stdout.write(json.stringify(await connection.rawRequest(json.parse(args[1]))) + "\n");
       } finally {
         connection.close();
       }

@@ -1,3 +1,4 @@
+import type { Runtime } from "../runtime";
 import { open, lstat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { Agent, Provider, Text } from "../agents";
@@ -27,7 +28,7 @@ export class Result {
   delta = new Counts();
   progress: Progress | null = null;
   name = new Text();
-  seq = 0;
+  seq = 0n;
   model = new Model();
   live = new View();
   context = new Reading();
@@ -292,7 +293,7 @@ export class Worker {
     this.watchers.clear();
     this.index.close();
   }
-  reconcile(runtime: any) {
+  reconcile(runtime: Runtime) {
     this.requests = [];
     for (const actor of runtime.conversations.items) {
       const agent = actor.state;

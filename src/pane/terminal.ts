@@ -3,9 +3,10 @@ import { EventEmitter } from "node:events";
 import { dirname } from "node:path";
 import { n, ptr, call, symbols, ReadyLoop, READ, nativeRoot } from "../native_bridge";
 import * as launch_command from "../launch/command";
-import type { View } from "./surface";
+import * as surface from "./surface";
 import type { Link } from "./hyperlinks";
 import type { Pointer } from "bun:ffi";
+import type { Wire } from "../protocol";
 let readiness: ReadyLoop | null = null;
 const loop = () => (readiness ??= new ReadyLoop());
 export function closeReadiness(): void {
@@ -48,17 +49,17 @@ export class Terminal extends EventEmitter {
     if (this.destroyed) throw Error("TerminalClosed");
     return call(this.handle, request);
   }
-  get surface_identity(): number | bigint {
-    return this.native({ op: "info" }).surface_identity;
+  get surface_identity(): bigint {
+    return BigInt(this.native({ op: "info" }).surface_identity);
   }
-  get surface_revision(): number | bigint {
-    return this.native({ op: "info" }).surface_revision;
+  get surface_revision(): bigint {
+    return BigInt(this.native({ op: "info" }).surface_revision);
   }
   get title_pid(): number {
     return this.native({ op: "info" }).title_pid;
   }
-  get title_revision(): number | bigint {
-    return this.native({ op: "info" }).title_revision;
+  get title_revision(): bigint {
+    return BigInt(this.native({ op: "info" }).title_revision);
   }
   get title(): string {
     return this.native({ op: "info" }).title;
@@ -238,14 +239,24 @@ export class Terminal extends EventEmitter {
   fadedSnapshot(): Buffer {
     return Buffer.from(this.native({ op: "fadedSnapshot" }));
   }
-  surface(pane: number, offset: number | null = null): View {
-    return this.native({ op: "surface", pane, offset });
+  surface(pane: number, offset: number | null = null): surface.View {
+    return surface.view(this.native({ op: "surface", pane, offset }));
   }
   hyperlinks(): Link[] {
-    return this.native({ op: "links" });
+    return this.native({ op: "links" }).map((link: Wire<Link>) => ({ ...link, id: BigInt(link.id) }));
   }
-  search(needle: string, skip = 0): any {
-    return this.native({ op: "search", text: needle, skip });
+  search(
+    needle: string,
+    skip: number = 0,
+  ): {
+    offset: number | null;
+    match: { x: number; y: number; end_x: number; end_y: number } | null;
+  } {
+    const result: Wire<ReturnType<Terminal["search"]>> = this.native({ op: "search", text: needle, skip });
+    return {
+      offset: result.offset,
+      match: result.match ?? null,
+    };
   }
   select(start_x: number, start_y: number, end_x: number, end_y: number): void {
     this.native({ op: "select", start_x, start_y, end_x, end_y });

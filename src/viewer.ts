@@ -17,6 +17,7 @@ import type { Probe } from "./host_probe";
 import type { Rgb } from "./palette";
 import type { Colors as TerminalColors } from "./terminal_palette";
 import type { RGB } from "./theme";
+import type { Reply, RequestInput } from "./protocol";
 import type { State as ClipboardState } from "./host_clipboard";
 import { n, ptr } from "./native_ffi";
 import { stringify } from "./json";
@@ -31,16 +32,21 @@ const idle_after_ms = 1000;
 /** How often a viewer saves its agent list's scroll for the next viewer to start from. */
 const scroll_save_ms = 1000;
 
-export async function open(view: Controller, cwd: string, theme: unknown, socket: string): Promise<number | bigint> {
+export async function open(
+  view: Controller,
+  cwd: string,
+  theme: RequestInput<"viewer.open">["theme"],
+  socket: string,
+): Promise<bigint> {
   return openMode(view, cwd, theme, socket, false);
 }
 export async function openMode(
   view: Controller,
   cwd: string,
-  theme: unknown,
+  theme: RequestInput<"viewer.open">["theme"],
   socket: string,
   start_onboarding: boolean,
-): Promise<number | bigint> {
+): Promise<bigint> {
   view.remote_links = sshViewer();
   // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
   // attaching viewer's environment: one daemon can serve both terminals.
@@ -48,7 +54,7 @@ export async function openMode(
   view.branch_glyphs = branchGlyphs(process.env.TERM ?? "") || branchGlyphs(process.env.TERM_PROGRAM ?? "");
   view.loadPreferences();
   if (start_onboarding) view.openOnboarding("welcome");
-  let opened: any;
+  let opened: Reply<"viewer.open">;
   try {
     opened = await call(view.connection, "viewer.open", { cwd, theme, onboarding: view.onboarding !== null });
   } catch (error) {
@@ -60,7 +66,7 @@ export async function openMode(
   view.restoreAgentScroll();
   view.launch_previews.socket = socket;
   view.updateLaunchPreview();
-  return opened.bell_seq ?? 0;
+  return BigInt(opened.bell_seq ?? 0n);
 }
 /** A daemon on another protocol is one error, which `main` explains. */
 function incompatible(error: Error): Error {
@@ -75,13 +81,13 @@ export function close(view: Controller): void {
   view.clearEffects();
   view.runtime.destroy();
 }
-export async function sync(view: Controller, bell: { seq: number | bigint }, play_sound: boolean): Promise<boolean> {
+export async function sync(view: Controller, bell: { seq: bigint }, play_sound: boolean): Promise<boolean> {
   for (const p of view.runtime.panes) {
     if (p.terminal.holding_selection && (view.selection === null || view.selection.pane !== p.id))
       p.terminal.clearSelection();
     await p.terminal.flush();
   }
-  const interests: any[] = [];
+  const interests: RequestInput<"viewer.sync">["interests"] = [];
   for (const place of view.layoutView().placements(view.area())) {
     const p = view.runtime.pane(place.id);
     if (!p) continue;
@@ -103,7 +109,7 @@ export async function sync(view: Controller, bell: { seq: number | bigint }, pla
       offset: ghost.pane.terminal.offset,
       known: ghost.pane.terminal.known,
     });
-  let reply: any;
+  let reply: Reply<"viewer.sync">;
   try {
     reply = await call(view.connection, "viewer.sync", {
       interests,
@@ -123,17 +129,18 @@ export async function sync(view: Controller, bell: { seq: number | bigint }, pla
   }
   view.input_state.active = false;
   if (reply.session) view.receiveSnapshot(reply.session);
-  view.runtime.snapshot_hash = reply.session_hash ?? null;
+  view.runtime.snapshot_hash = reply.session_hash == null ? null : BigInt(reply.session_hash);
   if (reply.resources) view.runtime.receiveResources(reply.resources);
-  view.runtime.resources_hash = reply.resources_hash ?? null;
+  view.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
   view.input_state.viewer_id = reply.viewer ?? 0;
   for (const control of reply.controls ?? []) {
-    if (BigInt(control.seq) <= BigInt(view.input_state.last_control)) continue;
+    const seq = BigInt(control.seq);
+    if (seq <= view.input_state.last_control) continue;
     try {
-      if (control.kind === "focus") view.focusPane(control.id);
-      else if (control.kind === "workspace") view.switchWorkspace(control.id);
+      if (control.kind === "focus") view.focusPane(control.id!);
+      else if (control.kind === "workspace") view.switchWorkspace(control.id!);
       else {
-        const act = parseAction(control.name, control.value ?? "");
+        const act = parseAction(control.name!, control.value ?? "");
         if (act.name === "relaunch") {
           view.executable = String(act.value);
           return false;
@@ -143,16 +150,19 @@ export async function sync(view: Controller, bell: { seq: number | bigint }, pla
     } catch (error) {
       view.notice((error as Error).message);
     }
-    view.input_state.last_control = control.seq;
+    view.input_state.last_control = seq;
   }
   for (const frame of reply.surfaces ?? []) {
     const p = view.runtime.pane(frame.surface.pane);
     if (p) p.terminal.receive(frame);
   }
-  if (reply.bell_seq !== undefined && BigInt(reply.bell_seq) !== BigInt(bell.seq)) {
-    bell.seq = reply.bell_seq;
-    view.last_bell_kind = reply.bell_kind ?? "none";
-    if (play_sound && !view.muted) sound.play(view.last_bell_kind);
+  if (reply.bell_seq !== undefined) {
+    const seq = BigInt(reply.bell_seq);
+    if (seq !== bell.seq) {
+      bell.seq = seq;
+      view.last_bell_kind = reply.bell_kind ?? "none";
+      if (play_sound && !view.muted) sound.play(view.last_bell_kind);
+    }
   }
   const choosing = view.onboarding !== null || (view.agent_launcher !== null && view.agent_launcher.pinned);
   return (!reply.detach || choosing) && view.input_state.attached;

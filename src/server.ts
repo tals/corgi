@@ -1,3 +1,4 @@
+import type { Worker as SummaryWorker } from "./activity/worker";
 import { mkdirSync, chmodSync, statSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute } from "node:path";
 import { Runtime } from "./runtime";
@@ -25,6 +26,7 @@ import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
 export class Server {
+  summaries: SummaryWorker | null = null;
   runtime = new Runtime();
   clients: Client[] = [];
   theme = new Theme();
@@ -32,10 +34,10 @@ export class Server {
   next_active = 0;
   preferred_workspace = 1;
   default_folder_pending = true;
-  bell_seq = 0;
-  last_bell_kind = "none";
+  bell_seq = 0n;
+  last_bell_kind: protocol.View["bell_kind"] = "none";
   bell = false;
-  bell_kind = "none";
+  bell_kind: protocol.View["bell_kind"] = "none";
   last_bell = 0;
   resource_readings = true;
   dirty = true;
@@ -46,7 +48,7 @@ export class Server {
   private jobs: Promise<void> = Promise.resolve();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
-  private subscribedRevision: number | bigint = -1;
+  private subscribedRevision = -1n;
   private watched = new WeakSet<object>();
   private frozen = false;
   private savedDurable = 0n;
@@ -110,14 +112,14 @@ export class Server {
       this.dirty = true;
     }
   }
-  updateTheme(theme: any): void {
+  updateTheme(theme: Theme | null): void {
     if (!theme) return;
     const next = Object.assign(new Theme(), theme);
     this.theme.merge(next);
     for (const p of this.runtime.panes) p.terminal.applyTheme(this.theme);
     this.dirty = true;
   }
-  async execute(command: protocol.Command): Promise<protocol.Result> {
+  async execute(command: protocol.CommandInput): Promise<protocol.Result> {
     importer.admit(this, "session.command");
     const result = await session.execute(
       this.runtime,
@@ -156,13 +158,13 @@ export class Server {
     }
   }
   private wakeSeq(id: number): bigint {
-    let seq = BigInt(this.runtime.shown) + BigInt(this.bell_seq);
+    let seq = this.runtime.shown + this.bell_seq;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
-        seq += BigInt(c.next_control);
+        seq += c.next_control;
         for (const interest of c.interests) {
           const p = this.runtime.pane(interest.pane);
-          if (p) seq += BigInt(p.displayed().surface_revision);
+          if (p) seq += p.displayed().surface_revision;
         }
       }
     return BigInt.asUintN(64, seq);
@@ -171,7 +173,7 @@ export class Server {
     for (const c of this.clients)
       if (c.watching && !c.dead && c.output.length === 0) {
         const next = this.wakeSeq(c.watch_viewer);
-        if (BigInt(c.woken) !== next) {
+        if (c.woken !== next) {
           c.woken = next;
           c.queue({ type: "viewer.wake" });
         }
@@ -279,7 +281,7 @@ export class Server {
     for (const s of this.runtime.sessions) s.resume();
     this.startLoop();
   }
-  addClient(fd: number, saved?: any): Client {
+  addClient(fd: number, start = true): Client {
     const client = new Client(
       fd,
       this.loop,
@@ -304,15 +306,8 @@ export class Server {
         this.dirty = true;
         void viewer.resize(this);
       },
-      !saved,
+      start,
     );
-    if (saved) {
-      const { input, output, fd: _, ...fields } = saved;
-      Object.assign(client, fields);
-      client.restoreInput(Buffer.from(input, "base64"));
-      client.output = Buffer.from(output, "base64");
-      client.sent = 0;
-    }
     this.clients.push(client);
     return client;
   }
@@ -381,9 +376,10 @@ export class Server {
     }
     this.publish();
   }
-  async request(cl: Client, v: any): Promise<void> {
-    const op = protocol.parse(v);
+  async request(cl: Client, value: unknown): Promise<void> {
+    const op = protocol.parse(value);
     if (!op) throw Error("UnknownOperation");
+    const v = json.object(value);
     if (!testBuild && (op === "test.advance" || op === "test.settle")) throw Error("UnknownOperation");
     const check = protocol.check(op);
     if (check === "viewer" && v.viewer_protocol !== protocol.viewer_version) {
@@ -391,9 +387,9 @@ export class Server {
       return;
     }
     if (check !== "none") protocol.require(v, check === "negotiate" ? null : cl.protocol_version);
-    const q = protocol.decode(op, v);
+    const request = protocol.decoded(op, v);
     if (!["onboarding.copy", "onboarding.handoff"].includes(op)) importer.admit(this, op);
-    switch (op) {
+    switch (request.op) {
       case "hello":
         cl.protocol_version = protocol.version;
         cl.queue({
@@ -415,10 +411,12 @@ export class Server {
         setTimeout(() => void this.shutdown(), 0);
         return;
       case "session.command":
-        cl.reply(op, { result: await this.execute(q.command) });
+        cl.reply(op, { result: await this.execute(request.payload.command) });
         return;
       case "session.locate":
-        cl.reply(op, { result: { ...protocol.emptyResult(), ...session.location(this.runtime, q.pane) } });
+        cl.reply(op, {
+          result: { ...protocol.emptyResult(), ...session.location(this.runtime, request.payload.pane) },
+        });
         return;
       case "session.list":
         cl.queue({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
@@ -432,74 +430,55 @@ export class Server {
         cl.queue(session.snapshot(this.runtime));
         return;
       case "viewer.open":
-        await viewer.open(this, cl, { cwd: "", onboarding: false, theme: null, ...q });
+        await viewer.open(this, cl, request.payload);
         return;
       case "viewer.sync":
-        await viewer.sync(this, cl, {
-          session_hash: null,
-          focus: null,
-          watched: true,
-          workspace: 0,
-          ack: 0,
-          active: false,
-          resource_detail: null,
-          worktree_detail: null,
-          resources: true,
-          resources_hash: null,
-          ...q,
-        });
+        await viewer.sync(this, cl, request.payload);
         return;
       case "viewer.search":
-        await viewer.search(this, cl, { skip: 0, ...q });
+        await viewer.search(this, cl, request.payload);
         return;
       case "viewer.watch":
         if (cl.viewer || cl.subscribed || cl.launch_preview) throw Error("AlreadyAttached");
         cl.watching = true;
-        cl.watch_viewer = q.viewer;
-        cl.woken = this.wakeSeq(q.viewer);
+        cl.watch_viewer = request.payload.viewer;
+        cl.woken = this.wakeSeq(request.payload.viewer);
         cl.queue({ ok: true });
         return;
       case "viewer.list":
         cl.queue({ ok: true, viewers: viewer.viewers(this) });
         return;
       case "pane.acknowledge":
-        viewer.acknowledge(this, cl, {
-          session: "",
-          through: 0,
-          binding: null,
-          conversation: null,
-          attention_at: null,
-          ...q,
-        });
+        viewer.acknowledge(this, cl, request.payload);
         return;
       case "pane.mark_unread":
-        viewer.markUnread(this, cl, { session: "", binding: null, conversation: null, ...q });
+        viewer.markUnread(this, cl, request.payload);
         return;
       case "pane.paste":
-        await viewer.paste(this, cl, q);
+        await viewer.paste(this, cl, request.payload);
         return;
       case "action":
-        await viewer.action(this, cl, { name: "", value: "", viewer: null, pane: null, ...q });
+        await viewer.action(this, cl, request.payload);
         return;
       case "focus":
-        viewer.focus(this, cl, { viewer: null, ...q });
+        viewer.focus(this, cl, request.payload);
         return;
       case "workspace.switch":
-        viewer.switchWorkspace(this, cl, { viewer: null, ...q });
+        viewer.switchWorkspace(this, cl, request.payload);
         return;
       case "conversation.list":
         cl.queue({ ok: true, conversations: session.snapshot(this.runtime).conversations });
         return;
       case "conversation.acknowledge": {
-        const actor = this.runtime.conversations.byId(q.conversation);
+        const actor = this.runtime.conversations.byId(request.payload.conversation);
         if (!actor) throw Error("NoConversation");
-        actor.acknowledge(q.through, q.attention_at ?? null);
+        actor.acknowledge(request.payload.through, request.payload.attention_at ?? null);
         this.runtime.changed();
         cl.queue({ ok: true });
         return;
       }
       case "pane.surface": {
-        const p = this.runtime.pane(q.pane);
+        const p = this.runtime.pane(request.payload.pane);
         if (!p) throw Error("NoPane");
         cl.queue({
           type: "surface",
@@ -511,27 +490,30 @@ export class Server {
         return;
       }
       case "theme":
-        this.updateTheme(q.theme);
+        this.updateTheme(request.payload.theme);
         cl.queue({ ok: true });
         return;
       case "hook":
-        await observers.hook(this, q);
+        await observers.hook(this, request.payload);
         cl.queue({ ok: true });
         return;
-      case "test.advance":
-        clock.advance(q.ms);
+      case "test.advance": {
+        const ms = Number(request.payload.ms);
+        if (!Number.isSafeInteger(ms)) throw Error("Overflow");
+        clock.advance(ms);
         observers.poke(this);
         cl.queue({ ok: true });
         return;
+      }
       case "test.settle":
         await observers.settle(this);
         await trackers.settle(this.runtime, () => this.collect());
         cl.queue({ ok: true });
         return;
       case "server.reload": {
-        if (!isAbsolute(q.executable ?? "")) throw Error("InvalidExecutable");
+        if (!isAbsolute(request.payload.executable ?? "")) throw Error("InvalidExecutable");
         const handoff = await import("./persist/handoff");
-        await handoff.replace(this, cl, q.executable);
+        await handoff.replace(this, cl, request.payload.executable);
         return;
       }
       case "recovery.save": {
@@ -546,27 +528,27 @@ export class Server {
       case "native.send":
       case "native.events": {
         const native = await import("./native");
-        await native.request(this, cl, op, q);
+        await native.request(this, cl, request);
         return;
       }
       case "agent.command.preview":
-        await launch.request(this, cl, op, q);
+        await launch.request(this, cl, request);
         return;
       case "agent.preview":
       case "agent.track_usage":
       case "agent.subscribe":
       case "agent.history": {
         const launch = await import("./launch_service");
-        await launch.request(this, cl, op, q);
+        await launch.request(this, cl, request);
         return;
       }
       case "inference.configure": {
         const inference = await import("./inference_service");
-        await inference.configure(this, cl, q);
+        await inference.configure(this, cl, request.payload);
         return;
       }
       case "shell.configure": {
-        const shell = q.shell.trim();
+        const shell = request.payload.shell.trim();
         if (shell && launch_command.locate(shell) === null) throw Error("ShellNotFound");
         settings.update(settings.path(this.socket), { shell: shell || undefined });
         this.runtime.changed();
@@ -575,35 +557,39 @@ export class Server {
         return;
       }
       case "smart_links.configure": {
-        settings.update(settings.path(this.socket), { smart_links: q.enabled });
-        this.runtime.ports.configure(q.enabled);
+        settings.update(settings.path(this.socket), { smart_links: request.payload.enabled });
+        this.runtime.ports.configure(request.payload.enabled);
         this.runtime.changed();
         this.dirty = true;
-        cl.reply(op, { smart_links: q.enabled });
+        cl.reply(op, { smart_links: request.payload.enabled });
         return;
       }
       case "git.push": {
         const git = await import("./trackers/git_push");
-        await git.start(this.runtime, q.workspace, q.ref);
+        await git.start(this.runtime, request.payload.workspace, request.payload.ref);
         this.runtime.changed();
         this.dirty = true;
         cl.queue({ ok: true });
         return;
       }
       case "worktree.remove": {
-        const removal = await this.runtime.worktree_tracker.remove(this.runtime, q.workspace, q.path);
+        const removal = await this.runtime.worktree_tracker.remove(
+          this.runtime,
+          request.payload.workspace,
+          request.payload.path,
+        );
         this.runtime.changed();
         this.dirty = true;
         cl.queue({ ok: true, removal });
         return;
       }
       case "worktree.stop":
-        this.runtime.worktree_tracker.stopRemoval(q.workspace);
+        this.runtime.worktree_tracker.stopRemoval(request.payload.workspace);
         cl.queue({ ok: true });
         return;
       case "git.branches":
         // Outside the queue too: a repository with many refs takes a while.
-        void worktreeAdd.branches(this.runtime, q.workspace).then(
+        void worktreeAdd.branches(this.runtime, request.payload.workspace).then(
           branches => cl.queue({ ok: true, branches }),
           error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
         );
@@ -611,38 +597,31 @@ export class Server {
       case "worktree.add":
         // Outside the queue: checking out a big tree takes seconds, and
         // every request waits on the one before.
-        void worktreeAdd.add(this.runtime, q.workspace, q.path, q.branch, q.base).then(
-          () => {
-            this.runtime.changed();
-            this.dirty = true;
-            cl.queue({ ok: true });
-          },
-          error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
-        );
+        void worktreeAdd
+          .add(
+            this.runtime,
+            request.payload.workspace,
+            request.payload.path,
+            request.payload.branch,
+            request.payload.base,
+          )
+          .then(
+            () => {
+              this.runtime.changed();
+              this.dirty = true;
+              cl.queue({ ok: true });
+            },
+            error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
+          );
         return;
       case "onboarding.status":
       case "onboarding.handoff":
       case "onboarding.copy": {
         const importer = await import("./import");
-        await importer.request(this, cl, op, q);
+        await importer.request(this, cl, request);
         return;
       }
     }
-  }
-  private async hook(q: any): Promise<void> {
-    if (!["codex", "claude"].includes(q.provider)) throw Error("InvalidEnumTag");
-    const event = Provider.backend(q.provider).hook(q.event);
-    if (!event) return;
-    const p = this.runtime.pane(q.pane ?? 0);
-    let actor: any = null;
-    if (p) actor = this.runtime.conversations.routeHook(p.attachment, q.provider, event);
-    if (!actor && q.background && event.session) actor = this.runtime.conversations.get(q.provider, event.session);
-    if (!actor) return;
-    actor.workspace ||= p ? (this.runtime.workspaces.owner(p.id)?.id ?? 0) : this.initialWorkspace().id;
-    const now = clock.microTimestamp();
-    const ding = this.runtime.conversations.observeHook(actor, event, q.seq ?? now, false, now);
-    this.attention(ding, actor.state.state);
-    this.runtime.changed();
   }
   async shutdown(): Promise<void> {
     if (this.stopped) return;

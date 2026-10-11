@@ -7,6 +7,7 @@ import { createConnection } from "node:net";
 import { Provider } from "./providers";
 import { milliTimestamp, microTimestamp } from "./clock";
 import type { Runtime, Pane } from "./runtime";
+import type { Terminal } from "./pane/terminal";
 export const max_name = 80;
 export function validName(value: string | Uint8Array) {
   let name: string;
@@ -123,13 +124,11 @@ export async function renameCodex(id: string, name: string) {
 export function command(name: string) {
   return "/rename " + name;
 }
-function input(t: any) {
-  if ((t.title ?? t.vt?.getTitle?.() ?? "").includes("[ ! ] Action Required")) return null;
-  const frame = t.capture?.(0) ?? t.surface?.(0);
-  if (!frame) return null;
-  const surface = frame.surface ?? frame,
+function input(t: Terminal) {
+  if (t.title.includes("[ ! ] Action Required")) return null;
+  const surface = t.surface(0).surface,
     cursor = surface.cursor;
-  if (!cursor || cursor.visible === false) return null;
+  if (!cursor) return null;
   const raw = surface.lines[cursor.y] ?? "";
   const characters: {
     text: string;
@@ -180,20 +179,20 @@ function input(t: any) {
       .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ""),
   };
 }
-export function codexEmpty(t: any) {
+export function codexEmpty(t: Terminal) {
   const row = input(t);
   return !!row && row.cursor === 2 && row.placeholder && row.below.includes("? for shortcuts");
 }
-export function codexHolds(t: any, text: string) {
+export function codexHolds(t: Terminal, text: string) {
   const row = input(t);
   return !!row && !row.placeholder && row.text === text && row.cursor === row.text_end;
 }
-export async function paste(t: any, text: string) {
-  const mode = t.bracketed_paste ?? t.modes?.bracketed_paste ?? false;
+export async function paste(t: Terminal, text: string) {
+  const mode = t.bracketed_paste;
   await t.send((mode ? "\x1b[200~" : "") + text + (mode ? "\x1b[201~" : ""));
 }
-export async function submit(t: any) {
-  const modes = t.surface?.(0)?.modes ?? {};
+export async function submit(t: Terminal) {
+  const modes = t.surface(0).modes;
   await t.send(encode({ codepoint: 13, mods: {} }, { kitty: !!(modes.kitty & 1), alt_escape: modes.alt_escape }));
 }
 function renamed(runtime: Runtime, pane: Pane, name: string) {

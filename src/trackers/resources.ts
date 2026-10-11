@@ -4,6 +4,7 @@ import type { Runtime } from "../runtime";
 import * as clock from "../clock";
 import { Failure } from "../failure";
 import { nativeFiles } from "../build_assets";
+import type { Wire } from "../protocol";
 export const history_capacity = 48,
   process_capacity = 64;
 export type Sort = "cpu" | "memory" | "io";
@@ -12,19 +13,17 @@ const sat = (a: bigint, b: bigint) => (a + b > max64 ? max64 : a + b);
 export function cpuText(value: number | null) {
   return value === null ? "" : value >= 10000 ? (value / 1000).toFixed(0) + "k%" : value.toFixed(0) + "%";
 }
-export function memoryText(value: bigint | number | null) {
+export function memoryText(value: bigint | null) {
   if (value === null) return "";
-  const n = BigInt(value);
-  return n >= 1073741824n ? (Number(n) / 1073741824).toFixed(1) + "G" : (n / 1048576n).toString() + "M";
+  return value >= 1073741824n ? (Number(value) / 1073741824).toFixed(1) + "G" : (value / 1048576n).toString() + "M";
 }
-export function ioText(value: bigint | number | null) {
+export function ioText(value: bigint | null) {
   if (value === null) return "";
-  const n = BigInt(value);
-  return n >= 1000000000n
-    ? (Number(n) / 1000000000).toFixed(0) + "G/s"
-    : n >= 1000000n
-      ? (Number(n) / 1000000).toFixed(0) + "M/s"
-      : (n / 1000n).toString() + "K/s";
+  return value >= 1000000000n
+    ? (Number(value) / 1000000000).toFixed(0) + "G/s"
+    : value >= 1000000n
+      ? (Number(value) / 1000000).toFixed(0) + "M/s"
+      : (value / 1000n).toString() + "K/s";
 }
 export type Point = {
   at: number;
@@ -95,6 +94,35 @@ export class Snapshot {
       ),
     });
   }
+}
+export function fromJSON(value: Wire<Snapshot> | null | undefined): Snapshot {
+  if (!value) return new Snapshot();
+  const nullable = (n: number | bigint | null | undefined) => (n === null || n === undefined ? null : BigInt(n));
+  const restoreProcess = (p: Wire<Process>) =>
+    Object.assign(new Process(p.pid, BigInt(p.start), p.name), {
+      provider: p.provider ?? null,
+      cpu: p.cpu ?? null,
+      memory: BigInt(p.memory ?? 0),
+      read: nullable(p.read),
+      written: nullable(p.written),
+    });
+  const restoreWork = (w: Wire<Work>) =>
+    Object.assign(new Work(w.id), w, {
+      memory: nullable(w.memory),
+      read: nullable(w.read),
+      written: nullable(w.written),
+      processes: (w.processes ?? []).map(restoreProcess),
+      history: (w.history ?? []).map(point => ({
+        at: point.at,
+        cpu: point.cpu ?? null,
+        memory: nullable(point.memory),
+        io: nullable(point.io),
+      })),
+    });
+  return Object.assign(new Snapshot(), value, {
+    host_memory: BigInt(value.host_memory ?? 0),
+    workspaces: (value.workspaces ?? []).map(restoreWork),
+  });
 }
 export type Root = {
   key: number;

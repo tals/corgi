@@ -639,7 +639,7 @@ export class Job {
       const hint = pane.resume_hint;
       if (hint.provider && hint.session.len) {
         const actor = runtime.conversations.get(hint.provider, hint.session.text());
-        if (actor.state.last_seq === 0 && actor.state.state === "unknown") {
+        if (actor.state.last_seq === 0n && actor.state.state === "unknown") {
           actor.state.state = pane.attachment.provisional.state;
           actor.state.observation.source = "screen";
         }

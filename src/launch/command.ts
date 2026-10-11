@@ -388,7 +388,7 @@ export class Worker {
   private quit = subprocess.Quit.init();
   private pending = new Set<Promise<void>>();
   jobs: {
-    id: bigint | number;
+    id: bigint;
     source: string;
     cwd: string;
     result: Resolution;
@@ -403,7 +403,7 @@ export class Worker {
     this.quit.signal();
     await Promise.all(this.pending);
   }
-  request(id: bigint | number, source: string, cwd: string) {
+  request(id: bigint, source: string, cwd: string) {
     if (this.stopping) throw Error("Cancelled");
     if (Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
     const existing = this.jobs.find(j => j.id === id && j.source === source && j.cwd === cwd);

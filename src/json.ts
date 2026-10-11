@@ -32,14 +32,11 @@ export function str(value: unknown, key: string): string {
   const item = field(value, key);
   return typeof item === "string" ? item : "";
 }
-export function int(value: unknown, key: string): number | bigint | null {
-  const item = field(value, key);
-  if (typeof item !== "bigint" && (typeof item !== "number" || !Number.isInteger(item))) return null;
-  return BigInt(item) >= -(1n << 63n) && BigInt(item) < 1n << 63n ? item : null;
+export function int(value: unknown, key: string): bigint | null {
+  return integerReader(64, true)(field(value, key)) ?? null;
 }
-export function uint(value: unknown, key: string): number | bigint | null {
-  const item = int(value, key);
-  return item !== null && item >= 0 ? item : null;
+export function uint(value: unknown, key: string): bigint | null {
+  return integerReader(64)(field(value, key)) ?? null;
 }
 export function float(value: unknown, key: string): number | null {
   const item = field(value, key);
@@ -72,20 +69,24 @@ export function decode<T>(shape: Shape<T>, value: unknown): T {
   }
   return output;
 }
+function integerReader(bits: 64, signed?: boolean): Reader<bigint>;
+function integerReader(bits: 8 | 16 | 32, signed?: boolean): Reader<number>;
+function integerReader(bits: 8 | 16 | 32 | 64, signed = false): Reader<number | bigint> {
+  return value => {
+    if (typeof value !== "bigint" && (typeof value !== "number" || !Number.isSafeInteger(value))) return;
+    const n = BigInt(value),
+      min = signed ? -(1n << BigInt(bits - 1)) : 0n,
+      max = 1n << BigInt(bits - (signed ? 1 : 0));
+    if (n < min || n >= max) return;
+    return bits === 64 ? n : Number(n);
+  };
+}
 export const readers = {
   string: ((v: unknown) => (typeof v === "string" ? v : undefined)) as Reader<string>,
   boolean: ((v: unknown) => (typeof v === "boolean" ? v : undefined)) as Reader<boolean>,
   float: ((v: unknown) => (typeof v === "number" || typeof v === "bigint" ? Number(v) : undefined)) as Reader<number>,
   raw: ((v: unknown) => v) as Reader<unknown>,
-  integer:
-    (bits: number, signed = false): Reader<number | bigint> =>
-    v => {
-      if (typeof v !== "bigint" && (typeof v !== "number" || !Number.isInteger(v))) return;
-      const n = BigInt(v),
-        min = signed ? -(1n << BigInt(bits - 1)) : 0n,
-        max = 1n << BigInt(bits - (signed ? 1 : 0));
-      return n >= min && n < max ? v : undefined;
-    },
+  integer: integerReader,
   enum:
     <T extends string>(values: readonly T[]): Reader<T> =>
     v =>

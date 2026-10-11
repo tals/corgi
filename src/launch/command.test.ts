@@ -16,7 +16,7 @@ test("stopping command previews cancels and reaps an active shell lookup", async
     process.env.CORGI_ENV_DIR = root;
     writeFileSync(executable, `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec /bin/sleep 60\n`, { mode: 0o755 });
     settings.update(settings.path(), { shell: executable });
-    const result = worker.request(1, "alias_to_resolve", root),
+    const result = worker.request(1n, "alias_to_resolve", root),
       deadline = Date.now() + 1000;
     while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
     expect(existsSync(pidFile)).toBe(true);
@@ -25,7 +25,7 @@ test("stopping command previews cancels and reaps an active shell lookup", async
     expect(result.pending).toBe(false);
     expect(result.error_message).toBe("Cancelled");
     expect(() => process.kill(pid, 0)).toThrow();
-    expect(() => worker.request(2, "another_alias", root)).toThrow("Cancelled");
+    expect(() => worker.request(2n, "another_alias", root)).toThrow("Cancelled");
   } finally {
     await worker.stop();
     if (saved === undefined) delete process.env.CORGI_ENV_DIR;

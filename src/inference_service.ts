@@ -1,6 +1,9 @@
 import * as setup from "./inference/setup";
 import { Model } from "./providers/model";
-export async function configure(server: any, client: any, query: any) {
+import type { Server } from "./server";
+import type { Client } from "./peer";
+import type { Request } from "./protocol";
+export async function configure(server: Server, client: Client, query: Request<"inference.configure">) {
   const worker = server.summaries;
   if (!worker) throw Error("InferenceUnavailable");
   worker.configure(query.choice);

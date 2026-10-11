@@ -8,11 +8,12 @@ import type { Source, Workspace, Pane } from "./catalog";
 import * as tree from "./layout";
 import * as herdr from "./herdr";
 import * as tmux_resume from "./tmux_resume";
+export type ImportWorkspace = Workspace;
 export type Plan = {
-  operation: bigint | number;
+  operation: bigint;
   source: Source;
   selected?: string[];
-  workspaces: Workspace[];
+  workspaces: ImportWorkspace[];
   herdr_session: herdr.SourceSession | null;
 };
 export type Progress = {
@@ -58,7 +59,7 @@ export class Job {
     }
     if (total > max_panes) throw Error("TooManyPanes");
     this.plan = p;
-    this.operation = BigInt(plan.operation);
+    this.operation = plan.operation;
     this.index = 0;
     this.created = [];
     this.progress = {
@@ -153,7 +154,12 @@ export function geometry(model: Model, panes: Pane[], ids: number[], indices: nu
   }
   throw Error("UnsupportedSourceLayout");
 }
-export async function copy(r: Runtime, source: Workspace, kind: Source, defaults: Create): Promise<number> {
+export async function copy(
+  r: Runtime,
+  source: Omit<Workspace, "session" | "activity">,
+  kind: Source,
+  defaults: Create,
+): Promise<number> {
   const dir =
       kind === "cmux"
         ? cmuxDirectory(source.cwd, process.env.HOME ?? "/")

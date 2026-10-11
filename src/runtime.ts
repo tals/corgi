@@ -89,7 +89,7 @@ export class Ghost {
   fork: string | null = null;
   constructor(
     public terminal: Terminal,
-    public revision: bigint | number,
+    public revision: bigint,
     public text: string | null,
   ) {}
   due() {
@@ -141,7 +141,7 @@ export class Pane {
   label = "";
   attachment = new Attachment();
   detection = new Tracker();
-  detected = { output: 0n as bigint | number, at: 0 };
+  detected = { output: 0n, at: 0 };
   resume_hint = new ResumeHint();
   launch: Launch | null = null;
   background_job: string | null = null;
@@ -163,7 +163,7 @@ export class Pane {
     const a = this.agent();
     if (
       this.detection.missing > 0 ||
-      (a.last_seq === 0 && this.detection.candidate !== null && this.detection.candidate !== a.state)
+      (a.last_seq === 0n && this.detection.candidate !== null && this.detection.candidate !== a.state)
     )
       return true;
     return ["working", "blocked", "initializing"].includes(a.state) || a.permission_review !== null;

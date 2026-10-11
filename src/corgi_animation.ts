@@ -516,8 +516,8 @@ export function pick(sleepers: bigint[], period: bigint, skip: bigint | null): b
   return best;
 }
 export type Dream = { key: bigint; puff_ms: number };
-export function dreamer(sleepers: (bigint | number)[], now_ms: number): { key: bigint; puff_ms: number } | null {
-  const keys = sleepers.map(BigInt),
+export function dreamer(sleepers: bigint[], now_ms: number): { key: bigint; puff_ms: number } | null {
+  const keys = sleepers,
     now = Math.max(0, now_ms),
     period = BigInt(Math.floor(now / 11000)),
     elapsed = now % 11000;
@@ -620,8 +620,8 @@ export function beginFrame() {
 export function endFrame() {
   for (const slot of slots) if (!slot.seen) slot.presentation.hide();
 }
-export function observe(key: number | bigint, mode: Mode, now: number): Presentation | null {
-  const id = BigInt(key);
+export function observe(key: bigint, mode: Mode, now: number): Presentation | null {
+  const id = key;
   let slot = slots.find(s => s.key === id);
   if (!slot) {
     if (mode === "content") return null;

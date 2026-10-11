@@ -70,25 +70,25 @@ export class Stat {
     return (this.mode & 0o170000) === 0o100000;
   }
 }
-function asStat(value: { dev: number | bigint; ino: number | bigint; mode: number | bigint; uid: number | bigint }) {
-  let dev = BigInt(value.dev);
+function asStat(value: { dev: bigint; ino: bigint; mode: bigint; uid: bigint }) {
+  let dev = value.dev;
   if (process.platform === "linux") {
     const major = ((dev >> 8n) & 0xfffn) | ((dev >> 32n) & 0xfffff000n);
     const minor = (dev & 0xffn) | ((dev >> 12n) & 0xffffff00n);
     dev = (major << 32n) | minor;
   }
-  return new Stat(dev, BigInt(value.ino), Number(value.mode), Number(value.uid));
+  return new Stat(dev, value.ino, Number(value.mode), Number(value.uid));
 }
 export function lstat(path: string): Stat {
   try {
-    return asStat(lstatSync(path, { bigint: true }) as any);
+    return asStat(lstatSync(path, { bigint: true }));
   } catch {
     throw Error("FileNotFound");
   }
 }
 export function fstat(fd: number): Stat {
   try {
-    return asStat(fstatSync(fd, { bigint: true }) as any);
+    return asStat(fstatSync(fd, { bigint: true }));
   } catch {
     throw Error("FileNotFound");
   }

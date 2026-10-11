@@ -3,10 +3,10 @@ import * as json from "./json";
 import * as protocol from "./protocol";
 export class Connection {
   readonly socket: Socket;
-  private pending: { resolve: (value: any) => void; reject: (error: Error) => void }[] = [];
+  private pending: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
   private buffer = "";
   private closed: Error | null = null;
-  onEvent?: (value: any) => void;
+  onEvent?: (value: unknown) => void;
   constructor(path: string | Socket) {
     this.socket = typeof path === "string" ? createConnection(path) : path;
     this.socket.setEncoding("utf8");
@@ -40,27 +40,35 @@ export class Connection {
     this.closed = error;
     for (const p of this.pending.splice(0)) p.reject(error);
   }
-  request(op: string | object, fields: Record<string, unknown> = {}): Promise<any> {
+  request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
+    // Replies are raw operation-specific JSON. Consumers normalize their model;
+    // unsolicited events and deliberately malformed requests stay unknown.
+    return this.rawRequest(protocol.envelope(op, args[0])) as Promise<protocol.Response<K>>;
+  }
+  rawRequest(value: unknown): Promise<unknown> {
     if (this.closed) return Promise.reject(this.closed);
-    const value = typeof op === "string" ? protocol.envelope(op, fields) : op;
     return new Promise((resolve, reject) => {
       this.pending.push({ resolve, reject });
       this.socket.write(json.stringify(value) + "\n");
     });
   }
-  async call(op: string, fields: Record<string, unknown> = {}): Promise<any> {
-    const reply = await this.request(op, fields);
-    if (reply.err) throw Error(reply.err);
+  async call<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Reply<K>> {
+    const reply = await this.request(op, ...args);
+    if ("err" in reply) throw Error(reply.err);
     return reply;
   }
   close(): void {
     this.socket.destroy();
   }
 }
-export async function request(path: string, op: string, fields: Record<string, unknown> = {}): Promise<any> {
+export async function request<K extends protocol.Op>(
+  path: string,
+  op: K,
+  ...args: protocol.Arguments<K>
+): Promise<protocol.Reply<K>> {
   const conn = new Connection(path);
   try {
-    return await conn.call(op, fields);
+    return await conn.call(op, ...args);
   } finally {
     conn.close();
   }

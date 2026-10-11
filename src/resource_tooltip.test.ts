@@ -38,8 +38,8 @@ test("aim triangle spans from the row exit to the card's left edge", () => {
 test("process rows freeze by identity while their numbers can refresh", () => {
   const state = new State(),
     processes = [
-      { pid: 1, start: 10, name: "first", cpu: 90 },
-      { pid: 2, start: 20, name: "second", cpu: 10 },
+      { pid: 1, start: 10n, name: "first", cpu: 90 },
+      { pid: 2, start: 20n, name: "second", cpu: 10 },
     ],
     work = { id: 1, known: true, processes };
   state.update(work, true);

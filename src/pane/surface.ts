@@ -1,4 +1,5 @@
 import type { Terminal } from "./terminal";
+import type { Wire } from "../protocol";
 export interface Surface {
   pane: number;
   cols: number;
@@ -20,8 +21,8 @@ export interface Modes {
   paste_events: boolean;
 }
 export interface Stamp {
-  identity: number | bigint;
-  revision: number | bigint;
+  identity: bigint;
+  revision: bigint;
   offset: number | null;
 }
 export interface View {
@@ -32,7 +33,7 @@ export interface View {
   stamp: Stamp;
 }
 export function captureView(id: number, t: Terminal, offset: number | null = null): View {
-  return t.native({ op: "surface", pane: id, offset });
+  return t.surface(id, offset);
 }
 export function capture(id: number, t: Terminal): Surface {
   return captureView(id, t).surface;
@@ -42,4 +43,15 @@ export function modes(t: Terminal): Modes {
 }
 export function stamp(t: Terminal, offset: number | null = null): Stamp {
   return { identity: t.surface_identity, revision: t.surface_revision, offset };
+}
+
+export function view(value: Wire<View>): View {
+  return {
+    ...value,
+    stamp: {
+      ...value.stamp,
+      identity: BigInt(value.stamp.identity),
+      revision: BigInt(value.stamp.revision),
+    },
+  };
 }

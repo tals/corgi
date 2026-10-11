@@ -260,7 +260,7 @@ test("inference completing during compaction waits to resume its timeline phase"
       description: "",
       target: "",
     } as any,
-    1,
+    1n,
     true,
     1000,
   );
@@ -286,7 +286,7 @@ test("inference completing during compaction waits to resume its timeline phase"
       description: "",
       target: "",
     } as any,
-    2,
+    2n,
     true,
     2000,
   );

@@ -45,6 +45,26 @@ function captureClient(client: Client) {
     ...Object.fromEntries(savedFields.map(key => [key, client[key]])),
   };
 }
+export function restoreClient(server: Server, value: unknown): Client {
+  const { fd, input, output, ...fields } = json.object(value),
+    client = server.addClient(fd, false);
+  checkpoint.hydrate(client, fields);
+  if (client.snapshot_revision !== null) client.snapshot_revision = BigInt(client.snapshot_revision);
+  for (const control of client.controls) control.seq = BigInt(control.seq);
+  for (const interest of client.interests) {
+    if (interest.known) {
+      interest.known.identity = BigInt(interest.known.identity);
+      interest.known.revision = BigInt(interest.known.revision);
+    }
+  }
+  if (client.launch_preview) {
+    client.launch_preview.history_epoch = BigInt(client.launch_preview.history_epoch);
+    client.launch_preview.history_sent = BigInt(client.launch_preview.history_sent);
+  }
+  client.restoreInput(Buffer.from(input, "base64"));
+  client.output = Buffer.from(output, "base64");
+  return client;
+}
 export function captureManifest(server: Server, requester: Client) {
   return {
     version: migrations.handoff_version,
@@ -53,7 +73,7 @@ export function captureManifest(server: Server, requester: Client) {
     listener: server.listener,
     requester: requester.fd,
     runtime: checkpoint.capture(server.runtime, true),
-    summaries: (server as Server & { summaries?: SummaryWorker }).summaries?.capture() ?? null,
+    summaries: server.summaries?.capture() ?? null,
     // A one-shot HTTP request is not handed over; its sender sees the close.
     clients: server.clients.filter(client => client.http === "no").map(captureClient),
     theme: server.theme,
@@ -65,6 +85,19 @@ export function captureManifest(server: Server, requester: Client) {
     last_bell: server.last_bell,
     last_bell_kind: server.last_bell_kind,
   };
+}
+export function restoreMetadata(server: Server, value: unknown): void {
+  const saved = json.object(value);
+  for (const key of [
+    "preferred_workspace",
+    "default_folder_pending",
+    "next_viewer",
+    "next_active",
+    "last_bell",
+    "last_bell_kind",
+  ] as const)
+    if (saved[key] !== undefined) Object.assign(server, { [key]: saved[key] });
+  if (saved.bell_seq !== undefined) server.bell_seq = BigInt(saved.bell_seq);
 }
 async function line(control: AsyncFD, limit = 1024): Promise<string> {
   const bytes = Buffer.alloc(limit);
@@ -135,7 +168,7 @@ export async function replace(server: Server, requester: Client, executable: str
     }
     await Bun.sleep(5);
   }
-  await (server as any).summaries?.pause();
+  await server.summaries?.pause();
   server.pause();
   const fds = new Int32Array(2);
   let stateFD = -1,
@@ -215,7 +248,7 @@ export async function replace(server: Server, requester: Client, executable: str
     loop?.close();
     for (const fd of [stateFD, controlFD, childFD]) if (fd >= 0) n.probe_close(fd);
     server.resume();
-    (server as any).summaries?.unpause();
+    server.summaries?.unpause();
   }
 }
 export async function importAndRun(
@@ -251,26 +284,17 @@ export async function importAndRun(
     )
       throw Error("IncompatibleCheckpoint");
     const server = new Server(socket, executable, build_id.of(executable));
-    for (const key of [
-      "preferred_workspace",
-      "default_folder_pending",
-      "next_viewer",
-      "next_active",
-      "bell_seq",
-      "last_bell",
-      "last_bell_kind",
-    ] as const)
-      if (m[key] !== undefined) (server as any)[key] = m[key];
+    restoreMetadata(server, m);
     server.listener = m.listener;
     fdNative.fd_cloexec(m.listener);
     server.theme = Object.assign(new Theme(), m.theme);
     await checkpoint.restore(server.runtime, m.runtime, true, socket, executable);
-    if (m.summaries) (server as any).summaries = SummaryWorker.restore(m.summaries);
+    if (m.summaries) server.summaries = SummaryWorker.restore(m.summaries);
     for (const pane of server.runtime.panes) if (pane.terminal.fd >= 0) fdNative.fd_cloexec(pane.terminal.fd);
     for (const saved of m.clients) {
       if (saved.interests.length > 64) throw Error("InvalidCheckpoint");
       fdNative.fd_cloexec(saved.fd);
-      const client = server.addClient(saved.fd, saved);
+      const client = restoreClient(server, saved);
       if (saved.fd === m.requester)
         client.queue({ ok: true, server_pid: process.pid, panes: server.runtime.panes.length });
     }
@@ -280,8 +304,8 @@ export async function importAndRun(
     loop.close();
     server.runtime.adopt();
     for (const session of server.runtime.sessions) session.adopt();
-    (server as any).summaries?.inherit();
-    (server as any).summaries?.activate();
+    server.summaries?.inherit();
+    server.summaries?.activate();
     await server.run();
   } catch (error) {
     try {

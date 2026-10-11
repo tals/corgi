@@ -1,5 +1,27 @@
 import { test, expect } from "bun:test";
-import { Process, Work, Alarm, delta, owner, leaders, type Reading, type Root } from "./resources";
+import { Process, Work, Snapshot, fromJSON, Alarm, delta, owner, leaders, type Reading, type Root } from "./resources";
+import * as json from "../json";
+test("resource snapshots restore concrete integers after JSON transport", () => {
+  const snapshot = new Snapshot(),
+    work = new Work(1),
+    process = new Process(2, 9007199254740993n, "worker");
+  snapshot.host_memory = 4096n;
+  work.memory = 512n;
+  work.read = 0n;
+  process.memory = 256n;
+  process.written = 1n;
+  work.processes.push(process);
+  work.history.push({ at: 10, cpu: 0, memory: 512n, io: 0n });
+  snapshot.workspaces.push(work);
+  const bytes = json.stringify(snapshot),
+    restored = fromJSON(json.parse(bytes));
+  expect(restored).toEqual(snapshot);
+  expect(restored.workspace(1).processes[0].start).toBe(9007199254740993n);
+  expect(restored.workspace(1).read).toBe(0n);
+  expect(restored.workspace(1).written).toBeNull();
+  expect(json.stringify(restored)).toBe(bytes);
+  expect(fromJSON(null)).toEqual(new Snapshot());
+});
 test("new process baselines preserve established workspace rates", () => {
   const established = Object.assign(new Process(1, 1n, "worker"), {
       cpu: 45,

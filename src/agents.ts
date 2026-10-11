@@ -34,7 +34,7 @@ export class Agent {
   compacting = false;
   paused = false;
   cwd = new Path();
-  last_seq = 0;
+  last_seq = 0n;
   changed_at = 0;
   /** When its current stretch of work began, in µs; 0 at rest. */
   working_since = 0;
@@ -102,7 +102,7 @@ export class Agent {
     this.attention = "none";
     this.readThrough(this.observation.completed);
   }
-  readThrough(through: bigint | number) {
+  readThrough(through: bigint) {
     this.observation.acknowledge(through);
     if (this.attention !== "needs_input") this.attention = this.observation.unread() ? "finished" : "none";
   }
@@ -183,14 +183,14 @@ export class Agent {
     this.tool = new Text();
     this.tool_active = false;
     this.changed_at = now;
-    if (this.last_seq > 0) this.last_seq = Math.max(this.last_seq, now);
+    if (this.last_seq > 0n && this.last_seq < now) this.last_seq = BigInt(now);
   }
-  confirmStop(seq: number, outcome: observation.Outcome, now: number) {
+  confirmStop(seq: bigint, outcome: observation.Outcome, now: number) {
     return this.observation.pending_stop && this.last_seq === seq
       ? this.endTurn(this.turnId(), outcome, "transcript", now)
       : false;
   }
-  observeHook(provider: Provider, hook: any, seq: number, watched: boolean, now: number): boolean | null {
+  observeHook(provider: Provider, hook: any, seq: bigint, watched: boolean, now: number): boolean | null {
     if (seq <= this.last_seq) return null;
     const event = hook.kind,
       session = hook.session,

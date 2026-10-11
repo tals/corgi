@@ -19,9 +19,8 @@ export class State {
     this.outcome = outcome;
     if (this.completed < maxU64) this.completed++;
   }
-  acknowledge(through: bigint | number) {
-    const receipt = BigInt(through);
-    const n = receipt < this.completed ? receipt : this.completed;
+  acknowledge(through: bigint) {
+    const n = through < this.completed ? through : this.completed;
     if (n > this.read) this.read = n;
   }
 }

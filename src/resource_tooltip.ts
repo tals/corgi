@@ -53,13 +53,13 @@ export function aimed(rect: Rect, from: { x: number; y: number }, x: number, y: 
 }
 export interface Process {
   pid: number;
-  start: number | bigint;
+  start: bigint;
   name: string;
   provider?: "codex" | "claude" | null;
   cpu?: number | null;
-  memory?: number | bigint;
-  read?: number | bigint | null;
-  written?: number | bigint | null;
+  memory?: bigint;
+  read?: bigint | null;
+  written?: bigint | null;
 }
 function metricValue(sort: Sort, p: Process): number {
   switch (sort) {

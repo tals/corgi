@@ -36,6 +36,11 @@ export function hydrate<T>(template: T, value: any): T {
     return template;
   }
   if (typeof template === "bigint") return BigInt(value) as T;
+  if (typeof template === "number" && typeof value === "bigint") {
+    const number = Number(value);
+    if (!Number.isSafeInteger(number)) throw Error("Overflow");
+    return number as T;
+  }
   if (
     template &&
     typeof template === "object" &&
@@ -107,7 +112,8 @@ export function historicalAgent(value: Agent): Agent {
   const result = value.snapshot();
   result.state = result.state === "done" ? "done" : "unknown";
   result.attention = result.observation.unread() ? "finished" : "none";
-  result.last_seq = result.metadata_protocol_at = result.metadata_at = result.working_since = 0;
+  result.last_seq = 0n;
+  result.metadata_protocol_at = result.metadata_at = result.working_since = 0;
   result.tool_active = result.compacting = false;
   result.permission_review = null;
   result.subagents = { running: 0, blocked: 0, waiting: false };
@@ -132,7 +138,7 @@ export function restoreBinding(registry: Registry, value: any, live: boolean): A
   binding.provisional = agent;
   binding.generation = BigInt.asUintN(64, BigInt(value.generation ?? 1) + BigInt(!live));
   binding.selection_hash = live ? BigInt(value.selection_hash ?? 0) : 0n;
-  binding.hook_seq = live ? (value.hook_seq ?? 0) : 0;
+  binding.hook_seq = live ? BigInt(value.hook_seq ?? 0) : 0n;
   if (value.actor) binding.actor = registry.byId(value.actor) ?? invalid();
   if (live) binding.known = (value.known ?? []).map((id: number) => (registry.byId(id) ?? invalid()).id);
   return binding;

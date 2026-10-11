@@ -577,7 +577,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     if (!p) continue;
     const r = place.rect;
     p.terminal.updateRender();
-    let hovered: number | bigint | null = null;
+    let hovered: bigint | null = null;
     if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && noOverlay(u)) {
       for (const link of p.terminal.hyperlinks()) {
         if (link.row === u.pointer.y - r.y && link.start <= u.pointer.x - r.x && u.pointer.x - r.x < link.end) {

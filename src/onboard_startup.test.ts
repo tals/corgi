@@ -1,3 +1,4 @@
+import { transport } from "./fixtures/transport";
 import { test, expect, spyOn } from "bun:test";
 import { Controller } from "./controller";
 import * as viewer from "./viewer";
@@ -52,10 +53,10 @@ test("explicit onboarding opens again after preferences say it was completed", a
   const calls: any[] = [];
   const view = new Controller({
     socket: "",
-    request: async (op, fields) => {
+    request: transport(async (op, fields) => {
       calls.push({ op, fields });
       return { viewer_protocol: 3, workspace: 1, bell_seq: 0 };
-    },
+    }).request,
   });
   view.receiveSnapshot(snapshot());
   const refresh = spyOn(view, "refresh").mockResolvedValue(undefined);
@@ -73,7 +74,7 @@ test("explicit onboarding opens again after preferences say it was completed", a
 test("a relaunch control exits sync with its executable before acknowledgement", async () => {
   const view = new Controller({
     socket: "",
-    request: async () => ({
+    request: transport(async () => ({
       viewer_protocol: 3,
       session: null,
       session_hash: 0,
@@ -85,13 +86,13 @@ test("a relaunch control exits sync with its executable before acknowledgement",
       bell_seq: 0,
       bell_kind: "none",
       detach: false,
-    }),
+    })).request,
   });
   view.receiveSnapshot(snapshot());
   try {
-    expect(await viewer.sync(view, { seq: 0 }, false)).toBe(false);
+    expect(await viewer.sync(view, { seq: 0n }, false)).toBe(false);
     expect(view.executable).toBe("/tmp/new-corgi");
-    expect(view.input_state.last_control).toBe(0);
+    expect(view.input_state.last_control).toBe(0n);
     expect(view.message).not.toBe("UnknownAction");
   } finally {
     viewer.close(view);

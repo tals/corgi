@@ -1,10 +1,11 @@
 //! Local workspace/tab/pane selection. Shared models contain no active or
 //! zoom state. Mirrors navigation.zig.
-import { Model, Selection, View as LayoutView, Rect } from "./layout";
+import { Model, Selection, View as LayoutView, Rect, type Direction } from "./layout";
 import { History as AgentHistory } from "./agent_navigation";
 import type { Row as LauncherRow } from "./agent_launcher";
 import type { Workspaces, Workspace } from "./mirror";
 import type { Action } from "./action";
+import type { CommandInput } from "./protocol";
 
 interface Entry {
   id: number;
@@ -23,7 +24,7 @@ const emptyEntry = (id: number): Entry => ({
   agent_offset: 0,
 });
 export interface Intent {
-  edit: Record<string, unknown> | null;
+  edit: CommandInput | null;
   focus: number | null;
 }
 
@@ -100,9 +101,9 @@ export class State {
     const tab = model.tabs[selected.active].id;
     switch (act.name) {
       case "rename":
-        return { edit: { "tab.rename": { target: tab, name: act.value } }, focus: null };
+        return { edit: { "tab.rename": { target: tab, name: act.value as string } }, focus: null };
       case "resize":
-        return { edit: { "split.resize": { target: pane, direction: act.value } }, focus: null };
+        return { edit: { "split.resize": { target: pane, direction: act.value as Direction } }, focus: null };
       case "focus":
       case "swap": {
         const other = new LayoutView(model, selected).neighbor(act.value as any, area);
@@ -151,7 +152,7 @@ export class State {
   }
 }
 
-export function moveTab(model: Model, id: number, gap: number): Record<string, unknown> | null {
+export function moveTab(model: Model, id: number, gap: number): CommandInput | null {
   if (gap > model.count || model.count === 0) return null;
   const other = model.tabs[gap === model.count ? gap - 1 : gap].id;
   if (id === other) return null;

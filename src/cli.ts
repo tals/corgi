@@ -290,7 +290,8 @@ export async function run(path: string, args: string[]): Promise<void> {
           : inv.action === "workspace.switch"
             ? await conn.call("workspace.switch", { workspace: inv.target, viewer: inv.viewer })
             : await conn.call("focus", { pane: inv.target, viewer: inv.viewer });
-    if (inv.text_mode && typeof reply.result?.text === "string") process.stdout.write(reply.result.text);
+    if (inv.text_mode && "result" in reply && "text" in reply.result && typeof reply.result.text === "string")
+      process.stdout.write(reply.result.text);
     else process.stdout.write(stringify(reply, inv.text_mode ? 2 : undefined) + "\n");
   } finally {
     conn.close();

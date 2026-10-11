@@ -4,6 +4,7 @@ import { clean } from "./git_status";
 import type { Store } from "../workspace";
 import type { Tracker } from "./git_status";
 import * as errors from "../errors";
+import type { Request } from "../protocol";
 export const preview_changed = "Branch, commits, or upstream changed. Review the refreshed preview and retry.";
 export type Phase = "idle" | "pushing" | "succeeded" | "failed";
 export type View = { phase: Phase; message: string };
@@ -67,7 +68,7 @@ export class Manager {
     for (const job of this.jobs) job?.quit.signal();
     this.jobs.fill(null);
   }
-  async start(store: Store | { workspaces: Store }, id: number, expected: RefView) {
+  async start(store: Store | { workspaces: Store }, id: number, expected: Request<"git.push">["ref"]) {
     const s = "workspaces" in store ? store.workspaces : store,
       ws = s.get(id);
     if (!ws) throw Error("NoWorkspace");
@@ -192,7 +193,11 @@ export class Manager {
   }
 }
 
-export async function start(runtime: { workspaces: Store; git_push: Manager }, workspace: number, ref: RefView) {
+export async function start(
+  runtime: { workspaces: Store; git_push: Manager },
+  workspace: number,
+  ref: Request<"git.push">["ref"],
+) {
   await runtime.git_push.start(runtime.workspaces, workspace, new RefView(ref));
 }
 function failureMessage(error: unknown): string {

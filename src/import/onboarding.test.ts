@@ -3,7 +3,7 @@ import { Job } from "./onboarding";
 import { workspace, pane } from "./catalog";
 test("a copy's plan outlives the request that brought it", () => {
   const plan: any = {
-    operation: 5,
+    operation: 5n,
     source: "herdr",
     selected: ["w"],
     workspaces: [

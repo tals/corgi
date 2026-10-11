@@ -433,7 +433,7 @@ export class Menu {
     if (this.import_picker.stage === "complete") this.import_picker.restart();
   }
   /** True when the import picker changed and needs drawing. */
-  async poll(conn: Connection): Promise<boolean> {
+  async poll(conn: Pick<Connection, "call">): Promise<boolean> {
     const picker = this.importing();
     return picker !== null && (await picker.poll(conn));
   }

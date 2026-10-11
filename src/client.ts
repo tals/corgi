@@ -48,7 +48,7 @@ async function attachMode(path: string, start_onboarding: boolean, folder: strin
   }
 }
 function transport(conn: Connection, path: string): Transport {
-  return { socket: path, request: (op, fields) => conn.request(op, fields) };
+  return { socket: path, request: (op, ...args) => conn.request(op, ...args) };
 }
 async function attachOnce(path: string, start_onboarding: boolean, folder: string | null): Promise<string | null> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");

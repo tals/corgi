@@ -15,6 +15,13 @@ import * as json from "./json";
 import * as binary from "./base64";
 import * as worktrees from "./worktrees";
 import { captureBinding, restoreBinding, hydrate } from "./persist/checkpoint";
+import type { Server } from "./server";
+import type { Client } from "./peer";
+import type { DecodedRequest } from "./protocol";
+type Request = Extract<
+  DecodedRequest,
+  { op: "native.start" | "native.list" | "native.stop" | "native.send" | "native.events" }
+>;
 
 export type Event = { seq: bigint; line: string };
 export type Tool = { id: string; thread: string; turn: string };
@@ -491,8 +498,8 @@ export class Session {
     )
       this.syncTools(target);
     if (!stale && (target.state !== old || event.phase !== "none" || event.request_id !== null)) {
-      target.last_seq = Date.now() * 1000;
-      target.changed_at = target.last_seq;
+      target.changed_at = Date.now() * 1000;
+      target.last_seq = BigInt(target.changed_at);
       target.observation.source = "protocol";
     }
     if (target.state !== old && target.attention === "needs_input") ding = true;
@@ -591,9 +598,10 @@ export class Session {
   }
 }
 
-export async function request(server: any, client: any, op: string, query: any) {
+export async function request(server: Server, client: Client, request: Request) {
   const runtime = server.runtime;
-  if (op === "native.start") {
+  if (request.op === "native.start") {
+    const query = request.payload;
     if (runtime.sessions.length >= 16) throw Error("TooManyNativeSessions");
     const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace();
     const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd);
@@ -604,7 +612,7 @@ export async function request(server: any, client: any, op: string, query: any) 
     client.queue({ ok: true, session: session.id, provider: query.provider });
     return;
   }
-  if (op === "native.list") {
+  if (request.op === "native.list") {
     client.queue({
       ok: true,
       sessions: runtime.sessions.map((session: Session) => ({
@@ -625,21 +633,21 @@ export async function request(server: any, client: any, op: string, query: any) 
     });
     return;
   }
-  const index = runtime.sessions.findIndex((session: Session) => session.id === query.session);
+  const index = runtime.sessions.findIndex(session => session.id === request.payload.session);
   if (index < 0) throw Error("NoNativeSession");
   const session: Session = runtime.sessions[index];
   server.dirty = true;
-  if (op === "native.stop") {
+  if (request.op === "native.stop") {
     session.destroy();
     runtime.sessions.splice(index, 1);
     client.queue({ ok: true });
-  } else if (op === "native.send") {
-    session.send(runtime.conversations, query.message);
+  } else if (request.op === "native.send") {
+    session.send(runtime.conversations, request.payload.message);
     client.queue({ ok: true });
-  } else if (op === "native.events") {
+  } else if (request.op === "native.events") {
     client.queue({
       ok: true,
-      events: session.events.filter(event => event.seq > BigInt(query.after ?? 0)),
+      events: session.events.filter(event => event.seq > BigInt(request.payload.after)),
       pending_requests: session.approvalLines(),
       next_seq: session.next_seq,
       first_seq: session.events[0]?.seq ?? session.next_seq,

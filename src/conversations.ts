@@ -24,7 +24,7 @@ export class Actor {
   pending_native_requests = 0;
   screen_compacting = false;
   pid = 0;
-  paused_at = 0;
+  paused_at = 0n;
   paused_for_wakeup = false;
   transcript_tool_active = false;
   prompt_watch = new PromptWatch();
@@ -62,7 +62,7 @@ export class Actor {
     this.state.paused = false;
     return true;
   }
-  pauseAtStop(crons: any, seq: number) {
+  pauseAtStop(crons: any, seq: bigint) {
     const wakeup = background_tasks.claudeWakeup(crons);
     if (this.pid <= 0 || (!this.shells.len && !wakeup)) return;
     this.state.paused = true;
@@ -83,7 +83,7 @@ export class Actor {
     const a = this.state;
     if (snapshot.observed_at <= a.last_seq) return false;
     this.child_refresh = false;
-    const binding = a.last_seq === 0;
+    const binding = a.last_seq === 0n;
     if (a.session.len && a.sessionId() !== snapshot.session) return false;
     if (binding) {
       a.reset();
@@ -105,7 +105,7 @@ export class Actor {
     a.state = snapshot.state;
     a.permission_review = null;
     a.subagents = snapshot.subagents;
-    a.last_seq = snapshot.observed_at;
+    a.last_seq = BigInt(snapshot.observed_at);
     a.protocol_at = now;
     a.observation.source = "protocol";
     a.observation.pending_stop = false;
@@ -140,7 +140,7 @@ export class Actor {
   provider() {
     return this.state.provider!;
   }
-  observeHook(event: any, seq: number, watched: boolean, now: number) {
+  observeHook(event: any, seq: bigint, watched: boolean, now: number) {
     const was = this.state.compacting;
     const ding = this.state.observeHook(this.provider(), event, seq, watched, now);
     if (ding === null) return false;
@@ -213,11 +213,11 @@ export class Actor {
       this.state.attention = "needs_input";
     }
   }
-  confirmStop(seq: number, outcome: Outcome, now: number) {
+  confirmStop(seq: bigint, outcome: Outcome, now: number) {
     return this.state.confirmStop(seq, outcome, now);
   }
-  acknowledge(through: bigint | number, attention_at: number | null) {
-    if (attention_at !== null && attention_at === this.state.changed_at) this.state.attention = "none";
+  acknowledge(through: bigint, attention_at: bigint | null) {
+    if (attention_at !== null && attention_at === BigInt(this.state.changed_at)) this.state.attention = "none";
     this.state.readThrough(through);
   }
 }
@@ -226,7 +226,7 @@ export class Attachment {
   provisional = new Agent();
   generation = 1n;
   selection_hash = 0n;
-  hook_seq = 0;
+  hook_seq = 0n;
   known: ActorId[] = [];
   get known_len() {
     return this.known.length;
@@ -255,10 +255,10 @@ export class Attachment {
     this.deselect();
     this.known = [];
     this.selection_hash = 0n;
-    this.hook_seq = 0;
+    this.hook_seq = 0n;
   }
-  matches(generation: bigint | number, actor: number) {
-    return this.generation === BigInt(generation) && this.actor?.id === actor;
+  matches(generation: bigint, actor: number) {
+    return this.generation === generation && this.actor?.id === actor;
   }
 }
 export class Registry {
@@ -302,7 +302,7 @@ export class Registry {
     }
     return false;
   }
-  observeHook(actor: Actor, event: any, seq: number, watched: boolean, now: number) {
+  observeHook(actor: Actor, event: any, seq: bigint, watched: boolean, now: number) {
     const accepted = actor.state.last_seq;
     const ding = actor.observeHook(event, seq, watched, now);
     if (actor.state.last_seq === accepted || actor.provider() !== "claude") return ding;

@@ -135,7 +135,7 @@ export class Picker {
     return this.stage === "copying" && this.progress.phase === "failed";
   }
   /** Asks the daemon to copy, or hand off, the chosen workspaces. */
-  async begin(conn: Connection): Promise<void> {
+  async begin(conn: Pick<Connection, "call">): Promise<void> {
     if (!this.operation) this.operation = (randomBytes(8).readBigUInt64LE() >> 1n) | 1n;
     if (this.activeHandoff()) {
       const list = this.items(),
@@ -198,7 +198,7 @@ export class Picker {
     this.refresh();
   }
   /** True when the picker changed and needs drawing. */
-  async poll(conn: Connection): Promise<boolean> {
+  async poll(conn: Pick<Connection, "call">): Promise<boolean> {
     const blink = this.cmuxConfused() && milliTimestamp() % 5000 >= 4850,
       animation = blink !== this.blink_closed;
     this.blink_closed = blink;

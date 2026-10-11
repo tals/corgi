@@ -311,23 +311,21 @@ export class Worker {
       entries: [...this.store.items.values()].map(i => clone(i.entry)).sort((a, b) => b.updated_at - a.updated_at),
     };
   }
-  update(epoch: bigint | number, revision: bigint | number): Update | null {
+  update(epoch: bigint, revision: bigint): Update | null {
     if (!this.ready) return null;
-    const full = BigInt(epoch) !== this.epoch || BigInt(revision) < this.store.forgot;
-    if (!full && BigInt(revision) === this.store.revision) return null;
+    const full = epoch !== this.epoch || revision < this.store.forgot;
+    if (!full && revision === this.store.revision) return null;
     return {
       epoch: this.epoch,
       revision: this.store.revision,
       full,
       entries: [...this.store.items.values()]
-        .filter(i => full || i.revision > BigInt(revision))
+        .filter(i => full || i.revision > revision)
         .map(i => clone(i.entry))
         .sort((a, b) => b.updated_at - a.updated_at),
       removed: full
         ? []
-        : this.store.gone
-            .filter(g => g.revision > BigInt(revision))
-            .map(({ provider, session }) => ({ provider, session })),
+        : this.store.gone.filter(g => g.revision > revision).map(({ provider, session }) => ({ provider, session })),
     };
   }
   startWatching() {

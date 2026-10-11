@@ -9,7 +9,7 @@ import { str, field, timestampMs } from "./providers/common";
 export const read_budget = 64 * 1024,
   initial_tail = 256 * 1024,
   record_limit = 64 * 1024;
-export type Result = { actor: number; seq: number; outcome: Outcome };
+export type Result = { actor: number; seq: bigint; outcome: Outcome };
 export async function verifySession(file: FileHandle, provider: string, session: string) {
   if (provider === "claude") return;
   const chunks: Buffer[] = [];
@@ -38,7 +38,7 @@ export function completion(agent: Agent, line: string): Outcome | null {
   }
   if (!v || typeof v !== "object") return null;
   const stamp = timestampMs(str(v, "timestamp"));
-  if (stamp === null || stamp < Math.trunc(agent.last_seq / 1000)) return null;
+  if (stamp === null || BigInt(stamp) < agent.last_seq / 1000n) return null;
   if (agent.provider === "codex") {
     const rollout = Codex.Rollout.decode(v);
     if (rollout.type !== "event_msg" || !agent.turn.len || str(rollout.payload, "turn_id") !== agent.turnId())
@@ -66,7 +66,7 @@ export function completion(agent: Agent, line: string): Outcome | null {
 }
 export class Tail {
   actor = 0;
-  seq = 0;
+  seq = 0n;
   inode = 0;
   device = 0;
   offset = 0;

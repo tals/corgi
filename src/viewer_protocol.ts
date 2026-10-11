@@ -6,7 +6,9 @@ import * as surface from "./pane/surface";
 import * as session from "./session";
 import { microTimestamp } from "./clock";
 import { stringify } from "./json";
-import type { View as WireView, Control } from "./protocol";
+import type { View as WireView, Control, Request } from "./protocol";
+import type { Server } from "./server";
+import type { Client } from "./peer";
 import type { Snapshot as Resources } from "./trackers/resources";
 export type { Control } from "./protocol";
 export type View = WireView<ReturnType<typeof session.viewerSnapshot>, Resources>;
@@ -16,29 +18,13 @@ export interface Interest {
   rows: number;
   offset?: number | null;
   known?: {
-    identity: number | bigint;
-    revision: number | bigint;
+    identity: bigint;
+    revision: bigint;
     offset: number | null;
   } | null;
 }
-export interface Open {
-  cwd?: string;
-  onboarding?: boolean;
-  theme?: unknown;
-}
-export interface Sync {
-  interests: Interest[];
-  focus: number | null;
-  workspace: number;
-  watched: boolean;
-  active: boolean;
-  ack: number;
-  session_hash: number;
-  resources_hash: number;
-  resources: boolean;
-  resource_detail: number | null;
-  worktree_detail: number | null;
-}
+export type Open = Request<"viewer.open">;
+export type Sync = Request<"viewer.sync">;
 export const viewer_protocol = version;
 export function validateInterests(interests: Interest[]) {
   if (interests.length > 64) throw new Error("TooManyPanes");
@@ -57,7 +43,7 @@ export function validateInterests(interests: Interest[]) {
     seen.add(i.pane);
   }
 }
-export async function open(s: any, cl: any, q: Open) {
+export async function open(s: Server, cl: Client, q: Open) {
   if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
   if (s.runtime.panes.length === 0 && s.initialWorkspace().model.count === 0) {
     if (s.default_folder_pending && q.cwd) {
@@ -70,7 +56,7 @@ export async function open(s: any, cl: any, q: Open) {
         "pane.create": { workspace: s.initialWorkspace().id },
       });
   }
-  const first = !s.clients.some((other: any) => other.viewer && !other.dead);
+  const first = !s.clients.some(other => other.viewer && !other.dead);
   cl.viewer = true;
   cl.viewer_id = s.next_viewer++;
   cl.active_seq = ++s.next_active;
@@ -83,20 +69,28 @@ export async function open(s: any, cl: any, q: Open) {
     workspace: s.initialWorkspace().id,
   });
 }
-function equal(a: any, b: any) {
+function equal(a: unknown, b: unknown) {
   return stringify(a) === stringify(b);
 }
 function hash(bytes: string) {
-  return Bun.hash(bytes);
+  return BigInt(Bun.hash(bytes));
 }
-export async function sync(s: any, cl: any, q: Sync) {
+function viewport(value: bigint | null): number | null {
+  return value === null ? null : Number(value > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : value);
+}
+export async function sync(s: Server, cl: Client, q: Sync) {
   if (!cl.viewer) throw new Error("NotAttached");
-  validateInterests(q.interests);
+  const interests: Interest[] = q.interests.map(i => ({
+    ...i,
+    offset: viewport(i.offset),
+    known: i.known ? { ...i.known, offset: viewport(i.known.offset) } : null,
+  }));
+  validateInterests(interests);
   if (q.ack >= cl.next_control || q.ack < cl.last_control) throw new Error("InvalidAcknowledgement");
-  cl.controls = cl.controls.filter((c: Control) => c.seq > q.ack);
+  cl.controls = cl.controls.filter(c => c.seq > q.ack);
   cl.last_control = q.ack;
-  cl.interests = q.interests.filter(i => s.runtime.pane(i.pane) !== null);
-  cl.view_focus = cl.interests.some((i: Interest) => i.pane === q.focus) ? q.focus : null;
+  cl.interests = interests.filter(i => s.runtime.pane(i.pane) !== null);
+  cl.view_focus = cl.interests.some(i => i.pane === q.focus) ? q.focus : null;
   cl.watched = q.watched;
   cl.resources = q.resources;
   cl.resource_detail =
@@ -114,8 +108,8 @@ export async function sync(s: any, cl: any, q: Sync) {
   }
   await resize(s);
   const frames: surface.View[] = [];
-  for (const interest of cl.interests as Interest[]) {
-    const pane = s.runtime.pane(interest.pane),
+  for (const interest of cl.interests) {
+    const pane = s.runtime.pane(interest.pane)!,
       shown = pane.displayed();
     if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
     const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
@@ -125,16 +119,14 @@ export async function sync(s: any, cl: any, q: Sync) {
   const bucket = Math.floor(microTimestamp() / 5e6),
     rebuild =
       cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || q.session_hash !== cl.session_hash;
-  let snapshot: any = null;
+  let snapshot: View["session"] = null;
   if (rebuild) {
     snapshot = session.viewerSnapshot(s.runtime);
     cl.session_hash = hash(stringify(snapshot));
     cl.session_shown = s.runtime.shown;
     cl.session_bucket = bucket;
   }
-  const readings = s.runtime.resources?.current?.forViewer
-      ? s.runtime.resources.current.forViewer(cl.resource_detail)
-      : (s.runtime.resources?.current ?? s.runtime.resources ?? {}),
+  const readings = s.runtime.resources.current.forViewer(cl.resource_detail),
     resourcesHash = hash(stringify(readings));
   const view: View = {
     type: "view",
@@ -152,31 +144,31 @@ export async function sync(s: any, cl: any, q: Sync) {
   };
   cl.queue(view);
 }
-export async function search(s: any, cl: any, q: any) {
+export async function search(s: Server, cl: Client, q: Request<"viewer.search">) {
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
-  cl.reply("viewer.search", await p.displayed().search(q.needle, q.skip));
+  cl.reply("viewer.search", await p.displayed().search(q.needle, viewport(q.skip)!));
 }
 /** The pane `q` names, if it still runs the agent the viewer showed. */
-function shownPane(s: any, q: any) {
+function shownPane(s: Server, q: Request<"pane.mark_unread">) {
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
   const bound = p.attachment.actor?.id ?? 0;
   if (
     q.session !== p.agent().sessionId() ||
-    (q.binding !== null && q.binding !== undefined && BigInt(q.binding) !== BigInt(p.attachment.generation)) ||
+    (q.binding !== null && q.binding !== undefined && q.binding !== p.attachment.generation) ||
     (q.conversation !== null && q.conversation !== undefined && q.conversation !== bound)
   )
     throw new Error("StaleAcknowledgement");
   return p;
 }
-export function acknowledge(s: any, cl: any, q: any) {
+export function acknowledge(s: Server, cl: Client, q: Request<"pane.acknowledge">) {
   const p = shownPane(s, q),
     agent = p.agent();
   if (agent.attention !== "none" || agent.observation.unread()) {
     if (p.attachment.actor) p.attachment.actor.acknowledge(q.through, q.attention_at);
     else {
-      if (q.attention_at === agent.changed_at) agent.attention = "none";
+      if (q.attention_at === BigInt(agent.changed_at)) agent.attention = "none";
       agent.readThrough(q.through);
     }
     s.runtime.changed();
@@ -184,14 +176,14 @@ export function acknowledge(s: any, cl: any, q: any) {
   }
   cl.queue({ ok: true });
 }
-export function markUnread(s: any, cl: any, q: any) {
+export function markUnread(s: Server, cl: Client, q: Request<"pane.mark_unread">) {
   if (shownPane(s, q).agent().markUnread()) {
     s.runtime.changed();
     s.dirty = true;
   }
   cl.queue({ ok: true });
 }
-export async function paste(s: any, cl: any, q: any) {
+export async function paste(s: Server, cl: Client, q: Request<"pane.paste">) {
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
   const contents: { mime: string; data: Uint8Array }[] = [];
@@ -209,13 +201,13 @@ export async function paste(s: any, cl: any, q: any) {
   }
   cl.reply("pane.paste", { pasted: await p.terminal.pasteEvent(contents) });
 }
-export async function resize(s: any) {
+export async function resize(s: Server) {
   for (const p of s.runtime.panes) {
     let chosen: Interest | null = null,
       latest = 0;
     for (const cl of s.clients) {
       if (!cl.viewer || cl.dead || (chosen !== null && cl.active_seq <= latest)) continue;
-      const interest = cl.interests.find((i: Interest) => i.pane === p.id);
+      const interest = cl.interests.find(i => i.pane === p.id);
       if (interest) {
         chosen = interest;
         latest = cl.active_seq;
@@ -228,28 +220,28 @@ export async function resize(s: any) {
     }
   }
 }
-export function targetViewer(s: any, id: number | null | undefined) {
-  const target = s.clients.find((cl: any) => cl.viewer && !cl.dead && (id == null || cl.viewer_id === id));
+export function targetViewer(s: Server, id: number | null | undefined) {
+  const target = s.clients.find(cl => cl.viewer && !cl.dead && (id == null || cl.viewer_id === id));
   if (!target) throw new Error("NoViewer");
   return target;
 }
-export function viewerShowing(s: any, pane: number) {
-  const targets = s.clients.filter((cl: any) => cl.viewer && !cl.dead && cl.view_focus === pane);
+export function viewerShowing(s: Server, pane: number) {
+  const targets = s.clients.filter(cl => cl.viewer && !cl.dead && cl.view_focus === pane);
   if (targets.length > 1) throw new Error("AmbiguousViewer");
   if (!targets.length) throw new Error("NoViewer");
   return targets[0];
 }
-export function queue(target: any, value: Omit<Control, "seq">) {
+export function queue(target: Client, value: Omit<Control, "seq">) {
   if (target.controls.length >= 64) throw new Error("ViewerBusy");
   target.controls.push({ ...value, seq: target.next_control++ });
 }
-function send(cl: any, target: any, value: Omit<Control, "seq">) {
+function send(cl: Client, target: Client, value: Omit<Control, "seq">) {
   queue(target, value);
   cl.queue({ ok: true, viewer: target.viewer_id, queued: true });
 }
-export function action(s: any, cl: any, q: any) {
+export function action(s: Server, cl: Client, q: Request<"action">) {
   const act = parseAction(q.name, q.value ?? "");
-  let target: any;
+  let target: Client;
   if (act.name === "relaunch") {
     if (q.pane == null) throw new Error("NoViewer");
     target = viewerShowing(s, q.pane);
@@ -258,34 +250,34 @@ export function action(s: any, cl: any, q: any) {
   else target = targetViewer(s, q.viewer);
   send(cl, target, { kind: "action", name: q.name, value: q.value ?? "" });
 }
-export function focus(s: any, cl: any, q: any) {
+export function focus(s: Server, cl: Client, q: Request<"focus">) {
   const target = targetViewer(s, q.viewer);
   if (!s.runtime.pane(q.pane)) throw new Error("NoPane");
   send(cl, target, { kind: "focus", id: q.pane });
 }
-export function switchWorkspace(s: any, cl: any, q: any) {
+export function switchWorkspace(s: Server, cl: Client, q: Request<"workspace.switch">) {
   const target = targetViewer(s, q.viewer);
   s.runtime.getWorkspace(q.workspace);
   send(cl, target, { kind: "workspace", id: q.workspace });
 }
-export function copy(s: any, pane: number, text: string) {
-  let target: any = null;
+export function copy(s: Server, pane: number, text: string) {
+  let target: Client | null = null;
   for (const view of s.clients)
     if (
       view.viewer &&
       !view.dead &&
       (!target || view.active_seq > target.active_seq) &&
-      view.interests.some((i: Interest) => i.pane === pane)
+      view.interests.some(i => i.pane === pane)
     )
       target = view;
   if (!target) return;
-  target.controls = target.controls.filter((c: Control) => c.kind !== "action" || c.name !== "copy");
+  target.controls = target.controls.filter(c => c.kind !== "action" || c.name !== "copy");
   queue(target, { kind: "action", name: "copy", value: text });
 }
-export function viewers(s: any) {
+export function viewers(s: Server) {
   return s.clients
-    .filter((cl: any) => cl.viewer && !cl.dead)
-    .map((cl: any) => ({
+    .filter(cl => cl.viewer && !cl.dead)
+    .map(cl => ({
       id: cl.viewer_id,
       workspace: cl.view_workspace,
       pane: cl.view_focus,

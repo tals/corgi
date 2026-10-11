@@ -1,3 +1,5 @@
+import * as protocol from "./protocol";
+import { transport } from "./fixtures/transport";
 import { expect, spyOn, test } from "bun:test";
 import { Controller, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
 import * as preferences from "./preferences";
@@ -13,9 +15,9 @@ import { agent, type Pane } from "./mirror";
 function controller(): any {
   return new Controller({
     socket: "",
-    request: async () => {
+    request: transport(async () => {
       throw Error("UnexpectedRequest");
-    },
+    }).request,
   });
 }
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -172,10 +174,10 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
   const sent: [string, any][] = [];
   const s: any = new Controller({
     socket: "",
-    request: async (op, fields) => {
+    request: transport(async (op, fields) => {
       sent.push([op, fields]);
       return { ok: true };
-    },
+    }).request,
   });
   const seen = () => {
     const snapshot = pair();
@@ -198,7 +200,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     s.focusPane(1);
     s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
-    expect(sent.at(-1)).toEqual(["pane.mark_unread", { pane: 2, binding: 0, conversation: 0, session: "" }]);
+    expect(sent.at(-1)).toEqual(["pane.mark_unread", { pane: 2, binding: 0n, conversation: 0, session: "" }]);
     s.receiveSnapshot(marked(2));
     expect(await acknowledged()).toEqual([]);
     s.focusPane(2);
@@ -270,12 +272,12 @@ test("open adds a workspace for a folder no workspace is on", async () => {
   let snapshot = folders("/a");
   const s = new Controller({
     socket: "",
-    request: async (op, fields) => {
+    request: transport(async (op, fields) => {
       if (op !== "session.command") return snapshot;
-      commands.push(fields?.command);
+      commands.push(protocol.decode("session.command", fields).command);
       snapshot = folders("/a", "/b");
       return { result: { pane: 2, workspace: 2 } };
-    },
+    }).request,
   });
   s.receiveSnapshot(snapshot);
   try {
@@ -552,7 +554,7 @@ test("the launcher names a new worktree, then adds it before starting the agent 
   let refuse: string | null = "BranchExists";
   const s: any = new Controller({
     socket: "",
-    request: async (op, fields) => {
+    request: transport(async (op, fields) => {
       sent.push([op, fields]);
       if (op === "worktree.add" && refuse) return { err: refuse };
       if (op === "session.command") return { result: { pane: 1 } };
@@ -564,7 +566,7 @@ test("the launcher names a new worktree, then adds it before starting the agent 
           ],
         };
       return snapshot;
-    },
+    }).request,
   });
   s.receiveSnapshot(snapshot);
   s.input_state.attached = true;

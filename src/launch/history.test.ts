@@ -113,7 +113,7 @@ test("a viewer gets everything once, then only what changed, and everything from
       updated_at: 2,
     };
   w.store.replace([first, second], ["claude", "codex"]);
-  const full = w.update(0, 0)!;
+  const full = w.update(0n, 0n)!;
   expect(full.full).toBe(true);
   expect(full.entries[0].title).toBe("Second");
   expect(w.update(full.epoch, full.revision)).toBeNull();
@@ -125,7 +125,7 @@ test("a viewer gets everything once, then only what changed, and everything from
   expect(delta.full).toBe(false);
   expect(delta.entries[0].last).toBe("one more thing");
   expect(delta.removed[0].session).toBe("b");
-  expect(w.update(4, delta.revision)!.full).toBe(true);
+  expect(w.update(4n, delta.revision)!.full).toBe(true);
   w.store.put(second);
   w.store.replace([], ["claude"]);
   expect(w.store.get("codex", "b")).not.toBeNull();

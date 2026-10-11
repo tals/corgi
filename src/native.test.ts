@@ -245,13 +245,13 @@ test("native events snapshots and hooks share exactly one receipt regardless of 
       );
       snapshot.turn = new Text("t");
       snapshot.outcome = outcome;
-      snapshot.observed_at = actor.state.last_seq + 1;
+      snapshot.observed_at = Number(actor.state.last_seq) + 1;
       expect(actor.observeSnapshot(snapshot, false, 0)).toBe(!nativeFirst && outcome === "completed");
       expect(ingest(transport, registry, completion)).toBe(false);
       expect(
         actor.observeHook(
           { kind: "stop", session: identity, turn: "t" },
-          actor.state.last_seq + 1,
+          actor.state.last_seq + 1n,
           false,
           actor.observed_at + 1,
         ),

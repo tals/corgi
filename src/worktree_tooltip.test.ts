@@ -1,3 +1,4 @@
+import { transport } from "./fixtures/transport";
 import { expect, test } from "bun:test";
 import { Controller } from "./controller";
 import { worktreeSnapshot } from "./mirror";
@@ -107,9 +108,9 @@ test("wire decoding defaults older snapshots and retains wide comparison counts"
 });
 test("pinned worktrees own keys and paste; Escape closes the table without reaching the pane", async () => {
   const view = new Controller({
-    request: async () => {
+    request: transport(async () => {
       throw Error("UnexpectedRequest");
-    },
+    }).request,
   });
   view.receiveSnapshot({
     workspaces: [
@@ -130,10 +131,10 @@ test("pinned worktrees own keys and paste; Escape closes the table without reach
 async function removing() {
   const requests: any[] = [];
   const view = new Controller({
-    request: async (op, fields) => {
-      requests.push({ op, ...fields });
+    request: transport(async (op, fields) => {
+      requests.push({ op, ...Object(fields) });
       return op === "worktree.remove" ? { ok: true, removal: 7 } : { ok: true };
-    },
+    }).request,
   });
   const report = (worktrees: Snapshot, worktree_removal: unknown) =>
     view.receiveSnapshot({
@@ -285,8 +286,8 @@ function browsing() {
       ],
     };
   const view = new Controller({
-    request: async (op, fields: any) => {
-      requests.push({ op, ...fields });
+    request: transport(async (op, fields: any) => {
+      requests.push({ op, ...Object(fields) });
       if (op === "session.snapshot") return state;
       const resume = fields?.command?.["agent.resume"];
       if (!resume?.asleep) throw Error("TestResume");
@@ -297,7 +298,7 @@ function browsing() {
       model.revision += 1;
       state.panes.push({ id, workspace: 1, tab: id, cols: 80, rows: 24, cwd: resume.cwd, dormant: true, agent });
       return { result: { pane: id, workspace: 1 } };
-    },
+    }).request,
   });
   view.receiveSnapshot(state);
   view.launch_previews.history = {
@@ -354,7 +355,7 @@ test("⌫ or Delete on a hovered overview starts removing rather than closing it
   }
 });
 test("Enter on a worktree with no agent opens the agent picker there", async () => {
-  const view = new Controller({ request: async () => ({}) });
+  const view = new Controller({ request: transport(async () => ({})).request });
   view.receiveSnapshot({
     workspaces: [
       { id: 1, name: "repo", cwd: "/repo", worktrees: snapshot(2), model: { nodes: [], tabs: [], revision: 0 } },
@@ -523,10 +524,10 @@ function paneWorktrees() {
   };
   const closed: number[] = [],
     view = new Controller({
-      request: async (op, fields: any) => {
+      request: transport(async (op, fields: any) => {
         if (fields?.command?.["pane.close"]) closed.push(fields.command["pane.close"].target);
         return op === "session.snapshot" ? state : {};
-      },
+      }).request,
     });
   view.receiveSnapshot(state);
   view.input_state.attached = true;

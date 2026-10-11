@@ -144,19 +144,23 @@ test("the viewer wire matches viewer_version.version", async () => {
   client.viewer_id = 1;
   client.view_workspace = 1;
   try {
-    await viewer.sync(server, client, {
-      interests: [{ pane: 1, cols: 80, rows: 24 }],
-      focus: 1,
-      workspace: 1,
-      watched: false,
-      active: false,
-      ack: 0,
-      session_hash: 0,
-      resources_hash: 0,
-      resources: false,
-      resource_detail: null,
-      worktree_detail: null,
-    });
+    await viewer.sync(
+      server,
+      client,
+      protocol.decode("viewer.sync", {
+        interests: [{ pane: 1, cols: 80, rows: 24 }],
+        focus: 1,
+        workspace: 1,
+        watched: false,
+        active: false,
+        ack: 0,
+        session_hash: 0,
+        resources_hash: 0,
+        resources: false,
+        resource_detail: null,
+        worktree_detail: null,
+      }),
+    );
     validate(schemas.viewer, { view });
     expect(view.surfaces).toHaveLength(1);
     expect(view.surfaces[0].surface.lines.join("\n")).toContain("schema boundary");
