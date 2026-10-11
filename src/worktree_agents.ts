@@ -42,7 +42,8 @@ function checkoutAt(snapshot: worktrees.Snapshot, path: string): string | null {
   }
   return found;
 }
-function belongs(snapshot: worktrees.Snapshot, path: string, entry: sidebar.Entry): boolean {
+/** Whether a live agent is listed under the checkout at `path`. */
+export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sidebar.Entry): boolean {
   if (!sidebar.isAgent(entry.target) || entry.state === "done") return false;
   const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, entry.target));
   return associations.length ? associations.some(a => a.path === path) : checkoutAt(snapshot, entry.cwd) === path;

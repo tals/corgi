@@ -1,5 +1,5 @@
-//! The resize menu, and the context menus on tabs, workspaces, panes and
-//! agents. Mirrors commands.zig.
+//! The resize menu, and the context menus on tabs, workspaces, panes,
+//! agents and worktree groups. Mirrors commands.zig.
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import type { Direction } from "./layout";
@@ -21,7 +21,18 @@ const resize_entries: Entry[] = [
 export type Hit =
   { tag: "none" } | { tag: "close" } | { tag: "previous" } | { tag: "next" } | { tag: "command"; command: Entry };
 
-export type Item = "new" | "rename" | "clear-name" | "swap" | "split-right" | "split-down" | "zoom" | "fork" | "close";
+export type Item =
+  | "new"
+  | "rename"
+  | "clear-name"
+  | "swap"
+  | "split-right"
+  | "split-down"
+  | "zoom"
+  | "fork"
+  | "close"
+  | "fold"
+  | "close-all";
 /** `icon` sits in a column before the labels. A `rule` sets the row apart
  * below a line, and the highlight never starts on it. */
 export interface Row {
@@ -69,6 +80,11 @@ export class TabMenu {
   pane = false;
   /** An agent row's menu; `tab` is the agent's pane. */
   agent = false;
+  /** A worktree group's checkout path; `tab` is its workspace, `title` its
+   * heading, and `folded` whether the group is folded. */
+  worktree: string | null = null;
+  title = "";
+  folded = false;
   source: number | null = null;
   highlighted = 0;
   /** Rows shown crossed out, which neither keys nor clicks run. */
@@ -78,6 +94,11 @@ export class TabMenu {
   }
   entries(): Row[] {
     if (this.agent) return agent_actions;
+    if (this.worktree !== null)
+      return [
+        row("fold", "f", this.folded ? "Unfold" : "Fold"),
+        row("close-all", "x", `Close all agents for ${this.title}`, { rule: true }),
+      ];
     if (this.pane) return this.source !== null ? pane_actions : pane_actions.slice(1);
     return this.workspace ? actions.slice(1) : actions;
   }

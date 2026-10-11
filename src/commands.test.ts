@@ -31,6 +31,19 @@ test("menu keys pick the rows each menu shows", () => {
   expect(agent.itemFor(c("n"))).toBeNull();
 });
 
+test("a worktree group's menu folds first and keeps Close all below a rule", () => {
+  const menu = new TabMenu({ tab: 1, anchor_x: 0, worktree: "/repo/.worktrees/one", title: "one" });
+  expect(menu.entries().map(entry => entry.label)).toEqual(["Fold", "Close all agents for one"]);
+  expect(menu.itemFor(c("f"))).toBe("fold");
+  expect(menu.itemFor(c("x"))).toBe("close-all");
+  menu.highlightFirst();
+  expect(menu.highlightedItem()).toBe("fold");
+  menu.folded = true;
+  expect(menu.entries()[0].label).toBe("Unfold");
+  menu.off.add("close-all");
+  expect(menu.itemFor(c("x"))).toBeNull();
+});
+
 test("crossed-out rows take no key, click or highlight", () => {
   const menu = new TabMenu({ tab: 1, anchor_x: 0, agent: true, off: new Set(["rename", "fork"]) });
   expect(menu.itemFor(c("r"))).toBeNull();

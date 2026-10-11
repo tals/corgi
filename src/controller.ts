@@ -941,6 +941,10 @@ export class Controller {
   }
   /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
+    if (context.worktree !== null) {
+      const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
+      return !worktrees.linked(ws?.worktrees ?? null).some(e => e.path === context.worktree);
+    }
     if (context.pane || context.agent) return this.pane(context.tab) === null;
     if (context.workspace) return this.runtime.workspaces.index(context.tab) === null;
     return this.tabIndex(context.tab) === null;
@@ -975,11 +979,55 @@ export class Controller {
     this.tab_menu = opened;
     this.dirty = true;
   }
+  /** Opens a worktree heading's menu. Close all runs only while the group
+   * lists an agent in a pane. */
+  private openWorktreeMenu(entry: Entry, x: number, y: number): void {
+    if (!("worktree" in entry.target)) return;
+    this.closeMenu();
+    this.search_mode = false;
+    this.cancelDividers();
+    this.selection = null;
+    const selection = { workspace: entry.target.workspace, path: entry.target.worktree };
+    const opened = new TabMenu({
+      tab: selection.workspace,
+      worktree: selection.path,
+      title: entry.name,
+      folded: entry.group.folded,
+      anchor_x: x,
+      anchor_y: y,
+    });
+    if (this.worktreePanes(selection).length === 0) opened.off.add("close-all");
+    opened.highlightFirst();
+    this.tab_menu = opened;
+    this.dirty = true;
+  }
+  /** The panes of the agents listed under a worktree, folded or not. */
+  private worktreePanes(selection: worktreeAgents.Selection): number[] {
+    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
+    if (!snapshot) return [];
+    return this.agentEntries(selection.workspace).flatMap(e =>
+      "pane" in e.target && worktreeAgents.belongs(snapshot, selection.path, e) ? [e.target.pane] : [],
+    );
+  }
   /** Runs a row of the open tab menu; `item` comes from its `entries()`. */
   private async tabMenuAction(item: TabMenuItem): Promise<void> {
     const context = this.tab_menu;
     if (!context) return;
     this.closeMenu();
+    if (context.worktree !== null) {
+      const selection = { workspace: context.tab, path: context.worktree };
+      switch (item) {
+        case "fold":
+          this.toggleWorktree(selection);
+          break;
+        case "close-all":
+          for (const id of this.worktreePanes(selection)) await this.close(id);
+          break;
+        default:
+          break;
+      }
+      return;
+    }
     if (context.agent) {
       const pane_id = context.tab;
       const p = this.pane(pane_id);
@@ -3967,7 +4015,9 @@ export class Controller {
             if (entries[index].exit !== null) break;
             const target = entries[index].target;
             if (!sidebar.isAgent(target) && !("group" in target)) {
-              await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
+              if (button === 2 && "worktree" in target && !entries[index].worktree?.ghost)
+                this.openWorktreeMenu(entries[index], x, y);
+              else await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
               break;
             }
             this.selectAgent(target);

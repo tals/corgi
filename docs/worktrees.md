@@ -54,14 +54,16 @@ Git data and current edit evidence are disposable and rediscovered after restart
 The agent sidebar keeps its regular list. Live agents in linked worktrees appear
 under checkout headings; primary-checkout agents stay direct rows. In "All",
 checkout headings branch off their workspace's rail. Clicking a heading folds
-its group. While the list is scrolled into a group, its workspace and checkout
-headings stay pinned above it. Browsing an existing group scrolls it into view. A worktree absent from the list appears as
+its group; right-clicking it offers Fold and "Close all agents for", which
+closes the group's agents that run in panes. While the list is scrolled into a
+group, its workspace and checkout headings stay pinned above it. Browsing an
+existing group scrolls it into view. A worktree absent from the list appears as
 a temporary group at the top, fading in inside a dashed outline with normal
-branch and agent text, showing three recent sessions from the
-existing launcher history when no agents are active, plus an expandable `… more`
-row. Enter or clicking the worktree keeps the group in the sidebar and focuses
-its first live agent, or its heading when only recent sessions remain. Clicking
-a recent session resumes it through the existing launcher path.
+branch and agent text, showing three recent sessions from the existing launcher
+history when no agents are active, plus an expandable `… more` row. Enter or
+clicking the worktree keeps the group in the sidebar and focuses its first live
+agent, or its heading when only recent sessions remain. Clicking a recent
+session resumes it through the existing launcher path.
 
 Recent-session membership uses recorded working directories, not a reconstructed
 edit history. These sidebar additions are viewer-local. Summary generation,

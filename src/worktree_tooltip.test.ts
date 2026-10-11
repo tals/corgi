@@ -298,6 +298,69 @@ test("a worktree header folds its group on click and entering the worktree unfol
   expect(rows()[header].focused).toBe(false);
   expect(rows().some((e: any) => e.name === "Search agent")).toBe(true);
 });
+/** Two claude panes in the first worktree and one in the primary checkout,
+ * with a daemon that records closed panes. */
+function paneWorktrees() {
+  const data = snapshot(2);
+  data.agents = [1, 2].map(pane => ({ target: { pane }, path: data.entries[1].path, source: "write", stale: false }));
+  const pane = (id: number, name: string) => ({
+    id,
+    workspace: 1,
+    tab: id,
+    cols: 80,
+    rows: 24,
+    agent: { provider: "claude", name, state: "idle", attention: "none", observation: { completed: 0, read: 0 } },
+  });
+  const state = {
+    workspaces: [
+      {
+        id: 1,
+        name: "repo",
+        cwd: "/repo",
+        worktrees: data,
+        model: {
+          nodes: [1, 2, 3].map(pane => ({ pane })),
+          tabs: [1, 2, 3].map((id, root) => ({ id, root })),
+          revision: 0,
+        },
+      },
+    ],
+    panes: [pane(1, "one"), pane(2, "two"), pane(3, "main")],
+    conversations: [],
+    native_sessions: [],
+  };
+  const closed: number[] = [],
+    view = new Controller({
+      request: async (op, fields: any) => {
+        if (fields?.command?.["pane.close"]) closed.push(fields.command["pane.close"].target);
+        return op === "session.snapshot" ? state : {};
+      },
+    });
+  view.receiveSnapshot(state);
+  view.input_state.attached = true;
+  const rows = (): any[] => (view as any).sidebarEntries();
+  /** The screen row where the entry `matches` picks starts, 1-based as mouse reports count. */
+  const row = (matches: (e: any) => boolean) => {
+    const entries = rows(),
+      side = view.sidebarView(entries),
+      index = entries.findIndex(matches);
+    const y = Array.from({ length: side.rows }, (_, y) => y).find(y => {
+      const hit = side.hit(5, y);
+      return hit.tag === "entry" && hit.entry === index;
+    })!;
+    return y + 1;
+  };
+  const heading = (e: any) => e.target.worktree === data.entries[1].path;
+  return { view, data, closed, rows, row, heading };
+}
+test("a worktree heading's right-click menu closes only the agents listed under it", async () => {
+  const { view, closed, row, heading } = paneWorktrees();
+  await view.input(Buffer.from(`\x1b[<2;6;${row(heading)}M`));
+  expect(view.tab_menu!.entries().map(e => e.label)).toEqual(["Fold", "Close all agents for topic-0"]);
+  await view.input(Buffer.from("x"));
+  expect(view.tab_menu).toBeNull();
+  expect(closed).toEqual([1, 2]);
+});
 test("callout geometry keeps the agent pane and source badge uncovered", () => {
   const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: snapshot(2) });
   const side = View.init(120, 38, true, 0, 0).withWorkspaces(1, 0),
