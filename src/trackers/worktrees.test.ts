@@ -207,3 +207,40 @@ test("a scan cannot follow a workspace through a directory edit, even when it re
   expect(workspace.worktrees).toBeNull();
   tracker.close();
 });
+test("removal deletes a worktree and its uncommitted work but keeps the branch; locked and lived-in ones are refused", async () => {
+  const f = await fixture();
+  try {
+    const topic = join(f.root, "topic"),
+      locked = join(f.root, "locked"),
+      lived = join(f.root, "lived");
+    await git(f.repo, "worktree", "add", "-b", "topic", topic);
+    await git(f.repo, "worktree", "add", "-b", "kept", locked);
+    await git(f.repo, "worktree", "lock", "--reason", "on a USB disk", locked);
+    await git(f.repo, "worktree", "add", "-b", "lived", lived);
+    await writeFile(join(topic, "draft"), "unsaved\n");
+    const workspace = new Workspace(1, f.repo),
+      other = new Workspace(2, lived),
+      store = new Store();
+    store.items = [workspace, other];
+    const runtime = { workspaces: store } as Runtime,
+      tracker = new Tracker();
+    workspace.worktrees = await tracker.refresh(f.repo, true);
+    await expect(tracker.remove(runtime, 1, join(f.root, "nowhere"))).rejects.toThrow("NoWorktree");
+    await expect(tracker.remove(runtime, 1, locked)).rejects.toThrow("WorktreeLocked");
+    await expect(tracker.remove(runtime, 1, lived)).rejects.toThrow("WorktreeInUse");
+    await expect(tracker.remove(runtime, 3, topic)).rejects.toThrow("NoWorkspace");
+    await tracker.remove(runtime, 1, topic);
+    expect(await Bun.file(join(topic, "draft")).exists()).toBe(false);
+    expect((await git(f.repo, "branch", "--list", "topic")).trim()).toBe("topic");
+    const after = await tracker.refresh(f.repo, false);
+    expect(
+      worktrees
+        .linked(after)
+        .map(e => e.path)
+        .sort(),
+    ).toEqual([lived, locked]);
+    tracker.close();
+  } finally {
+    await f.close();
+  }
+}, 20000);

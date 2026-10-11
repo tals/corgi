@@ -86,6 +86,10 @@
       "branch": "main"
     }
   },
+  "worktree.remove": {
+    "workspace": 1,
+    "path": "/repo/.worktrees/topic"
+  },
   "onboarding.status": {
     "operation": 1
   },

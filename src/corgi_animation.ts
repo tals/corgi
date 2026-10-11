@@ -246,7 +246,7 @@ export function fetchTicks(width: number, value: Throw) {
   return 16 + run.caught + 2 * ((run.stop > 0 ? 2 : 0) + run.stop + 13);
 }
 const fetchPace = (width: number, value: Throw) => Math.max(fetchTicks(width, value), 192);
-const wagTail = (step: number) => ["~", "-", "~", "^"][step % 4];
+export const wagTail = (step: number) => ["~", "-", "~", "^"][step % 4];
 export function writeFetch(width: number, value: Throw, tick: number): string {
   const scene = fetchScene(width, value, tick),
     dog = [...scene.dog];
@@ -340,8 +340,8 @@ export class Fetch {
   }
 }
 export const herd_width = 18;
+export const walk_left = ["‹o[/\\]~", "‹o[||]~", "‹o[\\/]~", "‹o[||]~"];
 const herd_word = "Compacting",
-  walk_left = ["‹o[/\\]~", "‹o[||]~", "‹o[\\/]~", "‹o[||]~"],
   curl = [
     { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
     { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
@@ -419,9 +419,14 @@ export function writeAsleep(width: number): string {
 }
 const blend = (from: palette.Rgb, to: palette.Rgb, amount: number) =>
   from.map((v, i) => Math.round(v + (to[i] - v) * amount)) as palette.Rgb;
+/** Unearth's dirt: its color, letters still buried, the pile behind the
+ * corgi by height, and the clods it throws. */
+export const dirt: palette.Rgb = [150, 126, 96],
+  buried = ["⣶", "⣿", "⣷", "⣾", "⣿", "⣶", "⣷", "⣿", "⣾", "⣶"],
+  pile = [" ", "⣀", "⣤", "⣶", "⣿"],
+  clods = ["⠄", "⠂", "⠁", "⠁", "⠂"];
 export function writeUnearth(width: number, shown_ms: number, dig: Dig): string {
   const word = [...(dig === "restoring" ? "Restoring…" : "Forking…")],
-    dirt: palette.Rgb = [150, 126, 96],
     restored = palette.colors.accent;
   if (width < Dig.width(dig)) return "\x1b[1m" + palette.fg("accent") + word.join("");
   const step = Math.floor(Math.max(0, shown_ms) / 80),
@@ -430,9 +435,7 @@ export function writeUnearth(width: number, shown_ms: number, dig: Dig): string 
       color: dirt,
       bold: false,
     })),
-    heights = [0, 0, 0, 0],
-    buried = ["⣶", "⣿", "⣷", "⣾", "⣿", "⣶", "⣷", "⣿", "⣾", "⣶"],
-    clod = ["⠄", "⠂", "⠁", "⠁", "⠂"];
+    heights = [0, 0, 0, 0];
   for (const [i, letter] of word.entries()) {
     const age = step - i * 2;
     cells[17 + i] =
@@ -446,13 +449,13 @@ export function writeUnearth(width: number, shown_ms: number, dig: Dig): string 
               bold: true,
             };
     if (age < 0) continue;
-    if (age < 5) cells[8 - age] = { glyph: clod[age], color: dirt, bold: false };
+    if (age < 5) cells[8 - age] = { glyph: clods[age], color: dirt, bold: false };
     else {
       const column = [1, 0, 3, 2][i % 4];
       heights[column] = Math.min(heights[column] + 1, 4);
     }
   }
-  for (const [i, h] of heights.entries()) cells[i].glyph = [" ", "⣀", "⣤", "⣶", "⣿"][h];
+  for (const [i, h] of heights.entries()) cells[i].glyph = pile[h];
   const dug = word.length * 2 + 2;
   let col = 9;
   let dog: string;

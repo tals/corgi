@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
 import { Controller } from "./controller";
 import { worktreeSnapshot } from "./mirror";
-import { State, between, draw, geometry } from "./worktree_tooltip";
+import { State, between, draw, geometry, listing } from "./worktree_tooltip";
+import * as worktreeRemoval from "./worktree_removal";
 import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
 import { fg } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import { parseInventory } from "./trackers/worktrees";
+import * as clock from "./clock";
 import type { Snapshot } from "./worktrees";
 
 function snapshot(count = 4): Snapshot {
@@ -124,6 +126,94 @@ test("pinned worktrees own keys and paste; Escape closes the table without reach
   expect(view.worktreeDetail()).toBeNull();
 });
 
+test("holding ⌫ removes the selected worktree; the footer says what goes", async () => {
+  const requests: any[] = [];
+  const view = new Controller({
+    request: async (op, fields) => {
+      requests.push({ op, ...fields });
+      return { ok: true };
+    },
+  });
+  view.receiveSnapshot({
+    workspaces: [
+      { id: 1, name: "repo", cwd: "/repo", worktrees: snapshot(2), model: { nodes: [], tabs: [], revision: 0 } },
+    ],
+    panes: [],
+  });
+  await view.perform({ name: "worktrees", value: 1 });
+  const terminal = new Terminal(100, 30),
+    removes = () => requests.filter(r => r.op === "worktree.remove");
+  try {
+    terminal.feed(view.frame());
+    expect(terminal.text()).toContain("hold ⌫ remove");
+    // One press, then key repeat after the host's delay.
+    await (view as any).key(127);
+    clock.advance(300);
+    for (let i = 0; i < 60 && removes().length === 0; i++) {
+      await (view as any).key(127);
+      if (i === 10) {
+        terminal.feed(view.frame());
+        expect(terminal.text()).toContain("Removing topic-0 · branch kept");
+      }
+      clock.advance(50);
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(removes()).toEqual([{ op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0" }]);
+    expect(view.worktree_card.removal.phase).toBe("removed");
+    expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
+    // The key still down doesn't start on the next worktree.
+    for (let i = 0; i < 20; i++) {
+      await (view as any).key(127);
+      clock.advance(50);
+    }
+    expect(view.worktree_card.removal.target?.path).toBe("/repo/.worktrees/0");
+  } finally {
+    clock.reset();
+    terminal.destroy();
+  }
+});
+
+test("after a removal the cursor stays on its line while the rows below move up to it", () => {
+  const before = snapshot(3),
+    after = { ...before, entries: before.entries.filter(e => e.path !== "/repo/.worktrees/1") },
+    state = new State(),
+    hold = state.removal,
+    linked = before.entries.slice(1),
+    t = worktreeRemoval.target(linked[1], 1, 0);
+  state.selected = linked[1].path;
+  let now = 0;
+  hold.press(now, t, "dust");
+  for (now = 250; !hold.press(now, t, "dust"); now += 50);
+  const end = now + worktreeRemoval.finale_ms.dust;
+  hold.settle(now + 100, null);
+  state.select(linked[2].path);
+  const frame = (at: number) => {
+    const shown = listing(after, state, at),
+      rect = geometry(100, 30, 28, 3, shown.entries.length, shown.closed)!,
+      w = new Writer(),
+      terminal = new Terminal(100, 30);
+    try {
+      draw(w, rect, "repo", "/repo", after, state, null, at);
+      terminal.feed(w.buffered());
+      return { lines: terminal.text().split("\n"), row: rect.y + 7, h: rect.h };
+    } finally {
+      terminal.destroy();
+    }
+  };
+  // While the ending plays, no row has the cursor; the row before has its own.
+  const playing = frame(end - 10);
+  expect(playing.lines.some(l => l.includes("›"))).toBe(false);
+  expect(playing.lines[playing.row - 2]).toContain("topic-0");
+  // Then the cursor shows on the removed row's line, and topic-2 moves up to it.
+  const closing = frame(end);
+  expect(closing.lines[closing.row]).toMatch(/│› +│/);
+  expect(closing.lines[closing.row + 1]).toContain("topic-2");
+  expect(closing.h).toBe(playing.h - 1);
+  const closed = frame(end + worktreeRemoval.close_step_ms);
+  expect(closed.lines[closed.row]).toContain("› topic-2");
+  expect(closed.h).toBe(playing.h - 2);
+});
+
 function browsing() {
   const requests: any[] = [];
   const data = snapshot(2);
@@ -202,6 +292,37 @@ test("hovered worktrees own legacy, application and Kitty arrows before hover ca
   await view.input(Buffer.from("[B"));
   expect(view.worktree_card.selected).toBe("/repo/.worktrees/1");
 });
+test("⌫ or Delete on a hovered overview starts removing rather than closing it", async () => {
+  for (const key of ["\x7f", "\x08", "\x1b[3~"]) {
+    const { view, requests } = browsing();
+    await view.input(Buffer.from(key));
+    expect(view.worktreeDetail()).toBe(1);
+    expect(view.worktree_card.pinned).toBe(true);
+    expect(view.worktree_card.removal.phase).toBe("held");
+    expect(view.worktree_card.removal.target?.path).toBe("/repo/.worktrees/0");
+    expect(requests).toHaveLength(0);
+  }
+});
+test("Enter on a worktree with no agent opens the agent picker there", async () => {
+  const view = new Controller({ request: async () => ({}) });
+  view.receiveSnapshot({
+    workspaces: [
+      { id: 1, name: "repo", cwd: "/repo", worktrees: snapshot(2), model: { nodes: [], tabs: [], revision: 0 } },
+    ],
+    panes: [],
+  });
+  await view.perform({ name: "worktrees", value: 1 });
+  const terminal = new Terminal(100, 30);
+  try {
+    terminal.feed(view.frame());
+    expect(terminal.text()).toContain("Enter new agent");
+  } finally {
+    terminal.destroy();
+  }
+  await (view as any).key(13);
+  expect(view.worktreeDetail()).toBeNull();
+  expect(view.agent_launcher?.cwd).toBe("/repo/.worktrees/0");
+});
 test("a ghost previews a worktree's newest conversations as agents; Enter brings them back asleep", async () => {
   const { view, requests } = browsing(),
     terminal = new Terminal(100, 30),
@@ -225,6 +346,7 @@ test("a ghost previews a worktree's newest conversations as agents; Enter brings
     expect(text).not.toContain("more");
     expect(text).toContain("Search agent");
     expect(text).toContain("╭┄┄┄");
+    expect(text).toContain("Enter resume agents");
     expect(text).toContain("⌥ topic-0");
     await view.input(Buffer.from("\r"));
     expect(view.worktreeDetail()).toBeNull();

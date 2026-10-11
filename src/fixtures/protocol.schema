@@ -164,6 +164,8 @@ $.requests|git.push.ref.head: string
 $.requests|git.push.ref.branch: string
 $.requests|git.push.ref.remote: string
 $.requests|git.push.ref.destination: string
+$.requests|worktree.remove.workspace: u32
+$.requests|worktree.remove.path: string
 $.requests|onboarding.status.operation: u64
 $.requests|onboarding.handoff.operation: u64
 $.requests|onboarding.handoff.viewer_pgid: i32

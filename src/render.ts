@@ -23,7 +23,7 @@ import * as corgiBadge from "./corgi_badge";
 import * as pasteCard from "./paste_card";
 import * as resourceTooltip from "./resource_tooltip";
 import * as worktreeTooltip from "./worktree_tooltip";
-import * as worktrees from "./worktrees";
+import { milliTimestamp } from "./clock";
 import * as subagentTooltip from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
 import * as corgiAnimation from "./corgi_animation";
@@ -651,15 +651,18 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (u.worktree_card) {
     const ws = u.workspaces.find(ws => ws.id === u.worktree_card!.workspace);
     if (ws) {
-      const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id);
+      const badge = sidebar.worktreeBadge(side, u.workspaces, ws.id),
+        now = milliTimestamp(),
+        shown = worktreeTooltip.listing(ws.worktrees, u.worktree_card, now);
       const rect = worktreeTooltip.geometry(
         width,
         height,
         side.width,
         badge?.y ?? u.worktree_card.anchor,
-        worktrees.linked(ws.worktrees).length,
+        shown.entries.length,
+        shown.closed,
       );
-      if (rect) worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge);
+      if (rect) worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge, now);
       else writeChip(w, "Worktrees: enlarge terminal · Esc to close", width, height, u.pointer);
     }
   } else if (u.link_tooltip && u.agent_launcher === null && u.corgi_setup === null && u.pointer) {

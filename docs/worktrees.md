@@ -3,15 +3,44 @@
 Open Corgi at the project root. A workspace with linked Git worktrees shows an
 `N worktrees` count in its status row, including worktrees with no agents. Hover
 to compare them in a callout connected to the count. Arrows or the wheel browse
-it; Enter or clicking a worktree focuses its agents. It closes on Escape, or
+it, and pin it, as ⌫ does; Enter or clicking a worktree focuses its agents, as
+described below. It closes on Escape, or
 once the pointer leaves the callout, the count and the triangle between them.
 `corgi action worktrees` opens the current workspace's
 table; an optional workspace ID selects another workspace.
 Paths inside the workspace use `./`; other paths inside the home directory use `~/`.
 
 The primary checkout is the reference context and is excluded from the count.
-No worktree is required, created, moved, removed or merged by this feature.
+No worktree is required, created, moved or merged by this feature.
 The existing unpushed-commit badge still compares with the branch's upstream.
+
+## Removing a worktree
+
+With the overview pinned, holding ⌫ (or Delete) removes the selected worktree.
+While the key is down its row comes apart, right to left, in an effect drawn
+at random each time the overview opens, never the same as the last: dust,
+burn, or the corgi burying it. The footer says what goes: “Removing topic ·
+3 uncommitted files lost · 2 agents close · branch kept”. Letting go undoes
+the effect, faster than it played. Once Git is done, the row stays in place
+until its ending has played; meanwhile no other row takes the cursor. Then the
+cursor waits on that line while the rows below move up to it a line at a time,
+or climbs to the row above when the last row went, and the footer goes back to
+the keys.
+
+Terminals report key repeats, not releases, so the hold is read from repeat.
+From the press it fills for as long as the host's repeat delay, measured on
+the previous hold, so it doesn't stop to wait for the first repeat; after that
+it fills only up to when the next repeat is due, and counts as released after
+250 ms without one. It removes only on a repeat that arrives after the row is
+gone, so a key let go at the very end removes nothing. Keys still arriving
+after a removal are ignored until the key is released, so the next worktree is
+safe.
+
+The viewer closes the agents listed under the worktree, then asks the daemon
+(`worktree.remove`, on a connection of its own, since a large checkout takes
+seconds to delete) to run `git worktree remove --force`. The branch and its
+commits stay. A locked worktree, or one a workspace is open in, is refused and
+the footer says why.
 
 ## Local data
 
@@ -49,7 +78,7 @@ an empty or clean checkout.
 
 Snapshots expose optional `workspaces[].worktrees`; viewers request details
 through optional `viewer.sync.worktree_detail`. These additive, defaulted fields
-keep protocol 1 and viewer protocol 3. Checkpoints and handoffs are unchanged:
+keep protocol 1 and viewer protocol 3, as does the `worktree.remove` request. Checkpoints and handoffs are unchanged:
 Git data and current edit evidence are disposable and rediscovered after restart.
 
 The agent sidebar keeps its regular list. Live agents in linked worktrees appear
@@ -68,8 +97,9 @@ worktree keeps the group in the sidebar and focuses its first agent; for one
 with no agents, it brings those conversations back as hibernated agents, each
 in its own tab, asleep until its pane is focused. Clicking one of the previewed
 agents does the same and wakes that one. A worktree with no conversations
-either previews nothing. A group lasts only while it lists an agent; closing
-its last one removes it.
+either previews nothing, and Enter opens the agent picker there. The footer
+says which: “Enter focus agents”, “Enter resume agents” or “Enter new agent”.
+A group lasts only while it lists an agent; closing its last one removes it.
 
 Which conversations belong to a worktree follows their recorded working
 directories, not a reconstructed edit history. Groups and folding are

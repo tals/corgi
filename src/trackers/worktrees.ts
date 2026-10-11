@@ -154,6 +154,26 @@ export class Tracker {
   busy() {
     return this.thread !== null;
   }
+  /** Removes a linked worktree, uncommitted changes and all; its branch
+   * stays. A locked one, or one a workspace lives in, is refused. */
+  async remove(runtime: Runtime, workspace: number, path: string): Promise<void> {
+    const ws = runtime.workspaces.get(workspace);
+    if (!ws) throw Error("NoWorkspace");
+    const checkout = worktrees.linked(ws.worktrees).find(e => e.path === path);
+    if (!checkout) throw Error("NoWorktree");
+    if (checkout.locked !== null) throw Error("WorktreeLocked");
+    for (const other of runtime.workspaces.items) {
+      const cwd = await realpath(other.cwd).catch(() => other.cwd);
+      if (cwd === path || cwd.startsWith(path + "/")) throw Error("WorktreeInUse");
+    }
+    const out = await subprocess
+      .run(["git", "-C", ws.cwd, "worktree", "remove", "--force", path], { timeout_ms: 60000 })
+      .catch(() => null);
+    if (!out?.ok()) throw Error("WorktreeRemoveFailed");
+    // The next tick lists the worktrees again instead of waiting out the cache.
+    this.cache.delete(ws.worktrees!.common_dir);
+    this.next_refresh = 0;
+  }
   tick(runtime: Runtime, details: ReadonlySet<number> = new Set()) {
     let changed = false;
     if (this.thread) {

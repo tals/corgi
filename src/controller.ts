@@ -59,6 +59,8 @@ import { State as LinkTooltip, type Target as TooltipTarget } from "./link_toolt
 import * as resourceTooltip from "./resource_tooltip";
 import * as worktreeTooltip from "./worktree_tooltip";
 import * as worktreeAgents from "./worktree_agents";
+import * as worktreeRemoval from "./worktree_removal";
+import * as rpc from "./rpc";
 import * as worktrees from "./worktrees";
 import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
@@ -790,11 +792,14 @@ export class Controller {
     else {
       const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selected.workspace)?.worktrees;
       if (snapshot) {
+        const asleep = worktreeAgents.conversations(snapshot, selected.path, this.mergedHistory(), this.openSessions());
+        // The overview's footer says what Enter would do with them.
+        this.worktree_card.asleep = { path: selected.path, count: asleep.length };
         const ghost = worktreeAgents.group(
           snapshot,
           selected,
           this.agentEntries(selected.workspace),
-          worktreeAgents.conversations(snapshot, selected.path, this.mergedHistory(), this.openSessions()),
+          asleep,
           this.worktree_agents,
           true,
         );
@@ -1032,6 +1037,26 @@ export class Controller {
     if (this.worktreePanes(selection).length === 0) opened.off.add("close-all");
     opened.highlightFirst();
     this.tab_menu = opened;
+    this.dirty = true;
+  }
+  /** Has the daemon remove a worktree whose hold completed, over a
+   * connection of its own: removing a big checkout takes seconds, and the
+   * viewer keeps drawing the row coming apart meanwhile. */
+  private async removeWorktree(selection: worktreeAgents.Selection, next: string | null): Promise<void> {
+    const fields = { workspace: selection.workspace, path: selection.path },
+      socket = this.connection.socket;
+    let reason: string | null = null;
+    try {
+      if (socket) await rpc.request(socket, "worktree.remove", fields);
+      else await call(this.connection, "worktree.remove", fields);
+    } catch (error) {
+      reason = removalReason(errors.name(error));
+    }
+    const card = this.worktree_card;
+    card.removal.settle(milliTimestamp(), reason);
+    if (reason === null && card.selected === selection.path) card.select(next);
+    if (reason !== null && card.workspace !== selection.workspace)
+      this.notice(` Couldn't remove ${card.removal.target?.name ?? "the worktree"}: ${reason}`);
     this.dirty = true;
   }
   /** The panes of the agents listed under a worktree, folded or not. */
@@ -1455,6 +1480,30 @@ export class Controller {
       case "worktree-enter": {
         const selection = this.browsingWorktree();
         if (selection) await this.enterWorktree(selection);
+        break;
+      }
+      case "worktree-remove": {
+        // Each press or key repeat comes here; the hold decides when it's done.
+        if (this.worktreeDetail() === null) break;
+        const card = this.worktree_card,
+          ws = this.runtime.workspaces.items.find(w => w.id === card.workspace),
+          entries = worktrees.linked(ws?.worktrees ?? null),
+          index = card.index(entries),
+          checkout = entries[index];
+        if (!ws || !checkout) break;
+        const selection = { workspace: ws.id, path: checkout.path },
+          panes = this.worktreePanes(selection);
+        card.select(checkout.path);
+        this.dirty = true;
+        const target = worktreeRemoval.target(checkout, index, panes.length);
+        if (!card.removal.press(milliTimestamp(), target, card.removalEffect())) break;
+        try {
+          for (const id of panes) await this.close(id);
+        } catch {
+          card.removal.settle(milliTimestamp(), "its agents didn't close");
+          break;
+        }
+        void this.removeWorktree(selection, (entries[index + 1] ?? entries[index - 1])?.path ?? null);
         break;
       }
       case "worktree-agent": {
@@ -1887,9 +1936,8 @@ export class Controller {
     this.rememberLauncherSelection();
     this.agent_launcher = null;
   }
-  private openLauncher(pinned: boolean): void {
+  private openLauncher(pinned: boolean, cwd = this.currentCwd()): void {
     this.closeMenu();
-    const cwd = this.currentCwd();
     if (byteLength(cwd) > 10 * 1024) return;
     const launch = new LauncherMenu({
       workspace: this.current().id,
@@ -2517,6 +2565,7 @@ export class Controller {
         if (byte === 13) await this.perform({ name: "worktree-enter" });
         else if (byte === 106 || byte === 14 || byte === 9) await this.perform({ name: "worktree-next" });
         else if (byte === 107 || byte === 16) await this.perform({ name: "worktree-prev" });
+        else if (byte === 127 || byte === 8) await this.perform({ name: "worktree-remove" });
         return;
       }
     }
@@ -3253,6 +3302,7 @@ export class Controller {
       else if (this.worktree_card.pinned) {
         if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
         else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
+        else if (parsed_key === "delete") await this.perform({ name: "worktree-remove" });
       } else if (this.onboarding) {
         const wizard = this.onboarding;
         let done = false;
@@ -4332,6 +4382,11 @@ export class Controller {
       this.copy_feedback_until = 0;
       this.dirty = true;
     }
+    const removal = this.worktree_card.removal;
+    if (removal.phase !== "idle") {
+      removal.advance(milliTimestamp());
+      this.dirty = true;
+    }
     const cl = this.input_state;
     if (
       cl.attached &&
@@ -4362,11 +4417,25 @@ export class Controller {
     const key = keys.parse(input),
       event = keyboard.decode(input);
     if (
-      ["j", "k", "\r", "\t", "\x0e", "\x10", "\x1b"].includes(input) ||
+      ["j", "k", "\r", "\t", "\x0e", "\x10", "\x1b", "\x7f", "\x08"].includes(input) ||
       key === "up" ||
       key === "down" ||
+      key === "delete" ||
       key === "paste_start" ||
-      (event && [9, 13, 14, 16, 27, 106, 107, keyboard.arrow_up, keyboard.arrow_down].includes(event.codepoint))
+      (event &&
+        [
+          9,
+          13,
+          14,
+          16,
+          27,
+          106,
+          107,
+          127,
+          keyboard.arrow_up,
+          keyboard.arrow_down,
+          keys.logicalKey("delete").codepoint,
+        ].includes(event.codepoint))
     )
       this.worktree_card.pinned = true;
   }
@@ -4395,8 +4464,8 @@ export class Controller {
     return side.width > 0 && x >= 0 && x < side.width - 1 && y >= side.middle() + 2 && y < side.rows;
   }
   /** Keeps a browsed worktree in the agent list. One with no agents gets its
-   * newest conversations back as hibernated agents; otherwise its first
-   * agent takes focus. */
+   * newest conversations back as hibernated agents, or, with none, the agent
+   * picker there; otherwise its first agent takes focus. */
   private async enterWorktree(selection: worktreeAgents.Selection): Promise<void> {
     const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace)?.worktrees;
     if (!snapshot || !worktrees.linked(snapshot).some(e => e.path === selection.path)) return;
@@ -4404,7 +4473,12 @@ export class Controller {
       asleep = live
         ? []
         : worktreeAgents.conversations(snapshot, selection.path, this.mergedHistory(), this.openSessions());
-    if (!live && asleep.length === 0) this.notice(" No agents or conversations in this worktree");
+    if (!live && asleep.length === 0) {
+      if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
+      this.sidebar_open = true;
+      this.openLauncher(true, selection.path);
+      return;
+    }
     for (const e of asleep) {
       const resume = { workspace: selection.workspace, cwd: e.cwd, provider: e.provider, session: e.session };
       try {
@@ -4439,13 +4513,15 @@ export class Controller {
     const id = this.worktreeDetail();
     if (id === null) return null;
     const ws = this.runtime.workspaces.items.find(w => w.id === id);
-    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), id);
+    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), id),
+      shown = worktreeTooltip.listing(ws?.worktrees ?? null, this.worktree_card);
     return worktreeTooltip.geometry(
       this.width,
       this.height,
       this.sidebarView([]).width,
       badge?.y ?? this.worktree_card.anchor,
-      worktrees.linked(ws?.worktrees ?? null).length,
+      shown.entries.length,
+      shown.closed,
     );
   }
   private worktreeHoverContains(x: number, y: number): boolean {
@@ -4735,6 +4811,22 @@ function agentMessage(err: string, fallback: string): string {
       return " Names are one line of up to 80 characters";
     default:
       return fallback;
+  }
+}
+function removalReason(err: string | null): string {
+  switch (err) {
+    case "NoWorktree":
+      return "it's already gone";
+    case "WorktreeLocked":
+      return "it's locked";
+    case "WorktreeInUse":
+      return "a workspace is open in it";
+    case "WorktreeRemoveFailed":
+      return "git couldn't remove it";
+    case "UnknownOperation":
+      return "reload Corgi's daemon first";
+    default:
+      return err ?? "unknown error";
   }
 }
 const preview_changed = "The commits to push changed. Review them and push again.";

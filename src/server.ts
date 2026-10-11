@@ -586,6 +586,12 @@ export class Server {
         cl.queue({ ok: true });
         return;
       }
+      case "worktree.remove":
+        await this.runtime.worktree_tracker.remove(this.runtime, q.workspace, q.path);
+        this.runtime.changed();
+        this.dirty = true;
+        cl.queue({ ok: true });
+        return;
       case "onboarding.status":
       case "onboarding.handoff":
       case "onboarding.copy": {
