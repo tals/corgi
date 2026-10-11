@@ -338,7 +338,7 @@ test("without room for the preset detail, a line of keys stands in", () => {
   ]) {
     draw(menu, cols, rows, 0, s, prefs);
     const text = draw(menu, cols, rows, 1000, s, prefs).join("\n");
-    expect(text).toContain("Ctrl+B then   c tab   v - split   h j k l focus");
+    expect(text).toContain("Ctrl+B then   c tab   v - split   ← ↓ ↑ → focus");
     expect(text).not.toContain("PREFIX");
   }
 });

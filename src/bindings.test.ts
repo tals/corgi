@@ -142,3 +142,21 @@ test("keys that arrive as sequences", () => {
   ] as const)
     expect(prefixedSequence(preset, seq)).toBeNull();
 });
+
+test("arrows after the prefix repeat without it, as tmux's bind -r", async () => {
+  const { repeat, repeatSequence } = await import("./bindings");
+  const left = { codepoint: 57350, mods: {} };
+  expect(chord("corgi", true, left)).toEqual({ name: "focus", value: "left" });
+  expect(repeat("corgi", left)).toEqual({ name: "focus", value: "left" });
+  expect(repeat("tmux", left)).toEqual({ name: "focus", value: "left" });
+  expect(repeat("tmux", { codepoint: 57352, mods: { ctrl: true } })).toEqual({ name: "resize", value: "up" });
+  // Letters are what you type next, so h/j/k/l move once per prefix.
+  expect(repeat("corgi", { codepoint: 104, mods: {} })).toBeNull();
+  expect(repeat("herdr", left)).toBeNull();
+  expect(repeatSequence("corgi", "\x1b[1;2D")).toEqual({ name: "swap", value: "left" });
+  expect(repeatSequence("tmux", "\x1b[1;5D")).toEqual({ name: "resize", value: "left" });
+  expect(repeatSequence("corgi", "\x1b[Z")).toBeNull();
+  // The help shows arrows for focus and H/J/K/L for swap.
+  expect(find("corgi", { name: "focus", value: "up" })?.key).toBe(57352);
+  expect(find("corgi", { name: "swap", value: "up" })?.key).toBe(75);
+});

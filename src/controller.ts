@@ -28,6 +28,7 @@ import { Dialog, View as NameView, name_limit } from "./name_dialog";
 import * as sidebar from "./sidebar";
 import type { Entry, Target, WorkspaceEntry, Scope } from "./sidebar";
 import * as agentNavigation from "./agent_navigation";
+import * as sidebarFocus from "./sidebar_focus";
 import { Picker as AgentPicker } from "./agent_navigation";
 import { State as Navigation } from "./navigation";
 import * as navigation from "./navigation";
@@ -205,6 +206,10 @@ export class Controller {
   height = 30;
   dirty = true;
   prefix = false;
+  /** Until when a repeatable prefixed key, pressed again, runs without the prefix. */
+  repeat_until = 0;
+  /** The sidebar's keyboard cursor, while the sidebar has focus instead of a pane. */
+  sidebar_focus: sidebarFocus.State | null = null;
   /** Saved preferences as this viewer last loaded or set them. The sidebar
    * width is live while dragging and saved on release. */
   prefs = new Preferences();
@@ -338,11 +343,111 @@ export class Controller {
     await this.edit({ "workspace.close": { target: id, close_contents } });
     this.switchWorkspace(this.current().id);
   }
-  private revealWorkspace(): void {
+  private revealWorkspace(index = this.workspaceIndex()): void {
     const capacity = this.sidebarView([]).workspaceCapacity();
-    const index = this.workspaceIndex();
     if (index < this.workspace_offset) this.workspace_offset = index;
     else if (index >= this.workspace_offset + capacity) this.workspace_offset = index + 1 - capacity;
+  }
+  /** Moves focus between panes, and from the leftmost one into the sidebar. */
+  private async moveFocus(to: Direction): Promise<void> {
+    if (this.sidebar_focus) return this.steerSidebar(to, true);
+    const intent =
+      this.model().count > 0
+        ? this.navigation.command(this.runtime.workspaces, { name: "focus", value: to }, this.area())
+        : { edit: null, focus: null };
+    if (intent.focus !== null) {
+      this.focusPane(intent.focus);
+      this.copy_mode = false;
+    } else if (to === "left") this.enterSidebar();
+  }
+  private enterSidebar(): void {
+    const peek = !this.sidebar_open;
+    this.closeMenu();
+    this.sidebar_open = true;
+    if (this.sidebarView([]).width === 0) {
+      this.sidebar_open = !peek;
+      return;
+    }
+    this.copy_mode = false;
+    this.search_mode = false;
+    this.selection = null;
+    this.cancelDividers();
+    const entries = this.sidebarEntries();
+    this.sidebar_focus = new sidebarFocus.State(sidebarFocus.initial(this.current().id, entries), peek);
+    this.revealCursor(entries);
+    this.dirty = true;
+  }
+  /** Gives the keyboard back to the focused pane, hiding a sidebar that only peeked. */
+  private leaveSidebar(): void {
+    const focus = this.sidebar_focus;
+    if (!focus) return;
+    this.sidebar_focus = null;
+    if (focus.peek) this.sidebar_open = false;
+    this.dirty = true;
+  }
+  /** A plain arrow moves within the focused list; a prefixed one, `across`, between the lists. */
+  private async steerSidebar(to: Direction, across: boolean): Promise<void> {
+    if (to === "right") return this.openSidebarRow(true);
+    if (to === "left") return;
+    const entries = this.sidebarEntries();
+    if (across) this.sidebar_focus!.cross(this.current().id, entries, to === "up");
+    else this.sidebar_focus!.move(this.workspaceIds(), entries, to === "down");
+    this.revealCursor(entries);
+    this.dirty = true;
+  }
+  private revealCursor(entries: Entry[]): void {
+    const cursor = this.sidebar_focus!.cursor;
+    if ("workspace" in cursor) {
+      const index = this.runtime.workspaces.index(cursor.workspace);
+      if (index !== null) this.revealWorkspace(index);
+      return;
+    }
+    const index = agentNavigation.indexOf(entries, cursor.entry);
+    if (index !== null) this.agentOffset().set(this.sidebarView(entries).reveal(index));
+  }
+  /** Opens the cursor's row as a click would. → opens only a row that leads
+   * to a pane; on a header it goes back to the focused pane. */
+  private async openSidebarRow(arrow: boolean): Promise<void> {
+    const cursor = this.sidebar_focus!.cursor;
+    if ("workspace" in cursor) return this.switchWorkspace(cursor.workspace);
+    const target = cursor.entry;
+    const index = agentNavigation.indexOf(this.sidebarEntries(), target);
+    if (index === null) return;
+    if (sidebar.isAgent(target)) {
+      this.leaveSidebar();
+      return this.selectAgent(target);
+    }
+    if (arrow && !("recent" in target)) return this.leaveSidebar();
+    if ("group" in target) return this.selectAgent(target);
+    await this.perform({ name: "more" in target ? "worktree-more" : "worktree-agent", value: index });
+  }
+  /** Typing in the focused sidebar searches its agents. */
+  private searchSidebar(byte: number): void {
+    this.openAgentPicker();
+    if (!this.agent_picker) return;
+    this.agent_picker.query.key(byte);
+    this.pickerEntries();
+  }
+  /** The list while the sidebar has focus, its cursor the one focused row. */
+  private focusEntries(): Entry[] {
+    const entries = this.sidebarEntries();
+    this.sidebar_focus!.reconcile(this.workspaceIds(), entries);
+    return this.sidebar_focus!.mark(entries);
+  }
+  /** Runs a prefixed binding. Any but a focus move takes the keyboard back
+   * from the sidebar; a repeatable one opens its repeat window. */
+  private async runPrefixed(act: Action, repeats: boolean): Promise<void> {
+    this.prefix = false;
+    this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
+    if (act.name !== "focus") this.leaveSidebar();
+    await this.perform(act);
+  }
+  /** Whether a repeatable key came again inside its window, which it extends.
+   * The focused sidebar takes plain arrows itself. */
+  private repeats(act: Action | null): act is Action {
+    if (act === null || this.prefix || this.sidebar_focus || Date.now() >= this.repeat_until) return false;
+    this.repeat_until = Date.now() + bindings.repeat_ms;
+    return true;
   }
   focusPane(id: number): void {
     const owner = this.runtime.workspaces.owner(id);
@@ -435,17 +540,28 @@ export class Controller {
       this.folded_groups.pop();
     } else if (this.folded_groups.length < max_workspaces) this.folded_groups.push(id);
     this.sidebar_rows.discard();
+    if (index >= 0) this.revealGroup({ group: id });
     this.dirty = true;
   }
   private toggleWorktree(selection: worktreeAgents.Selection): void {
     const key = worktreeAgents.key(selection);
-    if (!this.worktree_agents.folded.delete(key)) this.worktree_agents.folded.add(key);
+    const unfolded = this.worktree_agents.folded.delete(key);
+    if (!unfolded) this.worktree_agents.folded.add(key);
     this.sidebar_rows.discard();
     // Folding from a pinned header leaves the header in its own row.
     const entries = this.sidebarEntries();
     const index = worktreeAgents.index(entries, selection);
-    if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
+    if (index >= 0) {
+      const view = this.sidebarView(entries);
+      this.agentOffset().set(unfolded ? view.revealGroup(index) : view.reveal(index));
+    }
     this.dirty = true;
+  }
+  /** Scrolls a group that just unfolded into view. */
+  private revealGroup(header: Target): void {
+    const entries = this.sidebarEntries();
+    const index = agentNavigation.indexOf(entries, header);
+    if (index !== null) this.agentOffset().set(this.sidebarView(entries).revealGroup(index));
   }
   private openScopeMenu(pinned: boolean): void {
     this.closeMenu();
@@ -806,6 +922,7 @@ export class Controller {
       this.tab_menu !== null ||
       this.port_menu !== null ||
       this.agent_picker !== null ||
+      this.sidebar_focus !== null ||
       this.agent_launcher !== null ||
       this.corgi_setup !== null ||
       this.scope_menu !== null
@@ -974,7 +1091,11 @@ export class Controller {
     this.dirty = true;
   }
   private beginPrefix(): void {
+    // A prefixed arrow moves within the sidebar, so the prefix keeps its focus.
+    const focus = this.sidebar_focus;
+    this.sidebar_focus = null;
     this.closeMenu();
+    this.sidebar_focus = focus;
     this.cancelDividers();
     this.selection = null;
     this.prefix = true;
@@ -989,6 +1110,7 @@ export class Controller {
     this.help_visible = true;
   }
   closeMenu(): void {
+    this.leaveSidebar();
     this.worktree_card.clear();
     this.help_visible = false;
     this.workspace_chooser = null;
@@ -1260,7 +1382,10 @@ export class Controller {
         if (!entry?.worktree) break;
         const key = worktreeAgents.key(entry.worktree);
         if (this.worktree_agents.expanded.has(key)) this.worktree_agents.expanded.delete(key);
-        else this.worktree_agents.expanded.add(key);
+        else {
+          this.worktree_agents.expanded.add(key);
+          this.revealGroup({ worktree: entry.worktree.path, workspace: entry.worktree.workspace });
+        }
         this.pinWorktreeInput("\t");
         this.dirty = true;
         break;
@@ -1396,9 +1521,11 @@ export class Controller {
         else if (act.name === "close") await this.close(this.nav().tab().focus);
         else await this.edit({ "tab.close": { target: this.selectedTab().id } });
         break;
+      case "focus":
+        await this.moveFocus(act.value as Direction);
+        break;
       case "rename":
       case "resize":
-      case "focus":
       case "swap":
       case "move-tab":
       case "break":
@@ -2306,6 +2433,7 @@ export class Controller {
   }
   private async key(byte: number): Promise<void> {
     const cl = this.input_state;
+    this.repeat_until = 0;
     if (this.worktreeDetail() !== null) {
       if (byte === 27) return this.perform({ name: "worktree-close" });
       if (this.worktree_card.pinned) {
@@ -2534,6 +2662,21 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    if (this.sidebar_focus && !this.prefix) {
+      switch (byte) {
+        case 27:
+          this.leaveSidebar();
+          break;
+        case 13:
+          await this.openSidebarRow(false);
+          break;
+        default:
+          if (byte === keymap.prefixByte(this.prefs.prefix)) this.beginPrefix();
+          else if (byte > 32 && byte < 127) this.searchSidebar(byte);
+      }
+      this.dirty = true;
+      return;
+    }
     if (this.port_menu) {
       const links = this.port_menu;
       switch (byte) {
@@ -2662,7 +2805,7 @@ export class Controller {
         return;
       }
       const act = bindings.lookup(this.prefs.preset, true, byte, {});
-      if (act) await this.perform(act);
+      if (act) await this.runPrefixed(act, false);
       return;
     }
     if (byte === keymap.prefixByte(this.prefs.prefix)) {
@@ -2988,6 +3131,13 @@ export class Controller {
             used += len;
             continue;
           }
+          const repeated = bindings.repeat(this.prefs.preset, key_event);
+          if (this.repeats(repeated)) {
+            await this.perform(repeated);
+            used += len;
+            continue;
+          }
+          this.repeat_until = 0;
           if (
             this.onboarding === null &&
             this.name_dialog === null &&
@@ -2996,8 +3146,8 @@ export class Controller {
           ) {
             const act = bindings.chord(this.prefs.preset, this.prefix, key_event);
             if (act) {
-              this.prefix = false;
-              await this.perform(act);
+              if (this.prefix) await this.runPrefixed(act, repeated !== null);
+              else await this.perform(act);
               used += len;
               continue;
             }
@@ -3033,6 +3183,7 @@ export class Controller {
       }
       const text = latin1(seq);
       const parsed_key = keys.parse(text);
+      const again = cl.paste === null ? bindings.repeatSequence(this.prefs.preset, text) : null;
       if (parsed_key === "paste_start" || parsed_key === "paste_end") {
         if (parsed_key === "paste_start") cl.paste = this.pasteTarget();
         // The markers reach only an application that asked for them.
@@ -3049,6 +3200,7 @@ export class Controller {
         this.pointer = null;
         this.dirty = true;
       } else if (text.startsWith("\x1b[<")) await this.mouse(text);
+      else if (this.repeats(again)) await this.perform(again);
       else if (this.worktree_card.pinned) {
         if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
         else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
@@ -3064,14 +3216,15 @@ export class Controller {
         this.dirty = true;
       } else if (this.prefix) {
         const act = bindings.prefixedSequence(this.prefs.preset, text);
-        if (act) {
-          this.prefix = false;
-          await this.perform(act);
-        } else if (this.help_visible) this.help.sequence(text);
+        if (act) await this.runPrefixed(act, again !== null);
+        else if (this.help_visible) this.help.sequence(text);
         this.dirty = true;
       } else if (this.workspace_chooser !== null) {
         if (parsed_key === "up") await this.key(16);
         else if (parsed_key === "down") await this.key(14);
+      } else if (this.sidebar_focus) {
+        if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
+          await this.steerSidebar(parsed_key, false);
       } else if (this.agent_picker) {
         if (parsed_key === "up" || parsed_key === "shift_tab") this.moveAgentPicker(false);
         else if (parsed_key === "down") this.moveAgentPicker(true);
@@ -3236,6 +3389,11 @@ export class Controller {
       if (release) this.ui_mouse_down = false;
       this.dirty = true;
       return;
+    }
+    // A click gives the keyboard back; one in a peeking sidebar keeps it shown.
+    if (this.sidebar_focus && !release && (button & 0xe0) === 0) {
+      if (x < this.sidebarView([]).width) this.sidebar_focus.peek = false;
+      this.leaveSidebar();
     }
     // The prefix bar has no mouse targets. A click resumes normal UI input.
     if (this.prefix && !release && (button & 0xe0) === 0) this.closeMenu();
@@ -4067,6 +4225,7 @@ export class Controller {
   }
   reconcile(): void {
     if (this.agent_picker && this.agent_picker.workspace !== this.current().id) this.agent_picker = null;
+    if (this.sidebar_focus && this.sidebarView([]).width === 0) this.leaveSidebar();
     if (this.port_menu) {
       const links = this.port_menu;
       const count = sidebar.urlCount(this.portWorkspaceEntry(links.workspace));
@@ -4373,7 +4532,11 @@ export class Controller {
       return output.buffered();
     }
     this.rememberAgent();
-    const entries = this.agent_picker ? this.pickerEntries() : this.sidebarEntries();
+    const entries = this.agent_picker
+      ? this.pickerEntries()
+      : this.sidebar_focus
+        ? this.focusEntries()
+        : this.sidebarEntries();
     if (!this.agent_picker) this.revealLaunched(entries);
     this.revealTab();
     if (this.pointer) {
@@ -4419,6 +4582,7 @@ export class Controller {
         copy_feedback: this.copy_feedback_until > milliTimestamp(),
         copy_mode: this.copy_mode,
         prefix: this.prefix,
+        sidebar_focus: this.sidebar_focus !== null,
         menu: this.menu(),
         tab_menu: this.tab_menu,
         port_menu: this.port_menu,
@@ -4466,7 +4630,9 @@ export class Controller {
           options: this.launch_previews.preview.options,
           system: this.runtime.inference.provider,
         }),
-        workspaces: this.workspaceEntries(),
+        workspaces: this.sidebar_focus
+          ? this.sidebar_focus.markWorkspaces(this.workspaceEntries())
+          : this.workspaceEntries(),
         workspace_offset: this.workspace_offset,
       }),
     );

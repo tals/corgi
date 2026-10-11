@@ -206,6 +206,7 @@ export function panes(c: Column) {
       c.width >= 30 ? top : c.rows.length,
     );
   if (c.preset === "cmux") c.binding("Also focus", "P h j k l", 2);
+  if (c.preset === "corgi") c.binding("Also focus", "h j k l", 2);
   c.action("Next pane", act("next-pane"), 2);
   c.action("Previous pane", act("prev-pane"), 2);
   c.action("Close", act("close"), 2);

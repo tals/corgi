@@ -205,3 +205,142 @@ test("open adds a workspace for a folder no workspace is on", async () => {
     viewer.close(s);
   }
 });
+
+/** Two agents side by side in workspace 1, and one in workspace 2. */
+function pair() {
+  return {
+    workspaces: [
+      {
+        id: 1,
+        name: "/a",
+        cwd: "/a",
+        model: {
+          nodes: [{ split: { axis: "horizontal", ratio: 500, first: 1, second: 2 } }, { pane: 1 }, { pane: 2 }],
+          tabs: [{ id: 1, root: 0, title: "" }],
+          revision: 0,
+        },
+      },
+      {
+        id: 2,
+        name: "/b",
+        cwd: "/b",
+        model: { nodes: [{ pane: 3 }], tabs: [{ id: 2, root: 0, title: "" }], revision: 0 },
+      },
+    ],
+    panes: [1, 2, 3].map(id => ({
+      id,
+      workspace: id < 3 ? 1 : 2,
+      tab: id < 3 ? 1 : 2,
+      cols: 40,
+      rows: 24,
+      agent: {
+        provider: "claude",
+        name: `agent ${id}`,
+        state: "idle",
+        attention: "none",
+        observation: { completed: 0, read: 0 },
+      },
+    })),
+    conversations: [],
+    native_sessions: [],
+  };
+}
+/** A controller on `pair()` that records what panes are sent. */
+function steering() {
+  const s = controller();
+  s.input_state.attached = true;
+  s.receiveSnapshot(pair());
+  const sent: [number, string][] = [];
+  s.sendInput = (term: any, data: any) => sent.push([term.id, Buffer.from(data).toString()]);
+  return { s, sent };
+}
+
+test("prefixed arrows walk the panes into the sidebar, which opens the agent under its cursor", async () => {
+  const { s, sent } = steering();
+  try {
+    s.focusPane(2);
+    await s.input(bytes("\x02\x1b[D"));
+    expect(s.focused().id).toBe(1);
+    // Inside the repeat window, the next arrow needs no prefix.
+    await s.input(bytes("\x1b[D"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+    expect(s.frame()).toContain("SIDEBAR");
+    // Plain arrows stay in the agent list and wrap, inside the repeat window too.
+    await s.input(bytes("\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
+    await s.input(bytes("\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+    // A prefixed arrow crosses to the workspaces, and back to the agent it left.
+    await s.input(bytes("\x02\x1b[A"));
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
+    await s.input(bytes("\x02\x1b[B\x1b[A"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
+    await s.key(13);
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.focused().id).toBe(2);
+    expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a workspace row opens that workspace; Esc leaves the sidebar as it was", async () => {
+  const { s, sent } = steering();
+  try {
+    s.focusPane(1);
+    await s.input(bytes("\x02\x1b[D\x02\x1b[A\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 2 });
+    await s.key(27);
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.current().id).toBe(1);
+    await s.input(bytes("\x02\x1b[D\x02\x1b[A\x1b[A\x1b[C"));
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.current().id).toBe(2);
+    expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("the repeat window closes with time or another key, and the arrow goes to the pane", async () => {
+  const { s, sent } = steering();
+  try {
+    s.focusPane(1);
+    await s.input(bytes("\x02\x1b[C"));
+    expect(s.focused().id).toBe(2);
+    s.repeat_until = Date.now() - 1;
+    await s.input(bytes("\x1b[D"));
+    expect(s.focused().id).toBe(2);
+    await s.input(bytes("\x02\x1b[Dx\x1b[C"));
+    expect(s.focused().id).toBe(1);
+    expect(sent.map(([, text]) => text).join("")).toContain("x");
+    expect(sent.at(-1)![0]).toBe(1);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a hidden sidebar shows while it has focus, and a prefixed command hands the keyboard back", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const { s } = steering();
+  try {
+    s.sidebar_open = false;
+    s.focusPane(1);
+    await s.input(bytes("\x02\x1b[D"));
+    expect(s.sidebar_open).toBe(true);
+    await s.key(27);
+    expect(s.sidebar_open).toBe(false);
+    await s.input(bytes("\x02\x1b[D"));
+    // The prefix keeps the sidebar's focus for an arrow ...
+    await s.input(bytes("\x02\x1b[A"));
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
+    // ... and gives it back for anything else.
+    await s.input(bytes("\x02m"));
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.sidebar_open).toBe(false);
+    expect(s.focused().id).toBe(1);
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});

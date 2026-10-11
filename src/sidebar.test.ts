@@ -10,6 +10,7 @@ import { Writer, displayWidth, writeClipped, writeDirectory, directoryLabel } fr
 import {
   View,
   entry,
+  groupEnd,
   workspaceEntry,
   work,
   drawResources,
@@ -991,4 +992,38 @@ test("a dragged split moves the agents header within bounds", () => {
   expect(View.init(100, 30, true, 0, 0, 2).middle()).toBe(6);
   expect(View.init(100, 30, true, 0, 0, 40).middle()).toBe(25);
   expect(View.init(100, 30, true, 0, 0, 10).listRows()).toBe(18);
+});
+
+test("an unfolded group scrolls into view as far as it fits, its header at most on top", () => {
+  const header = (id: number) =>
+    entry({ target: { group: id }, group: { agents: 0, working: 0, attention: 0, folded: false, current: false } });
+  const agents = (from: number, n: number) =>
+    Array.from({ length: n }, (_, i) => entry({ target: { pane: from + i } }));
+  // 14 list rows: the first group takes 11, so the second's header sits on the 12th.
+  const small = [header(1), ...agents(1, 5), header(2), ...agents(10, 2)];
+  let view = View.init(100, 30, true, 0, small.length).withEntries(small);
+  const shown = view.revealGroup(6);
+  expect(shown).toBeGreaterThan(0);
+  expect(shown).toBeLessThanOrEqual(6);
+  view = View.init(100, 30, true, shown, small.length).withEntries(small);
+  expect(small.length - 1).toBeLessThan(shown + view.fits(shown));
+  // A group longer than the list stops with its header on top.
+  const big = [header(1), ...agents(1, 5), header(2), ...agents(10, 9)];
+  expect(View.init(100, 30, true, 0, big.length).withEntries(big).revealGroup(6)).toBe(6);
+  // One already in view doesn't move the list.
+  const near = [header(1), ...agents(1, 1), header(2), ...agents(10, 2)];
+  expect(View.init(100, 30, true, 0, near.length).withEntries(near).revealGroup(2)).toBe(0);
+});
+
+test("a worktree's group runs while rows are its checkout's", () => {
+  const info = { workspace: 1, path: "/w", ghost: false };
+  const entries = [
+    entry({ target: { worktree: "/w", workspace: 1 }, worktree: info }),
+    entry({ target: { pane: 1 }, worktree: info }),
+    entry({ target: { more: "/w", workspace: 1 }, worktree: info }),
+    entry({ target: { worktree: "/v", workspace: 1 }, worktree: { ...info, path: "/v" } }),
+    entry({ target: { pane: 2 } }),
+  ];
+  expect(groupEnd(entries, 0)).toBe(3);
+  expect(groupEnd(entries, 3)).toBe(4);
 });

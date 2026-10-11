@@ -85,6 +85,22 @@ export function sameTarget(a: Target | null | undefined, b: Target | null | unde
   );
 }
 export const isGroup = (t: Target): t is { group: number } => "group" in t;
+/** Just past the rows header `index` holds: a workspace group's run to the
+ * next workspace, a worktree's are its checkout's. */
+export function groupEnd(entries: Entry[], index: number): number {
+  const header = entries[index]?.target;
+  let end = index + 1;
+  if (header && isGroup(header)) while (end < entries.length && !isGroup(entries[end].target)) end += 1;
+  else if (header && "worktree" in header)
+    while (
+      end < entries.length &&
+      !isHeading(entries[end].target) &&
+      entries[end].worktree?.path === header.worktree &&
+      entries[end].worktree?.workspace === header.workspace
+    )
+      end += 1;
+  return end;
+}
 export interface Search {
   text: string;
   /** An index into `text`, which is ASCII, so also a column. */
@@ -478,6 +494,11 @@ export class View {
     result.offset = Math.min(this.offset, result.maxOffset());
     result.capacity = result.fits(result.offset);
     return result;
+  }
+  /** The scroll that shows group `index` as it unfolds: as much of it as
+   * fits, but never past its header on top. */
+  revealGroup(index: number): number {
+    return Math.min(this.reveal(Math.max(index, groupEnd(this.entries, index) - 1)), index);
   }
   /** The smallest scroll change that shows entry `index`. */
   reveal(index: number): number {
@@ -1016,7 +1037,7 @@ export class View {
   /** A worktree group's recent session, its "… more" row or its empty note,
    * on the group's rail and aligned with agent names. */
   drawWorktree(w: Writer, e: Entry, y: number, last: boolean): void {
-    const style = new Style({ fg: "text", bg: "bg" }).sgr();
+    const style = new Style({ fg: "text", bg: e.focused ? "selected" : "bg" }).sgr();
     const height = e.recent ? 2 : 1;
     for (let row = 0; row < height; row++) {
       w.write(`\x1b[${y + row + 1};1H${style}`);

@@ -78,6 +78,8 @@ export interface Ui {
   copy_feedback: boolean;
   /** The prefix key was pressed and waits for the next one. */
   prefix: boolean;
+  /** The sidebar has the keyboard instead of the focused pane. */
+  sidebar_focus: boolean;
   menu: ResizeView | null;
   tab_menu: TabMenu | null;
   port_menu: PortMenu | null;
@@ -130,6 +132,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     },
     copy_feedback: false,
     prefix: false,
+    sidebar_focus: false,
     menu: null,
     tab_menu: null,
     port_menu: null,
@@ -304,7 +307,8 @@ function noOverlay(u: Ui): boolean {
     u.tab_menu === null &&
     u.port_menu === null &&
     u.worktree_card === null &&
-    u.dialog === null
+    u.dialog === null &&
+    !u.sidebar_focus
   );
 }
 /** An open overlay reaches the badge. The launcher and scope menu open clear of it. */
@@ -572,7 +576,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
       );
     }
   }
-  drawDividers(w, view, area);
+  drawDividers(w, view, area, !u.sidebar_focus);
   // The host may leave its last mouse report at the window edge.
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
@@ -591,7 +595,13 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     const text =
       hovered_uri ??
       unplaced ??
-      (u.message.length > 0 ? u.message : u.copy_mode ? "SCROLL  j/k move  y copy viewport  q exit" : "");
+      (u.message.length > 0
+        ? u.message
+        : u.copy_mode
+          ? "SCROLL  j/k move  y copy viewport  q exit"
+          : u.sidebar_focus
+            ? "SIDEBAR  ↑↓ move  ↵ open  Esc back"
+            : "");
     writeChip(w, text, width, height, u.pointer);
   }
   // The prefix bar covers the area's last row.
@@ -857,11 +867,12 @@ function dividerGlyph(up: boolean, down: boolean, left: boolean, right: boolean,
   if (down) return left ? "┐" : right ? "┌" : "│";
   return horizontal ? "│" : "─";
 }
-export function drawDividers(w: Writer, view: LayoutView, area: Rect): void {
+/** Without `outline`, as while the sidebar has focus, no pane's border stands out. */
+export function drawDividers(w: Writer, view: LayoutView, area: Rect, outline = true): void {
   const borders: Border[] = view.borders(area);
   let focused = new Rect();
   for (const place of view.placements(area))
-    if (place.id === view.selection.tabs[view.selection.active].focus) focused = place.rect;
+    if (outline && place.id === view.selection.tabs[view.selection.active].focus) focused = place.rect;
   for (const border of borders) {
     const r = border.rect;
     for (let y = r.y; y < r.y + r.h; y++) {

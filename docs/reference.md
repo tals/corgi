@@ -132,9 +132,21 @@ it through to the child. Resize has its own clickable direction menu.
 
 Section headings and Focus/Swap/Split diagrams organize the active preset.
 Both columns scroll together with PageUp/PageDown or the wheel; arrows also
-scroll except in tmux, where they focus panes. Below 60 columns the columns
+scroll in Herdr, and focus panes in the other presets. Below 60 columns the columns
 stack. Action keys retain their usual meaning: for example, Corgi j/k focus panes
 and q detaches. The prefix and Back control stay visible.
+
+Arrows after the prefix move focus and repeat as tmux's do: within half a
+second of one, the next arrow needs no prefix. Any other key ends the repeat
+and goes to the pane. Corgi's `h/j/k/l` also move focus, once per prefix.
+
+`prefix ←` from the leftmost pane moves focus into the agent list, which shows
+while it has focus even when hidden. Up and Down move through the list and wrap
+at its ends; `prefix ↑` moves to the workspace list and `prefix ↓` back, as
+between panes. Enter opens the row as a click would; Right opens an agent, a
+recent session or a workspace, and otherwise returns to the pane. Esc returns without changing anything, and typing starts an agent search
+as `prefix g` does. Any other prefixed command, or a click, gives the keyboard
+back to the pane.
 
 Click **+** after the visible tabs, choose **New tab** from a menu, or press `prefix c` to open the agent picker, which starts an agent or a terminal in a new tab. Unnamed tabs store no name: their displayed numbers are recomputed as tabs move or close. The + button remains visible when tabs overflow. The CLI/control API creates tabs immediately, unnamed unless an explicit title is supplied.
 
@@ -172,14 +184,14 @@ prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
 | Jump to attention | `prefix f`, `F1` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
 | New agent | `prefix a`, `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix a`, `prefix A`, `prefix Ctrl+A` |
 | Mute / unmute sounds | `prefix m` | `prefix m` | `prefix m` | `prefix m` |
-| Focus left | `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix h` |
-| Focus down | `prefix j` | `prefix ↓` | `prefix j` | `Cmd+Opt+↓`, `prefix j` |
-| Focus up | `prefix k` | `prefix ↑` | `prefix k` | `Cmd+Opt+↑`, `prefix k` |
-| Focus right | `prefix l` | `prefix →` | `prefix l` | `Cmd+Opt+→`, `prefix l` |
-| Swap left | `prefix H` |  | `prefix H` | `prefix H` |
-| Swap down | `prefix J` |  | `prefix J` | `prefix J` |
-| Swap up | `prefix K` |  | `prefix K` | `prefix K` |
-| Swap right | `prefix L` |  | `prefix L` | `prefix L` |
+| Focus left | `prefix ←`, `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix ←`, `prefix h` |
+| Focus down | `prefix ↓`, `prefix j` | `prefix ↓` | `prefix j` | `Cmd+Opt+↓`, `prefix ↓`, `prefix j` |
+| Focus up | `prefix ↑`, `prefix k` | `prefix ↑` | `prefix k` | `Cmd+Opt+↑`, `prefix ↑`, `prefix k` |
+| Focus right | `prefix →`, `prefix l` | `prefix →` | `prefix l` | `Cmd+Opt+→`, `prefix →`, `prefix l` |
+| Swap left | `prefix H`, `prefix Shift+←` |  | `prefix H` | `prefix H`, `prefix Shift+←` |
+| Swap down | `prefix J`, `prefix Shift+↓` |  | `prefix J` | `prefix J`, `prefix Shift+↓` |
+| Swap up | `prefix K`, `prefix Shift+↑` |  | `prefix K` | `prefix K`, `prefix Shift+↑` |
+| Swap right | `prefix L`, `prefix Shift+→` |  | `prefix L` | `prefix L`, `prefix Shift+→` |
 | Next pane |  | `prefix o` | `prefix Tab` |  |
 | Previous pane |  |  | `prefix Shift+Tab` |  |
 | Split right | `prefix v`, `prefix %` | `prefix %` | `prefix v` | `Cmd+D`, `prefix v`, `prefix %` |

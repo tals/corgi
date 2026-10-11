@@ -8,7 +8,11 @@ export interface Binding {
   mods: Mods;
   prefixed: boolean;
   action: Action;
+  /** Pressed again soon after, it runs without the prefix, like tmux's `bind -r`. */
+  repeat?: boolean;
 }
+/** How long a repeatable binding waits for its next press: tmux's `repeat-time`. */
+export const repeat_ms = 500;
 const tables: Record<Preset, Binding[]> = {
   corgi: [
     { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
@@ -36,6 +40,10 @@ const tables: Record<Preset, Binding[]> = {
     { key: 102, mods: {}, prefixed: true, action: { name: "attention" } },
     { key: 97, mods: {}, prefixed: true, action: { name: "new-agent" } },
     { key: 109, mods: {}, prefixed: true, action: { name: "mute" } },
+    { key: 57350, mods: {}, prefixed: true, action: { name: "focus", value: "left" }, repeat: true },
+    { key: 57353, mods: {}, prefixed: true, action: { name: "focus", value: "down" }, repeat: true },
+    { key: 57352, mods: {}, prefixed: true, action: { name: "focus", value: "up" }, repeat: true },
+    { key: 57351, mods: {}, prefixed: true, action: { name: "focus", value: "right" }, repeat: true },
     {
       key: 104,
       mods: {},
@@ -84,6 +92,10 @@ const tables: Record<Preset, Binding[]> = {
       prefixed: true,
       action: { name: "swap", value: "right" },
     },
+    { key: 57350, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "left" }, repeat: true },
+    { key: 57353, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "down" }, repeat: true },
+    { key: 57352, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "up" }, repeat: true },
+    { key: 57351, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "right" }, repeat: true },
     {
       key: 118,
       mods: {},
@@ -173,24 +185,28 @@ const tables: Record<Preset, Binding[]> = {
       mods: {},
       prefixed: true,
       action: { name: "focus", value: "left" },
+      repeat: true,
     },
     {
       key: 57353,
       mods: {},
       prefixed: true,
       action: { name: "focus", value: "down" },
+      repeat: true,
     },
     {
       key: 57352,
       mods: {},
       prefixed: true,
       action: { name: "focus", value: "up" },
+      repeat: true,
     },
     {
       key: 57351,
       mods: {},
       prefixed: true,
       action: { name: "focus", value: "right" },
+      repeat: true,
     },
     { key: 111, mods: {}, prefixed: true, action: { name: "next-pane" } },
     {
@@ -210,24 +226,28 @@ const tables: Record<Preset, Binding[]> = {
       mods: { ctrl: true },
       prefixed: true,
       action: { name: "resize", value: "left" },
+      repeat: true,
     },
     {
       key: 57353,
       mods: { ctrl: true },
       prefixed: true,
       action: { name: "resize", value: "down" },
+      repeat: true,
     },
     {
       key: 57352,
       mods: { ctrl: true },
       prefixed: true,
       action: { name: "resize", value: "up" },
+      repeat: true,
     },
     {
       key: 57351,
       mods: { ctrl: true },
       prefixed: true,
       action: { name: "resize", value: "right" },
+      repeat: true,
     },
     { key: 122, mods: {}, prefixed: true, action: { name: "zoom" } },
     { key: 33, mods: {}, prefixed: true, action: { name: "break" } },
@@ -644,6 +664,10 @@ const tables: Record<Preset, Binding[]> = {
     { key: 102, mods: {}, prefixed: true, action: { name: "attention" } },
     { key: 97, mods: {}, prefixed: true, action: { name: "new-agent" } },
     { key: 109, mods: {}, prefixed: true, action: { name: "mute" } },
+    { key: 57350, mods: {}, prefixed: true, action: { name: "focus", value: "left" }, repeat: true },
+    { key: 57353, mods: {}, prefixed: true, action: { name: "focus", value: "down" }, repeat: true },
+    { key: 57352, mods: {}, prefixed: true, action: { name: "focus", value: "up" }, repeat: true },
+    { key: 57351, mods: {}, prefixed: true, action: { name: "focus", value: "right" }, repeat: true },
     {
       key: 104,
       mods: {},
@@ -692,6 +716,10 @@ const tables: Record<Preset, Binding[]> = {
       prefixed: true,
       action: { name: "swap", value: "right" },
     },
+    { key: 57350, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "left" }, repeat: true },
+    { key: 57353, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "down" }, repeat: true },
+    { key: 57352, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "up" }, repeat: true },
+    { key: 57351, mods: { shift: true }, prefixed: true, action: { name: "swap", value: "right" }, repeat: true },
     {
       key: 118,
       mods: {},
@@ -752,17 +780,30 @@ export function chord(preset: Preset, prefixed: boolean, k: Key): Action | null 
   if (cp < 128 && sameMods(k.mods, {})) return null;
   return (prefixed ? lookup(preset, true, cp, k.mods) : null) ?? lookup(preset, false, cp, k.mods);
 }
-export function prefixedSequence(preset: Preset, seq: string): Action | null {
-  if (seq === "\x1b[Z") return lookup(preset, true, 9, { shift: true });
+/** The key a legacy sequence `keyboard.decode` leaves alone names: Shift+Tab or a modified arrow. */
+function sequenceKey(seq: string): Key | null {
+  if (seq === "\x1b[Z") return { codepoint: 9, mods: { shift: true } };
   const m = /^\x1b\[1;([2-9])([ABCD])$/.exec(seq);
   if (!m) return null;
   const bits = Number(m[1]) - 1;
-  return lookup(preset, true, { A: 57352, B: 57353, C: 57351, D: 57350 }[m[2]]!, {
-    shift: !!(bits & 1),
-    alt: !!(bits & 2),
-    ctrl: !!(bits & 4),
-    super: !!(bits & 8),
-  });
+  return {
+    codepoint: { A: 57352, B: 57353, C: 57351, D: 57350 }[m[2]]!,
+    mods: { shift: !!(bits & 1), alt: !!(bits & 2), ctrl: !!(bits & 4), super: !!(bits & 8) },
+  };
+}
+export function prefixedSequence(preset: Preset, seq: string): Action | null {
+  const k = sequenceKey(seq);
+  return k ? lookup(preset, true, k.codepoint, k.mods) : null;
+}
+/** The prefixed action `k` runs without the prefix while its repeat window is open. */
+export function repeat(preset: Preset, k: Key): Action | null {
+  return (
+    table(preset).find(b => b.repeat && b.prefixed && b.key === k.codepoint && sameMods(b.mods, k.mods))?.action ?? null
+  );
+}
+export function repeatSequence(preset: Preset, seq: string): Action | null {
+  const k = sequenceKey(seq);
+  return k ? repeat(preset, k) : null;
 }
 export function find(preset: Preset, action: Action): Binding | null {
   return table(preset).find(b => b.action.name === action.name && b.action.value === action.value) ?? null;
