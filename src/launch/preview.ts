@@ -75,6 +75,7 @@ export class Worker {
   quit = Quit.init();
   stopping = false;
   running = false;
+  private pending: Promise<void> | null = null;
   jobs: {
     cwd: string;
     preview: Preview;
@@ -90,11 +91,12 @@ export class Worker {
   static start() {
     return new Worker();
   }
-  stop() {
+  async stop() {
     this.stopping = true;
     this.quit.signal();
     this.pool.close();
     this.claude_client.close();
+    await this.pending;
   }
   preview(cwd: string) {
     return this.request(cwd, false);
@@ -136,8 +138,19 @@ export class Worker {
     void this.pump();
     return preview;
   }
-  async pump() {
-    if (this.running || this.stopping) return;
+  pump(): Promise<void> {
+    if (this.stopping) return Promise.resolve();
+    if (this.pending) return this.pending;
+    const pending = this.drain();
+    this.pending = pending;
+    void pending
+      .finally(() => {
+        if (this.pending === pending) this.pending = null;
+      })
+      .catch(() => {});
+    return pending;
+  }
+  private async drain() {
     this.running = true;
     try {
       for (;;) {
@@ -164,12 +177,13 @@ export class Worker {
       else {
         out = new Option();
         try {
-          const model = await this.pool.configuredModel(job.cwd);
+          const model = await this.pool.configuredModel(job.cwd, this.quit.abortSignal);
           out.setModel(model.text(), "Effective Codex settings");
         } catch {
           out.source = new Text("Model resolved by Codex at startup");
         }
       }
+      if (this.stopping) return;
       try {
         const account = p === "claude" ? await this.claude_client.preview(this, this.quit) : await this.codexAccount();
         for (const key of [
@@ -213,7 +227,7 @@ export class Worker {
       cache.state.next_usage = now + interval;
       cache.save();
       try {
-        cache.state.update(await this.pool.configuredAccount(), Math.floor(Date.now() / 1000));
+        cache.state.update(await this.pool.configuredAccount(this.quit.abortSignal), Math.floor(Date.now() / 1000));
       } catch (e) {
         cache.state.failed(errors.is(e, "Timeout") ? "request timed out" : "account read failed");
       }

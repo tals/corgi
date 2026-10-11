@@ -20,10 +20,8 @@ export class Service {
   startHistory() {
     return (this.launch_history ??= HistoryWorker.start());
   }
-  stop() {
-    this.command_previews.stop();
-    this.launch_previews.stop();
-    this.launch_history?.stop();
+  async stop() {
+    await Promise.all([this.command_previews.stop(), this.launch_previews.stop(), this.launch_history?.stop()]);
   }
 }
 const services = new WeakMap<Server, Service>();
@@ -35,9 +33,10 @@ export function service(server: Server) {
   }
   return value;
 }
-export function stop(server: Server) {
-  services.get(server)?.stop();
+export async function stop(server: Server) {
+  const service = services.get(server);
   services.delete(server);
+  await service?.stop();
 }
 export async function request(server: Server, client: Client, op: string, q: any) {
   const s = service(server);

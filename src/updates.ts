@@ -493,7 +493,11 @@ async function worker(exe: string, socket: string) {
         }
         next = now + 3600000 + Math.random() * 300000;
       }
-      await Bun.sleep(30000);
+      const wake = Date.now() + 30000;
+      while (Date.now() < wake) {
+        if (existsSync(join(root, "auto-off")) || !existsSync(socket)) return;
+        await Bun.sleep(250);
+      }
     }
   } finally {
     unlock();

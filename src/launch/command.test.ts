@@ -1,10 +1,39 @@
 import { test, expect } from "bun:test";
-import { Entry, identify, wrapperBody, analyze, shell, shellStatus, installedShells } from "./command";
-import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { Entry, Worker, identify, wrapperBody, analyze, shell, shellStatus, installedShells } from "./command";
+import { existsSync, readFileSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findExecutable, loginShell } from "../os";
 import * as settings from "../settings";
+
+test("stopping command previews cancels and reaps an active shell lookup", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-command-stop-")),
+    saved = process.env.CORGI_ENV_DIR,
+    worker = Worker.start(),
+    pidFile = join(root, "pid"),
+    executable = join(root, "bash");
+  try {
+    process.env.CORGI_ENV_DIR = root;
+    writeFileSync(executable, `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec /bin/sleep 60\n`, { mode: 0o755 });
+    settings.update(settings.path(), { shell: executable });
+    const result = worker.request(1, "alias_to_resolve", root),
+      deadline = Date.now() + 1000;
+    while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
+    expect(existsSync(pidFile)).toBe(true);
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    await worker.stop();
+    expect(result.pending).toBe(false);
+    expect(result.error_message).toBe("Cancelled");
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(() => worker.request(2, "another_alias", root)).toThrow("Cancelled");
+  } finally {
+    await worker.stop();
+    if (saved === undefined) delete process.env.CORGI_ENV_DIR;
+    else process.env.CORGI_ENV_DIR = saved;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("command labels skip inline assignments and wrappers without changing source", () => {
   for (const s of [
     "FOO=123 claude code --whatever",

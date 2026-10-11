@@ -43,6 +43,7 @@ import { tmpdir } from "node:os";
 import { Terminal } from "../src/pane/terminal";
 import { write_ordinary_agent } from "../tests/provider_sim";
 import * as ghostty from "./ghostty_themes";
+import { Scope } from "../scripts/process_scope";
 
 const ROOT = resolve(import.meta.dir, "..");
 export const BINARIES: Record<string, string> = {
@@ -124,6 +125,13 @@ export class Session {
   cwd: string;
   env: Record<string, string | undefined>;
   records: Record_[] = [];
+  private scope: Scope | null = null;
+  private async ownProcesses() {
+    if (!this.scope) {
+      this.scope = await Scope.start(this.env);
+      this.env = this.scope.env;
+    }
+  }
   /** The Ghostty theme this terminal plays, once `theme` sets one. */
   theme: ghostty.GhosttyTheme | null = null;
   /** Where the next scan for color queries starts in `output`. */
@@ -209,6 +217,7 @@ export class Session {
     if (this.proc) this.write(`\x1b[?997;${fg > bg ? 1 : 2}n`);
   }
   async seed(command: string) {
+    await this.ownProcesses();
     const p = Bun.spawn(["/bin/sh", "-c", command], {
       env: this.env,
       cwd: this.cwd,
@@ -218,6 +227,7 @@ export class Session {
     await p.exited;
   }
   async start() {
+    await this.ownProcesses();
     if (this.daemon !== this.exe) {
       const p = Bun.spawn([this.daemon, "start"], {
         env: this.env,
@@ -407,6 +417,7 @@ export class Session {
     } catch {}
     this.screen.destroy();
     this.terminal.close();
+    await this.scope?.assertClean();
     if (!process.env.PROBE_KEEP) rmSync(this.home, { recursive: true, force: true });
     else console.error(`kept ${this.home}`);
   }

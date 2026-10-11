@@ -69,6 +69,33 @@ test("configured metadata creates no model turn", async () => {
   expect(p.started).toBe(false);
 });
 
+test("closing a pool cancels a provider that is still initializing", async () => {
+  using p = pool("codex");
+  const pending = p.metadata();
+  p.close();
+  await expect(pending).rejects.toThrow("Cancelled");
+  expect(p.slots.every(s => s === null)).toBe(true);
+  // Closing resets a pool; changing providers may open it again.
+  expect((await p.configuredModel("/tmp")).text()).toBe("fixture-codex");
+});
+
+test("concurrent metadata readers share one starting provider", async () => {
+  using p = pool("codex");
+  const [first, second] = await Promise.all([p.metadata(), p.metadata()]);
+  expect(first).toBe(second);
+  expect(p.slots.filter(Boolean)).toHaveLength(1);
+});
+
+test("cancelled metadata cannot restart a closed pool", async () => {
+  using p = pool("codex");
+  const abort = new AbortController();
+  await p.configuredModel("/tmp", abort.signal);
+  abort.abort();
+  p.close();
+  await expect(p.configuredAccount(abort.signal)).rejects.toThrow("Cancelled");
+  expect(p.slots.every(s => s === null)).toBe(true);
+});
+
 test("fresh content replaces content only when the conversation starts", async () => {
   for (const provider of ["codex", "claude"] as const) {
     using p = pool(provider);

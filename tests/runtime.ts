@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { EXE, ROOT, TestCase, JsonSocket, run, sleep, tempDir, quote, writeExecutable } from "./support";
 import { Viewer, pump } from "./viewer_client";
 import { NATIVE_PROVIDER, write_ordinary_agent } from "./provider_sim";
+import { Scope } from "../scripts/process_scope";
 export { EXE, ROOT, Viewer };
 export const FAKE = NATIVE_PROVIDER;
 const TOKENS = [
@@ -114,17 +115,19 @@ export class Runtime extends TestCase {
   proc: any = null;
   pty: any = null;
   private started = false;
+  private scope: Scope | null = null;
   // Private names: subclasses define their own `calls()` and `call()`.
   #calls: JsonSocket | null = null;
   #callsSent = 0;
   #callQueue: Promise<unknown> = Promise.resolve();
   #changes: JsonSocket | null = null;
   async setUp() {
+    this.scope = await Scope.start();
     this.temp = tempDir();
     this.path = join(this.temp.name, "control.sock");
     const fake = writeExecutable(join(this.temp.name, "provider"), FAKE);
     this.env = {
-      ...process.env,
+      ...this.scope.env,
       HOME: this.temp.name,
       XDG_STATE_HOME: join(this.temp.name, ".local/state"),
       CODEX_HOME: join(this.temp.name, ".codex"),
@@ -187,7 +190,10 @@ export class Runtime extends TestCase {
             : "(no server.log)";
           errors.push(new Error(`${error}\nserver.log tail:\n${tail}`));
         }
-        if (pid) await this.until(() => !running(pid), 5).catch(() => {});
+        if (pid)
+          await this.until(() => !running(pid), 5).catch(() => {
+            errors.push(new Error(`Daemon ${pid} survived shutdown`));
+          });
       }
       this.#disconnect();
       if (existsSync(log))
@@ -197,7 +203,13 @@ export class Runtime extends TestCase {
           errors.push(error);
         }
     }
-    this.temp?.cleanup();
+    try {
+      await this.scope?.assertClean();
+    } catch (error) {
+      errors.push(error);
+    }
+    if (!errors.length) this.temp?.cleanup();
+    else if (this.temp) errors.push(new Error(`Runtime diagnostics retained at ${this.temp.name}`));
     if (errors.length) throw new AggregateError(errors, "Runtime cleanup failed");
   }
   async run_cli(...args: string[]) {

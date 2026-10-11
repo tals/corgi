@@ -1,11 +1,11 @@
 import { basename, resolve as pathResolve, join } from "node:path";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { Provider } from "../providers";
 import { Model } from "../providers/model";
 import * as os from "../os";
 import * as settings from "../settings";
+import * as subprocess from "../subprocess";
+import * as errors from "../errors";
 export const capacity = 6,
   max_length = 2048;
 export type Command = string;
@@ -211,7 +211,7 @@ export function wrapperBody(d: string): string | null {
   if (/[;\n|&<>()$`]/.test(r)) throw Error("ComplexShellFunction");
   return r;
 }
-async function definitionOf(name: string, cwd: string | null, deadline: number) {
+async function definitionOf(name: string, cwd: string | null, deadline: number, quit?: subprocess.Quit) {
   const chosen = shell(),
     base = basename(chosen),
     query =
@@ -227,14 +227,15 @@ async function definitionOf(name: string, cwd: string | null, deadline: number) 
   if (left <= 0) throw Error("ShorthandLookupTimeout");
   let stdout: string;
   try {
-    ({ stdout } = await promisify(execFile)(
-      chosen,
-      [flags(), `printf '\\036CORGI_BEGIN\\n'; ${query} 2>/dev/null; printf '\\036CORGI_END\\n'`],
-      { cwd: cwd ?? undefined, timeout: left, maxBuffer: 16384 },
-    ));
+    const output = await subprocess.run(
+      [chosen, flags(), `printf '\\036CORGI_BEGIN\\n'; ${query} 2>/dev/null; printf '\\036CORGI_END\\n'`],
+      { cwd: cwd ?? undefined, timeout_ms: left, max_output: 16384, quit },
+    );
+    if (!output.ok()) throw Error("ShorthandLookupFailed");
+    stdout = output.stdout.toString();
   } catch (e) {
-    if ((e as any).killed) throw Error("ShorthandLookupTimeout");
-    if ((e as any).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw Error("ShorthandOutputTooLarge");
+    if (errors.is(e, "TimedOut")) throw Error("ShorthandLookupTimeout");
+    if (errors.is(e, "OutputTooLarge")) throw Error("ShorthandOutputTooLarge");
     throw e;
   }
   const begin = stdout.indexOf("\x1eCORGI_BEGIN\n"),
@@ -242,12 +243,13 @@ async function definitionOf(name: string, cwd: string | null, deadline: number) 
   if (begin < 0 || end < 0) throw Error("ShorthandLookupFailed");
   return stdout.slice(begin + 13, end).trim();
 }
-export async function resolve(source: string, cwd: string | null = null) {
+export async function resolve(source: string, cwd: string | null = null, quit?: subprocess.Quit) {
   let current = source,
     expanded = false,
     previous = "",
     deadline = Date.now() + 2000;
   for (let i = 0; i < 8; i++) {
+    if (quit?.aborted) throw Error("Cancelled");
     const t = new Tokens(current);
     let start = 0,
       w = t.next();
@@ -263,7 +265,7 @@ export async function resolve(source: string, cwd: string | null = null) {
     if (!/^[A-Za-z0-9_-]+$/.test(w)) throw Error("UnsupportedShorthand");
     if (expanded && w === previous) return freeze();
     previous = w;
-    const body = wrapperBody(await definitionOf(w, cwd, deadline));
+    const body = wrapperBody(await definitionOf(w, cwd, deadline, quit));
     if (body === null) return expanded ? freeze() : current;
     current = current.slice(0, start) + body + current.slice(t.pos);
     if (Buffer.byteLength(current) > max_length) throw Error("InvalidCommand");
@@ -383,6 +385,8 @@ export class Resolution {
   error_message = "";
 }
 export class Worker {
+  private quit = subprocess.Quit.init();
+  private pending = new Set<Promise<void>>();
   jobs: {
     id: bigint | number;
     source: string;
@@ -394,10 +398,13 @@ export class Worker {
   static start() {
     return new Worker();
   }
-  stop() {
+  async stop() {
     this.stopping = true;
+    this.quit.signal();
+    await Promise.all(this.pending);
   }
   request(id: bigint | number, source: string, cwd: string) {
+    if (this.stopping) throw Error("Cancelled");
     if (Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
     const existing = this.jobs.find(j => j.id === id && j.source === source && j.cwd === cwd);
     if (existing) return existing.result;
@@ -406,7 +413,7 @@ export class Worker {
     const job = { id, source, cwd, result: new Resolution() };
     this.jobs[this.next] = job;
     this.next = (this.next + 1) % 8;
-    void resolve(entry.text(), cwd)
+    const pending = resolve(entry.text(), cwd, this.quit)
       .then(s => {
         if (this.stopping) return;
         job.result.command.set(s);
@@ -416,7 +423,9 @@ export class Worker {
       .catch(e => {
         job.result.pending = false;
         job.result.error_message = e.message;
-      });
+      })
+      .finally(() => this.pending.delete(pending));
+    this.pending.add(pending);
     return job.result;
   }
 }

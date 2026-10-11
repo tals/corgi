@@ -298,11 +298,12 @@ export class Worker {
     w.startWatching();
     return w;
   }
-  stop() {
+  async stop() {
     this.stopping = true;
     if (this.timer) clearTimeout(this.timer);
     for (const watcher of this.watchers) watcher.close();
     this.pool.close();
+    await this.refreshing;
   }
   snapshot(): History {
     return {
@@ -402,7 +403,7 @@ export class Worker {
     }
     if (listCodex) {
       try {
-        const reply = await this.pool.listThreads(null);
+        const reply = await this.pool.listThreads(null, { load: () => this.stopping });
         for (const item of reply.result?.data ?? []) {
           if (!item.id || !item.preview || !item.cwd) continue;
           const summary = item.path ? await this.cached(item.path, "codex") : null;
@@ -465,7 +466,7 @@ export class Worker {
     try {
       let cursor: string | null = null;
       for (let page = 0; page < 10 && !this.stopping; page++) {
-        const reply = await this.pool.listThreads(cursor);
+        const reply = await this.pool.listThreads(cursor, { load: () => this.stopping });
         const result = reply.result;
         for (const item of result.data ?? []) {
           if (!item.id || !item.preview || !item.cwd) continue;

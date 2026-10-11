@@ -3,6 +3,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { resolve } from "node:path";
+import { Scope } from "../scripts/process_scope";
 
 const args = process.argv.slice(2),
   selected: string[] = [],
@@ -72,11 +73,13 @@ try {
 const queue = [...suites].sort((a, b) => (timings[b] ?? Infinity) - (timings[a] ?? Infinity));
 const results: { suite: string; code: number; seconds: number }[] = [];
 const children = new Set<ReturnType<typeof Bun.spawn>>();
+const scope = await Scope.start(env);
 let interrupted = false;
-for (const signal of ["SIGINT", "SIGTERM"] as const)
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
   process.on(signal, () => {
     interrupted = true;
     for (const child of children) child.kill(signal);
+    void scope.close().catch(error => console.error(error));
   });
 const parallel = jobs > 1 && queue.length > 1;
 async function runSuite(suite: string) {
@@ -88,7 +91,7 @@ async function runSuite(suite: string) {
     [process.execPath, "test", "--max-concurrency=4", resolve(import.meta.dir, suite), ...forwarded],
     {
       cwd: resolve(import.meta.dir, ".."),
-      env,
+      env: scope.env,
       stdin: parallel ? "ignore" : "inherit",
       stdout: parallel ? "pipe" : "inherit",
       stderr: parallel ? "pipe" : "inherit",
@@ -115,6 +118,13 @@ async function worker() {
   while (queue.length > 0 && !interrupted) await runSuite(queue.shift()!);
 }
 await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, worker));
+let leaked = false;
+try {
+  await scope.assertClean();
+} catch (error) {
+  console.error(error);
+  leaked = true;
+}
 try {
   mkdirSync(resolve(timingsPath, ".."), { recursive: true });
   writeFileSync(timingsPath, JSON.stringify(timings, null, 2));
@@ -124,4 +134,4 @@ console.log("\nSuite results:");
 for (const result of results)
   console.log(`${result.code === 0 ? "PASS" : "FAIL"}  ${result.suite}  ${result.seconds.toFixed(1)}s`);
 if (interrupted) console.error(`Interrupted after ${results.length}/${suites.length} suites.`);
-process.exit(interrupted ? 130 : results.some(result => result.code !== 0) ? 1 : 0);
+process.exit(interrupted ? 130 : leaked || results.some(result => result.code !== 0) ? 1 : 0);

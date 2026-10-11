@@ -62,6 +62,20 @@ register tests when imported; `.test.ts` entry points register their scenarios
 with Bun's test runner. The small assertion adapter preserves scenario names
 and assertion intent from the original suites.
 
+Disposable runtimes and the suite runner use `scripts/process_scope.ts` to
+tag their subprocesses and start a detached watchdog. The tag survives
+daemon reloads and reparenting. When an owner exits, including after SIGKILL,
+the watchdog terminates its remaining processes and escalates to SIGKILL.
+Scopes nest, so concurrent suites do not clean up each other's processes.
+Pass the scope's environment to every subprocess; do not clear its
+`CORGI_PROCESS_SCOPE` marker.
+
+Normal teardown requests shutdown and verifies process exit. A surviving
+daemon or a process reaped by the watchdog fails the test. Cleanup failures
+retain the runtime directory and log for diagnosis. The UI probe uses the
+same protection. Persistent `go.ts --temp` environments still have their
+documented independent lifetime.
+
 PTY restoration checks compare `stty -g` snapshots on the same reusable
 terminal before and after the client, including control characters and speeds.
 

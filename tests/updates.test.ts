@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { EXE, Pty, deadline } from "./support";
 import { installer } from "../scripts/release.ts";
+import { Scope } from "../scripts/process_scope";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
 const keys = generateKeyPairSync("ed25519");
 const publicKey = Buffer.from(keys.publicKey.export({ type: "spki", format: "der" }))
@@ -51,6 +52,7 @@ const url = `http://127.0.0.1:${server.port}`;
 const feedEnv = { CORGI_TEST_UPDATE_URL: url, CORGI_TEST_UPDATE_KEY: publicKey };
 const fixture = (v: string) => join(base, "releases", v, "corgi");
 let home: string, root: string, bin: string, env: Record<string, string>, socket: string;
+let scope: Scope;
 async function exec(argv: string[], extraEnv = env, ok = true) {
   const p = Bun.spawn(argv, { env: extraEnv, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -97,6 +99,7 @@ beforeAll(async () => {
   }
 }, 30_000);
 beforeEach(async () => {
+  scope = await Scope.start();
   latest = "1.0.1";
   invalid = corrupt = unavailable = badAbi = false;
   requests = 0;
@@ -105,7 +108,7 @@ beforeEach(async () => {
   bin = join(home, "bin/corgi");
   socket = join(home, "runtime/control.sock");
   env = {
-    ...process.env,
+    ...scope.env,
     HOME: home,
     XDG_STATE_HOME: join(home, "state"),
     CODEX_HOME: join(home, ".codex"),
@@ -132,9 +135,12 @@ beforeEach(async () => {
   await cli(["update", "auto", "off"]);
 }, 30_000);
 afterEach(async () => {
-  await cli(["update", "auto", "off"], false);
-  await cli(["shutdown"], false);
-  // Workers notice runtime shutdown without affecting the host's runtime.
+  try {
+    await cli(["update", "auto", "off"], false);
+    await cli(["shutdown"], false);
+  } finally {
+    await scope.assertClean();
+  }
   await rm(home, { recursive: true, force: true });
 }, 30_000);
 afterAll(async () => {

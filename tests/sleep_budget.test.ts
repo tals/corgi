@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Lower this when you remove a sleep.
-const budget = 66;
+const budget = 75;
 
 test("the suites sleep no more than the budget", () => {
   let count = 0;

@@ -167,8 +167,8 @@ export class Connection {
     this.poll();
   }
   check(stopping: Stopping | undefined, deadline: number) {
+    if (this.closed || cancelled(stopping)) throw Error("Cancelled");
     this.poll();
-    if (cancelled(stopping)) throw Error("Cancelled");
     if (Date.now() >= deadline) throw Error("Timeout");
     if (this.failure) throw this.failure;
     if (this.events.length && this.events[0].seq > this.cursor + 1n) throw Error("EventOverflow");
@@ -226,6 +226,9 @@ export class Pool {
   started = false;
   working = false;
   system_usage = new System();
+  private opening = new Set<Connection>();
+  private generation = 0;
+  private metadataOpening: Promise<Connection> | null = null;
   constructor(options: { config?: Partial<Config> } = {}) {
     this.config = {
       provider: "codex",
@@ -341,8 +344,11 @@ export class Pool {
     this.close();
   }
   close() {
+    this.generation++;
+    for (const connection of this.opening) connection.close();
     for (const connection of this.slots) connection?.close();
     this.slots.fill(null);
+    this.metadataOpening = null;
   }
   refreshUsage() {
     /* The async reader drains every retained connection continuously. */
@@ -370,13 +376,19 @@ export class Pool {
     return oldest;
   }
   async open(request: Request, stopping?: Stopping, deadline = Date.now() + this.config.timeout_ms) {
+    if (cancelled(stopping)) throw Error("Cancelled");
+    const generation = this.generation;
     const connection = new Connection(this.config, request, this.system_usage);
+    this.opening.add(connection);
     try {
       await connection.ready(stopping, deadline);
+      if (connection.closed || generation !== this.generation || cancelled(stopping)) throw Error("Cancelled");
       return connection;
     } catch (error) {
       connection.close();
       throw error;
+    } finally {
+      this.opening.delete(connection);
     }
   }
   async infer(request: Request, stopping?: Stopping): Promise<Response> {
@@ -397,7 +409,8 @@ export class Pool {
       throw Error("InvalidConversation");
     if (this.working) throw Error("InferenceBusy");
     this.working = true;
-    const deadline = Date.now() + this.config.timeout_ms,
+    const generation = this.generation,
+      deadline = Date.now() + this.config.timeout_ms,
       index = this.select(request);
     try {
       let s = this.slots[index];
@@ -414,7 +427,14 @@ export class Pool {
           s = this.slots[index] = null;
         }
       }
-      if (!s) s = this.slots[index] = await this.open(request, stopping, deadline);
+      if (!s) {
+        s = await this.open(request, stopping, deadline);
+        if (generation !== this.generation || cancelled(stopping)) {
+          s.close();
+          throw Error("Cancelled");
+        }
+        this.slots[index] = s;
+      }
       s.used = ++this.clock;
       const fresh = s.turns === 0;
       const sent = {
@@ -444,8 +464,10 @@ export class Pool {
       this.started = true;
       return response;
     } catch (error) {
-      this.slots[index]?.close();
-      this.slots[index] = null;
+      if (generation === this.generation) {
+        this.slots[index]?.close();
+        this.slots[index] = null;
+      }
       this.system_usage.markPartial("inference failed");
       throw error;
     } finally {
@@ -567,8 +589,25 @@ export class Pool {
     }
   }
   async metadata(stopping?: Stopping) {
-    if (!this.slots[0]) this.slots[0] = await this.open({ instructions: "", content: "" }, stopping);
-    return this.slots[0]!;
+    if (cancelled(stopping)) throw Error("Cancelled");
+    if (this.slots[0]) return this.slots[0];
+    if (!this.metadataOpening) {
+      const generation = this.generation;
+      const pending = this.open({ instructions: "", content: "" }, stopping).then(connection => {
+        if (generation !== this.generation || cancelled(stopping)) {
+          connection.close();
+          throw Error("Cancelled");
+        }
+        return (this.slots[0] = connection);
+      });
+      this.metadataOpening = pending;
+      void pending
+        .finally(() => {
+          if (this.metadataOpening === pending) this.metadataOpening = null;
+        })
+        .catch(() => {});
+    }
+    return this.metadataOpening;
   }
   async configuredModel(cwd: string, stopping?: Stopping) {
     const s = await this.metadata(stopping),

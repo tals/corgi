@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXE, JsonSocket, registerCase, run, shellJoin, sleep, TestCase, tempDir } from "./support";
+import { Scope } from "../scripts/process_scope";
 
 const cliValue = (flag: string) => {
   const index = process.argv.indexOf(flag);
@@ -22,6 +23,7 @@ class HerdrHandoff extends TestCase {
   receiver: any;
   processes: any[] = [];
   logs: string[] = [];
+  scope: Scope | null = null;
 
   async setUp() {
     this.temp = tempDir("corgi-handoff-");
@@ -56,6 +58,8 @@ class HerdrHandoff extends TestCase {
       CORGI_INFERENCE_PROVIDER: "off",
       CORGI_SUMMARY_COMMAND: "off",
     });
+    this.scope = await Scope.start(this.env);
+    this.env = this.scope.env as Record<string, string>;
     for (const app of ["herdr", "herdr-dev"]) {
       const directory = join(this.root, "config", app);
       mkdirSync(directory, { mode: 0o700 });
@@ -327,6 +331,7 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
         await proc.exited;
       }
     }
+    await this.scope?.assertClean();
     this.temp?.cleanup();
   }
 }

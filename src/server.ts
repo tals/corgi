@@ -620,7 +620,7 @@ export class Server {
     } catch (error) {
       console.error("recovery save:", error);
     }
-    launch.stop(this);
+    await launch.stop(this);
     observers.stop(this);
     importer.stop(this);
     for (const cl of [...this.clients]) cl.close();
