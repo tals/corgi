@@ -6,10 +6,22 @@ import * as worktrees from "./worktrees";
 import { clean } from "./trackers/git_status";
 
 export function geometry(cols: number, rows: number, side: number, anchor: number, count: number): Rect | null {
-  const w = Math.min(88, cols - side - 5);
+  const w = Math.min(88, cols - side - 3);
   if (w < 52 || rows < 12) return null;
   const h = Math.min(rows - 2, 8 + Math.max(1, count) * 2);
-  return new Rect(side + 4, Math.max(1, Math.min(anchor - 1, rows - h - 1)), w, h);
+  return new Rect(side + 2, Math.max(1, Math.min(anchor - 1, rows - h - 1)), w, h);
+}
+/** The triangle from the badge to the card's left edge, which the pointer
+ * crosses between them; it includes the badge's own cells. */
+export function between(rect: Rect, badge: Rect, x: number, y: number): boolean {
+  const ax = badge.x,
+    ay = badge.y,
+    edge = rect.x;
+  if (x < ax || x >= edge) return false;
+  const top = (rect.y - ay) * (x - ax),
+    bottom = (rect.y + rect.h - 1 - ay) * (x - ax),
+    slope = (y - ay) * (edge - ax);
+  return slope >= top && slope <= bottom;
 }
 export class State {
   workspace: number | null = null;
@@ -80,10 +92,9 @@ export function draw(
     1,
     2,
     `${name} · ${entries.length} worktree${entries.length === 1 ? "" : "s"}`,
-    rect.w - 20,
+    rect.w - 4,
     "\x1b[1m" + fg("strong"),
   );
-  line(1, rect.w - 17, state.pinned ? "Pinned · Esc" : "Click to pin", 15, fg("muted"));
   line(
     2,
     2,

@@ -3492,6 +3492,9 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    // Moving off the card, its badge and the triangle between closes it, pinned or not.
+    if (moved && (button & 32) !== 0 && this.worktreeDetail() !== null && !this.worktreeHoverContains(x, y))
+      await this.perform({ name: "worktree-close" });
     const agent_entries = this.sidebarEntries(),
       agent_side = this.sidebarView(agent_entries);
     if (this.worktreeDetail() !== null && this.worktreeAgentContains(x, y)) {
@@ -4446,17 +4449,8 @@ export class Controller {
     const rect = this.worktreeRect();
     if (!rect) return false;
     if (rect.contains(x, y)) return true;
-    if (this.worktreeAgentContains(x, y)) return true;
-    const ws = this.workspaceEntries().find(w => w.id === this.worktree_card.workspace);
-    if (!ws) return false;
-    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), ws.id);
-    return (
-      badge !== null &&
-      x >= badge.x &&
-      x < rect.x &&
-      y >= Math.min(badge.y, rect.y + 1) &&
-      y <= Math.max(badge.y, rect.y + rect.h - 2)
-    );
+    const badge = sidebar.worktreeBadge(this.sidebarView([]), this.workspaceEntries(), this.worktree_card.workspace!);
+    return badge !== null && worktreeTooltip.between(rect, badge, x, y);
   }
   resourceDetail(): number | null {
     if (!this.prefs.resources.enabled || !this.link_tooltip.shown || this.link_tooltip.target === null) return null;

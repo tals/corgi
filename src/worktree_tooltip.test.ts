@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Controller } from "./controller";
 import { worktreeSnapshot } from "./mirror";
-import { State, draw, geometry } from "./worktree_tooltip";
+import { State, between, draw, geometry } from "./worktree_tooltip";
 import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
 import { fg } from "./palette";
 import * as launcherResume from "./launcher_resume";
@@ -207,7 +207,7 @@ test("a ghost augments the sidebar, expands recent agents and Enter keeps it in 
     expect(text).not.toContain("Recent 3");
     expect(text).toContain("… more (2)");
     expect(text).toContain("Search agent");
-    expect(text).toContain("╶─────├");
+    expect(text).toContain("╶───├");
     expect(text).toContain("╭┄┄┄");
     expect(text).toContain("⌥ topic-0");
     expect(text).not.toContain("Summary");
@@ -383,6 +383,25 @@ test("browsing a folded worktree in the overview dims the rest and peeks it open
   await view.input(Buffer.from("\x1b[27u"));
   expect(rows()[header]).toMatchObject({ worktree: { ghost: false }, group: { folded: true } });
   expect(view.frame()).not.toContain(faded);
+});
+test("the card closes once the pointer leaves it, its badge and the triangle between, pinned or not", async () => {
+  const { view } = browsing(),
+    side = view.sidebarView([]),
+    badge = worktreeBadge(side, view.workspaceEntries(), 1)!,
+    rect = (view as any).worktreeRect(),
+    move = (x: number, y: number) => view.input(Buffer.from(`\x1b[<35;${x + 1};${y + 1}M`));
+  expect(rect.x).toBe(side.width + 2);
+  expect(between(rect, badge, badge.x, badge.y)).toBe(true);
+  expect(between(rect, badge, badge.x, badge.y + 1)).toBe(false);
+  expect(between(rect, badge, rect.x - 1, rect.y + rect.h / 2)).toBe(true);
+  await view.perform({ name: "worktrees", value: 1 });
+  expect(view.worktree_card.pinned).toBe(true);
+  await move(badge.x + badge.w, badge.y + 1);
+  await move(rect.x + 2, rect.y + 3);
+  expect(view.worktreeDetail()).toBe(1);
+  await move(5, side.middle() + 3);
+  expect(view.worktreeDetail()).toBeNull();
+  expect(view.worktree_card.pinned).toBe(false);
 });
 test("callout geometry keeps the agent pane and source badge uncovered", () => {
   const ws = workspaceEntry({ id: 1, name: "repo", cwd: "/repo", active: true, worktrees: snapshot(2) });

@@ -3,8 +3,9 @@
 Open Corgi at the project root. A workspace with linked Git worktrees shows an
 `N worktrees` count in its status row, including worktrees with no agents. Hover
 to compare them in a callout connected to the count. Arrows or the wheel browse
-without dismissing it; Enter or clicking a worktree focuses its agents.
-Press Escape to close. `corgi action worktrees` opens the current workspace's
+it; Enter or clicking a worktree focuses its agents. It closes on Escape, or
+once the pointer leaves the callout, the count and the triangle between them.
+`corgi action worktrees` opens the current workspace's
 table; an optional workspace ID selects another workspace.
 Paths inside the workspace use `./`; other paths inside the home directory use `~/`.
 
