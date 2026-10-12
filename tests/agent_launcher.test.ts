@@ -898,6 +898,54 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await this.directoryPreview("after-timeout");
     this.assertEqual(this.metadataRequests().filter(r => r.kind === "start").length, 1);
   }
+  async test_corgi_intensity_migrates_and_previews_before_saving() {
+    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
+    mkdirSync(join(this.env.XDG_STATE_HOME!, "corgi"), { recursive: true });
+    writeFileSync(
+      file,
+      JSON.stringify({
+        onboarding_complete: true,
+        sleeping_corgis: false,
+        sidebar_width: 36,
+        resources: { enabled: false },
+      }),
+    );
+    const view = await Viewer.create(this, 100, 30);
+    await view.input("\x02i");
+    await this.clickText(view, "Visual flourishes", 100);
+    await this.clickText(view, "Visual flourishes", 100);
+    let rows = screen_text((await view.poll()).data, 100, 30);
+    this.assertIn("Release notes", rows.join("\n"));
+    this.assertNotIn("~ᐯ◡ᴥ◡ᐯ", rows.join("\n"));
+    this.assertIn("ᶻ", rows.join("\n"));
+    const sliderY = rows.findIndex(row => row.includes("0 Off")) - 1;
+    this.assertGreaterEqual(sliderY, 0);
+    const right = rows[sliderY].lastIndexOf("─");
+    await view.input(`\x1b[<0;${right + 1};${sliderY + 1}M`);
+    rows = screen_text((await view.poll()).data, 100, 30);
+    this.assertIn("100%", rows.join("\n"));
+    this.assertIn("~ᐯ◡ᴥ◡ᐯ", rows.join("\n"));
+    this.assertEqual(json(file).sleeping_corgis, false);
+    this.assertFalse("corgi_intensity" in json(file));
+    await view.input(`\x1b[<0;${right + 1};${sliderY + 1}m`);
+    this.assertEqual(json(file).corgi_intensity, 100);
+    this.assertFalse("sleeping_corgis" in json(file));
+    this.assertEqual(json(file).sidebar_width, 36);
+    this.assertEqual(json(file).resources, { enabled: false });
+    await view.input("\x1b[D");
+    this.assertEqual(json(file).corgi_intensity, 95);
+    await view.input("\x1b[H");
+    this.assertEqual(json(file).corgi_intensity, 0);
+    await view.close();
+    const reopened = await Viewer.create(this, 100, 30);
+    await reopened.input("\x02i");
+    await this.clickText(reopened, "Visual flourishes", 100);
+    rows = screen_text((await reopened.poll()).data, 100, 30);
+    this.assertIn("Intensity", rows.join("\n"));
+    this.assertNotIn("~ᐯ◡ᴥ◡ᐯ", rows.join("\n"));
+    this.assertEqual(json(file).corgi_intensity, 0);
+  }
+
   async test_corgi_setup_changes_inference_provider() {
     const view = await Viewer.create(this, 100, 30);
     const text = async () => screen_text((await view.poll()).data, 100, 30).join("\n");
@@ -940,10 +988,12 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await view.input("\r");
     await this.until(async () => readSaved().resources.enabled === true);
     await this.until(async () => /Resources\s+On/.test(await text()));
-    this.assertEqual(readSaved().sleeping_corgis, true);
-    await clickSetting("Sleeping corgis");
-    await clickSetting("Sleeping corgis");
-    await this.until(async () => readSaved().sleeping_corgis === false);
+    this.assertEqual(readSaved().corgi_intensity, 50);
+    await clickSetting("Visual flourishes");
+    await clickSetting("Visual flourishes");
+    await view.input("\x1b[H");
+    await this.until(async () => readSaved().corgi_intensity === 0);
+    await view.input("\x1b");
     this.assertEqual(readSaved().resources, { enabled: true });
     await view.input("\x1b");
     await this.until(async () => !(await text()).includes("Corgi setup"));

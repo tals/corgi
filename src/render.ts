@@ -420,7 +420,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.scope_label = u.scope_label;
   side.resource_hover = u.resource_hover;
-  side.sleeping_corgis = u.prefs.sleeping_corgis;
+  side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;
   side.dragged_workspace = u.dragged_workspace ? u.dragged_workspace.destination : null;
   // Mouse tracking modes replace one another. Disabling first makes the host

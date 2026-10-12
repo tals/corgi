@@ -502,6 +502,7 @@ export function writeUnearth(width: number, shown_ms: number, dig: Dig): string 
 export type Mode = "awake" | "asleep" | "herding" | "content";
 export class Sleep {
   background = palette.colors.bg;
+  intensity = 50;
   bright = false;
   selected = false;
   puff_ms: number | null = null;
@@ -548,8 +549,9 @@ export function puffAmount(puff_ms: number | null, col: number): number | null {
   return amount > 0 ? amount : null;
 }
 export function idle(width: number, sleep: Sleep | Partial<Sleep> = {}): string {
-  const s = new Sleep(sleep),
-    grey = s.selected ? palette.colors.muted : palette.colors.faint,
+  const s = new Sleep(sleep);
+  if (s.intensity === 0) return " ".repeat(width);
+  const grey = intensityColor(s.background, s.intensity, s.selected ? palette.colors.muted : palette.colors.faint),
     body = s.bright || s.selected ? grey : blend(s.background, grey, 0.42),
     sprite = ["~", "ᐯ", "◡", "ᴥ", "◡", "ᐯ"];
   let out = palette.fgRgb(body);
@@ -564,6 +566,20 @@ export function idle(width: number, sleep: Sleep | Partial<Sleep> = {}): string 
     }
   }
   return out;
+}
+/** Brightness on the row's actual background; 50 preserves today's gray. */
+export function intensityColor(background: palette.Rgb, intensity: number, normal = palette.colors.faint): palette.Rgb {
+  return intensity <= 50
+    ? blend(background, normal, intensity / 50)
+    : blend(normal, palette.colors.text, (intensity - 50) / 50);
+}
+/** The setup preview's uninterrupted idle loop, with the sidebar's brightness. */
+export function writeWag(room: number, now: number, intensity: number, background = palette.colors.bg): string {
+  if (intensity === 0) return " ".repeat(room);
+  return (
+    palette.fgRgb(intensityColor(background, intensity)) +
+    frame(room, frames.wag[Math.floor(Math.max(0, now) / 200) % frames.wag.length])
+  );
 }
 export class Presentation {
   static reveal_duration_ms = 450;
@@ -619,10 +635,12 @@ export class Presentation {
   }
   writeCorgi(room: number, working: boolean, sleep: Sleep) {
     const pose = this.last_corgi;
-    if (!pose) return "";
+    if (!pose || sleep.intensity === 0) return "";
     if (pose.mode === "asleep" && !working) return idle(room, sleep);
     const playback = pose.mode === "asleep" ? new Playback() : this.playback;
-    return palette.fg(playback.routine === "fetch" ? "text" : "faint") + playback.write(room, pose.at_ms);
+    const color =
+      playback.routine === "fetch" ? palette.colors.text : intensityColor(sleep.background, sleep.intensity);
+    return palette.fgRgb(color) + playback.write(room, pose.at_ms);
   }
   hide() {
     this.playback.active = false;

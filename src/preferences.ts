@@ -29,8 +29,8 @@ export class Preferences {
   prefix: Prefix = "ctrl_b";
   onboarding_complete = false;
   resources: Resources = { enabled: true };
-  /** Idle agents nap as corgis in the sidebar; off marks them with a faint Z. */
-  sleeping_corgis = true;
+  /** Decorative sidebar corgi brightness, from off (0) to full (100). */
+  corgi_intensity = 50;
   theme: palette.Theme = "corgi";
   /** Where the launcher puts a new worktree, as `worktree_folder.ts` reads it. */
   worktree_folder = worktreeFolder.default_template;
@@ -93,11 +93,18 @@ export function readExisting(file: string): Preferences | null {
       if (!(values as readonly string[]).includes(d[key])) return null;
       (v as any)[key] = d[key];
     }
-    for (const key of ["onboarding_complete", "sleeping_corgis"] as const) {
+    for (const key of ["onboarding_complete"] as const) {
       if (!(key in d)) continue;
       if (typeof d[key] !== "boolean") return null;
       v[key] = d[key];
     }
+    // The old sleeping-corgi switch becomes intensity; an explicit new 0 wins.
+    v.corgi_intensity =
+      Number.isInteger(d.corgi_intensity) && d.corgi_intensity >= 0 && d.corgi_intensity <= 100
+        ? d.corgi_intensity
+        : d.sleeping_corgis === false
+          ? 0
+          : 50;
     if ("theme" in d) {
       if (typeof d.theme !== "string") return null;
       // A theme from a newer build falls back rather than resetting the rest.

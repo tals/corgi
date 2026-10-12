@@ -2595,10 +2595,11 @@ export class Controller {
           this.notice((error as Error).message);
         }
         return;
-      case "sleeping_corgis":
-        this.prefs.sleeping_corgis = apply.on;
+      case "corgi_intensity":
+        if (this.prefs.corgi_intensity === apply.value) return;
+        this.prefs.corgi_intensity = apply.value;
         try {
-          preferences.update({ sleeping_corgis: this.prefs.sleeping_corgis });
+          preferences.update({ corgi_intensity: apply.value });
         } catch (error) {
           this.notice((error as Error).message);
         }
@@ -3597,8 +3598,10 @@ export class Controller {
         else this.agent_picker.query.sequence(text);
       } else if (this.corgi_setup) {
         const setup = this.corgi_setup,
-          s = this.runtime.inference;
-        if (setup.sequence(text)) {
+          s = this.runtime.inference,
+          intensity = setup.intensityKey(parsed_key, this.prefs);
+        if (intensity) await this.applySetup(intensity);
+        else if (setup.sequence(text)) {
           // The worktree folder field took it.
         } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
         else if (parsed_key === "down") setup.move(true, s, this.prefs);
@@ -4078,6 +4081,13 @@ export class Controller {
       }
       return;
     }
+    if (this.corgi_setup?.draggingIntensity()) {
+      const setup = this.corgi_setup;
+      if (release || button === 32) setup.dragIntensity(this.width, this.height, x);
+      if (release) await this.applySetup(setup.finishIntensity());
+      this.dirty = true;
+      return;
+    }
     if (!release && (x >= this.width || y >= this.height)) return;
     const tabs_x = this.sidebarView([]).tabX();
     const tabs_width = this.width - tabs_x;
@@ -4090,7 +4100,7 @@ export class Controller {
         s = this.runtime.inference,
         hit = setup.hit(this.width, this.height, x, y, s, this.prefs);
       if (!release && button === 0) {
-        this.ui_mouse_down = true;
+        this.ui_mouse_down = hit === null || !("intensity" in hit);
         if (hit !== null) await this.applySetup(setup.click(hit, s, this.prefs));
         else if (!setup.contains(this.width, this.height, x, y)) this.closeMenu();
       } else if (!release && (button === 35 || button === 32)) {

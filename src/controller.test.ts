@@ -6,6 +6,7 @@ import * as preferences from "./preferences";
 import { TabMenu } from "./commands";
 import { Dialog } from "./name_dialog";
 import { Menu as LauncherMenu } from "./agent_launcher";
+import { Menu as SetupMenu } from "./corgi_setup";
 import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
 import * as viewer from "./viewer";
@@ -21,6 +22,51 @@ function controller(): any {
   });
 }
 const bytes = (text: string) => new TextEncoder().encode(text);
+
+test("setup previews intensity drags and saves once on release, including outside the modal", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.width = 100;
+  s.height = 30;
+  s.input_state.attached = true;
+  s.corgi_setup = SetupMenu.open();
+  const menu: SetupMenu = s.corgi_setup;
+  menu.item = "flourishes";
+  menu.openOptions(s.runtime.inference, s.prefs);
+  try {
+    let point: { x: number; y: number } | null = null;
+    for (let y = 0; y < 30 && !point; y++)
+      for (let x = 0; x < 100; x++) {
+        const hit = menu.hit(100, 30, x, y, s.runtime.inference, s.prefs);
+        if (hit && "intensity" in hit && hit.intensity === 0) {
+          point = { x, y };
+          break;
+        }
+      }
+    expect(point).not.toBeNull();
+    await s.mouse(`\x1b[<0;${point!.x + 1};${point!.y + 1}M`);
+    expect(menu.previewIntensity(s.prefs)).toBe(0);
+    expect(s.prefs.corgi_intensity).toBe(50);
+    expect(update).not.toHaveBeenCalled();
+    await s.mouse("\x1b[<32;150;35M");
+    expect(menu.previewIntensity(s.prefs)).toBe(100);
+    expect(update).not.toHaveBeenCalled();
+    await s.mouse("\x1b[<0;150;35m");
+    expect(s.prefs.corgi_intensity).toBe(100);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenLastCalledWith({ corgi_intensity: 100 });
+    await s.input(bytes("\x1b[H"));
+    expect(s.prefs.corgi_intensity).toBe(0);
+    expect(update).toHaveBeenCalledTimes(2);
+    await s.input(bytes("\x1b[D"));
+    expect(menu.focus).toBe("options");
+    expect(update).toHaveBeenCalledTimes(2);
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
 /** One workspace per folder, each with one pane, as `session.snapshot` sends them. */
 function folders(...cwds: string[]) {
   return {

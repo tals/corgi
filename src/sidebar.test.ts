@@ -10,6 +10,7 @@ import { Writer, displayWidth, writeClipped, writeDirectory, directoryLabel } fr
 import {
   View,
   entry,
+  animationKey,
   groupEnd,
   workspaceEntry,
   work,
@@ -994,12 +995,38 @@ test("only one sleeping corgi puffs at a time, and turning them off leaves a fai
   out = draw(view, entries, [], now);
   expect(count(out, fg("muted") + "~ᐯ◡ᴥ◡ᐯ")).toBe(1);
   entries[0].focused = false;
-  view.sleeping_corgis = false;
+  view.corgi_intensity = 0;
   out = draw(view, entries, [], 0);
   expect(has(out, "ᐯ◡ᴥ◡ᐯ")).toBe(false);
   expect(count(out, "\x1b[22m" + nap_fg + "ᶻ")).toBe(entries.length);
   // Question marks outside escape sequences would be a placeholder label.
   expect(count(out, "\x1b[?")).toBe(count(out, "?"));
+});
+
+test("zero intensity cancels fetch and reveals immediately but leaves compaction alone", () => {
+  const e = entry({ target: { pane: 951 }, name: "intensity", state: "working" });
+  const view = View.init(100, 30, true, 0, 1);
+  draw(view, [], [], 0);
+  draw(view, [e], [], 0);
+  const presentation = corgiAnimation.observe(animationKey(e), "awake", 0)!;
+  presentation.playback.enter("fetch", 0);
+  expect(presentation.playback.active).toBe(true);
+  view.corgi_intensity = 0;
+  e.activity = "Ready immediately";
+  const out = draw(view, [e], [], 100);
+  expect(hostText(out)).toContain("Ready immediately");
+  expect(out).not.toContain("ᐯ");
+  expect(presentation.playback.active).toBe(false);
+  expect(presentation.last_corgi).toBeNull();
+  expect(presentation.reveal_started_ms).toBeNull();
+  e.compacting = true;
+  e.compacting_since = 100_000;
+  draw(view, [e], [], 100);
+  const compacting = draw(view, [e], [], 1420);
+  expect(hostText(compacting)).toContain("Compacting");
+  expect(hostText(compacting)).toContain("ᐯ•ᴥ•ᐯ");
+  view.corgi_intensity = 100;
+  expect(draw(view, [e], [], 1420)).toBe(compacting);
 });
 
 test("context shows on the name line only near compaction and dims while compacting", () => {

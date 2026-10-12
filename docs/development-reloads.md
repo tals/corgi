@@ -135,6 +135,14 @@ share selection in this milestone. The new independent selections arrive in 2.
 
 ## Milestone 2: local viewers
 
+Viewer preferences live in `viewer.json`, separately from versioned checkpoints
+and handoffs. `corgi_intensity` replaces `sleeping_corgis`: a valid integer from
+0 to 100 takes precedence, including 0; otherwise the old `false` maps to 0,
+and `true` or an absent value maps to 50. Invalid intensity values fall back
+through the same rule without resetting other settings. Reading normalizes the
+old field, and the next normal atomic preferences save writes only the new one.
+This migration does not change either protocol or saved-state version.
+
 After the one-time daemon upgrade, rebuild and open `./go.ts` to pick up UI changes.
 The daemon PID and all existing pane processes stay the same. Viewer-only changes
 include menus, dialogs, key bindings, sidebar composition, and presentation. A

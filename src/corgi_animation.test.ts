@@ -319,6 +319,29 @@ test("one sleeper dreams per period, holds through its puff, and rarely repeats"
   expect(repeats).toBeLessThan(15);
   for (let period = 0; period < 5; period++) expect(a.dreamer([7n], period * a.dream_period_ms)!.key).toBe(7n);
 });
+
+test("sidebar intensity dims non-fetch corgis on the row background and zero hides fetch too", () => {
+  const x = new a.Presentation();
+  x.update("awake", 0);
+  x.playback.enter("idle", 0);
+  for (const background of [p.colors.bg, p.colors.selected, p.colors.surface]) {
+    const sleep = new a.Sleep({ background });
+    expect(a.intensityColor(background, 0)).toEqual(background);
+    expect(a.intensityColor(background, 50)).toEqual(p.colors.faint);
+    expect(a.intensityColor(background, 100)).toEqual(p.colors.text);
+    sleep.intensity = 25;
+    expect(x.writeCorgi(20, true, sleep)).toStartWith(p.fgRgb(a.intensityColor(background, 25)));
+    sleep.intensity = 100;
+    expect(x.writeCorgi(20, true, sleep)).toStartWith(p.fg("text"));
+    sleep.intensity = 0;
+    expect(x.writeCorgi(20, true, sleep)).toBe("");
+    expect(a.idle(20, sleep)).not.toContain("ᐯ");
+  }
+  x.playback.enter("fetch", 0);
+  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
+  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 100 }))).toStartWith(p.fg("text"));
+  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 0 }))).toBe("");
+});
 test("content reveal preserves the old pose and cancels when a corgi returns", () => {
   const x = new a.Presentation();
   x.update("asleep", 0);

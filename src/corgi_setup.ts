@@ -13,6 +13,7 @@ import { Rect } from "./layout";
 import { Provider } from "./providers";
 import { Model } from "./providers/model";
 import * as corgiAnimation from "./corgi_animation";
+import * as sidebar from "./sidebar";
 import * as km from "./keymap";
 import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
@@ -142,7 +143,8 @@ function importSource(item: Item): catalog.Source | null {
 export type Apply =
   | { kind: "summaries"; choice: Summarizer }
   | { kind: "inference_use"; use: Use; on: boolean }
-  | { kind: "readings" | "sleeping_corgis" | "smart_links" | "ghostty"; on: boolean }
+  | { kind: "readings" | "smart_links" | "ghostty"; on: boolean }
+  | { kind: "corgi_intensity"; value: number }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "shell"; entry: shellPicker.Entry }
   | { kind: "preset"; preset: km.Preset }
@@ -158,7 +160,8 @@ export type Apply =
   | { kind: "detach" };
 /** A list row, an option, a choice in the open dropdown, or the import
  * picker under the pointer. */
-export type Hit = { item: Item } | { option: number } | { choice: number } | { picker: importPicker.Hit };
+export type Hit =
+  { item: Item } | { option: number } | { choice: number } | { picker: importPicker.Hit } | { intensity: number };
 
 interface Option {
   label: string;
@@ -183,6 +186,7 @@ interface Option {
   choice?: { text: string; on: boolean; choices: Choice[] };
   /** A text field, in a box, that takes typing while it has the cursor. */
   edit?: boolean;
+  slider?: number;
 }
 /** What the viewer found out about its terminal, for Terminal capabilities. */
 export interface Terminal {
@@ -225,8 +229,8 @@ type Line =
   | { tag: "blank" }
   /** A rule that sets a setting apart from the options above it. */
   | { tag: "rule" }
-  /** How an idle agent's row looks: the napping corgi, or a dim ᶻ. */
-  | { tag: "nap"; asleep: boolean }
+  | { tag: "intensity" | "intensity_ends" }
+  | { tag: "corgi_preview"; row: number }
   /** A row of a setting's mini keymap: what a key does, and the key. */
   | { tag: "binding"; job: string; key: string; dim: boolean }
   | { tag: "keys"; keys: [string, string][] }
@@ -290,8 +294,6 @@ const chart_rows = 7;
 const chart_inset = 8;
 const hold_row = chartRow(framePacing.hold_after_ms);
 const spark = "▁▂▃▄▅▆▇█";
-/** The puffing preview dreams more often than a sidebar list. */
-const preview_period_ms = 6_000;
 const grow_ms = 280;
 const shrink_ms = 200;
 
@@ -414,13 +416,57 @@ export class Menu {
   private after_prefix = false;
   /** The open dropdown: its setting's option, and the highlighted choice. */
   private dropdown: { option: number; at: number } | null = null;
+  /** Pointer adjustments preview until release, then save once. */
+  private intensity_drag: number | null = null;
   /** The frame's growth toward the preset detail, eased between draws. */
   private grow = { from: 0, to: 0, at_ms: 0 };
   static open(): Menu {
     return new Menu();
   }
   close(): void {
+    this.intensity_drag = null;
     this.import_picker.close();
+  }
+  previewIntensity(prefs: Preferences): number {
+    return this.intensity_drag ?? prefs.corgi_intensity;
+  }
+  draggingIntensity(): boolean {
+    return this.intensity_drag !== null;
+  }
+  intensityKey(key: keys.Key | null, prefs: Preferences): Apply | null {
+    if (this.item !== "flourishes" || this.focus !== "options") return null;
+    const current = this.previewIntensity(prefs);
+    let value: number;
+    switch (key) {
+      case "left":
+        value = Math.max(0, current - 5);
+        break;
+      case "right":
+        value = Math.min(100, current + 5);
+        break;
+      case "home":
+        value = 0;
+        break;
+      case "end":
+        value = 100;
+        break;
+      default:
+        return null;
+    }
+    this.intensity_drag = null;
+    return { kind: "corgi_intensity", value };
+  }
+  dragIntensity(cols: number, rows: number, x: number): void {
+    const l = this.rest(cols, rows);
+    if (l && this.intensity_drag !== null) this.intensity_drag = this.intensityAt(l, x);
+  }
+  finishIntensity(): Apply | null {
+    const value = this.intensity_drag;
+    this.intensity_drag = null;
+    return value === null ? null : { kind: "corgi_intensity", value };
+  }
+  private intensityAt(l: Layout, x: number): number {
+    return clamp(Math.round(((x - l.options.x - 2) * 20) / Math.max(1, l.options.w - 4)) * 5, 0, 100);
   }
   /** The import picker while the list's cursor is on an import source,
    * switched to that source. A copy keeps the source it started from. */
@@ -556,6 +602,10 @@ export class Menu {
   }
   /** Returns focus to the list. False when it already has it. */
   back(): boolean {
+    if (this.intensity_drag !== null) {
+      this.intensity_drag = null;
+      return true;
+    }
     if (this.editing) {
       this.editing = null;
       this.focus = "list";
@@ -625,6 +675,12 @@ export class Menu {
   }
   /** A click: the list selects, then opens; an option applies. */
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
+    if ("intensity" in hit) {
+      this.focus = "options";
+      this.cursor = 0;
+      this.intensity_drag = hit.intensity;
+      return null;
+    }
     // A click away from the field drops what it typed.
     const on_field = "option" in hit && this.options(s, prefs)[hit.option]?.edit === true;
     if (this.editing && !on_field) this.editing = null;
@@ -720,6 +776,7 @@ export class Menu {
     // A click on the field's box is a click on the field.
     const box = lines[row]?.tag === "box" ? (lines[row] as { edge: string }).edge : null,
       line = box === "top" ? lines[row + 1] : box === "bottom" ? lines[row - 1] : lines[row];
+    if (line?.tag === "intensity") return { intensity: this.intensityAt(l, x) };
     return line && line.tag === "option" ? { option: line.index } : null;
   }
   draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): void {
@@ -841,21 +898,17 @@ export class Menu {
         case "rule":
           w.write(at(x0, y) + border + "─".repeat(sat(right, x0)));
           return;
-        case "nap": {
-          // The sidebar's sleeper, puffing every few seconds; without it, its ᶻ.
-          if (!line.asleep) return w.write(at(x0 + 4, y) + panel + "ᶻ");
-          const elapsed = ((now_ms % preview_period_ms) + preview_period_ms) % preview_period_ms;
-          w.write(at(x0 + 4, y) + text);
-          w.write(
-            corgiAnimation.idle(Math.min(12, sat(right, x0 + 4)), {
-              background: settingRow.normal.background,
-              bright: true,
-              selected: false,
-              puff_ms: elapsed,
-            }),
-          );
+        case "intensity": {
+          const thumb = Math.round((this.previewIntensity(prefs) * Math.max(0, right - x0 - 1)) / 100);
+          w.write(at(x0, y) + graph + "━".repeat(thumb));
+          w.write((this.focus === "options" ? bright : graph) + "●" + border + "─".repeat(sat(right - x0 - 1, thumb)));
           return;
         }
+        case "intensity_ends":
+          w.write(at(x0, y) + panel + "0 Off" + at(right - 10, y) + "100 Bright");
+          return;
+        case "corgi_preview":
+          return this.drawCorgiPreview(w, x0, y, Math.min(28, right - x0), line.row, prefs, now_ms);
         case "binding": {
           // The full keymap's rows: the job, and its key at the column's end.
           const end = Math.min(x0 + 4 + binding_w, right),
@@ -1029,6 +1082,44 @@ export class Menu {
       last = Math.floor(now_ms / framePacing.column_ms);
     return Array.from({ length: n }, (_, k) => columns.get(last - n + 1 + k) ?? null);
   }
+  private drawCorgiPreview(
+    w: Writer,
+    x: number,
+    y: number,
+    width: number,
+    row: number,
+    prefs: Preferences,
+    now: number,
+  ) {
+    const style = new Style({ fg: "text", bg: "bg" }).sgr(),
+      intensity = this.previewIntensity(prefs),
+      room = Math.max(0, width - 5);
+    w.write(at(x, y) + style + " ".repeat(width - 1) + palette.fg("line") + "│");
+    switch (row) {
+      case 1:
+        w.write(at(x + 1, y) + palette.fg("muted") + "agents: corgi ▾");
+        break;
+      case 3:
+        w.write(at(x + 1, y) + palette.fg("accent") + "▶" + at(x + 4, y) + palette.fg("text"));
+        writeEllipsis(w, "Visual flourishes", room);
+        break;
+      case 4:
+        w.write(at(x + 1, y) + palette.fg("faint") + sidebar.View.spinnerFrame(false, now));
+        w.write(at(x + 4, y) + corgiAnimation.writeWag(room, now, intensity));
+        break;
+      case 5:
+        w.write(at(x + 1, y) + palette.fg("muted") + "○" + at(x + 4, y) + palette.fg("text"));
+        writeEllipsis(w, "Release notes", room);
+        break;
+      case 6:
+        if (intensity === 0) w.write(at(x + 1, y) + sidebar.nap_fg + "ᶻ");
+        else
+          w.write(
+            at(x + 4, y) + corgiAnimation.idle(room, { intensity, puff_ms: now % corgiAnimation.dream_period_ms }),
+          );
+        break;
+    }
+  }
   private drawOption(
     w: Writer,
     line: Extract<Line, { tag: "option" }>,
@@ -1043,6 +1134,11 @@ export class Menu {
       here = this.focus === "options" && line.index === this.cursor,
       x0 = x + 2,
       right = x + width - 1;
+    if (o.slider !== undefined) {
+      const value = o.slider === 0 ? "Off" : `${o.slider}%`;
+      w.write(at(x0, y) + (here ? bright : text) + o.label + at(right - value.length, y) + bright + value);
+      return;
+    }
     if (o.toggle !== undefined)
       return settingRow.drawToggle(w, x, y, width, {
         label: o.label,
@@ -1086,6 +1182,8 @@ export class Menu {
   private lines(s: Status, prefs: Preferences, l: Layout): Line[] {
     const fit = { keys: !l.room, brief: l.options.w < 42, chart: true };
     let out = this.wrapped(s, prefs, l, fit);
+    if (this.item === "flourishes" && out.length > l.body)
+      return out.filter(line => line.tag !== "blank" && line.tag !== "lead").slice(0, l.body);
     // A short frame draws the answer-time chart as one row.
     if (out.length > l.body && out.some(line => line.tag === "chart"))
       out = this.wrapped(s, prefs, l, { ...fit, chart: false });
@@ -1167,32 +1265,21 @@ export class Menu {
         return [
           title("Visual flourishes"),
           blank,
+          lead("Sidebar corgi brightness."),
+          blank,
           option({
-            label: "Idle",
+            label: "Intensity",
             detail: "",
             mark: "none",
             apply: null,
-            action: "change",
-            choice: {
-              text: prefs.sleeping_corgis ? "Sleeping corgi" : "Blank",
-              on: prefs.sleeping_corgis,
-              choices: [
-                {
-                  text: "Sleeping corgi",
-                  note: "naps, and snores now and then",
-                  current: prefs.sleeping_corgis,
-                  apply: { kind: "sleeping_corgis", on: true },
-                },
-                {
-                  text: "Blank",
-                  note: "only a dim ᶻ",
-                  current: !prefs.sleeping_corgis,
-                  apply: { kind: "sleeping_corgis", on: false },
-                },
-              ],
-            },
+            action: "adjust",
+            slider: this.previewIntensity(prefs),
           }),
-          { tag: "nap", asleep: prefs.sleeping_corgis },
+          { tag: "intensity" },
+          { tag: "intensity_ends" },
+          blank,
+          { tag: "note", text: "Preview" },
+          ...Array.from({ length: 8 }, (_, row): Line => ({ tag: "corgi_preview", row })),
         ];
       case "readings":
         return [
@@ -1459,7 +1546,7 @@ export class Menu {
       enabled ? { text: "On", tone: "muted" as const } : { text: "Off", tone: "faint" as const };
     switch (item) {
       case "flourishes":
-        return { text: "", tone: "faint" };
+        return { text: this.previewIntensity(prefs) === 0 ? "Off" : `${this.previewIntensity(prefs)}%`, tone: "muted" };
       case "readings":
         return flag(prefs.resources.enabled);
       case "clever_corgi":
@@ -1507,6 +1594,13 @@ export class Menu {
       return [["↑↓", "move"], ...enter, ["esc", "close"]];
     }
     if (picker) return importHints(picker);
+    if (this.item === "flourishes")
+      return [
+        ["←→", "adjust"],
+        ["home", "off"],
+        ["end", "bright"],
+        ["esc", "back"],
+      ];
     if (this.dropdown !== null)
       return [
         ["↑↓", "move"],

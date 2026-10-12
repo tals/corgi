@@ -13,6 +13,9 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 6. Keep the layout when you restyle. Propose layout changes separately.
 7. The corgi is gray: `faint` awake or asleep, `text` fetching
    (`muted` when asleep on a selected row). It never takes a status color.
+   Sidebar intensity defaults to 50, preserving these grays; lower values blend
+   toward the row background, higher values toward `text`. Zero hides decorative
+   sidebar corgis, including fetch. Digging and compacting are unaffected.
 
 ## Tokens
 

@@ -356,8 +356,8 @@ export class View {
   workspace_offset = 0;
   resources: { enabled: boolean } = { enabled: true };
   resource_hover: number | null = null;
-  /** Corgi setup: idle agents nap as corgis; off marks them with a faint Z. */
-  sleeping_corgis = true;
+  /** Decorative corgis only; contextual compaction keeps its animation. */
+  corgi_intensity = 50;
   /** The agents header row as last dragged; null splits the sidebar in half. */
   split: number | null = null;
   /** A lit worktree: its group keeps its colors while the rest of the list dims. */
@@ -901,7 +901,7 @@ export class View {
       if (!isAgent(e.target) || e.state !== "idle" || e.exit !== null) continue;
       sleepers.push(animationKey(e));
     }
-    const dream = v.sleeping_corgis ? corgiAnimation.dreamer(sleepers, now_ms) : null;
+    const dream = v.corgi_intensity > 0 ? corgiAnimation.dreamer(sleepers, now_ms) : null;
     visible.forEach((e, index) => {
       const absolute = v.offset + index;
       const exit_writer = new Writer();
@@ -1009,7 +1009,7 @@ export class View {
     const waiting = e.state === "working" && e.subagents.waiting && !compacting;
     // Without sleeping corgis, a dim Z marks an idle agent; unseen ones are
     // brighter. Selected rows take muted, as faint is too dim on them.
-    const napping = e.state === "idle" && !v.sleeping_corgis;
+    const napping = e.state === "idle" && v.corgi_intensity === 0;
     const activity = View.activityGlyph(e, waiting, napping, View.spinnerFrame(compacting, now_ms));
     const activity_color = selected
       ? "\x1b[22m" + fg("muted")
@@ -1059,15 +1059,17 @@ export class View {
     const herding = compacting && detail_room >= corgiAnimation.herd_width;
     const mode: corgiAnimation.Mode = herding
       ? "herding"
-      : fallback
+      : fallback && v.corgi_intensity > 0
         ? "awake"
-        : e.state === "idle" && v.sleeping_corgis
+        : e.state === "idle" && v.corgi_intensity > 0
           ? "asleep"
           : "content";
     const presentation = corgiAnimation.observe(animation_key, mode, now_ms);
+    if (v.corgi_intensity === 0 && !herding) presentation?.hide();
     // Unseen and focused naps stay bright; only the list's dreamer puffs.
     const sleep = new corgiAnimation.Sleep({
       background,
+      intensity: v.corgi_intensity,
       bright: e.focused || e.attention === "finished",
       selected,
       puff_ms: dream && dream.key === animation_key ? dream.puff_ms : null,

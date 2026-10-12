@@ -199,25 +199,67 @@ test("Command keys turn on and off under the keymap", () => {
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Reload Ghostty with ⌘⇧, to apply.");
 });
 
-test("visual flourishes choose what idle agents show", () => {
+test("visual flourishes preview working and idle corgis with a keyboard slider", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),
     s = status();
   menu.item = "flourishes";
   const text = (now = 0) => draw(menu, 100, 30, now, s, prefs).join("\n");
-  expect(text()).toMatch(/Idle +● Sleeping corgi ▾/);
-  // The preview puffs now and then; between puffs it rests without a Z.
-  expect(text(0)).toContain("~ᐯ◡ᴥ◡ᐯ ᶻ");
+  expect(text()).toContain("Intensity");
+  expect(text()).toContain("━");
+  expect(text()).toContain("agents: corgi ▾");
+  expect(text()).toContain("Visual flourishes");
+  expect(text()).toContain("Release notes");
+  expect(text()).toContain("~ᐯ•.•ᐯ");
+  expect(text()).toContain("~ᐯ◡ᴥ◡ᐯ ᶻ");
   expect(text(corgiAnimation.puff_duration_ms)).not.toContain("ᶻ");
+  expect(text()).not.toContain("Sleeping corgi");
+  expect(text()).not.toContain("Reset");
+  expect(menu.intensityKey("left", prefs)).toBeNull();
   menu.openOptions(s, prefs);
-  expect(menu.enter(s, prefs)).toBeNull();
-  expect(text()).toMatch(/│ ✓ Sleeping corgi +naps, and snores now and then │/);
-  menu.move(true, s, prefs);
-  expect(menu.enter(s, prefs)).toEqual({ kind: "sleeping_corgis", on: false });
-  prefs.sleeping_corgis = false;
-  expect(text()).toMatch(/Idle +○ Blank ▾/);
-  expect(text()).not.toContain("ᐯ◡ᴥ◡ᐯ");
+  expect(menu.intensityKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 45 });
+  expect(menu.intensityKey("right", prefs)).toEqual({ kind: "corgi_intensity", value: 55 });
+  expect(menu.intensityKey("home", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  expect(menu.intensityKey("end", prefs)).toEqual({ kind: "corgi_intensity", value: 100 });
+  prefs.corgi_intensity = 0;
+  expect(menu.intensityKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  expect(text()).not.toContain("~ᐯ");
   expect(text()).toContain("ᶻ");
+  expect(text()).toContain("Release notes");
+});
+
+test("the intensity slider previews a drag, clamps outside its track, and cancels", () => {
+  for (const [cols, rows] of [
+    [100, 30],
+    [60, 22],
+    [80, 14],
+  ]) {
+    const menu = Menu.open(),
+      prefs = new Preferences(),
+      s = status();
+    menu.item = "flourishes";
+    menu.openOptions(s, prefs);
+    const rendered = draw(menu, cols, rows, 0, s, prefs);
+    const y = rendered.findIndex(row => row.includes("━"));
+    const left = rendered[y].indexOf("━"),
+      right = rendered[y].lastIndexOf("─");
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(menu.hit(cols, rows, left, y, s, prefs)).toEqual({ intensity: 0 });
+    expect(menu.hit(cols, rows, right, y, s, prefs)).toEqual({ intensity: 100 });
+    expect(menu.click({ intensity: 25 }, s, prefs)).toBeNull();
+    expect(menu.previewIntensity(prefs)).toBe(25);
+    expect(prefs.corgi_intensity).toBe(50);
+    menu.dragIntensity(cols, rows, -20);
+    expect(menu.previewIntensity(prefs)).toBe(0);
+    expect(draw(menu, cols, rows, 0, s, prefs).join("\n")).not.toContain("~ᐯ");
+    menu.dragIntensity(cols, rows, cols + 20);
+    expect(menu.finishIntensity()).toEqual({ kind: "corgi_intensity", value: 100 });
+    expect(menu.draggingIntensity()).toBe(false);
+    menu.click({ intensity: 0 }, s, prefs);
+    menu.back();
+    expect(menu.previewIntensity(prefs)).toBe(50);
+    expect(menu.finishIntensity()).toBeNull();
+  }
 });
 
 test("the theme under the cursor previews until Enter keeps it", () => {
